@@ -98,9 +98,10 @@ class Bvh:
     
 
 
-    def to_bvh_file(self, new_filepath):
+    def to_bvh_file(self, new_filepath, verbose=True):
         """
         This function will write the bvh object into a bvh file, following the proper standard for this type of file.
+        If verbose is true, will tell when the saving is succesful.
         """
         #first test the name of the filepath
         new_filepath = Path(new_filepath)
@@ -170,7 +171,9 @@ class Bvh:
                                         max_line_width=10000000
                                        )[1:-1])
                 f.write(f'\n')
-                
+
+        if verbose:
+            print(f'Succesfully saved the file {new_filepath.name} at the location\n{new_filepath.parent.absolute()}')
         #-------------- end of the write function
     
 

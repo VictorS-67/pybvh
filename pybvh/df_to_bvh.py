@@ -54,7 +54,7 @@ def _check_df_columns(df):
     return new_df
 
     
-def _check_list_hier(hier, df):
+def _check_df_match_with_hier(hier, df):
     """
     take as input a DataFrame, and a list of nodes containing the hierarchy info.
     return the hierarchy list as well as the df
@@ -206,13 +206,18 @@ def _hier_dict_to_list(hier):
 
     #first we create the list, without filling children or parent yet
     #we will use a recursive function for that going through the children of the nodes
-    def create_list_rec(node_name):
+    def create_list_rec(node_name, is_start=False):
         info_dict = hier[node_name]
         if 'End Site' in node_name:
             node = BvhNode(node_name, offset=info_dict['offset'])
             return [node]
         else:
-            node = BvhJoint(node_name, offset=info_dict['offset'], rot_channels=info_dict['rot_channels'])
+            #We want only the node at the very beginning to be BvhRoot, the rest BvhJoint (or BvhNode if End Site)
+            if is_start :
+                node = BvhRoot(node_name, offset=info_dict['offset'],
+                               rot_channels=info_dict['rot_channels'], pos_channels=info_dict['pos_channels'])
+            else : 
+                node = BvhJoint(node_name, offset=info_dict['offset'], rot_channels=info_dict['rot_channels'])
             list_node = [node]
             for child in info_dict['children']:
                 list_node += create_list_rec(child)
@@ -225,7 +230,7 @@ def _hier_dict_to_list(hier):
             root = name
             break
             
-    list_nodes = create_list_rec(root)
+    list_nodes = create_list_rec(root, is_start=True) #we send the is_start to make sure the first elt is a BvhRoot
 
     # we now have the list in the correct order. We want to fill the 
     # parent and children of each node with a ref pointer to the correct object in the list
@@ -254,106 +259,7 @@ def _hier_dict_to_list(hier):
         node.children = children_list
     
     return list_nodes
-                
-"""
-def _check_dict_hier(hier, df):
-    
-    Take as input a Dataframe, and a dictionary containing the hierarchy info.
-    return the hierarchy as a list of nodes as well as the Dataframe in proper order
-    
-    The Dataframe given has already been checked and only contains columns with proper naming.
-    The first column is time, the next 3 are the root position, and the next 3 the root rotation. 
-    check that the DataFrame contain all the info for the joints present in the hierarchy (here a list of nodes).
-    Return an organized list of nodes. 
-    
-    df_cols = df.columns
-    er_str = 'Incorrect column name for the column '
-    #first we will check that all the sub dictionaries have the necessary components
-    for name, info_dict in hier.items():
-        try:
-            offset = info_dict['offset']
-        except:
-            raise Exception(f'no offset component found in the dictionary {name}')
-        try:
-            parent = info_dict['parent']
-        except:
-            raise Exception(f'no parent component found in the dictionary {name}')
-        if 'End Site' not in name:
-            try:
-                children = info_dict['children']
-            except:
-                raise Exception(f'no children component found in the dictionary {name}')
-
-    # We will first construct the list of nodes, without using the information in the dictionnary
-    # This means our nodes will have empty children, parent, and offset and we will
-    # go over the list a second time to fill them in. To do so faster, we construct
-    # a dictionary of {'name':index_in_list} during the first go
-    name_to_index={}
-    
-    
-    # First is the root, which should be the 6 columns after 'time'
-    pos_channels = []
-    rot_channels = []
-    index = 0
-    for col_name in df_cols[1:7]:
-        splitted_name = col_name.split('_')
-        col_joint_name, ax, rotpos = splitted_name[0], splitted_name[1], splitted_name[2]
-        if rotpos == 'pos':
-            pos_channels += [ax]
-        elif rotpos == 'rot':
-            rot_channels += [ax]
-        else:
-            raise Exception(f'{er}{col_name}')
-    #create the list of nodes, with first element the root
-    list_nodes = [BvhRoot(name=col_joint_name, pos_channels=pos_channels, rot_channels=rot_channels)]
-    name_to_index[col_joint_name] = index
-    index += 1
-
-    #then we do the rest of the column by going through them 3 by 3
-    for i in range(7, len(df_cols), 3):
-        rot_channels = []
-        for j in range(i, i+3):
-            splitted_name = df_cols[j].split('_')
-            col_joint_name, ax, rotpos = splitted_name[0], splitted_name[1], splitted_name[2]
-            if rotpos == 'rot':
-                rot_channels += [ax]
-            else:
-                raise Exception(f'{er}{col_name}')
-                
-        #update the list of nodes
-        list_nodes += [BvhJoint(name=col_joint_name, rot_channels=rot_channels)]
-        name_to_index[col_joint_name] = index
-        index += 1
-
-        # We also need to check if we have an End Site here, since they are not
-        # in the df columns
-        # if there is, we can fill the information 
-        child1 = hier[col_joint_name]['children'][0]
-        if 'End Site' in child1 :
-            list_nodes += [BvhNode(name=child1)]
-            name_to_index[child1] = index
-            index += 1
-
-    #---- we finished constructing the list, need to go over it again now 
-    #  to fill the offset, parent and children data
-
-    for node in list_nodes:
-        dict_info = hier[node.name]
-        node.offset = dict_info['offset']
-        if dict_info['parent'] != 'None':
-            index_parent = name_to_index[dict_info['parent']]
-            node.parent = list_nodes[index_parent]
-        #if this is an end site, that's all there is to do
-        if 'End Site' in node.name:
-            continue
-        #if this is not an end site, then we need to add the children too
-        list_index_children = []
-        for child_name in dict_info['children']:
-            list_index_children += [name_to_index[child_name]]
-        node.children = [list_nodes[i] for i in list_index_children]
         
-    return list_nodes
- """           
 
 def df_to_bvh(hier, df):
     """
@@ -377,17 +283,17 @@ def df_to_bvh(hier, df):
      }
     """
     
-    df = _check_df_columns(df) # this is already a copy
+    df = _check_df_columns(df) # this creates a copy of the df
 
     hier = copy.deepcopy(hier)
-    hier = _complete_hier_dict(hier, df)
-    _hier_dict_to_list
-    return _hier_dict_to_list(hier)
-    """
+    
     if isinstance(hier, list):
-        hier_list, df = _check_list_hier(hier, df)
+        #arrange the df correctly to fit with list of nodes info if possible
+        hier_list, df = _check_df_match_with_hier(hier, df) #arrange the df correctly to fit with list of nodes info if possible
     elif isinstance(hier, dict):
-        hier_list, df = _check_dict_hier(hier, df)
+        hier = _complete_hier_dict(hier, df) # check the info in the dict and fill them from df if possible
+        hier_list = _hier_dict_to_list(hier) # create the hier list of nodes
+        hier_list, df = _check_df_match_with_hier(hier_list, df)
     else:
         raise TypeError('variable hier should be either a list of nodes or a dictionary')
 
@@ -395,8 +301,8 @@ def df_to_bvh(hier, df):
     frames = df.drop(['time'], axis=1)
     frame_template = list(frames.columns)
     frames = frames.to_numpy()
-    frame_frequency = 1/int(1/(time_series.to_numpy()[-1] / len(time_series)))
+    frame_frequency = 1/int(1/(time_series.to_numpy()[-1] / (len(time_series)-1)))
 
     return Bvh(nodes=hier_list, frames=frames, frame_template=frame_template , frame_frequency=frame_frequency)
-    """
+
     

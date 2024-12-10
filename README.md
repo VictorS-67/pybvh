@@ -4,7 +4,7 @@ Python library to work with bvh files
 The main point of this library is a Bvh class, which contains all the necesseray information found in a bvh file.
 Through the use of this object, it is easy to read and write a bvh file, but also to convert it to a Pandas Dataframe, and conversely to transform a Dataframe into a bvh object.
 
-See the tutorials folder for example of use.
+See the jupyter file 'tutorial' for example of use.
 
 ### Curent functionality
 - Bvh class

@@ -30,3 +30,4 @@ See the jupyter file 'tutorial' for example of use.
 - obtaining graph dataset
 - class method to transform euler angle directly (different Euler angle order, transformation to rotation matrix etc.)
 - visualization of the bvh animation
+- change docstrings to Numpy/Scipy standard

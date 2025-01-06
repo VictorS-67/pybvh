@@ -1,7 +1,7 @@
 import numpy as np
 from .tools import get_premult_mat_rot
 
-def frames_to_spatial_coord(frames, nodes_container, local=True):
+def frames_to_spatial_coord(nodes_container, frames=[], local=True):
     """
         Return a 2d np array of the spatial coordinates of all the joints.
         Input :
@@ -13,12 +13,20 @@ def frames_to_spatial_coord(frames, nodes_container, local=True):
         The coordinates are local to the skeleton (meaning the root
         coordinates are considered to be [0, 0, 0])
     """
-    return np.apply_along_axis(frame_to_spatial_coord, 1, frames, nodes_container, local=local)
+    if len(frames) == 0:
+        try :
+            frames = nodes_container.frames
+        except:
+            raise ValueError("The argument frames cannot be empty if nodes_container is not a Bvh object")
+        
+    def arg_exchange_frame_to_spatial_coord(new_frames):
+        return frame_to_spatial_coord(nodes_container, new_frames, local=local)
+    return np.apply_along_axis(arg_exchange_frame_to_spatial_coord, 1, frames)
 
 
      
 
-def frame_to_spatial_coord(frame, nodes_container, local=True):
+def frame_to_spatial_coord(nodes_container, frame, local=True):
         """
         Return a 1d np array of the spatial coordinates of all the joints.
         Input :

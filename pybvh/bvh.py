@@ -106,6 +106,11 @@ class Bvh:
 
     
     def _create_frame_template(self):
+        if self.frames.shape == (1,0):
+            #if we are creating an empty object or object with empty frames
+            self.frame_template = []
+            return
+        
         frame_template = []
         root = self.nodes[0]
         for ax in ['X', 'Y', 'Z']:
@@ -223,13 +228,13 @@ class Bvh:
                     return self._local_to_global_coord(self._spatial_coord[frame_num])
             else:
                 #return only one frame, and no need to save anything
-                return frame_to_spatial_coord(self.frames[frame_num], self, local=local)
+                return frame_to_spatial_coord(self, self.frames[frame_num], local=local)
         elif frame_num == -1:
             if not self._has_spatial:
                 # if we don't have already calculated and saved 
                 # all the spatial coordinates in all the frames
                 # we get LOCAL coordinates and save them
-                self._spatial_coord = frames_to_spatial_coord(self.frames, self)
+                self._spatial_coord = frames_to_spatial_coord(self, self.frames)
             if local:
                 return self._spatial_coord
             else:

@@ -17,7 +17,8 @@ See the jupyter file 'tutorial' for example of use.
         - bvhobject.root : the root of the Hierarchy, aka bvhobject.nodes[0].
     - methods :
         - to_bvh_file(filepath, verbose=True) : save a bvh object to a bvh file at the location filepath (str or Path object).
-        - get_df_constructor() : get a list of dictionnary that can be transmitted to a pd.Dataframe() constructor to directly obtain a Dataframe.
+        - get_spatial_coord(frame_num=-1, local=True) : get the spatial coordinates of every joints for all frames or only one.
+        - get_df_constructor(mode = 'euler', local=True) : get a list of dictionnary that can be transmitted to a pd.Dataframe() constructor to directly obtain a Dataframe. Can construct a DataFrame with euler angles or spatial coordinates.
         - hierarchy_info_as_dict() : get a dictionnary describing the organisation of the Hierarchy in the bvh object.
 
 - read_bvh_file(filepath) : read a .bvh file at the filepath location (str or Path object), and create a Bvh object

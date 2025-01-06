@@ -3,15 +3,15 @@ import numpy as np
 
 from .bvhnode import BvhNode, BvhJoint, BvhRoot 
 from .bvh import Bvh
-from .methods import _test_file
+from .tools import test_file
 
 def read_bvh_file(filepath):
     """
         This method construct a Bvh object based on the information
         given by the _extract_bvh_file_info() method
     """
-
-    return Bvh(*_extract_bvh_file_info(filepath))
+    node_list, frame_array, frame_frequency, frame_template = _extract_bvh_file_info(filepath)
+    return Bvh(nodes=node_list, frames=frame_array, frame_frequency=frame_frequency, frame_template=frame_template)
 
 def _extract_bvh_file_info(filepath):
     """
@@ -22,7 +22,7 @@ def _extract_bvh_file_info(filepath):
     node_list = []
     frame_template = [] # this will help to construct the scond part after the hierarchy, the frame list
 
-    filepath = _test_file(filepath)
+    filepath = test_file(filepath)
     
     with open(filepath, "r") as f:
         #---------- first, read the hierarchy in the file (first part of the file)
@@ -134,4 +134,4 @@ def _extract_bvh_file_info(filepath):
     #-----------------end of reading the file
     # frame_template is a list we created of the form [jointName_ax_pos/rot].
     # ex : [Hips_X_pos, Hips_Y_pos, Hips_Z_pos, Hips_X_rot, ...]
-    return (node_list, frame_array, frame_template, frame_frequency)
+    return (node_list, frame_array, frame_frequency, frame_template)

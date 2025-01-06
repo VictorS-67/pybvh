@@ -1,7 +1,7 @@
 import numpy as np
 import numbers
 
-from .methods import _are_permutations
+from .tools import are_permutations
 
 class BvhNode:
     """
@@ -111,7 +111,7 @@ class BvhJoint(BvhNode):
         problem = True
         er = ValueError("the channels should be a list or a string of 3 elements, one of each from 'X' 'Y' 'Z'")
         if isinstance(value, str):
-            if not _are_permutations('XYZ', value):
+            if not are_permutations('XYZ', value):
                 raise er
             else:
                 return list(value)
@@ -120,7 +120,7 @@ class BvhJoint(BvhNode):
                 str_conv = ''.join(value)
             except:
                 raise er
-            if not _are_permutations('XYZ', str_conv):
+            if not are_permutations('XYZ', str_conv):
                 raise er
             else:
                 return value

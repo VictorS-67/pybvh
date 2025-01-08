@@ -57,7 +57,7 @@ def frame_to_spatial_coord(nodes_container, frame, local=True):
                 # if it is a list of nodes
                 nodes = nodes_container
                 root = nodes_container[0]
-                root.rot_channels
+                root.pos_channels
                 if isinstance(frame, int):
                     # in case frame is a int object,
                     # and we do not a bvh object as nodes_container,

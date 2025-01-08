@@ -53,6 +53,11 @@ class BvhNode:
     def __repr__(self):
         return f'BvhNode(name = {self.name}, offset = {self.offset}, parent = {self.parent})'
 
+    def is_end_site(self):
+        return True
+    
+    def is_root(self):
+        return False
 
 
 #---------------------------------------------------------------------------------------------
@@ -128,6 +133,12 @@ class BvhJoint(BvhNode):
             raise er
 
 
+    def is_end_site(self):
+        return False
+    
+    def is_root(self):
+        return False
+
 
 #---------------------------------------------------------------------------------------------
 
@@ -167,3 +178,10 @@ class BvhRoot(BvhJoint):
         return ','.join(super_str_list)
         #return f'BvhRoot(name = {self.name}, offset = {self.offset}, pos_channels = {self.pos_channels},
         #  rot_channels = {self.rot_channels}, children = {str(children_list)}, parent = {self.parent})'
+
+
+    def is_end_site(self):
+        return False
+    
+    def is_root(self):
+        return True

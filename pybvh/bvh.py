@@ -27,6 +27,10 @@ class Bvh:
         else:
             self._create_frame_template()
         
+        # create the self.name2coord_idx parameter
+        # a dictionnary that will allow to easily access the space coordinates
+        self._create_name2coord_idx()
+        
 
     @property
     def nodes(self):
@@ -254,7 +258,24 @@ class Bvh:
             raise ValueError("Only supports 1 or 2 dimensional np array.")
         return spatial_frames
 
-    
+    def get_rest_pose(self, mode='euler'):
+        """
+        Return the rest pose of the skeleton.
+        Input : - mode cam be 'euler' or 'coordinates'.
+                If 'euler', the rest pose is returned as euler angles.
+                If 'coordinates', the rest pose is returned as spatial coordinates
+        """
+        correct_modes = ['euler', 'coordinates']
+        rest_angle = np.zeros_like(self.frames[0])
+        if mode == 'euler':
+            return rest_angle
+        elif mode == 'coordinates':
+            rest_coord = frame_to_spatial_coord(self, rest_angle)
+            return rest_coord
+        else:
+            raise ValueError(f'The value {mode} is not recognized for the mode argument.\
+                             Currently recognized keywords are {correct_modes}')
+        
 
     def get_df_constructor(self, mode = 'euler', local=True):
         """
@@ -372,6 +393,14 @@ class Bvh:
             
         return copy.deepcopy(hier_dict)
     
+    def _create_name2coord_idx(self):
+        name2coord_idx = {}
+        i=0
+        for node in self.nodes:
+            for ax in ['X', 'Y', 'Z']:
+                name2coord_idx[f'{node.name}_{ax}'] = i
+                i+=1
+        self.name2coord_idx = name2coord_idx
 
 
     

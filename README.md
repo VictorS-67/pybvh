@@ -25,6 +25,8 @@ See the jupyter file 'tutorial' for example of use.
 
 - df_to_bvh(hier, df) : df is a pandas DataFrame, containing joints rotational data. hier is either a dictionnary describing the hierarchy, or a list of nodes. Will create a bvh object based on those two arguments.
 
+- plot.plot_frame(bvh_object, frame) : plot a matplotlib projection3d that shows the frame passed as a parameter.
+
 
 ### TODO:
 - making direct changes to rot_channels and pos_channels impossible/regulated. Needs to go through a class method, so that we can also change the frames columns order (and value!) at the same time.

@@ -102,9 +102,14 @@ def setup_plt(frame_plotted, num_subplots=1, directions_dict = {}):
         elev = elevs[i]
         azim = azims[i]
         if not up_pos_sign:
-            # if the upward sign is of negative sign, for ex -z
+            # if the upward axis sign is of negative sign, for ex -z
             # the we turn the elevation by 180
             elev += 180 
+
+        if not forward_pos_sign:
+            #if the forward axis sign is of negative sign
+            azim += 180
+
         ax.view_init(elev=elev+20, azim=azim-20, vertical_axis=up_ax)
         #ax.view_init(vertical_axis=up_ax)
 

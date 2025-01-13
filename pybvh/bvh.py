@@ -208,7 +208,7 @@ class Bvh:
         #-------------- end of the write function
 
 
-    def get_spatial_coord(self, frame_num=-1, local=True):
+    def get_spatial_coord(self, frame_num=-1, local=False):
         """
         Obtain the spatial coordinates of the joints
         Input :

@@ -337,9 +337,6 @@ def _setup_plt_animation_world(frames, directions_dict={}):
     ax = axs[0]
     # we have axis with the proper up and forward dir. 
     # Just need to recalculate the limits
-    #x_min, x_max = ax.get_xlim3d()
-    #y_min, y_max = ax.get_ylim3d()
-    #z_min, z_max = ax.get_zlim3d()
     x_min, x_max= np.min(frames[:,0::3]),  np.max(frames[:,0::3])
     y_min, y_max= np.min(frames[:,1::3]),  np.max(frames[:,1::3])
     z_min, z_max= np.min(frames[:,2::3]),  np.max(frames[:,2::3])
@@ -352,13 +349,10 @@ def _setup_plt_animation_world(frames, directions_dict={}):
     #  of the whoe range of movement following the given axis
     fig_lim = max(dist_x, dist_y, dist_z)
 
-    #up_ax = directions_dict['upward'][1]
-
     axis_lim = [middle_x - fig_lim/2 , middle_x + fig_lim/2,
                 middle_y - fig_lim/2 , middle_y + fig_lim/2,
                 middle_z - fig_lim/2 , middle_z + fig_lim/2]
 
 
-    ax.axis(axis_lim) # x_min, x_max, y_min, y_max, z_min, z_max
-
+    ax.axis(axis_lim)
     return fig, ax

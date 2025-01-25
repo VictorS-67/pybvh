@@ -19,7 +19,8 @@ class Bvh:
         self.root = self.nodes[0]
 
         self._has_spatial = False
-        # the spatial coordinates stored are alway in local argument
+        # the spatial coordinates stored are always in world centered coordinates
+        # so the root position is the actual root position in the bvh file
         self._spatial_coord = np.array([[]])
 
         if frame_template != []:
@@ -208,55 +209,61 @@ class Bvh:
         #-------------- end of the write function
 
 
-    def get_spatial_coord(self, frame_num=-1, local=False):
+    def get_spatial_coord(self, frame_num=-1, centered="world"):
         """
-        Obtain the spatial coordinates of the joints
+        Obtain the spatial coordinates of the joints.
+        The coordinates are given in the form of a numpy array.
         Input :
         - frame_num : if -1 (default value) then all the frames will be returned
                         converted into spatial coordinates for the joints
-                    Else if any int >= 0 is returned, then return the spatial 
+                    Else if any int >= 0 is given, then return the spatial 
                     coordinates for the frame number corresponding to frame_num
-        - local : if True, return spatial coordinates localized to the skeleton
-                    (assume hips position is [0, 0, 0]). If false, put the
-                    position of the hips as given in the bvh file.
+        - centered : a string that can be either "skeleton", "first", or "world".
+                If "skeleton" , the coordinates are local to the skeleton (meaning the root
+                coordinates are considered to be [0, 0, 0] in ALL frames).
+                If "first", the first frame root position is considered to be [0, 0, 0]. From there,
+                the skeleton moves in the space normally. If only one frame to return, then
+                "skeleton" and "first" will give the same result.
+                If "world", the coordinates are global (meaning the root coordinates are
+                the actual coordinates of the root saved in the bvh object in all frames).
         """
+        centered_options = ['skeleton', 'first', 'world']
+        if centered not in centered_options:
+            raise ValueError(f'The value {centered} is not recognized for the centered argument.\
+                             Currently recognized keywords are {centered_options}')
+
         value_err = "frame_num needs to be -1 or a positive integer smaller than the total amount of frames in the bvh file."
         if frame_num < -1 or frame_num >= self.frame_count:
             raise ValueError(value_err)
         elif frame_num >= 0:
+            # the user wants only one frame
             if self._has_spatial:
-                #if we have already calculated and saved all the spatial coordinates in all the frames
-                if local:
+                # if we have already calculated and saved all the spatial coordinates for the frames
+                # they are saved in world centered coordinates
+                if centered == "world":
                     return self._spatial_coord[frame_num]
                 else:
-                    return self._local_to_global_coord(self._spatial_coord[frame_num])
+                    # if centered == "skeleton" or "first" there is no difference (unique frame)
+                    frame = self._spatial_coord[frame_num]
+                    return frame - np.tile(frame[:3], int(frame.shape[0]/3))
             else:
-                #return only one frame, and no need to save anything
-                return frame_to_spatial_coord(self, self.frames[frame_num], local=local)
+                # if we don't have already calculated and saved the spatial coordinates
+                # calculate only one frame, and no need to save anything
+                return frame_to_spatial_coord(self, self.frames[frame_num], centered=centered)
         elif frame_num == -1:
             if not self._has_spatial:
-                # if we don't have already calculated and saved 
+                # if we don't have already calculated and saved
                 # all the spatial coordinates in all the frames
-                # we get LOCAL coordinates and save them
+                # we get WORLD CENTERED coordinates and save them
                 self._spatial_coord = frames_to_spatial_coord(self, self.frames)
-            if local:
+                self._has_spatial = True
+            if centered == "world":
                 return self._spatial_coord
-            else:
-                return self._local_to_global_coord(self._spatial_coord)
+            elif centered == "first":
+                return self._spatial_coord - np.tile(self._spatial_coord[0,:3], int(self._spatial_coord.shape[1]/3))
+            elif centered == "skeleton":
+                return self._spatial_coord - np.tile(self._spatial_coord[:,:3], int(self._spatial_coord.shape[1]/3))
         
-    def _local_to_global_coord(self, spatial_frames):
-        spatial_frames = np.copy(spatial_frames)
-        if spatial_frames.ndim == 1:
-            global_pos = self.frames[[0,1,2]]
-            for i in range(3):
-                spatial_frames[i::3] = spatial_frames[i::3] + global_pos[i]
-        elif spatial_frames.ndim == 2:
-            global_pos = self.frames[:,[0,1,2]]
-            for i in range(3):
-                spatial_frames[:,i::3] = spatial_frames[:,i::3] + global_pos[:,[i]]
-        else:
-            raise ValueError("Only supports 1 or 2 dimensional np array.")
-        return spatial_frames
 
     def get_rest_pose(self, mode='euler'):
         """
@@ -277,7 +284,7 @@ class Bvh:
                              Currently recognized keywords are {correct_modes}')
         
 
-    def get_df_constructor(self, mode = 'euler', local=True):
+    def get_df_constructor(self, mode = 'euler', centered="world"):
         """
         This function returns a list of dictionnary ready made to easily create a pandas DataFrame. 
         Input :
@@ -286,12 +293,14 @@ class Bvh:
                 the rotational data, as they are in a raw bvh file.
                 If the mode is 'coordinates', the constructed DataFrame will contain
                 the spatial coordinates of the joints (including the End sites)
-        -local : only takes effect in case the mode is 'coordinates'.
-                    In this case, decide if the position are
-                    centered on the skeleton (local = True), 
-                    meaning the root position is considered [0,0,0] all the time. 
-                    Or if local = False, the root takes it's real world position, 
-                    as well as the rest of the skeleton.
+        - centered : a string that can be either "skeleton", "first", or "world".
+                If "skeleton" , the coordinates are local to the skeleton (meaning the root
+                coordinates are considered to be [0, 0, 0] in ALL frames).
+                If "first", the first frame root position is considered to be [0, 0, 0]. From there,
+                the skeleton moves in the space normally. If only one frame to return, then
+                "skeleton" and "first" will give the same result.
+                If "world", the coordinates are global (meaning the root coordinates are
+                the actual coordinates of the root saved in the bvh object in all frames).
 
         The purpose of this function is to be combined with pd.DataFrame this way:
         pd.Dataframe(bvh_object.get_df_constructor).
@@ -310,7 +319,7 @@ class Bvh:
         if mode == 'euler':
             return self._get_df_constructor_euler_angles()
         elif mode == 'coordinates':
-            return self._get_df_constructor_spatial_coord(local=local)
+            return self._get_df_constructor_spatial_coord(centered=centered)
         else : 
             raise ValueError(f'The value {mode} is not recognized for the mode argument.\
                              Currently recognized keywords are {correct_modes}')
@@ -333,18 +342,21 @@ class Bvh:
 
         return dictList
 
-    def _get_df_constructor_spatial_coord(self, local):
+    def _get_df_constructor_spatial_coord(self, centered):
         """
-        internal function called by self.get_df_constructor()
-        in case the mode is 'coordinates'
+        internal function called by self.get_df_constructor() in case its mode is 'coordinates'
         """
-        if local:
-            #if local coordinates
-            message = f"The coordinates in the dataFrame are given locally since local=True."
-        else:
-            #if global coordinates
-            message = f"The coordinates in the dataFrame are given globally since local=False."
-        spatial_array = self.get_spatial_coord(local=local)
+        if centered == "skeleton":
+            #if skeleton centered coordinates
+            message = f"The coordinates in the dataFrame are centered on the skeleton."
+        elif centered == "first":
+            #if first frame coordinates
+            message = f"The coordinates in the dataFrame are centered on the first frame."
+        elif centered == "world":  
+            #if world coordinates
+            message = f"The coordinates in the dataFrame are in world coordinates."
+        
+        spatial_array = self.get_spatial_coord(centered=centered)
 
         dictList = []
 

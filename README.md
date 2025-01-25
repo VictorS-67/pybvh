@@ -1,3 +1,10 @@
+UPDATE : 
+2025-01-25 : Change the parameter "local" in the functions to get spatial coordinates and to plot the bvh. 
+            The new parameter is "centered", with three modes : 
+                - "skeleton" : equivalent to previous local = True, root pos always 0, 0, 0
+                - "world" : equivalent to previous local = False, root at coordinates as in saved in bvh frames
+                - "first" : the first frame root position is 0, 0, 0. From there, the skeleton moves in the space normally.
+
 # pybvh
 Python library to work with bvh files
 

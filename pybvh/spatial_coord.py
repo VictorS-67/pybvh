@@ -21,6 +21,8 @@ def frames_to_spatial_coord(nodes_container, frames=[], centered="world"):
     if centered not in accepted_centered:
         raise ValueError(f"centered argument must be one of {accepted_centered}.")
     
+    centered2skelCentered = {'world': False, 'first': False, 'skeleton': True}
+    
     if len(frames) == 0:
         try :
             frames = nodes_container.frames
@@ -32,18 +34,19 @@ def frames_to_spatial_coord(nodes_container, frames=[], centered="world"):
         # in this case, when calling frame_to_spatial_coord
         # we want to obtain the root with its real coordinates
         # then we substract the first frame root coordinates to the skeleton joints coordinates 
-        tiled_first_root_pos = np.tile(frames[0][:3], int(frames.shape[1]/3))
+        first_spatial = frame_to_spatial_coord(nodes_container, frames[0], skel_centered=False)
+        tiled_first_root_pos = np.tile(first_spatial[:3], int(first_spatial.shape[0]/3))
         def arg_exchange_frame_to_spatial_coord(new_frames):
-            return frame_to_spatial_coord(nodes_container, new_frames, centered="world")
+            return frame_to_spatial_coord(nodes_container, new_frames, skel_centered=centered2skelCentered[centered])
         return np.apply_along_axis(arg_exchange_frame_to_spatial_coord, 1, frames) - tiled_first_root_pos
     
     else:
         def arg_exchange_frame_to_spatial_coord(new_frames):
-            return frame_to_spatial_coord(nodes_container, new_frames, centered=centered)
+            return frame_to_spatial_coord(nodes_container, new_frames, skel_centered=centered2skelCentered[centered])
         return np.apply_along_axis(arg_exchange_frame_to_spatial_coord, 1, frames)
      
 
-def frame_to_spatial_coord(nodes_container, frame, centered="world"):
+def frame_to_spatial_coord(nodes_container, frame, skel_centered=False):
     """
     Return a 1d np array of the spatial coordinates of all the joints.
     Input :
@@ -54,12 +57,10 @@ def frame_to_spatial_coord(nodes_container, frame, centered="world"):
                 or
                 an int that indicates the index of the frame in the bvh_object.frames 2d np array.
                 //!\\This is only possible if nodes_container is a bvh object ! 
-    - centered : a string that can be either "skeleton", "first", or "world".
-                If "skeleton", the coordinates are local to the skeleton (meaning the root
+    - skel_centered : boolean.
+                If True, the coordinates are local to the skeleton (meaning the root
                 coordinates are considered to be [0, 0, 0]) .
-                If "first", we return the same result as "skeleton".
-                This option is here for easy compatibility with the function frames_to_spatial_coord().
-                If "world", the coordinates are global (meaning the root coordinates are
+                If False, the coordinates are global (meaning the root coordinates are
                 the actual coordinates of the root).
     """
     try:
@@ -89,15 +90,12 @@ def frame_to_spatial_coord(nodes_container, frame, centered="world"):
         except:
             raise ValueError('The argument nodes_container needs to be either a Bvh object, or a list of Bvh nodes (as obtained from bvh_object.nodes for ex)')
                 
-    accepted_centered = ["skeleton", "first", "world"]
-    if centered not in accepted_centered:
-            raise ValueError(f"centered argument must be one of {accepted_centered}.")
     
     nodes_transfo = {}
     node2frameidx = {}
     # skip the root spatial position
     i=1 
-    #but save them in case we needed later if centered="world"
+    #but save them in case we needed later if skel_centered=False
     root_pos = frame[[0,1,2]]
     for node in nodes:
         # for every node, except end sites,
@@ -120,10 +118,9 @@ def frame_to_spatial_coord(nodes_container, frame, centered="world"):
     frame_spatial = _get_local_pos_rec(root, nodes_transfo, node2frameidx, frame_angles)
 
     # finally, we add the root position to all the joints coordinates
-    #  if centered == "world"
-    if centered == "world":
-        for i in range(3):
-            frame_spatial[i::3] = frame_spatial[i::3] + root_pos[i]
+    # if skel_centered==False
+    if skel_centered==False:
+        frame_spatial = frame_spatial + np.tile(root_pos, int(frame_spatial.shape[0]/3))
 
     # if needed for debugging purpose, we can also return nodes_transfo,
     # which contain the info written during the recursivity process

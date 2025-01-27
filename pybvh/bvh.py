@@ -240,16 +240,19 @@ class Bvh:
             if self._has_spatial:
                 # if we have already calculated and saved all the spatial coordinates for the frames
                 # they are saved in world centered coordinates
-                if centered == "world":
-                    return self._spatial_coord[frame_num]
-                else:
-                    # if centered == "skeleton" or "first" there is no difference (unique frame)
-                    frame = self._spatial_coord[frame_num]
-                    return frame - np.tile(frame[:3], int(frame.shape[0]/3))
+                frame = self._spatial_coord[frame_num]
             else:
                 # if we don't have already calculated and saved the spatial coordinates
-                # calculate only one frame, and no need to save anything
-                return frame_to_spatial_coord(self, self.frames[frame_num], centered=centered)
+                # calculate only one frame in world coord, and no need to save anything
+                frame = frame_to_spatial_coord(self, self.frames[frame_num], skel_centered=False)
+            #finally transform the coordinates to the desired centered coordinates
+            if centered == "world":
+                return frame
+            elif centered == "first":
+                first_frame = self._spatial_coord[0]
+                return frame - np.tile(first_frame[:3], int(first_frame.shape[0]/3))
+            elif centered == "skeleton":
+                return frame - np.tile(frame[:3], int(frame.shape[0]/3))
         elif frame_num == -1:
             if not self._has_spatial:
                 # if we don't have already calculated and saved
@@ -277,7 +280,7 @@ class Bvh:
         if mode == 'euler':
             return rest_angle
         elif mode == 'coordinates':
-            rest_coord = frame_to_spatial_coord(self, rest_angle)
+            rest_coord = frame_to_spatial_coord(self, rest_angle, skel_centered=True)
             return rest_coord
         else:
             raise ValueError(f'The value {mode} is not recognized for the mode argument.\

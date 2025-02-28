@@ -140,7 +140,7 @@ def _extract_bvh_file_info(filepath):
             line = np.array([float(x) for x in line])
 
             if frame_number ==0:
-                frame_array = [line] 
+                frame_array = np.array([line])
             else:
                 frame_array = np.append(frame_array, [line], axis=0)
 

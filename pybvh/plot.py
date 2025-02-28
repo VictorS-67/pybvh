@@ -8,12 +8,29 @@ from pathlib import Path
 
 
 
-def plot_frame(bvh_object, frame):
+def plot_frame(bvh_object, frame, centered = "world"):
 
     """ 
-    NOTE : accept euler angle and automat convert to spatial ?
+    Plot a bvh frame.
+    Input:
+    - bvh_object : A Bvh object.
+    - frames : can be 1D array with the frame data, or a frame index
+            - if an int : plot the frame indexed by the argument.
+            - if 1D array : plot the frame passed as an argument. The frame needs to contain the spatial coordinates (not rotation!). 
+    - centered : a string that can be either "skeleton", or "world".
+                If "skeleton", the coordinates are local to the skeleton (meaning the root
+                coordinates are considered to be [0, 0, 0]).
+                If "world", the coordinates are global (meaning the root coordinates are
+                the actual coordinates of the root).
     """
     num_subplots = 1
+
+    if isinstance(frame, int):
+        frame = bvh_object.get_spatial_coord(frame_num=frame, centered=centered)
+    elif isinstance(frame, np.ndarray):
+        pass
+    else:
+        raise ValueError("frame should be either an int or a 1D numpy array.")
 
     directions_dict = _get_forw_up_axis(bvh_object, frame)
     fig, axs = _setup_plt(frame, num_subplots=num_subplots, directions_dict=directions_dict)

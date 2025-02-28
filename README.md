@@ -1,4 +1,5 @@
 ## UPDATE : 
+- 2025-02-28 : Added the possibility to use another skeleton than the one in the bvh file itself when obtaining the spatial coordinates. Separated the tutorial into multiple files, for readability, and updated the content.
 - 2025-01-25 : Change the parameter "local" in the functions to get spatial coordinates and to plot the bvh. The new parameter is "centered", with three modes:
     - "skeleton" : equivalent to previous local = True, root pos always 0, 0, 0:
     - "world" : equivalent to previous local = False, root at coordinates as in saved in bvh frames

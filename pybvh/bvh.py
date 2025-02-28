@@ -93,7 +93,7 @@ class Bvh:
         count_joints =  0
         for node in self.nodes:
             if 'End Site' not in node.name  : count_joints += 1 
-        return f'{count_joints} elements in the Hierarchy, {self.frame_count} frames'
+        return f'{count_joints} elements in the Hierarchy, {self.frame_count} frames at a frequency of {self.frame_frequency:.6f}Hz'
         
     def __repr__(self):
         nodes_str = []
@@ -209,7 +209,7 @@ class Bvh:
         #-------------- end of the write function
 
 
-    def get_spatial_coord(self, frame_num=-1, centered="world"):
+    def get_spatial_coord(self, frame_num=-1, centered="world", change_skeleton=None):
         """
         Obtain the spatial coordinates of the joints.
         The coordinates are given in the form of a numpy array.
@@ -226,49 +226,71 @@ class Bvh:
                 "skeleton" and "first" will give the same result.
                 If "world", the coordinates are global (meaning the root coordinates are
                 the actual coordinates of the root saved in the bvh object in all frames).
+
         """
         centered_options = ['skeleton', 'first', 'world']
         if centered not in centered_options:
             raise ValueError(f'The value {centered} is not recognized for the centered argument.\
                              Currently recognized keywords are {centered_options}')
+        
+        return_one_frame = True
 
-        value_err = "frame_num needs to be -1 or a positive integer smaller than the total amount of frames in the bvh file."
-        if frame_num < -1 or frame_num >= self.frame_count:
-            raise ValueError(value_err)
+        if (frame_num < -1) or (frame_num >= self.frame_count):
+            raise ValueError("frame_num needs to be -1 or a positive integer smaller than the total amount of frames in the bvh file.")
+
         elif frame_num >= 0:
             # the user wants only one frame
-            if self._has_spatial:
-                # if we have already calculated and saved all the spatial coordinates for the frames
-                # they are saved in world centered coordinates
-                frame = self._spatial_coord[frame_num]
-            else:
-                # if we don't have already calculated and saved the spatial coordinates
-                # calculate only one frame in world coord, and no need to save anything
-                frame = frame_to_spatial_coord(self, self.frames[frame_num], skel_centered=False)
-            #finally transform the coordinates to the desired centered coordinates
-            if centered == "world":
+            # since it is only one frame, we don't care about the performance,
+            # no need to check if the spatial coordinates are already calculated
+            frame = frame_to_spatial_coord(self, self.frames[frame_num], change_skeleton=change_skeleton)
+
+        elif (frame_num == -1) and (not self._has_spatial) and (change_skeleton == None):
+            # the user wants all the frames, with the same skeleton as the one in the bvh object
+            # we don't have already calculated and saved the spatial coordinates
+            # then we calculate the frames in world coord, and we save them
+            return_one_frame = False
+            frames_array = frames_to_spatial_coord(self, frames = self.frames, change_skeleton=change_skeleton)
+            self._spatial_coord = frames_array.copy()
+            self._has_spatial = True
+        
+        elif (frame_num == -1) and (change_skeleton != None):
+            # the user wants all the frames, with a different skeleton than the one in the bvh object
+            # we need to calculate the frames in world coord, and we don't save them
+            return_one_frame = False
+            frames_array = frames_to_spatial_coord(self, frames = self.frames, change_skeleton=change_skeleton)
+        
+        elif (frame_num == -1) and self._has_spatial and (change_skeleton == None):
+            # the user wants all the frames, with the same skeleton as the one in the bvh object
+            # we have already calculated and saved all the spatial coordinates for the frames
+            # (they are saved in world centered coordinates)
+            return_one_frame = False
+            frames_array = self._spatial_coord.copy()
+            
+        # we have the frame/frames, in world coordinates
+        # now we need to center them as the user wants
+            
+        if centered == "world" :
+            if return_one_frame:
                 return frame
-            elif centered == "first":
-                first_frame = self._spatial_coord[0]
-                return frame - np.tile(first_frame[:3], int(first_frame.shape[0]/3))
-            elif centered == "skeleton":
+            else:
+                return frames_array
+        elif centered == "first":
+            # for the first frame, we only use its root position and total length.
+            # The change of the skeleton has no impact whatsoever
+            first_frame = frame_to_spatial_coord(self, self.frames[0])
+            if return_one_frame:
+                return frame - np.tile(first_frame[:3], int(len(first_frame)/3))
+            else:
+                return frames_array - np.tile(first_frame[:3], int(len(first_frame)/3)) #broadcasting
+        elif centered == "skeleton":
+            if return_one_frame:
                 return frame - np.tile(frame[:3], int(frame.shape[0]/3))
-        elif frame_num == -1:
-            if not self._has_spatial:
-                # if we don't have already calculated and saved
-                # all the spatial coordinates in all the frames
-                # we get WORLD CENTERED coordinates and save them
-                self._spatial_coord = frames_to_spatial_coord(self, self.frames)
-                self._has_spatial = True
-            if centered == "world":
-                return self._spatial_coord
-            elif centered == "first":
-                return self._spatial_coord - np.tile(self._spatial_coord[0,:3], int(self._spatial_coord.shape[1]/3))
-            elif centered == "skeleton":
-                return self._spatial_coord - np.tile(self._spatial_coord[:,:3], int(self._spatial_coord.shape[1]/3))
+            else:
+                return frames_array - np.tile(frames_array[:,:3], int(frames_array.shape[1]/3))
+
         
 
-    def get_rest_pose(self, mode='euler'):
+    def get_rest_pose(self, mode='coordinates'):
         """
         Return the rest pose of the skeleton.
         Input : - mode cam be 'euler' or 'coordinates'.

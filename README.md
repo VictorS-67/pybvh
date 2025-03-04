@@ -39,5 +39,4 @@ See the jupyter file 'tutorial' for example of use.
 - making direct changes to rot_channels and pos_channels impossible/regulated. Needs to go through a class method, so that we can also change the frames columns order (and value!) at the same time.
 - obtaining graph dataset
 - class method to transform euler angle directly (different Euler angle order, transformation to rotation matrix etc.)
-- visualization of the bvh animation
 - change docstrings to Numpy/Scipy standard

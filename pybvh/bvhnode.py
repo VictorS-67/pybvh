@@ -102,7 +102,7 @@ class BvhJoint(BvhNode):
     def __repr__(self):
         children_list = []
         for child in self.children:
-            if 'End Site' in child.name :
+            if child.is_end_site():
                 children_list.append(f'{child.__str__()}')
             else:
                 children_list.append(f'BvhJoint({child.__str__()})')
@@ -132,11 +132,7 @@ class BvhJoint(BvhNode):
         else:
             raise er
 
-
     def is_end_site(self):
-        return False
-    
-    def is_root(self):
         return False
 
 
@@ -179,9 +175,6 @@ class BvhRoot(BvhJoint):
         #return f'BvhRoot(name = {self.name}, offset = {self.offset}, pos_channels = {self.pos_channels},
         #  rot_channels = {self.rot_channels}, children = {str(children_list)}, parent = {self.parent})'
 
-
-    def is_end_site(self):
-        return False
     
     def is_root(self):
         return True

@@ -1,9 +1,10 @@
 ## UPDATE : 
-- 2025-02-28 : Added the possibility to use another skeleton than the one in the bvh file itself when obtaining the spatial coordinates. Separated the tutorial into multiple files, for readability, and updated the content.
-- 2025-01-25 : Change the parameter "local" in the functions to get spatial coordinates and to plot the bvh. The new parameter is "centered", with three modes:
-    - "skeleton" : equivalent to previous local = True, root pos always 0, 0, 0:
-    - "world" : equivalent to previous local = False, root at coordinates as in saved in bvh frames
-    - "first" : the first frame root position is 0, 0, 0. From there, the skeleton moves in the space normally.
+- 2025-03-26: Added a bone size scaling method.
+- 2025-02-28: Added the possibility to use another skeleton than the one in the bvh file itself. Separated the tutorial into multiple files, for readability, and updated the content.
+- 2025-01-25: Change the parameter "local" in the functions to get spatial coordinates and to plot the bvh. The new parameter is "centered", with three modes:
+    - "skeleton": equivalent to previous local = True, root pos always 0, 0, 0:
+    - "world": equivalent to previous local = False, root at coordinates as in saved in bvh frames
+    - "first": the first frame root position is 0, 0, 0. From there, the skeleton moves in the space normally.
 
 # pybvh
 Python library to work with bvh files
@@ -16,17 +17,19 @@ See the jupyter file 'tutorial' for example of use.
 ### Curent functionality
 - Bvh class
     - parameters : 
-        - bvhobject.nodes : a list of all the nodes in the Hierarchy. The nodes are BvhRoot, BvhJoint or BvhNode objects for respectively the root, the joints and the end sites.
-        - bvhobject.frames : the rotational data as a 2D numpy array.
-        - bvhobject.frame_frequency : the frames frequency as can be found in a bvh file.
-        - bvhobject.frame_template : the organized name of each column of the bvhobject.frames.
-        - bvhobject.frame_count : the number of frames (=the number of lines of the bvhobject.frames parameter).
-        - bvhobject.root : the root of the Hierarchy, aka bvhobject.nodes[0].
+        - bvhobject.nodes: a list of all the nodes in the Hierarchy. The nodes are BvhRoot, BvhJoint or BvhNode objects for respectively the root, the joints and the end sites.
+        - bvhobject.frames: the rotational data as a 2D numpy array.
+        - bvhobject.frame_frequency: the frames frequency as can be found in a bvh file.
+        - bvhobject.frame_template: the organized name of each column of the bvhobject.frames.
+        - bvhobject.frame_count: the number of frames (=the number of lines of the bvhobject.frames parameter).
+        - bvhobject.root: the root of the Hierarchy, aka bvhobject.nodes[0].
     - methods :
-        - to_bvh_file(filepath, verbose=True) : save a bvh object to a bvh file at the location filepath (str or Path object).
-        - get_spatial_coord(frame_num=-1, local=True) : get the spatial coordinates of every joints for all frames or only one.
-        - get_df_constructor(mode = 'euler', local=True) : get a list of dictionnary that can be transmitted to a pd.Dataframe() constructor to directly obtain a Dataframe. Can construct a DataFrame with euler angles or spatial coordinates.
-        - hierarchy_info_as_dict() : get a dictionnary describing the organisation of the Hierarchy in the bvh object.
+        - to_bvh_file(filepath, verbose=True): save a bvh object to a bvh file at the location filepath (str or Path object).
+        - get_spatial_coord(frame_num=-1, centered="world"): get the spatial coordinates of every joints for all frames or only one.
+        - get_df_constructor(mode = 'euler', centered="world"): get a list of dictionnary that can be transmitted to a pd.Dataframe() constructor to directly obtain a Dataframe. Can construct a DataFrame with euler angles or spatial coordinates.
+        - hierarchy_info_as_dict(): get a dictionnary describing the organisation of the Hierarchy in the bvh object.
+        - change_skeleton(new_skeleton, inplace=False): copy the nodes offset from the 'new_skeleton' bvh object.
+        - scale_skeleton(scale, inplace=False): scale the nodes offset.
 
 - read_bvh_file(filepath) : read a .bvh file at the filepath location (str or Path object), and create a Bvh object
 
@@ -37,7 +40,6 @@ See the jupyter file 'tutorial' for example of use.
 
 ### TODO:
 - making direct changes to rot_channels and pos_channels impossible/regulated. Needs to go through a class method, so that we can also change the frames columns order (and value!) at the same time.
-- obtaining graph dataset
+- obtaining graph dataset?
 - class method to transform euler angle directly (different Euler angle order, transformation to rotation matrix etc.)
-- visualization of the bvh animation
 - change docstrings to Numpy/Scipy standard

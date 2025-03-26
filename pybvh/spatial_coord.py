@@ -2,7 +2,7 @@ import numpy as np
 import copy
 from .tools import get_premult_mat_rot
 
-def frames_to_spatial_coord(nodes_container, frames=[], centered="world", change_skeleton=None):
+def frames_to_spatial_coord(nodes_container, frames=[], centered="world"):
     """
     Return a 2d np array of the spatial coordinates of all the joints.
     Input :
@@ -17,10 +17,6 @@ def frames_to_spatial_coord(nodes_container, frames=[], centered="world", change
                 the skeleton moves in the space normally.
                 If "world", the coordinates are global (meaning the root coordinates are
                 the actual coordinates of the root saved in the bvh object in all frames).
-    - change_skeleton : a bvh object.
-                If provided, the function will use the bones offset of the skeleton
-                in this bvh object to calculate the spatial coordinates of the joints,
-                instead of using the original offset of the nodes in the nodes_container
     """
     accepted_centered = ["skeleton", "first", "world"]
     if centered not in accepted_centered:
@@ -41,9 +37,7 @@ def frames_to_spatial_coord(nodes_container, frames=[], centered="world", change
     # -- from here, we know that frames is a 2d np array
     # -- and nodes is a list of BvhNode, not a Bvh object anymore
     
-    #check if we need to change the offset of the nodes
-    if change_skeleton != None:
-        nodes = _change_offset(nodes, change_skeleton)
+
 
     #the only case not covered by frame_to_spatial_coord is when centered="first"
     if centered == "first":
@@ -62,7 +56,7 @@ def frames_to_spatial_coord(nodes_container, frames=[], centered="world", change
         return np.apply_along_axis(arg_exchange_frame_to_spatial_coord, 1, frames)
      
 
-def frame_to_spatial_coord(nodes_container, frame, skel_centered=False, change_skeleton=None, nodes_from_bvh=None):
+def frame_to_spatial_coord(nodes_container, frame, skel_centered=False, nodes_from_bvh=None):
     """
     Return a 1d np array of the spatial coordinates of all the joints.
     Input :
@@ -78,10 +72,6 @@ def frame_to_spatial_coord(nodes_container, frame, skel_centered=False, change_s
                 coordinates are considered to be [0, 0, 0]) .
                 If False, the coordinates are global (meaning the root coordinates are
                 the actual coordinates of the root).
-    - change_skeleton : a bvh object.
-                If provided, the function will use the bones offset of the skeleton
-                in this bvh object to calculate the spatial coordinates of the joints,
-                instead of using the original offset of the nodes in the nodes_container argument.
     - nodes_from_bvh : a boolean. 
                 Internal use, to allow skipping the check if the nodes_container is a bvh object
                 when calling the function from frames_to_spatial_coord.
@@ -112,10 +102,6 @@ def frame_to_spatial_coord(nodes_container, frame, skel_centered=False, change_s
                                 Either change the nodes_container argument to a bvh object, \
                                 or change the frame argument to a 1d np array contaning the euler angles for the joints rotations.")
         
-
-    #check if we need to change the offset of the nodes
-    if change_skeleton != None:
-        nodes = _change_offset(nodes, change_skeleton)
     
 
     root = nodes[0]
@@ -134,15 +120,16 @@ def frame_to_spatial_coord(nodes_container, frame, skel_centered=False, change_s
         nodes_transfo[node.name] = {'spatial_coor' : None,
                                     'acc_rot_mat' : None
                                     }
-        if 'End Site' in node.name:
+        if node.is_end_site():
             continue
 
         node2frameidx[node.name] = [3*i, 1+3*i, 2+3*i]
         i+=1
 
-    #  frame_angles : a 1D list/np.array of all the euler angles for one frame
+    # frame_angles : a 1D list/np.array of all the euler angles for one frame
     # we need to transform the angle into radian
     frame_angles = np.radians(frame)
+
 
     frame_spatial = _get_local_pos_rec(root, nodes_transfo, node2frameidx, frame_angles)
 
@@ -182,6 +169,7 @@ def _get_local_pos_rec(node, nodes_transfo:dict, node2frameidx:dict, frame_angle
                         ...
                         }
     - frame_angles : a line of bvh.frames np array, containing the angles info of one bvh frame
+    - isroot : a boolean that indicates if the node is the root of the skeleton or not.
 
     To calculate the spatial coordinates, the formula is
     R[root] @ ... @ R[direct parent of the node] @ node_offset + parent_spatial_coordinates
@@ -189,7 +177,7 @@ def _get_local_pos_rec(node, nodes_transfo:dict, node2frameidx:dict, frame_angle
     to avoid having to redo the same matrix multiplication all the time
     """
 
-    if "End Site" in node.name:
+    if node.is_end_site():
         # we are at a terminal point of the recursive function
         parent_info = nodes_transfo[node.parent.name]
         coord = parent_info['acc_rot_mat'] @ node.offset + parent_info['spatial_coor']
@@ -198,8 +186,8 @@ def _get_local_pos_rec(node, nodes_transfo:dict, node2frameidx:dict, frame_angle
         return coord
     
     elif isroot:
-        #if we are dealing with the root, it's the first call of the function
-        #we consider a local coordinate for now, so spatial coord are at the origin
+        # if we are dealing with the root, it's the first call of the function
+        # spatial coord are at the origin
         coord = np.array([0.0, 0.0, 0.0])
         nodes_transfo[node.name]['spatial_coor'] = coord
         node_angles = frame_angles[node2frameidx[node.name]]
@@ -256,40 +244,3 @@ def _nodes_container_to_nodes_list(nodes_container):
     
     return nodes, from_bvh
 
-
-def _change_offset(nodes, change_skeleton):
-        """
-        Change the offset of the nodes to the one in the provided bvh object.
-        Input :
-        - nodes : a list of BvhNode objects
-        - use_skeleton : a Bvh object
-        Output : 
-        Return the nodes with changed offset.
-
-        We check if the use_skeleton argument is actually a Bvh object.
-        """
-        # we need to check if the use_skeleton argument is a Bvh object first
-        try:
-            new_skel_nodes = change_skeleton.nodes
-            new_skel_root = change_skeleton.root
-            new_skel_root.rot_channels
-        except:
-            raise ValueError('The argument use_skeleton needs to be a Bvh object')
-        
-        newnodes2idx = {}
-        for i, new_skel_node in enumerate(new_skel_nodes):
-            newnodes2idx[new_skel_node.name] = i
-        
-        nodes = copy.deepcopy(nodes)
-
-        for node in nodes:
-            try:
-                # we check if a node with the same name exists in the new skeleton 
-                new_node_offset = new_skel_nodes[newnodes2idx[node.name]].offset
-            except:
-                raise ValueError(f"Could not find the node {node.name} in the provided change_skeleton bvh object")
-            node.offset = new_node_offset
-
-        return nodes
-
-            

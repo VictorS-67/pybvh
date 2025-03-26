@@ -92,7 +92,7 @@ class Bvh:
     def __str__(self):
         count_joints =  0
         for node in self.nodes:
-            if 'End Site' not in node.name  : count_joints += 1 
+            if not node.is_end_site() : count_joints += 1 
         return f'{count_joints} elements in the Hierarchy, {self.frame_count} frames at a frequency of {self.frame_frequency:.6f}Hz'
         
     def __repr__(self):
@@ -108,6 +108,9 @@ class Bvh:
         frames_str = f'array(shape={self.frames.shape}, dtype={self.frames.dtype})'
         
         return f'Bvh(nodes={nodes_str}, frames={frames_str}, frame_frequency={self.frame_frequency:.6f})'
+    
+    def copy(self):
+        return copy.deepcopy(self)
 
     
     def _create_frame_template(self):
@@ -121,7 +124,7 @@ class Bvh:
         for ax in ['X', 'Y', 'Z']:
             frame_template += [f'{root.name}_{ax}_pos']
         for node in self.nodes:
-            if 'End Site' in node.name:
+            if node.is_end_site():
                 continue
             for ax in node.rot_channels:
                 frame_template += [f'{node.name}_{ax}_rot']
@@ -168,7 +171,7 @@ class Bvh:
         
         def rec_node_to_file(node, file = None, depth = 0):
             #end condition of the recurrence is reaching an End site
-            if 'End Site' in node.name :
+            if node.is_end_site():
                 print('\t'*depth + 'End Site', file=file)
                 print('\t'*depth + '{', file=file)
                 print('\t'*(depth+1) + offset_to_str(node), file=file)
@@ -209,7 +212,7 @@ class Bvh:
         #-------------- end of the write function
 
 
-    def get_spatial_coord(self, frame_num=-1, centered="world", change_skeleton=None):
+    def get_spatial_coord(self, frame_num=-1, centered="world"):
         """
         Obtain the spatial coordinates of the joints.
         The coordinates are given in the form of a numpy array.
@@ -235,36 +238,30 @@ class Bvh:
         
         return_one_frame = True
 
-        if (frame_num < -1) or (frame_num >= self.frame_count):
-            raise ValueError("frame_num needs to be -1 or a positive integer smaller than the total amount of frames in the bvh file.")
-
-        elif frame_num >= 0:
+        if (frame_num >= 0) and (frame_num < self.frame_count) :
             # the user wants only one frame
             # since it is only one frame, we don't care about the performance,
             # no need to check if the spatial coordinates are already calculated
-            frame = frame_to_spatial_coord(self, self.frames[frame_num], change_skeleton=change_skeleton)
+            frame = frame_to_spatial_coord(self, self.frames[frame_num])
 
-        elif (frame_num == -1) and (not self._has_spatial) and (change_skeleton == None):
-            # the user wants all the frames, with the same skeleton as the one in the bvh object
-            # we don't have already calculated and saved the spatial coordinates
+        elif (frame_num == -1) and (not self._has_spatial):
+            # the user wants all the frames, 
+            # and we don't have pre calculated spatial coordinates
             # then we calculate the frames in world coord, and we save them
             return_one_frame = False
-            frames_array = frames_to_spatial_coord(self, frames = self.frames, change_skeleton=change_skeleton)
+            frames_array = frames_to_spatial_coord(self, frames = self.frames)
             self._spatial_coord = frames_array.copy()
             self._has_spatial = True
         
-        elif (frame_num == -1) and (change_skeleton != None):
-            # the user wants all the frames, with a different skeleton than the one in the bvh object
-            # we need to calculate the frames in world coord, and we don't save them
-            return_one_frame = False
-            frames_array = frames_to_spatial_coord(self, frames = self.frames, change_skeleton=change_skeleton)
-        
-        elif (frame_num == -1) and self._has_spatial and (change_skeleton == None):
-            # the user wants all the frames, with the same skeleton as the one in the bvh object
-            # we have already calculated and saved all the spatial coordinates for the frames
+        elif (frame_num == -1) and self._has_spatial :
+            # the user wants all the frames
+            # and we have pre calculated spatial coordinates
             # (they are saved in world centered coordinates)
             return_one_frame = False
             frames_array = self._spatial_coord.copy()
+        
+        else:
+            raise ValueError("frame_num needs to be -1 or a positive integer smaller than the total amount of frames in the bvh file.")
             
         # we have the frame/frames, in world coordinates
         # now we need to center them as the user wants
@@ -371,15 +368,6 @@ class Bvh:
         """
         internal function called by self.get_df_constructor() in case its mode is 'coordinates'
         """
-        if centered == "skeleton":
-            #if skeleton centered coordinates
-            message = f"The coordinates in the dataFrame are centered on the skeleton."
-        elif centered == "first":
-            #if first frame coordinates
-            message = f"The coordinates in the dataFrame are centered on the first frame."
-        elif centered == "world":  
-            #if world coordinates
-            message = f"The coordinates in the dataFrame are in world coordinates."
         
         spatial_array = self.get_spatial_coord(centered=centered)
 
@@ -440,7 +428,104 @@ class Bvh:
         self.name2coord_idx = name2coord_idx
 
 
-    
+
+
+
+    def change_skeleton(self, new_skeleton, inplace=False):
+        """
+        Create new nodes with the offset equals to ones in the "new_skeleton" bvh object.
+        Input :
+        - use_skeleton : a Bvh object
+        - inplace : if True, the function will modify the nodes in place.
+                    if False, the function will return a new Bvh objects
+        Output : 
+        If inplace is True, the function returns None.
+        If inplace is False, the function returns a new Bvh object with the new skeleton
+        """
+        # need to check if the use_skeleton argument is a Bvh object first
+        try:
+            new_skel_nodes = new_skeleton.nodes
+            new_skel_root = new_skeleton.root
+            root_rot = new_skel_root.rot_channels
+        except:
+            raise ValueError('The argument use_skeleton needs to be a Bvh object')
+        
+        
+        newnodes2idx = {}
+        for i, new_skel_node in enumerate(new_skel_nodes):
+            newnodes2idx[new_skel_node.name] = i
+
+        if inplace:
+            nodes = self.nodes
+        else:
+            new_bvh = self.copy()
+            nodes = new_bvh.nodes
+        
+        for node in nodes:
+            try:
+                # we check if a node with the same name exists in the new skeleton 
+                new_node_offset = new_skel_nodes[newnodes2idx[node.name]].offset
+            except:
+                raise ValueError(f"Could not find the node {node.name} in the provided new_skeleton bvh object")
+            node.offset = new_node_offset
+
+        if inplace:
+            # reset the spatial coordinates if they were already calculated
+            self._has_spatial = False
+            self._spatial_coord = np.array([[]])
+            return None
+        else:
+            new_bvh._has_spatial = False
+            new_bvh._spatial_coord = np.array([[]])
+            return new_bvh
+
+    def scale_skeleton(self, scale, inplace=False):
+        """
+        Scale the offset of the nodes by a factor.
+        Input :
+        - nodes : a list of BvhNode objects
+        - scale : a float, or a list/np array of 3 floats
+        - inplace : if True, the function will modify the nodes in place.
+                    if False, the function will return a new Bvh objects
+                    with the scaled offset
+        Output :
+        If inplace is True, the function returns None.
+        If inplace is False, the function returns a new Bvh object with the scaled offset
+
+        We check if the scale argument is a float or a list/np array of 3 floats
+        """
+        if isinstance(scale, (int, float)):
+            scale = np.array([scale, scale, scale])
+        elif len(scale) == 3:
+            scale = np.array(scale)
+        else:
+            raise ValueError('The scale argument should be a float, or a list/np array of 3 floats')
+        
+        
+        if inplace:
+
+            # reset the spatial coordinates if they were already calculated
+            self._has_spatial = False
+            self._spatial_coord = np.array([[]])
+
+            for node in self.nodes:
+                node.offset = node.offset * scale
+            return None
+        
+        else:
+            new_bvh = self.copy()
+
+            # reset the spatial coordinates if they were already calculated
+            new_bvh._has_spatial = False
+            new_bvh._spatial_coord = np.array([[]])
+            for node in new_bvh.nodes:
+                node.offset = node.offset * scale
+            return new_bvh
+        
+
+
+
+        
 
     def single_joint_euler_angle(self, joint_name, order):
         """
@@ -448,7 +533,6 @@ class Bvh:
         and the new euler angle order (str eg.'XYZ' or list eg ['X', 'Y', 'Z']).
         It changes the euler angle of this joint for all frames.
         """
-        
 
         
 #---------------------------------------------------------------------------------

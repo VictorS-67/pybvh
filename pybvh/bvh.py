@@ -3,7 +3,7 @@ import numpy as np
 import copy
 
 from .bvhnode import BvhNode, BvhJoint, BvhRoot
-from .spatial_coord import frame_to_spatial_coord, frames_to_spatial_coord
+from .spatial_coord import frames_to_spatial_coord
 
 class Bvh:
     """
@@ -242,7 +242,7 @@ class Bvh:
             # the user wants only one frame
             # since it is only one frame, we don't care about the performance,
             # no need to check if the spatial coordinates are already calculated
-            frame = frame_to_spatial_coord(self, self.frames[frame_num])
+            frame = frames_to_spatial_coord(self, frames=self.frames[frame_num], centered="world")
 
         elif (frame_num == -1) and (not self._has_spatial):
             # the user wants all the frames, 
@@ -274,7 +274,7 @@ class Bvh:
         elif centered == "first":
             # for the first frame, we only use its root position and total length.
             # The change of the skeleton has no impact whatsoever
-            first_frame = frame_to_spatial_coord(self, self.frames[0])
+            first_frame = frames_to_spatial_coord(self, frames=self.frames[0], centered="world")
             if return_one_frame:
                 return frame - np.tile(first_frame[:3], int(len(first_frame)/3))
             else:
@@ -299,7 +299,7 @@ class Bvh:
         if mode == 'euler':
             return rest_angle
         elif mode == 'coordinates':
-            rest_coord = frame_to_spatial_coord(self, rest_angle, skel_centered=True)
+            rest_coord = frames_to_spatial_coord(self, frames=rest_angle, centered="skeleton")
             return rest_coord
         else:
             raise ValueError(f'The value {mode} is not recognized for the mode argument.\

@@ -414,7 +414,7 @@ class Bvh:
             if isinstance(node, BvhJoint):
                 hier_dict[node.name]['rot_channels'] = node.rot_channels
                 hier_dict[node.name]['children'] = [child.name for child in node.children]
-            hier_dict[node.name]['parent'] = 'None' if node.parent==None else node.parent.name
+            hier_dict[node.name]['parent'] = None if node.parent is None else node.parent.name
             
         return copy.deepcopy(hier_dict)
     

@@ -1,3 +1,4 @@
+.github/
+*/__pycache__/
 new_bvh.bvh
-pybvh/__pycache__/
 bvh_animation.mp4

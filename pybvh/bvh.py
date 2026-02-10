@@ -18,11 +18,6 @@ class Bvh:
         self.frame_count = len(self.frames)
         self.root = self.nodes[0]
 
-        self._has_spatial = False
-        # the spatial coordinates stored are always in world centered coordinates
-        # so the root position is the actual root position in the bvh file
-        self._spatial_coord = np.array([[]])
-
         if frame_template != []:
             self.frame_template = frame_template
         else:
@@ -216,6 +211,11 @@ class Bvh:
         """
         Obtain the spatial coordinates of the joints.
         The coordinates are given in the form of a numpy array.
+        
+        Note: This method always recomputes spatial coordinates. If you need to call
+        this repeatedly with the same data, cache the result yourself:
+            coords = bvh.get_spatial_coord(-1)  # compute once, reuse coords
+        
         Input :
         - frame_num : if -1 (default value) then all the frames will be returned
                         converted into spatial coordinates for the joints
@@ -235,55 +235,33 @@ class Bvh:
         if centered not in centered_options:
             raise ValueError(f'The value {centered} is not recognized for the centered argument.\
                              Currently recognized keywords are {centered_options}')
-        
-        return_one_frame = True
 
-        if (frame_num >= 0) and (frame_num < self.frame_count) :
-            # the user wants only one frame
-            # since it is only one frame, we don't care about the performance,
-            # no need to check if the spatial coordinates are already calculated
+        if (frame_num >= 0) and (frame_num < self.frame_count):
+            # Single frame requested
+            return_one_frame = True
             frame = frames_to_spatial_coord(self, frames=self.frames[frame_num], centered="world")
-
-        elif (frame_num == -1) and (not self._has_spatial):
-            # the user wants all the frames, 
-            # and we don't have pre calculated spatial coordinates
-            # then we calculate the frames in world coord, and we save them
+        elif frame_num == -1:
+            # All frames requested
             return_one_frame = False
-            frames_array = frames_to_spatial_coord(self, frames = self.frames)
-            self._spatial_coord = frames_array.copy()
-            self._has_spatial = True
-        
-        elif (frame_num == -1) and self._has_spatial :
-            # the user wants all the frames
-            # and we have pre calculated spatial coordinates
-            # (they are saved in world centered coordinates)
-            return_one_frame = False
-            frames_array = self._spatial_coord.copy()
-        
+            frames_array = frames_to_spatial_coord(self, frames=self.frames, centered="world")
         else:
             raise ValueError("frame_num needs to be -1 or a positive integer smaller than the total amount of frames in the bvh file.")
             
-        # we have the frame/frames, in world coordinates
-        # now we need to center them as the user wants
-            
-        if centered == "world" :
-            if return_one_frame:
-                return frame
-            else:
-                return frames_array
+        # Apply centering transformation
+        if centered == "world":
+            return frame if return_one_frame else frames_array
         elif centered == "first":
-            # for the first frame, we only use its root position and total length.
-            # The change of the skeleton has no impact whatsoever
             first_frame = frames_to_spatial_coord(self, frames=self.frames[0], centered="world")
+            offset = np.tile(first_frame[:3], len(first_frame) // 3)
             if return_one_frame:
-                return frame - np.tile(first_frame[:3], int(len(first_frame)/3))
+                return frame - offset
             else:
-                return frames_array - np.tile(first_frame[:3], int(len(first_frame)/3)) #broadcasting
+                return frames_array - offset
         elif centered == "skeleton":
             if return_one_frame:
-                return frame - np.tile(frame[:3], int(frame.shape[0]/3))
+                return frame - np.tile(frame[:3], len(frame) // 3)
             else:
-                return frames_array - np.tile(frames_array[:,:3], int(frames_array.shape[1]/3))
+                return frames_array - np.tile(frames_array[:, :3], frames_array.shape[1] // 3)
 
         
 

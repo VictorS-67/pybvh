@@ -4,6 +4,7 @@ import copy
 
 from .bvhnode import BvhNode, BvhJoint, BvhRoot
 from .spatial_coord import frames_to_spatial_coord
+from . import rotations
 
 class Bvh:
     """
@@ -501,16 +502,368 @@ class Bvh:
             return new_bvh
         
 
-
-
         
 
-    def single_joint_euler_angle(self, joint_name, order):
+    def single_joint_euler_angle(self, joint_name, new_order, inplace=True):
         """
-        This function takes as parameters the joint name to modify (str),
-        and the new euler angle order (str eg.'XYZ' or list eg ['X', 'Y', 'Z']).
-        It changes the euler angle of this joint for all frames.
+        Change the Euler angle order of a single joint for all frames.
+
+        Converts the joint's rotation data via rotation matrices so the
+        resulting Euler angles use the new order but represent the same
+        physical rotations.  Updates frames, frame_template and the node's
+        rot_channels atomically.
+
+        Parameters
+        ----------
+        joint_name : str
+            Name of the joint whose Euler order should be changed.
+        new_order : str or list of 3 chars
+            New rotation order, e.g. 'XYZ' or ['X', 'Y', 'Z'].
+        inplace : bool
+            If True, modify self and return None.
+            If False, return a modified copy while leaving self unchanged.
+
+        Returns
+        -------
+        None or Bvh
+            None if inplace, otherwise a new Bvh object.
         """
+        if isinstance(new_order, str):
+            new_order = list(new_order.upper())
+        else:
+            new_order = [c.upper() for c in new_order]
+
+        # Find the joint node
+        joint = None
+        for node in self.nodes:
+            if not node.is_end_site() and node.name == joint_name:
+                joint = node
+                break
+        if joint is None:
+            raise ValueError(f"Joint '{joint_name}' not found among non-end-site nodes.")
+
+        old_order = joint.rot_channels
+
+        # If the order is already the same, nothing to do
+        if old_order == new_order:
+            return None if inplace else self.copy()
+
+        target = self if inplace else self.copy()
+
+        # Find the column index in frames for this joint
+        col = 3  # skip root position columns
+        target_joint = None
+        for node in target.nodes:
+            if node.is_end_site():
+                continue
+            if node.name == joint_name:
+                target_joint = node
+                break
+            col += 3
+
+        # Convert: old Euler → rotmat → new Euler
+        angles_old = target.frames[:, col:col+3]  # (num_frames, 3) degrees
+        R = rotations.euler_to_rotmat(angles_old, old_order, degrees=True)
+        angles_new = rotations.rotmat_to_euler(R, new_order, degrees=True)
+
+        # Write new angles back
+        target.frames[:, col:col+3] = angles_new
+
+        # Update node's rot_channels
+        target_joint.rot_channels = new_order
+
+        # Rebuild frame_template to reflect the new channel order
+        target._create_frame_template()
+
+        if inplace:
+            return None
+        return target
+
+
+    def change_all_euler_orders(self, new_order, inplace=True):
+        """
+        Change the Euler angle order of ALL joints to a single unified order.
+
+        This is useful for ML pipelines that expect a consistent rotation
+        order across all joints.
+
+        Parameters
+        ----------
+        new_order : str or list of 3 chars
+            New rotation order, e.g. 'XYZ' or ['X', 'Y', 'Z'].
+        inplace : bool
+            If True, modify self and return None.
+            If False, return a modified copy while leaving self unchanged.
+
+        Returns
+        -------
+        None or Bvh
+            None if inplace, otherwise a new Bvh object.
+        """
+        if isinstance(new_order, str):
+            new_order_list = list(new_order.upper())
+        else:
+            new_order_list = [c.upper() for c in new_order]
+
+        target = self if inplace else self.copy()
+
+        col = 3  # skip root position columns
+        for node in target.nodes:
+            if node.is_end_site():
+                continue
+
+            old_order = node.rot_channels
+            if old_order != new_order_list:
+                angles_old = target.frames[:, col:col+3]
+                R = rotations.euler_to_rotmat(angles_old, old_order, degrees=True)
+                angles_new = rotations.rotmat_to_euler(R, new_order_list, degrees=True)
+                target.frames[:, col:col+3] = angles_new
+                node.rot_channels = new_order_list
+            col += 3
+
+        # Rebuild frame_template once at the end
+        target._create_frame_template()
+
+        if inplace:
+            return None
+        return target
+
+
+
+    def get_frames_as_rotmat(self):
+        """
+        Convert all per-joint Euler angles in self.frames to rotation matrices.
+
+        Returns
+        -------
+        root_pos : ndarray, shape (num_frames, 3)
+            Root position for each frame.
+        joint_rotmats : ndarray, shape (num_frames, num_joints, 3, 3)
+            Rotation matrix for each joint in each frame.
+            Joint order follows self.nodes (end sites excluded).
+        joints : list of BvhNode
+            Joint  to the second axis of joint_rotmats.
+        """
+        joints = [n for n in self.nodes if not n.is_end_site()]
+        num_joints = len(joints)
+        num_frames = self.frame_count
+
+        root_pos = self.frames[:, :3].copy()
+
+        joint_rotmats = np.empty((num_frames, num_joints, 3, 3), dtype=np.float64)
+
+        col = 3  # skip root position columns
+        for j_idx, joint in enumerate(joints):
+            angles = self.frames[:, col:col+3]  # (num_frames, 3) in degrees
+            order = joint.rot_channels
+            joint_rotmats[:, j_idx] = rotations.euler_to_rotmat(angles, order, degrees=True)
+            col += 3
+
+        return root_pos, joint_rotmats, joints
+
+
+    def get_frames_as_6d(self):
+        """
+        Convert all per-joint Euler angles to 6D rotation representation.
+
+        The 6D representation (Zhou et al., CVPR 2019) is continuous and
+        well-suited for neural network training.
+
+        Returns
+        -------
+        root_pos : ndarray, shape (num_frames, 3)
+            Root position for each frame.
+        joint_rot6d : ndarray, shape (num_frames, num_joints, 6)
+            6D rotation for each joint in each frame.
+            Joint order follows self.nodes (end sites excluded).
+        joints : list of BvhNode
+            Joint corresponding to the second axis of joint_rot6d.
+        """
+        root_pos, joint_rotmats, joints = self.get_frames_as_rotmat()
+        # (num_frames, num_joints, 3, 3) -> (num_frames, num_joints, 6)
+        joint_rot6d = rotations.rotmat_to_rot6d(joint_rotmats)
+        return root_pos, joint_rot6d, joints
+
+
+    def get_frames_as_quaternion(self):
+        """
+        Convert all per-joint Euler angles to quaternions.
+
+        Returns
+        -------
+        root_pos : ndarray, shape (num_frames, 3)
+            Root position for each frame.
+        joint_quats : ndarray, shape (num_frames, num_joints, 4)
+            Quaternion (w, x, y, z) for each joint in each frame.
+            Joint order follows self.nodes (end sites excluded).
+        joint : list of BvhNode
+            Joint corresponding to the second axis of joint_quats.
+        """
+        root_pos, joint_rotmats, joints = self.get_frames_as_rotmat()
+        # (num_frames, num_joints, 3, 3) -> (num_frames, num_joints, 4)
+        joint_quats = rotations.rotmat_to_quat(joint_rotmats)
+        return root_pos, joint_quats, joints
+
+
+    def get_frames_as_axisangle(self):
+        """
+        Convert all per-joint Euler angles to axis-angle vectors.
+
+        The axis-angle representation is the unit rotation axis scaled
+        by the rotation angle in radians.  Used in SMPL/SMPL-X body
+        models and many pose estimation pipelines.
+
+        Returns
+        -------
+        root_pos : ndarray, shape (num_frames, 3)
+            Root position for each frame.
+        joint_aa : ndarray, shape (num_frames, num_joints, 3)
+            Axis-angle vector for each joint in each frame.
+            Joint order follows self.nodes (end sites excluded).
+        joints : list of BvhNode
+            Joint corresponding to the second axis of joint_aa.
+        """
+        root_pos, joint_rotmats, joints = self.get_frames_as_rotmat()
+        # (num_frames, num_joints, 3, 3) -> (num_frames, num_joints, 3)
+        joint_aa = rotations.rotmat_to_axisangle(joint_rotmats)
+        return root_pos, joint_aa, joints
+
+
+    def set_frames_from_6d(self, root_pos, joint_rot6d):
+        """
+        Set self.frames from root positions and 6D rotation data.
+
+        Converts 6D rotations back to Euler angles using each joint's
+        rot_channels order, then writes into self.frames.
+
+        Parameters
+        ----------
+        root_pos : array_like, shape (num_frames, 3)
+            Root position per frame.
+        joint_rot6d : array_like, shape (num_frames, num_joints, 6)
+            6D rotation per joint per frame.
+            Joint order must match self.nodes (end sites excluded).
+        """
+        root_pos = np.asarray(root_pos, dtype=np.float64)
+        joint_rot6d = np.asarray(joint_rot6d, dtype=np.float64)
+
+        joints = [n for n in self.nodes if not n.is_end_site()]
+        num_joints = len(joints)
+        num_frames = root_pos.shape[0]
+
+        if joint_rot6d.shape[1] != num_joints:
+            raise ValueError(
+                f"Expected {num_joints} joints in joint_rot6d, "
+                f"got {joint_rot6d.shape[1]}")
+
+        # Convert 6D -> rotation matrices -> Euler angles per joint
+        joint_rotmats = rotations.rot6d_to_rotmat(joint_rot6d)
+        # joint_rotmats shape: (num_frames, num_joints, 3, 3)
+
+        num_channels = 3 + num_joints * 3  # root_pos(3) + 3 per joint
+        new_frames = np.empty((num_frames, num_channels), dtype=np.float64)
+        new_frames[:, :3] = root_pos
+
+        col = 3
+        for j_idx, joint in enumerate(joints):
+            order = joint.rot_channels
+            euler = rotations.rotmat_to_euler(
+                joint_rotmats[:, j_idx], order, degrees=True)
+            new_frames[:, col:col+3] = euler
+            col += 3
+
+        self.frames = new_frames
+        self.frame_count = num_frames
+
+
+    def set_frames_from_quaternion(self, root_pos, joint_quats):
+        """
+        Set self.frames from root positions and quaternion data.
+
+        Converts quaternions back to Euler angles using each joint's
+        rot_channels order, then writes into self.frames.
+
+        Parameters
+        ----------
+        root_pos : array_like, shape (num_frames, 3)
+            Root position per frame.
+        joint_quats : array_like, shape (num_frames, num_joints, 4)
+            Quaternion (w, x, y, z) per joint per frame.
+            Joint order must match self.nodes (end sites excluded).
+        """
+        root_pos = np.asarray(root_pos, dtype=np.float64)
+        joint_quats = np.asarray(joint_quats, dtype=np.float64)
+
+        joints = [n for n in self.nodes if not n.is_end_site()]
+        num_joints = len(joints)
+        num_frames = root_pos.shape[0]
+
+        if joint_quats.shape[1] != num_joints:
+            raise ValueError(
+                f"Expected {num_joints} joints in joint_quats, "
+                f"got {joint_quats.shape[1]}")
+
+        joint_rotmats = rotations.quat_to_rotmat(joint_quats)
+
+        num_channels = 3 + num_joints * 3
+        new_frames = np.empty((num_frames, num_channels), dtype=np.float64)
+        new_frames[:, :3] = root_pos
+
+        col = 3
+        for j_idx, joint in enumerate(joints):
+            order = joint.rot_channels
+            euler = rotations.rotmat_to_euler(
+                joint_rotmats[:, j_idx], order, degrees=True)
+            new_frames[:, col:col+3] = euler
+            col += 3
+
+        self.frames = new_frames
+        self.frame_count = num_frames
+
+
+    def set_frames_from_axisangle(self, root_pos, joint_aa):
+        """
+        Set self.frames from root positions and axis-angle data.
+
+        Converts axis-angle vectors back to Euler angles using each joint's
+        rot_channels order, then writes into self.frames.
+
+        Parameters
+        ----------
+        root_pos : array_like, shape (num_frames, 3)
+            Root position per frame.
+        joint_aa : array_like, shape (num_frames, num_joints, 3)
+            Axis-angle vector per joint per frame.
+            Joint order must match self.nodes (end sites excluded).
+        """
+        root_pos = np.asarray(root_pos, dtype=np.float64)
+        joint_aa = np.asarray(joint_aa, dtype=np.float64)
+
+        joints = [n for n in self.nodes if not n.is_end_site()]
+        num_joints = len(joints)
+        num_frames = root_pos.shape[0]
+
+        if joint_aa.shape[1] != num_joints:
+            raise ValueError(
+                f"Expected {num_joints} joints in joint_aa, "
+                f"got {joint_aa.shape[1]}")
+
+        joint_rotmats = rotations.axisangle_to_rotmat(joint_aa)
+
+        num_channels = 3 + num_joints * 3
+        new_frames = np.empty((num_frames, num_channels), dtype=np.float64)
+        new_frames[:, :3] = root_pos
+
+        col = 3
+        for j_idx, joint in enumerate(joints):
+            order = joint.rot_channels
+            euler = rotations.rotmat_to_euler(
+                joint_rotmats[:, j_idx], order, degrees=True)
+            new_frames[:, col:col+3] = euler
+            col += 3
+
+        self.frames = new_frames
+        self.frame_count = num_frames
 
         
 #---------------------------------------------------------------------------------

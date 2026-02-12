@@ -17,7 +17,6 @@ See the jupyter file 'tutorial' for example of use.
 ## Installation
 - Stable release from PyPI: `pip install pybvh`
 - With pandas helpers (optional): `pip install "pybvh[pandas]"`
-- For development/tests: `pip install "pybvh[dev]"`
 
 ## Notes about data and notebooks
 - Example BVH files and tutorial notebooks are **not** bundled in the PyPI package to keep the wheel slim.

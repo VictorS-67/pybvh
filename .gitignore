@@ -1,4 +1,7 @@
-.github/
+.gitignore
+.*
 */__pycache__/
 new_bvh.bvh
 bvh_animation.mp4
+dist/
+pybvh.egg-info/

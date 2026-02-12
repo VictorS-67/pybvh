@@ -14,6 +14,15 @@ Through the use of this object, it is easy to read and write a bvh file, but als
 
 See the jupyter file 'tutorial' for example of use.
 
+## Installation
+- Stable release from PyPI: `pip install pybvh`
+- With pandas helpers (optional): `pip install "pybvh[pandas]"`
+- For development/tests: `pip install "pybvh[dev]"`
+
+## Notes about data and notebooks
+- Example BVH files and tutorial notebooks are **not** bundled in the PyPI package to keep the wheel slim.
+- You can find the sample BVH data and notebooks in the GitHub repository under `bvh_data/` and `tutorials/`.
+
 ### Curent functionality
 - Bvh class
     - parameters : 

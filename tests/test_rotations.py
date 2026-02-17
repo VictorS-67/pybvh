@@ -344,26 +344,34 @@ class TestBvhRotationMethods:
         assert len(joints) == num_joints
 
     def test_6d_roundtrip_through_bvh(self, bvh_example):
-        """Bvh → 6D → set_frames_from_6d should preserve frames."""
-        original_frames = bvh_example.frames.copy()
+        """Bvh → 6D → set_frames_from_6d should preserve data."""
+        original_root_pos = bvh_example.root_pos.copy()
+        original_joint_angles = bvh_example.joint_angles.copy()
 
         root_pos, joint_rot6d, _ = bvh_example.get_frames_as_6d()
         bvh_example.set_frames_from_6d(root_pos, joint_rot6d)
 
         np.testing.assert_allclose(
-            bvh_example.frames, original_frames, atol=1e-6,
-            err_msg="6D round-trip did not preserve frames")
+            bvh_example.root_pos, original_root_pos, atol=1e-6,
+            err_msg="6D round-trip did not preserve root_pos")
+        np.testing.assert_allclose(
+            bvh_example.joint_angles, original_joint_angles, atol=1e-6,
+            err_msg="6D round-trip did not preserve joint_angles")
 
     def test_quaternion_roundtrip_through_bvh(self, bvh_example):
-        """Bvh → quaternion → set_frames_from_quaternion should preserve frames."""
-        original_frames = bvh_example.frames.copy()
+        """Bvh → quaternion → set_frames_from_quaternion should preserve data."""
+        original_root_pos = bvh_example.root_pos.copy()
+        original_joint_angles = bvh_example.joint_angles.copy()
 
         root_pos, joint_quats, _ = bvh_example.get_frames_as_quaternion()
         bvh_example.set_frames_from_quaternion(root_pos, joint_quats)
 
         np.testing.assert_allclose(
-            bvh_example.frames, original_frames, atol=1e-6,
-            err_msg="Quaternion round-trip did not preserve frames")
+            bvh_example.root_pos, original_root_pos, atol=1e-6,
+            err_msg="Quaternion round-trip did not preserve root_pos")
+        np.testing.assert_allclose(
+            bvh_example.joint_angles, original_joint_angles, atol=1e-6,
+            err_msg="Quaternion round-trip did not preserve joint_angles")
 
     def test_6d_preserves_spatial_coords(self, bvh_example):
         """Spatial coordinates should be the same after 6D round-trip."""
@@ -391,14 +399,14 @@ class TestBvhRotationMethods:
 
     def test_set_frames_from_6d_wrong_joints_raises(self, bvh_example):
         """set_frames_from_6d with wrong number of joints should raise."""
-        root_pos = bvh_example.frames[:, :3]
+        root_pos = bvh_example.root_pos
         wrong_6d = np.zeros((56, 5, 6))  # wrong number of joints
         with pytest.raises(ValueError):
             bvh_example.set_frames_from_6d(root_pos, wrong_6d)
 
     def test_set_frames_from_quaternion_wrong_joints_raises(self, bvh_example):
         """set_frames_from_quaternion with wrong number of joints should raise."""
-        root_pos = bvh_example.frames[:, :3]
+        root_pos = bvh_example.root_pos
         wrong_quats = np.zeros((56, 5, 4))
         with pytest.raises(ValueError):
             bvh_example.set_frames_from_quaternion(root_pos, wrong_quats)
@@ -892,13 +900,17 @@ class TestBvhAxisAngleMethods:
         assert len(joints) == num_joints
 
     def test_axisangle_roundtrip_through_bvh(self, bvh_example):
-        """Bvh → axis-angle → set_frames_from_axisangle should preserve frames."""
-        original_frames = bvh_example.frames.copy()
+        """Bvh → axis-angle → set_frames_from_axisangle should preserve data."""
+        original_root_pos = bvh_example.root_pos.copy()
+        original_joint_angles = bvh_example.joint_angles.copy()
         root_pos, joint_aa, _ = bvh_example.get_frames_as_axisangle()
         bvh_example.set_frames_from_axisangle(root_pos, joint_aa)
         np.testing.assert_allclose(
-            bvh_example.frames, original_frames, atol=1e-6,
-            err_msg="Axis-angle round-trip did not preserve frames")
+            bvh_example.root_pos, original_root_pos, atol=1e-6,
+            err_msg="Axis-angle round-trip did not preserve root_pos")
+        np.testing.assert_allclose(
+            bvh_example.joint_angles, original_joint_angles, atol=1e-6,
+            err_msg="Axis-angle round-trip did not preserve joint_angles")
 
     def test_axisangle_preserves_spatial_coords(self, bvh_example):
         """Spatial coordinates should be the same after axis-angle round-trip."""
@@ -917,7 +929,7 @@ class TestBvhAxisAngleMethods:
 
     def test_set_frames_from_axisangle_wrong_joints_raises(self, bvh_example):
         """set_frames_from_axisangle with wrong number of joints should raise."""
-        root_pos = bvh_example.frames[:, :3]
+        root_pos = bvh_example.root_pos
         wrong_aa = np.zeros((56, 5, 3))
         with pytest.raises(ValueError):
             bvh_example.set_frames_from_axisangle(root_pos, wrong_aa)
@@ -978,34 +990,34 @@ class TestEulerOrderConversion:
 
         np.testing.assert_allclose(spatial_after, spatial_before, atol=1e-4)
 
-    def test_single_joint_updates_frame_template(self, bvh_example):
-        """frame_template should reflect the new channel order."""
+    def test_single_joint_updates_euler_column_names(self, bvh_example):
+        """euler_column_names should reflect the new channel order."""
         bvh = bvh_example.copy()
         bvh.single_joint_euler_angle('Spine', 'XYZ', inplace=True)
 
-        # Find Spine columns in frame_template
-        spine_cols = [c for c in bvh.frame_template if c.startswith('Spine_') and c.endswith('_rot')]
+        # Find Spine columns in euler_column_names
+        spine_cols = [c for c in bvh.euler_column_names if c.startswith('Spine_') and c.endswith('_rot')]
         assert spine_cols == ['Spine_X_rot', 'Spine_Y_rot', 'Spine_Z_rot']
 
     def test_single_joint_same_order_noop(self, bvh_example):
         """Passing the same order should be a no-op."""
         bvh = bvh_example.copy()
-        original_frames = bvh.frames.copy()
+        original_joint_angles = bvh.joint_angles.copy()
         for n in bvh.nodes:
             if n.name == 'Spine' and not n.is_end_site():
                 current_order = n.rot_channels
                 break
         bvh.single_joint_euler_angle('Spine', current_order, inplace=True)
-        np.testing.assert_allclose(bvh.frames, original_frames, atol=1e-14)
+        np.testing.assert_allclose(bvh.joint_angles, original_joint_angles, atol=1e-14)
 
     def test_single_joint_not_inplace(self, bvh_example):
         """inplace=False should return a new Bvh, leaving original unchanged."""
         bvh = bvh_example.copy()
-        original_frames = bvh.frames.copy()
+        original_joint_angles = bvh.joint_angles.copy()
         result = bvh.single_joint_euler_angle('Spine', 'XYZ', inplace=False)
 
         # Original should be unchanged
-        np.testing.assert_allclose(bvh.frames, original_frames)
+        np.testing.assert_allclose(bvh.joint_angles, original_joint_angles)
         for n in bvh.nodes:
             if n.name == 'Spine' and not n.is_end_site():
                 assert n.rot_channels != ['X', 'Y', 'Z'] or n.rot_channels == ['X', 'Y', 'Z']
@@ -1053,13 +1065,13 @@ class TestEulerOrderConversion:
 
         np.testing.assert_allclose(rotmats_after, rotmats_before, atol=1e-10)
 
-    def test_change_all_frame_template_consistent(self, bvh_example):
-        """frame_template should be consistent after changing all orders."""
+    def test_change_all_euler_column_names_consistent(self, bvh_example):
+        """euler_column_names should be consistent after changing all orders."""
         bvh = bvh_example.copy()
         bvh.change_all_euler_orders('XYZ', inplace=True)
 
         # All rotation columns should now be X, Y, Z ordered
-        rot_cols = [c for c in bvh.frame_template if c.endswith('_rot')]
+        rot_cols = [c for c in bvh.euler_column_names if c.endswith('_rot')]
         for i in range(0, len(rot_cols), 3):
             triple = rot_cols[i:i+3]
             joint = triple[0].rsplit('_', 2)[0]
@@ -1068,11 +1080,11 @@ class TestEulerOrderConversion:
     def test_change_all_not_inplace(self, bvh_example):
         """inplace=False should return a new Bvh without modifying original."""
         bvh = bvh_example.copy()
-        original_frames = bvh.frames.copy()
+        original_joint_angles = bvh.joint_angles.copy()
         result = bvh.change_all_euler_orders('XYZ', inplace=False)
 
         # Original unchanged
-        np.testing.assert_allclose(bvh.frames, original_frames)
+        np.testing.assert_allclose(bvh.joint_angles, original_joint_angles)
 
         # Result has new orders
         for node in result.nodes:
@@ -1080,9 +1092,9 @@ class TestEulerOrderConversion:
                 assert node.rot_channels == ['X', 'Y', 'Z']
 
     def test_double_conversion_roundtrip(self, bvh_example):
-        """Converting all to XYZ then back to ZYX should recover original frames."""
+        """Converting all to XYZ then back to ZYX should recover original data."""
         bvh = bvh_example.copy()
-        original_frames = bvh.frames.copy()
+        original_joint_angles = bvh.joint_angles.copy()
 
         # Get original orders before conversion
         original_orders = {}
@@ -1097,7 +1109,7 @@ class TestEulerOrderConversion:
             if not n.is_end_site() and n.name in original_orders:
                 bvh.single_joint_euler_angle(n.name, original_orders[n.name], inplace=True)
 
-        np.testing.assert_allclose(bvh.frames, original_frames, atol=1e-8)
+        np.testing.assert_allclose(bvh.joint_angles, original_joint_angles, atol=1e-8)
 
     def test_bvh_file_roundtrip_after_conversion(self, bvh_example, tmp_path):
         """Write → re-read should preserve the converted Euler orders."""
@@ -1115,4 +1127,5 @@ class TestEulerOrderConversion:
                 assert node.rot_channels == ['X', 'Y', 'Z'], \
                     f"Joint {node.name} has order {node.rot_channels} after reload"
 
-        np.testing.assert_allclose(bvh_reloaded.frames, bvh.frames, atol=1e-4)
+        np.testing.assert_allclose(bvh_reloaded.root_pos, bvh.root_pos, atol=1e-4)
+        np.testing.assert_allclose(bvh_reloaded.joint_angles, bvh.joint_angles, atol=1e-4)

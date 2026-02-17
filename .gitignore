@@ -1,7 +1,38 @@
-.gitignore
-.*
+# --- Build & Distribution ---
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# --- Python Bytecode (compiled files) ---
+__pycache__/
 */__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Virtual Environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Testing ---
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# --- IDE & Editor Settings (Optional but recommended) ---
+.vscode/
+.idea/
+*.swp
+
+# --- Mac OS Specific (junk files) ---
+.DS_Store
+
+# --- Project Specific ---
+.*
 new_bvh.bvh
 bvh_animation.mp4
-dist/
 pybvh.egg-info/

@@ -504,7 +504,7 @@ class Bvh:
 
         
 
-    def single_joint_euler_angle(self, joint_name, new_order, inplace=True):
+    def single_joint_euler_angle(self, joint, new_order, inplace=True):
         """
         Change the Euler angle order of a single joint for all frames.
 
@@ -515,8 +515,8 @@ class Bvh:
 
         Parameters
         ----------
-        joint_name : str
-            Name of the joint whose Euler order should be changed.
+        joint : str or BvhNode
+            Name of the joint or the BvhNode object itself whose Euler order should be changed.
         new_order : str or list of 3 chars
             New rotation order, e.g. 'XYZ' or ['X', 'Y', 'Z'].
         inplace : bool
@@ -534,6 +534,13 @@ class Bvh:
             new_order = [c.upper() for c in new_order]
 
         # Find the joint node
+        if isinstance(joint, BvhNode):
+            joint_name = joint.name
+        elif isinstance(joint, str):
+            joint_name = joint
+        else:
+            raise ValueError("joint should be a string (joint name) or a BvhNode object")
+
         joint = None
         for node in self.nodes:
             if not node.is_end_site() and node.name == joint_name:
@@ -642,7 +649,7 @@ class Bvh:
             Rotation matrix for each joint in each frame.
             Joint order follows self.nodes (end sites excluded).
         joints : list of BvhNode
-            Joint  to the second axis of joint_rotmats.
+            Joint corresponding to the second axis of joint_rotmats.
         """
         joints = [n for n in self.nodes if not n.is_end_site()]
         num_joints = len(joints)
@@ -696,7 +703,7 @@ class Bvh:
         joint_quats : ndarray, shape (num_frames, num_joints, 4)
             Quaternion (w, x, y, z) for each joint in each frame.
             Joint order follows self.nodes (end sites excluded).
-        joint : list of BvhNode
+        joints : list of BvhNode
             Joint corresponding to the second axis of joint_quats.
         """
         root_pos, joint_rotmats, joints = self.get_frames_as_rotmat()

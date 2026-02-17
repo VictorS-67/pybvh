@@ -1,202 +1,193 @@
 import numpy as np
 from .tools import get_premult_mat_rot
+from .bvhnode import BvhNode
 
 
-def frames_to_spatial_coord(nodes_container, frames=None, centered="world"):
+def frames_to_spatial_coord(nodes_container, root_pos=None, joint_angles=None, centered="world"):
     """
-    Return spatial coordinates of all joints for one or multiple frames.
-    
-    Input:
-    - nodes_container : a Bvh object or a list of Bvh nodes 
-                        (as obtained from bvh_object.nodes)
-    - frames : Can be:
-               - None or empty: use frames from the Bvh object (nodes_container must be Bvh)
-               - 1D np array: single frame of euler angles
-               - 2D np array: multiple frames of euler angles
-               - int: frame index (only if nodes_container is a Bvh object)
-    - centered : a string that can be either "skeleton", "first", or "world".
-                If "skeleton", the root coordinates are [0, 0, 0] in ALL frames.
-                If "first", the first frame root position is [0, 0, 0], then moves normally.
-                If "world", the root coordinates are the actual saved coordinates.
-    
-    Returns:
-    - 1D np array if single frame input, 2D np array if multiple frames
+    Return spatial coordinates of all nodes for one or multiple frames.
+
+    Parameters
+    ----------
+    nodes_container : Bvh or list of BvhNode
+        A Bvh object or a list of Bvh nodes (as obtained from bvh_object.nodes).
+    root_pos : ndarray, shape (F, 3) or (3,), optional
+        Root position per frame.  If None, extracted from *nodes_container*
+        (which must then be a Bvh object).
+    joint_angles : ndarray, shape (F, J, 3) or (J, 3), optional
+        Euler angles in degrees per joint per frame.  If None, extracted
+        from *nodes_container*.
+    centered : str
+        ``"world"``  – root at its actual position.
+        ``"skeleton"`` – root at origin in every frame.
+        ``"first"`` – root at origin in the first frame, then moves normally.
+
+    Returns
+    -------
+    ndarray, shape (F, N, 3) or (N, 3)
+        Spatial coordinates for all nodes (including end sites).
+        Returns 2-D ``(N, 3)`` when a single frame is provided,
+        3-D ``(F, N, 3)`` otherwise.
     """
     accepted_centered = ["skeleton", "first", "world"]
     if centered not in accepted_centered:
         raise ValueError(f"centered argument must be one of {accepted_centered}.")
 
     # Resolve nodes_container to a list of nodes
-    nodes, nodes_from_bvh = _nodes_container_to_nodes_list(nodes_container)
-    
-    # Handle frames input - normalize to 2D array
+    nodes, is_bvh = _nodes_container_to_nodes_list(nodes_container)
+
+    # ---- obtain root_pos / joint_angles ----
     single_frame = False
-    
-    if frames is None or (isinstance(frames, (list, np.ndarray)) and len(frames) == 0):
-        # No frames provided - get from Bvh object
-        if not nodes_from_bvh:
-            raise ValueError("The argument frames cannot be empty if nodes_container is not a Bvh object")
-        frames = nodes_container.frames
-    elif isinstance(frames, int):
-        # Frame index provided
-        if not nodes_from_bvh:
-            raise ValueError("frames cannot be an int if nodes_container is not a Bvh object.")
-        frames = nodes_container.frames[frames:frames+1]  # Keep as 2D with 1 row
+
+    if root_pos is None or joint_angles is None:
+        if not is_bvh:
+            raise ValueError(
+                "root_pos and joint_angles must be provided when "
+                "nodes_container is not a Bvh object.")
+        root_pos = nodes_container.root_pos
+        joint_angles = nodes_container.joint_angles
+
+    root_pos = np.asarray(root_pos, dtype=np.float64)
+    joint_angles = np.asarray(joint_angles, dtype=np.float64)
+
+    if root_pos.ndim == 1:
+        root_pos = root_pos.reshape(1, 3)
         single_frame = True
-    elif isinstance(frames, np.ndarray):
-        if frames.ndim == 1:
-            frames = frames.reshape(1, -1)  # Convert 1D to 2D with 1 row
-            single_frame = True
-        # else: already 2D, keep as-is
+    if joint_angles.ndim == 2:
+        joint_angles = joint_angles.reshape(1, *joint_angles.shape)
 
-    # -- From here, frames is always a 2D np array --
-    
-    num_frames = frames.shape[0]
+    # -- From here, root_pos is (F, 3) and joint_angles is (F, J, 3) --
+
+    num_frames = root_pos.shape[0]
     num_nodes = len(nodes)
-    root = nodes[0]
     skel_centered = (centered == "skeleton")
-    
-    # Pre-allocate output array
-    output = np.empty((num_frames, num_nodes * 3))
-    
+
+    # Pre-allocate output: (F, N, 3)
+    output = np.empty((num_frames, num_nodes, 3))
+
     # Build helper dicts ONCE (reused across all frames)
-    node2frameidx = {}
-    node2outidx = {}
-    
-    i = 1  # frame column index (skip root position columns)
-    out_idx = 0
-    for node in nodes:
-        node2outidx[node.name] = out_idx
-        out_idx += 3
+    node2jointidx = {}
+    node2nodeidx = {}
+    j_idx = 0
+    for n_idx, node in enumerate(nodes):
+        node2nodeidx[node.name] = n_idx
         if not node.is_end_site():
-            node2frameidx[node.name] = [3*i, 1+3*i, 2+3*i]
-            i += 1
+            node2jointidx[node.name] = j_idx
+            j_idx += 1
 
-    # Convert ALL angles to radians at once (vectorized)
-    all_frame_angles = np.radians(frames)
-    
-    # Extract all root positions at once
-    root_pos_all = frames[:, :3]
+    # Convert ALL angles to radians at once
+    all_angles_rad = np.radians(joint_angles)
 
-    # Create nodes_transfo dict ONCE (values get overwritten each frame, no reset needed)
-    nodes_transfo = {node.name: {'spatial_coor': None, 'acc_rot_mat': None} 
+    # Reusable dict for accumulated transforms
+    nodes_transfo = {node.name: {'spatial_coor': None, 'acc_rot_mat': None}
                      for node in nodes}
 
     # Process each frame
     for frame_idx in range(num_frames):
-        frame_angles = all_frame_angles[frame_idx]
-        frame_output = output[frame_idx]  # View into output row (writes in-place)
-        
-        _fill_spatial_coords_rec(root, frame_output, nodes_transfo, 
-                                  node2frameidx, node2outidx, frame_angles)
-        
+        frame_angles = all_angles_rad[frame_idx]  # (J, 3)
+        frame_output = output[frame_idx]           # (N, 3) view
+
+        _fill_spatial_coords_rec(nodes[0], frame_output, nodes_transfo,
+                                 node2jointidx, node2nodeidx, frame_angles)
+
         # Add root position if not skeleton-centered
         if not skel_centered:
-            frame_output += np.tile(root_pos_all[frame_idx], num_nodes)
+            frame_output += root_pos[frame_idx]  # (3,) broadcasts over (N, 3)
 
-    # Handle "first" centering mode - subtract first frame's root position
+    # Handle "first" centering mode – subtract first frame's root position
     if centered == "first":
-        first_root_pos = output[0, :3]
-        output -= np.tile(first_root_pos, num_nodes)
+        output -= output[0:1, 0:1, :]  # (1,1,3) broadcasts over (F,N,3)
 
-    # Return 1D for single frame, 2D for multiple frames
+    # Return (N, 3) for single frame, (F, N, 3) for multiple
     if single_frame:
         return output[0]
     return output
 
 
-def frame_to_spatial_coord(nodes_container, frame, skel_centered=False, nodes_from_bvh=None):
+def _fill_spatial_coords_rec(node, output, nodes_transfo,
+                              node2jointidx, node2nodeidx, frame_angles,
+                              isroot=True):
     """
-    Return a 1D np array of spatial coordinates for a single frame.
-    
-    This is a backwards-compatible wrapper around frames_to_spatial_coord.
-    
-    Input:
-    - nodes_container : a Bvh object or a list of Bvh nodes
-    - frame : 1D np array of euler angles, or an int frame index (if nodes_container is Bvh)
-    - skel_centered : boolean. If True, root at [0,0,0]. If False, root at actual position.
-    - nodes_from_bvh : deprecated, kept for compatibility (ignored)
-    
-    Returns:
-    - 1D np array of spatial coordinates
-    """
-    centered = "skeleton" if skel_centered else "world"
-    return frames_to_spatial_coord(nodes_container, frames=frame, centered=centered)
+    Recursively compute spatial coordinates for one frame.
 
+    Writes directly into *output[node_index]*.
 
-def _fill_spatial_coords_rec(node, output, nodes_transfo, node2frameidx, node2outidx, frame_angles, isroot=True):
+    Parameters
+    ----------
+    node : BvhNode
+        Current node being processed.
+    output : ndarray, shape (N, 3)
+        Pre-allocated output array for one frame.
+    nodes_transfo : dict
+        Accumulated rotation matrices and spatial coordinates per node.
+    node2jointidx : dict
+        Maps node name → joint index in *frame_angles*.
+    node2nodeidx : dict
+        Maps node name → row index in *output*.
+    frame_angles : ndarray, shape (J, 3)
+        Euler angles in radians for one frame.
+    isroot : bool
+        Whether this is the root node.
     """
-    Recursively fill the pre-allocated output array with spatial coordinates.
-    Writes directly to output[node2outidx[node.name]:node2outidx[node.name]+3].
-    
-    Input:
-    - node : a bvh node object (contains offset and channel of the node)
-    - output : pre-allocated numpy array to write coordinates into
-    - nodes_transfo : a nested dict containing the spatial coordinates and 
-                      accumulated rotation matrices for each node
-    - node2frameidx : dict mapping node name to frame angle indices
-    - node2outidx : dict mapping node name to output array start index
-    - frame_angles : 1D array of euler angles (in radians) for one frame
-    - isroot : boolean indicating if this is the root node
-
-    The spatial coordinate formula is:
-    R[root] @ ... @ R[direct parent] @ node_offset + parent_spatial_coordinates
-    """
-    out_idx = node2outidx[node.name]
+    n_idx = node2nodeidx[node.name]
 
     if node.is_end_site():
-        # Terminal node - compute coord from parent's transform
         parent_info = nodes_transfo[node.parent.name]
         coord = parent_info['acc_rot_mat'] @ node.offset + parent_info['spatial_coor']
         nodes_transfo[node.name]['spatial_coor'] = coord
-        output[out_idx:out_idx+3] = coord
+        output[n_idx] = coord
         return
-    
+
     elif isroot:
-        # Root node - spatial coord at origin, compute rotation matrix
         coord = np.array([0.0, 0.0, 0.0])
         nodes_transfo[node.name]['spatial_coor'] = coord
-        node_angles = frame_angles[node2frameidx[node.name]]
-        nodes_transfo[node.name]['acc_rot_mat'] = get_premult_mat_rot(node_angles, node.rot_channels)
-        output[out_idx:out_idx+3] = coord
-        
+        j_idx = node2jointidx[node.name]
+        node_angles = frame_angles[j_idx]
+        nodes_transfo[node.name]['acc_rot_mat'] = get_premult_mat_rot(
+            node_angles, node.rot_channels)
+        output[n_idx] = coord
+
         for child_node in node.children:
-            _fill_spatial_coords_rec(child_node, output, nodes_transfo, node2frameidx, node2outidx, frame_angles, isroot=False)
+            _fill_spatial_coords_rec(child_node, output, nodes_transfo,
+                                      node2jointidx, node2nodeidx,
+                                      frame_angles, isroot=False)
         return
-    
+
     else:
-        # Interior node - compute from parent's accumulated transform
         parent_info = nodes_transfo[node.parent.name]
         coord = parent_info['acc_rot_mat'] @ node.offset + parent_info['spatial_coor']
         nodes_transfo[node.name]['spatial_coor'] = coord
-        node_angles = frame_angles[node2frameidx[node.name]]
-        nodes_transfo[node.name]['acc_rot_mat'] = parent_info['acc_rot_mat'] @ get_premult_mat_rot(node_angles, node.rot_channels)
-        output[out_idx:out_idx+3] = coord
-        
+        j_idx = node2jointidx[node.name]
+        node_angles = frame_angles[j_idx]
+        nodes_transfo[node.name]['acc_rot_mat'] = (
+            parent_info['acc_rot_mat'] @ get_premult_mat_rot(
+                node_angles, node.rot_channels))
+        output[n_idx] = coord
+
         for child_node in node.children:
-            _fill_spatial_coords_rec(child_node, output, nodes_transfo, node2frameidx, node2outidx, frame_angles, isroot=False)
+            _fill_spatial_coords_rec(child_node, output, nodes_transfo,
+                                      node2jointidx, node2nodeidx,
+                                      frame_angles, isroot=False)
         return
 
 
 def _nodes_container_to_nodes_list(nodes_container):
     """
-    Input : a Bvh object or a list of Bvh nodes
-    Output : 
-     - a list of Bvh nodes
-     - a bool that indicates if the nodes are from a Bvh object or not
+    Resolve a Bvh object or list of nodes into a plain list of nodes.
+
+    Returns
+    -------
+    nodes : list of BvhNode
+        The list of nodes.
+    is_bvh : bool
+        True if *nodes_container* is a Bvh object (has root_pos / joint_angles).
     """
-    from_bvh = True
-    try:
-        nodes = nodes_container.nodes
-        root = nodes_container.root
-        pos = root.pos_channels
-    except:
-        from_bvh = False
-        try:
-            nodes = nodes_container
-            root = nodes_container[0]
-            pos = root.pos_channels
-        except:
-            raise ValueError('The nodes container needs to be either a Bvh object, or a list of Bvh nodes (as obtained from bvh_object.nodes for ex)')
-    
-    return nodes, from_bvh
+    if hasattr(nodes_container, 'nodes') and hasattr(nodes_container, 'root_pos'):
+        return nodes_container.nodes, True
+    elif isinstance(nodes_container, list):
+        if not all(isinstance(n, BvhNode) for n in nodes_container):
+            raise ValueError('The list must contain BvhNode objects.')
+        return nodes_container, False
+    else:
+        raise ValueError(
+            'nodes_container must be a Bvh object or a list of BvhNode objects.')

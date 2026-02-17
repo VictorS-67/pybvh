@@ -69,7 +69,7 @@ Public API surface. Exports:
 from .bvh import Bvh
 from .read_bvh_file import read_bvh_file
 from .df_to_bvh import df_to_bvh
-from .spatial_coord import frame_to_spatial_coord, frames_to_spatial_coord
+from .spatial_coord import frames_to_spatial_coord
 from . import plot
 from . import rotations
 ```
@@ -141,36 +141,41 @@ BvhNode  (end sites)
 
 #### Constructor
 ```python
-Bvh(nodes=[BvhRoot()], frames=np.array([[]]), frame_frequency=0, frame_template=[])
+Bvh(nodes=[BvhRoot()], root_pos=None, joint_angles=None,
+    frame_frequency=0)
 ```
+
+The constructor validates that `root.pos_channels == ['X', 'Y', 'Z']` (the only layout supported). If `root_pos` or `joint_angles` are `None`, they default to empty arrays with the correct shape.
 
 #### Core Attributes (all property-validated)
 | Attribute | Type | Description |
 |---|---|---|
 | `nodes` | `list[BvhNode]` | Flat depth-first list of all skeleton nodes |
-| `frames` | `np.ndarray` (2D) | Shape `(num_frames, num_channels)`. Each row is one frame of Euler angles + root position |
+| `root_pos` | `np.ndarray` (2D) | Shape `(F, 3)`. Root translation per frame |
+| `joint_angles` | `np.ndarray` (3D) | Shape `(F, J, 3)`. Euler angles in degrees per joint per frame. Joint order follows `nodes` (end sites excluded) |
 | `frame_frequency` | `float` | Seconds per frame (e.g. `1/30`) |
-| `frame_count` | `int` | Number of frames (derived from `len(frames)`) |
-| `frame_template` | `list[str]` | Column names for each column in `frames`, e.g. `['Hips_X_pos', 'Hips_Y_pos', 'Hips_Z_pos', 'Hips_Z_rot', ...]` |
+| `frame_count` | `int` (read-only) | Computed property: `len(self.root_pos)`. No setter. |
+| `euler_column_names` | `list[str]` (read-only) | Computed property generating BVH-style column names on the fly, e.g. `['Hips_X_pos', 'Hips_Y_pos', 'Hips_Z_pos', 'Hips_Z_rot', ...]`. Not stored — rebuilt from `nodes` each time. |
 | `root` | `BvhRoot` | Shortcut to `nodes[0]` |
-| `name2coord_idx` | `dict` | Maps `"JointName_X"` → index into spatial coordinate arrays. Created by `_create_name2coord_idx()` |
+| `name2idx` | `dict[str, int]` | Maps joint/node name → integer index into the `nodes` list. Created by `_create_name2idx()`. One entry per node (not per axis). |
 
-#### Column ordering in `frames` (critical!)
-Columns appear in this order:
-1. Root position: `Hips_X_pos`, `Hips_Y_pos`, `Hips_Z_pos` (3 cols)
-2. Root rotation: `Hips_Z_rot`, `Hips_Y_rot`, `Hips_X_rot` (3 cols, order matches `root.rot_channels`)
-3. For each subsequent joint (depth-first, skipping end sites): 3 rotation columns in the joint's `rot_channels` order.
+#### Data layout
+Motion data is stored as two structured arrays:
+- `root_pos[f]` — the `(X, Y, Z)` position of the root at frame `f`.
+- `joint_angles[f, j]` — the 3 Euler angles (degrees) for joint `j` at frame `f`, in the order given by `nodes[j].rot_channels`.
 
-End sites have NO columns in `frames` (they have no channels).
+End sites have NO entries in `joint_angles` (they have no channels). The joint index `j` corresponds to the j-th non-end-site node in `nodes` (i.e., only joints/root have entries).
+
+There is **no flat `.frames` property** — code should use `root_pos` and `joint_angles` directly.
 
 #### Key Methods
 
 | Method | Description |
 |---|---|
-| `to_bvh_file(filepath, verbose=True)` | Serialize back to a `.bvh` file. Uses recursive `rec_node_to_file()` for the hierarchy, then writes motion data with 6-decimal precision. |
-| `get_spatial_coord(frame_num=-1, centered="world")` | Compute 3D joint positions via forward kinematics. Returns 1D array (one frame) or 2D array (all frames). The `centered` parameter controls root positioning. |
-| `get_rest_pose(mode='euler'\|'coordinates')` | Returns a zero-angle frame (rest/T-pose). |
-| `get_df_constructor(mode='euler'\|'coordinates', centered="world")` | Returns list-of-dicts ready for `pd.DataFrame(...)`. |
+| `to_bvh_file(filepath, verbose=True)` | Serialize back to a `.bvh` file. Uses recursive `rec_node_to_file()` for the hierarchy, then writes motion data by concatenating `root_pos[i]` and `joint_angles[i].ravel()` per frame with 6-decimal precision. |
+| `get_spatial_coord(frame_num=-1, centered="world")` | Compute 3D joint positions via forward kinematics. Returns `(N, 3)` for one frame or `(F, N, 3)` for all frames, where N = number of nodes (including end sites). Delegates entirely to `frames_to_spatial_coord`. |
+| `get_rest_pose(mode='euler'\|'coordinates')` | Returns the rest/T-pose. For `'euler'`: returns a tuple `(root_pos_zeros, joint_angles_zeros)` with matching dtype. For `'coordinates'`: returns `(N, 3)` array of 3D positions at rest. |
+| `get_df_constructor(mode='euler'\|'coordinates', centered="world")` | Returns a dict-of-arrays (column name → 1D NumPy array) ready for `pd.DataFrame(bvh.get_df_constructor())`. Avoids importing pandas in pybvh. |
 | `hierarchy_info_as_dict()` | Returns a deep-copied dict describing the skeleton tree. |
 | `change_skeleton(new_skeleton, inplace=False)` | Retarget: copy offsets from another `Bvh` object's skeleton (joints must have matching names). |
 | `scale_skeleton(scale, inplace=False)` | Scale all offsets by a float or 3-element array. |
@@ -179,10 +184,10 @@ End sites have NO columns in `frames` (they have no channels).
 | `get_frames_as_6d()` | Convert Euler angles to 6D rotation representation `(F, J, 6)`. Returns `(root_pos, joint_rot6d, joints)`. |
 | `get_frames_as_quaternion()` | Convert Euler angles to quaternions `(F, J, 4)`. Returns `(root_pos, joint_quats, joints)`. |
 | `get_frames_as_axisangle()` | Convert Euler angles to axis-angle vectors `(F, J, 3)`. Returns `(root_pos, joint_aa, joints)`. |
-| `set_frames_from_6d(root_pos, joint_rot6d)` | Set frames from 6D rotation data. Converts back to Euler angles using each joint's `rot_channels`. |
-| `set_frames_from_quaternion(root_pos, joint_quats)` | Set frames from quaternion data. |
-| `set_frames_from_axisangle(root_pos, joint_aa)` | Set frames from axis-angle data. |
-| `single_joint_euler_angle(joint_name, new_order, inplace=True)` | Change Euler order of one joint. Updates frames, `rot_channels`, and `frame_template` atomically. |
+| `set_frames_from_6d(root_pos, joint_rot6d)` | Set `root_pos` and `joint_angles` from 6D rotation data. Converts back to Euler angles using each joint's `rot_channels`. |
+| `set_frames_from_quaternion(root_pos, joint_quats)` | Set `root_pos` and `joint_angles` from quaternion data. |
+| `set_frames_from_axisangle(root_pos, joint_aa)` | Set `root_pos` and `joint_angles` from axis-angle data. |
+| `single_joint_euler_angle(joint_name, new_order, inplace=True)` | Change Euler order of one joint. Updates `joint_angles` and the node's `rot_channels` atomically. |
 | `change_all_euler_orders(new_order, inplace=True)` | Change Euler order of ALL joints to a unified order. |
 
 #### The `centered` Parameter (appears throughout the codebase)
@@ -195,12 +200,13 @@ Three modes controlling how root position is handled:
 
 **Entry point**: `read_bvh_file(filepath)` → `Bvh`
 
-Internally calls `_extract_bvh_file_info(filepath)` which:
+Internally calls `_extract_bvh_file_info(filepath)` which returns a 3-tuple `(nodes, frame_frequency, flat_frames)`:
 1. Opens the file and reads line by line.
 2. Parses `ROOT`, `JOINT`, `End Site` blocks, constructing `BvhRoot`/`BvhJoint`/`BvhNode` objects.
 3. Tracks parent-child relationships using a `parent_depth` counter that increments on `}` lines.
-4. Builds `frame_template` as it encounters channels.
-5. After `Frame Time:` line, reads all frame data into a NumPy array.
+4. After `Frame Time:` line, reads all frame data into a flat NumPy array.
+
+After receiving the flat array, `read_bvh_file` splits it into `root_pos` (first 3 columns) and `joint_angles` (remaining columns reshaped to `(F, J, 3)`) before constructing the `Bvh` object.
 
 **Helper**: `_get_offset_channels(node_type, f, line_number)` — reads 2–3 lines from the open file to extract offset and channel info for a node.
 
@@ -210,23 +216,23 @@ Internally calls `_extract_bvh_file_info(filepath)` which:
 
 **Purpose**: Convert Euler angle frames → 3D joint positions.
 
-#### `frames_to_spatial_coord(nodes_container, frames=None, centered="world")`
-The main workhorse. Handles both single and multi-frame input.
+#### `frames_to_spatial_coord(nodes_container, root_pos=None, joint_angles=None, centered="world")`
+The main workhorse. Accepts the structured `root_pos` `(F, 3)` and `joint_angles` `(F, J, 3)` arrays directly (or extracts them from a `Bvh` object).
+
+**Output shape**: `(F, N, 3)` for multiple frames, or `(N, 3)` for a single frame, where N = total number of nodes (including end sites).
 
 **Algorithm** (per frame):
-1. Pre-allocate output array `(num_frames, num_nodes * 3)`.
-2. Build lookup dicts `node2frameidx` and `node2outidx` once.
+1. Pre-allocate output array `(F, N, 3)`.
+2. Build lookup dicts `node2jointidx` (node name → index in `joint_angles`) and `node2nodeidx` (node name → index in output) once.
 3. Convert all angles to radians in one vectorized call.
 4. For each frame, call `_fill_spatial_coords_rec()` which performs recursive forward kinematics:
    - **Root**: spatial coord = `[0, 0, 0]`, rotation matrix = `get_premult_mat_rot(angles, order)`.
    - **Interior joint**: `coord = parent_acc_rot_mat @ node.offset + parent_coord`; accumulated rotation = `parent_acc_rot_mat @ this_node_rot_mat`.
    - **End site**: `coord = parent_acc_rot_mat @ node.offset + parent_coord` (no own rotation).
-5. After recursion, add root position (unless skeleton-centered), tile it across all joints.
+5. After recursion, add root position (unless skeleton-centered), broadcast across all nodes.
 6. For `"first"` centering, subtract first frame's root position from all frames.
 
-**Performance characteristics**: Pre-allocated output, vectorized radian conversion, dict lookups, recursive tree walk per frame.
-
-#### `frame_to_spatial_coord(...)` — backwards-compatible wrapper for single frames.
+**Node extraction**: Uses `hasattr`/`isinstance` checks (not duck-typing `try/except`) to determine whether the input is a `Bvh` object (extracts `nodes`, `root_pos`, `joint_angles`) or a plain list of nodes.
 
 ### 4.6 `pybvh/df_to_bvh.py` — DataFrame → Bvh Conversion
 
@@ -240,7 +246,7 @@ The main workhorse. Handles both single and multi-frame input.
 1. `_check_df_columns(df)` — Filter to valid columns matching pattern `{name}_{axis}_{pos|rot}`, verify `time` column exists, verify root pos+rot appear first.
 2. If `hier` is a dict: `_complete_hier_dict()` fills missing channel info from DataFrame column order, then `_hier_dict_to_list()` converts to ordered node list.
 3. `_check_df_match_with_hier()` — Reorder DataFrame columns to match hierarchy traversal order.
-4. Extract frames as NumPy array, compute `frame_frequency`, construct `Bvh`.
+4. Extract flat frame array, split into `root_pos` (first 3 columns) and `joint_angles` (remaining columns reshaped to `(F, J, 3)`), compute `frame_frequency`, construct `Bvh`.
 
 ### 4.7 `pybvh/tools.py` — Utility Functions
 
@@ -261,21 +267,21 @@ The main workhorse. Handles both single and multi-frame input.
 | `plot_animation(bvh_object, frames, centered, savefile, filepath, ...)` | Animated 3D plot using `matplotlib.animation.FuncAnimation`. Can save to `.mp4`. |
 
 **Internal helpers**:
-- `_get_forw_up_axis(bvh_object, frame)` — Heuristically determines forward/upward axes by analyzing joint positions (assumes humanoid skeleton in standing or sitting pose).
-- `_setup_plt(...)` / `_setup_plt_animation_world(...)` — Configure matplotlib 3D axes with correct viewing angles and limits.
-- `_draw_skeleton(frame, bvh_object, lines)` — Update `Line3D` objects for each bone (parent→child segment).
+- `_get_forw_up_axis(bvh_object, frame)` — Heuristically determines forward/upward axes by analyzing joint positions in `(N, 3)` format. Uses broadcast subtraction (`frame - frame[0]`) for root-relative coordinates.
+- `_setup_plt(...)` / `_setup_plt_animation_world(...)` — Configure matplotlib 3D axes with correct viewing angles and limits. Uses `root_pos = frame[0]` for the root position, and indexes into `(N, 3)` arrays.
+- `_draw_skeleton(frame, bvh_object, lines)` — Update `Line3D` objects for each bone. Uses `bvh_object.name2idx` to look up node indices, then indexes into `frame[idx]` directly (no `*3` offset arithmetic).
 - `_angle_up_forward(...)` — Convert forward/up axis labels to matplotlib elevation/azimuth angles.
 
 ### 4.9 `tests/test_bvh.py` — Test Suite
 
 Run with: `pytest tests/test_bvh.py -v`
 
-Uses `bvh_data/bvh_example.bvh` as fixture (29 nodes, 56 frames, 75 channels, 30fps).
+Uses `bvh_data/bvh_example.bvh` as fixture (29 nodes, 56 frames, 24 joints, 30fps).
 
 Test classes:
 - `TestReadBvhFile` — File loading, frame counts, node counts, channel validation.
 - `TestNodeHierarchy` — End site types, joint types, parent-child consistency.
-- `TestSpatialCoordinates` — Forward kinematics correctness for world/skeleton/first centering. Numerical assertions with known expected values.
+- `TestSpatialCoordinates` — Forward kinematics correctness for world/skeleton/first centering. Spatial coordinate shapes are `(29, 3)` (single frame) and `(56, 29, 3)` (all frames). Numerical assertions with known expected values.
 - `TestDataFrameConversion` — Euler DataFrame construction, round-trip `Bvh → DataFrame → Bvh`.
 - `TestFileRoundTrip` — Write → re-read produces matching data.
 - `TestBvhMethods` — `copy()`, `__str__`, `__repr__`, `get_rest_pose`, `hierarchy_info_as_dict`.
@@ -285,33 +291,34 @@ Test classes:
 
 ## 5. Data Representation Details
 
-### 5.1 The `frames` Array
-- Shape: `(num_frames, num_channels)`.
-- First 3 columns: root position `(X, Y, Z)` in the order given by `root.pos_channels`.
-- Next 3 columns: root rotation in the order given by `root.rot_channels`.
-- Remaining columns: groups of 3 rotation values per joint, depth-first order.
-- Values are in **degrees** (standard BVH convention).
-- End sites contribute 0 columns.
+### 5.1 Motion Data: `root_pos` + `joint_angles`
+Motion data is stored as two separate structured arrays:
 
-Example for `bvh_example.bvh`: shape `(56, 75)` — 56 frames, 24 joints × 3 rot channels + 3 root pos = 75.
+- **`root_pos`**: Shape `(F, 3)`. The root translation per frame. Column order is always `(X, Y, Z)` — the constructor validates `pos_channels == ['X', 'Y', 'Z']`.
+- **`joint_angles`**: Shape `(F, J, 3)`. Euler angles in degrees for each joint per frame. `J` = number of non-end-site nodes. Joint order matches the depth-first traversal of `nodes` (skipping end sites). For joint `j`, the 3 values are in the order given by `nodes[j].rot_channels` (e.g., `['Z', 'Y', 'X']`).
 
-### 5.2 The `frame_template`
-A list of strings, one per column in `frames`:
+Example for `bvh_example.bvh`: `root_pos.shape = (56, 3)`, `joint_angles.shape = (56, 24, 3)` — 56 frames, 24 joints.
+
+### 5.2 The `euler_column_names` Property
+A computed (not stored) property that generates BVH-style column names on the fly:
 ```python
 ['Hips_X_pos', 'Hips_Y_pos', 'Hips_Z_pos', 'Hips_Z_rot', 'Hips_Y_rot', 'Hips_X_rot', 'Spine_Z_rot', 'Spine_Y_rot', 'Spine_X_rot', ...]
 ```
-Naming convention: `{JointName}_{Axis}_{pos|rot}`
+Naming convention: `{JointName}_{Axis}_{pos|rot}`. Rebuilt from `nodes` each time it is accessed — no need to keep it in sync after skeleton modifications.
 
 ### 5.3 Spatial Coordinates Output
-- Shape: `(num_nodes * 3,)` for single frame, `(num_frames, num_nodes * 3)` for multiple frames.
-- Every 3 consecutive values = `(X, Y, Z)` position of one node (including end sites).
+- Shape: `(N, 3)` for a single frame, `(F, N, 3)` for multiple frames.
+- N = total number of nodes including end sites (29 for `bvh_example.bvh`).
+- Each `[i]` entry is the `(X, Y, Z)` world position of node `i`.
 - Order matches `Bvh.nodes` list order (depth-first).
-- `name2coord_idx` maps `"JointName_X"` → integer index for fast lookup.
+- `name2idx` maps `"JointName"` → integer index `i` (one entry per node, not per axis).
 
 ### 5.4 DataFrame Column Convention
-**Euler mode**: `time`, `Hips_X_pos`, `Hips_Y_pos`, `Hips_Z_pos`, `Hips_Z_rot`, `Hips_Y_rot`, `Hips_X_rot`, `Spine_Z_rot`, ...
+`get_df_constructor()` returns a **dict-of-arrays** (column name → 1D NumPy array), suitable for `pd.DataFrame(bvh.get_df_constructor())`. pybvh does **not** import pandas itself.
 
-**Coordinates mode**: `time`, `Hips_X`, `Hips_Y`, `Hips_Z`, `Spine_X`, `Spine_Y`, `Spine_Z`, ... (includes end sites)
+**Euler mode**: columns are `time`, `Hips_X_pos`, `Hips_Y_pos`, `Hips_Z_pos`, `Hips_Z_rot`, `Hips_Y_rot`, `Hips_X_rot`, `Spine_Z_rot`, ...
+
+**Coordinates mode**: columns are `time`, `Hips_X`, `Hips_Y`, `Hips_Z`, `Spine_X`, `Spine_Y`, `Spine_Z`, ... (includes end sites)
 
 ---
 
@@ -333,7 +340,7 @@ For the root:
 $$P_{root} = (0, 0, 0) \quad \text{(before adding root translation)}$$
 $$R_{acc,root} = R_{root}$$
 
-Root translation is added at the end (tiled across all joints) unless in `"skeleton"` mode.
+Root translation is added at the end (broadcast across all nodes) unless in `"skeleton"` mode.
 
 Rotation matrix from Euler angles uses **intrinsic** rotations with **pre-multiplication**:
 $$R = R_{\text{first}} \cdot R_{\text{second}} \cdot R_{\text{third}}$$
@@ -345,25 +352,28 @@ where the order comes from the joint's `rot_channels` (e.g., `['Z', 'Y', 'X']` �
 ## 7. Coding Conventions & Patterns
 
 1. **Property validation**: All core attributes use `@property` with setters that type-check and value-check inputs.
-2. **NumPy throughout**: Frames are always NumPy arrays. Spatial coords are always NumPy arrays. Offsets are stored as NumPy arrays.
+2. **NumPy throughout**: `root_pos`, `joint_angles`, spatial coords, offsets — all NumPy arrays.
 3. **Deep copy safety**: `Bvh.copy()` uses `copy.deepcopy()`. `hierarchy_info_as_dict()` returns a deep copy. `df_to_bvh()` deep-copies the hierarchy input.
-4. **No caching of spatial coordinates**: `get_spatial_coord()` always recomputes. The docstring advises users to cache results themselves. (Previous versions had caching; it was removed for simplicity.)
+4. **No caching of spatial coordinates**: `get_spatial_coord()` always recomputes. The docstring advises users to cache results themselves.
 5. **Naming**: `_private` prefix for internal methods. `snake_case` everywhere. Files are named after their main export.
 6. **No type hints in signatures** (except `node_type: str` in one helper). Validation is done at runtime in setters.
 7. **Errors**: Mix of `ValueError`, `Exception`, and `ImportError`. Generally raised from setters and file I/O.
+8. **Type checking**: Uses `hasattr`/`isinstance` checks rather than duck-typing `try/except` blocks (e.g., in `spatial_coord.py` to distinguish Bvh objects from plain node lists).
+9. **No pandas dependency**: pybvh never imports pandas. `get_df_constructor()` returns a dict-of-arrays that the user can pass to `pd.DataFrame()`.
 
 ---
 
 ## 8. Testing Conventions
 
 - **Framework**: pytest.
-- **Fixture file**: `bvh_data/bvh_example.bvh` (29 nodes, 56 frames, 75 channels, 30 fps, humanoid skeleton with Hips root).
+- **Fixture file**: `bvh_data/bvh_example.bvh` (29 nodes, 56 frames, 24 joints, 30 fps, humanoid skeleton with Hips root).
 - **Numerical assertions**: `np.testing.assert_allclose` with `atol=1e-4` to `1e-10` depending on precision needs.
 - **Round-trip tests**: BVH → DataFrame → BVH, BVH → file → BVH, BVH → {6D, quaternion, axis-angle} → BVH, Euler order conversion → re-conversion.
 - **Test files**:
-  - `tests/test_bvh.py` (35 tests) — File I/O, hierarchy, spatial coordinates, DataFrame conversion, edge cases.
-  - `tests/test_rotations.py` (117 tests) — Euler↔rotmat, 6D, quaternion, axis-angle, Bvh rotation methods, Euler order conversion.
+  - `tests/test_bvh.py` — File I/O, hierarchy, spatial coordinates, DataFrame conversion, edge cases.
+  - `tests/test_rotations.py` — Euler↔rotmat, 6D, quaternion, axis-angle, Bvh rotation methods, Euler order conversion.
 - **Run command**: `pytest tests/ -v`
+- **Current count**: 160 tests, all passing.
 
 ---
 
@@ -384,7 +394,7 @@ where the order comes from the joint's `rot_channels` (e.g., `['Z', 'Y', 'X']` �
 | **File parsing (frames)** | `np.append` in a loop — O(n²) | Should pre-allocate from `Frames: N` count |
 | **Forward kinematics** | Recursive Python per frame, per node | Main bottleneck for large datasets. Per-frame Python loop is unavoidable with current recursive approach. |
 | **Rotation matrices** | Individual `rotX/Y/Z` calls, `@` chaining | Correct but not batched across frames |
-| **DataFrame construction** | List of dicts → `pd.DataFrame` | Standard pandas pattern, not a bottleneck |
+| **DataFrame construction** | Dict-of-arrays from NumPy slices | Fast — avoids per-frame Python loops |
 | **Radian conversion** | Single `np.radians()` call on all frames at once | Already optimized |
 
 ---
@@ -400,14 +410,15 @@ import pandas as pd
 bvh = read_bvh_file("bvh_data/bvh_example.bvh")
 
 # Inspect
-print(bvh)                          # "24 elements in the Hierarchy, 56 frames at ..."
-print(bvh.root.name)               # "Hips"
-print(bvh.frames.shape)            # (56, 75)
-print(bvh.nodes[1].rot_channels)   # ['Z', 'Y', 'X']
+print(bvh)                              # "24 elements in the Hierarchy, 56 frames at ..."
+print(bvh.root.name)                   # "Hips"
+print(bvh.root_pos.shape)             # (56, 3)
+print(bvh.joint_angles.shape)         # (56, 24, 3)
+print(bvh.nodes[1].rot_channels)       # ['Z', 'Y', 'X']
 
 # Spatial coordinates
-coords_all = bvh.get_spatial_coord(centered="world")       # (56, 87)
-coords_one = bvh.get_spatial_coord(frame_num=0)             # (87,)
+coords_all = bvh.get_spatial_coord(centered="world")       # (56, 29, 3)
+coords_one = bvh.get_spatial_coord(frame_num=0)             # (29, 3)
 
 # Rotation representations (all return (root_pos, joint_data, joints))
 root_pos, rotmats, joints = bvh.get_frames_as_rotmat()       # (56,3), (56,J,3,3), [nodes]
@@ -429,7 +440,7 @@ R = rotations.euler_to_rotmat([30, 45, 60], 'ZYX', degrees=True)
 aa = rotations.rotmat_to_axisangle(R)
 q = rotations.rotmat_to_quat(R)
 
-# DataFrame
+# DataFrame (pybvh does NOT import pandas — user does)
 df = pd.DataFrame(bvh.get_df_constructor(mode='euler'))
 bvh2 = df_to_bvh(bvh.nodes, df)    # round-trip
 
@@ -449,7 +460,7 @@ bvh_scaled = bvh.scale_skeleton(0.01)  # new Bvh with scaled offsets
 
 1. **Add new rotation representations** in `rotations.py`. Keep them as pure NumPy batch-vectorized functions.
 2. **Add new Bvh methods** in `bvh.py`. Follow the existing pattern: validate inputs in properties, call helper functions from other modules. Rotation-related methods should delegate to `rotations.py`.
-3. **Maintain `frame_template` consistency**: Any operation that changes the columns of `frames` must also update `frame_template`. See `single_joint_euler_angle()` and `change_all_euler_orders()` for the canonical pattern.
+3. **`euler_column_names` is computed**: It is generated on the fly from `nodes`. Any operation that changes `rot_channels` on a node (like `single_joint_euler_angle`) only needs to update the node and `joint_angles` — the column names will reflect the change automatically.
 4. **Test with the fixture**: Add tests to `tests/test_rotations.py` (rotation-related) or `tests/test_bvh.py` (BVH I/O, hierarchy, spatial) using the `bvh_example` fixture. Include numerical assertions with known expected values.
 5. **Avoid adding dependencies** unless absolutely necessary. If you must, prefer NumPy-based solutions over specialized libraries (no scipy).
 6. **Performance**: Pre-allocate arrays, vectorize with NumPy, avoid Python loops over frames when possible.

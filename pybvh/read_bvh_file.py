@@ -10,20 +10,21 @@ def read_bvh_file(filepath):
         This method construct a Bvh object based on the information
         given by the _extract_bvh_file_info() method
     """
-    node_list, frame_array, frame_frequency, frame_template = _extract_bvh_file_info(filepath)
-    return Bvh(nodes=node_list, frames=frame_array, frame_frequency=frame_frequency, frame_template=frame_template)
+    node_list, frame_array, frame_frequency = _extract_bvh_file_info(filepath)
+    num_joints = len([n for n in node_list if not n.is_end_site()])
+    root_pos = frame_array[:, :3].astype(np.float64)
+    joint_angles = frame_array[:, 3:].reshape(frame_array.shape[0], num_joints, 3).astype(np.float64)
+    return Bvh(nodes=node_list, root_pos=root_pos, joint_angles=joint_angles,
+               frame_frequency=frame_frequency)
 
 def _extract_bvh_file_info(filepath):
     """
     This function only need the filepath of a bvh file to work. 
-    It returns a tuple of 4 objects: a list of BvhNode objects, a numpy array of the frames, the frame_template,
+    It returns a tuple of 3 objects: a list of BvhNode objects, a numpy array of the frames,
     and the frame frequency.
     """
     #list of BvhNode objects in the file hierarchy
-    node_list = [] 
-    # this list will help to construct
-    #  the second part after the hierarchy, the frame list
-    frame_template = []
+    node_list = []
     # this is a flag variable to tell us if the parent of the joint
     # we are working on is the directly previous joint in the file, or not
     parent_is_previous = True
@@ -53,10 +54,6 @@ def _extract_bvh_file_info(filepath):
                     raise Exception(f"Could not read the offset or channels of the root {name},\n at line {line_number} in the file {filepath}")
                 
                 node_list.append(BvhRoot(name, offset, pos_channels, rot_channels, [], None))
-                for ax in pos_channels:
-                    frame_template.append(name+'_'+ax+'_pos')
-                for ax in rot_channels:
-                    frame_template.append(name+'_'+ax+'_rot')
                     
             # if the line starts with JOINT,
             # then the next 3 lines are about the information of this joint
@@ -92,8 +89,6 @@ def _extract_bvh_file_info(filepath):
                 # so we link its parent directly to the node we just added in the list
                 parent_node.children = parent_node.children + [node_list[-1]]
                 parent_is_previous = True
-                for ax in rot_channels:
-                    frame_template.append(name+'_'+ax+'_rot')
                     
             elif line[0] == 'End':
                 try:
@@ -150,7 +145,7 @@ def _extract_bvh_file_info(filepath):
     #-----------------end of reading the file
     # frame_template is a list we created of the form [jointName_ax_pos/rot].
     # ex : [Hips_X_pos, Hips_Y_pos, Hips_Z_pos, Hips_X_rot, ...]
-    return (node_list, frame_array, frame_frequency, frame_template)
+    return (node_list, frame_array, frame_frequency)
 
 
 def _get_offset_channels(node_type:str, f, line_number:int):

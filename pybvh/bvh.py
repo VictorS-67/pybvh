@@ -8,25 +8,40 @@ from . import rotations
 
 class Bvh:
     """
-    takes as initial data the path of a bvh file
-    the hierarchy information are stored in a list of BvhNode objects, one object per joint.
-    the frames are stored as a numpy 2D array.
+    Container for BVH motion-capture data.
+
+    The hierarchy information is stored in a list of BvhNode objects,
+    one per joint / end-site.
+
+    Motion data is stored as two structured arrays:
+
+    - ``root_pos``:     shape ``(F, 3)``      — root translation per frame
+    - ``joint_angles``: shape ``(F, J, 3)``   — Euler angles (degrees) per joint per frame
     """
-    def __init__(self, nodes=[BvhRoot()], frames = np.array([[]]), frame_frequency=0, frame_template=[]):
+    def __init__(self, nodes=[BvhRoot()], root_pos=None, joint_angles=None,
+                 frame_frequency=0):
         self.nodes = nodes
-        self.frames = frames
         self.frame_frequency = frame_frequency
-        self.frame_count = len(self.frames)
         self.root = self.nodes[0]
 
-        if frame_template != []:
-            self.frame_template = frame_template
+        # Validate that root position channels are standard XYZ
+        if self.root.pos_channels != ['X', 'Y', 'Z']:
+            raise ValueError(
+                f"Non-standard root position channel order "
+                f"{self.root.pos_channels} is not supported. "
+                f"Expected ['X', 'Y', 'Z'].")
+
+        # ---------- Determine root_pos / joint_angles ----------
+        if root_pos is not None and joint_angles is not None:
+            self.root_pos = np.asarray(root_pos, dtype=np.float64)
+            self.joint_angles = np.asarray(joint_angles, dtype=np.float64)
         else:
-            self._create_frame_template()
-        
-        # create the self.name2coord_idx parameter
-        # a dictionnary that will allow to easily access the space coordinates
-        self._create_name2coord_idx()
+            # Empty object
+            self.root_pos = np.empty((0, 3), dtype=np.float64)
+            self.joint_angles = np.empty((0, 0, 3), dtype=np.float64)
+
+        # node name → integer index into the spatial-coordinate array
+        self._create_name2idx()
         
 
     @property
@@ -37,26 +52,6 @@ class Bvh:
         if (not isinstance(value, list)) or any([not isinstance(x, BvhNode) for x in value]):
             raise ValueError("nodes should be a list of BvhNode class/subclasse objects")
         self._nodes = value 
-        
-    @property
-    def frames(self):
-        return self._frames
-    @frames.setter
-    def frames(self, value):
-        if isinstance(value, list):
-            value = np.array(list)
-        if not isinstance(value, np.ndarray):
-            raise ValueError("frames should be a 2D list or numpy array")
-        self._frames = value
-
-    @property
-    def frame_template(self):
-        return self._frame_template
-    @frame_template.setter
-    def frame_template(self, value):
-        if (not isinstance(value, list)) or len(value) != self.frames.shape[1] :
-            raise ValueError("frame_template should be a list, and len(frame_template) == frames.shape[1]")
-        self._frame_template = value
 
     @property
     def frame_frequency(self):
@@ -64,16 +59,11 @@ class Bvh:
     @frame_frequency.setter
     def frame_frequency(self, value):
         self._frame_frequency = value
-        
+
     @property
     def frame_count(self):
-        return self._frame_count
-    @frame_count.setter
-    def frame_count(self, value):
-        if self._frames.shape[1] == 0:
-            self._frame_count = 0
-        else:
-            self._frame_count = value
+        """Number of frames (computed from root_pos)."""
+        return len(self.root_pos)
 
     @property
     def root(self):
@@ -83,6 +73,24 @@ class Bvh:
         if not isinstance(value, BvhRoot):
             raise ValueError("The first element of nodes should be a BvhRoot object")
         self._root = value
+
+    @property
+    def euler_column_names(self):
+        """Column names describing root_pos + joint_angles in flat layout order.
+
+        Useful for building DataFrames or inspecting the channel mapping.
+        Generated on the fly from the node hierarchy.
+        """
+        names = []
+        root = self.root
+        for ax in root.pos_channels:
+            names.append(f'{root.name}_{ax}_pos')
+        for node in self.nodes:
+            if node.is_end_site():
+                continue
+            for ax in node.rot_channels:
+                names.append(f'{node.name}_{ax}_rot')
+        return names
 
             
     def __str__(self):
@@ -101,7 +109,7 @@ class Bvh:
                 nodes_str += [sep[1]]
         nodes_str = ''.join(str(nodes_str).split("'"))
 
-        frames_str = f'array(shape={self.frames.shape}, dtype={self.frames.dtype})'
+        frames_str = f'array(root_pos={self.root_pos.shape}, joint_angles={self.joint_angles.shape}, dtype={self.root_pos.dtype})'
         
         return f'Bvh(nodes={nodes_str}, frames={frames_str}, frame_frequency={self.frame_frequency:.6f})'
     
@@ -109,26 +117,6 @@ class Bvh:
         return copy.deepcopy(self)
 
     
-    def _create_frame_template(self):
-        if self.frames.shape == (1,0):
-            #if we are creating an empty object or object with empty frames
-            self.frame_template = []
-            return
-        
-        frame_template = []
-        root = self.nodes[0]
-        for ax in ['X', 'Y', 'Z']:
-            frame_template += [f'{root.name}_{ax}_pos']
-        for node in self.nodes:
-            if node.is_end_site():
-                continue
-            for ax in node.rot_channels:
-                frame_template += [f'{node.name}_{ax}_rot']
-
-        self.frame_template = frame_template
-
-
-
     def to_bvh_file(self, new_filepath, verbose=True):
         """
         This function will write the bvh object into a bvh file, following the proper standard for this type of file.
@@ -196,8 +184,10 @@ class Bvh:
             f.write(f'Frames: {self.frame_count}\n')
             f.write(f'Frame Time: {self.frame_frequency:.6f}\n')
 
-            for frame in self.frames:
-                f.write(np.array2string(frame,
+            for i in range(self.frame_count):
+                frame_flat = np.concatenate([self.root_pos[i],
+                                             self.joint_angles[i].ravel()])
+                f.write(np.array2string(frame_flat,
                                         formatter={'float_kind':lambda x: "%.6f" % x},
                                         max_line_width=10000000
                                        )[1:-1])
@@ -211,78 +201,65 @@ class Bvh:
     def get_spatial_coord(self, frame_num=-1, centered="world"):
         """
         Obtain the spatial coordinates of the joints.
-        The coordinates are given in the form of a numpy array.
-        
-        Note: This method always recomputes spatial coordinates. If you need to call
-        this repeatedly with the same data, cache the result yourself:
-            coords = bvh.get_spatial_coord(-1)  # compute once, reuse coords
-        
-        Input :
-        - frame_num : if -1 (default value) then all the frames will be returned
-                        converted into spatial coordinates for the joints
-                    Else if any int >= 0 is given, then return the spatial 
-                    coordinates for the frame number corresponding to frame_num
-        - centered : a string that can be either "skeleton", "first", or "world".
-                If "skeleton" , the coordinates are local to the skeleton (meaning the root
-                coordinates are considered to be [0, 0, 0] in ALL frames).
-                If "first", the first frame root position is considered to be [0, 0, 0]. From there,
-                the skeleton moves in the space normally. If only one frame to return, then
-                "skeleton" and "first" will give the same result.
-                If "world", the coordinates are global (meaning the root coordinates are
-                the actual coordinates of the root saved in the bvh object in all frames).
 
+        Returns an ndarray of shape ``(N, 3)`` for a single frame or
+        ``(F, N, 3)`` for all frames, where *N* is the total number of
+        nodes (joints + end sites).
+
+        Parameters
+        ----------
+        frame_num : int
+            Frame index to return.  ``-1`` (default) returns all frames.
+        centered : str
+            ``"world"`` – root at actual position.
+            ``"skeleton"`` – root at origin for all frames.
+            ``"first"`` – first-frame root at origin, then moves normally.
         """
         centered_options = ['skeleton', 'first', 'world']
         if centered not in centered_options:
-            raise ValueError(f'The value {centered} is not recognized for the centered argument.\
-                             Currently recognized keywords are {centered_options}')
+            raise ValueError(
+                f'The value {centered} is not recognized for the centered '
+                f'argument. Currently recognized keywords are {centered_options}')
 
-        if (frame_num >= 0) and (frame_num < self.frame_count):
-            # Single frame requested
-            return_one_frame = True
-            frame = frames_to_spatial_coord(self, frames=self.frames[frame_num], centered="world")
-        elif frame_num == -1:
-            # All frames requested
-            return_one_frame = False
-            frames_array = frames_to_spatial_coord(self, frames=self.frames, centered="world")
+        if frame_num == -1:
+            return frames_to_spatial_coord(
+                self, root_pos=self.root_pos,
+                joint_angles=self.joint_angles, centered=centered)
+        elif 0 <= frame_num < self.frame_count:
+            return frames_to_spatial_coord(
+                self, root_pos=self.root_pos[frame_num],
+                joint_angles=self.joint_angles[frame_num], centered=centered)
         else:
-            raise ValueError("frame_num needs to be -1 or a positive integer smaller than the total amount of frames in the bvh file.")
-            
-        # Apply centering transformation
-        if centered == "world":
-            return frame if return_one_frame else frames_array
-        elif centered == "first":
-            first_frame = frames_to_spatial_coord(self, frames=self.frames[0], centered="world")
-            offset = np.tile(first_frame[:3], len(first_frame) // 3)
-            if return_one_frame:
-                return frame - offset
-            else:
-                return frames_array - offset
-        elif centered == "skeleton":
-            if return_one_frame:
-                return frame - np.tile(frame[:3], len(frame) // 3)
-            else:
-                return frames_array - np.tile(frames_array[:, :3], frames_array.shape[1] // 3)
+            raise ValueError(
+                "frame_num needs to be -1 or a positive integer smaller "
+                "than the total amount of frames in the bvh file.")
 
         
 
     def get_rest_pose(self, mode='coordinates'):
         """
-        Return the rest pose of the skeleton.
-        Input : - mode cam be 'euler' or 'coordinates'.
-                If 'euler', the rest pose is returned as euler angles.
-                If 'coordinates', the rest pose is returned as spatial coordinates
+        Return the rest pose of the skeleton (all angles zero, root at origin).
+
+        Parameters
+        ----------
+        mode : str
+            ``'euler'`` – return a tuple ``(root_pos, joint_angles)`` of zeros
+            matching the structured shapes.
+            ``'coordinates'`` – return spatial coordinates as ``(N, 3)``.
         """
         correct_modes = ['euler', 'coordinates']
-        rest_angle = np.zeros_like(self.frames[0])
         if mode == 'euler':
-            return rest_angle
+            return np.zeros(3, dtype=np.float64), np.zeros_like(self.joint_angles[0])
         elif mode == 'coordinates':
-            rest_coord = frames_to_spatial_coord(self, frames=rest_angle, centered="skeleton")
-            return rest_coord
+            return frames_to_spatial_coord(
+                self,
+                root_pos=np.zeros(3),
+                joint_angles=np.zeros_like(self.joint_angles[0]),
+                centered="skeleton")
         else:
-            raise ValueError(f'The value {mode} is not recognized for the mode argument.\
-                             Currently recognized keywords are {correct_modes}')
+            raise ValueError(
+                f'The value {mode} is not recognized for the mode argument. '
+                f'Currently recognized keywords are {correct_modes}')
         
 
     def get_df_constructor(self, mode = 'euler', centered="world"):
@@ -328,45 +305,43 @@ class Bvh:
     
     def _get_df_constructor_euler_angles(self):
         """
-        internal function called by self.get_df_constructor()
-        in case the mode is 'euler'
+        Return a dict of arrays ready for ``pd.DataFrame(result)``.
+
+        Keys are column names (``'time'``, ``'Hips_X_pos'``, …).
+        Values are 1-D numpy arrays of length *frame_count*.
         """
-        dictList = []
-        
-        for i, frame in enumerate(self.frames):
-            tempo_dict = {}
-            tempo_dict['time'] = i*self.frame_frequency
-            for j, col_name in enumerate(self.frame_template):
-                tempo_dict[col_name] = frame[j]
+        result = {}
+        result['time'] = np.arange(self.frame_count) * self.frame_frequency
 
-            dictList.append(tempo_dict)
+        root = self.root
+        for i, ax in enumerate(root.pos_channels):
+            result[f'{root.name}_{ax}_pos'] = self.root_pos[:, i]
 
-        return dictList
+        j_idx = 0
+        for node in self.nodes:
+            if node.is_end_site():
+                continue
+            for i, ax in enumerate(node.rot_channels):
+                result[f'{node.name}_{ax}_rot'] = self.joint_angles[:, j_idx, i]
+            j_idx += 1
+
+        return result
 
     def _get_df_constructor_spatial_coord(self, centered):
         """
-        internal function called by self.get_df_constructor() in case its mode is 'coordinates'
+        Return a dict of arrays with spatial coordinates
+        ready for ``pd.DataFrame(result)``.
         """
-        
-        spatial_array = self.get_spatial_coord(centered=centered)
+        spatial_array = self.get_spatial_coord(centered=centered)  # (F, N, 3)
 
-        dictList = []
+        result = {}
+        result['time'] = np.arange(self.frame_count) * self.frame_frequency
 
-        colum_names = []
-        for node in self.nodes:
-            for ax in ['X', 'Y', 'Z']:
-                colum_names += [f'{node.name}_{ax}']
+        for n_idx, node in enumerate(self.nodes):
+            for i, ax in enumerate(['X', 'Y', 'Z']):
+                result[f'{node.name}_{ax}'] = spatial_array[:, n_idx, i]
 
-        for i, frame in enumerate(spatial_array):
-            tempo_dict = {}
-            tempo_dict['time'] = i*self.frame_frequency
-
-            for j, col_name in enumerate(colum_names):
-                tempo_dict[col_name] = frame[j]
-
-            dictList.append(tempo_dict)
-
-        return dictList
+        return result
 
 
 
@@ -397,14 +372,9 @@ class Bvh:
             
         return copy.deepcopy(hier_dict)
     
-    def _create_name2coord_idx(self):
-        name2coord_idx = {}
-        i=0
-        for node in self.nodes:
-            for ax in ['X', 'Y', 'Z']:
-                name2coord_idx[f'{node.name}_{ax}'] = i
-                i+=1
-        self.name2coord_idx = name2coord_idx
+    def _create_name2idx(self):
+        """Build a dict mapping node name → integer index in the nodes list."""
+        self.name2idx = {node.name: i for i, node in enumerate(self.nodes)}
 
 
 
@@ -449,13 +419,8 @@ class Bvh:
             node.offset = new_node_offset
 
         if inplace:
-            # reset the spatial coordinates if they were already calculated
-            self._has_spatial = False
-            self._spatial_coord = np.array([[]])
             return None
         else:
-            new_bvh._has_spatial = False
-            new_bvh._spatial_coord = np.array([[]])
             return new_bvh
 
     def scale_skeleton(self, scale, inplace=False):
@@ -482,21 +447,12 @@ class Bvh:
         
         
         if inplace:
-
-            # reset the spatial coordinates if they were already calculated
-            self._has_spatial = False
-            self._spatial_coord = np.array([[]])
-
             for node in self.nodes:
                 node.offset = node.offset * scale
             return None
         
         else:
             new_bvh = self.copy()
-
-            # reset the spatial coordinates if they were already calculated
-            new_bvh._has_spatial = False
-            new_bvh._spatial_coord = np.array([[]])
             for node in new_bvh.nodes:
                 node.offset = node.offset * scale
             return new_bvh
@@ -557,8 +513,8 @@ class Bvh:
 
         target = self if inplace else self.copy()
 
-        # Find the column index in frames for this joint
-        col = 3  # skip root position columns
+        # Find the joint index in joint_angles
+        j_idx = 0
         target_joint = None
         for node in target.nodes:
             if node.is_end_site():
@@ -566,21 +522,18 @@ class Bvh:
             if node.name == joint_name:
                 target_joint = node
                 break
-            col += 3
+            j_idx += 1
 
         # Convert: old Euler → rotmat → new Euler
-        angles_old = target.frames[:, col:col+3]  # (num_frames, 3) degrees
+        angles_old = target.joint_angles[:, j_idx]  # (num_frames, 3) degrees
         R = rotations.euler_to_rotmat(angles_old, old_order, degrees=True)
         angles_new = rotations.rotmat_to_euler(R, new_order, degrees=True)
 
         # Write new angles back
-        target.frames[:, col:col+3] = angles_new
+        target.joint_angles[:, j_idx] = angles_new
 
         # Update node's rot_channels
         target_joint.rot_channels = new_order
-
-        # Rebuild frame_template to reflect the new channel order
-        target._create_frame_template()
 
         if inplace:
             return None
@@ -614,22 +567,19 @@ class Bvh:
 
         target = self if inplace else self.copy()
 
-        col = 3  # skip root position columns
+        j_idx = 0
         for node in target.nodes:
             if node.is_end_site():
                 continue
 
             old_order = node.rot_channels
             if old_order != new_order_list:
-                angles_old = target.frames[:, col:col+3]
+                angles_old = target.joint_angles[:, j_idx]
                 R = rotations.euler_to_rotmat(angles_old, old_order, degrees=True)
                 angles_new = rotations.rotmat_to_euler(R, new_order_list, degrees=True)
-                target.frames[:, col:col+3] = angles_new
+                target.joint_angles[:, j_idx] = angles_new
                 node.rot_channels = new_order_list
-            col += 3
-
-        # Rebuild frame_template once at the end
-        target._create_frame_template()
+            j_idx += 1
 
         if inplace:
             return None
@@ -655,16 +605,14 @@ class Bvh:
         num_joints = len(joints)
         num_frames = self.frame_count
 
-        root_pos = self.frames[:, :3].copy()
+        root_pos = self.root_pos.copy()
 
         joint_rotmats = np.empty((num_frames, num_joints, 3, 3), dtype=np.float64)
 
-        col = 3  # skip root position columns
         for j_idx, joint in enumerate(joints):
-            angles = self.frames[:, col:col+3]  # (num_frames, 3) in degrees
+            angles = self.joint_angles[:, j_idx]  # (num_frames, 3) in degrees
             order = joint.rot_channels
             joint_rotmats[:, j_idx] = rotations.euler_to_rotmat(angles, order, degrees=True)
-            col += 3
 
         return root_pos, joint_rotmats, joints
 
@@ -738,10 +686,10 @@ class Bvh:
 
     def set_frames_from_6d(self, root_pos, joint_rot6d):
         """
-        Set self.frames from root positions and 6D rotation data.
+        Set motion data from root positions and 6D rotation data.
 
         Converts 6D rotations back to Euler angles using each joint's
-        rot_channels order, then writes into self.frames.
+        rot_channels order, then writes into root_pos and joint_angles.
 
         Parameters
         ----------
@@ -765,30 +713,23 @@ class Bvh:
 
         # Convert 6D -> rotation matrices -> Euler angles per joint
         joint_rotmats = rotations.rot6d_to_rotmat(joint_rot6d)
-        # joint_rotmats shape: (num_frames, num_joints, 3, 3)
 
-        num_channels = 3 + num_joints * 3  # root_pos(3) + 3 per joint
-        new_frames = np.empty((num_frames, num_channels), dtype=np.float64)
-        new_frames[:, :3] = root_pos
-
-        col = 3
+        new_angles = np.empty((num_frames, num_joints, 3), dtype=np.float64)
         for j_idx, joint in enumerate(joints):
             order = joint.rot_channels
-            euler = rotations.rotmat_to_euler(
+            new_angles[:, j_idx] = rotations.rotmat_to_euler(
                 joint_rotmats[:, j_idx], order, degrees=True)
-            new_frames[:, col:col+3] = euler
-            col += 3
 
-        self.frames = new_frames
-        self.frame_count = num_frames
+        self.root_pos = root_pos
+        self.joint_angles = new_angles
 
 
     def set_frames_from_quaternion(self, root_pos, joint_quats):
         """
-        Set self.frames from root positions and quaternion data.
+        Set motion data from root positions and quaternion data.
 
         Converts quaternions back to Euler angles using each joint's
-        rot_channels order, then writes into self.frames.
+        rot_channels order, then writes into root_pos and joint_angles.
 
         Parameters
         ----------
@@ -812,28 +753,22 @@ class Bvh:
 
         joint_rotmats = rotations.quat_to_rotmat(joint_quats)
 
-        num_channels = 3 + num_joints * 3
-        new_frames = np.empty((num_frames, num_channels), dtype=np.float64)
-        new_frames[:, :3] = root_pos
-
-        col = 3
+        new_angles = np.empty((num_frames, num_joints, 3), dtype=np.float64)
         for j_idx, joint in enumerate(joints):
             order = joint.rot_channels
-            euler = rotations.rotmat_to_euler(
+            new_angles[:, j_idx] = rotations.rotmat_to_euler(
                 joint_rotmats[:, j_idx], order, degrees=True)
-            new_frames[:, col:col+3] = euler
-            col += 3
 
-        self.frames = new_frames
-        self.frame_count = num_frames
+        self.root_pos = root_pos
+        self.joint_angles = new_angles
 
 
     def set_frames_from_axisangle(self, root_pos, joint_aa):
         """
-        Set self.frames from root positions and axis-angle data.
+        Set motion data from root positions and axis-angle data.
 
         Converts axis-angle vectors back to Euler angles using each joint's
-        rot_channels order, then writes into self.frames.
+        rot_channels order, then writes into root_pos and joint_angles.
 
         Parameters
         ----------
@@ -857,20 +792,14 @@ class Bvh:
 
         joint_rotmats = rotations.axisangle_to_rotmat(joint_aa)
 
-        num_channels = 3 + num_joints * 3
-        new_frames = np.empty((num_frames, num_channels), dtype=np.float64)
-        new_frames[:, :3] = root_pos
-
-        col = 3
+        new_angles = np.empty((num_frames, num_joints, 3), dtype=np.float64)
         for j_idx, joint in enumerate(joints):
             order = joint.rot_channels
-            euler = rotations.rotmat_to_euler(
+            new_angles[:, j_idx] = rotations.rotmat_to_euler(
                 joint_rotmats[:, j_idx], order, degrees=True)
-            new_frames[:, col:col+3] = euler
-            col += 3
 
-        self.frames = new_frames
-        self.frame_count = num_frames
+        self.root_pos = root_pos
+        self.joint_angles = new_angles
 
         
 #---------------------------------------------------------------------------------

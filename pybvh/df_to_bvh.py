@@ -1,5 +1,6 @@
 import re
 import copy
+import numpy as np
 
 from .bvh import Bvh
 from .bvhnode import BvhNode, BvhJoint, BvhRoot 
@@ -299,10 +300,14 @@ def df_to_bvh(hier, df):
 
     time_series = df['time']
     frames = df.drop(['time'], axis=1)
-    frame_template = list(frames.columns)
     frames = frames.to_numpy()
     frame_frequency = 1/int(1/(time_series.to_numpy()[-1] / (len(time_series)-1)))
 
-    return Bvh(nodes=hier_list, frames=frames, frame_template=frame_template , frame_frequency=frame_frequency)
+    num_joints = len([n for n in hier_list if not n.is_end_site()])
+    root_pos = frames[:, :3].astype(np.float64)
+    joint_angles = frames[:, 3:].reshape(frames.shape[0], num_joints, 3).astype(np.float64)
+
+    return Bvh(nodes=hier_list, root_pos=root_pos, joint_angles=joint_angles,
+               frame_frequency=frame_frequency)
 
     

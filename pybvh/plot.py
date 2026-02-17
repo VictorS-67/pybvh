@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import warnings
 
 from pathlib import Path
 
@@ -9,19 +10,13 @@ from pathlib import Path
 
 
 def plot_frame(bvh_object, frame, centered = "world"):
-
     """ 
     Plot a bvh frame.
     Input:
     - bvh_object : A Bvh object.
-    - frames : can be 1D array with the frame data, or a frame index
-            - if an int : plot the frame indexed by the argument.
-            - if 1D array : plot the frame passed as an argument. The frame needs to contain the spatial coordinates (not rotation!). 
-    - centered : a string that can be either "skeleton", or "world".
-                If "skeleton", the coordinates are local to the skeleton (meaning the root
-                coordinates are considered to be [0, 0, 0]).
-                If "world", the coordinates are global (meaning the root coordinates are
-                the actual coordinates of the root).
+    - frame : can be an int (frame index) or a 2-D array of shape ``(N, 3)``
+              with spatial coordinates.
+    - centered : ``"skeleton"`` or ``"world"``.
     """
     num_subplots = 1
 
@@ -30,7 +25,7 @@ def plot_frame(bvh_object, frame, centered = "world"):
     elif isinstance(frame, np.ndarray):
         pass
     else:
-        raise ValueError("frame should be either an int or a 1D numpy array.")
+        raise ValueError("frame should be either an int or a numpy array.")
 
     directions_dict = _get_forw_up_axis(bvh_object, frame)
     fig, axs = _setup_plt(frame, num_subplots=num_subplots, directions_dict=directions_dict)
@@ -48,14 +43,17 @@ def plot_frame(bvh_object, frame, centered = "world"):
 
 
 
-def plot_animation(bvh_object, 
-                   frames=-1,
-                   centered = "world",
-                   savefile = True,
-                   filepath = Path('./anim.mp4'),
-                   direction_ref = 'rest',
-                   fps = -1,
-                   show_axis = True):
+def plot_animation(
+        bvh_object, 
+        frames=-1,
+        centered = "world",
+        savefile = True,
+        filepath = Path('./anim.mp4'),
+        direction_ref = 'rest',
+        fps = -1,
+        show_axis = True,
+        verbose = False
+        ):
     """
     Plot the bvh animation.
     Input:
@@ -85,56 +83,19 @@ def plot_animation(bvh_object,
             else, use 
     """
 
-    # --------------------------------------------------------
     # --------------- prooftesting the parameters ------------
-    # --------------------------------------------------------
+    frames, filepath, writer = _prooftest_plot_animation_parameters(
+        bvh_object,
+        frames,
+        centered,
+        savefile,
+        filepath,
+        direction_ref,
+        fps
+        )
+    #frames is now an np.array of shape (*, N, 3)
 
-    if isinstance(frames, int):
-        # if frames is an int, we need to check if it is in the bounds or -1
-        if frames == -1 :
-            frames = bvh_object.get_spatial_coord(centered=centered)
-        elif frames>= 0 and frames < bvh_object.frame_count:
-            # we need an iterable for the animation so we need to put the one frame into a list
-            frames = [bvh_object.get_spatial_coord(frame_num=frames, centered=centered)]
-        else : 
-            raise ValueError("Index out of bounds for the frames.")
-    else :
-        # if frames is not an int, we need to check if it is an iterable
-        try:
-            _ = (f for f in frames)
-        except:
-            raise ValueError("frames should be either an int or an iterable.")
-        #if we are here, then frames is an iterable
-        if isinstance(frames[0], int):
-            # if the first element is an int, then its a list of frame index
-            frames = bvh_object.get_spatial_coord(centered=centered)[frames]
-        else:
-            # if the first element is not an int, then frames should be a list of frames
-            try:
-                if len(frames[0]) != (len(bvh_object.nodes)) *3:
-                    raise ValueError(f"The length of each frame inside the\
-                                      iterable given as argument should be {(len(bvh_object.nodes)) *3}.")
-                else:
-                    #if everything is good, we can use the frames as is
-                    frames = frames
-            except:
-                #if len(frames[0]) created a problem
-                raise ValueError("frames should be either an index, a list of indices or a list of frames.")
-    
-    if direction_ref not in ['rest', 'first']:
-        raise  ValueError("direction_ref should be either 'rest' or 'first'.")
-    
-    if not isinstance(fps, int) or fps==0 or fps < -1 :
-        raise  ValueError("fps should be -1 or a positiv int")
-    
-    centered_options = ['skeleton', 'first', 'world']
-    if centered not in centered_options:
-        raise ValueError(f'The value {centered} is not recognized for the centered argument.\
-                            Currently recognized keywords are {centered_options}')
-    
-    ## --------------------------------------------------------
     ## --------------- end of prooftesting the parameters------
-    ## --------------------------------------------------------
 
     if direction_ref == 'rest':
         direction_pose = bvh_object.get_rest_pose(mode='coordinates')
@@ -161,13 +122,108 @@ def plot_animation(bvh_object,
         fig, _draw_skeleton, frames, fargs=(bvh_object, lines), interval=interval)
     
     if savefile:
-        anim.save(Path(filepath))
+        if writer == "jshtml":
+            html_content = anim.to_jshtml() 
+            with open(filepath, 'w') as f:
+                f.write(html_content)
+        else:
+            anim.save(Path(filepath), writer=writer)
     #plt.show()
 
     return fig, ax
 
 
+def _prooftest_plot_animation_parameters(
+        bvh_object,
+        frames,
+        centered,
+        savefile,
+        filepath,
+        direction_ref,
+        fps
+        ):
+    # ---- test frames
+    if isinstance(frames, int):
+        # if frames is an int, we need to check if it is in the bounds or -1
+        if frames == -1 :
+            frames = bvh_object.get_spatial_coord(centered=centered)
+        elif frames>= 0 and frames < bvh_object.frame_count:
+            # we need an iterable for the animation so we need to put the one frame into a list
+            frames = [bvh_object.get_spatial_coord(frame_num=frames, centered=centered)]
+        else : 
+            raise ValueError("Index out of bounds for the frames.")
+    else :
+        # if frames is not an int, we need to check if it is an iterable
+        try:
+            _ = (f for f in frames)
+        except:
+            raise ValueError("frames should be either an int or an iterable.")
+        #if we are here, then frames is an iterable
+        frames = np.asarray(frames)
+        if frames.ndim == 1 and np.issubdtype(frames.dtype, np.integer):
+            # list of frame indices
+            frames = bvh_object.get_spatial_coord(centered=centered)[frames]
+        elif frames.ndim == 2:
+            # single (N, 3) frame
+            frames = frames[np.newaxis, :]
+        elif frames.ndim == 3:
+            # (F, N, 3) already
+            if frames.shape[1:] != (len(bvh_object.nodes), 3):
+                raise ValueError(
+                    f"Each frame should have shape ({len(bvh_object.nodes)}, 3).")
+        else:
+            raise ValueError("frames should be an int, list of ints, or array of spatial coords.")
+    
+    # ---- test savefile and savepath and available writers
+    if savefile:
+        output_path = Path(filepath)
+        ext = output_path.suffix.lower()
+        
+        # 1. Check available writers
+        has_ffmpeg = animation.writers.is_available('ffmpeg')
+        
+        # 2. Logic for Video (.mp4, .mov, .avi)
+        if ext in ['.mp4', '.mov', '.avi']:
+            if has_ffmpeg:
+                writer='ffmpeg'
+            else:
+                # Smart Fallback: Change to GIF
+                filepath = output_path.with_suffix('.gif')
+                warnings.warn(
+                    f"FFmpeg not found! Cannot save as {ext}.\n"
+                    f"Falling back to PillowWriter and saving as '{filepath}' instead.\n"
+                    f".webp and .html are also available."
+                )
+                writer='pillow'
 
+        # 3. Logic for Image Formats (.gif, .webp, .apng)
+        elif ext in ['.gif', '.webp', '.apng']:
+            # Pillow handles all of these natively now
+            writer='pillow'
+
+        # 4. Logic for HTML
+        elif ext == '.html':
+            # to_jshtml() is superior to writer='html' because it embeds the data
+            writer='jshtml'
+
+        else:
+            raise ValueError(f"Unsupported file format: {ext}")
+        
+    # ---- test direction_ref
+    if direction_ref not in ['rest', 'first']:
+        raise  ValueError("direction_ref should be either 'rest' or 'first'.")
+    
+    # ---- test fps
+    if not isinstance(fps, int) or fps==0 or fps < -1 :
+        raise  ValueError("fps should be -1 or a positiv int")
+    
+    # ---- test centered_options
+    centered_options = ['skeleton', 'first', 'world']
+    if centered not in centered_options:
+        raise ValueError(f'The value {centered} is not recognized for the centered argument.\
+                            Currently recognized keywords are {centered_options}')
+    
+    return frames, filepath, writer
 
 
 def _get_main_direction(coord_array)->str:
@@ -203,12 +259,11 @@ def _get_forw_up_axis(bvh_object, frame)->dict:
         Return the upward and forward axis of the bvh file in a dictionnary format. 
         ONLY WORKS WITH HUMAN SKELETON!
         The axis are based on the analysis of the frame given as an argument.
-        It works assuming that the skeleton is in a mostly straight or sitting position
-        in the frame. In case of lying down, or weird position, will return wrong result.
+        frame shape is (N, 3).
     """
 
-    #we want to work with the local coordinates here:
-    local_coord = frame - np.tile(frame[:3], int(frame.shape[0]/3))
+    # work with local coordinates (root at origin)
+    local_coord = frame - frame[0]  # (N, 3) - (3,) broadcast
 
     axis2vector = {'+x': np.array([1,0,0]), '-x': np.array([-1,0,0]),
                '+y': np.array([0,1,0]), '-y': np.array([0,-1,0]),
@@ -222,25 +277,17 @@ def _get_forw_up_axis(bvh_object, frame)->dict:
             break
     # we try if one of the joint had the name in the list
     try:
-        idx_up_joint = np.array([bvh_object.name2coord_idx[f'{upward_joint.name}_X'],
-                                 bvh_object.name2coord_idx[f'{upward_joint.name}_Y'],
-                                 bvh_object.name2coord_idx[f'{upward_joint.name}_Z']])
+        up_joint_coord = local_coord[bvh_object.name2idx[upward_joint.name]]
     except:
-        #if not, we will assume that the first node after the root is the upward joint (spine or chest equivalent)
-        idx_up_joint = np.array([3, 4, 5])
+        # if not, use the second node (index 1) as the upward joint
+        up_joint_coord = local_coord[1]
 
-    up_joint_coord = local_coord[idx_up_joint]
     up_ax = _get_main_direction(up_joint_coord)
 
     # for the front, we suppose that the last joint in the dictionary is one of the feet,
-    # so it will point forward. We can obtain the forward direction by subtracting the last two 
-    # joints positions to obtain their direction vector
-
-    foot_vector = local_coord[[-3, -2, -1]] - local_coord[[-6, -5, -4]]
+    # so it will point forward.
+    foot_vector = local_coord[-1] - local_coord[-2]
     forward_ax = _get_main_direction(foot_vector)
-
-    #forward_vector = axis2vector[forward_ax]
-    #upward_vector = axis2vector[up_ax]
 
     return {'forward': forward_ax, 'upward': up_ax}
 
@@ -272,8 +319,8 @@ def _setup_plt(frame_plotted, num_subplots=1, directions_dict = {}):
 
     elev_list, azim_list = _angle_up_forward(forward_ax, up_ax)
 
-    root_pos = frame_plotted[[0,1,2]]
-    local_coord = frame_plotted - np.tile(root_pos, int(frame_plotted.shape[0]/3))
+    root_pos = frame_plotted[0]  # (3,)
+    local_coord = frame_plotted - root_pos  # broadcast
 
     lim_min, lim_max = np.min(local_coord), np.max(local_coord)
 
@@ -305,17 +352,14 @@ def _setup_plt(frame_plotted, num_subplots=1, directions_dict = {}):
 
 def _draw_skeleton(frame, bvh_object, lines):
     """
-    Function to draw the bvh skeleton in one frame
-    by creating Line3D object
-    lines needs to be of length len(bvh_object.nodes - 1) 
+    Function to draw the bvh skeleton in one frame.
+    frame is shape (N, 3).  lines has length len(bvh_object.nodes) - 1.
     """
-    name2index = bvh_object.name2coord_idx
+    name2index = bvh_object.name2idx
 
     for line, node in zip(lines, bvh_object.nodes[1:]): #skip the root
-        col_idx = [name2index[f'{node.name}_X'], name2index[f'{node.name}_Y'], name2index[f'{node.name}_Z']]
-        parent_col_idx = [name2index[f'{node.parent.name}_X'], name2index[f'{node.parent.name}_Y'], name2index[f'{node.parent.name}_Z']]
-        coord = frame[col_idx]
-        parent_coord =frame[parent_col_idx]
+        coord = frame[name2index[node.name]]
+        parent_coord = frame[name2index[node.parent.name]]
         line.set_data_3d([parent_coord[0], coord[0]],
                         [parent_coord[1], coord[1]],
                         [parent_coord[2], coord[2]])
@@ -371,9 +415,9 @@ def _setup_plt_animation_world(frames, directions_dict={}):
     ax = axs[0]
     # we have axis with the proper up and forward dir. 
     # Just need to recalculate the limits
-    x_min, x_max= np.min(frames[:,0::3]),  np.max(frames[:,0::3])
-    y_min, y_max= np.min(frames[:,1::3]),  np.max(frames[:,1::3])
-    z_min, z_max= np.min(frames[:,2::3]),  np.max(frames[:,2::3])
+    x_min, x_max= np.min(frames[:,:,0]),  np.max(frames[:,:,0])
+    y_min, y_max= np.min(frames[:,:,1]),  np.max(frames[:,:,1])
+    z_min, z_max= np.min(frames[:,:,2]),  np.max(frames[:,:,2])
 
     
 

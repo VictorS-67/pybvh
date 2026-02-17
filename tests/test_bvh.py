@@ -59,8 +59,9 @@ class TestReadBvhFile:
         assert len(bvh_example.nodes) == 29
 
     def test_frames_shape(self, bvh_example):
-        """Verify frames array shape."""
-        assert bvh_example.frames.shape == (56, 75)
+        """Verify root_pos and joint_angles shapes."""
+        assert bvh_example.root_pos.shape == (56, 3)
+        assert bvh_example.joint_angles.shape == (56, 24, 3)
 
     def test_root_is_bvh_root(self, bvh_example):
         """Root should be a BvhRoot instance."""
@@ -90,15 +91,14 @@ class TestReadBvhFile:
 
     def test_first_frame_values(self, bvh_example):
         """Verify first frame data values."""
-        expected_first_12 = np.array([
-            9.5267, -0.7495, 36.2768, 88.2354, -1.0699, 0.6448,
-            1.0586, -0.3574, -0.4139, 1.0857, -0.2637, -0.4131
-        ])
-        np.testing.assert_allclose(
-            bvh_example.frames[0][:12], 
-            expected_first_12, 
-            atol=1e-4
-        )
+        expected_root_pos = np.array([9.5267, -0.7495, 36.2768])
+        expected_first_joint = np.array([88.2354, -1.0699, 0.6448])
+        expected_second_joint = np.array([1.0586, -0.3574, -0.4139])
+        expected_third_joint = np.array([1.0857, -0.2637, -0.4131])
+        np.testing.assert_allclose(bvh_example.root_pos[0], expected_root_pos, atol=1e-4)
+        np.testing.assert_allclose(bvh_example.joint_angles[0, 0], expected_first_joint, atol=1e-4)
+        np.testing.assert_allclose(bvh_example.joint_angles[0, 1], expected_second_joint, atol=1e-4)
+        np.testing.assert_allclose(bvh_example.joint_angles[0, 2], expected_third_joint, atol=1e-4)
 
     def test_file_not_found_raises(self):
         """Reading non-existent file should raise ImportError."""
@@ -158,46 +158,46 @@ class TestSpatialCoordinates:
         """Verify spatial coordinates for single frame, world centered."""
         spatial = bvh_example.get_spatial_coord(frame_num=0, centered="world")
         
-        # Shape: 29 nodes * 3 coordinates = 87
-        assert spatial.shape == (87,)
+        # Shape: 29 nodes x 3 coordinates
+        assert spatial.shape == (29, 3)
         
-        # First 12 values (root + first 3 joints)
-        expected_first_12 = np.array([
-            9.5267, -0.7495, 36.2768,
-            9.57422669, -0.83414247, 40.72857177,
-            10.3621849, -0.95396445, 45.10949094,
-            10.73337881, -1.08367526, 49.54492051
+        # First 4 nodes (root + first 3 joints)
+        expected_first_4 = np.array([
+            [9.5267, -0.7495, 36.2768],
+            [9.57422669, -0.83414247, 40.72857177],
+            [10.3621849, -0.95396445, 45.10949094],
+            [10.73337881, -1.08367526, 49.54492051]
         ])
-        np.testing.assert_allclose(spatial[:12], expected_first_12, atol=1e-4)
+        np.testing.assert_allclose(spatial[:4], expected_first_4, atol=1e-4)
 
     def test_single_frame_skeleton_centered(self, bvh_example):
         """Verify spatial coordinates for single frame, skeleton centered."""
         spatial = bvh_example.get_spatial_coord(frame_num=0, centered="skeleton")
         
         # Root should be at origin
-        np.testing.assert_allclose(spatial[:3], [0.0, 0.0, 0.0], atol=1e-10)
+        np.testing.assert_allclose(spatial[0], [0.0, 0.0, 0.0], atol=1e-10)
         
         # Other joints should be offset from origin
-        expected_first_12 = np.array([
-            0.0, 0.0, 0.0,
-            0.04752669, -0.08464247, 4.45177177,
-            0.8354849, -0.20446445, 8.83269094,
-            1.20667881, -0.33417526, 13.26812051
+        expected_first_4 = np.array([
+            [0.0, 0.0, 0.0],
+            [0.04752669, -0.08464247, 4.45177177],
+            [0.8354849, -0.20446445, 8.83269094],
+            [1.20667881, -0.33417526, 13.26812051]
         ])
-        np.testing.assert_allclose(spatial[:12], expected_first_12, atol=1e-4)
+        np.testing.assert_allclose(spatial[:4], expected_first_4, atol=1e-4)
 
     def test_all_frames_world_centered(self, bvh_example):
         """Verify all frames spatial coordinates shape."""
         spatial = bvh_example.get_spatial_coord(frame_num=-1, centered="world")
-        assert spatial.shape == (56, 87)
+        assert spatial.shape == (56, 29, 3)
 
     def test_all_frames_first_centered(self, bvh_example):
         """Verify 'first' centering mode - first frame root at origin."""
         spatial = bvh_example.get_spatial_coord(frame_num=-1, centered="first")
         
-        assert spatial.shape == (56, 87)
+        assert spatial.shape == (56, 29, 3)
         # First frame root should be at origin
-        np.testing.assert_allclose(spatial[0, :3], [0.0, 0.0, 0.0], atol=1e-10)
+        np.testing.assert_allclose(spatial[0, 0], [0.0, 0.0, 0.0], atol=1e-10)
 
     def test_invalid_centered_raises(self, bvh_example):
         """Invalid centered value should raise ValueError."""
@@ -241,7 +241,8 @@ class TestDataFrameConversion:
         
         assert bvh2.frame_count == bvh_example.frame_count
         assert len(bvh2.nodes) == len(bvh_example.nodes)
-        np.testing.assert_allclose(bvh2.frames, bvh_example.frames, atol=1e-10)
+        np.testing.assert_allclose(bvh2.root_pos, bvh_example.root_pos, atol=1e-10)
+        np.testing.assert_allclose(bvh2.joint_angles, bvh_example.joint_angles, atol=1e-10)
 
 
 # =============================================================================
@@ -266,8 +267,13 @@ class TestFileRoundTrip:
             
             # Frames should be close (allowing for float formatting precision)
             np.testing.assert_allclose(
-                bvh_reread.frames, 
-                bvh_example.frames, 
+                bvh_reread.root_pos, 
+                bvh_example.root_pos, 
+                atol=1e-5
+            )
+            np.testing.assert_allclose(
+                bvh_reread.joint_angles,
+                bvh_example.joint_angles,
                 atol=1e-5
             )
 
@@ -294,10 +300,10 @@ class TestBvhMethods:
         bvh_copy = bvh_example.copy()
         
         # Modify the copy
-        bvh_copy.frames[0, 0] = 999.0
+        bvh_copy.root_pos[0, 0] = 999.0
         
         # Original should be unchanged
-        assert bvh_example.frames[0, 0] != 999.0
+        assert bvh_example.root_pos[0, 0] != 999.0
 
     def test_str_representation(self, bvh_example):
         """__str__ should return readable summary."""
@@ -313,10 +319,12 @@ class TestBvhMethods:
         assert "frames=" in r
 
     def test_get_rest_pose_euler(self, bvh_example):
-        """get_rest_pose with euler mode should return zeros."""
-        rest = bvh_example.get_rest_pose(mode='euler')
-        assert rest.shape == bvh_example.frames[0].shape
-        np.testing.assert_allclose(rest, np.zeros_like(rest))
+        """get_rest_pose with euler mode should return zeros tuple."""
+        root_pos_rest, joint_angles_rest = bvh_example.get_rest_pose(mode='euler')
+        assert root_pos_rest.shape == (3,)
+        assert joint_angles_rest.shape == bvh_example.joint_angles[0].shape
+        np.testing.assert_allclose(root_pos_rest, np.zeros(3))
+        np.testing.assert_allclose(joint_angles_rest, np.zeros_like(joint_angles_rest))
 
     def test_hierarchy_info_as_dict(self, bvh_example):
         """hierarchy_info_as_dict should return valid dict."""
@@ -347,8 +355,60 @@ class TestEdgeCases:
         with pytest.raises(ValueError):
             bvh.nodes = "not a list"
 
-    def test_frames_setter_validates(self):
-        """Setting frames to invalid value should raise ValueError."""
+
+# =============================================================================
+# Test: Structured data representation (root_pos + joint_angles)
+# =============================================================================
+
+class TestStructuredRepresentation:
+    """Tests for the root_pos / joint_angles split representation."""
+
+    def test_root_pos_shape(self, bvh_example):
+        """root_pos should be (num_frames, 3)."""
+        assert bvh_example.root_pos.shape == (56, 3)
+
+    def test_joint_angles_shape(self, bvh_example):
+        """joint_angles should be (num_frames, num_joints, 3)."""
+        num_joints = len([n for n in bvh_example.nodes if not n.is_end_site()])
+        assert bvh_example.joint_angles.shape == (56, num_joints, 3)
+
+    def test_root_pos_values(self, bvh_example):
+        """root_pos should match the expected first-frame root translation."""
+        expected = np.array([9.5267, -0.7495, 36.2768])
+        np.testing.assert_allclose(bvh_example.root_pos[0], expected, atol=1e-4)
+
+    def test_joint_angles_first_joint(self, bvh_example):
+        """First joint's angles should match expected values."""
+        expected = np.array([88.2354, -1.0699, 0.6448])
+        np.testing.assert_allclose(bvh_example.joint_angles[0, 0], expected, atol=1e-4)
+
+    def test_copy_independence_root_pos(self, bvh_example):
+        """copy() should create independent root_pos."""
+        bvh_copy = bvh_example.copy()
+        bvh_copy.root_pos[0, 0] = 999.0
+        assert bvh_example.root_pos[0, 0] != 999.0
+
+    def test_copy_independence_joint_angles(self, bvh_example):
+        """copy() should create independent joint_angles."""
+        bvh_copy = bvh_example.copy()
+        bvh_copy.joint_angles[0, 0, 0] = 999.0
+        assert bvh_example.joint_angles[0, 0, 0] != 999.0
+
+    def test_empty_object_root_pos(self):
+        """Empty Bvh should have empty root_pos."""
         bvh = Bvh()
-        with pytest.raises(ValueError):
-            bvh.frames = "not an array"
+        assert bvh.root_pos.shape == (0, 3)
+
+    def test_empty_object_joint_angles(self):
+        """Empty Bvh should have empty joint_angles."""
+        bvh = Bvh()
+        assert bvh.joint_angles.shape == (0, 0, 3)
+
+    def test_roundtrip_file_preserves_structure(self, bvh_example):
+        """Write + read preserves root_pos and joint_angles."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpfile = Path(tmpdir) / "test_structured.bvh"
+            bvh_example.to_bvh_file(tmpfile, verbose=False)
+            bvh2 = read_bvh_file(tmpfile)
+            np.testing.assert_allclose(bvh2.root_pos, bvh_example.root_pos, atol=1e-5)
+            np.testing.assert_allclose(bvh2.joint_angles, bvh_example.joint_angles, atol=1e-5)

@@ -460,7 +460,7 @@ class Bvh:
 
         
 
-    def single_joint_euler_angle(self, joint, new_order, inplace=True):
+    def single_joint_euler_angle(self, joint, new_order, inplace=False):
         """
         Change the Euler angle order of a single joint for all frames.
 
@@ -540,7 +540,7 @@ class Bvh:
         return target
 
 
-    def change_all_euler_orders(self, new_order, inplace=True):
+    def change_all_euler_orders(self, new_order, inplace=False):
         """
         Change the Euler angle order of ALL joints to a single unified order.
 
@@ -684,7 +684,7 @@ class Bvh:
         return root_pos, joint_aa, joints
 
 
-    def set_frames_from_6d(self, root_pos, joint_rot6d):
+    def set_frames_from_6d(self, root_pos, joint_rot6d, inplace=False):
         """
         Set motion data from root positions and 6D rotation data.
 
@@ -698,11 +698,21 @@ class Bvh:
         joint_rot6d : array_like, shape (num_frames, num_joints, 6)
             6D rotation per joint per frame.
             Joint order must match self.nodes (end sites excluded).
+        inplace : bool
+            If True, modify self and return None.
+            If False, return a modified copy while leaving self unchanged.
+
+        Returns
+        -------
+        None or Bvh
+            None if inplace, otherwise a new Bvh object.
         """
+        target = self if inplace else self.copy()
+
         root_pos = np.asarray(root_pos, dtype=np.float64)
         joint_rot6d = np.asarray(joint_rot6d, dtype=np.float64)
 
-        joints = [n for n in self.nodes if not n.is_end_site()]
+        joints = [n for n in target.nodes if not n.is_end_site()]
         num_joints = len(joints)
         num_frames = root_pos.shape[0]
 
@@ -720,11 +730,15 @@ class Bvh:
             new_angles[:, j_idx] = rotations.rotmat_to_euler(
                 joint_rotmats[:, j_idx], order, degrees=True)
 
-        self.root_pos = root_pos
-        self.joint_angles = new_angles
+        target.root_pos = root_pos
+        target.joint_angles = new_angles
+
+        if inplace:
+            return None
+        return target
 
 
-    def set_frames_from_quaternion(self, root_pos, joint_quats):
+    def set_frames_from_quaternion(self, root_pos, joint_quats, inplace=False):
         """
         Set motion data from root positions and quaternion data.
 
@@ -738,11 +752,21 @@ class Bvh:
         joint_quats : array_like, shape (num_frames, num_joints, 4)
             Quaternion (w, x, y, z) per joint per frame.
             Joint order must match self.nodes (end sites excluded).
+        inplace : bool
+            If True, modify self and return None.
+            If False, return a modified copy while leaving self unchanged.
+
+        Returns
+        -------
+        None or Bvh
+            None if inplace, otherwise a new Bvh object.
         """
+        target = self if inplace else self.copy()
+
         root_pos = np.asarray(root_pos, dtype=np.float64)
         joint_quats = np.asarray(joint_quats, dtype=np.float64)
 
-        joints = [n for n in self.nodes if not n.is_end_site()]
+        joints = [n for n in target.nodes if not n.is_end_site()]
         num_joints = len(joints)
         num_frames = root_pos.shape[0]
 
@@ -759,11 +783,15 @@ class Bvh:
             new_angles[:, j_idx] = rotations.rotmat_to_euler(
                 joint_rotmats[:, j_idx], order, degrees=True)
 
-        self.root_pos = root_pos
-        self.joint_angles = new_angles
+        target.root_pos = root_pos
+        target.joint_angles = new_angles
+
+        if inplace:
+            return None
+        return target
 
 
-    def set_frames_from_axisangle(self, root_pos, joint_aa):
+    def set_frames_from_axisangle(self, root_pos, joint_aa, inplace=False):
         """
         Set motion data from root positions and axis-angle data.
 
@@ -777,11 +805,21 @@ class Bvh:
         joint_aa : array_like, shape (num_frames, num_joints, 3)
             Axis-angle vector per joint per frame.
             Joint order must match self.nodes (end sites excluded).
+        inplace : bool
+            If True, modify self and return None.
+            If False, return a modified copy while leaving self unchanged.
+
+        Returns
+        -------
+        None or Bvh
+            None if inplace, otherwise a new Bvh object.
         """
+        target = self if inplace else self.copy()
+
         root_pos = np.asarray(root_pos, dtype=np.float64)
         joint_aa = np.asarray(joint_aa, dtype=np.float64)
 
-        joints = [n for n in self.nodes if not n.is_end_site()]
+        joints = [n for n in target.nodes if not n.is_end_site()]
         num_joints = len(joints)
         num_frames = root_pos.shape[0]
 
@@ -798,8 +836,12 @@ class Bvh:
             new_angles[:, j_idx] = rotations.rotmat_to_euler(
                 joint_rotmats[:, j_idx], order, degrees=True)
 
-        self.root_pos = root_pos
-        self.joint_angles = new_angles
+        target.root_pos = root_pos
+        target.joint_angles = new_angles
+
+        if inplace:
+            return None
+        return target
 
         
 #---------------------------------------------------------------------------------

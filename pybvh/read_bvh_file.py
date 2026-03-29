@@ -129,17 +129,16 @@ def _extract_bvh_file_info(filepath):
 
         #----------  End of the Hierarchy part. After the hierarchy comes the frames data.
         
+        # Calculate number of channels: 6 for root (3 pos + 3 rot), 3 for each other non-end-site joint
+        non_end_site_nodes = [n for n in node_list if not n.is_end_site()]
+        num_channels = 3 + 3 * len(non_end_site_nodes)  # 3 root pos + 3 rot per joint (including root)
+
+        frame_array = np.empty((frame_count, num_channels))
         frame_number = 0
         for line in f:
             line = line.split()
-            line = np.array([float(x) for x in line])
-
-            if frame_number ==0:
-                frame_array = np.array([line])
-            else:
-                frame_array = np.append(frame_array, [line], axis=0)
-
-            frame_number+=1
+            frame_array[frame_number] = [float(x) for x in line]
+            frame_number += 1
 
             
     #-----------------end of reading the file

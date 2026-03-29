@@ -1,4 +1,4 @@
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .bvh import Bvh
 from .read_bvh_file import read_bvh_file

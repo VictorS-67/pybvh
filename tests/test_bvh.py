@@ -17,6 +17,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pybvh import read_bvh_file, df_to_bvh, Bvh
 from pybvh.bvhnode import BvhNode, BvhJoint, BvhRoot
+from pybvh.tools import (rotX, rotY, rotZ, get_premult_mat_rot,
+                          batch_rotX, batch_rotY, batch_rotZ,
+                          batch_get_premult_mat_rot)
 
 
 # =============================================================================
@@ -412,3 +415,263 @@ class TestStructuredRepresentation:
             bvh2 = read_bvh_file(tmpfile)
             np.testing.assert_allclose(bvh2.root_pos, bvh_example.root_pos, atol=1e-5)
             np.testing.assert_allclose(bvh2.joint_angles, bvh_example.joint_angles, atol=1e-5)
+
+
+# =============================================================================
+# Test: Batch rotation functions in tools.py
+# =============================================================================
+
+class TestBatchRotations:
+    """Tests for batch_rotX/Y/Z and batch_get_premult_mat_rot."""
+
+    def test_batch_rotX_matches_scalar(self):
+        """batch_rotX should produce same results as individual rotX calls."""
+        rng = np.random.default_rng(42)
+        angles = rng.uniform(-np.pi, np.pi, size=50)
+        batch_result = batch_rotX(angles)
+        for i, a in enumerate(angles):
+            np.testing.assert_allclose(batch_result[i], rotX(a), atol=1e-14)
+
+    def test_batch_rotY_matches_scalar(self):
+        """batch_rotY should produce same results as individual rotY calls."""
+        rng = np.random.default_rng(43)
+        angles = rng.uniform(-np.pi, np.pi, size=50)
+        batch_result = batch_rotY(angles)
+        for i, a in enumerate(angles):
+            np.testing.assert_allclose(batch_result[i], rotY(a), atol=1e-14)
+
+    def test_batch_rotZ_matches_scalar(self):
+        """batch_rotZ should produce same results as individual rotZ calls."""
+        rng = np.random.default_rng(44)
+        angles = rng.uniform(-np.pi, np.pi, size=50)
+        batch_result = batch_rotZ(angles)
+        for i, a in enumerate(angles):
+            np.testing.assert_allclose(batch_result[i], rotZ(a), atol=1e-14)
+
+    def test_batch_get_premult_matches_scalar(self):
+        """batch_get_premult_mat_rot should match scalar get_premult_mat_rot."""
+        rng = np.random.default_rng(45)
+        angles = rng.uniform(-np.pi, np.pi, size=(100, 3))
+        for order in ['ZYX', 'XYZ', 'YZX', 'ZXY', 'YXZ', 'XZY']:
+            order_list = list(order)
+            batch_result = batch_get_premult_mat_rot(angles, order_list)
+            for i in range(len(angles)):
+                expected = get_premult_mat_rot(angles[i], order_list)
+                np.testing.assert_allclose(batch_result[i], expected, atol=1e-12,
+                    err_msg=f"Mismatch at index {i} for order {order}")
+
+    def test_batch_rotation_output_shapes(self):
+        """Batch rotation functions should return (N, 3, 3)."""
+        angles = np.zeros(10)
+        assert batch_rotX(angles).shape == (10, 3, 3)
+        assert batch_rotY(angles).shape == (10, 3, 3)
+        assert batch_rotZ(angles).shape == (10, 3, 3)
+
+        angles_3d = np.zeros((10, 3))
+        assert batch_get_premult_mat_rot(angles_3d, ['Z', 'Y', 'X']).shape == (10, 3, 3)
+
+    def test_batch_rotation_identity_at_zero(self):
+        """Zero angles should produce identity matrices."""
+        angles = np.zeros((5, 3))
+        result = batch_get_premult_mat_rot(angles, ['Z', 'Y', 'X'])
+        for i in range(5):
+            np.testing.assert_allclose(result[i], np.eye(3), atol=1e-15)
+
+    def test_batch_rotation_orthogonality(self):
+        """All batch rotation matrices should be orthogonal with det=1."""
+        rng = np.random.default_rng(46)
+        angles = rng.uniform(-np.pi, np.pi, size=(100, 3))
+        R = batch_get_premult_mat_rot(angles, ['Z', 'Y', 'X'])
+        # R @ R^T should be I
+        RRT = R @ R.transpose(0, 2, 1)
+        for i in range(100):
+            np.testing.assert_allclose(RRT[i], np.eye(3), atol=1e-12)
+        # det should be 1
+        dets = np.linalg.det(R)
+        np.testing.assert_allclose(dets, 1.0, atol=1e-12)
+
+    def test_batch_single_element(self):
+        """Batch functions should work with a single element."""
+        angles = np.array([0.5])
+        assert batch_rotX(angles).shape == (1, 3, 3)
+        angles_3d = np.array([[0.1, 0.2, 0.3]])
+        result = batch_get_premult_mat_rot(angles_3d, ['X', 'Y', 'Z'])
+        assert result.shape == (1, 3, 3)
+
+
+# =============================================================================
+# Test: Vectorized forward kinematics
+# =============================================================================
+
+class TestVectorizedFK:
+    """Tests for vectorized forward kinematics correctness."""
+
+    def test_all_frames_matches_frame_by_frame(self, bvh_example):
+        """All-frames FK should match computing each frame individually."""
+        all_coords = bvh_example.get_spatial_coord(centered="world")
+        for i in range(bvh_example.frame_count):
+            single_coord = bvh_example.get_spatial_coord(frame_num=i, centered="world")
+            np.testing.assert_allclose(all_coords[i], single_coord, atol=1e-10,
+                err_msg=f"Frame {i} mismatch between batch and single computation")
+
+    def test_fk_on_different_skeletons(self):
+        """FK should work on all test files with different skeletons."""
+        test_files = [
+            "bvh_data/bvh_example.bvh",   # 56 frames, 29 nodes
+            "bvh_data/bvh_test2.bvh",      # 61 frames, 28 nodes
+            "bvh_data/bvh_test3.bvh",      # 100 frames, 73 nodes
+        ]
+        for filepath in test_files:
+            bvh = read_bvh_file(filepath)
+            coords = bvh.get_spatial_coord(centered="world")
+            assert coords.shape == (bvh.frame_count, len(bvh.nodes), 3), \
+                f"Shape mismatch for {filepath}"
+            assert not np.any(np.isnan(coords)), f"NaN in coords for {filepath}"
+            assert not np.any(np.isinf(coords)), f"Inf in coords for {filepath}"
+
+    def test_fk_single_frame_file(self):
+        """FK should work on a file with exactly 1 frame."""
+        bvh = read_bvh_file("bvh_data/standard_skeleton.bvh")
+        assert bvh.frame_count == 1
+        coords_all = bvh.get_spatial_coord(centered="world")
+        coords_single = bvh.get_spatial_coord(frame_num=0, centered="world")
+        # All-frames returns (1, N, 3), single returns (N, 3)
+        np.testing.assert_allclose(coords_all[0], coords_single, atol=1e-10)
+
+    def test_fk_centering_modes_large_file(self):
+        """All centering modes should work on a larger file (100 frames)."""
+        bvh = read_bvh_file("bvh_data/bvh_test3.bvh")
+        for mode in ["world", "skeleton", "first"]:
+            coords = bvh.get_spatial_coord(centered=mode)
+            assert coords.shape == (100, len(bvh.nodes), 3)
+            assert not np.any(np.isnan(coords))
+
+        # Skeleton centering: root should be at origin
+        coords_skel = bvh.get_spatial_coord(centered="skeleton")
+        np.testing.assert_allclose(coords_skel[:, 0, :], 0.0, atol=1e-10)
+
+        # First centering: frame 0 root should be at origin
+        coords_first = bvh.get_spatial_coord(centered="first")
+        np.testing.assert_allclose(coords_first[0, 0, :], 0.0, atol=1e-10)
+
+    def test_fk_frame_independence(self, bvh_example):
+        """Modifying one frame's angles should not affect other frames' coords."""
+        coords_before = bvh_example.get_spatial_coord(centered="world").copy()
+        bvh_mod = bvh_example.copy()
+        bvh_mod.joint_angles[0, :, :] = 0.0  # Zero out frame 0
+        coords_after = bvh_mod.get_spatial_coord(centered="world")
+        # Frame 0 should change
+        assert not np.allclose(coords_after[0], coords_before[0])
+        # All other frames should be identical
+        np.testing.assert_allclose(coords_after[1:], coords_before[1:], atol=1e-10)
+
+
+# =============================================================================
+# Test: Parser with different files
+# =============================================================================
+
+class TestParserMultipleFiles:
+    """Tests for parser correctness across different BVH files."""
+
+    def test_parse_all_test_files(self):
+        """All test BVH files should parse without errors and have valid data."""
+        files = {
+            "bvh_data/bvh_example.bvh": (56, 24, 29),
+            "bvh_data/bvh_test1.bvh": (56, 24, 29),
+            "bvh_data/bvh_test2.bvh": (61, 23, 28),
+            "bvh_data/bvh_test3.bvh": (100, 60, 73),
+            "bvh_data/standard_skeleton.bvh": (1, 24, 29),
+        }
+        for filepath, (exp_frames, exp_joints, exp_nodes) in files.items():
+            bvh = read_bvh_file(filepath)
+            assert bvh.frame_count == exp_frames, f"{filepath}: frame count"
+            num_joints = len([n for n in bvh.nodes if not n.is_end_site()])
+            assert num_joints == exp_joints, f"{filepath}: joint count"
+            assert len(bvh.nodes) == exp_nodes, f"{filepath}: node count"
+            assert bvh.root_pos.shape == (exp_frames, 3), f"{filepath}: root_pos shape"
+            assert bvh.joint_angles.shape == (exp_frames, exp_joints, 3), f"{filepath}: joint_angles shape"
+            assert not np.any(np.isnan(bvh.root_pos)), f"{filepath}: NaN in root_pos"
+            assert not np.any(np.isnan(bvh.joint_angles)), f"{filepath}: NaN in joint_angles"
+
+    def test_large_file_roundtrip(self):
+        """Write + read of a large BVH file should preserve data."""
+        bvh = read_bvh_file("bvh_data/bvh_test3.bvh")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpfile = Path(tmpdir) / "roundtrip_large.bvh"
+            bvh.to_bvh_file(tmpfile, verbose=False)
+            bvh2 = read_bvh_file(tmpfile)
+            np.testing.assert_allclose(bvh2.root_pos, bvh.root_pos, atol=1e-5)
+            np.testing.assert_allclose(bvh2.joint_angles, bvh.joint_angles, atol=1e-5)
+            assert bvh2.frame_count == bvh.frame_count
+
+
+# =============================================================================
+# Test: inplace parameter uniformisation
+# =============================================================================
+
+class TestInplaceParameter:
+    """Tests for uniform inplace=False default across all mutation methods."""
+
+    def test_set_frames_from_6d_default_returns_copy(self, bvh_example):
+        """set_frames_from_6d() default should return a new object, not modify self."""
+        original_angles = bvh_example.joint_angles.copy()
+        rp, r6d, _ = bvh_example.get_frames_as_6d()
+        result = bvh_example.set_frames_from_6d(rp, r6d)
+        assert result is not bvh_example
+        np.testing.assert_allclose(bvh_example.joint_angles, original_angles, atol=1e-10)
+
+    def test_set_frames_from_quaternion_default_returns_copy(self, bvh_example):
+        """set_frames_from_quaternion() default should return a new object."""
+        original_angles = bvh_example.joint_angles.copy()
+        rp, quats, _ = bvh_example.get_frames_as_quaternion()
+        result = bvh_example.set_frames_from_quaternion(rp, quats)
+        assert result is not bvh_example
+        np.testing.assert_allclose(bvh_example.joint_angles, original_angles, atol=1e-10)
+
+    def test_set_frames_from_axisangle_default_returns_copy(self, bvh_example):
+        """set_frames_from_axisangle() default should return a new object."""
+        original_angles = bvh_example.joint_angles.copy()
+        rp, aa, _ = bvh_example.get_frames_as_axisangle()
+        result = bvh_example.set_frames_from_axisangle(rp, aa)
+        assert result is not bvh_example
+        np.testing.assert_allclose(bvh_example.joint_angles, original_angles, atol=1e-10)
+
+    def test_single_joint_euler_angle_default_returns_copy(self, bvh_example):
+        """single_joint_euler_angle() default should return a new object."""
+        original_angles = bvh_example.joint_angles.copy()
+        result = bvh_example.single_joint_euler_angle('Spine', 'XYZ')
+        assert result is not bvh_example
+        np.testing.assert_allclose(bvh_example.joint_angles, original_angles, atol=1e-10)
+
+    def test_change_all_euler_orders_default_returns_copy(self, bvh_example):
+        """change_all_euler_orders() default should return a new object."""
+        original_angles = bvh_example.joint_angles.copy()
+        result = bvh_example.change_all_euler_orders('XYZ')
+        assert result is not bvh_example
+        np.testing.assert_allclose(bvh_example.joint_angles, original_angles, atol=1e-10)
+
+    def test_inplace_true_returns_none(self, bvh_example):
+        """All mutation methods with inplace=True should return None."""
+        bvh = bvh_example.copy()
+        rp, r6d, _ = bvh.get_frames_as_6d()
+        assert bvh.set_frames_from_6d(rp, r6d, inplace=True) is None
+
+        rp, quats, _ = bvh.get_frames_as_quaternion()
+        assert bvh.set_frames_from_quaternion(rp, quats, inplace=True) is None
+
+        rp, aa, _ = bvh.get_frames_as_axisangle()
+        assert bvh.set_frames_from_axisangle(rp, aa, inplace=True) is None
+
+        assert bvh.single_joint_euler_angle('Spine', 'XYZ', inplace=True) is None
+        assert bvh.change_all_euler_orders('ZYX', inplace=True) is None
+        assert bvh.change_skeleton(bvh_example, inplace=True) is None
+        assert bvh.scale_skeleton(2.0, inplace=True) is None
+
+    def test_copy_from_set_frames_is_independent(self, bvh_example):
+        """Copy returned by set_frames_from_6d should be independent from original."""
+        rp, r6d, _ = bvh_example.get_frames_as_6d()
+        result = bvh_example.set_frames_from_6d(rp, r6d)
+        # Modify the result
+        result.root_pos[0, 0] = 999.0
+        # Original should be unaffected
+        assert bvh_example.root_pos[0, 0] != 999.0

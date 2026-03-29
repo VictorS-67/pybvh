@@ -349,7 +349,7 @@ class TestBvhRotationMethods:
         original_joint_angles = bvh_example.joint_angles.copy()
 
         root_pos, joint_rot6d, _ = bvh_example.get_frames_as_6d()
-        bvh_example.set_frames_from_6d(root_pos, joint_rot6d)
+        bvh_example.set_frames_from_6d(root_pos, joint_rot6d, inplace=True)
 
         np.testing.assert_allclose(
             bvh_example.root_pos, original_root_pos, atol=1e-6,
@@ -364,7 +364,7 @@ class TestBvhRotationMethods:
         original_joint_angles = bvh_example.joint_angles.copy()
 
         root_pos, joint_quats, _ = bvh_example.get_frames_as_quaternion()
-        bvh_example.set_frames_from_quaternion(root_pos, joint_quats)
+        bvh_example.set_frames_from_quaternion(root_pos, joint_quats, inplace=True)
 
         np.testing.assert_allclose(
             bvh_example.root_pos, original_root_pos, atol=1e-6,
@@ -378,7 +378,7 @@ class TestBvhRotationMethods:
         spatial_before = bvh_example.get_spatial_coord(centered="world")
 
         root_pos, joint_rot6d, _ = bvh_example.get_frames_as_6d()
-        bvh_example.set_frames_from_6d(root_pos, joint_rot6d)
+        bvh_example.set_frames_from_6d(root_pos, joint_rot6d, inplace=True)
         spatial_after = bvh_example.get_spatial_coord(centered="world")
 
         np.testing.assert_allclose(spatial_after, spatial_before, atol=1e-4)
@@ -402,14 +402,14 @@ class TestBvhRotationMethods:
         root_pos = bvh_example.root_pos
         wrong_6d = np.zeros((56, 5, 6))  # wrong number of joints
         with pytest.raises(ValueError):
-            bvh_example.set_frames_from_6d(root_pos, wrong_6d)
+            bvh_example.set_frames_from_6d(root_pos, wrong_6d, inplace=True)
 
     def test_set_frames_from_quaternion_wrong_joints_raises(self, bvh_example):
         """set_frames_from_quaternion with wrong number of joints should raise."""
         root_pos = bvh_example.root_pos
         wrong_quats = np.zeros((56, 5, 4))
         with pytest.raises(ValueError):
-            bvh_example.set_frames_from_quaternion(root_pos, wrong_quats)
+            bvh_example.set_frames_from_quaternion(root_pos, wrong_quats, inplace=True)
 
 
 # =============================================================================
@@ -904,7 +904,7 @@ class TestBvhAxisAngleMethods:
         original_root_pos = bvh_example.root_pos.copy()
         original_joint_angles = bvh_example.joint_angles.copy()
         root_pos, joint_aa, _ = bvh_example.get_frames_as_axisangle()
-        bvh_example.set_frames_from_axisangle(root_pos, joint_aa)
+        bvh_example.set_frames_from_axisangle(root_pos, joint_aa, inplace=True)
         np.testing.assert_allclose(
             bvh_example.root_pos, original_root_pos, atol=1e-6,
             err_msg="Axis-angle round-trip did not preserve root_pos")
@@ -916,7 +916,7 @@ class TestBvhAxisAngleMethods:
         """Spatial coordinates should be the same after axis-angle round-trip."""
         spatial_before = bvh_example.get_spatial_coord(centered="world")
         root_pos, joint_aa, _ = bvh_example.get_frames_as_axisangle()
-        bvh_example.set_frames_from_axisangle(root_pos, joint_aa)
+        bvh_example.set_frames_from_axisangle(root_pos, joint_aa, inplace=True)
         spatial_after = bvh_example.get_spatial_coord(centered="world")
         np.testing.assert_allclose(spatial_after, spatial_before, atol=1e-4)
 
@@ -932,7 +932,7 @@ class TestBvhAxisAngleMethods:
         root_pos = bvh_example.root_pos
         wrong_aa = np.zeros((56, 5, 3))
         with pytest.raises(ValueError):
-            bvh_example.set_frames_from_axisangle(root_pos, wrong_aa)
+            bvh_example.set_frames_from_axisangle(root_pos, wrong_aa, inplace=True)
 
 
 # =============================================================================

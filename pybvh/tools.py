@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Sequence, Union
+from typing import Sequence, TYPE_CHECKING, Union
 
 import numpy as np
 import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from .bvh import Bvh
 
 
 
@@ -248,3 +251,179 @@ def batch_get_premult_mat_rot(
     return R1 @ R2 @ R3  # (N,3,3) @ (N,3,3) @ (N,3,3) via numpy broadcasting
 
 #--------------------------------------------------------------------------------------------
+
+# Axis detection utilities
+# These are used by plot.py and by ML pipeline methods (foot contacts, root trajectory)
+
+def get_main_direction(
+    coord_array: npt.NDArray[np.float64],
+    tol: float = 1e-6,
+) -> str | None:
+    """Return the signed axis string (e.g. ``'+y'``) for the dominant component.
+
+    Parameters
+    ----------
+    coord_array : np.ndarray
+        1-D array of length 3 representing an (x, y, z) vector.
+    tol : float, optional
+        Minimum vector norm to consider valid (default ``1e-6``).
+        Vectors shorter than this return ``None``.
+
+    Returns
+    -------
+    main_dir : str or None
+        Signed axis label such as ``'+x'``, ``'-z'``, etc.
+        Returns ``None`` if the vector norm is below *tol*.
+    """
+    if float(np.linalg.norm(coord_array)) < tol:
+        return None
+
+    main_direction_idx = int(np.argmax(np.abs(coord_array)))
+    if coord_array[main_direction_idx] < 0:
+        main_dir = "-"
+    else:
+        main_dir = "+"
+
+    if main_direction_idx == 0:
+        main_dir += "x"
+    elif main_direction_idx == 1:
+        main_dir += "y"
+    elif main_direction_idx == 2:
+        main_dir += "z"
+    else:
+        raise ValueError("Invalid index")
+
+    return main_dir
+
+
+def extract_sign(ax: str) -> bool:
+    """Return ``True`` if the axis string has a ``'+'`` sign, ``False`` if ``'-'``.
+
+    Parameters
+    ----------
+    ax : str
+        Signed axis string, e.g. ``'+x'`` or ``'-z'``.
+
+    Returns
+    -------
+    is_positive : bool
+        ``True`` for positive, ``False`` for negative.
+    """
+    if ax[0] == '+':
+        return True
+    elif ax[0] == '-':
+        return False
+    else:
+        raise ValueError("The sign of the axis should be either '+' or '-'.")
+
+
+def get_forw_up_axis(bvh_object: Bvh, frame: npt.NDArray[np.float64]) -> dict[str, str]:
+    """Infer the forward and upward axes from a skeleton frame (human only).
+
+    Uses heuristics based on joint names to determine the upward axis
+    (looks for "head", "neck", "chest", "spine" in priority order,
+    skipping joints at the root origin) and rest-pose end-site offsets
+    of toe/foot joints for the forward axis (pose-independent).
+
+    Parameters
+    ----------
+    bvh_object : Bvh
+        The BVH object containing the skeleton hierarchy.
+    frame : np.ndarray
+        Spatial coordinates of shape ``(N, 3)`` for a single frame.
+
+    Returns
+    -------
+    directions : dict
+        Dictionary with keys ``'forward'`` and ``'upward'``, each
+        mapping to a signed axis string (e.g. ``'+y'``, ``'-z'``).
+
+    Raises
+    ------
+    ValueError
+        If *frame* has wrong shape or node count doesn't match.
+    """
+    # --- Input validation ---
+    if frame.ndim != 2 or frame.shape[1] != 3:
+        raise ValueError(f"Expected frame shape (N, 3), got {frame.shape}")
+    if frame.shape[0] != len(bvh_object.nodes):
+        raise ValueError(
+            f"Frame has {frame.shape[0]} nodes but skeleton has "
+            f"{len(bvh_object.nodes)} nodes")
+
+    # work with local coordinates (root at origin)
+    local_coord = frame - frame[0]  # (N, 3) - (3,) broadcast
+
+    # --- Up-axis detection ---
+    # Iterate named body parts in priority order; skip zero-offset joints
+    up_body_parts = ["head", "neck", "chest", "spine"]
+    up_ax: str | None = None
+    for part_name in up_body_parts:
+        for joint in bvh_object.nodes:
+            if joint.name.lower() == part_name:
+                coord = local_coord[bvh_object.node_index[joint.name]]
+                up_ax = get_main_direction(coord)
+                if up_ax is not None:
+                    break
+        if up_ax is not None:
+            break
+
+    # Fallback: axis with largest spread across all joints (always positive)
+    if up_ax is None:
+        spread = np.ptp(local_coord, axis=0)  # (3,)
+        up_idx_fallback = int(np.argmax(spread))
+        up_ax = "+" + "xyz"[up_idx_fallback]
+
+    up_idx = {"x": 0, "y": 1, "z": 2}[up_ax[1]]
+
+    # --- Forward-axis detection (pose-independent) ---
+    # Use rest-pose end-site offsets of toe/foot joints, projected onto
+    # the ground plane (up-axis component removed).
+    toe_keywords = ["toe", "foot", "forefoot"]
+    forward_ax: str | None = None
+    for node in bvh_object.nodes:
+        if not node.is_end_site():
+            continue
+        parent = node.parent
+        if parent is None:
+            continue
+        if any(kw in parent.name.lower() for kw in toe_keywords):
+            offset = node.offset.copy()
+            offset[up_idx] = 0.0  # project out up-axis component
+            forward_ax = get_main_direction(offset)
+            if forward_ax is not None:
+                break
+
+    # Fallback: default mapping from up-axis
+    default_up2front: dict[str, str] = {"x": "+y", "y": "+z", "z": "+x"}
+    if forward_ax is None:
+        forward_ax = default_up2front[up_ax[1]]
+
+    # --- Orthogonality guard ---
+    if forward_ax[1] == up_ax[1]:
+        forward_ax = default_up2front[up_ax[1]]
+
+    return {'forward': forward_ax, 'upward': up_ax}
+
+
+def get_up_axis_index(bvh_object: Bvh, frame: npt.NDArray[np.float64]) -> int:
+    """Return the integer index (0=x, 1=y, 2=z) of the upward axis.
+
+    Convenience wrapper around :func:`get_forw_up_axis` for methods
+    that need the up-axis as an integer index.
+
+    Parameters
+    ----------
+    bvh_object : Bvh
+        The BVH object containing the skeleton hierarchy.
+    frame : np.ndarray
+        Spatial coordinates of shape ``(N, 3)`` for a single frame.
+
+    Returns
+    -------
+    up_idx : int
+        0 for x, 1 for y, 2 for z.
+    """
+    directions = get_forw_up_axis(bvh_object, frame)
+    axis_char = directions['upward'][1]  # e.g. 'y' from '+y'
+    return {'x': 0, 'y': 1, 'z': 2}[axis_char]

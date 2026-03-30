@@ -178,3 +178,100 @@ def _bvh_to_flat(
     if include_root_pos:
         return np.concatenate([bvh.root_pos, rot], axis=1)
     return rot
+
+
+# =========================================================================
+# Normalization utilities
+# =========================================================================
+
+def compute_normalization_stats(
+    bvh_list: list[Bvh],
+    representation: str = "euler",
+    include_root_pos: bool = True,
+) -> dict[str, npt.NDArray[np.float64]]:
+    """Compute per-channel mean and std across a dataset of BVH objects.
+
+    Concatenates all frames from all clips, then computes mean and
+    standard deviation per feature channel. Compatible with the
+    ``Mean.npy`` / ``Std.npy`` convention used by HumanML3D and MDM.
+
+    Parameters
+    ----------
+    bvh_list : list of Bvh
+        Dataset of BVH objects (must share the same skeleton topology).
+    representation : str, optional
+        Rotation representation: ``'euler'`` (default), ``'6d'``,
+        ``'quaternion'``, ``'axisangle'``, or ``'rotmat'``.
+    include_root_pos : bool, optional
+        If True (default), include root position in the features.
+
+    Returns
+    -------
+    dict
+        ``{"mean": ndarray (D,), "std": ndarray (D,)}``.
+        Channels with zero standard deviation are set to 1.0 to
+        avoid division by zero during normalization.
+
+    Notes
+    -----
+    Save/load stats with ``np.savez("stats.npz", **stats)`` and
+    ``dict(np.load("stats.npz"))``.
+    """
+    arrays = batch_to_numpy(
+        bvh_list, representation=representation,
+        include_root_pos=include_root_pos, pad=False)
+
+    # arrays is list[ndarray (F_i, D)]
+    all_frames = np.concatenate(arrays, axis=0)  # type: ignore[arg-type]
+
+    mean = all_frames.mean(axis=0)
+    std = all_frames.std(axis=0)
+
+    # Guard against zero-std channels
+    std[std < 1e-8] = 1.0
+
+    return {"mean": mean, "std": std}
+
+
+def normalize_array(
+    data: npt.NDArray[np.float64],
+    stats: dict[str, npt.NDArray[np.float64]],
+) -> npt.NDArray[np.float64]:
+    """Apply z-score normalization: ``(data - mean) / std``.
+
+    Parameters
+    ----------
+    data : ndarray
+        Data to normalize. Last dimension must match ``stats["mean"]``.
+    stats : dict
+        ``{"mean": ndarray (D,), "std": ndarray (D,)}`` from
+        :func:`compute_normalization_stats`.
+
+    Returns
+    -------
+    ndarray
+        Normalized data, same shape as input.
+    """
+    return (data - stats["mean"]) / stats["std"]
+
+
+def denormalize_array(
+    data: npt.NDArray[np.float64],
+    stats: dict[str, npt.NDArray[np.float64]],
+) -> npt.NDArray[np.float64]:
+    """Reverse z-score normalization: ``data * std + mean``.
+
+    Parameters
+    ----------
+    data : ndarray
+        Normalized data to denormalize.
+    stats : dict
+        ``{"mean": ndarray (D,), "std": ndarray (D,)}`` from
+        :func:`compute_normalization_stats`.
+
+    Returns
+    -------
+    ndarray
+        Denormalized data, same shape as input.
+    """
+    return data * stats["std"] + stats["mean"]

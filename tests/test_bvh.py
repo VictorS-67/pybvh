@@ -17,7 +17,9 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from pybvh import read_bvh_file, df_to_bvh, Bvh, frames_to_spatial_coord, read_bvh_directory, batch_to_numpy
+from pybvh import (read_bvh_file, df_to_bvh, Bvh, frames_to_spatial_coord,
+                    read_bvh_directory, batch_to_numpy,
+                    compute_normalization_stats, normalize_array, denormalize_array)
 from pybvh.bvhnode import BvhNode, BvhJoint, BvhRoot
 from pybvh.tools import (rotX, rotY, rotZ, get_premult_mat_rot,
                           batch_rotX, batch_rotY, batch_rotZ,
@@ -1982,3 +1984,505 @@ class TestBatchProcessing:
         bvhs = read_bvh_directory(bvh_dir, pattern="bvh_example.bvh")
         result = batch_to_numpy(bvhs)
         assert len(result) == 1
+
+
+# =============================================================================
+# Phase 5 — ML Pipeline Features
+# =============================================================================
+
+class TestJointVelocities:
+    """Tests for get_joint_velocities."""
+
+    def test_shape(self, bvh_example):
+        vel = bvh_example.get_joint_velocities(in_frames=True)
+        F, N = bvh_example.frame_count, len(bvh_example.nodes)
+        assert vel.shape == (F - 1, N, 3)
+
+    def test_per_second(self, bvh_example):
+        vel_frame = bvh_example.get_joint_velocities(in_frames=True)
+        vel_sec = bvh_example.get_joint_velocities(in_frames=False)
+        np.testing.assert_allclose(
+            vel_sec, vel_frame / bvh_example.frame_frequency, atol=1e-10)
+
+    def test_static_pose_zero_velocity(self, bvh_example):
+        """A BVH with identical frames should have zero velocity."""
+        static = bvh_example.copy()
+        # Make all frames identical to frame 0
+        for i in range(static.frame_count):
+            static.root_pos[i] = static.root_pos[0]
+            static.joint_angles[i] = static.joint_angles[0]
+        vel = static.get_joint_velocities(in_frames=True)
+        np.testing.assert_allclose(vel, 0.0, atol=1e-10)
+
+    def test_precomputed_coords(self, bvh_example):
+        coords = bvh_example.get_spatial_coord()
+        vel1 = bvh_example.get_joint_velocities(in_frames=True)
+        vel2 = bvh_example.get_joint_velocities(in_frames=True, coords=coords)
+        np.testing.assert_allclose(vel1, vel2, atol=1e-10)
+
+    def test_too_few_frames_error(self):
+        """Should raise ValueError with < 2 frames."""
+        root = BvhRoot()
+        bvh = Bvh(nodes=[root], root_pos=np.zeros((1, 3)),
+                   joint_angles=np.zeros((1, 1, 3)), frame_frequency=1/30)
+        with pytest.raises(ValueError, match="At least 2 frames"):
+            bvh.get_joint_velocities()
+
+    def test_zero_frequency_error(self, bvh_example):
+        bvh = bvh_example.copy()
+        bvh.frame_frequency = 0
+        with pytest.raises(ValueError, match="frame_frequency is 0"):
+            bvh.get_joint_velocities(in_frames=False)
+
+    def test_zero_frequency_in_frames_ok(self, bvh_example):
+        bvh = bvh_example.copy()
+        bvh.frame_frequency = 0
+        vel = bvh.get_joint_velocities(in_frames=True)
+        assert vel.shape[0] == bvh.frame_count - 1
+
+    def test_constant_root_translation(self):
+        """Root moving at constant velocity along X: velocity should be constant."""
+        root = BvhRoot()
+        F = 10
+        root_pos = np.zeros((F, 3))
+        root_pos[:, 0] = np.arange(F) * 5.0  # 5 units/frame along X
+        joint_angles = np.zeros((F, 1, 3))
+        bvh = Bvh(nodes=[root, BvhNode("End Site", offset=np.array([0, 1, 0]), parent=root)],
+                   root_pos=root_pos, joint_angles=joint_angles,
+                   frame_frequency=1/30)
+        root.children = [bvh.nodes[1]]
+        vel = bvh.get_joint_velocities(in_frames=True)
+        # Root velocity should be [5, 0, 0] for all frames
+        np.testing.assert_allclose(vel[:, 0, 0], 5.0, atol=1e-10)
+        np.testing.assert_allclose(vel[:, 0, 1:], 0.0, atol=1e-10)
+
+    def test_on_all_test_files(self, bvh_example, bvh_test2, bvh_test3):
+        for bvh in [bvh_example, bvh_test2, bvh_test3]:
+            vel = bvh.get_joint_velocities(in_frames=True)
+            assert vel.shape == (bvh.frame_count - 1, len(bvh.nodes), 3)
+
+
+class TestJointAccelerations:
+    """Tests for get_joint_accelerations."""
+
+    def test_shape(self, bvh_example):
+        acc = bvh_example.get_joint_accelerations(in_frames=True)
+        F, N = bvh_example.frame_count, len(bvh_example.nodes)
+        assert acc.shape == (F - 2, N, 3)
+
+    def test_per_second(self, bvh_example):
+        acc_frame = bvh_example.get_joint_accelerations(in_frames=True)
+        acc_sec = bvh_example.get_joint_accelerations(in_frames=False)
+        np.testing.assert_allclose(
+            acc_sec, acc_frame / (bvh_example.frame_frequency ** 2), atol=1e-6)
+
+    def test_static_pose_zero_acceleration(self, bvh_example):
+        static = bvh_example.copy()
+        for i in range(static.frame_count):
+            static.root_pos[i] = static.root_pos[0]
+            static.joint_angles[i] = static.joint_angles[0]
+        acc = static.get_joint_accelerations(in_frames=True)
+        np.testing.assert_allclose(acc, 0.0, atol=1e-10)
+
+    def test_constant_velocity_zero_acceleration(self):
+        """Constant velocity → zero acceleration."""
+        root = BvhRoot()
+        F = 10
+        root_pos = np.zeros((F, 3))
+        root_pos[:, 0] = np.arange(F) * 5.0
+        joint_angles = np.zeros((F, 1, 3))
+        bvh = Bvh(nodes=[root, BvhNode("End Site", offset=np.array([0, 1, 0]), parent=root)],
+                   root_pos=root_pos, joint_angles=joint_angles,
+                   frame_frequency=1/30)
+        root.children = [bvh.nodes[1]]
+        acc = bvh.get_joint_accelerations(in_frames=True)
+        np.testing.assert_allclose(acc, 0.0, atol=1e-10)
+
+    def test_too_few_frames_error(self):
+        root = BvhRoot()
+        bvh = Bvh(nodes=[root], root_pos=np.zeros((2, 3)),
+                   joint_angles=np.zeros((2, 1, 3)), frame_frequency=1/30)
+        with pytest.raises(ValueError, match="At least 3 frames"):
+            bvh.get_joint_accelerations()
+
+
+class TestAngularVelocities:
+    """Tests for get_angular_velocities."""
+
+    def test_shape(self, bvh_example):
+        ang_vel = bvh_example.get_angular_velocities(in_frames=True)
+        assert ang_vel.shape == (bvh_example.frame_count - 1,
+                                  bvh_example.joint_count, 3)
+
+    def test_static_pose_zero(self, bvh_example):
+        static = bvh_example.copy()
+        for i in range(static.frame_count):
+            static.joint_angles[i] = static.joint_angles[0]
+        ang_vel = static.get_angular_velocities(in_frames=True)
+        np.testing.assert_allclose(ang_vel, 0.0, atol=1e-10)
+
+    def test_per_second(self, bvh_example):
+        av_frame = bvh_example.get_angular_velocities(in_frames=True)
+        av_sec = bvh_example.get_angular_velocities(in_frames=False)
+        np.testing.assert_allclose(
+            av_sec, av_frame / bvh_example.frame_frequency, atol=1e-10)
+
+    def test_too_few_frames_error(self):
+        root = BvhRoot()
+        bvh = Bvh(nodes=[root], root_pos=np.zeros((1, 3)),
+                   joint_angles=np.zeros((1, 1, 3)), frame_frequency=1/30)
+        with pytest.raises(ValueError, match="At least 2 frames"):
+            bvh.get_angular_velocities()
+
+    def test_on_all_test_files(self, bvh_example, bvh_test2, bvh_test3):
+        for bvh in [bvh_example, bvh_test2, bvh_test3]:
+            ang_vel = bvh.get_angular_velocities(in_frames=True)
+            assert ang_vel.shape == (bvh.frame_count - 1, bvh.joint_count, 3)
+
+
+class TestRootRelativePositions:
+    """Tests for get_root_relative_positions."""
+
+    def test_shape(self, bvh_example):
+        rel = bvh_example.get_root_relative_positions()
+        assert rel.shape == (bvh_example.frame_count, len(bvh_example.nodes), 3)
+
+    def test_root_at_origin(self, bvh_example):
+        rel = bvh_example.get_root_relative_positions()
+        np.testing.assert_allclose(rel[:, 0, :], 0.0, atol=1e-10)
+
+    def test_precomputed_coords(self, bvh_example):
+        coords = bvh_example.get_spatial_coord()
+        rel1 = bvh_example.get_root_relative_positions()
+        rel2 = bvh_example.get_root_relative_positions(coords=coords)
+        np.testing.assert_allclose(rel1, rel2, atol=1e-10)
+
+    def test_static_skeleton_constant(self, bvh_example):
+        """Static skeleton: root-relative positions are same every frame."""
+        static = bvh_example.copy()
+        for i in range(static.frame_count):
+            static.root_pos[i] = static.root_pos[0]
+            static.joint_angles[i] = static.joint_angles[0]
+        rel = static.get_root_relative_positions()
+        for i in range(1, static.frame_count):
+            np.testing.assert_allclose(rel[i], rel[0], atol=1e-10)
+
+    def test_on_all_test_files(self, bvh_example, bvh_test2, bvh_test3):
+        for bvh in [bvh_example, bvh_test2, bvh_test3]:
+            rel = bvh.get_root_relative_positions()
+            np.testing.assert_allclose(rel[:, 0, :], 0.0, atol=1e-10)
+
+
+class TestRootTrajectory:
+    """Tests for get_root_trajectory."""
+
+    def test_shape(self, bvh_example):
+        traj = bvh_example.get_root_trajectory()
+        assert traj.shape == (bvh_example.frame_count, 4)
+
+    def test_sin_cos_unit(self, bvh_example):
+        """sin^2 + cos^2 should equal 1."""
+        traj = bvh_example.get_root_trajectory()
+        sin_sq_plus_cos_sq = traj[:, 2] ** 2 + traj[:, 3] ** 2
+        np.testing.assert_allclose(sin_sq_plus_cos_sq, 1.0, atol=1e-10)
+
+    def test_explicit_up_axis(self, bvh_example):
+        """Explicit up_axis should produce same result as auto-detect."""
+        from pybvh.tools import get_forw_up_axis
+        rest = bvh_example.get_rest_pose(mode='coordinates')
+        directions = get_forw_up_axis(bvh_example, rest)
+        traj_auto = bvh_example.get_root_trajectory()
+        traj_explicit = bvh_example.get_root_trajectory(
+            up_axis=directions['upward'])
+        np.testing.assert_allclose(traj_auto, traj_explicit, atol=1e-10)
+
+    def test_on_all_test_files(self, bvh_example, bvh_test2, bvh_test3):
+        for bvh in [bvh_example, bvh_test2, bvh_test3]:
+            traj = bvh.get_root_trajectory()
+            assert traj.shape == (bvh.frame_count, 4)
+            # sin^2 + cos^2 = 1
+            np.testing.assert_allclose(
+                traj[:, 2] ** 2 + traj[:, 3] ** 2, 1.0, atol=1e-10)
+
+
+class TestFootContacts:
+    """Tests for get_foot_contacts."""
+
+    def test_shape_auto_detect(self, bvh_example):
+        contacts = bvh_example.get_foot_contacts()
+        assert contacts.shape[0] == bvh_example.frame_count
+        assert contacts.shape[1] > 0  # at least one foot joint
+
+    def test_binary_output(self, bvh_example):
+        contacts = bvh_example.get_foot_contacts()
+        assert set(np.unique(contacts)).issubset({0.0, 1.0})
+
+    def test_manual_joints(self, bvh_example):
+        contacts = bvh_example.get_foot_contacts(
+            foot_joints=["LeftFoot", "RightFoot"])
+        assert contacts.shape == (bvh_example.frame_count, 2)
+
+    def test_static_all_contacts(self, bvh_example):
+        """Static pose: all velocities zero → all contacts = 1."""
+        static = bvh_example.copy()
+        for i in range(static.frame_count):
+            static.root_pos[i] = static.root_pos[0]
+            static.joint_angles[i] = static.joint_angles[0]
+        contacts = static.get_foot_contacts(method="velocity")
+        np.testing.assert_allclose(contacts, 1.0)
+
+    def test_height_method(self, bvh_example):
+        contacts = bvh_example.get_foot_contacts(method="height")
+        assert contacts.shape[0] == bvh_example.frame_count
+        assert set(np.unique(contacts)).issubset({0.0, 1.0})
+
+    def test_invalid_method(self, bvh_example):
+        with pytest.raises(ValueError, match="Unknown method"):
+            bvh_example.get_foot_contacts(method="invalid")
+
+    def test_invalid_joint_name(self, bvh_example):
+        with pytest.raises(ValueError, match="not found"):
+            bvh_example.get_foot_contacts(foot_joints=["NonExistentJoint"])
+
+    def test_precomputed_coords(self, bvh_example):
+        coords = bvh_example.get_spatial_coord()
+        c1 = bvh_example.get_foot_contacts()
+        c2 = bvh_example.get_foot_contacts(coords=coords)
+        np.testing.assert_allclose(c1, c2)
+
+    def test_on_test2(self, bvh_test2):
+        """bvh_test2 may have different joint names — test auto-detection."""
+        contacts = bvh_test2.get_foot_contacts()
+        assert contacts.shape[0] == bvh_test2.frame_count
+
+
+class TestToFeatureArray:
+    """Tests for to_feature_array."""
+
+    def test_basic_shape(self, bvh_example):
+        feat = bvh_example.to_feature_array(representation='euler')
+        J = bvh_example.joint_count
+        expected_dim = 3 + J * 3  # root_pos + euler angles
+        assert feat.shape == (bvh_example.frame_count, expected_dim)
+
+    def test_6d_shape(self, bvh_example):
+        feat = bvh_example.to_feature_array(representation='6d')
+        J = bvh_example.joint_count
+        expected_dim = 3 + J * 6
+        assert feat.shape == (bvh_example.frame_count, expected_dim)
+
+    def test_quaternion_shape(self, bvh_example):
+        feat = bvh_example.to_feature_array(representation='quaternion')
+        J = bvh_example.joint_count
+        expected_dim = 3 + J * 4
+        assert feat.shape == (bvh_example.frame_count, expected_dim)
+
+    def test_no_root_pos(self, bvh_example):
+        feat = bvh_example.to_feature_array(
+            representation='euler', include_root_pos=False)
+        J = bvh_example.joint_count
+        expected_dim = J * 3
+        assert feat.shape == (bvh_example.frame_count, expected_dim)
+
+    def test_with_velocities_trimmed(self, bvh_example):
+        """Including velocities drops first frame."""
+        feat = bvh_example.to_feature_array(
+            representation='euler', include_velocities=True)
+        assert feat.shape[0] == bvh_example.frame_count - 1
+
+    def test_with_foot_contacts(self, bvh_example):
+        feat = bvh_example.to_feature_array(
+            representation='euler', include_foot_contacts=True)
+        assert feat.shape[0] == bvh_example.frame_count
+        # Last columns should be foot contacts
+        contacts = bvh_example.get_foot_contacts()
+        np.testing.assert_allclose(
+            feat[:, -contacts.shape[1]:], contacts, atol=1e-10)
+
+    def test_all_features(self, bvh_example):
+        feat = bvh_example.to_feature_array(
+            representation='6d',
+            include_velocities=True,
+            include_foot_contacts=True)
+        assert feat.shape[0] == bvh_example.frame_count - 1
+
+    def test_invalid_representation(self, bvh_example):
+        with pytest.raises(ValueError, match="Unknown representation"):
+            bvh_example.to_feature_array(representation='invalid')
+
+    def test_on_all_test_files(self, bvh_example, bvh_test2, bvh_test3):
+        for bvh in [bvh_example, bvh_test2, bvh_test3]:
+            feat = bvh.to_feature_array(representation='6d')
+            assert feat.shape == (bvh.frame_count, 3 + bvh.joint_count * 6)
+
+
+class TestNormalization:
+    """Tests for normalization utilities."""
+
+    def test_round_trip(self, bvh_example):
+        """Normalize then denormalize should recover original."""
+        stats = compute_normalization_stats([bvh_example])
+        data = batch_to_numpy([bvh_example], pad=False)
+        original = data[0].copy()
+        normalized = normalize_array(original, stats)
+        recovered = denormalize_array(normalized, stats)
+        np.testing.assert_allclose(recovered, original, atol=1e-10)
+
+    def test_stats_shapes(self, bvh_example):
+        stats = compute_normalization_stats([bvh_example])
+        D = 3 + bvh_example.joint_count * 3  # root_pos + euler
+        assert stats["mean"].shape == (D,)
+        assert stats["std"].shape == (D,)
+
+    def test_stats_shapes_6d(self, bvh_example):
+        stats = compute_normalization_stats(
+            [bvh_example], representation="6d")
+        D = 3 + bvh_example.joint_count * 6
+        assert stats["mean"].shape == (D,)
+        assert stats["std"].shape == (D,)
+
+    def test_zero_std_guard(self, bvh_example):
+        """Constant channels should get std=1.0, not 0.0."""
+        static = bvh_example.copy()
+        for i in range(static.frame_count):
+            static.root_pos[i] = static.root_pos[0]
+            static.joint_angles[i] = static.joint_angles[0]
+        stats = compute_normalization_stats([static])
+        assert np.all(stats["std"] >= 1e-8)
+
+    def test_normalized_mean_zero(self, bvh_example):
+        """After normalization, mean should be ~0."""
+        stats = compute_normalization_stats([bvh_example])
+        data = batch_to_numpy([bvh_example], pad=False)
+        normalized = normalize_array(data[0], stats)
+        np.testing.assert_allclose(normalized.mean(axis=0), 0.0, atol=1e-10)
+
+    def test_multiple_files(self, bvh_example, bvh_test2):
+        """Stats from multiple files should have correct shape (if same skeleton)."""
+        # bvh_example and bvh_test2 may have different skeletons
+        # Use two copies of the same file to test multi-file path
+        bvh2 = bvh_example.copy()
+        stats = compute_normalization_stats([bvh_example, bvh2])
+        D = 3 + bvh_example.joint_count * 3
+        assert stats["mean"].shape == (D,)
+
+    def test_quaternion_round_trip(self, bvh_example):
+        stats = compute_normalization_stats(
+            [bvh_example], representation="quaternion")
+        data = batch_to_numpy(
+            [bvh_example], representation="quaternion", pad=False)
+        recovered = denormalize_array(
+            normalize_array(data[0], stats), stats)
+        np.testing.assert_allclose(recovered, data[0], atol=1e-10)
+
+    def test_no_root_pos(self, bvh_example):
+        stats = compute_normalization_stats(
+            [bvh_example], include_root_pos=False)
+        D = bvh_example.joint_count * 3
+        assert stats["mean"].shape == (D,)
+
+
+class TestAxisDetection:
+    """Tests for the extracted axis detection utilities."""
+
+    def test_get_forw_up_axis(self, bvh_example):
+        from pybvh.tools import get_forw_up_axis
+        rest = bvh_example.get_rest_pose(mode='coordinates')
+        directions = get_forw_up_axis(bvh_example, rest)
+        assert 'forward' in directions
+        assert 'upward' in directions
+        assert directions['upward'][1] in ('x', 'y', 'z')
+
+    def test_get_main_direction(self):
+        from pybvh.tools import get_main_direction
+        assert get_main_direction(np.array([0, 10, 0])) == '+y'
+        assert get_main_direction(np.array([0, -10, 0])) == '-y'
+        assert get_main_direction(np.array([5, 0, 0])) == '+x'
+        assert get_main_direction(np.array([0, 0, -3])) == '-z'
+
+    def test_extract_sign(self):
+        from pybvh.tools import extract_sign
+        assert extract_sign('+x') is True
+        assert extract_sign('-z') is False
+
+    def test_get_up_axis_index(self, bvh_example):
+        from pybvh.tools import get_up_axis_index
+        rest = bvh_example.get_rest_pose(mode='coordinates')
+        up_idx = get_up_axis_index(bvh_example, rest)
+        assert up_idx in (0, 1, 2)
+
+    def test_plot_imports_from_tools(self):
+        """Ensure plot.py imports axis detection from tools.py."""
+        from pybvh import plot
+        from pybvh.tools import get_forw_up_axis, get_main_direction
+        assert plot.get_forw_up_axis is get_forw_up_axis
+        assert plot.get_main_direction is get_main_direction
+
+    # --- Hardened axis detection tests ---
+
+    def test_main_direction_zero_vector(self):
+        """get_main_direction returns None for zero vectors."""
+        from pybvh.tools import get_main_direction
+        assert get_main_direction(np.zeros(3)) is None
+
+    def test_main_direction_near_zero(self):
+        """get_main_direction returns None for near-zero vectors."""
+        from pybvh.tools import get_main_direction
+        assert get_main_direction(np.array([1e-8, 1e-9, 1e-10])) is None
+        # Just above tolerance should still work
+        assert get_main_direction(np.array([0.0, 0.0, 1.0]), tol=0.5) == '+z'
+
+    def test_main_direction_normal_vectors(self):
+        """get_main_direction returns correct labels for axis-aligned vectors."""
+        from pybvh.tools import get_main_direction
+        assert get_main_direction(np.array([1.0, 0.0, 0.0])) == '+x'
+        assert get_main_direction(np.array([-1.0, 0.0, 0.0])) == '-x'
+        assert get_main_direction(np.array([0.0, 5.0, 0.0])) == '+y'
+        assert get_main_direction(np.array([0.0, -5.0, 0.0])) == '-y'
+        assert get_main_direction(np.array([0.0, 0.0, 3.0])) == '+z'
+        assert get_main_direction(np.array([0.0, 0.0, -3.0])) == '-z'
+
+    def test_forward_axis_pose_independent(self, bvh_example):
+        """Forward axis should be the same regardless of which frame is used."""
+        from pybvh.tools import get_forw_up_axis
+        coords = bvh_example.get_spatial_coord()
+        dirs_frame0 = get_forw_up_axis(bvh_example, coords[0])
+        dirs_frame_mid = get_forw_up_axis(bvh_example, coords[coords.shape[0] // 2])
+        dirs_frame_last = get_forw_up_axis(bvh_example, coords[-1])
+        assert dirs_frame0['forward'] == dirs_frame_mid['forward']
+        assert dirs_frame0['forward'] == dirs_frame_last['forward']
+
+    def test_forward_upward_orthogonality(self, bvh_example):
+        """Forward and upward axes must be on different axes."""
+        from pybvh.tools import get_forw_up_axis
+        rest = bvh_example.get_rest_pose(mode='coordinates')
+        directions = get_forw_up_axis(bvh_example, rest)
+        assert directions['forward'][1] != directions['upward'][1]
+
+    def test_input_validation_wrong_shape(self, bvh_example):
+        """get_forw_up_axis rejects frames with wrong shape."""
+        from pybvh.tools import get_forw_up_axis
+        with pytest.raises(ValueError, match="Expected frame shape"):
+            get_forw_up_axis(bvh_example, np.zeros((5,)))
+        with pytest.raises(ValueError, match="Expected frame shape"):
+            get_forw_up_axis(bvh_example, np.zeros((5, 4)))
+
+    def test_input_validation_wrong_node_count(self, bvh_example):
+        """get_forw_up_axis rejects frames with wrong number of nodes."""
+        from pybvh.tools import get_forw_up_axis
+        with pytest.raises(ValueError, match="nodes but skeleton has"):
+            get_forw_up_axis(bvh_example, np.zeros((3, 3)))
+
+    def test_all_fixtures_correct_axes(self, bvh_example, bvh_test2, bvh_test3):
+        """All test BVH files produce consistent axis detection."""
+        from pybvh.tools import get_forw_up_axis
+        for bvh in [bvh_example, bvh_test2, bvh_test3]:
+            rest = bvh.get_rest_pose(mode='coordinates')
+            dirs = get_forw_up_axis(bvh, rest)
+            # Forward and upward must be on different axes
+            assert dirs['forward'][1] != dirs['upward'][1]
+            # Both must be valid signed axis strings
+            assert dirs['forward'][0] in ('+', '-')
+            assert dirs['upward'][0] in ('+', '-')
+            assert dirs['forward'][1] in ('x', 'y', 'z')
+            assert dirs['upward'][1] in ('x', 'y', 'z')

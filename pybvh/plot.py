@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from .bvh import Bvh
+from .tools import get_forw_up_axis, get_main_direction, extract_sign
 
 if TYPE_CHECKING:
     import matplotlib.figure
@@ -53,7 +54,7 @@ def plot_frame(bvh_object: Bvh, frame: int | np.ndarray, centered: str = "world"
     else:
         raise ValueError("frame should be either an int or a numpy array.")
 
-    directions_dict = _get_forw_up_axis(bvh_object, frame)
+    directions_dict = get_forw_up_axis(bvh_object, frame)
     fig, axs = _setup_plt(frame, num_subplots=num_subplots, directions_dict=directions_dict)
 
     lines = [axs[0].plot([], [], [], c='blue', lw=2.5)[0] for _ in bvh_object.nodes[1:]]
@@ -151,7 +152,7 @@ def plot_animation(
     else:
         direction_pose = frames[0]
 
-    directions_dict = _get_forw_up_axis(bvh_object, direction_pose)  # type: ignore[arg-type]
+    directions_dict = get_forw_up_axis(bvh_object, direction_pose)  # type: ignore[arg-type]
 
     fig, ax = _setup_plt_animation_world(frames, directions_dict)
 
@@ -305,106 +306,6 @@ def _prooftest_plot_animation_parameters(
     return frames, Path(filepath), writer  # type: ignore[return-value]
 
 
-def _get_main_direction(coord_array: np.ndarray) -> str:
-    """Return the signed axis string (e.g. ``'+y'``) for the dominant component.
-
-    Parameters
-    ----------
-    coord_array : np.ndarray
-        1-D array of length 3 representing an (x, y, z) vector.
-
-    Returns
-    -------
-    main_dir : str
-        Signed axis label such as ``'+x'``, ``'-z'``, etc.
-    """
-    main_direction_idx = np.argmax(np.abs(coord_array))
-    if coord_array[main_direction_idx] < 0:
-        main_dir = "-"
-    else:
-        main_dir = "+"
-
-    if main_direction_idx == 0:
-        main_dir += "x"
-    elif main_direction_idx == 1:
-        main_dir += "y"
-    elif main_direction_idx == 2:
-        main_dir += "z"
-    else:
-        raise ValueError("Invalid index")
-
-    return main_dir
-
-
-def _extract_sign(ax: str) -> bool:
-    """Return ``True`` if the axis string has a ``'+'`` sign, ``False`` if ``'-'``.
-
-    Parameters
-    ----------
-    ax : str
-        Signed axis string, e.g. ``'+x'`` or ``'-z'``.
-
-    Returns
-    -------
-    is_positive : bool
-        ``True`` for positive, ``False`` for negative.
-    """
-    if ax[0] == '+':
-        return True
-    elif ax[0] == '-':
-        return False
-    else:
-        raise ValueError("The sign of the axis should be either '+' or '-'.")
-
-
-def _get_forw_up_axis(bvh_object: Bvh, frame: np.ndarray) -> dict[str, str]:
-    """Infer the forward and upward axes from a skeleton frame (human only).
-
-    Parameters
-    ----------
-    bvh_object : Bvh
-        The BVH object containing the skeleton hierarchy.
-    frame : np.ndarray
-        Spatial coordinates of shape ``(N, 3)`` for a single frame.
-
-    Returns
-    -------
-    directions : dict
-        Dictionary with keys ``'forward'`` and ``'upward'``, each
-        mapping to a signed axis string (e.g. ``'+y'``, ``'-z'``).
-    """
-
-    # work with local coordinates (root at origin)
-    local_coord = frame - frame[0]  # (N, 3) - (3,) broadcast
-
-    axis2vector = {'+x': np.array([1,0,0]), '-x': np.array([-1,0,0]),
-               '+y': np.array([0,1,0]), '-y': np.array([0,-1,0]),
-               '+z': np.array([0,0,1]), '-z': np.array([0,0,-1])}
-    vector2axis = {tuple(v): k for k,v in axis2vector.items()}
-
-    up_body_parts = ["head", "neck", "chest", "spine"]
-    for joint in bvh_object.nodes:
-        if joint.name.lower() in up_body_parts:
-            upward_joint = joint
-            break
-    # we try if one of the joint had the name in the list
-    try:
-        up_joint_coord = local_coord[bvh_object.node_index[upward_joint.name]]
-    except:
-        # if not, use the second node (index 1) as the upward joint
-        up_joint_coord = local_coord[1]
-
-    up_ax = _get_main_direction(up_joint_coord)
-
-    # for the front, we suppose that the last joint in the dictionary is one of the feet,
-    # so it will point forward.
-    foot_vector = local_coord[-1] - local_coord[-2]
-    forward_ax = _get_main_direction(foot_vector)
-
-    return {'forward': forward_ax, 'upward': up_ax}
-
-
-
 def _setup_plt(frame_plotted: np.ndarray, num_subplots: int = 1, directions_dict: dict[str, str] = {}) -> tuple[matplotlib.figure.Figure, list[matplotlib.axes.Axes]]:
     """Set up 3D subplot(s) with auto-determined viewing angles and axis limits.
 
@@ -521,9 +422,9 @@ def _angle_up_forward(bvh_forward_ax: str, bvh_up_ax: str) -> tuple[np.ndarray, 
     """
     elev, azim = np.array([20,0,0]), np.array([-20,0,0])
 
-    bvh_forward_pos_sign = _extract_sign(bvh_forward_ax)
+    bvh_forward_pos_sign = extract_sign(bvh_forward_ax)
     bvh_forward_ax  = bvh_forward_ax[1]
-    bvh_up_pos_sign = _extract_sign(bvh_up_ax)
+    bvh_up_pos_sign = extract_sign(bvh_up_ax)
     bvh_up_ax  = bvh_up_ax[1]
      # --- first we identify the front and turn to the front
 

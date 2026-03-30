@@ -14,6 +14,7 @@ Built for researchers and developers working with skeletal animation and motion 
 - **Forward kinematics** to compute 3D joint positions from angles
 - **Skeleton operations**: retargeting, scaling, joint extraction, Euler order changes
 - **Frame operations**: slicing, concatenation, resampling to different frame rates
+- **ML pipeline features**: joint velocities/accelerations, root-relative positions, foot contact detection, normalization utilities, and a one-stop `to_feature_array()` export
 - **Batch loading** of entire directories with optional parallel I/O
 - **NumPy export** in any rotation representation — ready for ML pipelines
 - **Pandas ready** via an export option ready to become a Dataset
@@ -66,6 +67,41 @@ data = batch_to_numpy(clips, representation="6d", pad=True)
 ```
 
 Supported representations: `"euler"`, `"quaternion"`, `"6d"`, `"axisangle"`, `"rotmat"`.
+
+## ML Pipeline Features
+
+Compute motion derivatives, foot contacts, and export everything in a single array:
+
+```python
+# Joint velocities and accelerations (finite differences of FK positions)
+vel = bvh.get_joint_velocities()        # (F-1, N, 3) in units/second
+acc = bvh.get_joint_accelerations()     # (F-2, N, 3)
+ang_vel = bvh.get_angular_velocities()  # (F-1, J, 3) in radians/second
+
+# Root-relative positions and trajectory
+rel_pos = bvh.get_root_relative_positions()  # (F, N, 3)
+traj = bvh.get_root_trajectory()             # (F, 4) ground pos + heading
+
+# Foot contact detection (auto-detects foot joints)
+contacts = bvh.get_foot_contacts()  # (F, num_feet) binary labels
+
+# One-stop export — flat array ready for model input
+features = bvh.to_feature_array(
+    representation="6d",
+    include_velocities=True,
+    include_foot_contacts=True,
+)  # (F-1, D)
+```
+
+Normalize across a dataset:
+
+```python
+from pybvh import compute_normalization_stats, normalize_array, denormalize_array
+
+stats = compute_normalization_stats(clips, representation="6d")
+normalized = normalize_array(data, stats)
+# stats are plain dicts — save with np.savez("stats.npz", **stats)
+```
 
 ## Skeleton Operations
 

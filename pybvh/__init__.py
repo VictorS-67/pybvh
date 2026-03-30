@@ -1,9 +1,13 @@
-__version__ = "0.1.0"
+from __future__ import annotations
+
+__version__ = "0.3.0"
 
 from .bvh import Bvh
 from .read_bvh_file import read_bvh_file
 from .df_to_bvh import df_to_bvh
 from .spatial_coord import frames_to_spatial_coord
+
+from .batch import read_bvh_directory, batch_to_numpy
 
 from . import plot
 from . import rotations

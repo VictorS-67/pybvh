@@ -19,14 +19,23 @@ Convention note:
     unless stated otherwise.
 """
 
+from __future__ import annotations
+
+from typing import Sequence, Union
+
 import numpy as np
+import numpy.typing as npt
 
 
 # ============================================================================
 # Euler angles <-> Rotation matrices
 # ============================================================================
 
-def euler_to_rotmat(angles, order, degrees=False):
+def euler_to_rotmat(
+    angles: npt.ArrayLike,
+    order: Union[str, Sequence[str]],
+    degrees: bool = False,
+) -> npt.NDArray[np.float64]:
     """
     Convert Euler angles to rotation matrices (batch).
 
@@ -46,28 +55,32 @@ def euler_to_rotmat(angles, order, degrees=False):
     R : ndarray, shape (*, 3, 3)
         Rotation matrices.
     """
-    angles = np.asarray(angles, dtype=np.float64)
+    angles_arr: npt.NDArray[np.float64] = np.asarray(angles, dtype=np.float64)
     if degrees:
-        angles = np.radians(angles)
+        angles_arr = np.radians(angles_arr)
 
-    single = (angles.ndim == 1)
+    single = (angles_arr.ndim == 1)
     if single:
-        angles = angles[np.newaxis, :]  # (1, 3)
+        angles_arr = angles_arr[np.newaxis, :]  # (1, 3)
 
     order_str = ''.join(order).upper()
     if len(order_str) != 3 or not all(c in 'XYZ' for c in order_str):
         raise ValueError(f"order must be 3 characters from 'XYZ', got '{order_str}'")
 
-    R = _elementary_rotmat(angles[:, 0], order_str[0])
-    R = R @ _elementary_rotmat(angles[:, 1], order_str[1])
-    R = R @ _elementary_rotmat(angles[:, 2], order_str[2])
+    R = _elementary_rotmat(angles_arr[:, 0], order_str[0])
+    R = R @ _elementary_rotmat(angles_arr[:, 1], order_str[1])
+    R = R @ _elementary_rotmat(angles_arr[:, 2], order_str[2])
 
     if single:
         return R[0]
     return R
 
 
-def rotmat_to_euler(R, order, degrees=False):
+def rotmat_to_euler(
+    R: npt.ArrayLike,
+    order: Union[str, Sequence[str]],
+    degrees: bool = False,
+) -> npt.NDArray[np.float64]:
     """
     Convert rotation matrices to Euler angles (batch).
 
@@ -88,10 +101,10 @@ def rotmat_to_euler(R, order, degrees=False):
     angles : ndarray, shape (*, 3)
         Euler angles in the specified order.
     """
-    R = np.asarray(R, dtype=np.float64)
-    single = (R.ndim == 2)
+    R_arr: npt.NDArray[np.float64] = np.asarray(R, dtype=np.float64)
+    single = (R_arr.ndim == 2)
     if single:
-        R = R[np.newaxis, :, :]  # (1, 3, 3)
+        R_arr = R_arr[np.newaxis, :, :]  # (1, 3, 3)
 
     order_str = ''.join(order).upper()
     if len(order_str) != 3 or not all(c in 'XYZ' for c in order_str):
@@ -106,21 +119,21 @@ def rotmat_to_euler(R, order, degrees=False):
     j = ax2idx[order_str[1]]
     k = ax2idx[order_str[2]]
 
-    angles = _extract_euler(R, i, j, k)
+    out = _extract_euler(R_arr, i, j, k)
 
     if degrees:
-        angles = np.degrees(angles)
+        out = np.degrees(out)
 
     if single:
-        return angles[0]
-    return angles
+        return out[0]
+    return out
 
 
 # ============================================================================
 # Rotation matrices <-> 6D representation (Zhou et al., CVPR 2019)
 # ============================================================================
 
-def rotmat_to_rot6d(R):
+def rotmat_to_rot6d(R: npt.ArrayLike) -> npt.NDArray[np.float64]:
     """
     Convert rotation matrices to 6D representation.
 
@@ -137,12 +150,12 @@ def rotmat_to_rot6d(R):
     rot6d : ndarray, shape (*, 6)
         6D rotation vectors [col0 | col1].
     """
-    R = np.asarray(R, dtype=np.float64)
+    R_arr: npt.NDArray[np.float64] = np.asarray(R, dtype=np.float64)
     # Take first two columns: R[..., :, 0] and R[..., :, 1]
-    return np.concatenate([R[..., :, 0], R[..., :, 1]], axis=-1)
+    return np.concatenate([R_arr[..., :, 0], R_arr[..., :, 1]], axis=-1)
 
 
-def rot6d_to_rotmat(rot6d):
+def rot6d_to_rotmat(rot6d: npt.ArrayLike) -> npt.NDArray[np.float64]:
     """
     Convert 6D rotation representation to rotation matrices using
     Gram-Schmidt orthogonalization (Zhou et al., CVPR 2019).
@@ -157,9 +170,9 @@ def rot6d_to_rotmat(rot6d):
     R : ndarray, shape (*, 3, 3)
         Rotation matrices (proper rotations, det = +1).
     """
-    rot6d = np.asarray(rot6d, dtype=np.float64)
-    a1 = rot6d[..., :3]
-    a2 = rot6d[..., 3:]
+    rot6d_arr: npt.NDArray[np.float64] = np.asarray(rot6d, dtype=np.float64)
+    a1 = rot6d_arr[..., :3]
+    a2 = rot6d_arr[..., 3:]
 
     # Gram-Schmidt: orthonormalize
     b1 = _normalize(a1)
@@ -177,7 +190,11 @@ def rot6d_to_rotmat(rot6d):
 # Euler angles <-> 6D (convenience wrappers)
 # ============================================================================
 
-def euler_to_rot6d(angles, order, degrees=False):
+def euler_to_rot6d(
+    angles: npt.ArrayLike,
+    order: Union[str, Sequence[str]],
+    degrees: bool = False,
+) -> npt.NDArray[np.float64]:
     """
     Convert Euler angles to 6D rotation representation.
 
@@ -197,7 +214,11 @@ def euler_to_rot6d(angles, order, degrees=False):
     return rotmat_to_rot6d(euler_to_rotmat(angles, order, degrees=degrees))
 
 
-def rot6d_to_euler(rot6d, order, degrees=False):
+def rot6d_to_euler(
+    rot6d: npt.ArrayLike,
+    order: Union[str, Sequence[str]],
+    degrees: bool = False,
+) -> npt.NDArray[np.float64]:
     """
     Convert 6D rotation representation to Euler angles.
 
@@ -221,7 +242,7 @@ def rot6d_to_euler(rot6d, order, degrees=False):
 # Rotation matrices <-> Quaternions
 # ============================================================================
 
-def rotmat_to_quat(R):
+def rotmat_to_quat(R: npt.ArrayLike) -> npt.NDArray[np.float64]:
     """
     Convert rotation matrices to quaternions (batch).
 
@@ -237,13 +258,13 @@ def rotmat_to_quat(R):
     q : ndarray, shape (*, 4)
         Unit quaternions in (w, x, y, z) scalar-first convention.
     """
-    R = np.asarray(R, dtype=np.float64)
-    single = (R.ndim == 2)
+    R_arr: npt.NDArray[np.float64] = np.asarray(R, dtype=np.float64)
+    single = (R_arr.ndim == 2)
     if single:
-        R = R[np.newaxis, :, :]
+        R_arr = R_arr[np.newaxis, :, :]
 
-    batch_shape = R.shape[:-2]
-    R_flat = R.reshape(-1, 3, 3)
+    batch_shape = R_arr.shape[:-2]
+    R_flat = R_arr.reshape(-1, 3, 3)
     N = R_flat.shape[0]
 
     q = np.empty((N, 4), dtype=np.float64)
@@ -302,7 +323,7 @@ def rotmat_to_quat(R):
     return q
 
 
-def quat_to_rotmat(q):
+def quat_to_rotmat(q: npt.ArrayLike) -> npt.NDArray[np.float64]:
     """
     Convert quaternions to rotation matrices (batch).
 
@@ -317,22 +338,22 @@ def quat_to_rotmat(q):
     R : ndarray, shape (*, 3, 3)
         Rotation matrices.
     """
-    q = np.asarray(q, dtype=np.float64)
-    single = (q.ndim == 1)
+    q_arr: npt.NDArray[np.float64] = np.asarray(q, dtype=np.float64)
+    single = (q_arr.ndim == 1)
     if single:
-        q = q[np.newaxis, :]
+        q_arr = q_arr[np.newaxis, :]
 
     # Normalize
-    q = q / np.linalg.norm(q, axis=-1, keepdims=True)
+    q_arr = q_arr / np.linalg.norm(q_arr, axis=-1, keepdims=True)
 
-    w, x, y, z = q[..., 0], q[..., 1], q[..., 2], q[..., 3]
+    w, x, y, z = q_arr[..., 0], q_arr[..., 1], q_arr[..., 2], q_arr[..., 3]
 
     # Pre-compute products
     xx, yy, zz = x * x, y * y, z * z
     xy, xz, yz = x * y, x * z, y * z
     wx, wy, wz = w * x, w * y, w * z
 
-    R = np.empty(q.shape[:-1] + (3, 3), dtype=np.float64)
+    R = np.empty(q_arr.shape[:-1] + (3, 3), dtype=np.float64)
     R[..., 0, 0] = 1 - 2 * (yy + zz)
     R[..., 0, 1] = 2 * (xy - wz)
     R[..., 0, 2] = 2 * (xz + wy)
@@ -352,7 +373,11 @@ def quat_to_rotmat(q):
 # Euler angles <-> Quaternions (convenience wrappers)
 # ============================================================================
 
-def euler_to_quat(angles, order, degrees=False):
+def euler_to_quat(
+    angles: npt.ArrayLike,
+    order: Union[str, Sequence[str]],
+    degrees: bool = False,
+) -> npt.NDArray[np.float64]:
     """
     Convert Euler angles to quaternions.
 
@@ -373,7 +398,11 @@ def euler_to_quat(angles, order, degrees=False):
     return rotmat_to_quat(euler_to_rotmat(angles, order, degrees=degrees))
 
 
-def quat_to_euler(q, order, degrees=False):
+def quat_to_euler(
+    q: npt.ArrayLike,
+    order: Union[str, Sequence[str]],
+    degrees: bool = False,
+) -> npt.NDArray[np.float64]:
     """
     Convert quaternions to Euler angles.
 
@@ -400,7 +429,7 @@ def quat_to_euler(q, order, degrees=False):
 # Rotation matrices <-> Axis-angle
 # ============================================================================
 
-def rotmat_to_axisangle(R):
+def rotmat_to_axisangle(R: npt.ArrayLike) -> npt.NDArray[np.float64]:
     """
     Convert rotation matrices to axis-angle representation (batch).
 
@@ -421,13 +450,13 @@ def rotmat_to_axisangle(R):
     aa : ndarray, shape (*, 3)
         Axis-angle vectors (axis × angle_radians).
     """
-    R = np.asarray(R, dtype=np.float64)
-    single = (R.ndim == 2)
+    R_arr: npt.NDArray[np.float64] = np.asarray(R, dtype=np.float64)
+    single = (R_arr.ndim == 2)
     if single:
-        R = R[np.newaxis, :, :]
+        R_arr = R_arr[np.newaxis, :, :]
 
-    batch_shape = R.shape[:-2]
-    R_flat = R.reshape(-1, 3, 3)
+    batch_shape = R_arr.shape[:-2]
+    R_flat = R_arr.reshape(-1, 3, 3)
     N = R_flat.shape[0]
 
     # angle = arccos( clamp( (trace - 1) / 2 ) )
@@ -473,7 +502,7 @@ def rotmat_to_axisangle(R):
     return aa
 
 
-def axisangle_to_rotmat(aa):
+def axisangle_to_rotmat(aa: npt.ArrayLike) -> npt.NDArray[np.float64]:
     """
     Convert axis-angle vectors to rotation matrices using Rodrigues' formula (batch).
 
@@ -487,13 +516,13 @@ def axisangle_to_rotmat(aa):
     R : ndarray, shape (*, 3, 3)
         Rotation matrices.
     """
-    aa = np.asarray(aa, dtype=np.float64)
-    single = (aa.ndim == 1)
+    aa_arr: npt.NDArray[np.float64] = np.asarray(aa, dtype=np.float64)
+    single = (aa_arr.ndim == 1)
     if single:
-        aa = aa[np.newaxis, :]
+        aa_arr = aa_arr[np.newaxis, :]
 
-    batch_shape = aa.shape[:-1]
-    aa_flat = aa.reshape(-1, 3)
+    batch_shape = aa_arr.shape[:-1]
+    aa_flat = aa_arr.reshape(-1, 3)
     N = aa_flat.shape[0]
 
     angle = np.linalg.norm(aa_flat, axis=-1)  # (N,)
@@ -529,7 +558,11 @@ def axisangle_to_rotmat(aa):
 # Euler angles <-> Axis-angle (convenience wrappers)
 # ============================================================================
 
-def euler_to_axisangle(angles, order, degrees=False):
+def euler_to_axisangle(
+    angles: npt.ArrayLike,
+    order: Union[str, Sequence[str]],
+    degrees: bool = False,
+) -> npt.NDArray[np.float64]:
     """
     Convert Euler angles to axis-angle vectors.
 
@@ -550,7 +583,11 @@ def euler_to_axisangle(angles, order, degrees=False):
     return rotmat_to_axisangle(euler_to_rotmat(angles, order, degrees=degrees))
 
 
-def axisangle_to_euler(aa, order, degrees=False):
+def axisangle_to_euler(
+    aa: npt.ArrayLike,
+    order: Union[str, Sequence[str]],
+    degrees: bool = False,
+) -> npt.NDArray[np.float64]:
     """
     Convert axis-angle vectors to Euler angles.
 
@@ -572,17 +609,79 @@ def axisangle_to_euler(aa, order, degrees=False):
 
 
 # ============================================================================
+# Quaternion SLERP
+# ============================================================================
+
+def quat_slerp(
+    q1: npt.ArrayLike,
+    q2: npt.ArrayLike,
+    t: float | npt.ArrayLike,
+) -> npt.NDArray[np.float64]:
+    """Spherical linear interpolation between quaternions.
+
+    Parameters
+    ----------
+    q1 : array_like, shape (*, 4)
+        Start quaternions (w, x, y, z).
+    q2 : array_like, shape (*, 4)
+        End quaternions (w, x, y, z).
+    t : float or array_like
+        Interpolation parameter(s) in [0, 1].
+
+    Returns
+    -------
+    q : ndarray, shape (*, 4)
+        Interpolated unit quaternions.
+    """
+    q1_arr: npt.NDArray[np.float64] = np.asarray(q1, dtype=np.float64)
+    q2_arr: npt.NDArray[np.float64] = np.asarray(q2, dtype=np.float64)
+    t_arr: npt.NDArray[np.float64] = np.asarray(t, dtype=np.float64)
+
+    # Ensure shortest path: flip q2 if dot product is negative
+    dot = np.sum(q1_arr * q2_arr, axis=-1, keepdims=True)
+    q2_arr = np.where(dot < 0, -q2_arr, q2_arr)
+    dot = np.abs(dot)
+
+    # Clamp for numerical safety
+    dot = np.clip(dot, 0.0, 1.0)
+    theta = np.arccos(dot)
+    sin_theta = np.sin(theta)
+    # Replace zeros with 1.0 to avoid division warnings — the result
+    # is discarded via np.where for these entries anyway.
+    safe_sin = np.where(sin_theta < 1e-7, 1.0, sin_theta)
+
+    # Near-identical quaternions: fall back to normalized lerp
+    near_zero = (sin_theta.squeeze(-1) < 1e-7) if sin_theta.ndim > 1 else (sin_theta < 1e-7)
+    near_zero = np.expand_dims(near_zero, -1) if near_zero.ndim < q1_arr.ndim else near_zero
+
+    # Reshape t for broadcasting
+    if t_arr.ndim == 0:
+        t_val = float(t_arr)
+        s1 = np.where(near_zero, 1.0 - t_val, np.sin((1.0 - t_val) * theta) / safe_sin)
+        s2 = np.where(near_zero, t_val, np.sin(t_val * theta) / safe_sin)
+    else:
+        t_arr = t_arr[..., np.newaxis]  # add quaternion dim
+        s1 = np.where(near_zero, 1.0 - t_arr, np.sin((1.0 - t_arr) * theta) / safe_sin)
+        s2 = np.where(near_zero, t_arr, np.sin(t_arr * theta) / safe_sin)
+
+    result = s1 * q1_arr + s2 * q2_arr
+    # Normalize result
+    result = result / np.linalg.norm(result, axis=-1, keepdims=True)
+    return result
+
+
+# ============================================================================
 # Internal helpers
 # ============================================================================
 
-def _normalize(v):
+def _normalize(v: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """Normalize vectors along the last axis. Safe against zero-length."""
     norm = np.linalg.norm(v, axis=-1, keepdims=True)
     norm = np.maximum(norm, 1e-12)
     return v / norm
 
 
-def _elementary_rotmat(angle, axis):
+def _elementary_rotmat(angle: npt.NDArray[np.float64], axis: str) -> npt.NDArray[np.float64]:
     """
     Build elementary (single-axis) rotation matrices (batch).
     
@@ -629,7 +728,7 @@ def _elementary_rotmat(angle, axis):
     return R
 
 
-def _extract_euler(R, i, j, k):
+def _extract_euler(R: npt.NDArray[np.float64], i: int, j: int, k: int) -> npt.NDArray[np.float64]:
     """
     Extract Euler angles from rotation matrices for axes (i, j, k).
 

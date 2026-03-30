@@ -1,52 +1,152 @@
-## UPDATE : 
-- 2025-03-26: Added a bone size scaling method.
-- 2025-02-28: Added the possibility to use another skeleton than the one in the bvh file itself. Separated the tutorial into multiple files, for readability, and updated the content.
-- 2025-01-25: Change the parameter "local" in the functions to get spatial coordinates and to plot the bvh. The new parameter is "centered", with three modes:
-    - "skeleton": equivalent to previous local = True, root pos always 0, 0, 0:
-    - "world": equivalent to previous local = False, root at coordinates as in saved in bvh frames
-    - "first": the first frame root position is 0, 0, 0. From there, the skeleton moves in the space normally.
-
 # pybvh
-Python library to work with bvh files
 
-The main point of this library is a Bvh class, which contains all the necesseray information found in a bvh file.
-Through the use of this object, it is easy to read and write a bvh file, but also to convert it to a Pandas Dataframe, and conversely to transform a Dataframe into a bvh object.
+[![PyPI version](https://img.shields.io/pypi/v/pybvh)](https://pypi.org/project/pybvh/)
+[![Python](https://img.shields.io/pypi/pyversions/pybvh)](https://pypi.org/project/pybvh/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-See the jupyter file 'tutorial' for example of use.
+A lightweight Python library for reading, writing, and manipulating BVH motion capture files.
+Built for researchers and developers working with skeletal animation and motion data.
+
+## Features
+
+- **Read & write** BVH files with full hierarchy and motion data preservation
+- **Rotation conversions** between Euler angles, rotation matrices, quaternions, 6D (Zhou et al.), and axis-angle — all vectorized with NumPy
+- **Forward kinematics** to compute 3D joint positions from angles
+- **Skeleton operations**: retargeting, scaling, joint extraction, Euler order changes
+- **Frame operations**: slicing, concatenation, resampling to different frame rates
+- **Batch loading** of entire directories with optional parallel I/O
+- **NumPy export** in any rotation representation — ready for ML pipelines
+- **Pandas ready** via an export option ready to become a Dataset
+- **3D visualization** with Matplotlib (static frames and animated videos)
 
 ## Installation
-- Stable release from PyPI: `pip install pybvh`
-- With pandas helpers (optional): `pip install "pybvh[pandas]"`
 
-## Notes about data and notebooks
-- Example BVH files and tutorial notebooks are **not** bundled in the PyPI package to keep the wheel slim.
-- You can find the sample BVH data and notebooks in the GitHub repository under `bvh_data/` and `tutorials/`.
+```bash
+pip install pybvh
+```
 
-### Curent functionality
-- Bvh class
-    - parameters : 
-        - bvhobject.nodes: a list of all the nodes in the Hierarchy. The nodes are BvhRoot, BvhJoint or BvhNode objects for respectively the root, the joints and the end sites.
-        - bvhobject.frames: the rotational data as a 2D numpy array.
-        - bvhobject.frame_frequency: the frames frequency as can be found in a bvh file.
-        - bvhobject.frame_template: the organized name of each column of the bvhobject.frames.
-        - bvhobject.frame_count: the number of frames (=the number of lines of the bvhobject.frames parameter).
-        - bvhobject.root: the root of the Hierarchy, aka bvhobject.nodes[0].
-    - methods :
-        - to_bvh_file(filepath, verbose=True): save a bvh object to a bvh file at the location filepath (str or Path object).
-        - get_spatial_coord(frame_num=-1, centered="world"): get the spatial coordinates of every joints for all frames or only one.
-        - get_df_constructor(mode = 'euler', centered="world"): get a list of dictionnary that can be transmitted to a pd.Dataframe() constructor to directly obtain a Dataframe. Can construct a DataFrame with euler angles or spatial coordinates.
-        - hierarchy_info_as_dict(): get a dictionnary describing the organisation of the Hierarchy in the bvh object.
-        - change_skeleton(new_skeleton, inplace=False): copy the nodes offset from the 'new_skeleton' bvh object.
-        - scale_skeleton(scale, inplace=False): scale the nodes offset.
+## Quick Start
 
-- read_bvh_file(filepath) : read a .bvh file at the filepath location (str or Path object), and create a Bvh object
+```python
+import pybvh
 
-- df_to_bvh(hier, df) : df is a pandas DataFrame, containing joints rotational data. hier is either a dictionnary describing the hierarchy, or a list of nodes. Will create a bvh object based on those two arguments.
+# Load a BVH file
+bvh = pybvh.read_bvh_file("walk.bvh")
+print(bvh)  # 24 joints, 120 frames at 0.008333Hz
 
-- plot.plot_frame(bvh_object, frame) : plot a matplotlib projection3d that shows the frame passed as a parameter.
+# Access motion data as NumPy arrays
+bvh.root_pos          # (F, 3) root translation per frame
+bvh.joint_angles      # (F, J, 3) Euler angles in degrees
+bvh.joint_names       # ['Hips', 'Spine', ...] (excludes end sites)
 
+# Get 3D joint positions via forward kinematics
+coords = bvh.get_spatial_coord()  # (F, N, 3)
 
-### TODO:
-- making direct changes to rot_channels and pos_channels impossible/regulated. Needs to go through a class method, so that we can also change the frames columns order (and value!) at the same time.
-- class method to transform euler angle directly (different Euler angle order, transformation to rotation matrix etc.)
-- change docstrings to Numpy/Scipy standard
+# Convert to other rotation representations
+root_pos, quats, joints = bvh.get_frames_as_quaternion()  # (F,3), (F,J,4), joints
+root_pos, rot6d, joints = bvh.get_frames_as_6d()          # (F,3), (F,J,6), joints
+
+# Write back to file
+bvh.to_bvh_file("output.bvh")
+```
+
+## Batch Loading for ML
+
+Load an entire dataset directory and convert to NumPy arrays in one call:
+
+```python
+from pybvh import read_bvh_directory, batch_to_numpy
+
+# Load all BVH files from a directory
+clips = read_bvh_directory("dataset/", parallel=True)
+
+# Convert to padded NumPy array — ready for training
+data = batch_to_numpy(clips, representation="6d", pad=True)
+# shape: (batch, max_frames, features)
+```
+
+Supported representations: `"euler"`, `"quaternion"`, `"6d"`, `"axisangle"`, `"rotmat"`.
+
+## Skeleton Operations
+
+```python
+# Change Euler rotation order for all joints
+bvh_xyz = bvh.change_all_euler_orders("XYZ")
+
+# Scale the skeleton
+bvh_scaled = bvh.scale_skeleton(0.01)  # meters to centimeters
+
+# Retarget motion to a different skeleton
+bvh_retarget = bvh.change_skeleton(reference_bvh)
+
+# Extract a subset of joints
+bvh_upper = bvh.extract_joints(["Hips", "Spine", "Neck", "Head"])
+
+# Slice and concatenate frames
+clip = bvh.slice_frames(10, 50)
+combined = bvh.concat(other_bvh)
+
+# Resample to a different frame rate
+bvh_30fps = bvh.resample(30)
+```
+
+## Rotation Utilities
+
+All functions are batch-vectorized and work on arbitrary batch dimensions:
+
+```python
+from pybvh import rotations
+
+# Convert between any pair of representations
+R = rotations.euler_to_rotmat(angles, order="ZYX", degrees=True)
+q = rotations.rotmat_to_quat(R)
+aa = rotations.quat_to_euler(q, order="ZYX", degrees=True)
+
+# Quaternion SLERP interpolation
+q_mid = rotations.quat_slerp(q1, q2, t=0.5)
+```
+
+## Visualization
+
+```python
+from pybvh import plot
+
+# Plot a single frame
+plot.plot_frame(bvh, frame=0)
+
+# Create an animation video
+plot.plot_animation(bvh, output_path="walk.mp4")
+```
+
+## Pandas Integration
+
+```python
+import pandas as pd
+
+# BVH to DataFrame
+df = pd.DataFrame(bvh.get_df_constructor(mode="euler"))
+
+# DataFrame back to BVH
+from pybvh import df_to_bvh
+bvh_from_df = df_to_bvh(bvh.hierarchy_info_as_dict(), df)
+```
+
+## Tutorials
+
+The repository includes Jupyter notebooks with detailed walkthroughs:
+
+1. [Introduction to pybvh](tutorials/1.Introduction_pybvh.ipynb) — reading, writing, and basic operations
+2. [Spatial coordinates](tutorials/2.Spatial_coordinates.ipynb) — forward kinematics and 3D positions
+3. [Rotations](tutorials/3.Rotations.ipynb) — rotation representations and conversions
+
+## Requirements
+
+- Python >= 3.9
+- NumPy >= 1.21
+- Matplotlib >= 3.7
+
+Pandas is optional (`pip install "pybvh[pandas]"`) - only used in the tutorials, not part of pybvh library.
+
+## License
+
+MIT

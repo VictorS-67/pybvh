@@ -1,22 +1,48 @@
+from __future__ import annotations
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import warnings
 
 from pathlib import Path
+from typing import Any, TYPE_CHECKING
+
+from .bvh import Bvh
+
+if TYPE_CHECKING:
+    import matplotlib.figure
+    import matplotlib.axes
 
 
 
 
+def plot_frame(bvh_object: Bvh, frame: int | np.ndarray, centered: str = "world") -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes | list[matplotlib.axes.Axes]]:
+    """Plot a single BVH frame as a 3D skeleton.
 
-def plot_frame(bvh_object, frame, centered = "world"):
-    """ 
-    Plot a bvh frame.
-    Input:
-    - bvh_object : A Bvh object.
-    - frame : can be an int (frame index) or a 2-D array of shape ``(N, 3)``
-              with spatial coordinates.
-    - centered : ``"skeleton"`` or ``"world"``.
+    Renders the skeleton for a given frame using matplotlib's 3D plotting.
+    The viewing angle is automatically determined from the skeleton's
+    orientation.
+
+    Parameters
+    ----------
+    bvh_object : Bvh
+        A Bvh object containing the skeleton hierarchy.
+    frame : int or np.ndarray
+        Frame to plot. If an int, it is used as a frame index into
+        ``bvh_object``. If a 2-D array of shape ``(N, 3)``, it is
+        treated as pre-computed spatial coordinates.
+    centered : str, optional
+        Coordinate centering mode, either ``"skeleton"`` or ``"world"``
+        (default ``"world"``).
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The matplotlib figure.
+    ax : matplotlib.axes.Axes
+        The 3D axes (single axes object when ``num_subplots == 1``),
+        or a list of axes otherwise.
     """
     num_subplots = 1
 
@@ -33,7 +59,7 @@ def plot_frame(bvh_object, frame, centered = "world"):
     lines = [axs[0].plot([], [], [], c='blue', lw=2.5)[0] for _ in bvh_object.nodes[1:]]
 
     lines = _draw_skeleton(frame, bvh_object, lines)
-        
+
     plt.tight_layout()
     #plt.show()
     if num_subplots == 1:
@@ -44,43 +70,66 @@ def plot_frame(bvh_object, frame, centered = "world"):
 
 
 def plot_animation(
-        bvh_object, 
-        frames=-1,
-        centered = "world",
-        savefile = True,
-        filepath = Path('./anim.mp4'),
-        direction_ref = 'rest',
-        fps = -1,
-        show_axis = True,
-        verbose = False
-        ):
-    """
-    Plot the bvh animation.
-    Input:
-    - bvh_object : A Bvh object.
-    - frames : can be -1, a frame index, a list of frames (as contained in bvh.frames), or a list of frame indices
-            - if -1 (default setting) : plot all the frames in the bvh object
-            - if an int : plot the one frame indexed by the argument.
-            - if a list of frames : plot all the frames passed as argument. 
-                  The frames line needs to be of same format as the frames line in the bvh object
-            - if a list of frame indices : plot all the frames indexed by the argument
-    - centered : a string that can be either "skeleton", "first", or "world".
-                If "skeleton", the coordinates are local to the skeleton (meaning the root
-                coordinates are considered to be [0, 0, 0]).
-                If "first", the first frame root position is considered to be [0, 0, 0]. From there,
-                the skeleton moves in the space normally.
-                If "world", the coordinates are global (meaning the root coordinates are
-                the actual coordinates of the root).
-    - savefile : a bool, if true will save the file at the path in filepath
-    - filepath : a string or a Path object, path where to save the video file.
-                only used when savefile == True.
-    - direction_ref : either 'rest' or 'first'.
-                    If 'res', the view direction of the plot is based
-                         on the skeleton rest pose.
-                    If 'first',  the view direction of the plot is based
-                         on the skeleton in the first frame.
-    - fps : if -1, then use the frame rate indicated in the bvh file.
-            else, use 
+        bvh_object: Bvh,
+        frames: int | np.ndarray = -1,
+        centered: str = "world",
+        savefile: bool = True,
+        filepath: str | Path = Path('./anim.mp4'),
+        direction_ref: str = 'rest',
+        fps: int = -1,
+        show_axis: bool = True,
+        verbose: bool = False
+        ) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]:
+    """Animate a BVH skeleton and optionally save to a video file.
+
+    Creates a 3D animation of the skeleton over the specified frames.
+    The viewing angle is automatically determined from the skeleton's
+    orientation, and the axis limits are computed to encompass all frames.
+
+    Parameters
+    ----------
+    bvh_object : Bvh
+        A Bvh object containing the skeleton hierarchy and motion data.
+    frames : int or array-like, optional
+        Frames to animate. If ``-1`` (default), all frames in the BVH
+        object are used. If a single int, only that frame index is shown.
+        If an array of ints, those frame indices are used. If a 2-D
+        array of shape ``(N, 3)``, it is treated as a single frame of
+        spatial coordinates. If a 3-D array of shape ``(F, N, 3)``, it
+        is treated as pre-computed spatial coordinates for *F* frames.
+    centered : str, optional
+        Coordinate centering mode (default ``"world"``):
+
+        - ``"skeleton"`` -- root is always at the origin.
+        - ``"first"`` -- first frame root is at the origin; subsequent
+          frames move normally.
+        - ``"world"`` -- global coordinates are used as-is.
+    savefile : bool, optional
+        If ``True`` (default), save the animation to *filepath*.
+    filepath : str or pathlib.Path, optional
+        Output path for the saved animation (default ``'./anim.mp4'``).
+        Supported formats include ``.mp4``, ``.mov``, ``.avi``, ``.gif``,
+        ``.webp``, ``.apng``, and ``.html``. Only used when *savefile*
+        is ``True``.
+    direction_ref : str, optional
+        Reference pose for determining the viewing direction (default
+        ``'rest'``). ``'rest'`` uses the skeleton rest pose; ``'first'``
+        uses the first animation frame.
+    fps : int, optional
+        Frames per second for the animation. If ``-1`` (default), the
+        frame rate from the BVH file is used.
+    show_axis : bool, optional
+        If ``True`` (default), display the 3D axis. Set to ``False`` to
+        hide it.
+    verbose : bool, optional
+        If ``True``, print additional information. Default is ``False``.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The matplotlib figure.
+    ax : matplotlib.axes.Axes
+        The 3D axes used for the animation.
     """
 
     # --------------- prooftesting the parameters ------------
@@ -102,7 +151,7 @@ def plot_animation(
     else:
         direction_pose = frames[0]
 
-    directions_dict = _get_forw_up_axis(bvh_object, direction_pose)
+    directions_dict = _get_forw_up_axis(bvh_object, direction_pose)  # type: ignore[arg-type]
 
     fig, ax = _setup_plt_animation_world(frames, directions_dict)
 
@@ -114,16 +163,16 @@ def plot_animation(
 
     #calculate the times between frames
     if fps == -1:
-        fps = 1 / bvh_object.frame_frequency
+        fps = 1 / bvh_object.frame_frequency  # type: ignore[assignment]
 
     interval = int(1/fps*1000) #miliseconds
     # Creating the Animation object
     anim = animation.FuncAnimation(
         fig, _draw_skeleton, frames, fargs=(bvh_object, lines), interval=interval)
-    
+
     if savefile:
         if writer == "jshtml":
-            html_content = anim.to_jshtml() 
+            html_content = anim.to_jshtml()
             with open(filepath, 'w') as f:
                 f.write(html_content)
         else:
@@ -134,23 +183,51 @@ def plot_animation(
 
 
 def _prooftest_plot_animation_parameters(
-        bvh_object,
-        frames,
-        centered,
-        savefile,
-        filepath,
-        direction_ref,
-        fps
-        ):
+        bvh_object: Bvh,
+        frames: int | np.ndarray,
+        centered: str,
+        savefile: bool,
+        filepath: str | Path,
+        direction_ref: str,
+        fps: int
+        ) -> tuple[np.ndarray, Path, str]:
+    """Validate and normalise parameters for ``plot_animation``.
+
+    Parameters
+    ----------
+    bvh_object : Bvh
+        The BVH object.
+    frames : int or array-like
+        Raw *frames* argument from the caller.
+    centered : str
+        Coordinate centering mode.
+    savefile : bool
+        Whether to save the animation.
+    filepath : str or pathlib.Path
+        Output file path.
+    direction_ref : str
+        Reference pose identifier (``'rest'`` or ``'first'``).
+    fps : int
+        Frames per second (``-1`` for BVH default).
+
+    Returns
+    -------
+    frames : np.ndarray
+        Spatial coordinates array of shape ``(F, N, 3)``.
+    filepath : pathlib.Path
+        Validated (possibly adjusted) output path.
+    writer : str
+        Matplotlib animation writer name.
+    """
     # ---- test frames
     if isinstance(frames, int):
         # if frames is an int, we need to check if it is in the bounds or -1
         if frames == -1 :
             frames = bvh_object.get_spatial_coord(centered=centered)
         elif frames>= 0 and frames < bvh_object.frame_count:
-            # we need an iterable for the animation so we need to put the one frame into a list
-            frames = [bvh_object.get_spatial_coord(frame_num=frames, centered=centered)]
-        else : 
+            # we need an iterable for the animation so we need to put the one frame into an array
+            frames = np.array([bvh_object.get_spatial_coord(frame_num=frames, centered=centered)])
+        else :
             raise ValueError("Index out of bounds for the frames.")
     else :
         # if frames is not an int, we need to check if it is an iterable
@@ -159,29 +236,31 @@ def _prooftest_plot_animation_parameters(
         except:
             raise ValueError("frames should be either an int or an iterable.")
         #if we are here, then frames is an iterable
-        frames = np.asarray(frames)
-        if frames.ndim == 1 and np.issubdtype(frames.dtype, np.integer):
+        frames_arr: np.ndarray = np.asarray(frames)
+        if frames_arr.ndim == 1 and np.issubdtype(frames_arr.dtype, np.integer):
             # list of frame indices
-            frames = bvh_object.get_spatial_coord(centered=centered)[frames]
-        elif frames.ndim == 2:
+            frames = bvh_object.get_spatial_coord(centered=centered)[frames_arr]
+        elif frames_arr.ndim == 2:
             # single (N, 3) frame
-            frames = frames[np.newaxis, :]
-        elif frames.ndim == 3:
+            frames = frames_arr[np.newaxis, :]
+        elif frames_arr.ndim == 3:
             # (F, N, 3) already
-            if frames.shape[1:] != (len(bvh_object.nodes), 3):
+            if frames_arr.shape[1:] != (len(bvh_object.nodes), 3):
                 raise ValueError(
                     f"Each frame should have shape ({len(bvh_object.nodes)}, 3).")
+            frames = frames_arr
         else:
             raise ValueError("frames should be an int, list of ints, or array of spatial coords.")
-    
+
     # ---- test savefile and savepath and available writers
+    writer: str = 'pillow'  # default, overwritten below when savefile is True
     if savefile:
         output_path = Path(filepath)
         ext = output_path.suffix.lower()
-        
+
         # 1. Check available writers
         has_ffmpeg = animation.writers.is_available('ffmpeg')
-        
+
         # 2. Logic for Video (.mp4, .mov, .avi)
         if ext in ['.mp4', '.mov', '.avi']:
             if has_ffmpeg:
@@ -208,25 +287,37 @@ def _prooftest_plot_animation_parameters(
 
         else:
             raise ValueError(f"Unsupported file format: {ext}")
-        
+
     # ---- test direction_ref
     if direction_ref not in ['rest', 'first']:
         raise  ValueError("direction_ref should be either 'rest' or 'first'.")
-    
+
     # ---- test fps
     if not isinstance(fps, int) or fps==0 or fps < -1 :
         raise  ValueError("fps should be -1 or a positiv int")
-    
+
     # ---- test centered_options
     centered_options = ['skeleton', 'first', 'world']
     if centered not in centered_options:
         raise ValueError(f'The value {centered} is not recognized for the centered argument.\
                             Currently recognized keywords are {centered_options}')
-    
-    return frames, filepath, writer
+
+    return frames, Path(filepath), writer  # type: ignore[return-value]
 
 
-def _get_main_direction(coord_array)->str:
+def _get_main_direction(coord_array: np.ndarray) -> str:
+    """Return the signed axis string (e.g. ``'+y'``) for the dominant component.
+
+    Parameters
+    ----------
+    coord_array : np.ndarray
+        1-D array of length 3 representing an (x, y, z) vector.
+
+    Returns
+    -------
+    main_dir : str
+        Signed axis label such as ``'+x'``, ``'-z'``, etc.
+    """
     main_direction_idx = np.argmax(np.abs(coord_array))
     if coord_array[main_direction_idx] < 0:
         main_dir = "-"
@@ -241,25 +332,46 @@ def _get_main_direction(coord_array)->str:
         main_dir += "z"
     else:
         raise ValueError("Invalid index")
-    
+
     return main_dir
 
 
-def _extract_sign(ax:str)->bool:
+def _extract_sign(ax: str) -> bool:
+    """Return ``True`` if the axis string has a ``'+'`` sign, ``False`` if ``'-'``.
+
+    Parameters
+    ----------
+    ax : str
+        Signed axis string, e.g. ``'+x'`` or ``'-z'``.
+
+    Returns
+    -------
+    is_positive : bool
+        ``True`` for positive, ``False`` for negative.
+    """
     if ax[0] == '+':
         return True
     elif ax[0] == '-':
         return False
     else:
         raise ValueError("The sign of the axis should be either '+' or '-'.")
-    
 
-def _get_forw_up_axis(bvh_object, frame)->dict:
-    """ 
-        Return the upward and forward axis of the bvh file in a dictionnary format. 
-        ONLY WORKS WITH HUMAN SKELETON!
-        The axis are based on the analysis of the frame given as an argument.
-        frame shape is (N, 3).
+
+def _get_forw_up_axis(bvh_object: Bvh, frame: np.ndarray) -> dict[str, str]:
+    """Infer the forward and upward axes from a skeleton frame (human only).
+
+    Parameters
+    ----------
+    bvh_object : Bvh
+        The BVH object containing the skeleton hierarchy.
+    frame : np.ndarray
+        Spatial coordinates of shape ``(N, 3)`` for a single frame.
+
+    Returns
+    -------
+    directions : dict
+        Dictionary with keys ``'forward'`` and ``'upward'``, each
+        mapping to a signed axis string (e.g. ``'+y'``, ``'-z'``).
     """
 
     # work with local coordinates (root at origin)
@@ -277,7 +389,7 @@ def _get_forw_up_axis(bvh_object, frame)->dict:
             break
     # we try if one of the joint had the name in the list
     try:
-        up_joint_coord = local_coord[bvh_object.name2idx[upward_joint.name]]
+        up_joint_coord = local_coord[bvh_object.node_index[upward_joint.name]]
     except:
         # if not, use the second node (index 1) as the upward joint
         up_joint_coord = local_coord[1]
@@ -293,13 +405,24 @@ def _get_forw_up_axis(bvh_object, frame)->dict:
 
 
 
-def _setup_plt(frame_plotted, num_subplots=1, directions_dict = {}):
-    """
-    setup the axis of the subplots.
-    create up to 3 subplots, with different viewing angles  --- not yet, only one
-    this function serves to calculate the best viewing angles,
-    based on the info contained in the argument directions_dict.
-    Also determine the plot limits based on the displayed frame.
+def _setup_plt(frame_plotted: np.ndarray, num_subplots: int = 1, directions_dict: dict[str, str] = {}) -> tuple[matplotlib.figure.Figure, list[matplotlib.axes.Axes]]:
+    """Set up 3D subplot(s) with auto-determined viewing angles and axis limits.
+
+    Parameters
+    ----------
+    frame_plotted : np.ndarray
+        Spatial coordinates of shape ``(N, 3)`` used to compute axis limits.
+    num_subplots : int, optional
+        Number of subplots to create (max 3, default 1).
+    directions_dict : dict, optional
+        Dictionary with ``'forward'`` and ``'upward'`` signed axis strings.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The matplotlib figure.
+    axs : list of matplotlib.axes.Axes
+        List of 3D axes objects.
     """
     if num_subplots >= 4:
         raise ValueError("Too many subplots.")
@@ -307,7 +430,7 @@ def _setup_plt(frame_plotted, num_subplots=1, directions_dict = {}):
     # if only one subplot we don't have a list so solve this small error
     if num_subplots == 1:
         axs = [axs]
-    
+
     try:
         forward_ax = directions_dict['forward']
         up_ax = directions_dict['upward']
@@ -333,7 +456,7 @@ def _setup_plt(frame_plotted, num_subplots=1, directions_dict = {}):
     y_min_max = [root_pos[1] + lim_min, root_pos[1] + lim_max]
     z_min_max = [root_pos[2] + lim_min, root_pos[2] + lim_max]
     ax_lims = x_min_max + y_min_max + z_min_max #[xmin, xmax, ymin, ymax, zmin, zmax]
-    
+
     for i, ax in enumerate(axs):
         ax.axis(ax_lims)
 
@@ -350,33 +473,51 @@ def _setup_plt(frame_plotted, num_subplots=1, directions_dict = {}):
     return fig, axs
 
 
-def _draw_skeleton(frame, bvh_object, lines):
+def _draw_skeleton(frame: np.ndarray, bvh_object: Bvh, lines: list[Any]) -> list[Any]:
+    """Draw the skeleton bones for a single frame.
+
+    Parameters
+    ----------
+    frame : np.ndarray
+        Spatial coordinates of shape ``(N, 3)``.
+    bvh_object : Bvh
+        The BVH object containing the skeleton hierarchy.
+    lines : list of mpl_toolkits.mplot3d.art3d.Line3D
+        Pre-allocated line artists (length ``len(bvh_object.nodes) - 1``).
+
+    Returns
+    -------
+    lines : list of mpl_toolkits.mplot3d.art3d.Line3D
+        The updated line artists.
     """
-    Function to draw the bvh skeleton in one frame.
-    frame is shape (N, 3).  lines has length len(bvh_object.nodes) - 1.
-    """
-    name2index = bvh_object.name2idx
+    name2index = bvh_object.node_index
 
     for line, node in zip(lines, bvh_object.nodes[1:]): #skip the root
         coord = frame[name2index[node.name]]
-        parent_coord = frame[name2index[node.parent.name]]
+        parent_coord = frame[name2index[node.parent.name]]  # type: ignore[union-attr]
         line.set_data_3d([parent_coord[0], coord[0]],
                         [parent_coord[1], coord[1]],
                         [parent_coord[2], coord[2]])
-    
+
     return lines
 
 
-def _angle_up_forward(bvh_forward_ax, bvh_up_ax):
-    """
-    function to return the elevation and azimut necessary
-    to have the correct axis pointing forward for the skeleton.
-    bvh_forward_ax and bvh_up_ax needs to be of the form sign+axisletter:
-    "+z", "-x" etc
+def _angle_up_forward(bvh_forward_ax: str, bvh_up_ax: str) -> tuple[np.ndarray, np.ndarray]:
+    """Compute elevation and azimuth arrays for the given forward/up axes.
 
-    We assume that the vertical axis fof the view  will be determined with 
-    ax.view_init(vertical_axis=bvh_up_ax), and so
-    bvh upward axis = matplolib vertical axis, modulo sign.
+    Parameters
+    ----------
+    bvh_forward_ax : str
+        Signed forward axis, e.g. ``'+z'`` or ``'-x'``.
+    bvh_up_ax : str
+        Signed upward axis, e.g. ``'+y'`` or ``'-z'``.
+
+    Returns
+    -------
+    elev : np.ndarray
+        Elevation angles (one per subplot).
+    azim : np.ndarray
+        Azimuth angles (one per subplot).
     """
     elev, azim = np.array([20,0,0]), np.array([-20,0,0])
 
@@ -395,9 +536,9 @@ def _angle_up_forward(bvh_forward_ax, bvh_up_ax):
     if not bvh_up_pos_sign:
         # if the upward axis sign is of negative sign, for ex -z
         # the we turn the elevation by 180
-        elev += 180 
+        elev += 180
         azim += 180
-    
+
     if bvh_forward_ax == default_up2front[bvh_up_ax] and not bvh_forward_pos_sign:
         #if the forward axis sign is of negative sign
         azim += 180
@@ -405,23 +546,34 @@ def _angle_up_forward(bvh_forward_ax, bvh_up_ax):
     return elev, azim
 
 
-def _setup_plt_animation_world(frames, directions_dict={}):
-    """ 
-    Setup the plot with _setup_plt.
-    Recalculate the axis dimension of the plot to take all the frames
-    into account
+def _setup_plt_animation_world(frames: np.ndarray, directions_dict: dict[str, str] = {}) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]:
+    """Set up the animation plot with axis limits spanning all frames.
+
+    Parameters
+    ----------
+    frames : np.ndarray
+        Spatial coordinates of shape ``(F, N, 3)``.
+    directions_dict : dict, optional
+        Dictionary with ``'forward'`` and ``'upward'`` signed axis strings.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The matplotlib figure.
+    ax : matplotlib.axes.Axes
+        The 3D axes with limits adjusted for the full animation range.
     """
     fig, axs = _setup_plt(frames[0], directions_dict=directions_dict)
     ax = axs[0]
-    # we have axis with the proper up and forward dir. 
+    # we have axis with the proper up and forward dir.
     # Just need to recalculate the limits
     x_min, x_max= np.min(frames[:,:,0]),  np.max(frames[:,:,0])
     y_min, y_max= np.min(frames[:,:,1]),  np.max(frames[:,:,1])
     z_min, z_max= np.min(frames[:,:,2]),  np.max(frames[:,:,2])
 
-    
 
-    dist_x, dist_y, dist_z = x_max-x_min, y_max-y_min, z_max-z_min 
+
+    dist_x, dist_y, dist_z = x_max-x_min, y_max-y_min, z_max-z_min
     middle_x, middle_y, middle_z = x_min + dist_x/2 , y_min + dist_y/2, z_min + dist_z/2
     # the middle_x etc are now the coordinates for the middle
     #  of the wholle range of movement following the given axis
@@ -432,5 +584,5 @@ def _setup_plt_animation_world(frames, directions_dict={}):
                 middle_z - fig_lim/2 , middle_z + fig_lim/2]
 
 
-    ax.axis(axis_lim)
+    ax.axis(axis_lim)  # type: ignore[call-overload]
     return fig, ax

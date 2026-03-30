@@ -349,7 +349,7 @@ class TestBvhRotationMethods:
         original_joint_angles = bvh_example.joint_angles.copy()
 
         root_pos, joint_rot6d, _ = bvh_example.get_frames_as_6d()
-        bvh_example.set_frames_from_6d(root_pos, joint_rot6d)
+        bvh_example.set_frames_from_6d(root_pos, joint_rot6d, inplace=True)
 
         np.testing.assert_allclose(
             bvh_example.root_pos, original_root_pos, atol=1e-6,
@@ -364,7 +364,7 @@ class TestBvhRotationMethods:
         original_joint_angles = bvh_example.joint_angles.copy()
 
         root_pos, joint_quats, _ = bvh_example.get_frames_as_quaternion()
-        bvh_example.set_frames_from_quaternion(root_pos, joint_quats)
+        bvh_example.set_frames_from_quaternion(root_pos, joint_quats, inplace=True)
 
         np.testing.assert_allclose(
             bvh_example.root_pos, original_root_pos, atol=1e-6,
@@ -378,7 +378,7 @@ class TestBvhRotationMethods:
         spatial_before = bvh_example.get_spatial_coord(centered="world")
 
         root_pos, joint_rot6d, _ = bvh_example.get_frames_as_6d()
-        bvh_example.set_frames_from_6d(root_pos, joint_rot6d)
+        bvh_example.set_frames_from_6d(root_pos, joint_rot6d, inplace=True)
         spatial_after = bvh_example.get_spatial_coord(centered="world")
 
         np.testing.assert_allclose(spatial_after, spatial_before, atol=1e-4)
@@ -402,14 +402,14 @@ class TestBvhRotationMethods:
         root_pos = bvh_example.root_pos
         wrong_6d = np.zeros((56, 5, 6))  # wrong number of joints
         with pytest.raises(ValueError):
-            bvh_example.set_frames_from_6d(root_pos, wrong_6d)
+            bvh_example.set_frames_from_6d(root_pos, wrong_6d, inplace=True)
 
     def test_set_frames_from_quaternion_wrong_joints_raises(self, bvh_example):
         """set_frames_from_quaternion with wrong number of joints should raise."""
         root_pos = bvh_example.root_pos
         wrong_quats = np.zeros((56, 5, 4))
         with pytest.raises(ValueError):
-            bvh_example.set_frames_from_quaternion(root_pos, wrong_quats)
+            bvh_example.set_frames_from_quaternion(root_pos, wrong_quats, inplace=True)
 
 
 # =============================================================================
@@ -904,7 +904,7 @@ class TestBvhAxisAngleMethods:
         original_root_pos = bvh_example.root_pos.copy()
         original_joint_angles = bvh_example.joint_angles.copy()
         root_pos, joint_aa, _ = bvh_example.get_frames_as_axisangle()
-        bvh_example.set_frames_from_axisangle(root_pos, joint_aa)
+        bvh_example.set_frames_from_axisangle(root_pos, joint_aa, inplace=True)
         np.testing.assert_allclose(
             bvh_example.root_pos, original_root_pos, atol=1e-6,
             err_msg="Axis-angle round-trip did not preserve root_pos")
@@ -916,7 +916,7 @@ class TestBvhAxisAngleMethods:
         """Spatial coordinates should be the same after axis-angle round-trip."""
         spatial_before = bvh_example.get_spatial_coord(centered="world")
         root_pos, joint_aa, _ = bvh_example.get_frames_as_axisangle()
-        bvh_example.set_frames_from_axisangle(root_pos, joint_aa)
+        bvh_example.set_frames_from_axisangle(root_pos, joint_aa, inplace=True)
         spatial_after = bvh_example.get_spatial_coord(centered="world")
         np.testing.assert_allclose(spatial_after, spatial_before, atol=1e-4)
 
@@ -932,7 +932,7 @@ class TestBvhAxisAngleMethods:
         root_pos = bvh_example.root_pos
         wrong_aa = np.zeros((56, 5, 3))
         with pytest.raises(ValueError):
-            bvh_example.set_frames_from_axisangle(root_pos, wrong_aa)
+            bvh_example.set_frames_from_axisangle(root_pos, wrong_aa, inplace=True)
 
 
 # =============================================================================
@@ -1129,3 +1129,563 @@ class TestEulerOrderConversion:
 
         np.testing.assert_allclose(bvh_reloaded.root_pos, bvh.root_pos, atol=1e-4)
         np.testing.assert_allclose(bvh_reloaded.joint_angles, bvh.joint_angles, atol=1e-4)
+
+
+class TestQuatSlerp:
+    """Tests for quaternion SLERP interpolation."""
+
+    def test_slerp_at_endpoints(self):
+        """SLERP at t=0 and t=1 returns the input quaternions."""
+        q1 = np.array([1.0, 0.0, 0.0, 0.0])
+        q2 = rotations.euler_to_quat(np.array([0.0, 0.0, 90.0]), 'ZYX', degrees=True)
+
+        r0 = rotations.quat_slerp(q1, q2, 0.0)
+        r1 = rotations.quat_slerp(q1, q2, 1.0)
+
+        np.testing.assert_allclose(r0, q1, atol=1e-10)
+        np.testing.assert_allclose(r1, q2, atol=1e-10)
+
+    def test_slerp_halfway(self):
+        """SLERP at t=0.5 should give the midpoint rotation."""
+        # 90° rotation around Z
+        q1 = np.array([1.0, 0.0, 0.0, 0.0])  # identity
+        q2 = rotations.euler_to_quat(np.array([0.0, 0.0, 90.0]), 'ZYX', degrees=True)
+
+        mid = rotations.quat_slerp(q1, q2, 0.5)
+        # Should be a 45° rotation around Z
+        R_mid = rotations.quat_to_rotmat(mid)
+        angles = rotations.rotmat_to_euler(R_mid, 'ZYX', degrees=True)
+        np.testing.assert_allclose(angles[2], 45.0, atol=0.5)
+
+    def test_slerp_identical_quaternions(self):
+        """SLERP between identical quaternions should return the same quaternion."""
+        q = rotations.euler_to_quat(np.array([30.0, 45.0, 60.0]), 'ZYX', degrees=True)
+        result = rotations.quat_slerp(q, q, 0.5)
+        np.testing.assert_allclose(result, q, atol=1e-10)
+
+    def test_slerp_batch(self):
+        """SLERP should work on batched quaternions."""
+        N = 10
+        q1 = np.tile(np.array([1.0, 0.0, 0.0, 0.0]), (N, 1))
+        angles = np.zeros((N, 3))
+        angles[:, 2] = np.linspace(0, 90, N)
+        q2 = rotations.euler_to_quat(angles, 'ZYX', degrees=True)
+
+        t = 0.5
+        result = rotations.quat_slerp(q1, q2, t)
+        assert result.shape == (N, 4)
+        # Each should be unit quaternion
+        norms = np.linalg.norm(result, axis=-1)
+        np.testing.assert_allclose(norms, 1.0, atol=1e-10)
+
+    def test_slerp_shortest_path(self):
+        """SLERP should take the shortest path (handle antipodal quaternions)."""
+        q1 = np.array([1.0, 0.0, 0.0, 0.0])
+        q2 = np.array([-1.0, 0.0, 0.0, 0.0])  # same rotation, opposite sign
+        result = rotations.quat_slerp(q1, q2, 0.5)
+        # Should be identity (or very close)
+        R = rotations.quat_to_rotmat(result)
+        np.testing.assert_allclose(R, np.eye(3), atol=1e-10)
+
+
+# =============================================================================
+# Test: Gimbal lock
+# =============================================================================
+
+class TestGimbalLock:
+    """Tests for gimbal lock scenarios.
+
+    At gimbal lock the Euler angles are ambiguous, so we verify that the
+    rotation MATRIX is preserved through an euler->rotmat->euler->rotmat
+    round-trip rather than comparing specific Euler angle values.
+    """
+
+    def test_gimbal_lock_zyx_90_y(self):
+        """ZYX order with middle angle = 90 degrees."""
+        angles = np.array([30.0, 90.0, 45.0])
+        R1 = rotations.euler_to_rotmat(angles, 'ZYX', degrees=True)
+        recovered = rotations.rotmat_to_euler(R1, 'ZYX', degrees=True)
+        R2 = rotations.euler_to_rotmat(recovered, 'ZYX', degrees=True)
+        np.testing.assert_allclose(R2, R1, atol=1e-10)
+
+    def test_gimbal_lock_zyx_neg90_y(self):
+        """ZYX order with middle angle = -90 degrees."""
+        angles = np.array([30.0, -90.0, 45.0])
+        R1 = rotations.euler_to_rotmat(angles, 'ZYX', degrees=True)
+        recovered = rotations.rotmat_to_euler(R1, 'ZYX', degrees=True)
+        R2 = rotations.euler_to_rotmat(recovered, 'ZYX', degrees=True)
+        np.testing.assert_allclose(R2, R1, atol=1e-10)
+
+    def test_gimbal_lock_xyz_90_y(self):
+        """XYZ order with middle angle = 90 degrees."""
+        angles = np.array([30.0, 90.0, 45.0])
+        R1 = rotations.euler_to_rotmat(angles, 'XYZ', degrees=True)
+        recovered = rotations.rotmat_to_euler(R1, 'XYZ', degrees=True)
+        R2 = rotations.euler_to_rotmat(recovered, 'XYZ', degrees=True)
+        np.testing.assert_allclose(R2, R1, atol=1e-10)
+
+    def test_gimbal_lock_xyz_neg90_y(self):
+        """XYZ order with middle angle = -90 degrees."""
+        angles = np.array([30.0, -90.0, 45.0])
+        R1 = rotations.euler_to_rotmat(angles, 'XYZ', degrees=True)
+        recovered = rotations.rotmat_to_euler(R1, 'XYZ', degrees=True)
+        R2 = rotations.euler_to_rotmat(recovered, 'XYZ', degrees=True)
+        np.testing.assert_allclose(R2, R1, atol=1e-10)
+
+    @pytest.mark.parametrize("order,sign", [
+        ('ZYX', 1), ('ZYX', -1),
+        ('XYZ', 1), ('XYZ', -1),
+        ('YZX', 1), ('YZX', -1),
+        ('ZXY', 1), ('ZXY', -1),
+        ('YXZ', 1), ('YXZ', -1),
+        ('XZY', 1), ('XZY', -1),
+    ])
+    def test_gimbal_lock_all_orders(self, order, sign):
+        """All 6 Tait-Bryan orders with middle angle at +/-90 degrees."""
+        angles = np.array([30.0, sign * 90.0, 45.0])
+        R1 = rotations.euler_to_rotmat(angles, order, degrees=True)
+        recovered = rotations.rotmat_to_euler(R1, order, degrees=True)
+        R2 = rotations.euler_to_rotmat(recovered, order, degrees=True)
+        np.testing.assert_allclose(R2, R1, atol=1e-10,
+            err_msg=f"Failed for order {order}, sign {sign}")
+
+    def test_gimbal_lock_near_singularity(self):
+        """Middle angle = 89.999 degrees, near gimbal lock singularity."""
+        angles = np.array([30.0, 89.999, 45.0])
+        R1 = rotations.euler_to_rotmat(angles, 'ZYX', degrees=True)
+        recovered = rotations.rotmat_to_euler(R1, 'ZYX', degrees=True)
+        R2 = rotations.euler_to_rotmat(recovered, 'ZYX', degrees=True)
+        np.testing.assert_allclose(R2, R1, atol=1e-10)
+
+    def test_gimbal_lock_roundtrip_preserves_rotation(self):
+        """Batch of 10 random Euler triplets with middle angle = +/-90 degrees."""
+        rng = np.random.default_rng(42)
+        for _ in range(10):
+            first = rng.uniform(-180, 180)
+            third = rng.uniform(-180, 180)
+            middle_sign = rng.choice([-90.0, 90.0])
+            angles = np.array([first, middle_sign, third])
+            R1 = rotations.euler_to_rotmat(angles, 'ZYX', degrees=True)
+            recovered = rotations.rotmat_to_euler(R1, 'ZYX', degrees=True)
+            R2 = rotations.euler_to_rotmat(recovered, 'ZYX', degrees=True)
+            np.testing.assert_allclose(R2, R1, atol=1e-10,
+                err_msg=f"Failed for angles {angles}")
+
+
+# =============================================================================
+# Test: Quaternion SLERP 180 degrees and near-antipodal
+# =============================================================================
+
+class TestQuatSlerp180:
+    """Tests for 180-degree and near-antipodal SLERP edge cases."""
+
+    def test_slerp_180_around_x(self):
+        """SLERP between identity and 180 deg around X at t=0.5 gives 90 deg X rotation."""
+        q1 = np.array([1.0, 0.0, 0.0, 0.0])
+        q2 = np.array([0.0, 1.0, 0.0, 0.0])  # 180 deg around X
+        mid = rotations.quat_slerp(q1, q2, 0.5)
+        R_mid = rotations.quat_to_rotmat(mid)
+        # 90 deg X rotation maps [0,1,0] -> [0,0,1]
+        v_in = np.array([0.0, 1.0, 0.0])
+        v_out = R_mid @ v_in
+        np.testing.assert_allclose(v_out, [0.0, 0.0, 1.0], atol=1e-10)
+
+    def test_slerp_180_around_y(self):
+        """SLERP between identity and 180 deg around Y at t=0.5."""
+        q1 = np.array([1.0, 0.0, 0.0, 0.0])
+        q2 = np.array([0.0, 0.0, 1.0, 0.0])  # 180 deg around Y
+        mid = rotations.quat_slerp(q1, q2, 0.5)
+        R_mid = rotations.quat_to_rotmat(mid)
+        # 90 deg Y rotation maps [0,0,1] -> [1,0,0]
+        v_in = np.array([0.0, 0.0, 1.0])
+        v_out = R_mid @ v_in
+        np.testing.assert_allclose(v_out, [1.0, 0.0, 0.0], atol=1e-10)
+
+    def test_slerp_180_around_z(self):
+        """SLERP between identity and 180 deg around Z at t=0.5."""
+        q1 = np.array([1.0, 0.0, 0.0, 0.0])
+        q2 = np.array([0.0, 0.0, 0.0, 1.0])  # 180 deg around Z
+        mid = rotations.quat_slerp(q1, q2, 0.5)
+        R_mid = rotations.quat_to_rotmat(mid)
+        # 90 deg Z rotation maps [1,0,0] -> [0,1,0]
+        v_in = np.array([1.0, 0.0, 0.0])
+        v_out = R_mid @ v_in
+        np.testing.assert_allclose(v_out, [0.0, 1.0, 0.0], atol=1e-10)
+
+    def test_slerp_180_midpoint_is_90(self):
+        """For 180 deg around X, verify the rotation angle at t=0.5 is 90 degrees."""
+        q1 = np.array([1.0, 0.0, 0.0, 0.0])
+        q2 = np.array([0.0, 1.0, 0.0, 0.0])
+        mid = rotations.quat_slerp(q1, q2, 0.5)
+        R_mid = rotations.quat_to_rotmat(mid)
+        # Rotation angle from trace: angle = arccos((trace - 1) / 2)
+        trace = np.trace(R_mid)
+        angle = np.arccos(np.clip((trace - 1.0) / 2.0, -1.0, 1.0))
+        np.testing.assert_allclose(np.degrees(angle), 90.0, atol=1e-8)
+
+    def test_slerp_near_antipodal(self):
+        """q1 = identity, q2 from 179.99 deg around X. Verify smooth interpolation."""
+        q1 = np.array([1.0, 0.0, 0.0, 0.0])
+        # 179.99 deg around X: q = [cos(179.99/2 deg), sin(179.99/2 deg), 0, 0]
+        half_angle = np.radians(179.99 / 2.0)
+        q2 = np.array([np.cos(half_angle), np.sin(half_angle), 0.0, 0.0])
+        # Interpolate at several t values
+        for t in [0.0, 0.25, 0.5, 0.75, 1.0]:
+            result = rotations.quat_slerp(q1, q2, t)
+            assert not np.any(np.isnan(result)), f"NaN at t={t}"
+            norm = np.linalg.norm(result)
+            np.testing.assert_allclose(norm, 1.0, atol=1e-10)
+
+    def test_slerp_near_identity(self):
+        """q1 and q2 differ by less than 0.001 radians. Verify result is between them."""
+        q1 = np.array([1.0, 0.0, 0.0, 0.0])
+        # Very small rotation: 0.0005 radians around X
+        half_angle = 0.0005 / 2.0
+        q2 = np.array([np.cos(half_angle), np.sin(half_angle), 0.0, 0.0])
+        mid = rotations.quat_slerp(q1, q2, 0.5)
+        # The midpoint rotation should have angle ~0.00025 rad
+        R_mid = rotations.quat_to_rotmat(mid)
+        trace = np.trace(R_mid)
+        angle = np.arccos(np.clip((trace - 1.0) / 2.0, -1.0, 1.0))
+        np.testing.assert_allclose(angle, 0.00025, atol=1e-6)
+
+    def test_slerp_large_batch_180(self):
+        """Batch of 100 quaternion pairs at 180 deg around random axes. No NaN."""
+        rng = np.random.default_rng(42)
+        axes = rng.normal(size=(100, 3))
+        axes = axes / np.linalg.norm(axes, axis=-1, keepdims=True)
+        # q1 = identity for all
+        q1 = np.tile(np.array([1.0, 0.0, 0.0, 0.0]), (100, 1))
+        # q2 = 180 deg around each axis: q = [0, axis_x, axis_y, axis_z]
+        q2 = np.concatenate([np.zeros((100, 1)), axes], axis=-1)
+        result = rotations.quat_slerp(q1, q2, 0.5)
+        assert result.shape == (100, 4)
+        assert not np.any(np.isnan(result)), "NaN found in batch SLERP at 180 deg"
+
+    def test_slerp_vectorized_t(self):
+        """SLERP with vectorized t parameter."""
+        q1 = np.array([1.0, 0.0, 0.0, 0.0])
+        q2 = np.array([0.0, 1.0, 0.0, 0.0])  # 180 deg around X
+        t = np.linspace(0, 1, 50)
+        result = rotations.quat_slerp(q1, q2, t)
+        assert result.shape == (50, 4)
+        assert not np.any(np.isnan(result)), "NaN found in vectorized SLERP"
+
+    def test_slerp_result_is_unit_quaternion(self):
+        """All edge cases should produce unit quaternions."""
+        cases = [
+            # (q1, q2, t)
+            (np.array([1.0, 0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0, 0.0]), 0.5),  # identity
+            (np.array([1.0, 0.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0, 0.0]), 0.5),  # 180 deg
+            (np.array([1.0, 0.0, 0.0, 0.0]), np.array([0.0, 0.0, 1.0, 0.0]), 0.3),  # 180 deg Y
+            (np.array([1.0, 0.0, 0.0, 0.0]), np.array([-1.0, 0.0, 0.0, 0.0]), 0.5),  # antipodal
+        ]
+        # Also add a near-antipodal case
+        half_angle = np.radians(179.99 / 2.0)
+        cases.append((
+            np.array([1.0, 0.0, 0.0, 0.0]),
+            np.array([np.cos(half_angle), np.sin(half_angle), 0.0, 0.0]),
+            0.5,
+        ))
+        for q1, q2, t in cases:
+            result = rotations.quat_slerp(q1, q2, t)
+            norm = np.linalg.norm(result)
+            np.testing.assert_allclose(norm, 1.0, atol=1e-10,
+                err_msg=f"Non-unit quaternion for q1={q1}, q2={q2}, t={t}")
+
+
+# =============================================================================
+# Test: Analytical rotation conversions
+# =============================================================================
+
+class TestRotationConversionsAnalytical:
+    """Hardcoded expected values for known rotations across all representations."""
+
+    def test_90x_all_representations(self):
+        """90 degrees around X: verify rotmat, 6d, quat, and axisangle."""
+        R = rotations.euler_to_rotmat([90, 0, 0], 'XYZ', degrees=True)
+        expected_R = np.array([
+            [1,  0,  0],
+            [0,  0, -1],
+            [0,  1,  0],
+        ], dtype=float)
+        np.testing.assert_allclose(R, expected_R, atol=1e-12)
+
+        # 6D: first two columns of rotmat concatenated
+        rot6d = rotations.rotmat_to_rot6d(R)
+        expected_6d = np.array([1, 0, 0, 0, 0, 1], dtype=float)
+        np.testing.assert_allclose(rot6d, expected_6d, atol=1e-12)
+
+        # Quaternion: (cos(45deg), sin(45deg), 0, 0) = (sqrt2/2, sqrt2/2, 0, 0)
+        q = rotations.rotmat_to_quat(R)
+        s = np.sqrt(2.0) / 2.0
+        expected_q = np.array([s, s, 0, 0])
+        np.testing.assert_allclose(q, expected_q, atol=1e-12)
+
+        # Axis-angle: [pi/2, 0, 0]
+        aa = rotations.rotmat_to_axisangle(R)
+        expected_aa = np.array([np.pi / 2, 0, 0])
+        np.testing.assert_allclose(aa, expected_aa, atol=1e-10)
+
+    def test_90y_all_representations(self):
+        """90 degrees around Y: verify rotmat, 6d, quat, and axisangle."""
+        R = rotations.euler_to_rotmat([0, 90, 0], 'XYZ', degrees=True)
+        expected_R = np.array([
+            [ 0, 0, 1],
+            [ 0, 1, 0],
+            [-1, 0, 0],
+        ], dtype=float)
+        np.testing.assert_allclose(R, expected_R, atol=1e-12)
+
+        rot6d = rotations.rotmat_to_rot6d(R)
+        expected_6d = np.array([0, 0, -1, 0, 1, 0], dtype=float)
+        np.testing.assert_allclose(rot6d, expected_6d, atol=1e-12)
+
+        q = rotations.rotmat_to_quat(R)
+        s = np.sqrt(2.0) / 2.0
+        expected_q = np.array([s, 0, s, 0])
+        np.testing.assert_allclose(q, expected_q, atol=1e-12)
+
+        aa = rotations.rotmat_to_axisangle(R)
+        expected_aa = np.array([0, np.pi / 2, 0])
+        np.testing.assert_allclose(aa, expected_aa, atol=1e-10)
+
+    def test_90z_all_representations(self):
+        """90 degrees around Z: verify rotmat, 6d, quat, and axisangle."""
+        R = rotations.euler_to_rotmat([0, 0, 90], 'XYZ', degrees=True)
+        expected_R = np.array([
+            [0, -1, 0],
+            [1,  0, 0],
+            [0,  0, 1],
+        ], dtype=float)
+        np.testing.assert_allclose(R, expected_R, atol=1e-12)
+
+        rot6d = rotations.rotmat_to_rot6d(R)
+        expected_6d = np.array([0, 1, 0, -1, 0, 0], dtype=float)
+        np.testing.assert_allclose(rot6d, expected_6d, atol=1e-12)
+
+        q = rotations.rotmat_to_quat(R)
+        s = np.sqrt(2.0) / 2.0
+        expected_q = np.array([s, 0, 0, s])
+        np.testing.assert_allclose(q, expected_q, atol=1e-12)
+
+        aa = rotations.rotmat_to_axisangle(R)
+        expected_aa = np.array([0, 0, np.pi / 2])
+        np.testing.assert_allclose(aa, expected_aa, atol=1e-10)
+
+    def test_neg90x_all_representations(self):
+        """-90 degrees around X."""
+        R = rotations.euler_to_rotmat([-90, 0, 0], 'XYZ', degrees=True)
+        expected_R = np.array([
+            [1, 0,  0],
+            [0, 0,  1],
+            [0, -1, 0],
+        ], dtype=float)
+        np.testing.assert_allclose(R, expected_R, atol=1e-12)
+
+        rot6d = rotations.rotmat_to_rot6d(R)
+        expected_6d = np.array([1, 0, 0, 0, 0, -1], dtype=float)
+        np.testing.assert_allclose(rot6d, expected_6d, atol=1e-12)
+
+        q = rotations.rotmat_to_quat(R)
+        s = np.sqrt(2.0) / 2.0
+        expected_q = np.array([s, -s, 0, 0])
+        np.testing.assert_allclose(q, expected_q, atol=1e-12)
+
+        aa = rotations.rotmat_to_axisangle(R)
+        expected_aa = np.array([-np.pi / 2, 0, 0])
+        np.testing.assert_allclose(aa, expected_aa, atol=1e-10)
+
+    def test_neg90y_all_representations(self):
+        """-90 degrees around Y."""
+        R = rotations.euler_to_rotmat([0, -90, 0], 'XYZ', degrees=True)
+        expected_R = np.array([
+            [0, 0, -1],
+            [0, 1,  0],
+            [1, 0,  0],
+        ], dtype=float)
+        np.testing.assert_allclose(R, expected_R, atol=1e-12)
+
+        rot6d = rotations.rotmat_to_rot6d(R)
+        expected_6d = np.array([0, 0, 1, 0, 1, 0], dtype=float)
+        np.testing.assert_allclose(rot6d, expected_6d, atol=1e-12)
+
+        q = rotations.rotmat_to_quat(R)
+        s = np.sqrt(2.0) / 2.0
+        expected_q = np.array([s, 0, -s, 0])
+        np.testing.assert_allclose(q, expected_q, atol=1e-12)
+
+        aa = rotations.rotmat_to_axisangle(R)
+        expected_aa = np.array([0, -np.pi / 2, 0])
+        np.testing.assert_allclose(aa, expected_aa, atol=1e-10)
+
+    def test_neg90z_all_representations(self):
+        """-90 degrees around Z."""
+        R = rotations.euler_to_rotmat([0, 0, -90], 'XYZ', degrees=True)
+        expected_R = np.array([
+            [ 0, 1, 0],
+            [-1, 0, 0],
+            [ 0, 0, 1],
+        ], dtype=float)
+        np.testing.assert_allclose(R, expected_R, atol=1e-12)
+
+        rot6d = rotations.rotmat_to_rot6d(R)
+        expected_6d = np.array([0, -1, 0, 1, 0, 0], dtype=float)
+        np.testing.assert_allclose(rot6d, expected_6d, atol=1e-12)
+
+        q = rotations.rotmat_to_quat(R)
+        s = np.sqrt(2.0) / 2.0
+        expected_q = np.array([s, 0, 0, -s])
+        np.testing.assert_allclose(q, expected_q, atol=1e-12)
+
+        aa = rotations.rotmat_to_axisangle(R)
+        expected_aa = np.array([0, 0, -np.pi / 2])
+        np.testing.assert_allclose(aa, expected_aa, atol=1e-10)
+
+    def test_45_degrees_xyz(self):
+        """45 degrees around X, Y, and Z separately. Verify rotmat cos/sin values."""
+        c = np.cos(np.radians(45))
+        s = np.sin(np.radians(45))
+
+        # 45 deg X
+        R_x = rotations.euler_to_rotmat([45, 0, 0], 'XYZ', degrees=True)
+        expected_Rx = np.array([
+            [1, 0,  0],
+            [0, c, -s],
+            [0, s,  c],
+        ])
+        np.testing.assert_allclose(R_x, expected_Rx, atol=1e-12)
+
+        # 45 deg Y
+        R_y = rotations.euler_to_rotmat([0, 45, 0], 'XYZ', degrees=True)
+        expected_Ry = np.array([
+            [ c, 0, s],
+            [ 0, 1, 0],
+            [-s, 0, c],
+        ])
+        np.testing.assert_allclose(R_y, expected_Ry, atol=1e-12)
+
+        # 45 deg Z
+        R_z = rotations.euler_to_rotmat([0, 0, 45], 'XYZ', degrees=True)
+        expected_Rz = np.array([
+            [c, -s, 0],
+            [s,  c, 0],
+            [0,  0, 1],
+        ])
+        np.testing.assert_allclose(R_z, expected_Rz, atol=1e-12)
+
+    def test_180_around_each_axis(self):
+        """180 degrees around X, Y, Z. Verify rotmat diagonal."""
+        # 180 X: diag = [1, -1, -1]
+        R_x = rotations.euler_to_rotmat([180, 0, 0], 'XYZ', degrees=True)
+        np.testing.assert_allclose(np.diag(R_x), [1, -1, -1], atol=1e-12)
+
+        # 180 Y: diag = [-1, 1, -1]
+        R_y = rotations.euler_to_rotmat([0, 180, 0], 'XYZ', degrees=True)
+        np.testing.assert_allclose(np.diag(R_y), [-1, 1, -1], atol=1e-12)
+
+        # 180 Z: diag = [-1, -1, 1]
+        R_z = rotations.euler_to_rotmat([0, 0, 180], 'XYZ', degrees=True)
+        np.testing.assert_allclose(np.diag(R_z), [-1, -1, 1], atol=1e-12)
+
+
+# =============================================================================
+# Test: All conversion round-trips
+# =============================================================================
+
+class TestAllConversionRoundTrips:
+    """Systematic round-trip tests for every conversion path."""
+
+    @pytest.mark.parametrize("order", ['ZYX', 'XYZ', 'YZX', 'ZXY', 'YXZ', 'XZY'])
+    def test_euler_rotmat_euler_all_orders(self, order):
+        """euler -> rotmat -> euler round-trip for all 6 orders."""
+        rng = np.random.default_rng(42)
+        # Avoid gimbal lock: middle angle in [-80, 80] degrees
+        original = rng.uniform(-80, 80, size=(20, 3))
+        R = rotations.euler_to_rotmat(original, order, degrees=True)
+        recovered = rotations.rotmat_to_euler(R, order, degrees=True)
+        np.testing.assert_allclose(recovered, original, atol=1e-10,
+            err_msg=f"euler->rotmat->euler failed for order {order}")
+
+    @pytest.mark.parametrize("order", ['ZYX', 'XYZ', 'YZX', 'ZXY', 'YXZ', 'XZY'])
+    def test_euler_6d_euler_all_orders(self, order):
+        """euler -> 6d -> euler round-trip for all 6 orders."""
+        rng = np.random.default_rng(42)
+        original = rng.uniform(-80, 80, size=(20, 3))
+        rot6d = rotations.euler_to_rot6d(original, order, degrees=True)
+        recovered = rotations.rot6d_to_euler(rot6d, order, degrees=True)
+        np.testing.assert_allclose(recovered, original, atol=1e-10,
+            err_msg=f"euler->6d->euler failed for order {order}")
+
+    @pytest.mark.parametrize("order", ['ZYX', 'XYZ', 'YZX', 'ZXY', 'YXZ', 'XZY'])
+    def test_euler_quat_euler_all_orders(self, order):
+        """euler -> quat -> euler round-trip for all 6 orders."""
+        rng = np.random.default_rng(42)
+        original = rng.uniform(-80, 80, size=(20, 3))
+        q = rotations.euler_to_quat(original, order, degrees=True)
+        recovered = rotations.quat_to_euler(q, order, degrees=True)
+        np.testing.assert_allclose(recovered, original, atol=1e-10,
+            err_msg=f"euler->quat->euler failed for order {order}")
+
+    @pytest.mark.parametrize("order", ['ZYX', 'XYZ', 'YZX', 'ZXY', 'YXZ', 'XZY'])
+    def test_euler_axisangle_euler_all_orders(self, order):
+        """euler -> axisangle -> euler round-trip for all 6 orders."""
+        rng = np.random.default_rng(42)
+        original = rng.uniform(-80, 80, size=(20, 3))
+        aa = rotations.euler_to_axisangle(original, order, degrees=True)
+        recovered = rotations.axisangle_to_euler(aa, order, degrees=True)
+        np.testing.assert_allclose(recovered, original, atol=1e-10,
+            err_msg=f"euler->axisangle->euler failed for order {order}")
+
+    def test_rotmat_6d_rotmat_batch(self):
+        """rotmat -> 6d -> rotmat round-trip, batch of 20."""
+        rng = np.random.default_rng(42)
+        angles = rng.uniform(-180, 180, size=(20, 3))
+        R = rotations.euler_to_rotmat(angles, 'ZYX', degrees=True)
+        rot6d = rotations.rotmat_to_rot6d(R)
+        R_recovered = rotations.rot6d_to_rotmat(rot6d)
+        np.testing.assert_allclose(R_recovered, R, atol=1e-10)
+
+    def test_rotmat_quat_rotmat_batch(self):
+        """rotmat -> quat -> rotmat round-trip, batch of 20."""
+        rng = np.random.default_rng(42)
+        angles = rng.uniform(-180, 180, size=(20, 3))
+        R = rotations.euler_to_rotmat(angles, 'ZYX', degrees=True)
+        q = rotations.rotmat_to_quat(R)
+        R_recovered = rotations.quat_to_rotmat(q)
+        np.testing.assert_allclose(R_recovered, R, atol=1e-10)
+
+    def test_rotmat_axisangle_rotmat_batch(self):
+        """rotmat -> axisangle -> rotmat round-trip, batch of 20."""
+        rng = np.random.default_rng(42)
+        angles = rng.uniform(-180, 180, size=(20, 3))
+        R = rotations.euler_to_rotmat(angles, 'ZYX', degrees=True)
+        aa = rotations.rotmat_to_axisangle(R)
+        R_recovered = rotations.axisangle_to_rotmat(aa)
+        np.testing.assert_allclose(R_recovered, R, atol=1e-10)
+
+    def test_quat_rotmat_quat_batch(self):
+        """quat -> rotmat -> quat round-trip, batch of 20.
+
+        Handles +/- q ambiguity by comparing absolute values of components.
+        """
+        rng = np.random.default_rng(42)
+        angles = rng.uniform(-180, 180, size=(20, 3))
+        R = rotations.euler_to_rotmat(angles, 'ZYX', degrees=True)
+        q_orig = rotations.rotmat_to_quat(R)
+        R_intermediate = rotations.quat_to_rotmat(q_orig)
+        q_recovered = rotations.rotmat_to_quat(R_intermediate)
+        # Handle +/- ambiguity: both q and -q represent the same rotation.
+        # Canonical form (w >= 0) should make them match directly, but
+        # compare absolute values as a safety measure.
+        np.testing.assert_allclose(np.abs(q_recovered), np.abs(q_orig), atol=1e-10)
+
+    def test_6d_rotmat_6d_batch(self):
+        """6d -> rotmat -> 6d round-trip, batch of 20."""
+        rng = np.random.default_rng(42)
+        angles = rng.uniform(-180, 180, size=(20, 3))
+        R = rotations.euler_to_rotmat(angles, 'ZYX', degrees=True)
+        rot6d_orig = rotations.rotmat_to_rot6d(R)
+        R_intermediate = rotations.rot6d_to_rotmat(rot6d_orig)
+        rot6d_recovered = rotations.rotmat_to_rot6d(R_intermediate)
+        np.testing.assert_allclose(rot6d_recovered, rot6d_orig, atol=1e-10)

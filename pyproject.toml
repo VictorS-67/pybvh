@@ -4,10 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pybvh"
-version = "0.3.0"
+version = "0.3.1"
 description = "BVH reader/writer and kinematics utilities"
 readme = "README.md"
 requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Victor Schneider", email = "victor.schneider67@gmail.com" }]

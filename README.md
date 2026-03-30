@@ -135,9 +135,9 @@ bvh_from_df = df_to_bvh(bvh.hierarchy_info_as_dict(), df)
 
 The repository includes Jupyter notebooks with detailed walkthroughs:
 
-1. [Introduction to pybvh](tutorials/1.Introduction_pybvh.ipynb) — reading, writing, and basic operations
-2. [Spatial coordinates](tutorials/2.Spatial_coordinates.ipynb) — forward kinematics and 3D positions
-3. [Rotations](tutorials/3.Rotations.ipynb) — rotation representations and conversions
+1. [Introduction to pybvh](https://github.com/VictorS-67/pybvh/blob/main/tutorials/1.Introduction_pybvh.ipynb) — reading, writing, and basic operations
+2. [Spatial coordinates](https://github.com/VictorS-67/pybvh/blob/main/tutorials/2.Spatial_coordinates.ipynb) — forward kinematics and 3D positions
+3. [Rotations](https://github.com/VictorS-67/pybvh/blob/main/tutorials/3.Rotations.ipynb) — rotation representations and conversions
 
 ## Requirements
 

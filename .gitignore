@@ -27,6 +27,7 @@ htmlcov/
 .vscode/
 .idea/
 *.swp
+.claude/
 
 # --- Mac OS Specific (junk files) ---
 .DS_Store
@@ -34,6 +35,7 @@ htmlcov/
 # --- Project Specific ---
 .AI_CONTEXT.md
 .FUTURE_PLANS.md
+.spatial_augmentation_plan.md
 new_bvh.bvh
 bvh_animation.mp4
 pybvh.egg-info/

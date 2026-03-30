@@ -1,9 +1,23 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Union
+
 import numpy as np
+import numpy.typing as npt
+
 from .tools import get_premult_mat_rot, batch_get_premult_mat_rot
 from .bvhnode import BvhNode
 
+if TYPE_CHECKING:
+    from .bvh import Bvh
 
-def frames_to_spatial_coord(nodes_container, root_pos=None, joint_angles=None, centered="world"):
+
+def frames_to_spatial_coord(
+    nodes_container: Union[Bvh, list[BvhNode]],
+    root_pos: npt.ArrayLike | None = None,
+    joint_angles: npt.ArrayLike | None = None,
+    centered: str = "world",
+) -> npt.NDArray[np.float64]:
     """
     Return spatial coordinates of all nodes for one or multiple frames.
 
@@ -44,26 +58,26 @@ def frames_to_spatial_coord(nodes_container, root_pos=None, joint_angles=None, c
             raise ValueError(
                 "root_pos and joint_angles must be provided when "
                 "nodes_container is not a Bvh object.")
-        root_pos = nodes_container.root_pos
-        joint_angles = nodes_container.joint_angles
+        root_pos = nodes_container.root_pos  # type: ignore[union-attr, has-type]
+        joint_angles = nodes_container.joint_angles  # type: ignore[union-attr, has-type]
 
-    root_pos = np.asarray(root_pos, dtype=np.float64)
-    joint_angles = np.asarray(joint_angles, dtype=np.float64)
+    root_pos_arr: npt.NDArray[np.float64] = np.asarray(root_pos, dtype=np.float64)
+    joint_angles_arr: npt.NDArray[np.float64] = np.asarray(joint_angles, dtype=np.float64)
 
-    if root_pos.ndim == 1:
-        root_pos = root_pos.reshape(1, 3)
+    if root_pos_arr.ndim == 1:
+        root_pos_arr = root_pos_arr.reshape(1, 3)
         single_frame = True
-    if joint_angles.ndim == 2:
-        joint_angles = joint_angles.reshape(1, *joint_angles.shape)
+    if joint_angles_arr.ndim == 2:
+        joint_angles_arr = joint_angles_arr.reshape(1, *joint_angles_arr.shape)
 
-    # -- From here, root_pos is (F, 3) and joint_angles is (F, J, 3) --
+    # -- From here, root_pos_arr is (F, 3) and joint_angles_arr is (F, J, 3) --
 
-    num_frames = root_pos.shape[0]
+    num_frames = root_pos_arr.shape[0]
     num_nodes = len(nodes)
     skel_centered = (centered == "skeleton")
 
     # Convert ALL angles to radians at once: (F, J, 3)
-    all_angles_rad = np.radians(joint_angles)
+    all_angles_rad = np.radians(joint_angles_arr)
 
     # ---- Build topology arrays ----
     # parent_idx[i] = index of parent node (-1 for root)
@@ -88,7 +102,7 @@ def frames_to_spatial_coord(nodes_container, root_pos=None, joint_angles=None, c
 
         if not node.is_end_site():
             joint_idx[i] = j_counter
-            rot_orders.append(node.rot_channels)
+            rot_orders.append(node.rot_channels)  # type: ignore[attr-defined]
             j_counter += 1
         else:
             joint_idx[i] = -1
@@ -125,7 +139,7 @@ def frames_to_spatial_coord(nodes_container, root_pos=None, joint_angles=None, c
 
     # Add root position if not skeleton-centered
     if not skel_centered:
-        positions += root_pos[:, np.newaxis, :]  # (F,1,3) broadcasts over (F,N,3)
+        positions += root_pos_arr[:, np.newaxis, :]  # (F,1,3) broadcasts over (F,N,3)
 
     # Handle "first" centering mode - subtract first frame's root position
     if centered == "first":
@@ -137,7 +151,9 @@ def frames_to_spatial_coord(nodes_container, root_pos=None, joint_angles=None, c
     return positions
 
 
-def _nodes_container_to_nodes_list(nodes_container):
+def _nodes_container_to_nodes_list(
+    nodes_container: Union[Bvh, list[BvhNode]],
+) -> tuple[list[BvhNode], bool]:
     """
     Resolve a Bvh object or list of nodes into a plain list of nodes.
 

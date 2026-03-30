@@ -1,14 +1,28 @@
-from pathlib import Path
-import numpy as np
+from __future__ import annotations
 
-from .bvhnode import BvhNode, BvhJoint, BvhRoot 
+from pathlib import Path
+from typing import TextIO
+
+import numpy as np
+import numpy.typing as npt
+
+from .bvhnode import BvhNode, BvhJoint, BvhRoot
 from .bvh import Bvh
 from .tools import test_file
 
-def read_bvh_file(filepath):
-    """
-        This method construct a Bvh object based on the information
-        given by the _extract_bvh_file_info() method
+def read_bvh_file(filepath: str | Path) -> Bvh:
+    """Parse a BVH motion capture file and return a Bvh object.
+
+    Parameters
+    ----------
+    filepath : str or Path
+        Path to the BVH file.
+
+    Returns
+    -------
+    bvh : Bvh
+        A Bvh object containing the skeleton hierarchy, root positions,
+        joint angles, and frame frequency.
     """
     node_list, frame_array, frame_frequency = _extract_bvh_file_info(filepath)
     num_joints = len([n for n in node_list if not n.is_end_site()])
@@ -17,44 +31,42 @@ def read_bvh_file(filepath):
     return Bvh(nodes=node_list, root_pos=root_pos, joint_angles=joint_angles,
                frame_frequency=frame_frequency)
 
-def _extract_bvh_file_info(filepath):
-    """
-    This function only need the filepath of a bvh file to work. 
-    It returns a tuple of 3 objects: a list of BvhNode objects, a numpy array of the frames,
-    and the frame frequency.
-    """
+def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDArray[np.float64], float]:
+    """Extract node hierarchy, frame data, and frame frequency from a BVH file."""
     #list of BvhNode objects in the file hierarchy
-    node_list = []
+    node_list: list[BvhNode] = []
     # this is a flag variable to tell us if the parent of the joint
     # we are working on is the directly previous joint in the file, or not
-    parent_is_previous = True
+    parent_is_previous: bool = True
     # this is necessary when the parent of the joint we are working on
     # is not directly the previous joint in the file
-    parent_depth = 1
+    parent_depth: int = 1
     # line number if we need to report a problem in the file
-    line_number = 0
+    line_number: int = 0
+    frame_count: int = 0
+    frame_frequency: float = 0.0
 
     filepath = test_file(filepath)
-    
+
     with open(filepath, "r") as f:
         #---------- first, read the hierarchy in the file (first part of the file)
 
         # read the file line by line
-        for line in f:
+        for raw_line in f:
             line_number += 1
-            line = line.split()
+            line = raw_line.split()
             # if the line starts with ROOT, then the next 3 lines are about the information of the root
             # we want to save them in a BvhRoot object
-            
+
             if line[0] == 'ROOT':
                 name = line[1]
                 try:
                     offset, pos_channels, rot_channels, line_number = _get_offset_channels('root', f, line_number)
                 except:
                     raise Exception(f"Could not read the offset or channels of the root {name},\n at line {line_number} in the file {filepath}")
-                
-                node_list.append(BvhRoot(name, offset, pos_channels, rot_channels, [], None))
-                    
+
+                node_list.append(BvhRoot(name, offset, pos_channels, rot_channels, [], None))  # type: ignore[arg-type]
+
             # if the line starts with JOINT,
             # then the next 3 lines are about the information of this joint
             # we want to save them in a BvhJoint object
@@ -81,15 +93,15 @@ def _extract_bvh_file_info(filepath):
                     parent_node = node_list[-1]
                     parent_depth -= 1
                     for i in range(parent_depth):
-                        parent_node = parent_node.parent
+                        parent_node = parent_node.parent  # type: ignore[assignment]
 
-                node_list.append(BvhJoint(name, offset, rot_channels, [], parent_node))
+                node_list.append(BvhJoint(name, offset, rot_channels, [], parent_node))  # type: ignore[arg-type]
                 # let's not forget that, we gave this Joint a parent,
-                # but then we also need to tell the parent that this is its child 
+                # but then we also need to tell the parent that this is its child
                 # so we link its parent directly to the node we just added in the list
-                parent_node.children = parent_node.children + [node_list[-1]]
+                parent_node.children = parent_node.children + [node_list[-1]]  # type: ignore[attr-defined]
                 parent_is_previous = True
-                    
+
             elif line[0] == 'End':
                 try:
                     offset, pos_channels, rot_channels, line_number = _get_offset_channels('end_site', f, line_number)
@@ -101,9 +113,9 @@ def _extract_bvh_file_info(filepath):
                 parent_node = node_list[-1]
                 parent_depth = 1
 
-                node_list.append(BvhNode('End Site '+parent_node.name, offset, parent_node))
-                parent_node.children = parent_node.children + [node_list[-1]]
-                
+                node_list.append(BvhNode('End Site '+parent_node.name, offset, parent_node))  # type: ignore[arg-type]
+                parent_node.children = parent_node.children + [node_list[-1]]  # type: ignore[attr-defined]
+
             elif line[0] == '}':
                 # to corectly assign the parent to a node,
                 # we need to increase the parent_depth variable every time
@@ -112,51 +124,43 @@ def _extract_bvh_file_info(filepath):
                 parent_is_previous = False
 
             elif line[0] == "Frames:":
-                frame_count = int(line[1])
+                frame_count = int(line[1])  # noqa: redefinition OK
 
             elif line[0] == "Frame" and line[1] == "Time:":
-                frame_frequency = float(line[2])
+                frame_frequency = float(line[2])  # noqa: redefinition OK
                 # we will modify a bit the frequency to have a higher precision than what is given in the file
                 frame_frequency = 1/int(1/frame_frequency)
                 # --- we close the loop related to reading the hierarchy ---
                 break
         #small test to see if we reach the end of the hierarchy with no trouble.
-        try:
-            frame_count == 0
-            frame_frequency == 0
-        except: 
+        if frame_count == 0 or frame_frequency == 0.0:
             print("Frame count or frame frequency is missing")
 
         #----------  End of the Hierarchy part. After the hierarchy comes the frames data.
-        
+
         # Calculate number of channels: 6 for root (3 pos + 3 rot), 3 for each other non-end-site joint
         non_end_site_nodes = [n for n in node_list if not n.is_end_site()]
         num_channels = 3 + 3 * len(non_end_site_nodes)  # 3 root pos + 3 rot per joint (including root)
 
         frame_array = np.empty((frame_count, num_channels))
         frame_number = 0
-        for line in f:
-            line = line.split()
-            frame_array[frame_number] = [float(x) for x in line]
+        for data_line in f:
+            data_parts = data_line.split()
+            frame_array[frame_number] = [float(x) for x in data_parts]
             frame_number += 1
 
-            
+
     #-----------------end of reading the file
     # frame_template is a list we created of the form [jointName_ax_pos/rot].
     # ex : [Hips_X_pos, Hips_Y_pos, Hips_Z_pos, Hips_X_rot, ...]
     return (node_list, frame_array, frame_frequency)
 
 
-def _get_offset_channels(node_type:str, f, line_number:int):
-    """
-    This function is used to extract the offset and channels information
-    from the file. It is used in the _extract_bvh_file_info() function.
-    It will also advance in the file until the end of the information
-    (3 lines for root and joint, 2 for end sites)
-    """
-    offset = None
-    rot_channels = None
-    pos_channels = None
+def _get_offset_channels(node_type: str, f: TextIO, line_number: int) -> tuple[list[float] | None, list[str] | None, list[str] | None, int]:
+    """Read offset and channel lines for a single node from the open file."""
+    offset: list[float] | None = None
+    rot_channels: list[str] | None = None
+    pos_channels: list[str] | None = None
 
     # i is used to get out of the subloop after 3 or 2 lines
     # depending on the node type
@@ -165,51 +169,55 @@ def _get_offset_channels(node_type:str, f, line_number:int):
     line_number = line_number
 
     if node_type == 'root':
-        for line in f:
+        for raw_ln in f:
             line_number += 1
-            line = line.split()
-            if line[0] == 'OFFSET':
-                offset = [float(x) for x in line[1:]]
-            elif line[0] == 'CHANNELS':
-                pos_channels, rot_channels = [x[0] for x in line[2:5]], [x[0] for x in line[5:]]
-            #after 3 lines we get out of the subloop    
+            parts = raw_ln.split()
+            if parts[0] == 'OFFSET':
+                offset = [float(x) for x in parts[1:]]
+            elif parts[0] == 'CHANNELS':
+                pos_channels, rot_channels = [x[0] for x in parts[2:5]], [x[0] for x in parts[5:]]
+            #after 3 lines we get out of the subloop
             if i == 2:
                 break
             i += 1
         #checking that the information is complete
+        if offset is None or pos_channels is None or rot_channels is None:
+            raise Exception()
         if len(offset) !=3 or len(pos_channels) !=3 or len(rot_channels) !=3:
             raise Exception()
     elif node_type == 'joint':
-        for line in f:
+        for raw_ln in f:
             line_number += 1
-            line = line.split()
-            if line[0] == 'OFFSET':
-                offset = [float(x) for x in line[1:]]
-            elif line[0] == 'CHANNELS':
-                rot_channels = [x[0] for x in line[2:]]
-            #after 3 lines we get out of the subloop    
+            parts = raw_ln.split()
+            if parts[0] == 'OFFSET':
+                offset = [float(x) for x in parts[1:]]
+            elif parts[0] == 'CHANNELS':
+                rot_channels = [x[0] for x in parts[2:]]
+            #after 3 lines we get out of the subloop
             if i ==2:
                 break
             i += 1
         #checking that the information is complete
+        if offset is None or rot_channels is None:
+            raise Exception()
         if len(offset) !=3 or len(rot_channels) !=3:
             raise Exception()
     elif node_type == 'end_site':
-        for line in f:
+        for raw_ln in f:
             line_number += 1
-            line = line.split()
-            if line[0] == 'OFFSET':
-                offset = [float(x) for x in line[1:]]
-            #after 2 lines we get out of the subloop    
+            parts = raw_ln.split()
+            if parts[0] == 'OFFSET':
+                offset = [float(x) for x in parts[1:]]
+            #after 2 lines we get out of the subloop
             if i ==1:
                 break
             i += 1
         #checking that the information is complete
+        if offset is None:
+            raise Exception()
         if len(offset) !=3:
             raise Exception()
     else:
         raise ValueError('node_type should be either root, joint or end_site')
 
     return (offset, pos_channels, rot_channels, line_number)
-    
-    

@@ -14,11 +14,16 @@ Built for researchers and developers working with skeletal animation and motion 
 - **Forward kinematics** to compute 3D joint positions from angles
 - **Skeleton operations**: retargeting, scaling, joint extraction, Euler order changes
 - **Frame operations**: slicing, concatenation, resampling to different frame rates
+- **Data augmentation**: mirroring, vertical rotation, speed perturbation, joint noise, root translation, frame dropout — all with seeded randomization
 - **ML pipeline features**: joint velocities/accelerations, root-relative positions, foot contact detection, normalization utilities, and a one-stop `to_feature_array()` export
 - **Batch loading** of entire directories with optional parallel I/O
 - **NumPy export** in any rotation representation — ready for ML pipelines
 - **Pandas ready** via an export option ready to become a Dataset
 - **3D visualization** with Matplotlib (static frames and animated videos)
+
+## Philosophy
+
+pybvh is framework-agnostic and outputs pure NumPy arrays. It understands motion capture data but does not assume what you'll do with it — the same library serves ML researchers, biomechanics scientists, and game developers. For ML-specific features (tensor packing, PyTorch Datasets, augmentation pipelines), see the companion library [pybvh-ml](https://github.com/VictorS-67/pybvh-ml).
 
 ## Installation
 
@@ -102,6 +107,35 @@ stats = compute_normalization_stats(clips, representation="6d")
 normalized = normalize_array(data, stats)
 # stats are plain dicts — save with np.savez("stats.npz", **stats)
 ```
+
+## Data Augmentation
+
+Standard motion augmentations for ML training — all support seeded randomization for reproducibility:
+
+```python
+from pybvh import transforms
+
+# Left-right mirroring (auto-detects joint pairs and lateral axis)
+bvh_mirrored = transforms.mirror(bvh)
+
+# Vertical rotation (auto-detects up axis)
+bvh_rotated = transforms.rotate_vertical(bvh, angle_deg=90)
+bvh_rotated = transforms.random_rotate_vertical(bvh, rng=np.random.default_rng(42))
+
+# Speed perturbation (factor > 1 = faster, < 1 = slower)
+bvh_fast = transforms.speed_perturbation(bvh, factor=1.5)
+
+# Joint noise injection
+bvh_noisy = transforms.add_joint_noise(bvh, sigma_deg=1.0, sigma_pos=0.5, rng=rng)
+
+# Root translation
+bvh_shifted = transforms.translate_root(bvh, offset=[100, 0, 0])
+
+# Frame dropout with SLERP interpolation (same frame count)
+bvh_dropped = transforms.dropout_frames(bvh, drop_rate=0.1, rng=rng)
+```
+
+All transforms also available as `Bvh` methods: `bvh.mirror()`, `bvh.rotate_vertical(90)`, etc.
 
 ## Skeleton Operations
 

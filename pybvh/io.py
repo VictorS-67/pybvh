@@ -1,3 +1,10 @@
+"""BVH file I/O — reading and writing ``.bvh`` motion capture files.
+
+Public functions:
+
+- :func:`read_bvh_file` — parse a ``.bvh`` file into a :class:`~pybvh.bvh.Bvh`
+- :func:`write_bvh_file` — write a :class:`~pybvh.bvh.Bvh` to a ``.bvh`` file
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,6 +16,11 @@ import numpy.typing as npt
 from .bvhnode import BvhNode, BvhJoint, BvhRoot
 from .bvh import Bvh
 from .tools import test_file
+
+
+# ----------------------------------------------------------------
+#  Reading
+# ----------------------------------------------------------------
 
 def read_bvh_file(filepath: str | Path) -> Bvh:
     """Parse a BVH motion capture file and return a Bvh object.
@@ -221,3 +233,92 @@ def _get_offset_channels(node_type: str, f: TextIO, line_number: int) -> tuple[l
         raise ValueError('node_type should be either root, joint or end_site')
 
     return (offset, pos_channels, rot_channels, line_number)
+
+
+# ----------------------------------------------------------------
+#  Writing
+# ----------------------------------------------------------------
+
+def write_bvh_file(bvh: Bvh, filepath: str | Path, verbose: bool = True) -> None:
+    """Write a Bvh object to a ``.bvh`` file.
+
+    Parameters
+    ----------
+    bvh : Bvh
+        The motion data to write.
+    filepath : str or Path
+        Destination file path.  Must have a ``.bvh`` extension.
+    verbose : bool, optional
+        If True (default), print a confirmation message on success.
+
+    Raises
+    ------
+    Exception
+        If the file extension is not ``.bvh`` or the parent directory
+        does not exist.
+    """
+    filepath = Path(filepath)
+    if filepath.suffix != '.bvh':
+        raise Exception(f'{filepath.name} is not a bvh file')
+    elif not filepath.parent.exists():
+        raise Exception(f'{filepath.parent} is not a valid directory')
+
+    def offset_to_str(node: BvhNode) -> str:
+        offset_str = 'OFFSET'
+        for num in node.offset:
+            offset_str += ' ' + f'{num:.6f}'
+        return offset_str
+
+    def channels_to_str(node: BvhNode) -> str:
+        chanels_str = 'CHANNELS'
+        if node.parent is None:
+            chanels_str += ' 6'
+            for pos_ax in node.pos_channels:  # type: ignore[attr-defined]
+                chanels_str += ' ' + pos_ax + 'position'
+        else:
+            chanels_str += ' 3'
+
+        for rot_ax in node.rot_channels:  # type: ignore[attr-defined]
+            chanels_str += ' ' + rot_ax + 'rotation'
+
+        return chanels_str
+
+    def rec_node_to_file(node: BvhNode, file: TextIO, depth: int = 0) -> None:
+        if node.is_end_site():
+            print('\t'*depth + 'End Site', file=file)
+            print('\t'*depth + '{', file=file)
+            print('\t'*(depth+1) + offset_to_str(node), file=file)
+            print('\t'*depth + '}', file=file)
+        else:
+            if node.parent is None:
+                type_str = 'ROOT'
+            else:
+                type_str = 'JOINT'
+            print('\t'*depth + type_str + ' ' + node.name, file=file)
+            print('\t'*depth +'{', file=file)
+            print('\t'*(depth+1) + offset_to_str(node), file=file)
+            print('\t'*(depth+1) + channels_to_str(node), file=file)
+            for child in node.children:  # type: ignore[attr-defined]
+                rec_node_to_file(child, file=file, depth=depth+1)
+            print('\t'*depth +'}', file=file)
+
+    with open(filepath, "w") as f:
+        f.write('HIERARCHY\n')
+
+        rec_node_to_file(bvh.root, file=f)
+
+        f.write('MOTION\n')
+        f.write(f'Frames: {bvh.frame_count}\n')
+        f.write(f'Frame Time: {bvh.frame_frequency:.6f}\n')
+
+        for i in range(bvh.frame_count):
+            frame_flat = np.concatenate([bvh.root_pos[i],
+                                         bvh.joint_angles[i].ravel()])
+            f.write(np.array2string(frame_flat,
+                                    formatter={'float_kind':lambda x: "%.6f" % x},
+                                    max_line_width=10000000
+                                   )[1:-1])
+            f.write(f'\n')
+
+    if verbose:
+        print(f'Succesfully saved the file {filepath.name} at the location\n{filepath.parent.absolute()}')

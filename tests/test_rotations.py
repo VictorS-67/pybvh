@@ -1689,3 +1689,170 @@ class TestAllConversionRoundTrips:
         R_intermediate = rotations.rot6d_to_rotmat(rot6d_orig)
         rot6d_recovered = rotations.rotmat_to_rot6d(R_intermediate)
         np.testing.assert_allclose(rot6d_recovered, rot6d_orig, atol=1e-10)
+
+
+# =============================================================================
+# 3D batch dimension tests (*, 3) / (*, 3, 3) / (*, 4) / (*, 6)
+# =============================================================================
+
+class TestArbitraryBatchDimensions:
+    """All rotation functions must support (F, J, C) input, not just (N, C).
+
+    These tests verify that every function handles 3D+ batch dimensions
+    correctly by comparing results against the equivalent 2D-flattened call.
+    """
+
+    @pytest.fixture
+    def angles_3d(self):
+        """Random Euler angles with shape (F, J, 3)."""
+        rng = np.random.default_rng(42)
+        return rng.uniform(-180, 180, size=(10, 5, 3))
+
+    @pytest.fixture
+    def rotmats_3d(self, angles_3d):
+        """Rotation matrices from angles_3d via 2D flatten, shape (10, 5, 3, 3)."""
+        F, J, _ = angles_3d.shape
+        flat = angles_3d.reshape(-1, 3)
+        R_flat = rotations.euler_to_rotmat(flat, 'ZYX', degrees=True)
+        return R_flat.reshape(F, J, 3, 3)
+
+    @pytest.fixture
+    def quats_3d(self, rotmats_3d):
+        """Quaternions from rotmats_3d, shape (10, 5, 4)."""
+        F, J = rotmats_3d.shape[:2]
+        flat = rotmats_3d.reshape(-1, 3, 3)
+        q_flat = rotations.rotmat_to_quat(flat)
+        return q_flat.reshape(F, J, 4)
+
+    @pytest.fixture
+    def rot6d_3d(self, rotmats_3d):
+        """6D from rotmats_3d, shape (10, 5, 6)."""
+        return rotations.rotmat_to_rot6d(rotmats_3d)
+
+    @pytest.fixture
+    def axisangle_3d(self, rotmats_3d):
+        """Axis-angle from rotmats_3d, shape (10, 5, 3)."""
+        F, J = rotmats_3d.shape[:2]
+        flat = rotmats_3d.reshape(-1, 3, 3)
+        aa_flat = rotations.rotmat_to_axisangle(flat)
+        return aa_flat.reshape(F, J, 3)
+
+    # --- euler_to_rotmat ---
+
+    def test_euler_to_rotmat_3d(self, angles_3d):
+        F, J, _ = angles_3d.shape
+        result = rotations.euler_to_rotmat(angles_3d, 'ZYX', degrees=True)
+        assert result.shape == (F, J, 3, 3)
+        # Compare with flattened call
+        flat = rotations.euler_to_rotmat(
+            angles_3d.reshape(-1, 3), 'ZYX', degrees=True)
+        np.testing.assert_allclose(result, flat.reshape(F, J, 3, 3), atol=1e-12)
+
+    # --- rotmat_to_euler ---
+
+    def test_rotmat_to_euler_3d(self, rotmats_3d):
+        F, J = rotmats_3d.shape[:2]
+        result = rotations.rotmat_to_euler(rotmats_3d, 'ZYX', degrees=True)
+        assert result.shape == (F, J, 3)
+        flat = rotations.rotmat_to_euler(
+            rotmats_3d.reshape(-1, 3, 3), 'ZYX', degrees=True)
+        np.testing.assert_allclose(result, flat.reshape(F, J, 3), atol=1e-12)
+
+    # --- rotmat_to_rot6d ---
+
+    def test_rotmat_to_rot6d_3d(self, rotmats_3d):
+        result = rotations.rotmat_to_rot6d(rotmats_3d)
+        assert result.shape == (10, 5, 6)
+
+    # --- rot6d_to_rotmat ---
+
+    def test_rot6d_to_rotmat_3d(self, rot6d_3d):
+        result = rotations.rot6d_to_rotmat(rot6d_3d)
+        assert result.shape == (10, 5, 3, 3)
+
+    # --- rotmat_to_quat ---
+
+    def test_rotmat_to_quat_3d(self, rotmats_3d):
+        result = rotations.rotmat_to_quat(rotmats_3d)
+        assert result.shape == (10, 5, 4)
+        flat = rotations.rotmat_to_quat(rotmats_3d.reshape(-1, 3, 3))
+        np.testing.assert_allclose(result, flat.reshape(10, 5, 4), atol=1e-12)
+
+    # --- quat_to_rotmat ---
+
+    def test_quat_to_rotmat_3d(self, quats_3d):
+        result = rotations.quat_to_rotmat(quats_3d)
+        assert result.shape == (10, 5, 3, 3)
+
+    # --- rotmat_to_axisangle ---
+
+    def test_rotmat_to_axisangle_3d(self, rotmats_3d):
+        result = rotations.rotmat_to_axisangle(rotmats_3d)
+        assert result.shape == (10, 5, 3)
+        flat = rotations.rotmat_to_axisangle(rotmats_3d.reshape(-1, 3, 3))
+        np.testing.assert_allclose(result, flat.reshape(10, 5, 3), atol=1e-12)
+
+    # --- axisangle_to_rotmat ---
+
+    def test_axisangle_to_rotmat_3d(self, axisangle_3d):
+        result = rotations.axisangle_to_rotmat(axisangle_3d)
+        assert result.shape == (10, 5, 3, 3)
+        flat = rotations.axisangle_to_rotmat(axisangle_3d.reshape(-1, 3))
+        np.testing.assert_allclose(result, flat.reshape(10, 5, 3, 3), atol=1e-12)
+
+    # --- Convenience wrappers (euler_to_quat, etc.) ---
+
+    def test_euler_to_quat_3d(self, angles_3d):
+        result = rotations.euler_to_quat(angles_3d, 'ZYX', degrees=True)
+        assert result.shape == (10, 5, 4)
+
+    def test_quat_to_euler_3d(self, quats_3d):
+        result = rotations.quat_to_euler(quats_3d, 'ZYX', degrees=True)
+        assert result.shape == (10, 5, 3)
+
+    def test_euler_to_rot6d_3d(self, angles_3d):
+        result = rotations.euler_to_rot6d(angles_3d, 'ZYX', degrees=True)
+        assert result.shape == (10, 5, 6)
+
+    def test_rot6d_to_euler_3d(self, rot6d_3d):
+        result = rotations.rot6d_to_euler(rot6d_3d, 'ZYX', degrees=True)
+        assert result.shape == (10, 5, 3)
+
+    def test_euler_to_axisangle_3d(self, angles_3d):
+        result = rotations.euler_to_axisangle(angles_3d, 'ZYX', degrees=True)
+        assert result.shape == (10, 5, 3)
+
+    def test_axisangle_to_euler_3d(self, axisangle_3d):
+        result = rotations.axisangle_to_euler(axisangle_3d, 'ZYX', degrees=True)
+        assert result.shape == (10, 5, 3)
+
+    # --- quat_slerp ---
+
+    def test_quat_slerp_3d(self, quats_3d):
+        q1 = quats_3d
+        q2 = np.roll(quats_3d, 1, axis=0)  # shifted version
+        result = rotations.quat_slerp(q1, q2, 0.5)
+        assert result.shape == (10, 5, 4)
+
+    # --- Round-trip tests: compare via rotation matrices to avoid
+    #     Euler ambiguity (multiple angle triples -> same rotation) ---
+
+    def test_euler_roundtrip_3d(self, angles_3d):
+        R_orig = rotations.euler_to_rotmat(angles_3d, 'ZYX', degrees=True)
+        recovered = rotations.rotmat_to_euler(R_orig, 'ZYX', degrees=True)
+        R_recov = rotations.euler_to_rotmat(recovered, 'ZYX', degrees=True)
+        np.testing.assert_allclose(R_recov, R_orig, atol=1e-10)
+
+    def test_euler_quat_roundtrip_3d(self, angles_3d):
+        R_orig = rotations.euler_to_rotmat(angles_3d, 'ZYX', degrees=True)
+        q = rotations.euler_to_quat(angles_3d, 'ZYX', degrees=True)
+        recovered = rotations.quat_to_euler(q, 'ZYX', degrees=True)
+        R_recov = rotations.euler_to_rotmat(recovered, 'ZYX', degrees=True)
+        np.testing.assert_allclose(R_recov, R_orig, atol=1e-6)
+
+    def test_euler_rot6d_roundtrip_3d(self, angles_3d):
+        R_orig = rotations.euler_to_rotmat(angles_3d, 'ZYX', degrees=True)
+        rot6d = rotations.euler_to_rot6d(angles_3d, 'ZYX', degrees=True)
+        recovered = rotations.rot6d_to_euler(rot6d, 'ZYX', degrees=True)
+        R_recov = rotations.euler_to_rotmat(recovered, 'ZYX', degrees=True)
+        np.testing.assert_allclose(R_recov, R_orig, atol=1e-6)

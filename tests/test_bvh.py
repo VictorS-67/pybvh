@@ -2414,9 +2414,8 @@ class TestAxisDetection:
     def test_plot_imports_from_tools(self):
         """Ensure plot.py imports axis detection from tools.py."""
         from pybvh import plot
-        from pybvh.tools import get_forw_up_axis, get_main_direction
+        from pybvh.tools import get_forw_up_axis
         assert plot.get_forw_up_axis is get_forw_up_axis
-        assert plot.get_main_direction is get_main_direction
 
     # --- Hardened axis detection tests ---
 
@@ -2486,3 +2485,718 @@ class TestAxisDetection:
             assert dirs['upward'][0] in ('+', '-')
             assert dirs['forward'][1] in ('x', 'y', 'z')
             assert dirs['upward'][1] in ('x', 'y', 'z')
+
+
+# =============================================================================
+# Phase 6 — Spatial Augmentation Transforms
+# =============================================================================
+
+class TestTranslateRoot:
+    """Tests for translate_root transform."""
+
+    def test_zero_offset_identity(self, bvh_example):
+        from pybvh.transforms import translate_root
+        result = translate_root(bvh_example, [0, 0, 0])
+        np.testing.assert_array_equal(result.root_pos, bvh_example.root_pos)
+        np.testing.assert_array_equal(result.joint_angles, bvh_example.joint_angles)
+
+    def test_known_offset(self, bvh_example):
+        from pybvh.transforms import translate_root
+        offset = np.array([10.0, -5.0, 3.0])
+        result = translate_root(bvh_example, offset)
+        np.testing.assert_allclose(result.root_pos, bvh_example.root_pos + offset)
+
+    def test_joint_angles_unchanged(self, bvh_example):
+        from pybvh.transforms import translate_root
+        result = translate_root(bvh_example, [100, 200, 300])
+        np.testing.assert_array_equal(result.joint_angles, bvh_example.joint_angles)
+
+    def test_spatial_coord_shift(self, bvh_example):
+        from pybvh.transforms import translate_root
+        offset = np.array([5.0, 5.0, 5.0])
+        coords_orig = bvh_example.get_spatial_coord()
+        result = translate_root(bvh_example, offset)
+        coords_new = result.get_spatial_coord()
+        np.testing.assert_allclose(coords_new, coords_orig + offset, atol=1e-6)
+
+    def test_inplace(self, bvh_example):
+        from pybvh.transforms import translate_root
+        bvh = bvh_example.copy()
+        orig_pos = bvh.root_pos.copy()
+        ret = translate_root(bvh, [1, 2, 3], inplace=True)
+        assert ret is None
+        np.testing.assert_allclose(bvh.root_pos, orig_pos + [1, 2, 3])
+
+    def test_round_trip(self, bvh_example):
+        from pybvh.transforms import translate_root
+        offset = [7, -3, 11]
+        result = translate_root(translate_root(bvh_example, offset), [-7, 3, -11])
+        np.testing.assert_allclose(result.root_pos, bvh_example.root_pos, atol=1e-10)
+
+    def test_random_variant(self, bvh_example):
+        from pybvh.transforms import random_translate_root
+        rng = np.random.default_rng(42)
+        r1 = random_translate_root(bvh_example, rng=rng)
+        rng2 = np.random.default_rng(42)
+        r2 = random_translate_root(bvh_example, rng=rng2)
+        np.testing.assert_array_equal(r1.root_pos, r2.root_pos)
+
+
+class TestJointNoise:
+    """Tests for add_joint_noise transform."""
+
+    def test_zero_sigma_identity(self, bvh_example):
+        from pybvh.transforms import add_joint_noise
+        result = add_joint_noise(bvh_example, sigma_deg=0.0)
+        np.testing.assert_array_equal(result.joint_angles, bvh_example.joint_angles)
+        np.testing.assert_array_equal(result.root_pos, bvh_example.root_pos)
+
+    def test_nonzero_sigma_changes_values(self, bvh_example):
+        from pybvh.transforms import add_joint_noise
+        result = add_joint_noise(bvh_example, sigma_deg=5.0, rng=np.random.default_rng(0))
+        assert not np.array_equal(result.joint_angles, bvh_example.joint_angles)
+
+    def test_sigma_pos_zero_no_change(self, bvh_example):
+        from pybvh.transforms import add_joint_noise
+        result = add_joint_noise(bvh_example, sigma_deg=5.0, sigma_pos=0.0, rng=np.random.default_rng(0))
+        np.testing.assert_array_equal(result.root_pos, bvh_example.root_pos)
+
+    def test_sigma_pos_nonzero(self, bvh_example):
+        from pybvh.transforms import add_joint_noise
+        result = add_joint_noise(bvh_example, sigma_deg=0.0, sigma_pos=1.0, rng=np.random.default_rng(0))
+        assert not np.array_equal(result.root_pos, bvh_example.root_pos)
+
+    def test_skeleton_unchanged(self, bvh_example):
+        from pybvh.transforms import add_joint_noise
+        result = add_joint_noise(bvh_example, sigma_deg=5.0, rng=np.random.default_rng(0))
+        assert [n.name for n in result.nodes] == [n.name for n in bvh_example.nodes]
+
+    def test_inplace(self, bvh_example):
+        from pybvh.transforms import add_joint_noise
+        bvh = bvh_example.copy()
+        ret = add_joint_noise(bvh, sigma_deg=5.0, rng=np.random.default_rng(0), inplace=True)
+        assert ret is None
+        assert not np.array_equal(bvh.joint_angles, bvh_example.joint_angles)
+
+    def test_seeded_reproducibility(self, bvh_example):
+        from pybvh.transforms import add_joint_noise
+        r1 = add_joint_noise(bvh_example, sigma_deg=3.0, rng=np.random.default_rng(99))
+        r2 = add_joint_noise(bvh_example, sigma_deg=3.0, rng=np.random.default_rng(99))
+        np.testing.assert_array_equal(r1.joint_angles, r2.joint_angles)
+
+
+class TestSpeedPerturbation:
+    """Tests for speed_perturbation transform."""
+
+    def test_factor_one_near_identity(self, bvh_example):
+        from pybvh.transforms import speed_perturbation
+        result = speed_perturbation(bvh_example, factor=1.0)
+        assert result.frame_count == bvh_example.frame_count
+        np.testing.assert_allclose(result.root_pos, bvh_example.root_pos, atol=1e-3)
+
+    def test_factor_two_halves_frames(self, bvh_example):
+        from pybvh.transforms import speed_perturbation
+        result = speed_perturbation(bvh_example, factor=2.0)
+        expected = bvh_example.frame_count // 2 + 1
+        assert abs(result.frame_count - expected) <= 1
+
+    def test_factor_half_doubles_frames(self, bvh_example):
+        from pybvh.transforms import speed_perturbation
+        result = speed_perturbation(bvh_example, factor=0.5)
+        expected = (bvh_example.frame_count - 1) * 2 + 1
+        assert abs(result.frame_count - expected) <= 2
+
+    def test_skeleton_preserved(self, bvh_example):
+        from pybvh.transforms import speed_perturbation
+        result = speed_perturbation(bvh_example, factor=1.5)
+        assert [n.name for n in result.nodes] == [n.name for n in bvh_example.nodes]
+
+    def test_random_variant(self, bvh_example):
+        from pybvh.transforms import random_speed_perturbation
+        r1 = random_speed_perturbation(bvh_example, rng=np.random.default_rng(7))
+        r2 = random_speed_perturbation(bvh_example, rng=np.random.default_rng(7))
+        assert r1.frame_count == r2.frame_count
+        np.testing.assert_allclose(r1.root_pos, r2.root_pos, atol=1e-10)
+
+
+class TestDropoutFrames:
+    """Tests for dropout_frames transform."""
+
+    def test_zero_drop_rate_identity(self, bvh_example):
+        from pybvh.transforms import dropout_frames
+        result = dropout_frames(bvh_example, drop_rate=0.0, rng=np.random.default_rng(0))
+        np.testing.assert_array_equal(result.root_pos, bvh_example.root_pos)
+        np.testing.assert_array_equal(result.joint_angles, bvh_example.joint_angles)
+
+    def test_frame_count_preserved(self, bvh_example):
+        from pybvh.transforms import dropout_frames
+        result = dropout_frames(bvh_example, drop_rate=0.5, rng=np.random.default_rng(0))
+        assert result.frame_count == bvh_example.frame_count
+
+    def test_first_last_preserved(self, bvh_example):
+        from pybvh.transforms import dropout_frames
+        result = dropout_frames(bvh_example, drop_rate=0.8, rng=np.random.default_rng(0))
+        np.testing.assert_allclose(result.root_pos[0], bvh_example.root_pos[0], atol=1e-6)
+        np.testing.assert_allclose(result.root_pos[-1], bvh_example.root_pos[-1], atol=1e-6)
+
+    def test_skeleton_preserved(self, bvh_example):
+        from pybvh.transforms import dropout_frames
+        result = dropout_frames(bvh_example, drop_rate=0.3, rng=np.random.default_rng(0))
+        assert [n.name for n in result.nodes] == [n.name for n in bvh_example.nodes]
+
+    def test_inplace(self, bvh_example):
+        from pybvh.transforms import dropout_frames
+        bvh = bvh_example.copy()
+        ret = dropout_frames(bvh, drop_rate=0.5, rng=np.random.default_rng(0), inplace=True)
+        assert ret is None
+
+    def test_seeded_reproducibility(self, bvh_example):
+        from pybvh.transforms import dropout_frames
+        r1 = dropout_frames(bvh_example, drop_rate=0.4, rng=np.random.default_rng(42))
+        r2 = dropout_frames(bvh_example, drop_rate=0.4, rng=np.random.default_rng(42))
+        np.testing.assert_array_equal(r1.root_pos, r2.root_pos)
+        np.testing.assert_array_equal(r1.joint_angles, r2.joint_angles)
+
+
+class TestRotateVertical:
+    """Tests for rotate_vertical transform."""
+
+    def test_zero_rotation_identity(self, bvh_example):
+        from pybvh.transforms import rotate_vertical
+        result = rotate_vertical(bvh_example, angle_deg=0.0)
+        np.testing.assert_allclose(result.root_pos, bvh_example.root_pos, atol=1e-10)
+        np.testing.assert_allclose(result.joint_angles, bvh_example.joint_angles, atol=1e-8)
+
+    def test_360_identity(self, bvh_example):
+        from pybvh.transforms import rotate_vertical
+        result = rotate_vertical(bvh_example, angle_deg=360.0)
+        np.testing.assert_allclose(result.root_pos, bvh_example.root_pos, atol=1e-6)
+        np.testing.assert_allclose(result.joint_angles, bvh_example.joint_angles, atol=1e-4)
+
+    def test_bone_lengths_preserved(self, bvh_example):
+        from pybvh.transforms import rotate_vertical
+        coords_orig = bvh_example.get_spatial_coord(centered='skeleton')
+        result = rotate_vertical(bvh_example, angle_deg=90.0)
+        coords_rot = result.get_spatial_coord(centered='skeleton')
+        # Check all bone lengths match (frame 0)
+        for node in bvh_example.nodes:
+            if node.parent is not None:
+                pi = bvh_example.node_index[node.parent.name]
+                ci = bvh_example.node_index[node.name]
+                len_orig = np.linalg.norm(coords_orig[0, ci] - coords_orig[0, pi])
+                len_rot = np.linalg.norm(coords_rot[0, ci] - coords_rot[0, pi])
+                np.testing.assert_allclose(len_rot, len_orig, atol=1e-4,
+                    err_msg=f"Bone length changed for {node.name}")
+
+    def test_non_root_angles_unchanged(self, bvh_example):
+        from pybvh.transforms import rotate_vertical
+        result = rotate_vertical(bvh_example, angle_deg=45.0)
+        # All joints except root (index 0) should be unchanged
+        np.testing.assert_array_equal(
+            result.joint_angles[:, 1:], bvh_example.joint_angles[:, 1:])
+
+    def test_double_180_identity(self, bvh_example):
+        from pybvh.transforms import rotate_vertical
+        result = rotate_vertical(rotate_vertical(bvh_example, 180.0), 180.0)
+        np.testing.assert_allclose(result.root_pos, bvh_example.root_pos, atol=1e-6)
+        np.testing.assert_allclose(result.joint_angles, bvh_example.joint_angles, atol=1e-3)
+
+    def test_inplace(self, bvh_example):
+        from pybvh.transforms import rotate_vertical
+        bvh = bvh_example.copy()
+        ret = rotate_vertical(bvh, 90.0, inplace=True)
+        assert ret is None
+        assert not np.allclose(bvh.root_pos, bvh_example.root_pos)
+
+    def test_y_up_file(self, bvh_test2):
+        from pybvh.transforms import rotate_vertical
+        result = rotate_vertical(bvh_test2, angle_deg=90.0)
+        assert result.frame_count == bvh_test2.frame_count
+
+    def test_random_variant(self, bvh_example):
+        from pybvh.transforms import random_rotate_vertical
+        r1 = random_rotate_vertical(bvh_example, rng=np.random.default_rng(5))
+        r2 = random_rotate_vertical(bvh_example, rng=np.random.default_rng(5))
+        np.testing.assert_allclose(r1.root_pos, r2.root_pos, atol=1e-10)
+
+
+class TestAutoDetectLRMapping:
+    """Tests for auto_detect_lr_mapping."""
+
+    def test_bvh_example(self, bvh_example):
+        from pybvh.transforms import auto_detect_lr_mapping
+        mapping = auto_detect_lr_mapping(bvh_example)
+        assert len(mapping) > 0
+        # Should find LeftArm <-> RightArm etc.
+        for left, right in mapping.items():
+            assert "Left" in left or left[0] == "L"
+            assert "Right" in right or right[0] == "R"
+
+    def test_all_fixtures_find_pairs(self, bvh_example, bvh_test2, bvh_test3):
+        from pybvh.transforms import auto_detect_lr_mapping
+        for bvh in [bvh_example, bvh_test2, bvh_test3]:
+            mapping = auto_detect_lr_mapping(bvh)
+            assert len(mapping) > 0, f"No L/R pairs found for skeleton with joints: {bvh.joint_names[:5]}..."
+
+    def test_mapping_is_symmetric_in_joint_list(self, bvh_example):
+        from pybvh.transforms import auto_detect_lr_mapping
+        mapping = auto_detect_lr_mapping(bvh_example)
+        joint_names = set(bvh_example.joint_names)
+        for left, right in mapping.items():
+            assert left in joint_names
+            assert right in joint_names
+
+
+class TestMirror:
+    """Tests for mirror transform."""
+
+    def test_mirror_of_mirror_identity(self, bvh_example):
+        from pybvh.transforms import mirror
+        result = mirror(mirror(bvh_example))
+        np.testing.assert_allclose(
+            result.root_pos, bvh_example.root_pos, atol=1e-10)
+        np.testing.assert_allclose(
+            result.joint_angles, bvh_example.joint_angles, atol=1e-10)
+
+    def test_total_bone_lengths_preserved(self, bvh_example):
+        """Total skeleton bone length should be the same after mirroring."""
+        from pybvh.transforms import mirror
+        coords_orig = bvh_example.get_spatial_coord(centered='skeleton')
+        result = mirror(bvh_example)
+        coords_mir = result.get_spatial_coord(centered='skeleton')
+        total_orig = 0.0
+        total_mir = 0.0
+        for node in bvh_example.nodes:
+            if node.parent is not None:
+                pi = bvh_example.node_index[node.parent.name]
+                ci = bvh_example.node_index[node.name]
+                total_orig += np.linalg.norm(coords_orig[0, ci] - coords_orig[0, pi])
+                total_mir += np.linalg.norm(coords_mir[0, ci] - coords_mir[0, pi])
+        np.testing.assert_allclose(total_mir, total_orig, atol=1e-2)
+
+    def test_spatial_coords_reflected(self, bvh_example):
+        """Gold-standard test: FK positions should be reflected."""
+        from pybvh.transforms import mirror, auto_detect_lr_mapping
+        from pybvh.tools import get_forw_up_axis
+
+        rest = bvh_example.get_rest_pose(mode='coordinates')
+        dirs = get_forw_up_axis(bvh_example, rest)
+        used = {dirs['forward'][1], dirs['upward'][1]}
+        lateral_char = ({"x", "y", "z"} - used).pop()
+        lateral_idx = {"x": 0, "y": 1, "z": 2}[lateral_char]
+
+        coords_orig = bvh_example.get_spatial_coord(centered='skeleton')
+        result = mirror(bvh_example)
+        coords_mir = result.get_spatial_coord(centered='skeleton')
+
+        # Build set of all paired node names (including end-site children)
+        mapping = auto_detect_lr_mapping(bvh_example)
+        paired_names = set(mapping.keys()) | set(mapping.values())
+        # Also mark end-site children of paired joints as paired
+        for name in list(paired_names):
+            ni = bvh_example.node_index[name]
+            node = bvh_example.nodes[ni]
+            if isinstance(node, BvhJoint):
+                for child in node.children:
+                    if child.is_end_site():
+                        paired_names.add(child.name)
+
+        # Center joints (not paired): lateral coordinate should be negated
+        for node in bvh_example.nodes:
+            if node.name not in paired_names:
+                ni = bvh_example.node_index[node.name]
+                np.testing.assert_allclose(
+                    coords_mir[:, ni, lateral_idx],
+                    -coords_orig[:, ni, lateral_idx],
+                    atol=1e-2,
+                    err_msg=f"Center joint {node.name} lateral coord not negated")
+
+    def test_root_pos_lateral_negated(self, bvh_example):
+        from pybvh.transforms import mirror
+        from pybvh.tools import get_forw_up_axis
+        rest = bvh_example.get_rest_pose(mode='coordinates')
+        dirs = get_forw_up_axis(bvh_example, rest)
+        used = {dirs['forward'][1], dirs['upward'][1]}
+        lateral_idx = {"x": 0, "y": 1, "z": 2}[({"x", "y", "z"} - used).pop()]
+        result = mirror(bvh_example)
+        np.testing.assert_allclose(
+            result.root_pos[:, lateral_idx],
+            -bvh_example.root_pos[:, lateral_idx],
+            atol=1e-10)
+
+    def test_inplace(self, bvh_example):
+        from pybvh.transforms import mirror
+        bvh = bvh_example.copy()
+        ret = mirror(bvh, inplace=True)
+        assert ret is None
+
+    def test_y_up_file(self, bvh_test2):
+        from pybvh.transforms import mirror
+        result = mirror(mirror(bvh_test2))
+        np.testing.assert_allclose(
+            result.root_pos, bvh_test2.root_pos, atol=1e-10)
+        np.testing.assert_allclose(
+            result.joint_angles, bvh_test2.joint_angles, atol=1e-10)
+
+    def test_mixed_euler_orders(self, bvh_test3):
+        from pybvh.transforms import mirror
+        result = mirror(mirror(bvh_test3))
+        np.testing.assert_allclose(
+            result.root_pos, bvh_test3.root_pos, atol=1e-10)
+        np.testing.assert_allclose(
+            result.joint_angles, bvh_test3.joint_angles, atol=1e-10)
+
+    def test_custom_mapping(self, bvh_example):
+        from pybvh.transforms import mirror, auto_detect_lr_mapping
+        mapping = auto_detect_lr_mapping(bvh_example)
+        # Using explicit mapping should give same result as auto
+        result_auto = mirror(bvh_example)
+        result_manual = mirror(bvh_example, left_right_mapping=mapping)
+        np.testing.assert_allclose(
+            result_auto.root_pos, result_manual.root_pos, atol=1e-10)
+        np.testing.assert_allclose(
+            result_auto.joint_angles, result_manual.joint_angles, atol=1e-10)
+
+    def test_frame_count_preserved(self, bvh_example):
+        from pybvh.transforms import mirror
+        result = mirror(bvh_example)
+        assert result.frame_count == bvh_example.frame_count
+
+
+# =========================================================================
+# NumPy-level Transform API
+# =========================================================================
+
+class TestRotateAnglesVertical:
+    """Tests for transforms.rotate_angles_vertical (NumPy-level)."""
+
+    def test_zero_angle_identity(self, bvh_example):
+        from pybvh.transforms import rotate_angles_vertical
+        new_angles, new_pos = rotate_angles_vertical(
+            bvh_example.joint_angles, bvh_example.root_pos,
+            angle_deg=0.0, up_idx=1,
+            root_order="".join(bvh_example.root.rot_channels),
+        )
+        np.testing.assert_allclose(new_pos, bvh_example.root_pos, atol=1e-10)
+        np.testing.assert_allclose(new_angles, bvh_example.joint_angles, atol=1e-10)
+
+    def test_360_identity(self, bvh_example):
+        from pybvh.transforms import rotate_angles_vertical
+        root_order = "".join(bvh_example.root.rot_channels)
+        new_angles, new_pos = rotate_angles_vertical(
+            bvh_example.joint_angles, bvh_example.root_pos,
+            angle_deg=360.0, up_idx=1, root_order=root_order,
+        )
+        np.testing.assert_allclose(new_pos, bvh_example.root_pos, atol=1e-4)
+        np.testing.assert_allclose(new_angles, bvh_example.joint_angles, atol=1e-3)
+
+    def test_non_root_unchanged(self, bvh_example):
+        from pybvh.transforms import rotate_angles_vertical
+        root_order = "".join(bvh_example.root.rot_channels)
+        new_angles, _ = rotate_angles_vertical(
+            bvh_example.joint_angles, bvh_example.root_pos,
+            angle_deg=45.0, up_idx=1, root_order=root_order,
+        )
+        np.testing.assert_allclose(
+            new_angles[:, 1:], bvh_example.joint_angles[:, 1:], atol=1e-10,
+        )
+
+    def test_matches_bvh_level(self, bvh_example):
+        """NumPy-level should produce identical results to Bvh-level."""
+        from pybvh.transforms import rotate_angles_vertical, rotate_vertical
+        root_order = "".join(bvh_example.root.rot_channels)
+        new_angles, new_pos = rotate_angles_vertical(
+            bvh_example.joint_angles, bvh_example.root_pos,
+            angle_deg=73.0, up_idx=1, root_order=root_order,
+        )
+        bvh_result = rotate_vertical(bvh_example, angle_deg=73.0, up_axis='+y')
+        np.testing.assert_allclose(new_pos, bvh_result.root_pos, atol=1e-10)
+        np.testing.assert_allclose(new_angles, bvh_result.joint_angles, atol=1e-10)
+
+    def test_z_up_axis(self, bvh_test2):
+        """Works with Z-up skeletons (up_idx=2)."""
+        from pybvh.transforms import rotate_angles_vertical
+        root_order = "".join(bvh_test2.root.rot_channels)
+        new_angles, new_pos = rotate_angles_vertical(
+            bvh_test2.joint_angles, bvh_test2.root_pos,
+            angle_deg=90.0, up_idx=2, root_order=root_order,
+        )
+        assert new_angles.shape == bvh_test2.joint_angles.shape
+        assert new_pos.shape == bvh_test2.root_pos.shape
+
+
+class TestMirrorAngles:
+    """Tests for transforms.mirror_angles (NumPy-level)."""
+
+    def _get_mirror_metadata(self, bvh):
+        """Extract metadata needed for mirror_angles from a Bvh."""
+        from pybvh.transforms import auto_detect_lr_mapping
+        from pybvh.tools import get_forw_up_axis
+        from pybvh.bvhnode import BvhJoint
+
+        rest = bvh.get_rest_pose(mode='coordinates')
+        dirs = get_forw_up_axis(bvh, rest)
+        used = {dirs['forward'][1], dirs['upward'][1]}
+        lateral_char = ({"x", "y", "z"} - used).pop()
+        lateral_idx = {"x": 0, "y": 1, "z": 2}[lateral_char]
+
+        mapping = auto_detect_lr_mapping(bvh)
+        joints = [n for n in bvh.nodes if isinstance(n, BvhJoint)]
+        j_name2idx = {j.name: i for i, j in enumerate(joints)}
+        lr_pairs = []
+        for left, right in mapping.items():
+            if left in j_name2idx and right in j_name2idx:
+                lr_pairs.append((j_name2idx[left], j_name2idx[right]))
+        rot_ch = [list(j.rot_channels) for j in joints]
+        return lr_pairs, lateral_idx, rot_ch
+
+    def test_double_mirror_identity(self, bvh_example):
+        from pybvh.transforms import mirror_angles
+        lr_pairs, lat_idx, rot_ch = self._get_mirror_metadata(bvh_example)
+        m_angles, m_pos = mirror_angles(
+            bvh_example.joint_angles, bvh_example.root_pos,
+            lr_pairs, lat_idx, rot_ch,
+        )
+        restored_angles, restored_pos = mirror_angles(
+            m_angles, m_pos, lr_pairs, lat_idx, rot_ch,
+        )
+        np.testing.assert_allclose(
+            restored_pos, bvh_example.root_pos, atol=1e-10)
+        np.testing.assert_allclose(
+            restored_angles, bvh_example.joint_angles, atol=1e-10)
+
+    def test_root_pos_lateral_negated(self, bvh_example):
+        from pybvh.transforms import mirror_angles
+        lr_pairs, lat_idx, rot_ch = self._get_mirror_metadata(bvh_example)
+        _, m_pos = mirror_angles(
+            bvh_example.joint_angles, bvh_example.root_pos,
+            lr_pairs, lat_idx, rot_ch,
+        )
+        np.testing.assert_allclose(
+            m_pos[:, lat_idx], -bvh_example.root_pos[:, lat_idx], atol=1e-10)
+        # Non-lateral components unchanged
+        other = [i for i in range(3) if i != lat_idx]
+        np.testing.assert_allclose(
+            m_pos[:, other], bvh_example.root_pos[:, other], atol=1e-10)
+
+    def test_matches_bvh_level_angles(self, bvh_example):
+        """NumPy-level angles should match Bvh-level mirror's angles."""
+        from pybvh.transforms import mirror_angles, mirror
+        lr_pairs, lat_idx, rot_ch = self._get_mirror_metadata(bvh_example)
+        m_angles, m_pos = mirror_angles(
+            bvh_example.joint_angles, bvh_example.root_pos,
+            lr_pairs, lat_idx, rot_ch,
+        )
+        bvh_result = mirror(bvh_example)
+        np.testing.assert_allclose(m_pos, bvh_result.root_pos, atol=1e-10)
+        np.testing.assert_allclose(m_angles, bvh_result.joint_angles, atol=1e-10)
+
+    def test_no_pairs_only_negates(self):
+        """With no L/R pairs, only lateral negation + angle negation happen."""
+        from pybvh.transforms import mirror_angles
+        rng = np.random.default_rng(42)
+        angles = rng.standard_normal((10, 3, 3))
+        root_pos = rng.standard_normal((10, 3))
+        rot_ch = [['Z', 'Y', 'X']] * 3
+        m_angles, m_pos = mirror_angles(angles, root_pos, [], 0, rot_ch)
+        # Root pos X negated
+        np.testing.assert_allclose(m_pos[:, 0], -root_pos[:, 0])
+        np.testing.assert_allclose(m_pos[:, 1:], root_pos[:, 1:])
+        # For X-lateral (idx=0), negate Y and Z components (not X)
+        # rot_ch is ZYX: channel 0=Z, 1=Y, 2=X
+        # Z != X → negate, Y != X → negate, X == X → keep
+        np.testing.assert_allclose(m_angles[:, :, 0], -angles[:, :, 0])  # Z negated
+        np.testing.assert_allclose(m_angles[:, :, 1], -angles[:, :, 1])  # Y negated
+        np.testing.assert_allclose(m_angles[:, :, 2], angles[:, :, 2])   # X kept
+
+    def test_mixed_euler_orders(self, bvh_test3):
+        """Works correctly with mixed Euler orders across joints."""
+        from pybvh.transforms import mirror_angles
+        lr_pairs, lat_idx, rot_ch = self._get_mirror_metadata(bvh_test3)
+        m_angles, m_pos = mirror_angles(
+            bvh_test3.joint_angles, bvh_test3.root_pos,
+            lr_pairs, lat_idx, rot_ch,
+        )
+        # Double mirror should recover original
+        restored_angles, restored_pos = mirror_angles(
+            m_angles, m_pos, lr_pairs, lat_idx, rot_ch,
+        )
+        np.testing.assert_allclose(
+            restored_angles, bvh_test3.joint_angles, atol=1e-10)
+        np.testing.assert_allclose(
+            restored_pos, bvh_test3.root_pos, atol=1e-10)
+
+
+# =============================================================================
+# euler_orders property
+# =============================================================================
+
+class TestEulerOrders:
+    """Tests for the euler_orders property."""
+
+    def test_returns_list_of_strings(self, bvh_example):
+        orders = bvh_example.euler_orders
+        assert isinstance(orders, list)
+        assert all(isinstance(o, str) for o in orders)
+
+    def test_length_matches_joint_count(self, bvh_example):
+        assert len(bvh_example.euler_orders) == bvh_example.joint_count
+
+    def test_bvh_example_all_zyx(self, bvh_example):
+        """bvh_example has all ZYX joints."""
+        assert all(o == 'ZYX' for o in bvh_example.euler_orders)
+
+    def test_mixed_orders(self, bvh_test3):
+        """bvh_test3 has mixed Euler orders."""
+        orders = bvh_test3.euler_orders
+        assert len(orders) == bvh_test3.joint_count
+        for o in orders:
+            assert len(o) == 3
+            assert set(o) == {'X', 'Y', 'Z'}
+
+    def test_after_change_all_euler_orders(self, bvh_example):
+        """euler_orders should reflect changed orders."""
+        result = bvh_example.change_all_euler_orders('XYZ')
+        assert all(o == 'XYZ' for o in result.euler_orders)
+
+    def test_consistent_with_rot_channels(self, bvh_example):
+        """euler_orders must match manually joining rot_channels."""
+        expected = [
+            ''.join(n.rot_channels)
+            for n in bvh_example.nodes
+            if not n.is_end_site()
+        ]
+        assert bvh_example.euler_orders == expected
+
+
+# =============================================================================
+# auto_detect_lr_pairs
+# =============================================================================
+
+class TestAutoDetectLRPairs:
+    """Tests for auto_detect_lr_pairs returning index tuples."""
+
+    def test_returns_list_of_tuples(self, bvh_example):
+        from pybvh.transforms import auto_detect_lr_pairs
+        pairs = auto_detect_lr_pairs(bvh_example)
+        assert isinstance(pairs, list)
+        assert all(isinstance(p, tuple) and len(p) == 2 for p in pairs)
+
+    def test_indices_are_valid(self, bvh_example):
+        from pybvh.transforms import auto_detect_lr_pairs
+        pairs = auto_detect_lr_pairs(bvh_example)
+        J = bvh_example.joint_count
+        for left, right in pairs:
+            assert 0 <= left < J
+            assert 0 <= right < J
+            assert left != right
+
+    def test_consistent_with_name_mapping(self, bvh_example):
+        from pybvh.transforms import auto_detect_lr_pairs, auto_detect_lr_mapping
+        pairs = auto_detect_lr_pairs(bvh_example)
+        mapping = auto_detect_lr_mapping(bvh_example)
+        assert len(pairs) == len(mapping)
+
+    def test_works_with_mirror_angles(self, bvh_example):
+        """Index pairs should be directly usable with mirror_angles."""
+        from pybvh.transforms import auto_detect_lr_pairs, mirror_angles
+        from pybvh.tools import get_forw_up_axis
+        pairs = auto_detect_lr_pairs(bvh_example)
+        rest = bvh_example.get_rest_pose(mode='coordinates')
+        dirs = get_forw_up_axis(bvh_example, rest)
+        used = {dirs['forward'][1], dirs['upward'][1]}
+        lateral_idx = {"x": 0, "y": 1, "z": 2}[({"x", "y", "z"} - used).pop()]
+        rot_ch = [
+            list(n.rot_channels)
+            for n in bvh_example.nodes
+            if not n.is_end_site()
+        ]
+        # Should not raise
+        m_angles, m_pos = mirror_angles(
+            bvh_example.joint_angles, bvh_example.root_pos,
+            pairs, lateral_idx, rot_ch,
+        )
+        # Double mirror should recover original
+        r_angles, r_pos = mirror_angles(
+            m_angles, m_pos, pairs, lateral_idx, rot_ch,
+        )
+        np.testing.assert_allclose(r_pos, bvh_example.root_pos, atol=1e-10)
+        np.testing.assert_allclose(r_angles, bvh_example.joint_angles, atol=1e-10)
+
+    def test_no_pairs_skeleton(self):
+        """Skeleton with no L/R naming returns empty list."""
+        from pybvh.transforms import auto_detect_lr_pairs
+        root = BvhRoot()
+        root._frozen = False
+        bvh = Bvh(nodes=[root])
+        assert auto_detect_lr_pairs(bvh) == []
+
+
+# =============================================================================
+# Bvh __eq__
+# =============================================================================
+
+class TestBvhEquality:
+    """Tests for __eq__ on Bvh."""
+
+    def test_equal_to_copy(self, bvh_example):
+        assert bvh_example == bvh_example.copy()
+
+    def test_equal_to_self(self, bvh_example):
+        assert bvh_example == bvh_example
+
+    def test_not_equal_after_modifying_root_pos(self, bvh_example):
+        other = bvh_example.copy()
+        other.root_pos[0, 0] += 1.0
+        assert bvh_example != other
+
+    def test_not_equal_after_modifying_joint_angles(self, bvh_example):
+        other = bvh_example.copy()
+        other.joint_angles[0, 0, 0] += 1.0
+        assert bvh_example != other
+
+    def test_not_equal_different_skeleton(self, bvh_example, bvh_test2):
+        assert bvh_example != bvh_test2
+
+    def test_not_equal_to_non_bvh(self, bvh_example):
+        assert not (bvh_example == "not a bvh")
+        assert not (bvh_example == 42)
+
+
+# =============================================================================
+# edges property
+# =============================================================================
+
+class TestEdges:
+    """Tests for the edges property."""
+
+    def test_returns_list_of_tuples(self, bvh_example):
+        edges = bvh_example.edges
+        assert isinstance(edges, list)
+        assert all(isinstance(e, tuple) and len(e) == 2 for e in edges)
+
+    def test_edge_count(self, bvh_example):
+        """J joints → J-1 edges (root has no parent)."""
+        assert len(bvh_example.edges) == bvh_example.joint_count - 1
+
+    def test_indices_are_valid(self, bvh_example):
+        J = bvh_example.joint_count
+        for child_idx, parent_idx in bvh_example.edges:
+            assert 0 <= child_idx < J
+            assert 0 <= parent_idx < J
+            assert child_idx != parent_idx
+
+    def test_root_not_in_children(self, bvh_example):
+        """Root (index 0) should never appear as a child in an edge."""
+        children = {child for child, _ in bvh_example.edges}
+        assert 0 not in children
+
+    def test_root_is_parent(self, bvh_example):
+        """Root (index 0) should appear as a parent."""
+        parents = {parent for _, parent in bvh_example.edges}
+        assert 0 in parents
+
+    def test_different_skeletons(self, bvh_example, bvh_test3):
+        """Different skeletons have different edge counts."""
+        assert len(bvh_example.edges) == bvh_example.joint_count - 1
+        assert len(bvh_test3.edges) == bvh_test3.joint_count - 1

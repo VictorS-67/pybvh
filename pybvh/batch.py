@@ -7,7 +7,7 @@ from typing import Union
 import numpy as np
 import numpy.typing as npt
 
-from .read_bvh_file import read_bvh_file
+from .io import read_bvh_file
 from .bvh import Bvh
 from .bvhnode import BvhJoint
 

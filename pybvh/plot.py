@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from .bvh import Bvh
-from .tools import get_forw_up_axis, get_main_direction, extract_sign
+from .tools import get_forw_up_axis, extract_sign
 
 if TYPE_CHECKING:
     import matplotlib.figure

@@ -67,9 +67,15 @@ def euler_to_rotmat(
     if len(order_str) != 3 or not all(c in 'XYZ' for c in order_str):
         raise ValueError(f"order must be 3 characters from 'XYZ', got '{order_str}'")
 
-    R = _elementary_rotmat(angles_arr[:, 0], order_str[0])
-    R = R @ _elementary_rotmat(angles_arr[:, 1], order_str[1])
-    R = R @ _elementary_rotmat(angles_arr[:, 2], order_str[2])
+    # Support arbitrary leading batch dimensions (*, 3)
+    orig_shape = angles_arr.shape[:-1]  # batch dims
+    flat = angles_arr.reshape(-1, 3)    # (N, 3)
+
+    R = _elementary_rotmat(flat[:, 0], order_str[0])
+    R = R @ _elementary_rotmat(flat[:, 1], order_str[1])
+    R = R @ _elementary_rotmat(flat[:, 2], order_str[2])
+
+    R = R.reshape(orig_shape + (3, 3))
 
     if single:
         return R[0]
@@ -110,16 +116,18 @@ def rotmat_to_euler(
     if len(order_str) != 3 or not all(c in 'XYZ' for c in order_str):
         raise ValueError(f"order must be 3 characters from 'XYZ', got '{order_str}'")
 
-    # Strategy: decompose R = R1(a1) @ R2(a2) @ R3(a3)
-    # We invert this by finding a1, a2, a3 from R.
-    # This is done by mapping axis letters to indices and using
-    # the known structure of the composite matrix.
     ax2idx = {'X': 0, 'Y': 1, 'Z': 2}
     i = ax2idx[order_str[0]]
     j = ax2idx[order_str[1]]
     k = ax2idx[order_str[2]]
 
-    out = _extract_euler(R_arr, i, j, k)
+    # Support arbitrary leading batch dimensions (*, 3, 3)
+    orig_shape = R_arr.shape[:-2]  # batch dims
+    flat = R_arr.reshape(-1, 3, 3)
+
+    out = _extract_euler(flat, i, j, k)
+
+    out = out.reshape(orig_shape + (3,))
 
     if degrees:
         out = np.degrees(out)
@@ -696,13 +704,12 @@ def _elementary_rotmat(angle: npt.NDArray[np.float64], axis: str) -> npt.NDArray
 
     Returns
     -------
-    R : ndarray, shape (N, 3, 3)
+    R : ndarray, shape (*, 3, 3)
     """
-    N = angle.shape[0]
     c = np.cos(angle)
     s = np.sin(angle)
-    one = np.ones(N, dtype=np.float64)
-    zero = np.zeros(N, dtype=np.float64)
+    one = np.ones_like(angle)
+    zero = np.zeros_like(angle)
 
     if axis == 'X':
         R = np.stack([

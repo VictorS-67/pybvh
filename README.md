@@ -14,11 +14,11 @@ Built for researchers and developers working with skeletal animation and motion 
 - **Forward kinematics** to compute 3D joint positions from angles
 - **Skeleton operations**: retargeting, scaling, joint extraction, Euler order changes
 - **Frame operations**: slicing, concatenation, resampling to different frame rates
-- **Data augmentation**: mirroring, vertical rotation, speed perturbation, joint noise, root translation, frame dropout — all with seeded randomization
-- **ML pipeline features**: joint velocities/accelerations, root-relative positions, foot contact detection, normalization utilities, and a one-stop `to_feature_array()` export
+- **Spatial transforms**: mirroring, vertical rotation, speed perturbation, joint noise, root translation, frame dropout — all with seeded randomization
+- **Motion analysis**: joint velocities/accelerations, root-relative positions, foot contact detection, normalization utilities, and a one-stop `to_feature_array()` export
 - **Batch loading** of entire directories with optional parallel I/O
-- **NumPy export** in any rotation representation — ready for ML pipelines
-- **Pandas ready** via an export option ready to become a Dataset
+- **NumPy export** in any rotation representation — ready for any downstream workflow
+- **Pandas ready** via an export option ready to become a DataFrame
 - **3D visualization** with Matplotlib (static frames and animated videos)
 
 ## Philosophy
@@ -56,9 +56,9 @@ root_pos, rot6d, joints = bvh.get_frames_as_6d()          # (F,3), (F,J,6), join
 bvh.to_bvh_file("output.bvh")
 ```
 
-## Batch Loading for ML
+## Batch Loading
 
-Load an entire dataset directory and convert to NumPy arrays in one call:
+Load an entire directory of BVH files and convert to NumPy arrays in one call:
 
 ```python
 from pybvh import read_bvh_directory, batch_to_numpy
@@ -66,14 +66,14 @@ from pybvh import read_bvh_directory, batch_to_numpy
 # Load all BVH files from a directory
 clips = read_bvh_directory("dataset/", parallel=True)
 
-# Convert to padded NumPy array — ready for training
+# Convert to padded NumPy array
 data = batch_to_numpy(clips, representation="6d", pad=True)
 # shape: (batch, max_frames, features)
 ```
 
 Supported representations: `"euler"`, `"quaternion"`, `"6d"`, `"axisangle"`, `"rotmat"`.
 
-## ML Pipeline Features
+## Motion Analysis
 
 Compute motion derivatives, foot contacts, and export everything in a single array:
 
@@ -88,9 +88,9 @@ rel_pos = bvh.get_root_relative_positions()  # (F, N, 3)
 traj = bvh.get_root_trajectory()             # (F, 4) ground pos + heading
 
 # Foot contact detection (auto-detects foot joints)
-contacts = bvh.get_foot_contacts()  # (F, num_feet) binary labels
+contacts = bvh.get_foot_contacts()  # (F, num_feet) binary indicators
 
-# One-stop export — flat array ready for model input
+# One-stop export — flat feature array
 features = bvh.to_feature_array(
     representation="6d",
     include_velocities=True,
@@ -108,9 +108,9 @@ normalized = normalize_array(data, stats)
 # stats are plain dicts — save with np.savez("stats.npz", **stats)
 ```
 
-## Data Augmentation
+## Spatial Transforms
 
-Standard motion augmentations for ML training — all support seeded randomization for reproducibility:
+Standard motion transforms — all support seeded randomization for reproducibility:
 
 ```python
 from pybvh import transforms

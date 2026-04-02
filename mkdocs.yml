@@ -1,0 +1,72 @@
+site_name: pybvh
+site_description: A lightweight Python library for BVH motion capture files
+site_url: https://victors-67.github.io/pybvh/
+repo_url: https://github.com/VictorS-67/pybvh
+repo_name: VictorS-67/pybvh
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - search.suggest
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: numpy
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            members_order: source
+            merge_init_into_class: true
+            show_signature_annotations: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quickstart.md
+  - User Guide:
+    - Core Concepts: guide/core-concepts.md
+    - Rotation Representations: guide/rotations.md
+    - Data Augmentation: guide/augmentation.md
+    - ML Pipeline: guide/ml-pipeline.md
+    - Skeleton Operations: guide/skeleton-ops.md
+  - API Reference:
+    - pybvh: api/index.md
+    - Bvh Class: api/bvh.md
+    - I/O: api/io.md
+    - Rotations: api/rotations.md
+    - Transforms: api/transforms.md
+    - Features: api/features.md
+    - Batch Processing: api/batch.md
+    - Visualization: api/plot.md
+  - Tutorials: tutorials.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - admonition
+  - pymdownx.details
+  - toc:
+      permalink: true

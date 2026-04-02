@@ -36,9 +36,7 @@ conftest.py
 .DS_Store
 
 # --- Project Specific ---
-.AI_CONTEXT.md
-.FUTURE_PLANS.md
-.spatial_augmentation_plan.md
+FUTURE_PLANS.md
 new_bvh.bvh
 bvh_animation.mp4
 pybvh.egg-info/

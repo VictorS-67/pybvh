@@ -35,6 +35,9 @@ conftest.py
 # --- Mac OS Specific (junk files) ---
 .DS_Store
 
+# --- Documentation ---
+site/
+
 # --- Project Specific ---
 FUTURE_PLANS.md
 new_bvh.bvh

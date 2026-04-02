@@ -1,0 +1,4190 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A lightweight Python library for BVH motion capture files">
+      
+      
+      
+        <link rel="canonical" href="https://victors-67.github.io/pybvh/api/bvh/">
+      
+      
+        <link rel="prev" href="../">
+      
+      
+        <link rel="next" href="../io/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Bvh Class - pybvh</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#bvh-class" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="pybvh" class="md-header__button md-logo" aria-label="pybvh" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pybvh
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Bvh Class
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/VictorS-67/pybvh" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    VictorS-67/pybvh
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="pybvh" class="md-nav__button md-logo" aria-label="pybvh" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pybvh
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/VictorS-67/pybvh" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    VictorS-67/pybvh
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/core-concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/rotations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rotation Representations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/augmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Augmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/ml-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ML Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/skeleton-ops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skeleton Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pybvh
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bvh Class
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bvh Class
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bvh
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bvh">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.frame_count" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        frame_count
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.euler_column_names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        euler_column_names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.node_index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        node_index
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.joint_names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        joint_names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.joint_count" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        joint_count
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.euler_orders" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        euler_orders
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.edges" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        edges
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.to_bvh_file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        to_bvh_file
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_spatial_coord" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_spatial_coord
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_rest_pose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_rest_pose
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_df_constructor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_df_constructor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.hierarchy_info_as_dict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        hierarchy_info_as_dict
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.change_skeleton" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        change_skeleton
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.scale_skeleton" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scale_skeleton
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.single_joint_euler_angle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        single_joint_euler_angle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.change_all_euler_orders" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        change_all_euler_orders
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_frames_as_rotmat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_frames_as_rotmat
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_frames_as_6d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_frames_as_6d
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_frames_as_quaternion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_frames_as_quaternion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_frames_as_axisangle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_frames_as_axisangle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.set_frames_from_6d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_frames_from_6d
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.set_frames_from_quaternion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_frames_from_quaternion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.set_frames_from_axisangle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_frames_from_axisangle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.slice_frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        slice_frames
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.concat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        concat
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.resample" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resample
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.extract_joints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        extract_joints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_joint_velocities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_joint_velocities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_joint_accelerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_joint_accelerations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_angular_velocities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_angular_velocities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_root_relative_positions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_root_relative_positions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_root_trajectory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_root_trajectory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_foot_contacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_foot_contacts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.to_feature_array" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        to_feature_array
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.translate_root" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        translate_root
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.add_joint_noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_joint_noise
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.speed_perturbation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        speed_perturbation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.dropout_frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dropout_frames
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.rotate_vertical" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rotate_vertical
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.mirror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mirror
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../io/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    I/O
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rotations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rotations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transforms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transforms
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../batch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Batch Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../plot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visualization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bvh
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bvh">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.frame_count" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        frame_count
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.euler_column_names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        euler_column_names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.node_index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        node_index
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.joint_names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        joint_names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.joint_count" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        joint_count
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.euler_orders" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        euler_orders
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.edges" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        edges
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.to_bvh_file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        to_bvh_file
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_spatial_coord" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_spatial_coord
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_rest_pose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_rest_pose
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_df_constructor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_df_constructor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.hierarchy_info_as_dict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        hierarchy_info_as_dict
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.change_skeleton" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        change_skeleton
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.scale_skeleton" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scale_skeleton
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.single_joint_euler_angle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        single_joint_euler_angle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.change_all_euler_orders" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        change_all_euler_orders
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_frames_as_rotmat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_frames_as_rotmat
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_frames_as_6d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_frames_as_6d
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_frames_as_quaternion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_frames_as_quaternion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_frames_as_axisangle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_frames_as_axisangle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.set_frames_from_6d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_frames_from_6d
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.set_frames_from_quaternion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_frames_from_quaternion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.set_frames_from_axisangle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_frames_from_axisangle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.slice_frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        slice_frames
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.concat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        concat
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.resample" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resample
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.extract_joints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        extract_joints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_joint_velocities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_joint_velocities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_joint_accelerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_joint_accelerations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_angular_velocities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_angular_velocities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_root_relative_positions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_root_relative_positions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_root_trajectory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_root_trajectory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.get_foot_contacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_foot_contacts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.to_feature_array" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        to_feature_array
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.translate_root" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        translate_root
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.add_joint_noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_joint_noise
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.speed_perturbation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        speed_perturbation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.dropout_frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dropout_frames
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.rotate_vertical" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rotate_vertical
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pybvh.bvh.Bvh.mirror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mirror
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="bvh-class">Bvh Class<a class="headerlink" href="#bvh-class" title="Permanent link">&para;</a></h1>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="pybvh.bvh.Bvh" class="doc doc-heading">
+              <code class="highlight language-python"><span class="n">Bvh</span><span class="p">(</span><span class="n">nodes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">BvhNode</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">BvhRoot</span><span class="p">()],</span> <span class="n">root_pos</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">joint_angles</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">frame_frequency</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span></code>
+
+<a href="#pybvh.bvh.Bvh" class="headerlink" title="Permanent link">&para;</a></h2>
+
+
+    <div class="doc doc-contents first">
+
+
+        <p>Container for BVH motion-capture data.</p>
+<p>The hierarchy is stored as a list of <code>BvhNode</code> objects (one per
+joint / end-site).  Motion data is stored as two structured arrays:</p>
+<ul>
+<li><code>root_pos</code>:     shape <code>(F, 3)</code>    — root translation per frame</li>
+<li><code>joint_angles</code>: shape <code>(F, J, 3)</code> — Euler angles (degrees) per joint per frame</li>
+</ul>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="pybvh.bvh.Bvh.nodes">nodes</span></code></td>
+            <td>
+                  <code>list of BvhNode</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Skeleton hierarchy in topological order.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="pybvh.bvh.Bvh.root">root</span></code></td>
+            <td>
+                  <code><span title="pybvh.bvhnode.BvhRoot">BvhRoot</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The root node (<code>nodes[0]</code>).</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="pybvh.bvh.Bvh.root_pos">root_pos</span></code></td>
+            <td>
+                  <code>(ndarray, shape(F, 3))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Root position per frame.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="pybvh.bvh.Bvh.joint_angles">joint_angles</span></code></td>
+            <td>
+                  <code>(ndarray, shape(F, J, 3))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Euler angles in degrees per joint per frame.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="pybvh.bvh.Bvh.frame_frequency">frame_frequency</span></code></td>
+            <td>
+                  <code>float</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Duration of one frame in seconds.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh.frame_count" href="#pybvh.bvh.Bvh.frame_count">frame_count</a></code></td>
+            <td>
+                  <code>int</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of frames (read-only).</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh.node_index" href="#pybvh.bvh.Bvh.node_index">node_index</a></code></td>
+            <td>
+                  <code>dict</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Mapping from node name to its index in <code>nodes</code>.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh.joint_names" href="#pybvh.bvh.Bvh.joint_names">joint_names</a></code></td>
+            <td>
+                  <code>list of str</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Names of non-end-site joints in topological order (read-only).</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh.joint_count" href="#pybvh.bvh.Bvh.joint_count">joint_count</a></code></td>
+            <td>
+                  <code>int</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of non-end-site joints (read-only).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="pybvh.bvh.Bvh.frame_count" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">frame_count</span><span class="p">:</span> <span class="nb">int</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#pybvh.bvh.Bvh.frame_count" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Number of frames (computed from root_pos).</p>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="pybvh.bvh.Bvh.euler_column_names" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">euler_column_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#pybvh.bvh.Bvh.euler_column_names" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Column names describing root_pos + joint_angles in flat layout order.</p>
+<p>Useful for building DataFrames or inspecting the channel mapping.
+Generated on the fly from the node hierarchy.</p>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="pybvh.bvh.Bvh.node_index" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">node_index</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#pybvh.bvh.Bvh.node_index" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Mapping from node name to its integer index in <code>nodes</code>.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>dict</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>{node_name: int}</code> for every node (joints and end sites).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="pybvh.bvh.Bvh.joint_names" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">joint_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#pybvh.bvh.Bvh.joint_names" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Names of non-end-site joints in topological order.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>list of str</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="pybvh.bvh.Bvh.joint_count" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">joint_count</span><span class="p">:</span> <span class="nb">int</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#pybvh.bvh.Bvh.joint_count" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Number of non-end-site joints.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>int</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="pybvh.bvh.Bvh.euler_orders" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">euler_orders</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#pybvh.bvh.Bvh.euler_orders" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Per-joint Euler rotation orders as strings.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>list of str</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>e.g. <code>['ZYX', 'ZYX', ...]</code>, one per non-end-site joint.
+Order matches <code>joint_names</code> and <code>joint_angles</code> axis 1.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="pybvh.bvh.Bvh.edges" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">edges</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#pybvh.bvh.Bvh.edges" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Skeleton edge list as <code>(child_idx, parent_idx)</code> tuples.</p>
+<p>Indices use <code>joint_angles</code> index space (non-end-site joints
+only, matching <code>joint_names</code> order).  The root joint has no
+parent and produces no edge, so a skeleton with <em>J</em> joints
+yields <em>J - 1</em> edges.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>list of (int, int)</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+    </div>
+
+</div>
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.to_bvh_file" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">to_bvh_file</span><span class="p">(</span><span class="n">new_filepath</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span></code>
+
+<a href="#pybvh.bvh.Bvh.to_bvh_file" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Write the Bvh object to a <code>.bvh</code> file.  See :func:<code>pybvh.io.write_bvh_file</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.get_spatial_coord" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">get_spatial_coord</span><span class="p">(</span><span class="n">frame_num</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">centered</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;world&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span></code>
+
+<a href="#pybvh.bvh.Bvh.get_spatial_coord" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Obtain the spatial coordinates of the joints.</p>
+<p>Returns an ndarray of shape <code>(N, 3)</code> for a single frame or
+<code>(F, N, 3)</code> for all frames, where <em>N</em> is the total number of
+nodes (joints + end sites).</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code>frame_num</code></td>
+            <td>
+                  <code>int</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Frame index to return.  <code>-1</code> (default) returns all frames.</p>
+              </div>
+            </td>
+            <td>
+                  <code>-1</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>centered</code></td>
+            <td>
+                  <code>str</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>"world"</code> – root at actual position.
+<code>"skeleton"</code> – root at origin for all frames.
+<code>"first"</code> – first-frame root at origin, then moves normally.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;world&#39;</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.get_rest_pose" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">get_rest_pose</span><span class="p">(</span><span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;coordinates&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]]</span></code>
+
+<a href="#pybvh.bvh.Bvh.get_rest_pose" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return the rest pose of the skeleton (all angles zero, root at origin).</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code>mode</code></td>
+            <td>
+                  <code>str</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>'euler'</code> – return a tuple <code>(root_pos, joint_angles)</code> of zeros
+matching the structured shapes.
+<code>'coordinates'</code> – return spatial coordinates as <code>(N, 3)</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;coordinates&#39;</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.get_df_constructor" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">get_df_constructor</span><span class="p">(</span><span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;euler&#39;</span><span class="p">,</span> <span class="n">centered</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;world&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]]</span></code>
+
+<a href="#pybvh.bvh.Bvh.get_df_constructor" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return a dict of arrays for <code>pd.DataFrame(result)</code>.</p>
+<p>Each key is a column name, each value a 1-D NumPy array of
+length <code>frame_count</code>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code>mode</code></td>
+            <td>
+                  <code>str</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>'euler'</code> — columns are <code>'JointName_X_rot'</code> etc. (default).
+<code>'coordinates'</code> — columns are <code>'JointName_X'</code> etc.,
+including end sites.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;euler&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>centered</code></td>
+            <td>
+                  <code>str</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>"world"</code> (default), <code>"skeleton"</code>, or <code>"first"</code>.
+Only used when <code>mode='coordinates'</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;world&#39;</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>dict</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Column-name → 1-D array mapping, ready for <code>pd.DataFrame()</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.hierarchy_info_as_dict" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">hierarchy_info_as_dict</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span></code>
+
+<a href="#pybvh.bvh.Bvh.hierarchy_info_as_dict" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return the skeleton hierarchy as a plain dictionary.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>dict</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>{name: {'offset': [...], 'parent': str|None,
+'rot_channels': [...], 'children': [...]}, ...}</code>.
+Root entries also include <code>'pos_channels'</code>.
+The returned dict is a deep copy (safe to mutate).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.change_skeleton" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">change_skeleton</span><span class="p">(</span><span class="n">new_skeleton</span><span class="p">:</span> <span class="n">Bvh</span><span class="p">,</span> <span class="n">name_mapping</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">strict</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bvh</span> <span class="o">|</span> <span class="kc">None</span></code>
+
+<a href="#pybvh.bvh.Bvh.change_skeleton" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Copy joint offsets from a reference skeleton.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code>new_skeleton</code></td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh" href="#pybvh.bvh.Bvh">Bvh</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Reference skeleton whose offsets will be copied.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>name_mapping</code></td>
+            <td>
+                  <code>dict</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Maps self's joint names to <code>new_skeleton</code>'s joint names,
+e.g. <code>{'Hips': 'mixamorig:Hips', ...}</code>.
+Joints not in the mapping are matched by identical name.
+If None (default), all joints are matched by name.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>strict</code></td>
+            <td>
+                  <code>bool</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True, raise <code>ValueError</code> when a joint in self has no
+match in <code>new_skeleton</code>.  If False (default), unmapped
+joints keep their original offsets.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>inplace</code></td>
+            <td>
+                  <code>bool</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True, modify self and return None.
+If False (default), return a modified copy.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>None or <a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh" href="#pybvh.bvh.Bvh">Bvh</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.scale_skeleton" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">scale_skeleton</span><span class="p">(</span><span class="n">scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">,</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bvh</span> <span class="o">|</span> <span class="kc">None</span></code>
+
+<a href="#pybvh.bvh.Bvh.scale_skeleton" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Scale all node offsets by a factor.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code>scale</code></td>
+            <td>
+                  <code>float or array_like of shape (3,)</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Uniform scalar or per-axis scale factors.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>inplace</code></td>
+            <td>
+                  <code>bool</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True, modify self and return None.
+If False (default), return a modified copy.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>None or <a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh" href="#pybvh.bvh.Bvh">Bvh</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.single_joint_euler_angle" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">single_joint_euler_angle</span><span class="p">(</span><span class="n">joint</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">BvhNode</span><span class="p">,</span> <span class="n">new_order</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]],</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bvh</span> <span class="o">|</span> <span class="kc">None</span></code>
+
+<a href="#pybvh.bvh.Bvh.single_joint_euler_angle" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Change the Euler angle order of a single joint for all frames.</p>
+<p>Converts the joint's rotation data via rotation matrices so the
+resulting Euler angles use the new order but represent the same
+physical rotations.  Updates frames, frame_template and the node's
+rot_channels atomically.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code>joint</code></td>
+            <td>
+                  <code>str or <span title="pybvh.bvhnode.BvhNode">BvhNode</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Name of the joint or the BvhNode object itself whose Euler order should be changed.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>new_order</code></td>
+            <td>
+                  <code>str or list of 3 chars</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>New rotation order, e.g. 'XYZ' or ['X', 'Y', 'Z'].</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>inplace</code></td>
+            <td>
+                  <code>bool</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True, modify self and return None.
+If False, return a modified copy while leaving self unchanged.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>None or <a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh" href="#pybvh.bvh.Bvh">Bvh</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>None if inplace, otherwise a new Bvh object.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.change_all_euler_orders" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">change_all_euler_orders</span><span class="p">(</span><span class="n">new_order</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]],</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bvh</span> <span class="o">|</span> <span class="kc">None</span></code>
+
+<a href="#pybvh.bvh.Bvh.change_all_euler_orders" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Change the Euler angle order of ALL joints to a single unified order.</p>
+<p>This is useful for ML pipelines that expect a consistent rotation
+order across all joints.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code>new_order</code></td>
+            <td>
+                  <code>str or list of 3 chars</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>New rotation order, e.g. 'XYZ' or ['X', 'Y', 'Z'].</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>inplace</code></td>
+            <td>
+                  <code>bool</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True, modify self and return None.
+If False, return a modified copy while leaving self unchanged.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>None or <a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh" href="#pybvh.bvh.Bvh">Bvh</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>None if inplace, otherwise a new Bvh object.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.get_frames_as_rotmat" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">get_frames_as_rotmat</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span> <span class="nb">list</span><span class="p">[</span><span class="n">BvhJoint</span><span class="p">]]</span></code>
+
+<a href="#pybvh.bvh.Bvh.get_frames_as_rotmat" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Convert all per-joint Euler angles in self.frames to rotation matrices.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>root_pos</code></td>            <td>
+                  <code>(ndarray, shape(num_frames, 3))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Root position for each frame.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td><code>joint_rotmats</code></td>            <td>
+                  <code>(ndarray, shape(num_frames, num_joints, 3, 3))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Rotation matrix for each joint in each frame.
+Joint order follows self.nodes (end sites excluded).</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td><code>joints</code></td>            <td>
+                  <code>list of BvhNode</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Joint corresponding to the second axis of joint_rotmats.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.get_frames_as_6d" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">get_frames_as_6d</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span> <span class="nb">list</span><span class="p">[</span><span class="n">BvhJoint</span><span class="p">]]</span></code>
+
+<a href="#pybvh.bvh.Bvh.get_frames_as_6d" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Convert all per-joint Euler angles to 6D rotation representation.</p>
+<p>The 6D representation (Zhou et al., CVPR 2019) is continuous and
+well-suited for neural network training.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>root_pos</code></td>            <td>
+                  <code>(ndarray, shape(num_frames, 3))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Root position for each frame.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td><code>joint_rot6d</code></td>            <td>
+                  <code>(ndarray, shape(num_frames, num_joints, 6))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>6D rotation for each joint in each frame.
+Joint order follows self.nodes (end sites excluded).</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td><code>joints</code></td>            <td>
+                  <code>list of BvhNode</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Joint corresponding to the second axis of joint_rot6d.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.get_frames_as_quaternion" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">get_frames_as_quaternion</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span> <span class="nb">list</span><span class="p">[</span><span class="n">BvhJoint</span><span class="p">]]</span></code>
+
+<a href="#pybvh.bvh.Bvh.get_frames_as_quaternion" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Convert all per-joint Euler angles to quaternions.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>root_pos</code></td>            <td>
+                  <code>(ndarray, shape(num_frames, 3))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Root position for each frame.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td><code>joint_quats</code></td>            <td>
+                  <code>(ndarray, shape(num_frames, num_joints, 4))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Quaternion (w, x, y, z) for each joint in each frame.
+Joint order follows self.nodes (end sites excluded).</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td><code>joints</code></td>            <td>
+                  <code>list of BvhNode</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Joint corresponding to the second axis of joint_quats.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.get_frames_as_axisangle" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">get_frames_as_axisangle</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span> <span class="nb">list</span><span class="p">[</span><span class="n">BvhJoint</span><span class="p">]]</span></code>
+
+<a href="#pybvh.bvh.Bvh.get_frames_as_axisangle" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Convert all per-joint Euler angles to axis-angle vectors.</p>
+<p>The axis-angle representation is the unit rotation axis scaled
+by the rotation angle in radians.  Used in SMPL/SMPL-X body
+models and many pose estimation pipelines.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>root_pos</code></td>            <td>
+                  <code>(ndarray, shape(num_frames, 3))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Root position for each frame.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td><code>joint_aa</code></td>            <td>
+                  <code>(ndarray, shape(num_frames, num_joints, 3))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Axis-angle vector for each joint in each frame.
+Joint order follows self.nodes (end sites excluded).</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td><code>joints</code></td>            <td>
+                  <code>list of BvhNode</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Joint corresponding to the second axis of joint_aa.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.set_frames_from_6d" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">set_frames_from_6d</span><span class="p">(</span><span class="n">root_pos</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">,</span> <span class="n">joint_rot6d</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">,</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bvh</span> <span class="o">|</span> <span class="kc">None</span></code>
+
+<a href="#pybvh.bvh.Bvh.set_frames_from_6d" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Set motion data from root positions and 6D rotation data.</p>
+<p>Converts 6D rotations back to Euler angles using each joint's
+rot_channels order, then writes into root_pos and joint_angles.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code>root_pos</code></td>
+            <td>
+                  <code>(array_like, shape(num_frames, 3))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Root position per frame.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>joint_rot6d</code></td>
+            <td>
+                  <code>(array_like, shape(num_frames, num_joints, 6))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>6D rotation per joint per frame.
+Joint order must match self.nodes (end sites excluded).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>inplace</code></td>
+            <td>
+                  <code>bool</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True, modify self and return None.
+If False, return a modified copy while leaving self unchanged.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>None or <a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh" href="#pybvh.bvh.Bvh">Bvh</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>None if inplace, otherwise a new Bvh object.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.set_frames_from_quaternion" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">set_frames_from_quaternion</span><span class="p">(</span><span class="n">root_pos</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">,</span> <span class="n">joint_quats</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">,</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bvh</span> <span class="o">|</span> <span class="kc">None</span></code>
+
+<a href="#pybvh.bvh.Bvh.set_frames_from_quaternion" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Set motion data from root positions and quaternion data.</p>
+<p>Converts quaternions back to Euler angles using each joint's
+rot_channels order, then writes into root_pos and joint_angles.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code>root_pos</code></td>
+            <td>
+                  <code>(array_like, shape(num_frames, 3))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Root position per frame.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>joint_quats</code></td>
+            <td>
+                  <code>(array_like, shape(num_frames, num_joints, 4))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Quaternion (w, x, y, z) per joint per frame.
+Joint order must match self.nodes (end sites excluded).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>inplace</code></td>
+            <td>
+                  <code>bool</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True, modify self and return None.
+If False, return a modified copy while leaving self unchanged.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>None or <a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh" href="#pybvh.bvh.Bvh">Bvh</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>None if inplace, otherwise a new Bvh object.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.set_frames_from_axisangle" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">set_frames_from_axisangle</span><span class="p">(</span><span class="n">root_pos</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">,</span> <span class="n">joint_aa</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">,</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bvh</span> <span class="o">|</span> <span class="kc">None</span></code>
+
+<a href="#pybvh.bvh.Bvh.set_frames_from_axisangle" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Set motion data from root positions and axis-angle data.</p>
+<p>Converts axis-angle vectors back to Euler angles using each joint's
+rot_channels order, then writes into root_pos and joint_angles.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code>root_pos</code></td>
+            <td>
+                  <code>(array_like, shape(num_frames, 3))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Root position per frame.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>joint_aa</code></td>
+            <td>
+                  <code>(array_like, shape(num_frames, num_joints, 3))</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Axis-angle vector per joint per frame.
+Joint order must match self.nodes (end sites excluded).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>inplace</code></td>
+            <td>
+                  <code>bool</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True, modify self and return None.
+If False, return a modified copy while leaving self unchanged.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>None or <a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh" href="#pybvh.bvh.Bvh">Bvh</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>None if inplace, otherwise a new Bvh object.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.slice_frames" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">slice_frames</span><span class="p">(</span><span class="n">start</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">step</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bvh</span></code>
+
+<a href="#pybvh.bvh.Bvh.slice_frames" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return a new Bvh with a slice of frames.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code>start</code></td>
+            <td>
+                  <code>int or None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Slice parameters (same semantics as <code>array[start:end:step]</code>).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>end</code></td>
+            <td>
+                  <code>int or None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Slice parameters (same semantics as <code>array[start:end:step]</code>).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code>step</code></td>
+            <td>
+                  <code>int or None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Slice parameters (same semantics as <code>array[start:end:step]</code>).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh" href="#pybvh.bvh.Bvh">Bvh</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>New Bvh object with the sliced frames and same skeleton.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.concat" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">concat</span><span class="p">(</span><span class="n">other</span><span class="p">:</span> <span class="n">Bvh</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bvh</span></code>
+
+<a href="#pybvh.bvh.Bvh.concat" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Concatenate frames from another Bvh with the same skeleton.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code>other</code></td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh" href="#pybvh.bvh.Bvh">Bvh</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Must have the same skeleton (same node names and rotation
+orders).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh" href="#pybvh.bvh.Bvh">Bvh</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>New Bvh with frames from <code>self</code> followed by <code>other</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>ValueError</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If skeletons are incompatible (different node count, names,
+or rotation orders).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.resample" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">resample</span><span class="p">(</span><span class="n">target_fps</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bvh</span></code>
+
+<a href="#pybvh.bvh.Bvh.resample" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Resample frames to a new frame rate via interpolation.</p>
+<p>Root position is linearly interpolated.  Joint rotations are
+converted to quaternions and interpolated with SLERP for
+smooth, gimbal-lock-free results.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code>target_fps</code></td>
+            <td>
+                  <code>float</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Target frames per second.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh" href="#pybvh.bvh.Bvh">Bvh</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>New Bvh with resampled frames.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.extract_joints" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">extract_joints</span><span class="p">(</span><span class="n">joint_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Bvh</span></code>
+
+<a href="#pybvh.bvh.Bvh.extract_joints" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Extract a subset of joints into a new Bvh.</p>
+<p>Removed joints' offsets are collapsed into their nearest kept
+descendant via vector addition (valid at rest pose).  Their
+rotation contribution during animation is lost.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code>joint_names</code></td>
+            <td>
+                  <code>list of str</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Names of joints to keep.  The root must be included.
+End sites are handled automatically (kept if their parent
+is kept, otherwise removed).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="pybvh.bvh.Bvh" href="#pybvh.bvh.Bvh">Bvh</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>New Bvh with the reduced skeleton and corresponding motion
+data.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>ValueError</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If the root joint is not in <code>joint_names</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.get_joint_velocities" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">get_joint_velocities</span><span class="p">(</span><span class="n">centered</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;world&#39;</span><span class="p">,</span> <span class="n">in_frames</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">coords</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span></code>
+
+<a href="#pybvh.bvh.Bvh.get_joint_velocities" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Compute per-joint position velocities.  See :func:<code>pybvh.features.get_joint_velocities</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.get_joint_accelerations" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">get_joint_accelerations</span><span class="p">(</span><span class="n">centered</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;world&#39;</span><span class="p">,</span> <span class="n">in_frames</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">coords</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span></code>
+
+<a href="#pybvh.bvh.Bvh.get_joint_accelerations" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Compute per-joint position accelerations.  See :func:<code>pybvh.features.get_joint_accelerations</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.get_angular_velocities" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">get_angular_velocities</span><span class="p">(</span><span class="n">in_frames</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span></code>
+
+<a href="#pybvh.bvh.Bvh.get_angular_velocities" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Compute per-joint angular velocities.  See :func:<code>pybvh.features.get_angular_velocities</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.get_root_relative_positions" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">get_root_relative_positions</span><span class="p">(</span><span class="n">centered</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;world&#39;</span><span class="p">,</span> <span class="n">coords</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span></code>
+
+<a href="#pybvh.bvh.Bvh.get_root_relative_positions" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Compute root-relative joint positions.  See :func:<code>pybvh.features.get_root_relative_positions</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.get_root_trajectory" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">get_root_trajectory</span><span class="p">(</span><span class="n">up_axis</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span></code>
+
+<a href="#pybvh.bvh.Bvh.get_root_trajectory" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Extract root trajectory features.  See :func:<code>pybvh.features.get_root_trajectory</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.get_foot_contacts" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">get_foot_contacts</span><span class="p">(</span><span class="n">foot_joints</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;velocity&#39;</span><span class="p">,</span> <span class="n">threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">centered</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;world&#39;</span><span class="p">,</span> <span class="n">coords</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span></code>
+
+<a href="#pybvh.bvh.Bvh.get_foot_contacts" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Detect foot contact labels.  See :func:<code>pybvh.features.get_foot_contacts</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.to_feature_array" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">to_feature_array</span><span class="p">(</span><span class="n">representation</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;6d&#39;</span><span class="p">,</span> <span class="n">include_root_pos</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">include_velocities</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">include_foot_contacts</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">centered</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;world&#39;</span><span class="p">,</span> <span class="n">foot_joints</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span></code>
+
+<a href="#pybvh.bvh.Bvh.to_feature_array" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Export motion as a flat feature array.  See :func:<code>pybvh.features.to_feature_array</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.translate_root" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">translate_root</span><span class="p">(</span><span class="n">offset</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">ArrayLike</span><span class="p">,</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bvh</span> <span class="o">|</span> <span class="kc">None</span></code>
+
+<a href="#pybvh.bvh.Bvh.translate_root" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Shift root position by a constant offset.  See :func:<code>pybvh.transforms.translate_root</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.add_joint_noise" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">add_joint_noise</span><span class="p">(</span><span class="n">sigma_deg</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">sigma_pos</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span> <span class="n">rng</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">Generator</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bvh</span> <span class="o">|</span> <span class="kc">None</span></code>
+
+<a href="#pybvh.bvh.Bvh.add_joint_noise" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Add Gaussian noise to joint angles.  See :func:<code>pybvh.transforms.add_joint_noise</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.speed_perturbation" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">speed_perturbation</span><span class="p">(</span><span class="n">factor</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bvh</span></code>
+
+<a href="#pybvh.bvh.Bvh.speed_perturbation" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Change motion speed by resampling.  See :func:<code>pybvh.transforms.speed_perturbation</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.dropout_frames" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">dropout_frames</span><span class="p">(</span><span class="n">drop_rate</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">rng</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">Generator</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bvh</span> <span class="o">|</span> <span class="kc">None</span></code>
+
+<a href="#pybvh.bvh.Bvh.dropout_frames" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Replace dropped frames with SLERP interpolation.  See :func:<code>pybvh.transforms.dropout_frames</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.rotate_vertical" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">rotate_vertical</span><span class="p">(</span><span class="n">angle_deg</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">up_axis</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bvh</span> <span class="o">|</span> <span class="kc">None</span></code>
+
+<a href="#pybvh.bvh.Bvh.rotate_vertical" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Rotate entire motion around the vertical axis.  See :func:<code>pybvh.transforms.rotate_vertical</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pybvh.bvh.Bvh.mirror" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">mirror</span><span class="p">(</span><span class="n">left_right_mapping</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">lateral_axis</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">inplace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bvh</span> <span class="o">|</span> <span class="kc">None</span></code>
+
+<a href="#pybvh.bvh.Bvh.mirror" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Mirror motion across the lateral plane.  See :func:<code>pybvh.transforms.mirror</code>.</p>
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "search.suggest", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -7,6 +7,42 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.5.0] — 2026-04-03
+
+### Added
+
+- **`pybvh.plot` module** — full visualization rewrite as a multi-file package with pluggable backends.
+  - **`plot.frame()`** — static 3D skeleton snapshot (matplotlib). Now accepts `camera` parameter (`"front"`, `"side"`, `"top"`, or `(azim, elev)`).
+  - **`plot.render()`** — fast video/GIF/HTML export. OpenCV backend (1000+ fps) with automatic matplotlib fallback.
+  - **`plot.play()`** — interactive playback with 3-tier auto-detection: k3d (Jupyter), vedo (desktop), OpenCV inline video or matplotlib fallback. Automatic 30fps subsampling for smooth playback.
+  - **`plot.trajectory()`** — 2D top-down root trajectory. Per-skeleton up-axis detection for correct projection when overlaying skeletons with different conventions.
+  - **`plot.rest_pose()`** — convenience wrapper for visualizing the T-pose / bind pose.
+- **`sync` parameter** on `render()` and `play()` — `"truncate"` (default) or `"pad"` for side-by-side comparison of clips with different lengths.
+- **`resolution` parameter** on `play()` — controls the OpenCV notebook fallback resolution.
+- **Left-right symmetry axis detection** in `get_forw_up_axis()` — replaced fragile toe-based forward detection with robust left-right joint pair averaging from rest-pose offsets.
+- **`build_view_matrix()`** rewritten to use matplotlib's look-at camera math — ensures OpenCV and matplotlib backends produce identical views.
+- **Per-skeleton centering** in side-by-side OpenCV renders — each panel centers its skeleton independently.
+- **GIF streaming** — `_render_gif()` uses a generator to avoid loading all frames into memory.
+- 50 new visualization tests (954 total) including semantic front-view and backend-agreement checks.
+
+### Fixed
+
+- **Skeleton framing** — `compute_unified_limits()` now uses the larger of body span and trajectory extent, preventing walking skeletons from clipping out of frame.
+- **View rotation framing** — `ortho_project()` computes view-space extent from rotated bounding box corners, preventing clipping at non-zero elevation angles.
+- **Front-view orientation** — camera angles now correctly show the skeleton's chest (toes toward viewer) with right-handed axes for all up-axis conventions.
+- **k3d bone connections** — added `indices_type='segment'` to fix spurious bones from triangle-mode index grouping.
+- **k3d double plot** — `play_k3d()` returns `None` to prevent Jupyter auto-display of the returned widget.
+- **k3d grid bounds** — grid set explicitly from full motion extent so skeleton stays within bounds during animation.
+- **OpenCV codec noise** — reordered codec list to try `mp4v` first, eliminating `h264_v4l2m2m` stderr warnings.
+- **Parameter validation** — `centered` and `sync` parameters now raise `ValueError` on invalid values instead of silently defaulting.
+
+### Changed
+
+- `pybvh/plot.py` (single file) replaced by `pybvh/plot/` package with `__init__.py`, `_common.py`, `_matplotlib.py`, `_opencv.py`, `_k3d.py`, `_vedo.py`.
+- `render()` emits a warning when falling back from OpenCV to matplotlib in auto mode.
+
+---
+
 ## [0.4.0] — 2026-03-31
 
 ### Added

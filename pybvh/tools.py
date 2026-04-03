@@ -322,8 +322,11 @@ def get_forw_up_axis(bvh_object: Bvh, frame: npt.NDArray[np.float64]) -> dict[st
 
     Uses heuristics based on joint names to determine the upward axis
     (looks for "head", "neck", "chest", "spine" in priority order,
-    skipping joints at the root origin) and rest-pose end-site offsets
-    of toe/foot joints for the forward axis (pose-independent).
+    skipping joints at the root origin) and left-right symmetry from
+    rest-pose offsets for the forward axis (pose-independent). The
+    lateral axis is found by averaging the right-minus-left offset of
+    all matching Left/Right joint pairs, then forward is derived via
+    ``cross(up, lateral)``.
 
     Parameters
     ----------
@@ -377,22 +380,52 @@ def get_forw_up_axis(bvh_object: Bvh, frame: npt.NDArray[np.float64]) -> dict[st
     up_idx = {"x": 0, "y": 1, "z": 2}[up_ax[1]]
 
     # --- Forward-axis detection (pose-independent) ---
-    # Use rest-pose end-site offsets of toe/foot joints, projected onto
-    # the ground plane (up-axis component removed).
-    toe_keywords = ["toe", "foot", "forefoot"]
+    # Primary: use left-right symmetry from rest-pose offsets to find the
+    # lateral axis, then derive forward = cross(up, lateral).
+    # This is more robust than toe end-sites because nearly every humanoid
+    # skeleton has Left/Right named joints and we can average multiple pairs.
     forward_ax: str | None = None
+
+    # Cumulative rest-pose offset from root for a joint
+    def _rest_offset(node: object) -> npt.NDArray[np.float64]:
+        offset = np.zeros(3)
+        current = node
+        while current is not None:
+            offset = offset + np.array(current.offset)
+            current = current.parent
+        return offset
+
+    # Find matching Left/Right joint pairs
+    left_joints: dict[str, object] = {}
+    right_joints: dict[str, object] = {}
     for node in bvh_object.nodes:
-        if not node.is_end_site():
+        if node.is_end_site():
             continue
-        parent = node.parent
-        if parent is None:
-            continue
-        if any(kw in parent.name.lower() for kw in toe_keywords):
-            offset = node.offset.copy()
-            offset[up_idx] = 0.0  # project out up-axis component
-            forward_ax = get_main_direction(offset)
-            if forward_ax is not None:
-                break
+        lower = node.name.lower()
+        if "left" in lower:
+            left_joints[node.name] = node
+        elif "right" in lower:
+            right_joints[node.name] = node
+
+    lateral_vectors: list[npt.NDArray[np.float64]] = []
+    for lname, lnode in left_joints.items():
+        rname = lname.replace("Left", "Right").replace("left", "right")
+        if rname in right_joints:
+            diff = _rest_offset(right_joints[rname]) - _rest_offset(lnode)
+            lateral_vectors.append(diff)
+
+    if lateral_vectors:
+        avg_lateral = np.mean(lateral_vectors, axis=0)
+        avg_lateral[up_idx] = 0.0  # project to ground plane
+        lateral_ax = get_main_direction(avg_lateral)
+        if lateral_ax is not None and lateral_ax[1] != up_ax[1]:
+            up_vec = np.zeros(3)
+            up_vec[up_idx] = 1.0 if up_ax[0] == "+" else -1.0
+            lat_vec = np.zeros(3)
+            lat_idx = {"x": 0, "y": 1, "z": 2}[lateral_ax[1]]
+            lat_vec[lat_idx] = 1.0 if lateral_ax[0] == "+" else -1.0
+            fwd_vec = np.cross(up_vec, lat_vec)
+            forward_ax = get_main_direction(fwd_vec)
 
     # Fallback: default mapping from up-axis
     default_up2front: dict[str, str] = {"x": "+y", "y": "+z", "z": "+x"}

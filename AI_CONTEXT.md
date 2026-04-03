@@ -10,14 +10,15 @@
 |---|---|
 | **Name** | pybvh |
 | **Language** | Python 3 (>= 3.9) |
-| **Dependencies** | `numpy` (required), `matplotlib` (required), `pandas` (optional extra) |
+| **Dependencies** | `numpy` (required), `matplotlib` (required), `pandas` (optional), `opencv-python` (optional, fast render), `k3d` (optional, Jupyter), `vedo` (optional, desktop) |
 | **Primary use-case** | Reading, writing, and manipulating BVH (Biovision Hierarchy) motion capture files — serving ML pipelines, biomechanics research, game dev, and any workflow that consumes skeleton animation data |
 | **Design principles** | **Fast** (NumPy-vectorised, pre-allocated arrays), **Lightweight** (minimal code surface, no ML framework deps), **Self-contained** (no scipy, no PyTorch, no TensorFlow) |
-| **Version** | 0.3.1 |
+| **Version** | 0.4.0 |
 | **Package** | Published on PyPI as `pybvh`. Install via `pip install pybvh`. Optional: `pip install "pybvh[pandas]"` |
-| **CI/CD** | GitHub Actions: test workflow (push/PR, Python 3.9–3.12) + publish workflow (PyPI on release) |
+| **CI/CD** | GitHub Actions: test workflow (push/PR, Python 3.9–3.12) + publish workflow (PyPI on release) + docs workflow (MkDocs to GitHub Pages on push to main) |
 | **Type safety** | Full type annotations on all source files, `@overload` on inplace methods, mypy clean |
-| **Tests** | 863 tests via pytest, covering all modules, edge cases, and battle tests across 3 real-world datasets |
+| **Tests** | 954 tests via pytest, covering all modules, edge cases, and battle tests across 3 real-world datasets |
+| **Documentation** | MkDocs + mkdocstrings + Material theme, auto-deployed to GitHub Pages |
 
 ---
 
@@ -61,8 +62,8 @@ Defines a skeleton as a tree of joints. Each joint has:
             pd.DataFrame(...)                      NumPy array (3D positions)
                     │                                         │
                     ▼                                         ▼
-              df_to_bvh() ──► Bvh object            plot.plot_frame()
-                    │                               plot.plot_animation()
+              df_to_bvh() ──► Bvh object            plot.frame()
+                    │                               plot.render() / plot.play()
                     ▼
             bvh.to_bvh_file() ──► .bvh file
 ```
@@ -292,17 +293,33 @@ After receiving the flat array, `read_bvh_file` splits it into `root_pos` (first
 | `batch_get_premult_mat_rot(angles, order)` | Batch Euler → rotation matrices: `(N, 3)` radians → `(N, 3, 3)`. Used by vectorized FK. |
 | `get_main_direction(coord_array, tol)` | Return signed axis string (e.g. `'+y'`) for the dominant component, or `None` if norm < `tol`. |
 | `extract_sign(ax)` | Return `True` if axis string is positive, `False` if negative. |
-| `get_forw_up_axis(bvh_object, frame)` | Infer forward/upward axes using joint name heuristics (up) and end-site offsets (forward). Validates input, skips zero-offset joints, guarantees orthogonal axes. |
+| `get_forw_up_axis(bvh_object, frame)` | Infer forward/upward axes using joint name heuristics (up) and left-right symmetry from rest-pose offsets (forward via cross product). Validates input, guarantees orthogonal axes. |
 | `get_up_axis_index(bvh_object, frame)` | Return integer index (0=x, 1=y, 2=z) of the upward axis. |
 
-### 4.9 `pybvh/plot.py` — Visualization
+### 4.9 `pybvh/plot/` — Visualization Package
+
+Multi-backend visualization with five public functions:
 
 | Function | Purpose |
 |---|---|
-| `plot_frame(bvh_object, frame, centered)` | Static 3D matplotlib plot of one frame. |
-| `plot_animation(bvh_object, frames, centered, savefile, filepath, ...)` | Animated 3D plot. Can save to `.mp4`. |
+| `plot.rest_pose(bvh, ...)` | Plot the T-pose / bind pose (all angles zero, root at origin). |
+| `plot.frame(bvh, frame, centered, camera, ...)` | Static 3D matplotlib snapshot. Accepts single Bvh or list for side-by-side comparison. Camera presets: `"front"`, `"side"`, `"top"`, or `(azim, elev)`. |
+| `plot.render(bvh, filepath, backend, camera, resolution, sync, ...)` | Export animation to video/GIF/HTML. OpenCV backend (~1000 fps) with matplotlib fallback. `sync="pad"` continues to the longest clip. |
+| `plot.play(bvh, backend, sync, resolution, ...)` | Playback with 3-tier auto-detection: k3d (Jupyter), vedo (desktop), then OpenCV inline video (notebook) or matplotlib window (script). Auto-subsamples to 30fps for smooth playback. |
+| `plot.trajectory(bvh, ...)` | 2D top-down root trajectory plot. Per-skeleton up-axis detection for correct projection in multi-skeleton overlays. |
 
-Uses `bvh_object.node_index` to look up node indices for drawing skeleton bones. Axis detection functions (`get_forw_up_axis`, `extract_sign`) live in `tools.py` and are imported here.
+**Submodules:**
+- `_common.py` — Shared helpers: `get_skeleton_lines()`, `normalize_input()`, `compute_unified_limits()`, `get_camera_angles()`, `build_view_matrix()`, `ortho_project()`, `align_frame_counts()`
+- `_matplotlib.py` — Matplotlib backend (frame, render, play, trajectory)
+- `_opencv.py` — OpenCV fast render via orthographic 2D projection (~1000x faster than matplotlib for video export)
+- `_k3d.py` — k3d Jupyter interactive backend with Play/slider widgets
+- `_vedo.py` — vedo desktop interactive backend with keyboard controls
+
+**Camera math:** `build_view_matrix()` replicates matplotlib's look-at camera algorithm (eye from spherical coords, cross-product u/v/w axes) so that both backends produce identical views. Front-view detection uses left-right symmetry to find the lateral axis, derives forward via cross product, then positions the camera facing the skeleton's chest.
+
+**Optional dependencies:** `opencv-python` (fast render), `k3d` (notebook), `vedo` (desktop). Install via `pip install pybvh[opencv]`, `pybvh[interactive]`, `pybvh[viewer]`, or `pybvh[all-viz]`.
+
+Axis detection functions (`get_forw_up_axis`, `extract_sign`) live in `tools.py`. `get_forw_up_axis` is re-exported from `plot.__init__` for backward compatibility.
 
 ### 4.10 `pybvh/transforms.py` — Spatial Augmentation Transforms
 
@@ -410,8 +427,8 @@ where the order comes from the joint's `rot_channels`.
 - **Test files**:
   - `tests/test_bvh.py` — File I/O, hierarchy, spatial coordinates, DataFrame conversion, skeleton operations, batch processing, freeze preservation, ML pipeline features (velocities, foot contacts, normalization, feature export), edge cases.
   - `tests/test_rotations.py` — All conversion paths, gimbal lock, 180° SLERP, analytical values.
-- **Run command**: `pytest tests/ -v`
-- **Current count**: 863 tests, all passing (520 unit + 343 battle tests across 15 representative files from 3 datasets; + 23k-file smoke test via `--runslow`).
+- **Run command**: `conda run -n pybvh pytest tests/ -v`
+- **Current count**: 954 tests, all passing (611 unit + 343 battle tests across 15 representative files from 3 datasets; + 23k-file smoke test via `--runslow`).
 - **Note**: `tests/test_transforms_battle.py` uses private datasets from `internal_bvh_data/` and is gitignored — never publish or share this file.
 
 ---
@@ -499,7 +516,7 @@ bvh2 = df_to_bvh(bvh.nodes, df)
 
 # Write & plot
 bvh.to_bvh_file("output.bvh")
-plot.plot_frame(bvh, 0)
+plot.frame(bvh, 0)
 ```
 
 ---

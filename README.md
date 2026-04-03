@@ -19,7 +19,7 @@ Built for researchers and developers working with skeletal animation and motion 
 - **Batch loading** of entire directories with optional parallel I/O
 - **NumPy export** in any rotation representation — ready for any downstream workflow
 - **Pandas ready** via an export option ready to become a DataFrame
-- **3D visualization** with Matplotlib (static frames and animated videos)
+- **3D visualization** with multiple backends (matplotlib, OpenCV, k3d, vedo)
 
 ## Philosophy
 
@@ -181,11 +181,33 @@ q_mid = rotations.quat_slerp(q1, q2, t=0.5)
 ```python
 from pybvh import plot
 
-# Plot a single frame
-plot.plot_frame(bvh, frame=0)
+# Rest pose (T-pose)
+plot.rest_pose(bvh)
 
-# Create an animation video
-plot.plot_animation(bvh, output_path="walk.mp4")
+# Static frame with camera control
+plot.frame(bvh, frame=0, camera="front")  # also "side", "top", (azim, elev)
+
+# Fast video export (OpenCV if installed, else matplotlib)
+plot.render(bvh, "walk.mp4")
+
+# Interactive playback (auto-detects best backend)
+plot.play(bvh)
+
+# Side-by-side comparison (sync="pad" continues to longest clip)
+plot.frame([bvh1, bvh2], frame=0, labels=["Original", "Generated"])
+plot.render([bvh1, bvh2], "compare.mp4", sync="pad")
+
+# 2D root trajectory
+plot.trajectory(bvh)
+```
+
+Install optional visualization backends for best performance:
+
+```bash
+pip install pybvh[opencv]       # Fast video rendering 
+pip install pybvh[interactive]  # k3d for Jupyter notebooks
+pip install pybvh[viewer]       # vedo for desktop interactive viewer
+pip install pybvh[all-viz]      # All of the above
 ```
 
 ## Pandas Integration

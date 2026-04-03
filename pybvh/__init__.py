@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 from .bvh import Bvh
 from .io import read_bvh_file, write_bvh_file

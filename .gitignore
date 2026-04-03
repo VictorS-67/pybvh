@@ -25,18 +25,24 @@ htmlcov/
 internal_bvh_data/
 tests/test_transforms_battle.py
 conftest.py
+tmp/
+tmp_test_viz*
+.mypy_cache/
 
 # --- IDE & Editor Settings (Optional but recommended) ---
 .vscode/
 .idea/
 *.swp
 .claude/
+.ipynb_checkpoints/
+.chat_history/
 
 # --- Mac OS Specific (junk files) ---
 .DS_Store
 
 # --- Documentation ---
 site/
+
 
 # --- Project Specific ---
 FUTURE_PLANS.md

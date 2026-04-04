@@ -379,6 +379,7 @@ def play(
     backend: str = "auto",
     sync: str = "truncate",
     resolution: tuple[int, int] = (960, 540),
+    quality: str = "high",
 ) -> object:
     """Play back motion data.
 
@@ -415,6 +416,11 @@ def play(
         Output resolution ``(width, height)`` in pixels for the OpenCV
         notebook fallback. Default ``(960, 540)``. Ignored by
         interactive backends (k3d, vedo) and matplotlib.
+    quality : str, optional
+        Visual quality for the vedo desktop backend:
+        ``"high"`` (default) uses 3D tubes and spheres with lighting;
+        ``"fast"`` uses flat lines and points for maximum performance.
+        Ignored by other backends.
 
     Returns
     -------
@@ -429,6 +435,12 @@ def play(
         raise ValueError(
             f"Unknown backend {backend!r}. "
             f"Choose from: {sorted(valid_backends)}")
+
+    _VALID_QUALITY = {"fast", "high"}
+    if quality not in _VALID_QUALITY:
+        raise ValueError(
+            f"Unknown quality {quality!r}. "
+            f"Choose from: {sorted(_VALID_QUALITY)}")
 
     _validate_sync(sync)
     pad = sync == "pad"
@@ -489,7 +501,9 @@ def play(
         from ._vedo import play_vedo
         return play_vedo(
             bvh_list, coords_list, actual_fps, labels,
-            skeleton_lines_list, center, half_span)
+            skeleton_lines_list, center, half_span,
+            up_axis=up_axis, azimuth=azimuth, elevation=elevation,
+            quality=quality)
 
     elif backend_name == "opencv_notebook":
         import tempfile

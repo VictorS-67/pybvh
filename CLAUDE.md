@@ -29,7 +29,7 @@ pybvh owns the journey from `.bvh` file to structured NumPy arrays and back. Eve
 - **Spatial transforms**: Rotation, mirroring, translation, noise, speed perturbation, frame dropout — at both Bvh-object and raw array level
 - **Motion analysis**: Velocities, accelerations, angular velocities, foot contacts, root trajectory, feature export — these are properties of motion, not ML-specific concepts
 - **Batch loading**: Directory-level I/O with optional parallelism
-- **Visualization**: Static and animated 3D skeleton plots
+- **Visualization (bvhplot)**: Quick-look tools — static snapshots, video export, interactive playback. Lightweight desktop viewer with keyboard toggles (labels, ghost, trail, FPS, screenshot). See `pybvh/bvhplot/CHARTER.md` for scope boundaries.
 
 ## What pybvh does NOT own
 
@@ -38,6 +38,8 @@ pybvh owns the journey from `.bvh` file to structured NumPy arrays and back. Eve
 - **Training pipeline concerns**: HDF5 export, augmentation schedulers, collate functions
 - **Skeleton-graph construction**: Adjacency matrices, attention masks, body-part partitions
 - **Model-specific preprocessing**: Normalization schemes tied to specific papers, label handling
+- **Professional inspection UI**: Property panels, skeleton hierarchy trees, graph editors, multi-viewport layouts — these belong in pybvh-blender (Blender addon)
+- **Motion editing**: Interactive pose editing, keyframe manipulation, IK/FK — these are Blender's domain
 
 ## The boundary
 
@@ -45,7 +47,12 @@ pybvh understands *motion capture data*. It does not understand *what you are do
 
 ## Ecosystem position
 
-pybvh is the foundation that other libraries build on. Its sister library **pybvh-ml** (separate repo) provides the ML-specific layer (tensor packing, PyTorch Datasets, augmentation pipelines). pybvh never depends on or knows about pybvh-ml. The dependency flows one way: `pybvh-ml -> pybvh`.
+pybvh is the foundation that other libraries build on:
+
+- **pybvh-ml** (separate repo): ML-specific layer — tensor packing, PyTorch Datasets, augmentation pipelines.
+- **pybvh-blender** (separate repo): Blender addon for deep BVH inspection — joint property panels, skeleton hierarchy tree, foot contact timeline markers, velocity overlays. Uses pybvh for parsing/analysis, Blender for UI and rendering.
+
+pybvh never depends on or knows about either. Dependencies flow one way: `pybvh-ml -> pybvh` and `pybvh-blender -> pybvh`.
 
 ## Development guidelines
 

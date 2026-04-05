@@ -298,28 +298,48 @@ After receiving the flat array, `read_bvh_file` splits it into `root_pos` (first
 
 ### 4.9 `pybvh/bvhplot/` — Visualization Package
 
-Multi-backend visualization with five public functions:
+Quick-look visualization module. See `pybvh/bvhplot/CHARTER.md` for full scope and boundaries.
+
+**Scope rule:** If a feature requires a GUI widget (panel, tree, graph, dropdown), it belongs in pybvh-blender, not here. If it's a keyboard toggle on the 3D viewport, it belongs here.
+
+**Five public functions:**
 
 | Function | Purpose |
 |---|---|
-| `plot.rest_pose(bvh, ...)` | Plot the T-pose / bind pose (all angles zero, root at origin). |
-| `plot.frame(bvh, frame, centered, camera, ...)` | Static 3D matplotlib snapshot. Accepts single Bvh or list for side-by-side comparison. Camera presets: `"front"`, `"side"`, `"top"`, or `(azim, elev)`. |
-| `plot.render(bvh, filepath, backend, camera, resolution, sync, ...)` | Export animation to video/GIF/HTML. OpenCV backend (~1000 fps) with matplotlib fallback. `sync="pad"` continues to the longest clip. |
-| `plot.play(bvh, backend, sync, resolution, ...)` | Playback with 3-tier auto-detection: k3d (Jupyter), vedo (desktop), then OpenCV inline video (notebook) or matplotlib window (script). Auto-subsamples to 30fps for smooth playback. |
-| `plot.trajectory(bvh, ...)` | 2D top-down root trajectory plot. Per-skeleton up-axis detection for correct projection in multi-skeleton overlays. |
+| `bvhplot.rest_pose(bvh, ...)` | Plot the T-pose / bind pose (all angles zero, root at origin). |
+| `bvhplot.frame(bvh, frame, centered, camera, ...)` | Static 3D matplotlib snapshot. Accepts single Bvh or list for side-by-side comparison. Camera presets: `"front"`, `"side"`, `"top"`, or `(azim, elev)`. |
+| `bvhplot.render(bvh, filepath, backend, camera, resolution, sync, ...)` | Export animation to video/GIF/HTML. OpenCV backend (~1000 fps) with matplotlib fallback. `sync="pad"` continues to the longest clip. |
+| `bvhplot.play(bvh, backend, camera, sync, resolution, quality, ...)` | Interactive playback with 3-tier auto-detection: k3d (Jupyter), vedo (desktop), then OpenCV inline video (notebook) or matplotlib window (script). |
+| `bvhplot.trajectory(bvh, ...)` | 2D top-down root trajectory plot. Per-skeleton up-axis detection for correct projection in multi-skeleton overlays. |
+
+**Vedo desktop viewer features (keyboard shortcuts):**
+
+| Key | Feature |
+|---|---|
+| Space, +/-, Left/Right, Home, End | Playback controls (play/pause, speed, step, jump) |
+| L | Cycle loop mode (loop / ping-pong / off) |
+| R | Reset camera to initial view |
+| F | Cycle FPS presets (15/30/60/120/native) |
+| J | Toggle joint name labels (billboard text) |
+| S | Screenshot to PNG (with feedback overlay) |
+| T | Toggle root trajectory trail on floor |
+| H | Toggle help panel (right side) |
+| 1-9 | Toggle per-skeleton visibility |
+
+**Performance:** High-quality mode uses merged meshes (2 VTK actors per skeleton, not 1 per bone). Bones updated via vectorized numpy (einsum) + single `.vertices` write per frame. Wall-clock timing ensures correct playback speed regardless of frame drops. Capable of ~490fps on modern hardware.
 
 **Submodules:**
 - `_common.py` — Shared helpers: `get_skeleton_lines()`, `normalize_input()`, `compute_unified_limits()`, `get_camera_angles()`, `build_view_matrix()`, `ortho_project()`, `align_frame_counts()`
 - `_matplotlib.py` — Matplotlib backend (frame, render, play, trajectory)
 - `_opencv.py` — OpenCV fast render via orthographic 2D projection (~1000x faster than matplotlib for video export)
 - `_k3d.py` — k3d Jupyter interactive backend with Play/slider widgets
-- `_vedo.py` — vedo desktop interactive backend with keyboard controls
+- `_vedo.py` — vedo desktop interactive backend with full controls
 
-**Camera math:** `build_view_matrix()` replicates matplotlib's look-at camera algorithm (eye from spherical coords, cross-product u/v/w axes) so that both backends produce identical views. Front-view detection uses left-right symmetry to find the lateral axis, derives forward via cross product, then positions the camera facing the skeleton's chest.
+**Camera math:** `build_view_matrix()` replicates matplotlib's look-at camera algorithm so that all backends produce identical views. Front-view detection uses left-right symmetry.
 
 **Optional dependencies:** `opencv-python` (fast render), `k3d` (notebook), `vedo` (desktop). Install via `pip install pybvh[opencv]`, `pybvh[interactive]`, `pybvh[viewer]`, or `pybvh[all-viz]`.
 
-Axis detection functions (`get_forw_up_axis`, `extract_sign`) live in `tools.py`. `get_forw_up_axis` is re-exported from `plot.__init__` for backward compatibility.
+**For deep inspection** (joint properties, rotation readouts, graph editors, skeleton hierarchy): use pybvh-blender (separate Blender addon). See `docs/pybvh_blender_addon_spec.md`.
 
 ### 4.10 `pybvh/transforms.py` — Spatial Augmentation Transforms
 
@@ -536,22 +556,25 @@ plot.frame(bvh, 0)
 
 ## 12. Ecosystem & Scope Boundary
 
-pybvh is the **foundation layer** in a two-library ecosystem:
+pybvh is the **foundation layer** in a three-library ecosystem:
 
 ```
-pybvh-ml  (ML bridge: tensor packing, augmentation pipelines, PyTorch Datasets)
+pybvh-ml      (ML bridge: tensor packing, augmentation pipelines, PyTorch Datasets)
     │
     ▼
-  pybvh   (BVH foundation: parsing, rotation math, transforms, motion analysis)
+  pybvh       (BVH foundation: parsing, rotation math, transforms, motion analysis, quick visualization)
     │
-    ▼
-  NumPy
+    ▲
+pybvh-blender (Blender addon: deep BVH inspection, joint panels, analysis overlays)
 ```
 
-**pybvh never imports or knows about pybvh-ml.** The dependency flows one way.
+**pybvh never imports or knows about pybvh-ml or pybvh-blender.** Dependencies flow one way: `pybvh-ml -> pybvh` and `pybvh-blender -> pybvh`.
 
-### Scope rule
-If a feature is useful to a biomechanics researcher, game developer, or anyone working with BVH data outside ML — it belongs in pybvh. If it only makes sense in an ML training context (tensor layouts, Dataset classes, augmentation pipelines, HDF5 export) — it belongs in pybvh-ml.
+### Scope rules
+- If a feature is useful to anyone working with BVH data (researcher, game dev, biomechanics) — it belongs in **pybvh**.
+- If it only makes sense in an ML training context (tensor layouts, Datasets, HDF5 export) — it belongs in **pybvh-ml**.
+- If it requires GUI widgets (property panels, graph editors, skeleton trees) for deep inspection — it belongs in **pybvh-blender**.
+- If it's a quick visualization callable from Python (`bvhplot.play(bvh)`) — it belongs in **pybvh.bvhplot**.
 
 ### API surface that pybvh-ml relies on
 pybvh-ml is a primary consumer of pybvh's public API. When modifying pybvh, be aware that these entry points are used downstream:

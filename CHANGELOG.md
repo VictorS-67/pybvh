@@ -7,6 +7,47 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.5.1] — 2026-04-05
+
+### Added
+
+- **Vedo desktop viewer overhaul** — major performance and feature improvements:
+  - **Merged mesh rendering** — all bones merged into 1 mesh, all joints into 1 mesh (2 VTK actors per skeleton instead of ~120). Bones updated via vectorized numpy `einsum`. Capable of ~490fps on modern hardware.
+  - **Wall-clock timing** — frame advancement uses `time.perf_counter()` for correct playback speed regardless of frame drops.
+  - **FPS selector** — left panel control with presets (15/30/60/120/native). Key `F` to cycle. 30fps cap removed for vedo backend.
+  - **Ping-pong playback** — `L` key cycles through loop / ping-pong / off modes.
+  - **Joint name labels** — `J` key toggles billboard text labels that always face the camera.
+  - **Root trajectory trail** — `T` key shows root path projected on the floor, follows scrubbing.
+  - **Screenshot with feedback** — `S` key saves PNG with brief "Saved: filename" overlay.
+  - **Per-skeleton visibility** — `1`–`9` keys toggle individual skeletons.
+  - **Help panel** — `H` key toggles right-side shortcut reference.
+  - **Camera parameter** — `bvhplot.play()` now accepts `camera` parameter (was hardcoded to `"front"`).
+  - **Auto camera detection** — initial view uses `get_forw_up_axis()` for correct front-facing orientation.
+  - **Adaptive bone sizing** — bone radii scale proportionally to bone length (fingers thin, limbs thick).
+  - **Floor grid** — positioned at skeleton's lowest point, denser grid (30x30), visible on all up-axis conventions.
+
+- **Module renamed** from `pybvh.plot` to `pybvh.bvhplot` — avoids confusion with matplotlib. All imports, docs, and tests updated.
+- **`bvhplot/CHARTER.md`** — scope document defining what bvhplot owns and what belongs in pybvh-blender.
+- **Feature gap analysis** (`docs/feature_gap_analysis.md`) — comparison against 10 industry tools.
+- **pybvh-blender implementation guide** (`docs/pybvh_blender_implementation_guide.md`) — complete handoff document for the Blender addon team.
+
+### Fixed
+
+- **Vedo key conflicts** — disabled vedo's default keyboard callbacks (L=lighting, arrows=transparency) that interfered with playback controls.
+- **Division by zero** — guarded against `fps <= 0` and `num_frames = 0` in vedo viewer.
+- **Dead code cleanup** — removed unused `frame_time` variable, stale helper functions, duplicate imports.
+- **Inconsistent naming** — removed underscore-prefixed loop variables, unified state dict initialization.
+- **Stale comments** — updated UI layout comments to match current code.
+
+### Changed
+
+- **Vedo minimum version** bumped to `>= 2024.5` (was `>= 2023.5`) in `pyproject.toml` and docstring.
+- **Vedo viewer lighting** — switched from glossy specular to flat ambient-only. Eliminates color shifting on frame updates with merged meshes.
+- **Ghost/onion-skin mode removed** — delegated to pybvh-blender for proper implementation.
+- **UI compact layout** — removed "Controls" title, speed/FPS each on single line, transport buttons centered with `justify='bottom-center'`.
+
+---
+
 ## [0.5.0] — 2026-04-03
 
 ### Added

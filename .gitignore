@@ -28,6 +28,7 @@ conftest.py
 tmp/
 tmp_test_viz*
 .mypy_cache/
+bug_report.md
 
 # --- IDE & Editor Settings (Optional but recommended) ---
 .vscode/
@@ -49,3 +50,4 @@ FUTURE_PLANS.md
 new_bvh.bvh
 bvh_animation.mp4
 pybvh.egg-info/
+bug_report.md

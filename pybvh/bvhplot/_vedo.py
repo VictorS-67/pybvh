@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import math
 import time
-from collections import deque
 
 import numpy as np
 import numpy.typing as npt
@@ -151,6 +150,11 @@ def play_vedo(
         prop.SetSpecular(0.0)
 
     # --- Plotter setup ---
+    # Disable vedo's default key bindings (L=lighting, arrows=transparency)
+    # to avoid conflicts with our playback controls.
+    import vedo as _vedo_mod
+    _vedo_mod.settings.enable_default_keyboard_callbacks = False
+    _vedo_mod.settings.enable_default_mouse_callbacks = False
     plt = Plotter(
         title="pybvh viewer",
         size=(1400, 900),
@@ -361,38 +365,8 @@ def play_vedo(
             plt.renderer.AddActor(actor)
         _label_actors.append(lbl_list)
 
-    # Keep full-rate data for FPS resampling and ghost mode
+    # Keep full-rate data for FPS resampling
     _coords_full = [c.copy() for c in coords_list]
-
-    # --- Ghost / onion-skin actors (toggle with N key) ---
-    _GHOST_LEVELS = [0, 3, 5]    # number of ghost frames: off, 3, 5
-    _ghost_lines: list[list] = []   # _ghost_lines[s] = list of Lines actors
-    _ghost_points: list[list] = []  # _ghost_points[s] = list of Points actors
-    _MAX_GHOSTS = max(_GHOST_LEVELS)
-    _ghost_last_alpha: list[list[float]] = []  # cached alpha per ghost actor
-    for s in range(n_skeletons):
-        color = _color(s)
-        g_lines: list = []
-        g_points: list = []
-        frame0 = _coords_full[s][0]
-        start_pts = frame0[_bone_parent_idx[s]]
-        end_pts = frame0[_bone_child_idx[s]]
-        _lw_g = max(1, int(half_span * 0.02))
-        _pr_g = max(1, int(half_span * 0.025))
-        for _gi in range(_MAX_GHOSTS):
-            gl = Lines(start_pts, end_pts, lw=_lw_g, c=color, alpha=0.15)
-            gl.lighting('off')
-            gl.actor.SetVisibility(0)
-            gp = Points(frame0, r=_pr_g, c=color, alpha=0.15)
-            gp.lighting('off')
-            gp.actor.SetVisibility(0)
-            g_lines.append(gl)
-            g_points.append(gp)
-            plt += gl
-            plt += gp
-        _ghost_lines.append(g_lines)
-        _ghost_points.append(g_points)
-        _ghost_last_alpha.append([-1.0] * _MAX_GHOSTS)
 
     # --- Root trajectory trail (toggle with T key) ---
     # Pre-compute full root path; pre-allocate Lines with collapsed segments.
@@ -423,13 +397,12 @@ def play_vedo(
         'interval': max(int(1000.0 / max(fps, 1)), 8),
         'timer_id': None,
         'speed': 1.0,
-        'loop': True,
+        'loop_mode': 'loop',       # 'loop', 'ping-pong', 'off'
+        'play_direction': 1,       # 1 = forward, -1 = backward
         '_slider_updating': False,
         'show_labels': False,
         'skeleton_visible': [True] * n_skeletons,
-        'ghost_level_idx': 0,     # index into _GHOST_LEVELS
         'show_trail': False,
-        'ghost_history': deque(maxlen=_MAX_GHOSTS * 5 + 1),
         '_rendering': False,
         '_play_start_time': None,
         '_play_start_frame': 0,
@@ -447,87 +420,71 @@ def play_vedo(
 
     # Frame info is shown in the window title bar (not a 2D overlay)
 
-    # --- Left panel ---
+    # --- Left panel (compact: label + < value > on same line) ---
     _PANEL_X = 0.01
     _PANEL_S = 1.4
 
-    panel_title = Text2D(
-        " Controls ",
-        pos=(_PANEL_X, 0.92), s=_PANEL_S, c='white', bg='#2c3e50',
-        font='Calco',
-    )
-    plt += panel_title
-
     speed_label = Text2D(
-        "Speed:", pos=(_PANEL_X, 0.85), s=_PANEL_S,
+        "Spd", pos=(_PANEL_X, 0.92), s=_PANEL_S,
         c='#2c3e50', font='Calco',
     )
     plt += speed_label
-
     speed_down_btn = Text2D(
-        " < ", pos=(_PANEL_X, 0.79), s=_PANEL_S,
+        " < ", pos=(0.05, 0.92), s=_PANEL_S,
         c='white', bg='dodgerblue', font='Calco',
     )
     plt += speed_down_btn
-
     speed_text = Text2D(
-        " 1.0x ", pos=(0.06, 0.79), s=_PANEL_S,
+        " 1x ", pos=(0.08, 0.92), s=_PANEL_S,
         c='#2c3e50', bg='#c8c8d4', font='Calco',
     )
     plt += speed_text
-
     speed_up_btn = Text2D(
-        " > ", pos=(0.12, 0.79), s=_PANEL_S,
+        " > ", pos=(0.12, 0.92), s=_PANEL_S,
         c='white', bg='dodgerblue', font='Calco',
     )
     plt += speed_up_btn
 
-    loop_btn = Text2D(
-        " Loop: ON ", pos=(_PANEL_X, 0.72), s=_PANEL_S,
-        c='white', bg='green4', font='Calco',
-    )
-    plt += loop_btn
-
-    reset_btn = Text2D(
-        " Reset Cam ", pos=(_PANEL_X, 0.65), s=_PANEL_S,
-        c='white', bg='dodgerblue', font='Calco',
-    )
-    plt += reset_btn
-
     # --- FPS selector ---
     _native_fps = fps
     _fps_presets = [15, 30, 60, 120, int(round(_native_fps))]
-    # De-duplicate and sort, ensure native fps is included
     _fps_presets = sorted(set(_fps_presets))
-    # Default to 30fps if native is higher (comfortable playback),
-    # otherwise use native fps.
     _default_fps = 30 if _native_fps > 30 else _native_fps
     _fps_idx = _fps_presets.index(
         min(_fps_presets, key=lambda x: abs(x - _default_fps)))
 
     fps_label = Text2D(
-        "FPS:", pos=(_PANEL_X, 0.58), s=_PANEL_S,
+        "FPS", pos=(_PANEL_X, 0.86), s=_PANEL_S,
         c='#2c3e50', font='Calco',
     )
     plt += fps_label
-
     fps_down_btn = Text2D(
-        " < ", pos=(_PANEL_X, 0.52), s=_PANEL_S,
+        " < ", pos=(0.05, 0.86), s=_PANEL_S,
         c='white', bg='dodgerblue', font='Calco',
     )
     plt += fps_down_btn
-
     fps_text = Text2D(
-        f" {_fps_presets[_fps_idx]} ", pos=(0.06, 0.52), s=_PANEL_S,
+        f" {_fps_presets[_fps_idx]} ", pos=(0.08, 0.86), s=_PANEL_S,
         c='#2c3e50', bg='#c8c8d4', font='Calco',
     )
     plt += fps_text
-
     fps_up_btn = Text2D(
-        " > ", pos=(0.12, 0.52), s=_PANEL_S,
+        " > ", pos=(0.12, 0.86), s=_PANEL_S,
         c='white', bg='dodgerblue', font='Calco',
     )
     plt += fps_up_btn
+
+    loop_btn = Text2D(
+        " Loop ", pos=(_PANEL_X, 0.80), s=_PANEL_S,
+        c='white', bg='green4', font='Calco',
+    )
+    plt += loop_btn
+
+    reset_btn = Text2D(
+        " Reset Cam ", pos=(_PANEL_X, 0.74), s=_PANEL_S,
+        c='white', bg='dodgerblue', font='Calco',
+    )
+    plt += reset_btn
 
     # --- Bottom: transport bar ────────────────────────────────────────────
     # Single source of truth: _SL_X0/_SL_X1 drive both the slider and the
@@ -549,15 +506,14 @@ def play_vedo(
     _BTN_HY0 = 0.01
     _BTN_HY1 = 0.08
 
-    # ASCII text labels — Calco font lacks Unicode transport symbols (◀▶⏸).
-    # All labels are 9 chars (padded) for generous sizing and consistent
-    # background widths when play/pause toggles.
-    _L_FIRST = "  Start  "   # skip to start
-    _L_BACK  = "  Prev   "   # step back
-    _L_PAUSE = "  Pause  "   # shown while playing
-    _L_PLAY  = "  Play   "   # shown while paused
-    _L_FWD   = "  Next   "   # step forward
-    _L_LAST  = "   End   "   # skip to end
+    # Transport button labels — ASCII words (symbols don't render well in Calco).
+    # All 9 chars padded for consistent background widths.
+    _L_FIRST = "  Start  "
+    _L_BACK  = "  Prev   "
+    _L_PAUSE = "  Pause  "
+    _L_PLAY  = "  Play   "
+    _L_FWD   = "  Next   "
+    _L_LAST  = "   End   "
 
     _jst = 'bottom-center'
     btn_first = Text2D(_L_FIRST, pos=(_BTN_XC[0], _BTN_Y), s=_BTN_S,
@@ -574,38 +530,45 @@ def play_vedo(
     for btn in (btn_first, btn_back, btn_play, btn_fwd, btn_last):
         plt += btn
 
-    # --- Bottom-left: hint to open help ---
-    help_hint = Text2D(
-        "Press H for help",
-        pos=(0.02, 0.01), s=0.8, c='#666666', font='Calco',
+    # --- Right panel: help (toggled with H key) ---
+    _RPANEL_X = 0.85
+    _help_header = Text2D(
+        " Help (H) ", pos=(_RPANEL_X, 0.92), s=_PANEL_S,
+        c='white', bg='#2c3e50', font='Calco',
     )
-    plt += help_hint
+    plt += _help_header
 
-    # --- Help overlay (toggled with H key) ---
-    _help_lines = [
-        " Keyboard Shortcuts ",
+    _help_entries = [
+        "Space  Play/Pause",
+        "+/-    Speed",
+        "Arrows Step frame",
+        "L      Loop mode",
+        "R      Reset camera",
+        "F      Cycle FPS",
+        "J      Joint labels",
+        "S      Screenshot",
+        "T      Trajectory",
+        "1-9    Skeletons",
         "",
-        " Space       Play / Pause",
-        " Left/Right  Step 1 frame",
-        " Home / End  Jump to start / end",
-        " +/-         Speed x2 / /2",
-        " L           Toggle loop",
-        " R           Reset camera",
-        " F           Cycle FPS (15/30/60/120)",
-        " J           Toggle joint labels",
-        " S           Save screenshot",
-        " N           Cycle ghost mode (off/3/5)",
-        " T           Toggle trajectory trail",
-        " 1-9         Toggle skeleton visibility",
-        " H           Toggle this help",
+        "Drag       Orbit",
+        "Shift+Drag Pan",
+        "Scroll     Zoom",
     ]
-    _help_overlay = Text2D(
-        "\n".join(_help_lines),
-        pos='center', s=1.2,
-        c='white', bg='#1a1a2e', font='Calco',
+    _help_items: list = []
+    for i, txt in enumerate(_help_entries):
+        t = Text2D(txt, pos=(_RPANEL_X, 0.86 - i * 0.045), s=1.1,
+                   c='#2c3e50', font='Calco')
+        t.actor.SetVisibility(0)
+        _help_items.append(t)
+        plt += t
+
+    # --- Screenshot feedback overlay (center-top, hidden by default) ---
+    _screenshot_text = Text2D(
+        "", pos=(0.35, 0.92), s=1.2,
+        c='white', bg='green4', font='Calco',
     )
-    _help_overlay.actor.SetVisibility(0)
-    plt += _help_overlay
+    _screenshot_text.actor.SetVisibility(0)
+    plt += _screenshot_text
 
     # --- Frame scrubber slider ---
     def slider_callback(widget, event):
@@ -644,12 +607,16 @@ def play_vedo(
         else:
             btn_play.text(_L_PLAY)
             btn_play.background('green4')
-        # Loop button
-        if state['loop']:
-            loop_btn.text(" Loop: ON ")
+        # Loop / ping-pong button
+        mode = state['loop_mode']
+        if mode == 'loop':
+            loop_btn.text(" Loop ")
             loop_btn.background('green4')
+        elif mode == 'ping-pong':
+            loop_btn.text(" Ping ")
+            loop_btn.background('dodgerblue')
         else:
-            loop_btn.text(" Loop: OFF ")
+            loop_btn.text(" ---  ")
             loop_btn.background('gray')
         # Speed display
         spd = state['speed']
@@ -696,11 +663,6 @@ def play_vedo(
         # Reset playback to frame 0 (frame indices changed)
         state['playing'] = False
         state['frame'] = 0
-        state['ghost_history'].clear()
-        for s in range(n_skeletons):
-            for gi in range(_MAX_GHOSTS):
-                _ghost_lines[s][gi].actor.SetVisibility(0)
-                _ghost_points[s][gi].actor.SetVisibility(0)
         state['_slider_updating'] = True
         slider.GetRepresentation().SetMinimumValue(0)
         slider.GetRepresentation().SetMaximumValue(num_frames - 1)
@@ -732,8 +694,6 @@ def play_vedo(
     # =================================================================
 
     def update_frame(f: int) -> None:
-        n_ghosts = _GHOST_LEVELS[state['ghost_level_idx']]
-
         for s in range(n_skeletons):
             frame_data = coords_list[s][f]
             if use_high:
@@ -749,7 +709,6 @@ def play_vedo(
             if state['show_trail']:
                 root_pts = _trail_full[s]
                 full_f = min(f * _current_step(), len(root_pts) - 1)
-                # Fast copy from pre-allocated collapsed buffer
                 verts = _trail_collapsed[s].copy()
                 if full_f > 0:
                     visible = _interleave(
@@ -757,37 +716,11 @@ def play_vedo(
                     verts[:len(visible)] = visible
                 _trail_actors[s].vertices = verts
 
-        # Update ghost frames (shared across skeletons)
-        if n_ghosts > 0:
-            # Push current frame data into history BEFORE rendering ghosts
-            state['ghost_history'].append(
-                [coords_list[s][f].copy() for s in range(n_skeletons)])
-            history = list(state['ghost_history'])
-            _ghost_skip = 5  # show every 5th frame for wider separation
-            for gi in range(_MAX_GHOSTS):
-                # gi=0 → 5 frames ago, gi=1 → 10 frames ago, etc.
-                hist_idx = (gi + 1) * _ghost_skip
-                if hist_idx <= len(history) and gi < n_ghosts:
-                    alpha = 0.3 * (1.0 - gi / n_ghosts)
-                    for s in range(n_skeletons):
-                        h_data = history[-hist_idx]
-                        p_i = _bone_parent_idx[s]
-                        c_i = _bone_child_idx[s]
-                        sp = h_data[s][p_i]
-                        ep = h_data[s][c_i]
-                        _ghost_lines[s][gi].vertices = _interleave(sp, ep)
-                        _ghost_lines[s][gi].actor.SetVisibility(1)
-                        _ghost_points[s][gi].vertices = h_data[s]
-                        _ghost_points[s][gi].actor.SetVisibility(1)
-                        # Only update alpha when it changes
-                        if alpha != _ghost_last_alpha[s][gi]:
-                            _ghost_lines[s][gi].alpha(alpha)
-                            _ghost_points[s][gi].alpha(alpha)
-                            _ghost_last_alpha[s][gi] = alpha
-                else:
-                    for s in range(n_skeletons):
-                        _ghost_lines[s][gi].actor.SetVisibility(0)
-                        _ghost_points[s][gi].actor.SetVisibility(0)
+        # Hide screenshot feedback after timeout
+        hide_at = state.get('_screenshot_hide_at')
+        if hide_at and time.perf_counter() > hide_at:
+            _screenshot_text.actor.SetVisibility(0)
+            state['_screenshot_hide_at'] = None
 
         _update_frame_display(f)
         plt.render()
@@ -835,29 +768,32 @@ def play_vedo(
         # speed_down at (0.01, 0.79), speed_up at (0.12, 0.79),
         # loop at (0.01, 0.72), reset at (0.01, 0.65)
         if nx < 0.20:
-            if 0.76 < ny < 0.83:
-                # Speed down: 0.01–0.05, speed up: 0.12–0.16
-                if 0.01 < nx < 0.05:
+            if 0.89 < ny < 0.96:
+                # Speed: < at 0.05, > at 0.12
+                if 0.05 < nx < 0.08:
                     _set_speed(max(state['speed'] / 2, 0.125))
                     plt.render()
                 elif 0.12 < nx < 0.16:
                     _set_speed(min(state['speed'] * 2, 16.0))
                     plt.render()
-            elif 0.69 < ny < 0.76:
-                # Loop toggle
-                state['loop'] = not state['loop']
-                _sync_all()
-                plt.render()
-            elif 0.62 < ny < 0.69:
-                # Reset camera to initial view
-                _set_camera()
-                plt.render()
-            elif 0.49 < ny < 0.56:
-                # FPS down: 0.01–0.05, FPS up: 0.12–0.16
-                if 0.01 < nx < 0.05 and _fps_idx > 0:
+            elif 0.83 < ny < 0.89:
+                # FPS: < at 0.05, > at 0.12
+                if 0.05 < nx < 0.08 and _fps_idx > 0:
                     _set_fps(_fps_idx - 1)
                 elif 0.12 < nx < 0.16 and _fps_idx < len(_fps_presets) - 1:
                     _set_fps(_fps_idx + 1)
+            elif 0.77 < ny < 0.83:
+                # Cycle loop mode
+                _cycle = {'loop': 'ping-pong', 'ping-pong': 'off', 'off': 'loop'}
+                state['loop_mode'] = _cycle[state['loop_mode']]
+                state['play_direction'] = 1
+                _reset_play_clock()
+                _sync_all()
+                plt.render()
+            elif 0.71 < ny < 0.77:
+                # Reset camera
+                _set_camera()
+                plt.render()
 
     plt.add_callback('LeftButtonPress', _on_click)
 
@@ -885,17 +821,30 @@ def play_vedo(
 
             elapsed = now - state['_play_start_time']
             effective_fps = _fps_presets[_fps_idx]
-            target_f = state['_play_start_frame'] + int(
+            d = state['play_direction']
+            target_f = state['_play_start_frame'] + d * int(
                 elapsed * effective_fps * state['speed'])
 
             if target_f >= num_frames:
-                if state['loop']:
-                    # Reset clock for seamless loop
+                if state['loop_mode'] == 'loop':
                     target_f = target_f % num_frames
                     state['_play_start_time'] = now
                     state['_play_start_frame'] = target_f
+                elif state['loop_mode'] == 'ping-pong':
+                    state['play_direction'] *= -1
+                    target_f = num_frames - 1
+                    _reset_play_clock()
                 else:
                     target_f = num_frames - 1
+                    state['playing'] = False
+                    _sync_all()
+            elif target_f < 0:
+                if state['loop_mode'] == 'ping-pong':
+                    state['play_direction'] *= -1
+                    target_f = 0
+                    _reset_play_clock()
+                else:
+                    target_f = 0
                     state['playing'] = False
                     _sync_all()
 
@@ -938,7 +887,11 @@ def play_vedo(
             plt.render()
 
         elif key == 'l':
-            state['loop'] = not state['loop']
+            # Cycle: loop → ping-pong → off → loop
+            _cycle = {'loop': 'ping-pong', 'ping-pong': 'off', 'off': 'loop'}
+            state['loop_mode'] = _cycle[state['loop_mode']]
+            state['play_direction'] = 1
+            _reset_play_clock()
             _sync_all()
             plt.render()
 
@@ -954,21 +907,6 @@ def play_vedo(
             _jump_to(num_frames - 1)
             update_frame(num_frames - 1)
 
-        elif key == 'n':
-            # Cycle ghost / onion-skin levels
-            idx = (state['ghost_level_idx'] + 1) % len(_GHOST_LEVELS)
-            state['ghost_level_idx'] = idx
-            n_g = _GHOST_LEVELS[idx]
-            print(f"Ghost mode: {n_g} frames"
-                  f" (level {idx}/{len(_GHOST_LEVELS)-1})")
-            state['ghost_history'].clear()
-            # Hide all ghosts when turning off
-            if n_g == 0:
-                for s in range(n_skeletons):
-                    for gi in range(_MAX_GHOSTS):
-                        _ghost_lines[s][gi].actor.SetVisibility(0)
-                        _ghost_points[s][gi].actor.SetVisibility(0)
-            plt.render()
 
         elif key == 't':
             # Toggle root trajectory trail (pre-computed, just show/hide)
@@ -996,10 +934,14 @@ def play_vedo(
             plt.render()
 
         elif key == 's':
-            # Screenshot current view
+            # Screenshot with feedback overlay
             fname = f"pybvh_frame_{state['frame']}.png"
             plt.screenshot(fname)
             print(f"Screenshot saved: {fname}")
+            _screenshot_text.text(f" Saved: {fname} ")
+            _screenshot_text.actor.SetVisibility(1)
+            state['_screenshot_hide_at'] = time.perf_counter() + 1.5
+            plt.render()
 
         elif key in [str(d) for d in range(1, 10)]:
             # Toggle skeleton visibility (keys 1-9)
@@ -1022,9 +964,10 @@ def play_vedo(
                 plt.render()
 
         elif key == 'h':
-            # Toggle help overlay
-            vis = _help_overlay.actor.GetVisibility()
-            _help_overlay.actor.SetVisibility(0 if vis else 1)
+            # Toggle right-side help panel
+            vis = 0 if _help_items[0].actor.GetVisibility() else 1
+            for item in _help_items:
+                item.actor.SetVisibility(vis)
             plt.render()
 
     # --- Register callbacks and start ---

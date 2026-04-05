@@ -11,12 +11,12 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **`pybvh.plot` module** — full visualization rewrite as a multi-file package with pluggable backends.
-  - **`plot.frame()`** — static 3D skeleton snapshot (matplotlib). Now accepts `camera` parameter (`"front"`, `"side"`, `"top"`, or `(azim, elev)`).
-  - **`plot.render()`** — fast video/GIF/HTML export. OpenCV backend (1000+ fps) with automatic matplotlib fallback.
-  - **`plot.play()`** — interactive playback with 3-tier auto-detection: k3d (Jupyter), vedo (desktop), OpenCV inline video or matplotlib fallback. Automatic 30fps subsampling for smooth playback.
-  - **`plot.trajectory()`** — 2D top-down root trajectory. Per-skeleton up-axis detection for correct projection when overlaying skeletons with different conventions.
-  - **`plot.rest_pose()`** — convenience wrapper for visualizing the T-pose / bind pose.
+- **`pybvh.bvhplot` module** — full visualization rewrite as a multi-file package with pluggable backends.
+  - **`bvhplot.frame()`** — static 3D skeleton snapshot (matplotlib). Now accepts `camera` parameter (`"front"`, `"side"`, `"top"`, or `(azim, elev)`).
+  - **`bvhplot.render()`** — fast video/GIF/HTML export. OpenCV backend (1000+ fps) with automatic matplotlib fallback.
+  - **`bvhplot.play()`** — interactive playback with 3-tier auto-detection: k3d (Jupyter), vedo (desktop), OpenCV inline video or matplotlib fallback. Automatic 30fps subsampling for smooth playback.
+  - **`bvhplot.trajectory()`** — 2D top-down root trajectory. Per-skeleton up-axis detection for correct projection when overlaying skeletons with different conventions.
+  - **`bvhplot.rest_pose()`** — convenience wrapper for visualizing the T-pose / bind pose.
 - **`sync` parameter** on `render()` and `play()` — `"truncate"` (default) or `"pad"` for side-by-side comparison of clips with different lengths.
 - **`resolution` parameter** on `play()` — controls the OpenCV notebook fallback resolution.
 - **Left-right symmetry axis detection** in `get_forw_up_axis()` — replaced fragile toe-based forward detection with robust left-right joint pair averaging from rest-pose offsets.
@@ -38,7 +38,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- `pybvh/plot.py` (single file) replaced by `pybvh/plot/` package with `__init__.py`, `_common.py`, `_matplotlib.py`, `_opencv.py`, `_k3d.py`, `_vedo.py`.
+- `pybvh/bvhplot.py` (single file) replaced by `pybvh/bvhplot/` package with `__init__.py`, `_common.py`, `_matplotlib.py`, `_opencv.py`, `_k3d.py`, `_vedo.py`.
 - `render()` emits a warning when falling back from OpenCV to matplotlib in auto mode.
 
 ---

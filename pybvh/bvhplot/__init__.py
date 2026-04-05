@@ -42,8 +42,8 @@ from ._common import (
 )
 
 # Re-export get_forw_up_axis so existing code that does
-# `from pybvh.plot import get_forw_up_axis` (or tests that check
-# `plot.get_forw_up_axis`) continues to work.
+# `from pybvh.bvhplot import get_forw_up_axis` (or tests that check
+# `bvhplot.get_forw_up_axis`) continues to work.
 from ..tools import get_forw_up_axis  # noqa: F401
 
 if TYPE_CHECKING:
@@ -377,6 +377,7 @@ def play(
     labels: list[str] | None = None,
     fps: int = -1,
     backend: str = "auto",
+    camera: str | tuple[float, float] = "front",
     sync: str = "truncate",
     resolution: tuple[int, int] = (960, 540),
     quality: str = "high",
@@ -407,6 +408,9 @@ def play(
         capped at 30 for matplotlib backends (via frame subsampling).
     backend : str, optional
         ``"auto"`` (default), ``"k3d"``, ``"vedo"``, or ``"matplotlib"``.
+    camera : str or (float, float), optional
+        Camera preset (``"front"``, ``"side"``, ``"top"``) or
+        ``(azimuth_deg, elevation_deg)`` tuple. Default ``"front"``.
     sync : str, optional
         How to handle different frame counts in side-by-side comparison:
         ``"truncate"`` (default) stops at the shortest clip;
@@ -446,7 +450,7 @@ def play(
     pad = sync == "pad"
     (bvh_list, coords_list, skeleton_lines_list,
      center, half_span, azimuth, elevation, up_axis) = _prepare(
-        bvh, None, centered, "front", pad=pad)
+        bvh, None, centered, camera, pad=pad)
 
     bvh_fps = 1.0 / bvh_list[0].frame_frequency
     actual_fps = float(fps) if fps > 0 else bvh_fps
@@ -470,9 +474,10 @@ def play(
     # Notebooks (k3d, jshtml) and matplotlib windows can't keep up with
     # high frame rates (120fps). Cap at 30fps for correct playback speed.
     # opencv_notebook uses a video player that handles any fps natively.
+    # vedo uses persistent actors + timer, handles high fps well.
     _PLAY_MAX_FPS = 30.0
     if (fps == -1
-            and backend_name != "opencv_notebook"
+            and backend_name not in ("opencv_notebook", "vedo")
             and bvh_fps > _PLAY_MAX_FPS):
         subsample_step = math.ceil(bvh_fps / _PLAY_MAX_FPS)
         coords_list = [c[::subsample_step] for c in coords_list]

@@ -179,26 +179,26 @@ q_mid = rotations.quat_slerp(q1, q2, t=0.5)
 ## Visualization
 
 ```python
-from pybvh import plot
+from pybvh import bvhplot
 
 # Rest pose (T-pose)
-plot.rest_pose(bvh)
+bvhplot.rest_pose(bvh)
 
 # Static frame with camera control
-plot.frame(bvh, frame=0, camera="front")  # also "side", "top", (azim, elev)
+bvhplot.frame(bvh, frame=0, camera="front")  # also "side", "top", (azim, elev)
 
 # Fast video export (OpenCV if installed, else matplotlib)
-plot.render(bvh, "walk.mp4")
+bvhplot.render(bvh, "walk.mp4")
 
 # Interactive playback (auto-detects best backend)
-plot.play(bvh)
+bvhplot.play(bvh)
 
 # Side-by-side comparison (sync="pad" continues to longest clip)
-plot.frame([bvh1, bvh2], frame=0, labels=["Original", "Generated"])
-plot.render([bvh1, bvh2], "compare.mp4", sync="pad")
+bvhplot.frame([bvh1, bvh2], frame=0, labels=["Original", "Generated"])
+bvhplot.render([bvh1, bvh2], "compare.mp4", sync="pad")
 
 # 2D root trajectory
-plot.trajectory(bvh)
+bvhplot.trajectory(bvh)
 ```
 
 Install optional visualization backends for best performance:

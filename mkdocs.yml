@@ -58,7 +58,7 @@ nav:
     - Transforms: api/transforms.md
     - Features: api/features.md
     - Batch Processing: api/batch.md
-    - Visualization: api/plot.md
+    - Visualization: api/bvhplot.md
   - Tutorials: tutorials.md
 
 markdown_extensions:

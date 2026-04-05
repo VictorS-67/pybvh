@@ -29,8 +29,8 @@ dependencies = [
 pandas = ["pandas>=1.5"]
 opencv = ["opencv-python>=4.5"]
 interactive = ["k3d>=2.14"]
-viewer = ["vedo>=2023.5"]
-all-viz = ["opencv-python>=4.5", "k3d>=2.14", "vedo>=2023.5"]
+viewer = ["vedo>=2024.5"]
+all-viz = ["opencv-python>=4.5", "k3d>=2.14", "vedo>=2024.5"]
 dev = ["pytest>=8", "pandas>=1.5", "mypy>=1.0"]
 
 [project.urls]

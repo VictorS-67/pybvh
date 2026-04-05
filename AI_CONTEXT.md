@@ -296,7 +296,7 @@ After receiving the flat array, `read_bvh_file` splits it into `root_pos` (first
 | `get_forw_up_axis(bvh_object, frame)` | Infer forward/upward axes using joint name heuristics (up) and left-right symmetry from rest-pose offsets (forward via cross product). Validates input, guarantees orthogonal axes. |
 | `get_up_axis_index(bvh_object, frame)` | Return integer index (0=x, 1=y, 2=z) of the upward axis. |
 
-### 4.9 `pybvh/plot/` — Visualization Package
+### 4.9 `pybvh/bvhplot/` — Visualization Package
 
 Multi-backend visualization with five public functions:
 

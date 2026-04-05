@@ -253,7 +253,7 @@ def batch_get_premult_mat_rot(
 #--------------------------------------------------------------------------------------------
 
 # Axis detection utilities
-# These are used by plot.py and by ML pipeline methods (foot contacts, root trajectory)
+# These are used by bvhplot and by ML pipeline methods (foot contacts, root trajectory)
 
 def get_main_direction(
     coord_array: npt.NDArray[np.float64],

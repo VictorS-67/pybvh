@@ -2412,10 +2412,10 @@ class TestAxisDetection:
         assert up_idx in (0, 1, 2)
 
     def test_plot_imports_from_tools(self):
-        """Ensure plot.py imports axis detection from tools.py."""
-        from pybvh import plot
+        """Ensure bvhplot imports axis detection from tools.py."""
+        from pybvh import bvhplot
         from pybvh.tools import get_forw_up_axis
-        assert plot.get_forw_up_axis is get_forw_up_axis
+        assert bvhplot.get_forw_up_axis is get_forw_up_axis
 
     # --- Hardened axis detection tests ---
 

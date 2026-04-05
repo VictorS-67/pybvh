@@ -42,23 +42,23 @@ bvh.to_bvh_file("output.bvh")
 ## Visualization
 
 ```python
-from pybvh import plot
+from pybvh import bvhplot
 
 # Rest pose (T-pose / bind pose)
-plot.rest_pose(bvh)
+bvhplot.rest_pose(bvh)
 
 # Static 3D snapshot with camera control
-plot.frame(bvh, frame=0, camera="front")
+bvhplot.frame(bvh, frame=0, camera="front")
 
 # Export animation to video (OpenCV if installed, else matplotlib)
-plot.render(bvh, "walk.mp4")
+bvhplot.render(bvh, "walk.mp4")
 
 # Interactive playback (auto-detects best backend)
-plot.play(bvh)
+bvhplot.play(bvh)
 
 # Side-by-side comparison
-plot.render([bvh1, bvh2], "compare.mp4", labels=["A", "B"], sync="pad")
+bvhplot.render([bvh1, bvh2], "compare.mp4", labels=["A", "B"], sync="pad")
 
 # 2D root trajectory
-plot.trajectory(bvh)
+bvhplot.trajectory(bvh)
 ```

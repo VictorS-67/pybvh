@@ -12,7 +12,7 @@ from .batch import (
     compute_normalization_stats, normalize_array, denormalize_array,
 )
 
-from . import plot
+from . import bvhplot
 from . import rotations
 from . import transforms
 from . import features

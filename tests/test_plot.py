@@ -1,12 +1,12 @@
-"""Tests for the pybvh.plot visualization module."""
+"""Tests for the pybvh.bvhplot visualization module."""
 from __future__ import annotations
 
 import numpy as np
 import pytest
 from pathlib import Path
 
-from pybvh import read_bvh_file, plot
-from pybvh.plot._common import (
+from pybvh import read_bvh_file, bvhplot
+from pybvh.bvhplot._common import (
     get_skeleton_lines,
     normalize_input,
     compute_unified_limits,
@@ -376,7 +376,7 @@ class TestFrame:
     def test_single_frame_returns_fig_ax(self, bvh_example):
         import matplotlib
         matplotlib.use('Agg')  # non-interactive for CI
-        fig, ax = plot.frame(bvh_example, 0, show=False)
+        fig, ax = bvhplot.frame(bvh_example, 0, show=False)
         assert fig is not None
         assert ax is not None
 
@@ -384,13 +384,13 @@ class TestFrame:
         import matplotlib
         matplotlib.use('Agg')
         coords = bvh_example.get_spatial_coord(frame_num=0)
-        fig, ax = plot.frame(bvh_example, coords, show=False)
+        fig, ax = bvhplot.frame(bvh_example, coords, show=False)
         assert fig is not None
 
     def test_side_by_side_returns_list(self, bvh_example):
         import matplotlib
         matplotlib.use('Agg')
-        fig, axs = plot.frame(
+        fig, axs = bvhplot.frame(
             [bvh_example, bvh_example], 0,
             labels=["A", "B"], show=False)
         assert isinstance(axs, list)
@@ -400,7 +400,7 @@ class TestFrame:
         import matplotlib
         matplotlib.use('Agg')
         for mode in ("world", "skeleton", "first"):
-            fig, ax = plot.frame(bvh_example, 0, centered=mode, show=False)
+            fig, ax = bvhplot.frame(bvh_example, 0, centered=mode, show=False)
             assert fig is not None
 
 
@@ -408,14 +408,14 @@ class TestTrajectory:
     def test_returns_fig_ax(self, bvh_example):
         import matplotlib
         matplotlib.use('Agg')
-        fig, ax = plot.trajectory(bvh_example, show=False)
+        fig, ax = bvhplot.trajectory(bvh_example, show=False)
         assert fig is not None
         assert ax is not None
 
     def test_multi_skeleton(self, bvh_example):
         import matplotlib
         matplotlib.use('Agg')
-        fig, ax = plot.trajectory(
+        fig, ax = bvhplot.trajectory(
             [bvh_example, bvh_example],
             labels=["A", "B"], show=False)
         assert ax.get_legend() is not None
@@ -427,7 +427,7 @@ class TestRenderMatplotlib:
         matplotlib.use('Agg')
         # Use only first 5 frames for speed
         bvh_short = bvh_example.slice_frames(0, 5)
-        path = plot.render(
+        path = bvhplot.render(
             bvh_short, tmp_path / "test.gif",
             backend="matplotlib")
         assert path.exists()
@@ -437,7 +437,7 @@ class TestRenderMatplotlib:
         import matplotlib
         matplotlib.use('Agg')
         bvh_short = bvh_example.slice_frames(0, 3)
-        path = plot.render(
+        path = bvhplot.render(
             bvh_short, tmp_path / "test.html",
             backend="matplotlib")
         assert path.exists()
@@ -455,7 +455,7 @@ class TestRenderOpenCV:
         pytest.importorskip("cv2")
 
     def test_creates_file(self, bvh_example, tmp_path):
-        path = plot.render(
+        path = bvhplot.render(
             bvh_example, tmp_path / "out.mp4", backend="opencv",
             resolution=(320, 240))
         assert path.exists()
@@ -463,7 +463,7 @@ class TestRenderOpenCV:
 
     def test_frame_count(self, bvh_example, tmp_path):
         import cv2
-        path = plot.render(
+        path = bvhplot.render(
             bvh_example, tmp_path / "out.mp4", backend="opencv",
             resolution=(320, 240))
         cap = cv2.VideoCapture(str(path))
@@ -473,7 +473,7 @@ class TestRenderOpenCV:
 
     def test_resolution(self, bvh_example, tmp_path):
         import cv2
-        path = plot.render(
+        path = bvhplot.render(
             bvh_example, tmp_path / "out.mp4", backend="opencv",
             resolution=(640, 480))
         cap = cv2.VideoCapture(str(path))
@@ -483,7 +483,7 @@ class TestRenderOpenCV:
         assert (w, h) == (640, 480)
 
     def test_side_by_side(self, bvh_example, tmp_path):
-        path = plot.render(
+        path = bvhplot.render(
             [bvh_example, bvh_example], tmp_path / "cmp.mp4",
             backend="opencv", resolution=(640, 240),
             labels=["A", "B"])
@@ -491,7 +491,7 @@ class TestRenderOpenCV:
 
     def test_camera_presets(self, bvh_example, tmp_path):
         for cam in ["front", "side", "top", (45, 30)]:
-            path = plot.render(
+            path = bvhplot.render(
                 bvh_example, tmp_path / "cam.mp4",
                 backend="opencv", resolution=(320, 240),
                 camera=cam)
@@ -499,7 +499,7 @@ class TestRenderOpenCV:
 
     def test_gif_output(self, bvh_example, tmp_path):
         bvh_short = bvh_example.slice_frames(0, 5)
-        path = plot.render(
+        path = bvhplot.render(
             bvh_short, tmp_path / "out.gif",
             backend="opencv", resolution=(320, 240))
         assert path.exists()
@@ -507,7 +507,7 @@ class TestRenderOpenCV:
         assert path.stat().st_size > 0
 
     def test_show_axis(self, bvh_example, tmp_path):
-        path = plot.render(
+        path = bvhplot.render(
             bvh_example, tmp_path / "axis.mp4",
             backend="opencv", resolution=(320, 240),
             show_axis=True)
@@ -515,7 +515,7 @@ class TestRenderOpenCV:
 
     def test_auto_backend_selects_opencv(self, bvh_example, tmp_path):
         """When cv2 is available, auto backend should select opencv."""
-        path = plot.render(
+        path = bvhplot.render(
             bvh_example, tmp_path / "auto.mp4",
             backend="auto", resolution=(320, 240))
         assert path.exists()
@@ -527,6 +527,6 @@ class TestRenderOpenCV:
 
 
 def test_get_forw_up_axis_accessible_from_plot():
-    """Ensure get_forw_up_axis is accessible via pybvh.plot."""
+    """Ensure get_forw_up_axis is accessible via pybvh.bvhplot."""
     from pybvh.tools import get_forw_up_axis as original
-    assert plot.get_forw_up_axis is original
+    assert bvhplot.get_forw_up_axis is original

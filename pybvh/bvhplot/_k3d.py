@@ -13,7 +13,7 @@ import numpy.typing as npt
 
 from typing import TYPE_CHECKING
 
-from ._common import PALETTE_RGB
+from ._common import PALETTE_RGB, build_view_matrix, _UP_AXIS_INDEX
 
 if TYPE_CHECKING:
     from ..bvh import Bvh
@@ -27,6 +27,9 @@ def play_k3d(
     skeleton_lines_list: list[list[tuple[int, int]]],
     center: npt.NDArray[np.float64],
     half_span: float,
+    azimuth: float,
+    elevation: float,
+    up_axis: str,
 ) -> object:
     """Interactive skeleton playback in a Jupyter notebook via k3d.
 
@@ -46,6 +49,12 @@ def play_k3d(
         Bounding box center.
     half_span : float
         Half side of cubic bounding box.
+    azimuth : float
+        Camera azimuth in degrees.
+    elevation : float
+        Camera elevation in degrees.
+    up_axis : str
+        Up axis (``'x'``, ``'y'``, or ``'z'``).
 
     Returns
     -------
@@ -102,7 +111,41 @@ def play_k3d(
         plot += points
         skeleton_objects.append((lines, points))
 
-    # Set grid and camera to cover the full motion extent
+    # --- Root trajectory projected on the floor ---
+    # Animated trail: vertices [0:current_frame] show the actual past
+    # path, the remaining vertices collapse to the current frame so the
+    # trail "grows" as the animation plays.
+    # Snap the trail to the grid bottom (center - half_span on the up axis)
+    # rather than to the lowest joint, because the k3d bbox is cubic and
+    # extends below the lowest joint. Otherwise the trail floats above the
+    # visible grid floor and parallax makes it appear offset from its true
+    # XY position when viewed from an oblique angle.
+    up_idx = _UP_AXIS_INDEX.get(up_axis, 1)
+    floor_level = float(center[up_idx] - half_span)
+    trail_objects: list[k3d.objects.Line] = []
+    trail_full_paths: list[npt.NDArray[np.float32]] = []
+    for s, coords in enumerate(coords_f32):
+        root_path = coords[:, 0, :].copy()  # (F, 3)
+        root_path[:, up_idx] = floor_level
+        trail_full_paths.append(root_path)
+
+        # Initial trail: all vertices collapsed at frame 0
+        initial = np.tile(root_path[0], (num_frames, 1)).astype(np.float32)
+
+        r, g, b = PALETTE_RGB[s % len(PALETTE_RGB)]
+        color = int(r) << 16 | int(g) << 8 | int(b)
+        trail = k3d.line(
+            initial,
+            color=color,
+            width=0.015 * half_span,
+            opacity=0.6,
+            shader='thick',
+            name=f"Trajectory {s}",
+        )
+        plot += trail
+        trail_objects.append(trail)
+
+    # Set grid to cover the full motion extent
     grid_min = center - half_span
     grid_max = center + half_span
     plot.grid = [
@@ -111,6 +154,22 @@ def play_k3d(
     ]
     plot.grid_auto_fit = False
     plot.camera_auto_fit = False
+
+    # Set camera explicitly using the same convention as matplotlib /
+    # opencv / vedo backends so all backends produce identical views
+    # for the same (azimuth, elevation, up_axis) parameters.
+    # k3d's camera is a 9-element list:
+    # [eye_x, eye_y, eye_z, target_x, target_y, target_z, up_x, up_y, up_z]
+    view_mat = build_view_matrix(azimuth, elevation, up_axis)
+    eye_dir = view_mat[2]  # toward viewer
+    cam_up = view_mat[1]
+    cam_dist = half_span * 4.0
+    cam_pos = center + eye_dir * cam_dist
+    plot.camera = [
+        float(cam_pos[0]), float(cam_pos[1]), float(cam_pos[2]),
+        float(center[0]), float(center[1]), float(center[2]),
+        float(cam_up[0]), float(cam_up[1]), float(cam_up[2]),
+    ]
 
     # Animation controls
     play_widget = Play(
@@ -140,6 +199,14 @@ def play_k3d(
             frame_data = coords_f32[s][f]
             lines_obj.vertices = frame_data
             pts_obj.positions = frame_data
+        # Update trails: vertices [0..f] are the real past path, the rest
+        # collapse to position f so the trail grows as the animation plays.
+        for s, trail_obj in enumerate(trail_objects):
+            full_path = trail_full_paths[s]
+            verts = np.empty_like(full_path)
+            verts[:f + 1] = full_path[:f + 1]
+            verts[f + 1:] = full_path[f]
+            trail_obj.vertices = verts
 
     slider.observe(on_frame_change, names='value')
 

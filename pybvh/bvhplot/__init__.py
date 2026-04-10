@@ -494,7 +494,8 @@ def play(
         from ._k3d import play_k3d
         return play_k3d(
             bvh_list, coords_list, actual_fps, labels,
-            skeleton_lines_list, center, half_span)
+            skeleton_lines_list, center, half_span,
+            azimuth, elevation, up_axis)
 
     elif backend_name == "vedo":
         try:

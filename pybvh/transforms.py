@@ -113,6 +113,7 @@ def add_joint_noise(
     sigma_pos: float = 0.0,
     rng: np.random.Generator | None = None,
     inplace: bool = False,
+    wrap: bool = True,
 ) -> Bvh | None:
     """Add Gaussian noise to joint rotation angles.
 
@@ -130,6 +131,10 @@ def add_joint_noise(
         Random generator for reproducibility.
     inplace : bool, optional
         If True, modify *bvh* and return None.
+    wrap : bool, optional
+        If True (default), wrap noised angles to [-180, 180] so
+        downstream Euler-to-rotmat round-trips don't see discontinuities.
+        Set to False if the consumer handles angle ranges itself.
 
     Returns
     -------
@@ -144,9 +149,9 @@ def add_joint_noise(
             target.joint_angles
             + rng.normal(0.0, sigma_deg, target.joint_angles.shape)
         )
-        # Wrap to [-180, 180] so downstream Euler→rotmat→Euler roundtrips
-        # don't see discontinuities from angles drifting outside this range.
-        target.joint_angles = (noised + 180.0) % 360.0 - 180.0
+        if wrap:
+            noised = (noised + 180.0) % 360.0 - 180.0
+        target.joint_angles = noised
     if sigma_pos > 0:
         target.root_pos = (
             target.root_pos
@@ -369,6 +374,20 @@ def rotate_angles_vertical(
     -------
     (new_joint_angles, new_root_pos)
         Copies with the rotation applied.
+
+    See Also
+    --------
+    rotate_vertical : Bvh-level wrapper that auto-detects ``up_idx``
+        and ``root_order`` from the skeleton.
+
+    Examples
+    --------
+    >>> angles = bvh.joint_angles          # (F, J, 3) degrees
+    >>> pos = bvh.root_pos                 # (F, 3)
+    >>> up = tools.get_up_axis_index(bvh, bvh.get_spatial_coord(0))
+    >>> order = ''.join(bvh.root.rot_channels)
+    >>> new_angles, new_pos = rotate_angles_vertical(
+    ...     angles, pos, 90.0, up, order)
     """
     angle_rad = np.radians(angle_deg)
     rot_funcs = {0: rotX, 1: rotY, 2: rotZ}
@@ -516,6 +535,22 @@ def mirror_angles(
     -------
     (new_joint_angles, new_root_pos)
         Copies with the mirroring applied.
+
+    See Also
+    --------
+    mirror : Bvh-level wrapper that also mirrors skeleton offsets and
+        auto-detects ``lr_joint_pairs``, ``lateral_idx``, and
+        ``rot_channels`` from the skeleton.
+
+    Examples
+    --------
+    >>> angles = bvh.joint_angles
+    >>> pos = bvh.root_pos
+    >>> pairs = bvh.auto_detect_lr_pairs()
+    >>> lat = tools.get_forw_up_axis(bvh, bvh.get_spatial_coord(0))
+    >>> channels = [n.rot_channels for n in bvh.nodes if not n.is_end_site()]
+    >>> new_angles, new_pos = mirror_angles(
+    ...     angles, pos, pairs, lat_idx, channels)
     """
     new_angles = joint_angles.copy()
     new_root_pos = root_pos.copy()

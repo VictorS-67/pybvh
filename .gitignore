@@ -48,6 +48,7 @@ site/
 # --- Project Specific ---
 FUTURE_PLANS.md
 new_bvh.bvh
-bvh_animation.mp4
+bvh_animation*
 pybvh.egg-info/
 bug_report.md
+tutorials/.*

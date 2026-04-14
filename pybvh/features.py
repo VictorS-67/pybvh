@@ -11,14 +11,13 @@ import numpy.typing as npt
 
 from .bvh import Bvh
 from . import rotations
-from .tools import get_up_axis_index
 
 
 # ----------------------------------------------------------------
 #  Joint velocities & accelerations
 # ----------------------------------------------------------------
 
-def get_joint_velocities(
+def joint_velocities(
     bvh: Bvh,
     centered: str = "world",
     in_frames: bool = False,
@@ -38,7 +37,7 @@ def get_joint_velocities(
         If False (default), return velocity in units/second.
     coords : ndarray, shape (F, N, 3), optional
         Pre-computed spatial coordinates. If None, computed
-        internally via :meth:`Bvh.get_spatial_coord`.
+        internally via :meth:`Bvh.spatial_coords`.
 
     Returns
     -------
@@ -48,29 +47,29 @@ def get_joint_velocities(
     Raises
     ------
     ValueError
-        If fewer than 2 frames, or ``frame_frequency == 0``
+        If fewer than 2 frames, or ``frame_time == 0``
         when ``in_frames=False``.
     """
     if bvh.frame_count < 2:
         raise ValueError(
             "At least 2 frames are required to compute velocities.")
-    if not in_frames and bvh.frame_frequency == 0:
+    if not in_frames and bvh.frame_time == 0:
         raise ValueError(
-            "frame_frequency is 0; cannot compute per-second velocity. "
+            "frame_time is 0; cannot compute per-second velocity. "
             "Use in_frames=True for per-frame velocity.")
 
     if coords is None:
-        coords = bvh.get_spatial_coord(centered=centered)
+        coords = bvh.spatial_coords(centered=centered)
 
     vel = coords[1:] - coords[:-1]  # (F-1, N, 3)
 
     if not in_frames:
-        vel = vel / bvh.frame_frequency
+        vel = vel / bvh.frame_time
 
     return vel
 
 
-def get_joint_accelerations(
+def joint_accelerations(
     bvh: Bvh,
     centered: str = "world",
     in_frames: bool = False,
@@ -90,7 +89,7 @@ def get_joint_accelerations(
         If False (default), return in units/second^2.
     coords : ndarray, shape (F, N, 3), optional
         Pre-computed spatial coordinates. If None, computed
-        internally via :meth:`Bvh.get_spatial_coord`.
+        internally via :meth:`Bvh.spatial_coords`.
 
     Returns
     -------
@@ -100,22 +99,22 @@ def get_joint_accelerations(
     Raises
     ------
     ValueError
-        If fewer than 3 frames, or ``frame_frequency == 0``
+        If fewer than 3 frames, or ``frame_time == 0``
         when ``in_frames=False``.
     """
     if bvh.frame_count < 3:
         raise ValueError(
             "At least 3 frames are required to compute accelerations.")
-    if not in_frames and bvh.frame_frequency == 0:
+    if not in_frames and bvh.frame_time == 0:
         raise ValueError(
-            "frame_frequency is 0; cannot compute per-second acceleration. "
+            "frame_time is 0; cannot compute per-second acceleration. "
             "Use in_frames=True for per-frame acceleration.")
 
-    vel = get_joint_velocities(bvh, centered=centered, in_frames=True, coords=coords)
+    vel = joint_velocities(bvh, centered=centered, in_frames=True, coords=coords)
     acc = vel[1:] - vel[:-1]  # (F-2, N, 3)
 
     if not in_frames:
-        acc = acc / (bvh.frame_frequency ** 2)
+        acc = acc / (bvh.frame_time ** 2)
 
     return acc
 
@@ -124,7 +123,7 @@ def get_joint_accelerations(
 #  Angular velocities
 # ----------------------------------------------------------------
 
-def get_angular_velocities(
+def angular_velocities(
     bvh: Bvh,
     in_frames: bool = False,
 ) -> npt.NDArray[np.float64]:
@@ -152,18 +151,18 @@ def get_angular_velocities(
     Raises
     ------
     ValueError
-        If fewer than 2 frames, or ``frame_frequency == 0``
+        If fewer than 2 frames, or ``frame_time == 0``
         when ``in_frames=False``.
     """
     if bvh.frame_count < 2:
         raise ValueError(
             "At least 2 frames are required to compute angular velocities.")
-    if not in_frames and bvh.frame_frequency == 0:
+    if not in_frames and bvh.frame_time == 0:
         raise ValueError(
-            "frame_frequency is 0; cannot compute per-second angular velocity. "
+            "frame_time is 0; cannot compute per-second angular velocity. "
             "Use in_frames=True for per-frame angular velocity.")
 
-    _, joint_rotmats, _ = bvh.get_frames_as_rotmat()  # (F, J, 3, 3)
+    _, joint_rotmats, _ = bvh.to_rotmat()  # (F, J, 3, 3)
 
     # R_rel = R_t^T @ R_{t+1}  for each consecutive pair
     R_t = joint_rotmats[:-1]      # (F-1, J, 3, 3)
@@ -173,7 +172,7 @@ def get_angular_velocities(
     ang_vel = rotations.rotmat_to_axisangle(R_rel)  # (F-1, J, 3)
 
     if not in_frames:
-        ang_vel = ang_vel / bvh.frame_frequency
+        ang_vel = ang_vel / bvh.frame_time
 
     return ang_vel
 
@@ -182,7 +181,7 @@ def get_angular_velocities(
 #  Root-relative positions
 # ----------------------------------------------------------------
 
-def get_root_relative_positions(
+def root_relative_positions(
     bvh: Bvh,
     centered: str = "world",
     coords: npt.NDArray[np.float64] | None = None,
@@ -210,7 +209,7 @@ def get_root_relative_positions(
         The root node (index 0) will be ``(0, 0, 0)`` in every frame.
     """
     if coords is None:
-        coords = bvh.get_spatial_coord(centered=centered)
+        coords = bvh.spatial_coords(centered=centered)
 
     return coords - coords[:, 0:1, :]  # broadcast root position
 
@@ -219,7 +218,7 @@ def get_root_relative_positions(
 #  Root trajectory
 # ----------------------------------------------------------------
 
-def get_root_trajectory(
+def root_trajectory(
     bvh: Bvh,
     up_axis: str | None = None,
 ) -> npt.NDArray[np.float64]:
@@ -250,10 +249,10 @@ def get_root_trajectory(
     matrix projected onto the ground plane. The heading is defined
     as the rotation around the up axis.
     """
-    # Determine up axis
+    # Determine up axis — honor the Bvh's world_up (auto-detected or
+    # manually overridden) when the caller did not specify one.
     if up_axis is None:
-        rest_pose: npt.NDArray[np.float64] = bvh.get_rest_pose(mode='coordinates')  # type: ignore[assignment]
-        up_idx = get_up_axis_index(bvh, rest_pose)
+        up_idx = {'x': 0, 'y': 1, 'z': 2}[bvh.world_up[1]]
     else:
         up_idx = {'x': 0, 'y': 1, 'z': 2}[up_axis[1]]
 
@@ -290,7 +289,7 @@ def get_root_trajectory(
 #  Foot contacts
 # ----------------------------------------------------------------
 
-def get_foot_contacts(
+def foot_contacts(
     bvh: Bvh,
     foot_joints: list[str] | None = None,
     method: str = "velocity",
@@ -340,7 +339,7 @@ def get_foot_contacts(
             f"Unknown method '{method}'. Choose 'velocity' or 'height'.")
 
     if coords is None:
-        coords = bvh.get_spatial_coord(centered=centered)
+        coords = bvh.spatial_coords(centered=centered)
 
     # Auto-detect foot joints
     if foot_joints is None:
@@ -381,9 +380,10 @@ def get_foot_contacts(
         contacts = np.concatenate([first_frame, contacts], axis=0)
 
     else:  # height method
-        rest_pose_arr: npt.NDArray[np.float64] = bvh.get_rest_pose(mode='coordinates')  # type: ignore[assignment]
-        up_idx = get_up_axis_index(bvh, rest_pose_arr)
-        foot_heights = foot_coords[:, :, up_idx]  # (F, num_feet)
+        up_sign = 1 if bvh.world_up[0] == '+' else -1
+        up_idx = {'x': 0, 'y': 1, 'z': 2}[bvh.world_up[1]]
+        # Multiply by up_sign so "up" is always positive, regardless of axis direction
+        foot_heights = foot_coords[:, :, up_idx] * up_sign  # (F, num_feet)
 
         if threshold is None:
             # Auto-calibrate: 5th percentile of foot heights
@@ -452,7 +452,7 @@ def to_feature_array(
     # Compute spatial coords once (shared by velocities and contacts)
     coords = None
     if include_velocities or include_foot_contacts:
-        coords = bvh.get_spatial_coord(centered=centered)
+        coords = bvh.spatial_coords(centered=centered)
 
     parts: list[npt.NDArray[np.float64]] = []
 
@@ -464,16 +464,16 @@ def to_feature_array(
     if representation == "euler":
         rot = bvh.joint_angles.reshape(bvh.frame_count, -1)
     elif representation == "6d":
-        _, rot_raw, _ = bvh.get_frames_as_6d()
+        _, rot_raw, _ = bvh.to_6d()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     elif representation == "quaternion":
-        _, rot_raw, _ = bvh.get_frames_as_quaternion()
+        _, rot_raw, _ = bvh.to_quaternions()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     elif representation == "axisangle":
-        _, rot_raw, _ = bvh.get_frames_as_axisangle()
+        _, rot_raw, _ = bvh.to_axisangle()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     else:  # rotmat
-        _, rot_raw, _ = bvh.get_frames_as_rotmat()
+        _, rot_raw, _ = bvh.to_rotmat()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     parts.append(rot)
 
@@ -482,7 +482,7 @@ def to_feature_array(
 
     # Velocities — call directly (same module)
     if include_velocities:
-        vel = get_joint_velocities(
+        vel = joint_velocities(
             bvh, centered=centered, in_frames=True, coords=coords)
         # vel is (F-1, N, 3), flatten to (F-1, N*3)
         vel_flat = vel.reshape(vel.shape[0], -1)
@@ -490,7 +490,7 @@ def to_feature_array(
 
     # Foot contacts — call directly (same module)
     if include_foot_contacts:
-        contacts = get_foot_contacts(
+        contacts = foot_contacts(
             bvh, foot_joints=foot_joints, centered=centered, coords=coords)
         parts.append(contacts)
 
@@ -505,3 +505,49 @@ def to_feature_array(
         parts = aligned
 
     return np.concatenate(parts, axis=1)
+
+
+# ----------------------------------------------------------------
+#  Deprecated names (old API)
+# ----------------------------------------------------------------
+
+def get_joint_velocities(*args, **kwargs):
+    """Deprecated: use joint_velocities() instead."""
+    import warnings
+    warnings.warn("get_joint_velocities() is deprecated, use joint_velocities() instead.", DeprecationWarning, stacklevel=2)
+    return joint_velocities(*args, **kwargs)
+
+
+def get_joint_accelerations(*args, **kwargs):
+    """Deprecated: use joint_accelerations() instead."""
+    import warnings
+    warnings.warn("get_joint_accelerations() is deprecated, use joint_accelerations() instead.", DeprecationWarning, stacklevel=2)
+    return joint_accelerations(*args, **kwargs)
+
+
+def get_angular_velocities(*args, **kwargs):
+    """Deprecated: use angular_velocities() instead."""
+    import warnings
+    warnings.warn("get_angular_velocities() is deprecated, use angular_velocities() instead.", DeprecationWarning, stacklevel=2)
+    return angular_velocities(*args, **kwargs)
+
+
+def get_root_relative_positions(*args, **kwargs):
+    """Deprecated: use root_relative_positions() instead."""
+    import warnings
+    warnings.warn("get_root_relative_positions() is deprecated, use root_relative_positions() instead.", DeprecationWarning, stacklevel=2)
+    return root_relative_positions(*args, **kwargs)
+
+
+def get_root_trajectory(*args, **kwargs):
+    """Deprecated: use root_trajectory() instead."""
+    import warnings
+    warnings.warn("get_root_trajectory() is deprecated, use root_trajectory() instead.", DeprecationWarning, stacklevel=2)
+    return root_trajectory(*args, **kwargs)
+
+
+def get_foot_contacts(*args, **kwargs):
+    """Deprecated: use foot_contacts() instead."""
+    import warnings
+    warnings.warn("get_foot_contacts() is deprecated, use foot_contacts() instead.", DeprecationWarning, stacklevel=2)
+    return foot_contacts(*args, **kwargs)

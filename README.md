@@ -38,7 +38,7 @@ import pybvh
 
 # Load a BVH file
 bvh = pybvh.read_bvh_file("walk.bvh")
-print(bvh)  # 24 joints, 120 frames at 0.008333Hz
+print(bvh)  # "24 elements in the Hierarchy, 75 frames at 30.0 fps (frame_time=0.033333s)"
 
 # Access motion data as NumPy arrays
 bvh.root_pos          # (F, 3) root translation per frame
@@ -46,14 +46,14 @@ bvh.joint_angles      # (F, J, 3) Euler angles in degrees
 bvh.joint_names       # ['Hips', 'Spine', ...] (excludes end sites)
 
 # Get 3D joint positions via forward kinematics
-coords = bvh.get_spatial_coord()  # (F, N, 3)
+coords = bvh.spatial_coords()  # (F, N, 3)
 
 # Convert to other rotation representations
-root_pos, quats, joints = bvh.get_frames_as_quaternion()  # (F,3), (F,J,4), joints
-root_pos, rot6d, joints = bvh.get_frames_as_6d()          # (F,3), (F,J,6), joints
+root_pos, quats, joints = bvh.to_quaternions()   # (F,3), (F,J,4), joints
+root_pos, rot6d, joints = bvh.to_6d()            # (F,3), (F,J,6), joints
 
 # Write back to file
-bvh.to_bvh_file("output.bvh")
+bvh.write("output.bvh")
 ```
 
 ## Batch Loading
@@ -79,16 +79,16 @@ Compute motion derivatives, foot contacts, and export everything in a single arr
 
 ```python
 # Joint velocities and accelerations (finite differences of FK positions)
-vel = bvh.get_joint_velocities()        # (F-1, N, 3) in units/second
-acc = bvh.get_joint_accelerations()     # (F-2, N, 3)
-ang_vel = bvh.get_angular_velocities()  # (F-1, J, 3) in radians/second
+vel = bvh.joint_velocities()        # (F-1, N, 3) in units/second
+acc = bvh.joint_accelerations()     # (F-2, N, 3)
+ang_vel = bvh.angular_velocities()  # (F-1, J, 3) in radians/second
 
 # Root-relative positions and trajectory
-rel_pos = bvh.get_root_relative_positions()  # (F, N, 3)
-traj = bvh.get_root_trajectory()             # (F, 4) ground pos + heading
+rel_pos = bvh.root_relative_positions()  # (F, N, 3)
+traj = bvh.root_trajectory()             # (F, 4) ground pos + heading
 
 # Foot contact detection (auto-detects foot joints)
-contacts = bvh.get_foot_contacts()  # (F, num_feet) binary indicators
+contacts = bvh.foot_contacts()  # (F, num_feet) binary indicators
 
 # One-stop export — flat feature array
 features = bvh.to_feature_array(
@@ -123,16 +123,16 @@ bvh_rotated = transforms.rotate_vertical(bvh, angle_deg=90)
 bvh_rotated = transforms.random_rotate_vertical(bvh, rng=np.random.default_rng(42))
 
 # Speed perturbation (factor > 1 = faster, < 1 = slower)
-bvh_fast = transforms.speed_perturbation(bvh, factor=1.5)
+bvh_fast = transforms.perturb_speed(bvh, factor=1.5)
 
 # Joint noise injection
-bvh_noisy = transforms.add_joint_noise(bvh, sigma_deg=1.0, sigma_pos=0.5, rng=rng)
+bvh_noisy = transforms.add_noise(bvh, sigma_deg=1.0, sigma_pos=0.5, rng=rng)
 
 # Root translation
 bvh_shifted = transforms.translate_root(bvh, offset=[100, 0, 0])
 
 # Frame dropout with SLERP interpolation (same frame count)
-bvh_dropped = transforms.dropout_frames(bvh, drop_rate=0.1, rng=rng)
+bvh_dropped = transforms.drop_frames(bvh, drop_rate=0.1, rng=rng)
 ```
 
 All transforms also available as `Bvh` methods: `bvh.mirror()`, `bvh.rotate_vertical(90)`, etc.
@@ -140,14 +140,15 @@ All transforms also available as `Bvh` methods: `bvh.mirror()`, `bvh.rotate_vert
 ## Skeleton Operations
 
 ```python
-# Change Euler rotation order for all joints
-bvh_xyz = bvh.change_all_euler_orders("XYZ")
+# Change Euler rotation order for all joints (or a single joint via `joint=`)
+bvh_xyz = bvh.change_euler_order("XYZ")
+bvh_hips_xyz = bvh.change_euler_order("XYZ", joint="Hips")
 
 # Scale the skeleton
-bvh_scaled = bvh.scale_skeleton(0.01)  # meters to centimeters
+bvh_scaled = bvh.scale(0.01)  # meters to centimeters
 
 # Retarget motion to a different skeleton
-bvh_retarget = bvh.change_skeleton(reference_bvh)
+bvh_retarget = bvh.retarget(reference_bvh)
 
 # Extract a subset of joints
 bvh_upper = bvh.extract_joints(["Hips", "Spine", "Neck", "Head"])
@@ -179,26 +180,23 @@ q_mid = rotations.quat_slerp(q1, q2, t=0.5)
 ## Visualization
 
 ```python
+# Single-skeleton calls are methods on the Bvh object
+bvh.plot_rest_pose()                             # T-pose
+bvh.plot_frame(frame=0, camera="front")          # also "side", "top", (azim, elev)
+bvh.plot_trajectory()                            # 2D top-down root path
+bvh.render("walk.mp4")                           # video/GIF/HTML export
+bvh.render("walk.mp4", follow=True)              # camera tracks character as it turns
+bvh.play()                                       # interactive playback (auto-detects backend)
+
+# Multi-skeleton comparisons go through the module functions
 from pybvh import bvhplot
-
-# Rest pose (T-pose)
-bvhplot.rest_pose(bvh)
-
-# Static frame with camera control
-bvhplot.frame(bvh, frame=0, camera="front")  # also "side", "top", (azim, elev)
-
-# Fast video export (OpenCV if installed, else matplotlib)
-bvhplot.render(bvh, "walk.mp4")
-
-# Interactive playback (auto-detects best backend)
-bvhplot.play(bvh)
-
-# Side-by-side comparison (sync="pad" continues to longest clip)
 bvhplot.frame([bvh1, bvh2], frame=0, labels=["Original", "Generated"])
 bvhplot.render([bvh1, bvh2], "compare.mp4", sync="pad")
 
-# 2D root trajectory
-bvhplot.trajectory(bvh)
+# World orientation is exposed as a property (auto-detected, overridable)
+bvh.world_up          # '+y', '+z', etc.
+bvh.forward_at(0)     # character's facing direction at a specific frame
+bvh.world_up = '+y'   # manual override if the auto-detect is wrong for your file
 ```
 
 Install optional visualization backends for best performance:
@@ -216,7 +214,7 @@ pip install pybvh[all-viz]      # All of the above
 import pandas as pd
 
 # BVH to DataFrame
-df = pd.DataFrame(bvh.get_df_constructor(mode="euler"))
+df = pd.DataFrame(bvh.to_df_dict(mode="euler"))
 
 # DataFrame back to BVH
 from pybvh import df_to_bvh

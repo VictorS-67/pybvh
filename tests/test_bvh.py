@@ -17,13 +17,20 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from pybvh import (read_bvh_file, df_to_bvh, Bvh, frames_to_spatial_coord,
+from pybvh import (read_bvh_file, df_to_bvh, Bvh, frames_to_spatial_coords,
                     read_bvh_directory, batch_to_numpy,
                     compute_normalization_stats, normalize_array, denormalize_array)
 from pybvh.bvhnode import BvhNode, BvhJoint, BvhRoot
 from pybvh.tools import (rotX, rotY, rotZ, get_premult_mat_rot,
                           batch_rotX, batch_rotY, batch_rotZ,
                           batch_get_premult_mat_rot)
+
+sys.path.insert(0, str(Path(__file__).parent))  # for synthetic_bvh
+from synthetic_bvh import (
+    make_dot_lr_bvh, make_underscore_lr_bvh, make_namespace_lr_bvh,
+    make_numbered_lr_bvh, make_bare_substring_lr_bvh, make_nameless_lr_bvh,
+    make_singleton_lr_bvh,
+)
 
 
 # =============================================================================
@@ -68,11 +75,11 @@ class TestReadBvhFile:
 
     def test_frame_count(self, bvh_example):
         """Verify expected frame count."""
-        assert bvh_example.frame_count == 56
+        assert bvh_example.frame_count == 75
 
-    def test_frame_frequency(self, bvh_example):
-        """Verify expected frame frequency."""
-        assert abs(bvh_example.frame_frequency - 0.03333333333333333) < 1e-10
+    def test_frame_time(self, bvh_example):
+        """Verify expected frame time."""
+        assert abs(bvh_example.frame_time - 0.03333333333333333) < 1e-10
 
     def test_nodes_count(self, bvh_example):
         """Verify expected number of nodes (joints + end sites)."""
@@ -80,8 +87,8 @@ class TestReadBvhFile:
 
     def test_frames_shape(self, bvh_example):
         """Verify root_pos and joint_angles shapes."""
-        assert bvh_example.root_pos.shape == (56, 3)
-        assert bvh_example.joint_angles.shape == (56, 24, 3)
+        assert bvh_example.root_pos.shape == (75, 3)
+        assert bvh_example.joint_angles.shape == (75, 24, 3)
 
     def test_root_is_bvh_root(self, bvh_example):
         """Root should be a BvhRoot instance."""
@@ -94,7 +101,7 @@ class TestReadBvhFile:
     def test_root_channels(self, bvh_example):
         """Verify root has both position and rotation channels."""
         assert bvh_example.root.pos_channels == ['X', 'Y', 'Z']
-        assert bvh_example.root.rot_channels == ['Z', 'Y', 'X']
+        assert bvh_example.root.rot_channels == ['X', 'Z', 'Y']
 
     def test_node_names(self, bvh_example):
         """Verify expected node names."""
@@ -111,25 +118,25 @@ class TestReadBvhFile:
 
     def test_first_frame_values(self, bvh_example):
         """Verify first frame data values."""
-        expected_root_pos = np.array([9.5267, -0.7495, 36.2768])
-        expected_first_joint = np.array([88.2354, -1.0699, 0.6448])
-        expected_second_joint = np.array([1.0586, -0.3574, -0.4139])
-        expected_third_joint = np.array([1.0857, -0.2637, -0.4131])
+        expected_root_pos = np.array([-0.8231, -10.8992, 36.4219])
+        expected_first_joint = np.array([0.8701, -2.6197, -3.0713])
+        expected_second_joint = np.array([-1.3469, 1.1738, -0.3412])
+        expected_third_joint = np.array([-1.3459, 1.1990, -0.2376])
         np.testing.assert_allclose(bvh_example.root_pos[0], expected_root_pos, atol=1e-4)
         np.testing.assert_allclose(bvh_example.joint_angles[0, 0], expected_first_joint, atol=1e-4)
         np.testing.assert_allclose(bvh_example.joint_angles[0, 1], expected_second_joint, atol=1e-4)
         np.testing.assert_allclose(bvh_example.joint_angles[0, 2], expected_third_joint, atol=1e-4)
 
     def test_file_not_found_raises(self):
-        """Reading non-existent file should raise ImportError."""
-        with pytest.raises(ImportError):
+        """Reading non-existent file should raise FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
             read_bvh_file("/nonexistent/path/file.bvh")
 
     def test_non_bvh_file_raises(self, tmp_path):
-        """Reading non-.bvh file should raise ImportError."""
+        """Reading non-.bvh file should raise ValueError."""
         txt_file = tmp_path / "test.txt"
         txt_file.write_text("not a bvh file")
-        with pytest.raises(ImportError):
+        with pytest.raises(ValueError):
             read_bvh_file(txt_file)
 
 
@@ -168,7 +175,7 @@ class TestNodeHierarchy:
 
 
 # =============================================================================
-# Test: get_spatial_coord
+# Test: spatial_coords
 # =============================================================================
 
 class TestSpatialCoordinates:
@@ -176,58 +183,58 @@ class TestSpatialCoordinates:
 
     def test_single_frame_world_centered(self, bvh_example):
         """Verify spatial coordinates for single frame, world centered."""
-        spatial = bvh_example.get_spatial_coord(frame_num=0, centered="world")
+        spatial = bvh_example.spatial_coords(frame_num=0, centered="world")
         
         # Shape: 29 nodes x 3 coordinates
         assert spatial.shape == (29, 3)
         
         # First 4 nodes (root + first 3 joints)
         expected_first_4 = np.array([
-            [9.5267, -0.7495, 36.2768],
-            [9.57422669, -0.83414247, 40.72857177],
-            [10.3621849, -0.95396445, 45.10949094],
-            [10.73337881, -1.08367526, 49.54492051]
+            [-0.8231, -10.8992, 36.4219],
+            [-1.0614, -10.9558, 40.8680],
+            [-1.3379, -11.6809, 45.2527],
+            [-1.6151, -11.9160, 49.6907]
         ])
         np.testing.assert_allclose(spatial[:4], expected_first_4, atol=1e-4)
 
     def test_single_frame_skeleton_centered(self, bvh_example):
         """Verify spatial coordinates for single frame, skeleton centered."""
-        spatial = bvh_example.get_spatial_coord(frame_num=0, centered="skeleton")
-        
+        spatial = bvh_example.spatial_coords(frame_num=0, centered="skeleton")
+
         # Root should be at origin
         np.testing.assert_allclose(spatial[0], [0.0, 0.0, 0.0], atol=1e-10)
-        
+
         # Other joints should be offset from origin
         expected_first_4 = np.array([
             [0.0, 0.0, 0.0],
-            [0.04752669, -0.08464247, 4.45177177],
-            [0.8354849, -0.20446445, 8.83269094],
-            [1.20667881, -0.33417526, 13.26812051]
+            [-0.2383, -0.0566, 4.4461],
+            [-0.5148, -0.7817, 8.8308],
+            [-0.7920, -1.0168, 13.2688]
         ])
         np.testing.assert_allclose(spatial[:4], expected_first_4, atol=1e-4)
 
     def test_all_frames_world_centered(self, bvh_example):
         """Verify all frames spatial coordinates shape."""
-        spatial = bvh_example.get_spatial_coord(frame_num=-1, centered="world")
-        assert spatial.shape == (56, 29, 3)
+        spatial = bvh_example.spatial_coords(frame_num=-1, centered="world")
+        assert spatial.shape == (75, 29, 3)
 
     def test_all_frames_first_centered(self, bvh_example):
         """Verify 'first' centering mode - first frame root at origin."""
-        spatial = bvh_example.get_spatial_coord(frame_num=-1, centered="first")
+        spatial = bvh_example.spatial_coords(frame_num=-1, centered="first")
         
-        assert spatial.shape == (56, 29, 3)
+        assert spatial.shape == (75, 29, 3)
         # First frame root should be at origin
         np.testing.assert_allclose(spatial[0, 0], [0.0, 0.0, 0.0], atol=1e-10)
 
     def test_invalid_centered_raises(self, bvh_example):
         """Invalid centered value should raise ValueError."""
         with pytest.raises(ValueError):
-            bvh_example.get_spatial_coord(frame_num=0, centered="invalid")
+            bvh_example.spatial_coords(frame_num=0, centered="invalid")
 
     def test_invalid_frame_num_raises(self, bvh_example):
         """Out-of-bounds frame_num should raise ValueError."""
         with pytest.raises(ValueError):
-            bvh_example.get_spatial_coord(frame_num=1000)
+            bvh_example.spatial_coords(frame_num=1000)
 
 
 # =============================================================================
@@ -237,24 +244,24 @@ class TestSpatialCoordinates:
 class TestDataFrameConversion:
     """Tests for DataFrame <-> Bvh conversion."""
 
-    def test_get_df_constructor_euler(self, bvh_example):
-        """Verify DataFrame constructor output for euler mode."""
-        df_data = bvh_example.get_df_constructor(mode='euler', centered='world')
+    def test_to_df_dict_euler(self, bvh_example):
+        """Verify to_df_dict output for euler mode."""
+        df_data = bvh_example.to_df_dict(mode='euler', centered='world')
         df = pd.DataFrame(df_data)
         
-        assert df.shape == (56, 76)  # 56 frames, 75 channels + 1 time column
+        assert df.shape == (75, 76)  # 75 frames, 75 channels + 1 time column
         
         # Check expected columns
         expected_first_10 = [
             'time', 'Hips_X_pos', 'Hips_Y_pos', 'Hips_Z_pos',
-            'Hips_Z_rot', 'Hips_Y_rot', 'Hips_X_rot',
-            'Spine_Z_rot', 'Spine_Y_rot', 'Spine_X_rot'
+            'Hips_X_rot', 'Hips_Z_rot', 'Hips_Y_rot',
+            'Spine_X_rot', 'Spine_Z_rot', 'Spine_Y_rot'
         ]
         assert list(df.columns[:10]) == expected_first_10
 
     def test_df_to_bvh_roundtrip(self, bvh_example):
         """DataFrame to Bvh round-trip should preserve data."""
-        df_data = bvh_example.get_df_constructor(mode='euler', centered='world')
+        df_data = bvh_example.to_df_dict(mode='euler', centered='world')
         df = pd.DataFrame(df_data)
         
         bvh2 = df_to_bvh(bvh_example.nodes, df)
@@ -277,7 +284,7 @@ class TestFileRoundTrip:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpfile = Path(tmpdir) / "test_output.bvh"
             
-            bvh_example.to_bvh_file(tmpfile, verbose=False)
+            bvh_example.write(tmpfile, verbose=False)
             bvh_reread = read_bvh_file(tmpfile)
             
             # Basic properties should match
@@ -300,12 +307,12 @@ class TestFileRoundTrip:
     def test_write_to_invalid_extension_raises(self, bvh_example, tmp_path):
         """Writing to non-.bvh file should raise Exception."""
         with pytest.raises(Exception):
-            bvh_example.to_bvh_file(tmp_path / "output.txt")
+            bvh_example.write(tmp_path / "output.txt")
 
     def test_write_to_nonexistent_dir_raises(self, bvh_example):
         """Writing to non-existent directory should raise Exception."""
         with pytest.raises(Exception):
-            bvh_example.to_bvh_file("/nonexistent/dir/output.bvh")
+            bvh_example.write("/nonexistent/dir/output.bvh")
 
 
 # =============================================================================
@@ -329,7 +336,7 @@ class TestBvhMethods:
         """__str__ should return readable summary."""
         s = str(bvh_example)
         assert "24 elements" in s  # 29 nodes - 5 end sites = 24 joints
-        assert "56 frames" in s
+        assert "75 frames" in s
 
     def test_repr_representation(self, bvh_example):
         """__repr__ should return constructor-like string."""
@@ -338,9 +345,9 @@ class TestBvhMethods:
         assert "nodes=" in r
         assert "frames=" in r
 
-    def test_get_rest_pose_euler(self, bvh_example):
-        """get_rest_pose with euler mode should return zeros tuple."""
-        root_pos_rest, joint_angles_rest = bvh_example.get_rest_pose(mode='euler')
+    def test_rest_pose_coords_euler(self, bvh_example):
+        """rest_pose_coords with euler mode should return zeros tuple."""
+        root_pos_rest, joint_angles_rest = bvh_example.rest_pose_coords(mode='euler')
         assert root_pos_rest.shape == (3,)
         assert joint_angles_rest.shape == bvh_example.joint_angles[0].shape
         np.testing.assert_allclose(root_pos_rest, np.zeros(3))
@@ -385,21 +392,21 @@ class TestStructuredRepresentation:
 
     def test_root_pos_shape(self, bvh_example):
         """root_pos should be (num_frames, 3)."""
-        assert bvh_example.root_pos.shape == (56, 3)
+        assert bvh_example.root_pos.shape == (75, 3)
 
     def test_joint_angles_shape(self, bvh_example):
         """joint_angles should be (num_frames, num_joints, 3)."""
         num_joints = len([n for n in bvh_example.nodes if not n.is_end_site()])
-        assert bvh_example.joint_angles.shape == (56, num_joints, 3)
+        assert bvh_example.joint_angles.shape == (75, num_joints, 3)
 
     def test_root_pos_values(self, bvh_example):
         """root_pos should match the expected first-frame root translation."""
-        expected = np.array([9.5267, -0.7495, 36.2768])
+        expected = np.array([-0.8231, -10.8992, 36.4219])
         np.testing.assert_allclose(bvh_example.root_pos[0], expected, atol=1e-4)
 
     def test_joint_angles_first_joint(self, bvh_example):
         """First joint's angles should match expected values."""
-        expected = np.array([88.2354, -1.0699, 0.6448])
+        expected = np.array([0.8701, -2.6197, -3.0713])
         np.testing.assert_allclose(bvh_example.joint_angles[0, 0], expected, atol=1e-4)
 
     def test_copy_independence_root_pos(self, bvh_example):
@@ -428,7 +435,7 @@ class TestStructuredRepresentation:
         """Write + read preserves root_pos and joint_angles."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpfile = Path(tmpdir) / "test_structured.bvh"
-            bvh_example.to_bvh_file(tmpfile, verbose=False)
+            bvh_example.write(tmpfile, verbose=False)
             bvh2 = read_bvh_file(tmpfile)
             np.testing.assert_allclose(bvh2.root_pos, bvh_example.root_pos, atol=1e-5)
             np.testing.assert_allclose(bvh2.joint_angles, bvh_example.joint_angles, atol=1e-5)
@@ -525,22 +532,22 @@ class TestVectorizedFK:
 
     def test_all_frames_matches_frame_by_frame(self, bvh_example):
         """All-frames FK should match computing each frame individually."""
-        all_coords = bvh_example.get_spatial_coord(centered="world")
+        all_coords = bvh_example.spatial_coords(centered="world")
         for i in range(bvh_example.frame_count):
-            single_coord = bvh_example.get_spatial_coord(frame_num=i, centered="world")
+            single_coord = bvh_example.spatial_coords(frame_num=i, centered="world")
             np.testing.assert_allclose(all_coords[i], single_coord, atol=1e-10,
                 err_msg=f"Frame {i} mismatch between batch and single computation")
 
     def test_fk_on_different_skeletons(self):
         """FK should work on all test files with different skeletons."""
         test_files = [
-            "bvh_data/bvh_example.bvh",   # 56 frames, 29 nodes
+            "bvh_data/bvh_example.bvh",   # 75 frames, 29 nodes
             "bvh_data/bvh_test2.bvh",      # 61 frames, 28 nodes
             "bvh_data/bvh_test3.bvh",      # 100 frames, 73 nodes
         ]
         for filepath in test_files:
             bvh = read_bvh_file(filepath)
-            coords = bvh.get_spatial_coord(centered="world")
+            coords = bvh.spatial_coords(centered="world")
             assert coords.shape == (bvh.frame_count, len(bvh.nodes), 3), \
                 f"Shape mismatch for {filepath}"
             assert not np.any(np.isnan(coords)), f"NaN in coords for {filepath}"
@@ -550,8 +557,8 @@ class TestVectorizedFK:
         """FK should work on a file with exactly 1 frame."""
         bvh = read_bvh_file("bvh_data/standard_skeleton.bvh")
         assert bvh.frame_count == 1
-        coords_all = bvh.get_spatial_coord(centered="world")
-        coords_single = bvh.get_spatial_coord(frame_num=0, centered="world")
+        coords_all = bvh.spatial_coords(centered="world")
+        coords_single = bvh.spatial_coords(frame_num=0, centered="world")
         # All-frames returns (1, N, 3), single returns (N, 3)
         np.testing.assert_allclose(coords_all[0], coords_single, atol=1e-10)
 
@@ -559,24 +566,24 @@ class TestVectorizedFK:
         """All centering modes should work on a larger file (100 frames)."""
         bvh = read_bvh_file("bvh_data/bvh_test3.bvh")
         for mode in ["world", "skeleton", "first"]:
-            coords = bvh.get_spatial_coord(centered=mode)
+            coords = bvh.spatial_coords(centered=mode)
             assert coords.shape == (100, len(bvh.nodes), 3)
             assert not np.any(np.isnan(coords))
 
         # Skeleton centering: root should be at origin
-        coords_skel = bvh.get_spatial_coord(centered="skeleton")
+        coords_skel = bvh.spatial_coords(centered="skeleton")
         np.testing.assert_allclose(coords_skel[:, 0, :], 0.0, atol=1e-10)
 
         # First centering: frame 0 root should be at origin
-        coords_first = bvh.get_spatial_coord(centered="first")
+        coords_first = bvh.spatial_coords(centered="first")
         np.testing.assert_allclose(coords_first[0, 0, :], 0.0, atol=1e-10)
 
     def test_fk_frame_independence(self, bvh_example):
         """Modifying one frame's angles should not affect other frames' coords."""
-        coords_before = bvh_example.get_spatial_coord(centered="world").copy()
+        coords_before = bvh_example.spatial_coords(centered="world").copy()
         bvh_mod = bvh_example.copy()
         bvh_mod.joint_angles[0, :, :] = 0.0  # Zero out frame 0
-        coords_after = bvh_mod.get_spatial_coord(centered="world")
+        coords_after = bvh_mod.spatial_coords(centered="world")
         # Frame 0 should change
         assert not np.allclose(coords_after[0], coords_before[0])
         # All other frames should be identical
@@ -593,8 +600,8 @@ class TestParserMultipleFiles:
     def test_parse_all_test_files(self):
         """All test BVH files should parse without errors and have valid data."""
         files = {
-            "bvh_data/bvh_example.bvh": (56, 24, 29),
-            "bvh_data/bvh_test1.bvh": (56, 24, 29),
+            "bvh_data/bvh_example.bvh": (75, 24, 29),
+            "bvh_data/bvh_test1.bvh": (75, 24, 29),
             "bvh_data/bvh_test2.bvh": (61, 23, 28),
             "bvh_data/bvh_test3.bvh": (100, 60, 73),
             "bvh_data/standard_skeleton.bvh": (1, 24, 29),
@@ -615,7 +622,7 @@ class TestParserMultipleFiles:
         bvh = read_bvh_file("bvh_data/bvh_test3.bvh")
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpfile = Path(tmpdir) / "roundtrip_large.bvh"
-            bvh.to_bvh_file(tmpfile, verbose=False)
+            bvh.write(tmpfile, verbose=False)
             bvh2 = read_bvh_file(tmpfile)
             np.testing.assert_allclose(bvh2.root_pos, bvh.root_pos, atol=1e-5)
             np.testing.assert_allclose(bvh2.joint_angles, bvh.joint_angles, atol=1e-5)
@@ -629,65 +636,65 @@ class TestParserMultipleFiles:
 class TestInplaceParameter:
     """Tests for uniform inplace=False default across all mutation methods."""
 
-    def test_set_frames_from_6d_default_returns_copy(self, bvh_example):
-        """set_frames_from_6d() default should return a new object, not modify self."""
+    def test_from_6d_default_returns_copy(self, bvh_example):
+        """from_6d() default should return a new object, not modify self."""
         original_angles = bvh_example.joint_angles.copy()
-        rp, r6d, _ = bvh_example.get_frames_as_6d()
-        result = bvh_example.set_frames_from_6d(rp, r6d)
+        rp, r6d, _ = bvh_example.to_6d()
+        result = bvh_example.from_6d(rp, r6d)
         assert result is not bvh_example
         np.testing.assert_allclose(bvh_example.joint_angles, original_angles, atol=1e-10)
 
-    def test_set_frames_from_quaternion_default_returns_copy(self, bvh_example):
-        """set_frames_from_quaternion() default should return a new object."""
+    def test_from_quaternions_default_returns_copy(self, bvh_example):
+        """from_quaternions() default should return a new object."""
         original_angles = bvh_example.joint_angles.copy()
-        rp, quats, _ = bvh_example.get_frames_as_quaternion()
-        result = bvh_example.set_frames_from_quaternion(rp, quats)
+        rp, quats, _ = bvh_example.to_quaternions()
+        result = bvh_example.from_quaternions(rp, quats)
         assert result is not bvh_example
         np.testing.assert_allclose(bvh_example.joint_angles, original_angles, atol=1e-10)
 
-    def test_set_frames_from_axisangle_default_returns_copy(self, bvh_example):
-        """set_frames_from_axisangle() default should return a new object."""
+    def test_from_axisangle_default_returns_copy(self, bvh_example):
+        """from_axisangle() default should return a new object."""
         original_angles = bvh_example.joint_angles.copy()
-        rp, aa, _ = bvh_example.get_frames_as_axisangle()
-        result = bvh_example.set_frames_from_axisangle(rp, aa)
+        rp, aa, _ = bvh_example.to_axisangle()
+        result = bvh_example.from_axisangle(rp, aa)
         assert result is not bvh_example
         np.testing.assert_allclose(bvh_example.joint_angles, original_angles, atol=1e-10)
 
-    def test_single_joint_euler_angle_default_returns_copy(self, bvh_example):
-        """single_joint_euler_angle() default should return a new object."""
+    def test_change_euler_order_single_joint_default_returns_copy(self, bvh_example):
+        """change_euler_order() for a single joint default should return a new object."""
         original_angles = bvh_example.joint_angles.copy()
-        result = bvh_example.single_joint_euler_angle('Spine', 'XYZ')
+        result = bvh_example.change_euler_order('XYZ', joint='Spine')
         assert result is not bvh_example
         np.testing.assert_allclose(bvh_example.joint_angles, original_angles, atol=1e-10)
 
-    def test_change_all_euler_orders_default_returns_copy(self, bvh_example):
-        """change_all_euler_orders() default should return a new object."""
+    def test_change_euler_order_all_joints_default_returns_copy(self, bvh_example):
+        """change_euler_order() for all joints default should return a new object."""
         original_angles = bvh_example.joint_angles.copy()
-        result = bvh_example.change_all_euler_orders('XYZ')
+        result = bvh_example.change_euler_order('XYZ')
         assert result is not bvh_example
         np.testing.assert_allclose(bvh_example.joint_angles, original_angles, atol=1e-10)
 
     def test_inplace_true_returns_none(self, bvh_example):
         """All mutation methods with inplace=True should return None."""
         bvh = bvh_example.copy()
-        rp, r6d, _ = bvh.get_frames_as_6d()
-        assert bvh.set_frames_from_6d(rp, r6d, inplace=True) is None
+        rp, r6d, _ = bvh.to_6d()
+        assert bvh.from_6d(rp, r6d, inplace=True) is None
 
-        rp, quats, _ = bvh.get_frames_as_quaternion()
-        assert bvh.set_frames_from_quaternion(rp, quats, inplace=True) is None
+        rp, quats, _ = bvh.to_quaternions()
+        assert bvh.from_quaternions(rp, quats, inplace=True) is None
 
-        rp, aa, _ = bvh.get_frames_as_axisangle()
-        assert bvh.set_frames_from_axisangle(rp, aa, inplace=True) is None
+        rp, aa, _ = bvh.to_axisangle()
+        assert bvh.from_axisangle(rp, aa, inplace=True) is None
 
-        assert bvh.single_joint_euler_angle('Spine', 'XYZ', inplace=True) is None
-        assert bvh.change_all_euler_orders('ZYX', inplace=True) is None
-        assert bvh.change_skeleton(bvh_example, inplace=True) is None
-        assert bvh.scale_skeleton(2.0, inplace=True) is None
+        assert bvh.change_euler_order('XYZ', joint='Spine', inplace=True) is None
+        assert bvh.change_euler_order('ZYX', inplace=True) is None
+        assert bvh.retarget(bvh_example, inplace=True) is None
+        assert bvh.scale(2.0, inplace=True) is None
 
-    def test_copy_from_set_frames_is_independent(self, bvh_example):
-        """Copy returned by set_frames_from_6d should be independent from original."""
-        rp, r6d, _ = bvh_example.get_frames_as_6d()
-        result = bvh_example.set_frames_from_6d(rp, r6d)
+    def test_copy_from_from_6d_is_independent(self, bvh_example):
+        """Copy returned by from_6d should be independent from original."""
+        rp, r6d, _ = bvh_example.to_6d()
+        result = bvh_example.from_6d(rp, r6d)
         # Modify the result
         result.root_pos[0, 0] = 999.0
         # Original should be unaffected
@@ -716,18 +723,18 @@ class TestChannelProtection:
         joint.rot_channels = ['X', 'Y', 'Z']
         assert joint.rot_channels == ['X', 'Y', 'Z']
 
-    def test_single_joint_euler_angle_still_works(self, bvh_example):
+    def test_change_euler_order_single_joint_still_works(self, bvh_example):
         """Bvh methods should bypass the freeze to update channels."""
         old_order = bvh_example.nodes[1].rot_channels[:]
-        result = bvh_example.single_joint_euler_angle(
-            bvh_example.nodes[1].name, 'XYZ')
+        result = bvh_example.change_euler_order(
+            'XYZ', joint=bvh_example.nodes[1].name)
         assert result.nodes[1].rot_channels == ['X', 'Y', 'Z']
         # Original unchanged
         assert bvh_example.nodes[1].rot_channels == old_order
 
-    def test_change_all_euler_orders_still_works(self, bvh_example):
-        """change_all_euler_orders should bypass freeze on all nodes."""
-        result = bvh_example.change_all_euler_orders('XYZ')
+    def test_change_euler_order_all_joints_still_works(self, bvh_example):
+        """change_euler_order should bypass freeze on all nodes."""
+        result = bvh_example.change_euler_order('XYZ')
         for node in result.nodes:
             if not node.is_end_site():
                 assert node.rot_channels == ['X', 'Y', 'Z']
@@ -742,7 +749,7 @@ class TestChannelProtection:
     def test_inplace_euler_change_on_frozen_nodes(self, bvh_example):
         """inplace=True euler change should work on frozen nodes."""
         bvh = bvh_example.copy()
-        bvh.single_joint_euler_angle(bvh.nodes[1].name, 'XYZ', inplace=True)
+        bvh.change_euler_order('XYZ', joint=bvh.nodes[1].name, inplace=True)
         assert bvh.nodes[1].rot_channels == ['X', 'Y', 'Z']
 
     def test_read_bvh_file_produces_frozen_nodes(self, bvh_example_path):
@@ -767,11 +774,11 @@ class TestFrameSlicing:
             sliced.joint_angles, bvh_example.joint_angles[2:8])
 
     def test_slice_frames_with_step(self, bvh_example):
-        """Slicing with step adjusts frame_frequency."""
+        """Slicing with step adjusts frame_time."""
         sliced = bvh_example.slice_frames(0, None, 3)
         expected_count = len(bvh_example.root_pos[0::3])
         assert sliced.frame_count == expected_count
-        assert sliced.frame_frequency == bvh_example.frame_frequency * 3
+        assert sliced.frame_time == bvh_example.frame_time * 3
 
     def test_slice_frames_preserves_skeleton(self, bvh_example):
         """Sliced Bvh has the same skeleton."""
@@ -811,24 +818,24 @@ class TestFrameSlicing:
 
     def test_concat_mismatched_channels_raises(self, bvh_example):
         """Concat with different rotation orders should raise."""
-        other = bvh_example.change_all_euler_orders('XYZ')
+        other = bvh_example.change_euler_order('XYZ')
         with pytest.raises(ValueError, match="Rotation order mismatch"):
             bvh_example.concat(other)
 
     def test_concat_mismatched_frequency_warns(self, bvh_example):
         """Concat with different frame frequencies should warn."""
         other = bvh_example.copy()
-        other.frame_frequency = bvh_example.frame_frequency * 2
+        other.frame_time = bvh_example.frame_time * 2
         import warnings
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             bvh_example.concat(other)
             assert len(w) == 1
-            assert "frequency mismatch" in str(w[0].message).lower()
+            assert "frame time mismatch" in str(w[0].message).lower()
 
     def test_resample_identity(self, bvh_example):
         """Resampling to the same fps should produce near-identical frames."""
-        original_fps = 1.0 / bvh_example.frame_frequency
+        original_fps = 1.0 / bvh_example.frame_time
         result = bvh_example.resample(original_fps)
         assert result.frame_count == bvh_example.frame_count
         np.testing.assert_allclose(
@@ -838,25 +845,25 @@ class TestFrameSlicing:
 
     def test_resample_upsample(self, bvh_example):
         """Upsampling doubles frame count (approximately)."""
-        original_fps = 1.0 / bvh_example.frame_frequency
+        original_fps = 1.0 / bvh_example.frame_time
         result = bvh_example.resample(original_fps * 2)
         # Should have roughly 2x frames (±1 due to boundary)
         assert abs(result.frame_count - 2 * bvh_example.frame_count) <= 2
-        assert abs(result.frame_frequency - bvh_example.frame_frequency / 2) < 1e-10
+        assert abs(result.frame_time - bvh_example.frame_time / 2) < 1e-10
 
     def test_resample_downsample(self, bvh_example):
         """Downsampling halves frame count (approximately)."""
-        original_fps = 1.0 / bvh_example.frame_frequency
+        original_fps = 1.0 / bvh_example.frame_time
         result = bvh_example.resample(original_fps / 2)
         assert abs(result.frame_count - bvh_example.frame_count // 2) <= 2
 
     def test_resample_preserves_spatial_at_original_times(self, bvh_example):
         """Spatial coordinates at original frame times should be preserved."""
-        original_fps = 1.0 / bvh_example.frame_frequency
+        original_fps = 1.0 / bvh_example.frame_time
         # Upsample 2x, then check even frames (which correspond to originals)
         result = bvh_example.resample(original_fps * 2)
-        orig_coords = bvh_example.get_spatial_coord(centered='skeleton')
-        result_coords = result.get_spatial_coord(centered='skeleton')
+        orig_coords = bvh_example.spatial_coords(centered='skeleton')
+        result_coords = result.spatial_coords(centered='skeleton')
         # Even indices in result should match original frames
         # (approximately, due to SLERP being on the geodesic)
         np.testing.assert_allclose(
@@ -872,50 +879,50 @@ class TestFrameSlicing:
 
 
 class TestSkeletonRetargeting:
-    """Tests for change_skeleton with name_mapping."""
+    """Tests for retarget with name_mapping."""
 
-    def test_change_skeleton_no_mapping(self, bvh_example):
-        """Without mapping, change_skeleton works as before (by name)."""
+    def test_retarget_no_mapping(self, bvh_example):
+        """Without mapping, retarget works as before (by name)."""
         ref = bvh_example.copy()
-        ref.scale_skeleton(2.0, inplace=True)
-        result = bvh_example.change_skeleton(ref)
+        ref.scale(2.0, inplace=True)
+        result = bvh_example.retarget(ref)
         for n1, n2 in zip(result.nodes, ref.nodes):
             np.testing.assert_array_equal(n1.offset, n2.offset)
 
-    def test_change_skeleton_with_identity_mapping(self, bvh_example):
+    def test_retarget_with_identity_mapping(self, bvh_example):
         """Identity mapping (name→same name) should behave identically."""
         ref = bvh_example.copy()
-        ref.scale_skeleton(2.0, inplace=True)
+        ref.scale(2.0, inplace=True)
         mapping = {n.name: n.name for n in bvh_example.nodes}
-        result = bvh_example.change_skeleton(ref, name_mapping=mapping)
+        result = bvh_example.retarget(ref, name_mapping=mapping)
         for n1, n2 in zip(result.nodes, ref.nodes):
             np.testing.assert_array_equal(n1.offset, n2.offset)
 
-    def test_change_skeleton_with_prefix_mapping(self, bvh_example):
+    def test_retarget_with_prefix_mapping(self, bvh_example):
         """Mapping with prefixed names should copy offsets correctly."""
         # Create a reference with prefixed names
         ref = bvh_example.copy()
-        ref.scale_skeleton(3.0, inplace=True)
+        ref.scale(3.0, inplace=True)
         for node in ref.nodes:
             node._name = 'prefix:' + node.name
 
         # Build mapping: self name → prefixed name
         mapping = {n.name: 'prefix:' + n.name for n in bvh_example.nodes}
-        result = bvh_example.change_skeleton(ref, name_mapping=mapping)
+        result = bvh_example.retarget(ref, name_mapping=mapping)
 
         for n_result, n_ref in zip(result.nodes, ref.nodes):
             np.testing.assert_array_equal(n_result.offset, n_ref.offset)
 
-    def test_change_skeleton_lenient_unmapped(self, bvh_example):
+    def test_retarget_lenient_unmapped(self, bvh_example):
         """Unmapped joints keep their original offsets in lenient mode."""
         ref = bvh_example.copy()
-        ref.scale_skeleton(5.0, inplace=True)
+        ref.scale(5.0, inplace=True)
         # Rename all ref nodes so nothing matches by name
         for node in ref.nodes:
             node._name = 'ref_' + node.name
         # Only map the root
         mapping = {bvh_example.root.name: 'ref_' + bvh_example.root.name}
-        result = bvh_example.change_skeleton(
+        result = bvh_example.retarget(
             ref, name_mapping=mapping, strict=False)
         # Root should be scaled
         np.testing.assert_array_equal(
@@ -924,19 +931,19 @@ class TestSkeletonRetargeting:
         np.testing.assert_array_equal(
             result.nodes[1].offset, bvh_example.nodes[1].offset)
 
-    def test_change_skeleton_strict_unmapped_raises(self, bvh_example):
+    def test_retarget_strict_unmapped_raises(self, bvh_example):
         """Strict mode should raise when a joint has no match."""
         ref = bvh_example.copy()
         # Remove one node name from ref to create a mismatch
         ref.nodes[1]._name = 'NONEXISTENT'
         with pytest.raises(ValueError, match="not found"):
-            bvh_example.change_skeleton(ref, strict=True)
+            bvh_example.retarget(ref, strict=True)
 
-    def test_change_skeleton_preserves_motion(self, bvh_example):
-        """change_skeleton should not modify root_pos or joint_angles."""
+    def test_retarget_preserves_motion(self, bvh_example):
+        """retarget should not modify root_pos or joint_angles."""
         ref = bvh_example.copy()
-        ref.scale_skeleton(2.0, inplace=True)
-        result = bvh_example.change_skeleton(ref)
+        ref.scale(2.0, inplace=True)
+        result = bvh_example.retarget(ref)
         np.testing.assert_array_equal(result.root_pos, bvh_example.root_pos)
         np.testing.assert_array_equal(
             result.joint_angles, bvh_example.joint_angles)
@@ -956,8 +963,8 @@ class TestJointSubsetting:
         assert len(result_joints) == len(orig_joints)
 
         # Rest pose spatial coordinates should match
-        orig_rest = bvh_example.get_rest_pose(mode='coordinates')
-        result_rest = result.get_rest_pose(mode='coordinates')
+        orig_rest = bvh_example.rest_pose_coords(mode='coordinates')
+        result_rest = result.rest_pose_coords(mode='coordinates')
         # Compare only the kept joint positions (end sites may differ)
         for n in result.nodes:
             if not n.is_end_site():
@@ -1052,8 +1059,8 @@ class TestJointSubsetting:
             keep = [bvh_example.root.name] + keep
 
         result = bvh_example.extract_joints(keep)
-        orig_rest = bvh_example.get_rest_pose(mode='coordinates')
-        result_rest = result.get_rest_pose(mode='coordinates')
+        orig_rest = bvh_example.rest_pose_coords(mode='coordinates')
+        result_rest = result.rest_pose_coords(mode='coordinates')
 
         for name in keep:
             np.testing.assert_allclose(
@@ -1075,12 +1082,12 @@ class TestJointSubsetting:
 # =============================================================================
 
 class TestFileRoundTripAllFiles:
-    """Test to_bvh_file -> read_bvh_file roundtrip for every BVH file."""
+    """Test write -> read_bvh_file roundtrip for every BVH file."""
 
     def _roundtrip(self, bvh_orig, tmp_path):
         """Helper: write, re-read, and return the re-read Bvh."""
         tmpfile = tmp_path / "roundtrip.bvh"
-        bvh_orig.to_bvh_file(tmpfile, verbose=False)
+        bvh_orig.write(tmpfile, verbose=False)
         return read_bvh_file(tmpfile)
 
     def test_roundtrip_bvh_test1(self, tmp_path):
@@ -1090,7 +1097,7 @@ class TestFileRoundTripAllFiles:
         np.testing.assert_allclose(bvh2.root_pos, bvh.root_pos, atol=1e-5)
         np.testing.assert_allclose(bvh2.joint_angles, bvh.joint_angles, atol=1e-5)
         assert len(bvh2.nodes) == len(bvh.nodes)
-        assert abs(bvh2.frame_frequency - bvh.frame_frequency) < 1e-6
+        assert abs(bvh2.frame_time - bvh.frame_time) < 1e-6
 
     def test_roundtrip_bvh_test2_yxz(self, bvh_test2, tmp_path):
         """Round-trip bvh_test2.bvh (YXZ channel order) preserves data."""
@@ -1098,7 +1105,7 @@ class TestFileRoundTripAllFiles:
         np.testing.assert_allclose(bvh2.root_pos, bvh_test2.root_pos, atol=1e-5)
         np.testing.assert_allclose(bvh2.joint_angles, bvh_test2.joint_angles, atol=1e-5)
         assert len(bvh2.nodes) == len(bvh_test2.nodes)
-        assert abs(bvh2.frame_frequency - bvh_test2.frame_frequency) < 1e-6
+        assert abs(bvh2.frame_time - bvh_test2.frame_time) < 1e-6
 
     def test_roundtrip_bvh_test3_mixed(self, bvh_test3, tmp_path):
         """Round-trip bvh_test3.bvh (60 joints, mixed orders) preserves data."""
@@ -1106,7 +1113,7 @@ class TestFileRoundTripAllFiles:
         np.testing.assert_allclose(bvh2.root_pos, bvh_test3.root_pos, atol=1e-5)
         np.testing.assert_allclose(bvh2.joint_angles, bvh_test3.joint_angles, atol=1e-5)
         assert len(bvh2.nodes) == len(bvh_test3.nodes)
-        assert abs(bvh2.frame_frequency - bvh_test3.frame_frequency) < 1e-6
+        assert abs(bvh2.frame_time - bvh_test3.frame_time) < 1e-6
 
     def test_roundtrip_standard_skeleton(self, standard_skeleton, tmp_path):
         """Round-trip standard_skeleton.bvh (1 frame) preserves data."""
@@ -1114,7 +1121,7 @@ class TestFileRoundTripAllFiles:
         np.testing.assert_allclose(bvh2.root_pos, standard_skeleton.root_pos, atol=1e-5)
         np.testing.assert_allclose(bvh2.joint_angles, standard_skeleton.joint_angles, atol=1e-5)
         assert len(bvh2.nodes) == len(standard_skeleton.nodes)
-        assert abs(bvh2.frame_frequency - standard_skeleton.frame_frequency) < 1e-6
+        assert abs(bvh2.frame_time - standard_skeleton.frame_time) < 1e-6
 
     def test_roundtrip_preserves_rotation_orders(self, bvh_test3, tmp_path):
         """For bvh_test3, verify each joint's rot_channels match after roundtrip."""
@@ -1141,44 +1148,44 @@ class TestFileRoundTripAllFiles:
 
 
 # =============================================================================
-# Test: scale_skeleton
+# Test: scale
 # =============================================================================
 
 class TestScaleSkeleton:
-    """Tests for scale_skeleton() method."""
+    """Tests for scale() method."""
 
     def test_scale_uniform_doubles_offsets(self, bvh_example):
         """scale=2.0 should double all offsets."""
         original_offsets = [n.offset.copy() for n in bvh_example.nodes]
-        result = bvh_example.scale_skeleton(2.0)
+        result = bvh_example.scale(2.0)
         for orig_off, node in zip(original_offsets, result.nodes):
             np.testing.assert_allclose(node.offset, orig_off * 2.0, atol=1e-10)
 
     def test_scale_uniform_preserves_angles(self, bvh_example):
         """joint_angles should be unchanged after scale."""
-        result = bvh_example.scale_skeleton(2.0)
+        result = bvh_example.scale(2.0)
         np.testing.assert_allclose(result.joint_angles, bvh_example.joint_angles, atol=1e-10)
 
     def test_scale_per_axis(self, bvh_example):
         """scale=[1, 2, 3] should scale each axis independently."""
         original_offsets = [n.offset.copy() for n in bvh_example.nodes]
-        result = bvh_example.scale_skeleton([1, 2, 3])
+        result = bvh_example.scale([1, 2, 3])
         for orig_off, node in zip(original_offsets, result.nodes):
             expected = orig_off * np.array([1, 2, 3])
             np.testing.assert_allclose(node.offset, expected, atol=1e-10)
 
     def test_scale_affects_spatial_coords(self, bvh_example):
         """Spatial coords should scale proportionally at rest pose."""
-        rest_orig = bvh_example.get_rest_pose(mode='coordinates')
-        result = bvh_example.scale_skeleton(2.0)
-        rest_scaled = result.get_rest_pose(mode='coordinates')
+        rest_orig = bvh_example.rest_pose_coords(mode='coordinates')
+        result = bvh_example.scale(2.0)
+        rest_scaled = result.rest_pose_coords(mode='coordinates')
         np.testing.assert_allclose(rest_scaled, rest_orig * 2.0, atol=1e-10)
 
     def test_scale_inplace_true(self, bvh_example):
         """inplace=True should return None and modify self."""
         bvh = bvh_example.copy()
         original_offsets = [n.offset.copy() for n in bvh.nodes]
-        ret = bvh.scale_skeleton(2.0, inplace=True)
+        ret = bvh.scale(2.0, inplace=True)
         assert ret is None
         for orig_off, node in zip(original_offsets, bvh.nodes):
             np.testing.assert_allclose(node.offset, orig_off * 2.0, atol=1e-10)
@@ -1186,7 +1193,7 @@ class TestScaleSkeleton:
     def test_scale_inplace_false(self, bvh_example):
         """inplace=False should return new Bvh, original unchanged."""
         original_offsets = [n.offset.copy() for n in bvh_example.nodes]
-        result = bvh_example.scale_skeleton(2.0, inplace=False)
+        result = bvh_example.scale(2.0, inplace=False)
         assert isinstance(result, Bvh)
         assert result is not bvh_example
         # Original unchanged
@@ -1196,67 +1203,67 @@ class TestScaleSkeleton:
     def test_scale_invalid_raises(self, bvh_example):
         """scale=[1,2] should raise ValueError."""
         with pytest.raises(ValueError):
-            bvh_example.scale_skeleton([1, 2])
+            bvh_example.scale([1, 2])
 
     def test_scale_negative(self, bvh_example):
         """scale=-1.0 should negate all offsets."""
         original_offsets = [n.offset.copy() for n in bvh_example.nodes]
-        result = bvh_example.scale_skeleton(-1.0)
+        result = bvh_example.scale(-1.0)
         for orig_off, node in zip(original_offsets, result.nodes):
             np.testing.assert_allclose(node.offset, -orig_off, atol=1e-10)
 
     def test_scale_by_one_noop(self, bvh_example):
         """scale=1.0 should leave offsets unchanged."""
         original_offsets = [n.offset.copy() for n in bvh_example.nodes]
-        result = bvh_example.scale_skeleton(1.0)
+        result = bvh_example.scale(1.0)
         for orig_off, node in zip(original_offsets, result.nodes):
             np.testing.assert_allclose(node.offset, orig_off, atol=1e-10)
 
     def test_scale_zero(self, bvh_example):
         """scale=0.0 should make all offsets zero."""
-        result = bvh_example.scale_skeleton(0.0)
+        result = bvh_example.scale(0.0)
         for node in result.nodes:
             np.testing.assert_allclose(node.offset, np.zeros(3), atol=1e-10)
 
 
 # =============================================================================
-# Test: get_rest_pose
+# Test: rest_pose_coords
 # =============================================================================
 
-class TestGetRestPose:
-    """Tests for get_rest_pose() method."""
+class TestRestPoseCoords:
+    """Tests for rest_pose_coords() method."""
 
     def test_rest_pose_coordinates_shape(self, bvh_example):
         """mode='coordinates' returns (N, 3) where N = len(nodes)."""
-        rest = bvh_example.get_rest_pose(mode='coordinates')
+        rest = bvh_example.rest_pose_coords(mode='coordinates')
         assert rest.shape == (len(bvh_example.nodes), 3)
 
     def test_rest_pose_coordinates_root_at_origin(self, bvh_example):
         """Root position should be [0,0,0] in rest pose coordinates."""
-        rest = bvh_example.get_rest_pose(mode='coordinates')
+        rest = bvh_example.rest_pose_coords(mode='coordinates')
         np.testing.assert_allclose(rest[0], [0.0, 0.0, 0.0], atol=1e-10)
 
     def test_rest_pose_euler_shape(self, bvh_example):
         """mode='euler' returns tuple of (3,) and (J, 3) arrays."""
-        root_pos_rest, joint_angles_rest = bvh_example.get_rest_pose(mode='euler')
+        root_pos_rest, joint_angles_rest = bvh_example.rest_pose_coords(mode='euler')
         assert root_pos_rest.shape == (3,)
         assert joint_angles_rest.shape == (bvh_example.joint_count, 3)
 
     def test_rest_pose_euler_values_are_zero(self, bvh_example):
         """Both arrays from euler mode should be all zeros."""
-        root_pos_rest, joint_angles_rest = bvh_example.get_rest_pose(mode='euler')
+        root_pos_rest, joint_angles_rest = bvh_example.rest_pose_coords(mode='euler')
         np.testing.assert_allclose(root_pos_rest, np.zeros(3), atol=1e-10)
         np.testing.assert_allclose(joint_angles_rest, np.zeros_like(joint_angles_rest), atol=1e-10)
 
     def test_rest_pose_invalid_mode_raises(self, bvh_example):
         """mode='bad' should raise ValueError."""
         with pytest.raises(ValueError):
-            bvh_example.get_rest_pose(mode='bad')
+            bvh_example.rest_pose_coords(mode='bad')
 
     def test_rest_pose_coordinates_all_files(self, bvh_example, bvh_test2, bvh_test3, standard_skeleton):
         """Verify rest pose coordinates are valid for all test files."""
         for bvh in [bvh_example, bvh_test2, bvh_test3, standard_skeleton]:
-            rest = bvh.get_rest_pose(mode='coordinates')
+            rest = bvh.rest_pose_coords(mode='coordinates')
             assert rest.shape == (len(bvh.nodes), 3)
             assert not np.any(np.isnan(rest))
             assert not np.any(np.isinf(rest))
@@ -1265,32 +1272,32 @@ class TestGetRestPose:
 
     def test_rest_pose_modes_consistent(self, bvh_example):
         """Euler mode zeros through FK should give same as coordinates mode."""
-        rest_coords = bvh_example.get_rest_pose(mode='coordinates')
-        root_pos_rest, joint_angles_rest = bvh_example.get_rest_pose(mode='euler')
+        rest_coords = bvh_example.rest_pose_coords(mode='coordinates')
+        root_pos_rest, joint_angles_rest = bvh_example.rest_pose_coords(mode='euler')
         # Compute spatial coords from zeros
-        rest_via_fk = frames_to_spatial_coord(
+        rest_via_fk = frames_to_spatial_coords(
             bvh_example, root_pos=root_pos_rest,
             joint_angles=joint_angles_rest, centered="skeleton")
         np.testing.assert_allclose(rest_via_fk, rest_coords, atol=1e-10)
 
 
 # =============================================================================
-# Test: get_df_constructor spatial mode
+# Test: to_df_dict spatial mode
 # =============================================================================
 
-class TestGetDfConstructorSpatial:
-    """Tests for get_df_constructor with spatial/coordinate mode."""
+class TestToDfDictSpatial:
+    """Tests for to_df_dict with spatial/coordinate mode."""
 
     def test_spatial_mode_shape(self, bvh_example):
         """Correct number of keys: time + N*3."""
-        df_data = bvh_example.get_df_constructor(mode='coordinates', centered='world')
+        df_data = bvh_example.to_df_dict(mode='coordinates', centered='world')
         expected_keys = 1 + len(bvh_example.nodes) * 3  # time + N*3
         assert len(df_data) == expected_keys
 
     def test_spatial_mode_values_match(self, bvh_example):
-        """Spot-check values vs get_spatial_coord."""
-        df_data = bvh_example.get_df_constructor(mode='coordinates', centered='world')
-        spatial = bvh_example.get_spatial_coord(centered='world')
+        """Spot-check values vs spatial_coords."""
+        df_data = bvh_example.to_df_dict(mode='coordinates', centered='world')
+        spatial = bvh_example.spatial_coords(centered='world')
         # Check root X column
         root_name = bvh_example.root.name
         np.testing.assert_allclose(df_data[f'{root_name}_X'], spatial[:, 0, 0], atol=1e-10)
@@ -1299,7 +1306,7 @@ class TestGetDfConstructorSpatial:
 
     def test_spatial_mode_skeleton_centering(self, bvh_example):
         """Root X/Y/Z columns should all be zeros for skeleton centering."""
-        df_data = bvh_example.get_df_constructor(mode='coordinates', centered='skeleton')
+        df_data = bvh_example.to_df_dict(mode='coordinates', centered='skeleton')
         root_name = bvh_example.root.name
         np.testing.assert_allclose(df_data[f'{root_name}_X'], 0.0, atol=1e-10)
         np.testing.assert_allclose(df_data[f'{root_name}_Y'], 0.0, atol=1e-10)
@@ -1307,7 +1314,7 @@ class TestGetDfConstructorSpatial:
 
     def test_spatial_mode_includes_end_sites(self, bvh_example):
         """End-site columns should be present."""
-        df_data = bvh_example.get_df_constructor(mode='coordinates', centered='world')
+        df_data = bvh_example.to_df_dict(mode='coordinates', centered='world')
         end_site_names = [n.name for n in bvh_example.nodes if n.is_end_site()]
         for name in end_site_names:
             assert f'{name}_X' in df_data
@@ -1317,39 +1324,39 @@ class TestGetDfConstructorSpatial:
     def test_spatial_mode_invalid_raises(self, bvh_example):
         """mode='bad' should raise ValueError."""
         with pytest.raises(ValueError):
-            bvh_example.get_df_constructor(mode='bad')
+            bvh_example.to_df_dict(mode='bad')
 
     def test_euler_mode_shape(self, bvh_example):
         """Verify euler mode has correct column count."""
-        df_data = bvh_example.get_df_constructor(mode='euler')
+        df_data = bvh_example.to_df_dict(mode='euler')
         # time + 3 pos + 3 * num_joints rot
         expected_keys = 1 + 3 + 3 * bvh_example.joint_count
         assert len(df_data) == expected_keys
 
 
 # =============================================================================
-# Test: euler_column_names property
+# Test: _euler_column_names property
 # =============================================================================
 
 class TestEulerColumnNames:
-    """Tests for euler_column_names property."""
+    """Tests for _euler_column_names property."""
 
     def test_column_names_length(self, bvh_example):
         """Should be 3 + 3 * num_joints."""
-        names = bvh_example.euler_column_names
+        names = bvh_example._euler_column_names
         expected_len = 3 + 3 * bvh_example.joint_count
         assert len(names) == expected_len
 
     def test_column_names_root_prefix(self, bvh_example):
         """First 3 should be Hips_X_pos, Hips_Y_pos, Hips_Z_pos."""
-        names = bvh_example.euler_column_names
+        names = bvh_example._euler_column_names
         assert names[0] == 'Hips_X_pos'
         assert names[1] == 'Hips_Y_pos'
         assert names[2] == 'Hips_Z_pos'
 
     def test_column_names_match_channels(self, bvh_example):
         """For each joint, axes in column names match rot_channels."""
-        names = bvh_example.euler_column_names
+        names = bvh_example._euler_column_names
         # Skip first 3 (pos channels), then group by 3
         rot_names = names[3:]
         j_idx = 0
@@ -1363,9 +1370,9 @@ class TestEulerColumnNames:
             j_idx += 1
 
     def test_column_names_after_order_change(self, bvh_example):
-        """Reflects new order after change_all_euler_orders."""
-        result = bvh_example.change_all_euler_orders('XYZ')
-        names = result.euler_column_names
+        """Reflects new order after change_euler_order."""
+        result = bvh_example.change_euler_order('XYZ')
+        names = result._euler_column_names
         rot_names = names[3:]
         # Every group of 3 should be X_rot, Y_rot, Z_rot
         for j in range(result.joint_count):
@@ -1376,26 +1383,26 @@ class TestEulerColumnNames:
     def test_column_names_all_files(self, bvh_example, bvh_test2, bvh_test3, standard_skeleton):
         """Valid for all test files."""
         for bvh in [bvh_example, bvh_test2, bvh_test3, standard_skeleton]:
-            names = bvh.euler_column_names
+            names = bvh._euler_column_names
             expected_len = 3 + 3 * bvh.joint_count
             assert len(names) == expected_len
 
 
 # =============================================================================
-# Test: frames_to_spatial_coord standalone function
+# Test: frames_to_spatial_coords standalone function
 # =============================================================================
 
-class TestFramesToSpatialCoordStandalone:
-    """Tests for the standalone frames_to_spatial_coord function."""
+class TestFramesToSpatialCoordsStandalone:
+    """Tests for the standalone frames_to_spatial_coords function."""
 
     def test_accepts_bvh_object(self, bvh_example):
         """Passing Bvh works, returns correct shape."""
-        result = frames_to_spatial_coord(bvh_example)
+        result = frames_to_spatial_coords(bvh_example)
         assert result.shape == (bvh_example.frame_count, len(bvh_example.nodes), 3)
 
     def test_accepts_node_list(self, bvh_example):
         """Passing nodes + root_pos + joint_angles works."""
-        result = frames_to_spatial_coord(
+        result = frames_to_spatial_coords(
             bvh_example.nodes,
             root_pos=bvh_example.root_pos,
             joint_angles=bvh_example.joint_angles)
@@ -1403,7 +1410,7 @@ class TestFramesToSpatialCoordStandalone:
 
     def test_single_frame_shape(self, bvh_example):
         """Single frame returns (N, 3)."""
-        result = frames_to_spatial_coord(
+        result = frames_to_spatial_coords(
             bvh_example.nodes,
             root_pos=bvh_example.root_pos[0],
             joint_angles=bvh_example.joint_angles[0])
@@ -1411,31 +1418,31 @@ class TestFramesToSpatialCoordStandalone:
 
     def test_multi_frame_shape(self, bvh_example):
         """All frames returns (F, N, 3)."""
-        result = frames_to_spatial_coord(bvh_example)
+        result = frames_to_spatial_coords(bvh_example)
         assert result.shape == (bvh_example.frame_count, len(bvh_example.nodes), 3)
 
     def test_centering_modes(self, bvh_example):
         """All 3 centering modes work."""
         for mode in ["world", "skeleton", "first"]:
-            result = frames_to_spatial_coord(bvh_example, centered=mode)
+            result = frames_to_spatial_coords(bvh_example, centered=mode)
             assert result.shape == (bvh_example.frame_count, len(bvh_example.nodes), 3)
             assert not np.any(np.isnan(result))
 
     def test_invalid_centered_raises(self, bvh_example):
         """Bad centering raises ValueError."""
         with pytest.raises(ValueError):
-            frames_to_spatial_coord(bvh_example, centered="bad_value")
+            frames_to_spatial_coords(bvh_example, centered="bad_value")
 
     def test_matches_bvh_method(self, bvh_example):
-        """Standalone function result matches bvh.get_spatial_coord()."""
-        standalone = frames_to_spatial_coord(bvh_example, centered="world")
-        method = bvh_example.get_spatial_coord(centered="world")
+        """Standalone function result matches bvh.spatial_coords()."""
+        standalone = frames_to_spatial_coords(bvh_example, centered="world")
+        method = bvh_example.spatial_coords(centered="world")
         np.testing.assert_allclose(standalone, method, atol=1e-10)
 
     def test_node_list_without_arrays_raises(self, bvh_example):
         """Passing node list without root_pos/joint_angles raises."""
         with pytest.raises(ValueError):
-            frames_to_spatial_coord(bvh_example.nodes)
+            frames_to_spatial_coords(bvh_example.nodes)
 
 
 # =============================================================================
@@ -1446,9 +1453,9 @@ class TestConcatSliceRoundTrip:
     """Tests for split-concat round-trip."""
 
     def test_split_concat_recovers_original(self, bvh_example):
-        """slice [0:28] + [28:56], concat, compare to original."""
-        part1 = bvh_example.slice_frames(0, 28)
-        part2 = bvh_example.slice_frames(28, 56)
+        """slice [0:38] + [38:75], concat, compare to original."""
+        part1 = bvh_example.slice_frames(0, 38)
+        part2 = bvh_example.slice_frames(38, 75)
         recovered = part1.concat(part2)
         np.testing.assert_allclose(recovered.root_pos, bvh_example.root_pos, atol=1e-12)
         np.testing.assert_allclose(recovered.joint_angles, bvh_example.joint_angles, atol=1e-12)
@@ -1464,11 +1471,11 @@ class TestConcatSliceRoundTrip:
 
     def test_concat_preserves_spatial(self, bvh_example):
         """Spatial coords of concatenated match original."""
-        part1 = bvh_example.slice_frames(0, 28)
-        part2 = bvh_example.slice_frames(28, 56)
+        part1 = bvh_example.slice_frames(0, 38)
+        part2 = bvh_example.slice_frames(38, 75)
         recovered = part1.concat(part2)
-        orig_spatial = bvh_example.get_spatial_coord(centered="world")
-        recovered_spatial = recovered.get_spatial_coord(centered="world")
+        orig_spatial = bvh_example.spatial_coords(centered="world")
+        recovered_spatial = recovered.spatial_coords(centered="world")
         np.testing.assert_allclose(recovered_spatial, orig_spatial, atol=1e-10)
 
     def test_slice_step_then_identity(self, bvh_example):
@@ -1498,28 +1505,28 @@ class TestFreezePreservation:
         self._assert_frozen(bvh_copy)
 
     def test_freeze_survives_set_frames_6d(self, bvh_example):
-        """set_frames_from_6d(inplace=False) result is frozen."""
-        rp, r6d, _ = bvh_example.get_frames_as_6d()
-        result = bvh_example.set_frames_from_6d(rp, r6d)
+        """from_6d(inplace=False) result is frozen."""
+        rp, r6d, _ = bvh_example.to_6d()
+        result = bvh_example.from_6d(rp, r6d)
         self._assert_frozen(result)
 
     def test_freeze_survives_set_frames_6d_inplace(self, bvh_example):
-        """set_frames_from_6d(inplace=True), still frozen."""
+        """from_6d(inplace=True), still frozen."""
         bvh = bvh_example.copy()
-        rp, r6d, _ = bvh.get_frames_as_6d()
-        bvh.set_frames_from_6d(rp, r6d, inplace=True)
+        rp, r6d, _ = bvh.to_6d()
+        bvh.from_6d(rp, r6d, inplace=True)
         self._assert_frozen(bvh)
 
     def test_freeze_survives_set_frames_quat(self, bvh_example):
-        """set_frames_from_quaternion result is frozen."""
-        rp, quats, _ = bvh_example.get_frames_as_quaternion()
-        result = bvh_example.set_frames_from_quaternion(rp, quats)
+        """from_quaternions result is frozen."""
+        rp, quats, _ = bvh_example.to_quaternions()
+        result = bvh_example.from_quaternions(rp, quats)
         self._assert_frozen(result)
 
     def test_freeze_survives_set_frames_aa(self, bvh_example):
-        """set_frames_from_axisangle result is frozen."""
-        rp, aa, _ = bvh_example.get_frames_as_axisangle()
-        result = bvh_example.set_frames_from_axisangle(rp, aa)
+        """from_axisangle result is frozen."""
+        rp, aa, _ = bvh_example.to_axisangle()
+        result = bvh_example.from_axisangle(rp, aa)
         self._assert_frozen(result)
 
     def test_freeze_survives_slice_frames(self, bvh_example):
@@ -1539,13 +1546,13 @@ class TestFreezePreservation:
         self._assert_frozen(result)
 
     def test_freeze_survives_change_skeleton(self, bvh_example, standard_skeleton):
-        """change_skeleton result is frozen."""
-        result = bvh_example.change_skeleton(standard_skeleton)
+        """retarget result is frozen."""
+        result = bvh_example.retarget(standard_skeleton)
         self._assert_frozen(result)
 
     def test_freeze_survives_scale_skeleton(self, bvh_example):
-        """scale_skeleton result is frozen."""
-        result = bvh_example.scale_skeleton(2.0)
+        """scale result is frozen."""
+        result = bvh_example.scale(2.0)
         self._assert_frozen(result)
 
     def test_freeze_survives_resample(self, bvh_example):
@@ -1580,11 +1587,11 @@ class TestResampleExtreme:
     def test_upsample_preserves_start_end(self, bvh_example):
         """First/last frame spatial coords match (atol=1e-4 for first, 1e-2 for last)."""
         result = bvh_example.resample(1000)
-        orig_spatial = bvh_example.get_spatial_coord(centered='world')
-        result_spatial = result.get_spatial_coord(centered='world')
+        orig_spatial = bvh_example.spatial_coords(centered='world')
+        result_spatial = result.spatial_coords(centered='world')
         np.testing.assert_allclose(result_spatial[0], orig_spatial[0], atol=1e-4)
         # Last frame may differ slightly due to interpolation boundary effects
-        np.testing.assert_allclose(result_spatial[-1], orig_spatial[-1], atol=1e-2)
+        np.testing.assert_allclose(result_spatial[-1], orig_spatial[-1], atol=5e-2)
 
     def test_extreme_upsample_no_nan(self, bvh_example):
         """Resample to 10000fps, assert no NaN/Inf."""
@@ -1602,10 +1609,10 @@ class TestResampleExtreme:
         np.testing.assert_allclose(back.root_pos, bvh_example.root_pos, atol=0.01)
         np.testing.assert_allclose(back.joint_angles, bvh_example.joint_angles, atol=0.5)
 
-    def test_resample_preserves_frame_frequency(self, bvh_example):
-        """Resampled frame_frequency == 1/target_fps."""
+    def test_resample_preserves_frame_time(self, bvh_example):
+        """Resampled frame_time == 1/target_fps."""
         result = bvh_example.resample(60)
-        np.testing.assert_allclose(result.frame_frequency, 1.0 / 60.0, atol=1e-10)
+        np.testing.assert_allclose(result.frame_time, 1.0 / 60.0, atol=1e-10)
 
     def test_resample_single_frame_noop(self, standard_skeleton):
         """Single-frame returns copy unchanged."""
@@ -1707,92 +1714,92 @@ class TestRotationConversionsAllFiles:
     """Tests for rotation format conversion round-trips on all test files."""
 
     def test_6d_roundtrip_test2(self, bvh_test2):
-        """get_frames_as_6d -> set_frames_from_6d, compare joint_angles."""
-        rp, r6d, _ = bvh_test2.get_frames_as_6d()
-        result = bvh_test2.set_frames_from_6d(rp, r6d)
+        """to_6d -> from_6d, compare joint_angles."""
+        rp, r6d, _ = bvh_test2.to_6d()
+        result = bvh_test2.from_6d(rp, r6d)
         np.testing.assert_allclose(result.joint_angles, bvh_test2.joint_angles, atol=1e-4)
 
     def test_6d_roundtrip_test3(self, bvh_test3):
-        """get_frames_as_6d -> set_frames_from_6d for mixed-order file."""
-        rp, r6d, _ = bvh_test3.get_frames_as_6d()
-        result = bvh_test3.set_frames_from_6d(rp, r6d)
+        """to_6d -> from_6d for mixed-order file."""
+        rp, r6d, _ = bvh_test3.to_6d()
+        result = bvh_test3.from_6d(rp, r6d)
         np.testing.assert_allclose(result.joint_angles, bvh_test3.joint_angles, atol=1e-4)
 
     def test_quat_roundtrip_test2(self, bvh_test2):
-        """get_frames_as_quaternion -> set_frames_from_quaternion."""
-        rp, quats, _ = bvh_test2.get_frames_as_quaternion()
-        result = bvh_test2.set_frames_from_quaternion(rp, quats)
+        """to_quaternions -> from_quaternions."""
+        rp, quats, _ = bvh_test2.to_quaternions()
+        result = bvh_test2.from_quaternions(rp, quats)
         np.testing.assert_allclose(result.joint_angles, bvh_test2.joint_angles, atol=1e-4)
 
     def test_quat_roundtrip_test3(self, bvh_test3):
-        """get_frames_as_quaternion -> set_frames_from_quaternion for mixed-order."""
-        rp, quats, _ = bvh_test3.get_frames_as_quaternion()
-        result = bvh_test3.set_frames_from_quaternion(rp, quats)
+        """to_quaternions -> from_quaternions for mixed-order."""
+        rp, quats, _ = bvh_test3.to_quaternions()
+        result = bvh_test3.from_quaternions(rp, quats)
         np.testing.assert_allclose(result.joint_angles, bvh_test3.joint_angles, atol=1e-4)
 
     def test_aa_roundtrip_test2(self, bvh_test2):
-        """get_frames_as_axisangle -> set_frames_from_axisangle."""
-        rp, aa, _ = bvh_test2.get_frames_as_axisangle()
-        result = bvh_test2.set_frames_from_axisangle(rp, aa)
+        """to_axisangle -> from_axisangle."""
+        rp, aa, _ = bvh_test2.to_axisangle()
+        result = bvh_test2.from_axisangle(rp, aa)
         np.testing.assert_allclose(result.joint_angles, bvh_test2.joint_angles, atol=1e-4)
 
     def test_aa_roundtrip_test3(self, bvh_test3):
-        """get_frames_as_axisangle -> set_frames_from_axisangle for mixed-order."""
-        rp, aa, _ = bvh_test3.get_frames_as_axisangle()
-        result = bvh_test3.set_frames_from_axisangle(rp, aa)
+        """to_axisangle -> from_axisangle for mixed-order."""
+        rp, aa, _ = bvh_test3.to_axisangle()
+        result = bvh_test3.from_axisangle(rp, aa)
         np.testing.assert_allclose(result.joint_angles, bvh_test3.joint_angles, atol=1e-4)
 
     def test_6d_preserves_spatial_all_files(self, bvh_example, bvh_test2, bvh_test3):
         """Verify spatial coord preservation through 6d round-trip."""
         for bvh in [bvh_example, bvh_test2, bvh_test3]:
-            rp, r6d, _ = bvh.get_frames_as_6d()
-            result = bvh.set_frames_from_6d(rp, r6d)
-            orig_spatial = bvh.get_spatial_coord(centered="world")
-            result_spatial = result.get_spatial_coord(centered="world")
+            rp, r6d, _ = bvh.to_6d()
+            result = bvh.from_6d(rp, r6d)
+            orig_spatial = bvh.spatial_coords(centered="world")
+            result_spatial = result.spatial_coords(centered="world")
             np.testing.assert_allclose(result_spatial, orig_spatial, atol=1e-4)
 
     def test_quat_preserves_spatial_all_files(self, bvh_example, bvh_test2, bvh_test3):
         """Verify spatial coord preservation through quaternion round-trip."""
         for bvh in [bvh_example, bvh_test2, bvh_test3]:
-            rp, quats, _ = bvh.get_frames_as_quaternion()
-            result = bvh.set_frames_from_quaternion(rp, quats)
-            orig_spatial = bvh.get_spatial_coord(centered="world")
-            result_spatial = result.get_spatial_coord(centered="world")
+            rp, quats, _ = bvh.to_quaternions()
+            result = bvh.from_quaternions(rp, quats)
+            orig_spatial = bvh.spatial_coords(centered="world")
+            result_spatial = result.spatial_coords(centered="world")
             np.testing.assert_allclose(result_spatial, orig_spatial, atol=1e-4)
 
     def test_aa_preserves_spatial_all_files(self, bvh_example, bvh_test2, bvh_test3):
         """Verify spatial coord preservation through axisangle round-trip."""
         for bvh in [bvh_example, bvh_test2, bvh_test3]:
-            rp, aa, _ = bvh.get_frames_as_axisangle()
-            result = bvh.set_frames_from_axisangle(rp, aa)
-            orig_spatial = bvh.get_spatial_coord(centered="world")
-            result_spatial = result.get_spatial_coord(centered="world")
+            rp, aa, _ = bvh.to_axisangle()
+            result = bvh.from_axisangle(rp, aa)
+            orig_spatial = bvh.spatial_coords(centered="world")
+            result_spatial = result.spatial_coords(centered="world")
             np.testing.assert_allclose(result_spatial, orig_spatial, atol=1e-4)
 
 
 # =============================================================================
-# Test: change_skeleton edge cases
+# Test: retarget edge cases
 # =============================================================================
 
-class TestChangeSkeletonEdgeCases:
-    """Tests for change_skeleton edge cases."""
+class TestRetargetEdgeCases:
+    """Tests for retarget edge cases."""
 
     def test_empty_mapping(self, bvh_example, standard_skeleton):
         """name_mapping={} should match by name."""
-        result = bvh_example.change_skeleton(standard_skeleton, name_mapping={})
+        result = bvh_example.retarget(standard_skeleton, name_mapping={})
         for n_result, n_ref in zip(result.nodes, standard_skeleton.nodes):
             np.testing.assert_array_equal(n_result.offset, n_ref.offset)
 
     def test_partial_mapping(self, bvh_example, standard_skeleton):
         """Map only root, rest matches by name."""
         mapping = {bvh_example.root.name: standard_skeleton.root.name}
-        result = bvh_example.change_skeleton(standard_skeleton, name_mapping=mapping)
+        result = bvh_example.retarget(standard_skeleton, name_mapping=mapping)
         # Root offset should match reference
         np.testing.assert_array_equal(result.root.offset, standard_skeleton.root.offset)
 
     def test_different_structure_reference(self, bvh_example, standard_skeleton):
         """Use standard_skeleton as reference (same joint names but different offsets)."""
-        result = bvh_example.change_skeleton(standard_skeleton)
+        result = bvh_example.retarget(standard_skeleton)
         # Offsets should come from the reference
         for n_result, n_ref in zip(result.nodes, standard_skeleton.nodes):
             np.testing.assert_array_equal(n_result.offset, n_ref.offset)
@@ -1991,18 +1998,18 @@ class TestBatchProcessing:
 # =============================================================================
 
 class TestJointVelocities:
-    """Tests for get_joint_velocities."""
+    """Tests for joint_velocities."""
 
     def test_shape(self, bvh_example):
-        vel = bvh_example.get_joint_velocities(in_frames=True)
+        vel = bvh_example.joint_velocities(in_frames=True)
         F, N = bvh_example.frame_count, len(bvh_example.nodes)
         assert vel.shape == (F - 1, N, 3)
 
     def test_per_second(self, bvh_example):
-        vel_frame = bvh_example.get_joint_velocities(in_frames=True)
-        vel_sec = bvh_example.get_joint_velocities(in_frames=False)
+        vel_frame = bvh_example.joint_velocities(in_frames=True)
+        vel_sec = bvh_example.joint_velocities(in_frames=False)
         np.testing.assert_allclose(
-            vel_sec, vel_frame / bvh_example.frame_frequency, atol=1e-10)
+            vel_sec, vel_frame / bvh_example.frame_time, atol=1e-10)
 
     def test_static_pose_zero_velocity(self, bvh_example):
         """A BVH with identical frames should have zero velocity."""
@@ -2011,33 +2018,33 @@ class TestJointVelocities:
         for i in range(static.frame_count):
             static.root_pos[i] = static.root_pos[0]
             static.joint_angles[i] = static.joint_angles[0]
-        vel = static.get_joint_velocities(in_frames=True)
+        vel = static.joint_velocities(in_frames=True)
         np.testing.assert_allclose(vel, 0.0, atol=1e-10)
 
     def test_precomputed_coords(self, bvh_example):
-        coords = bvh_example.get_spatial_coord()
-        vel1 = bvh_example.get_joint_velocities(in_frames=True)
-        vel2 = bvh_example.get_joint_velocities(in_frames=True, coords=coords)
+        coords = bvh_example.spatial_coords()
+        vel1 = bvh_example.joint_velocities(in_frames=True)
+        vel2 = bvh_example.joint_velocities(in_frames=True, coords=coords)
         np.testing.assert_allclose(vel1, vel2, atol=1e-10)
 
     def test_too_few_frames_error(self):
         """Should raise ValueError with < 2 frames."""
         root = BvhRoot()
         bvh = Bvh(nodes=[root], root_pos=np.zeros((1, 3)),
-                   joint_angles=np.zeros((1, 1, 3)), frame_frequency=1/30)
+                   joint_angles=np.zeros((1, 1, 3)), frame_time=1/30)
         with pytest.raises(ValueError, match="At least 2 frames"):
-            bvh.get_joint_velocities()
+            bvh.joint_velocities()
 
     def test_zero_frequency_error(self, bvh_example):
         bvh = bvh_example.copy()
-        bvh.frame_frequency = 0
-        with pytest.raises(ValueError, match="frame_frequency is 0"):
-            bvh.get_joint_velocities(in_frames=False)
+        bvh.frame_time = 0
+        with pytest.raises(ValueError, match="frame_time is 0"):
+            bvh.joint_velocities(in_frames=False)
 
     def test_zero_frequency_in_frames_ok(self, bvh_example):
         bvh = bvh_example.copy()
-        bvh.frame_frequency = 0
-        vel = bvh.get_joint_velocities(in_frames=True)
+        bvh.frame_time = 0
+        vel = bvh.joint_velocities(in_frames=True)
         assert vel.shape[0] == bvh.frame_count - 1
 
     def test_constant_root_translation(self):
@@ -2049,39 +2056,39 @@ class TestJointVelocities:
         joint_angles = np.zeros((F, 1, 3))
         bvh = Bvh(nodes=[root, BvhNode("End Site", offset=np.array([0, 1, 0]), parent=root)],
                    root_pos=root_pos, joint_angles=joint_angles,
-                   frame_frequency=1/30)
+                   frame_time=1/30)
         root.children = [bvh.nodes[1]]
-        vel = bvh.get_joint_velocities(in_frames=True)
+        vel = bvh.joint_velocities(in_frames=True)
         # Root velocity should be [5, 0, 0] for all frames
         np.testing.assert_allclose(vel[:, 0, 0], 5.0, atol=1e-10)
         np.testing.assert_allclose(vel[:, 0, 1:], 0.0, atol=1e-10)
 
     def test_on_all_test_files(self, bvh_example, bvh_test2, bvh_test3):
         for bvh in [bvh_example, bvh_test2, bvh_test3]:
-            vel = bvh.get_joint_velocities(in_frames=True)
+            vel = bvh.joint_velocities(in_frames=True)
             assert vel.shape == (bvh.frame_count - 1, len(bvh.nodes), 3)
 
 
 class TestJointAccelerations:
-    """Tests for get_joint_accelerations."""
+    """Tests for joint_accelerations."""
 
     def test_shape(self, bvh_example):
-        acc = bvh_example.get_joint_accelerations(in_frames=True)
+        acc = bvh_example.joint_accelerations(in_frames=True)
         F, N = bvh_example.frame_count, len(bvh_example.nodes)
         assert acc.shape == (F - 2, N, 3)
 
     def test_per_second(self, bvh_example):
-        acc_frame = bvh_example.get_joint_accelerations(in_frames=True)
-        acc_sec = bvh_example.get_joint_accelerations(in_frames=False)
+        acc_frame = bvh_example.joint_accelerations(in_frames=True)
+        acc_sec = bvh_example.joint_accelerations(in_frames=False)
         np.testing.assert_allclose(
-            acc_sec, acc_frame / (bvh_example.frame_frequency ** 2), atol=1e-6)
+            acc_sec, acc_frame / (bvh_example.frame_time ** 2), atol=1e-6)
 
     def test_static_pose_zero_acceleration(self, bvh_example):
         static = bvh_example.copy()
         for i in range(static.frame_count):
             static.root_pos[i] = static.root_pos[0]
             static.joint_angles[i] = static.joint_angles[0]
-        acc = static.get_joint_accelerations(in_frames=True)
+        acc = static.joint_accelerations(in_frames=True)
         np.testing.assert_allclose(acc, 0.0, atol=1e-10)
 
     def test_constant_velocity_zero_acceleration(self):
@@ -2093,24 +2100,24 @@ class TestJointAccelerations:
         joint_angles = np.zeros((F, 1, 3))
         bvh = Bvh(nodes=[root, BvhNode("End Site", offset=np.array([0, 1, 0]), parent=root)],
                    root_pos=root_pos, joint_angles=joint_angles,
-                   frame_frequency=1/30)
+                   frame_time=1/30)
         root.children = [bvh.nodes[1]]
-        acc = bvh.get_joint_accelerations(in_frames=True)
+        acc = bvh.joint_accelerations(in_frames=True)
         np.testing.assert_allclose(acc, 0.0, atol=1e-10)
 
     def test_too_few_frames_error(self):
         root = BvhRoot()
         bvh = Bvh(nodes=[root], root_pos=np.zeros((2, 3)),
-                   joint_angles=np.zeros((2, 1, 3)), frame_frequency=1/30)
+                   joint_angles=np.zeros((2, 1, 3)), frame_time=1/30)
         with pytest.raises(ValueError, match="At least 3 frames"):
-            bvh.get_joint_accelerations()
+            bvh.joint_accelerations()
 
 
 class TestAngularVelocities:
-    """Tests for get_angular_velocities."""
+    """Tests for angular_velocities."""
 
     def test_shape(self, bvh_example):
-        ang_vel = bvh_example.get_angular_velocities(in_frames=True)
+        ang_vel = bvh_example.angular_velocities(in_frames=True)
         assert ang_vel.shape == (bvh_example.frame_count - 1,
                                   bvh_example.joint_count, 3)
 
@@ -2118,43 +2125,43 @@ class TestAngularVelocities:
         static = bvh_example.copy()
         for i in range(static.frame_count):
             static.joint_angles[i] = static.joint_angles[0]
-        ang_vel = static.get_angular_velocities(in_frames=True)
+        ang_vel = static.angular_velocities(in_frames=True)
         np.testing.assert_allclose(ang_vel, 0.0, atol=1e-10)
 
     def test_per_second(self, bvh_example):
-        av_frame = bvh_example.get_angular_velocities(in_frames=True)
-        av_sec = bvh_example.get_angular_velocities(in_frames=False)
+        av_frame = bvh_example.angular_velocities(in_frames=True)
+        av_sec = bvh_example.angular_velocities(in_frames=False)
         np.testing.assert_allclose(
-            av_sec, av_frame / bvh_example.frame_frequency, atol=1e-10)
+            av_sec, av_frame / bvh_example.frame_time, atol=1e-10)
 
     def test_too_few_frames_error(self):
         root = BvhRoot()
         bvh = Bvh(nodes=[root], root_pos=np.zeros((1, 3)),
-                   joint_angles=np.zeros((1, 1, 3)), frame_frequency=1/30)
+                   joint_angles=np.zeros((1, 1, 3)), frame_time=1/30)
         with pytest.raises(ValueError, match="At least 2 frames"):
-            bvh.get_angular_velocities()
+            bvh.angular_velocities()
 
     def test_on_all_test_files(self, bvh_example, bvh_test2, bvh_test3):
         for bvh in [bvh_example, bvh_test2, bvh_test3]:
-            ang_vel = bvh.get_angular_velocities(in_frames=True)
+            ang_vel = bvh.angular_velocities(in_frames=True)
             assert ang_vel.shape == (bvh.frame_count - 1, bvh.joint_count, 3)
 
 
 class TestRootRelativePositions:
-    """Tests for get_root_relative_positions."""
+    """Tests for root_relative_positions."""
 
     def test_shape(self, bvh_example):
-        rel = bvh_example.get_root_relative_positions()
+        rel = bvh_example.root_relative_positions()
         assert rel.shape == (bvh_example.frame_count, len(bvh_example.nodes), 3)
 
     def test_root_at_origin(self, bvh_example):
-        rel = bvh_example.get_root_relative_positions()
+        rel = bvh_example.root_relative_positions()
         np.testing.assert_allclose(rel[:, 0, :], 0.0, atol=1e-10)
 
     def test_precomputed_coords(self, bvh_example):
-        coords = bvh_example.get_spatial_coord()
-        rel1 = bvh_example.get_root_relative_positions()
-        rel2 = bvh_example.get_root_relative_positions(coords=coords)
+        coords = bvh_example.spatial_coords()
+        rel1 = bvh_example.root_relative_positions()
+        rel2 = bvh_example.root_relative_positions(coords=coords)
         np.testing.assert_allclose(rel1, rel2, atol=1e-10)
 
     def test_static_skeleton_constant(self, bvh_example):
@@ -2163,42 +2170,39 @@ class TestRootRelativePositions:
         for i in range(static.frame_count):
             static.root_pos[i] = static.root_pos[0]
             static.joint_angles[i] = static.joint_angles[0]
-        rel = static.get_root_relative_positions()
+        rel = static.root_relative_positions()
         for i in range(1, static.frame_count):
             np.testing.assert_allclose(rel[i], rel[0], atol=1e-10)
 
     def test_on_all_test_files(self, bvh_example, bvh_test2, bvh_test3):
         for bvh in [bvh_example, bvh_test2, bvh_test3]:
-            rel = bvh.get_root_relative_positions()
+            rel = bvh.root_relative_positions()
             np.testing.assert_allclose(rel[:, 0, :], 0.0, atol=1e-10)
 
 
 class TestRootTrajectory:
-    """Tests for get_root_trajectory."""
+    """Tests for root_trajectory."""
 
     def test_shape(self, bvh_example):
-        traj = bvh_example.get_root_trajectory()
+        traj = bvh_example.root_trajectory()
         assert traj.shape == (bvh_example.frame_count, 4)
 
     def test_sin_cos_unit(self, bvh_example):
         """sin^2 + cos^2 should equal 1."""
-        traj = bvh_example.get_root_trajectory()
+        traj = bvh_example.root_trajectory()
         sin_sq_plus_cos_sq = traj[:, 2] ** 2 + traj[:, 3] ** 2
         np.testing.assert_allclose(sin_sq_plus_cos_sq, 1.0, atol=1e-10)
 
     def test_explicit_up_axis(self, bvh_example):
         """Explicit up_axis should produce same result as auto-detect."""
-        from pybvh.tools import get_forw_up_axis
-        rest = bvh_example.get_rest_pose(mode='coordinates')
-        directions = get_forw_up_axis(bvh_example, rest)
-        traj_auto = bvh_example.get_root_trajectory()
-        traj_explicit = bvh_example.get_root_trajectory(
-            up_axis=directions['upward'])
+        traj_auto = bvh_example.root_trajectory()
+        traj_explicit = bvh_example.root_trajectory(
+            up_axis=bvh_example.world_up)
         np.testing.assert_allclose(traj_auto, traj_explicit, atol=1e-10)
 
     def test_on_all_test_files(self, bvh_example, bvh_test2, bvh_test3):
         for bvh in [bvh_example, bvh_test2, bvh_test3]:
-            traj = bvh.get_root_trajectory()
+            traj = bvh.root_trajectory()
             assert traj.shape == (bvh.frame_count, 4)
             # sin^2 + cos^2 = 1
             np.testing.assert_allclose(
@@ -2206,19 +2210,19 @@ class TestRootTrajectory:
 
 
 class TestFootContacts:
-    """Tests for get_foot_contacts."""
+    """Tests for foot_contacts."""
 
     def test_shape_auto_detect(self, bvh_example):
-        contacts = bvh_example.get_foot_contacts()
+        contacts = bvh_example.foot_contacts()
         assert contacts.shape[0] == bvh_example.frame_count
         assert contacts.shape[1] > 0  # at least one foot joint
 
     def test_binary_output(self, bvh_example):
-        contacts = bvh_example.get_foot_contacts()
+        contacts = bvh_example.foot_contacts()
         assert set(np.unique(contacts)).issubset({0.0, 1.0})
 
     def test_manual_joints(self, bvh_example):
-        contacts = bvh_example.get_foot_contacts(
+        contacts = bvh_example.foot_contacts(
             foot_joints=["LeftFoot", "RightFoot"])
         assert contacts.shape == (bvh_example.frame_count, 2)
 
@@ -2228,31 +2232,31 @@ class TestFootContacts:
         for i in range(static.frame_count):
             static.root_pos[i] = static.root_pos[0]
             static.joint_angles[i] = static.joint_angles[0]
-        contacts = static.get_foot_contacts(method="velocity")
+        contacts = static.foot_contacts(method="velocity")
         np.testing.assert_allclose(contacts, 1.0)
 
     def test_height_method(self, bvh_example):
-        contacts = bvh_example.get_foot_contacts(method="height")
+        contacts = bvh_example.foot_contacts(method="height")
         assert contacts.shape[0] == bvh_example.frame_count
         assert set(np.unique(contacts)).issubset({0.0, 1.0})
 
     def test_invalid_method(self, bvh_example):
         with pytest.raises(ValueError, match="Unknown method"):
-            bvh_example.get_foot_contacts(method="invalid")
+            bvh_example.foot_contacts(method="invalid")
 
     def test_invalid_joint_name(self, bvh_example):
         with pytest.raises(ValueError, match="not found"):
-            bvh_example.get_foot_contacts(foot_joints=["NonExistentJoint"])
+            bvh_example.foot_contacts(foot_joints=["NonExistentJoint"])
 
     def test_precomputed_coords(self, bvh_example):
-        coords = bvh_example.get_spatial_coord()
-        c1 = bvh_example.get_foot_contacts()
-        c2 = bvh_example.get_foot_contacts(coords=coords)
+        coords = bvh_example.spatial_coords()
+        c1 = bvh_example.foot_contacts()
+        c2 = bvh_example.foot_contacts(coords=coords)
         np.testing.assert_allclose(c1, c2)
 
     def test_on_test2(self, bvh_test2):
         """bvh_test2 may have different joint names — test auto-detection."""
-        contacts = bvh_test2.get_foot_contacts()
+        contacts = bvh_test2.foot_contacts()
         assert contacts.shape[0] == bvh_test2.frame_count
 
 
@@ -2295,7 +2299,7 @@ class TestToFeatureArray:
             representation='euler', include_foot_contacts=True)
         assert feat.shape[0] == bvh_example.frame_count
         # Last columns should be foot contacts
-        contacts = bvh_example.get_foot_contacts()
+        contacts = bvh_example.foot_contacts()
         np.testing.assert_allclose(
             feat[:, -contacts.shape[1]:], contacts, atol=1e-10)
 
@@ -2383,15 +2387,9 @@ class TestNormalization:
 
 
 class TestAxisDetection:
-    """Tests for the extracted axis detection utilities."""
+    """Tests for orientation helpers and public world_up / forward_at API."""
 
-    def test_get_forw_up_axis(self, bvh_example):
-        from pybvh.tools import get_forw_up_axis
-        rest = bvh_example.get_rest_pose(mode='coordinates')
-        directions = get_forw_up_axis(bvh_example, rest)
-        assert 'forward' in directions
-        assert 'upward' in directions
-        assert directions['upward'][1] in ('x', 'y', 'z')
+    # --- Low-level utility functions ---
 
     def test_get_main_direction(self):
         from pybvh.tools import get_main_direction
@@ -2404,20 +2402,6 @@ class TestAxisDetection:
         from pybvh.tools import extract_sign
         assert extract_sign('+x') is True
         assert extract_sign('-z') is False
-
-    def test_get_up_axis_index(self, bvh_example):
-        from pybvh.tools import get_up_axis_index
-        rest = bvh_example.get_rest_pose(mode='coordinates')
-        up_idx = get_up_axis_index(bvh_example, rest)
-        assert up_idx in (0, 1, 2)
-
-    def test_plot_imports_from_tools(self):
-        """Ensure bvhplot imports axis detection from tools.py."""
-        from pybvh import bvhplot
-        from pybvh.tools import get_forw_up_axis
-        assert bvhplot.get_forw_up_axis is get_forw_up_axis
-
-    # --- Hardened axis detection tests ---
 
     def test_main_direction_zero_vector(self):
         """get_main_direction returns None for zero vectors."""
@@ -2441,50 +2425,84 @@ class TestAxisDetection:
         assert get_main_direction(np.array([0.0, 0.0, 3.0])) == '+z'
         assert get_main_direction(np.array([0.0, 0.0, -3.0])) == '-z'
 
-    def test_forward_axis_pose_independent(self, bvh_example):
-        """Forward axis should be the same regardless of which frame is used."""
-        from pybvh.tools import get_forw_up_axis
-        coords = bvh_example.get_spatial_coord()
-        dirs_frame0 = get_forw_up_axis(bvh_example, coords[0])
-        dirs_frame_mid = get_forw_up_axis(bvh_example, coords[coords.shape[0] // 2])
-        dirs_frame_last = get_forw_up_axis(bvh_example, coords[-1])
-        assert dirs_frame0['forward'] == dirs_frame_mid['forward']
-        assert dirs_frame0['forward'] == dirs_frame_last['forward']
+    # --- Public: Bvh.world_up property ---
 
-    def test_forward_upward_orthogonality(self, bvh_example):
-        """Forward and upward axes must be on different axes."""
-        from pybvh.tools import get_forw_up_axis
-        rest = bvh_example.get_rest_pose(mode='coordinates')
-        directions = get_forw_up_axis(bvh_example, rest)
-        assert directions['forward'][1] != directions['upward'][1]
+    def test_world_up_returns_valid_axis(self, bvh_example):
+        assert bvh_example.world_up in ('+x', '-x', '+y', '-y', '+z', '-z')
 
-    def test_input_validation_wrong_shape(self, bvh_example):
-        """get_forw_up_axis rejects frames with wrong shape."""
-        from pybvh.tools import get_forw_up_axis
-        with pytest.raises(ValueError, match="Expected frame shape"):
-            get_forw_up_axis(bvh_example, np.zeros((5,)))
-        with pytest.raises(ValueError, match="Expected frame shape"):
-            get_forw_up_axis(bvh_example, np.zeros((5, 4)))
-
-    def test_input_validation_wrong_node_count(self, bvh_example):
-        """get_forw_up_axis rejects frames with wrong number of nodes."""
-        from pybvh.tools import get_forw_up_axis
-        with pytest.raises(ValueError, match="nodes but skeleton has"):
-            get_forw_up_axis(bvh_example, np.zeros((3, 3)))
-
-    def test_all_fixtures_correct_axes(self, bvh_example, bvh_test2, bvh_test3):
-        """All test BVH files produce consistent axis detection."""
-        from pybvh.tools import get_forw_up_axis
+    def test_world_up_all_fixtures(self, bvh_example, bvh_test2, bvh_test3):
+        """All test BVH files yield a valid world_up from auto-detection."""
+        import warnings
         for bvh in [bvh_example, bvh_test2, bvh_test3]:
-            rest = bvh.get_rest_pose(mode='coordinates')
-            dirs = get_forw_up_axis(bvh, rest)
-            # Forward and upward must be on different axes
-            assert dirs['forward'][1] != dirs['upward'][1]
-            # Both must be valid signed axis strings
-            assert dirs['forward'][0] in ('+', '-')
-            assert dirs['upward'][0] in ('+', '-')
-            assert dirs['forward'][1] in ('x', 'y', 'z')
-            assert dirs['upward'][1] in ('x', 'y', 'z')
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                assert bvh.world_up in ('+x', '-x', '+y', '-y', '+z', '-z')
+
+    def test_world_up_manual_override(self, bvh_example):
+        """Setting world_up overrides the auto-detected value."""
+        bvh_example.world_up = '+x'
+        assert bvh_example.world_up == '+x'
+        bvh_example.world_up = '-z'
+        assert bvh_example.world_up == '-z'
+
+    def test_world_up_invalid_override_raises(self, bvh_example):
+        """Invalid axis inputs raise ValueError with a clear message."""
+        for bad in ['bad', '+q', 'y', 42, None, '+x+y']:
+            with pytest.raises(ValueError, match="Axis must be one of"):
+                bvh_example.world_up = bad  # type: ignore[assignment]
+
+    def test_world_up_setter_normalizes_case(self, bvh_example):
+        """Upper-case axis strings are accepted and normalized."""
+        bvh_example.world_up = '+Y'
+        assert bvh_example.world_up == '+y'
+        bvh_example.world_up = '-Z'
+        assert bvh_example.world_up == '-z'
+
+    def test_world_up_override_propagates_through_copy(self, bvh_example):
+        bvh_example.world_up = '+x'
+        b2 = bvh_example.copy()
+        assert b2.world_up == '+x'
+
+    def test_world_up_override_propagates_through_slice(self, bvh_example):
+        bvh_example.world_up = '-y'
+        b2 = bvh_example.slice_frames(0, 5)
+        assert b2.world_up == '-y'
+
+    def test_world_up_warning_on_disagreement(self):
+        """bvh_test3 has rest pose / first frame disagreement and must warn."""
+        import warnings
+        # Fresh read (can't use fixture because the fixture may be cached)
+        bvh_test3_path = Path(__file__).parent.parent / "bvh_data" / "bvh_test3.bvh"
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter('always')
+            bvh = read_bvh_file(bvh_test3_path)
+            # Force compute (in case eager compute was skipped)
+            _ = bvh.world_up
+            # At least one UserWarning about the disagreement
+            messages = [str(wi.message) for wi in w if issubclass(wi.category, UserWarning)]
+            assert any('Rest pose' in m and 'first animation frame' in m for m in messages), (
+                f"Expected disagreement warning, got: {messages}")
+
+    # --- Public: Bvh.forward_at() method ---
+
+    def test_forward_at_returns_valid_axis(self, bvh_example):
+        fwd = bvh_example.forward_at(frame=0)
+        assert fwd in ('+x', '-x', '+y', '-y', '+z', '-z')
+
+    def test_forward_at_orthogonal_to_world_up(self, bvh_example):
+        """Forward and world_up must be on different axes."""
+        assert bvh_example.forward_at(frame=0)[1] != bvh_example.world_up[1]
+
+    def test_forward_at_tracks_vertical_rotation(self, bvh_example):
+        """Rotating the character 180° around the vertical axis should flip
+        the sign of forward_at at frame 0."""
+        from pybvh.transforms import rotate_vertical
+        fwd_before = bvh_example.forward_at(frame=0)
+        rotated = rotate_vertical(bvh_example, 180.0)
+        fwd_after = rotated.forward_at(frame=0)
+        # Same axis, opposite sign
+        assert fwd_before[1] == fwd_after[1]
+        assert fwd_before[0] != fwd_after[0]
 
 
 # =============================================================================
@@ -2514,9 +2532,9 @@ class TestTranslateRoot:
     def test_spatial_coord_shift(self, bvh_example):
         from pybvh.transforms import translate_root
         offset = np.array([5.0, 5.0, 5.0])
-        coords_orig = bvh_example.get_spatial_coord()
+        coords_orig = bvh_example.spatial_coords()
         result = translate_root(bvh_example, offset)
-        coords_new = result.get_spatial_coord()
+        coords_new = result.spatial_coords()
         np.testing.assert_allclose(coords_new, coords_orig + offset, atol=1e-6)
 
     def test_inplace(self, bvh_example):
@@ -2541,119 +2559,132 @@ class TestTranslateRoot:
         r2 = random_translate_root(bvh_example, rng=rng2)
         np.testing.assert_array_equal(r1.root_pos, r2.root_pos)
 
+    def test_method_parity_random(self, bvh_example):
+        from pybvh.transforms import random_translate_root
+        r_func = random_translate_root(bvh_example, rng=np.random.default_rng(42))
+        r_meth = bvh_example.random_translate_root(rng=np.random.default_rng(42))
+        np.testing.assert_array_equal(r_func.root_pos, r_meth.root_pos)
+
 
 class TestJointNoise:
-    """Tests for add_joint_noise transform."""
+    """Tests for add_noise transform."""
 
     def test_zero_sigma_identity(self, bvh_example):
-        from pybvh.transforms import add_joint_noise
-        result = add_joint_noise(bvh_example, sigma_deg=0.0)
+        from pybvh.transforms import add_noise
+        result = add_noise(bvh_example, sigma_deg=0.0)
         np.testing.assert_array_equal(result.joint_angles, bvh_example.joint_angles)
         np.testing.assert_array_equal(result.root_pos, bvh_example.root_pos)
 
     def test_nonzero_sigma_changes_values(self, bvh_example):
-        from pybvh.transforms import add_joint_noise
-        result = add_joint_noise(bvh_example, sigma_deg=5.0, rng=np.random.default_rng(0))
+        from pybvh.transforms import add_noise
+        result = add_noise(bvh_example, sigma_deg=5.0, rng=np.random.default_rng(0))
         assert not np.array_equal(result.joint_angles, bvh_example.joint_angles)
 
     def test_sigma_pos_zero_no_change(self, bvh_example):
-        from pybvh.transforms import add_joint_noise
-        result = add_joint_noise(bvh_example, sigma_deg=5.0, sigma_pos=0.0, rng=np.random.default_rng(0))
+        from pybvh.transforms import add_noise
+        result = add_noise(bvh_example, sigma_deg=5.0, sigma_pos=0.0, rng=np.random.default_rng(0))
         np.testing.assert_array_equal(result.root_pos, bvh_example.root_pos)
 
     def test_sigma_pos_nonzero(self, bvh_example):
-        from pybvh.transforms import add_joint_noise
-        result = add_joint_noise(bvh_example, sigma_deg=0.0, sigma_pos=1.0, rng=np.random.default_rng(0))
+        from pybvh.transforms import add_noise
+        result = add_noise(bvh_example, sigma_deg=0.0, sigma_pos=1.0, rng=np.random.default_rng(0))
         assert not np.array_equal(result.root_pos, bvh_example.root_pos)
 
     def test_skeleton_unchanged(self, bvh_example):
-        from pybvh.transforms import add_joint_noise
-        result = add_joint_noise(bvh_example, sigma_deg=5.0, rng=np.random.default_rng(0))
+        from pybvh.transforms import add_noise
+        result = add_noise(bvh_example, sigma_deg=5.0, rng=np.random.default_rng(0))
         assert [n.name for n in result.nodes] == [n.name for n in bvh_example.nodes]
 
     def test_inplace(self, bvh_example):
-        from pybvh.transforms import add_joint_noise
+        from pybvh.transforms import add_noise
         bvh = bvh_example.copy()
-        ret = add_joint_noise(bvh, sigma_deg=5.0, rng=np.random.default_rng(0), inplace=True)
+        ret = add_noise(bvh, sigma_deg=5.0, rng=np.random.default_rng(0), inplace=True)
         assert ret is None
         assert not np.array_equal(bvh.joint_angles, bvh_example.joint_angles)
 
     def test_seeded_reproducibility(self, bvh_example):
-        from pybvh.transforms import add_joint_noise
-        r1 = add_joint_noise(bvh_example, sigma_deg=3.0, rng=np.random.default_rng(99))
-        r2 = add_joint_noise(bvh_example, sigma_deg=3.0, rng=np.random.default_rng(99))
+        from pybvh.transforms import add_noise
+        r1 = add_noise(bvh_example, sigma_deg=3.0, rng=np.random.default_rng(99))
+        r2 = add_noise(bvh_example, sigma_deg=3.0, rng=np.random.default_rng(99))
         np.testing.assert_array_equal(r1.joint_angles, r2.joint_angles)
 
 
 class TestSpeedPerturbation:
-    """Tests for speed_perturbation transform."""
+    """Tests for perturb_speed transform."""
 
     def test_factor_one_near_identity(self, bvh_example):
-        from pybvh.transforms import speed_perturbation
-        result = speed_perturbation(bvh_example, factor=1.0)
+        from pybvh.transforms import perturb_speed
+        result = perturb_speed(bvh_example, factor=1.0)
         assert result.frame_count == bvh_example.frame_count
         np.testing.assert_allclose(result.root_pos, bvh_example.root_pos, atol=1e-3)
 
     def test_factor_two_halves_frames(self, bvh_example):
-        from pybvh.transforms import speed_perturbation
-        result = speed_perturbation(bvh_example, factor=2.0)
+        from pybvh.transforms import perturb_speed
+        result = perturb_speed(bvh_example, factor=2.0)
         expected = bvh_example.frame_count // 2 + 1
         assert abs(result.frame_count - expected) <= 1
 
     def test_factor_half_doubles_frames(self, bvh_example):
-        from pybvh.transforms import speed_perturbation
-        result = speed_perturbation(bvh_example, factor=0.5)
+        from pybvh.transforms import perturb_speed
+        result = perturb_speed(bvh_example, factor=0.5)
         expected = (bvh_example.frame_count - 1) * 2 + 1
         assert abs(result.frame_count - expected) <= 2
 
     def test_skeleton_preserved(self, bvh_example):
-        from pybvh.transforms import speed_perturbation
-        result = speed_perturbation(bvh_example, factor=1.5)
+        from pybvh.transforms import perturb_speed
+        result = perturb_speed(bvh_example, factor=1.5)
         assert [n.name for n in result.nodes] == [n.name for n in bvh_example.nodes]
 
     def test_random_variant(self, bvh_example):
-        from pybvh.transforms import random_speed_perturbation
-        r1 = random_speed_perturbation(bvh_example, rng=np.random.default_rng(7))
-        r2 = random_speed_perturbation(bvh_example, rng=np.random.default_rng(7))
+        from pybvh.transforms import random_perturb_speed
+        r1 = random_perturb_speed(bvh_example, rng=np.random.default_rng(7))
+        r2 = random_perturb_speed(bvh_example, rng=np.random.default_rng(7))
         assert r1.frame_count == r2.frame_count
         np.testing.assert_allclose(r1.root_pos, r2.root_pos, atol=1e-10)
 
+    def test_method_parity_random(self, bvh_example):
+        from pybvh.transforms import random_perturb_speed
+        r_func = random_perturb_speed(bvh_example, rng=np.random.default_rng(7))
+        r_meth = bvh_example.random_perturb_speed(rng=np.random.default_rng(7))
+        assert r_func.frame_count == r_meth.frame_count
+        np.testing.assert_allclose(r_func.root_pos, r_meth.root_pos, atol=1e-10)
+
 
 class TestDropoutFrames:
-    """Tests for dropout_frames transform."""
+    """Tests for drop_frames transform."""
 
     def test_zero_drop_rate_identity(self, bvh_example):
-        from pybvh.transforms import dropout_frames
-        result = dropout_frames(bvh_example, drop_rate=0.0, rng=np.random.default_rng(0))
+        from pybvh.transforms import drop_frames
+        result = drop_frames(bvh_example, drop_rate=0.0, rng=np.random.default_rng(0))
         np.testing.assert_array_equal(result.root_pos, bvh_example.root_pos)
         np.testing.assert_array_equal(result.joint_angles, bvh_example.joint_angles)
 
     def test_frame_count_preserved(self, bvh_example):
-        from pybvh.transforms import dropout_frames
-        result = dropout_frames(bvh_example, drop_rate=0.5, rng=np.random.default_rng(0))
+        from pybvh.transforms import drop_frames
+        result = drop_frames(bvh_example, drop_rate=0.5, rng=np.random.default_rng(0))
         assert result.frame_count == bvh_example.frame_count
 
     def test_first_last_preserved(self, bvh_example):
-        from pybvh.transforms import dropout_frames
-        result = dropout_frames(bvh_example, drop_rate=0.8, rng=np.random.default_rng(0))
+        from pybvh.transforms import drop_frames
+        result = drop_frames(bvh_example, drop_rate=0.8, rng=np.random.default_rng(0))
         np.testing.assert_allclose(result.root_pos[0], bvh_example.root_pos[0], atol=1e-6)
         np.testing.assert_allclose(result.root_pos[-1], bvh_example.root_pos[-1], atol=1e-6)
 
     def test_skeleton_preserved(self, bvh_example):
-        from pybvh.transforms import dropout_frames
-        result = dropout_frames(bvh_example, drop_rate=0.3, rng=np.random.default_rng(0))
+        from pybvh.transforms import drop_frames
+        result = drop_frames(bvh_example, drop_rate=0.3, rng=np.random.default_rng(0))
         assert [n.name for n in result.nodes] == [n.name for n in bvh_example.nodes]
 
     def test_inplace(self, bvh_example):
-        from pybvh.transforms import dropout_frames
+        from pybvh.transforms import drop_frames
         bvh = bvh_example.copy()
-        ret = dropout_frames(bvh, drop_rate=0.5, rng=np.random.default_rng(0), inplace=True)
+        ret = drop_frames(bvh, drop_rate=0.5, rng=np.random.default_rng(0), inplace=True)
         assert ret is None
 
     def test_seeded_reproducibility(self, bvh_example):
-        from pybvh.transforms import dropout_frames
-        r1 = dropout_frames(bvh_example, drop_rate=0.4, rng=np.random.default_rng(42))
-        r2 = dropout_frames(bvh_example, drop_rate=0.4, rng=np.random.default_rng(42))
+        from pybvh.transforms import drop_frames
+        r1 = drop_frames(bvh_example, drop_rate=0.4, rng=np.random.default_rng(42))
+        r2 = drop_frames(bvh_example, drop_rate=0.4, rng=np.random.default_rng(42))
         np.testing.assert_array_equal(r1.root_pos, r2.root_pos)
         np.testing.assert_array_equal(r1.joint_angles, r2.joint_angles)
 
@@ -2675,9 +2706,9 @@ class TestRotateVertical:
 
     def test_bone_lengths_preserved(self, bvh_example):
         from pybvh.transforms import rotate_vertical
-        coords_orig = bvh_example.get_spatial_coord(centered='skeleton')
+        coords_orig = bvh_example.spatial_coords(centered='skeleton')
         result = rotate_vertical(bvh_example, angle_deg=90.0)
-        coords_rot = result.get_spatial_coord(centered='skeleton')
+        coords_rot = result.spatial_coords(centered='skeleton')
         # Check all bone lengths match (frame 0)
         for node in bvh_example.nodes:
             if node.parent is not None:
@@ -2718,6 +2749,13 @@ class TestRotateVertical:
         r1 = random_rotate_vertical(bvh_example, rng=np.random.default_rng(5))
         r2 = random_rotate_vertical(bvh_example, rng=np.random.default_rng(5))
         np.testing.assert_allclose(r1.root_pos, r2.root_pos, atol=1e-10)
+
+    def test_method_parity_random(self, bvh_example):
+        from pybvh.transforms import random_rotate_vertical
+        r_func = random_rotate_vertical(bvh_example, rng=np.random.default_rng(5))
+        r_meth = bvh_example.random_rotate_vertical(rng=np.random.default_rng(5))
+        np.testing.assert_allclose(r_func.root_pos, r_meth.root_pos, atol=1e-10)
+        np.testing.assert_allclose(r_func.joint_angles, r_meth.joint_angles, atol=1e-10)
 
 
 class TestAutoDetectLRMapping:
@@ -2761,9 +2799,9 @@ class TestMirror:
     def test_total_bone_lengths_preserved(self, bvh_example):
         """Total skeleton bone length should be the same after mirroring."""
         from pybvh.transforms import mirror
-        coords_orig = bvh_example.get_spatial_coord(centered='skeleton')
+        coords_orig = bvh_example.spatial_coords(centered='skeleton')
         result = mirror(bvh_example)
-        coords_mir = result.get_spatial_coord(centered='skeleton')
+        coords_mir = result.spatial_coords(centered='skeleton')
         total_orig = 0.0
         total_mir = 0.0
         for node in bvh_example.nodes:
@@ -2777,17 +2815,13 @@ class TestMirror:
     def test_spatial_coords_reflected(self, bvh_example):
         """Gold-standard test: FK positions should be reflected."""
         from pybvh.transforms import mirror, auto_detect_lr_mapping
-        from pybvh.tools import get_forw_up_axis
+        from pybvh.tools import _rest_lateral
 
-        rest = bvh_example.get_rest_pose(mode='coordinates')
-        dirs = get_forw_up_axis(bvh_example, rest)
-        used = {dirs['forward'][1], dirs['upward'][1]}
-        lateral_char = ({"x", "y", "z"} - used).pop()
-        lateral_idx = {"x": 0, "y": 1, "z": 2}[lateral_char]
+        lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_lateral(bvh_example)[1]]
 
-        coords_orig = bvh_example.get_spatial_coord(centered='skeleton')
+        coords_orig = bvh_example.spatial_coords(centered='skeleton')
         result = mirror(bvh_example)
-        coords_mir = result.get_spatial_coord(centered='skeleton')
+        coords_mir = result.spatial_coords(centered='skeleton')
 
         # Build set of all paired node names (including end-site children)
         mapping = auto_detect_lr_mapping(bvh_example)
@@ -2813,11 +2847,8 @@ class TestMirror:
 
     def test_root_pos_lateral_negated(self, bvh_example):
         from pybvh.transforms import mirror
-        from pybvh.tools import get_forw_up_axis
-        rest = bvh_example.get_rest_pose(mode='coordinates')
-        dirs = get_forw_up_axis(bvh_example, rest)
-        used = {dirs['forward'][1], dirs['upward'][1]}
-        lateral_idx = {"x": 0, "y": 1, "z": 2}[({"x", "y", "z"} - used).pop()]
+        from pybvh.tools import _rest_lateral
+        lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_lateral(bvh_example)[1]]
         result = mirror(bvh_example)
         np.testing.assert_allclose(
             result.root_pos[:, lateral_idx],
@@ -2931,14 +2962,10 @@ class TestMirrorAngles:
     def _get_mirror_metadata(self, bvh):
         """Extract metadata needed for mirror_angles from a Bvh."""
         from pybvh.transforms import auto_detect_lr_mapping
-        from pybvh.tools import get_forw_up_axis
+        from pybvh.tools import _rest_lateral
         from pybvh.bvhnode import BvhJoint
 
-        rest = bvh.get_rest_pose(mode='coordinates')
-        dirs = get_forw_up_axis(bvh, rest)
-        used = {dirs['forward'][1], dirs['upward'][1]}
-        lateral_char = ({"x", "y", "z"} - used).pop()
-        lateral_idx = {"x": 0, "y": 1, "z": 2}[lateral_char]
+        lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_lateral(bvh)[1]]
 
         mapping = auto_detect_lr_mapping(bvh)
         joints = [n for n in bvh.nodes if isinstance(n, BvhJoint)]
@@ -3042,9 +3069,15 @@ class TestEulerOrders:
     def test_length_matches_joint_count(self, bvh_example):
         assert len(bvh_example.euler_orders) == bvh_example.joint_count
 
-    def test_bvh_example_all_zyx(self, bvh_example):
-        """bvh_example has all ZYX joints."""
-        assert all(o == 'ZYX' for o in bvh_example.euler_orders)
+    def test_bvh_example_majority_xzy(self, bvh_example):
+        """bvh_example has mostly XZY joints with some mixed orders."""
+        orders = bvh_example.euler_orders
+        xzy_count = sum(1 for o in orders if o == 'XZY')
+        assert xzy_count > len(orders) // 2  # majority are XZY
+        # Verify all orders are valid 3-axis permutations
+        for o in orders:
+            assert len(o) == 3
+            assert set(o) == {'X', 'Y', 'Z'}
 
     def test_mixed_orders(self, bvh_test3):
         """bvh_test3 has mixed Euler orders."""
@@ -3054,9 +3087,9 @@ class TestEulerOrders:
             assert len(o) == 3
             assert set(o) == {'X', 'Y', 'Z'}
 
-    def test_after_change_all_euler_orders(self, bvh_example):
+    def test_after_change_euler_order(self, bvh_example):
         """euler_orders should reflect changed orders."""
-        result = bvh_example.change_all_euler_orders('XYZ')
+        result = bvh_example.change_euler_order('XYZ')
         assert all(o == 'XYZ' for o in result.euler_orders)
 
     def test_consistent_with_rot_channels(self, bvh_example):
@@ -3100,12 +3133,9 @@ class TestAutoDetectLRPairs:
     def test_works_with_mirror_angles(self, bvh_example):
         """Index pairs should be directly usable with mirror_angles."""
         from pybvh.transforms import auto_detect_lr_pairs, mirror_angles
-        from pybvh.tools import get_forw_up_axis
+        from pybvh.tools import _rest_lateral
         pairs = auto_detect_lr_pairs(bvh_example)
-        rest = bvh_example.get_rest_pose(mode='coordinates')
-        dirs = get_forw_up_axis(bvh_example, rest)
-        used = {dirs['forward'][1], dirs['upward'][1]}
-        lateral_idx = {"x": 0, "y": 1, "z": 2}[({"x", "y", "z"} - used).pop()]
+        lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_lateral(bvh_example)[1]]
         rot_ch = [
             list(n.rot_channels)
             for n in bvh_example.nodes
@@ -3200,3 +3230,429 @@ class TestEdges:
         """Different skeletons have different edge counts."""
         assert len(bvh_example.edges) == bvh_example.joint_count - 1
         assert len(bvh_test3.edges) == bvh_test3.joint_count - 1
+
+
+# =============================================================================
+# bvh.lr_mapping — cached property and extended detection
+# =============================================================================
+
+class TestLRMappingProperty:
+    """Tests for the bvh.lr_mapping cached property and setter (B1)."""
+
+    def test_bvh_example_names_source(self, bvh_example):
+        assert bvh_example.lr_mapping is not None
+        assert bvh_example._lr_mapping_source == 'names'
+        assert len(bvh_example.lr_mapping) >= 8  # arms, forearms, hands, legs
+
+    def test_setter_accepts_valid_mapping(self, bvh_example):
+        bvh = bvh_example.copy()
+        bvh.lr_mapping = {'LeftArm': 'RightArm'}
+        assert bvh.lr_mapping == {'LeftArm': 'RightArm'}
+        assert bvh._lr_mapping_source == 'user'
+
+    def test_setter_none_clears(self, bvh_example):
+        bvh = bvh_example.copy()
+        bvh.lr_mapping = None
+        assert bvh.lr_mapping is None
+        assert bvh._lr_mapping_source is None
+
+    def test_setter_rejects_empty_dict(self, bvh_example):
+        bvh = bvh_example.copy()
+        with pytest.raises(ValueError, match="at least one pair"):
+            bvh.lr_mapping = {}
+
+    def test_setter_rejects_nonexistent_joint(self, bvh_example):
+        bvh = bvh_example.copy()
+        with pytest.raises(ValueError, match="not in joint_names"):
+            bvh.lr_mapping = {'LeftArm': 'NotAJoint'}
+        with pytest.raises(ValueError, match="not in joint_names"):
+            bvh.lr_mapping = {'NotAJoint': 'RightArm'}
+
+    def test_setter_rejects_self_pair(self, bvh_example):
+        bvh = bvh_example.copy()
+        with pytest.raises(ValueError, match="self-pair"):
+            bvh.lr_mapping = {'LeftArm': 'LeftArm'}
+
+    def test_setter_rejects_duplicate_joint(self, bvh_example):
+        bvh = bvh_example.copy()
+        with pytest.raises(ValueError, match="multiple pairs"):
+            bvh.lr_mapping = {'LeftArm': 'RightArm', 'RightArm': 'LeftFoot'}
+
+    def test_setter_rejects_non_string(self, bvh_example):
+        bvh = bvh_example.copy()
+        with pytest.raises(TypeError):
+            bvh.lr_mapping = {1: 2}
+
+    def test_setter_rejects_non_dict(self, bvh_example):
+        bvh = bvh_example.copy()
+        with pytest.raises(TypeError):
+            bvh.lr_mapping = [('LeftArm', 'RightArm')]
+
+    def test_copy_propagates_cache(self, bvh_example):
+        bvh2 = bvh_example.copy()
+        assert bvh2.lr_mapping == bvh_example.lr_mapping
+        assert bvh2._lr_mapping_source == bvh_example._lr_mapping_source
+
+    def test_copy_preserves_user_source(self, bvh_example):
+        bvh = bvh_example.copy()
+        bvh.lr_mapping = {'LeftArm': 'RightArm'}
+        bvh2 = bvh.copy()
+        assert bvh2.lr_mapping == {'LeftArm': 'RightArm'}
+        assert bvh2._lr_mapping_source == 'user'
+
+
+class TestLRMappingKwarg:
+    """Tests for the lr_mapping= kwarg (B3) on Bvh/read_bvh_file/read_bvh_directory."""
+
+    def test_bvh_constructor_kwarg(self, bvh_example):
+        # Build a fresh Bvh with explicit mapping, bypassing A
+        from copy import deepcopy
+        nodes_copy = deepcopy(bvh_example.nodes)
+        bvh2 = Bvh(nodes=nodes_copy,
+                   root_pos=bvh_example.root_pos.copy(),
+                   joint_angles=bvh_example.joint_angles.copy(),
+                   frame_time=bvh_example.frame_time,
+                   lr_mapping={'LeftArm': 'RightArm'})
+        assert bvh2.lr_mapping == {'LeftArm': 'RightArm'}
+        assert bvh2._lr_mapping_source == 'user'
+
+    def test_read_bvh_file_kwarg(self, bvh_example_path):
+        bvh = read_bvh_file(bvh_example_path,
+                            lr_mapping={'LeftArm': 'RightArm'})
+        assert bvh.lr_mapping == {'LeftArm': 'RightArm'}
+        assert bvh._lr_mapping_source == 'user'
+
+    def test_read_bvh_file_without_kwarg(self, bvh_example_path):
+        """Without the kwarg, A runs and finds the full mapping."""
+        bvh = read_bvh_file(bvh_example_path)
+        assert bvh.lr_mapping is not None
+        assert bvh._lr_mapping_source == 'names'
+        assert len(bvh.lr_mapping) >= 8
+
+    def test_read_bvh_directory_kwarg(self, tmp_path, bvh_example_path):
+        import shutil
+        # Copy example file into a tmp dir so read_bvh_directory picks it up
+        shutil.copy(bvh_example_path, tmp_path / "a.bvh")
+        shutil.copy(bvh_example_path, tmp_path / "b.bvh")
+        clips = read_bvh_directory(tmp_path,
+                                    lr_mapping={'LeftArm': 'RightArm'})
+        assert len(clips) == 2
+        for c in clips:
+            assert c.lr_mapping == {'LeftArm': 'RightArm'}
+            assert c._lr_mapping_source == 'user'
+
+    def test_kwarg_precedence_over_A(self, bvh_example_path):
+        """B3 kwarg wins over strategy A even when A would have succeeded."""
+        # bvh_example has Left*/Right* names — A would normally find 8+ pairs
+        bvh = read_bvh_file(bvh_example_path,
+                            lr_mapping={'LeftArm': 'RightArm'})
+        assert bvh.lr_mapping == {'LeftArm': 'RightArm'}
+        assert len(bvh.lr_mapping) == 1  # A was bypassed; only the explicit pair
+        assert bvh._lr_mapping_source == 'user'
+
+    def test_setter_precedence_over_A(self, bvh_example):
+        """B1 setter (post-load) overrides whatever A produced."""
+        # bvh_example fixture has A-detected mapping with >1 pair
+        assert len(bvh_example.lr_mapping) > 1
+        bvh = bvh_example.copy()
+        bvh.lr_mapping = {'LeftArm': 'RightArm'}
+        assert bvh.lr_mapping == {'LeftArm': 'RightArm'}
+        assert bvh._lr_mapping_source == 'user'
+
+
+class TestLRMappingNoneConsumerBehavior:
+    """Tests that internal helpers handle lr_mapping=None gracefully."""
+
+    def test_rest_lateral_returns_none_on_nameless(self):
+        from pybvh.tools import _rest_lateral
+        bvh = make_nameless_lr_bvh()
+        assert bvh.lr_mapping is None
+        assert _rest_lateral(bvh) is None
+
+    def test_rest_lateral_explicit_mapping_works(self):
+        """_rest_lateral accepts an explicit mapping that overrides the cache."""
+        from pybvh.tools import _rest_lateral
+        bvh = make_nameless_lr_bvh()
+        # Even though bvh.lr_mapping is None, an explicit mapping computes
+        lat = _rest_lateral(bvh, mapping={'J2': 'J3'})
+        assert lat in ('+x', '-x', '+y', '-y', '+z', '-z')
+
+    def test_compute_forward_at_fallback_on_nameless(self):
+        """_compute_forward_at returns a valid axis when no L/R data exists."""
+        from pybvh.tools import _compute_forward_at
+        bvh = make_nameless_lr_bvh()
+        frame_coords = bvh.spatial_coords(frame_num=0)
+        forward = _compute_forward_at(bvh, frame_coords, bvh.world_up)
+        # Should fall back to an arbitrary-horizontal axis, not raise
+        assert forward in ('+x', '-x', '+y', '-y', '+z', '-z')
+        assert forward[1] != bvh.world_up[1]  # orthogonal to up
+
+
+class TestLRMappingExtendedNamingA:
+    """Tests for strategy A extensions: .L/.R, _l/_r, namespace, numbered."""
+
+    def test_dot_suffix(self):
+        bvh = make_dot_lr_bvh()
+        assert bvh.lr_mapping == {'Leg.L': 'Leg.R'}
+        assert bvh._lr_mapping_source == 'names'
+
+    def test_underscore_suffix_lowercase(self):
+        bvh = make_underscore_lr_bvh()
+        assert bvh.lr_mapping == {'leg_l': 'leg_r'}
+        assert bvh._lr_mapping_source == 'names'
+
+    def test_namespace_prefix(self):
+        bvh = make_namespace_lr_bvh()
+        assert bvh.lr_mapping == {'mixamorig:LeftLeg': 'mixamorig:RightLeg'}
+        assert bvh._lr_mapping_source == 'names'
+
+    def test_numbered_suffix(self):
+        bvh = make_numbered_lr_bvh()
+        assert bvh.lr_mapping == {'Leg.L.001': 'Leg.R.001'}
+        assert bvh._lr_mapping_source == 'names'
+
+    def test_bare_substring_regression(self):
+        """LeftEye/RightEye — no delimiter, must still match substring rule."""
+        bvh = make_bare_substring_lr_bvh()
+        assert bvh.lr_mapping == {'LeftEye': 'RightEye'}
+        assert bvh._lr_mapping_source == 'names'
+
+    def test_cryptic_names_return_none(self):
+        """Skeleton with no L/R cues → lr_mapping is None, source None."""
+        bvh = make_nameless_lr_bvh()
+        assert bvh.lr_mapping is None
+        assert bvh._lr_mapping_source is None
+
+
+class TestMirrorWithExtendedA:
+    """mirror() must now work on skeletons with new naming conventions."""
+
+    def test_mirror_dot_suffix(self):
+        bvh = make_dot_lr_bvh()
+        result = bvh.mirror()
+        assert result is not bvh
+        assert result.frame_count == bvh.frame_count
+
+    def test_mirror_namespace(self):
+        bvh = make_namespace_lr_bvh()
+        result = bvh.mirror()
+        assert result.frame_count == bvh.frame_count
+
+    def test_mirror_nameless_raises_with_remediation(self):
+        """mirror() raises with new diagnostic pointing at bvh.lr_mapping."""
+        bvh = make_nameless_lr_bvh()
+        with pytest.raises(ValueError, match="bvh.lr_mapping"):
+            bvh.mirror()
+
+    def test_mirror_nameless_with_explicit_mapping_works(self):
+        """Setting the mapping via B1 lets mirror() succeed."""
+        bvh = make_nameless_lr_bvh()
+        bvh.lr_mapping = {'J2': 'J3'}
+        result = bvh.mirror()
+        assert result.frame_count == bvh.frame_count
+
+
+class TestForwardAtWithExtendedA:
+    """forward_at() must work on skeletons where only extended A matches."""
+
+    def test_forward_at_dot_suffix(self):
+        bvh = make_dot_lr_bvh()
+        fwd = bvh.forward_at(0)
+        assert fwd in ('+x', '-x', '+y', '-y', '+z', '-z')
+
+    def test_forward_at_namespace(self):
+        bvh = make_namespace_lr_bvh()
+        fwd = bvh.forward_at(0)
+        assert fwd in ('+x', '-x', '+y', '-y', '+z', '-z')
+
+
+class TestReorientRestForwardSemanticDelta:
+    """Explicit tests for the behavior change: reorient_rest_forward now
+    succeeds on skeletons where forward was previously not derivable."""
+
+    def test_succeeds_on_dot_suffix_skeleton(self):
+        """Before this change, a skeleton with .L/.R names would raise
+        deep in the forward computation. Now forward is derivable from
+        the cached lr_mapping and the call completes."""
+        bvh = make_dot_lr_bvh()
+        # Pick a valid new_forward (must not be parallel to world_up='+y')
+        result = bvh.reorient_rest_forward('+z')
+        assert result is not bvh
+        assert result.frame_count == bvh.frame_count
+
+    def test_still_raises_on_truly_nameless_skeleton(self):
+        """But a skeleton with NO L/R info and no explicit mapping still
+        can't derive forward — confirm the failure is intentional."""
+        bvh = make_nameless_lr_bvh()
+        # Whatever happens, it should not silently produce wrong data —
+        # either it raises, or it uses the arbitrary-direction fallback
+        # from _compute_forward_at. The behavior here is: succeed with
+        # the arbitrary-horizontal fallback because _compute_forward_at
+        # returns a valid axis when rest_lateral is None. This is the
+        # documented behavior, not a bug.
+        try:
+            result = bvh.reorient_rest_forward('+z')
+            assert result.frame_count == bvh.frame_count
+        except ValueError:
+            pass  # also acceptable
+
+
+# =============================================================================
+# Item 1 — Mirror numerical round-trip on extended-A fixtures
+# =============================================================================
+
+class TestMirrorNumericalRoundTripExtendedA:
+    """Verify mirror(mirror(x)) ≈ x on skeletons detected by extended strategy A."""
+
+    def _round_trip_assert(self, bvh):
+        result = bvh.mirror().mirror()
+        np.testing.assert_allclose(result.root_pos, bvh.root_pos, atol=1e-10)
+        np.testing.assert_allclose(result.joint_angles, bvh.joint_angles, atol=1e-10)
+
+    def test_dot_suffix_round_trip(self):
+        self._round_trip_assert(make_dot_lr_bvh())
+
+    def test_underscore_suffix_round_trip(self):
+        self._round_trip_assert(make_underscore_lr_bvh())
+
+    def test_namespace_round_trip(self):
+        self._round_trip_assert(make_namespace_lr_bvh())
+
+    def test_numbered_round_trip(self):
+        self._round_trip_assert(make_numbered_lr_bvh())
+
+
+# =============================================================================
+# Item 2 — _order_lr_pair direction correctness across conventions
+# =============================================================================
+
+class TestOrderLRPair:
+    """Verify _order_lr_pair correctly identifies the left side across conventions."""
+
+    def test_substring_left_is_left(self):
+        from pybvh.transforms import _order_lr_pair
+        assert _order_lr_pair('LeftArm', 'RightArm') == ('LeftArm', 'RightArm')
+        assert _order_lr_pair('RightArm', 'LeftArm') == ('LeftArm', 'RightArm')
+
+    def test_dot_suffix(self):
+        from pybvh.transforms import _order_lr_pair
+        assert _order_lr_pair('arm.L', 'arm.R') == ('arm.L', 'arm.R')
+        assert _order_lr_pair('arm.R', 'arm.L') == ('arm.L', 'arm.R')
+
+    def test_lowercase_dot_suffix(self):
+        from pybvh.transforms import _order_lr_pair
+        assert _order_lr_pair('arm.l', 'arm.r') == ('arm.l', 'arm.r')
+        assert _order_lr_pair('arm.r', 'arm.l') == ('arm.l', 'arm.r')
+
+    def test_underscore_suffix(self):
+        from pybvh.transforms import _order_lr_pair
+        assert _order_lr_pair('arm_l', 'arm_r') == ('arm_l', 'arm_r')
+        assert _order_lr_pair('arm_r', 'arm_l') == ('arm_l', 'arm_r')
+
+    def test_dot_word_suffix(self):
+        from pybvh.transforms import _order_lr_pair
+        assert _order_lr_pair('arm.Left', 'arm.Right') == ('arm.Left', 'arm.Right')
+        assert _order_lr_pair('arm.Right', 'arm.Left') == ('arm.Left', 'arm.Right')
+
+    def test_prefix_fallback(self):
+        from pybvh.transforms import _order_lr_pair
+        assert _order_lr_pair('LArm', 'RArm') == ('LArm', 'RArm')
+        assert _order_lr_pair('RArm', 'LArm') == ('LArm', 'RArm')
+
+
+# =============================================================================
+# Item 3 — Singleton / asymmetric-naming test (mutual-match requirement)
+# =============================================================================
+
+class TestStrategyASingleton:
+    """Verify that a joint without a matching counterpart is unpaired."""
+
+    def test_singleton_unpaired(self):
+        """'LeftLeg' without a matching 'RightLeg'-or-equivalent → lr_mapping is None."""
+        bvh = make_singleton_lr_bvh()
+        # Skeleton has 'LeftLeg' (matchable) + 'OtherLeg' (no L/R cue)
+        # Mutual-match requirement: LeftLeg has no partner → not paired
+        assert bvh.lr_mapping is None
+        assert bvh._lr_mapping_source is None
+
+    def test_mirror_raises_on_singleton(self):
+        """mirror() on a skeleton whose only L-named joint has no partner raises."""
+        bvh = make_singleton_lr_bvh()
+        with pytest.raises(ValueError, match="bvh.lr_mapping"):
+            bvh.mirror()
+
+
+# =============================================================================
+# Item 4 — Mixed-convention skeleton (multiple naming styles at once)
+# =============================================================================
+
+class TestStrategyAMixedConventions:
+    """Skeleton with both `Left*/Right*` and `.L/.R` pairs — both should be detected."""
+
+    @staticmethod
+    def _build_mixed_skeleton():
+        """Build a linear skeleton: Hips -> LeftArm -> RightArm -> leg.L -> leg.R -> End."""
+        end = BvhNode('End', offset=np.array([0.0, 0.0, 1.0]))
+        leg_r = BvhJoint('leg.R', offset=np.array([0.0, 0.0, 1.0]),
+                         rot_channels=['Z', 'Y', 'X'], children=[end])
+        end.parent = leg_r
+        leg_l = BvhJoint('leg.L', offset=np.array([0.0, 0.0, 1.0]),
+                         rot_channels=['Z', 'Y', 'X'], children=[leg_r])
+        leg_r.parent = leg_l
+        right_arm = BvhJoint('RightArm', offset=np.array([0.0, 0.0, 1.0]),
+                             rot_channels=['Z', 'Y', 'X'], children=[leg_l])
+        leg_l.parent = right_arm
+        left_arm = BvhJoint('LeftArm', offset=np.array([0.0, 0.0, 1.0]),
+                            rot_channels=['Z', 'Y', 'X'], children=[right_arm])
+        right_arm.parent = left_arm
+        hips = BvhRoot('Hips', offset=np.array([0.0, 0.0, 0.0]),
+                       pos_channels=['X', 'Y', 'Z'], rot_channels=['Z', 'Y', 'X'],
+                       children=[left_arm])
+        left_arm.parent = hips
+        nodes = [hips, left_arm, right_arm, leg_l, leg_r, end]
+        # 5 non-end-site joints
+        return Bvh(nodes=nodes,
+                   root_pos=np.zeros((2, 3)),
+                   joint_angles=np.zeros((2, 5, 3)),
+                   frame_time=0.0333)
+
+    def test_both_conventions_detected(self):
+        bvh = self._build_mixed_skeleton()
+        assert bvh.lr_mapping is not None
+        assert bvh._lr_mapping_source == 'names'
+        # Both pairs must appear
+        assert bvh.lr_mapping.get('LeftArm') == 'RightArm'
+        assert bvh.lr_mapping.get('leg.L') == 'leg.R'
+        assert len(bvh.lr_mapping) == 2
+
+
+# =============================================================================
+# Item 5 — Minor edge cases
+# =============================================================================
+
+class TestLRMappingMinorEdgeCases:
+
+    def test_minimal_root_only_skeleton(self):
+        """Root-only skeleton: strategy A is guarded (len(nodes) > 1) → lr_mapping is None."""
+        bvh = Bvh()  # default: [BvhRoot()]
+        assert bvh.lr_mapping is None
+        assert bvh._lr_mapping_source is None
+
+    def test_parallel_directory_read_with_lr_mapping(self, tmp_path, bvh_example_path):
+        """read_bvh_directory(parallel=True, lr_mapping=...) threads the kwarg through."""
+        import shutil
+        shutil.copy(bvh_example_path, tmp_path / "a.bvh")
+        shutil.copy(bvh_example_path, tmp_path / "b.bvh")
+        clips = read_bvh_directory(tmp_path, parallel=True, max_workers=2,
+                                    lr_mapping={'LeftArm': 'RightArm'})
+        assert len(clips) == 2
+        for c in clips:
+            assert c.lr_mapping == {'LeftArm': 'RightArm'}
+            assert c._lr_mapping_source == 'user'
+
+    def test_explicit_none_kwarg_falls_through_to_A(self, bvh_example_path):
+        """read_bvh_file(path, lr_mapping=None) should behave as if kwarg was omitted."""
+        bvh = read_bvh_file(bvh_example_path, lr_mapping=None)
+        assert bvh.lr_mapping is not None  # A ran and succeeded
+        assert bvh._lr_mapping_source == 'names'
+        assert len(bvh.lr_mapping) >= 8

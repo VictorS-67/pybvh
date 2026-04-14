@@ -34,21 +34,24 @@ All functions support arbitrary batch dimensions: `(3,)`, `(N, 3)`, `(F, J, 3)` 
 ## Bvh conversion methods
 
 ```python
-root_pos, rot6d, joints = bvh.get_frames_as_6d()           # (F, J, 6)
-root_pos, quats, joints = bvh.get_frames_as_quaternion()    # (F, J, 4)
-root_pos, aa, joints    = bvh.get_frames_as_axisangle()     # (F, J, 3)
-root_pos, R, joints     = bvh.get_frames_as_rotmat()        # (F, J, 3, 3)
+root_pos, rot6d, joints = bvh.to_6d()           # (F, J, 6)
+root_pos, quats, joints = bvh.to_quaternions()  # (F, J, 4)
+root_pos, aa, joints    = bvh.to_axisangle()    # (F, J, 3)
+root_pos, R, joints     = bvh.to_rotmat()       # (F, J, 3, 3)
 
 # Set frames back from a different representation
-bvh2 = bvh.set_frames_from_6d(root_pos, rot6d)
-bvh3 = bvh.set_frames_from_quaternion(root_pos, quats)
+bvh2 = bvh.from_6d(root_pos, rot6d)
+bvh3 = bvh.from_quaternions(root_pos, quats)
 ```
 
 ## Changing Euler order
 
 ```python
 # Change all joints to XYZ order (preserves physical rotations)
-bvh_xyz = bvh.change_all_euler_orders("XYZ")
+bvh_xyz = bvh.change_euler_order("XYZ")
+
+# Change a single joint only
+bvh_hips = bvh.change_euler_order("XYZ", joint="Hips")
 ```
 
 ## Quaternion SLERP

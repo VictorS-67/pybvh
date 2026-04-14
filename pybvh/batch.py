@@ -18,6 +18,8 @@ def read_bvh_directory(
     sort: bool = True,
     parallel: bool = False,
     max_workers: int | None = None,
+    world_up: str = "auto",
+    lr_mapping: dict[str, str] | None = None,
 ) -> list[Bvh]:
     """Load all BVH files from a directory.
 
@@ -35,6 +37,14 @@ def read_bvh_directory(
     max_workers : int or None, optional
         Maximum number of threads when ``parallel=True``.
         None defers to the ``ThreadPoolExecutor`` default.
+    world_up : str, optional
+        World vertical axis applied to every loaded file.
+        ``"auto"`` (default) auto-detects per file.  Pass e.g.
+        ``"+y"`` to override all files uniformly.
+    lr_mapping : dict or None, optional
+        Explicit left/right joint pair mapping applied to every loaded
+        file. Useful when a whole dataset shares an unusual naming
+        convention the auto-detect heuristic can't parse.
 
     Returns
     -------
@@ -57,12 +67,15 @@ def read_bvh_directory(
     if not files:
         return []
 
+    from functools import partial
+    reader = partial(read_bvh_file, world_up=world_up, lr_mapping=lr_mapping)
+
     if parallel:
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            return list(pool.map(read_bvh_file, files))
+            return list(pool.map(reader, files))
 
-    return [read_bvh_file(f) for f in files]
+    return [reader(f) for f in files]
 
 
 def batch_to_numpy(
@@ -161,16 +174,16 @@ def _bvh_to_flat(
         # (F, J, 3) → (F, J*3)
         rot = bvh.joint_angles.reshape(bvh.frame_count, -1)
     elif representation == "6d":
-        _, rot_raw, _ = bvh.get_frames_as_6d()
+        _, rot_raw, _ = bvh.to_6d()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     elif representation == "quaternion":
-        _, rot_raw, _ = bvh.get_frames_as_quaternion()
+        _, rot_raw, _ = bvh.to_quaternions()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     elif representation == "axisangle":
-        _, rot_raw, _ = bvh.get_frames_as_axisangle()
+        _, rot_raw, _ = bvh.to_axisangle()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     elif representation == "rotmat":
-        _, rot_raw, _ = bvh.get_frames_as_rotmat()
+        _, rot_raw, _ = bvh.to_rotmat()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     else:
         raise ValueError(f"Unknown representation: {representation}")

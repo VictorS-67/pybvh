@@ -14,7 +14,7 @@ pybvh is framework-agnostic and outputs pure NumPy arrays. It understands motion
 - **Data augmentation**: mirroring, rotation, speed perturbation, noise, dropout
 - **ML pipeline features**: velocities, foot contacts, normalization, feature export
 - **Batch loading** with optional parallel I/O
-- **3D visualization** with Matplotlib
+- **3D visualization** with multiple backends (matplotlib, OpenCV, k3d, vedo) — including a `follow=True` render mode where the camera tracks the character's rotation
 
 ## Quick example
 
@@ -26,7 +26,7 @@ bvh.root_pos          # (F, 3) root translation
 bvh.joint_angles      # (F, J, 3) Euler angles in degrees
 
 # Convert to 6D rotation representation
-root_pos, rot6d, joints = bvh.get_frames_as_6d()
+root_pos, rot6d, joints = bvh.to_6d()
 
 # Export features for ML
 features = bvh.to_feature_array(representation="6d", include_velocities=True)

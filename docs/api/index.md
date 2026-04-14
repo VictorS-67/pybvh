@@ -14,4 +14,4 @@
         - normalize_array
         - denormalize_array
         - df_to_bvh
-        - frames_to_spatial_coord
+        - frames_to_spatial_coords

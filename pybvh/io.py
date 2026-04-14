@@ -22,26 +22,45 @@ from .tools import test_file
 #  Reading
 # ----------------------------------------------------------------
 
-def read_bvh_file(filepath: str | Path) -> Bvh:
+def read_bvh_file(
+    filepath: str | Path,
+    world_up: str = "auto",
+    warn_on_world_up_disagreement: bool = True,
+    lr_mapping: dict[str, str] | None = None,
+) -> Bvh:
     """Parse a BVH motion capture file and return a Bvh object.
 
     Parameters
     ----------
     filepath : str or Path
         Path to the BVH file.
+    world_up : str, optional
+        World vertical axis.  ``"auto"`` (default) auto-detects from
+        animation data.  Pass a signed axis string like ``"+y"`` to skip
+        auto-detection and suppress the disagreement warning.
+    warn_on_world_up_disagreement : bool, optional
+        If True (default) and ``world_up="auto"``, emit a ``UserWarning``
+        when rest-pose and first-frame inferences disagree.
+    lr_mapping : dict or None, optional
+        Explicit left/right joint pair mapping
+        (``{"arm.L": "arm.R", ...}``). If provided, skips the name-based
+        auto-detection for this file. Use for skeletons whose naming
+        conventions the heuristic can't parse.
 
     Returns
     -------
     bvh : Bvh
         A Bvh object containing the skeleton hierarchy, root positions,
-        joint angles, and frame frequency.
+        joint angles, and frame time.
     """
     node_list, frame_array, frame_frequency = _extract_bvh_file_info(filepath)
     num_joints = len([n for n in node_list if not n.is_end_site()])
     root_pos = frame_array[:, :3].astype(np.float64)
     joint_angles = frame_array[:, 3:].reshape(frame_array.shape[0], num_joints, 3).astype(np.float64)
     return Bvh(nodes=node_list, root_pos=root_pos, joint_angles=joint_angles,
-               frame_frequency=frame_frequency)
+               frame_time=frame_frequency, world_up=world_up,
+               lr_mapping=lr_mapping,
+               _warn_world_up=warn_on_world_up_disagreement)
 
 def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDArray[np.float64], float]:
     """Extract node hierarchy, frame data, and frame frequency from a BVH file."""
@@ -67,6 +86,8 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
         for raw_line in f:
             line_number += 1
             line = raw_line.split()
+            if not line:
+                continue
             # if the line starts with ROOT, then the next 3 lines are about the information of the root
             # we want to save them in a BvhRoot object
 
@@ -140,13 +161,16 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
 
             elif line[0] == "Frame" and line[1] == "Time:":
                 frame_frequency = float(line[2])  # noqa: redefinition OK
-                # we will modify a bit the frequency to have a higher precision than what is given in the file
-                frame_frequency = 1/int(1/frame_frequency)
+                # Snap to a cleaner reciprocal if possible
+                if frame_frequency > 0:
+                    frame_frequency = 1/int(1/frame_frequency)
                 # --- we close the loop related to reading the hierarchy ---
                 break
         #small test to see if we reach the end of the hierarchy with no trouble.
         if frame_count == 0 or frame_frequency == 0.0:
-            print("Frame count or frame frequency is missing")
+            raise ValueError(
+                f"Frame count ({frame_count}) or frame time ({frame_frequency}) "
+                f"is missing or zero in {filepath}")
 
         #----------  End of the Hierarchy part. After the hierarchy comes the frames data.
 
@@ -158,8 +182,15 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
         frame_number = 0
         for data_line in f:
             data_parts = data_line.split()
+            if not data_parts:
+                continue
             frame_array[frame_number] = [float(x) for x in data_parts]
             frame_number += 1
+
+        if frame_number != frame_count:
+            raise ValueError(
+                f"BVH declares {frame_count} frames but file contains "
+                f"{frame_number} data lines")
 
 
     #-----------------end of reading the file
@@ -177,8 +208,6 @@ def _get_offset_channels(node_type: str, f: TextIO, line_number: int) -> tuple[l
     # i is used to get out of the subloop after 3 or 2 lines
     # depending on the node type
     i=0
-
-    line_number = line_number
 
     if node_type == 'root':
         for raw_ln in f:
@@ -309,7 +338,7 @@ def write_bvh_file(bvh: Bvh, filepath: str | Path, verbose: bool = True) -> None
 
         f.write('MOTION\n')
         f.write(f'Frames: {bvh.frame_count}\n')
-        f.write(f'Frame Time: {bvh.frame_frequency:.6f}\n')
+        f.write(f'Frame Time: {bvh.frame_time:.6f}\n')
 
         for i in range(bvh.frame_count):
             frame_flat = np.concatenate([bvh.root_pos[i],

@@ -1,0 +1,95 @@
+# World Up and Orientation
+
+## What is world_up?
+
+BVH files don't declare which axis is "up". Different software uses different conventions: Y-up is standard in game engines and Maya, Z-up in Blender and CAD tools. pybvh needs to know the up axis for:
+
+- **Visualization** -- camera orientation, bounding box projection
+- **Foot contact detection** -- which direction is "ground"
+- **`rotate_vertical()`** -- which axis to rotate around
+- **`root_trajectory()`** -- projecting the root path onto the ground plane
+
+## Auto-detection
+
+`Bvh.__init__` eagerly infers `world_up` by checking which axis the head is above the hips in frame 0. If frame 0 isn't informative (ambiguous axis dominance, missing joints), it falls back to rest-pose topology (bone offsets from Hips toward Head/Neck/Spine). The result is a signed axis string like `'+y'` or `'+z'`.
+
+```python
+bvh = pybvh.read_bvh_file("walk.bvh")
+bvh.world_up  # '+z' (auto-detected)
+```
+
+## The disagreement warning
+
+Some BVH files author the rest pose in one convention and animate in another. For example, a Blender export where the rest pose skeleton points along Y but the animation plays in Z-up world space. When this happens, pybvh emits a `UserWarning` and trusts the animation data (frame 0) over the rest pose.
+
+This affects roughly 5% of files in the wild. If you see the warning, check whether `world_up` matches your expectation and override manually if needed.
+
+## Manual override
+
+```python
+bvh.world_up = '+y'  # override auto-detection
+```
+
+Validated input -- only accepts `{+x, -x, +y, -y, +z, -z}`. Anything else raises `ValueError`.
+
+The override propagates through `copy()`, `slice_frames()`, `mirror()`, `scale()`, `rotate_vertical()`, `translate_root()`, and `extract_joints()`. `retarget()` re-infers from the new skeleton. Note that BVH files have no world-up field, so manual overrides are lost on write/read round trips and must be re-applied.
+
+## forward_at(frame)
+
+Returns the character's world-space facing direction at a given frame as a signed axis string:
+
+```python
+bvh.forward_at(0)   # '-z' (facing direction at frame 0)
+bvh.forward_at(60)  # '+x' (character has turned by frame 60)
+```
+
+Derived from actual joint positions: L/R joint pairs are averaged in world space to find the lateral axis, then crossed with `world_up` to produce the forward vector. This tracks the character's real facing as they rotate through the animation, not just rest-pose topology.
+
+Used internally by bvhplot's camera auto-orientation and follow mode.
+
+`forward_at()` reads the L/R pair list from `bvh.lr_mapping`. If your skeleton's joint names don't follow the expected conventions (`Left*`/`Right*`, `.L`/`.R`, `_l`/`_r`, `mixamorig:` namespace, `.001` numbered duplicates), `bvh.lr_mapping` will be `None`, and `forward_at()` falls back to an arbitrary horizontal axis. To get a meaningful forward, set the mapping explicitly — see the [Augmentation guide](augmentation.md#lr-pair-detection) for the override patterns.
+
+## Negative up axes
+
+`'-y'` means "more negative Y = higher". This is uncommon but valid. It affects:
+
+- **`rotate_vertical()`** -- angle direction is inverted
+- **`foot_contacts()`** -- ground is at the positive end of the axis
+- **Camera orientation** -- flipped vertical in visualization
+
+All of these handle the sign correctly.
+
+## Reorienting data
+
+The `world_up` setter only changes metadata.  To actually **rewrite the data** so a
+file uses a different coordinate system or rest-pose orientation:
+
+```python
+# Change the world coordinate system (Z-up -> Y-up)
+bvh_y = bvh.reorient_world_up('+y')  # character looks identical, coords change
+
+# Fix a rest-pose / animation disagreement
+bvh_fixed = bvh.reorient_rest_up('+y')  # FK positions unchanged, rest pose rotated
+
+# Change the rest-pose forward direction
+bvh_fwd = bvh.reorient_rest_forward('+z')  # FK positions unchanged
+```
+
+All three are restricted to axis-aligned rotations (multiples of 90 degrees) for
+lossless transformation.
+
+## Quick reference
+
+```python
+# Load with explicit world_up (skips auto-detection and warning)
+bvh = pybvh.read_bvh_file("walk.bvh", world_up="+y")
+
+# Or auto-detect (default)
+bvh = pybvh.read_bvh_file("walk.bvh")
+bvh.world_up           # '+z' (auto-detected)
+bvh.forward_at(0)      # '-z' (facing direction at frame 0)
+bvh.world_up = '+y'    # manual metadata override
+
+# Suppress disagreement warning for bulk processing
+clips = pybvh.read_bvh_directory("dataset/", warn_on_world_up_disagreement=False)
+```

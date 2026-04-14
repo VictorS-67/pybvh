@@ -251,8 +251,6 @@ def _hier_dict_to_list(hier: dict[str, dict]) -> list[BvhNode]:
         Depth-first ordered list of ``BvhRoot``, ``BvhJoint``, and
         ``BvhNode`` (end-site) objects with parent/children references set.
     """
-    er_str = 'Incorrect column name for the column '
-
     #first we create the list, without filling children or parent yet
     #we will use a recursive function for that going through the children of the nodes
     def create_list_rec(node_name: str, is_start: bool = False) -> list[BvhNode]:
@@ -379,4 +377,4 @@ def df_to_bvh(hier: list[BvhNode] | dict[str, dict], df: pd.DataFrame) -> Bvh:
     joint_angles = frames[:, 3:].reshape(frames.shape[0], num_joints, 3).astype(np.float64)
 
     return Bvh(nodes=hier_list, root_pos=root_pos, joint_angles=joint_angles,
-               frame_frequency=frame_frequency)
+               frame_time=frame_frequency)

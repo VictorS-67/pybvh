@@ -6,7 +6,7 @@
 import pybvh
 
 bvh = pybvh.read_bvh_file("walk.bvh")
-print(bvh)  # 24 joints, 120 frames at 0.033333Hz
+print(bvh)  # "24 elements in the Hierarchy, 120 frames at 30.0 fps (frame_time=0.033333s)"
 ```
 
 ## Accessing motion data
@@ -22,43 +22,62 @@ bvh.euler_orders      # ['ZYX', 'ZYX', ...] per joint
 ## 3D joint positions
 
 ```python
-coords = bvh.get_spatial_coord()  # (F, N, 3) via forward kinematics
+coords = bvh.spatial_coords()  # (F, N, 3) via forward kinematics
 ```
 
 ## Rotation representations
 
 ```python
-root_pos, quats, joints = bvh.get_frames_as_quaternion()  # (F, J, 4)
-root_pos, rot6d, joints = bvh.get_frames_as_6d()          # (F, J, 6)
-root_pos, aa, joints    = bvh.get_frames_as_axisangle()    # (F, J, 3)
+root_pos, quats, joints = bvh.to_quaternions()  # (F, J, 4)
+root_pos, rot6d, joints = bvh.to_6d()           # (F, J, 6)
+root_pos, aa, joints    = bvh.to_axisangle()    # (F, J, 3)
 ```
 
 ## Writing back to file
 
 ```python
-bvh.to_bvh_file("output.bvh")
+bvh.write("output.bvh")
 ```
 
 ## Visualization
 
+Single-skeleton calls are most natural as methods on the `Bvh` object:
+
+```python
+# Rest pose (T-pose / bind pose)
+bvh.plot_rest_pose()
+
+# Static 3D snapshot with camera control
+bvh.plot_frame(frame=0, camera="front")  # also "side", "top", (azim, elev)
+
+# Export animation to video (OpenCV if installed, else matplotlib)
+bvh.render("walk.mp4")
+
+# Camera tracks the character's rotation smoothly
+bvh.render("walk_follow.mp4", follow=True)
+
+# Interactive playback (auto-detects best backend)
+bvh.play()
+
+# 2D root trajectory
+bvh.plot_trajectory()
+```
+
+Multi-skeleton comparisons use the `pybvh.bvhplot` module functions, which
+accept a list of `Bvh` objects:
+
 ```python
 from pybvh import bvhplot
 
-# Rest pose (T-pose / bind pose)
-bvhplot.rest_pose(bvh)
-
-# Static 3D snapshot with camera control
-bvhplot.frame(bvh, frame=0, camera="front")
-
-# Export animation to video (OpenCV if installed, else matplotlib)
-bvhplot.render(bvh, "walk.mp4")
-
-# Interactive playback (auto-detects best backend)
-bvhplot.play(bvh)
-
-# Side-by-side comparison
+bvhplot.frame([bvh1, bvh2], frame=0, labels=["A", "B"])
 bvhplot.render([bvh1, bvh2], "compare.mp4", labels=["A", "B"], sync="pad")
+bvhplot.trajectory([bvh1, bvh2], labels=["A", "B"])
+```
 
-# 2D root trajectory
-bvhplot.trajectory(bvh)
+The character's orientation is exposed as a property and a method:
+
+```python
+bvh.world_up           # e.g. '+y' or '+z' — auto-detected gravity axis
+bvh.forward_at(0)      # facing direction in world space at frame 0
+bvh.world_up = '+y'    # manual override if the auto-detect is wrong
 ```

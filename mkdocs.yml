@@ -46,7 +46,9 @@ nav:
     - Quick Start: getting-started/quickstart.md
   - User Guide:
     - Core Concepts: guide/core-concepts.md
+    - World Up & Orientation: guide/world-up.md
     - Rotation Representations: guide/rotations.md
+    - Choosing a Representation: guide/choosing-rotations.md
     - Data Augmentation: guide/augmentation.md
     - ML Pipeline: guide/ml-pipeline.md
     - Skeleton Operations: guide/skeleton-ops.md

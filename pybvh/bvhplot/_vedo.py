@@ -21,14 +21,13 @@ import numpy.typing as npt
 
 from typing import TYPE_CHECKING
 
-from ._common import PALETTE_RGB, build_view_matrix
+from ._common import PALETTE_RGB, build_view_matrix, _UP_AXIS_INDEX
 
 if TYPE_CHECKING:
     from ..bvh import Bvh
 
 # Rich gold for single-skeleton "high" mode (aitviewer-inspired)
 _WARM_AMBER = (230, 175, 50)
-_UP_AXIS_INDEX = {'x': 0, 'y': 1, 'z': 2}
 
 
 def _interleave(
@@ -164,7 +163,7 @@ def play_vedo(
 
     # --- Floor grid (high quality only) ---
     if use_high:
-        up_idx = _UP_AXIS_INDEX.get(up_axis, 1)
+        up_idx = _UP_AXIS_INDEX.get(up_axis, 2)
         # Place floor at the lowest point of all skeletons across all frames
         floor_y = min(c[:, :, up_idx].min() for c in coords_list)
         floor_pos = center.copy()
@@ -345,7 +344,9 @@ def play_vedo(
     # --- Joint name labels (toggle with J key) ---
     # Use vtkBillboardTextActor3D so labels always face the camera.
     _label_actors: list[list] = []   # _label_actors[s][j] = vtkBillboardTextActor3D
-    _label_offset = np.array([0, half_span * 0.02, 0])
+    _label_up_idx = _UP_AXIS_INDEX.get(up_axis, 2)
+    _label_offset = np.zeros(3)
+    _label_offset[_label_up_idx] = half_span * 0.02
     _label_fontsize = max(12, int(half_span * 0.4))
     for s in range(n_skeletons):
         lbl_list: list = []
@@ -374,11 +375,11 @@ def play_vedo(
     _trail_actors: list = []
     _trail_full: list[npt.NDArray] = []       # pre-computed root paths
     _trail_collapsed: list[npt.NDArray] = []  # pre-allocated collapsed buffers
-    _floor_y = min(c[:, :, _UP_AXIS_INDEX.get(up_axis, 1)].min()
+    _floor_y = min(c[:, :, _UP_AXIS_INDEX.get(up_axis, 2)].min()
                    for c in _coords_full) if use_high else 0.0
     for s in range(n_skeletons):
         root_all = _coords_full[s][:, 0, :].copy()  # (F, 3)
-        root_all[:, _UP_AXIS_INDEX.get(up_axis, 1)] = _floor_y
+        root_all[:, _UP_AXIS_INDEX.get(up_axis, 2)] = _floor_y
         _trail_full.append(root_all)
         # Pre-allocate collapsed buffer (reused every frame via .copy())
         collapsed = np.tile(root_all[0], (2 * (len(root_all) - 1), 1))

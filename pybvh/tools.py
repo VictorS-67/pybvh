@@ -64,9 +64,9 @@ def test_file(filepath: str | Path) -> Path:
     """
     filepath = Path(filepath)
     if filepath.suffix != '.bvh':
-        raise ImportError(f'{filepath} is not a bvh file')
+        raise ValueError(f'{filepath} is not a bvh file')
     elif not filepath.exists():
-        raise ImportError(f'could not find the file {filepath}')
+        raise FileNotFoundError(f'could not find the file {filepath}')
     return filepath
 
 #--------------------------------------------------------------------------------------------
@@ -317,146 +317,432 @@ def extract_sign(ax: str) -> bool:
         raise ValueError("The sign of the axis should be either '+' or '-'.")
 
 
-def get_forw_up_axis(bvh_object: Bvh, frame: npt.NDArray[np.float64]) -> dict[str, str]:
-    """Infer the forward and upward axes from a skeleton frame (human only).
+# ===========================================================================
+# ORIENTATION HELPERS (internal)
+# ===========================================================================
+#
+# This block replaces the old monolithic `get_forw_up_axis()` function with
+# a set of single-purpose helpers. They cover three distinct concepts that
+# the old function conflated:
+#
+#   1. WORLD UP — gravity axis of the BVH coordinate system. Constant per
+#      file. Auto-detected from the first animation frame with rest-pose
+#      topology as fallback.
+#   2. TOPOLOGICAL LATERAL/UP — the character's own L/R and vertical axes
+#      in rest pose. Used by mirror/retarget; independent of the animation.
+#   3. FRAME-SPECIFIC FORWARD — the direction the character is *actually*
+#      facing in world space at a given frame, derived from live joint
+#      positions. Used for camera placement in visualizations.
+#
+# Layer diagram (→ = "used by", top = primitives, bottom = public API):
+#
+#     _axis_to_vector                _validate_axis_string
+#           │                               │
+#           ├──────────┐                    │
+#           ▼          ▼                    ▼
+#   _rest_offset_   _find_lr_         [Bvh.world_up setter]
+#   from_node     joint_pairs
+#           │          │
+#           ├──────────┤
+#           ▼          ▼
+#       _rest_upward, _rest_lateral
+#           │          │       │
+#           │          │       └──→ used by transforms.mirror()
+#           │          ▼
+#           │    _world_lateral_unit_at_frame
+#           │          │       │
+#           │          ▼       │
+#           │    _compute_     │
+#           │    forward_at    │   _signed_rotation_delta_around_axis
+#           │          │       │          │
+#           ▼          ▼       │          │
+#       _infer_world_up        │          │
+#           │                  │          │
+#           ▼                  ▼          ▼
+#   ┌──────────────┐   ┌───────────┐   ┌──────────────────────┐
+#   │ Bvh.world_up │   │Bvh.forward│   │ bvhplot follow-mode  │
+#   │  (property)  │   │    _at()  │   │ (render_mpl/opencv)  │
+#   └──────────────┘   └───────────┘   └──────────────────────┘
+#
+# Public surface: ONLY `Bvh.world_up` (property + setter) and
+# `Bvh.forward_at(frame=0)` (method). Everything else is underscore-prefixed
+# and intended for internal use by pybvh modules.
+# ---------------------------------------------------------------------------
 
-    Uses heuristics based on joint names to determine the upward axis
-    (looks for "head", "neck", "chest", "spine" in priority order,
-    skipping joints at the root origin) and left-right symmetry from
-    rest-pose offsets for the forward axis (pose-independent). The
-    lateral axis is found by averaging the right-minus-left offset of
-    all matching Left/Right joint pairs, then forward is derived via
-    ``cross(up, lateral)``.
+_VALID_AXIS_STRINGS = frozenset(
+    {'+x', '-x', '+y', '-y', '+z', '-z'})
+
+_AXIS_CHAR_TO_IDX = {'x': 0, 'y': 1, 'z': 2}
+
+
+def _axis_to_vector(ax: str) -> npt.NDArray[np.float64]:
+    """Convert a signed axis string ('+y') to a unit vector ([0, 1, 0])."""
+    vec = np.zeros(3)
+    vec[_AXIS_CHAR_TO_IDX[ax[1]]] = 1.0 if ax[0] == '+' else -1.0
+    return vec
+
+
+def _rest_upward(bvh: Bvh) -> str:
+    """Infer the skeleton's topological up axis from the rest pose.
+
+    Uses the same heuristic the old get_forw_up_axis used: iterate named
+    body parts ("head", "neck", "chest", "spine") in priority order and
+    check which axis their rest-pose cumulative offset dominates. Falls
+    back to the axis with the largest spread across all joints.
 
     Parameters
     ----------
-    bvh_object : Bvh
-        The BVH object containing the skeleton hierarchy.
-    frame : np.ndarray
-        Spatial coordinates of shape ``(N, 3)`` for a single frame.
+    bvh : Bvh
+        The skeleton.
 
     Returns
     -------
-    directions : dict
-        Dictionary with keys ``'forward'`` and ``'upward'``, each
-        mapping to a signed axis string (e.g. ``'+y'``, ``'-z'``).
-
-    Raises
-    ------
-    ValueError
-        If *frame* has wrong shape or node count doesn't match.
+    str
+        Signed axis string (e.g. '+z').
     """
-    # --- Input validation ---
-    if frame.ndim != 2 or frame.shape[1] != 3:
-        raise ValueError(f"Expected frame shape (N, 3), got {frame.shape}")
-    if frame.shape[0] != len(bvh_object.nodes):
-        raise ValueError(
-            f"Frame has {frame.shape[0]} nodes but skeleton has "
-            f"{len(bvh_object.nodes)} nodes")
+    rest = bvh.rest_pose_coords(mode='coordinates')  # (N, 3)
+    local_coord = rest - rest[0]  # root at origin
 
-    # work with local coordinates (root at origin)
-    local_coord = frame - frame[0]  # (N, 3) - (3,) broadcast
-
-    # --- Up-axis detection ---
-    # Iterate named body parts in priority order; skip zero-offset joints
     up_body_parts = ["head", "neck", "chest", "spine"]
-    up_ax: str | None = None
     for part_name in up_body_parts:
-        for joint in bvh_object.nodes:
+        for joint in bvh.nodes:
             if joint.name.lower() == part_name:
-                coord = local_coord[bvh_object.node_index[joint.name]]
-                up_ax = get_main_direction(coord)
-                if up_ax is not None:
-                    break
-        if up_ax is not None:
-            break
+                coord = local_coord[bvh.node_index[joint.name]]
+                direction = get_main_direction(coord)
+                if direction is not None:
+                    return direction
 
-    # Fallback: axis with largest spread across all joints (always positive)
-    if up_ax is None:
-        spread = np.ptp(local_coord, axis=0)  # (3,)
-        up_idx_fallback = int(np.argmax(spread))
-        up_ax = "+" + "xyz"[up_idx_fallback]
-
-    up_idx = {"x": 0, "y": 1, "z": 2}[up_ax[1]]
-
-    # --- Forward-axis detection (pose-independent) ---
-    # Primary: use left-right symmetry from rest-pose offsets to find the
-    # lateral axis, then derive forward = cross(up, lateral).
-    # This is more robust than toe end-sites because nearly every humanoid
-    # skeleton has Left/Right named joints and we can average multiple pairs.
-    forward_ax: str | None = None
-
-    # Cumulative rest-pose offset from root for a joint
-    def _rest_offset(node: object) -> npt.NDArray[np.float64]:
-        offset = np.zeros(3)
-        current = node
-        while current is not None:
-            offset = offset + np.array(current.offset)
-            current = current.parent
-        return offset
-
-    # Find matching Left/Right joint pairs
-    left_joints: dict[str, object] = {}
-    right_joints: dict[str, object] = {}
-    for node in bvh_object.nodes:
-        if node.is_end_site():
-            continue
-        lower = node.name.lower()
-        if "left" in lower:
-            left_joints[node.name] = node
-        elif "right" in lower:
-            right_joints[node.name] = node
-
-    lateral_vectors: list[npt.NDArray[np.float64]] = []
-    for lname, lnode in left_joints.items():
-        rname = lname.replace("Left", "Right").replace("left", "right")
-        if rname in right_joints:
-            diff = _rest_offset(right_joints[rname]) - _rest_offset(lnode)
-            lateral_vectors.append(diff)
-
-    if lateral_vectors:
-        avg_lateral = np.mean(lateral_vectors, axis=0)
-        avg_lateral[up_idx] = 0.0  # project to ground plane
-        lateral_ax = get_main_direction(avg_lateral)
-        if lateral_ax is not None and lateral_ax[1] != up_ax[1]:
-            up_vec = np.zeros(3)
-            up_vec[up_idx] = 1.0 if up_ax[0] == "+" else -1.0
-            lat_vec = np.zeros(3)
-            lat_idx = {"x": 0, "y": 1, "z": 2}[lateral_ax[1]]
-            lat_vec[lat_idx] = 1.0 if lateral_ax[0] == "+" else -1.0
-            fwd_vec = np.cross(up_vec, lat_vec)
-            forward_ax = get_main_direction(fwd_vec)
-
-    # Fallback: default mapping from up-axis
-    default_up2front: dict[str, str] = {"x": "+y", "y": "+z", "z": "+x"}
-    if forward_ax is None:
-        forward_ax = default_up2front[up_ax[1]]
-
-    # --- Orthogonality guard ---
-    if forward_ax[1] == up_ax[1]:
-        forward_ax = default_up2front[up_ax[1]]
-
-    return {'forward': forward_ax, 'upward': up_ax}
+    # Fallback: axis with largest spread across all joints
+    spread = np.ptp(local_coord, axis=0)
+    up_idx_fallback = int(np.argmax(spread))
+    # Use the mean to determine sign (positive mean = positive axis direction)
+    sign = '+' if np.mean(local_coord[:, up_idx_fallback]) >= 0 else '-'
+    return sign + 'xyz'[up_idx_fallback]
 
 
-def get_up_axis_index(bvh_object: Bvh, frame: npt.NDArray[np.float64]) -> int:
-    """Return the integer index (0=x, 1=y, 2=z) of the upward axis.
+def _rest_offset_from_node(node: object) -> npt.NDArray[np.float64]:
+    """Cumulative rest-pose offset from root for a joint (walks parent chain)."""
+    offset = np.zeros(3)
+    current = node
+    while current is not None:
+        offset = offset + np.array(current.offset)
+        current = current.parent  # type: ignore[attr-defined]
+    return offset
 
-    Convenience wrapper around :func:`get_forw_up_axis` for methods
-    that need the up-axis as an integer index.
+
+def _find_lr_joint_pairs(
+    bvh: Bvh, mapping: dict[str, str] | None = None,
+) -> list[tuple[object, object]]:
+    """Return ``(left_node, right_node)`` pairs from an L/R name mapping.
 
     Parameters
     ----------
-    bvh_object : Bvh
-        The BVH object containing the skeleton hierarchy.
-    frame : np.ndarray
-        Spatial coordinates of shape ``(N, 3)`` for a single frame.
+    bvh : Bvh
+        The skeleton.
+    mapping : dict or None
+        If provided, pair up joints according to this mapping. If None,
+        reads ``bvh.lr_mapping`` (the cached auto-detected or
+        user-supplied mapping). Returns an empty list if the mapping
+        is empty or any referenced name is unknown.
+    """
+    if mapping is None:
+        mapping = bvh.lr_mapping
+    if not mapping:
+        return []
+    ni = bvh.node_index
+    pairs: list[tuple[object, object]] = []
+    for left_name, right_name in mapping.items():
+        if left_name in ni and right_name in ni:
+            pairs.append((bvh.nodes[ni[left_name]], bvh.nodes[ni[right_name]]))
+    return pairs
+
+
+def _rest_lateral(
+    bvh: Bvh, mapping: dict[str, str] | None = None,
+) -> str | None:
+    """Infer the skeleton's lateral (left-right) axis from rest-pose L/R symmetry.
+
+    Averages the right-minus-left rest-pose cumulative offsets across all
+    matching L/R joint pairs, projects onto the horizontal plane, and
+    returns the dominant signed axis. Used by transforms that need a
+    stable topological lateral (mirror, retarget).
+
+    Parameters
+    ----------
+    bvh : Bvh
+        The skeleton.
+    mapping : dict or None
+        If provided, pair up joints according to this explicit mapping
+        instead of reading ``bvh.lr_mapping``. Useful when the caller
+        wants to compute lateral for a mapping that isn't cached on the
+        object.
 
     Returns
     -------
-    up_idx : int
-        0 for x, 1 for y, 2 for z.
+    str or None
+        Signed axis string (e.g. '+x'), or ``None`` if no L/R pairs are
+        available or the averaged offset is degenerate.
     """
-    directions = get_forw_up_axis(bvh_object, frame)
-    axis_char = directions['upward'][1]  # e.g. 'y' from '+y'
-    return {'x': 0, 'y': 1, 'z': 2}[axis_char]
+    up_ax = _rest_upward(bvh)
+    up_idx = _AXIS_CHAR_TO_IDX[up_ax[1]]
+
+    pairs = _find_lr_joint_pairs(bvh, mapping=mapping)
+    if not pairs:
+        return None
+
+    lateral_vectors = [
+        _rest_offset_from_node(r) - _rest_offset_from_node(l)
+        for l, r in pairs
+    ]
+    avg_lateral = np.mean(lateral_vectors, axis=0)
+    avg_lateral[up_idx] = 0.0  # project to ground plane
+
+    lateral_ax = get_main_direction(avg_lateral)
+    if lateral_ax is None or lateral_ax[1] == up_ax[1]:
+        return None
+    return lateral_ax
+
+
+def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
+    """Infer the world vertical axis from the first animation frame.
+
+    Uses frame 0's head-above-hips direction as the primary source (this
+    reflects the actual world-space orientation at playback time, not
+    just the rest-pose topology). Falls back to rest-pose topology if:
+      - there are no animation frames
+      - the first frame's head-hips direction is ambiguous (no dominant
+        component clearly larger than the others)
+      - the relevant joints are not present
+
+    Issues a UserWarning when the first-frame inference succeeds but
+    disagrees with the rest-pose topology (i.e. a different dominant
+    axis) — this is a strong signal that the BVH file authored its rest
+    pose in one convention and animates in another.
+
+    Parameters
+    ----------
+    bvh : Bvh
+        The skeleton with populated animation data.
+
+    Returns
+    -------
+    str
+        Signed axis string (e.g. '+y').
+    """
+    # Compute rest-pose topology once; used both as fallback and as the
+    # reference to compare against when emitting the disagreement warning.
+    try:
+        rest_up = _rest_upward(bvh)
+    except Exception:
+        rest_up = None
+
+    # Need animation frames to do first-frame inference
+    if bvh.frame_count == 0:
+        return rest_up if rest_up is not None else '+y'
+
+    # Try to find a "head-ish" and "hips-ish" joint in the skeleton.
+    # Priority: head -> neck -> last joint in spine chain.
+    name_lookup = {n.name.lower(): i for i, n in enumerate(bvh.nodes)}
+    head_idx = None
+    for candidate in ('head', 'neck', 'chest', 'spine'):
+        if candidate in name_lookup:
+            head_idx = name_lookup[candidate]
+            break
+    # Hips = the root (index 0)
+    hips_idx = 0
+
+    if head_idx is None or head_idx == hips_idx:
+        return rest_up if rest_up is not None else '+y'
+
+    frame0 = bvh.spatial_coords(frame_num=0)
+    head_hips = frame0[head_idx] - frame0[hips_idx]
+
+    # Check for a clear dominant axis: the largest component must be
+    # strictly larger than the second-largest (ratio > 2). Otherwise
+    # the pose is ambiguous (character crouched / lying / leaning).
+    abs_components = np.abs(head_hips)
+    sorted_abs = np.sort(abs_components)
+    if sorted_abs[-1] < 2.0 * sorted_abs[-2] or sorted_abs[-1] < 1e-6:
+        return rest_up if rest_up is not None else '+y'
+
+    # Clear winner from animation data
+    frame_up = get_main_direction(head_hips)
+    if frame_up is None:
+        return rest_up if rest_up is not None else '+y'
+
+    # Warn if rest-pose topology disagrees (different dominant axis)
+    if warn and rest_up is not None and rest_up[1] != frame_up[1]:
+        import warnings
+        warnings.warn(
+            f"Rest pose suggests world up is {rest_up!r} but the first "
+            f"animation frame's head-hips direction is closer to {frame_up!r}. "
+            f"Using {frame_up!r} from the animation data. If this is wrong "
+            f"for your file, set it explicitly via `bvh.world_up = '<axis>'`.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    return frame_up
+
+
+def _world_lateral_unit_at_frame(
+    bvh: Bvh,
+    frame_coords: npt.NDArray[np.float64],
+    world_up: str,
+) -> npt.NDArray[np.float64] | None:
+    """Return the character's world-space lateral **unit vector** at a frame.
+
+    Continuous (not snapped to a signed axis), projected onto the plane
+    perpendicular to ``world_up``. Averages ``(right_pos - left_pos)``
+    across matching L/R joint pairs in world space at the given frame.
+
+    Returns ``None`` if no L/R pairs exist or the averaged lateral is
+    degenerate (parallel to world up, or zero). Callers should handle
+    ``None`` by falling back to the topological ``_rest_lateral``.
+    """
+    up_vec = _axis_to_vector(world_up)
+    pairs = _find_lr_joint_pairs(bvh)
+    if not pairs:
+        return None
+
+    lateral_diffs = [
+        frame_coords[bvh.node_index[r.name]] - frame_coords[bvh.node_index[l.name]]  # type: ignore[attr-defined]
+        for l, r in pairs
+    ]
+    avg_lateral = np.mean(lateral_diffs, axis=0)
+    # Project onto plane perpendicular to world_up
+    avg_lateral = avg_lateral - np.dot(avg_lateral, up_vec) * up_vec
+    norm = float(np.linalg.norm(avg_lateral))
+    if norm < 1e-6:
+        return None
+    return avg_lateral / norm
+
+
+def _signed_rotation_delta_around_axis(
+    v_from: npt.NDArray[np.float64],
+    v_to: npt.NDArray[np.float64],
+    axis_vec: npt.NDArray[np.float64],
+) -> float:
+    """Signed angle (degrees) rotating ``v_from`` to ``v_to`` around ``axis_vec``.
+
+    Positive = counter-clockwise when viewed from the direction of
+    ``axis_vec``. Both input vectors are assumed unit-length and already
+    in the plane perpendicular to ``axis_vec``.
+    """
+    cos_a = float(np.clip(np.dot(v_from, v_to), -1.0, 1.0))
+    sin_a = float(np.dot(np.cross(v_from, v_to), axis_vec))
+    return float(np.degrees(np.arctan2(sin_a, cos_a)))
+
+
+def _compute_forward_at(
+    bvh: Bvh,
+    frame_coords: npt.NDArray[np.float64],
+    world_up: str,
+) -> str:
+    """Compute the character's world-space forward direction at a given frame.
+
+    Uses the actual joint positions at the frame (not rest-pose offsets),
+    so the result tracks root rotation, hip twist, and shoulder rotation
+    as the character moves.
+
+    Algorithm:
+      1. Get the continuous world-space lateral via
+         :func:`_world_lateral_unit_at_frame`.
+      2. ``forward = cross(world_up_vec, lateral)``
+      3. Snap to nearest signed axis via :func:`get_main_direction`.
+      4. Fallback: if lateral is degenerate (parallel to world_up) or
+         no L/R pairs found, use :func:`_rest_lateral` and cross with
+         world_up.
+
+    Parameters
+    ----------
+    bvh : Bvh
+        The skeleton.
+    frame_coords : np.ndarray
+        Spatial coordinates of shape (N, 3) for a single frame.
+    world_up : str
+        Signed axis string for the world vertical axis.
+
+    Returns
+    -------
+    str
+        Signed axis string (e.g. '-z') giving the character's forward
+        direction in world space at the given frame.
+    """
+    up_vec = _axis_to_vector(world_up)
+    lateral_vec = _world_lateral_unit_at_frame(bvh, frame_coords, world_up)
+
+    # Fallback: use rest-pose lateral (topology) if current-frame lateral
+    # is degenerate or no L/R pairs exist.
+    if lateral_vec is None:
+        rest_lat = _rest_lateral(bvh)
+        if rest_lat is None:
+            # Truly no information available — pick an arbitrary horizontal
+            # direction so we at least return a valid axis.
+            fallback = {'y': '+z', 'z': '+x', 'x': '+y'}
+            return fallback[world_up[1]]
+        lateral_vec = _axis_to_vector(rest_lat)
+
+    forward_vec = np.cross(up_vec, lateral_vec)
+    forward_ax = get_main_direction(forward_vec)
+    if forward_ax is None or forward_ax[1] == world_up[1]:
+        fallback = {'y': '+z', 'z': '+x', 'x': '+y'}
+        return fallback[world_up[1]]
+    return forward_ax
+
+
+def _validate_axis_string(value: object) -> str:
+    """Validate and normalize a signed axis string.
+
+    Accepts '+x'/'-x'/'+y'/'-y'/'+z'/'-z' (case-insensitive in the
+    axis char). Returns the normalized form. Raises ValueError on
+    any other input.
+    """
+    normalized = value.lower() if isinstance(value, str) and len(value) == 2 else value
+    if normalized not in _VALID_AXIS_STRINGS:
+        raise ValueError(
+            f"Axis must be one of {sorted(_VALID_AXIS_STRINGS)}, got {value!r}")
+    return normalized  # type: ignore[return-value]
+
+
+def _axis_aligned_rotation(
+    from_ax: str,
+    to_ax: str,
+) -> npt.NDArray[np.float64]:
+    """3x3 rotation matrix mapping signed axis ``from_ax`` to ``to_ax``.
+
+    Only works for axis-aligned unit vectors.  Returns exact matrices
+    (entries are 0, 1, or -1) for lossless coordinate transforms.
+
+    Parameters
+    ----------
+    from_ax, to_ax : str
+        Signed axis strings, e.g. ``'+y'``, ``'-z'``.
+
+    Returns
+    -------
+    R : ndarray of shape (3, 3)
+        Orthogonal rotation matrix with ``det = +1``.
+    """
+    from_vec = _axis_to_vector(from_ax)
+    to_vec = _axis_to_vector(to_ax)
+
+    if np.allclose(from_vec, to_vec):
+        return np.eye(3, dtype=np.float64)
+
+    if np.allclose(from_vec, -to_vec):
+        # 180-degree rotation around a perpendicular axis
+        from_idx = _AXIS_CHAR_TO_IDX[from_ax[1]]
+        perp_idx = (from_idx + 1) % 3
+        rot_funcs = {0: rotX, 1: rotY, 2: rotZ}
+        R = rot_funcs[perp_idx](np.pi)
+        return np.round(R).astype(np.float64)
+
+    # 90-degree rotation: cross product gives the rotation axis and sign
+    cross = np.cross(from_vec, to_vec)
+    rot_idx = int(np.argmax(np.abs(cross)))
+    rot_sign = np.sign(cross[rot_idx])
+    rot_funcs = {0: rotX, 1: rotY, 2: rotZ}
+    R = rot_funcs[rot_idx](rot_sign * np.pi / 2)
+    return np.round(R).astype(np.float64)
+

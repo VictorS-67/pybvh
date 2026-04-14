@@ -33,11 +33,12 @@ def frame_mpl(
     figsize: tuple[float, float] | None,
     show: bool,
     skeleton_lines_list: list[list[tuple[int, int]]],
-    center: npt.NDArray[np.float64],
-    half_span: float,
-    azimuth: float,
-    elevation: float,
-    up_axis: str,
+    centers: list[npt.NDArray[np.float64]],
+    half_spans: list[float],
+    azimuths: list[float],
+    elevations: list[float],
+    up_axes: list[str],
+    ax: matplotlib.axes.Axes | None = None,
 ) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes | list[matplotlib.axes.Axes]]:
     """Render one or more skeletons as static 3D subplots.
 
@@ -56,12 +57,15 @@ def frame_mpl(
         Whether to call ``plt.show()``.
     skeleton_lines_list : list
         Precomputed bone index pairs per skeleton.
-    center, half_span : ndarray, float
-        Bounding box from :func:`_common.compute_unified_limits`.
-    azimuth, elevation : float
-        Camera angles in degrees.
-    up_axis : str
-        ``'x'``, ``'y'``, or ``'z'``.
+    centers, half_spans : list[ndarray], list[float]
+        Per-skeleton bounding boxes. Each subplot uses its own.
+    azimuths, elevations : list[float]
+        Per-skeleton camera angles in degrees.
+    up_axes : list[str]
+        Per-skeleton vertical axis, each ``'x'``, ``'y'``, or ``'z'``.
+    ax : matplotlib.axes.Axes, optional
+        Existing 3D axes to draw on. If provided, no new figure is
+        created. Only supported for a single skeleton (``n == 1``).
 
     Returns
     -------
@@ -69,30 +73,48 @@ def frame_mpl(
     axs : Axes or list[Axes]
     """
     n = len(bvh_list)
-    if figsize is None:
-        figsize = (6 * n, 6)
 
-    fig, axs = plt.subplots(
-        1, n, subplot_kw=dict(projection="3d"), figsize=figsize,
-        squeeze=False)
-    axs_flat: list[matplotlib.axes.Axes] = list(axs[0])
+    if ax is not None:
+        if n > 1:
+            raise ValueError(
+                "ax is only supported for single skeletons; pass a single "
+                "Bvh object (not a list) when using ax."
+            )
+        if not hasattr(ax, 'get_zlim'):
+            raise ValueError(
+                "ax must be a 3D axes. Create one with "
+                "plt.subplots(..., subplot_kw={'projection': '3d'}) or "
+                "fig.add_subplot(..., projection='3d')."
+            )
+        fig = ax.get_figure()
+        axs_flat: list[matplotlib.axes.Axes] = [ax]
+    else:
+        if figsize is None:
+            figsize = (6 * n, 6)
 
-    for i, (coords, bones, ax) in enumerate(
+        fig, axs = plt.subplots(
+            1, n, subplot_kw=dict(projection="3d"), figsize=figsize,
+            squeeze=False)
+        axs_flat = list(axs[0])
+
+    for i, (coords, bones, ax_i) in enumerate(
             zip(coords_list, skeleton_lines_list, axs_flat)):
         frame_data = coords[0]  # (N, 3) — first frame
         color = PALETTE_MPL[i % len(PALETTE_MPL)] if n > 1 else (0.1, 0.2, 0.8)
 
-        _draw_bones(ax, frame_data, bones, color)
-        _set_axis_limits(ax, center, half_span)
-        ax.view_init(elev=elevation, azim=azimuth, vertical_axis=up_axis)
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-        ax.set_zlabel('z')
+        _draw_bones(ax_i, frame_data, bones, color)
+        _set_axis_limits(ax_i, centers[i], half_spans[i])
+        ax_i.view_init(
+            elev=elevations[i], azim=azimuths[i], vertical_axis=up_axes[i])
+        ax_i.set_xlabel('x')
+        ax_i.set_ylabel('y')
+        ax_i.set_zlabel('z')
 
         if labels and i < len(labels):
-            ax.set_title(labels[i])
+            ax_i.set_title(labels[i])
 
-    plt.tight_layout()
+    if ax is None:
+        plt.tight_layout()
     if show:
         plt.show()
 
@@ -110,14 +132,23 @@ def render_mpl(
     fps: float,
     labels: list[str] | None,
     skeleton_lines_list: list[list[tuple[int, int]]],
-    center: npt.NDArray[np.float64],
-    half_span: float,
-    azimuth: float,
-    elevation: float,
-    up_axis: str,
+    centers: list[npt.NDArray[np.float64]],
+    half_spans: list[float],
+    azimuths: list[float],
+    elevations: list[float],
+    up_axes: list[str],
     show_axis: bool,
+    follow: bool = False,
+    camera: str | tuple[float, float] = "front",
 ) -> Path:
     """Render animation to a video/GIF/HTML file via matplotlib.
+
+    Each subplot uses its own bounding box and camera orientation so
+    that mixed-up-axis side-by-side comparisons render correctly.
+
+    When ``follow`` is True, the camera orientation is recomputed every
+    frame using each skeleton's current facing direction, so the view
+    orbits with the character.
 
     Returns
     -------
@@ -140,8 +171,9 @@ def render_mpl(
         line_artists = [ax.plot([], [], [], c=color, lw=2.5)[0] for _ in bones]
         all_line_artists.append(line_artists)
 
-        _set_axis_limits(ax, center, half_span)
-        ax.view_init(elev=elevation, azim=azimuth, vertical_axis=up_axis)
+        _set_axis_limits(ax, centers[i], half_spans[i])
+        ax.view_init(
+            elev=elevations[i], azim=azimuths[i], vertical_axis=up_axes[i])
 
         if not show_axis:
             ax.axis('off')
@@ -155,7 +187,13 @@ def render_mpl(
 
     plt.tight_layout()
 
-    update = _make_update_fn(coords_list, skeleton_lines_list, all_line_artists)
+    if follow:
+        update = _make_follow_update_fn(
+            bvh_list, coords_list, skeleton_lines_list,
+            all_line_artists, axs_flat, camera)
+    else:
+        update = _make_update_fn(
+            coords_list, skeleton_lines_list, all_line_artists)
 
     interval = int(1000.0 / fps)
     anim = animation.FuncAnimation(
@@ -172,6 +210,66 @@ def render_mpl(
     return filepath
 
 
+def _make_follow_update_fn(
+    bvh_list,
+    coords_list,
+    skeleton_lines_list,
+    all_line_artists,
+    axs_flat,
+    camera,
+):
+    """Build an animation update fn that also recomputes view_init per frame.
+
+    Uses CONTINUOUS rotation tracking: for each skeleton, the base camera
+    angle is computed once from frame 0, then on every frame we add the
+    signed rotation delta between frame 0's lateral axis and the current
+    frame's lateral axis (measured around ``world_up``). This gives a
+    smooth orbit that tracks the character's actual rotation — not a
+    snap-every-90°-to-a-signed-axis.
+    """
+    from ._common import get_camera_angles
+    from ..tools import (
+        _axis_to_vector,
+        _signed_rotation_delta_around_axis,
+        _world_lateral_unit_at_frame,
+    )
+
+    base_update = _make_update_fn(
+        coords_list, skeleton_lines_list, all_line_artists)
+
+    # Precompute per-skeleton base camera and frame-0 lateral unit vectors.
+    base_angles: list[tuple[float, float, str]] = []
+    base_laterals: list[np.ndarray | None] = []
+    up_vecs: list[np.ndarray] = []
+    for bvh_obj, coords in zip(bvh_list, coords_list):
+        az, el, up = get_camera_angles(bvh_obj, coords[0], camera)
+        base_angles.append((az, el, up))
+        base_laterals.append(
+            _world_lateral_unit_at_frame(bvh_obj, coords[0], bvh_obj.world_up))
+        up_vecs.append(_axis_to_vector(bvh_obj.world_up))
+
+    def update(frame):
+        artists = base_update(frame)
+        for i, (bvh_obj, coords, ax) in enumerate(
+                zip(bvh_list, coords_list, axs_flat)):
+            az0, el0, up0 = base_angles[i]
+            lateral_0 = base_laterals[i]
+            if lateral_0 is None:
+                ax.view_init(elev=el0, azim=az0, vertical_axis=up0)
+                continue
+            lateral_f = _world_lateral_unit_at_frame(
+                bvh_obj, coords[frame], bvh_obj.world_up)
+            if lateral_f is None:
+                ax.view_init(elev=el0, azim=az0, vertical_axis=up0)
+                continue
+            delta = _signed_rotation_delta_around_axis(
+                lateral_0, lateral_f, up_vecs[i])
+            ax.view_init(elev=el0, azim=az0 + delta, vertical_axis=up0)
+        return artists
+
+    return update
+
+
 # ---------------------------------------------------------------------------
 # Interactive playback (matplotlib fallback)
 # ---------------------------------------------------------------------------
@@ -182,14 +280,16 @@ def play_mpl(
     fps: float,
     labels: list[str] | None,
     skeleton_lines_list: list[list[tuple[int, int]]],
-    center: npt.NDArray[np.float64],
-    half_span: float,
-    azimuth: float,
-    elevation: float,
-    up_axis: str,
+    centers: list[npt.NDArray[np.float64]],
+    half_spans: list[float],
+    azimuths: list[float],
+    elevations: list[float],
+    up_axes: list[str],
     in_notebook: bool = False,
 ) -> None:
     """Playback via matplotlib.
+
+    Each subplot uses its own bounding box and camera orientation.
 
     In a notebook, renders the animation as inline HTML with playback
     controls (play/pause/scrub). In a script, opens an animated window
@@ -209,8 +309,9 @@ def play_mpl(
         line_artists = [ax.plot([], [], [], c=color, lw=2.5)[0] for _ in bones]
         all_line_artists.append(line_artists)
 
-        _set_axis_limits(ax, center, half_span)
-        ax.view_init(elev=elevation, azim=azimuth, vertical_axis=up_axis)
+        _set_axis_limits(ax, centers[i], half_spans[i])
+        ax.view_init(
+            elev=elevations[i], azim=azimuths[i], vertical_axis=up_axes[i])
         ax.set_xlabel('x')
         ax.set_ylabel('y')
         ax.set_zlabel('z')
@@ -249,6 +350,7 @@ def trajectory_mpl(
     figsize: tuple[float, float] | None,
     show: bool,
     up_axis: str,
+    ax: matplotlib.axes.Axes | None = None,
 ) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]:
     """Plot 2D top-down trajectory of the root joint.
 
@@ -271,27 +373,38 @@ def trajectory_mpl(
         Whether to call ``plt.show()``.
     up_axis : str
         ``'x'``, ``'y'``, or ``'z'`` — from the first skeleton.
+    ax : matplotlib.axes.Axes, optional
+        Existing 2D axes to draw on. If provided, no new figure is
+        created. Works with single or multiple skeletons.
 
     Returns
     -------
     fig : Figure
     ax : Axes
     """
-    from ..tools import get_up_axis_index
+    from ..tools import _AXIS_CHAR_TO_IDX
 
     axis_names = ['x', 'y', 'z']
 
-    if figsize is None:
-        figsize = (8, 8)
-
-    fig, ax = plt.subplots(figsize=figsize)
+    ax_provided = ax is not None
+    if ax_provided:
+        if hasattr(ax, 'get_zlim'):
+            raise ValueError(
+                "ax must be a 2D axes for trajectory(). "
+                "Do not pass subplot_kw={'projection': '3d'} when creating it."
+            )
+        fig = ax.get_figure()
+    else:
+        if figsize is None:
+            figsize = (8, 8)
+        fig, ax = plt.subplots(figsize=figsize)
 
     # Track which horizontal axes are used across all skeletons
     all_horiz: set[tuple[int, int]] = set()
 
     for i, (bvh_obj, coords) in enumerate(zip(bvh_list, coords_list)):
-        # Per-skeleton up axis
-        up_idx = get_up_axis_index(bvh_obj, coords[0])
+        # Per-skeleton up axis, honoring any manual world_up override
+        up_idx = _AXIS_CHAR_TO_IDX[bvh_obj.world_up[1]]
         horiz = [j for j in range(3) if j != up_idx]
         all_horiz.add((horiz[0], horiz[1]))
 
@@ -317,11 +430,28 @@ def trajectory_mpl(
 
     ax.set_aspect('equal')
     ax.set_title('Root Trajectory (top-down)')
+
+    # Build legend handles: skeleton labels (if any) + start/end marker key.
+    # The start/end markers are shown in gray so the legend communicates
+    # "shape → meaning" without being tied to any one skeleton's color.
+    from matplotlib.lines import Line2D
+    handles: list[Line2D] = []
     if labels:
-        ax.legend()
+        for i, label in enumerate(labels):
+            color = PALETTE_MPL[i % len(PALETTE_MPL)]
+            handles.append(Line2D([0], [0], color=color, lw=2, label=label))
+    handles.append(Line2D(
+        [0], [0], marker='o', color='w', markerfacecolor='gray',
+        markersize=9, label='start', linestyle=''))
+    handles.append(Line2D(
+        [0], [0], marker='s', color='w', markerfacecolor='gray',
+        markersize=9, label='end', linestyle=''))
+    ax.legend(handles=handles, loc='best', framealpha=0.9)
+
     ax.grid(True, alpha=0.3)
 
-    plt.tight_layout()
+    if not ax_provided:
+        plt.tight_layout()
     if show:
         plt.show()
 

@@ -5,7 +5,7 @@ __version__ = "0.5.1"
 from .bvh import Bvh
 from .io import read_bvh_file, write_bvh_file
 from .df_to_bvh import df_to_bvh
-from .spatial_coord import frames_to_spatial_coord
+from .spatial_coord import frames_to_spatial_coords, frames_to_spatial_coord
 
 from .batch import (
     read_bvh_directory, batch_to_numpy,

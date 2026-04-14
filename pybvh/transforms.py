@@ -19,7 +19,6 @@ from .bvh import Bvh
 from .bvhnode import BvhNode, BvhJoint
 from . import rotations
 from .tools import (
-    get_forw_up_axis, get_up_axis_index,
     rotX, rotY, rotZ,
 )
 
@@ -98,16 +97,16 @@ def random_translate_root(
 # =========================================================================
 
 @overload
-def add_joint_noise(
+def add_noise(
     bvh: Bvh, sigma_deg: float, *, sigma_pos: float = ...,
     rng: np.random.Generator | None = ..., inplace: Literal[True],
 ) -> None: ...
 @overload
-def add_joint_noise(
+def add_noise(
     bvh: Bvh, sigma_deg: float, sigma_pos: float = ...,
     rng: np.random.Generator | None = ..., inplace: Literal[False] = ...,
 ) -> Bvh: ...
-def add_joint_noise(
+def add_noise(
     bvh: Bvh,
     sigma_deg: float,
     sigma_pos: float = 0.0,
@@ -166,7 +165,7 @@ def add_joint_noise(
 # 6.3  Speed Perturbation
 # =========================================================================
 
-def speed_perturbation(bvh: Bvh, factor: float) -> Bvh:
+def perturb_speed(bvh: Bvh, factor: float) -> Bvh:
     """Change motion speed by resampling.
 
     A *factor* of 2.0 makes the motion twice as fast (fewer frames);
@@ -183,21 +182,21 @@ def speed_perturbation(bvh: Bvh, factor: float) -> Bvh:
     Returns
     -------
     Bvh
-        New Bvh with adjusted frame count and ``frame_frequency``.
+        New Bvh with adjusted frame count and ``frame_time``.
     """
     if factor <= 0:
         raise ValueError(f"factor must be > 0, got {factor}")
-    if bvh.frame_frequency <= 0:
-        raise ValueError("Cannot resample: frame_frequency is 0.")
-    original_fps = 1.0 / bvh.frame_frequency
+    if bvh.frame_time <= 0:
+        raise ValueError("Cannot resample: frame_time is 0.")
+    original_fps = 1.0 / bvh.frame_time
     # Resample to fewer/more frames, then restore original frame rate.
     # factor > 1 → faster → fewer frames; factor < 1 → slower → more frames.
     result = bvh.resample(original_fps / factor)
-    result.frame_frequency = bvh.frame_frequency
+    result.frame_time = bvh.frame_time
     return result
 
 
-def random_speed_perturbation(
+def random_perturb_speed(
     bvh: Bvh,
     factor_range: tuple[float, float] = (0.8, 1.2),
     rng: np.random.Generator | None = None,
@@ -220,7 +219,7 @@ def random_speed_perturbation(
     if rng is None:
         rng = np.random.default_rng()
     factor = float(rng.uniform(factor_range[0], factor_range[1]))
-    return speed_perturbation(bvh, factor)
+    return perturb_speed(bvh, factor)
 
 
 # =========================================================================
@@ -228,16 +227,16 @@ def random_speed_perturbation(
 # =========================================================================
 
 @overload
-def dropout_frames(
+def drop_frames(
     bvh: Bvh, drop_rate: float, *, rng: np.random.Generator | None = ...,
     inplace: Literal[True],
 ) -> None: ...
 @overload
-def dropout_frames(
+def drop_frames(
     bvh: Bvh, drop_rate: float, rng: np.random.Generator | None = ...,
     inplace: Literal[False] = ...,
 ) -> Bvh: ...
-def dropout_frames(
+def drop_frames(
     bvh: Bvh,
     drop_rate: float,
     rng: np.random.Generator | None = None,
@@ -290,7 +289,7 @@ def dropout_frames(
         return bvh.copy()
 
     # Get quaternion representation
-    root_pos_orig, quats_orig, _ = bvh.get_frames_as_quaternion()
+    root_pos_orig, quats_orig, _ = bvh.to_quaternions()
     # quats_orig: (F, J, 4),  root_pos_orig: (F, 3)
 
     # For every frame, find left and right kept-neighbour indices
@@ -384,7 +383,7 @@ def rotate_angles_vertical(
     --------
     >>> angles = bvh.joint_angles          # (F, J, 3) degrees
     >>> pos = bvh.root_pos                 # (F, 3)
-    >>> up = tools.get_up_axis_index(bvh, bvh.get_spatial_coord(0))
+    >>> up = {'x': 0, 'y': 1, 'z': 2}[bvh.world_up[1]]
     >>> order = ''.join(bvh.root.rot_channels)
     >>> new_angles, new_pos = rotate_angles_vertical(
     ...     angles, pos, 90.0, up, order)
@@ -447,16 +446,18 @@ def rotate_vertical(
     """
     target = bvh if inplace else bvh.copy()
 
-    # Determine up axis
+    # Determine up axis — use the Bvh's world_up property so manual
+    # overrides are respected.
     if up_axis is None:
-        rest = target.get_rest_pose(mode='coordinates')
-        up_idx = get_up_axis_index(target, rest)  # type: ignore[arg-type]
+        axis_str = target.world_up
     else:
-        up_idx = {'x': 0, 'y': 1, 'z': 2}[up_axis[1]]
+        axis_str = up_axis
+    up_sign = 1 if axis_str[0] == '+' else -1
+    up_idx = {'x': 0, 'y': 1, 'z': 2}[axis_str[1]]
 
     root_order = "".join(target.root.rot_channels)
     new_angles, new_root_pos = rotate_angles_vertical(
-        target.joint_angles, target.root_pos, angle_deg, up_idx, root_order,
+        target.joint_angles, target.root_pos, angle_deg * up_sign, up_idx, root_order,
     )
     target.joint_angles = new_angles
     target.root_pos = new_root_pos
@@ -546,8 +547,9 @@ def mirror_angles(
     --------
     >>> angles = bvh.joint_angles
     >>> pos = bvh.root_pos
-    >>> pairs = bvh.auto_detect_lr_pairs()
-    >>> lat = tools.get_forw_up_axis(bvh, bvh.get_spatial_coord(0))
+    >>> pairs = transforms.auto_detect_lr_pairs(bvh)
+    >>> from pybvh.tools import _rest_lateral
+    >>> lat_idx = {'x': 0, 'y': 1, 'z': 2}[_rest_lateral(bvh)[1]]
     >>> channels = [n.rot_channels for n in bvh.nodes if not n.is_end_site()]
     >>> new_angles, new_pos = mirror_angles(
     ...     angles, pos, pairs, lat_idx, channels)
@@ -558,18 +560,20 @@ def mirror_angles(
     # Negate root_pos lateral component
     new_root_pos[:, lateral_idx] *= -1
 
-    # Swap L/R joint angle columns
-    for lj, rj in lr_joint_pairs:
-        left_data = new_angles[:, lj].copy()
-        new_angles[:, lj] = new_angles[:, rj]
-        new_angles[:, rj] = left_data
-
-    # Negate Euler components whose rotation axis is NOT the lateral axis
+    # Negate Euler components whose rotation axis is NOT the lateral axis.
+    # This MUST happen before the L/R swap so each joint's own Euler order
+    # is used for the negation (not the swapped destination's order).
     lateral_upper = "XYZ"[lateral_idx]
     for j_idx, channels in enumerate(rot_channels):
         for ch_idx, ch in enumerate(channels):
             if ch != lateral_upper:
                 new_angles[:, j_idx, ch_idx] *= -1
+
+    # Swap L/R joint angle columns
+    for lj, rj in lr_joint_pairs:
+        left_data = new_angles[:, lj].copy()
+        new_angles[:, lj] = new_angles[:, rj]
+        new_angles[:, rj] = left_data
 
     return new_angles, new_root_pos
 
@@ -578,26 +582,81 @@ def mirror_angles(
 # 6.1  Left-Right Mirroring
 # =========================================================================
 
-def auto_detect_lr_mapping(bvh: Bvh) -> dict[str, str]:
-    """Auto-detect left/right joint pairs by name heuristics.
+_NUMBER_SUFFIX_RE = __import__('re').compile(r'\.\d+$')
 
-    Tries "Left"↔"Right" substring replacement and "L"↔"R" prefix
-    patterns.  Returns a dict mapping left joint names to right joint
-    names (one direction only).
 
-    Parameters
-    ----------
-    bvh : Bvh
-        Input BVH with named joints.
+def _strip_number_suffix(name: str) -> str:
+    """Strip trailing ``.NNN`` suffix like Blender's ``.001`` duplicates."""
+    return _NUMBER_SUFFIX_RE.sub('', name)
 
-    Returns
-    -------
-    dict
-        ``{"LeftArm": "RightArm", ...}``.  Empty if no pairs found.
+
+def _strip_namespace_prefix(name: str) -> tuple[str, str]:
+    """Strip a ``foo:`` namespace prefix (Mixamo and similar).
+
+    Returns ``(prefix, base)``. If no namespace, prefix is empty.
+    """
+    if ':' in name:
+        prefix, _, base = name.rpartition(':')
+        return prefix + ':', base
+    return '', name
+
+
+_SUFFIX_LR_TABLE = [
+    # (left_suffix, right_suffix) — matched against the trailing substring
+    # of the base name (after namespace and number-suffix strip). Ordered
+    # most-specific-first so e.g. ".Left" / ".Right" wins over ".L" / ".R"
+    # if both would parse.
+    ('.Left', '.Right'), ('_Left', '_Right'),
+    ('.left', '.right'), ('_left', '_right'),
+    ('.L', '.R'), ('_L', '_R'),
+    ('.l', '.r'), ('_l', '_r'),
+]
+
+
+def _try_suffix_partner(base: str, joint_names: set[str], prefix: str,
+                        number_suffix: str) -> str | None:
+    """If ``base`` matches a known L/R suffix, return the partner's full name."""
+    for left_suf, right_suf in _SUFFIX_LR_TABLE:
+        if base.endswith(left_suf):
+            partner_base = base[: -len(left_suf)] + right_suf
+            partner_full = prefix + partner_base + number_suffix
+            if partner_full in joint_names:
+                return partner_full
+        elif base.endswith(right_suf):
+            partner_base = base[: -len(right_suf)] + left_suf
+            partner_full = prefix + partner_base + number_suffix
+            if partner_full in joint_names:
+                return partner_full
+    return None
+
+
+def _detect_lr_mapping_by_names(bvh: Bvh) -> dict[str, str]:
+    """Internal: detect L/R joint pairs by extended name heuristics.
+
+    Called at ``Bvh.__init__`` to populate ``bvh.lr_mapping`` eagerly.
+    Rules tried most-specific-first so delimited suffixes win over bare
+    substring matches:
+
+    1. Delimited suffix — ``arm.L`` / ``arm.R``, ``arm_L`` / ``arm_R``,
+       and their lowercase and ``.Left`` / ``_Left`` variants. Names are
+       normalized by stripping a ``foo:`` namespace prefix (Mixamo's
+       ``mixamorig:``) and a trailing ``.NNN`` number suffix (Blender's
+       ``.001`` duplicates) before the suffix match; the partner is
+       rebuilt with the same prefix/number suffix.
+    2. Substring ``left`` / ``right`` (case-insensitive) — handles
+       ``LeftArm`` / ``RightArm``, ``leftArm`` / ``rightArm``, and bare
+       cases like ``LeftEye`` / ``RightEye`` with no delimiter. Namespace
+       prefix is stripped before matching.
+    3. Prefix ``L*`` / ``R*`` followed by an uppercase letter — handles
+       ``LArm`` / ``RArm``.
+
+    Mutual-match requirement: both halves must exist as joint names.
+    Singletons are not paired.
+
+    Returns ``{}`` if no pairs detected. See ``bvh.lr_mapping`` for the
+    public API that wraps this function.
     """
     joint_names = set(bvh.joint_names)
-    # Also include end-site names for completeness
-    all_names = {n.name for n in bvh.nodes}
     mapping: dict[str, str] = {}
     seen: set[str] = set()
 
@@ -607,24 +666,46 @@ def auto_detect_lr_mapping(bvh: Bvh) -> dict[str, str]:
 
         partner: str | None = None
 
-        # Strategy 1: "Left" <-> "Right" anywhere in name
-        if "Left" in name:
-            candidate = name.replace("Left", "Right", 1)
-            if candidate in joint_names:
-                partner = candidate
-        elif "Right" in name:
-            candidate = name.replace("Right", "Left", 1)
-            if candidate in joint_names:
-                partner = candidate
+        # Decompose name for suffix rule: strip namespace and number suffix
+        ns_prefix, after_ns = _strip_namespace_prefix(name)
+        base = _strip_number_suffix(after_ns)
+        number_suffix = after_ns[len(base):]  # e.g. '.001' or ''
 
-        # Strategy 2: "L" / "R" prefix followed by uppercase
-        if partner is None and len(name) >= 2:
-            if name[0] == "L" and name[1].isupper():
-                candidate = "R" + name[1:]
+        # Strategy 1: delimited suffix (most specific)
+        partner = _try_suffix_partner(base, joint_names, ns_prefix, number_suffix)
+
+        # Strategy 2: "left"/"right" substring (case-insensitive)
+        # Work on the post-namespace base (no number suffix) so Mixamo
+        # names like "mixamorig:LeftArm" match against "LeftArm".
+        if partner is None:
+            lower = base.lower()
+            if "left" in lower:
+                partner_base = (base
+                                .replace("Left", "Right")
+                                .replace("left", "right")
+                                .replace("LEFT", "RIGHT"))
+                candidate = ns_prefix + partner_base + number_suffix
                 if candidate in joint_names:
                     partner = candidate
-            elif name[0] == "R" and name[1].isupper():
-                candidate = "L" + name[1:]
+            elif "right" in lower:
+                partner_base = (base
+                                .replace("Right", "Left")
+                                .replace("right", "left")
+                                .replace("RIGHT", "LEFT"))
+                candidate = ns_prefix + partner_base + number_suffix
+                if candidate in joint_names:
+                    partner = candidate
+
+        # Strategy 3: "L" / "R" prefix followed by uppercase
+        if partner is None and len(base) >= 2:
+            if base[0] == "L" and base[1].isupper():
+                partner_base = "R" + base[1:]
+                candidate = ns_prefix + partner_base + number_suffix
+                if candidate in joint_names:
+                    partner = candidate
+            elif base[0] == "R" and base[1].isupper():
+                partner_base = "L" + base[1:]
+                candidate = ns_prefix + partner_base + number_suffix
                 if candidate in joint_names:
                     partner = candidate
 
@@ -638,17 +719,52 @@ def auto_detect_lr_mapping(bvh: Bvh) -> dict[str, str]:
     return mapping
 
 
+def auto_detect_lr_mapping(bvh: Bvh) -> dict[str, str]:
+    """Return the L/R joint-name mapping for this skeleton.
+
+    Thin wrapper around :attr:`Bvh.lr_mapping` that returns an empty
+    dict (instead of ``None``) when no pairs are available — back-compat
+    shape for code that expected a dict.
+
+    Parameters
+    ----------
+    bvh : Bvh
+        Input BVH with named joints.
+
+    Returns
+    -------
+    dict
+        ``{"LeftArm": "RightArm", ...}``.  Empty if no pairs available.
+    """
+    return bvh.lr_mapping if bvh.lr_mapping is not None else {}
+
+
 def _order_lr_pair(a: str, b: str) -> tuple[str, str]:
     """Return ``(left_name, right_name)``."""
-    for kw in ("Left", "left"):
+    # Prefer substring form first (most common)
+    for kw in ("Left", "left", "LEFT"):
         if kw in a:
             return (a, b)
         if kw in b:
             return (b, a)
+    # Normalize for suffix check: strip namespace + number suffix
+    _, a_after = _strip_namespace_prefix(a)
+    _, b_after = _strip_namespace_prefix(b)
+    a_base = _strip_number_suffix(a_after)
+    b_base = _strip_number_suffix(b_after)
+    for left_suf, _right_suf in _SUFFIX_LR_TABLE:
+        if a_base.endswith(left_suf):
+            return (a, b)
+        if b_base.endswith(left_suf):
+            return (b, a)
     # Fallback: "L" prefix → left
-    if a.startswith("L"):
+    a_prefix_check = _strip_number_suffix(a_after)
+    b_prefix_check = _strip_number_suffix(b_after)
+    if a_prefix_check.startswith("L") and (len(a_prefix_check) < 2 or a_prefix_check[1].isupper()):
         return (a, b)
-    return (b, a)
+    if b_prefix_check.startswith("L") and (len(b_prefix_check) < 2 or b_prefix_check[1].isupper()):
+        return (b, a)
+    return (a, b)
 
 
 def auto_detect_lr_pairs(bvh: Bvh) -> list[tuple[int, int]]:
@@ -724,19 +840,35 @@ def mirror(
     """
     target = bvh if inplace else bvh.copy()
 
+    # --- Detect L/R pairs (first, so we can fail fast with a clear error) ---
+    if left_right_mapping is None:
+        left_right_mapping = target.lr_mapping
+
+    if not left_right_mapping:
+        raise ValueError(
+            "No L/R joint pairs available for mirror(). The extended "
+            "name heuristic did not recognize this skeleton's convention. "
+            "Provide a mapping explicitly — either set `bvh.lr_mapping = "
+            "{...}` after loading, or pass `lr_mapping=` at load time "
+            "(`read_bvh_file(..., lr_mapping=...)`). If your skeleton is "
+            "not bilaterally symmetric, mirroring does not apply.")
+
     # --- Detect lateral axis ---
+    # Mirror is a topology operation (swap L/R joints, negate the lateral
+    # component), so we use the rest-pose lateral derived from the L/R
+    # mapping above. Pass the explicit mapping so we use the same pairs.
     if lateral_axis is None:
-        rest = target.get_rest_pose(mode='coordinates')
-        dirs = get_forw_up_axis(target, rest)  # type: ignore[arg-type]
-        used = {dirs['forward'][1], dirs['upward'][1]}
-        lateral_char = ({"x", "y", "z"} - used).pop()
+        from .tools import _rest_lateral
+        rest_lat = _rest_lateral(target, mapping=left_right_mapping)
+        if rest_lat is None:
+            raise ValueError(
+                "Cannot infer lateral axis from L/R mapping: averaged "
+                "left-to-right offsets are degenerate (parallel to up "
+                "axis or zero). Pass `lateral_axis=` explicitly.")
+        lateral_char = rest_lat[1]
     else:
         lateral_char = lateral_axis.lower().lstrip("+-")
     lateral_idx = {"x": 0, "y": 1, "z": 2}[lateral_char]
-
-    # --- Detect L/R pairs ---
-    if left_right_mapping is None:
-        left_right_mapping = auto_detect_lr_mapping(target)
 
     # Build joint-index pairs (indices into joint_angles axis 1)
     joints = [n for n in target.nodes if isinstance(n, BvhJoint)]
@@ -790,3 +922,256 @@ def mirror(
     if inplace:
         return None
     return target
+
+
+# =========================================================================
+# Deprecated names (old API)
+# =========================================================================
+
+def add_joint_noise(*args, **kwargs):
+    """Deprecated: use add_noise() instead."""
+    import warnings
+    warnings.warn("add_joint_noise() is deprecated, use add_noise() instead.", DeprecationWarning, stacklevel=2)
+    return add_noise(*args, **kwargs)
+
+
+def speed_perturbation(*args, **kwargs):
+    """Deprecated: use perturb_speed() instead."""
+    import warnings
+    warnings.warn("speed_perturbation() is deprecated, use perturb_speed() instead.", DeprecationWarning, stacklevel=2)
+    return perturb_speed(*args, **kwargs)
+
+
+# =========================================================================
+# 8.  Coordinate-frame reorientation
+# =========================================================================
+
+@overload
+def reorient_world_up(bvh: Bvh, new_up: str, *, inplace: Literal[True]) -> None: ...
+@overload
+def reorient_world_up(bvh: Bvh, new_up: str, inplace: Literal[False] = ...) -> Bvh: ...
+def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None:
+    """Change the world coordinate system's vertical axis.
+
+    Applies a global rotation to the entire animation (root translation,
+    skeleton offsets, root joint rotations) so the world vertical axis
+    changes from the current ``bvh.world_up`` to ``new_up``.  The character
+    looks visually identical; only the coordinate system changes.
+
+    Restricted to axis-aligned rotations (multiples of 90 degrees) for
+    lossless transformation.
+
+    Parameters
+    ----------
+    bvh : Bvh
+    new_up : str
+        Target up axis, e.g. ``'+y'``.
+    inplace : bool
+
+    Returns
+    -------
+    Bvh or None
+    """
+    from .tools import _validate_axis_string, _axis_aligned_rotation
+
+    old_up = _validate_axis_string(bvh.world_up)
+    new_up = _validate_axis_string(new_up)
+
+    target = bvh if inplace else bvh.copy()
+
+    if old_up == new_up:
+        return None if inplace else target
+
+    R = _axis_aligned_rotation(old_up, new_up)
+
+    # 1. Rotate root positions
+    target.root_pos = (R @ target.root_pos.T).T
+
+    # 2. Rotate all node offsets
+    for node in target.nodes:
+        node.offset = R @ node.offset
+
+    # 3. Conjugate ALL joint rotations: R_j' = R @ R_j @ R^T
+    #    This is the correct formula for a global scene rotation applied to
+    #    the BVH hierarchy (both offsets and rotations change together).
+    R_T = R.T
+    joints = [n for n in target.nodes if not n.is_end_site()]
+    angles_copy = target.joint_angles.copy()
+    for j_idx in range(len(joints)):
+        order = "".join(joints[j_idx].rot_channels)
+        R_j = rotations.euler_to_rotmat(angles_copy[:, j_idx], order, degrees=True)
+        R_j_new = R[np.newaxis] @ R_j @ R_T[np.newaxis]
+        angles_copy[:, j_idx] = rotations.rotmat_to_euler(
+            R_j_new, order, degrees=True)
+    target.joint_angles = angles_copy
+
+    # 4. Update metadata
+    target.world_up = new_up
+
+    return None if inplace else target
+
+
+@overload
+def reorient_rest_up(bvh: Bvh, new_up: str, *, inplace: Literal[True]) -> None: ...
+@overload
+def reorient_rest_up(bvh: Bvh, new_up: str, inplace: Literal[False] = ...) -> Bvh: ...
+def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None:
+    """Rotate the skeleton's rest-pose offsets so its topological up aligns
+    with ``new_up``, compensating all joint rotations so that FK positions
+    are unchanged.
+
+    This fixes files where the rest pose and animation disagree on the up
+    axis (e.g. rest pose authored in Y-up but animation plays in Z-up).
+    After this call, the disagreement warning disappears.
+
+    The world coordinate system is unchanged: ``root_pos`` and ``world_up``
+    are NOT modified.
+
+    Parameters
+    ----------
+    bvh : Bvh
+    new_up : str
+        Target rest-pose up axis, e.g. ``'+y'``.
+    inplace : bool
+
+    Returns
+    -------
+    Bvh or None
+    """
+    from .tools import _validate_axis_string, _rest_upward, _axis_aligned_rotation
+
+    current_rest_up = _rest_upward(bvh)
+    new_up = _validate_axis_string(new_up)
+
+    target = bvh if inplace else bvh.copy()
+
+    if current_rest_up == new_up:
+        return None if inplace else target
+
+    R_fix = _axis_aligned_rotation(current_rest_up, new_up)
+    R_fix_inv = R_fix.T  # orthogonal → inverse = transpose
+
+    # 1. Rotate all offsets
+    for node in target.nodes:
+        node.offset = R_fix @ node.offset
+
+    # 2. Compensate joint rotations so FK positions are unchanged.
+    #    Root:     R_root' = R_root @ R_fix_inv
+    #    Non-root: R_j'    = R_fix @ R_j @ R_fix_inv  (similarity transform)
+    joints = [n for n in target.nodes if not n.is_end_site()]
+    angles_copy = target.joint_angles.copy()
+
+    # Root (index 0)
+    root_order = "".join(joints[0].rot_channels)
+    R_root = rotations.euler_to_rotmat(angles_copy[:, 0], root_order, degrees=True)
+    angles_copy[:, 0] = rotations.rotmat_to_euler(
+        R_root @ R_fix_inv, root_order, degrees=True)
+
+    # All other joints
+    for j_idx in range(1, len(joints)):
+        order = "".join(joints[j_idx].rot_channels)
+        R_j = rotations.euler_to_rotmat(angles_copy[:, j_idx], order, degrees=True)
+        R_j_new = R_fix[np.newaxis] @ R_j @ R_fix_inv[np.newaxis]
+        angles_copy[:, j_idx] = rotations.rotmat_to_euler(
+            R_j_new, order, degrees=True)
+
+    target.joint_angles = angles_copy
+
+    # root_pos unchanged (world frame unchanged)
+    # world_up unchanged (world frame unchanged)
+    return None if inplace else target
+
+
+@overload
+def reorient_rest_forward(bvh: Bvh, new_forward: str, *, inplace: Literal[True]) -> None: ...
+@overload
+def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: Literal[False] = ...) -> Bvh: ...
+def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> Bvh | None:
+    """Rotate the skeleton's rest-pose offsets so the character faces
+    ``new_forward``, compensating all joint rotations so FK positions are
+    unchanged.
+
+    The rotation is around the world up axis (a rotation in the ground
+    plane).  ``new_forward`` must not be parallel to ``world_up``.
+
+    Parameters
+    ----------
+    bvh : Bvh
+    new_forward : str
+        Target rest-pose forward axis, e.g. ``'+y'`` or ``'-z'``.
+    inplace : bool
+
+    Returns
+    -------
+    Bvh or None
+
+    Raises
+    ------
+    ValueError
+        If ``new_forward`` is parallel to ``world_up``.
+    """
+    from .tools import (_validate_axis_string, _axis_aligned_rotation,
+                        _compute_forward_at, _AXIS_CHAR_TO_IDX)
+
+    new_forward = _validate_axis_string(new_forward)
+    up_idx = _AXIS_CHAR_TO_IDX[bvh.world_up[1]]
+    fwd_idx = _AXIS_CHAR_TO_IDX[new_forward[1]]
+    if up_idx == fwd_idx:
+        raise ValueError(
+            f"new_forward ({new_forward}) cannot be parallel to "
+            f"world_up ({bvh.world_up})")
+
+    # Determine current rest-pose forward from topology
+    rest_coords = bvh.rest_pose_coords()
+    current_fwd = _compute_forward_at(bvh, rest_coords, bvh.world_up)
+
+    target = bvh if inplace else bvh.copy()
+
+    if current_fwd == new_forward:
+        return None if inplace else target
+
+    R_fix = _axis_aligned_rotation(current_fwd, new_forward)
+    R_fix_inv = R_fix.T
+
+    # Same compensation pattern as reorient_rest_up:
+    # 1. Rotate all offsets
+    for node in target.nodes:
+        node.offset = R_fix @ node.offset
+
+    # 2. Compensate all joints
+    joints = [n for n in target.nodes if not n.is_end_site()]
+    angles_copy = target.joint_angles.copy()
+
+    root_order = "".join(joints[0].rot_channels)
+    R_root = rotations.euler_to_rotmat(angles_copy[:, 0], root_order, degrees=True)
+    angles_copy[:, 0] = rotations.rotmat_to_euler(
+        R_root @ R_fix_inv, root_order, degrees=True)
+
+    for j_idx in range(1, len(joints)):
+        order = "".join(joints[j_idx].rot_channels)
+        R_j = rotations.euler_to_rotmat(angles_copy[:, j_idx], order, degrees=True)
+        R_j_new = R_fix[np.newaxis] @ R_j @ R_fix_inv[np.newaxis]
+        angles_copy[:, j_idx] = rotations.rotmat_to_euler(
+            R_j_new, order, degrees=True)
+
+    target.joint_angles = angles_copy
+
+    return None if inplace else target
+
+
+# =========================================================================
+# Deprecation wrappers (old names → new names)
+# =========================================================================
+
+def random_speed_perturbation(*args, **kwargs):
+    """Deprecated: use random_perturb_speed() instead."""
+    import warnings
+    warnings.warn("random_speed_perturbation() is deprecated, use random_perturb_speed() instead.", DeprecationWarning, stacklevel=2)
+    return random_perturb_speed(*args, **kwargs)
+
+
+def dropout_frames(*args, **kwargs):
+    """Deprecated: use drop_frames() instead."""
+    import warnings
+    warnings.warn("dropout_frames() is deprecated, use drop_frames() instead.", DeprecationWarning, stacklevel=2)
+    return drop_frames(*args, **kwargs)

@@ -761,7 +761,7 @@ def _extract_euler(R: npt.NDArray[np.float64], i: int, j: int, k: int) -> npt.ND
         # But the user specified i==k, so the actual third axis in the
         # decomposition is i again. We use the proper Euler formula.
         # Sign factor for the cross-product parity
-        sign = 1.0 if (j - i) % 3 == 1 else -1.0
+        sign = 1.0 if (j - i) % 3 == 2 else -1.0
         c2 = R[:, i, i]
         c2 = np.clip(c2, -1.0, 1.0)
         angles[:, 1] = np.arccos(c2)
@@ -775,7 +775,7 @@ def _extract_euler(R: npt.NDArray[np.float64], i: int, j: int, k: int) -> npt.ND
             0.0)
         angles[:, 2] = np.where(safe,
             np.arctan2(R[:, i, j], -sign * R[:, i, k_actual]),
-            np.arctan2(-sign * R[:, j, k_actual], R[:, j, j]))
+            np.arctan2(sign * R[:, j, k_actual], R[:, j, j]))
 
         # The above k_actual is 3 - i - j; for proper Euler this is the
         # third distinct axis

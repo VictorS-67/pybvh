@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING
 
 from ._common import (
     build_view_matrix,
-    compute_unified_limits,
     ortho_project,
     PALETTE_BGR,
 )
@@ -25,18 +24,92 @@ if TYPE_CHECKING:
     from ..bvh import Bvh
 
 
+def _compute_fixed_view_halves_for_follow(
+    bvh_list,
+    coords_list,
+    centers,
+    half_spans,
+    azimuths,
+    elevations,
+    up_axes,
+    base_laterals,
+    up_vecs,
+) -> list[tuple[float, float]]:
+    """For follow mode: precompute per-skeleton view-space half extents
+    that stay constant across the whole animation.
+
+    At every frame, follow rotates the camera around the world-up axis
+    (via a signed rotation delta in azimuth). The projection of the
+    cubic bounding box onto the screen varies with that rotation: it
+    is widest at 45° off-axis and narrowest axis-aligned. If we let
+    ``ortho_project`` compute the scale per frame from the current
+    view matrix, the scale oscillates and the character appears to
+    zoom in and out. To avoid this we compute the MAX (view_half_u,
+    view_half_v) across every frame ahead of time and reuse those as
+    a fixed scale at render time.
+    """
+    from ..tools import _signed_rotation_delta_around_axis, _world_lateral_unit_at_frame
+
+    n_skeletons = len(bvh_list)
+    result: list[tuple[float, float]] = []
+    for i, bvh_obj in enumerate(bvh_list):
+        az0, el0, ua = azimuths[i], elevations[i], up_axes[i]
+        lateral_0 = base_laterals[i]
+        half_span = half_spans[i]
+
+        corners = np.array([[sx, sy, sz]
+                            for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)],
+                           dtype=np.float64) * half_span
+
+        max_u = 0.0
+        max_v = 0.0
+        num_frames = coords_list[i].shape[0]
+        for f in range(num_frames):
+            if lateral_0 is None:
+                az_f = az0
+            else:
+                lateral_f = _world_lateral_unit_at_frame(
+                    bvh_obj, coords_list[i][f], bvh_obj.world_up)
+                if lateral_f is None:
+                    az_f = az0
+                else:
+                    delta = _signed_rotation_delta_around_axis(
+                        lateral_0, lateral_f, up_vecs[i])
+                    az_f = az0 + delta
+            vm = build_view_matrix(az_f, el0, ua)
+            cv_corners = corners @ vm.T
+            u = float(np.abs(cv_corners[:, 0]).max())
+            v = float(np.abs(cv_corners[:, 1]).max())
+            if u > max_u:
+                max_u = u
+            if v > max_v:
+                max_v = v
+        result.append((max_u, max_v))
+    return result
+
+
 def _draw_skeletons_on_frame(
     img: npt.NDArray[np.uint8],
     frame_idx: int,
     coords_list: list[npt.NDArray[np.float64]],
     skeleton_lines_list: list[list[tuple[int, int]]],
-    view_matrix: npt.NDArray[np.float64],
+    view_matrices: list[npt.NDArray[np.float64]],
     per_skeleton_limits: list[tuple[npt.NDArray[np.float64], float]],
     panel_w: int,
     h: int,
     labels: list[str] | None,
+    fixed_view_halves: list[tuple[float, float]] | None = None,
 ) -> None:
-    """Draw all skeletons for one frame onto *img* (mutates in place)."""
+    """Draw all skeletons for one frame onto *img* (mutates in place).
+
+    Each skeleton is projected with its own view matrix, so skeletons
+    with different forward/up axes all render correctly side by side.
+
+    When ``fixed_view_halves`` is provided, each skeleton's projection
+    uses that pre-computed ``(view_half_u, view_half_v)`` instead of
+    deriving it from the current view matrix. This keeps the character
+    size constant across frames when the camera rotates (follow mode).
+    """
     import cv2
 
     n_skeletons = len(coords_list)
@@ -45,8 +118,11 @@ def _draw_skeletons_on_frame(
             zip(coords_list, skeleton_lines_list)):
         frame_data = coords[frame_idx]
         sk_center, sk_half_span = per_skeleton_limits[s]
+        view_matrix = view_matrices[s]
+        fixed = fixed_view_halves[s] if fixed_view_halves is not None else None
         pts_2d = ortho_project(
-            frame_data, view_matrix, sk_center, sk_half_span, (panel_w, h))
+            frame_data, view_matrix, sk_center, sk_half_span, (panel_w, h),
+            fixed_view_half=fixed)
 
         x_offset = s * panel_w
         pts_2d[:, 0] += x_offset
@@ -82,13 +158,20 @@ def render_opencv(
     labels: list[str] | None,
     show_axis: bool,
     skeleton_lines_list: list[list[tuple[int, int]]],
-    center: npt.NDArray[np.float64],
-    half_span: float,
-    azimuth: float,
-    elevation: float,
-    up_axis: str,
+    centers: list[npt.NDArray[np.float64]],
+    half_spans: list[float],
+    azimuths: list[float],
+    elevations: list[float],
+    up_axes: list[str],
+    follow: bool = False,
+    camera: str | tuple[float, float] = "front",
 ) -> Path:
     """Render skeleton animation to video using OpenCV.
+
+    Each panel uses its own bounding box and camera so that mixed-up-axis
+    side-by-side comparisons render correctly. If ``follow`` is True, the
+    per-panel view matrices are recomputed every frame so each camera
+    tracks its skeleton's current facing direction.
 
     Parameters
     ----------
@@ -105,17 +188,21 @@ def render_opencv(
     labels : list[str] or None
         Labels for each skeleton.
     show_axis : bool
-        If ``True``, draw simple axis indicator.
+        If ``True``, draw a simple axis indicator in each panel.
     skeleton_lines_list : list
         Precomputed bone index pairs per skeleton.
-    center : ndarray (3,)
-        Bounding box center.
-    half_span : float
-        Half side of cubic bounding box.
-    azimuth, elevation : float
-        Camera angles in degrees.
-    up_axis : str
-        ``'x'``, ``'y'``, or ``'z'``.
+    centers, half_spans : list[ndarray], list[float]
+        Per-skeleton bounding boxes.
+    azimuths, elevations : list[float]
+        Per-skeleton camera angles in degrees.
+    up_axes : list[str]
+        Per-skeleton vertical axis, each ``'x'``, ``'y'``, or ``'z'``.
+    follow : bool, optional
+        If ``True``, recompute view matrices each frame so the camera
+        follows the character's orientation. Default ``False``.
+    camera : str or (float, float), optional
+        Camera spec passed through to ``get_camera_angles`` when
+        ``follow=True``. Ignored otherwise.
 
     Returns
     -------
@@ -130,35 +217,78 @@ def render_opencv(
     if ext == '.gif':
         return _render_gif(
             bvh_list, coords_list, filepath, fps, resolution, labels,
-            show_axis, skeleton_lines_list, center, half_span,
-            azimuth, elevation, up_axis)
+            show_axis, skeleton_lines_list, centers, half_spans,
+            azimuths, elevations, up_axes,
+            follow=follow, camera=camera)
 
     w, h = resolution
     num_frames = coords_list[0].shape[0]
     n_skeletons = len(bvh_list)
 
-    # Build view matrix once
-    view_matrix = build_view_matrix(azimuth, elevation, up_axis)
+    # Per-skeleton view matrices: each panel's camera is built from its
+    # own skeleton's detected forward/up axes. In follow mode these get
+    # recomputed every frame inside the loop (continuous rotation tracking).
+    view_matrices = [
+        build_view_matrix(az, el, ua)
+        for az, el, ua in zip(azimuths, elevations, up_axes)]
 
-    # Side-by-side: divide canvas into panels
-    if n_skeletons > 1:
-        panel_w = w // n_skeletons
-        # Per-skeleton limits so each is centered in its own panel
-        per_skeleton_limits = [
-            compute_unified_limits([c]) for c in coords_list]
-    else:
-        panel_w = w
-        per_skeleton_limits = [(center, half_span)]
+    panel_w = w // n_skeletons if n_skeletons > 1 else w
+    per_skeleton_limits = list(zip(centers, half_spans))
+
+    # Follow-mode precomputation: base azim per skeleton and frame-0 lateral
+    # unit vectors, used to apply a continuous rotation delta per frame.
+    # Also precompute the MAX view_half_u/v across every frame so the
+    # scale is constant and the character doesn't zoom in and out as
+    # the camera orbits.
+    fixed_view_halves: list[tuple[float, float]] | None = None
+    if follow:
+        from ..tools import (
+            _axis_to_vector,
+            _signed_rotation_delta_around_axis,
+            _world_lateral_unit_at_frame,
+        )
+        base_laterals = [
+            _world_lateral_unit_at_frame(b, coords_list[i][0], b.world_up)
+            for i, b in enumerate(bvh_list)
+        ]
+        up_vecs = [_axis_to_vector(b.world_up) for b in bvh_list]
+
+        fixed_view_halves = _compute_fixed_view_halves_for_follow(
+            bvh_list, coords_list, centers, half_spans,
+            azimuths, elevations, up_axes,
+            base_laterals, up_vecs)
 
     # Open video writer with codec fallback
     writer = _open_writer(filepath, fps, (w, h))
 
     for f in range(num_frames):
+        if follow:
+            view_matrices = []
+            frame_up_axes: list[str] = list(up_axes)
+            for i, bvh_obj in enumerate(bvh_list):
+                az0, el0, ua = azimuths[i], elevations[i], up_axes[i]
+                lateral_0 = base_laterals[i]
+                if lateral_0 is None:
+                    az_f = az0
+                else:
+                    lateral_f = _world_lateral_unit_at_frame(
+                        bvh_obj, coords_list[i][f], bvh_obj.world_up)
+                    if lateral_f is None:
+                        az_f = az0
+                    else:
+                        delta = _signed_rotation_delta_around_axis(
+                            lateral_0, lateral_f, up_vecs[i])
+                        az_f = az0 + delta
+                view_matrices.append(build_view_matrix(az_f, el0, ua))
+        else:
+            frame_up_axes = up_axes
+
         img = np.ones((h, w, 3), dtype=np.uint8) * 255
 
         _draw_skeletons_on_frame(
             img, f, coords_list, skeleton_lines_list,
-            view_matrix, per_skeleton_limits, panel_w, h, labels)
+            view_matrices, per_skeleton_limits, panel_w, h, labels,
+            fixed_view_halves=fixed_view_halves)
 
         fc_text = f"Frame {f}/{num_frames - 1}"
         fc_x = max(5, w - 200)
@@ -168,7 +298,10 @@ def render_opencv(
             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1, cv2.LINE_AA)
 
         if show_axis:
-            _draw_axis_indicator(img, view_matrix, up_axis, w, h)
+            for s in range(n_skeletons):
+                _draw_axis_indicator(
+                    img, view_matrices[s], frame_up_axes[s],
+                    panel_w, h, panel_idx=s)
 
         writer.write(img)
 
@@ -209,38 +342,82 @@ def _render_gif(
     labels: list[str] | None,
     show_axis: bool,
     skeleton_lines_list: list[list[tuple[int, int]]],
-    center: npt.NDArray[np.float64],
-    half_span: float,
-    azimuth: float,
-    elevation: float,
-    up_axis: str,
+    centers: list[npt.NDArray[np.float64]],
+    half_spans: list[float],
+    azimuths: list[float],
+    elevations: list[float],
+    up_axes: list[str],
+    follow: bool = False,
+    camera: str | tuple[float, float] = "front",
 ) -> Path:
     """Render to GIF using Pillow (cv2 doesn't support GIF)."""
-    import cv2
     from PIL import Image
 
     w, h = resolution
     num_frames = coords_list[0].shape[0]
     n_skeletons = len(bvh_list)
-    view_matrix = build_view_matrix(azimuth, elevation, up_axis)
 
-    if n_skeletons > 1:
-        panel_w = w // n_skeletons
-        per_skeleton_limits = [
-            compute_unified_limits([c]) for c in coords_list]
-    else:
-        panel_w = w
-        per_skeleton_limits = [(center, half_span)]
+    base_view_matrices = [
+        build_view_matrix(az, el, ua)
+        for az, el, ua in zip(azimuths, elevations, up_axes)]
+
+    panel_w = w // n_skeletons if n_skeletons > 1 else w
+    per_skeleton_limits = list(zip(centers, half_spans))
 
     duration_ms = int(1000.0 / fps)
 
+    fixed_view_halves: list[tuple[float, float]] | None = None
+    if follow:
+        from ..tools import (
+            _axis_to_vector,
+            _signed_rotation_delta_around_axis,
+            _world_lateral_unit_at_frame,
+        )
+        base_laterals = [
+            _world_lateral_unit_at_frame(b, coords_list[i][0], b.world_up)
+            for i, b in enumerate(bvh_list)
+        ]
+        up_vecs = [_axis_to_vector(b.world_up) for b in bvh_list]
+
+        fixed_view_halves = _compute_fixed_view_halves_for_follow(
+            bvh_list, coords_list, centers, half_spans,
+            azimuths, elevations, up_axes,
+            base_laterals, up_vecs)
+
     def _generate_frames():
         for f in range(num_frames):
+            if follow:
+                view_matrices = []
+                for i, bvh_obj in enumerate(bvh_list):
+                    az0, el0, ua = azimuths[i], elevations[i], up_axes[i]
+                    lateral_0 = base_laterals[i]
+                    if lateral_0 is None:
+                        az_f = az0
+                    else:
+                        lateral_f = _world_lateral_unit_at_frame(
+                            bvh_obj, coords_list[i][f], bvh_obj.world_up)
+                        if lateral_f is None:
+                            az_f = az0
+                        else:
+                            delta = _signed_rotation_delta_around_axis(
+                                lateral_0, lateral_f, up_vecs[i])
+                            az_f = az0 + delta
+                    view_matrices.append(build_view_matrix(az_f, el0, ua))
+            else:
+                view_matrices = base_view_matrices
+
             img = np.ones((h, w, 3), dtype=np.uint8) * 255
 
             _draw_skeletons_on_frame(
                 img, f, coords_list, skeleton_lines_list,
-                view_matrix, per_skeleton_limits, panel_w, h, labels)
+                view_matrices, per_skeleton_limits, panel_w, h, labels,
+                fixed_view_halves=fixed_view_halves)
+
+            if show_axis:
+                for s in range(n_skeletons):
+                    _draw_axis_indicator(
+                        img, view_matrices[s], up_axes[s],
+                        panel_w, h, panel_idx=s)
 
             yield Image.fromarray(img[:, :, ::-1])
 
@@ -260,13 +437,19 @@ def _draw_axis_indicator(
     img: npt.NDArray[np.uint8],
     view_matrix: npt.NDArray[np.float64],
     up_axis: str,
-    w: int,
+    panel_w: int,
     h: int,
+    panel_idx: int = 0,
 ) -> None:
-    """Draw a small 3D axis indicator in the bottom-left corner."""
+    """Draw a small 3D axis indicator in the bottom-left corner of a panel.
+
+    For side-by-side renders, one indicator is drawn per panel so that
+    each skeleton's own camera orientation is visible.
+    """
     import cv2
 
-    origin = np.array([50, h - 50])
+    x_offset = panel_idx * panel_w
+    origin = np.array([x_offset + 50, h - 50])
     axis_len = 30
 
     axis_colors = {

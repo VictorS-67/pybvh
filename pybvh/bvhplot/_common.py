@@ -68,7 +68,7 @@ def normalize_input(
         - 3-D array ``(F, N, 3)``: pre-computed spatial coordinates
           (only valid when *bvh* is a single Bvh).
     centered : str
-        Centering mode passed to ``bvh.get_spatial_coord()``.
+        Centering mode passed to ``bvh.spatial_coords()``.
 
     Returns
     -------
@@ -91,7 +91,7 @@ def normalize_input(
     if frames is None or (isinstance(frames, int) and frames == -1):
         # All frames for each Bvh
         for b in bvh_list:
-            coords = b.get_spatial_coord(centered=centered)
+            coords = b.spatial_coords(centered=centered)
             if coords.ndim == 2:
                 coords = coords[np.newaxis]  # (N, 3) -> (1, N, 3)
             coords_list.append(coords)
@@ -99,7 +99,7 @@ def normalize_input(
     elif isinstance(frames, int):
         # Single frame index
         for b in bvh_list:
-            coords = b.get_spatial_coord(frame_num=frames, centered=centered)
+            coords = b.spatial_coords(frame_num=frames, centered=centered)
             coords_list.append(coords[np.newaxis])  # (N, 3) -> (1, N, 3)
 
     elif isinstance(frames, np.ndarray):
@@ -204,11 +204,14 @@ def get_camera_angles(
     up_axis : str
         Single character: ``'x'``, ``'y'``, or ``'z'``.
     """
-    from ..tools import get_forw_up_axis, extract_sign
+    from ..tools import _compute_forward_at, extract_sign
 
-    directions = get_forw_up_axis(bvh, ref_frame)
-    forward_ax = directions['forward']   # e.g. '+z'
-    up_ax = directions['upward']         # e.g. '+y'
+    # World up comes from the Bvh property (auto-detected with manual
+    # override). Forward is computed from the given reference frame's
+    # actual joint positions, so it tracks the character's orientation
+    # as the animation plays (not just the rest-pose topology).
+    up_ax = bvh.world_up
+    forward_ax = _compute_forward_at(bvh, ref_frame, up_ax)
     up_char = up_ax[1]                   # 'y'
     up_positive = extract_sign(up_ax)
     fwd_char = forward_ax[1]
@@ -238,7 +241,10 @@ def get_camera_angles(
         base_elev += 180.0
         base_azim += 180.0
 
-    if fwd_char == default_up2front[up_char] and not fwd_positive:
+    # A negative forward (e.g. '-y' instead of '+y') flips the camera to
+    # the opposite side of the skeleton. Apply regardless of whether the
+    # forward axis matches the up's default front axis.
+    if not fwd_positive:
         base_azim += 180.0
 
     if camera == "front":
@@ -318,6 +324,7 @@ def ortho_project(
     center: npt.NDArray[np.float64],
     half_span: float,
     resolution: tuple[int, int],
+    fixed_view_half: tuple[float, float] | None = None,
 ) -> npt.NDArray[np.int32]:
     """Orthographic projection from 3D world to 2D pixel coordinates.
 
@@ -333,6 +340,17 @@ def ortho_project(
         Half the side length of the cubic bounding box.
     resolution : (width, height)
         Output image dimensions in pixels.
+    fixed_view_half : (float, float), optional
+        Pre-computed ``(view_half_u, view_half_v)`` to use for the scale
+        calculation instead of computing it from the current view matrix.
+        Useful for follow-mode rendering where the view rotates every
+        frame: pass the max over all frames once to get a stable
+        (angle-invariant) scale so the character doesn't appear to
+        zoom in and out as the camera orbits. When ``None`` (default),
+        the view-space extents are computed from the bounding box
+        corners under the current view matrix (the default behavior,
+        which gives a tighter fit per frame but oscillates under
+        rotation).
 
     Returns
     -------
@@ -342,15 +360,18 @@ def ortho_project(
     w, h = resolution
     viewed = (coords_3d - center) @ view_matrix.T  # (N, 3)
 
-    # Compute the view-space half_span by projecting the bounding box
-    # corners through the rotation. A world-space cube becomes a larger
-    # rotated box in view space.
-    corners = np.array([[sx, sy, sz]
-                        for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)],
-                       dtype=np.float64) * half_span
-    corners_view = corners @ view_matrix.T
-    view_half_u = float(np.abs(corners_view[:, 0]).max())
-    view_half_v = float(np.abs(corners_view[:, 1]).max())
+    if fixed_view_half is not None:
+        view_half_u, view_half_v = fixed_view_half
+    else:
+        # Compute the view-space half_span by projecting the bounding box
+        # corners through the rotation. A world-space cube becomes a larger
+        # rotated box in view space.
+        corners = np.array([[sx, sy, sz]
+                            for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)],
+                           dtype=np.float64) * half_span
+        corners_view = corners @ view_matrix.T
+        view_half_u = float(np.abs(corners_view[:, 0]).max())
+        view_half_v = float(np.abs(corners_view[:, 1]).max())
 
     # Scale to fit within 90% of each dimension independently
     if view_half_u > 1e-8 and view_half_v > 1e-8:

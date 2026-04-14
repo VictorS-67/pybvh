@@ -3,25 +3,28 @@
 ## Euler order conversion
 
 ```python
-bvh_xyz = bvh.change_all_euler_orders("XYZ")
-bvh_single = bvh.single_joint_euler_angle("Hips", "XYZ")
+# Change all joints at once
+bvh_xyz = bvh.change_euler_order("XYZ")
+
+# Change a single joint only
+bvh_single = bvh.change_euler_order("XYZ", joint="Hips")
 ```
 
 ## Skeleton scaling
 
 ```python
-bvh_scaled = bvh.scale_skeleton(0.01)         # uniform
-bvh_scaled = bvh.scale_skeleton([1, 2, 1])    # per-axis
+bvh_scaled = bvh.scale(0.01)         # uniform — scales offsets AND root translation
+bvh_scaled = bvh.scale([1, 2, 1])    # per-axis
 ```
 
 ## Retargeting
 
 ```python
 reference = pybvh.read_bvh_file("reference_skeleton.bvh")
-bvh_retarget = bvh.change_skeleton(reference)
+bvh_retarget = bvh.retarget(reference)
 
 # With name mapping (when joint names differ)
-bvh_retarget = bvh.change_skeleton(reference, name_mapping={
+bvh_retarget = bvh.retarget(reference, name_mapping={
     "Hips": "pelvis", "Spine": "spine_01"
 })
 ```
@@ -45,7 +48,7 @@ bvh_30fps = bvh.resample(30)
 ```python
 import pandas as pd
 
-df = pd.DataFrame(bvh.get_df_constructor(mode="euler"))
+df = pd.DataFrame(bvh.to_df_dict(mode="euler"))
 
 from pybvh import df_to_bvh
 bvh_from_df = df_to_bvh(bvh.nodes, df)
@@ -56,6 +59,6 @@ bvh_from_df = df_to_bvh(bvh.nodes, df)
 All mutation methods default to `inplace=False` (return a new Bvh):
 
 ```python
-bvh2 = bvh.scale_skeleton(0.01)                     # new object
-bvh.scale_skeleton(0.01, inplace=True)               # modifies self, returns None
+bvh2 = bvh.scale(0.01)                     # new object
+bvh.scale(0.01, inplace=True)              # modifies self, returns None
 ```

@@ -1,0 +1,417 @@
+# CONTEXT.md — pybvh
+
+> **Purpose of this document**: Give any new AI agent (or human contributor) a complete, precise understanding of the pybvh codebase—its goals, architecture, data flow, every module, class, method, and design decision—so they can modify or extend it without guessing.
+
+---
+
+## 1. Project Identity
+
+| Field | Value |
+|---|---|
+| **Name** | pybvh |
+| **Language** | Python 3 (>= 3.9) |
+| **Dependencies** | `numpy` (required), `matplotlib` (required), `pandas` (optional), `opencv-python` (optional, fast render), `k3d` (optional, Jupyter), `vedo` (optional, desktop) |
+| **Primary use-case** | Reading, writing, and manipulating BVH (Biovision Hierarchy) motion capture files — serving ML pipelines, biomechanics research, game dev, and any workflow that consumes skeleton animation data |
+| **Design principles** | **Fast** (NumPy-vectorised, pre-allocated arrays), **Lightweight** (minimal code surface, no ML framework deps), **Self-contained** (no scipy, no PyTorch, no TensorFlow) |
+| **Version** | 0.5.1 |
+| **Package** | Published on PyPI as `pybvh`. Install via `pip install pybvh`. Optional extras: `pybvh[opencv]` (fast render), `pybvh[interactive]` (k3d for Jupyter), `pybvh[viewer]` (vedo desktop), `pybvh[all-viz]` (all of the above), `pybvh[pandas]` (pandas integration) |
+| **CI/CD** | GitHub Actions: test workflow (push/PR, Python 3.9–3.12) + publish workflow (PyPI on release) + docs workflow (MkDocs to GitHub Pages on push to main) |
+| **Type safety** | Full type annotations on all source files, `@overload` on inplace methods, mypy clean |
+| **Tests** | 974 tests via pytest, covering all modules, edge cases, and battle tests across 3 real-world datasets |
+| **Documentation** | MkDocs + mkdocstrings + Material theme, auto-deployed to GitHub Pages |
+
+---
+
+## 2. What is a BVH File?
+
+A BVH file is a plain-text motion capture format with two sections:
+
+### 2.1 HIERARCHY section
+Defines a skeleton as a tree of joints. Each joint has:
+- **OFFSET** — 3 floats (x, y, z) describing the bone vector from parent to this joint in the rest pose.
+- **CHANNELS** — either 6 (root: 3 position + 3 rotation) or 3 (other joints: 3 rotation). Channel names encode both axis and type, e.g. `Zrotation Yrotation Xrotation`.
+- **End Site** — leaf nodes with only an OFFSET (no channels). They represent the tip of a terminal bone.
+
+### 2.2 MOTION section
+- `Frames: N` — number of frames.
+- `Frame Time: T` — seconds per frame (e.g. `0.033333` for 30 fps).
+- N lines of floats — each line is one frame. Column order matches the depth-first traversal order of channels declared in the HIERARCHY.
+
+**Key insight**: The HIERARCHY gives you the skeleton topology (offsets + rotation orders). The MOTION gives you per-frame Euler angles (and root translation). Combining them via forward kinematics yields 3D joint positions.
+
+---
+
+## 3. High-Level Architecture & Data Flow
+
+```
+                         ┌──────────────────────┐
+   .bvh file ──────────► │  read_bvh_file()     │ ──────► Bvh object
+                         └──────────────────────┘            │
+                                                              │
+   directory of ──────► read_bvh_directory() ──► list[Bvh]   │
+   .bvh files                    │                            │
+                                 ▼                            │
+                        batch_to_numpy() ──► NumPy arrays     │
+                                                              │
+                    ┌─────────────────────────────────────────┤
+                    │                                         │
+                    ▼                                         ▼
+                bvh.to_df_dict()                    bvh.spatial_coords()
+                    │                                         │
+                    ▼                                         ▼
+            pd.DataFrame(...)                      NumPy array (3D positions)
+                    │                                         │
+                    ▼                                         ▼
+              df_to_bvh() ──► Bvh object       bvh.plot_frame() / bvh.render() /
+                    │                          bvh.play() / bvhplot.frame([...])
+                    ▼
+              bvh.write() ──► .bvh file
+```
+
+**Central object**: `Bvh` — everything flows through it.
+
+---
+
+## 4. File-by-File Module Reference
+
+### 4.1 `pybvh/__init__.py`
+Public API surface. Exports:
+```python
+__version__ = "0.5.1"
+
+from .bvh import Bvh
+from .io import read_bvh_file, write_bvh_file
+from .df_to_bvh import df_to_bvh
+from .spatial_coord import frames_to_spatial_coords, frames_to_spatial_coord
+from .batch import (read_bvh_directory, batch_to_numpy,
+                    compute_normalization_stats, normalize_array, denormalize_array)
+from . import bvhplot
+from . import rotations
+from . import transforms
+from . import features
+```
+
+**Module renamed `plot` → `bvhplot`** in v0.5.0 to avoid confusion with matplotlib's `plot()`.
+
+**`frames_to_spatial_coord` kept as a deprecated alias** for `frames_to_spatial_coords` (new canonical name).
+
+### 4.2 `pybvh/rotations.py` — Rotation Representation Conversions
+
+Pure NumPy, batch-vectorised rotation conversions. No scipy dependency. Supports Euler angles `(*, 3)`, rotation matrices `(*, 3, 3)`, 6D rotation (Zhou et al.) `(*, 6)`, quaternions `(*, 4)`, and axis-angle `(*, 3)`. Core functions convert between any pair via rotmat as the hub representation, plus `quat_slerp` for interpolation. Convenience wrappers provide direct paths (e.g. `euler_to_quat`). See source docstrings for method signatures.
+
+**Conventions**:
+- Euler: intrinsic rotations, pre-multiplication `R = R1 @ R2 @ R3`
+- Quaternion: `(w, x, y, z)` scalar-first, canonical `w >= 0`
+- Axis-angle: zero vector = identity rotation; norm = rotation angle in `[0, π]`
+
+### 4.3 `pybvh/bvhnode.py` — Node Class Hierarchy
+
+Three classes forming an inheritance chain:
+
+```
+BvhNode  (end sites)
+  └── BvhJoint  (interior joints)
+        └── BvhRoot  (root joint — exactly one per skeleton)
+```
+
+`BvhNode` represents end sites (leaf bones, no channels). `BvhJoint` adds `rot_channels` (list of 3 chars, e.g. `['Z', 'Y', 'X']`) and `children`. `BvhRoot` adds `pos_channels`.
+
+**Freeze mechanism**: After a `Bvh` object is constructed, `_frozen = True` is set on all joints. Direct assignment to `rot_channels` raises `AttributeError` — users must use `Bvh.change_euler_order()`. Internal code uses `_set_rot_channels_internal()` to bypass the freeze.
+
+The skeleton is a **tree**. Traverse from `root` via `.children`, or walk up via `.parent`. The `Bvh.nodes` list is a **flat depth-first list** of all nodes (joints + end sites). See source docstrings for method signatures.
+
+### 4.4 `pybvh/bvh.py` — The `Bvh` Class (Central Container)
+
+The central container holding skeleton + motion data. Constructor: `Bvh(nodes, root_pos, joint_angles, frame_time)`. Validates `root.pos_channels == ['X', 'Y', 'Z']`, freezes channel attributes after construction, and eagerly computes `_world_up_cached` via `_infer_world_up()`.
+
+**Note**: the parameter was renamed from `frame_frequency` to `frame_time` in v0.5.x. Passing `frame_frequency` as a kwarg still works (emits `DeprecationWarning`).
+
+#### Data layout
+- `root_pos`: Shape `(F, 3)`. Root translation per frame, column order always `(X, Y, Z)`.
+- `joint_angles`: Shape `(F, J, 3)`. Euler angles in degrees per joint per frame. Joint order follows `nodes` (end sites excluded).
+- `frame_time`: Seconds per frame (e.g. `1/30`).
+- `world_up`: Gravity axis (e.g. `'+y'`), auto-detected from frame 0 with rest-pose fallback. Settable; propagates through `copy()`/`slice_frames()`.
+- Read-only properties: `frame_count`, `joint_names`, `joint_count`, `euler_orders`, `edges`, `node_index`, `root`.
+
+There is **no flat `.frames` property** — code should use `root_pos` and `joint_angles` directly.
+
+The class provides methods for I/O (`write`, `spatial_coords`, `rest_pose_coords`, `to_df_dict`, `copy`), skeleton ops (`retarget`, `scale`, `change_euler_order`, `extract_joints`), rotation conversions (`to_rotmat`, `to_6d`, `to_quaternions`, `to_axisangle`, `from_6d`, `from_quaternions`, `from_axisangle`), frame ops (`slice_frames`, `concat`, `resample`), features (`joint_velocities`, `joint_accelerations`, `angular_velocities`, `root_relative_positions`, `root_trajectory`, `foot_contacts`, `to_feature_array`), transforms (`translate_root`, `add_noise`, `perturb_speed`, `drop_frames`, `rotate_vertical`, `mirror`), orientation (`forward_at`), and visualization wrappers (`plot_rest_pose`, `plot_frame`, `plot_trajectory`, `render`, `play`). Many methods were renamed in v0.5.x — old names exist as deprecation wrappers (see `API_RENAME.md`). See source docstrings for method signatures.
+
+#### The `centered` Parameter (appears throughout the codebase)
+Three modes controlling how root position is handled:
+- `"world"` — Root at the actual saved coordinates from the BVH file.
+- `"skeleton"` — Root forced to `(0, 0, 0)` in every frame.
+- `"first"` — First frame's root is at `(0, 0, 0)`, subsequent frames move relative to that.
+
+### 4.5 `pybvh/batch.py` — Batch Loading & NumPy Export
+
+Batch loading of BVH directories with optional parallelism, conversion to packed NumPy arrays, and dataset-level normalization. Provides `read_bvh_directory`, `batch_to_numpy` (supports padding and multiple representations), `compute_normalization_stats`, `normalize_array`, and `denormalize_array`. See source docstrings for method signatures.
+
+### 4.6 `pybvh/io.py` — BVH File I/O
+
+Provides `read_bvh_file(filepath)` and `write_bvh_file(bvh, filepath)`. The reader parses the HIERARCHY into node objects, pre-allocates a NumPy array for frame data, and splits it into `root_pos` + `joint_angles`. The writer serializes back to `.bvh` format with `%.6f` precision. See source docstrings for method signatures.
+
+### 4.7 `pybvh/spatial_coord.py` — Forward Kinematics
+
+`frames_to_spatial_coords(nodes_container, root_pos, joint_angles, centered)` computes 3D joint positions via forward kinematics. Output shape: `(F, N, 3)` for multiple frames, `(N, 3)` for a single frame, where N = total nodes including end sites. Fully vectorized across all frames using batch matrix operations. See source docstrings for method signatures.
+
+### 4.8 `pybvh/df_to_bvh.py` — DataFrame to Bvh Conversion
+
+`df_to_bvh(hier, df)` converts a pandas DataFrame back to a `Bvh` object. `hier` can be a list of BvhNode objects or a dict describing the hierarchy. See source docstrings for method signatures.
+
+### 4.9 `pybvh/tools.py` — Utility Functions
+
+Low-level helpers: single-axis and batch rotation matrices (`rotX/Y/Z`, `batch_rotX/Y/Z`), Euler-to-rotmat composition (`get_premult_mat_rot`, `batch_get_premult_mat_rot`), string utilities (`are_permutations`, `get_main_direction`, `extract_sign`), and file validation (`test_file`). Also contains private orientation helpers (`_rest_upward`, `_rest_lateral`, `_infer_world_up`, `_compute_forward_at`, `_world_lateral_unit_at_frame`, `_signed_rotation_delta_around_axis`, `_validate_axis_string`) used by `Bvh.world_up`, `Bvh.forward_at()`, and follow-mode rendering. See source docstrings for method signatures.
+
+### 4.10 `pybvh/bvhplot/` — Visualization Package
+
+Quick-look visualization module with 5 public functions: `rest_pose`, `frame`, `render`, `play`, and `trajectory`. Supports multiple backends: matplotlib (default), OpenCV (fast video ~1000fps), k3d (Jupyter interactive), and vedo (desktop interactive with keyboard controls for playback, labels, trail, screenshots). Accepts single `Bvh` or list for multi-skeleton comparison. `render` supports `follow=True` for camera tracking. Optional dependencies installed via `pybvh[opencv]`, `pybvh[interactive]`, `pybvh[viewer]`, or `pybvh[all-viz]`. See source docstrings for method signatures.
+
+### 4.11 `pybvh/transforms.py` — Spatial Augmentation Transforms
+
+Data augmentation transforms operating on `Bvh` objects: `translate_root`, `random_translate_root`, `add_noise`, `perturb_speed`, `random_perturb_speed`, `drop_frames`, `rotate_vertical`, `random_rotate_vertical`, `auto_detect_lr_mapping`, `auto_detect_lr_pairs`, and `mirror`. All follow the `inplace=False` convention. Also provides NumPy-level functions (`rotate_angles_vertical`, `mirror_angles`) for users working with pre-extracted arrays. Several were renamed in v0.5.x — old names remain as deprecation wrappers. See source docstrings for method signatures.
+
+### 4.12 `pybvh/features.py` — Motion Analysis Features
+
+Standalone functions for extracting motion features: `joint_velocities`, `joint_accelerations`, `angular_velocities`, `root_relative_positions`, `root_trajectory`, `foot_contacts`, and `to_feature_array`. All take `bvh: Bvh` as their first argument; the corresponding `Bvh` class methods are thin wrappers. All were renamed in v0.5.x — old `get_*` names remain as deprecation wrappers. See source docstrings for method signatures.
+
+---
+
+## 5. Data Representation Details
+
+### 5.1 Motion Data: `root_pos` + `joint_angles`
+- **`root_pos`**: Shape `(F, 3)`. Column order always `(X, Y, Z)`.
+- **`joint_angles`**: Shape `(F, J, 3)`. Euler angles in degrees. `J` = number of non-end-site nodes.
+
+Example for `bvh_example.bvh`: `root_pos.shape = (56, 3)`, `joint_angles.shape = (56, 24, 3)`.
+
+### 5.2 Spatial Coordinates Output
+- Shape: `(N, 3)` for a single frame, `(F, N, 3)` for multiple frames.
+- N = total number of nodes including end sites (29 for `bvh_example.bvh`).
+- Order matches `Bvh.nodes` list order (depth-first).
+- `node_index` maps `"JointName"` → integer index.
+
+---
+
+## 6. Forward Kinematics — The Math
+
+Given a joint `J` with offset, parent's accumulated rotation `R_parent`, parent's position `P_parent`, and J's own rotation `R_J`:
+
+$$P_J = R_{parent} \cdot \text{offset}_J + P_{parent}$$
+$$R_{acc,J} = R_{parent} \cdot R_J$$
+
+Rotation matrix from Euler angles uses **intrinsic** rotations with **pre-multiplication**:
+$$R = R_{\text{first}} \cdot R_{\text{second}} \cdot R_{\text{third}}$$
+
+where the order comes from the joint's `rot_channels`.
+
+---
+
+## 7. Coding Conventions & Patterns
+
+1. **Property validation**: All core attributes use `@property` with setters that type-check inputs.
+2. **Full type annotations**: All source files use `from __future__ import annotations`, `npt.NDArray`, `@overload` for inplace methods. mypy passes with 0 errors.
+3. **NumPy throughout**: All numerical data as NumPy arrays. No ML framework dependencies.
+4. **Deep copy safety**: `Bvh.copy()` uses `copy.deepcopy()`. `hierarchy_info_as_dict()` returns a deep copy.
+5. **Channel freeze**: After `Bvh.__init__`, `rot_channels` and `pos_channels` are frozen. Mutation must go through Bvh methods.
+6. **Uniform `inplace` convention**: All mutation methods default to `inplace=False` (returns copy). `inplace=True` modifies self, returns `None`.
+7. **No pandas dependency**: pybvh never imports pandas. `to_df_dict()` returns a dict-of-arrays that users can wrap in `pd.DataFrame(...)` themselves.
+8. **No ML framework dependencies**: Output is always NumPy. Users convert to PyTorch/TensorFlow themselves.
+9. **Naming**: `_private` prefix for internal methods. `snake_case` everywhere.
+10. **Errors**: Mix of `ValueError`, `Exception`, and `AttributeError`.
+
+---
+
+## 8. Testing Conventions
+
+- **Framework**: pytest
+- **Fixture files**: `bvh_data/bvh_example.bvh` (primary), plus `bvh_test1.bvh`, `bvh_test2.bvh`, `bvh_test3.bvh`, `standard_skeleton.bvh`
+- **Synthetic fixtures**: `tests/synthetic_bvh.py` — a library of 8 factory functions for programmatically creating BVH objects with known properties: `make_pos_y_up_bvh`, `make_neg_y_up_bvh`, `make_pos_z_up_bvh`, `make_neg_z_up_bvh`, `make_heterogeneous_euler_bvh`, `make_lowercase_lr_bvh`, `make_pos_y_up_rotating_bvh`, `make_simple_bvh`.
+- **Numerical assertions**: `np.testing.assert_allclose` with `atol=1e-4` to `1e-10` depending on precision needs. File round-trips use `atol=1e-5` (due to `%.6f` formatting).
+- **Round-trip tests**: BVH → file → BVH, BVH → DataFrame → BVH, BVH → {6D, quaternion, axis-angle} → BVH, Euler order conversion → re-conversion.
+- **Test files**:
+  - `tests/test_bvh.py` — File I/O, hierarchy, spatial coordinates, DataFrame conversion, skeleton operations, batch processing, freeze preservation, ML pipeline features (velocities, foot contacts, normalization, feature export), edge cases.
+  - `tests/test_rotations.py` — All conversion paths, gimbal lock, 180° SLERP, analytical values.
+  - `tests/test_plot.py` — Visualization module tests (bvhplot functions, backends, camera presets).
+  - `tests/test_audit_fixes.py` — 86 audit tests verifying correctness of specific bug fixes and edge cases identified during code audits.
+- **Run command**: `conda run -n pybvh pytest tests/ -v`
+- **Current count**: 717 tests, all passing.
+- **Note**: `tests/test_transforms_battle.py` uses private datasets from `internal_bvh_data/` and is gitignored — never publish or share this file.
+
+---
+
+## 9. Sample BVH Data Files
+
+| File | Joints | Nodes | Frames | FPS | World Up | Purpose |
+|---|---|---|---|---|---|---|
+| `bvh_example.bvh` | 24 | 29 | 75 | 30 | +z | Main test file (anger clip from DIEM-A dataset) |
+| `bvh_test1.bvh` | 24 | 29 | 75 | 30 | +z | Additional Z-up test |
+| `bvh_test2.bvh` | 23 | 28 | 61 | 120 | +y | Y-up test with root rotated ~180° from rest (regression fixture for `camera='front'`) |
+| `bvh_test3.bvh` | 60 | 73 | 100 | 120 | +z* | Large skeleton, rest pose and first frame disagree on world up — triggers the `_infer_world_up` `UserWarning` |
+| `standard_skeleton.bvh` | 24 | 29 | 1 | 120 | +z | Reference skeleton for retargeting |
+
+*`bvh_test3` rest pose suggests `+y` but frame-0 head-hips is closer to `+z`; the new inference picks `+z` from the animation data. This is exactly the edge case the `world_up` warning was designed to catch.
+
+---
+
+## 10. Quick Reference: Common Operations
+
+```python
+from pybvh import read_bvh_file, df_to_bvh, Bvh, rotations, bvhplot
+from pybvh import read_bvh_directory, batch_to_numpy
+import pandas as pd
+
+# Read
+bvh = read_bvh_file("walk.bvh")
+
+# Inspect
+bvh.root_pos.shape          # (F, 3)
+bvh.joint_angles.shape      # (F, J, 3)
+bvh.joint_names              # ['Hips', 'Spine', ...]
+bvh.joint_count              # 24
+bvh.node_index['Hips']       # 0
+bvh.world_up                 # '+z' — auto-detected gravity axis
+bvh.forward_at(0)            # '+y' — facing direction at frame 0
+bvh.world_up = '+y'          # manual override (validated)
+
+# Spatial coordinates (forward kinematics)
+coords = bvh.spatial_coords(centered="world")  # (F, N, 3)
+rest = bvh.rest_pose_coords(mode='coordinates')
+
+# Rotation representations
+root_pos, rot6d, joints = bvh.to_6d()
+root_pos, quats, joints = bvh.to_quaternions()
+root_pos, aa,    joints = bvh.to_axisangle()
+
+# Set frames back (inplace=False returns new Bvh)
+bvh2 = bvh.from_6d(root_pos, rot6d)
+
+# Euler order conversion (unified method)
+bvh_xyz = bvh.change_euler_order('XYZ')           # all joints
+bvh_hips = bvh.change_euler_order('XYZ', joint='Hips')  # one joint
+
+# Frame operations
+clip = bvh.slice_frames(10, 50)
+combined = bvh.concat(other_bvh)
+bvh_30fps = bvh.resample(30)
+
+# Skeleton operations
+bvh_scaled = bvh.scale(0.01)
+retargeted = bvh.retarget(standard_skeleton)
+upper = bvh.extract_joints(["Hips", "Spine", "Neck", "Head"])
+
+# Transforms (augmentation)
+noisy = bvh.add_noise(sigma_deg=1.0)
+faster = bvh.perturb_speed(factor=1.5)
+dropped = bvh.drop_frames(drop_rate=0.1)
+mirrored = bvh.mirror()
+rotated = bvh.rotate_vertical(90)
+
+# Batch loading for ML
+clips = read_bvh_directory("dataset/", parallel=True)
+data = batch_to_numpy(clips, representation="6d", pad=True)  # (B, F_max, D)
+
+# Standalone rotations
+R = rotations.euler_to_rotmat([30, 45, 60], 'ZYX', degrees=True)
+q = rotations.rotmat_to_quat(R)
+q_mid = rotations.quat_slerp(q1, q2, t=0.5)
+
+# ML pipeline features (de-prefixed)
+vel = bvh.joint_velocities()                     # (F-1, N, 3) units/second
+acc = bvh.joint_accelerations()                  # (F-2, N, 3) units/second^2
+ang_vel = bvh.angular_velocities()               # (F-1, J, 3) radians/second
+rel_pos = bvh.root_relative_positions()          # (F, N, 3) root-relative
+traj = bvh.root_trajectory()                     # (F, 4) ground pos + heading
+contacts = bvh.foot_contacts()                   # (F, num_feet) binary
+feat = bvh.to_feature_array(representation="6d", # (F, D) one-stop export
+         include_velocities=True, include_foot_contacts=True)
+
+# Normalization (dataset-level)
+from pybvh import compute_normalization_stats, normalize_array, denormalize_array
+stats = compute_normalization_stats(clips, representation="6d")
+normalized = normalize_array(data, stats)
+recovered = denormalize_array(normalized, stats)
+
+# DataFrame (pybvh does NOT import pandas)
+df = pd.DataFrame(bvh.to_df_dict(mode='euler'))
+bvh2 = df_to_bvh(bvh.nodes, df)
+
+# Write to file
+bvh.write("output.bvh")
+
+# Visualization — single-skeleton via Bvh wrappers
+bvh.plot_rest_pose()
+bvh.plot_frame(frame=0, camera='front')          # 'front' | 'side' | 'top' | (azim, elev)
+bvh.plot_trajectory()
+bvh.render("walk.mp4")                           # fast video export
+bvh.render("walk.mp4", follow=True)              # camera tracks character rotation
+bvh.play()                                       # interactive auto-backend
+
+# Visualization — multi-skeleton via bvhplot module
+bvhplot.frame([bvh1, bvh2], frame=0, labels=["A", "B"])
+bvhplot.render([bvh1, bvh2], "compare.mp4", sync="pad")
+bvhplot.trajectory([bvh1, bvh2], labels=["A", "B"])
+```
+
+---
+
+## 11. Extending the Codebase — Guidelines
+
+1. **Add new rotation representations** in `rotations.py`. Keep them as pure NumPy batch-vectorized functions.
+2. **Add new Bvh methods** in `bvh.py`. Follow the existing pattern: validate inputs in properties, delegate to helper modules.
+3. **`euler_column_names` is computed**: Any operation that changes `rot_channels` only needs to update the node and `joint_angles` — column names reflect the change automatically.
+4. **Test with fixtures**: Add tests using the existing fixtures. Include numerical assertions with known expected values.
+5. **No new dependencies** unless absolutely necessary. Output NumPy arrays — let users convert to their ML framework of choice.
+6. **Performance**: Pre-allocate arrays, vectorize with NumPy, avoid Python loops over frames.
+7. **Type all new code**: Use `npt.NDArray[np.float64]` for returns, `npt.ArrayLike` for inputs. Add `@overload` for inplace methods.
+8. **Caching opportunity**: `euler_orders` and `edges` properties recompute on every access (they traverse the node list). This is fine for single calls but wasteful in hot loops. If profiling shows these as bottlenecks, consider caching with invalidation on skeleton mutation (e.g. `change_euler_order`, `extract_joints`).
+
+---
+
+## 12. Ecosystem & Scope Boundary
+
+pybvh is the **foundation layer** in a three-library ecosystem:
+
+```
+pybvh-ml      (ML bridge: tensor packing, augmentation pipelines, PyTorch Datasets)
+    │
+    ▼
+  pybvh       (BVH foundation: parsing, rotation math, transforms, motion analysis, quick visualization)
+    │
+    ▲
+pybvh-blender (Blender addon: deep BVH inspection, joint panels, analysis overlays)
+```
+
+**pybvh never imports or knows about pybvh-ml or pybvh-blender.** Dependencies flow one way: `pybvh-ml -> pybvh` and `pybvh-blender -> pybvh`.
+
+### Scope rules
+- If a feature is useful to anyone working with BVH data (researcher, game dev, biomechanics) — it belongs in **pybvh**.
+- If it only makes sense in an ML training context (tensor layouts, Datasets, HDF5 export) — it belongs in **pybvh-ml**.
+- If it requires GUI widgets (property panels, graph editors, skeleton trees) for deep inspection — it belongs in **pybvh-blender**.
+- If it's a quick visualization callable from Python (`bvhplot.play(bvh)`) — it belongs in **pybvh.bvhplot**.
+
+### API surface that pybvh-ml relies on
+pybvh-ml is a primary consumer of pybvh's public API. When modifying pybvh, be aware that these entry points are used downstream:
+- `bvh.root_pos`, `bvh.joint_angles`, `bvh.joint_count`, `bvh.joint_names` — data access
+- `bvh.to_quaternions()`, `bvh.to_6d()`, `bvh.to_rotmat()`, `bvh.to_axisangle()` — representation conversion (renamed from `get_frames_as_*`)
+- `bvh.from_6d()`, `bvh.from_quaternions()`, `bvh.from_axisangle()` — inverse representation conversion (renamed from `set_frames_from_*`)
+- `bvh.euler_orders` — per-joint Euler order strings
+- `bvh.edges` — skeleton edge list as index tuples
+- `bvh.nodes`, `bvh.node_index` — skeleton topology
+- `bvh.world_up`, `bvh.forward_at(frame)` — orientation API (new in v0.5.x)
+- `bvh.lr_mapping` — cached L/R joint pair mapping, auto-detected at init via extended name heuristic (`Left`/`Right`, `.L`/`.R`, `_l`/`_r`, `mixamorig:` namespace, `.001` numbered suffix). `None` when no pairs detected. Settable via post-load setter or `lr_mapping=` kwarg on `read_bvh_file` / `read_bvh_directory` / `Bvh.__init__`. Consumed by `mirror()`, `forward_at()`, `_rest_lateral`, `reorient_rest_forward`.
+- `pybvh.transforms.auto_detect_lr_pairs()` — L/R index pair detection (module-level; reads `bvh.lr_mapping` internally)
+- `pybvh.transforms.auto_detect_lr_mapping()` — L/R name pair detection (module-level; thin wrapper over `bvh.lr_mapping`)
+- `bvh.random_translate_root()`, `bvh.random_rotate_vertical()`, `bvh.random_perturb_speed()` — method wrappers for the `random_*` augmentation variants (same signatures as the module-level functions)
+- `pybvh.rotations.*` — rotation primitives (especially `quat_slerp`)
+- `pybvh.features.*` — motion analysis features (all de-prefixed: `joint_velocities`, `foot_contacts`, etc.)
+- `pybvh.batch.*` — batch loading and normalization
+
+**Compatibility**: old names (`get_frames_as_*`, `set_frames_from_*`, `get_joint_velocities`, `to_bvh_file`, `get_spatial_coord`, `get_rest_pose`, `get_df_constructor`, `change_skeleton`, `scale_skeleton`, `single_joint_euler_angle`, `change_all_euler_orders`, `add_joint_noise`, `speed_perturbation`, `dropout_frames`, `get_foot_contacts`, `get_root_trajectory`, etc.) still exist as deprecation wrappers that emit `DeprecationWarning` and forward to the new names. They will be removed in a future major version. See `API_RENAME.md` for the complete mapping.
+
+### Design history: the emo_mocap review
+The two-library split was motivated by a detailed external review from a developer integrating pybvh into an ML project (emo_mocap, emotion recognition from motion capture). The review proposed 13 improvements. Our analysis:
+- **Implemented in pybvh**: `euler_orders` property, `auto_detect_lr_pairs`, `__eq__`, `edges` property, better docstrings (pending)
+- **Implemented in pybvh-ml**: tensor packing (CTV/TVC/flat), skeleton graph metadata, array-level augmentation (quaternion + 6D), speed perturbation/dropout on arrays, HDF5 preprocessing, PyTorch Datasets, body-part partitions
+- **Rejected**: linear Euler interpolation for dropout (mathematically unsound), framework-specific graph objects (too much coupling), `to_ml_tensor` as a Bvh method (extends `to_feature_array` instead)
+- **Key principle established**: pybvh owns motion data; pybvh-ml owns how ML consumes it

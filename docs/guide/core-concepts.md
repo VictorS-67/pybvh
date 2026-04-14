@@ -19,13 +19,14 @@ A BVH file has two sections:
 | `joint_names` | list of str | Non-end-site joint names |
 | `euler_orders` | list of str | Per-joint Euler orders (e.g. `['ZYX', ...]`) |
 | `edges` | list of tuples | Skeleton edge list as `(child_idx, parent_idx)` |
-| `frame_frequency` | float | Seconds per frame |
+| `frame_time` | float | Seconds per frame |
+| `world_up` | str | Gravity axis (e.g. `'+y'`, `'+z'`). Auto-detected, settable. |
 
 ## Index spaces
 
 pybvh has two index spaces:
 
-- **`node_index`** — includes end sites. Maps to `bvh.nodes` list. Used by `get_spatial_coord()`.
+- **`node_index`** — includes end sites. Maps to `bvh.nodes` list. Used by `spatial_coords()`.
 - **`joint_angles` index** — excludes end sites. Maps to `bvh.joint_names` and `bvh.joint_angles` axis 1. Used by `edges`, `euler_orders`, augmentation functions.
 
 Most functions use the `joint_angles` index space. The docstring of each function specifies which space it expects.

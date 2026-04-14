@@ -85,14 +85,14 @@ class BvhJoint(BvhNode):
         Parent node, or None if this is a root.
     """
     def __init__(self, name: str, offset: list[float] | npt.NDArray[np.float64] = [0.0, 0.0, 0.0],
-                 rot_channels: list[str] | str = ['Z', 'Y', 'X'], children: list[BvhNode] = [],
+                 rot_channels: list[str] | str = ['Z', 'Y', 'X'], children: list[BvhNode] | None = None,
                  parent: BvhNode | None = None) -> None:
         #inheritance
         super().__init__(name, offset, parent)
 
         self._frozen = False
         self.rot_channels = rot_channels  # type: ignore[assignment]
-        self.children = children
+        self.children = children if children is not None else []
 
     @property
     def rot_channels(self) -> list[str]:
@@ -102,8 +102,8 @@ class BvhJoint(BvhNode):
         if getattr(self, '_frozen', False):
             raise AttributeError(
                 "rot_channels is frozen. Use "
-                "Bvh.single_joint_euler_angle(joint_name, new_order) or "
-                "Bvh.change_all_euler_orders(new_order) to change rotation order.")
+                "Bvh.change_euler_order(order, joint=joint_name) or "
+                "Bvh.change_euler_order(order) to change rotation order.")
         self._rot_channels = self._check_channels(value)
 
     def _set_rot_channels_internal(self, value: list[str] | str) -> None:
@@ -143,7 +143,6 @@ class BvhJoint(BvhNode):
         # we will check if the channels are either a list of 3 elements,
         # or a string of 3 elements, belonging to a permutation of 'XYZ'
         # we return the result as a list of 3 characters
-        problem = True
         er = ValueError("the channels should be a list or a string of 3 elements, one of each from 'X' 'Y' 'Z'")
         if isinstance(value, str):
             if not are_permutations('XYZ', value):
@@ -188,7 +187,7 @@ class BvhRoot(BvhJoint):
     """
     def __init__(self, name: str = 'root', offset: list[float] | npt.NDArray[np.float64] = [0.0, 0.0, 0.0],
                  pos_channels: list[str] | str = ['X', 'Y', 'Z'], rot_channels: list[str] | str = ['Z', 'Y', 'X'],
-                 children: list[BvhNode] = [], parent: BvhNode | None = None) -> None:
+                 children: list[BvhNode] | None = None, parent: BvhNode | None = None) -> None:
         #inheritance
         super().__init__(name, offset, rot_channels, children, parent)
 

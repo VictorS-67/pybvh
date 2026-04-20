@@ -16,7 +16,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .bvh import Bvh
-from .bvhnode import BvhNode, BvhJoint
+from .bvhnode import BvhJoint
 from . import rotations
 from .tools import (
     rotX, rotY, rotZ,
@@ -289,7 +289,7 @@ def drop_frames(
         return bvh.copy()
 
     # Get quaternion representation
-    root_pos_orig, quats_orig, _ = bvh.to_quaternions()
+    root_pos_orig, quats_orig = bvh.to_quaternions()
     # quats_orig: (F, J, 4),  root_pos_orig: (F, 3)
 
     # For every frame, find left and right kept-neighbour indices
@@ -548,8 +548,7 @@ def mirror_angles(
     >>> angles = bvh.joint_angles
     >>> pos = bvh.root_pos
     >>> pairs = transforms.auto_detect_lr_pairs(bvh)
-    >>> from pybvh.tools import _rest_lateral
-    >>> lat_idx = {'x': 0, 'y': 1, 'z': 2}[_rest_lateral(bvh)[1]]
+    >>> lat_idx = {'x': 0, 'y': 1, 'z': 2}[bvh.left_at(frame=0)[1]]
     >>> channels = [n.rot_channels for n in bvh.nodes if not n.is_end_site()]
     >>> new_angles, new_pos = mirror_angles(
     ...     angles, pos, pairs, lat_idx, channels)
@@ -855,17 +854,20 @@ def mirror(
 
     # --- Detect lateral axis ---
     # Mirror is a topology operation (swap L/R joints, negate the lateral
-    # component), so we use the rest-pose lateral derived from the L/R
-    # mapping above. Pass the explicit mapping so we use the same pairs.
+    # component), so we use the rest-pose leftward axis derived from the
+    # L/R mapping above. Pass the explicit mapping so we use the same
+    # pairs. Only the axis letter is consumed; the sign doesn't matter
+    # for mirroring (reflecting across the plane perpendicular to the
+    # axis is the same operation whether the axis points left or right).
     if lateral_axis is None:
-        from .tools import _rest_lateral
-        rest_lat = _rest_lateral(target, mapping=left_right_mapping)
-        if rest_lat is None:
+        from .tools import _rest_leftward
+        rest_left = _rest_leftward(target, mapping=left_right_mapping)
+        if rest_left is None:
             raise ValueError(
                 "Cannot infer lateral axis from L/R mapping: averaged "
                 "left-to-right offsets are degenerate (parallel to up "
                 "axis or zero). Pass `lateral_axis=` explicitly.")
-        lateral_char = rest_lat[1]
+        lateral_char = rest_left[1]
     else:
         lateral_char = lateral_axis.lower().lstrip("+-")
     lateral_idx = {"x": 0, "y": 1, "z": 2}[lateral_char]
@@ -925,26 +927,35 @@ def mirror(
 
 
 # =========================================================================
-# Deprecated names (old API)
-# =========================================================================
-
-def add_joint_noise(*args, **kwargs):
-    """Deprecated: use add_noise() instead."""
-    import warnings
-    warnings.warn("add_joint_noise() is deprecated, use add_noise() instead.", DeprecationWarning, stacklevel=2)
-    return add_noise(*args, **kwargs)
-
-
-def speed_perturbation(*args, **kwargs):
-    """Deprecated: use perturb_speed() instead."""
-    import warnings
-    warnings.warn("speed_perturbation() is deprecated, use perturb_speed() instead.", DeprecationWarning, stacklevel=2)
-    return perturb_speed(*args, **kwargs)
-
-
-# =========================================================================
 # 8.  Coordinate-frame reorientation
 # =========================================================================
+
+def _apply_similarity_to_joints(
+    angles: npt.NDArray[np.float64],
+    joints: list,
+    R_left: npt.NDArray[np.float64],
+    R_right: npt.NDArray[np.float64],
+    joint_indices=None,
+) -> None:
+    """Apply ``R_j' = R_left @ R_j @ R_right`` to selected joints, in place.
+
+    Uses the per-joint-order overload of ``euler_to_rotmat`` /
+    ``rotmat_to_euler`` so both conversions vectorize across the
+    selected joint axis in one call.
+    """
+    if joint_indices is None:
+        joint_indices = list(range(len(joints)))
+    else:
+        joint_indices = list(joint_indices)
+
+    sel = np.asarray(joint_indices)
+    per_joint = ["".join(joints[j].rot_channels) for j in joint_indices]  # type: ignore[attr-defined]
+
+    block = angles[:, sel]                                              # (F, G, 3)
+    R_j = rotations.euler_to_rotmat(block, per_joint, degrees=True)     # (F, G, 3, 3)
+    R_j_new = R_left @ R_j @ R_right
+    angles[:, sel] = rotations.rotmat_to_euler(R_j_new, per_joint, degrees=True)
+
 
 @overload
 def reorient_world_up(bvh: Bvh, new_up: str, *, inplace: Literal[True]) -> None: ...
@@ -994,15 +1005,9 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     # 3. Conjugate ALL joint rotations: R_j' = R @ R_j @ R^T
     #    This is the correct formula for a global scene rotation applied to
     #    the BVH hierarchy (both offsets and rotations change together).
-    R_T = R.T
     joints = [n for n in target.nodes if not n.is_end_site()]
     angles_copy = target.joint_angles.copy()
-    for j_idx in range(len(joints)):
-        order = "".join(joints[j_idx].rot_channels)
-        R_j = rotations.euler_to_rotmat(angles_copy[:, j_idx], order, degrees=True)
-        R_j_new = R[np.newaxis] @ R_j @ R_T[np.newaxis]
-        angles_copy[:, j_idx] = rotations.rotmat_to_euler(
-            R_j_new, order, degrees=True)
+    _apply_similarity_to_joints(angles_copy, joints, R, R.T)
     target.joint_angles = angles_copy
 
     # 4. Update metadata
@@ -1061,19 +1066,15 @@ def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None
     joints = [n for n in target.nodes if not n.is_end_site()]
     angles_copy = target.joint_angles.copy()
 
-    # Root (index 0)
-    root_order = "".join(joints[0].rot_channels)
+    # Root (index 0): right-multiply by R_fix_inv only
+    root_order = "".join(joints[0].rot_channels)  # type: ignore[attr-defined]
     R_root = rotations.euler_to_rotmat(angles_copy[:, 0], root_order, degrees=True)
     angles_copy[:, 0] = rotations.rotmat_to_euler(
         R_root @ R_fix_inv, root_order, degrees=True)
 
-    # All other joints
-    for j_idx in range(1, len(joints)):
-        order = "".join(joints[j_idx].rot_channels)
-        R_j = rotations.euler_to_rotmat(angles_copy[:, j_idx], order, degrees=True)
-        R_j_new = R_fix[np.newaxis] @ R_j @ R_fix_inv[np.newaxis]
-        angles_copy[:, j_idx] = rotations.rotmat_to_euler(
-            R_j_new, order, degrees=True)
+    # All other joints: full similarity
+    _apply_similarity_to_joints(
+        angles_copy, joints, R_fix, R_fix_inv, joint_indices=range(1, len(joints)))
 
     target.joint_angles = angles_copy
 
@@ -1142,36 +1143,14 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
     joints = [n for n in target.nodes if not n.is_end_site()]
     angles_copy = target.joint_angles.copy()
 
-    root_order = "".join(joints[0].rot_channels)
+    root_order = "".join(joints[0].rot_channels)  # type: ignore[attr-defined]
     R_root = rotations.euler_to_rotmat(angles_copy[:, 0], root_order, degrees=True)
     angles_copy[:, 0] = rotations.rotmat_to_euler(
         R_root @ R_fix_inv, root_order, degrees=True)
 
-    for j_idx in range(1, len(joints)):
-        order = "".join(joints[j_idx].rot_channels)
-        R_j = rotations.euler_to_rotmat(angles_copy[:, j_idx], order, degrees=True)
-        R_j_new = R_fix[np.newaxis] @ R_j @ R_fix_inv[np.newaxis]
-        angles_copy[:, j_idx] = rotations.rotmat_to_euler(
-            R_j_new, order, degrees=True)
+    _apply_similarity_to_joints(
+        angles_copy, joints, R_fix, R_fix_inv, joint_indices=range(1, len(joints)))
 
     target.joint_angles = angles_copy
 
     return None if inplace else target
-
-
-# =========================================================================
-# Deprecation wrappers (old names → new names)
-# =========================================================================
-
-def random_speed_perturbation(*args, **kwargs):
-    """Deprecated: use random_perturb_speed() instead."""
-    import warnings
-    warnings.warn("random_speed_perturbation() is deprecated, use random_perturb_speed() instead.", DeprecationWarning, stacklevel=2)
-    return random_perturb_speed(*args, **kwargs)
-
-
-def dropout_frames(*args, **kwargs):
-    """Deprecated: use drop_frames() instead."""
-    import warnings
-    warnings.warn("dropout_frames() is deprecated, use drop_frames() instead.", DeprecationWarning, stacklevel=2)
-    return drop_frames(*args, **kwargs)

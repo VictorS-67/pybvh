@@ -345,11 +345,11 @@ def extract_sign(ax: str) -> bool:
 #           │          │
 #           ├──────────┤
 #           ▼          ▼
-#       _rest_upward, _rest_lateral
+#       _rest_upward, _rest_leftward
 #           │          │       │
 #           │          │       └──→ used by transforms.mirror()
 #           │          ▼
-#           │    _world_lateral_unit_at_frame
+#           │    _world_leftward_unit_at_frame
 #           │          │       │
 #           │          ▼       │
 #           │    _compute_     │
@@ -425,7 +425,7 @@ def _rest_offset_from_node(node: object) -> npt.NDArray[np.float64]:
     offset = np.zeros(3)
     current = node
     while current is not None:
-        offset = offset + np.array(current.offset)
+        offset = offset + np.array(current.offset)  # type: ignore[attr-defined]
         current = current.parent  # type: ignore[attr-defined]
     return offset
 
@@ -457,15 +457,18 @@ def _find_lr_joint_pairs(
     return pairs
 
 
-def _rest_lateral(
+def _rest_leftward(
     bvh: Bvh, mapping: dict[str, str] | None = None,
 ) -> str | None:
-    """Infer the skeleton's lateral (left-right) axis from rest-pose L/R symmetry.
+    """Infer the skeleton's leftward axis from rest-pose L/R symmetry.
 
-    Averages the right-minus-left rest-pose cumulative offsets across all
+    Averages the left-minus-right rest-pose cumulative offsets across all
     matching L/R joint pairs, projects onto the horizontal plane, and
-    returns the dominant signed axis. Used by transforms that need a
-    stable topological lateral (mirror, retarget).
+    returns the dominant signed axis — a vector pointing from the
+    character's right toward their left. Convention matches the public
+    :meth:`Bvh.left_at` method (``up × forward``) via the right-hand
+    rule. Used by transforms that need a stable topological orientation
+    reference (mirror, retarget).
 
     Parameters
     ----------
@@ -474,14 +477,15 @@ def _rest_lateral(
     mapping : dict or None
         If provided, pair up joints according to this explicit mapping
         instead of reading ``bvh.lr_mapping``. Useful when the caller
-        wants to compute lateral for a mapping that isn't cached on the
-        object.
+        wants to compute leftward for a mapping that isn't cached on
+        the object.
 
     Returns
     -------
     str or None
-        Signed axis string (e.g. '+x'), or ``None`` if no L/R pairs are
-        available or the averaged offset is degenerate.
+        Signed axis string (e.g. ``'-x'``) pointing toward the
+        character's left, or ``None`` if no L/R pairs are available or
+        the averaged offset is degenerate.
     """
     up_ax = _rest_upward(bvh)
     up_idx = _AXIS_CHAR_TO_IDX[up_ax[1]]
@@ -490,17 +494,17 @@ def _rest_lateral(
     if not pairs:
         return None
 
-    lateral_vectors = [
-        _rest_offset_from_node(r) - _rest_offset_from_node(l)
+    leftward_vectors = [
+        _rest_offset_from_node(l) - _rest_offset_from_node(r)
         for l, r in pairs
     ]
-    avg_lateral = np.mean(lateral_vectors, axis=0)
-    avg_lateral[up_idx] = 0.0  # project to ground plane
+    avg_leftward = np.mean(leftward_vectors, axis=0)
+    avg_leftward[up_idx] = 0.0  # project to ground plane
 
-    lateral_ax = get_main_direction(avg_lateral)
-    if lateral_ax is None or lateral_ax[1] == up_ax[1]:
+    leftward_ax = get_main_direction(avg_leftward)
+    if leftward_ax is None or leftward_ax[1] == up_ax[1]:
         return None
-    return lateral_ax
+    return leftward_ax
 
 
 def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
@@ -574,9 +578,9 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
     if warn and rest_up is not None and rest_up[1] != frame_up[1]:
         import warnings
         warnings.warn(
-            f"Rest pose suggests world up is {rest_up!r} but the first "
-            f"animation frame's head-hips direction is closer to {frame_up!r}. "
-            f"Using {frame_up!r} from the animation data. If this is wrong "
+            f"Rest pose suggests world up is {rest_up!r} but the first \n"
+            f"animation frame's head-hips direction is closer to {frame_up!r}. \n"
+            f"Using {frame_up!r} from the animation data. If this is wrong \n"
             f"for your file, set it explicitly via `bvh.world_up = '<axis>'`.",
             UserWarning,
             stacklevel=2,
@@ -585,37 +589,40 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
     return frame_up
 
 
-def _world_lateral_unit_at_frame(
+def _world_leftward_unit_at_frame(
     bvh: Bvh,
     frame_coords: npt.NDArray[np.float64],
     world_up: str,
 ) -> npt.NDArray[np.float64] | None:
-    """Return the character's world-space lateral **unit vector** at a frame.
+    """Return the character's world-space leftward **unit vector** at a frame.
 
     Continuous (not snapped to a signed axis), projected onto the plane
-    perpendicular to ``world_up``. Averages ``(right_pos - left_pos)``
-    across matching L/R joint pairs in world space at the given frame.
+    perpendicular to ``world_up``. Averages ``(left_pos - right_pos)``
+    across matching L/R joint pairs in world space at the given frame —
+    a unit vector pointing from the character's right toward their
+    left. Matches the ``up × forward`` right-hand-rule convention used
+    by :meth:`Bvh.left_at`.
 
-    Returns ``None`` if no L/R pairs exist or the averaged lateral is
+    Returns ``None`` if no L/R pairs exist or the averaged leftward is
     degenerate (parallel to world up, or zero). Callers should handle
-    ``None`` by falling back to the topological ``_rest_lateral``.
+    ``None`` by falling back to the topological ``_rest_leftward``.
     """
     up_vec = _axis_to_vector(world_up)
     pairs = _find_lr_joint_pairs(bvh)
     if not pairs:
         return None
 
-    lateral_diffs = [
-        frame_coords[bvh.node_index[r.name]] - frame_coords[bvh.node_index[l.name]]  # type: ignore[attr-defined]
+    leftward_diffs = [
+        frame_coords[bvh.node_index[l.name]] - frame_coords[bvh.node_index[r.name]]  # type: ignore[attr-defined]
         for l, r in pairs
     ]
-    avg_lateral = np.mean(lateral_diffs, axis=0)
+    avg_leftward = np.mean(leftward_diffs, axis=0)
     # Project onto plane perpendicular to world_up
-    avg_lateral = avg_lateral - np.dot(avg_lateral, up_vec) * up_vec
-    norm = float(np.linalg.norm(avg_lateral))
+    avg_leftward = avg_leftward - np.dot(avg_leftward, up_vec) * up_vec
+    norm = float(np.linalg.norm(avg_leftward))
     if norm < 1e-6:
         return None
-    return avg_lateral / norm
+    return avg_leftward / norm
 
 
 def _signed_rotation_delta_around_axis(
@@ -646,12 +653,13 @@ def _compute_forward_at(
     as the character moves.
 
     Algorithm:
-      1. Get the continuous world-space lateral via
-         :func:`_world_lateral_unit_at_frame`.
-      2. ``forward = cross(world_up_vec, lateral)``
+      1. Get the continuous world-space leftward vector via
+         :func:`_world_leftward_unit_at_frame`.
+      2. ``forward = cross(leftward, world_up_vec)`` — follows the
+         ``up × forward = leftward`` right-hand-rule convention.
       3. Snap to nearest signed axis via :func:`get_main_direction`.
-      4. Fallback: if lateral is degenerate (parallel to world_up) or
-         no L/R pairs found, use :func:`_rest_lateral` and cross with
+      4. Fallback: if leftward is degenerate (parallel to world_up) or
+         no L/R pairs found, use :func:`_rest_leftward` and cross with
          world_up.
 
     Parameters
@@ -670,20 +678,20 @@ def _compute_forward_at(
         direction in world space at the given frame.
     """
     up_vec = _axis_to_vector(world_up)
-    lateral_vec = _world_lateral_unit_at_frame(bvh, frame_coords, world_up)
+    leftward_vec = _world_leftward_unit_at_frame(bvh, frame_coords, world_up)
 
-    # Fallback: use rest-pose lateral (topology) if current-frame lateral
-    # is degenerate or no L/R pairs exist.
-    if lateral_vec is None:
-        rest_lat = _rest_lateral(bvh)
-        if rest_lat is None:
+    # Fallback: use rest-pose leftward (topology) if current-frame
+    # leftward is degenerate or no L/R pairs exist.
+    if leftward_vec is None:
+        rest_left = _rest_leftward(bvh)
+        if rest_left is None:
             # Truly no information available — pick an arbitrary horizontal
             # direction so we at least return a valid axis.
             fallback = {'y': '+z', 'z': '+x', 'x': '+y'}
             return fallback[world_up[1]]
-        lateral_vec = _axis_to_vector(rest_lat)
+        leftward_vec = _axis_to_vector(rest_left)
 
-    forward_vec = np.cross(up_vec, lateral_vec)
+    forward_vec = np.cross(leftward_vec, up_vec)
     forward_ax = get_main_direction(forward_vec)
     if forward_ax is None or forward_ax[1] == world_up[1]:
         fallback = {'y': '+z', 'z': '+x', 'x': '+y'}

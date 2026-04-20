@@ -606,6 +606,99 @@ class TestTrajectory:
         with pytest.raises(ValueError, match="2D axes"):
             bvhplot.trajectory(bvh_example, ax=ax, show=False)
 
+    def test_facing_arrows_off_by_default(self, bvh_example):
+        """Default call produces no quiver artist."""
+        import matplotlib
+        matplotlib.use('Agg')
+        from matplotlib.quiver import Quiver
+        fig, ax = bvhplot.trajectory(bvh_example, show=False)
+        quivers = [c for c in ax.get_children() if isinstance(c, Quiver)]
+        assert len(quivers) == 0
+
+    def test_facing_arrows_single_skeleton(self, bvh_example):
+        """facing_arrows=True adds one quiver artist for a single skeleton."""
+        import matplotlib
+        matplotlib.use('Agg')
+        from matplotlib.quiver import Quiver
+        fig, ax = bvhplot.trajectory(
+            bvh_example, facing_arrows=True, show=False)
+        quivers = [c for c in ax.get_children() if isinstance(c, Quiver)]
+        assert len(quivers) == 1
+
+    def test_facing_arrows_multi_skeleton(self, bvh_example, bvh_test2):
+        """facing_arrows=True adds one quiver artist per skeleton; clips may differ in length."""
+        import matplotlib
+        matplotlib.use('Agg')
+        from matplotlib.quiver import Quiver
+        fig, ax = bvhplot.trajectory(
+            [bvh_example, bvh_test2],
+            facing_arrows=True, labels=['A', 'B'], show=False)
+        quivers = [c for c in ax.get_children() if isinstance(c, Quiver)]
+        assert len(quivers) == 2
+
+    def test_facing_arrows_via_bvh_wrapper(self, bvh_example):
+        """bvh.plot_trajectory(facing_arrows=True) forwards the kwarg."""
+        import matplotlib
+        matplotlib.use('Agg')
+        from matplotlib.quiver import Quiver
+        fig, ax = bvh_example.plot_trajectory(facing_arrows=True)
+        quivers = [c for c in ax.get_children() if isinstance(c, Quiver)]
+        assert len(quivers) == 1
+
+    def test_tight_false_uses_skeleton_extent(self, bvh_example):
+        """Default (tight=False) axes span the full horizontal skeleton extent,
+        which is wider than the root path alone."""
+        import matplotlib
+        matplotlib.use('Agg')
+        import numpy as np
+        coords = bvh_example.spatial_coords()
+        # Horizontal axes depend on world_up; drop the up axis
+        from pybvh.tools import _AXIS_CHAR_TO_IDX
+        up_idx = _AXIS_CHAR_TO_IDX[bvh_example.world_up[1]]
+        horiz = [j for j in range(3) if j != up_idx]
+        sk_h0_span = np.ptp(coords[:, :, horiz[0]])
+        sk_h1_span = np.ptp(coords[:, :, horiz[1]])
+        root_h0_span = np.ptp(coords[:, 0, horiz[0]])
+        root_h1_span = np.ptp(coords[:, 0, horiz[1]])
+
+        fig, ax = bvhplot.trajectory(bvh_example, tight=False, show=False)
+        plot_h0_span = ax.get_xlim()[1] - ax.get_xlim()[0]
+        plot_h1_span = ax.get_ylim()[1] - ax.get_ylim()[0]
+        # Axis span should be close to the full skeleton span (not the
+        # much smaller root path span).
+        assert plot_h0_span > 1.5 * root_h0_span
+        assert plot_h1_span > 1.5 * root_h1_span
+        assert plot_h0_span >= sk_h0_span  # always at least the full extent
+        assert plot_h1_span >= sk_h1_span
+
+    def test_tight_true_fits_path(self, bvh_example):
+        """tight=True leaves matplotlib auto-scaling to the root path,
+        which is notably narrower than the full skeleton extent."""
+        import matplotlib
+        matplotlib.use('Agg')
+        import numpy as np
+        fig, ax_tight = bvhplot.trajectory(bvh_example, tight=True, show=False)
+        fig2, ax_wide = bvhplot.trajectory(bvh_example, tight=False, show=False)
+        tight_span = (ax_tight.get_xlim()[1] - ax_tight.get_xlim()[0])
+        wide_span = (ax_wide.get_xlim()[1] - ax_wide.get_xlim()[0])
+        assert tight_span < wide_span
+
+    def test_tight_multi_skeleton_uses_union(self, bvh_example, bvh_test2):
+        """tight=False for multi-skeleton plots uses the union of per-
+        skeleton extents so both skeletons stay in frame."""
+        import matplotlib
+        matplotlib.use('Agg')
+        fig, ax = bvhplot.trajectory(
+            [bvh_example, bvh_test2], tight=False, labels=['A', 'B'],
+            show=False)
+        # Individual plots
+        fig_a, ax_a = bvhplot.trajectory(bvh_example, tight=False, show=False)
+        fig_b, ax_b = bvhplot.trajectory(bvh_test2, tight=False, show=False)
+        # Multi-skeleton x-range should span at least the individual ranges
+        # (modulo padding).
+        assert ax.get_xlim()[1] >= max(ax_a.get_xlim()[1], ax_b.get_xlim()[1]) - 1e-6
+        assert ax.get_xlim()[0] <= min(ax_a.get_xlim()[0], ax_b.get_xlim()[0]) + 1e-6
+
 
 class TestRenderMatplotlib:
     def test_render_creates_file(self, bvh_example, tmp_path):
@@ -927,12 +1020,12 @@ class TestSceneSpacing:
     def test_offset_along_lateral_axis(self, two_bvhs, two_coords):
         """Offset must be along the axis that is neither up nor forward."""
         from pybvh.bvhplot import _apply_scene_spacing
-        from pybvh.bvhplot._common import _UP_AXIS_INDEX
+        from pybvh.bvhplot._common import UP_AXIS_INDEX
         b1, b2 = two_bvhs
         up_char = b1.world_up[1]
         fwd_str = b1.forward_at(frame=0)
-        fwd_idx = _UP_AXIS_INDEX[fwd_str[1]]
-        up_idx = _UP_AXIS_INDEX[up_char]
+        fwd_idx = UP_AXIS_INDEX[fwd_str[1]]
+        up_idx = UP_AXIS_INDEX[up_char]
         lat_idx = next(i for i in range(3) if i != up_idx and i != fwd_idx)
 
         result = _apply_scene_spacing(

@@ -51,13 +51,13 @@ def _check_df_columns(df: pd.DataFrame) -> pd.DataFrame:
         splitted_name = col_name.split('_')
         col_joint_name, ax, rotpos = splitted_name[0], splitted_name[1], splitted_name[2]
         if col_joint_name != root_name or rotpos != 'pos' :
-            raise Exception(root_er)
+            raise ValueError(root_er)
     for col_name in new_df.columns[3:6]:
         #those should be the root rot
         splitted_name = col_name.split('_')
         col_joint_name, ax, rotpos = splitted_name[0], splitted_name[1], splitted_name[2]
         if col_joint_name != root_name or rotpos != 'rot' :
-            raise Exception(root_er)
+            raise ValueError(root_er)
 
     #check if there is a time column in the original df, and add it back into the df
     has_time = False
@@ -68,9 +68,9 @@ def _check_df_columns(df: pd.DataFrame) -> pd.DataFrame:
             time_col = df[col_name]
             break
     if len(new_df.columns) == 0:
-        raise Exception("No column found following the proper naming convention 'name_ax_pos/rot'")
+        raise ValueError("No column found following the naming convention 'name_ax_pos' or 'name_ax_rot'")
     elif not has_time or time_col is None:
-        raise Exception("No time column found")
+        raise ValueError("No 'time' column found in the DataFrame")
 
     new_df.insert(0, 'time', time_col)
 
@@ -132,8 +132,11 @@ def _check_df_match_with_hier(hier: list[BvhNode], df: pd.DataFrame) -> tuple[li
     # create a new df with correctly ordered column
     try:
         df = df[correct_col_list]
-    except:
-        raise Exception('Some columns in the DataFrame do not match with information in the list of nodes')
+    except KeyError as e:
+        missing = set(correct_col_list) - set(df.columns)
+        raise ValueError(
+            f"DataFrame is missing columns required by the hierarchy: "
+            f"{sorted(missing) if missing else list(e.args)}") from e
 
     return hier, df
 
@@ -171,25 +174,26 @@ def _complete_hier_dict(hier: dict[str, dict], df: pd.DataFrame) -> dict[str, di
         #all elt should have offset and parent component
         try:
             offset = info_dict['offset']
-        except:
-            raise Exception(f'no offset component found in the dictionary {name}')
+        except KeyError as e:
+            raise ValueError(f"no 'offset' field in hierarchy entry for node '{name}'") from e
         try:
             parent = info_dict['parent']
-            if (parent == None) or (parent == 'None'):
-                root = name
-                #if it's the root, we want to test if has pos_channels
-                try:
-                    pos_channels = info_dict['pos_channels']
-                    root_has_pos = True
-                except:
-                    root_has_pos = False
-            else:
-                try:
-                    parent_info = hier[parent]
-                except:
-                    raise Exception(f'The parent {parent} of node {name} is not a node in the dictionnary')
-        except:
-            raise Exception(f'no parent component found in the dictionary {name}')
+        except KeyError as e:
+            raise ValueError(f"no 'parent' field in hierarchy entry for node '{name}'") from e
+
+        if (parent is None) or (parent == 'None'):
+            root = name
+            # if it's the root, check whether it has pos_channels
+            try:
+                pos_channels = info_dict['pos_channels']
+                root_has_pos = True
+            except KeyError:
+                root_has_pos = False
+        else:
+            if parent not in hier:
+                raise ValueError(
+                    f"parent '{parent}' of node '{name}' is not a key in the hierarchy dict")
+            parent_info = hier[parent]
 
         #for end site, that's all there is to it
         if 'End Site' in name:
@@ -197,14 +201,14 @@ def _complete_hier_dict(hier: dict[str, dict], df: pd.DataFrame) -> dict[str, di
 
         try:
             children = info_dict['children']
-        except:
-            raise Exception(f'no children component found in the dictionary {name}')
+        except KeyError as e:
+            raise ValueError(f"no 'children' field in hierarchy entry for node '{name}'") from e
 
         for child in children:
-            try:
-                child_info = hier[child]
-            except:
-                raise Exception(f'The child {child} of node {name} is not a node in the dictionnary')
+            if child not in hier:
+                raise ValueError(
+                    f"child '{child}' of node '{name}' is not a key in the hierarchy dict")
+            child_info = hier[child]
 
         # we finished checking that the necesseray info are here
         # now we will check if rot and pos channels are present.
@@ -370,11 +374,18 @@ def df_to_bvh(hier: list[BvhNode] | dict[str, dict], df: pd.DataFrame) -> Bvh:
     time_series = df['time']
     frames = df.drop(['time'], axis=1)
     frames = frames.to_numpy()
-    frame_frequency = 1/int(1/(time_series.to_numpy()[-1] / (len(time_series)-1)))
+    frame_time = time_series.to_numpy()[-1] / (len(time_series) - 1)
+    # Snap to exact 1/N when the measured frame time is within 0.01% of
+    # one (protects round-trips on 30/60/120 fps sources without
+    # corrupting non-integer rates like 23.976 fps).
+    if frame_time > 0:
+        snapped = 1.0 / round(1.0 / frame_time)
+        if abs(snapped - frame_time) / frame_time < 1e-4:
+            frame_time = snapped
 
     num_joints = len([n for n in hier_list if not n.is_end_site()])
     root_pos = frames[:, :3].astype(np.float64)
     joint_angles = frames[:, 3:].reshape(frames.shape[0], num_joints, 3).astype(np.float64)
 
     return Bvh(nodes=hier_list, root_pos=root_pos, joint_angles=joint_angles,
-               frame_time=frame_frequency)
+               frame_time=frame_time)

@@ -148,8 +148,8 @@ class TestSyntheticFixtures:
     def test_heterogeneous_euler_different_orders(self):
         bvh = make_heterogeneous_euler_bvh()
         orders = bvh.euler_orders
-        left_idx = bvh.joint_names.index("LeftLeg")
-        right_idx = bvh.joint_names.index("RightLeg")
+        left_idx = bvh.joint_index["LeftLeg"]
+        right_idx = bvh.joint_index["RightLeg"]
         assert orders[left_idx] != orders[right_idx]
 
     def test_lowercase_lr_has_left_right(self):
@@ -448,19 +448,19 @@ class TestMissingForwarding:
 
     def test_from_6d_mismatched_frames_raises(self):
         bvh = read_bvh_file(EXAMPLE)
-        root_pos, rot6d, _ = bvh.to_6d()
+        root_pos, rot6d = bvh.to_6d()
         with pytest.raises(ValueError, match="[Ff]rame"):
             bvh.from_6d(root_pos[:10], rot6d[:20])
 
     def test_from_quaternions_mismatched_frames_raises(self):
         bvh = read_bvh_file(EXAMPLE)
-        root_pos, quats, _ = bvh.to_quaternions()
+        root_pos, quats = bvh.to_quaternions()
         with pytest.raises(ValueError, match="[Ff]rame"):
             bvh.from_quaternions(root_pos[:10], quats[:20])
 
     def test_from_axisangle_mismatched_frames_raises(self):
         bvh = read_bvh_file(EXAMPLE)
-        root_pos, aa, _ = bvh.to_axisangle()
+        root_pos, aa = bvh.to_axisangle()
         with pytest.raises(ValueError, match="[Ff]rame"):
             bvh.from_axisangle(root_pos[:10], aa[:20])
 
@@ -573,99 +573,6 @@ class TestCodeQualityFixes:
 # ========================================================================
 #  Phase 8 — Group H: test gaps  (should PASS — testing existing behavior)
 # ========================================================================
-
-class TestDeprecationWrappers:
-    """H1: Verify deprecated method aliases emit warnings and delegate."""
-
-    @pytest.mark.parametrize("old_name,new_name", [
-        ("get_frames_as_rotmat", "to_rotmat"),
-        ("get_frames_as_6d", "to_6d"),
-        ("get_frames_as_quaternion", "to_quaternions"),
-        ("get_frames_as_axisangle", "to_axisangle"),
-    ])
-    def test_deprecated_rotation_methods(self, old_name, new_name):
-        bvh = read_bvh_file(EXAMPLE)
-        with pytest.warns(DeprecationWarning):
-            old_result = getattr(bvh, old_name)()
-        new_result = getattr(bvh, new_name)()
-        # Both return (root_pos, data, joints) tuples
-        npt.assert_array_equal(old_result[0], new_result[0])
-        npt.assert_array_equal(old_result[1], new_result[1])
-
-    @pytest.mark.parametrize("old_name,new_name", [
-        ("get_spatial_coord", "spatial_coords"),
-        ("get_rest_pose", "rest_pose_coords"),
-    ])
-    def test_deprecated_spatial_methods(self, old_name, new_name):
-        bvh = read_bvh_file(EXAMPLE)
-        with pytest.warns(DeprecationWarning):
-            old_result = getattr(bvh, old_name)()
-        new_result = getattr(bvh, new_name)()
-        if isinstance(old_result, tuple):
-            for o, n in zip(old_result, new_result):
-                npt.assert_array_equal(o, n)
-        else:
-            npt.assert_array_equal(old_result, new_result)
-
-    def test_deprecated_to_bvh_file(self, tmp_path):
-        bvh = read_bvh_file(EXAMPLE)
-        p = str(tmp_path / "out.bvh")
-        with pytest.warns(DeprecationWarning):
-            bvh.to_bvh_file(p)
-        assert Path(p).exists()
-
-    def test_deprecated_get_df_constructor(self):
-        bvh = read_bvh_file(EXAMPLE)
-        with pytest.warns(DeprecationWarning):
-            result = bvh.get_df_constructor()
-        assert isinstance(result, dict)
-
-    def test_deprecated_change_skeleton(self):
-        bvh = read_bvh_file(EXAMPLE)
-        ref = read_bvh_file(EXAMPLE)
-        with pytest.warns(DeprecationWarning):
-            result = bvh.change_skeleton(ref)
-        assert isinstance(result, Bvh)
-
-    def test_deprecated_scale_skeleton(self):
-        bvh = read_bvh_file(EXAMPLE)
-        with pytest.warns(DeprecationWarning):
-            result = bvh.scale_skeleton(2.0)
-        assert isinstance(result, Bvh)
-
-    def test_deprecated_frame_frequency_property(self):
-        bvh = read_bvh_file(EXAMPLE)
-        with pytest.warns(DeprecationWarning):
-            val = bvh.frame_frequency
-        assert val == bvh.frame_time
-
-    @pytest.mark.parametrize("old_name,new_name", [
-        ("get_joint_velocities", "joint_velocities"),
-        ("get_joint_accelerations", "joint_accelerations"),
-        ("get_angular_velocities", "angular_velocities"),
-        ("get_root_relative_positions", "root_relative_positions"),
-        ("get_root_trajectory", "root_trajectory"),
-        ("get_foot_contacts", "foot_contacts"),
-    ])
-    def test_deprecated_feature_methods(self, old_name, new_name):
-        bvh = read_bvh_file(EXAMPLE)
-        with pytest.warns(DeprecationWarning):
-            old_result = getattr(bvh, old_name)()
-        new_result = getattr(bvh, new_name)()
-        npt.assert_array_equal(old_result, new_result)
-
-    def test_deprecated_single_joint_euler_angle(self):
-        bvh = read_bvh_file(EXAMPLE)
-        with pytest.warns(DeprecationWarning):
-            result = bvh.single_joint_euler_angle("Hips", "XYZ")
-        assert isinstance(result, Bvh)
-
-    def test_deprecated_change_all_euler_orders(self):
-        bvh = read_bvh_file(EXAMPLE)
-        with pytest.warns(DeprecationWarning):
-            result = bvh.change_all_euler_orders("XYZ")
-        assert isinstance(result, Bvh)
-
 
 class TestBvhVisualizationWrappers:
     """H2: Smoke tests for Bvh convenience wrappers."""

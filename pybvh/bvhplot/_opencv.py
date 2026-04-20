@@ -32,7 +32,7 @@ def _compute_fixed_view_halves_for_follow(
     azimuths,
     elevations,
     up_axes,
-    base_laterals,
+    base_lefts,
     up_vecs,
 ) -> list[tuple[float, float]]:
     """For follow mode: precompute per-skeleton view-space half extents
@@ -48,13 +48,13 @@ def _compute_fixed_view_halves_for_follow(
     view_half_v) across every frame ahead of time and reuse those as
     a fixed scale at render time.
     """
-    from ..tools import _signed_rotation_delta_around_axis, _world_lateral_unit_at_frame
+    from ..tools import _signed_rotation_delta_around_axis, _world_leftward_unit_at_frame
 
     n_skeletons = len(bvh_list)
     result: list[tuple[float, float]] = []
     for i, bvh_obj in enumerate(bvh_list):
         az0, el0, ua = azimuths[i], elevations[i], up_axes[i]
-        lateral_0 = base_laterals[i]
+        left_0 = base_lefts[i]
         half_span = half_spans[i]
 
         corners = np.array([[sx, sy, sz]
@@ -65,16 +65,16 @@ def _compute_fixed_view_halves_for_follow(
         max_v = 0.0
         num_frames = coords_list[i].shape[0]
         for f in range(num_frames):
-            if lateral_0 is None:
+            if left_0 is None:
                 az_f = az0
             else:
-                lateral_f = _world_lateral_unit_at_frame(
+                left_f = _world_leftward_unit_at_frame(
                     bvh_obj, coords_list[i][f], bvh_obj.world_up)
-                if lateral_f is None:
+                if left_f is None:
                     az_f = az0
                 else:
                     delta = _signed_rotation_delta_around_axis(
-                        lateral_0, lateral_f, up_vecs[i])
+                        left_0, left_f, up_vecs[i])
                     az_f = az0 + delta
             vm = build_view_matrix(az_f, el0, ua)
             cv_corners = corners @ vm.T
@@ -245,10 +245,10 @@ def render_opencv(
         from ..tools import (
             _axis_to_vector,
             _signed_rotation_delta_around_axis,
-            _world_lateral_unit_at_frame,
+            _world_leftward_unit_at_frame,
         )
-        base_laterals = [
-            _world_lateral_unit_at_frame(b, coords_list[i][0], b.world_up)
+        base_lefts = [
+            _world_leftward_unit_at_frame(b, coords_list[i][0], b.world_up)
             for i, b in enumerate(bvh_list)
         ]
         up_vecs = [_axis_to_vector(b.world_up) for b in bvh_list]
@@ -256,7 +256,7 @@ def render_opencv(
         fixed_view_halves = _compute_fixed_view_halves_for_follow(
             bvh_list, coords_list, centers, half_spans,
             azimuths, elevations, up_axes,
-            base_laterals, up_vecs)
+            base_lefts, up_vecs)
 
     # Open video writer with codec fallback
     writer = _open_writer(filepath, fps, (w, h))
@@ -267,23 +267,23 @@ def render_opencv(
             frame_up_axes: list[str] = list(up_axes)
             for i, bvh_obj in enumerate(bvh_list):
                 az0, el0, ua = azimuths[i], elevations[i], up_axes[i]
-                lateral_0 = base_laterals[i]
-                if lateral_0 is None:
+                left_0 = base_lefts[i]
+                if left_0 is None:
                     az_f = az0
                 else:
-                    lateral_f = _world_lateral_unit_at_frame(
+                    left_f = _world_leftward_unit_at_frame(
                         bvh_obj, coords_list[i][f], bvh_obj.world_up)
-                    if lateral_f is None:
+                    if left_f is None:
                         az_f = az0
                     else:
                         delta = _signed_rotation_delta_around_axis(
-                            lateral_0, lateral_f, up_vecs[i])
+                            left_0, left_f, up_vecs[i])
                         az_f = az0 + delta
                 view_matrices.append(build_view_matrix(az_f, el0, ua))
         else:
             frame_up_axes = up_axes
 
-        img = np.ones((h, w, 3), dtype=np.uint8) * 255
+        img = np.full((h, w, 3), 255, dtype=np.uint8)
 
         _draw_skeletons_on_frame(
             img, f, coords_list, skeleton_lines_list,
@@ -303,9 +303,9 @@ def render_opencv(
                     img, view_matrices[s], frame_up_axes[s],
                     panel_w, h, panel_idx=s)
 
-        writer.write(img)
+        writer.write(img)  # type: ignore[attr-defined]
 
-    writer.release()
+    writer.release()  # type: ignore[attr-defined]
     return filepath
 
 
@@ -323,7 +323,7 @@ def _open_writer(
 
     codecs = ['mp4v', 'avc1', 'XVID']
     for codec in codecs:
-        fourcc = cv2.VideoWriter_fourcc(*codec)
+        fourcc = cv2.VideoWriter_fourcc(*codec)  # type: ignore[attr-defined]
         writer = cv2.VideoWriter(str(filepath), fourcc, fps, resolution)
         if writer.isOpened():
             return writer
@@ -371,10 +371,10 @@ def _render_gif(
         from ..tools import (
             _axis_to_vector,
             _signed_rotation_delta_around_axis,
-            _world_lateral_unit_at_frame,
+            _world_leftward_unit_at_frame,
         )
-        base_laterals = [
-            _world_lateral_unit_at_frame(b, coords_list[i][0], b.world_up)
+        base_lefts = [
+            _world_leftward_unit_at_frame(b, coords_list[i][0], b.world_up)
             for i, b in enumerate(bvh_list)
         ]
         up_vecs = [_axis_to_vector(b.world_up) for b in bvh_list]
@@ -382,7 +382,7 @@ def _render_gif(
         fixed_view_halves = _compute_fixed_view_halves_for_follow(
             bvh_list, coords_list, centers, half_spans,
             azimuths, elevations, up_axes,
-            base_laterals, up_vecs)
+            base_lefts, up_vecs)
 
     def _generate_frames():
         for f in range(num_frames):
@@ -390,23 +390,23 @@ def _render_gif(
                 view_matrices = []
                 for i, bvh_obj in enumerate(bvh_list):
                     az0, el0, ua = azimuths[i], elevations[i], up_axes[i]
-                    lateral_0 = base_laterals[i]
-                    if lateral_0 is None:
+                    left_0 = base_lefts[i]
+                    if left_0 is None:
                         az_f = az0
                     else:
-                        lateral_f = _world_lateral_unit_at_frame(
+                        left_f = _world_leftward_unit_at_frame(
                             bvh_obj, coords_list[i][f], bvh_obj.world_up)
-                        if lateral_f is None:
+                        if left_f is None:
                             az_f = az0
                         else:
                             delta = _signed_rotation_delta_around_axis(
-                                lateral_0, lateral_f, up_vecs[i])
+                                left_0, left_f, up_vecs[i])
                             az_f = az0 + delta
                     view_matrices.append(build_view_matrix(az_f, el0, ua))
             else:
                 view_matrices = base_view_matrices
 
-            img = np.ones((h, w, 3), dtype=np.uint8) * 255
+            img = np.full((h, w, 3), 255, dtype=np.uint8)
 
             _draw_skeletons_on_frame(
                 img, f, coords_list, skeleton_lines_list,

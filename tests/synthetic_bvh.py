@@ -393,8 +393,11 @@ def make_disagreement_bvh() -> Bvh:
     # This makes frame-0 head-hips direction point along Y (animation says +Y)
     # while rest-pose offsets point along Z (topology says +Z)
 
-    bvh = Bvh(nodes=nodes, root_pos=root_pos, joint_angles=joint_angles,
-              frame_time=FRAME_TIME, _warn_world_up=False)
+    import warnings as _warnings
+    with _warnings.catch_warnings():
+        _warnings.filterwarnings("ignore", message="Rest pose suggests world up")
+        bvh = Bvh(nodes=nodes, root_pos=root_pos, joint_angles=joint_angles,
+                  frame_time=FRAME_TIME)
     # The auto-detection picked +Y from animation; rest-pose says +Z
     # Don't override — let auto-detection stand
     return bvh

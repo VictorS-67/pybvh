@@ -18,6 +18,14 @@ pybvh owns the journey from `.bvh` file to structured NumPy arrays and back. Eve
 4. **Vectorized.** All numerical operations are batch-vectorized with NumPy. No Python loops over frames.
 5. **Faithful to the format.** pybvh preserves BVH semantics exactly. Read-write round-trips are lossless (within float precision). Skeleton topology, Euler orders, frame timing — nothing is silently altered.
 
+## Code & API quality
+
+Non-negotiable across every change to the codebase:
+
+- **Intuitive API.** The public surface should be discoverable and obvious. Method names match what they do; signatures match how users will call them. If a user needs to read source code to figure out how to use something, the API itself needs work — not a docstring patch. When in doubt about a name or signature, prefer the form that reads naturally at the call site over the form that's easiest to implement.
+- **Clear logic, clear code.** Reads top-to-bottom. Named intermediate variables over clever one-liners. Functions that do one thing. Comments only for the *why* (non-obvious constraints, subtle invariants, workarounds for specific bugs) — never the *what*, which well-named code already says.
+- **Root-cause fixes, not band-aids.** When a bug surfaces, find the underlying cause and fix it there, even if the fix touches more files than the symptom. Avoid quick patches — special-case branches, suppressed warnings, `if this weird input then ...` guards — that mask the real problem and accumulate as scar tissue. If the proper fix is genuinely too large for the current change, document the trade-off explicitly in the commit message or a `# TODO:` rather than papering over it silently.
+
 ## What pybvh owns
 
 - **BVH I/O**: Reading and writing `.bvh` files with full hierarchy and motion data preservation

@@ -34,10 +34,10 @@ All functions support arbitrary batch dimensions: `(3,)`, `(N, 3)`, `(F, J, 3)` 
 ## Bvh conversion methods
 
 ```python
-root_pos, rot6d, joints = bvh.to_6d()           # (F, J, 6)
-root_pos, quats, joints = bvh.to_quaternions()  # (F, J, 4)
-root_pos, aa, joints    = bvh.to_axisangle()    # (F, J, 3)
-root_pos, R, joints     = bvh.to_rotmat()       # (F, J, 3, 3)
+root_pos, rot6d = bvh.to_6d()           # (F, J, 6)
+root_pos, quats = bvh.to_quaternions()  # (F, J, 4)
+root_pos, aa = bvh.to_axisangle()    # (F, J, 3)
+root_pos, R = bvh.to_rotmat()       # (F, J, 3, 3)
 
 # Set frames back from a different representation
 bvh2 = bvh.from_6d(root_pos, rot6d)

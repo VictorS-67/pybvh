@@ -19,15 +19,33 @@ import time
 import numpy as np
 import numpy.typing as npt
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
-from ._common import PALETTE_RGB, build_view_matrix, _UP_AXIS_INDEX
+from ._common import PALETTE_RGB, build_view_matrix, UP_AXIS_INDEX
 
 if TYPE_CHECKING:
     from ..bvh import Bvh
 
 # Rich gold for single-skeleton "high" mode (aitviewer-inspired)
 _WARM_AMBER = (230, 175, 50)
+
+
+class _PlayerState(TypedDict, total=False):
+    frame: int
+    playing: bool
+    interval: int
+    timer_id: int | None
+    speed: float
+    loop_mode: str
+    play_direction: int
+    _slider_updating: bool
+    show_labels: bool
+    skeleton_visible: list[bool]
+    show_trail: bool
+    _rendering: bool
+    _play_start_time: float | None
+    _play_start_frame: int
+    _screenshot_hide_at: float | None
 
 
 def _interleave(
@@ -143,7 +161,7 @@ def play_vedo(
         tubes) but removes normal-dependent shading that shifts as bones
         rotate.
         """
-        prop = mesh.actor.GetProperty()
+        prop = mesh.actor.GetProperty()  # type: ignore[attr-defined]
         prop.SetAmbient(1.0)
         prop.SetDiffuse(0.0)
         prop.SetSpecular(0.0)
@@ -163,7 +181,7 @@ def play_vedo(
 
     # --- Floor grid (high quality only) ---
     if use_high:
-        up_idx = _UP_AXIS_INDEX.get(up_axis, 2)
+        up_idx = UP_AXIS_INDEX.get(up_axis, 2)
         # Place floor at the lowest point of all skeletons across all frames
         floor_y = min(c[:, :, up_idx].min() for c in coords_list)
         floor_pos = center.copy()
@@ -344,7 +362,7 @@ def play_vedo(
     # --- Joint name labels (toggle with J key) ---
     # Use vtkBillboardTextActor3D so labels always face the camera.
     _label_actors: list[list] = []   # _label_actors[s][j] = vtkBillboardTextActor3D
-    _label_up_idx = _UP_AXIS_INDEX.get(up_axis, 2)
+    _label_up_idx = UP_AXIS_INDEX.get(up_axis, 2)
     _label_offset = np.zeros(3)
     _label_offset[_label_up_idx] = half_span * 0.02
     _label_fontsize = max(12, int(half_span * 0.4))
@@ -375,11 +393,11 @@ def play_vedo(
     _trail_actors: list = []
     _trail_full: list[npt.NDArray] = []       # pre-computed root paths
     _trail_collapsed: list[npt.NDArray] = []  # pre-allocated collapsed buffers
-    _floor_y = min(c[:, :, _UP_AXIS_INDEX.get(up_axis, 2)].min()
+    _floor_y = min(c[:, :, UP_AXIS_INDEX.get(up_axis, 2)].min()
                    for c in _coords_full) if use_high else 0.0
     for s in range(n_skeletons):
         root_all = _coords_full[s][:, 0, :].copy()  # (F, 3)
-        root_all[:, _UP_AXIS_INDEX.get(up_axis, 2)] = _floor_y
+        root_all[:, UP_AXIS_INDEX.get(up_axis, 2)] = _floor_y
         _trail_full.append(root_all)
         # Pre-allocate collapsed buffer (reused every frame via .copy())
         collapsed = np.tile(root_all[0], (2 * (len(root_all) - 1), 1))
@@ -392,7 +410,7 @@ def play_vedo(
         plt += trail
 
     # --- Animation state ---
-    state = {
+    state: _PlayerState = {
         'frame': 0,
         'playing': True,
         'interval': max(int(1000.0 / max(fps, 1)), 8),
@@ -816,11 +834,13 @@ def play_vedo(
             # This keeps animation speed accurate even when timer events
             # are dropped (e.g., when VTK overhead > timer interval).
             now = time.perf_counter()
-            if state.get('_play_start_time') is None:
+            start_time = state.get('_play_start_time')
+            if start_time is None:
+                start_time = now
                 state['_play_start_time'] = now
                 state['_play_start_frame'] = state['frame']
 
-            elapsed = now - state['_play_start_time']
+            elapsed = now - start_time
             effective_fps = _fps_presets[_fps_idx]
             d = state['play_direction']
             target_f = state['_play_start_frame'] + d * int(
@@ -948,9 +968,9 @@ def play_vedo(
             # Toggle skeleton visibility (keys 1-9)
             idx = int(key) - 1
             if idx < n_skeletons:
-                vis = state['skeleton_visible']
-                vis[idx] = not vis[idx]
-                v = 1 if vis[idx] else 0
+                vis_list = state['skeleton_visible']
+                vis_list[idx] = not vis_list[idx]
+                v = 1 if vis_list[idx] else 0
                 if use_high:
                     if _bones_mesh[idx] is not None:
                         _bones_mesh[idx].actor.SetVisibility(v)

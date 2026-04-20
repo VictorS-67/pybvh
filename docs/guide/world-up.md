@@ -49,6 +49,50 @@ Used internally by bvhplot's camera auto-orientation and follow mode.
 
 `forward_at()` reads the L/R pair list from `bvh.lr_mapping`. If your skeleton's joint names don't follow the expected conventions (`Left*`/`Right*`, `.L`/`.R`, `_l`/`_r`, `mixamorig:` namespace, `.001` numbered duplicates), `bvh.lr_mapping` will be `None`, and `forward_at()` falls back to an arbitrary horizontal axis. To get a meaningful forward, set the mapping explicitly — see the [Augmentation guide](augmentation.md#lr-pair-detection) for the override patterns.
 
+## left_at(frame)
+
+Returns the character's world-space leftward direction at a given frame as a signed axis string:
+
+```python
+bvh.left_at(0)   # '-x' — character's left-hand direction at frame 0
+```
+
+Together with `world_up` and `forward_at(frame)`, `left_at(frame)` completes the character's local frame as an orthonormal right-hand-rule triple:
+
+```
+left = world_up × forward        (equivalently, forward = left × world_up)
+```
+
+Positive step along `left_at` moves from the character's right side toward their left (right-shoulder → left-shoulder direction). This matches the standard rigging convention used in Blender, Maya, and Unity.
+
+`left_at()` shares the L/R pair machinery with `forward_at()`, so the same `bvh.lr_mapping` caveats apply.
+
+### coords= (skip per-call FK)
+
+Both `forward_at()` and `left_at()` accept a pre-computed `(F, N, 3)` spatial-coordinates array via `coords=` to skip the per-call forward kinematics. Useful when you need orientation axes across many frames:
+
+```python
+coords = bvh.spatial_coords()    # one FK pass
+forwards = [bvh.forward_at(f, coords=coords) for f in range(bvh.frame_count)]
+lefts    = [bvh.left_at(f,    coords=coords) for f in range(bvh.frame_count)]
+```
+
+## Rest-pose axes: rest_up and rest_forward
+
+`world_up` and `forward_at(frame)` are *animation*-derived — they read the actual joint positions at playback time. `rest_up` and `rest_forward` are *topology*-derived — they read only the rest-pose offsets, independent of any animation data:
+
+```python
+bvh.rest_up       # '+y' — skeleton's topological up axis
+bvh.rest_forward  # '+z' — skeleton's topological forward axis
+```
+
+On a clean BVH file, `rest_up == world_up` and `rest_forward` matches `forward_at(0)` when the root rotation at frame 0 is identity. When they disagree:
+
+- `rest_up != world_up` — the file was authored with the rest pose in one up convention and animated in another (the case that triggers the `UserWarning` at load time; fix with `reorient_rest_up`).
+- `rest_forward != forward_at(0)` — the character simply starts the animation facing a different direction from their rest pose. This is normal; `forward_at(0)` is what the viewer sees.
+
+Both properties are read-only. To actually change them, call the corresponding `reorient_*` method (see "Reorienting data" below) which rotates the rest-pose offsets and compensates joint rotations so FK positions are unchanged.
+
 ## Negative up axes
 
 `'-y'` means "more negative Y = higher". This is uncommon but valid. It affects:

@@ -13,7 +13,7 @@ import numpy.typing as npt
 
 from typing import TYPE_CHECKING
 
-from ._common import PALETTE_RGB, build_view_matrix, _UP_AXIS_INDEX
+from ._common import PALETTE_RGB, build_view_matrix, UP_AXIS_INDEX
 
 if TYPE_CHECKING:
     from ..bvh import Bvh
@@ -120,7 +120,7 @@ def play_k3d(
     # extends below the lowest joint. Otherwise the trail floats above the
     # visible grid floor and parallax makes it appear offset from its true
     # XY position when viewed from an oblique angle.
-    up_idx = _UP_AXIS_INDEX.get(up_axis, 2)
+    up_idx = UP_AXIS_INDEX.get(up_axis, 2)
     floor_level = float(center[up_idx] - half_span)
     trail_objects: list[k3d.objects.Line] = []
     trail_full_paths: list[npt.NDArray[np.float32]] = []

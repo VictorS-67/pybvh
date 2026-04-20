@@ -26,7 +26,7 @@ bvh.root_pos          # (F, 3) root translation
 bvh.joint_angles      # (F, J, 3) Euler angles in degrees
 
 # Convert to 6D rotation representation
-root_pos, rot6d, joints = bvh.to_6d()
+root_pos, rot6d = bvh.to_6d()
 
 # Export features for ML
 features = bvh.to_feature_array(representation="6d", include_velocities=True)

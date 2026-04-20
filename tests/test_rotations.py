@@ -311,15 +311,14 @@ class TestBvhRotationMethods:
 
     def test_to_rotmat_shape(self, bvh_example):
         """to_rotmat should return correct shapes."""
-        root_pos, joint_rotmats, joints = bvh_example.to_rotmat()
+        root_pos, joint_rotmats = bvh_example.to_rotmat()
         num_joints = len([n for n in bvh_example.nodes if not n.is_end_site()])
         assert root_pos.shape == (75, 3)
         assert joint_rotmats.shape == (75, num_joints, 3, 3)
-        assert len(joints) == num_joints
 
     def test_to_rotmat_orthogonal(self, bvh_example):
         """All output rotation matrices should be orthogonal."""
-        _, joint_rotmats, _ = bvh_example.to_rotmat()
+        _, joint_rotmats = bvh_example.to_rotmat()
         # Check a sample of matrices
         for f in [0, 10, 55]:
             for j in range(joint_rotmats.shape[1]):
@@ -329,26 +328,24 @@ class TestBvhRotationMethods:
 
     def test_to_6d_shape(self, bvh_example):
         """to_6d should return correct shapes."""
-        root_pos, joint_rot6d, joints = bvh_example.to_6d()
+        root_pos, joint_rot6d = bvh_example.to_6d()
         num_joints = len([n for n in bvh_example.nodes if not n.is_end_site()])
         assert root_pos.shape == (75, 3)
         assert joint_rot6d.shape == (75, num_joints, 6)
-        assert len(joints) == num_joints
 
     def test_to_quaternions_shape(self, bvh_example):
         """to_quaternions should return correct shapes."""
-        root_pos, joint_quats, joints = bvh_example.to_quaternions()
+        root_pos, joint_quats = bvh_example.to_quaternions()
         num_joints = len([n for n in bvh_example.nodes if not n.is_end_site()])
         assert root_pos.shape == (75, 3)
         assert joint_quats.shape == (75, num_joints, 4)
-        assert len(joints) == num_joints
 
     def test_6d_roundtrip_through_bvh(self, bvh_example):
         """Bvh → 6D → from_6d should preserve data."""
         original_root_pos = bvh_example.root_pos.copy()
         original_joint_angles = bvh_example.joint_angles.copy()
 
-        root_pos, joint_rot6d, _ = bvh_example.to_6d()
+        root_pos, joint_rot6d = bvh_example.to_6d()
         bvh_example.from_6d(root_pos, joint_rot6d, inplace=True)
 
         np.testing.assert_allclose(
@@ -363,7 +360,7 @@ class TestBvhRotationMethods:
         original_root_pos = bvh_example.root_pos.copy()
         original_joint_angles = bvh_example.joint_angles.copy()
 
-        root_pos, joint_quats, _ = bvh_example.to_quaternions()
+        root_pos, joint_quats = bvh_example.to_quaternions()
         bvh_example.from_quaternions(root_pos, joint_quats, inplace=True)
 
         np.testing.assert_allclose(
@@ -377,25 +374,20 @@ class TestBvhRotationMethods:
         """Spatial coordinates should be the same after 6D round-trip."""
         spatial_before = bvh_example.spatial_coords(centered="world")
 
-        root_pos, joint_rot6d, _ = bvh_example.to_6d()
+        root_pos, joint_rot6d = bvh_example.to_6d()
         bvh_example.from_6d(root_pos, joint_rot6d, inplace=True)
         spatial_after = bvh_example.spatial_coords(centered="world")
 
         np.testing.assert_allclose(spatial_after, spatial_before, atol=1e-4)
 
     def test_joint_names_match_nodes(self, bvh_example):
-        """Joint names from to_*/from_* should match node order."""
-        _, _, joints_6d = bvh_example.to_6d()
-        names_6d = [j.name for j in joints_6d]
-        _, _, joints_quat = bvh_example.to_quaternions()
-        names_quat = [j.name for j in joints_quat]
-        _, _, joints_romat = bvh_example.to_rotmat()
-        names_rotmat = [j.name for j in joints_romat]
-
+        """Joint order along axis 1 of to_*() output should match
+        ``bvh.joint_names`` (i.e. the skeleton's non-end-site joints in
+        depth-first order)."""
         expected = [n.name for n in bvh_example.nodes if not n.is_end_site()]
-        assert names_6d == expected
-        assert names_quat == expected
-        assert names_rotmat == expected
+        assert bvh_example.joint_names == expected
+        _, joint_rot6d = bvh_example.to_6d()
+        assert joint_rot6d.shape[1] == len(expected)
 
     def test_from_6d_wrong_joints_raises(self, bvh_example):
         """from_6d with wrong number of joints should raise."""
@@ -893,17 +885,16 @@ class TestBvhAxisAngleMethods:
 
     def test_to_axisangle_shape(self, bvh_example):
         """to_axisangle should return correct shapes."""
-        root_pos, joint_aa, joints = bvh_example.to_axisangle()
+        root_pos, joint_aa = bvh_example.to_axisangle()
         num_joints = len([n for n in bvh_example.nodes if not n.is_end_site()])
         assert root_pos.shape == (75, 3)
         assert joint_aa.shape == (75, num_joints, 3)
-        assert len(joints) == num_joints
 
     def test_axisangle_roundtrip_through_bvh(self, bvh_example):
         """Bvh → axis-angle → from_axisangle should preserve data."""
         original_root_pos = bvh_example.root_pos.copy()
         original_joint_angles = bvh_example.joint_angles.copy()
-        root_pos, joint_aa, _ = bvh_example.to_axisangle()
+        root_pos, joint_aa = bvh_example.to_axisangle()
         bvh_example.from_axisangle(root_pos, joint_aa, inplace=True)
         np.testing.assert_allclose(
             bvh_example.root_pos, original_root_pos, atol=1e-6,
@@ -915,17 +906,18 @@ class TestBvhAxisAngleMethods:
     def test_axisangle_preserves_spatial_coords(self, bvh_example):
         """Spatial coordinates should be the same after axis-angle round-trip."""
         spatial_before = bvh_example.spatial_coords(centered="world")
-        root_pos, joint_aa, _ = bvh_example.to_axisangle()
+        root_pos, joint_aa = bvh_example.to_axisangle()
         bvh_example.from_axisangle(root_pos, joint_aa, inplace=True)
         spatial_after = bvh_example.spatial_coords(centered="world")
         np.testing.assert_allclose(spatial_after, spatial_before, atol=1e-4)
 
     def test_joint_names_from_axisangle(self, bvh_example):
-        """Joints from to_axisangle should match node order."""
-        _, _, joints_aa = bvh_example.to_axisangle()
-        names_aa = [j.name for j in joints_aa]
+        """axis-angle output joint-axis length should match non-end-site
+        joint count (order is ``bvh.joint_names``)."""
         expected = [n.name for n in bvh_example.nodes if not n.is_end_site()]
-        assert names_aa == expected
+        assert bvh_example.joint_names == expected
+        _, joint_aa = bvh_example.to_axisangle()
+        assert joint_aa.shape[1] == len(expected)
 
     def test_from_axisangle_wrong_joints_raises(self, bvh_example):
         """from_axisangle with wrong number of joints should raise."""
@@ -966,7 +958,7 @@ class TestEulerOrderConversion:
         joint_name = 'Spine'
 
         # Get rotmats before
-        _, rotmats_before, _ = bvh.to_rotmat()
+        _, rotmats_before = bvh.to_rotmat()
         # Find Spine's index
         joints = [n for n in bvh.nodes if not n.is_end_site()]
         j_idx = [n.name for n in joints].index(joint_name)
@@ -974,7 +966,7 @@ class TestEulerOrderConversion:
         bvh.change_euler_order('XYZ', joint=joint_name, inplace=True)
 
         # Get rotmats after
-        _, rotmats_after, _ = bvh.to_rotmat()
+        _, rotmats_after = bvh.to_rotmat()
 
         np.testing.assert_allclose(
             rotmats_after[:, j_idx], rotmats_before[:, j_idx], atol=1e-10,
@@ -1058,10 +1050,10 @@ class TestEulerOrderConversion:
     def test_change_all_preserves_rotations(self, bvh_example):
         """Rotation matrices should be the same after changing all Euler orders."""
         bvh = bvh_example.copy()
-        _, rotmats_before, _ = bvh.to_rotmat()
+        _, rotmats_before = bvh.to_rotmat()
 
         bvh.change_euler_order('XYZ', inplace=True)
-        _, rotmats_after, _ = bvh.to_rotmat()
+        _, rotmats_after = bvh.to_rotmat()
 
         np.testing.assert_allclose(rotmats_after, rotmats_before, atol=1e-10)
 

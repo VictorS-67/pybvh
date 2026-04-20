@@ -1,0 +1,80 @@
+name: Tutorials
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - 'tutorials/**'
+      - 'pybvh/**'
+      - 'bvh_data/**'
+      - 'pyproject.toml'
+      - '.github/workflows/tutorials.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tutorials/**'
+      - 'pybvh/**'
+      - 'bvh_data/**'
+      - 'pyproject.toml'
+      - '.github/workflows/tutorials.yml'
+  workflow_dispatch:
+
+jobs:
+  execute-notebooks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MPLBACKEND: Agg
+      PYBVH_CI: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg xvfb libgl1 libglib2.0-0 libxrender1 libsm6
+
+      - name: Install pybvh with viz extras and nbmake
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[all-viz,pandas]" nbmake
+
+      # On PR, promote the `slow-on-pr` cell tag to `skip-execution` in the
+      # checked-out working copy, so slow render cells are skipped on PRs only.
+      # Tagged cells still run on push/manual dispatch.
+      - name: Skip slow-on-pr cells (PR only)
+        if: github.event_name == 'pull_request'
+        run: |
+          python - <<'EOF'
+          import nbformat
+          from pathlib import Path
+          for p in Path('tutorials').glob('*.ipynb'):
+              nb = nbformat.read(p, as_version=4)
+              changed = False
+              for c in nb.cells:
+                  tags = c.metadata.get('tags', [])
+                  if 'slow-on-pr' in tags and 'skip-execution' not in tags:
+                      tags.append('skip-execution')
+                      c.metadata['tags'] = tags
+                      changed = True
+              if changed:
+                  nbformat.write(nb, p)
+          EOF
+
+      - name: Execute tutorials
+        run: |
+          xvfb-run -a pytest --nbmake --nbmake-timeout=300 tutorials/
+
+      - name: Upload executed notebooks on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: executed-tutorials
+          path: tutorials/*.ipynb
+          retention-days: 7

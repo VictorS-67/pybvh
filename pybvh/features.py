@@ -6,6 +6,8 @@ to these functions.
 """
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import numpy.typing as npt
 
@@ -17,13 +19,33 @@ from . import rotations
 #  Joint velocities & accelerations
 # ----------------------------------------------------------------
 
+def _validate_stencil_pad(stencil: str, pad: str) -> None:
+    if stencil not in ("central", "forward"):
+        raise ValueError(
+            f"stencil must be 'central' or 'forward', got {stencil!r}")
+    if pad not in ("edge", "none"):
+        raise ValueError(f"pad must be 'edge' or 'none', got {pad!r}")
+
+
 def joint_velocities(
     bvh: Bvh,
     centered: str = "world",
     in_frames: bool = False,
     coords: npt.NDArray[np.float64] | None = None,
+    stencil: str = "central",
+    pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
-    """Compute per-joint position velocities via finite differences.
+    """Compute per-joint position velocities.
+
+    Two orthogonal choices:
+
+    * ``stencil`` picks the finite-difference method — central
+      (second-order accurate, symmetric) or forward (first-order,
+      causal).
+    * ``pad`` picks the boundary-handling convention — ``"edge"``
+      fills the boundary so the output has the same shape as the
+      input; ``"none"`` drops the boundary frames that the stencil
+      can't define.
 
     Parameters
     ----------
@@ -31,28 +53,57 @@ def joint_velocities(
         Input motion.
     centered : str, optional
         Coordinate centering mode (default ``"world"``).
-        Ignored if *coords* is provided.
+        **Ignored if `coords` is provided** — `coords` takes precedence.
     in_frames : bool, optional
         If True, return velocity in units/frame.
         If False (default), return velocity in units/second.
     coords : ndarray, shape (F, N, 3), optional
         Pre-computed spatial coordinates. If None, computed
         internally via :meth:`Bvh.spatial_coords`.
+    stencil : {"central", "forward"}, optional
+        ``"central"`` (default): ``v[i] = (pos[i+1] - pos[i-1]) / (2·dt)``.
+        Second-order accurate at interior frames.  ``"forward"``:
+        ``v[i] = (pos[i+1] - pos[i]) / dt``.  First-order accurate;
+        matches the convention common in many ML papers.
+    pad : {"edge", "none"}, optional
+        ``"edge"`` (default): output shape equals input shape
+        ``(F, N, 3)``.  For ``stencil="central"`` the first/last
+        frames use a one-sided difference (``np.gradient`` template);
+        for ``stencil="forward"`` the trailing frame replicates the
+        last valid forward-diff value.
+        ``"none"``: drop boundary frames where the stencil is
+        undefined — shape ``(F-2, N, 3)`` for central,
+        ``(F-1, N, 3)`` for forward.
 
     Returns
     -------
-    ndarray, shape (F-1, N, 3)
-        Velocity of each node between consecutive frames.
+    ndarray
+        Shape depends on ``stencil`` × ``pad``:
+
+        =========  ======  ================
+        stencil    pad     shape
+        =========  ======  ================
+        central    edge    ``(F, N, 3)``
+        central    none    ``(F-2, N, 3)``
+        forward    edge    ``(F, N, 3)``
+        forward    none    ``(F-1, N, 3)``
+        =========  ======  ================
 
     Raises
     ------
     ValueError
-        If fewer than 2 frames, or ``frame_time == 0``
-        when ``in_frames=False``.
+        If the clip is too short for the chosen combination,
+        ``frame_time == 0`` when ``in_frames=False``, or either
+        parameter is invalid.  ``stencil="central"`` requires at
+        least 3 frames; ``stencil="forward"`` requires at least 2.
     """
-    if bvh.frame_count < 2:
+    _validate_stencil_pad(stencil, pad)
+    min_frames = 3 if stencil == "central" else 2
+    if bvh.frame_count < min_frames:
         raise ValueError(
-            "At least 2 frames are required to compute velocities.")
+            f"stencil={stencil!r} requires at least {min_frames} frames "
+            f"to compute velocities (have {bvh.frame_count})."
+        )
     if not in_frames and bvh.frame_time == 0:
         raise ValueError(
             "frame_time is 0; cannot compute per-second velocity. "
@@ -61,12 +112,19 @@ def joint_velocities(
     if coords is None:
         coords = bvh.spatial_coords(centered=centered)
 
-    vel = coords[1:] - coords[:-1]  # (F-1, N, 3)
+    dt = 1.0 if in_frames else bvh.frame_time
 
-    if not in_frames:
-        vel = vel / bvh.frame_time
+    if stencil == "central":
+        central = np.gradient(coords, dt, axis=0)  # (F, N, 3)
+        return central if pad == "edge" else central[1:-1]  # (F-2, N, 3)
 
-    return vel
+    # stencil == "forward"
+    fd = (coords[1:] - coords[:-1]) / dt  # (F-1, N, 3)
+    if pad == "edge":
+        # Replicate the last forward value (equivalent to backward
+        # diff at frame F-1 under the same stencil assumption).
+        return np.concatenate([fd, fd[-1:]], axis=0)  # (F, N, 3)
+    return fd  # (F-1, N, 3)
 
 
 def joint_accelerations(
@@ -74,8 +132,12 @@ def joint_accelerations(
     centered: str = "world",
     in_frames: bool = False,
     coords: npt.NDArray[np.float64] | None = None,
+    stencil: str = "central",
+    pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
-    """Compute per-joint position accelerations via second-order finite differences.
+    """Compute per-joint position accelerations.
+
+    Applies the chosen ``stencil`` twice to the input positions.
 
     Parameters
     ----------
@@ -83,39 +145,79 @@ def joint_accelerations(
         Input motion.
     centered : str, optional
         Coordinate centering mode (default ``"world"``).
-        Ignored if *coords* is provided.
+        **Ignored if `coords` is provided** — `coords` takes precedence.
     in_frames : bool, optional
         If True, return acceleration in units/frame^2.
         If False (default), return in units/second^2.
     coords : ndarray, shape (F, N, 3), optional
         Pre-computed spatial coordinates. If None, computed
         internally via :meth:`Bvh.spatial_coords`.
+    stencil : {"central", "forward"}, optional
+        Finite-difference method applied twice.  Default ``"central"``.
+    pad : {"edge", "none"}, optional
+        Boundary handling.  ``"edge"`` (default): output shape equals
+        input shape ``(F, N, 3)``.  ``"none"``: drop boundary frames
+        the stencil can't define — central drops 4 frames total
+        ``(F-4, N, 3)``; forward drops 2 ``(F-2, N, 3)``.
 
     Returns
     -------
-    ndarray, shape (F-2, N, 3)
-        Acceleration of each node.
+    ndarray
+        Shape depends on ``stencil`` × ``pad``:
+
+        =========  ======  ================
+        stencil    pad     shape
+        =========  ======  ================
+        central    edge    ``(F, N, 3)``
+        central    none    ``(F-4, N, 3)``
+        forward    edge    ``(F, N, 3)``
+        forward    none    ``(F-2, N, 3)``
+        =========  ======  ================
+
+    Composition identity: ``np.gradient(joint_velocities(), dt)`` equals
+    ``joint_accelerations()`` exactly under the defaults
+    (``stencil="central"``, ``pad="edge"``).  Not guaranteed for other
+    combinations.
 
     Raises
     ------
     ValueError
-        If fewer than 3 frames, or ``frame_time == 0``
-        when ``in_frames=False``.
+        If the clip is too short for the chosen combination,
+        ``frame_time == 0`` when ``in_frames=False``, or either
+        parameter is invalid.  Minimum frames: 3 for
+        ``central``+``edge``, ``forward``+``edge``, and
+        ``forward``+``none``; 5 for ``central``+``none``.
     """
-    if bvh.frame_count < 3:
+    _validate_stencil_pad(stencil, pad)
+    min_frames = 5 if (stencil == "central" and pad == "none") else 3
+    if bvh.frame_count < min_frames:
         raise ValueError(
-            "At least 3 frames are required to compute accelerations.")
+            f"stencil={stencil!r}, pad={pad!r} requires at least "
+            f"{min_frames} frames (have {bvh.frame_count})."
+        )
     if not in_frames and bvh.frame_time == 0:
         raise ValueError(
             "frame_time is 0; cannot compute per-second acceleration. "
             "Use in_frames=True for per-frame acceleration.")
 
-    vel = joint_velocities(bvh, centered=centered, in_frames=True, coords=coords)
-    acc = vel[1:] - vel[:-1]  # (F-2, N, 3)
+    if coords is None:
+        coords = bvh.spatial_coords(centered=centered)
 
-    if not in_frames:
-        acc = acc / (bvh.frame_time ** 2)
+    dt = 1.0 if in_frames else bvh.frame_time
 
+    if stencil == "central":
+        # np.gradient twice — preserves the composition identity with
+        # joint_velocities(stencil="central", pad="edge").
+        central = np.gradient(
+            np.gradient(coords, dt, axis=0), dt, axis=0)  # (F, N, 3)
+        return central if pad == "edge" else central[2:-2]  # (F-4, N, 3)
+
+    # stencil == "forward": forward-forward
+    vel = (coords[1:] - coords[:-1]) / dt      # (F-1, N, 3)
+    acc = (vel[1:] - vel[:-1]) / dt            # (F-2, N, 3)
+    if pad == "edge":
+        # Replicate last value twice to reach F
+        return np.concatenate([acc, acc[-1:], acc[-1:]], axis=0)
     return acc
 
 
@@ -126,92 +228,117 @@ def joint_accelerations(
 def angular_velocities(
     bvh: Bvh,
     in_frames: bool = False,
+    stencil: str = "central",
+    pad: str = "edge",
+    degrees: bool = False,
 ) -> npt.NDArray[np.float64]:
     """Compute per-joint angular velocities via rotation matrix log map.
-
-    For each consecutive frame pair, computes the relative rotation
-    ``R_rel = R_t^T @ R_{t+1}`` and converts to axis-angle, giving
-    an angular velocity vector whose norm is the rotation angle.
 
     Parameters
     ----------
     bvh : Bvh
         Input motion.
     in_frames : bool, optional
-        If True, return angular velocity in radians/frame.
-        If False (default), return in radians/second.
+        If True, return angular velocity in radians/frame (or
+        degrees/frame if ``degrees=True``).
+        If False (default), return in radians/second (or degrees/
+        second if ``degrees=True``).
+    degrees : bool, optional
+        If True, convert the final output from radians to degrees.
+        Default False (radians).  Consistent with the ``degrees=``
+        flag on :mod:`pybvh.rotations` functions.
+    stencil : {"central", "forward"}, optional
+        ``"central"`` (default): two-step relative rotation
+        ``R_rel = R_{i-1}^T @ R_{i+1}``, ``ω[i] = log(R_rel) / 2``.
+        Spans ``2·dt`` so the short-way angle cap is 360°/frame.
+        ``"forward"``: one-step ``ω[i] = log(R_i^T @ R_{i+1})``.
+        Spans ``dt`` so the cap is 180°/frame; matches the common
+        one-step-rotation convention in motion capture literature.
+    pad : {"edge", "none"}, optional
+        ``"edge"`` (default): output shape ``(F, J, 3)``.  For
+        ``stencil="central"`` the first/last frames use a one-sided
+        one-step forward/backward rotation (same template as
+        ``np.gradient``); for ``stencil="forward"`` the trailing
+        frame replicates the last valid forward value.
+        ``"none"``: drop boundary frames the stencil can't define —
+        central returns ``(F-2, J, 3)``, forward returns
+        ``(F-1, J, 3)``.
 
     Returns
     -------
-    ndarray, shape (F-1, J, 3)
-        Angular velocity vector per joint per frame transition.
-        The direction is the rotation axis; the magnitude is the
-        rotation angle (in radians or radians/second).
+    ndarray
+        Shape depends on ``stencil`` × ``pad``:
+
+        =========  ======  ================
+        stencil    pad     shape
+        =========  ======  ================
+        central    edge    ``(F, J, 3)``
+        central    none    ``(F-2, J, 3)``
+        forward    edge    ``(F, J, 3)``
+        forward    none    ``(F-1, J, 3)``
+        =========  ======  ================
+
+        Direction is the rotation axis; magnitude is the rotation
+        angle (radians or radians/second).  Angles are clamped to
+        ``[0, π]`` — rotations exceeding the short-way angle wrap.
 
     Raises
     ------
     ValueError
-        If fewer than 2 frames, or ``frame_time == 0``
-        when ``in_frames=False``.
+        If fewer than 2 frames (``stencil="forward"``) or 3 frames
+        (``stencil="central"``), ``frame_time == 0`` when
+        ``in_frames=False``, or either parameter is invalid.
     """
-    if bvh.frame_count < 2:
+    _validate_stencil_pad(stencil, pad)
+    min_frames = 3 if stencil == "central" else 2
+    if bvh.frame_count < min_frames:
         raise ValueError(
-            "At least 2 frames are required to compute angular velocities.")
+            f"stencil={stencil!r} requires at least {min_frames} frames "
+            f"(have {bvh.frame_count})."
+        )
     if not in_frames and bvh.frame_time == 0:
         raise ValueError(
             "frame_time is 0; cannot compute per-second angular velocity. "
             "Use in_frames=True for per-frame angular velocity.")
 
-    _, joint_rotmats, _ = bvh.to_rotmat()  # (F, J, 3, 3)
+    _, R = bvh.to_rotmat()  # (F, J, 3, 3)
+    F = R.shape[0]
 
-    # R_rel = R_t^T @ R_{t+1}  for each consecutive pair
-    R_t = joint_rotmats[:-1]      # (F-1, J, 3, 3)
-    R_t1 = joint_rotmats[1:]      # (F-1, J, 3, 3)
-    R_rel = np.einsum('...ji,...jk->...ik', R_t, R_t1)  # transpose + matmul
+    if stencil == "forward":
+        # ω[i] = log(R_i^T @ R_{i+1})
+        R_rel = np.einsum('...ji,...jk->...ik', R[:-1], R[1:])  # (F-1, J, 3, 3)
+        ang_vel = rotations.rotmat_to_axisangle(R_rel)          # radians/frame
+        if pad == "edge":
+            ang_vel = np.concatenate([ang_vel, ang_vel[-1:]], axis=0)  # (F, J, 3)
+        if not in_frames:
+            ang_vel = ang_vel / bvh.frame_time
+        if degrees:
+            ang_vel = np.degrees(ang_vel)
+        return ang_vel
 
-    ang_vel = rotations.rotmat_to_axisangle(R_rel)  # (F-1, J, 3)
+    # stencil == "central": two-step ω[i] = log(R_{i-1}^T R_{i+1}) / 2
+    R_rel_central = np.einsum('...ji,...jk->...ik', R[:-2], R[2:])  # (F-2, J, 3, 3)
+    omega_central = rotations.rotmat_to_axisangle(R_rel_central) / 2.0  # rad/frame
 
+    if pad == "none":
+        if not in_frames:
+            omega_central = omega_central / bvh.frame_time
+        if degrees:
+            omega_central = np.degrees(omega_central)
+        return omega_central  # (F-2, J, 3)
+
+    # pad == "edge": one-sided forward/backward at boundaries
+    omega = np.empty((F,) + R.shape[1:-2] + (3,), dtype=np.float64)
+    omega[1:-1] = omega_central
+    R_rel_first = np.einsum('...ji,...jk->...ik', R[0:1], R[1:2])
+    omega[0:1] = rotations.rotmat_to_axisangle(R_rel_first)
+    R_rel_last = np.einsum('...ji,...jk->...ik', R[-2:-1], R[-1:])
+    omega[-1:] = rotations.rotmat_to_axisangle(R_rel_last)
     if not in_frames:
-        ang_vel = ang_vel / bvh.frame_time
-
-    return ang_vel
-
-
-# ----------------------------------------------------------------
-#  Root-relative positions
-# ----------------------------------------------------------------
-
-def root_relative_positions(
-    bvh: Bvh,
-    centered: str = "world",
-    coords: npt.NDArray[np.float64] | None = None,
-) -> npt.NDArray[np.float64]:
-    """Compute joint positions relative to the root at each frame.
-
-    Unlike ``centered="skeleton"`` which places the root at the
-    world origin for all frames, this subtracts the root's position
-    per frame, preserving the relative pose of the skeleton.
-
-    Parameters
-    ----------
-    bvh : Bvh
-        Input motion.
-    centered : str, optional
-        Coordinate centering mode (default ``"world"``).
-        Ignored if *coords* is provided.
-    coords : ndarray, shape (F, N, 3), optional
-        Pre-computed spatial coordinates.
-
-    Returns
-    -------
-    ndarray, shape (F, N, 3)
-        Positions of all nodes relative to the root each frame.
-        The root node (index 0) will be ``(0, 0, 0)`` in every frame.
-    """
-    if coords is None:
-        coords = bvh.spatial_coords(centered=centered)
-
-    return coords - coords[:, 0:1, :]  # broadcast root position
+        omega = omega / bvh.frame_time
+    if degrees:
+        omega = np.degrees(omega)
+    return omega  # (F, J, 3)
 
 
 # ----------------------------------------------------------------
@@ -221,12 +348,23 @@ def root_relative_positions(
 def root_trajectory(
     bvh: Bvh,
     up_axis: str | None = None,
+    include_velocities: bool = False,
+    stencil: str = "central",
+    pad: str = "edge",
+    degrees: bool = False,
 ) -> npt.NDArray[np.float64]:
     """Extract root trajectory features commonly used in motion ML.
 
-    Returns the root's ground-plane position, heading angle, and
-    their velocities — the standard root representation in
-    HumanML3D-style pipelines.
+    Returns the root's ground-plane position and heading angle (as
+    ``sin``/``cos`` pair).  Optionally appends ground-plane and
+    heading velocities.
+
+    The heading reference is the **rest-pose forward direction** —
+    derived from the skeleton's L/R lateral geometry crossed with
+    ``world_up`` (see :func:`pybvh.tools._compute_forward_at`).  This
+    means "heading = rest-pose forward" at any frame whose root
+    rotation is identity, regardless of what rotation the clip
+    starts with.
 
     Parameters
     ----------
@@ -234,55 +372,113 @@ def root_trajectory(
         Input motion.
     up_axis : str or None, optional
         Signed axis string (e.g. ``'+y'``, ``'+z'``). If None,
-        auto-detected from the rest pose.
+        uses ``bvh.world_up``.
+    include_velocities : bool, optional
+        If True, append ``[ground_a_vel, ground_b_vel, heading_vel]``
+        to the output. Velocities are in coordinate-units/second and
+        radians/second (heading is unwrapped before differentiating
+        to avoid ±π jumps).
+    stencil, pad : optional
+        Only used with ``include_velocities=True``.  Same semantics
+        as :func:`joint_velocities` — see that docstring for the full
+        matrix.  Default ``stencil="central", pad="edge"`` returns
+        shape ``(F, 7)``; ``stencil="forward", pad="none"`` returns
+        ``(F-1, 7)``; ``stencil="central", pad="none"`` returns
+        ``(F-2, 7)``.
+    degrees : bool, optional
+        If True, convert the ``heading_vel`` column from
+        radians/second to degrees/second.  Default False (radians).
+        ``ground_*_vel`` columns are linear positions per second and
+        are unaffected.  Only used when ``include_velocities=True``.
 
     Returns
     -------
-    ndarray, shape (F, 4)
-        Columns: ``[ground_pos_a, ground_pos_b, heading_sin, heading_cos]``
-        where a and b are the two ground-plane axes (non-up axes
-        in order x, y, z with up removed).
+    ndarray
+        Shape ``(F, 4)`` when ``include_velocities=False``.  When
+        ``include_velocities=True`` the trailing 3 columns are
+        ``[ground_a_vel, ground_b_vel, heading_vel]`` and the leading
+        4-column base is trimmed to match the chosen ``stencil`` ×
+        ``pad`` shape.
 
-    Notes
-    -----
-    The heading angle is extracted from the root joint's rotation
-    matrix projected onto the ground plane. The heading is defined
-    as the rotation around the up axis.
+        Columns: ``[ground_pos_a, ground_pos_b, heading_sin, heading_cos]``,
+        optionally followed by ``[ground_a_vel, ground_b_vel, heading_vel]``.
+        ``a`` and ``b`` are the two ground-plane axes (non-up axes in
+        the natural ``x, y, z`` order with the up axis removed).
     """
-    # Determine up axis — honor the Bvh's world_up (auto-detected or
-    # manually overridden) when the caller did not specify one.
-    if up_axis is None:
-        up_idx = {'x': 0, 'y': 1, 'z': 2}[bvh.world_up[1]]
-    else:
-        up_idx = {'x': 0, 'y': 1, 'z': 2}[up_axis[1]]
+    from .tools import _compute_forward_at, _axis_to_vector
 
-    # Ground-plane axes (the two non-up axes, in order)
+    # Resolve up axis (honors bvh.world_up by default)
+    up_str = bvh.world_up if up_axis is None else up_axis
+    up_idx = {'x': 0, 'y': 1, 'z': 2}[up_str[1]]
     ground_axes = [i for i in range(3) if i != up_idx]
 
-    # Root ground-plane position: (F, 2)
-    ground_pos = bvh.root_pos[:, ground_axes]
+    # Rest-pose forward direction — independent of animation start
+    rest_coords = bvh.rest_pose_coords()
+    fwd_axis = _compute_forward_at(bvh, rest_coords, up_str)
+    fwd_rest = _axis_to_vector(fwd_axis)  # (3,) unit vector
 
-    # Root heading: extract from root rotation matrix
+    # Root rotation over time
     root_joint = bvh.nodes[0]
-    root_angles = bvh.joint_angles[:, 0]  # (F, 3) degrees
+    root_angles = bvh.joint_angles[:, 0]
     root_order = root_joint.rot_channels  # type: ignore[attr-defined]
-    R_root = rotations.euler_to_rotmat(root_angles, root_order, degrees=True)  # (F, 3, 3)
+    R_root = rotations.euler_to_rotmat(root_angles, root_order, degrees=True)
 
-    # Heading = rotation around up axis
-    # Project the forward direction through the rotation matrix
-    # Use the column of R corresponding to the first ground axis
-    # The heading angle is atan2 of the projected forward direction
-    fwd_idx = ground_axes[0]
-    # Forward vector after rotation: R @ e_fwd, projected onto ground plane
-    fwd_rotated_a = R_root[:, ground_axes[0], fwd_idx]  # component along first ground axis
-    fwd_rotated_b = R_root[:, ground_axes[1], fwd_idx]  # component along second ground axis
-    heading = np.arctan2(fwd_rotated_b, fwd_rotated_a)  # (F,)
+    # World-space forward at each frame = R_root @ rest_forward
+    fwd_world = np.einsum('fij,j->fi', R_root, fwd_rest)  # (F, 3)
 
-    return np.column_stack([
-        ground_pos,           # (F, 2)
-        np.sin(heading),      # (F,)
-        np.cos(heading),      # (F,)
-    ])
+    ground_pos = bvh.root_pos[:, ground_axes]  # (F, 2)
+    heading = np.arctan2(fwd_world[:, ground_axes[1]],
+                         fwd_world[:, ground_axes[0]])  # (F,)
+
+    base = np.column_stack([
+        ground_pos,
+        np.sin(heading),
+        np.cos(heading),
+    ])  # (F, 4)
+
+    if not include_velocities:
+        return base
+
+    _validate_stencil_pad(stencil, pad)
+    if bvh.frame_time == 0:
+        raise ValueError(
+            "frame_time is 0; cannot compute root_trajectory velocities. "
+            "Set bvh.frame_time to a non-zero value first."
+        )
+    min_frames = 3 if stencil == "central" else 2
+    if bvh.frame_count < min_frames:
+        raise ValueError(
+            f"stencil={stencil!r} requires at least {min_frames} frames "
+            f"(have {bvh.frame_count})."
+        )
+
+    dt = bvh.frame_time
+    heading_unwrapped = np.unwrap(heading)
+
+    if stencil == "central":
+        if pad == "edge":
+            ground_vel = np.gradient(ground_pos, dt, axis=0)         # (F, 2)
+            heading_vel = np.gradient(heading_unwrapped, dt)         # (F,)
+            base_aligned = base                                       # (F, 4)
+        else:  # pad == "none": strict central, drop first and last
+            ground_vel = (ground_pos[2:] - ground_pos[:-2]) / (2.0 * dt)          # (F-2, 2)
+            heading_vel = (heading_unwrapped[2:] - heading_unwrapped[:-2]) / (2.0 * dt)  # (F-2,)
+            base_aligned = base[1:-1]                                              # (F-2, 4)
+    else:  # stencil == "forward"
+        ground_fd = (ground_pos[1:] - ground_pos[:-1]) / dt                        # (F-1, 2)
+        heading_fd = (heading_unwrapped[1:] - heading_unwrapped[:-1]) / dt         # (F-1,)
+        if pad == "edge":
+            ground_vel = np.concatenate([ground_fd, ground_fd[-1:]], axis=0)       # (F, 2)
+            heading_vel = np.concatenate([heading_fd, heading_fd[-1:]])            # (F,)
+            base_aligned = base                                                    # (F, 4)
+        else:  # pad == "none": existing "drop first frame" convention for forward
+            ground_vel = ground_fd                                                 # (F-1, 2)
+            heading_vel = heading_fd                                               # (F-1,)
+            base_aligned = base[1:]                                                # (F-1, 4)
+
+    if degrees:
+        heading_vel = np.degrees(heading_vel)
+    return np.column_stack([base_aligned, ground_vel, heading_vel])
 
 
 # ----------------------------------------------------------------
@@ -292,111 +488,521 @@ def root_trajectory(
 def foot_contacts(
     bvh: Bvh,
     foot_joints: list[str] | None = None,
-    method: str = "velocity",
-    threshold: float | None = None,
+    method: str = "combined",
     centered: str = "world",
     coords: npt.NDArray[np.float64] | None = None,
-) -> npt.NDArray[np.float64]:
+    *,
+    vel_threshold: float | None = None,
+    height_threshold: float | None = None,
+    floor: float | str = "auto",
+    min_contact_duration: float = 0.1,
+    min_gap_duration: float = 0.1,
+    return_info: bool = False,
+) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
     """Detect binary foot contact labels per frame.
+
+    The default combines a velocity check (foot not moving) **and** a
+    height check (foot near the ground) following the HuMoR heuristic
+    — each signal catches a different failure mode of the other.
+    ``method="velocity"`` and ``method="height"`` remain available as
+    single-signal escape hatches.
 
     Parameters
     ----------
     bvh : Bvh
         Input motion.
     foot_joints : list of str or None, optional
-        Joint names to use as foot markers. If None,
-        auto-detects by searching for joints with "foot" or
-        "toe" in the name (case-insensitive).
-    method : str, optional
-        Detection method: ``"velocity"`` (default) thresholds
-        the speed of the foot joints, ``"height"`` thresholds
-        the foot joint height above the ground plane.
-    threshold : float or None, optional
-        Detection threshold. If None, defaults to ``0.5``
-        for ``"velocity"`` (units/frame) or auto-calibrated
-        for ``"height"`` (5th percentile of foot heights).
+        Explicit foot joints (recommended). If None, falls back to
+        :func:`auto_detect_foot_joints` which matches ``"foot"``/
+        ``"toe"`` substrings then filters by skeletal topology.
+    method : {"combined", "velocity", "height"}, optional
+        ``"combined"`` (default): foot is in contact when speed is
+        below ``vel_threshold`` **and** height above floor is below
+        ``height_threshold``.  ``"velocity"`` / ``"height"``: single
+        signal.
     centered : str, optional
         Coordinate centering mode (default ``"world"``).
-        Ignored if *coords* is provided.
+        **Ignored if `coords` is provided** — `coords` takes precedence.
     coords : ndarray, shape (F, N, 3), optional
         Pre-computed spatial coordinates.
+    vel_threshold : float or None, keyword-only, optional
+        Speed threshold in world units per frame.  Defaults to
+        ``0.004 × skeleton_scale`` where ``skeleton_scale`` is the
+        mean rest-pose distance from the root to the foot joints.
+        Scale-invariant across cm- and m-scale skeletons, and
+        unaffected by finger/spine subdivision (unlike a
+        median-bone-length reference, which shrinks when a skeleton
+        has many short finger bones).
+    height_threshold : float or None, keyword-only, optional
+        Clearance above the estimated floor, in world units.  Defaults
+        to ``0.013 × skeleton_scale``.  A foot is "low enough" when
+        ``foot_height − floor < height_threshold``.
+    floor : float or ``"auto"``, keyword-only, optional
+        Floor height along the raw ``world_up`` axis.  ``"auto"``
+        (default) estimates it as the 2nd percentile of the per-frame
+        minimum foot height.  Pass a float to pin the floor explicitly
+        (e.g. ``floor=0.0`` when the rig is already ground-aligned).
+    min_contact_duration : float, keyword-only, optional
+        Morphological open: contact runs shorter than this many
+        **seconds** are set to 0.  Default ``0.1`` s (3 frames at
+        30 fps) — removes contact flickers shorter than 100 ms, which
+        are physically implausible.  Set to ``0.0`` to disable.
+        Internally converted to frames via
+        ``max(1, round(duration / frame_time))``.
+    min_gap_duration : float, keyword-only, optional
+        Morphological close: non-contact gaps shorter than this many
+        **seconds** are filled (set to 1).  Default ``0.1`` s —
+        bridges short interruptions in an otherwise continuous contact
+        phase, catching pivot-foot artefacts where the joint briefly
+        exceeds the velocity threshold even though the physical foot
+        is planted.  Set to ``0.0`` to disable.
+    return_info : bool, keyword-only, optional
+        If True, return ``(contacts, info)`` where ``info`` is a dict
+        holding the detected joints, the thresholds actually applied,
+        the estimated floor, the skeleton scale used for auto-
+        calibration, and the method used.  Useful for debugging and
+        for downstream pipelines that need to record the detection
+        parameters.  ``"skeleton_scale"`` is only present when
+        auto-calibration ran (i.e., at least one threshold was left
+        at its default).
 
     Returns
     -------
-    ndarray, shape (F, num_foot_joints)
+    ndarray of shape ``(F, num_foot_joints)``, or
+    tuple ``(ndarray, dict)`` when ``return_info=True``.
         Binary contact labels (1.0 = contact, 0.0 = no contact).
-        For ``"velocity"`` method, the first frame is always 1.0
-        since velocity is undefined.
+        For ``"velocity"``/``"combined"``, frame 0 is propagated from
+        frame 1 because velocity is undefined at frame 0.  Column
+        order matches ``foot_joints`` (or, for auto-detection, the
+        order returned by :func:`auto_detect_foot_joints`).
 
     Raises
     ------
     ValueError
-        If no foot joints are found or specified, or if method
-        is unknown.
+        - If ``method`` is unknown.
+        - If ``floor`` is a string other than ``"auto"``.
+        - If no foot joints can be found or any named joint is
+          missing from the skeleton.
+        - When the height signal is involved and ``bvh.world_up`` is
+          inconsistent with rest-pose geometry (feet above hips).
     """
-    if method not in ("velocity", "height"):
+    if method not in ("velocity", "height", "combined"):
         raise ValueError(
-            f"Unknown method '{method}'. Choose 'velocity' or 'height'.")
+            f"Unknown method {method!r}. "
+            f"Choose 'combined', 'velocity', or 'height'.")
+
+    if isinstance(floor, str) and floor != "auto":
+        raise ValueError(
+            f"floor must be 'auto' or a float, got {floor!r}")
 
     if coords is None:
         coords = bvh.spatial_coords(centered=centered)
 
-    # Auto-detect foot joints
+    up_sign = 1 if bvh.world_up[0] == '+' else -1
+    up_idx = {'x': 0, 'y': 1, 'z': 2}[bvh.world_up[1]]
+
+    # Rest-pose coords are used by auto-detect and by the height-signal
+    # sanity check; compute once, reuse.
+    rest_coords: npt.NDArray[np.float64] | None = None
+
     if foot_joints is None:
-        foot_joints = []
-        for node in bvh.nodes:
-            name_lower = node.name.lower()
-            if any(kw in name_lower for kw in ("foot", "toe")):
-                if not node.is_end_site():
-                    foot_joints.append(node.name)
+        rest_coords = bvh.rest_pose_coords()
+        foot_joints = auto_detect_foot_joints(bvh, _rest_coords=rest_coords)
         if not foot_joints:
             raise ValueError(
                 "Could not auto-detect foot joints. Please provide "
                 "foot_joints explicitly (e.g. ['LeftFoot', 'RightFoot']).")
 
-    # Get indices into the spatial coord array
-    foot_indices = []
+    foot_indices: list[int] = []
     for name in foot_joints:
         if name not in bvh.node_index:
-            raise ValueError(f"Joint '{name}' not found in skeleton.")
+            raise ValueError(f"Joint {name!r} not found in skeleton.")
         foot_indices.append(bvh.node_index[name])
 
     foot_coords = coords[:, foot_indices, :]  # (F, num_feet, 3)
+    num_feet = len(foot_joints)
+    F = bvh.frame_count
 
+    needs_vel = method in ("velocity", "combined")
+    needs_height = method in ("height", "combined")
+
+    # Rest-pose coords drive both the skeleton-scale estimate and the
+    # height-signal sanity check.  Compute once, reuse.
+    needs_scale = (
+        (needs_vel and vel_threshold is None)
+        or (needs_height and height_threshold is None)
+    )
+    if (needs_height or needs_scale) and rest_coords is None:
+        rest_coords = bvh.rest_pose_coords()
+
+    scale: float | None = None
+    if needs_scale:
+        assert rest_coords is not None
+        scale = _skeleton_scale(rest_coords, foot_indices)
+
+    # ---- Sanity check for the height signal ----
+    if needs_height:
+        assert rest_coords is not None
+        rest_foot_height = (
+            rest_coords[foot_indices, up_idx].mean() * up_sign
+        )
+        rest_hip_height = rest_coords[0, up_idx] * up_sign
+        if rest_foot_height > rest_hip_height:
+            raise ValueError(
+                f"world_up={bvh.world_up!r} is inconsistent with rest-pose "
+                f"geometry: feet are above hips along the declared up axis "
+                f"({rest_foot_height:.3f} vs {rest_hip_height:.3f}). "
+                f"`bvh.world_up` was likely auto-detected incorrectly; set "
+                f"it manually with `bvh.world_up = '<axis>'`."
+            )
+
+    # ---- Velocity signal ----
+    vel_mask: npt.NDArray[np.bool_] | None = None
+    vel_thr_used: float | None = None
+    if needs_vel:
+        if vel_threshold is None:
+            assert scale is not None
+            # 0.4% of the root-to-foot rest distance per frame.
+            # Reverse-engineered from HuMoR-equivalent + pivot-foot tolerance
+            # on real BVH clips.
+            vel_threshold = 0.004 * scale
+        vel_thr_used = float(vel_threshold)
+        if F < 2:
+            # No motion info available — treat as "no velocity evidence
+            # against contact" so combined falls back to the height signal.
+            vel_mask = np.ones((F, num_feet), dtype=bool)
+        else:
+            foot_vel = foot_coords[1:] - foot_coords[:-1]  # (F-1, nf, 3)
+            speed = np.linalg.norm(foot_vel, axis=-1)       # (F-1, nf)
+            inner = speed < vel_threshold
+            # Propagate frame 0 from frame 1 (velocity undefined at frame 0)
+            vel_mask = np.concatenate([inner[0:1], inner], axis=0)
+
+    # ---- Height signal ----
+    height_mask: npt.NDArray[np.bool_] | None = None
+    height_thr_used: float | None = None
+    floor_raw: float | None = None
+    if needs_height:
+        heights_signed = foot_coords[:, :, up_idx] * up_sign  # up-positive
+        if isinstance(floor, str):
+            floor_signed = _estimate_floor(heights_signed)
+        else:
+            floor_signed = float(floor) * up_sign
+        floor_raw = float(floor_signed * up_sign)
+        if height_threshold is None:
+            assert scale is not None
+            # ~1.3% of root-to-foot rest distance above floor.
+            height_threshold = 0.013 * scale
+        height_thr_used = float(height_threshold)
+        height_mask = (heights_signed - floor_signed) < height_threshold
+
+    # ---- Combine ----
     if method == "velocity":
-        if threshold is None:
-            threshold = 0.5  # units/frame
+        assert vel_mask is not None
+        mask = vel_mask
+    elif method == "height":
+        assert height_mask is not None
+        mask = height_mask
+    else:  # combined
+        assert vel_mask is not None and height_mask is not None
+        mask = vel_mask & height_mask
 
-        if bvh.frame_count < 2:
-            return np.ones((bvh.frame_count, len(foot_joints)),
-                           dtype=np.float64)
+    # ---- Morphological duration filters (time → frames) ----
+    dt = bvh.frame_time if bvh.frame_time > 0 else 1.0
+    min_contact_frames = max(1, round(min_contact_duration / dt)) if min_contact_duration > 0 else 1
+    min_gap_frames = max(1, round(min_gap_duration / dt)) if min_gap_duration > 0 else 1
 
-        foot_vel = foot_coords[1:] - foot_coords[:-1]  # (F-1, num_feet, 3)
-        speed = np.linalg.norm(foot_vel, axis=-1)  # (F-1, num_feet)
-        contacts = (speed < threshold).astype(np.float64)
+    if min_contact_frames > 1:
+        mask = _filter_short_runs(mask, min_contact_frames, value=True)
+    if min_gap_frames > 1:
+        mask = _filter_short_runs(mask, min_gap_frames, value=False)
 
-        # Prepend first frame as contact (no velocity info)
-        first_frame = np.ones((1, len(foot_joints)), dtype=np.float64)
-        contacts = np.concatenate([first_frame, contacts], axis=0)
+    contacts = mask.astype(np.float64)
 
-    else:  # height method
-        up_sign = 1 if bvh.world_up[0] == '+' else -1
-        up_idx = {'x': 0, 'y': 1, 'z': 2}[bvh.world_up[1]]
-        # Multiply by up_sign so "up" is always positive, regardless of axis direction
-        foot_heights = foot_coords[:, :, up_idx] * up_sign  # (F, num_feet)
+    if not return_info:
+        return contacts
 
-        if threshold is None:
-            # Auto-calibrate: 5th percentile of foot heights
-            threshold = float(np.percentile(foot_heights, 5)) + 0.5
+    info: dict = {
+        "joints": list(foot_joints),
+        "method": method,
+        "min_contact_duration": float(min_contact_duration),
+        "min_gap_duration": float(min_gap_duration),
+    }
+    if scale is not None:
+        info["skeleton_scale"] = float(scale)
+    if vel_thr_used is not None:
+        info["vel_threshold"] = vel_thr_used
+    if height_thr_used is not None:
+        info["height_threshold"] = height_thr_used
+        info["floor"] = floor_raw
+    return contacts, info
 
-        contacts = (foot_heights < threshold).astype(np.float64)
 
-    return contacts
+def auto_detect_foot_joints(
+    bvh: Bvh,
+    _rest_coords: npt.NDArray[np.float64] | None = None,
+) -> list[str]:
+    """Auto-detect foot joint names by topology.
+
+    Algorithm:
+
+    1. Substring match: candidates are joints whose names contain
+       ``"foot"`` or ``"toe"`` (case-insensitive).
+    2. Tip-descendant filter: keep only candidates that have an end
+       site or a toe-named child.  This drops IK helpers, which
+       typically have no children.
+    3. Most-distal filter: drop candidates whose subtree (any depth)
+       contains another candidate.  On a rig with
+       ``Foot → ToeBase → EndSite``, this keeps only ``ToeBase`` —
+       the more distal, ground-contacting joint.
+    4. Deterministic order: sort by rest-pose height along
+       ``bvh.world_up`` (lowest first); alphabetical name within
+       ties so the output is stable across runs.
+
+    If step 1 produces matches but step 2 drops all of them, the
+    tip filter is skipped with a ``UserWarning`` (better than
+    returning nothing for unusual rigs).
+
+    Parameters
+    ----------
+    bvh : Bvh
+        Input skeleton.
+
+    Returns
+    -------
+    list of str
+        Joint names in deterministic order.  Empty if no candidates.
+
+    Notes
+    -----
+    This is the same detection used internally by
+    :func:`foot_contacts` when ``foot_joints=None``.  Call it
+    directly to preview the detection or to feed an explicit list
+    back in.
+    """
+    up_sign = 1 if bvh.world_up[0] == '+' else -1
+    up_idx = {'x': 0, 'y': 1, 'z': 2}[bvh.world_up[1]]
+
+    # Step 1: substring match
+    matched = [
+        n for n in bvh.nodes
+        if not n.is_end_site()
+        and any(kw in n.name.lower() for kw in ("foot", "toe"))
+    ]
+    if not matched:
+        return []
+
+    # Step 2: has-tip filter
+    from .bvhnode import BvhNode
+
+    def _has_tip(node: BvhNode) -> bool:
+        return any(
+            c.is_end_site() or "toe" in c.name.lower()
+            for c in (getattr(node, "children", None) or [])
+        )
+
+    with_tip = [n for n in matched if _has_tip(n)]
+    if not with_tip:
+        warnings.warn(
+            "auto_detect_foot_joints: no candidates have tip descendants; "
+            "falling back to all substring matches. Pass foot joints "
+            "explicitly if auto-detection looks wrong.",
+            UserWarning,
+            stacklevel=3,
+        )
+        with_tip = matched
+
+    # Step 3: most-distal — drop candidates whose subtree contains another candidate
+    candidate_names = {n.name for n in with_tip}
+
+    def _has_candidate_descendant(node: BvhNode) -> bool:
+        for child in (getattr(node, "children", None) or []):
+            if child.name in candidate_names:
+                return True
+            if not child.is_end_site() and _has_candidate_descendant(child):
+                return True
+        return False
+
+    most_distal = [n for n in with_tip if not _has_candidate_descendant(n)]
+
+    # Step 4: stable sort — height (ascending) then name (alphabetical)
+    rest_coords = _rest_coords if _rest_coords is not None else bvh.rest_pose_coords()
+    assert isinstance(rest_coords, np.ndarray)  # mypy narrowing
+
+    def _sort_key(node: BvhNode) -> tuple[float, str]:
+        idx = bvh.node_index[node.name]
+        height = float(rest_coords[idx, up_idx] * up_sign)
+        return (height, node.name)
+
+    most_distal.sort(key=_sort_key)
+    return [n.name for n in most_distal]
+
+
+def _skeleton_scale(
+    rest_coords: npt.NDArray[np.float64],
+    foot_indices: list[int],
+) -> float:
+    """Scale reference for ``foot_contacts`` thresholds.
+
+    Defined as the mean Euclidean rest-pose distance from the root
+    (index 0) to the foot joints.  Independent of rest-pose
+    orientation (no axis projection) and unaffected by finger/spine
+    subdivision, because only the leg chain contributes.
+
+    For a humanoid this is roughly half of skeleton height; the
+    absolute value matters less than the fact that it scales linearly
+    with the whole skeleton.
+    """
+    root = rest_coords[0]
+    dists = [float(np.linalg.norm(rest_coords[i] - root)) for i in foot_indices]
+    # Fallback: if all feet sit on the root (degenerate rig), use 1.0 so
+    # thresholds don't collapse to zero.  Callers should not hit this in
+    # practice — auto-detection requires tip descendants.
+    return float(np.mean(dists)) if dists and max(dists) > 0 else 1.0
+
+
+def _estimate_floor(
+    heights_signed: npt.NDArray[np.float64],
+    percentile: float = 2.0,
+) -> float:
+    """Estimate the floor height from a window of foot samples.
+
+    Works in the up-positive (sign-corrected) coordinate. Floor is the
+    low percentile of the per-frame *minimum* foot height — robust to
+    the case where feet never plant simultaneously (one foot always
+    up) and to occasional spurious low frames.
+    """
+    min_per_frame = heights_signed.min(axis=1)
+    return float(np.percentile(min_per_frame, percentile))
+
+
+def _filter_short_runs(
+    mask: npt.NDArray[np.bool_],
+    min_run: int,
+    value: bool = True,
+) -> npt.NDArray[np.bool_]:
+    """Remove runs of ``value`` shorter than ``min_run`` frames, per column.
+
+    With ``value=True`` (default): zeroes out short True runs
+    (morphological open — removes contact jitter).  With
+    ``value=False``: fills in short False runs (morphological close —
+    bridges short gaps in an otherwise continuous contact phase).
+
+    Returns the input unchanged when ``min_run <= 1``.
+    """
+    if min_run <= 1:
+        return mask
+    if mask.ndim != 2:
+        raise ValueError("_filter_short_runs expects a 2-D boolean array")
+
+    F = mask.shape[0]
+    # Search for runs of True in `m`; flip up front to also cover the
+    # value=False case (filling short False gaps in `mask`).
+    m = mask if value else ~mask
+
+    # Pad with False top/bottom so a run starting at row 0 or ending at
+    # row F-1 still produces ±1 transitions in `diffs`.
+    padded = np.zeros((F + 2, mask.shape[1]), dtype=np.int8)
+    padded[1:-1] = m
+    diffs = np.diff(padded, axis=0)  # (F+1, M); +1 at run starts, -1 just past run ends
+
+    pos_col = np.arange(F + 1)[:, None]
+    # Most-recent run start position at or before each row (inclusive).
+    start_idx = np.where(diffs == 1, pos_col, -1)
+    start_pos = np.maximum.accumulate(start_idx, axis=0)
+    # Next run end position strictly after each row.
+    end_idx = np.where(diffs == -1, pos_col, F + 2)
+    end_pos = np.minimum.accumulate(end_idx[::-1], axis=0)[::-1]
+
+    run_length = end_pos[1:F + 1] - start_pos[:F]
+    short_run_mask = m & (run_length < min_run)
+
+    if value:
+        return mask & ~short_run_mask
+    return mask | short_run_mask
 
 
 # ----------------------------------------------------------------
 #  Feature array export
 # ----------------------------------------------------------------
+
+from .rotations import REPRESENTATION_CHANNELS as _REPRESENTATION_WIDTHS
+
+
+def feature_array_layout(
+    *,
+    num_joints: int,
+    num_nodes: int,
+    num_feet: int = 0,
+    representation: str = "6d",
+    include_root_pos: bool = True,
+    include_velocities: bool = False,
+    include_foot_contacts: bool = False,
+) -> dict[str, slice]:
+    """Column layout of the array returned by :func:`to_feature_array`.
+
+    Returns a dict mapping block name to column slice so callers can
+    write ``feat[:, layout['rotations']]`` without counting columns.
+    Pure function — no :class:`~pybvh.bvh.Bvh` required; useful for
+    model-shape setup before any data is loaded.
+
+    Parameters
+    ----------
+    num_joints : int
+        Number of joints (excluding end sites).
+    num_nodes : int
+        Total number of nodes including end sites.
+    num_feet : int, optional
+        Number of foot joints for contact detection.  Required (>0)
+        when ``include_foot_contacts=True``.
+    representation : str, optional
+        Rotation representation: ``'euler'``, ``'axisangle'`` (3 values
+        per joint), ``'quaternion'`` (4), ``'6d'`` (6, default),
+        ``'rotmat'`` (9).
+    include_root_pos, include_velocities, include_foot_contacts : bool
+        Mirror the flags of :func:`to_feature_array`.
+
+    Returns
+    -------
+    dict
+        ``{block_name: slice}`` with keys drawn from
+        ``{"root_pos", "rotations", "velocities", "foot_contacts"}``
+        depending on the flags.
+
+    Raises
+    ------
+    ValueError
+        If ``representation`` is unknown, or if
+        ``include_foot_contacts=True`` but ``num_feet == 0``.
+    """
+    if representation not in _REPRESENTATION_WIDTHS:
+        raise ValueError(
+            f"Unknown representation {representation!r}; "
+            f"must be one of {sorted(_REPRESENTATION_WIDTHS)}."
+        )
+    if include_foot_contacts and num_feet <= 0:
+        raise ValueError(
+            "num_feet must be > 0 when include_foot_contacts=True"
+        )
+    K = _REPRESENTATION_WIDTHS[representation]
+
+    layout: dict[str, slice] = {}
+    cursor = 0
+    if include_root_pos:
+        layout["root_pos"] = slice(cursor, cursor + 3)
+        cursor += 3
+    rot_width = num_joints * K
+    layout["rotations"] = slice(cursor, cursor + rot_width)
+    cursor += rot_width
+    if include_velocities:
+        vel_width = num_nodes * 3
+        layout["velocities"] = slice(cursor, cursor + vel_width)
+        cursor += vel_width
+    if include_foot_contacts:
+        layout["foot_contacts"] = slice(cursor, cursor + num_feet)
+        cursor += num_feet
+    return layout
+
 
 def to_feature_array(
     bvh: Bvh,
@@ -406,6 +1012,8 @@ def to_feature_array(
     include_foot_contacts: bool = False,
     centered: str = "world",
     foot_joints: list[str] | None = None,
+    stencil: str = "central",
+    pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
     """Export motion as a single flat feature array for ML pipelines.
 
@@ -418,12 +1026,12 @@ def to_feature_array(
         Input motion.
     representation : str, optional
         Rotation representation: ``'euler'``, ``'6d'`` (default),
-        ``'quaternion'``, ``'axisangle'``, or ``'rotmat'``.
+        ``'quaternion'``, ``'axisangle'``, or ``'rotmat'`` (9 values
+        per joint as a flattened 3×3).
     include_root_pos : bool, optional
         If True (default), include root position (3 columns).
     include_velocities : bool, optional
-        If True, include joint velocity features. Reduces frame
-        count by 1 (first frame has no velocity).
+        If True, include joint velocity features.
     include_foot_contacts : bool, optional
         If True, include foot contact labels.
     centered : str, optional
@@ -431,23 +1039,31 @@ def to_feature_array(
     foot_joints : list of str or None, optional
         Foot joints for contact detection. Only used when
         ``include_foot_contacts=True``.
+    stencil, pad : optional
+        Only affect output when ``include_velocities=True``.  Same
+        semantics as :func:`joint_velocities`.  The root-position,
+        rotation, and foot-contact blocks are trimmed in time so all
+        blocks align with the velocity shape.
 
     Returns
     -------
-    ndarray, shape (F, D) or (F-1, D)
-        Flat feature array. Frame count is F-1 when velocities
-        are included (first frame is dropped for alignment).
+    ndarray, shape (F, D), (F-1, D), or (F-2, D)
+        See :func:`feature_array_layout` for the column layout.
+        Leading dimension depends on ``include_velocities`` and the
+        ``stencil`` × ``pad`` combination.
 
     Raises
     ------
     ValueError
-        If representation is unknown.
+        If ``representation`` is unknown, or ``stencil`` / ``pad`` is
+        invalid.
     """
-    valid_reps = {"euler", "6d", "quaternion", "axisangle", "rotmat"}
-    if representation not in valid_reps:
+    if representation not in _REPRESENTATION_WIDTHS:
         raise ValueError(
             f"Unknown representation '{representation}'. "
-            f"Choose from {sorted(valid_reps)}.")
+            f"Choose from {sorted(_REPRESENTATION_WIDTHS)}.")
+    if include_velocities:
+        _validate_stencil_pad(stencil, pad)
 
     # Compute spatial coords once (shared by velocities and contacts)
     coords = None
@@ -456,98 +1072,70 @@ def to_feature_array(
 
     parts: list[npt.NDArray[np.float64]] = []
 
-    # Root position
+    # Root position — apply same ``centered`` semantics as spatial_coords.
     if include_root_pos:
-        parts.append(bvh.root_pos)
+        if centered == "skeleton":
+            parts.append(np.zeros_like(bvh.root_pos))
+        elif centered == "first":
+            parts.append(bvh.root_pos - bvh.root_pos[0:1])
+        else:  # "world"
+            parts.append(bvh.root_pos)
 
     # Joint rotations
     if representation == "euler":
         rot = bvh.joint_angles.reshape(bvh.frame_count, -1)
     elif representation == "6d":
-        _, rot_raw, _ = bvh.to_6d()
+        _, rot_raw = bvh.to_6d()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     elif representation == "quaternion":
-        _, rot_raw, _ = bvh.to_quaternions()
+        _, rot_raw = bvh.to_quaternions()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     elif representation == "axisangle":
-        _, rot_raw, _ = bvh.to_axisangle()
+        _, rot_raw = bvh.to_axisangle()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     else:  # rotmat
-        _, rot_raw, _ = bvh.to_rotmat()
+        _, rot_raw = bvh.to_rotmat()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     parts.append(rot)
 
-    # Determine if we need to truncate for velocity alignment
-    has_velocity_trim = include_velocities and bvh.frame_count >= 2
-
     # Velocities — call directly (same module)
+    vel_shape: int | None = None
     if include_velocities:
         vel = joint_velocities(
-            bvh, centered=centered, in_frames=True, coords=coords)
-        # vel is (F-1, N, 3), flatten to (F-1, N*3)
+            bvh, centered=centered, in_frames=True, coords=coords,
+            stencil=stencil, pad=pad)
         vel_flat = vel.reshape(vel.shape[0], -1)
         parts.append(vel_flat)
+        vel_shape = vel.shape[0]
 
-    # Foot contacts — call directly (same module)
+    # Foot contacts — call directly (same module); always (F, num_feet)
     if include_foot_contacts:
         contacts = foot_contacts(
             bvh, foot_joints=foot_joints, centered=centered, coords=coords)
+        assert isinstance(contacts, np.ndarray)
         parts.append(contacts)
 
-    # Align frames: if velocities are included, trim all to F-1
-    if has_velocity_trim:
-        aligned = []
-        for p in parts:
-            if p.shape[0] == bvh.frame_count:
-                aligned.append(p[1:])  # drop first frame
-            else:
-                aligned.append(p)      # already F-1
+    # Align frames: trim F-shaped blocks (root_pos, rot, contacts) to match
+    # the velocity block's leading dimension.  The trim convention depends
+    # on stencil: "central" drops both boundaries symmetrically; "forward"
+    # keeps the existing drop-first-frame convention for backward compat
+    # with the pre-split API.
+    if include_velocities and vel_shape is not None and vel_shape != bvh.frame_count:
+        F = bvh.frame_count
+        drop = F - vel_shape
+        if stencil == "central":
+            # Symmetric: drop (drop//2) from each side when drop is even;
+            # the only case here is drop=2 (pad="none", central) → [1:-1]
+            assert drop % 2 == 0, f"Unexpected central drop {drop}"
+            left, right = drop // 2, drop // 2
+            slicer = slice(left, F - right)
+        else:  # stencil == "forward"
+            # Existing convention: drop from the front
+            slicer = slice(drop, F)
+        aligned = [
+            p[slicer] if p.shape[0] == F else p
+            for p in parts
+        ]
         parts = aligned
 
     return np.concatenate(parts, axis=1)
-
-
-# ----------------------------------------------------------------
-#  Deprecated names (old API)
-# ----------------------------------------------------------------
-
-def get_joint_velocities(*args, **kwargs):
-    """Deprecated: use joint_velocities() instead."""
-    import warnings
-    warnings.warn("get_joint_velocities() is deprecated, use joint_velocities() instead.", DeprecationWarning, stacklevel=2)
-    return joint_velocities(*args, **kwargs)
-
-
-def get_joint_accelerations(*args, **kwargs):
-    """Deprecated: use joint_accelerations() instead."""
-    import warnings
-    warnings.warn("get_joint_accelerations() is deprecated, use joint_accelerations() instead.", DeprecationWarning, stacklevel=2)
-    return joint_accelerations(*args, **kwargs)
-
-
-def get_angular_velocities(*args, **kwargs):
-    """Deprecated: use angular_velocities() instead."""
-    import warnings
-    warnings.warn("get_angular_velocities() is deprecated, use angular_velocities() instead.", DeprecationWarning, stacklevel=2)
-    return angular_velocities(*args, **kwargs)
-
-
-def get_root_relative_positions(*args, **kwargs):
-    """Deprecated: use root_relative_positions() instead."""
-    import warnings
-    warnings.warn("get_root_relative_positions() is deprecated, use root_relative_positions() instead.", DeprecationWarning, stacklevel=2)
-    return root_relative_positions(*args, **kwargs)
-
-
-def get_root_trajectory(*args, **kwargs):
-    """Deprecated: use root_trajectory() instead."""
-    import warnings
-    warnings.warn("get_root_trajectory() is deprecated, use root_trajectory() instead.", DeprecationWarning, stacklevel=2)
-    return root_trajectory(*args, **kwargs)
-
-
-def get_foot_contacts(*args, **kwargs):
-    """Deprecated: use foot_contacts() instead."""
-    import warnings
-    warnings.warn("get_foot_contacts() is deprecated, use foot_contacts() instead.", DeprecationWarning, stacklevel=2)
-    return foot_contacts(*args, **kwargs)

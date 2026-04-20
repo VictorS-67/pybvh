@@ -27,9 +27,50 @@ import numpy as np
 import numpy.typing as npt
 
 
+# Channel count per per-joint rotation representation. Handy for
+# allocating output arrays or sizing model layers without hard-coding
+# the numbers at each call site.
+REPRESENTATION_CHANNELS = {
+    "euler": 3,
+    "axisangle": 3,
+    "quaternion": 4,
+    "6d": 6,
+    "rotmat": 9,
+}
+
+
 # ============================================================================
 # Euler angles <-> Rotation matrices
 # ============================================================================
+
+def _validate_order(order_str: str) -> None:
+    if len(order_str) != 3 or not all(c in 'XYZ' for c in order_str):
+        raise ValueError(f"order must be 3 characters from 'XYZ', got '{order_str}'")
+
+
+def _parse_order(order: Union[str, Sequence[str]]) -> tuple[str | None, list[str] | None]:
+    """Classify the ``order`` argument.
+
+    Returns ``(single_order, per_joint_orders)`` — exactly one is not None.
+    Accepted forms:
+
+    - ``'ZYX'`` (string)                         → single order
+    - ``['Z', 'Y', 'X']`` (3 single chars)       → single order
+    - ``['ZYX', 'ZYX', 'ZXY', ...]`` (N strings) → per-joint orders
+    """
+    if isinstance(order, str):
+        return order.upper(), None
+
+    order_seq = [str(o) for o in order]
+    if len(order_seq) == 3 and all(len(o) == 1 for o in order_seq):
+        # Backward-compat: 3 single chars joined to form one global order
+        return ''.join(order_seq).upper(), None
+
+    per_joint = [o.upper() for o in order_seq]
+    for o in per_joint:
+        _validate_order(o)
+    return None, per_joint
+
 
 def euler_to_rotmat(
     angles: npt.ArrayLike,
@@ -41,45 +82,70 @@ def euler_to_rotmat(
 
     Parameters
     ----------
-    angles : array_like, shape (*, 3)
+    angles : array_like, shape (*, 3) or (*, J, 3)
         Euler angles. Each row is (angle1, angle2, angle3) following the
-        axis order given by `order`.
-    order : str or list of 3 chars
-        Rotation order, e.g. 'ZYX' or ['Z', 'Y', 'X'].
-        Uses intrinsic rotation with pre-multiplication: R = R1 @ R2 @ R3.
+        axis order given by `order`.  When `order` is a per-joint
+        sequence of length J, the second-to-last axis is the joint axis.
+    order : str or sequence of strings
+        - ``'ZYX'`` or ``['Z', 'Y', 'X']`` — single global order applied
+          to every entry.  R = R1 @ R2 @ R3 (intrinsic, pre-multiplied).
+        - ``['ZYX', 'ZYX', 'ZXY', ...]`` — per-joint orders, one entry
+          per joint along axis ``-2`` of ``angles``.  Input shape must
+          satisfy ``angles.shape[-2] == len(order)``.  Joints sharing an
+          order are grouped so the rotation math vectorizes inside each
+          group.
     degrees : bool
         If True, Euler angles are in degrees. Default False (radians).
 
     Returns
     -------
-    R : ndarray, shape (*, 3, 3)
-        Rotation matrices.
+    R : ndarray, shape (*, 3, 3) or (*, J, 3, 3)
+        Rotation matrices, one per input entry.
     """
     angles_arr: npt.NDArray[np.float64] = np.asarray(angles, dtype=np.float64)
     if degrees:
         angles_arr = np.radians(angles_arr)
 
-    single = (angles_arr.ndim == 1)
-    if single:
-        angles_arr = angles_arr[np.newaxis, :]  # (1, 3)
+    single_order, per_joint = _parse_order(order)
 
-    order_str = ''.join(order).upper()
-    if len(order_str) != 3 or not all(c in 'XYZ' for c in order_str):
-        raise ValueError(f"order must be 3 characters from 'XYZ', got '{order_str}'")
+    if single_order is not None:
+        _validate_order(single_order)
+        single = (angles_arr.ndim == 1)
+        if single:
+            angles_arr = angles_arr[np.newaxis, :]
+        R = _euler_to_rotmat_rad(angles_arr, single_order)
+        return R[0] if single else R
 
-    # Support arbitrary leading batch dimensions (*, 3)
-    orig_shape = angles_arr.shape[:-1]  # batch dims
-    flat = angles_arr.reshape(-1, 3)    # (N, 3)
+    # Per-joint mode
+    assert per_joint is not None
+    J = len(per_joint)
+    if angles_arr.ndim < 2 or angles_arr.shape[-2] != J:
+        raise ValueError(
+            f"per-joint order of length {J} requires angles shape "
+            f"(..., {J}, 3); got shape {angles_arr.shape}")
 
+    out = np.empty(angles_arr.shape + (3,), dtype=np.float64)
+    groups: dict[str, list[int]] = {}
+    for j, o in enumerate(per_joint):
+        groups.setdefault(o, []).append(j)
+    for order_str, idxs in groups.items():
+        idx_arr = np.asarray(idxs)
+        block = angles_arr[..., idx_arr, :]              # (*, |group|, 3)
+        out[..., idx_arr, :, :] = _euler_to_rotmat_rad(block, order_str)
+    return out
+
+
+def _euler_to_rotmat_rad(
+    angles_rad: npt.NDArray[np.float64],
+    order_str: str,
+) -> npt.NDArray[np.float64]:
+    """Core multiplication: angles_rad shape (..., 3) → (..., 3, 3)."""
+    orig_shape = angles_rad.shape[:-1]
+    flat = angles_rad.reshape(-1, 3)
     R = _elementary_rotmat(flat[:, 0], order_str[0])
     R = R @ _elementary_rotmat(flat[:, 1], order_str[1])
     R = R @ _elementary_rotmat(flat[:, 2], order_str[2])
-
-    R = R.reshape(orig_shape + (3, 3))
-
-    if single:
-        return R[0]
-    return R
+    return R.reshape(orig_shape + (3, 3))
 
 
 def rotmat_to_euler(
@@ -95,46 +161,70 @@ def rotmat_to_euler(
 
     Parameters
     ----------
-    R : array_like, shape (*, 3, 3)
-        Rotation matrices.
-    order : str or list of 3 chars
-        Rotation order, e.g. 'ZYX' or ['Z', 'Y', 'X'].
+    R : array_like, shape (*, 3, 3) or (*, J, 3, 3)
+        Rotation matrices.  When `order` is a per-joint sequence of
+        length J, the third-to-last axis is the joint axis.
+    order : str or sequence of strings
+        - ``'ZYX'`` or ``['Z', 'Y', 'X']`` — single global order.
+        - ``['ZYX', 'ZYX', ...]`` — per-joint orders, one entry per
+          joint along axis ``-3`` of ``R``.  Must satisfy
+          ``R.shape[-3] == len(order)``.
     degrees : bool
         If True, Euler angles are in degrees. Default False (radians).
 
     Returns
     -------
-    angles : ndarray, shape (*, 3)
+    angles : ndarray, shape (*, 3) or (*, J, 3)
         Euler angles in the specified order.
     """
     R_arr: npt.NDArray[np.float64] = np.asarray(R, dtype=np.float64)
-    single = (R_arr.ndim == 2)
-    if single:
-        R_arr = R_arr[np.newaxis, :, :]  # (1, 3, 3)
 
-    order_str = ''.join(order).upper()
-    if len(order_str) != 3 or not all(c in 'XYZ' for c in order_str):
-        raise ValueError(f"order must be 3 characters from 'XYZ', got '{order_str}'")
+    single_order, per_joint = _parse_order(order)
 
+    if single_order is not None:
+        _validate_order(single_order)
+        single = (R_arr.ndim == 2)
+        if single:
+            R_arr = R_arr[np.newaxis, :, :]
+        out = _rotmat_to_euler_rad(R_arr, single_order)
+        if degrees:
+            out = np.degrees(out)
+        return out[0] if single else out
+
+    # Per-joint mode
+    assert per_joint is not None
+    J = len(per_joint)
+    if R_arr.ndim < 3 or R_arr.shape[-3] != J:
+        raise ValueError(
+            f"per-joint order of length {J} requires R shape "
+            f"(..., {J}, 3, 3); got shape {R_arr.shape}")
+
+    out = np.empty(R_arr.shape[:-2] + (3,), dtype=np.float64)
+    groups: dict[str, list[int]] = {}
+    for j, o in enumerate(per_joint):
+        groups.setdefault(o, []).append(j)
+    for order_str, idxs in groups.items():
+        idx_arr = np.asarray(idxs)
+        block = R_arr[..., idx_arr, :, :]                # (*, |group|, 3, 3)
+        out[..., idx_arr, :] = _rotmat_to_euler_rad(block, order_str)
+    if degrees:
+        out = np.degrees(out)
+    return out
+
+
+def _rotmat_to_euler_rad(
+    R_arr: npt.NDArray[np.float64],
+    order_str: str,
+) -> npt.NDArray[np.float64]:
+    """Core extraction: R_arr shape (..., 3, 3) → (..., 3) radians."""
     ax2idx = {'X': 0, 'Y': 1, 'Z': 2}
     i = ax2idx[order_str[0]]
     j = ax2idx[order_str[1]]
     k = ax2idx[order_str[2]]
-
-    # Support arbitrary leading batch dimensions (*, 3, 3)
-    orig_shape = R_arr.shape[:-2]  # batch dims
+    orig_shape = R_arr.shape[:-2]
     flat = R_arr.reshape(-1, 3, 3)
-
     out = _extract_euler(flat, i, j, k)
-
-    out = out.reshape(orig_shape + (3,))
-
-    if degrees:
-        out = np.degrees(out)
-
-    if single:
-        return out[0]
-    return out
+    return out.reshape(orig_shape + (3,))
 
 
 # ============================================================================
@@ -676,6 +766,85 @@ def quat_slerp(
     # Normalize result
     result = result / np.linalg.norm(result, axis=-1, keepdims=True)
     return result
+
+
+# ============================================================================
+# String-dispatch converter
+# ============================================================================
+
+_VALID_REPRS = ("euler", "rotmat", "6d", "quaternion", "axisangle")
+
+
+def convert(
+    data: npt.ArrayLike,
+    from_repr: str,
+    to_repr: str,
+    *,
+    order: Union[str, Sequence[str], None] = None,
+    degrees: bool = False,
+) -> npt.NDArray[np.float64]:
+    """Convert rotation data between representations via a string alias.
+
+    Pivots through rotation matrices internally, so every pair of
+    representations is reachable.  When ``from_repr`` or ``to_repr`` is
+    ``"euler"``, the ``order`` argument is required (and accepts the
+    same single-string / per-joint-sequence forms as
+    :func:`euler_to_rotmat`).
+
+    Parameters
+    ----------
+    data : array_like
+        Input data. Shape depends on ``from_repr`` — see
+        :data:`REPRESENTATION_CHANNELS` for the channel count.
+    from_repr, to_repr : str
+        One of ``"euler"``, ``"rotmat"``, ``"6d"``, ``"quaternion"``,
+        ``"axisangle"``.
+    order : str or sequence of strings, optional
+        Euler rotation order(s).  Required when ``from_repr == "euler"``
+        or ``to_repr == "euler"``; ignored otherwise.
+    degrees : bool, optional
+        Interpret/emit Euler angles in degrees (default ``False``).
+        Ignored when neither side is Euler.
+
+    Returns
+    -------
+    ndarray
+        Converted data.  Shape depends on ``to_repr``.
+    """
+    if from_repr not in _VALID_REPRS:
+        raise ValueError(f"from_repr {from_repr!r} not in {_VALID_REPRS}")
+    if to_repr not in _VALID_REPRS:
+        raise ValueError(f"to_repr {to_repr!r} not in {_VALID_REPRS}")
+
+    if (from_repr == "euler" or to_repr == "euler") and order is None:
+        raise ValueError("order= is required when from_repr or to_repr is 'euler'")
+
+    # Identity
+    if from_repr == to_repr:
+        return np.asarray(data, dtype=np.float64).copy()
+
+    # Step 1: lift to rotmat
+    if from_repr == "rotmat":
+        R = np.asarray(data, dtype=np.float64)
+    elif from_repr == "euler":
+        R = euler_to_rotmat(data, order, degrees=degrees)  # type: ignore[arg-type]
+    elif from_repr == "6d":
+        R = rot6d_to_rotmat(data)
+    elif from_repr == "quaternion":
+        R = quat_to_rotmat(data)
+    else:  # "axisangle"
+        R = axisangle_to_rotmat(data)
+
+    # Step 2: project from rotmat
+    if to_repr == "rotmat":
+        return R
+    if to_repr == "euler":
+        return rotmat_to_euler(R, order, degrees=degrees)  # type: ignore[arg-type]
+    if to_repr == "6d":
+        return rotmat_to_rot6d(R)
+    if to_repr == "quaternion":
+        return rotmat_to_quat(R)
+    return rotmat_to_axisangle(R)  # "axisangle"
 
 
 # ============================================================================

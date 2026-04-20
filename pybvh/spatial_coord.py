@@ -173,10 +173,3 @@ def _nodes_container_to_nodes_list(
     else:
         raise ValueError(
             'nodes_container must be a Bvh object or a list of BvhNode objects.')
-
-
-def frames_to_spatial_coord(*args, **kwargs):
-    """Deprecated: use frames_to_spatial_coords() instead."""
-    import warnings
-    warnings.warn("frames_to_spatial_coord() is deprecated, use frames_to_spatial_coords() instead.", DeprecationWarning, stacklevel=2)
-    return frames_to_spatial_coords(*args, **kwargs)

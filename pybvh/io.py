@@ -7,6 +7,7 @@ Public functions:
 """
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import TextIO
 
@@ -53,17 +54,24 @@ def read_bvh_file(
         A Bvh object containing the skeleton hierarchy, root positions,
         joint angles, and frame time.
     """
-    node_list, frame_array, frame_frequency = _extract_bvh_file_info(filepath)
+    node_list, frame_array, frame_time = _extract_bvh_file_info(filepath)
     num_joints = len([n for n in node_list if not n.is_end_site()])
     root_pos = frame_array[:, :3].astype(np.float64)
     joint_angles = frame_array[:, 3:].reshape(frame_array.shape[0], num_joints, 3).astype(np.float64)
-    return Bvh(nodes=node_list, root_pos=root_pos, joint_angles=joint_angles,
-               frame_time=frame_frequency, world_up=world_up,
-               lr_mapping=lr_mapping,
-               _warn_world_up=warn_on_world_up_disagreement)
+    if warn_on_world_up_disagreement:
+        return Bvh(nodes=node_list, root_pos=root_pos, joint_angles=joint_angles,
+                   frame_time=frame_time, world_up=world_up,
+                   lr_mapping=lr_mapping)
+    with warnings.catch_warnings():
+        # Specific filter: only suppress the rest/animation-frame disagreement
+        # warning; everything else still propagates.
+        warnings.filterwarnings("ignore", message="Rest pose suggests world up")
+        return Bvh(nodes=node_list, root_pos=root_pos, joint_angles=joint_angles,
+                   frame_time=frame_time, world_up=world_up,
+                   lr_mapping=lr_mapping)
 
 def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDArray[np.float64], float]:
-    """Extract node hierarchy, frame data, and frame frequency from a BVH file."""
+    """Extract node hierarchy, frame data, and frame time from a BVH file."""
     #list of BvhNode objects in the file hierarchy
     node_list: list[BvhNode] = []
     # this is a flag variable to tell us if the parent of the joint
@@ -75,7 +83,7 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
     # line number if we need to report a problem in the file
     line_number: int = 0
     frame_count: int = 0
-    frame_frequency: float = 0.0
+    frame_time: float = 0.0
 
     filepath = test_file(filepath)
 
@@ -95,8 +103,10 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
                 name = line[1]
                 try:
                     offset, pos_channels, rot_channels, line_number = _get_offset_channels('root', f, line_number)
-                except:
-                    raise Exception(f"Could not read the offset or channels of the root {name},\n at line {line_number} in the file {filepath}")
+                except Exception as e:
+                    raise ValueError(
+                        f"Could not read the offset or channels of the root {name}, "
+                        f"at line {line_number} in file {filepath}: {e}") from e
 
                 node_list.append(BvhRoot(name, offset, pos_channels, rot_channels, [], None))  # type: ignore[arg-type]
 
@@ -107,8 +117,10 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
                 name = line[1]
                 try:
                     offset, pos_channels, rot_channels, line_number = _get_offset_channels('joint', f, line_number)
-                except:
-                    raise Exception(f"Could not read the offset or channels of the joint {name},\n at line {line_number} in the file {filepath}")
+                except Exception as e:
+                    raise ValueError(
+                        f"Could not read the offset or channels of the joint {name}, "
+                        f"at line {line_number} in file {filepath}: {e}") from e
                 #since it is a joint, pos_channels == None
 
                 if parent_is_previous:
@@ -138,8 +150,10 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
             elif line[0] == 'End':
                 try:
                     offset, pos_channels, rot_channels, line_number = _get_offset_channels('end_site', f, line_number)
-                except:
-                    raise Exception(f"Could not read the offset or channels of the End Site\nat line {line_number} in the file {filepath}")
+                except Exception as e:
+                    raise ValueError(
+                        f"Could not read the offset or channels of the End Site "
+                        f"at line {line_number} in file {filepath}: {e}") from e
                 # since it is an end site, pos_channels == None and rot_channels == None
 
                 #for an end site, the parent is always just before in the list
@@ -160,16 +174,23 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
                 frame_count = int(line[1])  # noqa: redefinition OK
 
             elif line[0] == "Frame" and line[1] == "Time:":
-                frame_frequency = float(line[2])  # noqa: redefinition OK
-                # Snap to a cleaner reciprocal if possible
-                if frame_frequency > 0:
-                    frame_frequency = 1/int(1/frame_frequency)
+                frame_time = float(line[2])  # noqa: redefinition OK
+                # If the file's 6-digit Frame Time obviously truncates an
+                # exact 1/N rate (e.g. ``0.033333`` for 30 fps), snap to
+                # 1/N so resample-and-back round-trips don't drift.  Only
+                # applied when the snapped value is within 0.01% of the
+                # literal — non-integer rates like 23.976 fps are NOT
+                # snapped, since `1/24 ≠ 1/23.976`.
+                if frame_time > 0:
+                    snapped = 1.0 / round(1.0 / frame_time)
+                    if abs(snapped - frame_time) / frame_time < 1e-4:
+                        frame_time = snapped
                 # --- we close the loop related to reading the hierarchy ---
                 break
         #small test to see if we reach the end of the hierarchy with no trouble.
-        if frame_count == 0 or frame_frequency == 0.0:
+        if frame_count == 0 or frame_time == 0.0:
             raise ValueError(
-                f"Frame count ({frame_count}) or frame time ({frame_frequency}) "
+                f"Frame count ({frame_count}) or frame time ({frame_time}) "
                 f"is missing or zero in {filepath}")
 
         #----------  End of the Hierarchy part. After the hierarchy comes the frames data.
@@ -196,7 +217,7 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
     #-----------------end of reading the file
     # frame_template is a list we created of the form [jointName_ax_pos/rot].
     # ex : [Hips_X_pos, Hips_Y_pos, Hips_Z_pos, Hips_X_rot, ...]
-    return (node_list, frame_array, frame_frequency)
+    return (node_list, frame_array, frame_time)
 
 
 def _get_offset_channels(node_type: str, f: TextIO, line_number: int) -> tuple[list[float] | None, list[str] | None, list[str] | None, int]:
@@ -223,9 +244,11 @@ def _get_offset_channels(node_type: str, f: TextIO, line_number: int) -> tuple[l
             i += 1
         #checking that the information is complete
         if offset is None or pos_channels is None or rot_channels is None:
-            raise Exception()
-        if len(offset) !=3 or len(pos_channels) !=3 or len(rot_channels) !=3:
-            raise Exception()
+            raise ValueError("root missing OFFSET or CHANNELS line")
+        if len(offset) != 3 or len(pos_channels) != 3 or len(rot_channels) != 3:
+            raise ValueError(
+                f"root must have 3 OFFSET + 3 position + 3 rotation channels, "
+                f"got {len(offset)}/{len(pos_channels)}/{len(rot_channels)}")
     elif node_type == 'joint':
         for raw_ln in f:
             line_number += 1
@@ -240,9 +263,11 @@ def _get_offset_channels(node_type: str, f: TextIO, line_number: int) -> tuple[l
             i += 1
         #checking that the information is complete
         if offset is None or rot_channels is None:
-            raise Exception()
-        if len(offset) !=3 or len(rot_channels) !=3:
-            raise Exception()
+            raise ValueError("joint missing OFFSET or CHANNELS line")
+        if len(offset) != 3 or len(rot_channels) != 3:
+            raise ValueError(
+                f"joint must have 3 OFFSET + 3 rotation channels, "
+                f"got {len(offset)}/{len(rot_channels)}")
     elif node_type == 'end_site':
         for raw_ln in f:
             line_number += 1
@@ -255,9 +280,10 @@ def _get_offset_channels(node_type: str, f: TextIO, line_number: int) -> tuple[l
             i += 1
         #checking that the information is complete
         if offset is None:
-            raise Exception()
-        if len(offset) !=3:
-            raise Exception()
+            raise ValueError("end site missing OFFSET line")
+        if len(offset) != 3:
+            raise ValueError(
+                f"end site OFFSET must have 3 values, got {len(offset)}")
     else:
         raise ValueError('node_type should be either root, joint or end_site')
 
@@ -268,7 +294,7 @@ def _get_offset_channels(node_type: str, f: TextIO, line_number: int) -> tuple[l
 #  Writing
 # ----------------------------------------------------------------
 
-def write_bvh_file(bvh: Bvh, filepath: str | Path, verbose: bool = True) -> None:
+def write_bvh_file(bvh: Bvh, filepath: str | Path, verbose: bool = False) -> None:
     """Write a Bvh object to a ``.bvh`` file.
 
     Parameters
@@ -278,7 +304,9 @@ def write_bvh_file(bvh: Bvh, filepath: str | Path, verbose: bool = True) -> None
     filepath : str or Path
         Destination file path.  Must have a ``.bvh`` extension.
     verbose : bool, optional
-        If True (default), print a confirmation message on success.
+        If True, print a one-line confirmation to stdout on success.
+        Default ``False`` — preprocessing loops that write many files
+        shouldn't flood the terminal by default.
 
     Raises
     ------
@@ -288,9 +316,9 @@ def write_bvh_file(bvh: Bvh, filepath: str | Path, verbose: bool = True) -> None
     """
     filepath = Path(filepath)
     if filepath.suffix != '.bvh':
-        raise Exception(f'{filepath.name} is not a bvh file')
+        raise ValueError(f"{filepath.name} is not a .bvh file")
     elif not filepath.parent.exists():
-        raise Exception(f'{filepath.parent} is not a valid directory')
+        raise FileNotFoundError(f"directory does not exist: {filepath.parent}")
 
     def offset_to_str(node: BvhNode) -> str:
         offset_str = 'OFFSET'
@@ -340,14 +368,11 @@ def write_bvh_file(bvh: Bvh, filepath: str | Path, verbose: bool = True) -> None
         f.write(f'Frames: {bvh.frame_count}\n')
         f.write(f'Frame Time: {bvh.frame_time:.6f}\n')
 
-        for i in range(bvh.frame_count):
-            frame_flat = np.concatenate([bvh.root_pos[i],
-                                         bvh.joint_angles[i].ravel()])
-            f.write(np.array2string(frame_flat,
-                                    formatter={'float_kind':lambda x: "%.6f" % x},
-                                    max_line_width=10000000
-                                   )[1:-1])
-            f.write(f'\n')
+        F = bvh.frame_count
+        if F > 0:
+            motion = np.column_stack([bvh.root_pos,
+                                      bvh.joint_angles.reshape(F, -1)])
+            np.savetxt(f, motion, fmt='%.6f', delimiter=' ')
 
     if verbose:
         print(f'Succesfully saved the file {filepath.name} at the location\n{filepath.parent.absolute()}')

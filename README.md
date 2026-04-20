@@ -15,7 +15,7 @@ Built for researchers and developers working with skeletal animation and motion 
 - **Skeleton operations**: retargeting, scaling, joint extraction, Euler order changes
 - **Frame operations**: slicing, concatenation, resampling to different frame rates
 - **Spatial transforms**: mirroring, vertical rotation, speed perturbation, joint noise, root translation, frame dropout — all with seeded randomization
-- **Motion analysis**: joint velocities/accelerations, root-relative positions, foot contact detection, normalization utilities, and a one-stop `to_feature_array()` export
+- **Motion analysis**: joint velocities/accelerations, root trajectory, foot contact detection, normalization utilities, and a one-stop `to_feature_array()` export
 - **Batch loading** of entire directories with optional parallel I/O
 - **NumPy export** in any rotation representation — ready for any downstream workflow
 - **Pandas ready** via an export option ready to become a DataFrame
@@ -49,8 +49,8 @@ bvh.joint_names       # ['Hips', 'Spine', ...] (excludes end sites)
 coords = bvh.spatial_coords()  # (F, N, 3)
 
 # Convert to other rotation representations
-root_pos, quats, joints = bvh.to_quaternions()   # (F,3), (F,J,4), joints
-root_pos, rot6d, joints = bvh.to_6d()            # (F,3), (F,J,6), joints
+root_pos, quats = bvh.to_quaternions()   # (F, 3), (F, J, 4)
+root_pos, rot6d = bvh.to_6d()            # (F, 3), (F, J, 6)
 
 # Write back to file
 bvh.write("output.bvh")
@@ -78,14 +78,17 @@ Supported representations: `"euler"`, `"quaternion"`, `"6d"`, `"axisangle"`, `"r
 Compute motion derivatives, foot contacts, and export everything in a single array:
 
 ```python
-# Joint velocities and accelerations (finite differences of FK positions)
-vel = bvh.joint_velocities()        # (F-1, N, 3) in units/second
-acc = bvh.joint_accelerations()     # (F-2, N, 3)
-ang_vel = bvh.angular_velocities()  # (F-1, J, 3) in radians/second
+# Joint velocities and accelerations (finite differences of FK positions).
+# Defaults: central stencil + edge padding — output has the same leading
+# dimension as the input.  Pass stencil="forward", pad="none" for the
+# traditional (F-1, ...) / (F-2, ...) forward-difference shapes.
+vel = bvh.joint_velocities()        # (F, N, 3) in units/second
+acc = bvh.joint_accelerations()     # (F, N, 3)
+ang_vel = bvh.angular_velocities()  # (F, J, 3) in radians/second
 
-# Root-relative positions and trajectory
-rel_pos = bvh.root_relative_positions()  # (F, N, 3)
-traj = bvh.root_trajectory()             # (F, 4) ground pos + heading
+# Skeleton-centered positions and trajectory
+rel_pos = bvh.spatial_coords(centered='skeleton')  # (F, N, 3)
+traj = bvh.root_trajectory()                       # (F, 4) ground pos + heading
 
 # Foot contact detection (auto-detects foot joints)
 contacts = bvh.foot_contacts()  # (F, num_feet) binary indicators
@@ -95,7 +98,7 @@ features = bvh.to_feature_array(
     representation="6d",
     include_velocities=True,
     include_foot_contacts=True,
-)  # (F-1, D)
+)  # (F, D)
 ```
 
 Normalize across a dataset:
@@ -193,10 +196,16 @@ from pybvh import bvhplot
 bvhplot.frame([bvh1, bvh2], frame=0, labels=["Original", "Generated"])
 bvhplot.render([bvh1, bvh2], "compare.mp4", sync="pad")
 
-# World orientation is exposed as a property (auto-detected, overridable)
-bvh.world_up          # '+y', '+z', etc.
-bvh.forward_at(0)     # character's facing direction at a specific frame
-bvh.world_up = '+y'   # manual override if the auto-detect is wrong for your file
+# Orientation API — (world_up, forward_at, left_at) form an orthonormal
+# right-hand-rule triple (left = world_up × forward_at)
+bvh.world_up          # '+y' / '+z' — animation-derived gravity axis
+bvh.forward_at(0)     # character's facing direction at a given frame
+bvh.left_at(0)        # character's leftward direction at a given frame
+bvh.world_up = '+y'   # manual override if auto-detect is wrong for your file
+
+# Pose-independent companions (read from rest pose only)
+bvh.rest_up           # rest-pose up axis — compare to world_up to spot mismatches
+bvh.rest_forward      # rest-pose facing direction
 ```
 
 Install optional visualization backends for best performance:
@@ -225,9 +234,15 @@ bvh_from_df = df_to_bvh(bvh.hierarchy_info_as_dict(), df)
 
 The repository includes Jupyter notebooks with detailed walkthroughs:
 
-1. [Introduction to pybvh](https://github.com/VictorS-67/pybvh/blob/main/tutorials/1.Introduction_pybvh.ipynb) — reading, writing, and basic operations
+1. [Introduction to pybvh](https://github.com/VictorS-67/pybvh/blob/main/tutorials/1.Introduction.ipynb) — reading, writing, and basic operations
 2. [Spatial coordinates](https://github.com/VictorS-67/pybvh/blob/main/tutorials/2.Spatial_coordinates.ipynb) — forward kinematics and 3D positions
 3. [Rotations](https://github.com/VictorS-67/pybvh/blob/main/tutorials/3.Rotations.ipynb) — rotation representations and conversions
+4. [Visualization](https://github.com/VictorS-67/pybvh/blob/main/tutorials/4.Visualization.ipynb) — static frames, video export, and interactive playback
+5. [Transforms](https://github.com/VictorS-67/pybvh/blob/main/tutorials/5.Transforms.ipynb) — mirroring, rotation, speed perturbation, noise
+6. [Features](https://github.com/VictorS-67/pybvh/blob/main/tutorials/6.Features.ipynb) — velocities, foot contacts, feature-array export
+7. [Batch processing](https://github.com/VictorS-67/pybvh/blob/main/tutorials/7.Batch_processing.ipynb) — directory loading, normalization, harmonization
+
+Each tutorial is committed as a Jupytext-paired `.ipynb` + `.py` (Percent format) so the source is reviewable as plain Python. See the [tutorials docs](https://victors-67.github.io/pybvh/tutorials/) for the contributor workflow.
 
 ## Requirements
 

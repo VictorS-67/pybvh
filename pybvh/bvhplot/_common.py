@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..bvh import Bvh
 
-_UP_AXIS_INDEX = {'x': 0, 'y': 1, 'z': 2}
+UP_AXIS_INDEX = {'x': 0, 'y': 1, 'z': 2}
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +292,7 @@ def build_view_matrix(
     """
     az = np.radians(azimuth_deg)
     el = np.radians(elevation_deg)
-    axis_idx = _UP_AXIS_INDEX.get(up_axis, 2)
+    axis_idx = UP_AXIS_INDEX.get(up_axis, 2)
 
     # Eye direction from spherical coordinates, rolled to match
     # vertical axis (same as matplotlib's _roll_to_vertical).

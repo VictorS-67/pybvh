@@ -28,6 +28,8 @@ Install optional backends::
 """
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import numpy.typing as npt
 
@@ -40,7 +42,7 @@ from ._common import (
     compute_unified_limits,
     get_camera_angles,
     align_frame_counts,
-    _UP_AXIS_INDEX,
+    UP_AXIS_INDEX,
 )
 
 if TYPE_CHECKING:
@@ -161,7 +163,6 @@ def _match_frame_rates(
     if all(abs(r - rates[0]) < 0.5 for r in rates):
         return bvh_list  # all close enough
 
-    import warnings
     rate_strs = ", ".join(f"{r:.1f}" for r in rates)
     if match_fps is None:
         warnings.warn(
@@ -227,9 +228,9 @@ def _apply_scene_spacing(
         return coords_list  # respect raw world coordinates
 
     # Lateral axis = the one that is neither up nor forward
-    up_idx = _UP_AXIS_INDEX.get(up_axis_char, 2)
+    up_idx = UP_AXIS_INDEX.get(up_axis_char, 2)
     fwd_str = bvh_list[0].forward_at(frame=0)
-    fwd_idx = _UP_AXIS_INDEX.get(fwd_str[1], 0)
+    fwd_idx = UP_AXIS_INDEX.get(fwd_str[1], 0)
     lat_idx = next(i for i in range(3) if i != up_idx and i != fwd_idx)
 
     if spacing == "auto":
@@ -255,7 +256,6 @@ def _warn_world_up_mismatch(
     bvh_list: list[Bvh],
 ) -> None:
     """Warn when skeletons have different world_up values."""
-    import warnings
     if len(bvh_list) <= 1:
         return
     world_ups = [b.world_up for b in bvh_list]
@@ -372,7 +372,7 @@ def rest_pose(
     bvh_list = bvh if isinstance(bvh, list) else [bvh]
 
     # Build rest-pose coords as (1, N, 3) arrays and go through the
-    # same pipeline as frame(), bypassing get_spatial_coord.
+    # same pipeline as frame(), bypassing spatial_coords.
     from ._matplotlib import frame_mpl
 
     coords_list = [b.rest_pose_coords(mode='coordinates')[np.newaxis]
@@ -659,7 +659,6 @@ def play(
         Backend-specific return value (widget, plotter, or None).
     """
     import math
-    import warnings
 
     valid_backends = {"auto", "k3d", "vedo", "matplotlib"}
     if backend not in valid_backends:
@@ -764,11 +763,12 @@ def play(
         spread_coords = _apply_scene_spacing(
             bvh_list, coords_list, spacing, up_axes[0], centered)
         shared_center, shared_half_span = compute_unified_limits(spread_coords)
-        return play_vedo(
+        play_vedo(
             bvh_list, spread_coords, actual_fps, labels,
             skeleton_lines_list, shared_center, shared_half_span,
             up_axis=up_axes[0], azimuth=azimuths[0], elevation=elevations[0],
             quality=quality)
+        return None
 
     elif backend_name == "opencv_notebook":
         import tempfile
@@ -805,6 +805,8 @@ def trajectory(
     figsize: tuple[float, float] | None = None,
     show: bool = False,
     ax: matplotlib.axes.Axes | None = None,
+    facing_arrows: bool = False,
+    tight: bool = False,
 ) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]:
     """Plot 2D top-down trajectory of the root joint.
 
@@ -823,6 +825,19 @@ def trajectory(
     ax : matplotlib.axes.Axes, optional
         Existing 2D axes to draw on. If provided, no new figure is
         created. Works with single or multiple skeletons (overlaid).
+    facing_arrows : bool, optional
+        If True, overlay small arrowheads along each skeleton's path
+        showing the character's facing direction at ~10 evenly-spaced
+        frames.  Arrows use the same color as the trajectory line and
+        are sized at ~8 % of the path's span.  Default False.
+    tight : bool, optional
+        If False (default), the axis range matches the full horizontal
+        extent of the skeleton across all joints and frames — the same
+        bounding box ``bvh.play()`` uses.  Keeps the motion scale
+        honest relative to the character's body so a near-stationary
+        clip doesn't get auto-zoomed into looking like a large walk.
+        If True, axes auto-scale to just the root path — gives maximum
+        detail on the path shape but can exaggerate small motions.
 
     Returns
     -------
@@ -838,4 +853,5 @@ def trajectory(
     # the first up axis for the axis-labels fallback.
     from ._matplotlib import trajectory_mpl
     return trajectory_mpl(
-        bvh_list, coords_list, labels, figsize, show, up_axes[0], ax=ax)
+        bvh_list, coords_list, labels, figsize, show, up_axes[0], ax=ax,
+        facing_arrows=facing_arrows, tight=tight)

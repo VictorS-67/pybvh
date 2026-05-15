@@ -18,6 +18,14 @@ pybvh owns the journey from `.bvh` file to structured NumPy arrays and back. Eve
 4. **Vectorized.** All numerical operations are batch-vectorized with NumPy. No Python loops over frames.
 5. **Faithful to the format.** pybvh preserves BVH semantics exactly. Read-write round-trips are lossless (within float precision). Skeleton topology, Euler orders, frame timing — nothing is silently altered.
 
+## Versioning policy
+
+pybvh is in the **0.x phase**: the API is allowed to evolve. When a past choice turns out to be wrong — wrong unit, wrong shape, wrong name, wrong boundary — we fix it at the root rather than carry scar tissue forward. That sometimes means breaking changes between consecutive minor versions. No deprecation cycles, no compatibility shims: each release ships a single clean migration path, called out explicitly in the CHANGELOG. The judgment for landing a 0.x breaking change is "is the new design clearly better and the migration cost containable" — not "would this break someone."
+
+This freedom ends at **1.0**. Once pybvh ships 1.0, we commit to strict semver: no breaking changes within a major version, and any breaking change earmarked for the next major gets a deprecation cycle (at least one minor release with a runtime migration warning before removal). Until then, "we made a better library by doing this" beats "we preserved the old behavior."
+
+The few known production consumers (notably pybvh-ml) are briefed ahead of each 0.x breaking change so they can pin and migrate cleanly.
+
 ## Code & API quality
 
 Non-negotiable across every change to the codebase:

@@ -25,6 +25,14 @@ Built for researchers and developers working with skeletal animation and motion 
 
 pybvh is framework-agnostic and outputs pure NumPy arrays. It understands motion capture data but does not assume what you'll do with it — the same library serves ML researchers, biomechanics scientists, and game developers. For ML-specific features (tensor packing, PyTorch Datasets, augmentation pipelines), see the companion library [pybvh-ml](https://github.com/VictorS-67/pybvh-ml).
 
+## Stability and versioning
+
+**pybvh is in 0.x — expect breaking changes between minor versions.**
+
+We treat 0.x as design space: when a past choice turns out to be wrong, we fix it at the root rather than carry scar tissue forward. No deprecation cycles, no compatibility shims; each release ships a single clean migration path, documented in the [CHANGELOG](CHANGELOG.md). If you depend on pybvh from production code, **pin to an exact version** (`pybvh==0.7.0`) and read the upgrade notes before bumping.
+
+This will change at **1.0**: from then on, pybvh will commit to strict semver — no breaking changes within a major version, deprecation warnings (at least one minor release) before any future removal. Until 1.0, "make the library better" wins over "preserve the old behavior."
+
 ## Installation
 
 ```bash
@@ -38,7 +46,7 @@ import pybvh
 
 # Load a BVH file
 bvh = pybvh.read_bvh_file("walk.bvh")
-print(bvh)  # "24 elements in the Hierarchy, 75 frames at 30.0 fps (frame_time=0.033333s)"
+print(bvh)  # "24 joints, 75 frames at 30.0 fps (frame_time=0.033333s, from walk.bvh)"
 
 # Access motion data as NumPy arrays
 bvh.root_pos          # (F, 3) root translation per frame

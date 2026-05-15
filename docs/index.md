@@ -35,3 +35,9 @@ features = bvh.to_feature_array(representation="6d", include_velocities=True)
 ## Companion library
 
 For ML-specific features (tensor packing, PyTorch Datasets, augmentation pipelines), see [pybvh-ml](https://github.com/VictorS-67/pybvh-ml).
+
+## Stability and versioning
+
+**pybvh is in 0.x — expect breaking changes between minor versions.** We treat 0.x as design space: when a past choice turns out to be wrong, we fix it at the root rather than carry scar tissue forward. Each release has a clear migration path in the [CHANGELOG](https://github.com/VictorS-67/pybvh/blob/main/CHANGELOG.md), no deprecation cycles. If you depend on pybvh from production code, **pin to an exact version** (`pybvh==0.7.0`) and read the upgrade notes before bumping.
+
+pybvh will commit to strict semver at **1.0**: no breaking changes within a major version, deprecation warnings (at least one minor release) before any removal. Until then, "make the library better" wins over "preserve the old behavior."

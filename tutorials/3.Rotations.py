@@ -17,7 +17,7 @@
 # # Handling Rotations
 
 # %% [markdown]
-# BVH files store joint orientations as **Euler angles**: three rotation values (in degrees) applied around specific axes in a specific order. Euler angles are compact and human-readable, but they have well-known drawbacks:
+# BVH files store joint orientations as **Euler angles**: three rotation values applied around specific axes in a specific order. The file format uses degrees, but pybvh holds them in **radians** internally (on `bvh.joint_angles`) — the deg↔rad conversion happens at the I/O boundary. Euler angles are compact and human-readable, but they have well-known drawbacks:
 #
 # - **Gimbal lock** — when two axes align, one degree of freedom is lost.
 # - **Discontinuities** — Euler angles can "jump" (e.g. from 179° to -179°), making them difficult for neural networks to learn.
@@ -165,13 +165,15 @@ for node in bvh.nodes[9:12]:
 # Each joint has its own **rotation order**, stored in the `rot_channels` property. Different joints in the same file can have different orders — this is a choice made by the motion capture software when exporting the BVH, typically placing the axis with the largest expected range of motion first to minimize gimbal lock risk for that joint. Motion data is stored as two arrays:
 #
 # - `root_pos` — `(F, 3)`: root translation per frame
-# - `joint_angles` — `(F, J, 3)`: Euler angles in degrees per joint per frame
+# - `joint_angles` — `(F, J, 3)`: Euler angles in **radians** per joint per frame
 
 # %%
 print(f"root_pos shape:     {bvh.root_pos.shape}")
 print(f"joint_angles shape: {bvh.joint_angles.shape}")
-print(f"\nFirst frame, first 3 joints (Euler angles in degrees):")
+print(f"\nFirst frame, first 3 joints (Euler angles in radians):")
 print(bvh.joint_angles[0, :3])
+print(f"\nSame values in degrees (for display):")
+print(np.rad2deg(bvh.joint_angles[0, :3]))
 
 # %% [markdown]
 # ## Why the rotation order matters
@@ -376,7 +378,7 @@ print(f"Axis-angle:        {axisang.shape}")
 # The corresponding `from_*` methods write rotation data back into a `Bvh` object. Going **out** to any representation and **back** should preserve the motion exactly (within float precision). Let's verify this on real data by checking that the spatial coordinates of the skeleton are preserved through the round trip:
 
 # %%
-spatial_before = bvh.spatial_coords()
+spatial_before = bvh.node_positions()
 
 results = {}
 for name, get_fn_name, set_fn_name in [
@@ -387,7 +389,7 @@ for name, get_fn_name, set_fn_name in [
     test = bvh.copy()
     root_pos, joint_data = getattr(test, get_fn_name)()
     getattr(test, set_fn_name)(root_pos, joint_data)
-    err = np.max(np.abs(spatial_before - test.spatial_coords()))
+    err = np.max(np.abs(spatial_before - test.node_positions()))
     results[name] = err
 
 print(f"{'Representation':<15} {'Max position error':<20}")
@@ -426,8 +428,8 @@ for orig, new in zip(bvh.nodes[9:13], bvh_unified.nodes[9:13]):
     print(f"  {orig.name:15s}  {orig.rot_channels} -> {new.rot_channels}")
 
 # Verify the physical motion is preserved
-spatial_orig = bvh.spatial_coords()
-spatial_unified = bvh_unified.spatial_coords()
+spatial_orig = bvh.node_positions()
+spatial_unified = bvh_unified.node_positions()
 print(f"\nSpatial coordinates preserved? {np.allclose(spatial_orig, spatial_unified, atol=1e-6)}")
 
 # %% [markdown]

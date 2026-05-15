@@ -68,7 +68,7 @@ def normalize_input(
         - 3-D array ``(F, N, 3)``: pre-computed spatial coordinates
           (only valid when *bvh* is a single Bvh).
     centered : str
-        Centering mode passed to ``bvh.spatial_coords()``.
+        Centering mode passed to ``bvh.node_positions()``.
 
     Returns
     -------
@@ -91,7 +91,7 @@ def normalize_input(
     if frames is None or (isinstance(frames, int) and frames == -1):
         # All frames for each Bvh
         for b in bvh_list:
-            coords = b.spatial_coords(centered=centered)
+            coords = b.node_positions(centered=centered)
             if coords.ndim == 2:
                 coords = coords[np.newaxis]  # (N, 3) -> (1, N, 3)
             coords_list.append(coords)
@@ -99,7 +99,7 @@ def normalize_input(
     elif isinstance(frames, int):
         # Single frame index
         for b in bvh_list:
-            coords = b.spatial_coords(frame_num=frames, centered=centered)
+            coords = b.node_positions(frame_num=frames, centered=centered)
             coords_list.append(coords[np.newaxis])  # (N, 3) -> (1, N, 3)
 
     elif isinstance(frames, np.ndarray):

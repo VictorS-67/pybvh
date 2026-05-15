@@ -52,20 +52,22 @@ print(bvh)
 # - **`stencil`** — `"central"` (default, second-order accurate) or `"forward"` (first-order).
 # - **`pad`** — `"edge"` (default, output has same shape as input; boundaries filled with one-sided differences) or `"none"` (drop boundary frames).
 #
-# Defaults give `np.gradient` semantics with shape `(F, N, 3)` — row `i` aligns with source frame `i`, so velocities stack cleanly with other per-frame features. The full shape matrix:
+# Defaults give `np.gradient` semantics with shape `(F, J, 3)` — row `i` aligns with source frame `i`, so velocities stack cleanly with other per-frame features. `J` is the number of non-end-site joints (matches `joint_angles` axis 1). The full shape matrix:
 #
 # | `stencil` × `pad` | Shape |
 # |---|---|
-# | central, edge (default) | `(F, N, 3)` |
-# | central, none | `(F-2, N, 3)` |
-# | forward, edge | `(F, N, 3)` |
-# | forward, none | `(F-1, N, 3)` |
+# | central, edge (default) | `(F, J, 3)` |
+# | central, none | `(F-2, J, 3)` |
+# | forward, edge | `(F, J, 3)` |
+# | forward, none | `(F-1, J, 3)` |
+#
+# Need end-site rows too? Use `bvh.node_velocities()` — same math, shape `(F, N, 3)` where `N` is all nodes including end sites. Useful when you care about extremity (toe tip / fingertip / head) trajectories.
 
 # %%
 velocities = bvh.joint_velocities()
 
 print(f'Input frames:    {bvh.frame_count}')
-print(f'Velocity shape:  {velocities.shape}  (F, num_nodes, 3)')
+print(f'Velocity shape:  {velocities.shape}  (F, joint_count, 3)')
 
 # %% [markdown]
 # By default, velocities are in **units per second**. Set `in_frames=True` to get units per frame instead — useful when you want representations that don't depend on the clip's frame rate.
@@ -86,7 +88,7 @@ print(f'Ratio (should be 1/frame_time = {1/bvh.frame_time:.1f}): '
 bvh.play()
 
 # %%
-right_foot_idx = bvh.node_index['RightFoot']
+right_foot_idx = bvh.joint_index['RightFoot']
 speed = np.linalg.norm(vel_per_sec[:, right_foot_idx], axis=-1)
 
 t = np.arange(bvh.frame_count) * bvh.frame_time
@@ -103,14 +105,14 @@ plt.show()
 # # Joint accelerations
 
 # %% [markdown]
-# **Acceleration** applies the chosen `stencil` twice to the positions. Same parameters as `joint_velocities`; the only difference is that `pad="none"` drops twice as many frames (`(F-4, N, 3)` for central, `(F-2, N, 3)` for forward).
+# **Acceleration** applies the chosen `stencil` twice to the positions. Same parameters as `joint_velocities`; the only difference is that `pad="none"` drops twice as many frames (`(F-4, J, 3)` for central, `(F-2, J, 3)` for forward).
 #
 # Under the defaults the composition identity holds exactly: `np.gradient(joint_velocities(), dt, axis=0)` equals `joint_accelerations()`.
 
 # %%
 accelerations = bvh.joint_accelerations()
 
-print(f'Acceleration shape: {accelerations.shape}  (F, num_nodes, 3)')
+print(f'Acceleration shape: {accelerations.shape}  (F, joint_count, 3)')
 
 # %% [markdown]
 # # Angular velocities
@@ -132,7 +134,7 @@ print(f'Angular velocity shape: {ang_vel.shape}  (F, num_joints, 3)')
 print(f'\nAngular velocity of Hips (frame 10): {ang_vel[10, 0]} rad/s')
 
 # %% [markdown]
-# Angular velocities operate on **joints only** (shape axis J), not all nodes (N) — end sites have no rotation channels. `joint_velocities` returns one row per *node* including end sites; `angular_velocities` returns one row per *joint*.
+# Angular velocities operate on **joints only** (shape axis J) — end sites have no rotation channels. Joint indexing is consistent across `joint_angles`, `joint_velocities`, `joint_accelerations`, and `angular_velocities`: `bvh.joint_index['name']` indexes the same row in all four. To get linear velocities including end sites, use `bvh.node_velocities()` and index with `bvh.node_index`.
 
 # %% [markdown]
 # Plotting angular-velocity magnitude over time for a single joint shows when that joint is rotating fastest — analogous to the speed plot above, but in rotational units.
@@ -276,8 +278,10 @@ print(f'Foot contacts block: {contacts_block.shape}')
 # %% [markdown]
 # | Function | Returns | Shape (defaults) |
 # |---|---|---|
-# | `bvh.joint_velocities()` | Linear velocity of joint positions | `(F, N, 3)` |
-# | `bvh.joint_accelerations()` | Linear acceleration | `(F, N, 3)` |
+# | `bvh.joint_velocities()` | Linear velocity of joint positions (non-end-site) | `(F, J, 3)` |
+# | `bvh.joint_accelerations()` | Linear acceleration (non-end-site) | `(F, J, 3)` |
+# | `bvh.node_velocities()` | Same, including end sites | `(F, N, 3)` |
+# | `bvh.node_accelerations()` | Same, including end sites | `(F, N, 3)` |
 # | `bvh.angular_velocities()` | Rotation rate (axis-angle) | `(F, J, 3)` |
 # | `bvh.root_trajectory()` | Ground-plane pos + heading sin/cos | `(F, 4)` |
 # | `bvh.root_trajectory(include_velocities=True)` | + ground vel + heading vel | `(F, 7)` |
@@ -286,7 +290,7 @@ print(f'Foot contacts block: {contacts_block.shape}')
 # | `bvh.to_feature_array()` | Combined flat array | `(F, D)` |
 # | `bvh.feature_array_layout(...)` | Column slice map | `dict[str, slice]` |
 #
-# `N` = all nodes (joints + end sites), `J` = joints only. Defaults are `stencil="central", pad="edge"` on every velocity-like function — central interior + one-sided boundaries, output shape matches input. Pass `stencil="forward", pad="none"` for strict forward differences matching pre-v3 pybvh (`(F-1, ...)` / `(F-2, ...)`); `stencil="central", pad="none"` drops both boundaries symmetrically. `bvh.spatial_coords(centered='skeleton')` gives skeleton-centered positions (equivalent to root-relative positions in an old v0.5 API).
+# `J` = non-end-site joints (matches `joint_angles` axis 1), `N` = all nodes including end sites (matches `node_positions` axis 1). The `joint_*` versions are what most ML pipelines want — they index-align with `joint_angles`, `angular_velocities`, and the rotation block of `to_feature_array`. The `node_*` versions are for extremity tracking when end-site positions matter. Defaults are `stencil="central", pad="edge"` on every velocity-like function — central interior + one-sided boundaries, output shape matches input. Pass `stencil="forward", pad="none"` for strict forward differences matching pre-v3 pybvh (`(F-1, ...)` / `(F-2, ...)`); `stencil="central", pad="none"` drops both boundaries symmetrically. `bvh.node_positions(centered='skeleton')` gives skeleton-centered positions (equivalent to root-relative positions in an old v0.5 API).
 
 # %% [markdown]
 # # What's next

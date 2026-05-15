@@ -50,3 +50,4 @@ FUTURE_PLANS.md
 *.CHARTER.md
 pybvh.egg-info/
 tutorials/output/
+temp.py

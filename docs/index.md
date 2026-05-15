@@ -23,7 +23,7 @@ import pybvh
 
 bvh = pybvh.read_bvh_file("walk.bvh")
 bvh.root_pos          # (F, 3) root translation
-bvh.joint_angles      # (F, J, 3) Euler angles in degrees
+bvh.joint_angles      # (F, J, 3) Euler angles in radians
 
 # Convert to 6D rotation representation
 root_pos, rot6d = bvh.to_6d()

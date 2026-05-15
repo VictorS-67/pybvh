@@ -13,7 +13,7 @@ print(bvh)  # "24 elements in the Hierarchy, 120 frames at 30.0 fps (frame_time=
 
 ```python
 bvh.root_pos          # (F, 3) root translation per frame
-bvh.joint_angles      # (F, J, 3) Euler angles in degrees
+bvh.joint_angles      # (F, J, 3) Euler angles in radians
 bvh.joint_names       # ['Hips', 'Spine', ...] (excludes end sites)
 bvh.joint_count       # 24
 bvh.euler_orders      # ['ZYX', 'ZYX', ...] per joint
@@ -22,7 +22,7 @@ bvh.euler_orders      # ['ZYX', 'ZYX', ...] per joint
 ## 3D joint positions
 
 ```python
-coords = bvh.spatial_coords()  # (F, N, 3) via forward kinematics
+coords = bvh.node_positions()  # (F, N, 3) via forward kinematics
 ```
 
 ## Rotation representations

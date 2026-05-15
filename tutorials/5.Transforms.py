@@ -240,8 +240,8 @@ plt.show()
 bvh_fixed = bvh_mixed.reorient_rest_up('+z')
 
 # Joint positions are unchanged by reorient_rest_up — confirm numerically
-coords_before = bvh_mixed.spatial_coords()
-coords_after  = bvh_fixed.spatial_coords()
+coords_before = bvh_mixed.node_positions()
+coords_after  = bvh_fixed.node_positions()
 print(f'Max joint-position difference after reorient_rest_up: {np.abs(coords_before - coords_after).max():.2e}')
 
 fig, ax = bvh_fixed.plot_rest_pose()
@@ -256,8 +256,8 @@ plt.show()
 # %%
 bvh_canon_fwd = bvh.reorient_rest_forward('+y')
 
-coords_before = bvh.spatial_coords()
-coords_after  = bvh_canon_fwd.spatial_coords()
+coords_before = bvh.node_positions()
+coords_after  = bvh_canon_fwd.node_positions()
 print(f'Max joint-position difference after reorient_rest_forward: {np.abs(coords_before - coords_after).max():.2e}')
 
 # %% [markdown]
@@ -295,7 +295,7 @@ print(f'Original root position (frame 0): {bvh.root_pos[0]}')
 print(f'Noisy    root position (frame 0): {noisy_pos.root_pos[0]}')
 
 # %% [markdown]
-# One subtle behavior: `add_noise` wraps noised angles to `[-180°, 180°]` by default (`wrap=True`). This prevents discontinuities when the noisy angles are later converted to rotation matrices via `euler_to_rotmat` (see Tutorial 3 on why angle-range wrapping matters for Euler representations). Turn it off with `wrap=False` only if your downstream code handles angle ranges itself.
+# One subtle behavior: `add_noise` wraps noised angles to `[-π, π]` radians by default (`wrap=True`). This prevents discontinuities when the noisy angles are later converted to rotation matrices via `euler_to_rotmat` (see Tutorial 3 on why angle-range wrapping matters for Euler representations). The `sigma_deg` kwarg stays in degrees as a user-facing convenience — it's converted internally. Turn the wrap off with `wrap=False` only if your downstream code handles angle ranges itself.
 
 # %% [markdown]
 # # Speed perturbation

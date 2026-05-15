@@ -17,7 +17,7 @@ For datasets with occasional corrupt files, pass `skip_errors=True` — failing 
 
 ## Harmonizing datasets
 
-Clips from heterogeneous sources typically differ in skeleton topology, frame rate, and up-axis convention. Apply dataset-wide normalization in one call before batching:
+Clips from heterogeneous sources typically differ in skeleton topology, frame rate, up-axis convention, and per-joint Euler order. Apply dataset-wide normalization in one call before batching:
 
 ```python
 from pybvh import batch
@@ -25,24 +25,55 @@ from pybvh import batch
 reference = pybvh.read_bvh_file("reference_skeleton.bvh")
 clips = batch.harmonize(
     raw_clips,
-    reference=reference,      # retarget all clips to this skeleton's bone offsets
-    target_fps=30.0,          # resample via SLERP when fps differs by > 0.01
-    target_world_up="+z",           # rotate into a common up axis
-    on_incompatible="drop",   # or "raise" for strict mode
-    verbose=True,             # warn per dropped incompatible clip
+    reference=reference,             # retarget all clips to this skeleton's bone offsets
+    target_fps=30.0,                 # resample via SLERP when fps differs by > 0.01
+    target_world_up="+z",            # rotate into a common up axis
+    target_euler_order="XYZ",        # re-express joint angles in a uniform Euler order
+    on_incompatible="drop",          # or "raise" for strict mode
+    verbose=True,                    # one summary UserWarning at end of call when drops occur
 )
 ```
 
-Any of `reference` / `target_fps` / `target_world_up` / `target_rest_up` / `target_rest_forward` can be `None` to skip that stage. `harmonize` also accepts `target_rest_up=` and `target_rest_forward=` (applied in the order `world_up → rest_up → rest_forward`). Clips incompatible with `reference` (different `joint_names` or `euler_orders`) are either dropped with a warning or raise `ValueError` depending on `on_incompatible`. To check topology compatibility without invoking a full harmonize, use `a.matches_topology(b)`.
+Any of `reference` / `target_fps` / `target_world_up` / `target_rest_up` / `target_rest_forward` / `target_euler_order` can be `None` to skip that stage. Stages run in the order `topology-gate → retarget → resample → world_up → rest_up → rest_forward → euler_order`. Clips that fail the topology gate against `reference` are either dropped with a single summary `UserWarning` at end of call or raise `ValueError` depending on `on_incompatible`.
+
+Pass `return_report=True` for a JSON-serializable `HarmonizeReport` describing every transformation applied to every kept clip:
+
+```python
+clips, report = batch.harmonize(raw_clips, reference=reference,
+                                target_fps=30.0, return_report=True)
+
+# Audit trail
+print(f"Kept {len(report.kept_indices)} / dropped {len(report.dropped_indices)}")
+for src, stages in zip(report.kept_sources, report.applied_stages):
+    print(src, stages)  # e.g. ('/data/clip_0001.bvh', {'resample': '24→30'})
+
+# Embed alongside the preprocessed dataset
+import json, dataclasses
+metadata = json.dumps(dataclasses.asdict(report))
+```
+
+### Checking compatibility
+
+For ad-hoc filtering without invoking `harmonize`, pybvh exposes three predicates on `Bvh`:
+
+- `a.matches_hierarchy(b)` — joint names, parent structure, and rest offsets match (within `atol`). Pass `match_offsets=False` to ignore bone proportions, e.g. when retargeting is about to overwrite them. Use this gate when batching to rotation-invariant representations (`'6d'`, `'quaternion'`, `'rotmat'`) where channel layout is irrelevant.
+- `a.matches_channels(b)` — per-joint Euler rotation orders and root position-channel order match. Use in addition to `matches_hierarchy` when batching to `'euler'` or `'axisangle'`, where the channel layout depends on the source Euler order.
+- `a.matches_topology(b)` — conjunction of both. Use when every aspect must align.
+
+`batch_to_numpy` picks the right predicate automatically based on the requested representation, and emits actionable error messages (with `source_path` where available) when a clip diverges from the reference.
 
 ## Motion features
 
 Each feature captures a different aspect of the motion. Choose based on what your model needs:
 
 ```python
-vel = bvh.joint_velocities()        # (F, N, 3) in units/second
-acc = bvh.joint_accelerations()     # (F, N, 3)
+vel = bvh.joint_velocities()        # (F, J, 3) in units/second (non-end-site joints)
+acc = bvh.joint_accelerations()     # (F, J, 3)
 ang_vel = bvh.angular_velocities()  # (F, J, 3) in radians/second
+
+# Per-node variants include end sites — useful for extremity tracking
+vel_all = bvh.node_velocities()     # (F, N, 3) — joints + end sites
+acc_all = bvh.node_accelerations()  # (F, N, 3)
 
 traj = bvh.root_trajectory()             # (F, 4) ground pos + heading
 
@@ -59,7 +90,7 @@ Defaults are `stencil="central", pad="edge"` on the velocity-like functions — 
 | **Root trajectory** | Ground-plane position (2D) + heading as sin/cos (2D) | Locomotion conditioning, path prediction |
 | **Foot contacts** | Binary per-frame indicators (combined velocity + height by default; see `method=`) | Contact-aware generation, foot skating loss |
 
-For root-relative positions, use `bvh.spatial_coords(centered='skeleton')`.
+For root-relative positions, use `bvh.node_positions(centered='skeleton')`.
 
 ## One-stop feature export
 

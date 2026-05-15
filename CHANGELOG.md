@@ -9,6 +9,53 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-05-14
+
+### Upgrading from 0.6.0
+
+Single big-bang release; everything below ships together. The most disruptive items first:
+
+- ⚠️ **`Bvh.joint_angles` is now in radians.** Was degrees. Every value is ~57× smaller. Deg↔rad conversion lives at I/O: `read_bvh_file` converts on read, `write_bvh_file` converts on write, `to_df_dict` / `df_to_bvh` keep DataFrame columns in degrees for readability. Strip explicit `np.deg2rad(bvh.joint_angles)` / `np.radians(bvh.joint_angles)` — they're no-ops now.
+- ⚠️ **`Bvh.joint_velocities` / `Bvh.joint_accelerations` return `(F, J, 3)`, not `(F, N, 3)`.** Per-node behavior is preserved under new names `node_velocities` / `node_accelerations`.
+- ⚠️ **`Bvh.matches_topology` is stricter.** Now compares parent indices and rest offsets in addition to joint names and Euler orders.
+- **`Bvh.joint_angles` / `Bvh.root_pos` return read-only views.** Mutation raises `ValueError: assignment destination is read-only`. Use copy → mutate → assign back.
+- **`Bvh.spatial_coords` → `Bvh.node_positions` rename** (six-method symmetry across position/velocity/acceleration). Module-level `pybvh.frames_to_spatial_coords` similarly renamed to `frames_to_node_positions`.
+- **End-site node names lose their space.** `'End Site Head'` → `'EndSiteHead'`.
+- **`harmonize()` emits one summary `UserWarning` per call** instead of one per dropped clip. Programmatic callers should use `return_report=True`.
+
+### Added
+
+- **`Bvh.node_positions()`** — was `spatial_coords()` (renamed). Returns `(F, N, 3)` — per-node 3D positions, joints + end sites.
+- **`Bvh.joint_positions()`** — new. Returns `(F, J, 3)` — joint-axis subset of `node_positions`. Index-aligns with `joint_angles` and `joint_velocities`.
+- **`Bvh.node_velocities()` / `Bvh.node_accelerations()`** — was `joint_velocities` / `joint_accelerations` (renamed). Returns `(F, N, 3)`. Same `stencil`/`pad` parameters.
+- **`Bvh.index(name, axis='joint'|'node')`** — unambiguous lookup that takes the axis explicitly. Avoids the silent `joint_index` vs `node_index` collision (integers differ for joints past the first end-site).
+- **`Bvh.world_up_inferred` property** — read-only. Returns what the auto heuristic *would* pick, regardless of any manual `bvh.world_up = '+x'` override. Useful for auditing overrides.
+- **`Bvh.matches_hierarchy(other, match_offsets=True, atol=1e-6)`** — predicate for joint names + parent structure + rest offsets. Pass `match_offsets=False` to ignore bone proportions (caller about to retarget).
+- **`Bvh.matches_channels(other)`** — predicate for per-joint Euler rotation orders + root position-channel order.
+- **`Bvh.source_path` attribute** — on-disk origin populated by `read_bvh_file`. Preserved through `copy()` / `slice_frames()` / single-source `concat()`. Surfaced in `__str__`, `batch_to_numpy` error messages, `HarmonizeReport`.
+- **`pybvh.frames_to_node_positions`** — module-level function (renamed from `frames_to_spatial_coords`).
+- **`harmonize(target_euler_order='XYZ')`** — pipeline stage that re-expresses every kept clip's joint angles in a uniform Euler order via `Bvh.change_euler_order`. Orientation-preserving.
+- **`harmonize(return_report=True)` + `HarmonizeReport` dataclass** — JSON-serializable per-call audit. Carries `kept_indices` / `kept_sources` / `dropped_indices` / `dropped_sources` / `drop_reasons` / `applied_stages` (per-clip dicts recording every stage). Serialize via `json.dumps(dataclasses.asdict(report))`.
+
+### Changed
+
+- **`Bvh.joint_angles` unit**: degrees → radians. The deg↔rad conversion now lives entirely at I/O boundaries (`read_bvh_file`, `write_bvh_file`, `to_df_dict`, `df_to_bvh`). Internal rotation conversions (`to_rotmat`, `to_6d`, `from_*`, `change_euler_order`, transforms) work directly in radians; `degrees=True` kwargs were stripped from all internal callers. `pybvh.rotations.*` keeps its `degrees=` kwarg as the public bridge API. `angular_velocities` defaults stay (radians/sec; `degrees=True` opt-in).
+- **`Bvh.joint_angles` / `Bvh.root_pos` getters return read-only views.** Closes the silent-corruption footgun where `angles = b.joint_angles; angles -= angles.mean(axis=0)` mutates the Bvh.
+- **`Bvh.spatial_coords` renamed to `Bvh.node_positions`.** Six-method symmetry: `joint_*` always = `(F, J, 3)`, `node_*` always = `(F, N, 3)`. Module-level `pybvh.frames_to_spatial_coords` similarly renamed.
+- **`joint_velocities` / `joint_accelerations` semantics**: per-joint `(F, J, 3)` (was per-node). Closes the latent layout asymmetry in `to_feature_array` — rotation and velocity blocks now share joint indexing.
+- **`feature_array_layout(...)` signature**: `num_nodes` keyword argument removed; velocity block sizes from `num_joints`.
+- **`Bvh.matches_topology` = `matches_hierarchy(other) and matches_channels(other)`** — closes the latent offset/parent-index gap.
+- **`Bvh.lr_mapping` is bidirectional.** Both directions of every pair are present (`m['LeftArm'] == 'RightArm'` AND `m['RightArm'] == 'LeftArm'`). Setter accepts one-directional input and symmetrizes internally.
+- **End-site names**: synthesized as `'EndSite<parent>'` instead of `'End Site <parent>'`. File I/O unchanged (BVH writes end-sites without name).
+- **`Bvh.__str__` format**: `"24 joints, 75 frames at 30.0 fps (frame_time=0.033333s, from <basename>)"` — was "`elements in the Hierarchy`". `, from <basename>` appended when `source_path` is set.
+- **`batch_to_numpy` is now representation-aware** — clips with different per-joint Euler orders no longer fail for `'6d'`/`'quaternion'`/`'rotmat'` (channel layout doesn't depend on Euler order there); only for `'euler'`/`'axisangle'`.
+- **`batch_to_numpy` error messages are actionable** — name both clips by `source_path` (or index), identify the first divergent joint with both Euler orders, point at the recovery primitive.
+- **`harmonize()` emits one summary `UserWarning` per call** (was per-clip). `UserWarning` channel; capturable via `warnings.catch_warnings()`. Set `verbose=False` to silence; `return_report=True` for structured drops.
+- **`harmonize()`'s topology gate uses `matches_hierarchy(match_offsets=False)`** instead of `matches_topology`. Same 0.6.0 behavior for offset-divergent clips (accepted, retargeted) — but explicit now.
+- **`add_noise(sigma_deg=...)`** still accepts degrees of noise (user-facing); internally converts to radians once and wraps to `[-π, π]` (was `[-180, 180]`).
+- **`joint_index` / `node_index` property docstrings** include a prominent warning about the integer-collision silent footgun, recommending `bvh.index(name, axis=...)` for ambiguous call sites.
+- **Velocity/acceleration docstrings** note that `centered='first'` and `centered='world'` produce identical results (constant offsets vanish under differentiation).
+
 ## [0.6.0] — 2026-04-19
 
 ### Upgrading from 0.5.1

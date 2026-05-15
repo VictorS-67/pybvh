@@ -157,7 +157,7 @@ plt.show()
 # # Centering modes
 
 # %% [markdown]
-# All visualization functions accept a `centered` parameter — the same centering modes as `spatial_coords()` (see Tutorial 2 for a full explanation):
+# All visualization functions accept a `centered` parameter — the same centering modes as `node_positions()` (see Tutorial 2 for a full explanation):
 #
 # - `'world'` (default): absolute positions from the BVH file.
 # - `'first'`: root at the origin in the first frame, motion continues from there.

@@ -372,11 +372,11 @@ class TestBvhRotationMethods:
 
     def test_6d_preserves_spatial_coords(self, bvh_example):
         """Spatial coordinates should be the same after 6D round-trip."""
-        spatial_before = bvh_example.spatial_coords(centered="world")
+        spatial_before = bvh_example.node_positions(centered="world")
 
         root_pos, joint_rot6d = bvh_example.to_6d()
         bvh_example.from_6d(root_pos, joint_rot6d, inplace=True)
-        spatial_after = bvh_example.spatial_coords(centered="world")
+        spatial_after = bvh_example.node_positions(centered="world")
 
         np.testing.assert_allclose(spatial_after, spatial_before, atol=1e-4)
 
@@ -905,10 +905,10 @@ class TestBvhAxisAngleMethods:
 
     def test_axisangle_preserves_spatial_coords(self, bvh_example):
         """Spatial coordinates should be the same after axis-angle round-trip."""
-        spatial_before = bvh_example.spatial_coords(centered="world")
+        spatial_before = bvh_example.node_positions(centered="world")
         root_pos, joint_aa = bvh_example.to_axisangle()
         bvh_example.from_axisangle(root_pos, joint_aa, inplace=True)
-        spatial_after = bvh_example.spatial_coords(centered="world")
+        spatial_after = bvh_example.node_positions(centered="world")
         np.testing.assert_allclose(spatial_after, spatial_before, atol=1e-4)
 
     def test_joint_names_from_axisangle(self, bvh_example):
@@ -975,10 +975,10 @@ class TestEulerOrderConversion:
     def test_single_joint_preserves_spatial_coords(self, bvh_example):
         """Spatial coordinates should not change after Euler order conversion."""
         bvh = bvh_example.copy()
-        spatial_before = bvh.spatial_coords(centered="world")
+        spatial_before = bvh.node_positions(centered="world")
 
         bvh.change_euler_order('XYZ', joint='Spine', inplace=True)
-        spatial_after = bvh.spatial_coords(centered="world")
+        spatial_after = bvh.node_positions(centered="world")
 
         np.testing.assert_allclose(spatial_after, spatial_before, atol=1e-4)
 
@@ -1040,10 +1040,10 @@ class TestEulerOrderConversion:
     def test_change_all_preserves_spatial_coords(self, bvh_example):
         """Spatial coordinates should not change after converting all orders."""
         bvh = bvh_example.copy()
-        spatial_before = bvh.spatial_coords(centered="world")
+        spatial_before = bvh.node_positions(centered="world")
 
         bvh.change_euler_order('XYZ', inplace=True)
-        spatial_after = bvh.spatial_coords(centered="world")
+        spatial_after = bvh.node_positions(centered="world")
 
         np.testing.assert_allclose(spatial_after, spatial_before, atol=1e-4)
 

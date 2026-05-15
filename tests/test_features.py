@@ -154,7 +154,10 @@ class TestRootTrajectoryHeadingRestForward:
         # which is roll, not yaw. Inject yaw manually instead.
         bvh = make_pos_y_up_bvh().copy()
         # +y up, ZYX Euler order: yaw = rotation around Y, which is channel 1.
-        bvh.joint_angles[:, 0, 1] = np.linspace(0, 90, bvh.frame_count)
+        # joint_angles is in radians — sweep 0 → π/2 (= 90°).
+        ja = bvh.joint_angles.copy()
+        ja[:, 0, 1] = np.linspace(0, np.pi / 2, bvh.frame_count)
+        bvh.joint_angles = ja
         traj = bvh.root_trajectory()
         h0 = float(np.arctan2(traj[0, 2], traj[0, 3]))
         h_last = float(np.arctan2(traj[-1, 2], traj[-1, 3]))
@@ -195,8 +198,10 @@ class TestRootTrajectoryIncludeVelocities:
     def test_heading_velocity_handles_plus_minus_pi_wrap(self):
         """Yaw crossing ±π should not produce a spike in heading velocity."""
         bvh = make_pos_y_up_bvh().copy()
-        # +y up, ZYX order → yaw = channel 1; sweep from -180° to +180°
-        bvh.joint_angles[:, 0, 1] = np.linspace(-180, 180, bvh.frame_count)
+        # +y up, ZYX order → yaw = channel 1; sweep from -π to +π (≡ -180° to +180°).
+        ja = bvh.joint_angles.copy()
+        ja[:, 0, 1] = np.linspace(-np.pi, np.pi, bvh.frame_count)
+        bvh.joint_angles = ja
         traj = bvh.root_trajectory(include_velocities=True, pad="edge")
         heading_vel = traj[:, 6]  # last column
         # Heading velocity should be smooth (monotonic sweep of ~360°
@@ -380,7 +385,7 @@ class TestFeatureArrayLayout:
 
     def test_basic_6d(self):
         layout = features.feature_array_layout(
-            num_joints=24, num_nodes=29, representation="6d")
+            num_joints=24, representation="6d")
         assert layout["root_pos"] == slice(0, 3)
         assert layout["rotations"] == slice(3, 3 + 24 * 6)
         assert "velocities" not in layout
@@ -388,15 +393,16 @@ class TestFeatureArrayLayout:
 
     def test_with_velocities(self):
         layout = features.feature_array_layout(
-            num_joints=24, num_nodes=29, representation="6d",
+            num_joints=24, representation="6d",
             include_velocities=True)
         expected_start = 3 + 24 * 6
+        # Velocities are now per-joint, not per-node: width = num_joints * 3
         assert layout["velocities"] == slice(
-            expected_start, expected_start + 29 * 3)
+            expected_start, expected_start + 24 * 3)
 
     def test_with_foot_contacts(self):
         layout = features.feature_array_layout(
-            num_joints=24, num_nodes=29, num_feet=2,
+            num_joints=24, num_feet=2,
             representation="6d", include_foot_contacts=True)
         expected_start = 3 + 24 * 6
         assert layout["foot_contacts"] == slice(
@@ -404,7 +410,7 @@ class TestFeatureArrayLayout:
 
     def test_no_root_pos(self):
         layout = features.feature_array_layout(
-            num_joints=24, num_nodes=29, representation="6d",
+            num_joints=24, representation="6d",
             include_root_pos=False)
         assert "root_pos" not in layout
         assert layout["rotations"] == slice(0, 24 * 6)
@@ -412,33 +418,33 @@ class TestFeatureArrayLayout:
     def test_foot_contacts_without_num_feet_raises(self):
         with pytest.raises(ValueError, match="num_feet"):
             features.feature_array_layout(
-                num_joints=24, num_nodes=29, representation="6d",
+                num_joints=24, representation="6d",
                 include_foot_contacts=True)
 
     def test_rotmat_width_9(self):
         layout = features.feature_array_layout(
-            num_joints=24, num_nodes=29, representation="rotmat")
+            num_joints=24, representation="rotmat")
         assert layout["rotations"] == slice(3, 3 + 24 * 9)
 
     def test_euler_width_3(self):
         layout = features.feature_array_layout(
-            num_joints=24, num_nodes=29, representation="euler")
+            num_joints=24, representation="euler")
         assert layout["rotations"] == slice(3, 3 + 24 * 3)
 
     def test_quaternion_width_4(self):
         layout = features.feature_array_layout(
-            num_joints=24, num_nodes=29, representation="quaternion")
+            num_joints=24, representation="quaternion")
         assert layout["rotations"] == slice(3, 3 + 24 * 4)
 
     def test_unknown_representation_raises(self):
         with pytest.raises(ValueError, match="representation"):
             features.feature_array_layout(
-                num_joints=24, num_nodes=29, representation="nonsense")
+                num_joints=24, representation="nonsense")
 
     def test_keyword_only(self):
         """Positional args should fail — signature is keyword-only."""
         with pytest.raises(TypeError):
-            features.feature_array_layout(24, 29)  # type: ignore[misc]
+            features.feature_array_layout(24)  # type: ignore[misc]
 
     def test_bvh_method_wrapper(self, bvh_example):
         layout = bvh_example.feature_array_layout(representation="6d")
@@ -680,9 +686,10 @@ class TestFootContactsCombinedMethod:
         Height-alone: reports no contact (correct).
         """
         bvh = make_pos_y_up_bvh().copy()
-        bvh.root_pos[:] = 0
-        bvh.root_pos[:, 1] = 100  # hips at y=100 → feet at ~y=95
-        bvh.joint_angles[:] = 0
+        rp = np.zeros_like(bvh.root_pos)
+        rp[:, 1] = 100  # hips at y=100 → feet at ~y=95
+        bvh.root_pos = rp
+        bvh.joint_angles = np.zeros_like(bvh.joint_angles)
         return bvh
 
     @staticmethod
@@ -692,9 +699,10 @@ class TestFootContactsCombinedMethod:
         Height-alone: contact everywhere (low height).
         """
         bvh = make_pos_y_up_bvh().copy()
-        bvh.root_pos[:] = 0
-        bvh.root_pos[:, 2] = np.linspace(0, 50, bvh.frame_count)
-        bvh.joint_angles[:] = 0
+        rp = np.zeros_like(bvh.root_pos)
+        rp[:, 2] = np.linspace(0, 50, bvh.frame_count)
+        bvh.root_pos = rp
+        bvh.joint_angles = np.zeros_like(bvh.joint_angles)
         return bvh
 
     def test_combined_rejects_stationary_airborne_foot(self):
@@ -723,9 +731,10 @@ class TestFootContactsCombinedMethod:
         """Degenerate case: when height is always low, combined collapses
         to the velocity signal alone."""
         bvh = make_pos_y_up_bvh().copy()
-        bvh.root_pos[:] = 0
-        bvh.root_pos[5:, 2] = 5  # stationary-move-stationary pattern
-        bvh.joint_angles[:] = 0
+        rp = np.zeros_like(bvh.root_pos)
+        rp[5:, 2] = 5  # stationary-move-stationary pattern
+        bvh.root_pos = rp
+        bvh.joint_angles = np.zeros_like(bvh.joint_angles)
         vel = bvh.foot_contacts(
             method="velocity", foot_joints=["LeftLeg", "RightLeg"])
         combined = bvh.foot_contacts(
@@ -748,8 +757,8 @@ class TestFootContactsFloorEstimation:
 
     def test_auto_tracks_planted_foot(self):
         bvh = make_pos_y_up_bvh().copy()
-        bvh.root_pos[:] = 0
-        bvh.joint_angles[:] = 0  # feet at y = -5 throughout
+        bvh.root_pos = np.zeros_like(bvh.root_pos)
+        bvh.joint_angles = np.zeros_like(bvh.joint_angles)  # feet at y = -5 throughout
         _, info = bvh.foot_contacts(
             method="height", foot_joints=["LeftLeg", "RightLeg"],
             return_info=True)
@@ -762,9 +771,10 @@ class TestFootContactsFloorEstimation:
 
     def test_auto_tracks_clip_offset(self):
         bvh = make_pos_y_up_bvh().copy()
-        bvh.root_pos[:] = 0
-        bvh.root_pos[:, 1] = 50  # lift skeleton 50 units along +y
-        bvh.joint_angles[:] = 0  # feet at y = 50 - 5 = 45
+        rp = np.zeros_like(bvh.root_pos)
+        rp[:, 1] = 50  # lift skeleton 50 units along +y
+        bvh.root_pos = rp
+        bvh.joint_angles = np.zeros_like(bvh.joint_angles)  # feet at y = 50 - 5 = 45
         _, info = bvh.foot_contacts(
             method="height", foot_joints=["LeftLeg", "RightLeg"],
             return_info=True)
@@ -773,8 +783,8 @@ class TestFootContactsFloorEstimation:
     def test_negative_up_floor_reported_in_raw_coords(self):
         """For world_up='-y' a foot whose raw y ≈ 5 should yield floor≈5."""
         bvh = make_neg_y_up_bvh().copy()
-        bvh.root_pos[:] = 0
-        bvh.joint_angles[:] = 0
+        bvh.root_pos = np.zeros_like(bvh.root_pos)
+        bvh.joint_angles = np.zeros_like(bvh.joint_angles)
         _, info = bvh.foot_contacts(
             method="height", foot_joints=["LeftLeg", "RightLeg"],
             return_info=True)

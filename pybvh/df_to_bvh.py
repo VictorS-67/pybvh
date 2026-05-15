@@ -121,7 +121,7 @@ def _check_df_match_with_hier(hier: list[BvhNode], df: pd.DataFrame) -> tuple[li
     correct_col_list: list[str] = ['time']
     correct_col_list.extend(node_to_names(hier[0], rotpos= 'pos'))
     for node in hier:
-        if 'End Site' in node.name:
+        if node.is_end_site():
             continue
         correct_col_list.extend(node_to_names(node))
 
@@ -196,7 +196,7 @@ def _complete_hier_dict(hier: dict[str, dict], df: pd.DataFrame) -> dict[str, di
             parent_info = hier[parent]
 
         #for end site, that's all there is to it
-        if 'End Site' in name:
+        if name.startswith('EndSite'):
             continue
 
         try:
@@ -259,7 +259,7 @@ def _hier_dict_to_list(hier: dict[str, dict]) -> list[BvhNode]:
     #we will use a recursive function for that going through the children of the nodes
     def create_list_rec(node_name: str, is_start: bool = False) -> list[BvhNode]:
         info_dict = hier[node_name]
-        if 'End Site' in node_name:
+        if node_name.startswith('EndSite'):
             node = BvhNode(node_name, offset=info_dict['offset'])
             return [node]
         else:
@@ -301,7 +301,7 @@ def _hier_dict_to_list(hier: dict[str, dict]) -> list[BvhNode]:
         else:
             node.parent = list_nodes[name_to_index[parent_name]]
 
-        if 'End Site' in node.name:
+        if node.is_end_site():
             continue
 
         children_name_list = hier[node.name]['children']
@@ -385,7 +385,9 @@ def df_to_bvh(hier: list[BvhNode] | dict[str, dict], df: pd.DataFrame) -> Bvh:
 
     num_joints = len([n for n in hier_list if not n.is_end_site()])
     root_pos = frames[:, :3].astype(np.float64)
-    joint_angles = frames[:, 3:].reshape(frames.shape[0], num_joints, 3).astype(np.float64)
+    # DataFrame angles are in degrees (human-readable); pybvh holds radians.
+    joint_angles_deg = frames[:, 3:].reshape(frames.shape[0], num_joints, 3).astype(np.float64)
+    joint_angles = np.deg2rad(joint_angles_deg)
 
     return Bvh(nodes=hier_list, root_pos=root_pos, joint_angles=joint_angles,
                frame_time=frame_time)

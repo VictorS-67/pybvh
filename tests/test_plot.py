@@ -81,17 +81,17 @@ class TestNormalizeInput:
         assert len(coords_list) == 2
 
     def test_precomputed_array_2d(self, bvh_example):
-        coords = bvh_example.spatial_coords(frame_num=0)
+        coords = bvh_example.node_positions(frame_num=0)
         _, coords_list = normalize_input(bvh_example, coords, "world")
         assert coords_list[0].shape == (1, len(bvh_example.nodes), 3)
 
     def test_precomputed_array_3d(self, bvh_example):
-        coords = bvh_example.spatial_coords()
+        coords = bvh_example.node_positions()
         _, coords_list = normalize_input(bvh_example, coords, "world")
         assert coords_list[0].shape == coords.shape
 
     def test_precomputed_array_with_list_raises(self, bvh_example):
-        coords = bvh_example.spatial_coords()
+        coords = bvh_example.node_positions()
         with pytest.raises(ValueError, match="single Bvh"):
             normalize_input([bvh_example, bvh_example], coords, "world")
 
@@ -102,13 +102,13 @@ class TestNormalizeInput:
 
 class TestComputeUnifiedLimits:
     def test_returns_center_and_span(self, bvh_example):
-        coords = bvh_example.spatial_coords()
+        coords = bvh_example.node_positions()
         center, half_span = compute_unified_limits([coords])
         assert center.shape == (3,)
         assert half_span > 0
 
     def test_multi_skeleton_encompasses_all(self, bvh_example):
-        coords = bvh_example.spatial_coords()
+        coords = bvh_example.node_positions()
         # Offset a copy
         coords2 = coords.copy()
         coords2[:, :, 0] += 100.0
@@ -118,7 +118,7 @@ class TestComputeUnifiedLimits:
         assert center[0] < coords2[:, :, 0].mean()
 
     def test_equal_aspect_ratio(self, bvh_example):
-        coords = bvh_example.spatial_coords()
+        coords = bvh_example.node_positions()
         center, half_span = compute_unified_limits([coords])
         # half_span is a scalar (cubic bounding box)
         assert isinstance(half_span, float)
@@ -147,31 +147,31 @@ class TestAlignFrameCounts:
 
 class TestGetCameraAngles:
     def test_front_returns_tuple(self, bvh_example):
-        frame = bvh_example.spatial_coords(frame_num=0)
+        frame = bvh_example.node_positions(frame_num=0)
         azim, elev, up = get_camera_angles(bvh_example, frame, "front")
         assert isinstance(azim, float)
         assert isinstance(elev, float)
         assert up in ('x', 'y', 'z')
 
     def test_side_differs_from_front(self, bvh_example):
-        frame = bvh_example.spatial_coords(frame_num=0)
+        frame = bvh_example.node_positions(frame_num=0)
         azim_f, _, _ = get_camera_angles(bvh_example, frame, "front")
         azim_s, _, _ = get_camera_angles(bvh_example, frame, "side")
         assert abs(azim_s - azim_f) == pytest.approx(90.0)
 
     def test_top_has_high_elevation(self, bvh_example):
-        frame = bvh_example.spatial_coords(frame_num=0)
+        frame = bvh_example.node_positions(frame_num=0)
         _, elev, _ = get_camera_angles(bvh_example, frame, "top")
         assert elev == pytest.approx(90.0)
 
     def test_custom_tuple(self, bvh_example):
-        frame = bvh_example.spatial_coords(frame_num=0)
+        frame = bvh_example.node_positions(frame_num=0)
         azim, elev, _ = get_camera_angles(bvh_example, frame, (45.0, 30.0))
         assert azim == pytest.approx(45.0)
         assert elev == pytest.approx(30.0)
 
     def test_unknown_preset_raises(self, bvh_example):
-        frame = bvh_example.spatial_coords(frame_num=0)
+        frame = bvh_example.node_positions(frame_num=0)
         with pytest.raises(ValueError, match="Unknown camera"):
             get_camera_angles(bvh_example, frame, "below")
 
@@ -273,7 +273,7 @@ class TestFrontViewSemantics:
     def test_front_view_toes_toward_viewer(self, bvh_example):
         """In front view, the forward axis should point toward the viewer
         (positive w component in view space)."""
-        frame = bvh_example.spatial_coords(frame_num=0)
+        frame = bvh_example.node_positions(frame_num=0)
         fwd = bvh_example.forward_at(frame=0)
         azim, elev, up = get_camera_angles(bvh_example, frame, "front")
 
@@ -291,7 +291,7 @@ class TestFrontViewSemantics:
 
     def test_front_view_right_hand_rule(self, bvh_example):
         """The view matrix should preserve right-handedness: det > 0."""
-        frame = bvh_example.spatial_coords(frame_num=0)
+        frame = bvh_example.node_positions(frame_num=0)
         azim, elev, up = get_camera_angles(bvh_example, frame, "front")
         vm = build_view_matrix(azim, elev, up)
         assert np.linalg.det(vm) > 0, (
@@ -300,7 +300,7 @@ class TestFrontViewSemantics:
 
     def test_side_view_perpendicular_to_front(self, bvh_example):
         """Side view should look 90 degrees from front along the forward axis."""
-        frame = bvh_example.spatial_coords(frame_num=0)
+        frame = bvh_example.node_positions(frame_num=0)
         fwd = bvh_example.forward_at(frame=0)
         azim_f, elev, up = get_camera_angles(bvh_example, frame, "front")
         azim_s, _, _ = get_camera_angles(bvh_example, frame, "side")
@@ -380,7 +380,7 @@ class TestFrontViewSemantics:
         After the orientation refactor, camera='front' should show the FRONT:
         for both feet, the toes should be CLOSER to the viewer than the ankles.
         """
-        frame = bvh_test2.spatial_coords(frame_num=15)
+        frame = bvh_test2.node_positions(frame_num=15)
         azim, elev, up = get_camera_angles(bvh_test2, frame, "front")
         vm = build_view_matrix(azim, elev, up)
 
@@ -423,7 +423,7 @@ class TestFrame:
     def test_from_array(self, bvh_example):
         import matplotlib
         matplotlib.use('Agg')
-        coords = bvh_example.spatial_coords(frame_num=0)
+        coords = bvh_example.node_positions(frame_num=0)
         fig, ax = bvhplot.frame(bvh_example, coords, show=False)
         assert fig is not None
 
@@ -651,7 +651,7 @@ class TestTrajectory:
         import matplotlib
         matplotlib.use('Agg')
         import numpy as np
-        coords = bvh_example.spatial_coords()
+        coords = bvh_example.node_positions()
         # Horizontal axes depend on world_up; drop the up axis
         from pybvh.tools import _AXIS_CHAR_TO_IDX
         up_idx = _AXIS_CHAR_TO_IDX[bvh_example.world_up[1]]
@@ -938,8 +938,8 @@ class TestSceneSpacing:
     def two_coords(self, two_bvhs):
         """Spatial coords for the two skeletons, centered='first'."""
         b1, b2 = two_bvhs
-        c1 = b1.spatial_coords(centered="first")
-        c2 = b2.spatial_coords(centered="first")
+        c1 = b1.node_positions(centered="first")
+        c2 = b2.node_positions(centered="first")
         return [c1, c2]
 
     # ------------------------------------------------------------------
@@ -986,8 +986,8 @@ class TestSceneSpacing:
     def test_auto_skeleton_applies_offset(self, two_bvhs):
         from pybvh.bvhplot import _apply_scene_spacing
         b1, b2 = two_bvhs
-        c1 = b1.spatial_coords(centered="skeleton")
-        c2 = b2.spatial_coords(centered="skeleton")
+        c1 = b1.node_positions(centered="skeleton")
+        c2 = b2.node_positions(centered="skeleton")
         result = _apply_scene_spacing(
             [b1, b2], [c1, c2], "auto", "z", "skeleton")
         assert not np.allclose(result[1], c2)

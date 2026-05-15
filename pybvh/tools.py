@@ -430,6 +430,21 @@ def _rest_offset_from_node(node: object) -> npt.NDArray[np.float64]:
     return offset
 
 
+def _iter_unique_lr_pairs(mapping: dict[str, str]):
+    """Yield each ``(name_a, name_b)`` pair from an L/R mapping exactly once.
+
+    Tolerates symmetric mappings (the public form of ``Bvh.lr_mapping``,
+    which contains both directions of every pair) without double-counting.
+    """
+    seen: set[frozenset[str]] = set()
+    for a, b in mapping.items():
+        key = frozenset((a, b))
+        if key in seen:
+            continue
+        seen.add(key)
+        yield a, b
+
+
 def _find_lr_joint_pairs(
     bvh: Bvh, mapping: dict[str, str] | None = None,
 ) -> list[tuple[object, object]]:
@@ -451,7 +466,7 @@ def _find_lr_joint_pairs(
         return []
     ni = bvh.node_index
     pairs: list[tuple[object, object]] = []
-    for left_name, right_name in mapping.items():
+    for left_name, right_name in _iter_unique_lr_pairs(mapping):
         if left_name in ni and right_name in ni:
             pairs.append((bvh.nodes[ni[left_name]], bvh.nodes[ni[right_name]]))
     return pairs
@@ -558,7 +573,7 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
     if head_idx is None or head_idx == hips_idx:
         return rest_up if rest_up is not None else '+y'
 
-    frame0 = bvh.spatial_coords(frame_num=0)
+    frame0 = bvh.node_positions(frame_num=0)
     head_hips = frame0[head_idx] - frame0[hips_idx]
 
     # Check for a clear dominant axis: the largest component must be

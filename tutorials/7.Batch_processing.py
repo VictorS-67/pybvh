@@ -190,8 +190,9 @@ for i, c in enumerate(unified):
 # - Retarget bone proportions to match the reference
 # - Resample to a target fps (with a small tolerance to avoid no-op copies)
 # - Reorient into a target up axis
+# - Re-express joint angles in a uniform Euler order
 #
-# Any of `reference`, `target_fps`, `target_up` may be `None` to skip that stage. Clips that don't match the reference's topology are dropped with a `UserWarning` by default (or raise with `on_incompatible='raise'`). For workflows `batch.harmonize` doesn't fit — e.g. using `extract_joints` to reduce clips to a common joint subset instead of dropping mismatched files — fall back on the three primitives directly.
+# Any of `reference`, `target_fps`, `target_world_up`, `target_rest_up`, `target_rest_forward`, `target_euler_order` may be `None` to skip that stage. When clips are dropped, `harmonize` emits **one summary `UserWarning` per call** (not one per dropped clip), or raises `ValueError` immediately with `on_incompatible='raise'`. For workflows `batch.harmonize` doesn't fit — e.g. using `extract_joints` to reduce clips to a common joint subset instead of dropping mismatched files — fall back on the three primitives directly.
 
 # %%
 import warnings
@@ -201,12 +202,13 @@ raw = [pybvh.read_bvh_file(bvh_folder / name) for name in
        ['bvh_example.bvh', 'bvh_test1.bvh', 'bvh_test2.bvh']]
 
 with warnings.catch_warnings():
-    warnings.simplefilter('ignore')  # quiet per-drop warnings for a tidy cell output
+    warnings.simplefilter('ignore')  # quiet the summary drop warning for a tidy cell output
     harmonized = batch.harmonize(
         raw,
         reference=reference,
         target_fps=30,
         target_world_up='+z',
+        target_euler_order='XYZ',
         verbose=False,
     )
 
@@ -214,7 +216,38 @@ print(f'In: {len(raw)}  Out: {len(harmonized)} '
       f'(bvh_test2 dropped — different topology)')
 for i, c in enumerate(harmonized):
     print(f'  clip {i}: {c.joint_count} joints, {c.frame_count} frames '
-          f'@ {1/c.frame_time:.0f} fps, up={c.world_up}')
+          f'@ {1/c.frame_time:.0f} fps, up={c.world_up}, '
+          f"order={c.euler_orders[0]}")
+
+# %% [markdown]
+# ### Auditing what `harmonize` did
+#
+# Pass `return_report=True` to also receive a `HarmonizeReport` — a JSON-serializable record of every transformation applied to every kept clip, plus the index, `source_path`, and reason for every dropped one. Useful for embedding alongside a preprocessed dataset so the harmonization trail stays auditable.
+
+# %%
+with warnings.catch_warnings():
+    warnings.simplefilter('ignore')
+    harmonized, report = batch.harmonize(
+        raw,
+        reference=reference,
+        target_fps=30,
+        target_world_up='+z',
+        target_euler_order='XYZ',
+        return_report=True,
+        verbose=False,
+    )
+
+print(f'Kept {len(report.kept_indices)} / dropped {len(report.dropped_indices)}')
+for idx, src, stages in zip(report.kept_indices,
+                             report.kept_sources,
+                             report.applied_stages):
+    src_name = Path(src).name if src else f'<index {idx}>'
+    print(f'  {src_name}: {stages}')
+for idx, src, reason in zip(report.dropped_indices,
+                             report.dropped_sources,
+                             report.drop_reasons):
+    src_name = Path(src).name if src else f'<index {idx}>'
+    print(f'  DROPPED {src_name}: {reason}')
 
 # %% [markdown]
 # # Batch conversion to NumPy
@@ -255,7 +288,7 @@ print(f'\npad=True  → single array: shape {padded.shape}  (B, F_max, D)')
 #
 # | Representation | `rep_dim` per joint | Notes |
 # |---|---|---|
-# | `euler`     | 3 | Raw Euler angles, degrees |
+# | `euler`     | 3 | Raw Euler angles, radians |
 # | `6d`        | 6 | First two columns of rotation matrix (Zhou et al., 2019) |
 # | `quaternion`| 4 | Scalar-first (w, x, y, z) |
 # | `axisangle` | 3 | Rotation vector; norm = angle in radians |
@@ -273,21 +306,26 @@ for rep in ['euler', '6d', 'quaternion', 'axisangle', 'rotmat']:
 # %% [markdown]
 # ## Validation
 #
-# Two ways to check whether clips can be batched:
+# Three predicates let you check compatibility at the granularity the downstream operation requires:
 #
-# - **`bvh.matches_topology(other)`** — boolean predicate (same `joint_names` and `euler_orders`). Use this to filter out incompatible clips ahead of time.
-# - **`batch_to_numpy(...)`** — runs the same check internally and raises `ValueError` on mismatch, with a message pointing at the first divergent joint. Use this when bad data should hard-fail rather than be silently filtered.
+# - **`bvh.matches_hierarchy(other)`** — node names, parent structure, and rest offsets match. Use this when batching to rotation-invariant representations (`'6d'`, `'quaternion'`, `'rotmat'`), where channel layout is irrelevant. Pass `match_offsets=False` to also accept clips with differing bone proportions (about to be retargeted).
+# - **`bvh.matches_channels(other)`** — per-joint Euler rotation orders match. Combine with `matches_hierarchy` when batching to `'euler'` or `'axisangle'`, where the channel layout depends on the source Euler order.
+# - **`bvh.matches_topology(other)`** — conjunction of both. Strictest check; use when every aspect must align.
+#
+# `batch_to_numpy(...)` picks the right predicate automatically based on the requested representation, and raises `ValueError` with an actionable message (joint name, both orders, source paths where available, recovery hint) on mismatch.
 
 # %%
-# Soft predicate — no exception, just a boolean
+# Soft predicates — no exception, just booleans
 ex = pybvh.read_bvh_file(bvh_folder / 'bvh_example.bvh')   # 24 joints
 t1 = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')     # 24 joints, same skeleton
 with warnings.catch_warnings():
     warnings.simplefilter('ignore')  # bvh_test3 emits a rest/animation warning on load
     t3 = pybvh.read_bvh_file(bvh_folder / 'bvh_test3.bvh')  # 60 joints
 
-print(f'bvh_example vs bvh_test1: {ex.matches_topology(t1)}')
-print(f'bvh_example vs bvh_test3: {ex.matches_topology(t3)}')
+print(f'bvh_example vs bvh_test1: hierarchy={ex.matches_hierarchy(t1)}, '
+      f'channels={ex.matches_channels(t1)}, topology={ex.matches_topology(t1)}')
+print(f'bvh_example vs bvh_test3: hierarchy={ex.matches_hierarchy(t3)}, '
+      f'channels={ex.matches_channels(t3)}, topology={ex.matches_topology(t3)}')
 
 # %%
 # Files with different joint counts cannot batch together
@@ -309,10 +347,10 @@ except ValueError as e:
 # ML models trained on raw motion features are gradient-dominated by the largest-scale channels. Concretely:
 #
 # - **Root positions** are in file units (typically centimeters) with magnitudes in the 10-100 range.
-# - **Euler angles** are in degrees, range `[-180, 180]`.
+# - **Euler angles** are in radians, range `[-π, π]`.
 # - **Quaternions, 6D components** are in `[-1, 1]`.
 #
-# Without normalization, a neural network sees the position channels ~100× more strongly than rotation channels. **Per-channel z-score normalization** — subtract mean, divide by std — brings every channel to the same scale.
+# Without normalization, a neural network sees the position channels ~10-100× more strongly than rotation channels. **Per-channel z-score normalization** — subtract mean, divide by std — brings every channel to the same scale.
 
 # %% [markdown]
 # ## Computing statistics
@@ -402,18 +440,19 @@ import warnings
 raw = batch.read_bvh_directory(bvh_folder, pattern='bvh_*.bvh')
 print(f'Step 1 — Loaded {len(raw)} files')
 
-# 2. Harmonize (topology check / retarget / resample / reorient) in one call.
-#    Clips incompatible with the reference skeleton are dropped with a warning.
-#    We use bvh_example as the canonical rig here; `standard_skeleton.bvh`
-#    uses a different Euler order, which would reject every clip.
+# 2. Harmonize (topology check / retarget / resample / reorient / Euler order)
+#    in one call. Clips incompatible with the reference skeleton are dropped;
+#    `harmonize` emits one summary UserWarning at end of call when that happens.
+#    We use bvh_example as the canonical rig here.
 reference = pybvh.read_bvh_file(bvh_folder / 'bvh_example.bvh')
 with warnings.catch_warnings():
-    warnings.simplefilter('ignore')  # quiet the per-drop warnings for tutorial output
+    warnings.simplefilter('ignore')  # quiet the summary drop warning for tutorial output
     harmonized = batch.harmonize(
         raw,
         reference=reference,
         target_fps=30,
         target_world_up='+z',
+        target_euler_order='XYZ',
         verbose=False,
     )
 print(f'Step 2 — Harmonized, kept {len(harmonized)} of {len(raw)} clips')

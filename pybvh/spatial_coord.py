@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from .bvh import Bvh
 
 
-def frames_to_spatial_coords(
+def frames_to_node_positions(
     nodes_container: Union[Bvh, list[BvhNode]],
     root_pos: npt.ArrayLike | None = None,
     joint_angles: npt.ArrayLike | None = None,
@@ -29,7 +29,8 @@ def frames_to_spatial_coords(
         Root position per frame.  If None, extracted from *nodes_container*
         (which must then be a Bvh object).
     joint_angles : ndarray, shape (F, J, 3) or (J, 3), optional
-        Euler angles in degrees per joint per frame.  If None, extracted
+        Euler angles **in radians** per joint per frame (pybvh's internal
+        convention; matches :attr:`Bvh.joint_angles`). If None, extracted
         from *nodes_container*.
     centered : str
         ``"world"``  – root at its actual position.
@@ -76,8 +77,8 @@ def frames_to_spatial_coords(
     num_nodes = len(nodes)
     skel_centered = (centered == "skeleton")
 
-    # Convert ALL angles to radians at once: (F, J, 3)
-    all_angles_rad = np.radians(joint_angles_arr)
+    # `joint_angles` is already in radians (pybvh's internal convention).
+    all_angles_rad = joint_angles_arr
 
     # ---- Build topology arrays ----
     # parent_idx[i] = index of parent node (-1 for root)

@@ -27,7 +27,17 @@ def _validate_stencil_pad(stencil: str, pad: str) -> None:
         raise ValueError(f"pad must be 'edge' or 'none', got {pad!r}")
 
 
-def joint_velocities(
+def _non_end_site_indices(bvh: Bvh) -> list[int]:
+    """Indices in ``nodes`` order that correspond to non-end-site joints.
+
+    The same indices select the joint-axis subset of any per-node array
+    (e.g. ``node_positions()`` output of shape ``(F, N, 3)``) to produce
+    a joint-aligned ``(F, J, 3)``.
+    """
+    return [i for i, n in enumerate(bvh.nodes) if not n.is_end_site()]
+
+
+def node_velocities(
     bvh: Bvh,
     centered: str = "world",
     in_frames: bool = False,
@@ -35,7 +45,7 @@ def joint_velocities(
     stencil: str = "central",
     pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
-    """Compute per-joint position velocities.
+    """Compute per-node position velocities (joints + end sites).
 
     Two orthogonal choices:
 
@@ -54,12 +64,15 @@ def joint_velocities(
     centered : str, optional
         Coordinate centering mode (default ``"world"``).
         **Ignored if `coords` is provided** — `coords` takes precedence.
+        Note: ``"world"`` and ``"first"`` produce identical velocities
+        (constant offsets vanish under differentiation); only
+        ``"skeleton"`` is meaningfully different here.
     in_frames : bool, optional
         If True, return velocity in units/frame.
         If False (default), return velocity in units/second.
     coords : ndarray, shape (F, N, 3), optional
         Pre-computed spatial coordinates. If None, computed
-        internally via :meth:`Bvh.spatial_coords`.
+        internally via :meth:`Bvh.node_positions`.
     stencil : {"central", "forward"}, optional
         ``"central"`` (default): ``v[i] = (pos[i+1] - pos[i-1]) / (2·dt)``.
         Second-order accurate at interior frames.  ``"forward"``:
@@ -89,6 +102,12 @@ def joint_velocities(
         forward    none    ``(F-1, N, 3)``
         =========  ======  ================
 
+    See Also
+    --------
+    joint_velocities : Same data restricted to non-end-site joints
+        (``(F, J, 3)``). Use that when the output should index-align
+        with :attr:`Bvh.joint_angles` / :func:`angular_velocities`.
+
     Raises
     ------
     ValueError
@@ -110,7 +129,7 @@ def joint_velocities(
             "Use in_frames=True for per-frame velocity.")
 
     if coords is None:
-        coords = bvh.spatial_coords(centered=centered)
+        coords = bvh.node_positions(centered=centered)
 
     dt = 1.0 if in_frames else bvh.frame_time
 
@@ -127,7 +146,7 @@ def joint_velocities(
     return fd  # (F-1, N, 3)
 
 
-def joint_accelerations(
+def joint_velocities(
     bvh: Bvh,
     centered: str = "world",
     in_frames: bool = False,
@@ -135,7 +154,31 @@ def joint_accelerations(
     stencil: str = "central",
     pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
-    """Compute per-joint position accelerations.
+    """Compute per-joint position velocities (end sites excluded).
+
+    Returns the joint-axis subset of :func:`node_velocities` — same
+    finite-difference math, but restricted to non-end-site joints so
+    the output indexes match :attr:`Bvh.joint_angles` and
+    :func:`angular_velocities`. Output shape is ``(F, J, 3)`` (or the
+    appropriate trimmed variant per ``stencil`` × ``pad``).
+
+    See :func:`node_velocities` for the full parameter / shape docs.
+    """
+    nv = node_velocities(
+        bvh, centered=centered, in_frames=in_frames, coords=coords,
+        stencil=stencil, pad=pad)
+    return nv[:, _non_end_site_indices(bvh), :]
+
+
+def node_accelerations(
+    bvh: Bvh,
+    centered: str = "world",
+    in_frames: bool = False,
+    coords: npt.NDArray[np.float64] | None = None,
+    stencil: str = "central",
+    pad: str = "edge",
+) -> npt.NDArray[np.float64]:
+    """Compute per-node position accelerations (joints + end sites).
 
     Applies the chosen ``stencil`` twice to the input positions.
 
@@ -146,12 +189,15 @@ def joint_accelerations(
     centered : str, optional
         Coordinate centering mode (default ``"world"``).
         **Ignored if `coords` is provided** — `coords` takes precedence.
+        Note: ``"world"`` and ``"first"`` produce identical accelerations
+        (constant offsets vanish under differentiation); only
+        ``"skeleton"`` is meaningfully different here.
     in_frames : bool, optional
         If True, return acceleration in units/frame^2.
         If False (default), return in units/second^2.
     coords : ndarray, shape (F, N, 3), optional
         Pre-computed spatial coordinates. If None, computed
-        internally via :meth:`Bvh.spatial_coords`.
+        internally via :meth:`Bvh.node_positions`.
     stencil : {"central", "forward"}, optional
         Finite-difference method applied twice.  Default ``"central"``.
     pad : {"edge", "none"}, optional
@@ -174,10 +220,15 @@ def joint_accelerations(
         forward    none    ``(F-2, N, 3)``
         =========  ======  ================
 
-    Composition identity: ``np.gradient(joint_velocities(), dt)`` equals
-    ``joint_accelerations()`` exactly under the defaults
+    Composition identity: ``np.gradient(node_velocities(), dt)`` equals
+    ``node_accelerations()`` exactly under the defaults
     (``stencil="central"``, ``pad="edge"``).  Not guaranteed for other
     combinations.
+
+    See Also
+    --------
+    joint_accelerations : Same data restricted to non-end-site joints
+        (``(F, J, 3)``).
 
     Raises
     ------
@@ -201,13 +252,13 @@ def joint_accelerations(
             "Use in_frames=True for per-frame acceleration.")
 
     if coords is None:
-        coords = bvh.spatial_coords(centered=centered)
+        coords = bvh.node_positions(centered=centered)
 
     dt = 1.0 if in_frames else bvh.frame_time
 
     if stencil == "central":
         # np.gradient twice — preserves the composition identity with
-        # joint_velocities(stencil="central", pad="edge").
+        # node_velocities(stencil="central", pad="edge").
         central = np.gradient(
             np.gradient(coords, dt, axis=0), dt, axis=0)  # (F, N, 3)
         return central if pad == "edge" else central[2:-2]  # (F-4, N, 3)
@@ -219,6 +270,30 @@ def joint_accelerations(
         # Replicate last value twice to reach F
         return np.concatenate([acc, acc[-1:], acc[-1:]], axis=0)
     return acc
+
+
+def joint_accelerations(
+    bvh: Bvh,
+    centered: str = "world",
+    in_frames: bool = False,
+    coords: npt.NDArray[np.float64] | None = None,
+    stencil: str = "central",
+    pad: str = "edge",
+) -> npt.NDArray[np.float64]:
+    """Compute per-joint position accelerations (end sites excluded).
+
+    Returns the joint-axis subset of :func:`node_accelerations` — same
+    twice-applied finite-difference math, restricted to non-end-site
+    joints so output indexes match :attr:`Bvh.joint_angles`. Output
+    shape is ``(F, J, 3)`` (or the appropriate trimmed variant per
+    ``stencil`` × ``pad``).
+
+    See :func:`node_accelerations` for the full parameter / shape docs.
+    """
+    na = node_accelerations(
+        bvh, centered=centered, in_frames=in_frames, coords=coords,
+        stencil=stencil, pad=pad)
+    return na[:, _non_end_site_indices(bvh), :]
 
 
 # ----------------------------------------------------------------
@@ -421,7 +496,7 @@ def root_trajectory(
     root_joint = bvh.nodes[0]
     root_angles = bvh.joint_angles[:, 0]
     root_order = root_joint.rot_channels  # type: ignore[attr-defined]
-    R_root = rotations.euler_to_rotmat(root_angles, root_order, degrees=True)
+    R_root = rotations.euler_to_rotmat(root_angles, root_order)
 
     # World-space forward at each frame = R_root @ rest_forward
     fwd_world = np.einsum('fij,j->fi', R_root, fwd_rest)  # (F, 3)
@@ -596,7 +671,7 @@ def foot_contacts(
             f"floor must be 'auto' or a float, got {floor!r}")
 
     if coords is None:
-        coords = bvh.spatial_coords(centered=centered)
+        coords = bvh.node_positions(centered=centered)
 
     up_sign = 1 if bvh.world_up[0] == '+' else -1
     up_idx = {'x': 0, 'y': 1, 'z': 2}[bvh.world_up[1]]
@@ -932,7 +1007,6 @@ from .rotations import REPRESENTATION_CHANNELS as _REPRESENTATION_WIDTHS
 def feature_array_layout(
     *,
     num_joints: int,
-    num_nodes: int,
     num_feet: int = 0,
     representation: str = "6d",
     include_root_pos: bool = True,
@@ -949,9 +1023,9 @@ def feature_array_layout(
     Parameters
     ----------
     num_joints : int
-        Number of joints (excluding end sites).
-    num_nodes : int
-        Total number of nodes including end sites.
+        Number of joints (excluding end sites). Used for both the
+        rotation and velocity blocks: velocities are per-joint (not
+        per-node), aligning with the rotation block's joint axis.
     num_feet : int, optional
         Number of foot joints for contact detection.  Required (>0)
         when ``include_foot_contacts=True``.
@@ -995,7 +1069,7 @@ def feature_array_layout(
     layout["rotations"] = slice(cursor, cursor + rot_width)
     cursor += rot_width
     if include_velocities:
-        vel_width = num_nodes * 3
+        vel_width = num_joints * 3
         layout["velocities"] = slice(cursor, cursor + vel_width)
         cursor += vel_width
     if include_foot_contacts:
@@ -1068,11 +1142,11 @@ def to_feature_array(
     # Compute spatial coords once (shared by velocities and contacts)
     coords = None
     if include_velocities or include_foot_contacts:
-        coords = bvh.spatial_coords(centered=centered)
+        coords = bvh.node_positions(centered=centered)
 
     parts: list[npt.NDArray[np.float64]] = []
 
-    # Root position — apply same ``centered`` semantics as spatial_coords.
+    # Root position — apply same ``centered`` semantics as node_positions.
     if include_root_pos:
         if centered == "skeleton":
             parts.append(np.zeros_like(bvh.root_pos))

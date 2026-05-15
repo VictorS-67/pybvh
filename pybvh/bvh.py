@@ -9,7 +9,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .bvhnode import BvhNode, BvhJoint, BvhRoot
-from .spatial_coord import frames_to_spatial_coords
+from .spatial_coord import frames_to_node_positions
 from . import rotations
 
 
@@ -20,7 +20,11 @@ class Bvh:
     joint / end-site).  Motion data is stored as two structured arrays:
 
     - ``root_pos``:     shape ``(F, 3)``    — root translation per frame
-    - ``joint_angles``: shape ``(F, J, 3)`` — Euler angles (degrees) per joint per frame
+    - ``joint_angles``: shape ``(F, J, 3)`` — Euler angles **in radians** per joint per frame
+
+    ``Bvh`` is a sequence of frames: ``len(bvh) == frame_count`` and
+    ``bvh[i]`` returns frame ``i`` as a one-frame Bvh. For joint or node
+    counts, use ``bvh.joint_count`` or ``len(bvh.node_index)``.
 
     Attributes
     ----------
@@ -31,14 +35,16 @@ class Bvh:
     root_pos : ndarray, shape (F, 3)
         Root position per frame.
     joint_angles : ndarray, shape (F, J, 3)
-        Euler angles in degrees per joint per frame.
+        Euler angles in **radians** per joint per frame. (BVH files
+        store angles in degrees; the deg↔rad conversion happens at the
+        I/O boundary in :func:`read_bvh_file` / :func:`write_bvh_file`.)
     frame_time : float
         Duration of one frame in seconds.
     frame_count : int
         Number of frames (read-only).
     node_index : dict
         Mapping from node name to its index in ``nodes`` (includes
-        end sites). Use this to index ``spatial_coords()`` output
+        end sites). Use this to index ``node_positions()`` output
         (shape ``(F, N, 3)``).
     joint_index : dict
         Mapping from joint name to its index in ``joint_angles`` axis 1
@@ -48,6 +54,14 @@ class Bvh:
         Names of non-end-site joints in topological order (read-only).
     joint_count : int
         Number of non-end-site joints (read-only).
+    source_path : str or None
+        Path of the file this Bvh was read from, or ``None`` if it was
+        constructed in memory. Set by :func:`read_bvh_file`. Preserved
+        through ``copy()``, ``slice_frames()``, and rotations / transforms
+        that don't change which file the data originated from. Cleared
+        (set to ``None``) when :meth:`concat` joins two clips whose
+        ``source_path`` differ. Writable — callers can assign manually
+        when constructing a Bvh from arrays.
     """
     def __init__(
         self,
@@ -57,11 +71,13 @@ class Bvh:
         frame_time: float = 0,
         world_up: str = "auto",
         lr_mapping: dict[str, str] | None = None,
+        source_path: str | None = None,
     ) -> None:
         if nodes is None:
             nodes = [BvhRoot()]
         self.nodes = nodes
         self.frame_time = frame_time
+        self.source_path = source_path
         self.root = self.nodes[0]  # type: ignore[assignment]
 
         # Validate that root position channels are standard XYZ
@@ -170,7 +186,17 @@ class Bvh:
 
     @property
     def root_pos(self) -> npt.NDArray[np.float64]:
-        return self._root_pos
+        """Root translation per frame, shape ``(F, 3)``.
+
+        Returns a **read-only view** of the underlying array — call
+        ``bvh.root_pos.copy()`` if you need a writable array. To
+        replace the whole array, assign via the setter
+        (``bvh.root_pos = new_arr``); for in-place edits, copy → mutate
+        → assign back.
+        """
+        view = self._root_pos.view()
+        view.flags.writeable = False
+        return view
     @root_pos.setter
     def root_pos(self, value: npt.ArrayLike) -> None:
         arr = np.asarray(value, dtype=np.float64)
@@ -183,7 +209,21 @@ class Bvh:
 
     @property
     def joint_angles(self) -> npt.NDArray[np.float64]:
-        return self._joint_angles
+        """Per-joint Euler angles, shape ``(F, J, 3)`` (radians).
+
+        Returns a **read-only view** of the underlying array — call
+        ``bvh.joint_angles.copy()`` if you need a writable array. To
+        replace the whole array, assign via the setter
+        (``bvh.joint_angles = new_arr``); for in-place edits, copy →
+        mutate → assign back.
+
+        Read-only view protects against the common footgun of
+        ``angles = b.joint_angles; angles -= angles.mean(axis=0)``
+        silently corrupting the Bvh.
+        """
+        view = self._joint_angles.view()
+        view.flags.writeable = False
+        return view
     @joint_angles.setter
     def joint_angles(self, value: npt.ArrayLike) -> None:
         arr = np.asarray(value, dtype=np.float64)
@@ -230,9 +270,16 @@ class Bvh:
     def __str__(self) -> str:
         count_joints =  0
         for node in self.nodes:
-            if not node.is_end_site() : count_joints += 1 
+            if not node.is_end_site() : count_joints += 1
         fps = 1.0 / self.frame_time if self.frame_time > 0 else 0.0
-        return f'{count_joints} elements in the Hierarchy, {self.frame_count} frames at {fps:.1f} fps (frame_time={self.frame_time:.6f}s)'
+        source = ""
+        if self.source_path is not None:
+            from pathlib import Path
+            source = f", from {Path(self.source_path).name}"
+        return (
+            f'{count_joints} joints, {self.frame_count} frames at '
+            f'{fps:.1f} fps (frame_time={self.frame_time:.6f}s{source})'
+        )
         
     def __repr__(self) -> str:
         nodes_str = []
@@ -265,14 +312,72 @@ class Bvh:
             return False
         return True
 
-    def matches_topology(self, other: Bvh) -> bool:
-        """Whether ``self`` and ``other`` share the same skeleton topology.
+    def matches_hierarchy(self, other: Bvh, match_offsets: bool = True,
+                          atol: float = 1e-6) -> bool:
+        """Whether ``self`` and ``other`` share the same skeleton hierarchy.
 
-        Topology is defined as: same ``joint_names`` (order and names) and
-        same per-joint ``euler_orders`` (Euler rotation orders). Bone
-        offsets and motion data are NOT compared — for that, use ``==``.
+        Hierarchy is defined as: same node names in topological order
+        (including end sites), same parent-child structure, and — when
+        ``match_offsets=True`` (default) — same rest-pose offsets within
+        ``atol``. Motion data, Euler rotation orders, and frame timing
+        are NOT compared.
 
-        Use this as a precondition check before batching or retargeting.
+        Use this when you need to know that two clips describe the same
+        skeleton in the same rest pose — e.g. before batching to a
+        rotation-invariant representation (``6d`` / ``quaternion`` /
+        ``rotmat``) whose channel layout doesn't depend on Euler order.
+
+        Pass ``match_offsets=False`` when the caller is about to overwrite
+        rest offsets anyway (e.g. retargeting): it loosens the check to
+        the skeleton *graph* alone — joint names and parent structure —
+        accepting two characters of different bone proportions.
+
+        Parameters
+        ----------
+        other : Bvh
+        match_offsets : bool, optional
+            If True (default), require rest-pose offsets to agree within
+            ``atol``. If False, ignore offsets and check only the
+            skeleton graph (names + parent structure).
+        atol : float, optional
+            Absolute tolerance for offset comparison (default ``1e-6``).
+            Ignored when ``match_offsets=False``.
+
+        Returns
+        -------
+        bool
+
+        See Also
+        --------
+        matches_channels : Compare per-joint Euler rotation orders.
+        matches_topology : Conjunction of hierarchy + channels.
+        """
+        if not isinstance(other, Bvh):
+            return False
+        if len(self.nodes) != len(other.nodes):
+            return False
+        for n1, n2 in zip(self.nodes, other.nodes):
+            if n1.name != n2.name:
+                return False
+            parent1 = n1.parent.name if n1.parent is not None else None
+            parent2 = n2.parent.name if n2.parent is not None else None
+            if parent1 != parent2:
+                return False
+            if match_offsets and not np.allclose(n1.offset, n2.offset, atol=atol):
+                return False
+        return True
+
+    def matches_channels(self, other: Bvh) -> bool:
+        """Whether ``self`` and ``other`` share the same channel layout.
+
+        Compares per-joint Euler rotation orders and the root's
+        position-channel order. This is a *serialization* property:
+        clips with identical underlying rotations but different stored
+        Euler orders have different channel layouts.
+
+        Use this in addition to :meth:`matches_hierarchy` when batching
+        to a representation whose channel layout depends on the source
+        Euler order (``euler`` / ``axisangle``).
 
         Parameters
         ----------
@@ -281,12 +386,47 @@ class Bvh:
         Returns
         -------
         bool
+
+        See Also
+        --------
+        matches_hierarchy : Compare joint hierarchy and rest offsets.
+        matches_topology : Conjunction of hierarchy + channels.
         """
         if not isinstance(other, Bvh):
             return False
-        if self.joint_names != other.joint_names:
+        if self.root.pos_channels != other.root.pos_channels:
             return False
         return self.euler_orders == other.euler_orders
+
+    def matches_topology(self, other: Bvh) -> bool:
+        """Whether ``self`` and ``other`` share both hierarchy and channel layout.
+
+        Convenience for ``matches_hierarchy(other) and matches_channels(other)``.
+        Two Bvhs that satisfy this predicate can be batched together for
+        any representation (``euler``, ``axisangle``, ``6d``, ``quaternion``,
+        ``rotmat``) without conversion.
+
+        .. note::
+            Prior to 0.7.0, ``matches_topology`` checked only
+            ``joint_names`` and ``euler_orders`` — it did not catch
+            differences in parent structure or rest offsets. The current
+            definition is stricter: clips with identical names but
+            differing rest offsets no longer match.
+
+        Parameters
+        ----------
+        other : Bvh
+
+        Returns
+        -------
+        bool
+
+        See Also
+        --------
+        matches_hierarchy : The hierarchy half (joints, parents, offsets).
+        matches_channels : The channel-layout half (Euler orders, root pos channels).
+        """
+        return self.matches_hierarchy(other) and self.matches_channels(other)
 
     def __len__(self) -> int:
         """Number of frames. Equivalent to ``self.frame_count``."""
@@ -354,6 +494,8 @@ class Bvh:
             [self.root_pos, other.root_pos], axis=0)
         self.joint_angles = np.concatenate(
             [self.joint_angles, other.joint_angles], axis=0)
+        if self.source_path != other.source_path:
+            self.source_path = None
         return self
 
     def __setitem__(self, key: int | slice, value: Bvh) -> None:
@@ -459,6 +601,24 @@ class Bvh:
         self._world_up_override = _validate_axis_string(value)
 
     @property
+    def world_up_inferred(self) -> str:
+        """What the auto heuristic *would* pick, regardless of any override.
+
+        Useful for auditing whether a manual ``bvh.world_up = '+x'``
+        override was necessary, or for diagnosing skeletons whose
+        animation and rest-pose conventions disagree. Always runs the
+        inference fresh; doesn't consult or write the cache.
+
+        Compare against :attr:`world_up` to see whether an override is
+        in effect:
+
+            >>> bvh.world_up_inferred  # '+y'  (auto's guess)
+            >>> bvh.world_up           # '+z'  (user override)
+        """
+        from .tools import _infer_world_up
+        return _infer_world_up(self)
+
+    @property
     def rest_up(self) -> str:
         """Skeleton's topological up axis, derived from the rest pose only.
 
@@ -506,11 +666,16 @@ class Bvh:
 
     @property
     def lr_mapping(self) -> dict[str, str] | None:
-        """Left/right joint pair mapping for this skeleton.
+        """Left/right joint pair mapping for this skeleton (bidirectional).
 
-        A dict of ``{left_joint_name: right_joint_name, ...}`` describing
-        the skeleton's bilateral symmetry pairs. ``None`` if no pairs
-        could be auto-detected and no explicit mapping was provided.
+        A dict describing the skeleton's bilateral symmetry pairs.
+        ``None`` if no pairs could be auto-detected and no explicit
+        mapping was provided.
+
+        The dict is **symmetric**: both directions of each pair are
+        present, so ``mapping['LeftArm'] == 'RightArm'`` AND
+        ``mapping['RightArm'] == 'LeftArm'``. Useful for mirroring-based
+        data augmentation, where a lookup can come from either side.
 
         Detection at construction time runs the extended name heuristic
         (`Left`/`Right` substring, `L`/`R` prefix, `.L`/`.R` suffix,
@@ -519,6 +684,9 @@ class Bvh:
         have ``lr_mapping = None`` — in that case, set it explicitly:
 
             >>> bvh.lr_mapping = {'arm.L': 'arm.R', 'leg.L': 'leg.R'}
+
+        The assigned dict is one-directional; pybvh symmetrizes it
+        internally. Either form works on assignment.
 
         or pass ``lr_mapping=`` at load time:
 
@@ -531,7 +699,13 @@ class Bvh:
         are lost on ``bvh.write()`` round-trips — same wart as
         ``world_up``. Re-apply after reading.
         """
-        return self._lr_mapping
+        if self._lr_mapping is None:
+            return None
+        symmetric: dict[str, str] = {}
+        for left, right in self._lr_mapping.items():
+            symmetric[left] = right
+            symmetric[right] = left
+        return symmetric
 
     @lr_mapping.setter
     def lr_mapping(self, value: dict[str, str] | None) -> None:
@@ -577,10 +751,15 @@ class Bvh:
             raise ValueError(
                 "lr_mapping must have at least one pair; "
                 "pass None to clear the mapping.")
+        # Accept symmetric input ({L: R, R: L, ...}) — canonicalize to
+        # one-directional by deduping pairs by frozenset before
+        # validating. Each pair appears exactly once afterward.
+        from .tools import _iter_unique_lr_pairs
+        canonical: dict[str, str] = dict(_iter_unique_lr_pairs(mapping))
         joint_name_set = set(self.joint_names)
         lefts_seen: set[str] = set()
         rights_seen: set[str] = set()
-        for left, right in mapping.items():
+        for left, right in canonical.items():
             if not isinstance(left, str) or not isinstance(right, str):
                 raise TypeError(
                     f"lr_mapping keys and values must be str, "
@@ -602,7 +781,11 @@ class Bvh:
                     f"lr_mapping joint {right!r} appears in multiple pairs")
             lefts_seen.add(left)
             rights_seen.add(right)
-        self._lr_mapping = dict(mapping)
+        # Stored one-directional (left → right). Symmetric view is
+        # produced by the public `lr_mapping` property — this keeps
+        # every internal consumer that iterates `_lr_mapping.items()`
+        # working with one (left, right) tuple per pair.
+        self._lr_mapping = canonical
         self._lr_mapping_source = source
 
     def forward_at(
@@ -638,7 +821,7 @@ class Bvh:
         """
         from .tools import _compute_forward_at
         if coords is None:
-            frame_coords = self.spatial_coords(frame_num=frame)
+            frame_coords = self.node_positions(frame_num=frame)
         else:
             frame_coords = coords[frame]
         return _compute_forward_at(self, frame_coords, self.world_up)
@@ -687,7 +870,7 @@ class Bvh:
         )
         world_up = self.world_up
         if coords is None:
-            frame_coords = self.spatial_coords(frame_num=frame)
+            frame_coords = self.node_positions(frame_num=frame)
         else:
             frame_coords = coords[frame]
         left_vec = _world_leftward_unit_at_frame(self, frame_coords, world_up)
@@ -718,13 +901,26 @@ class Bvh:
         io.write_bvh_file(self, new_filepath, verbose=verbose)
 
 
-    def spatial_coords(self, frame_num: int = -1, centered: str = "world") -> npt.NDArray[np.float64]:
+    def _non_end_site_indices(self) -> list[int]:
+        """Indices in ``nodes`` order corresponding to non-end-site joints.
+
+        The same indices select the joint-axis subset of any per-node
+        array (e.g. :meth:`node_positions` output of shape ``(F, N, 3)``)
+        to produce a joint-aligned ``(F, J, 3)``.
         """
-        Obtain the spatial coordinates of the joints.
+        return [i for i, n in enumerate(self.nodes) if not n.is_end_site()]
+
+    def node_positions(self, frame_num: int = -1, centered: str = "world") -> npt.NDArray[np.float64]:
+        """Per-node 3D positions (joints + end sites) — shape ``(F, N, 3)``.
 
         Returns an ndarray of shape ``(N, 3)`` for a single frame or
         ``(F, N, 3)`` for all frames, where *N* is the total number of
-        nodes (joints + end sites).
+        nodes (joints + end sites). Use :attr:`node_index` to look up
+        rows by name.
+
+        For the joint-axis subset (excluding end sites) that aligns with
+        :attr:`joint_angles` and :meth:`joint_velocities`, use
+        :meth:`joint_positions` instead.
 
         Parameters
         ----------
@@ -744,7 +940,7 @@ class Bvh:
         if frame_num == -1:
             # Sentinel for "all frames" — distinct from a negative index,
             # which would return a single frame counted from the end.
-            return frames_to_spatial_coords(
+            return frames_to_node_positions(
                 self, root_pos=self.root_pos,
                 joint_angles=self.joint_angles, centered=centered)
         if not -self.frame_count <= frame_num < self.frame_count:
@@ -752,9 +948,29 @@ class Bvh:
                 f"frame_num {frame_num} is out of range for "
                 f"{self.frame_count} frames. Use -1 for all frames.")
         actual = frame_num if frame_num >= 0 else frame_num + self.frame_count
-        return frames_to_spatial_coords(
+        return frames_to_node_positions(
             self, root_pos=self.root_pos[actual],
             joint_angles=self.joint_angles[actual], centered=centered)
+
+    def joint_positions(self, frame_num: int = -1, centered: str = "world") -> npt.NDArray[np.float64]:
+        """Per-joint 3D positions (end sites excluded) — shape ``(F, J, 3)``.
+
+        Joint-axis subset of :meth:`node_positions`. Index-aligns with
+        :attr:`joint_angles` and :meth:`joint_velocities` — use
+        :attr:`joint_index` to look up rows by name.
+
+        Parameters
+        ----------
+        frame_num : int
+            Frame index to return.  ``-1`` (default) returns all frames.
+        centered : str
+            See :meth:`node_positions`.
+        """
+        np_arr = self.node_positions(frame_num=frame_num, centered=centered)
+        keep = self._non_end_site_indices()
+        # node_positions output is either (N, 3) or (F, N, 3); slice the
+        # node axis with `keep` — works for both shapes.
+        return np_arr[..., keep, :]
 
         
 
@@ -777,7 +993,7 @@ class Bvh:
         if mode == 'euler':
             return np.zeros(3, dtype=np.float64), np.zeros_like(self.joint_angles[0])
         elif mode == 'coordinates':
-            return frames_to_spatial_coords(
+            return frames_to_node_positions(
                 self,
                 root_pos=np.zeros(3),
                 joint_angles=np.zeros_like(self.joint_angles[0]),
@@ -821,7 +1037,12 @@ class Bvh:
         
     
     def _get_df_constructor_euler_angles(self) -> dict[str, npt.NDArray[np.float64]]:
-        """Return column-name → array dict for Euler-angle DataFrame."""
+        """Return column-name → array dict for Euler-angle DataFrame.
+
+        DataFrame columns are in degrees for human readability — the
+        ``_rot`` columns are the rad→deg-converted view of the internal
+        radians-valued :attr:`joint_angles`.
+        """
         result = {}
         result['time'] = np.arange(self.frame_count) * self.frame_time
 
@@ -829,19 +1050,21 @@ class Bvh:
         for i, ax in enumerate(root.pos_channels):
             result[f'{root.name}_{ax}_pos'] = self.root_pos[:, i]
 
+        # Convert radians → degrees once for the whole array, then slice.
+        joint_angles_deg = np.rad2deg(self.joint_angles)
         j_idx = 0
         for node in self.nodes:
             if node.is_end_site():
                 continue
             for i, ax in enumerate(node.rot_channels):  # type: ignore[attr-defined]
-                result[f'{node.name}_{ax}_rot'] = self.joint_angles[:, j_idx, i]
+                result[f'{node.name}_{ax}_rot'] = joint_angles_deg[:, j_idx, i]
             j_idx += 1
 
         return result
 
     def _get_df_constructor_spatial_coord(self, centered: str) -> dict[str, npt.NDArray[np.float64]]:
         """Return column-name → array dict for spatial-coordinate DataFrame."""
-        spatial_array = self.spatial_coords(centered=centered)  # (F, N, 3)
+        spatial_array = self.node_positions(centered=centered)  # (F, N, 3)
 
         result = {}
         result['time'] = np.arange(self.frame_count) * self.frame_time
@@ -890,10 +1113,21 @@ class Bvh:
     def node_index(self) -> dict[str, int]:
         """Mapping from node name to its integer index in ``nodes``.
 
-        Indexes the output of :meth:`spatial_coords` (shape
-        ``(F, N, 3)``), which includes end sites.  For indexing
+        Indexes the output of :meth:`node_positions` (shape
+        ``(F, N, 3)``), which includes end sites. For indexing
         :attr:`joint_angles` (shape ``(F, J, 3)``, excludes end sites),
         use :attr:`joint_index` instead.
+
+        .. warning::
+            ``joint_index`` and ``node_index`` share keys for every
+            non-end-site joint but return **different integers** once
+            any end site has appeared earlier in the hierarchy. Indexing
+            ``joint_angles`` with ``node_index`` (or
+            :meth:`node_positions` with ``joint_index``) produces
+            silently misaligned data — no shape mismatch, just the
+            wrong limb. Pick one consistently per array, or use
+            :meth:`Bvh.index` to make the intent explicit at the call
+            site.
 
         Returns
         -------
@@ -909,6 +1143,16 @@ class Bvh:
         Excludes end sites.  Use this instead of
         ``bvh.joint_names.index(name)`` for joint-axis lookups.
 
+        .. warning::
+            ``joint_index`` and ``node_index`` share keys for every
+            non-end-site joint but return **different integers** once
+            any end site has appeared earlier in the hierarchy. Indexing
+            :meth:`node_positions` with ``joint_index`` (or
+            ``joint_angles`` with ``node_index``) produces silently
+            misaligned data. Pick one consistently per array, or use
+            :meth:`Bvh.index` to make the intent explicit at the call
+            site.
+
         Returns
         -------
         dict
@@ -916,6 +1160,43 @@ class Bvh:
             Values cover ``range(joint_count)``.
         """
         return self._joint_index
+
+    def index(self, name: str, axis: Literal['joint', 'node']) -> int:
+        """Look up the integer index for ``name`` on the requested axis.
+
+        Unambiguous alternative to picking between :attr:`joint_index`
+        and :attr:`node_index` at the call site. Use ``axis='joint'``
+        when indexing :attr:`joint_angles` / :meth:`joint_velocities` /
+        :meth:`joint_accelerations` / :meth:`joint_positions` /
+        :meth:`angular_velocities` (any ``(F, J, ...)`` array). Use
+        ``axis='node'`` when indexing :meth:`node_positions` /
+        :meth:`node_velocities` / :meth:`node_accelerations` (any
+        ``(F, N, ...)`` array).
+
+        Parameters
+        ----------
+        name : str
+            Joint or node name.
+        axis : {'joint', 'node'}
+            Which index space to look up. ``'joint'`` excludes end sites.
+
+        Returns
+        -------
+        int
+
+        Raises
+        ------
+        KeyError
+            If ``name`` is not present in the requested axis (e.g. an
+            end-site name with ``axis='joint'``).
+        ValueError
+            If ``axis`` is not ``'joint'`` or ``'node'``.
+        """
+        if axis == 'joint':
+            return self._joint_index[name]
+        if axis == 'node':
+            return self._node_index[name]
+        raise ValueError(f"axis must be 'joint' or 'node', got {axis!r}")
 
     @property
     def joint_names(self) -> list[str]:
@@ -1171,11 +1452,11 @@ class Bvh:
 
             # Convert: old Euler → rotmat → new Euler
             angles_old = target.joint_angles[:, j_idx]  # (num_frames, 3) degrees
-            R = rotations.euler_to_rotmat(angles_old, old_order, degrees=True)
-            angles_new = rotations.rotmat_to_euler(R, new_order_list, degrees=True)
+            R = rotations.euler_to_rotmat(angles_old, old_order)
+            angles_new = rotations.rotmat_to_euler(R, new_order_list)
 
-            # Write new angles back
-            target.joint_angles[:, j_idx] = angles_new
+            # Write new angles back (private array — public view is read-only).
+            target._joint_angles[:, j_idx] = angles_new
 
             # Update node's rot_channels (bypass freeze check)
             target_joint._set_rot_channels_internal(new_order_list)  # type: ignore[union-attr]
@@ -1196,9 +1477,9 @@ class Bvh:
                 old_order = node.rot_channels  # type: ignore[attr-defined]
                 if old_order != new_order_list:
                     angles_old = target.joint_angles[:, j_idx]
-                    R = rotations.euler_to_rotmat(angles_old, old_order, degrees=True)
-                    angles_new = rotations.rotmat_to_euler(R, new_order_list, degrees=True)
-                    target.joint_angles[:, j_idx] = angles_new
+                    R = rotations.euler_to_rotmat(angles_old, old_order)
+                    angles_new = rotations.rotmat_to_euler(R, new_order_list)
+                    target._joint_angles[:, j_idx] = angles_new
                     node._set_rot_channels_internal(new_order_list)  # type: ignore[attr-defined]
                 j_idx += 1
 
@@ -1231,7 +1512,7 @@ class Bvh:
         joints = [n for n in self.nodes if not n.is_end_site()]
         per_joint = ["".join(j.rot_channels) for j in joints]  # type: ignore[attr-defined]
         joint_rotmats = rotations.euler_to_rotmat(
-            self.joint_angles, per_joint, degrees=True)
+            self.joint_angles, per_joint)
         return self.root_pos.copy(), joint_rotmats
 
 
@@ -1358,7 +1639,7 @@ class Bvh:
         for j_idx, joint in enumerate(joints):
             order = joint.rot_channels  # type: ignore[attr-defined]
             new_angles[:, j_idx] = rotations.rotmat_to_euler(
-                joint_rotmats[:, j_idx], order, degrees=True)
+                joint_rotmats[:, j_idx], order)
 
         target.root_pos = root_pos_arr
         target.joint_angles = new_angles
@@ -1420,7 +1701,7 @@ class Bvh:
         for j_idx, joint in enumerate(joints):
             order = joint.rot_channels  # type: ignore[attr-defined]
             new_angles[:, j_idx] = rotations.rotmat_to_euler(
-                joint_rotmats[:, j_idx], order, degrees=True)
+                joint_rotmats[:, j_idx], order)
 
         target.root_pos = root_pos_arr
         target.joint_angles = new_angles
@@ -1482,7 +1763,7 @@ class Bvh:
         for j_idx, joint in enumerate(joints):
             order = joint.rot_channels  # type: ignore[attr-defined]
             new_angles[:, j_idx] = rotations.rotmat_to_euler(
-                joint_rotmats[:, j_idx], order, degrees=True)
+                joint_rotmats[:, j_idx], order)
 
         target.root_pos = root_pos_arr
         target.joint_angles = new_angles
@@ -1498,6 +1779,10 @@ class Bvh:
 
     def slice_frames(self, start: int | None = None, end: int | None = None, step: int | None = None) -> Bvh:
         """Return a new Bvh with a slice of frames.
+
+        Equivalent to ``bvh[start:end:step]`` (the sequence-protocol form).
+        Use this functional form when you want explicit kwargs; use the
+        slice form for natural Python syntax.
 
         Parameters
         ----------
@@ -1570,6 +1855,8 @@ class Bvh:
             [self.root_pos, other.root_pos], axis=0)
         new_bvh.joint_angles = np.concatenate(
             [self.joint_angles, other.joint_angles], axis=0)
+        if self.source_path != other.source_path:
+            new_bvh.source_path = None
         return new_bvh
 
     def resample(self, target_fps: float) -> Bvh:
@@ -1641,7 +1928,7 @@ class Bvh:
             order = joint.rot_channels  # type: ignore[attr-defined]
             new_angles[:, j_idx] = rotations.rotmat_to_euler(
                 rotations.quat_to_rotmat(new_quats[:, j_idx]),
-                order, degrees=True)
+                order)
 
         new_bvh = self.copy()
         new_bvh.root_pos = new_root_pos
@@ -1768,7 +2055,7 @@ class Bvh:
                         break
                 end_offset = self._find_end_site_offset(orig_node)  # type: ignore[arg-type]
                 end_site = BvhNode(
-                    f'End Site {node.name}', offset=end_offset, parent=node)
+                    f'EndSite{node.name}', offset=end_offset, parent=node)
                 node.children = [end_site]  # type: ignore[attr-defined]
                 new_nodes.append(end_site)
 
@@ -1809,9 +2096,23 @@ class Bvh:
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
-        """Compute per-joint position velocities.  See :func:`pybvh.features.joint_velocities`."""
+        """Per-joint position velocities — shape ``(F, J, 3)``. See :func:`pybvh.features.joint_velocities`."""
         from . import features
         return features.joint_velocities(
+            self, centered=centered, in_frames=in_frames, coords=coords,
+            stencil=stencil, pad=pad)
+
+    def node_velocities(
+        self,
+        centered: str = "world",
+        in_frames: bool = False,
+        coords: npt.NDArray[np.float64] | None = None,
+        stencil: str = "central",
+        pad: str = "edge",
+    ) -> npt.NDArray[np.float64]:
+        """Per-node position velocities (joints + end sites) — shape ``(F, N, 3)``. See :func:`pybvh.features.node_velocities`."""
+        from . import features
+        return features.node_velocities(
             self, centered=centered, in_frames=in_frames, coords=coords,
             stencil=stencil, pad=pad)
 
@@ -1823,9 +2124,23 @@ class Bvh:
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
-        """Compute per-joint position accelerations.  See :func:`pybvh.features.joint_accelerations`."""
+        """Per-joint position accelerations — shape ``(F, J, 3)``. See :func:`pybvh.features.joint_accelerations`."""
         from . import features
         return features.joint_accelerations(
+            self, centered=centered, in_frames=in_frames, coords=coords,
+            stencil=stencil, pad=pad)
+
+    def node_accelerations(
+        self,
+        centered: str = "world",
+        in_frames: bool = False,
+        coords: npt.NDArray[np.float64] | None = None,
+        stencil: str = "central",
+        pad: str = "edge",
+    ) -> npt.NDArray[np.float64]:
+        """Per-node position accelerations (joints + end sites) — shape ``(F, N, 3)``. See :func:`pybvh.features.node_accelerations`."""
+        from . import features
+        return features.node_accelerations(
             self, centered=centered, in_frames=in_frames, coords=coords,
             stencil=stencil, pad=pad)
 
@@ -1925,7 +2240,6 @@ class Bvh:
         from . import features
         return features.feature_array_layout(
             num_joints=self.joint_count,
-            num_nodes=len(self.nodes),
             num_feet=num_feet,
             representation=representation,
             include_root_pos=include_root_pos,

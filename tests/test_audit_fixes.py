@@ -116,8 +116,8 @@ class TestSyntheticFixtures:
     def test_pos_neg_y_same_physical_motion(self):
         bvh_pos = make_pos_y_up_bvh()
         bvh_neg = make_neg_y_up_bvh()
-        coords_pos = bvh_pos.spatial_coords()
-        coords_neg = bvh_neg.spatial_coords()
+        coords_pos = bvh_pos.node_positions()
+        coords_neg = bvh_neg.node_positions()
         coords_neg_flipped = coords_neg.copy()
         coords_neg_flipped[:, :, 1] *= -1
         npt.assert_allclose(coords_pos, coords_neg_flipped, atol=1e-10)
@@ -125,8 +125,8 @@ class TestSyntheticFixtures:
     def test_pos_neg_z_same_physical_motion(self):
         bvh_pos = make_pos_z_up_bvh()
         bvh_neg = make_neg_z_up_bvh()
-        coords_pos = bvh_pos.spatial_coords()
-        coords_neg = bvh_neg.spatial_coords()
+        coords_pos = bvh_pos.node_positions()
+        coords_neg = bvh_neg.node_positions()
         coords_neg_flipped = coords_neg.copy()
         coords_neg_flipped[:, :, 2] *= -1
         npt.assert_allclose(coords_pos, coords_neg_flipped, atol=1e-10)
@@ -185,8 +185,9 @@ class TestUpAxisSign:
             off = node.offset.copy()
             off[1] *= -1
             node._offset = off
-        bvh_neg.root_pos = bvh_neg.root_pos.copy()
-        bvh_neg.root_pos[:, 1] *= -1
+        rp = bvh_neg.root_pos.copy()
+        rp[:, 1] *= -1
+        bvh_neg.root_pos = rp
         bvh_neg.world_up = '-y'
 
         rot_neg = transforms.rotate_vertical(bvh_neg, 90)
@@ -199,10 +200,12 @@ class TestUpAxisSign:
         bvh_pos = make_pos_z_up_bvh()
         bvh_neg = make_neg_z_up_bvh()
         # Add some root rotation for the test to be meaningful
-        bvh_pos.joint_angles = bvh_pos.joint_angles.copy()
-        bvh_pos.joint_angles[:, 0, 0] = np.linspace(0, 45, bvh_pos.frame_count)
-        bvh_neg.joint_angles = bvh_neg.joint_angles.copy()
-        bvh_neg.joint_angles[:, 0, 0] = np.linspace(0, 45, bvh_neg.frame_count)
+        ja = bvh_pos.joint_angles.copy()
+        ja[:, 0, 0] = np.linspace(0, 45, bvh_pos.frame_count)
+        bvh_pos.joint_angles = ja
+        ja = bvh_neg.joint_angles.copy()
+        ja[:, 0, 0] = np.linspace(0, 45, bvh_neg.frame_count)
+        bvh_neg.joint_angles = ja
 
         rot_neg = transforms.rotate_vertical(bvh_neg, 90)
         rot_pos_ref = transforms.rotate_vertical(bvh_pos, -90)
@@ -219,10 +222,12 @@ class TestUpAxisSign:
         bvh_neg = make_neg_y_up_bvh()
         # Add vertical oscillation: root bounces up and down
         bounce = np.array([0, 5, 10, 15, 10, 5, 0, -2, 0, 3], dtype=np.float64)
-        bvh_pos.root_pos = bvh_pos.root_pos.copy()
-        bvh_pos.root_pos[:, 1] += bounce  # +Y: higher Y = higher
-        bvh_neg.root_pos = bvh_neg.root_pos.copy()
-        bvh_neg.root_pos[:, 1] -= bounce  # -Y: more negative Y = higher
+        rp = bvh_pos.root_pos.copy()
+        rp[:, 1] += bounce  # +Y: higher Y = higher
+        bvh_pos.root_pos = rp
+        rp = bvh_neg.root_pos.copy()
+        rp[:, 1] -= bounce  # -Y: more negative Y = higher
+        bvh_neg.root_pos = rp
 
         foot_joints = ["LeftLeg", "RightLeg"]
         contacts_pos = bvh_pos.foot_contacts(method="height", foot_joints=foot_joints)
@@ -234,10 +239,12 @@ class TestUpAxisSign:
         bvh_pos = make_pos_z_up_bvh()
         bvh_neg = make_neg_z_up_bvh()
         bounce = np.array([0, 5, 10, 15, 10, 5, 0, -2, 0, 3], dtype=np.float64)
-        bvh_pos.root_pos = bvh_pos.root_pos.copy()
-        bvh_pos.root_pos[:, 2] += bounce
-        bvh_neg.root_pos = bvh_neg.root_pos.copy()
-        bvh_neg.root_pos[:, 2] -= bounce
+        rp = bvh_pos.root_pos.copy()
+        rp[:, 2] += bounce
+        bvh_pos.root_pos = rp
+        rp = bvh_neg.root_pos.copy()
+        rp[:, 2] -= bounce
+        bvh_neg.root_pos = rp
 
         foot_joints = ["LeftLeg", "RightLeg"]
         contacts_pos = bvh_pos.foot_contacts(method="height", foot_joints=foot_joints)
@@ -466,8 +473,8 @@ class TestMissingForwarding:
 
     def test_spatial_coords_negative_index(self):
         bvh = read_bvh_file(EXAMPLE)
-        second_to_last = bvh.spatial_coords(frame_num=-2)
-        expected = bvh.spatial_coords(frame_num=bvh.frame_count - 2)
+        second_to_last = bvh.node_positions(frame_num=-2)
+        expected = bvh.node_positions(frame_num=bvh.frame_count - 2)
         npt.assert_array_equal(second_to_last, expected)
 
 

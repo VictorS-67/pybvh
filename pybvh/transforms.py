@@ -131,7 +131,7 @@ def add_noise(
     inplace : bool, optional
         If True, modify *bvh* and return None.
     wrap : bool, optional
-        If True (default), wrap noised angles to [-180, 180] so
+        If True (default), wrap noised angles to [-π, π] (radians) so
         downstream Euler-to-rotmat round-trips don't see discontinuities.
         Set to False if the consumer handles angle ranges itself.
 
@@ -144,12 +144,16 @@ def add_noise(
 
     target = bvh if inplace else bvh.copy()
     if sigma_deg > 0:
+        # sigma_deg is a user-facing degrees-of-noise contract; convert
+        # to radians once because joint_angles is internally radians.
+        sigma_rad = np.deg2rad(sigma_deg)
         noised = (
             target.joint_angles
-            + rng.normal(0.0, sigma_deg, target.joint_angles.shape)
+            + rng.normal(0.0, sigma_rad, target.joint_angles.shape)
         )
         if wrap:
-            noised = (noised + 180.0) % 360.0 - 180.0
+            # Wrap to [-π, π] (radian equivalent of the old [-180°, 180°]).
+            noised = (noised + np.pi) % (2.0 * np.pi) - np.pi
         target.joint_angles = noised
     if sigma_pos > 0:
         target.root_pos = (
@@ -329,7 +333,7 @@ def drop_frames(
     for j_idx, joint in enumerate(joints):
         order = "".join(joint.rot_channels)
         R = rotations.quat_to_rotmat(new_quats[:, j_idx])
-        new_angles[:, j_idx] = rotations.rotmat_to_euler(R, order, degrees=True)
+        new_angles[:, j_idx] = rotations.rotmat_to_euler(R, order)
 
     target = bvh if inplace else bvh.copy()
     target.root_pos = new_root_pos
@@ -359,11 +363,12 @@ def rotate_angles_vertical(
     Parameters
     ----------
     joint_angles : ndarray of shape (F, J, 3)
-        Euler angles in degrees.
+        Euler angles **in radians** (pybvh's internal convention).
     root_pos : ndarray of shape (F, 3)
         Root translation per frame.
     angle_deg : float
-        Rotation angle in degrees.
+        Rotation angle in degrees (user-facing — converted to radians
+        internally).
     up_idx : int
         Index of the up axis (0=X, 1=Y, 2=Z).
     root_order : str
@@ -372,7 +377,7 @@ def rotate_angles_vertical(
     Returns
     -------
     (new_joint_angles, new_root_pos)
-        Copies with the rotation applied.
+        Copies with the rotation applied. Angles in radians.
 
     See Also
     --------
@@ -381,7 +386,7 @@ def rotate_angles_vertical(
 
     Examples
     --------
-    >>> angles = bvh.joint_angles          # (F, J, 3) degrees
+    >>> angles = bvh.joint_angles          # (F, J, 3) radians
     >>> pos = bvh.root_pos                 # (F, 3)
     >>> up = {'x': 0, 'y': 1, 'z': 2}[bvh.world_up[1]]
     >>> order = ''.join(bvh.root.rot_channels)
@@ -395,9 +400,9 @@ def rotate_angles_vertical(
     new_root_pos = (R_vert @ root_pos.T).T
 
     new_angles = joint_angles.copy()
-    R_root = rotations.euler_to_rotmat(joint_angles[:, 0], root_order, degrees=True)
+    R_root = rotations.euler_to_rotmat(joint_angles[:, 0], root_order)
     R_new = R_vert[np.newaxis] @ R_root
-    new_angles[:, 0] = rotations.rotmat_to_euler(R_new, root_order, degrees=True)
+    new_angles[:, 0] = rotations.rotmat_to_euler(R_new, root_order)
 
     return new_angles, new_root_pos
 
@@ -521,7 +526,7 @@ def mirror_angles(
     Parameters
     ----------
     joint_angles : ndarray of shape (F, J, 3)
-        Euler angles in degrees.
+        Euler angles **in radians** (pybvh's internal convention).
     root_pos : ndarray of shape (F, 3)
         Root translation per frame.
     lr_joint_pairs : list of (left_idx, right_idx)
@@ -784,10 +789,11 @@ def auto_detect_lr_pairs(bvh: Bvh) -> list[tuple[int, int]]:
         ``[(left_idx, right_idx), ...]`` in ``joint_angles`` index
         space.  Empty if no pairs found.
     """
+    from .tools import _iter_unique_lr_pairs
     mapping = auto_detect_lr_mapping(bvh)
     j_name2idx = {name: i for i, name in enumerate(bvh.joint_names)}
     pairs: list[tuple[int, int]] = []
-    for left_name, right_name in mapping.items():
+    for left_name, right_name in _iter_unique_lr_pairs(mapping):
         if left_name in j_name2idx and right_name in j_name2idx:
             pairs.append((j_name2idx[left_name], j_name2idx[right_name]))
     return pairs
@@ -872,18 +878,20 @@ def mirror(
         lateral_char = lateral_axis.lower().lstrip("+-")
     lateral_idx = {"x": 0, "y": 1, "z": 2}[lateral_char]
 
+    from .tools import _iter_unique_lr_pairs
+
     # Build joint-index pairs (indices into joint_angles axis 1)
     joints = [n for n in target.nodes if isinstance(n, BvhJoint)]
     j_name2idx = {j.name: i for i, j in enumerate(joints)}
     lr_j_pairs: list[tuple[int, int]] = []
-    for left_name, right_name in left_right_mapping.items():
+    for left_name, right_name in _iter_unique_lr_pairs(left_right_mapping):
         if left_name in j_name2idx and right_name in j_name2idx:
             lr_j_pairs.append((j_name2idx[left_name], j_name2idx[right_name]))
 
     # Build node-index pairs for offset swapping (includes end sites)
     node_name2idx = target.node_index
     lr_node_pairs: list[tuple[int, int]] = []
-    for left_name, right_name in left_right_mapping.items():
+    for left_name, right_name in _iter_unique_lr_pairs(left_right_mapping):
         if left_name in node_name2idx and right_name in node_name2idx:
             lr_node_pairs.append(
                 (node_name2idx[left_name], node_name2idx[right_name])
@@ -952,9 +960,9 @@ def _apply_similarity_to_joints(
     per_joint = ["".join(joints[j].rot_channels) for j in joint_indices]  # type: ignore[attr-defined]
 
     block = angles[:, sel]                                              # (F, G, 3)
-    R_j = rotations.euler_to_rotmat(block, per_joint, degrees=True)     # (F, G, 3, 3)
+    R_j = rotations.euler_to_rotmat(block, per_joint)     # (F, G, 3, 3)
     R_j_new = R_left @ R_j @ R_right
-    angles[:, sel] = rotations.rotmat_to_euler(R_j_new, per_joint, degrees=True)
+    angles[:, sel] = rotations.rotmat_to_euler(R_j_new, per_joint)
 
 
 @overload
@@ -1068,9 +1076,9 @@ def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None
 
     # Root (index 0): right-multiply by R_fix_inv only
     root_order = "".join(joints[0].rot_channels)  # type: ignore[attr-defined]
-    R_root = rotations.euler_to_rotmat(angles_copy[:, 0], root_order, degrees=True)
+    R_root = rotations.euler_to_rotmat(angles_copy[:, 0], root_order)
     angles_copy[:, 0] = rotations.rotmat_to_euler(
-        R_root @ R_fix_inv, root_order, degrees=True)
+        R_root @ R_fix_inv, root_order)
 
     # All other joints: full similarity
     _apply_similarity_to_joints(
@@ -1144,9 +1152,9 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
     angles_copy = target.joint_angles.copy()
 
     root_order = "".join(joints[0].rot_channels)  # type: ignore[attr-defined]
-    R_root = rotations.euler_to_rotmat(angles_copy[:, 0], root_order, degrees=True)
+    R_root = rotations.euler_to_rotmat(angles_copy[:, 0], root_order)
     angles_copy[:, 0] = rotations.rotmat_to_euler(
-        R_root @ R_fix_inv, root_order, degrees=True)
+        R_root @ R_fix_inv, root_order)
 
     _apply_similarity_to_joints(
         angles_copy, joints, R_fix, R_fix_inv, joint_indices=range(1, len(joints)))

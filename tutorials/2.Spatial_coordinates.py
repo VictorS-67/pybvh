@@ -21,7 +21,7 @@
 #
 # The process of converting rotations into positions is called **forward kinematics**: starting from the root, we walk down the skeleton tree, applying each joint's rotation to its bone offset, accumulating the result to get every joint's world position.
 #
-# pybvh handles this with a single method: `spatial_coords()`. This tutorial covers how to use it, how to control the coordinate frame, and how to manipulate the skeleton itself.
+# pybvh handles this with a single method: `node_positions()`. This tutorial covers how to use it, how to control the coordinate frame, and how to manipulate the skeleton itself.
 
 # %%
 import numpy as np
@@ -39,10 +39,10 @@ print(bvh)
 # %% [markdown]
 # # Getting spatial coordinates
 #
-# The method `spatial_coords()` runs forward kinematics and returns a NumPy array of 3D positions for every node at every frame.
+# The method `node_positions()` runs forward kinematics and returns a NumPy array of 3D positions for every node at every frame.
 
 # %%
-coords = bvh.spatial_coords()
+coords = bvh.node_positions()
 
 print(f"joint_angles shape:  {bvh.joint_angles.shape}  — {bvh.joint_count} joints")
 print(f"spatial_coord shape: {coords.shape}  — {coords.shape[1]} nodes")
@@ -55,11 +55,11 @@ print(f"spatial_coord shape: {coords.shape}  — {coords.shape[1]} nodes")
 #
 # To find which column index corresponds to which joint, use `bvh.node_index` — a dict mapping joint names to integer indices.
 #
-# There's a subtle thing to know: `Bvh` exposes **two** index dicts, because `joint_angles` and `spatial_coords()` have different axis-1 lengths (end sites have no rotation channels, so they appear in one array but not the other):
+# There's a subtle thing to know: `Bvh` exposes **two** index dicts, because `joint_angles` and `node_positions()` have different axis-1 lengths (end sites have no rotation channels, so they appear in one array but not the other):
 #
 # | Array | Shape | Lookup |
 # |---|---|---|
-# | `bvh.spatial_coords()` return | `(F, N, 3)` — N = all nodes, including end sites | `bvh.node_index[name]` |
+# | `bvh.node_positions()` return | `(F, N, 3)` — N = all nodes, including end sites | `bvh.node_index[name]` |
 # | `bvh.joint_angles` | `(F, J, 3)` — J = joints only, no end sites | `bvh.joint_index[name]` |
 #
 # Pick the property whose name matches the array you're indexing. For joints that aren't end sites, both dicts contain the name — but they return **different** integers (offset by the number of preceding end sites in the depth-first node walk).
@@ -77,7 +77,7 @@ print(f"Head 3D position (frame 0): {coords[0, head_idx]}")
 # If you only need one frame, pass `frame_num` to avoid computing the entire sequence. The result is a 2D array `(num_nodes, 3)` instead of 3D.
 
 # %%
-frame_15 = bvh.spatial_coords(frame_num=15)
+frame_15 = bvh.node_positions(frame_num=15)
 print(f"Single frame shape: {frame_15.shape}")
 
 fig, ax = bvh.plot_frame(frame_15)
@@ -89,7 +89,7 @@ plt.show()
 # %% [markdown]
 # # Centering modes
 #
-# By default, `spatial_coords()` returns **world coordinates** — the positions as recorded in the BVH file. But depending on your application, you may want the coordinates in a different frame of reference.
+# By default, `node_positions()` returns **world coordinates** — the positions as recorded in the BVH file. But depending on your application, you may want the coordinates in a different frame of reference.
 #
 # The `centered` parameter controls this:
 #
@@ -120,7 +120,7 @@ for mode in ["world", "first", "skeleton"]:
 # We can also verify numerically: with `"skeleton"` centering, the root is always at the origin.
 
 # %%
-coords_skel = bvh.spatial_coords(centered="skeleton")
+coords_skel = bvh.node_positions(centered="skeleton")
 
 print("Root position with 'skeleton' centering (first 5 frames):")
 print(coords_skel[:5, 0])  # all zeros

@@ -128,9 +128,9 @@ plt.show()
 # The motion data lives in two NumPy arrays inside the `Bvh` object:
 #
 # - **`root_pos`** — shape `(F, 3)`: the root joint's 3D position (typically the hips) at each frame.
-# - **`joint_angles`** — shape `(F, J, 3)`: the Euler angle rotations (in degrees) for each of the J joints at each frame.
+# - **`joint_angles`** — shape `(F, J, 3)`: the Euler angle rotations (in **radians**) for each of the J joints at each frame.
 #
-# These are the raw values from the BVH file. Remember: `joint_angles` stores **rotations**, not positions. To get 3D positions, you need forward kinematics (covered in Tutorial 2).
+# These are the raw values from the BVH file, converted to radians on read (the file format uses degrees; pybvh converts at the I/O boundary). Use `np.rad2deg(bvh.joint_angles)` if you want degrees for display. Remember: `joint_angles` stores **rotations**, not positions. To get 3D positions, you need forward kinematics (covered in Tutorial 2).
 
 # %%
 print(f"root_pos shape:     {bvh.root_pos.shape}   — {bvh.frame_count} frames, 3 position channels (X, Y, Z)")

@@ -181,9 +181,9 @@ class TestReorientWorldUp:
         """FK positions in new system = R @ FK positions in old system."""
         bvh = make_pos_y_up_bvh()
         R = _axis_aligned_rotation("+y", "+z")
-        coords_old = bvh.spatial_coords()
+        coords_old = bvh.node_positions()
         result = transforms.reorient_world_up(bvh, "+z")
-        coords_new = result.spatial_coords()
+        coords_new = result.node_positions()
         for f in range(coords_old.shape[0]):
             expected = (R @ coords_old[f].T).T
             npt.assert_allclose(coords_new[f], expected, atol=1e-10)
@@ -192,9 +192,9 @@ class TestReorientWorldUp:
         """Same test with rotating BVH (non-zero root angles)."""
         bvh = make_pos_y_up_rotating_bvh()
         R = _axis_aligned_rotation("+y", "+z")
-        coords_old = bvh.spatial_coords()
+        coords_old = bvh.node_positions()
         result = transforms.reorient_world_up(bvh, "+z")
-        coords_new = result.spatial_coords()
+        coords_new = result.node_positions()
         for f in range(coords_old.shape[0]):
             expected = (R @ coords_old[f].T).T
             npt.assert_allclose(coords_new[f], expected, atol=1e-10)
@@ -202,19 +202,19 @@ class TestReorientWorldUp:
     def test_roundtrip_fk_exact(self):
         """Y->Z->Y round-trip: FK positions must match original."""
         bvh = make_pos_y_up_rotating_bvh()
-        coords_before = bvh.spatial_coords()
+        coords_before = bvh.node_positions()
         bvh_z = transforms.reorient_world_up(bvh, "+z")
         bvh_back = transforms.reorient_world_up(bvh_z, "+y")
-        coords_after = bvh_back.spatial_coords()
+        coords_after = bvh_back.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
 
     def test_180_degree_rotation(self):
         """+Y -> -Y: FK Y and X should be negated."""
         bvh = make_pos_y_up_bvh()
         R = _axis_aligned_rotation("+y", "-y")
-        coords_old = bvh.spatial_coords()
+        coords_old = bvh.node_positions()
         result = transforms.reorient_world_up(bvh, "-y")
-        coords_new = result.spatial_coords()
+        coords_new = result.node_positions()
         for f in range(coords_old.shape[0]):
             expected = (R @ coords_old[f].T).T
             npt.assert_allclose(coords_new[f], expected, atol=1e-10)
@@ -223,21 +223,21 @@ class TestReorientWorldUp:
         """-Z -> +Y reorientation."""
         bvh = make_neg_z_up_bvh()
         R = _axis_aligned_rotation("-z", "+y")
-        coords_old = bvh.spatial_coords()
+        coords_old = bvh.node_positions()
         result = transforms.reorient_world_up(bvh, "+y")
-        coords_new = result.spatial_coords()
+        coords_new = result.node_positions()
         for f in range(coords_old.shape[0]):
             expected = (R @ coords_old[f].T).T
             npt.assert_allclose(coords_new[f], expected, atol=1e-10)
 
     def test_inplace(self):
         bvh = make_pos_y_up_bvh()
-        coords_before = bvh.spatial_coords()
+        coords_before = bvh.node_positions()
         R = _axis_aligned_rotation("+y", "+z")
         result = transforms.reorient_world_up(bvh, "+z", inplace=True)
         assert result is None
         assert bvh.world_up == "+z"
-        coords_after = bvh.spatial_coords()
+        coords_after = bvh.node_positions()
         for f in range(coords_before.shape[0]):
             expected = (R @ coords_before[f].T).T
             npt.assert_allclose(coords_after[f], expected, atol=1e-10)
@@ -246,20 +246,20 @@ class TestReorientWorldUp:
         """Reorient, write, read back, compare FK."""
         bvh = make_pos_y_up_rotating_bvh()
         reoriented = transforms.reorient_world_up(bvh, "+z")
-        coords_expected = reoriented.spatial_coords()
+        coords_expected = reoriented.node_positions()
         p = tmp_path / "reoriented.bvh"
         reoriented.write(str(p), verbose=False)
         bvh2 = read_bvh_file(str(p), world_up="+z")
-        coords_loaded = bvh2.spatial_coords()
+        coords_loaded = bvh2.node_positions()
         npt.assert_allclose(coords_loaded, coords_expected, atol=1e-4)
 
     def test_real_file(self):
         """Reorient a real BVH file (+z -> +y)."""
         bvh = read_bvh_file(EXAMPLE)
         R = _axis_aligned_rotation(bvh.world_up, "+y")
-        coords_old = bvh.spatial_coords()
+        coords_old = bvh.node_positions()
         result = transforms.reorient_world_up(bvh, "+y")
-        coords_new = result.spatial_coords()
+        coords_new = result.node_positions()
         for f in range(coords_old.shape[0]):
             expected = (R @ coords_old[f].T).T
             npt.assert_allclose(coords_new[f], expected, atol=1e-10)
@@ -279,17 +279,17 @@ class TestReorientRestUp:
     def test_fk_invariance(self):
         """FK positions must be identical before and after."""
         bvh = make_pos_z_up_bvh()
-        coords_before = bvh.spatial_coords()
+        coords_before = bvh.node_positions()
         result = transforms.reorient_rest_up(bvh, "+y")
-        coords_after = result.spatial_coords()
+        coords_after = result.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
 
     def test_fk_invariance_with_rotation(self):
         """Same with rotating BVH."""
         bvh = make_pos_y_up_rotating_bvh()
-        coords_before = bvh.spatial_coords()
+        coords_before = bvh.node_positions()
         result = transforms.reorient_rest_up(bvh, "+z")
-        coords_after = result.spatial_coords()
+        coords_after = result.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
 
     def test_rest_up_changes(self):
@@ -311,34 +311,34 @@ class TestReorientRestUp:
     def test_roundtrip_fk(self):
         """Z->Y->Z round-trip: FK positions must match."""
         bvh = make_pos_y_up_rotating_bvh()
-        coords_before = bvh.spatial_coords()
+        coords_before = bvh.node_positions()
         bvh2 = transforms.reorient_rest_up(bvh, "+z")
         bvh3 = transforms.reorient_rest_up(bvh2, "+y")
-        coords_after = bvh3.spatial_coords()
+        coords_after = bvh3.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
 
     def test_real_file(self):
         """Reorient a real BVH file's rest pose."""
         bvh = read_bvh_file(EXAMPLE)
-        coords_before = bvh.spatial_coords()
+        coords_before = bvh.node_positions()
         result = transforms.reorient_rest_up(bvh, "+y")
-        coords_after = result.spatial_coords()
+        coords_after = result.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
         assert _rest_upward(result) == "+y"
 
     def test_inplace(self):
         bvh = make_pos_z_up_bvh()
-        coords_before = bvh.spatial_coords()
+        coords_before = bvh.node_positions()
         result = transforms.reorient_rest_up(bvh, "+y", inplace=True)
         assert result is None
-        coords_after = bvh.spatial_coords()
+        coords_after = bvh.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
 
     def test_bvh_method_wrapper(self):
         bvh = make_pos_z_up_bvh()
-        coords_before = bvh.spatial_coords()
+        coords_before = bvh.node_positions()
         result = bvh.reorient_rest_up("+y")
-        coords_after = result.spatial_coords()
+        coords_after = result.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
 
 
@@ -350,7 +350,7 @@ class TestReorientRestForward:
 
     def test_fk_invariance(self):
         bvh = make_pos_y_up_bvh()
-        coords_before = bvh.spatial_coords()
+        coords_before = bvh.node_positions()
         # Get current forward, pick a different one
         rest = bvh.rest_pose_coords()
         current_fwd = _compute_forward_at(bvh, rest, bvh.world_up)
@@ -359,19 +359,19 @@ class TestReorientRestForward:
         target = [c for c in candidates if c != current_fwd
                   and c[1] != bvh.world_up[1]][0]
         result = transforms.reorient_rest_forward(bvh, target)
-        coords_after = result.spatial_coords()
+        coords_after = result.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
 
     def test_fk_invariance_with_rotation(self):
         bvh = make_pos_y_up_rotating_bvh()
-        coords_before = bvh.spatial_coords()
+        coords_before = bvh.node_positions()
         rest = bvh.rest_pose_coords()
         current_fwd = _compute_forward_at(bvh, rest, bvh.world_up)
         candidates = ["+x", "-x", "+z", "-z"]
         target = [c for c in candidates if c != current_fwd
                   and c[1] != bvh.world_up[1]][0]
         result = transforms.reorient_rest_forward(bvh, target)
-        coords_after = result.spatial_coords()
+        coords_after = result.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
 
     def test_parallel_axis_raises(self):
@@ -386,10 +386,10 @@ class TestReorientRestForward:
         candidates = ["+x", "-x", "+z", "-z"]
         target = [c for c in candidates if c != current_fwd
                   and c[1] != bvh.world_up[1]][0]
-        coords_before = bvh.spatial_coords()
+        coords_before = bvh.node_positions()
         result = transforms.reorient_rest_forward(bvh, target, inplace=True)
         assert result is None
-        coords_after = bvh.spatial_coords()
+        coords_after = bvh.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
 
     def test_bvh_method_wrapper(self):
@@ -399,9 +399,9 @@ class TestReorientRestForward:
         candidates = ["+x", "-x", "+z", "-z"]
         target = [c for c in candidates if c != current_fwd
                   and c[1] != bvh.world_up[1]][0]
-        coords_before = bvh.spatial_coords()
+        coords_before = bvh.node_positions()
         result = bvh.reorient_rest_forward(target)
-        coords_after = result.spatial_coords()
+        coords_after = result.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
 
 
@@ -416,9 +416,9 @@ class TestReorientHeterogeneousEulerOrders:
         from synthetic_bvh import make_heterogeneous_euler_bvh
         bvh = make_heterogeneous_euler_bvh()
         R = _axis_aligned_rotation(bvh.world_up, "+z")
-        coords_old = bvh.spatial_coords()
+        coords_old = bvh.node_positions()
         result = transforms.reorient_world_up(bvh, "+z")
-        coords_new = result.spatial_coords()
+        coords_new = result.node_positions()
         for f in range(coords_old.shape[0]):
             expected = (R @ coords_old[f].T).T
             npt.assert_allclose(coords_new[f], expected, atol=1e-10)
@@ -426,18 +426,18 @@ class TestReorientHeterogeneousEulerOrders:
     def test_reorient_rest_up_heterogeneous(self):
         from synthetic_bvh import make_heterogeneous_euler_bvh
         bvh = make_heterogeneous_euler_bvh()
-        coords_before = bvh.spatial_coords()
+        coords_before = bvh.node_positions()
         result = transforms.reorient_rest_up(bvh, "+z")
-        coords_after = result.spatial_coords()
+        coords_after = result.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
 
     def test_reorient_world_up_roundtrip_heterogeneous(self):
         from synthetic_bvh import make_heterogeneous_euler_bvh
         bvh = make_heterogeneous_euler_bvh()
-        coords_before = bvh.spatial_coords()
+        coords_before = bvh.node_positions()
         bvh2 = transforms.reorient_world_up(bvh, "+z")
         bvh3 = transforms.reorient_world_up(bvh2, "+y")
-        coords_after = bvh3.spatial_coords()
+        coords_after = bvh3.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
 
 

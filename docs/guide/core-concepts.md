@@ -14,7 +14,7 @@ A BVH file has two sections:
 | Attribute | Shape | Description |
 |---|---|---|
 | `root_pos` | `(F, 3)` | Root translation per frame |
-| `joint_angles` | `(F, J, 3)` | Euler angles (degrees) per joint per frame |
+| `joint_angles` | `(F, J, 3)` | Euler angles (**radians**) per joint per frame |
 | `nodes` | list | All skeleton nodes (joints + end sites) in depth-first order |
 | `joint_names` | list of str | Non-end-site joint names |
 | `euler_orders` | list of str | Per-joint Euler orders (e.g. `['ZYX', ...]`) |
@@ -26,7 +26,7 @@ A BVH file has two sections:
 
 pybvh has two index spaces:
 
-- **`node_index`** — includes end sites. Maps to `bvh.nodes` list. Used by `spatial_coords()`.
+- **`node_index`** — includes end sites. Maps to `bvh.nodes` list. Used by `node_positions()`.
 - **`joint_angles` index** — excludes end sites. Maps to `bvh.joint_names` and `bvh.joint_angles` axis 1. Used by `edges`, `euler_orders`, augmentation functions.
 
 Most functions use the `joint_angles` index space. The docstring of each function specifies which space it expects.

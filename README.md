@@ -42,11 +42,11 @@ print(bvh)  # "24 elements in the Hierarchy, 75 frames at 30.0 fps (frame_time=0
 
 # Access motion data as NumPy arrays
 bvh.root_pos          # (F, 3) root translation per frame
-bvh.joint_angles      # (F, J, 3) Euler angles in degrees
+bvh.joint_angles      # (F, J, 3) Euler angles in radians
 bvh.joint_names       # ['Hips', 'Spine', ...] (excludes end sites)
 
 # Get 3D joint positions via forward kinematics
-coords = bvh.spatial_coords()  # (F, N, 3)
+coords = bvh.node_positions()  # (F, N, 3)
 
 # Convert to other rotation representations
 root_pos, quats = bvh.to_quaternions()   # (F, 3), (F, J, 4)
@@ -87,7 +87,7 @@ acc = bvh.joint_accelerations()     # (F, N, 3)
 ang_vel = bvh.angular_velocities()  # (F, J, 3) in radians/second
 
 # Skeleton-centered positions and trajectory
-rel_pos = bvh.spatial_coords(centered='skeleton')  # (F, N, 3)
+rel_pos = bvh.node_positions(centered='skeleton')  # (F, N, 3)
 traj = bvh.root_trajectory()                       # (F, 4) ground pos + heading
 
 # Foot contact detection (auto-detects foot joints)

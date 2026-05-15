@@ -72,7 +72,7 @@ Positive step along `left_at` moves from the character's right side toward their
 Both `forward_at()` and `left_at()` accept a pre-computed `(F, N, 3)` spatial-coordinates array via `coords=` to skip the per-call forward kinematics. Useful when you need orientation axes across many frames:
 
 ```python
-coords = bvh.spatial_coords()    # one FK pass
+coords = bvh.node_positions()    # one FK pass
 forwards = [bvh.forward_at(f, coords=coords) for f in range(bvh.frame_count)]
 lefts    = [bvh.left_at(f,    coords=coords) for f in range(bvh.frame_count)]
 ```

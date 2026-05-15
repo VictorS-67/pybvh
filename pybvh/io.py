@@ -53,22 +53,32 @@ def read_bvh_file(
     bvh : Bvh
         A Bvh object containing the skeleton hierarchy, root positions,
         joint angles, and frame time.
+
+    Notes
+    -----
+    BVH files store joint angles in degrees; pybvh holds them in radians
+    on :attr:`Bvh.joint_angles`. This function converts on read;
+    :func:`write_bvh_file` converts back on write. Round-trip is lossless
+    within float precision.
     """
     node_list, frame_array, frame_time = _extract_bvh_file_info(filepath)
     num_joints = len([n for n in node_list if not n.is_end_site()])
     root_pos = frame_array[:, :3].astype(np.float64)
-    joint_angles = frame_array[:, 3:].reshape(frame_array.shape[0], num_joints, 3).astype(np.float64)
+    # BVH stores angles in degrees; pybvh holds them in radians.
+    joint_angles_deg = frame_array[:, 3:].reshape(frame_array.shape[0], num_joints, 3).astype(np.float64)
+    joint_angles = np.deg2rad(joint_angles_deg)
+    src = str(filepath)
     if warn_on_world_up_disagreement:
         return Bvh(nodes=node_list, root_pos=root_pos, joint_angles=joint_angles,
                    frame_time=frame_time, world_up=world_up,
-                   lr_mapping=lr_mapping)
+                   lr_mapping=lr_mapping, source_path=src)
     with warnings.catch_warnings():
         # Specific filter: only suppress the rest/animation-frame disagreement
         # warning; everything else still propagates.
         warnings.filterwarnings("ignore", message="Rest pose suggests world up")
         return Bvh(nodes=node_list, root_pos=root_pos, joint_angles=joint_angles,
                    frame_time=frame_time, world_up=world_up,
-                   lr_mapping=lr_mapping)
+                   lr_mapping=lr_mapping, source_path=src)
 
 def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDArray[np.float64], float]:
     """Extract node hierarchy, frame data, and frame time from a BVH file."""
@@ -160,7 +170,7 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
                 parent_node = node_list[-1]
                 parent_depth = 1
 
-                node_list.append(BvhNode('End Site '+parent_node.name, offset, parent_node))  # type: ignore[arg-type]
+                node_list.append(BvhNode('EndSite'+parent_node.name, offset, parent_node))  # type: ignore[arg-type]
                 parent_node.children = parent_node.children + [node_list[-1]]  # type: ignore[attr-defined]
 
             elif line[0] == '}':
@@ -313,6 +323,11 @@ def write_bvh_file(bvh: Bvh, filepath: str | Path, verbose: bool = False) -> Non
     Exception
         If the file extension is not ``.bvh`` or the parent directory
         does not exist.
+
+    Notes
+    -----
+    pybvh stores joint angles in radians, but the BVH format requires
+    degrees; this function converts on write.
     """
     filepath = Path(filepath)
     if filepath.suffix != '.bvh':
@@ -370,9 +385,11 @@ def write_bvh_file(bvh: Bvh, filepath: str | Path, verbose: bool = False) -> Non
 
         F = bvh.frame_count
         if F > 0:
+            # pybvh stores angles in radians; BVH format requires degrees.
+            joint_angles_deg = np.rad2deg(bvh.joint_angles)
             motion = np.column_stack([bvh.root_pos,
-                                      bvh.joint_angles.reshape(F, -1)])
+                                      joint_angles_deg.reshape(F, -1)])
             np.savetxt(f, motion, fmt='%.6f', delimiter=' ')
 
     if verbose:
-        print(f'Succesfully saved the file {filepath.name} at the location\n{filepath.parent.absolute()}')
+        print(f'Successfully saved the file {filepath.name} at the location\n{filepath.parent.absolute()}')

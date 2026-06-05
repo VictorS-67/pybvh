@@ -6,7 +6,7 @@
 import pybvh
 
 bvh = pybvh.read_bvh_file("walk.bvh")
-print(bvh)  # "24 elements in the Hierarchy, 120 frames at 30.0 fps (frame_time=0.033333s)"
+print(bvh)  # "24 joints, 75 frames at 30.0 fps (frame_time=0.033333s, from walk.bvh)"
 ```
 
 ## Accessing motion data

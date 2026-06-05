@@ -32,6 +32,10 @@ interactive = ["k3d>=2.14"]
 viewer = ["vedo>=2024.5"]
 all-viz = ["opencv-python>=4.5", "k3d>=2.14", "vedo>=2024.5"]
 dev = ["pytest>=8", "pandas>=1.5", "mypy>=1.0", "jupytext>=1.16", "nbmake>=1.5"]
+# Reference libraries for REGENERATING the golden fixtures in tests/fixtures/.
+# Dev-only — never a runtime dependency; the committed .npz fixtures load with
+# numpy alone, so running the tests does not need these. See tests/fixtures/README.md.
+fixtures = ["scipy>=1.11", "pytransform3d>=3.0"]
 
 [project.urls]
 Homepage = "https://github.com/VictorS-67/pybvh"

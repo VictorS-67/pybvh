@@ -1,0 +1,19 @@
+# Reproducible environment for REGENERATING the golden reference fixtures
+# (tests/fixtures/*.npz). You do NOT need this to RUN the tests — the fixtures
+# are committed and load with numpy only. Use it only when adding/changing a
+# fixture, so the reference values stay reproducible (no scipy-version drift).
+#
+#   conda env create -f tests/fixtures/environment.yml
+#   conda run -n pybvh_test python tests/fixtures/generate_fixtures.py
+#
+# (pip equivalent, into any env:  pip install "scipy>=1.11" "pytransform3d>=3.0")
+name: pybvh_test
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy=2.4.*
+  - scipy=1.17.*
+  - pip
+  - pip:
+      - pytransform3d==3.15.0

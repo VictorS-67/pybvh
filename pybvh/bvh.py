@@ -2085,7 +2085,7 @@ class Bvh:
 
 
     # ----------------------------------------------------------------
-    #  ML Pipeline Features (delegate to features module)
+    #  ML Pipeline Features (delegate to analysis / packing modules)
     # ----------------------------------------------------------------
 
     def joint_velocities(
@@ -2096,9 +2096,9 @@ class Bvh:
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
-        """Per-joint position velocities — shape ``(F, J, 3)``. See :func:`pybvh.features.joint_velocities`."""
-        from . import features
-        return features.joint_velocities(
+        """Per-joint position velocities — shape ``(F, J, 3)``. See :func:`pybvh.analysis.joint_velocities`."""
+        from . import analysis
+        return analysis.joint_velocities(
             self, centered=centered, in_frames=in_frames, coords=coords,
             stencil=stencil, pad=pad)
 
@@ -2110,9 +2110,9 @@ class Bvh:
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
-        """Per-node position velocities (joints + end sites) — shape ``(F, N, 3)``. See :func:`pybvh.features.node_velocities`."""
-        from . import features
-        return features.node_velocities(
+        """Per-node position velocities (joints + end sites) — shape ``(F, N, 3)``. See :func:`pybvh.analysis.node_velocities`."""
+        from . import analysis
+        return analysis.node_velocities(
             self, centered=centered, in_frames=in_frames, coords=coords,
             stencil=stencil, pad=pad)
 
@@ -2124,9 +2124,9 @@ class Bvh:
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
-        """Per-joint position accelerations — shape ``(F, J, 3)``. See :func:`pybvh.features.joint_accelerations`."""
-        from . import features
-        return features.joint_accelerations(
+        """Per-joint position accelerations — shape ``(F, J, 3)``. See :func:`pybvh.analysis.joint_accelerations`."""
+        from . import analysis
+        return analysis.joint_accelerations(
             self, centered=centered, in_frames=in_frames, coords=coords,
             stencil=stencil, pad=pad)
 
@@ -2138,9 +2138,9 @@ class Bvh:
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
-        """Per-node position accelerations (joints + end sites) — shape ``(F, N, 3)``. See :func:`pybvh.features.node_accelerations`."""
-        from . import features
-        return features.node_accelerations(
+        """Per-node position accelerations (joints + end sites) — shape ``(F, N, 3)``. See :func:`pybvh.analysis.node_accelerations`."""
+        from . import analysis
+        return analysis.node_accelerations(
             self, centered=centered, in_frames=in_frames, coords=coords,
             stencil=stencil, pad=pad)
 
@@ -2151,9 +2151,9 @@ class Bvh:
         pad: str = "edge",
         degrees: bool = False,
     ) -> npt.NDArray[np.float64]:
-        """Compute per-joint angular velocities.  See :func:`pybvh.features.angular_velocities`."""
-        from . import features
-        return features.angular_velocities(
+        """Compute per-joint angular velocities.  See :func:`pybvh.analysis.angular_velocities`."""
+        from . import analysis
+        return analysis.angular_velocities(
             self, in_frames=in_frames, stencil=stencil, pad=pad, degrees=degrees)
 
     def root_trajectory(
@@ -2164,9 +2164,9 @@ class Bvh:
         pad: str = "edge",
         degrees: bool = False,
     ) -> npt.NDArray[np.float64]:
-        """Extract root trajectory features.  See :func:`pybvh.features.root_trajectory`."""
-        from . import features
-        return features.root_trajectory(
+        """Extract root trajectory features.  See :func:`pybvh.analysis.root_trajectory`."""
+        from . import analysis
+        return analysis.root_trajectory(
             self, up_axis=up_axis,
             include_velocities=include_velocities,
             stencil=stencil, pad=pad, degrees=degrees)
@@ -2185,9 +2185,9 @@ class Bvh:
         min_gap_duration: float = 0.1,
         return_info: bool = False,
     ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
-        """Detect foot contact labels.  See :func:`pybvh.features.foot_contacts`."""
-        from . import features
-        return features.foot_contacts(
+        """Detect foot contact labels.  See :func:`pybvh.analysis.foot_contacts`."""
+        from . import analysis
+        return analysis.foot_contacts(
             self,
             foot_joints=foot_joints,
             method=method,
@@ -2202,9 +2202,9 @@ class Bvh:
         )
 
     def auto_detect_foot_joints(self) -> list[str]:
-        """Auto-detect foot joint names from skeleton topology.  See :func:`pybvh.features.auto_detect_foot_joints`."""
-        from . import features
-        return features.auto_detect_foot_joints(self)
+        """Auto-detect foot joint names from skeleton topology.  See :func:`pybvh.analysis.auto_detect_foot_joints`."""
+        from . import analysis
+        return analysis.auto_detect_foot_joints(self)
 
     def to_feature_array(
         self,
@@ -2217,9 +2217,9 @@ class Bvh:
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
-        """Export motion as a flat feature array.  See :func:`pybvh.features.to_feature_array`."""
-        from . import features
-        return features.to_feature_array(
+        """Export motion as a flat feature array.  See :func:`pybvh.packing.to_feature_array`."""
+        from . import packing
+        return packing.to_feature_array(
             self, representation=representation,
             include_root_pos=include_root_pos,
             include_velocities=include_velocities,
@@ -2236,9 +2236,9 @@ class Bvh:
         include_velocities: bool = False,
         include_foot_contacts: bool = False,
     ) -> dict[str, slice]:
-        """Column layout of :meth:`to_feature_array` output.  See :func:`pybvh.features.feature_array_layout`."""
-        from . import features
-        return features.feature_array_layout(
+        """Column layout of :meth:`to_feature_array` output.  See :func:`pybvh.packing.feature_array_layout`."""
+        from . import packing
+        return packing.feature_array_layout(
             num_joints=self.joint_count,
             num_feet=num_feet,
             representation=representation,

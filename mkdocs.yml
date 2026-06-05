@@ -58,7 +58,8 @@ nav:
     - I/O: api/io.md
     - Rotations: api/rotations.md
     - Transforms: api/transforms.md
-    - Features: api/features.md
+    - Analysis: api/analysis.md
+    - Packing: api/packing.md
     - Batch Processing: api/batch.md
     - Visualization: api/bvhplot.md
   - Tutorials: tutorials.md

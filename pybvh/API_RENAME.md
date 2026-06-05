@@ -1,8 +1,24 @@
 # pybvh API Rename — Complete Reference
 
-All API renames applied in v0.6.0. **Old names are removed outright** — there is no deprecation cycle. Because pybvh has no known production consumers beyond pybvh-ml (which has been briefed separately), shipping wrappers that would be removed one release later wasn't worth the maintenance tax. Old names will raise `AttributeError` on the `Bvh` class / `ImportError` at module level.
+Most renames below were applied in v0.6.0; the **`pybvh.features` → `pybvh.analysis` + `pybvh.packing`** module split landed in v0.8.0 (documented first, immediately below). **Old names are removed outright** — there is no deprecation cycle. Because pybvh has no known production consumers beyond pybvh-ml (which has been briefed separately), shipping wrappers that would be removed one release later wasn't worth the maintenance tax. Old names will raise `AttributeError` on the `Bvh` class / `ImportError` at module level.
 
 Migration: grep for the old name in the left column, replace with the right column.
+
+---
+
+## v0.8.0 — `pybvh.features` split into `pybvh.analysis` + `pybvh.packing`
+
+`pybvh.features` was split by responsibility and **no longer exists** (`import pybvh.features` raises `ImportError`). `Bvh` method names are **unchanged** — `bvh.joint_velocities()`, `bvh.foot_contacts()`, `bvh.to_feature_array()`, … all still work. Only the module-level functions moved:
+
+| Old (`pybvh.features.*`) | New |
+|---|---|
+| `node_velocities`, `joint_velocities` | `pybvh.analysis.*` |
+| `node_accelerations`, `joint_accelerations` | `pybvh.analysis.*` |
+| `angular_velocities`, `root_trajectory` | `pybvh.analysis.*` |
+| `foot_contacts`, `auto_detect_foot_joints` | `pybvh.analysis.*` |
+| `to_feature_array`, `feature_array_layout` | `pybvh.packing.*` |
+
+Rule of thumb: **motion descriptors → `analysis`; ML feature-array assembly → `packing`.**
 
 ---
 
@@ -99,7 +115,9 @@ Unchanged: `to_feature_array()`.
 
 ## Module-level function renames
 
-### `pybvh.features`
+### `pybvh.features` (v0.6.0 function renames — module since split, see top)
+
+These bare-name renames happened in v0.6.0, while the functions still lived in `pybvh.features`. As of v0.8.0 they live in `pybvh.analysis` (`to_feature_array` / `feature_array_layout` in `pybvh.packing`).
 
 | Old name | New name |
 |---|---|

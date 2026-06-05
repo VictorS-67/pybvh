@@ -1,4 +1,4 @@
-"""Tests for pybvh.features module (v3 remediation).
+"""Tests for pybvh.analysis / pybvh.packing modules (v3 remediation).
 
 Structure mirrors FEATURES_AUDIT_V2.md / v3 implementation plan.
 Each test class exercises the invariants introduced by a specific
@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from pybvh import read_bvh_file, Bvh  # noqa: E402
-from pybvh import features  # noqa: E402
+from pybvh import analysis, packing  # noqa: E402
 from pybvh.bvhnode import BvhRoot, BvhJoint, BvhNode  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -384,7 +384,7 @@ class TestFeatureArrayLayout:
     """Phase 3: pure keyword-only function returning column slices."""
 
     def test_basic_6d(self):
-        layout = features.feature_array_layout(
+        layout = packing.feature_array_layout(
             num_joints=24, representation="6d")
         assert layout["root_pos"] == slice(0, 3)
         assert layout["rotations"] == slice(3, 3 + 24 * 6)
@@ -392,7 +392,7 @@ class TestFeatureArrayLayout:
         assert "foot_contacts" not in layout
 
     def test_with_velocities(self):
-        layout = features.feature_array_layout(
+        layout = packing.feature_array_layout(
             num_joints=24, representation="6d",
             include_velocities=True)
         expected_start = 3 + 24 * 6
@@ -401,7 +401,7 @@ class TestFeatureArrayLayout:
             expected_start, expected_start + 24 * 3)
 
     def test_with_foot_contacts(self):
-        layout = features.feature_array_layout(
+        layout = packing.feature_array_layout(
             num_joints=24, num_feet=2,
             representation="6d", include_foot_contacts=True)
         expected_start = 3 + 24 * 6
@@ -409,7 +409,7 @@ class TestFeatureArrayLayout:
             expected_start, expected_start + 2)
 
     def test_no_root_pos(self):
-        layout = features.feature_array_layout(
+        layout = packing.feature_array_layout(
             num_joints=24, representation="6d",
             include_root_pos=False)
         assert "root_pos" not in layout
@@ -417,34 +417,34 @@ class TestFeatureArrayLayout:
 
     def test_foot_contacts_without_num_feet_raises(self):
         with pytest.raises(ValueError, match="num_feet"):
-            features.feature_array_layout(
+            packing.feature_array_layout(
                 num_joints=24, representation="6d",
                 include_foot_contacts=True)
 
     def test_rotmat_width_9(self):
-        layout = features.feature_array_layout(
+        layout = packing.feature_array_layout(
             num_joints=24, representation="rotmat")
         assert layout["rotations"] == slice(3, 3 + 24 * 9)
 
     def test_euler_width_3(self):
-        layout = features.feature_array_layout(
+        layout = packing.feature_array_layout(
             num_joints=24, representation="euler")
         assert layout["rotations"] == slice(3, 3 + 24 * 3)
 
     def test_quaternion_width_4(self):
-        layout = features.feature_array_layout(
+        layout = packing.feature_array_layout(
             num_joints=24, representation="quaternion")
         assert layout["rotations"] == slice(3, 3 + 24 * 4)
 
     def test_unknown_representation_raises(self):
         with pytest.raises(ValueError, match="representation"):
-            features.feature_array_layout(
+            packing.feature_array_layout(
                 num_joints=24, representation="nonsense")
 
     def test_keyword_only(self):
         """Positional args should fail — signature is keyword-only."""
         with pytest.raises(TypeError):
-            features.feature_array_layout(24)  # type: ignore[misc]
+            packing.feature_array_layout(24)  # type: ignore[misc]
 
     def test_bvh_method_wrapper(self, bvh_example):
         layout = bvh_example.feature_array_layout(representation="6d")
@@ -579,7 +579,7 @@ class TestFootContactsTopologyFilter:
 
 
 class TestAutoDetectFootJoints:
-    """Public helper: bvh.auto_detect_foot_joints() and features.auto_detect_foot_joints(bvh)."""
+    """Public helper: bvh.auto_detect_foot_joints() and analysis.auto_detect_foot_joints(bvh)."""
 
     def test_most_distal_wins_on_foot_plus_toe_chains(self, bvh_example):
         """bvh_example has LeftFoot → LeftToeBase and RightFoot → RightToeBase.
@@ -594,7 +594,7 @@ class TestAutoDetectFootJoints:
         assert feet == ["LeftFoot", "RightFoot"]  # alphabetical tie-break
 
     def test_method_matches_module_function(self, bvh_example):
-        from pybvh.features import auto_detect_foot_joints
+        from pybvh.analysis import auto_detect_foot_joints
         assert bvh_example.auto_detect_foot_joints() == auto_detect_foot_joints(bvh_example)
 
     def test_stable_alphabetical_order_for_equal_heights(self):
@@ -800,7 +800,7 @@ class TestFootContactsDurationFilters:
     specified in seconds, fps-independent."""
 
     def test_helper_removes_short_true_runs(self):
-        from pybvh.features import _filter_short_runs
+        from pybvh.analysis import _filter_short_runs
         mask = np.array(
             [[True, True, False, True, False, False,
               True, True, True, True]]).T  # True runs of 2, 1, 4
@@ -811,7 +811,7 @@ class TestFootContactsDurationFilters:
         np.testing.assert_array_equal(filtered, expected)
 
     def test_helper_fills_short_false_gaps(self):
-        from pybvh.features import _filter_short_runs
+        from pybvh.analysis import _filter_short_runs
         # True True False False True True True → gap of 2 in the middle
         mask = np.array(
             [[True, True, False, False, True, True, True]]).T
@@ -822,7 +822,7 @@ class TestFootContactsDurationFilters:
         np.testing.assert_array_equal(filled, expected)
 
     def test_helper_keeps_long_false_gaps(self):
-        from pybvh.features import _filter_short_runs
+        from pybvh.analysis import _filter_short_runs
         mask = np.array(
             [[True, False, False, False, True]]).T
         filled = _filter_short_runs(mask, min_run=3, value=False)
@@ -830,7 +830,7 @@ class TestFootContactsDurationFilters:
         np.testing.assert_array_equal(filled, mask)
 
     def test_helper_minrun_one_is_identity(self):
-        from pybvh.features import _filter_short_runs
+        from pybvh.analysis import _filter_short_runs
         mask = np.array([[True, False, True, True, False, True]]).T
         np.testing.assert_array_equal(
             _filter_short_runs(mask, 1, value=True), mask)

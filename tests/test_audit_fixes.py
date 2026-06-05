@@ -29,7 +29,7 @@ from synthetic_bvh import (
     make_simple_bvh,
 )
 
-from pybvh import read_bvh_file, Bvh, rotations, transforms, features
+from pybvh import read_bvh_file, Bvh, rotations, transforms
 from pybvh.bvhnode import BvhRoot, BvhJoint, BvhNode
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"

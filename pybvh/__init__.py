@@ -17,7 +17,8 @@ from .batch import (
 from . import bvhplot
 from . import rotations
 from . import transforms
-from . import features
+from . import analysis
+from . import packing
 
 
 def api_rename_path() -> _Path:

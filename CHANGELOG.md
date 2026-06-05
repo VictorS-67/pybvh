@@ -9,6 +9,22 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.0] — Unreleased
+
+_In progress. The breaking module split (below) lands first as a behavior-preserving step; theory-neutral motion-descriptor primitives (geometry, jerk/smoothness, gait, SE(3) transforms) follow within this same release._
+
+### Upgrading from 0.7.0
+
+- ⚠️ **`pybvh.features` split into `pybvh.analysis` + `pybvh.packing`.** The old module is removed — `import pybvh.features` now raises `ImportError`. Motion descriptors (`node_velocities`, `joint_velocities`, `node_accelerations`, `joint_accelerations`, `angular_velocities`, `root_trajectory`, `foot_contacts`, `auto_detect_foot_joints`) moved to **`pybvh.analysis`**; ML feature-array assembly (`to_feature_array`, `feature_array_layout`) moved to **`pybvh.packing`**. **`Bvh` method names are unchanged** — `bvh.joint_velocities()`, `bvh.to_feature_array()`, etc. all still work. Migration: `pybvh.features.X` → `pybvh.analysis.X` (or `pybvh.packing.X` for the two packing functions). Full mapping in `pybvh/API_RENAME.md`.
+
+### Changed
+
+- **Module layout.** `pybvh/features.py` → `pybvh/analysis.py` (descriptors) + `pybvh/packing.py` (feature-array assembly). Function behavior is byte-identical; only the import path changed.
+
+### Removed
+
+- **`pybvh.features` module.** Replaced by `pybvh.analysis` + `pybvh.packing`.
+
 ## [0.7.0] — 2026-05-14
 
 ### Upgrading from 0.6.0

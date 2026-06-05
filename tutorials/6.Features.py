@@ -19,7 +19,7 @@
 # %% [markdown]
 # Raw BVH data gives you joint angles and root positions, but many applications need richer features derived from the motion. How fast is each joint moving? Which foot is on the ground? What direction is the character facing?
 #
-# The `pybvh.features` module computes these properties directly from the `Bvh` object. All functions return NumPy arrays, ready to use as model inputs or for analysis. This tutorial covers:
+# The `pybvh.analysis` module computes these properties directly from the `Bvh` object, and `pybvh.packing` assembles them into a flat ML feature array. All functions return NumPy arrays, ready to use as model inputs or for analysis. This tutorial covers:
 #
 # - Joint velocities and accelerations (linear)
 # - Angular velocities (rotational)
@@ -32,7 +32,7 @@ import numpy as np
 np.set_printoptions(precision=4, suppress=True)
 
 import pybvh
-from pybvh import features
+from pybvh import analysis, packing
 import matplotlib.pyplot as plt
 from pathlib import Path
 
@@ -250,7 +250,7 @@ print(f'Full feature array: shape = {feat_full.shape}  '
 # %% [markdown]
 # ## Unpacking the feature array
 #
-# Once the array is packed, downstream code typically needs to slice specific blocks back out. `feature_array_layout(...)` returns a `{block_name: slice}` dict that maps each block to its column range — no need to count columns by hand. It's a pure function (it doesn't need a `Bvh` at all, and is also exposed at module level as `features.feature_array_layout(...)`), so you can call it for model-shape setup before any data is loaded.
+# Once the array is packed, downstream code typically needs to slice specific blocks back out. `feature_array_layout(...)` returns a `{block_name: slice}` dict that maps each block to its column range — no need to count columns by hand. It's a pure function (it doesn't need a `Bvh` at all, and is also exposed at module level as `packing.feature_array_layout(...)`), so you can call it for model-shape setup before any data is loaded.
 
 # %%
 layout = bvh.feature_array_layout(

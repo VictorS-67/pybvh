@@ -3,7 +3,10 @@ from __future__ import annotations
 import copy
 import warnings
 from pathlib import Path
-from typing import Literal, Sequence, Union, overload
+from typing import Literal, Sequence, TYPE_CHECKING, Union, overload
+
+if TYPE_CHECKING:
+    from . import geometry
 
 import numpy as np
 import numpy.typing as npt
@@ -2246,6 +2249,187 @@ class Bvh:
             include_velocities=include_velocities,
             include_foot_contacts=include_foot_contacts,
         )
+
+    # ----------------------------------------------------------------
+    #  Motion descriptors (delegate to geometry / analysis modules)
+    # ----------------------------------------------------------------
+    #  Relational / trajectory queries index in NODE space (node_index), so
+    #  end sites (fingertips, toe tips, head top) are first-class; pass a
+    #  joint or end-site name, or an integer node index.
+
+    def _node_idx(self, ref: str | int) -> int:
+        """Resolve a node name (joint or end site) or index to a node index."""
+        return self.index(ref, axis='node') if isinstance(ref, str) else int(ref)
+
+    def curvature(self, joint: str | int, stencil: str = "central",
+                  pad: str = "edge") -> npt.NDArray[np.float64]:
+        """Per-frame trajectory curvature of ``joint``. See :func:`pybvh.geometry.curvature`."""
+        from . import geometry
+        traj = self.node_positions()[:, self._node_idx(joint), :]
+        return geometry.curvature(traj, self.frame_time, stencil, pad)
+
+    def torsion(self, joint: str | int, stencil: str = "central",
+                pad: str = "edge") -> npt.NDArray[np.float64]:
+        """Per-frame trajectory torsion of ``joint``. See :func:`pybvh.geometry.torsion`."""
+        from . import geometry
+        traj = self.node_positions()[:, self._node_idx(joint), :]
+        return geometry.torsion(traj, self.frame_time, stencil, pad)
+
+    def path_length(self, joint: str | int) -> float:
+        """Arc length travelled by ``joint``. See :func:`pybvh.geometry.path_length`."""
+        from . import geometry
+        return float(geometry.path_length(
+            self.node_positions()[:, self._node_idx(joint), :]))
+
+    def straightness(self, joint: str | int) -> float:
+        """Straightness index of ``joint``'s path. See :func:`pybvh.geometry.straightness`."""
+        from . import geometry
+        return float(geometry.straightness(
+            self.node_positions()[:, self._node_idx(joint), :]))
+
+    def ground_path(self, joint: str | int) -> "geometry.GroundPath":
+        """Ground-plane path of ``joint`` (uses ``world_up``). See :func:`pybvh.geometry.ground_path`."""
+        from . import geometry
+        from .tools import _axis_to_vector
+        traj = self.node_positions()[:, self._node_idx(joint), :]
+        return geometry.ground_path(traj, _axis_to_vector(self.world_up))
+
+    def inter_joint_distance(
+        self, pairs: list[tuple[str | int, str | int]]
+    ) -> npt.NDArray[np.float64]:
+        """Per-frame distances between node pairs. See :func:`pybvh.geometry.inter_joint_distance`."""
+        from . import geometry
+        idx_pairs = [[self._node_idx(a), self._node_idx(b)] for a, b in pairs]
+        return geometry.inter_joint_distance(self.node_positions(), idx_pairs)
+
+    def joint_angle(self, a: str | int, vertex: str | int, b: str | int,
+                    degrees: bool = False) -> npt.NDArray[np.float64]:
+        """Per-frame angle at ``vertex`` in ``a–vertex–b``. See :func:`pybvh.geometry.joint_angle`."""
+        from . import geometry
+        pos = self.node_positions()
+        return geometry.joint_angle(
+            pos[:, self._node_idx(a)], pos[:, self._node_idx(vertex)],
+            pos[:, self._node_idx(b)], degrees=degrees)
+
+    def triangle_area(self, a: str | int, b: str | int,
+                      c: str | int) -> npt.NDArray[np.float64]:
+        """Per-frame area of triangle ``(a, b, c)``. See :func:`pybvh.geometry.triangle_area`."""
+        from . import geometry
+        pos = self.node_positions()
+        return geometry.triangle_area(
+            pos[:, self._node_idx(a)], pos[:, self._node_idx(b)],
+            pos[:, self._node_idx(c)])
+
+    def segment_axis_angle(self, joint_a: str | int, joint_b: str | int,
+                           degrees: bool = False) -> npt.NDArray[np.float64]:
+        """Per-frame angle of the bone ``joint_a→joint_b`` to ``world_up``.
+
+        See :func:`pybvh.geometry.segment_axis_angle`."""
+        from . import geometry
+        from .tools import _axis_to_vector
+        pos = self.node_positions()
+        seg = pos[:, self._node_idx(joint_b)] - pos[:, self._node_idx(joint_a)]
+        return geometry.segment_axis_angle(
+            seg, _axis_to_vector(self.world_up), degrees=degrees)
+
+    def bounding_box(self) -> "geometry.BoundingBox":
+        """Per-frame axis-aligned bounding box of all nodes. See :func:`pybvh.geometry.bounding_box`."""
+        from . import geometry
+        return geometry.bounding_box(self.node_positions())
+
+    def bounding_sphere(self) -> "geometry.BoundingSphere":
+        """Per-frame approximate enclosing sphere of all nodes. See :func:`pybvh.geometry.bounding_sphere`."""
+        from . import geometry
+        return geometry.bounding_sphere(self.node_positions())
+
+    def center_of_mass(
+        self, weights: npt.NDArray[np.float64] | None = None
+    ) -> npt.NDArray[np.float64]:
+        """Per-frame centroid of all nodes (uniform by default; pass per-node masses).
+
+        See :func:`pybvh.geometry.centroid`."""
+        from . import geometry
+        return geometry.centroid(self.node_positions(), weights=weights)
+
+    def com_displacement(
+        self,
+        weights: npt.NDArray[np.float64] | None = None,
+        com_ref: npt.NDArray[np.float64] | None = None,
+    ) -> npt.NDArray[np.float64]:
+        """Per-frame centre-of-mass displacement from a reference.
+
+        ``com_ref`` defaults to the **rest-pose** centre of mass. See
+        :func:`pybvh.geometry.com_displacement`."""
+        from . import geometry
+        com = geometry.centroid(self.node_positions(), weights=weights)
+        if com_ref is None:
+            com_ref = geometry.centroid(self.rest_pose_coords(), weights=weights)
+        return geometry.com_displacement(com, com_ref)
+
+    def verticality(self) -> npt.NDArray[np.float64]:
+        """Per-frame height/width ratio along ``world_up``. See :func:`pybvh.geometry.verticality`."""
+        from . import geometry
+        from .tools import _axis_to_vector
+        return geometry.verticality(self.node_positions(), _axis_to_vector(self.world_up))
+
+    def node_jerk(self, centered: str = "world", in_frames: bool = False,
+                  coords: npt.NDArray[np.float64] | None = None,
+                  stencil: str = "central", pad: str = "edge") -> npt.NDArray[np.float64]:
+        """Per-node position jerk — ``(F, N, 3)``. See :func:`pybvh.analysis.node_jerk`."""
+        from . import analysis
+        return analysis.node_jerk(self, centered=centered, in_frames=in_frames,
+                                  coords=coords, stencil=stencil, pad=pad)
+
+    def joint_jerk(self, centered: str = "world", in_frames: bool = False,
+                   coords: npt.NDArray[np.float64] | None = None,
+                   stencil: str = "central", pad: str = "edge") -> npt.NDArray[np.float64]:
+        """Per-joint position jerk — ``(F, J, 3)``. See :func:`pybvh.analysis.joint_jerk`."""
+        from . import analysis
+        return analysis.joint_jerk(self, centered=centered, in_frames=in_frames,
+                                   coords=coords, stencil=stencil, pad=pad)
+
+    def smoothness(self, joint: str | int, metric: str = "sparc",
+                   **kwargs: float) -> float:
+        """Smoothness of ``joint``'s speed profile. See :func:`pybvh.analysis.smoothness`.
+
+        Computes the joint's per-frame speed ``‖velocity‖`` and passes it to the
+        chosen ``metric`` at sampling rate ``1 / frame_time``."""
+        from . import analysis
+        vel = self.node_velocities()[:, self._node_idx(joint), :]
+        speed = np.linalg.norm(vel, axis=-1)
+        return analysis.smoothness(speed, 1.0 / self.frame_time, metric=metric, **kwargs)
+
+    def kinetic_energy(self, masses: npt.NDArray[np.float64] | None = None,
+                       centered: str = "world", stencil: str = "central",
+                       pad: str = "edge") -> npt.NDArray[np.float64]:
+        """Per-frame kinetic energy over joints. See :func:`pybvh.analysis.kinetic_energy`."""
+        from . import analysis
+        return analysis.kinetic_energy(self, masses=masses, centered=centered,
+                                       stencil=stencil, pad=pad)
+
+    def cadence(self, foot_joints: list[str] | None = None) -> float:
+        """Step rate (onsets/second). See :func:`pybvh.analysis.cadence`."""
+        from . import analysis
+        return analysis.cadence(self, foot_joints=foot_joints)
+
+    def stride_length(self, foot_joints: list[str] | None = None) -> float:
+        """Mean stride length. See :func:`pybvh.analysis.stride_length`."""
+        from . import analysis
+        return analysis.stride_length(self, foot_joints=foot_joints)
+
+    def walking_pace(self, foot_joints: list[str] | None = None) -> float:
+        """Mean horizontal speed. See :func:`pybvh.analysis.walking_pace`."""
+        from . import analysis
+        return analysis.walking_pace(self, foot_joints=foot_joints)
+
+    def range_of_motion(self, joint: str | int) -> npt.NDArray[np.float64]:
+        """Peak-to-peak range of ``joint``'s Euler angles — ``(3,)`` per channel.
+
+        Indexes in JOINT space (rotations exist only on joints). See
+        :func:`pybvh.analysis.range_of_motion`."""
+        from . import analysis
+        idx = self.index(joint, axis='joint') if isinstance(joint, str) else int(joint)
+        return analysis.range_of_motion(self.joint_angles[:, idx, :], axis=0)
 
     # ----------------------------------------------------------------
     #  Spatial Augmentation Transforms (delegate to transforms module)

@@ -17,6 +17,11 @@ _In progress. The breaking module split (below) lands first as a behavior-preser
 
 - ⚠️ **`pybvh.features` split into `pybvh.analysis` + `pybvh.packing`.** The old module is removed — `import pybvh.features` now raises `ImportError`. Motion descriptors (`node_velocities`, `joint_velocities`, `node_accelerations`, `joint_accelerations`, `angular_velocities`, `root_trajectory`, `foot_contacts`, `auto_detect_foot_joints`) moved to **`pybvh.analysis`**; ML feature-array assembly (`to_feature_array`, `feature_array_layout`) moved to **`pybvh.packing`**. **`Bvh` method names are unchanged** — `bvh.joint_velocities()`, `bvh.to_feature_array()`, etc. all still work. Migration: `pybvh.features.X` → `pybvh.analysis.X` (or `pybvh.packing.X` for the two packing functions). Full mapping in `pybvh/API_RENAME.md`.
 
+### Added
+
+- **`pybvh.geometry`** — new array-pure module of position descriptors (the companion to `pybvh.rotations`): `inter_joint_distance`, `joint_angle`, `segment_axis_angle`, `triangle_area`, `point_to_plane_distance`, `point_to_segment_distance`, `bounding_box`, `bounding_sphere` (Ritter, approximate), `bounding_ellipsoid` (PCA), `centroid`, `com_displacement`, `verticality`, `path_length`, `straightness`, `curvature`, `torsion`, `movement_phase`, `ground_path`, `pose_distance`, `mean_pose_subtract`. NumPy-only; vectorized over the frame axis; zero-denominator ratios return `nan`.
+- **`pybvh.tools.finite_difference`** — the single finite-difference convention shared by the kinematics ladder and the geometry derivative kernels (so derivatives composed across the two stay consistent).
+
 ### Changed
 
 - **Module layout.** `pybvh/features.py` → `pybvh/analysis.py` (descriptors) + `pybvh/packing.py` (feature-array assembly). Function behavior is byte-identical; only the import path changed.

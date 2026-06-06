@@ -17,6 +17,7 @@ from .batch import (
 from . import bvhplot
 from . import rotations
 from . import transforms
+from . import geometry
 from . import analysis
 from . import packing
 

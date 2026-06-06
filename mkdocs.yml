@@ -57,6 +57,7 @@ nav:
     - Bvh Class: api/bvh.md
     - I/O: api/io.md
     - Rotations: api/rotations.md
+    - Geometry: api/geometry.md
     - Transforms: api/transforms.md
     - Analysis: api/analysis.md
     - Packing: api/packing.md

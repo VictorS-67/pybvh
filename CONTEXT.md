@@ -178,6 +178,10 @@ Standalone functions for extracting motion descriptors: `joint_velocities` / `jo
 
 `to_feature_array` and `feature_array_layout`: compose the `analysis` descriptors (rotations, root position, velocities, foot contacts) into a single flat `(F, D)` array for ML pipelines, plus the column-layout map describing it. Split out of the former `features.py` in v0.8.0 so the analysis layer stays free of pipeline-assembly concerns. See source docstrings for signatures.
 
+### 4.14 `pybvh/geometry.py` — Position Descriptors (array-pure)
+
+The position half of pybvh's geometry surface — the companion to `rotations.py` (§4.2, the orientation half). All functions are **array-pure** (plain NumPy point arrays in, arrays out; no `Bvh`), so downstream libraries build on them directly. Added in v0.8.0. Two shape conventions: point-set kernels take `(..., P, 3)` and reduce over the point axis `P` (`bounding_box`/`bounding_sphere`/`bounding_ellipsoid`/`centroid`/`verticality`); trajectory kernels take `(F, …, 3)` over the time axis (`path_length`, `straightness`, `curvature`, `torsion`, `movement_phase`, `ground_path`). Also inter-point relations (`inter_joint_distance`, `joint_angle`, `segment_axis_angle`, `triangle_area`, `point_to_plane_distance`, `point_to_segment_distance`) and pose ops (`pose_distance`, `mean_pose_subtract`). Derivative kernels route through `tools.finite_difference` (the shared stencil/pad convention, bit-identical to the velocity ladder). Zero-denominator ratios return `np.nan` consistently. Bounding sphere is Ritter's approximate 2-pass (vectorized, not exact Welzl); ellipsoid is PCA via batched `eigh` — no scipy.
+
 ---
 
 ## 5. Data Representation Details

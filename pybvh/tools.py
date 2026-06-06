@@ -769,3 +769,73 @@ def _axis_aligned_rotation(
     R = rot_funcs[rot_idx](rot_sign * np.pi / 2)
     return np.round(R).astype(np.float64)
 
+
+def finite_difference(
+    arr: npt.NDArray[np.float64],
+    dt: float,
+    *,
+    stencil: str = "central",
+    pad: str = "edge",
+    axis: int = 0,
+) -> npt.NDArray[np.float64]:
+    """Differentiate a sampled array along one axis.
+
+    The single finite-difference convention shared across pybvh — the
+    kinematics ladder (``node_velocities`` → ``…accelerations`` → jerk)
+    and the geometry derivative kernels (``curvature``, ``torsion``,
+    ``movement_phase``) all route through this, so derivatives composed
+    across the two stay consistent.
+
+    Parameters
+    ----------
+    arr : ndarray
+        Samples taken at a uniform step ``dt`` along ``axis``.
+    dt : float
+        Sample spacing (e.g. ``frame_time``).
+    stencil : {"central", "forward"}, optional
+        ``"central"`` (default): ``np.gradient`` — second-order accurate
+        interior, one-sided at the boundary.  ``"forward"``:
+        ``(arr[i+1] - arr[i]) / dt``, first-order, causal.
+    pad : {"edge", "none"}, optional
+        ``"edge"`` (default): output keeps the input length along
+        ``axis``.  ``"none"``: drop the boundary samples the stencil
+        cannot define — central drops one at each end, forward drops the
+        trailing one.
+    axis : int, optional
+        Axis to differentiate along (default 0, the frame axis).
+
+    Returns
+    -------
+    ndarray
+        The derivative. Same shape as ``arr`` when ``pad="edge"``;
+        shorter by 2 (central) or 1 (forward) along ``axis`` when
+        ``pad="none"``.
+
+    Raises
+    ------
+    ValueError
+        If ``stencil`` or ``pad`` is invalid.
+    """
+    if stencil not in ("central", "forward"):
+        raise ValueError(
+            f"stencil must be 'central' or 'forward', got {stencil!r}")
+    if pad not in ("edge", "none"):
+        raise ValueError(f"pad must be 'edge' or 'none', got {pad!r}")
+
+    arr = np.asarray(arr, dtype=np.float64)
+
+    if stencil == "central":
+        d = np.gradient(arr, dt, axis=axis)
+        if pad == "edge":
+            return d
+        interior = [slice(None)] * arr.ndim
+        interior[axis] = slice(1, -1)
+        return d[tuple(interior)]
+
+    # stencil == "forward"
+    fd = np.diff(arr, axis=axis) / dt
+    if pad == "none":
+        return fd
+    last = np.take(fd, [-1], axis=axis)  # replicate the trailing value
+    return np.concatenate([fd, last], axis=axis)
+

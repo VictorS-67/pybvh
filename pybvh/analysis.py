@@ -943,6 +943,43 @@ def _skeleton_scale(
     return float(np.mean(dists)) if dists and max(dists) > 0 else 1.0
 
 
+def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
+    """Absolute skeleton scale — mean rest-pose root-to-foot distance.
+
+    A size proxy that scales linearly with the whole skeleton (≈ half the
+    standing height for a humanoid). Only the leg chain contributes, so
+    finger/spine subdivision does not affect it. This is the public name for
+    the scale ``foot_contacts`` uses internally to set its thresholds; use it
+    for size normalization. For the *relative* scale between two skeletons,
+    see :func:`pybvh.batch.relative_scale_factor`.
+
+    Parameters
+    ----------
+    bvh : Bvh
+        Input skeleton.
+    foot_joints : list of str, optional
+        Foot joints; auto-detected from topology if None. If detection finds
+        no feet (or the given joints are all absent), returns ``1.0`` so
+        callers that scale by this value do not collapse to zero.
+
+    Returns
+    -------
+    float
+        Mean rest-pose distance from the root to the foot joints (``1.0``
+        fallback for a degenerate / footless rig).
+
+    Notes
+    -----
+    Source: gait/biomech normalization (Troje, Karg et al.).
+    """
+    if foot_joints is None:
+        foot_joints = auto_detect_foot_joints(bvh)
+    rest_coords = bvh.rest_pose_coords()
+    foot_indices = [bvh.node_index[name] for name in foot_joints
+                    if name in bvh.node_index]
+    return _skeleton_scale(rest_coords, foot_indices)
+
+
 def _estimate_floor(
     heights_signed: npt.NDArray[np.float64],
     percentile: float = 2.0,

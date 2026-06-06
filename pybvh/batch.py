@@ -639,3 +639,45 @@ def denormalize_array(
         Denormalized data, same shape as input.
     """
     return data * stats["std"] + stats["mean"]
+
+
+def relative_scale_factor(
+    reference: npt.NDArray[np.float64],
+    target: npt.NDArray[np.float64],
+) -> float:
+    """Least-squares uniform scale matching ``target`` to ``reference``.
+
+    The scalar ``s`` minimizing ``‖reference − s·target‖²`` over all
+    coordinates — i.e. ``s = ⟨reference, target⟩ / ⟨target, target⟩`` (Troje-
+    style size normalization between two skeletons or poses). Both arrays must
+    share shape (e.g. two ``(N, 3)`` rest poses, or ``(F, N, 3)`` sequences).
+
+    This is the *relative* scale between skeletons; for a single skeleton's
+    absolute size, see :func:`pybvh.analysis.skeleton_size`.
+
+    Parameters
+    ----------
+    reference : ndarray
+        The pose/sequence to match.
+    target : ndarray
+        The pose/sequence being scaled. Same shape as ``reference``.
+
+    Returns
+    -------
+    float
+        The optimal scale ``s`` (``nan`` if ``target`` is all-zero).
+
+    Notes
+    -----
+    Source: Troje 2002 (pose normalization).
+    """
+    reference = np.asarray(reference, dtype=np.float64)
+    target = np.asarray(target, dtype=np.float64)
+    if reference.shape != target.shape:
+        raise ValueError(
+            f"reference and target must share shape, got {reference.shape} "
+            f"and {target.shape}")
+    denom = float(np.sum(target * target))
+    if denom <= 1e-12:
+        return float("nan")
+    return float(np.sum(reference * target) / denom)

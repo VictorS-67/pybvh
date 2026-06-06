@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import namedtuple
 from pathlib import Path
 from typing import Sequence, TYPE_CHECKING, Union
 
@@ -838,4 +839,215 @@ def finite_difference(
         return fd
     last = np.take(fd, [-1], axis=axis)  # replicate the trailing value
     return np.concatenate([fd, last], axis=axis)
+
+
+# ----------------------------------------------------------------
+#  Signal utilities (array-pure numeric helpers)
+# ----------------------------------------------------------------
+
+TemporalStats = namedtuple(
+    "TemporalStats", ["mean", "std", "min", "max", "skewness", "kurtosis"])
+
+
+def temporal_stats(
+    signal: npt.NDArray[np.float64],
+    axis: int = 0,
+) -> TemporalStats:
+    """Summary statistics of a signal along an axis.
+
+    Returns mean, std, min, max, and the third/fourth standardized moments
+    (skewness and *excess* kurtosis), all reduced over ``axis``. Skew and
+    kurtosis are computed by hand (no scipy). Where the std is ~0 (a
+    constant signal) skewness and kurtosis are ``nan``.
+
+    Parameters
+    ----------
+    signal : ndarray
+        Input signal.
+    axis : int, optional
+        Axis to reduce over (default 0).
+
+    Returns
+    -------
+    TemporalStats
+        Named tuple ``(mean, std, min, max, skewness, kurtosis)`` with
+        ``axis`` removed.
+    """
+    signal = np.asarray(signal, dtype=np.float64)
+    mean = signal.mean(axis=axis)
+    std = signal.std(axis=axis)
+    centered = signal - np.expand_dims(mean, axis)
+    m3 = (centered ** 3).mean(axis=axis)
+    m4 = (centered ** 4).mean(axis=axis)
+    valid = std > 1e-12
+    safe = np.where(valid, std, 1.0)
+    skewness = np.where(valid, m3 / safe ** 3, np.nan)
+    kurtosis = np.where(valid, m4 / safe ** 4 - 3.0, np.nan)
+    return TemporalStats(mean, std, signal.min(axis=axis),
+                         signal.max(axis=axis), skewness, kurtosis)
+
+
+def box_filter_smooth(
+    signal: npt.NDArray[np.float64],
+    window: int,
+    axis: int = 0,
+) -> npt.NDArray[np.float64]:
+    """Moving-average smoothing with a box kernel of width ``window``.
+
+    Edge samples are handled by edge-padding so the output keeps the input
+    length. Fully vectorized via a cumulative-sum sliding window (no Python
+    loop over the signal).
+
+    Parameters
+    ----------
+    signal : ndarray
+        Input signal.
+    window : int
+        Box width in samples (``>= 1``). ``window == 1`` is a no-op.
+    axis : int, optional
+        Axis to smooth along (default 0).
+
+    Returns
+    -------
+    ndarray
+        The smoothed signal, same shape as ``signal``.
+
+    Raises
+    ------
+    ValueError
+        If ``window < 1``.
+    """
+    if window < 1:
+        raise ValueError(f"window must be >= 1, got {window}")
+    signal = np.asarray(signal, dtype=np.float64)
+    if window == 1:
+        return signal.copy()
+
+    pad_lo, pad_hi = (window - 1) // 2, window // 2
+    pad_width = [(0, 0)] * signal.ndim
+    pad_width[axis] = (pad_lo, pad_hi)
+    padded = np.pad(signal, pad_width, mode="edge")
+
+    cumsum = np.cumsum(padded, axis=axis)
+    zero_shape = list(cumsum.shape)
+    zero_shape[axis] = 1
+    cumsum = np.concatenate([np.zeros(zero_shape), cumsum], axis=axis)
+    n = signal.shape[axis]
+    hi = np.take(cumsum, np.arange(window, window + n), axis=axis)
+    lo = np.take(cumsum, np.arange(0, n), axis=axis)
+    return (hi - lo) / window
+
+
+def fft_magnitude(
+    signal: npt.NDArray[np.float64],
+    fs: float = 1.0,
+    axis: int = 0,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """One-sided FFT magnitude spectrum of a real signal.
+
+    Parameters
+    ----------
+    signal : ndarray
+        Real input signal.
+    fs : float, optional
+        Sampling rate in Hz (default 1.0).
+    axis : int, optional
+        Axis to transform along (default 0).
+
+    Returns
+    -------
+    freqs : ndarray, shape (T//2 + 1,)
+        Non-negative frequency bins in Hz.
+    magnitude : ndarray
+        ``|rfft(signal)|`` along ``axis``.
+    """
+    signal = np.asarray(signal, dtype=np.float64)
+    magnitude = np.abs(np.fft.rfft(signal, axis=axis))
+    freqs = np.fft.rfftfreq(signal.shape[axis], d=1.0 / fs)
+    return freqs, magnitude
+
+
+def dominant_frequency(
+    signal: npt.NDArray[np.float64],
+    fs: float,
+    axis: int = 0,
+) -> npt.NDArray[np.float64]:
+    """Frequency (Hz) of the largest non-DC spectral component.
+
+    The DC bin is excluded so a non-zero mean doesn't dominate.
+
+    Parameters
+    ----------
+    signal : ndarray
+        Real input signal.
+    fs : float
+        Sampling rate in Hz.
+    axis : int, optional
+        Axis to analyze along (default 0).
+
+    Returns
+    -------
+    ndarray
+        Dominant frequency with ``axis`` removed (a scalar for 1-D input).
+    """
+    freqs, magnitude = fft_magnitude(signal, fs, axis=axis)
+    moved = np.moveaxis(magnitude, axis, 0).copy()
+    moved[0] = 0.0  # exclude the DC bin so a non-zero mean doesn't win
+    peak = np.argmax(moved, axis=0)
+    return freqs[peak]
+
+
+def ramer_douglas_peucker(
+    curve: npt.NDArray[np.float64],
+    eps: float,
+) -> npt.NDArray[np.float64]:
+    """Simplify a polyline with the Ramer–Douglas–Peucker algorithm.
+
+    Drops points that lie within ``eps`` of the simplified path, keeping the
+    overall shape. Operates on a single curve (recursion over the curve's
+    own points, not over a batch); each split's perpendicular distances are
+    computed vectorized.
+
+    Parameters
+    ----------
+    curve : ndarray, shape (P, D)
+        Ordered points of one curve (any dimension ``D``).
+    eps : float
+        Maximum allowed perpendicular deviation.
+
+    Returns
+    -------
+    ndarray, shape (K, D)
+        The retained points (endpoints always kept), in order.
+    """
+    curve = np.asarray(curve, dtype=np.float64)
+    if curve.shape[0] <= 2:
+        return curve.copy()
+    keep = np.zeros(curve.shape[0], dtype=bool)
+    keep[0] = keep[-1] = True
+    # Explicit stack of index ranges (not recursion) so a pathological
+    # high-frequency curve cannot overflow Python's recursion limit.
+    stack: list[tuple[int, int]] = [(0, curve.shape[0] - 1)]
+    while stack:
+        lo, hi = stack.pop()
+        if hi <= lo + 1:
+            continue
+        inner = curve[lo + 1:hi]
+        start, end = curve[lo], curve[hi]
+        seg = end - start
+        seg_len = np.linalg.norm(seg)
+        if seg_len < 1e-12:
+            dist = np.linalg.norm(inner - start, axis=-1)
+        else:
+            u = seg / seg_len
+            rel = inner - start
+            proj = (rel @ u)[:, None] * u
+            dist = np.linalg.norm(rel - proj, axis=-1)
+        offset = int(np.argmax(dist))
+        if dist[offset] > eps:
+            split = lo + 1 + offset
+            keep[split] = True
+            stack.append((lo, split))
+            stack.append((split, hi))
+    return curve[keep]
 

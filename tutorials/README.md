@@ -47,6 +47,7 @@ After that, tutorials **2–6 are mostly parallel deep-dives**, each focused on 
 5. **Transforms** — mirror, vertical rotation, noise, speed perturbation, frame dropout, reorientation.
 6. **Features** — joint velocities and accelerations, angular velocities, foot contacts, the `to_feature_array()` export.
 7. **Batch processing** — directory loading, harmonization across heterogeneous clips, normalization, end-to-end pipeline.
+8. **Motion descriptors** — geometry (curvature, bounding volumes, centre of mass), dynamics (jerk, smoothness, kinetic energy, gait), and SE(3) rigid-transform features, with closed-form sanity checks.
 
 ## Running locally
 

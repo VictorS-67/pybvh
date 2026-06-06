@@ -9,9 +9,12 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.8.0] — Unreleased
+## [0.8.0] — 2026-06-06
 
-_In progress. The breaking module split (below) lands first as a behavior-preserving step; theory-neutral motion-descriptor primitives (geometry, jerk/smoothness, gait, SE(3) transforms) follow within this same release._
+A single release that lands a breaking module split **and** a new layer of
+theory-neutral motion descriptors (geometry, jerk/smoothness, gait, SE(3)
+transforms). The split is behavior-preserving and lands first internally, so the
+suite stays green before any primitive is added.
 
 ### Upgrading from 0.7.0
 

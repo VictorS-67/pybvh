@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path as _Path
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 from .bvh import Bvh
 from .io import read_bvh_file, write_bvh_file

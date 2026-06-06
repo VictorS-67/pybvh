@@ -52,6 +52,7 @@ nav:
     - Data Augmentation: guide/augmentation.md
     - ML Pipeline: guide/ml-pipeline.md
     - Skeleton Operations: guide/skeleton-ops.md
+    - Motion Descriptors: guide/motion-descriptors.md
   - API Reference:
     - pybvh: api/index.md
     - Bvh Class: api/bvh.md

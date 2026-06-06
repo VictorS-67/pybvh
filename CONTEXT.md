@@ -13,11 +13,11 @@
 | **Dependencies** | `numpy` (required), `matplotlib` (required), `pandas` (optional), `opencv-python` (optional, fast render), `k3d` (optional, Jupyter), `vedo` (optional, desktop) |
 | **Primary use-case** | Reading, writing, and manipulating BVH (Biovision Hierarchy) motion capture files — serving ML pipelines, biomechanics research, game dev, and any workflow that consumes skeleton animation data |
 | **Design principles** | **Fast** (NumPy-vectorised, pre-allocated arrays), **Lightweight** (minimal code surface, no ML framework deps), **Self-contained** (no scipy, no PyTorch, no TensorFlow) |
-| **Version** | 0.7.0 |
+| **Version** | 0.8.0 |
 | **Package** | Published on PyPI as `pybvh`. Install via `pip install pybvh`. Optional extras: `pybvh[opencv]` (fast render), `pybvh[interactive]` (k3d for Jupyter), `pybvh[viewer]` (vedo desktop), `pybvh[all-viz]` (all of the above), `pybvh[pandas]` (pandas integration) |
 | **CI/CD** | GitHub Actions: test workflow (push/PR, Python 3.9–3.12) + publish workflow (PyPI on release) + docs workflow (MkDocs to GitHub Pages on push to main) |
 | **Type safety** | Full type annotations on all source files, `@overload` on inplace methods, mypy clean |
-| **Tests** | 1124 unit tests via pytest (plus ~23 000 parametrized `test_transforms_battle` cases across 3 real-world datasets, skipped unless the private fixtures are present) |
+| **Tests** | 1232 unit tests via pytest (plus ~23 000 parametrized `test_transforms_battle` cases across 3 real-world datasets, skipped unless the private fixtures are present) |
 | **Documentation** | MkDocs + mkdocstrings + Material theme, auto-deployed to GitHub Pages |
 
 ---
@@ -77,7 +77,7 @@ Defines a skeleton as a tree of joints. Each joint has:
 ### 4.1 `pybvh/__init__.py`
 Public API surface. Exports:
 ```python
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 from .bvh import Bvh
 from .io import read_bvh_file, write_bvh_file
@@ -88,6 +88,7 @@ from .batch import (read_bvh_directory, batch_to_numpy, harmonize,
 from . import bvhplot
 from . import rotations
 from . import transforms
+from . import geometry
 from . import analysis
 from . import packing
 ```
@@ -247,7 +248,7 @@ where the order comes from the joint's `rot_channels`.
   - `tests/test_plot.py` — Visualization module tests (bvhplot functions, backends, camera presets).
   - `tests/test_audit_fixes.py` — 86 audit tests verifying correctness of specific bug fixes and edge cases identified during code audits.
 - **Run command**: `conda run -n pybvh pytest tests/ -v`
-- **Current count**: 1124 tests, all passing.
+- **Current count**: 1232 tests, all passing.
 - **Note**: `tests/test_transforms_battle.py` uses private datasets from `internal_bvh_data/` and is gitignored — never publish or share this file.
 
 ---

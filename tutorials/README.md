@@ -1,6 +1,6 @@
 # pybvh tutorials
 
-Seven Jupyter notebooks that walk through pybvh from the format itself to a complete ML-style dataset pipeline. They are **tutorial-style**, not a terse example gallery — expect explanations, visualizations, and pitfall-driven asides alongside the code.
+Eight Jupyter notebooks that walk through pybvh from the format itself to a complete ML-style dataset pipeline. They are **tutorial-style**, not a terse example gallery — expect explanations, visualizations, and pitfall-driven asides alongside the code.
 
 ## Who these are for
 
@@ -23,7 +23,7 @@ You **do** need:
 
 ## What you'll come out knowing
 
-Reading all seven in order gives you:
+Reading all eight in order gives you:
 
 - a working model of the BVH format and the `Bvh` object,
 - how to load, inspect, modify, and write BVH files losslessly,

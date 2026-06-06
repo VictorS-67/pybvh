@@ -13,7 +13,7 @@ Interactive Jupyter notebooks with detailed walkthroughs, progressing from basic
 7. **[Batch processing](https://github.com/VictorS-67/pybvh/blob/main/tutorials/7.Batch_processing.ipynb)** — `read_bvh_directory`, `batch_to_numpy`, normalization stats, save/load pattern
 8. **[Motion descriptors](https://github.com/VictorS-67/pybvh/blob/main/tutorials/8.Motion_descriptors.ipynb)** — geometry (`curvature`, `bounding_box`, `center_of_mass`), dynamics (`node_jerk`, `smoothness`, `kinetic_energy`, gait), and SE(3) (`relative_transform`, `se3_log`, `rotation_geodesic_distance`), with closed-form sanity checks
 
-A reader who finishes all seven has a solid working understanding of BVH data and the complete pybvh API.
+A reader who finishes all eight has a solid working understanding of BVH data and the complete pybvh API.
 
 ## Running locally
 

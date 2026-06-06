@@ -94,9 +94,11 @@ from . import packing
 
 **Module renamed `plot` → `bvhplot`** in v0.5.0 to avoid confusion with matplotlib's `plot()`.
 
-### 4.2 `pybvh/rotations.py` — Rotation Representation Conversions
+### 4.2 `pybvh/rotations.py` — Rotation & Rigid-Transform Math
 
-Pure NumPy, batch-vectorised rotation conversions. No scipy dependency. Supports Euler angles `(*, 3)`, rotation matrices `(*, 3, 3)`, 6D rotation (Zhou et al.) `(*, 6)`, quaternions `(*, 4)`, and axis-angle `(*, 3)`. Core functions convert between any pair via rotmat as the hub representation, plus `quat_slerp` for interpolation. Convenience wrappers provide direct paths (e.g. `euler_to_quat`). See source docstrings for method signatures.
+Pure NumPy, batch-vectorised rotation conversions. No scipy dependency. Supports Euler angles `(*, 3)`, rotation matrices `(*, 3, 3)`, 6D rotation (Zhou et al.) `(*, 6)`, quaternions `(*, 4)`, and axis-angle `(*, 3)`. Core functions convert between any pair via rotmat as the hub representation, plus `quat_slerp` for interpolation. Convenience wrappers provide direct paths (e.g. `euler_to_quat`).
+
+v0.8.0 added **SE(3) rigid-transform math** (the orientation companion to `geometry.py`'s positions): `se3_exp` / `se3_log` (4×4 transform ↔ se(3) twist `[ω, v]`, rotation-first, V-left-Jacobian-coupled, with small-angle Taylor series), `screw_interpolate` (SE(3) analogue of SLERP), `relative_transform` (the geometry→SE(3) bridge between two segments), and `rotation_geodesic_distance`. The SE(3) log and geodesic use a quaternion-based rotation log (`_so3_log`) that stays accurate at θ≈π where the arccos-trace form loses ~1e-4. Validated against pytransform3d / scipy via golden fixtures, with a θ→0 V-coupling check pinned to the analytic series (pytransform3d underflows there). See source docstrings for signatures.
 
 **Conventions**:
 - Euler: intrinsic rotations, pre-multiplication `R = R1 @ R2 @ R3`

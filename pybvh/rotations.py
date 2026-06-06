@@ -1,5 +1,5 @@
 """
-Rotation representation conversions for skeleton-based motion data.
+Rotation & rigid-transform math for skeleton-based motion data.
 
 All functions are batch-vectorized using NumPy and operate on arrays
 where the leading dimensions are batch dimensions.
@@ -10,6 +10,9 @@ Supported representations:
 - 6D rotation (Zhou et al., CVPR 2019): (*, 6) — continuous representation
 - Quaternions: (*, 4) in (w, x, y, z) scalar-first convention
 - Axis-angle: (*, 3) — rotation axis scaled by rotation angle in radians
+- Rigid transforms (SE(3)): (*, 4, 4) homogeneous matrices, with the
+  matching se(3) twist coordinates ``[ω(3), v(3)]`` (rotation-first,
+  V-Jacobian-coupled) — see :func:`se3_exp` / :func:`se3_log`.
 
 Convention note:
     Euler angles in BVH files use intrinsic rotations with pre-multiplication:
@@ -970,3 +973,297 @@ def _extract_euler(R: npt.NDArray[np.float64], i: int, j: int, k: int) -> npt.ND
             np.arctan2(sign * R[:, j, i], R[:, j, j]))
 
     return angles
+
+
+# ============================================================================
+# SE(3) rigid transforms — exp / log, screw interpolation, geodesic distance
+# ============================================================================
+#
+# A rigid transform is a 4x4 homogeneous matrix ``T = [[R, d], [0, 1]]``.
+# Its se(3) twist coordinates are ``ξ = [ω(3), v(3)]`` — **rotation-first**,
+# with the translation part **V-Jacobian-coupled**: ``d = V(ω) · v`` (so ``v``
+# is the screw's linear velocity, NOT the raw translation ``d`` unless ω = 0).
+# This matches Modern Robotics / Vemulapalli 2014 / pytransform3d. The exp/log
+# maps reuse the existing SO(3) Rodrigues (:func:`axisangle_to_rotmat`) and log
+# (:func:`rotmat_to_axisangle`, which already handles the θ≈π branch).
+
+_SE3_SMALL = 1e-3  # below this angle, use Taylor series for the V coefficients
+
+
+def _skew(w: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """Skew-symmetric matrices ``[w]×`` of vectors ``w`` — shape (*, 3, 3)."""
+    K = np.zeros(w.shape[:-1] + (3, 3), dtype=np.float64)
+    K[..., 0, 1] = -w[..., 2]
+    K[..., 0, 2] = w[..., 1]
+    K[..., 1, 0] = w[..., 2]
+    K[..., 1, 2] = -w[..., 0]
+    K[..., 2, 0] = -w[..., 1]
+    K[..., 2, 1] = w[..., 0]
+    return K
+
+
+def _v_coeffs(theta: npt.NDArray[np.float64]) -> tuple[npt.NDArray, npt.NDArray]:
+    """Coefficients ``b, c`` of the left-Jacobian ``V = I + b[ω]× + c[ω]×²``.
+
+    ``b = (1−cosθ)/θ²``, ``c = (θ−sinθ)/θ³`` — Taylor-expanded below
+    ``_SE3_SMALL`` so θ→0 stays finite and accurate.
+    """
+    small = theta < _SE3_SMALL
+    safe = np.where(small, 1.0, theta)
+    b_exact = (1.0 - np.cos(safe)) / safe ** 2
+    c_exact = (safe - np.sin(safe)) / safe ** 3
+    t2 = theta ** 2
+    b_series = 0.5 - t2 / 24.0 + t2 ** 2 / 720.0
+    c_series = 1.0 / 6.0 - t2 / 120.0 + t2 ** 2 / 5040.0
+    return np.where(small, b_series, b_exact), np.where(small, c_series, c_exact)
+
+
+def _vinv_coeff(theta: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """Coefficient ``e`` of ``V⁻¹ = I − ½[ω]× + e[ω]×²``.
+
+    ``e = 1/θ² − cot(θ/2)/(2θ)``. Written via ``cot(θ/2)`` it is finite at
+    θ = π (where ``cot(π/2) = 0``); Taylor-expanded below ``_SE3_SMALL``.
+    """
+    small = theta < _SE3_SMALL
+    safe = np.where(small, 1.0, theta)
+    half = safe / 2.0
+    e_exact = 1.0 / safe ** 2 - np.cos(half) / (2.0 * safe * np.sin(half))
+    t2 = theta ** 2
+    e_series = 1.0 / 12.0 + t2 / 720.0 + t2 ** 2 / 30240.0
+    return np.where(small, e_series, e_exact)
+
+
+def se3_exp(twist: npt.ArrayLike) -> npt.NDArray[np.float64]:
+    """Exponential map se(3) → SE(3): twist ``[ω, v]`` → 4×4 transform (batch).
+
+    ``R = exp([ω]×)`` and ``d = V(ω) · v``, where ``V`` is the SO(3) left
+    Jacobian. The linear part ``v`` is therefore screw-coupled, not the raw
+    translation (they coincide only when ``ω = 0``).
+
+    Parameters
+    ----------
+    twist : array_like, shape (*, 6)
+        se(3) coordinates ``[ω(3), v(3)]``, rotation-first.
+
+    Returns
+    -------
+    T : ndarray, shape (*, 4, 4)
+        Homogeneous rigid transforms.
+
+    See Also
+    --------
+    se3_log : Inverse map. screw_interpolate : SE(3) geodesic blend.
+
+    Notes
+    -----
+    Source: Modern Robotics (Lynch & Park); Vemulapalli et al. 2014.
+    """
+    xi = np.asarray(twist, dtype=np.float64)
+    single = xi.ndim == 1
+    if single:
+        xi = xi[np.newaxis, :]
+
+    omega = xi[..., :3]
+    v = xi[..., 3:]
+    theta = np.linalg.norm(omega, axis=-1)
+    R = axisangle_to_rotmat(omega)
+    K = _skew(omega)
+    b, c = _v_coeffs(theta)
+    eye = np.eye(3, dtype=np.float64)
+    V = eye + b[..., None, None] * K + c[..., None, None] * (K @ K)
+    d = (V @ v[..., None])[..., 0]
+
+    T = np.zeros(xi.shape[:-1] + (4, 4), dtype=np.float64)
+    T[..., :3, :3] = R
+    T[..., :3, 3] = d
+    T[..., 3, 3] = 1.0
+    return T[0] if single else T
+
+
+def _so3_log(R: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """Rotation-matrix log as axis-angle, via the quaternion (robust at θ≈π).
+
+    The ``arccos((trace−1)/2)`` angle and the eigenvector axis used by
+    :func:`rotmat_to_axisangle` are ill-conditioned near π (errors ~1e-4 at
+    θ = π − 1e-6); the quaternion route stays machine-precise everywhere, so
+    the SE(3) log and geodesic build on this. Returns ``axis × angle`` with
+    angle in ``[0, π]``.
+    """
+    q = rotmat_to_quat(R)
+    q = np.where(q[..., :1] < 0.0, -q, q)  # canonical w >= 0 -> angle in [0, π]
+    vec = q[..., 1:]
+    vec_norm = np.linalg.norm(vec, axis=-1)
+    angle = 2.0 * np.arctan2(vec_norm, q[..., 0])
+    # aa = (vec / ‖vec‖) · angle; the ratio tends to 2 at identity (bounded).
+    safe = np.where(vec_norm > 1e-12, vec_norm, 1.0)
+    scale = np.where(vec_norm > 1e-12, angle / safe, 0.0)
+    return vec * scale[..., None]
+
+
+def se3_log(transform: npt.ArrayLike) -> npt.NDArray[np.float64]:
+    """Logarithm map SE(3) → se(3): 4×4 transform → twist ``[ω, v]`` (batch).
+
+    Inverse of :func:`se3_exp`: ``ω = log(R)`` and ``v = V⁻¹(ω) · d``.
+
+    Parameters
+    ----------
+    transform : array_like, shape (*, 4, 4)
+        Homogeneous rigid transforms.
+
+    Returns
+    -------
+    twist : ndarray, shape (*, 6)
+        se(3) coordinates ``[ω(3), v(3)]``, rotation-first.
+
+    Notes
+    -----
+    At a rotation angle of exactly π the axis sign is ambiguous (as for any
+    SO(3) log); the round-trip ``se3_exp(se3_log(T)) == T`` holds regardless
+    because ``v`` is recomputed consistently with whichever ω is chosen.
+
+    Source: Modern Robotics; Vemulapalli et al. 2014.
+    """
+    T = np.asarray(transform, dtype=np.float64)
+    single = T.ndim == 2
+    if single:
+        T = T[np.newaxis, ...]
+
+    R = T[..., :3, :3]
+    d = T[..., :3, 3]
+    omega = _so3_log(R)
+    theta = np.linalg.norm(omega, axis=-1)
+    K = _skew(omega)
+    e = _vinv_coeff(theta)
+    eye = np.eye(3, dtype=np.float64)
+    V_inv = eye - 0.5 * K + e[..., None, None] * (K @ K)
+    v = (V_inv @ d[..., None])[..., 0]
+
+    twist = np.concatenate([omega, v], axis=-1)
+    return twist[0] if single else twist
+
+
+def screw_interpolate(
+    T0: npt.ArrayLike,
+    T1: npt.ArrayLike,
+    t: float,
+) -> npt.NDArray[np.float64]:
+    """Screw-motion interpolation between two rigid transforms.
+
+    ``T0 · exp(t · log(T0⁻¹ T1))`` — the SE(3) geodesic, the rigid-transform
+    analogue of quaternion SLERP. Rotation and translation advance together
+    along a constant screw axis. ``t = 0`` returns ``T0``; ``t = 1`` returns
+    ``T1``.
+
+    Parameters
+    ----------
+    T0, T1 : array_like, shape (*, 4, 4)
+        Endpoint transforms.
+    t : float
+        Interpolation parameter (typically in ``[0, 1]``, extrapolates
+        outside).
+
+    Returns
+    -------
+    ndarray, shape (*, 4, 4)
+        The interpolated transform.
+
+    Notes
+    -----
+    Source: Vemulapalli et al. 2014 (Lie-group skeletal features).
+    """
+    T0 = np.asarray(T0, dtype=np.float64)
+    T1 = np.asarray(T1, dtype=np.float64)
+    relative = se3_log(np.linalg.inv(T0) @ T1)
+    return T0 @ se3_exp(t * relative)
+
+
+def relative_transform(
+    seg_m: npt.ArrayLike,
+    seg_n: npt.ArrayLike,
+) -> npt.NDArray[np.float64]:
+    """Rigid transform of segment ``n`` in segment ``m``'s local frame.
+
+    The geometry→SE(3) bridge: each segment (a pair of endpoint positions)
+    defines a local coordinate frame — origin at its start, x-axis along the
+    segment, the remaining axes completed orthonormally — and the result is
+    ``T_m⁻¹ · T_n``, the pose of segment ``n`` relative to segment ``m``.
+    Feed the resulting transforms to :func:`se3_log` for Lie-group features.
+
+    Parameters
+    ----------
+    seg_m, seg_n : array_like, shape (*, 2, 3)
+        Segment endpoint pairs ``[start, end]``; each must have nonzero
+        length (coincident endpoints have no frame and yield ``nan``).
+
+    Returns
+    -------
+    ndarray, shape (*, 4, 4)
+        The relative rigid transform.
+
+    Notes
+    -----
+    Source: Vemulapalli et al. 2014.
+    """
+    Tm = _segment_frame(np.asarray(seg_m, dtype=np.float64))
+    Tn = _segment_frame(np.asarray(seg_n, dtype=np.float64))
+    return np.linalg.inv(Tm) @ Tn
+
+
+def _segment_frame(seg: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """World←segment transform: origin at start, x along the segment.
+
+    A zero-length segment (coincident endpoints) has no direction, hence no
+    frame — those entries are filled with ``nan`` (guarded so no divide
+    warning is raised).
+    """
+    start = seg[..., 0, :]
+    end = seg[..., 1, :]
+    x = end - start
+    x_norm = np.linalg.norm(x, axis=-1, keepdims=True)
+    defined = x_norm[..., 0] > 1e-12
+    x = x / np.where(x_norm > 1e-12, x_norm, 1.0)
+    # Reference axis = the world axis least aligned with x (stable cross).
+    least = np.argmin(np.abs(x), axis=-1)
+    ref = np.eye(3, dtype=np.float64)[least]
+    y = np.cross(ref, x)
+    y_norm = np.linalg.norm(y, axis=-1, keepdims=True)
+    y = y / np.where(y_norm > 1e-12, y_norm, 1.0)
+    z = np.cross(x, y)
+
+    T = np.zeros(seg.shape[:-2] + (4, 4), dtype=np.float64)
+    T[..., :3, 0] = x
+    T[..., :3, 1] = y
+    T[..., :3, 2] = z
+    T[..., :3, 3] = start
+    T[..., 3, 3] = 1.0
+    return np.where(defined[..., None, None], T, np.nan)
+
+
+def rotation_geodesic_distance(
+    R1: npt.ArrayLike,
+    R2: npt.ArrayLike,
+) -> npt.NDArray[np.float64]:
+    """Geodesic (angular) distance between rotations, in radians (batch).
+
+    ``‖log(R1ᵀ R2)‖`` — the angle of the relative rotation, the shortest
+    arc on SO(3). Equivalent to ``2·arccos(|⟨q1, q2⟩|)`` on quaternions.
+    Result is in ``[0, π]``.
+
+    Parameters
+    ----------
+    R1, R2 : array_like, shape (*, 3, 3)
+        Rotation matrices.
+
+    Returns
+    -------
+    ndarray, shape (*)
+        Geodesic distance in radians.
+
+    Notes
+    -----
+    Source: Aristidou et al. 2017/2018 (orientation-space metrics).
+    """
+    R1 = np.asarray(R1, dtype=np.float64)
+    R2 = np.asarray(R2, dtype=np.float64)
+    relative = np.swapaxes(R1, -1, -2) @ R2
+    return np.linalg.norm(_so3_log(relative), axis=-1)

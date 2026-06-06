@@ -32,20 +32,64 @@ def _require(*names):
         pytest.skip(f"rotations.{'/'.join(missing)} not implemented yet")
 
 
+# pytransform3d's V-coupling (the SE(3) left Jacobian) is computed from
+# ``1 - cos θ``, which underflows to 0 in float64 for θ ≲ 1e-4. With a large
+# translation (the fixture stresses ‖v‖ up to 100) the lost coupling term is
+# ~5e-8, so the frozen (twist, transform) PAIR is only internally consistent
+# to ~5e-8 in that regime. pybvh uses the Taylor series there and is accurate
+# to ~1e-12 (pinned independently in test_se3_exp_small_angle_vs_analytic_series).
+# So the vs-pt comparisons are tight where pt is exact (θ ≥ 1e-2) and relaxed
+# to 1e-7 in pt's underflow regime — NOT convention slack: a wrong [ω,v] order
+# or V coupling is O(1), caught at either tolerance.
+_PT_UNDERFLOW = 1e-2
+
+
+def _v_series(omega):
+    """Left Jacobian V via the Taylor series (no 1-cosθ underflow)."""
+    theta2 = float(omega @ omega)
+    K = rot._skew(omega)
+    b = 0.5 - theta2 / 24.0 + theta2 ** 2 / 720.0
+    c = 1.0 / 6.0 - theta2 / 120.0 + theta2 ** 2 / 5040.0
+    return np.eye(3) + b * K + c * (K @ K)
+
+
 # ---------- se3_exp: single-valued -> clean everywhere, edges included ----------
 def test_se3_exp_vs_pytransform3d():
     _require("se3_exp")
     d = _load("se3_exp_log")
-    np.testing.assert_allclose(rot.se3_exp(d["twist"]), d["transform"], atol=1e-9)
+    mine = rot.se3_exp(d["twist"])
+    exact = d["theta"] >= _PT_UNDERFLOW
+    np.testing.assert_allclose(mine[exact], d["transform"][exact], atol=1e-9)
+    np.testing.assert_allclose(mine[~exact], d["transform"][~exact], atol=1e-7)
+
+
+# ---------- se3_exp small-angle V coupling: independent analytic oracle ----------
+def test_se3_exp_small_angle_vs_analytic_series():
+    """Pin the V left-Jacobian coupling at θ→0 against the closed-form series —
+    independent of pytransform3d, which underflows here. This is where SE(3)
+    implementations tend to break, so it is verified tightly (1e-11)."""
+    _require("se3_exp")
+    d = _load("se3_exp_log")
+    twist = d["twist"]
+    small = d["theta"] < _PT_UNDERFLOW
+    assert small.sum() >= 10
+    expected_d = np.array([_v_series(twist[i, :3]) @ twist[i, 3:]
+                           for i in np.nonzero(small)[0]])
+    got_d = rot.se3_exp(twist[small])[:, :3, 3]
+    np.testing.assert_allclose(got_d, expected_d, atol=1e-11)
 
 
 # ---------- se3_log: compare to ref twist only where unambiguous ----------
 def test_se3_log_vs_pytransform3d_unambiguous():
     _require("se3_log")
     d = _load("se3_exp_log")
-    mask = d["theta"] < (np.pi - 1e-3)
-    np.testing.assert_allclose(rot.se3_log(d["transform"][mask]),
-                               d["twist"][mask], atol=1e-8)
+    unambiguous = d["theta"] < (np.pi - 1e-3)
+    exact = unambiguous & (d["theta"] >= _PT_UNDERFLOW)
+    loose = unambiguous & (d["theta"] < _PT_UNDERFLOW)
+    np.testing.assert_allclose(rot.se3_log(d["transform"][exact]),
+                               d["twist"][exact], atol=1e-8)
+    np.testing.assert_allclose(rot.se3_log(d["transform"][loose]),
+                               d["twist"][loose], atol=1e-7)
 
 
 # ---------- round-trip: branch-agnostic; MUST hold at every edge case ----------
@@ -62,8 +106,10 @@ def test_se3_small_angle_V_jacobian():
     mask = d["theta"] < 1e-2
     assert mask.sum() >= 10                      # ensure the regime is exercised
     T = d["transform"][mask]
+    # round-trip is self-consistent -> tight everywhere
     np.testing.assert_allclose(rot.se3_exp(rot.se3_log(T)), T, atol=1e-9)
-    np.testing.assert_allclose(rot.se3_exp(d["twist"][mask]), T, atol=1e-9)
+    # vs the frozen pt pair: relaxed (pt underflows the coupling here, see top)
+    np.testing.assert_allclose(rot.se3_exp(d["twist"][mask]), T, atol=1e-7)
 
 
 def test_se3_near_pi_log_branch():

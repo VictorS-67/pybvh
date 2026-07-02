@@ -217,7 +217,8 @@ def make_heterogeneous_euler_bvh() -> Bvh:
 def make_lowercase_lr_bvh() -> Bvh:
     """+Y up skeleton with lowercase L/R names: 'leftLeg', 'rightLeg'.
 
-    For testing case-sensitivity in auto_detect_lr_mapping.
+    For testing case-sensitivity of the L/R name detection heuristic
+    behind ``Bvh.lr_mapping``.
     """
     up_idx, up_sign, lat_idx, fwd_idx = 1, 1, 0, 2
     nodes = _build_skeleton(up_idx, up_sign, lat_idx, fwd_idx,

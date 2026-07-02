@@ -45,6 +45,17 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`skeleton_size` raises on unknown explicit joint names** instead of silently ignoring them; the `1.0` degenerate-rig fallback now applies only when *auto-detection* finds no feet.
 - **`joint_velocities` / `joint_accelerations` / `joint_jerk` validate `coords`** — a joint-shaped `(F, J, 3)` input now raises a clear `ValueError` naming the required node shape `(F, N, 3)` (`node_positions()` output) instead of silently mis-indexing the node-axis subset.
 - **`geometry` derivative kernels validate `stencil`/`pad` up front** (`curvature`, `torsion`, `movement_phase`) — a typo'd `pad` used to silently mean `"edge"`.
+- ⚠️ **Transforms take radians.** `add_noise(sigma_deg)` → `add_noise(sigma)` (radians); `rotate_vertical(angle_deg)` → `rotate_vertical(angle, degrees=False)`; `random_rotate_vertical(angle_range=(-180, 180))` → radians default `(-π, π)` with a `degrees=False` flag; the array-level `rotate_angles_vertical` likewise takes `angle` in radians with a `degrees=` flag. This unifies the transforms module with `Bvh.joint_angles` (radians since v0.7.0) and the `degrees=` opt-in convention of `rotations`/`analysis`/`geometry`. Migration: multiply old degree arguments by `np.pi / 180`, or pass `degrees=True`. The `Bvh` method wrappers change identically.
+- ⚠️ **`add_noise` no longer wraps by default.** The `wrap` default flips `True` → `False` — wrapping silently corrupts channels that legitimately hold values outside `[-π, π]` (accumulated rotations spanning multiple turns). Pass `wrap=True` for the old behavior. Negative `sigma` / `sigma_pos` now raise `ValueError` instead of silently no-opping.
+- ⚠️ **`drop_frames` preserves kept frames exactly.** Only the dropped frames are re-synthesized (linear root interpolation + one vectorized quaternion-SLERP call); kept frames' Euler angles and root positions are bit-identical to the input. Previously *every* frame round-tripped through quaternions and back, silently re-canonicalizing the kept frames' angle values.
+- ⚠️ **`mirror` parameter `left_right_mapping` → `lr_mapping`** — matches the `Bvh.lr_mapping` property and the `lr_mapping=` loader parameter. An explicitly passed mapping that names unknown joints now raises `ValueError` listing them (typos previously produced silently half-mirrored output), and L/R joints with mismatched end-site counts raise instead of silently mispairing.
+- ⚠️ **`random_translate_root(range_xyz=)` → `offset_range=`** — matches the `angle_range` / `factor_range` sibling parameter names.
+- **Axis-string validation in transforms.** `rotate_vertical(up_axis='y')` now raises a clear `ValueError` demanding a signed axis (previously an `IndexError`); `mirror(lateral_axis=)` accepts `'x'` or `'+x'`/`'-x'` (the sign is irrelevant for mirroring) and rejects anything else.
+- **`Bvh.rest_up` returns `None` for degenerate skeletons** (single-node rigs, all-zero offsets, or no motion data) instead of an arbitrary axis or a crash.
+
+### Removed
+
+- ⚠️ **`transforms.auto_detect_lr_mapping`** — it was a thin back-compat shim over `Bvh.lr_mapping`. Read `bvh.lr_mapping` instead (same symmetric dict, but `None` — not `{}` — when nothing is detected). `auto_detect_lr_pairs()` remains for the index-pair form.
 
 ### Fixed
 

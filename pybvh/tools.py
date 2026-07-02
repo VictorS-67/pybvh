@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import warnings
 from collections import namedtuple
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -162,8 +164,8 @@ def extract_sign(ax: str) -> bool:
 #           │                               │
 #           ├──────────┐                    │
 #           ▼          ▼                    ▼
-#   _rest_offset_   _find_lr_         [Bvh.world_up setter]
-#   from_node     joint_pairs
+#     rest_pose_   _resolve_          [Bvh.world_up setter]
+#      coords      lr_pairs
 #           │          │
 #           ├──────────┤
 #           ▼          ▼
@@ -175,7 +177,9 @@ def extract_sign(ax: str) -> bool:
 #           │          │       │
 #           │          ▼       │
 #           │    _compute_     │
-#           │    forward_at    │   _signed_rotation_delta_around_axis
+#           │    forward_at,   │
+#           │    _compute_     │
+#           │    left_at       │   _signed_rotation_delta_around_axis
 #           │          │       │          │
 #           ▼          ▼       │          │
 #       _infer_world_up        │          │
@@ -183,18 +187,22 @@ def extract_sign(ax: str) -> bool:
 #           ▼                  ▼          ▼
 #   ┌──────────────┐   ┌───────────┐   ┌──────────────────────┐
 #   │ Bvh.world_up │   │Bvh.forward│   │ bvhplot follow-mode  │
-#   │  (property)  │   │    _at()  │   │ (render_mpl/opencv)  │
+#   │  (property)  │   │_at/left_at│   │ (render_mpl/opencv)  │
 #   └──────────────┘   └───────────┘   └──────────────────────┘
 #
 # Public surface: ONLY `Bvh.world_up` (property + setter) and
-# `Bvh.forward_at(frame=0)` (method). Everything else is underscore-prefixed
-# and intended for internal use by pybvh modules.
+# `Bvh.forward_at(frame=0)` / `Bvh.left_at(frame=0)` (methods). Everything
+# else is underscore-prefixed and intended for internal use by pybvh modules.
 # ---------------------------------------------------------------------------
 
 _VALID_AXIS_STRINGS = frozenset(
     {'+x', '-x', '+y', '-y', '+z', '-z'})
 
 _AXIS_CHAR_TO_IDX = {'x': 0, 'y': 1, 'z': 2}
+
+# Arbitrary-but-stable horizontal forward per up axis, used when a
+# skeleton carries no L/R orientation information at all.
+_FALLBACK_FORWARD = {'y': '+z', 'z': '+x', 'x': '+y'}
 
 
 def _axis_to_vector(ax: str) -> npt.NDArray[np.float64]:
@@ -204,7 +212,7 @@ def _axis_to_vector(ax: str) -> npt.NDArray[np.float64]:
     return vec
 
 
-def _rest_upward(bvh: Bvh) -> str:
+def _rest_upward(bvh: Bvh) -> str | None:
     """Infer the skeleton's topological up axis from the rest pose.
 
     Uses the same heuristic the old get_forw_up_axis used: iterate named
@@ -219,9 +227,16 @@ def _rest_upward(bvh: Bvh) -> str:
 
     Returns
     -------
-    str
-        Signed axis string (e.g. '+z').
+    str or None
+        Signed axis string (e.g. '+z'), or ``None`` when the rest pose
+        carries no directional information (single-node skeletons, all
+        offsets zero, or no motion data to derive the rest pose from).
     """
+    # rest_pose_coords derives its zero-angle array shape from
+    # joint_angles, so it cannot run on a 0-frame Bvh.
+    if len(bvh.nodes) < 2 or bvh.frame_count == 0:
+        return None
+
     rest = bvh.rest_pose_coords(mode='coordinates')  # (N, 3)
     local_coord = rest - rest[0]  # root at origin
 
@@ -236,20 +251,181 @@ def _rest_upward(bvh: Bvh) -> str:
 
     # Fallback: axis with largest spread across all joints
     spread = np.ptp(local_coord, axis=0)
+    if float(np.max(spread)) < 1e-6:
+        return None  # degenerate rest pose: all joints coincide
     up_idx_fallback = int(np.argmax(spread))
     # Use the mean to determine sign (positive mean = positive axis direction)
     sign = '+' if np.mean(local_coord[:, up_idx_fallback]) >= 0 else '-'
     return sign + 'xyz'[up_idx_fallback]
 
 
-def _rest_offset_from_node(node: object) -> npt.NDArray[np.float64]:
-    """Cumulative rest-pose offset from root for a joint (walks parent chain)."""
-    offset = np.zeros(3)
-    current = node
-    while current is not None:
-        offset = offset + np.array(current.offset)  # type: ignore[attr-defined]
-        current = current.parent  # type: ignore[attr-defined]
-    return offset
+# ---------------------------------------------------------------------------
+# L/R name-detection heuristics (pure string logic on joint names)
+# ---------------------------------------------------------------------------
+
+_NUMBER_SUFFIX_RE = re.compile(r'\.\d+$')
+
+
+def _strip_number_suffix(name: str) -> str:
+    """Strip trailing ``.NNN`` suffix like Blender's ``.001`` duplicates."""
+    return _NUMBER_SUFFIX_RE.sub('', name)
+
+
+def _strip_namespace_prefix(name: str) -> tuple[str, str]:
+    """Strip a ``foo:`` namespace prefix (Mixamo and similar).
+
+    Returns ``(prefix, base)``. If no namespace, prefix is empty.
+    """
+    if ':' in name:
+        prefix, _, base = name.rpartition(':')
+        return prefix + ':', base
+    return '', name
+
+
+_SUFFIX_LR_TABLE = [
+    # (left_suffix, right_suffix) — matched against the trailing substring
+    # of the base name (after namespace and number-suffix strip). Ordered
+    # most-specific-first so e.g. ".Left" / ".Right" wins over ".L" / ".R"
+    # if both would parse.
+    ('.Left', '.Right'), ('_Left', '_Right'),
+    ('.left', '.right'), ('_left', '_right'),
+    ('.L', '.R'), ('_L', '_R'),
+    ('.l', '.r'), ('_l', '_r'),
+]
+
+
+def _try_suffix_partner(base: str, joint_names: set[str], prefix: str,
+                        number_suffix: str) -> str | None:
+    """If ``base`` matches a known L/R suffix, return the partner's full name."""
+    for left_suf, right_suf in _SUFFIX_LR_TABLE:
+        if base.endswith(left_suf):
+            partner_base = base[: -len(left_suf)] + right_suf
+            partner_full = prefix + partner_base + number_suffix
+            if partner_full in joint_names:
+                return partner_full
+        elif base.endswith(right_suf):
+            partner_base = base[: -len(right_suf)] + left_suf
+            partner_full = prefix + partner_base + number_suffix
+            if partner_full in joint_names:
+                return partner_full
+    return None
+
+
+def _detect_lr_mapping_by_names(bvh: Bvh) -> dict[str, str]:
+    """Internal: detect L/R joint pairs by extended name heuristics.
+
+    Called at ``Bvh.__init__`` to populate ``bvh.lr_mapping`` eagerly.
+    Rules tried most-specific-first so delimited suffixes win over bare
+    substring matches:
+
+    1. Delimited suffix — ``arm.L`` / ``arm.R``, ``arm_L`` / ``arm_R``,
+       and their lowercase and ``.Left`` / ``_Left`` variants. Names are
+       normalized by stripping a ``foo:`` namespace prefix (Mixamo's
+       ``mixamorig:``) and a trailing ``.NNN`` number suffix (Blender's
+       ``.001`` duplicates) before the suffix match; the partner is
+       rebuilt with the same prefix/number suffix.
+    2. Substring ``left`` / ``right`` (case-insensitive) — handles
+       ``LeftArm`` / ``RightArm``, ``leftArm`` / ``rightArm``, and bare
+       cases like ``LeftEye`` / ``RightEye`` with no delimiter. Namespace
+       prefix is stripped before matching.
+    3. Prefix ``L*`` / ``R*`` followed by an uppercase letter — handles
+       ``LArm`` / ``RArm``.
+
+    Mutual-match requirement: both halves must exist as joint names.
+    Singletons are not paired.
+
+    Returns ``{}`` if no pairs detected. See ``bvh.lr_mapping`` for the
+    public API that wraps this function.
+    """
+    joint_names = set(bvh.joint_names)
+    mapping: dict[str, str] = {}
+    seen: set[str] = set()
+
+    for name in bvh.joint_names:
+        if name in seen:
+            continue
+
+        partner: str | None = None
+
+        # Decompose name for suffix rule: strip namespace and number suffix
+        ns_prefix, after_ns = _strip_namespace_prefix(name)
+        base = _strip_number_suffix(after_ns)
+        number_suffix = after_ns[len(base):]  # e.g. '.001' or ''
+
+        # Strategy 1: delimited suffix (most specific)
+        partner = _try_suffix_partner(base, joint_names, ns_prefix, number_suffix)
+
+        # Strategy 2: "left"/"right" substring (case-insensitive)
+        # Work on the post-namespace base (no number suffix) so Mixamo
+        # names like "mixamorig:LeftArm" match against "LeftArm".
+        if partner is None:
+            lower = base.lower()
+            if "left" in lower:
+                partner_base = (base
+                                .replace("Left", "Right")
+                                .replace("left", "right")
+                                .replace("LEFT", "RIGHT"))
+                candidate = ns_prefix + partner_base + number_suffix
+                if candidate in joint_names:
+                    partner = candidate
+            elif "right" in lower:
+                partner_base = (base
+                                .replace("Right", "Left")
+                                .replace("right", "left")
+                                .replace("RIGHT", "LEFT"))
+                candidate = ns_prefix + partner_base + number_suffix
+                if candidate in joint_names:
+                    partner = candidate
+
+        # Strategy 3: "L" / "R" prefix followed by uppercase
+        if partner is None and len(base) >= 2:
+            if base[0] == "L" and base[1].isupper():
+                partner_base = "R" + base[1:]
+                candidate = ns_prefix + partner_base + number_suffix
+                if candidate in joint_names:
+                    partner = candidate
+            elif base[0] == "R" and base[1].isupper():
+                partner_base = "L" + base[1:]
+                candidate = ns_prefix + partner_base + number_suffix
+                if candidate in joint_names:
+                    partner = candidate
+
+        if partner is not None and partner not in seen:
+            # Normalise: always store the "Left" / "L" version as key
+            left, right = _order_lr_pair(name, partner)
+            mapping[left] = right
+            seen.add(left)
+            seen.add(right)
+
+    return mapping
+
+
+def _order_lr_pair(a: str, b: str) -> tuple[str, str]:
+    """Return ``(left_name, right_name)``."""
+    # Prefer substring form first (most common)
+    for kw in ("Left", "left", "LEFT"):
+        if kw in a:
+            return (a, b)
+        if kw in b:
+            return (b, a)
+    # Normalize for suffix check: strip namespace + number suffix
+    _, a_after = _strip_namespace_prefix(a)
+    _, b_after = _strip_namespace_prefix(b)
+    a_base = _strip_number_suffix(a_after)
+    b_base = _strip_number_suffix(b_after)
+    for left_suf, _right_suf in _SUFFIX_LR_TABLE:
+        if a_base.endswith(left_suf):
+            return (a, b)
+        if b_base.endswith(left_suf):
+            return (b, a)
+    # Fallback: "L" prefix → left
+    a_prefix_check = _strip_number_suffix(a_after)
+    b_prefix_check = _strip_number_suffix(b_after)
+    if a_prefix_check.startswith("L") and (len(a_prefix_check) < 2 or a_prefix_check[1].isupper()):
+        return (a, b)
+    if b_prefix_check.startswith("L") and (len(b_prefix_check) < 2 or b_prefix_check[1].isupper()):
+        return (b, a)
+    return (a, b)
 
 
 def _iter_unique_lr_pairs(mapping: dict[str, str]):
@@ -267,30 +443,45 @@ def _iter_unique_lr_pairs(mapping: dict[str, str]):
         yield a, b
 
 
-def _find_lr_joint_pairs(
-    bvh: Bvh, mapping: dict[str, str] | None = None,
-) -> list[tuple[object, object]]:
-    """Return ``(left_node, right_node)`` pairs from an L/R name mapping.
+def _resolve_lr_pairs(
+    mapping: dict[str, str] | None,
+    name2idx: dict[str, int],
+    *,
+    strict: bool = False,
+) -> list[tuple[int, int]]:
+    """Resolve an L/R name mapping to ``(left_idx, right_idx)`` pairs.
+
+    The single pair-resolution loop shared by every L/R consumer
+    (``mirror``, ``auto_detect_lr_pairs``, the orientation heuristics).
+    Symmetric mappings (the public form of ``Bvh.lr_mapping``) are
+    deduplicated to one tuple per pair via :func:`_iter_unique_lr_pairs`.
 
     Parameters
     ----------
-    bvh : Bvh
-        The skeleton.
     mapping : dict or None
-        If provided, pair up joints according to this mapping. If None,
-        reads ``bvh.lr_mapping`` (the cached auto-detected or
-        user-supplied mapping). Returns an empty list if the mapping
-        is empty or any referenced name is unknown.
+        L/R name mapping.  ``None`` or empty resolves to ``[]``.
+    name2idx : dict
+        Name → index lookup defining the target index space (e.g.
+        ``bvh.joint_index`` or ``bvh.node_index``).
+    strict : bool, optional
+        If True, raise ``ValueError`` listing every mapped name missing
+        from ``name2idx`` (used to surface typos in explicitly passed
+        mappings).  Default False: pairs with unknown names are skipped.
     """
-    if mapping is None:
-        mapping = bvh.lr_mapping
     if not mapping:
         return []
-    ni = bvh.node_index
-    pairs: list[tuple[object, object]] = []
+    pairs: list[tuple[int, int]] = []
+    unknown: set[str] = set()
     for left_name, right_name in _iter_unique_lr_pairs(mapping):
-        if left_name in ni and right_name in ni:
-            pairs.append((bvh.nodes[ni[left_name]], bvh.nodes[ni[right_name]]))
+        if left_name in name2idx and right_name in name2idx:
+            pairs.append((name2idx[left_name], name2idx[right_name]))
+        else:
+            unknown.update(
+                n for n in (left_name, right_name) if n not in name2idx)
+    if strict and unknown:
+        raise ValueError(
+            f"lr_mapping references unknown joint names: "
+            f"{sorted(unknown)}. Check against `bvh.joint_names`.")
     return pairs
 
 
@@ -299,7 +490,7 @@ def _rest_leftward(
 ) -> str | None:
     """Infer the skeleton's leftward axis from rest-pose L/R symmetry.
 
-    Averages the left-minus-right rest-pose cumulative offsets across all
+    Averages the left-minus-right rest-pose positions across all
     matching L/R joint pairs, projects onto the horizontal plane, and
     returns the dominant signed axis — a vector pointing from the
     character's right toward their left. Convention matches the public
@@ -325,17 +516,20 @@ def _rest_leftward(
         the averaged offset is degenerate.
     """
     up_ax = _rest_upward(bvh)
+    if up_ax is None:
+        return None
     up_idx = _AXIS_CHAR_TO_IDX[up_ax[1]]
 
-    pairs = _find_lr_joint_pairs(bvh, mapping=mapping)
+    if mapping is None:
+        mapping = bvh.lr_mapping
+    pairs = _resolve_lr_pairs(mapping, bvh.node_index)
     if not pairs:
         return None
 
-    leftward_vectors = [
-        _rest_offset_from_node(l) - _rest_offset_from_node(r)
-        for l, r in pairs
-    ]
-    avg_leftward = np.mean(leftward_vectors, axis=0)
+    rest = bvh.rest_pose_coords(mode='coordinates')  # (N, 3)
+    left_idx = [li for li, _ in pairs]
+    right_idx = [ri for _, ri in pairs]
+    avg_leftward = np.mean(rest[left_idx] - rest[right_idx], axis=0)
     avg_leftward[up_idx] = 0.0  # project to ground plane
 
     leftward_ax = get_main_direction(avg_leftward)
@@ -372,14 +566,12 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
     """
     # Compute rest-pose topology once; used both as fallback and as the
     # reference to compare against when emitting the disagreement warning.
-    try:
-        rest_up = _rest_upward(bvh)
-    except Exception:
-        rest_up = None
+    rest_up = _rest_upward(bvh)
+    fallback_up = rest_up if rest_up is not None else '+y'
 
     # Need animation frames to do first-frame inference
     if bvh.frame_count == 0:
-        return rest_up if rest_up is not None else '+y'
+        return fallback_up
 
     # Try to find a "head-ish" and "hips-ish" joint in the skeleton.
     # Priority: head -> neck -> last joint in spine chain.
@@ -393,7 +585,7 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
     hips_idx = 0
 
     if head_idx is None or head_idx == hips_idx:
-        return rest_up if rest_up is not None else '+y'
+        return fallback_up
 
     frame0 = bvh.node_positions(frame_num=0)
     head_hips = frame0[head_idx] - frame0[hips_idx]
@@ -404,21 +596,21 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
     abs_components = np.abs(head_hips)
     sorted_abs = np.sort(abs_components)
     if sorted_abs[-1] < 2.0 * sorted_abs[-2] or sorted_abs[-1] < 1e-6:
-        return rest_up if rest_up is not None else '+y'
+        return fallback_up
 
     # Clear winner from animation data
     frame_up = get_main_direction(head_hips)
     if frame_up is None:
-        return rest_up if rest_up is not None else '+y'
+        return fallback_up
 
     # Warn if rest-pose topology disagrees (different dominant axis)
     if warn and rest_up is not None and rest_up[1] != frame_up[1]:
-        import warnings
         warnings.warn(
-            f"Rest pose suggests world up is {rest_up!r} but the first \n"
-            f"animation frame's head-hips direction is closer to {frame_up!r}. \n"
-            f"Using {frame_up!r} from the animation data. If this is wrong \n"
-            f"for your file, set it explicitly via `bvh.world_up = '<axis>'`.",
+            f"Rest pose suggests world up is {rest_up!r} but the first "
+            f"animation frame's head-hips direction is closer to "
+            f"{frame_up!r}. Using {frame_up!r} from the animation data. "
+            f"If this is wrong for your file, set it explicitly via "
+            f"`bvh.world_up = '<axis>'`.",
             UserWarning,
             stacklevel=2,
         )
@@ -445,15 +637,14 @@ def _world_leftward_unit_at_frame(
     ``None`` by falling back to the topological ``_rest_leftward``.
     """
     up_vec = _axis_to_vector(world_up)
-    pairs = _find_lr_joint_pairs(bvh)
+    pairs = _resolve_lr_pairs(bvh.lr_mapping, bvh.node_index)
     if not pairs:
         return None
 
-    leftward_diffs = [
-        frame_coords[bvh.node_index[l.name]] - frame_coords[bvh.node_index[r.name]]  # type: ignore[attr-defined]
-        for l, r in pairs
-    ]
-    avg_leftward = np.mean(leftward_diffs, axis=0)
+    left_idx = [li for li, _ in pairs]
+    right_idx = [ri for _, ri in pairs]
+    avg_leftward = np.mean(
+        frame_coords[left_idx] - frame_coords[right_idx], axis=0)
     # Project onto plane perpendicular to world_up
     avg_leftward = avg_leftward - np.dot(avg_leftward, up_vec) * up_vec
     norm = float(np.linalg.norm(avg_leftward))
@@ -524,29 +715,89 @@ def _compute_forward_at(
         if rest_left is None:
             # Truly no information available — pick an arbitrary horizontal
             # direction so we at least return a valid axis.
-            fallback = {'y': '+z', 'z': '+x', 'x': '+y'}
-            return fallback[world_up[1]]
+            return _FALLBACK_FORWARD[world_up[1]]
         leftward_vec = _axis_to_vector(rest_left)
 
     forward_vec = np.cross(leftward_vec, up_vec)
     forward_ax = get_main_direction(forward_vec)
     if forward_ax is None or forward_ax[1] == world_up[1]:
-        fallback = {'y': '+z', 'z': '+x', 'x': '+y'}
-        return fallback[world_up[1]]
+        return _FALLBACK_FORWARD[world_up[1]]
     return forward_ax
 
 
-def _validate_axis_string(value: object) -> str:
+def _compute_left_at(
+    bvh: Bvh,
+    frame_coords: npt.NDArray[np.float64],
+    world_up: str,
+) -> str:
+    """Compute the character's world-space leftward direction at a given frame.
+
+    Companion of :func:`_compute_forward_at` — implements
+    :meth:`Bvh.left_at`.  Snaps the continuous world-space leftward
+    vector (averaged left-minus-right over L/R joint pairs) to the
+    nearest signed axis, falling back to the rest-pose leftward when the
+    frame's leftward is degenerate, and finally to a left axis derived
+    from the same arbitrary horizontal forward `_compute_forward_at`
+    uses — so the (up, forward, left) triple stays consistent even
+    without any L/R information.
+
+    Parameters
+    ----------
+    bvh : Bvh
+        The skeleton.
+    frame_coords : np.ndarray
+        Spatial coordinates of shape (N, 3) for a single frame.
+    world_up : str
+        Signed axis string for the world vertical axis.
+
+    Returns
+    -------
+    str
+        Signed axis string (e.g. '-x') pointing toward the character's
+        left in world space at the given frame.
+    """
+    left_vec = _world_leftward_unit_at_frame(bvh, frame_coords, world_up)
+
+    left_ax: str | None = None
+    if left_vec is None:
+        rest_left = _rest_leftward(bvh)
+        if rest_left is not None:
+            return rest_left
+    else:
+        left_ax = get_main_direction(left_vec)
+        if left_ax is not None and left_ax[1] == world_up[1]:
+            left_ax = None
+
+    if left_ax is None:
+        # No usable L/R information — derive left from the fallback
+        # forward via the right-hand rule (leftward = up × forward).
+        fwd_vec = _axis_to_vector(_FALLBACK_FORWARD[world_up[1]])
+        up_vec = _axis_to_vector(world_up)
+        left_ax = get_main_direction(np.cross(up_vec, fwd_vec))
+        assert left_ax is not None  # axis-aligned cross never degenerate
+    return left_ax
+
+
+def _validate_axis_string(value: object, *, allow_unsigned: bool = False) -> str:
     """Validate and normalize a signed axis string.
 
     Accepts '+x'/'-x'/'+y'/'-y'/'+z'/'-z' (case-insensitive in the
-    axis char). Returns the normalized form. Raises ValueError on
-    any other input.
+    axis char). With ``allow_unsigned=True``, a bare axis char
+    ('x'/'y'/'z') is also accepted and normalized to its positive form —
+    for parameters where the sign is irrelevant (e.g. ``mirror``'s
+    ``lateral_axis``). Returns the normalized form. Raises ValueError
+    on any other input.
     """
-    normalized = value.lower() if isinstance(value, str) and len(value) == 2 else value
+    normalized = value.lower() if isinstance(value, str) else value
+    if (allow_unsigned and isinstance(normalized, str)
+            and normalized in _AXIS_CHAR_TO_IDX):
+        normalized = '+' + normalized
     if normalized not in _VALID_AXIS_STRINGS:
+        expected = sorted(_VALID_AXIS_STRINGS)
+        if allow_unsigned:
+            expected = expected + sorted(_AXIS_CHAR_TO_IDX)
         raise ValueError(
-            f"Axis must be one of {sorted(_VALID_AXIS_STRINGS)}, got {value!r}")
+            f"Axis must be one of {expected}, got {value!r}")
     return normalized  # type: ignore[return-value]
 
 

@@ -131,14 +131,14 @@ from pybvh import transforms
 bvh_mirrored = transforms.mirror(bvh)
 
 # Vertical rotation (auto-detects up axis)
-bvh_rotated = transforms.rotate_vertical(bvh, angle_deg=90)
+bvh_rotated = transforms.rotate_vertical(bvh, np.pi / 2)   # radians (degrees=True to opt in)
 bvh_rotated = transforms.random_rotate_vertical(bvh, rng=np.random.default_rng(42))
 
 # Speed perturbation (factor > 1 = faster, < 1 = slower)
 bvh_fast = transforms.perturb_speed(bvh, factor=1.5)
 
 # Joint noise injection
-bvh_noisy = transforms.add_noise(bvh, sigma_deg=1.0, sigma_pos=0.5, rng=rng)
+bvh_noisy = transforms.add_noise(bvh, sigma=0.02, sigma_pos=0.5, rng=rng)  # sigma in radians
 
 # Root translation
 bvh_shifted = transforms.translate_root(bvh, offset=[100, 0, 0])
@@ -147,7 +147,7 @@ bvh_shifted = transforms.translate_root(bvh, offset=[100, 0, 0])
 bvh_dropped = transforms.drop_frames(bvh, drop_rate=0.1, rng=rng)
 ```
 
-All transforms also available as `Bvh` methods: `bvh.mirror()`, `bvh.rotate_vertical(90)`, etc.
+All transforms also available as `Bvh` methods: `bvh.mirror()`, `bvh.rotate_vertical(np.pi / 2)`, etc.
 
 ## Skeleton Operations
 

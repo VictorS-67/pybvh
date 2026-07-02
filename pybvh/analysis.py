@@ -17,6 +17,8 @@ import numpy as np
 import numpy.typing as npt
 
 from .bvh import Bvh
+from .bvhnode import BvhNode
+from .tools import _axis_to_vector, _compute_forward_at
 from . import rotations
 from . import geometry
 
@@ -528,8 +530,6 @@ def root_trajectory(
         ``a`` and ``b`` are the two ground-plane axes (non-up axes in
         the natural ``x, y, z`` order with the up axis removed).
     """
-    from .tools import _compute_forward_at, _axis_to_vector
-
     # Resolve up axis (honors bvh.world_up by default)
     up_str = bvh.world_up if up_axis is None else up_axis
     up_idx = {'x': 0, 'y': 1, 'z': 2}[up_str[1]]
@@ -993,8 +993,6 @@ def auto_detect_foot_joints(
         return []
 
     # Step 2: has-tip filter
-    from .bvhnode import BvhNode
-
     def _has_tip(node: BvhNode) -> bool:
         return any(
             c.is_end_site() or "toe" in c.name.lower()
@@ -2157,7 +2155,6 @@ def kinetic_energy(
 
 def _root_horizontal_distance(bvh: Bvh) -> float:
     """Path length of the root projected onto the ground plane."""
-    from .tools import _axis_to_vector
     up = _axis_to_vector(bvh.world_up)
     root = bvh.root_pos
     height = root @ up
@@ -2432,7 +2429,6 @@ def gait_parameters(
         contacts = foot_contacts(bvh, foot_joints=foot_joints, coords=node_pos)
     contacts = np.asarray(contacts, dtype=np.float64)
 
-    from .tools import _axis_to_vector
     up = _axis_to_vector(bvh.world_up)
     foot_idx = [bvh.index(name, axis="node") for name in foot_joints]
     foot_xyz = node_pos[:, foot_idx, :]                       # (F, n_feet, 3)

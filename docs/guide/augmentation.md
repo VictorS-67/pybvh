@@ -13,8 +13,8 @@ from pybvh import transforms
 bvh_mirrored = transforms.mirror(bvh)
 
 # Or explicit
-mapping = transforms.auto_detect_lr_mapping(bvh)  # name pairs
-pairs = transforms.auto_detect_lr_pairs(bvh)       # index pairs
+mapping = bvh.lr_mapping                      # name pairs (or None)
+pairs = transforms.auto_detect_lr_pairs(bvh)  # index pairs
 ```
 
 #### L/R pair detection
@@ -46,9 +46,12 @@ If the heuristic can't parse the skeleton's naming, `bvh.lr_mapping` is `None` a
 
 ### Vertical rotation
 
+Angles are in radians (like `Bvh.joint_angles`); pass `degrees=True` to work in degrees.
+
 ```python
-bvh_rotated = transforms.rotate_vertical(bvh, angle_deg=90)
-bvh_random = transforms.random_rotate_vertical(bvh, rng=np.random.default_rng(42))
+bvh_rotated = transforms.rotate_vertical(bvh, np.pi / 2)
+bvh_rotated = transforms.rotate_vertical(bvh, 90, degrees=True)   # same thing
+bvh_random = transforms.random_rotate_vertical(bvh, rng=np.random.default_rng(42))  # uniform over (-pi, pi)
 ```
 
 ### Speed perturbation
@@ -60,8 +63,10 @@ bvh_slow = transforms.perturb_speed(bvh, factor=0.7)  # slower
 
 ### Noise injection
 
+`sigma` is the rotation-noise standard deviation in radians. By default noised angles are left unwrapped (BVH channels can legitimately hold values outside `[-π, π]`); pass `wrap=True` to wrap them into `[-π, π]`.
+
 ```python
-bvh_noisy = transforms.add_noise(bvh, sigma_deg=1.0, sigma_pos=0.5, rng=rng)
+bvh_noisy = transforms.add_noise(bvh, sigma=0.02, sigma_pos=0.5, rng=rng)
 ```
 
 ### Root translation
@@ -71,6 +76,8 @@ bvh_shifted = transforms.translate_root(bvh, offset=[100, 0, 0])
 ```
 
 ### Frame dropout
+
+Dropped frames are re-synthesized by SLERP between the nearest kept neighbours; kept frames are preserved exactly.
 
 ```python
 bvh_dropped = transforms.drop_frames(bvh, drop_rate=0.1, rng=rng)
@@ -85,8 +92,8 @@ rng = np.random.default_rng(42)
 
 augmented = (bvh
     .mirror()
-    .rotate_vertical(90)
-    .add_noise(sigma_deg=1.0, rng=rng)
+    .rotate_vertical(np.pi / 2)
+    .add_noise(sigma=0.02, rng=rng)
     .perturb_speed(1.2))
 ```
 
@@ -101,7 +108,7 @@ from pybvh.transforms import rotate_angles_vertical, mirror_angles
 
 # Operate directly on (F, J, 3) Euler arrays
 new_angles, new_pos = rotate_angles_vertical(
-    bvh.joint_angles, bvh.root_pos, angle_deg=45,
+    bvh.joint_angles, bvh.root_pos, angle=np.pi / 4,
     up_idx=1, root_order="ZYX")
 
 # Mirror with index pairs

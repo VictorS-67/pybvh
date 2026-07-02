@@ -120,10 +120,10 @@ print('Mirrored  RightArm angles (frame 0):', mirrored.joint_angles[0, right_idx
 #
 # Why only the up axis? A character's motion is physically coupled to gravity — the feet touch a horizontal ground plane. Rotating around any non-vertical axis tilts the character relative to that ground plane: feet float, body leans, the recorded motion becomes nonsensical. Vertical rotation is the one rotation that preserves ground contact and the intuitive meaning of "up".
 #
-# The up axis is auto-detected from the skeleton (`bvh.world_up`) — no need to specify it manually in most cases.
+# The up axis is auto-detected from the skeleton (`bvh.world_up`) — no need to specify it manually in most cases. The angle is in **radians**, the same convention as `bvh.joint_angles`; pass `degrees=True` if you prefer to think in degrees.
 
 # %%
-rotated = bvh.rotate_vertical(angle_deg=90)
+rotated = bvh.rotate_vertical(np.pi / 2)          # same as bvh.rotate_vertical(90, degrees=True)
 
 fig, axes = pybvh.bvhplot.frame([bvh, rotated], frame=20,
                                  labels=['Original', 'Rotated 90°'],
@@ -140,7 +140,7 @@ plt.show()
 # %% [markdown]
 # ## Random yaw
 #
-# For augmentation, a random angle is typical. `random_rotate_vertical()` samples uniformly from `angle_range` (default `(-180°, 180°)` — i.e., any facing direction is equally likely).
+# For augmentation, a random angle is typical. `random_rotate_vertical()` samples uniformly from `angle_range` (default `(-π, π)` — i.e., any facing direction is equally likely; pass `degrees=True` to give the range in degrees).
 
 # %%
 rand_rotated = bvh.random_rotate_vertical(rng=np.random.default_rng(42))
@@ -169,7 +169,7 @@ print(f'Translated root position (frame 0): {translated.root_pos[0]}')
 # The random variant, `random_translate_root()`, samples each axis uniformly from a given range:
 
 # %%
-rand_translated = bvh.random_translate_root(range_xyz=(-50, 50),
+rand_translated = bvh.random_translate_root(offset_range=(-50, 50),
                                             rng=np.random.default_rng(42))
 
 print(f'Random offset applied (frame 0): {rand_translated.root_pos[0] - bvh.root_pos[0]}')
@@ -269,16 +269,16 @@ print(f'Max joint-position difference after reorient_rest_forward: {np.abs(coord
 # %% [markdown]
 # `add_noise()` adds zero-mean Gaussian noise to joint rotation angles. This simulates sensor noise and regularizes models that might otherwise overfit to exact pose values.
 #
-# The key parameter is `sigma_deg` — the standard deviation of the noise in degrees. Rough calibration:
+# The key parameter is `sigma` — the standard deviation of the noise in **radians** (the same unit as `bvh.joint_angles`; `np.radians(...)` converts from degrees). Rough calibration:
 #
-# - **σ ≈ 0.5°** — imperceptible visually; realistic sensor-level noise.
-# - **σ ≈ 2°** — small variations; a typical augmentation range.
-# - **σ ≈ 5°** — clearly visible; breaks fine poses but preserves macro motion.
-# - **σ > 10°** — destructive; rarely useful.
+# - **σ ≈ 0.01 rad (~0.5°)** — imperceptible visually; realistic sensor-level noise.
+# - **σ ≈ 0.035 rad (~2°)** — small variations; a typical augmentation range.
+# - **σ ≈ 0.09 rad (~5°)** — clearly visible; breaks fine poses but preserves macro motion.
+# - **σ > 0.17 rad (~10°)** — destructive; rarely useful.
 
 # %%
-noisy_small = bvh.add_noise(sigma_deg=0.5, rng=np.random.default_rng(42))
-noisy_large = bvh.add_noise(sigma_deg=5.0, rng=np.random.default_rng(42))
+noisy_small = bvh.add_noise(sigma=np.radians(0.5), rng=np.random.default_rng(42))
+noisy_large = bvh.add_noise(sigma=np.radians(5.0), rng=np.random.default_rng(42))
 
 fig, axes = pybvh.bvhplot.frame([bvh, noisy_small, noisy_large], frame=20,
                                  labels=['Original', 'σ=0.5°', 'σ=5.0°'])
@@ -288,14 +288,14 @@ plt.show()
 # The optional `sigma_pos` parameter adds noise to root position as well. Its **units are file units** — typically centimeters for mocap, but check with `bvh.nodes[1].offset` to be sure. A `sigma_pos=1.0` noise that's imperceptible on a 170 cm skeleton would be catastrophic on a 1.7 m skeleton.
 
 # %%
-noisy_pos = bvh.add_noise(sigma_deg=1.0, sigma_pos=2.0,
+noisy_pos = bvh.add_noise(sigma=np.radians(1.0), sigma_pos=2.0,
                           rng=np.random.default_rng(42))
 
 print(f'Original root position (frame 0): {bvh.root_pos[0]}')
 print(f'Noisy    root position (frame 0): {noisy_pos.root_pos[0]}')
 
 # %% [markdown]
-# One subtle behavior: `add_noise` wraps noised angles to `[-π, π]` radians by default (`wrap=True`). This prevents discontinuities when the noisy angles are later converted to rotation matrices via `euler_to_rotmat` (see Tutorial 3 on why angle-range wrapping matters for Euler representations). The `sigma_deg` kwarg stays in degrees as a user-facing convenience — it's converted internally. Turn the wrap off with `wrap=False` only if your downstream code handles angle ranges itself.
+# One subtle behavior: by default the noised angles are **not** wrapped into `[-π, π]` (`wrap=False`) — BVH channels can legitimately hold values outside that range (rotations accumulated over multiple turns), and wrapping those would corrupt the motion. Pass `wrap=True` if your downstream pipeline expects canonical Euler ranges (see Tutorial 3 on why angle-range wrapping matters for Euler representations).
 
 # %% [markdown]
 # # Speed perturbation
@@ -347,7 +347,7 @@ print(f'Random speed: {rand_speed.frame_count} frames')
 #
 # The output has the **same number of frames** as the input — frames are *replaced*, not removed. What you lose is information, not samples. This simulates mocap systems with occasional dropped frames and also acts as a regularizer by forcing the model to tolerate noisy temporal data.
 #
-# The first and last frames are always preserved (they have no valid neighbors to interpolate from on one side).
+# Kept frames are preserved exactly (bit-for-bit) — only the dropped frames are re-synthesized. The first and last frames are always kept (they have no valid neighbors to interpolate from on one side).
 
 # %%
 dropped = bvh.drop_frames(drop_rate=0.3, rng=np.random.default_rng(42))
@@ -377,7 +377,7 @@ ax.plot(t, dropped_heavy.joint_angles[:, joint_idx, channel],
         label='After 50% dropout (SLERP-interpolated)', linewidth=1.5,
         color='#d62728', alpha=0.85)
 ax.set_xlabel('Time (s)')
-ax.set_ylabel(f'{bvh.joint_names[joint_idx]} angle (degrees)')
+ax.set_ylabel(f'{bvh.joint_names[joint_idx]} angle (radians)')
 ax.legend()
 ax.set_title('Frame dropout replaces values in place; frame count unchanged')
 plt.tight_layout()
@@ -412,14 +412,14 @@ rng = np.random.default_rng(42)
 # Style A: method-chaining pipeline
 aug_a = (bvh
          .mirror()
-         .rotate_vertical(45)
-         .add_noise(sigma_deg=1.0, rng=rng)
+         .rotate_vertical(np.pi / 4)
+         .add_noise(sigma=0.02, rng=rng)
          .perturb_speed(1.1))
 
 # Style B: explicit reassignment (easier to debug, easier to branch)
 aug_b = bvh.mirror()
-aug_b = aug_b.rotate_vertical(45)
-aug_b = aug_b.add_noise(sigma_deg=1.0, rng=np.random.default_rng(42))
+aug_b = aug_b.rotate_vertical(np.pi / 4)
+aug_b = aug_b.add_noise(sigma=0.02, rng=np.random.default_rng(42))
 aug_b = aug_b.perturb_speed(1.1)
 
 print(f'Style A result: {aug_a.frame_count} frames')
@@ -481,7 +481,7 @@ print(f'Same seed → same results: {np.allclose(result_a.root_pos, result_b.roo
 # | Random yaw | `bvh.random_rotate_vertical(rng=...)` | Stochastic aug |
 # | Root translation | `bvh.translate_root(offset)` | Deterministic aug |
 # | Random translation | `bvh.random_translate_root(rng=...)` | Stochastic aug |
-# | Joint noise | `bvh.add_noise(sigma_deg, rng=...)` | Stochastic aug |
+# | Joint noise | `bvh.add_noise(sigma, rng=...)` | Stochastic aug |
 # | Speed change | `bvh.perturb_speed(factor)` | Deterministic aug |
 # | Random speed | `bvh.random_perturb_speed(rng=...)` | Stochastic aug |
 # | Frame dropout | `bvh.drop_frames(drop_rate, rng=...)` | Stochastic aug |

@@ -62,6 +62,24 @@ The duplicate Euler→rotmat implementation in `pybvh.tools` **no longer exists*
 
 ---
 
+## v0.8.0 — transforms: radians unification & L/R mapping cleanup
+
+All angle parameters in `pybvh.transforms` are now **radians** (matching `Bvh.joint_angles` and the `degrees=` flag convention in `rotations`/`analysis`/`geometry`). The same renames apply to the corresponding `Bvh` methods.
+
+| Old | New | Notes |
+|---|---|---|
+| `add_noise(bvh, sigma_deg)` | `add_noise(bvh, sigma)` | `sigma` is in radians. Migration: `sigma = np.radians(sigma_deg)`. Negative `sigma`/`sigma_pos` now raise `ValueError`. |
+| `add_noise(..., wrap=True)` *(default)* | `wrap=False` *(default)* | Wrapping silently corrupts channels legitimately outside `[-π, π]` (accumulated rotations); opt back in with `wrap=True`. |
+| `rotate_vertical(bvh, angle_deg)` | `rotate_vertical(bvh, angle, degrees=False)` | Radians by default; pass `degrees=True` to keep degree inputs. `up_axis` is validated (signed axis string; `'y'` now raises a clear `ValueError` instead of `IndexError`). |
+| `rotate_angles_vertical(..., angle_deg, ...)` | `rotate_angles_vertical(..., angle, ..., degrees=False)` | Array-level twin of `rotate_vertical`. |
+| `random_rotate_vertical(bvh, angle_range=(-180, 180))` | `random_rotate_vertical(bvh, angle_range=(-np.pi, np.pi), degrees=False)` | |
+| `random_translate_root(bvh, range_xyz=)` | `random_translate_root(bvh, offset_range=)` | Matches the `angle_range` / `factor_range` sibling names. |
+| `mirror(bvh, left_right_mapping=)` | `mirror(bvh, lr_mapping=)` | Matches `Bvh.lr_mapping` and the loader parameter. An explicitly passed mapping with unknown joint names now raises `ValueError` listing them. |
+| `transforms.auto_detect_lr_mapping(bvh)` | *(removed)* | Read `bvh.lr_mapping` — same dict, but `None` (not `{}`) when nothing is detected. `auto_detect_lr_pairs()` remains. |
+| `drop_frames(bvh, rate)` | *(signature unchanged)* | Behavior change: kept frames are preserved bit-for-bit; only dropped frames are re-synthesized (previously every frame was re-canonicalized through a quaternion round-trip). |
+
+---
+
 ## Bvh class — Properties / Attributes
 
 | Old name | New name | Notes |
@@ -118,7 +136,7 @@ The duplicate Euler→rotmat implementation in `pybvh.tools` **no longer exists*
 | `speed_perturbation(factor)` | `perturb_speed(factor)` |
 | `dropout_frames(rate)` | `drop_frames(rate)` |
 
-Unchanged: `mirror()`, `rotate_vertical()`, `translate_root()`.
+Unchanged: `translate_root()`. The v0.8.0 radians/parameter changes (see the *transforms: radians unification* section above) apply to the `Bvh` methods too: `add_noise(sigma)` in radians with `wrap=False` default, `rotate_vertical(angle, degrees=False)`, `random_rotate_vertical(angle_range=(-np.pi, np.pi))`, `random_translate_root(offset_range=)`, `mirror(lr_mapping=)`.
 
 ## Bvh class — Features
 
@@ -180,7 +198,7 @@ Unchanged: `to_feature_array()`.
 | `random_speed_perturbation(bvh, ...)` | `random_perturb_speed(bvh, ...)` |
 | `dropout_frames(bvh, ...)` | `drop_frames(bvh, ...)` |
 
-Unchanged: `translate_root()`, `random_translate_root()`, `rotate_vertical()`, `random_rotate_vertical()`, `mirror()`, `auto_detect_lr_mapping()`, `auto_detect_lr_pairs()`, `rotate_angles_vertical()`, `mirror_angles()`.
+Unchanged by v0.6.0: `translate_root()`, `auto_detect_lr_pairs()`, `mirror_angles()`. For the v0.8.0 radians/parameter changes to `add_noise`, `rotate_vertical`, `random_rotate_vertical`, `rotate_angles_vertical`, `random_translate_root`, `mirror`, and the removal of `auto_detect_lr_mapping`, see the *transforms: radians unification* section above.
 
 ### `pybvh.spatial_coord`
 

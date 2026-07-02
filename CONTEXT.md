@@ -171,7 +171,7 @@ Quick-look visualization module with 5 public functions: `rest_pose`, `frame`, `
 
 ### 4.11 `pybvh/transforms.py` — Spatial Augmentation Transforms
 
-Data augmentation transforms operating on `Bvh` objects: `translate_root`, `random_translate_root`, `add_noise`, `perturb_speed`, `random_perturb_speed`, `drop_frames`, `rotate_vertical`, `random_rotate_vertical`, `auto_detect_lr_mapping`, `auto_detect_lr_pairs`, and `mirror`. Also provides coordinate-frame reorientation (`reorient_world_up`, `reorient_rest_up`, `reorient_rest_forward`) for dataset preprocessing. All follow the `inplace=False` convention. NumPy-level functions (`rotate_angles_vertical`, `mirror_angles`) are exposed for users working with pre-extracted arrays. See source docstrings for method signatures.
+Data augmentation transforms operating on `Bvh` objects: `translate_root`, `random_translate_root`, `add_noise`, `perturb_speed`, `random_perturb_speed`, `drop_frames`, `rotate_vertical`, `random_rotate_vertical`, `auto_detect_lr_pairs`, and `mirror`. All angle parameters are radians (a `degrees=True` flag opts in to degrees), matching `Bvh.joint_angles`. Also provides coordinate-frame reorientation (`reorient_world_up`, `reorient_rest_up`, `reorient_rest_forward`) for dataset preprocessing. All follow the `inplace=False` convention. NumPy-level functions (`rotate_angles_vertical`, `mirror_angles`) are exposed for users working with pre-extracted arrays. See source docstrings for method signatures.
 
 ### 4.12 `pybvh/analysis.py` — Motion Analysis
 
@@ -315,11 +315,11 @@ retargeted = bvh.retarget(standard_skeleton)
 upper = bvh.extract_joints(["Hips", "Spine", "Neck", "Head"])
 
 # Transforms (augmentation)
-noisy = bvh.add_noise(sigma_deg=1.0)
+noisy = bvh.add_noise(sigma=0.02)      # radians
 faster = bvh.perturb_speed(factor=1.5)
 dropped = bvh.drop_frames(drop_rate=0.1)
 mirrored = bvh.mirror()
-rotated = bvh.rotate_vertical(90)
+rotated = bvh.rotate_vertical(np.pi / 2)  # radians (degrees=True to opt in)
 shifted = bvh.random_translate_root(rng=rng)  # random-variant method wrappers
 jittered = bvh.random_rotate_vertical(rng=rng)
 warped = bvh.random_perturb_speed(rng=rng)
@@ -439,7 +439,6 @@ pybvh-ml is a primary consumer of pybvh's public API. When modifying pybvh, be a
 - `bvh.world_up`, `bvh.rest_up`, `bvh.rest_forward`, `bvh.forward_at(frame)`, `bvh.left_at(frame)` — orientation API. `world_up` / `forward_at` are animation-derived; `rest_up` / `rest_forward` are topology-derived (rest pose only). On clean files the two pairs agree. `(world_up, forward_at, left_at)` form an orthonormal right-hand-rule triple: `left = up × forward`.
 - `bvh.lr_mapping` — cached L/R joint pair mapping, auto-detected at init via extended name heuristic (`Left`/`Right`, `.L`/`.R`, `_l`/`_r`, `mixamorig:` namespace, `.001` numbered suffix). `None` when no pairs detected. Settable via post-load setter or `lr_mapping=` kwarg on `read_bvh_file` / `read_bvh_directory` / `Bvh.__init__`. Consumed by `mirror()`, `forward_at()`, `left_at()`, `_rest_leftward`, `reorient_rest_forward`.
 - `pybvh.transforms.auto_detect_lr_pairs()` — L/R index pair detection (module-level; reads `bvh.lr_mapping` internally)
-- `pybvh.transforms.auto_detect_lr_mapping()` — L/R name pair detection (module-level; thin wrapper over `bvh.lr_mapping`)
 - `bvh.random_translate_root()`, `bvh.random_rotate_vertical()`, `bvh.random_perturb_speed()` — method wrappers for the `random_*` augmentation variants (same signatures as the module-level functions)
 - `bvh.matches_hierarchy(other, match_offsets=True, atol=1e-6)` — boolean predicate: True iff node names, parent structure, and (by default) rest offsets match. Pass `match_offsets=False` to ignore bone proportions when the caller is about to retarget. Channel layout / Euler orders are NOT compared.
 - `bvh.matches_channels(other)` — boolean predicate: True iff per-joint Euler rotation orders and root position-channel order match. The serialization half previously conflated into `matches_topology`.

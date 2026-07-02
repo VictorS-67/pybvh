@@ -16,6 +16,16 @@ import numpy.typing as npt
 from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
 from .spatial_coord import frames_to_node_positions, _ground_plane_offset
 from . import rotations
+from .tools import (
+    _axis_to_vector,
+    _compute_forward_at,
+    _compute_left_at,
+    _detect_lr_mapping_by_names,
+    _infer_world_up,
+    _iter_unique_lr_pairs,
+    _rest_upward,
+    _validate_axis_string,
+)
 
 
 class Bvh:
@@ -145,10 +155,8 @@ class Bvh:
                 node._frozen = True
 
         if world_up != "auto":
-            from .tools import _validate_axis_string
             self._world_up_override = _validate_axis_string(world_up)
         elif self.frame_count > 0 and len(self.nodes) > 1:
-            from .tools import _infer_world_up
             # warn_on_disagreement=False silences only the rest-pose vs
             # first-frame disagreement warning of this eager inference.
             self._world_up_cached = _infer_world_up(self, warn=warn_on_disagreement)
@@ -162,8 +170,7 @@ class Bvh:
             self._validate_and_set_lr_mapping(lr_mapping, source='user')
         elif len(self.nodes) > 1:
             # Strategy A — eager name-based detection
-            from . import transforms as _transforms
-            names_mapping = _transforms._detect_lr_mapping_by_names(self)
+            names_mapping = _detect_lr_mapping_by_names(self)
             if names_mapping:
                 self._lr_mapping = names_mapping
                 self._lr_mapping_source = 'names'
@@ -649,13 +656,11 @@ class Bvh:
         if self._world_up_override is not None:
             return self._world_up_override
         if self._world_up_cached is None:
-            from .tools import _infer_world_up
             self._world_up_cached = _infer_world_up(self)
         return self._world_up_cached
 
     @world_up.setter
     def world_up(self, value: str) -> None:
-        from .tools import _validate_axis_string
         self._world_up_override = _validate_axis_string(value)
 
     @property
@@ -673,7 +678,6 @@ class Bvh:
             >>> bvh.world_up_inferred  # '+y'  (auto's guess)
             >>> bvh.world_up           # '+z'  (user override)
         """
-        from .tools import _infer_world_up
         return _infer_world_up(self)
 
     @property
@@ -700,7 +704,7 @@ class Bvh:
         return self._floor_height_cached
 
     @property
-    def rest_up(self) -> str:
+    def rest_up(self) -> str | None:
         """Skeleton's topological up axis, derived from the rest pose only.
 
         Read-only. Inspects rest-pose joint offsets (``"head"``,
@@ -717,10 +721,11 @@ class Bvh:
 
         Returns
         -------
-        str
-            Signed axis string (e.g. ``'+y'``, ``'+z'``).
+        str or None
+            Signed axis string (e.g. ``'+y'``, ``'+z'``), or ``None``
+            when the rest pose is degenerate (single-node skeletons or
+            all-zero offsets) and carries no directional information.
         """
-        from .tools import _rest_upward
         return _rest_upward(self)
 
     @property
@@ -742,7 +747,6 @@ class Bvh:
         str
             Signed axis string (e.g. ``'+z'``, ``'-x'``).
         """
-        from .tools import _compute_forward_at
         return _compute_forward_at(self, self.rest_pose_coords(), self.world_up)
 
     @property
@@ -835,7 +839,6 @@ class Bvh:
         # Accept symmetric input ({L: R, R: L, ...}) — canonicalize to
         # one-directional by deduping pairs by frozenset before
         # validating. Each pair appears exactly once afterward.
-        from .tools import _iter_unique_lr_pairs
         canonical: dict[str, str] = dict(_iter_unique_lr_pairs(mapping))
         joint_name_set = set(self.joint_names)
         lefts_seen: set[str] = set()
@@ -900,7 +903,6 @@ class Bvh:
             Signed axis string (e.g. ``'-z'``) pointing in the character's
             facing direction in world coordinates at the given frame.
         """
-        from .tools import _compute_forward_at
         if coords is None:
             frame_coords = self.node_positions(frame_num=frame)
         else:
@@ -945,36 +947,11 @@ class Bvh:
         forward_at : Facing direction.
         world_up : World vertical axis.
         """
-        from .tools import (
-            _axis_to_vector, _world_leftward_unit_at_frame, _rest_leftward,
-            get_main_direction,
-        )
-        world_up = self.world_up
         if coords is None:
             frame_coords = self.node_positions(frame_num=frame)
         else:
             frame_coords = coords[frame]
-        left_vec = _world_leftward_unit_at_frame(self, frame_coords, world_up)
-        if left_vec is None:
-            rest_left = _rest_leftward(self)
-            if rest_left is None:
-                # No L/R information at all — pick an arbitrary horizontal
-                # axis consistent with the forward_at fallback.
-                fwd_fallback = {'y': '+z', 'z': '+x', 'x': '+y'}[world_up[1]]
-                fwd_vec = _axis_to_vector(fwd_fallback)
-                up_vec = _axis_to_vector(world_up)
-                left_ax = get_main_direction(np.cross(up_vec, fwd_vec))
-                assert left_ax is not None  # axis-aligned cross never degenerate
-                return left_ax
-            return rest_left
-        left_ax = get_main_direction(left_vec)
-        if left_ax is None or left_ax[1] == world_up[1]:
-            fwd_fallback = {'y': '+z', 'z': '+x', 'x': '+y'}[world_up[1]]
-            fwd_vec = _axis_to_vector(fwd_fallback)
-            up_vec = _axis_to_vector(world_up)
-            left_ax = get_main_direction(np.cross(up_vec, fwd_vec))
-            assert left_ax is not None
-        return left_ax
+        return _compute_left_at(self, frame_coords, self.world_up)
 
     def write(self, new_filepath: str | Path, verbose: bool = False) -> None:
         """Write the Bvh object to a ``.bvh`` file.  See :func:`pybvh.io.write_bvh_file`."""
@@ -2419,7 +2396,6 @@ class Bvh:
     def ground_path(self, joint: str | int) -> "geometry.GroundPath":
         """Ground-plane path of ``joint`` (uses ``world_up``). See :func:`pybvh.geometry.ground_path`."""
         from . import geometry
-        from .tools import _axis_to_vector
         traj = self.node_positions()[:, self._node_idx(joint), :]
         return geometry.ground_path(traj, _axis_to_vector(self.world_up))
 
@@ -2455,7 +2431,6 @@ class Bvh:
 
         See :func:`pybvh.geometry.segment_axis_angle`."""
         from . import geometry
-        from .tools import _axis_to_vector
         pos = self.node_positions()
         seg = pos[:, self._node_idx(joint_b)] - pos[:, self._node_idx(joint_a)]
         return geometry.segment_axis_angle(
@@ -2501,7 +2476,6 @@ class Bvh:
     def verticality(self) -> npt.NDArray[np.float64]:
         """Per-frame height/width ratio along ``world_up``. See :func:`pybvh.geometry.verticality`."""
         from . import geometry
-        from .tools import _axis_to_vector
         return geometry.verticality(self.node_positions(), _axis_to_vector(self.world_up))
 
     def node_jerk(self, centered: str = "world", in_frames: bool = False,
@@ -2586,13 +2560,13 @@ class Bvh:
         return transforms.translate_root(self, offset, inplace=inplace)  # type: ignore[call-overload, return-value]
 
     @overload
-    def add_noise(self, sigma_deg: float, *, sigma_pos: float = ..., rng: np.random.Generator | None = ..., inplace: Literal[True], wrap: bool = ...) -> None: ...
+    def add_noise(self, sigma: float, *, sigma_pos: float = ..., rng: np.random.Generator | None = ..., inplace: Literal[True], wrap: bool = ...) -> None: ...
     @overload
-    def add_noise(self, sigma_deg: float, sigma_pos: float = ..., rng: np.random.Generator | None = ..., inplace: Literal[False] = ..., wrap: bool = ...) -> Bvh: ...
-    def add_noise(self, sigma_deg: float, sigma_pos: float = 0.0, rng: np.random.Generator | None = None, inplace: bool = False, wrap: bool = True) -> Bvh | None:
-        """Add Gaussian noise to joint angles.  See :func:`pybvh.transforms.add_noise`."""
+    def add_noise(self, sigma: float, sigma_pos: float = ..., rng: np.random.Generator | None = ..., inplace: Literal[False] = ..., wrap: bool = ...) -> Bvh: ...
+    def add_noise(self, sigma: float, sigma_pos: float = 0.0, rng: np.random.Generator | None = None, inplace: bool = False, wrap: bool = False) -> Bvh | None:
+        """Add Gaussian noise (``sigma`` in radians) to joint angles.  See :func:`pybvh.transforms.add_noise`."""
         from . import transforms
-        return transforms.add_noise(self, sigma_deg, sigma_pos=sigma_pos, rng=rng, inplace=inplace, wrap=wrap)  # type: ignore[call-overload, return-value]
+        return transforms.add_noise(self, sigma, sigma_pos=sigma_pos, rng=rng, inplace=inplace, wrap=wrap)  # type: ignore[call-overload, return-value]
 
     def perturb_speed(self, factor: float) -> Bvh:
         """Change motion speed by resampling.  See :func:`pybvh.transforms.perturb_speed`."""
@@ -2609,32 +2583,32 @@ class Bvh:
         return transforms.drop_frames(self, drop_rate, rng=rng, inplace=inplace)  # type: ignore[call-overload, return-value]
 
     @overload
-    def rotate_vertical(self, angle_deg: float, *, up_axis: str | None = ..., inplace: Literal[True]) -> None: ...
+    def rotate_vertical(self, angle: float, *, up_axis: str | None = ..., degrees: bool = ..., inplace: Literal[True]) -> None: ...
     @overload
-    def rotate_vertical(self, angle_deg: float, up_axis: str | None = ..., inplace: Literal[False] = ...) -> Bvh: ...
-    def rotate_vertical(self, angle_deg: float, up_axis: str | None = None, inplace: bool = False) -> Bvh | None:
-        """Rotate entire motion around the vertical axis.  See :func:`pybvh.transforms.rotate_vertical`."""
+    def rotate_vertical(self, angle: float, up_axis: str | None = ..., degrees: bool = ..., inplace: Literal[False] = ...) -> Bvh: ...
+    def rotate_vertical(self, angle: float, up_axis: str | None = None, degrees: bool = False, inplace: bool = False) -> Bvh | None:
+        """Rotate entire motion around the vertical axis (``angle`` in radians).  See :func:`pybvh.transforms.rotate_vertical`."""
         from . import transforms
-        return transforms.rotate_vertical(self, angle_deg, up_axis=up_axis, inplace=inplace)  # type: ignore[call-overload, return-value]
+        return transforms.rotate_vertical(self, angle, up_axis=up_axis, degrees=degrees, inplace=inplace)  # type: ignore[call-overload, return-value]
 
     @overload
-    def mirror(self, *, left_right_mapping: dict[str, str] | None = ..., lateral_axis: str | None = ..., inplace: Literal[True]) -> None: ...
+    def mirror(self, *, lr_mapping: dict[str, str] | None = ..., lateral_axis: str | None = ..., inplace: Literal[True]) -> None: ...
     @overload
-    def mirror(self, left_right_mapping: dict[str, str] | None = ..., lateral_axis: str | None = ..., inplace: Literal[False] = ...) -> Bvh: ...
-    def mirror(self, left_right_mapping: dict[str, str] | None = None, lateral_axis: str | None = None, inplace: bool = False) -> Bvh | None:
+    def mirror(self, lr_mapping: dict[str, str] | None = ..., lateral_axis: str | None = ..., inplace: Literal[False] = ...) -> Bvh: ...
+    def mirror(self, lr_mapping: dict[str, str] | None = None, lateral_axis: str | None = None, inplace: bool = False) -> Bvh | None:
         """Mirror motion across the lateral plane.  See :func:`pybvh.transforms.mirror`."""
         from . import transforms
-        return transforms.mirror(self, left_right_mapping=left_right_mapping, lateral_axis=lateral_axis, inplace=inplace)  # type: ignore[call-overload, return-value]
+        return transforms.mirror(self, lr_mapping=lr_mapping, lateral_axis=lateral_axis, inplace=inplace)  # type: ignore[call-overload, return-value]
 
-    def random_translate_root(self, range_xyz: tuple[float, float] = (-100.0, 100.0), rng: np.random.Generator | None = None) -> Bvh:
+    def random_translate_root(self, offset_range: tuple[float, float] = (-100.0, 100.0), rng: np.random.Generator | None = None) -> Bvh:
         """Translate root by a random offset.  See :func:`pybvh.transforms.random_translate_root`."""
         from . import transforms
-        return transforms.random_translate_root(self, range_xyz=range_xyz, rng=rng)
+        return transforms.random_translate_root(self, offset_range=offset_range, rng=rng)
 
-    def random_rotate_vertical(self, angle_range: tuple[float, float] = (-180.0, 180.0), up_axis: str | None = None, rng: np.random.Generator | None = None) -> Bvh:
-        """Rotate motion by a random angle around the vertical axis.  See :func:`pybvh.transforms.random_rotate_vertical`."""
+    def random_rotate_vertical(self, angle_range: tuple[float, float] = (-np.pi, np.pi), up_axis: str | None = None, degrees: bool = False, rng: np.random.Generator | None = None) -> Bvh:
+        """Rotate motion by a random angle around the vertical axis (radians).  See :func:`pybvh.transforms.random_rotate_vertical`."""
         from . import transforms
-        return transforms.random_rotate_vertical(self, angle_range=angle_range, up_axis=up_axis, rng=rng)
+        return transforms.random_rotate_vertical(self, angle_range=angle_range, up_axis=up_axis, degrees=degrees, rng=rng)
 
     def random_perturb_speed(self, factor_range: tuple[float, float] = (0.8, 1.2), rng: np.random.Generator | None = None) -> Bvh:
         """Apply a random speed change.  See :func:`pybvh.transforms.random_perturb_speed`."""

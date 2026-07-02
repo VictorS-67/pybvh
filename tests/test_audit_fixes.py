@@ -190,8 +190,8 @@ class TestUpAxisSign:
         bvh_neg.root_pos = rp
         bvh_neg.world_up = '-y'
 
-        rot_neg = transforms.rotate_vertical(bvh_neg, 90)
-        rot_pos_ref = transforms.rotate_vertical(bvh_pos, -90)
+        rot_neg = transforms.rotate_vertical(bvh_neg, np.pi / 2)
+        rot_pos_ref = transforms.rotate_vertical(bvh_pos, -np.pi / 2)
         # Ground-plane (X, Z) positions should match
         npt.assert_allclose(rot_neg.root_pos[:, [0, 2]],
                             rot_pos_ref.root_pos[:, [0, 2]], atol=1e-10)
@@ -207,8 +207,8 @@ class TestUpAxisSign:
         ja[:, 0, 0] = np.linspace(0, 45, bvh_neg.frame_count)
         bvh_neg.joint_angles = ja
 
-        rot_neg = transforms.rotate_vertical(bvh_neg, 90)
-        rot_pos_ref = transforms.rotate_vertical(bvh_pos, -90)
+        rot_neg = transforms.rotate_vertical(bvh_neg, np.pi / 2)
+        rot_pos_ref = transforms.rotate_vertical(bvh_pos, -np.pi / 2)
         npt.assert_allclose(rot_neg.root_pos[:, [0, 1]],
                             rot_pos_ref.root_pos[:, [0, 1]], atol=1e-10)
 
@@ -450,7 +450,7 @@ class TestMissingForwarding:
     def test_add_noise_wrap_parameter(self):
         bvh = read_bvh_file(EXAMPLE)
         # Should not raise TypeError for unexpected kwarg
-        noisy = bvh.add_noise(sigma_deg=5.0, wrap=False)
+        noisy = bvh.add_noise(sigma=0.1, wrap=True)
         assert noisy is not None
 
     def test_from_6d_mismatched_frames_raises(self):
@@ -573,8 +573,8 @@ class TestCodeQualityFixes:
 
     def test_auto_detect_lr_lowercase(self):
         bvh = make_lowercase_lr_bvh()
-        mapping = transforms.auto_detect_lr_mapping(bvh)
-        assert len(mapping) > 0, "Should find lowercase left/right pairs"
+        mapping = bvh.lr_mapping
+        assert mapping, "Should find lowercase left/right pairs"
 
 
 # ========================================================================
@@ -631,5 +631,5 @@ class TestWorldUpPropagation:
     def test_world_up_preserved_through_rotate_vertical(self):
         bvh = read_bvh_file(EXAMPLE)
         bvh.world_up = "+y"
-        result = bvh.rotate_vertical(45)
+        result = bvh.rotate_vertical(np.pi / 4)
         assert result.world_up == "+y"

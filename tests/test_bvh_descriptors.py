@@ -84,22 +84,22 @@ def test_relational_accepts_int_node_index():
 
 
 # ----------------------------------------------------------------
-#  Bounding / centroid wrappers
+#  Bounding / center-of-mass wrappers
 # ----------------------------------------------------------------
 
-def test_bounding_and_centroid_wrappers_match_kernel():
+def test_bounding_and_center_of_mass_wrappers_match_kernel():
     bvh = _bvh()
     pos = bvh.node_positions()
     np.testing.assert_allclose(bvh.bounding_box().volume, geometry.bounding_box(pos).volume)
     np.testing.assert_allclose(bvh.bounding_sphere().radius, geometry.bounding_sphere(pos).radius)
-    np.testing.assert_allclose(bvh.center_of_mass(), geometry.centroid(pos))
+    np.testing.assert_allclose(bvh.center_of_mass(), geometry.center_of_mass(pos))
     np.testing.assert_allclose(bvh.verticality(),
                                geometry.verticality(pos, _axis_to_vector(bvh.world_up)))
 
 
 def test_com_displacement_defaults_to_first_frame_com():
     bvh = _bvh()
-    com = geometry.centroid(bvh.node_positions())
+    com = geometry.center_of_mass(bvh.node_positions())
     # default reference is the first-frame CoM (same world frame) -> travel
     np.testing.assert_allclose(bvh.com_displacement(),
                                geometry.com_displacement(com, com[0]))
@@ -148,9 +148,21 @@ def test_gait_standalone_scalars_match_bundle():
     feet = ["LeftFoot", "RightFoot"]
     g = bvh.gait_parameters(foot_joints=feet)
     np.testing.assert_allclose(bvh.cadence(foot_joints=feet), g.cadence)
-    np.testing.assert_allclose(bvh.walking_pace(foot_joints=feet), g.walking_pace)
+    np.testing.assert_allclose(bvh.walking_pace(), g.walking_pace)
     s = bvh.stride_length(foot_joints=feet)
     assert (np.isnan(s) and np.isnan(g.stride_length)) or np.isclose(s, g.stride_length)
+
+
+def test_gait_wrappers_accept_precomputed_contacts():
+    bvh = _bvh()
+    feet = ["LeftFoot", "RightFoot"]
+    contacts = np.asarray(bvh.foot_contacts(foot_joints=feet))
+    np.testing.assert_allclose(
+        bvh.cadence(foot_joints=feet, contacts=contacts),
+        bvh.cadence(foot_joints=feet))
+    s_pre = bvh.stride_length(foot_joints=feet, contacts=contacts)
+    s = bvh.stride_length(foot_joints=feet)
+    assert (np.isnan(s_pre) and np.isnan(s)) or np.isclose(s_pre, s)
 
 
 def test_range_of_motion_wrapper_matches_kernel():

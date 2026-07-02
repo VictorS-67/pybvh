@@ -21,7 +21,7 @@ model (rotations and positions) plus their dynamics:
 (`path_length`) and how directly (`directness`); how sharply its path turns
 (`curvature`) and twists out of plane (`torsion`); the size and shape of the
 whole pose (`bounding_box`, `bounding_sphere`, `bounding_ellipsoid`,
-`verticality`); its centre of mass (`centroid`, `com_displacement`); and
+`verticality`); its centre of mass (`center_of_mass`, `com_displacement`); and
 relations between joints (`inter_joint_distance`, `joint_angle`,
 `triangle_area`). Derivative-based kernels share pybvh's one finite-difference
 convention with the velocity ladder (`tools.finite_difference`), so geometry and
@@ -34,7 +34,7 @@ kinematics derivatives stay consistent when you combine them.
 **smoothness** of a speed profile via SPARC, dimensionless jerk, log
 dimensionless jerk, number of peaks, and a `smoothness(metric=…)` dispatcher;
 `kinetic_energy`; gait (`cadence`, `stride_length`, `walking_pace`); peak-to-peak
-`range_of_motion`; and covariance descriptors (`cov3dj`, `lagged_correlation`).
+`range_of_motion`; and covariance descriptors (`cov3dj`, `lagged_covariance`).
 
 ## SE(3) — rigid-transform features
 
@@ -63,8 +63,9 @@ Two layers, by design:
 !!! note "Name-based primitives assume one consistent skeleton"
     Descriptors addressed by joint name (`inter_joint_distance(pairs)`, foot and
     centre-of-mass detection) assume every clip shares the same skeleton.
-    Reconciling differing skeletons across a dataset is a `pybvh.batch` concern
-    (`harmonize`, `relative_scale_factor`), not a descriptor concern.
+    Reconciling differing skeletons across a dataset is a harmonization concern
+    (`pybvh.batch.harmonize`; `pybvh.analysis.relative_scale_factor` for size),
+    not a descriptor concern.
 
 ## See also
 

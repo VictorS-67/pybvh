@@ -20,7 +20,7 @@
 #
 # Each cell shows the **feature call** (`bvh.curvature(...)`, …); all the matplotlib for drawing lives in the companion module **`gallery_plots.py`** (imported as `gp`), so the notebook stays about the features, not the plumbing.
 #
-# Sections: **1** geometry (relations) · **2** geometry (bounding & centre of mass) · **3** geometry (trajectory) · **4** analysis (dynamics) · **5** SE(3) rigid transforms · **6** tools (signal utilities) · **7** batch.
+# Sections: **1** geometry (relations) · **2** geometry (bounding & centre of mass) · **3** geometry (trajectory) · **4** analysis (dynamics) · **5** SE(3) rigid transforms · **6** tools (signal utilities) · **7** scale.
 
 # %%
 from pathlib import Path
@@ -28,7 +28,7 @@ import numpy as np
 from IPython.display import Image
 
 import pybvh
-from pybvh import geometry, analysis, rotations, tools, batch
+from pybvh import geometry, analysis, rotations, tools
 import gallery_plots as gp
 
 REPO = Path.cwd().parent if Path.cwd().name in ("tutorials", "gallery") else Path.cwd()
@@ -193,7 +193,7 @@ gp.fig_movement_phase(bvh, JT, mp)
 gp.fig_ground_path(bvh, JT, bvh.ground_path(JT))
 
 # %% [markdown]
-# **`pose_distance`** — the squared distance between two whole poses. Computed between *every* pair of frames it gives a self-similarity matrix: with this colormap bright = similar (the diagonal is brightest — every pose matches itself) and dark = dissimilar. Recurring motifs show up as off-diagonal bright streaks.
+# **`pose_distance`** — the Euclidean distance between two whole poses. Computed between *every* pair of frames it gives a self-similarity matrix: with this colormap bright = similar (the diagonal is brightest — every pose matches itself) and dark = dissimilar. Recurring motifs show up as off-diagonal bright streaks.
 
 # %%
 D = geometry.pose_distance(pos[:, None], pos[None, :])      # (F, F) self-similarity
@@ -260,7 +260,7 @@ gp.fig_velocity_reductions(t, speed, vr, fs, f"velocity_reductions ({JT})")
 
 # %%
 zc = analysis.zero_crossings(speed - speed.mean())
-active = analysis.active_duration(speed, speed.mean(), dt)
+active = analysis.active_duration(speed, speed.mean(), fs)
 gp.fig_zero_crossings_active(t, speed, zc, active)
 
 # %% [markdown]
@@ -281,11 +281,11 @@ gp.fig_range_of_motion(bvh, "RightForeArm", rom, t)
 # Note that ch1 has no range of motion here (ROM = 0°). This is because the forearm's rotation order is `ZYX`, so ch1 is the Y-rotation — and for the elbow that is the **non-hinge** axis: the elbow is a hinge, it flexes in a single plane (captured here by ch0, the Z-rotation, ~101°) and the bone twists along its length (ch2, the X-rotation, ~103° of pronation/supination), but it physically cannot bend sideways, so that channel stays at 0 for the whole clip.
 
 # %% [markdown]
-# **`cov3dj`** & **`lagged_correlation`** — fixed-size statistical descriptors of a whole sequence: the covariance of all 3D joint coordinates (`cov3dj`, 3N×3N), and the channel covariance at a temporal lag (`lagged_correlation`). Drawn as heatmaps — block structure reflects coordinated joints.
+# **`cov3dj`** & **`lagged_covariance`** — fixed-size statistical descriptors of a whole sequence: the covariance of all 3D joint coordinates (`cov3dj`, 3N×3N), and the channel covariance at a temporal lag (`lagged_covariance`). Drawn as heatmaps — block structure reflects coordinated joints.
 
 # %%
 C = analysis.cov3dj(bvh.joint_positions())
-L = analysis.lagged_correlation(bvh.joint_velocities().reshape(F, -1), lag=1)
+L = analysis.lagged_covariance(bvh.joint_velocities().reshape(F, -1), lag=1)
 gp.fig_covariance(C, L)
 
 # %% [markdown]
@@ -391,13 +391,13 @@ simp = tools.ramer_douglas_peucker(curve, eps=0.15)
 gp.fig_rdp(curve, simp, 0.15)
 
 # %% [markdown]
-# ## 7 · Batch
+# ## 7 · Scale
 #
 # **`relative_scale_factor`** — the least-squares uniform scale that best matches one skeleton to another. Here a skeleton (blue) and a 1.6× copy (orange) are shown; the recovered factor matches the original poses back together.
 
 # %%
 rest = bvh.rest_pose_coords()
-factor = batch.relative_scale_factor(rest, rest * 1.6)
+factor = analysis.relative_scale_factor(rest, rest * 1.6)
 gp.fig_relative_scale(bvh, factor, 1.6)
 
 # %% [markdown]

@@ -65,6 +65,8 @@ def test_speed_metric_flat_profile_is_one():
 def test_smoothness_degenerate_inputs_are_graceful():
     # a perfectly still joint (zero speed) -> degenerate spectrum -> nan, no crash
     assert np.isnan(analysis.sparc(np.zeros(64), 100.0))
+    # zero speed -> zero peak -> DLJ normalization undefined -> nan, no warning
+    assert np.isnan(analysis.dimensionless_jerk(np.zeros(50), 100.0))
     # constant speed -> zero jerk -> perfectly smooth -> +inf (no leaked warning)
     assert analysis.log_dimensionless_jerk(np.full(50, 2.0), 100.0) == np.inf
 
@@ -122,8 +124,9 @@ def test_active_segments_and_duration():
     np.testing.assert_array_equal(
         analysis.active_segments(speed, threshold=1.0),
         [False, True, True, False, True])
+    # 3 active samples at 2 Hz -> 1.5 s
     np.testing.assert_allclose(
-        analysis.active_duration(speed, threshold=1.0, frame_time=0.5), 1.5)
+        analysis.active_duration(speed, threshold=1.0, fs=2.0), 1.5)
 
 
 # ----------------------------------------------------------------
@@ -181,26 +184,28 @@ def test_walking_pace_translating_root():
     np.testing.assert_allclose(analysis.walking_pace(bvh), 50.0 / duration)
 
 
-def test_cadence_from_known_contacts(monkeypatch):
+def test_cadence_from_known_contacts():
     bvh = make_pos_y_up_bvh()
+    feet = ["LeftFoot", "RightFoot"]              # end-site feet, passed explicitly
     contacts = np.zeros((bvh.frame_count, 2))
     contacts[2:4, 0] = 1   # foot 0: onset at frame 2
     contacts[6:8, 0] = 1   # foot 0: onset at frame 6
     contacts[4:6, 1] = 1   # foot 1: onset at frame 4
-    monkeypatch.setattr(analysis, "foot_contacts", lambda *a, **k: contacts)
 
     duration = (bvh.frame_count - 1) * bvh.frame_time
-    np.testing.assert_allclose(analysis.cadence(bvh), 3 / duration)   # 3 onsets
+    np.testing.assert_allclose(
+        analysis.cadence(bvh, foot_joints=feet, contacts=contacts),
+        3 / duration)                              # 3 onsets
     # foot-measured stride_length is covered by the _compute_gait_parameters tests
 
 
-def test_stride_length_nan_without_contacts(monkeypatch):
+def test_stride_length_nan_without_contacts():
     bvh = make_pos_y_up_bvh()
     feet = ["LeftFoot", "RightFoot"]              # end-site feet, passed explicitly
-    monkeypatch.setattr(analysis, "foot_contacts",
-                        lambda *a, **k: np.zeros((bvh.frame_count, 2)))
-    assert np.isnan(analysis.stride_length(bvh, foot_joints=feet))
-    assert analysis.cadence(bvh, foot_joints=feet) == 0.0
+    no_contacts = np.zeros((bvh.frame_count, 2))
+    assert np.isnan(analysis.stride_length(bvh, foot_joints=feet,
+                                           contacts=no_contacts))
+    assert analysis.cadence(bvh, foot_joints=feet, contacts=no_contacts) == 0.0
 
 
 def _two_foot_walk():
@@ -345,17 +350,21 @@ def test_cov3dj_shape_symmetry_and_value():
     np.testing.assert_allclose(cov, centered.T @ centered / 40)
 
 
-def test_lagged_correlation_lag0_and_bounds():
+def test_lagged_covariance_centers_lag0_and_bounds():
     rng = np.random.default_rng(2)
-    v = rng.normal(size=(30, 4))
-    np.testing.assert_allclose(analysis.lagged_correlation(v, 0), v.T @ v / 30)
-    m1 = analysis.lagged_correlation(v, 1)
-    np.testing.assert_allclose(m1, v[1:].T @ v[:-1] / 29)
+    v = rng.normal(size=(30, 4)) + 7.0     # constant offset must contribute nothing
+    c = v - v.mean(axis=0)                 # centered on the temporal mean
+    np.testing.assert_allclose(analysis.lagged_covariance(v, 0), c.T @ c / 30)
+    m1 = analysis.lagged_covariance(v, 1)
+    np.testing.assert_allclose(m1, c[1:].T @ c[:-1] / 29)
     assert m1.shape == (4, 4)
+    # lag 0 on centered input == population covariance == cov3dj convention
+    np.testing.assert_allclose(
+        analysis.lagged_covariance(v, 0), np.cov(v.T, bias=True))
     with pytest.raises(ValueError):
-        analysis.lagged_correlation(v, 30)
+        analysis.lagged_covariance(v, 30)
     with pytest.raises(ValueError):
-        analysis.lagged_correlation(v, -1)
+        analysis.lagged_covariance(v, -1)
 
 
 # ----------------------------------------------------------------
@@ -631,16 +640,16 @@ def test_height_reference_recovers_hovering_stance():
     cv = bvh.foot_contacts(foot_joints=feet, coords=coords, floor=float(base),
                            height_reference="velocity", hysteresis=0.0)
     cf = bvh.foot_contacts(foot_joints=feet, coords=coords, floor=float(base),
-                           height_reference="fixed", hysteresis=0.0)
-    assert cv.sum() > cf.sum()           # velocity recovers stance the fixed threshold rejects
+                           height_reference="floor", hysteresis=0.0)
+    assert cv.sum() > cf.sum()   # velocity recovers stance the floor-anchored threshold rejects
 
 
 def test_height_reference_clean_rig_identity():
-    # feet reach the floor during stance -> velocity and fixed are identical
-    # (same threshold), regardless of hysteresis.
+    # feet reach the floor during stance -> velocity and floor anchoring are
+    # identical (same threshold), regardless of hysteresis.
     bvh, feet, coords, base = _hover_clip(hover_frac=0.0)
     cv = bvh.foot_contacts(foot_joints=feet, coords=coords, height_reference="velocity")
-    cf = bvh.foot_contacts(foot_joints=feet, coords=coords, height_reference="fixed")
+    cf = bvh.foot_contacts(foot_joints=feet, coords=coords, height_reference="floor")
     np.testing.assert_array_equal(cv, cf)
 
 

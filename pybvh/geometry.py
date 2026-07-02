@@ -8,10 +8,10 @@ dependency, so downstream libraries can build on these kernels directly.
 Two shape conventions run through the module:
 
 * **Point-set** kernels (``bounding_box``, ``bounding_sphere``,
-  ``bounding_ellipsoid``, ``centroid``, ``verticality``) take ``pts`` shaped
-  ``(..., P, 3)`` and reduce over the point axis ``P``, keeping any leading
-  batch axes (e.g. a frame axis ``F``) — so they vectorize over time with no
-  Python frame loop.
+  ``bounding_ellipsoid``, ``center_of_mass``, ``verticality``) take ``pts``
+  shaped ``(..., P, 3)`` and reduce over the point axis ``P``, keeping any
+  leading batch axes (e.g. a frame axis ``F``) — so they vectorize over time
+  with no Python frame loop.
 * **Trajectory** kernels (``path_length``, ``directness``, ``curvature``,
   ``torsion``, ``movement_phase``, ``ground_path``) take ``traj`` shaped
   ``(F, 3)`` or ``(F, N, 3)`` — the first axis ``F`` is time.
@@ -259,7 +259,7 @@ def point_to_segment_distance(
 
 
 # ----------------------------------------------------------------
-#  Bounding volumes & centroid
+#  Bounding volumes & center of mass
 # ----------------------------------------------------------------
 
 def bounding_box(pts: npt.NDArray[np.float64]) -> BoundingBox:
@@ -372,25 +372,25 @@ def bounding_ellipsoid(pts: npt.NDArray[np.float64]) -> BoundingEllipsoid:
     return BoundingEllipsoid(center, radii, evecs)
 
 
-def centroid(
+def center_of_mass(
     pts: npt.NDArray[np.float64],
     weights: npt.NDArray[np.float64] | None = None,
 ) -> npt.NDArray[np.float64]:
-    """Centroid of a point set — ``Σ wₖ pₖ / Σ wₖ``.
+    """Centre of mass of a point set — ``Σ wₖ pₖ / Σ wₖ``.
 
     Parameters
     ----------
     pts : ndarray, shape (..., P, 3)
         Points; reduced over the point axis ``P``.
     weights : ndarray, shape (P,), optional
-        Per-point weights. Default is uniform (the plain mean) — pybvh
-        ships no body-segment mass model; pass anatomical masses
+        Per-point weights. Default is uniform (the plain centroid) —
+        pybvh ships no body-segment mass model; pass anatomical masses
         explicitly for a true centre of mass.
 
     Returns
     -------
     ndarray, shape (..., 3)
-        The (weighted) centroid.
+        The (weighted) centre of mass.
 
     Notes
     -----
@@ -542,6 +542,14 @@ def _aligned_derivatives(
     every order so they stay aligned — ``order`` frames from each end for
     a central stencil, ``order`` from the tail for forward.
     """
+    # Validate up front: every internal finite_difference call below uses
+    # pad="edge", so a typo'd `pad` would otherwise silently mean "edge".
+    if stencil not in ("central", "forward"):
+        raise ValueError(
+            f"stencil must be 'central' or 'forward', got {stencil!r}")
+    if pad not in ("edge", "none"):
+        raise ValueError(f"pad must be 'edge' or 'none', got {pad!r}")
+
     derivs: list[npt.NDArray[np.float64]] = []
     current = np.asarray(traj, dtype=np.float64)
     for _ in range(order):
@@ -554,6 +562,23 @@ def _aligned_derivatives(
         else:  # forward
             derivs = [d[:-order] for d in derivs]
     return derivs
+
+
+def _speed_and_swept(
+    traj: npt.NDArray[np.float64],
+    frame_time: float,
+    stencil: str,
+    pad: str,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """Speed ``‖ṗ‖`` and swept magnitude ``‖ṗ × p̈‖`` per frame.
+
+    The two ingredients shared by :func:`curvature`
+    (``swept / speed³``) and :func:`movement_phase` (``swept / speed²``).
+    """
+    d1, d2 = _aligned_derivatives(traj, frame_time, 2, stencil, pad)
+    speed = np.linalg.norm(d1, axis=-1)
+    swept = np.linalg.norm(np.cross(d1, d2), axis=-1)
+    return speed, swept
 
 
 def curvature(
@@ -591,10 +616,8 @@ def curvature(
     -----
     Source: Larboulette & Gibet, Gibet et al.
     """
-    d1, d2 = _aligned_derivatives(traj, frame_time, 2, stencil, pad)
-    speed_cubed = np.linalg.norm(d1, axis=-1) ** 3
-    swept = np.linalg.norm(np.cross(d1, d2), axis=-1)
-    return _safe_ratio(swept, speed_cubed)
+    speed, swept = _speed_and_swept(traj, frame_time, stencil, pad)
+    return _safe_ratio(swept, speed ** 3)
 
 
 def torsion(
@@ -641,11 +664,11 @@ def movement_phase(
     stencil: str = "central",
     pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
-    """Movement-phase signal ``speed · curvature`` per frame.
+    """Movement-phase signal ``speed · curvature = ‖ṗ × p̈‖ / ‖ṗ‖²`` per frame.
 
     Peaks mark the fast, sharply-turning instants that segment a
-    trajectory into ballistic phases. ``np.nan`` propagates from
-    :func:`curvature` where speed is ~0.
+    trajectory into ballistic phases. ``np.nan`` where speed is ~0
+    (curvature is undefined there), matching :func:`curvature`.
 
     Parameters
     ----------
@@ -665,12 +688,8 @@ def movement_phase(
     -----
     Source: Larboulette & Gibet, Gibet et al.
     """
-    d1, d2 = _aligned_derivatives(traj, frame_time, 2, stencil, pad)
-    speed = np.linalg.norm(d1, axis=-1)
-    speed_cubed = speed ** 3
-    swept = np.linalg.norm(np.cross(d1, d2), axis=-1)
-    kappa = _safe_ratio(swept, speed_cubed)
-    return speed * kappa
+    speed, swept = _speed_and_swept(traj, frame_time, stencil, pad)
+    return _safe_ratio(swept, speed ** 2)
 
 
 def ground_path(
@@ -726,10 +745,12 @@ def pose_distance(
     pose_a: npt.NDArray[np.float64],
     pose_b: npt.NDArray[np.float64],
 ) -> npt.NDArray[np.float64]:
-    """Squared Euclidean distance between two poses — ``‖X₁ − X₂‖²``.
+    """Euclidean distance between two poses — ``‖X₁ − X₂‖``.
 
-    The sum of squared differences over the joint and coordinate axes (a
-    cheap pose-similarity kernel for nearest-neighbour / alignment work).
+    The root of the summed squared differences over the joint and
+    coordinate axes (a pose-similarity kernel for nearest-neighbour /
+    alignment work). A true metric — square it if a squared-distance
+    kernel is wanted.
 
     Parameters
     ----------
@@ -739,14 +760,14 @@ def pose_distance(
     Returns
     -------
     ndarray, shape (...)
-        Squared distance, reduced over the trailing ``(N, 3)`` axes.
+        Euclidean distance, reduced over the trailing ``(N, 3)`` axes.
 
     Notes
     -----
     Source: trajectory-basis pose models (Torresani-era).
     """
     diff = np.asarray(pose_a, dtype=np.float64) - np.asarray(pose_b, dtype=np.float64)
-    return np.sum(diff * diff, axis=(-2, -1))
+    return np.sqrt(np.sum(diff * diff, axis=(-2, -1)))
 
 
 def mean_pose_subtract(seq: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:

@@ -338,6 +338,15 @@ class TestStencilPadMatrix:
         with pytest.raises(ValueError, match="stencil"):
             bvh_example.joint_velocities(stencil="bogus")
 
+    def test_joint_kinematics_reject_joint_shaped_coords(self, bvh_example):
+        """joint_velocities/accelerations/jerk subset the NODE axis, so a
+        joint-shaped (F, J, 3) coords input must raise, not mis-index."""
+        bad = np.zeros((bvh_example.frame_count, bvh_example.joint_count, 3))
+        for fn in (analysis.joint_velocities, analysis.joint_accelerations,
+                   analysis.joint_jerk):
+            with pytest.raises(ValueError, match="node-shaped"):
+                fn(bvh_example, coords=bad)
+
 
 class TestAngularVelocities:
     """Phase 2: dedicated angular-velocity correctness tests."""
@@ -751,6 +760,25 @@ class TestFootContactsCombinedMethod:
         with pytest.raises(ValueError, match="method"):
             bvh_example.foot_contacts(method="bogus")
 
+    def test_invalid_height_reference_raises(self, bvh_example):
+        with pytest.raises(ValueError, match="height_reference"):
+            bvh_example.foot_contacts(height_reference="bogus")
+
+    def test_frame_time_zero_raises_when_a_time_base_is_needed(self):
+        bvh = make_pos_y_up_bvh()
+        bvh.frame_time = 0.0
+        feet = ["LeftLeg", "RightLeg"]
+        # velocity signal is units/second -> needs a time base
+        with pytest.raises(ValueError, match="frame_time"):
+            bvh.foot_contacts(method="velocity", foot_joints=feet)
+        # duration filters are seconds -> need a time base too
+        with pytest.raises(ValueError, match="frame_time"):
+            bvh.foot_contacts(method="height", foot_joints=feet)
+        # height-only with the filters disabled is time-base-free
+        c = bvh.foot_contacts(method="height", foot_joints=feet,
+                              min_contact_duration=0.0, min_gap_duration=0.0)
+        assert c.shape == (bvh.frame_count, 2)
+
 
 class TestFootContactsFloorEstimation:
     """floor='auto' runs a percentile estimate; explicit float pins it."""
@@ -793,6 +821,17 @@ class TestFootContactsFloorEstimation:
     def test_invalid_floor_string_raises(self, bvh_example):
         with pytest.raises(ValueError, match="floor"):
             bvh_example.foot_contacts(method="height", floor="bogus")
+
+    def test_auto_floor_estimated_from_coords_in_use(self):
+        """floor='auto' with explicit coords estimates the floor from those
+        coords — the canonical cached floor_height only serves the default
+        world-coords path (previously it leaked in for any auto-feet call)."""
+        bvh = _make_ik_helper_skeleton()             # feet auto-detectable
+        canonical = bvh.floor_height                 # fill the canonical cache
+        coords = bvh.node_positions() + np.array([0.0, 0.0, 25.0])  # +z up
+        _, info = bvh.foot_contacts(
+            method="height", coords=coords, return_info=True)
+        assert info["floor"] == pytest.approx(canonical + 25.0, abs=1e-9)
 
 
 class TestFootContactsDurationFilters:
@@ -879,21 +918,38 @@ class TestFootContactsDurationFilters:
         assert c_filled.sum() >= c_raw.sum()
         assert np.all((c_raw == 0) | (c_filled == 1))
 
-    def test_threshold_is_fps_independent(self):
-        """Same frame data at 30 fps and 120 fps — the raw velocity mask
-        (before duration filters) should be identical because the
-        vel_threshold is in units/frame, not units/second."""
+    def test_vel_threshold_is_units_per_second(self):
+        """vel_threshold is in units/second (v0.8.0): the same *frame*
+        data reinterpreted at 4x the fps has 4x the per-second foot
+        speed, so reproducing the 30 fps labels requires scaling the
+        threshold by 4 (migration: new = old_per_frame / frame_time)."""
         bvh_30 = make_pos_y_up_bvh()
         bvh_120 = bvh_30.copy()
         bvh_120.frame_time = bvh_30.frame_time / 4
-        # Pin filters to 0 so we're testing threshold only
-        c_30 = bvh_30.foot_contacts(
+        # Pin filters to 0 so we're testing the threshold only
+        c_30, info = bvh_30.foot_contacts(
             method="velocity", foot_joints=["LeftLeg", "RightLeg"],
-            min_contact_duration=0.0, min_gap_duration=0.0)
-        c_120 = bvh_120.foot_contacts(
+            min_contact_duration=0.0, min_gap_duration=0.0,
+            return_info=True)
+        thr_30 = info["vel_threshold"]                # default, u/s
+        c_120_scaled = bvh_120.foot_contacts(
             method="velocity", foot_joints=["LeftLeg", "RightLeg"],
+            vel_threshold=4.0 * thr_30,
             min_contact_duration=0.0, min_gap_duration=0.0)
-        np.testing.assert_array_equal(c_30, c_120)
+        np.testing.assert_array_equal(c_30, c_120_scaled)
+
+    def test_default_vel_threshold_matches_old_per_frame_value_at_30fps(self):
+        """Sanity anchor for the migration: at exactly 30 fps the new
+        default (0.12·scale u/s) equals the old default (0.004·scale
+        per frame), so 30 fps clips get identical labels."""
+        bvh = make_pos_y_up_bvh()                     # frame_time = 1/30
+        _, info = bvh.foot_contacts(
+            method="velocity", foot_joints=["LeftLeg", "RightLeg"],
+            return_info=True)
+        scale = info["skeleton_scale"]
+        np.testing.assert_allclose(info["vel_threshold"], 0.12 * scale)
+        np.testing.assert_allclose(
+            info["vel_threshold"] * bvh.frame_time, 0.004 * scale)
 
 
 class TestFootContactsReturnInfo:

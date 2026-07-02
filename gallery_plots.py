@@ -596,7 +596,7 @@ def fig_covariance(C, L):
     a1.set(title="cov3dj  (3N × 3N covariance)", xlabel="coord", ylabel="coord")
     fig.colorbar(im1, ax=a1, shrink=0.7)
     im2 = a2.imshow(L, cmap="RdBu_r", vmin=-np.abs(L).max(), vmax=np.abs(L).max())
-    a2.set(title="lagged_correlation (velocity, lag=1)", xlabel="channel", ylabel="channel")
+    a2.set(title="lagged_covariance (velocity, lag=1)", xlabel="channel", ylabel="channel")
     fig.colorbar(im2, ax=a2, shrink=0.7)
     plt.tight_layout()
 

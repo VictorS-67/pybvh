@@ -94,7 +94,7 @@ def test_point_to_segment_distance_interior_and_clamped():
 
 
 # ----------------------------------------------------------------
-#  Bounding volumes & centroid
+#  Bounding volumes & center of mass
 # ----------------------------------------------------------------
 
 def _cube_corners():
@@ -135,12 +135,12 @@ def test_bounding_ellipsoid_axis_aligned_box():
     np.testing.assert_allclose(np.sort(ell.radii), np.sort(half))
 
 
-def test_centroid_uniform_and_weighted():
+def test_center_of_mass_uniform_and_weighted():
     pts = np.array([[0.0, 0, 0], [2, 0, 0], [0, 2, 0], [0, 0, 2]])
-    np.testing.assert_allclose(geo.centroid(pts), [0.5, 0.5, 0.5])
+    np.testing.assert_allclose(geo.center_of_mass(pts), [0.5, 0.5, 0.5])
     # all weight on the last point
     np.testing.assert_allclose(
-        geo.centroid(pts, weights=[0, 0, 0, 1.0]), [0, 0, 2])
+        geo.center_of_mass(pts, weights=[0, 0, 0, 1.0]), [0, 0, 2])
 
 
 def test_com_displacement_known():
@@ -234,11 +234,12 @@ def test_ground_path_square():
 #  Pose-level ops
 # ----------------------------------------------------------------
 
-def test_pose_distance_squared():
+def test_pose_distance_is_euclidean():
     a = np.zeros((4, 3))
     b = a.copy()
     b[2] = [3, 4, 0]
-    np.testing.assert_allclose(geo.pose_distance(a, b), 25.0)
+    # true (sqrt) distance since v0.8.0: sum of squares is 25 -> distance 5
+    np.testing.assert_allclose(geo.pose_distance(a, b), 5.0)
 
 
 def test_pose_distance_vectorizes_over_frames():
@@ -262,7 +263,7 @@ def test_mean_pose_subtract_removes_temporal_mean():
 # ----------------------------------------------------------------
 
 @pytest.mark.parametrize("kernel", ["bounding_box", "bounding_sphere",
-                                    "bounding_ellipsoid", "centroid"])
+                                    "bounding_ellipsoid", "center_of_mass"])
 def test_pointset_kernels_vectorize_over_frames(kernel):
     rng = np.random.default_rng(6)
     pts = rng.normal(size=(11, 14, 3))  # (F, P, 3)
@@ -308,6 +309,17 @@ def test_finite_difference_rejects_bad_args():
         tools.finite_difference(arr, 0.1, stencil="bogus")
     with pytest.raises(ValueError):
         tools.finite_difference(arr, 0.1, pad="bogus")
+
+
+def test_trajectory_derivative_kernels_reject_bad_args():
+    # a typo'd pad used to silently mean "edge" in the derivative kernels
+    traj = np.zeros((10, 3))
+    with pytest.raises(ValueError, match="stencil"):
+        geo.curvature(traj, 0.1, stencil="bogus")
+    with pytest.raises(ValueError, match="pad"):
+        geo.movement_phase(traj, 0.1, pad="bogus")
+    with pytest.raises(ValueError, match="pad"):
+        geo.torsion(traj, 0.1, pad="bogus")
 
 
 # ----------------------------------------------------------------

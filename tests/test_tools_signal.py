@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from pybvh import tools, analysis, batch
+from pybvh import tools, analysis
 from synthetic_bvh import make_pos_y_up_bvh
 
 
@@ -133,15 +133,26 @@ def test_skeleton_size_positive_and_scale_linear():
                                2.0 * size)
 
 
+def test_skeleton_size_unknown_explicit_joint_raises():
+    bvh = make_pos_y_up_bvh()
+    with pytest.raises(ValueError, match="not found"):
+        analysis.skeleton_size(bvh, foot_joints=["NotAJoint"])
+    # the 1.0 fallback remains for footless *auto-detection* only
+    assert analysis.skeleton_size(bvh) == 1.0        # feet are end sites here
+
+
 def test_relative_scale_factor_recovers_known_scale():
+    # relative_scale_factor lives in pybvh.analysis (next to skeleton_size)
+    # and is re-exported at package level.
+    import pybvh
     rng = np.random.default_rng(3)
     target = rng.normal(size=(20, 3))
-    np.testing.assert_allclose(batch.relative_scale_factor(2.5 * target, target), 2.5)
-    np.testing.assert_allclose(batch.relative_scale_factor(target, target), 1.0)
+    np.testing.assert_allclose(analysis.relative_scale_factor(2.5 * target, target), 2.5)
+    np.testing.assert_allclose(analysis.relative_scale_factor(target, target), 1.0)
+    assert pybvh.relative_scale_factor is analysis.relative_scale_factor
 
 
 def test_relative_scale_factor_edges():
-    target = np.ones((4, 3))
-    assert np.isnan(batch.relative_scale_factor(np.ones((4, 3)), np.zeros((4, 3))))
+    assert np.isnan(analysis.relative_scale_factor(np.ones((4, 3)), np.zeros((4, 3))))
     with pytest.raises(ValueError):
-        batch.relative_scale_factor(np.ones((4, 3)), np.ones((5, 3)))
+        analysis.relative_scale_factor(np.ones((4, 3)), np.ones((5, 3)))

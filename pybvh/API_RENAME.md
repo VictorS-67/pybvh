@@ -46,6 +46,22 @@ The duplicate Euler→rotmat implementation in `pybvh.tools` **no longer exists*
 
 ---
 
+## v0.8.0 — analysis / geometry renames & signature changes
+
+| Old | New | Notes |
+|---|---|---|
+| `pybvh.geometry.centroid` | `pybvh.geometry.center_of_mass` | Now shares the `Bvh.center_of_mass` method name. |
+| `pybvh.analysis.lagged_correlation` | `pybvh.analysis.lagged_covariance` | Also mean-centers the signal (true covariance) — values change. |
+| `pybvh.batch.relative_scale_factor` | `pybvh.analysis.relative_scale_factor` | Moved next to `skeleton_size`; also exported as `pybvh.relative_scale_factor`. |
+| `foot_contacts(..., centered=)` | *(removed)* | Detection always runs in world frame; `coords=` accepts world-frame positions or a constant translation thereof. |
+| `foot_contacts(..., vel_threshold=)` *(units/frame)* | `vel_threshold=` *(units/second)* | Migration: `new = old / frame_time`. Default `0.12·scale` u/s ≡ old `0.004·scale`/frame at 30 fps. |
+| `foot_contacts(..., height_reference="fixed")` | `height_reference="floor"` | Parameter is now validated: `{"velocity", "floor"}`. |
+| `walking_pace(bvh, foot_joints=)` | `walking_pace(bvh)` | The parameter was unused. |
+| `velocity_reductions(speed, fs=1.0)` | `velocity_reductions(speed, fs)` | `fs` (Hz) is required — no implicit time base. |
+| `active_duration(speed, threshold, frame_time=1.0)` | `active_duration(speed, threshold, fs)` | `fs` (Hz) is required; pass `fs = 1 / frame_time`. |
+
+---
+
 ## Bvh class — Properties / Attributes
 
 | Old name | New name | Notes |

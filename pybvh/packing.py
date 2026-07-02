@@ -118,7 +118,9 @@ def to_feature_array(
     include_velocities : bool, optional
         If True, include joint velocity features.
     include_foot_contacts : bool, optional
-        If True, include foot contact labels.
+        If True, include foot contact labels.  Contacts are always
+        detected in world frame (see :func:`pybvh.analysis.foot_contacts`),
+        whatever ``centered`` says.
     centered : str, optional
         Coordinate centering mode (default ``"world"``).
     foot_joints : list of str or None, optional
@@ -196,10 +198,15 @@ def to_feature_array(
         parts.append(vel_flat)
         vel_shape = vel.shape[0]
 
-    # Foot contacts — call directly (same module); always (F, num_feet)
+    # Foot contacts — call directly (same module); always (F, num_feet).
+    # foot_contacts wants world-frame coords or a constant translation
+    # thereof ("world"/"first"); per-frame "skeleton" centering would
+    # distort the foot-speed signal, so in that mode let it compute its
+    # own world FK (served by the Bvh cache).
     if include_foot_contacts:
         contacts = foot_contacts(
-            bvh, foot_joints=foot_joints, centered=centered, coords=coords)
+            bvh, foot_joints=foot_joints,
+            coords=coords if centered != "skeleton" else None)
         assert isinstance(contacts, np.ndarray)
         parts.append(contacts)
 

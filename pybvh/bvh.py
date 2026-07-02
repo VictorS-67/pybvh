@@ -690,6 +690,9 @@ class Bvh:
 
         Lazily computed and cached; the cache is invalidated whenever
         ``root_pos`` or ``joint_angles`` is reassigned.
+        :func:`~pybvh.analysis.foot_contacts` fills/serves this cache on its
+        default world-coords + auto-detected-feet path (with explicit
+        ``coords=`` or ``foot_joints=`` it estimates its own per-call floor).
         """
         if self._floor_height_cached is None:
             from . import analysis
@@ -2298,7 +2301,6 @@ class Bvh:
         self,
         foot_joints: list[str] | None = None,
         method: str = "combined",
-        centered: str = "world",
         coords: npt.NDArray[np.float64] | None = None,
         *,
         vel_threshold: float | None = None,
@@ -2317,7 +2319,6 @@ class Bvh:
             self,
             foot_joints=foot_joints,
             method=method,
-            centered=centered,
             coords=coords,
             vel_threshold=vel_threshold,
             height_threshold=height_threshold,
@@ -2473,11 +2474,11 @@ class Bvh:
     def center_of_mass(
         self, weights: npt.NDArray[np.float64] | None = None
     ) -> npt.NDArray[np.float64]:
-        """Per-frame centroid of all nodes (uniform by default; pass per-node masses).
+        """Per-frame centre of mass of all nodes (uniform by default; pass per-node masses).
 
-        See :func:`pybvh.geometry.centroid`."""
+        See :func:`pybvh.geometry.center_of_mass`."""
         from . import geometry
-        return geometry.centroid(self.node_positions(), weights=weights)
+        return geometry.center_of_mass(self.node_positions(), weights=weights)
 
     def com_displacement(
         self,
@@ -2492,7 +2493,7 @@ class Bvh:
         explicit ``com_ref`` (e.g. ``center_of_mass().mean(0)``) for a
         different baseline. See :func:`pybvh.geometry.com_displacement`."""
         from . import geometry
-        com = geometry.centroid(self.node_positions(), weights=weights)
+        com = geometry.center_of_mass(self.node_positions(), weights=weights)
         if com_ref is None:
             com_ref = com[0]
         return geometry.com_displacement(com, com_ref)
@@ -2539,20 +2540,22 @@ class Bvh:
         return analysis.kinetic_energy(self, masses=masses, centered=centered,
                                        stencil=stencil, pad=pad)
 
-    def cadence(self, foot_joints: list[str] | None = None) -> float:
+    def cadence(self, foot_joints: list[str] | None = None,
+                *, contacts: npt.NDArray[np.float64] | None = None) -> float:
         """Step rate (onsets/second). See :func:`pybvh.analysis.cadence`."""
         from . import analysis
-        return analysis.cadence(self, foot_joints=foot_joints)
+        return analysis.cadence(self, foot_joints=foot_joints, contacts=contacts)
 
-    def stride_length(self, foot_joints: list[str] | None = None) -> float:
+    def stride_length(self, foot_joints: list[str] | None = None,
+                      *, contacts: npt.NDArray[np.float64] | None = None) -> float:
         """Mean stride length. See :func:`pybvh.analysis.stride_length`."""
         from . import analysis
-        return analysis.stride_length(self, foot_joints=foot_joints)
+        return analysis.stride_length(self, foot_joints=foot_joints, contacts=contacts)
 
-    def walking_pace(self, foot_joints: list[str] | None = None) -> float:
+    def walking_pace(self) -> float:
         """Mean horizontal speed. See :func:`pybvh.analysis.walking_pace`."""
         from . import analysis
-        return analysis.walking_pace(self, foot_joints=foot_joints)
+        return analysis.walking_pace(self)
 
     def gait_parameters(self, foot_joints: list[str] | None = None,
                         *, contacts: npt.NDArray[np.float64] | None = None):

@@ -18,9 +18,6 @@ import numpy.typing as npt
 from .bvh import Bvh
 from .bvhnode import BvhJoint
 from . import rotations
-from .tools import (
-    rotX, rotY, rotZ,
-)
 
 
 # =========================================================================
@@ -394,8 +391,8 @@ def rotate_angles_vertical(
     ...     angles, pos, 90.0, up, order)
     """
     angle_rad = np.radians(angle_deg)
-    rot_funcs = {0: rotX, 1: rotY, 2: rotZ}
-    R_vert: npt.NDArray[np.float64] = rot_funcs[up_idx](angle_rad)
+    R_vert: npt.NDArray[np.float64] = rotations._elementary_rotmat(
+        angle_rad, 'XYZ'[up_idx])
 
     new_root_pos = (R_vert @ root_pos.T).T
 

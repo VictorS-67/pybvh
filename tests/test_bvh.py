@@ -21,9 +21,7 @@ from pybvh import (read_bvh_file, df_to_bvh, Bvh, frames_to_node_positions,
                     read_bvh_directory, batch_to_numpy,
                     compute_normalization_stats, normalize_array, denormalize_array)
 from pybvh.bvhnode import BvhNode, BvhJoint, BvhRoot
-from pybvh.tools import (rotX, rotY, rotZ, get_premult_mat_rot,
-                          batch_rotX, batch_rotY, batch_rotZ,
-                          batch_get_premult_mat_rot)
+from pybvh.rotations import euler_to_rotmat
 
 sys.path.insert(0, str(Path(__file__).parent))  # for synthetic_bvh
 from synthetic_bvh import (
@@ -618,62 +616,68 @@ class TestStructuredRepresentation:
 
 
 # =============================================================================
-# Test: Batch rotation functions in tools.py
+# Test: Batched Euler->rotmat math (rotations.euler_to_rotmat, the FK core)
 # =============================================================================
 
-class TestBatchRotations:
-    """Tests for batch_rotX/Y/Z and batch_get_premult_mat_rot."""
+def _analytic_elementary(angle, axis):
+    """Hand-written single-axis rotation matrix (independent ground truth)."""
+    c, s = np.cos(angle), np.sin(angle)
+    if axis == 'X':
+        return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+    if axis == 'Y':
+        return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
 
-    def test_batch_rotX_matches_scalar(self):
-        """batch_rotX should produce same results as individual rotX calls."""
+
+class TestBatchRotations:
+    """Batch Euler->rotmat behavior of rotations.euler_to_rotmat."""
+
+    @pytest.mark.parametrize("axis,order", [
+        ('X', 'XYZ'), ('Y', 'YZX'), ('Z', 'ZYX')])
+    def test_single_axis_matches_analytic(self, axis, order):
+        """Single-axis rotations should match the analytic Rx/Ry/Rz matrices."""
         rng = np.random.default_rng(42)
         angles = rng.uniform(-np.pi, np.pi, size=50)
-        batch_result = batch_rotX(angles)
+        triplets = np.zeros((50, 3))
+        triplets[:, 0] = angles  # only the leading axis of `order` rotates
+        batch_result = euler_to_rotmat(triplets, order)
         for i, a in enumerate(angles):
-            np.testing.assert_allclose(batch_result[i], rotX(a), atol=1e-14)
+            np.testing.assert_allclose(
+                batch_result[i], _analytic_elementary(a, axis), atol=1e-14)
 
-    def test_batch_rotY_matches_scalar(self):
-        """batch_rotY should produce same results as individual rotY calls."""
-        rng = np.random.default_rng(43)
-        angles = rng.uniform(-np.pi, np.pi, size=50)
-        batch_result = batch_rotY(angles)
-        for i, a in enumerate(angles):
-            np.testing.assert_allclose(batch_result[i], rotY(a), atol=1e-14)
-
-    def test_batch_rotZ_matches_scalar(self):
-        """batch_rotZ should produce same results as individual rotZ calls."""
-        rng = np.random.default_rng(44)
-        angles = rng.uniform(-np.pi, np.pi, size=50)
-        batch_result = batch_rotZ(angles)
-        for i, a in enumerate(angles):
-            np.testing.assert_allclose(batch_result[i], rotZ(a), atol=1e-14)
-
-    def test_batch_get_premult_matches_scalar(self):
-        """batch_get_premult_mat_rot should match scalar get_premult_mat_rot."""
+    def test_batch_matches_scalar(self):
+        """Batched conversion should match per-row single conversions."""
         rng = np.random.default_rng(45)
         angles = rng.uniform(-np.pi, np.pi, size=(100, 3))
         for order in ['ZYX', 'XYZ', 'YZX', 'ZXY', 'YXZ', 'XZY']:
-            order_list = list(order)
-            batch_result = batch_get_premult_mat_rot(angles, order_list)
+            batch_result = euler_to_rotmat(angles, order)
             for i in range(len(angles)):
-                expected = get_premult_mat_rot(angles[i], order_list)
+                expected = euler_to_rotmat(angles[i], order)
                 np.testing.assert_allclose(batch_result[i], expected, atol=1e-12,
                     err_msg=f"Mismatch at index {i} for order {order}")
 
-    def test_batch_rotation_output_shapes(self):
-        """Batch rotation functions should return (N, 3, 3)."""
-        angles = np.zeros(10)
-        assert batch_rotX(angles).shape == (10, 3, 3)
-        assert batch_rotY(angles).shape == (10, 3, 3)
-        assert batch_rotZ(angles).shape == (10, 3, 3)
+    def test_batch_matches_analytic_premultiplication(self):
+        """R must equal R_first @ R_second @ R_third (intrinsic, pre-multiplied)."""
+        rng = np.random.default_rng(46)
+        angles = rng.uniform(-np.pi, np.pi, size=(20, 3))
+        for order in ['ZYX', 'XYZ', 'YZX']:
+            batch_result = euler_to_rotmat(angles, order)
+            for i in range(len(angles)):
+                expected = (_analytic_elementary(angles[i, 0], order[0])
+                            @ _analytic_elementary(angles[i, 1], order[1])
+                            @ _analytic_elementary(angles[i, 2], order[2]))
+                np.testing.assert_allclose(batch_result[i], expected, atol=1e-13,
+                    err_msg=f"Mismatch at index {i} for order {order}")
 
+    def test_batch_rotation_output_shapes(self):
+        """Batched conversion should return (N, 3, 3)."""
         angles_3d = np.zeros((10, 3))
-        assert batch_get_premult_mat_rot(angles_3d, ['Z', 'Y', 'X']).shape == (10, 3, 3)
+        assert euler_to_rotmat(angles_3d, ['Z', 'Y', 'X']).shape == (10, 3, 3)
 
     def test_batch_rotation_identity_at_zero(self):
         """Zero angles should produce identity matrices."""
         angles = np.zeros((5, 3))
-        result = batch_get_premult_mat_rot(angles, ['Z', 'Y', 'X'])
+        result = euler_to_rotmat(angles, ['Z', 'Y', 'X'])
         for i in range(5):
             np.testing.assert_allclose(result[i], np.eye(3), atol=1e-15)
 
@@ -681,7 +685,7 @@ class TestBatchRotations:
         """All batch rotation matrices should be orthogonal with det=1."""
         rng = np.random.default_rng(46)
         angles = rng.uniform(-np.pi, np.pi, size=(100, 3))
-        R = batch_get_premult_mat_rot(angles, ['Z', 'Y', 'X'])
+        R = euler_to_rotmat(angles, ['Z', 'Y', 'X'])
         # R @ R^T should be I
         RRT = R @ R.transpose(0, 2, 1)
         for i in range(100):
@@ -691,11 +695,9 @@ class TestBatchRotations:
         np.testing.assert_allclose(dets, 1.0, atol=1e-12)
 
     def test_batch_single_element(self):
-        """Batch functions should work with a single element."""
-        angles = np.array([0.5])
-        assert batch_rotX(angles).shape == (1, 3, 3)
+        """Batched conversion should work with a single element."""
         angles_3d = np.array([[0.1, 0.2, 0.3]])
-        result = batch_get_premult_mat_rot(angles_3d, ['X', 'Y', 'Z'])
+        result = euler_to_rotmat(angles_3d, ['X', 'Y', 'Z'])
         assert result.shape == (1, 3, 3)
 
 

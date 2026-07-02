@@ -115,6 +115,19 @@ class TestEulerToRotmat:
         with pytest.raises(ValueError):
             rotations.euler_to_rotmat([0, 0, 0], 'ABC')
 
+    @pytest.mark.parametrize("order", ['XXY', 'YZZ', 'ZZZ'])
+    def test_degenerate_order_raises(self, order):
+        """Orders repeating an axis consecutively are degenerate and rejected."""
+        with pytest.raises(ValueError, match="consecutively"):
+            rotations.euler_to_rotmat([0.1, 0.2, 0.3], order)
+        with pytest.raises(ValueError, match="consecutively"):
+            rotations.rotmat_to_euler(np.eye(3), order)
+
+    def test_proper_euler_order_still_accepted(self):
+        """Proper Euler orders (same first/third axis) remain valid."""
+        R = rotations.euler_to_rotmat([0.4, 0.5, 0.6], 'ZYZ')
+        np.testing.assert_allclose(R @ R.T, np.eye(3), atol=1e-12)
+
 
 # =============================================================================
 # Test: rotmat_to_euler (round-trip)
@@ -300,6 +313,67 @@ class TestQuaternion:
         q = np.array([2, 0, 0, 0])  # non-unit, should still give identity
         R = rotations.quat_to_rotmat(q)
         np.testing.assert_allclose(R, np.eye(3), atol=1e-12)
+
+    def test_zero_norm_quaternion_raises(self):
+        """quat_to_rotmat should reject the zero quaternion, not emit NaNs."""
+        with pytest.raises(ValueError, match="zero-norm"):
+            rotations.quat_to_rotmat([0.0, 0.0, 0.0, 0.0])
+        batch = np.array([[1.0, 0, 0, 0], [0.0, 0, 0, 0]])
+        with pytest.raises(ValueError, match="zero-norm"):
+            rotations.quat_to_rotmat(batch)
+
+
+# =============================================================================
+# Test: quat_multiply (Hamilton product)
+# =============================================================================
+
+class TestQuatMultiply:
+    """Tests for the Hamilton product quat_multiply."""
+
+    def _random_unit_quats(self, shape, seed):
+        rng = np.random.default_rng(seed)
+        q = rng.normal(size=shape + (4,))
+        return q / np.linalg.norm(q, axis=-1, keepdims=True)
+
+    def test_identity_element(self):
+        """Multiplying by the identity quaternion leaves q unchanged."""
+        identity = np.array([1.0, 0.0, 0.0, 0.0])
+        q = self._random_unit_quats((6,), seed=1)
+        np.testing.assert_allclose(rotations.quat_multiply(identity, q), q, atol=1e-15)
+        np.testing.assert_allclose(rotations.quat_multiply(q, identity), q, atol=1e-15)
+
+    def test_associativity(self):
+        """(q1 q2) q3 == q1 (q2 q3)."""
+        q1 = self._random_unit_quats((8,), seed=2)
+        q2 = self._random_unit_quats((8,), seed=3)
+        q3 = self._random_unit_quats((8,), seed=4)
+        lhs = rotations.quat_multiply(rotations.quat_multiply(q1, q2), q3)
+        rhs = rotations.quat_multiply(q1, rotations.quat_multiply(q2, q3))
+        np.testing.assert_allclose(lhs, rhs, atol=1e-14)
+
+    def test_matches_rotmat_composition(self):
+        """quat_to_rotmat(q1 * q2) == quat_to_rotmat(q1) @ quat_to_rotmat(q2)."""
+        q1 = self._random_unit_quats((10,), seed=5)
+        q2 = self._random_unit_quats((10,), seed=6)
+        R_product = rotations.quat_to_rotmat(rotations.quat_multiply(q1, q2))
+        R_composed = rotations.quat_to_rotmat(q1) @ rotations.quat_to_rotmat(q2)
+        np.testing.assert_allclose(R_product, R_composed, atol=1e-13)
+
+    def test_broadcasting(self):
+        """A single quaternion broadcasts against a batch."""
+        single = self._random_unit_quats((), seed=7)
+        batch = self._random_unit_quats((5, 3), seed=8)
+        out = rotations.quat_multiply(single, batch)
+        assert out.shape == (5, 3, 4)
+        np.testing.assert_allclose(
+            out[2, 1], rotations.quat_multiply(single, batch[2, 1]), atol=1e-15)
+
+    def test_result_stays_unit_for_unit_inputs(self):
+        """The product of unit quaternions is a unit quaternion."""
+        q1 = self._random_unit_quats((20,), seed=9)
+        q2 = self._random_unit_quats((20,), seed=10)
+        norms = np.linalg.norm(rotations.quat_multiply(q1, q2), axis=-1)
+        np.testing.assert_allclose(norms, 1.0, atol=1e-12)
 
 
 # =============================================================================

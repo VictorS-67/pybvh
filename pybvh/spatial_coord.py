@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING, Union
 import numpy as np
 import numpy.typing as npt
 
-from .tools import get_premult_mat_rot, batch_get_premult_mat_rot, _validate_axis_string
+from .rotations import euler_to_rotmat
+from .tools import _validate_axis_string
 from .bvhnode import BvhNode
 
 if TYPE_CHECKING:
@@ -126,6 +127,10 @@ def frames_to_node_positions(
             joint_idx[i] = -1
 
     # ---- Vectorized forward kinematics over all frames ----
+    # All local joint rotations in one per-joint-vectorized call: (F, J, 3, 3)
+    per_joint_orders = [''.join(order) for order in rot_orders]
+    local_rotmats = euler_to_rotmat(all_angles_rad, per_joint_orders)
+
     # positions: (F, N, 3) - spatial coordinates per node per frame
     # acc_rotmats: (F, N, 3, 3) - accumulated rotation matrices per node per frame
     positions = np.empty((num_frames, num_nodes, 3), dtype=np.float64)
@@ -138,9 +143,7 @@ def frames_to_node_positions(
         if p_idx == -1:
             # Root node
             positions[:, i, :] = 0.0
-            # Compute rotation for all frames at once
-            acc_rotmats[:, i] = batch_get_premult_mat_rot(
-                all_angles_rad[:, j_idx, :], rot_orders[j_idx])
+            acc_rotmats[:, i] = local_rotmats[:, j_idx]
         elif j_idx == -1:
             # End site: no own rotation
             offset = offsets[i]  # (3,)
@@ -151,9 +154,7 @@ def frames_to_node_positions(
             offset = offsets[i]  # (3,)
             positions[:, i] = np.einsum('fij,j->fi', acc_rotmats[:, p_idx], offset) + positions[:, p_idx]
             # Accumulate rotation: parent_rot @ this_node_rot
-            node_rot = batch_get_premult_mat_rot(
-                all_angles_rad[:, j_idx, :], rot_orders[j_idx])  # (F, 3, 3)
-            acc_rotmats[:, i] = acc_rotmats[:, p_idx] @ node_rot
+            acc_rotmats[:, i] = acc_rotmats[:, p_idx] @ local_rotmats[:, j_idx]
 
     # Add root position if not skeleton-centered
     if not skel_centered:

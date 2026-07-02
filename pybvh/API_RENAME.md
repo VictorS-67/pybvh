@@ -22,6 +22,19 @@ Rule of thumb: **motion descriptors → `analysis`; ML feature-array assembly �
 
 ---
 
+## v0.8.0 — `pybvh.tools` rotation helpers folded into `pybvh.rotations`
+
+The duplicate Euler→rotmat implementation in `pybvh.tools` **no longer exists**; `pybvh.rotations.euler_to_rotmat` is the single batched implementation (it also powers forward kinematics).
+
+| Old (`pybvh.tools.*`) | New |
+|---|---|
+| `get_premult_mat_rot(angles, order)` | `pybvh.rotations.euler_to_rotmat(angles, order)` |
+| `batch_get_premult_mat_rot(angles, order)` | `pybvh.rotations.euler_to_rotmat(angles, order)` |
+| `rotX(a)` / `rotY(a)` / `rotZ(a)` | *(removed)* — e.g. `euler_to_rotmat([a, 0, 0], 'XYZ')` for a single-axis matrix |
+| `batch_rotX/Y/Z(angles)` | *(removed)* — same as above, batched |
+
+---
+
 ## Bvh class — Properties / Attributes
 
 | Old name | New name | Notes |

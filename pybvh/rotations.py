@@ -49,6 +49,25 @@ REPRESENTATION_CHANNELS = {
 def _validate_order(order_str: str) -> None:
     if len(order_str) != 3 or not all(c in 'XYZ' for c in order_str):
         raise ValueError(f"order must be 3 characters from 'XYZ', got '{order_str}'")
+    # Consecutive rotations about the same axis collapse into one — the
+    # third angle is unrecoverable and extraction would return garbage.
+    if order_str[0] == order_str[1] or order_str[1] == order_str[2]:
+        raise ValueError(
+            f"order must not repeat an axis consecutively, got '{order_str}'")
+
+
+def _group_joints_by_order(
+    per_joint: Sequence[str],
+) -> dict[str, npt.NDArray[np.intp]]:
+    """Map each distinct Euler order to the array of joint indices using it.
+
+    Joints sharing an order are grouped so per-joint conversions vectorize
+    inside each group instead of looping joint by joint.
+    """
+    groups: dict[str, list[int]] = {}
+    for j, order_str in enumerate(per_joint):
+        groups.setdefault(order_str, []).append(j)
+    return {o: np.asarray(idxs, dtype=np.intp) for o, idxs in groups.items()}
 
 
 def _parse_order(order: Union[str, Sequence[str]]) -> tuple[str | None, list[str] | None]:
@@ -128,11 +147,7 @@ def euler_to_rotmat(
             f"(..., {J}, 3); got shape {angles_arr.shape}")
 
     out = np.empty(angles_arr.shape + (3,), dtype=np.float64)
-    groups: dict[str, list[int]] = {}
-    for j, o in enumerate(per_joint):
-        groups.setdefault(o, []).append(j)
-    for order_str, idxs in groups.items():
-        idx_arr = np.asarray(idxs)
+    for order_str, idx_arr in _group_joints_by_order(per_joint).items():
         block = angles_arr[..., idx_arr, :]              # (*, |group|, 3)
         out[..., idx_arr, :, :] = _euler_to_rotmat_rad(block, order_str)
     return out
@@ -203,11 +218,7 @@ def rotmat_to_euler(
             f"(..., {J}, 3, 3); got shape {R_arr.shape}")
 
     out = np.empty(R_arr.shape[:-2] + (3,), dtype=np.float64)
-    groups: dict[str, list[int]] = {}
-    for j, o in enumerate(per_joint):
-        groups.setdefault(o, []).append(j)
-    for order_str, idxs in groups.items():
-        idx_arr = np.asarray(idxs)
+    for order_str, idx_arr in _group_joints_by_order(per_joint).items():
         block = R_arr[..., idx_arr, :, :]                # (*, |group|, 3, 3)
         out[..., idx_arr, :] = _rotmat_to_euler_rad(block, order_str)
     if degrees:
@@ -438,6 +449,11 @@ def quat_to_rotmat(q: npt.ArrayLike) -> npt.NDArray[np.float64]:
     -------
     R : ndarray, shape (*, 3, 3)
         Rotation matrices.
+
+    Raises
+    ------
+    ValueError
+        If any input quaternion has zero norm (no rotation is defined).
     """
     q_arr: npt.NDArray[np.float64] = np.asarray(q, dtype=np.float64)
     single = (q_arr.ndim == 1)
@@ -445,7 +461,12 @@ def quat_to_rotmat(q: npt.ArrayLike) -> npt.NDArray[np.float64]:
         q_arr = q_arr[np.newaxis, :]
 
     # Normalize
-    q_arr = q_arr / np.linalg.norm(q_arr, axis=-1, keepdims=True)
+    norm = np.linalg.norm(q_arr, axis=-1, keepdims=True)
+    if np.any(norm == 0.0):
+        raise ValueError(
+            "quat_to_rotmat received a zero-norm quaternion; the zero "
+            "quaternion does not represent a rotation")
+    q_arr = q_arr / norm
 
     w, x, y, z = q_arr[..., 0], q_arr[..., 1], q_arr[..., 2], q_arr[..., 3]
 
@@ -524,6 +545,45 @@ def quat_to_euler(
     return rotmat_to_euler(quat_to_rotmat(q), order, degrees=degrees)
 
 
+# ============================================================================
+# Quaternion algebra
+# ============================================================================
+
+def quat_multiply(
+    q1: npt.ArrayLike,
+    q2: npt.ArrayLike,
+) -> npt.NDArray[np.float64]:
+    """Hamilton product of quaternions (batch).
+
+    Composes rotations: the result rotates by ``q2`` first, then ``q1`` —
+    ``quat_to_rotmat(quat_multiply(q1, q2)) == quat_to_rotmat(q1) @
+    quat_to_rotmat(q2)``.  Inputs broadcast against each other over the
+    leading dimensions and are **not** normalized; multiply unit
+    quaternions to compose rotations.
+
+    Parameters
+    ----------
+    q1, q2 : array_like, shape (*, 4)
+        Quaternions in (w, x, y, z) scalar-first convention.  Leading
+        dimensions broadcast (e.g. ``(F, J, 4)`` with ``(4,)``).
+
+    Returns
+    -------
+    q : ndarray, shape (*, 4)
+        The Hamilton product ``q1 * q2``.
+    """
+    q1_arr: npt.NDArray[np.float64] = np.asarray(q1, dtype=np.float64)
+    q2_arr: npt.NDArray[np.float64] = np.asarray(q2, dtype=np.float64)
+    w1, x1, y1, z1 = (q1_arr[..., 0], q1_arr[..., 1],
+                      q1_arr[..., 2], q1_arr[..., 3])
+    w2, x2, y2, z2 = (q2_arr[..., 0], q2_arr[..., 1],
+                      q2_arr[..., 2], q2_arr[..., 3])
+    return np.stack([
+        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+    ], axis=-1)
 
 
 # ============================================================================
@@ -537,9 +597,12 @@ def rotmat_to_axisangle(R: npt.ArrayLike) -> npt.NDArray[np.float64]:
     The axis-angle vector is the unit rotation axis scaled by the rotation
     angle (in radians).  For the identity rotation the zero vector is returned.
 
-    Uses the logarithmic map: angle = arccos((trace(R)-1)/2), axis from the
-    skew-symmetric part of R.  The 180° case is handled via the eigenvector
-    of R corresponding to eigenvalue 1.
+    This is the SO(3) log map, routed through the quaternion:
+    ``angle = 2·atan2(‖q_vec‖, q_w)`` with the axis from the quaternion's
+    vector part.  Unlike the classic ``arccos((trace−1)/2)`` form, this
+    stays machine-precise everywhere — including near 180°, where the
+    trace route is ill-conditioned.  The returned angle is in ``[0, π]``
+    (at exactly π the axis sign is inherently ambiguous).
 
     Parameters
     ----------
@@ -551,56 +614,15 @@ def rotmat_to_axisangle(R: npt.ArrayLike) -> npt.NDArray[np.float64]:
     aa : ndarray, shape (*, 3)
         Axis-angle vectors (axis × angle_radians).
     """
-    R_arr: npt.NDArray[np.float64] = np.asarray(R, dtype=np.float64)
-    single = (R_arr.ndim == 2)
-    if single:
-        R_arr = R_arr[np.newaxis, :, :]
-
-    batch_shape = R_arr.shape[:-2]
-    R_flat = R_arr.reshape(-1, 3, 3)
-    N = R_flat.shape[0]
-
-    # angle = arccos( clamp( (trace - 1) / 2 ) )
-    trace = R_flat[:, 0, 0] + R_flat[:, 1, 1] + R_flat[:, 2, 2]
-    cos_angle = np.clip((trace - 1.0) / 2.0, -1.0, 1.0)
-    angle = np.arccos(cos_angle)  # in [0, π]
-
-    aa = np.zeros((N, 3), dtype=np.float64)
-
-    # ---- General case: sin(angle) is not near zero ----
-    sin_angle = np.sin(angle)
-    general = sin_angle > 1e-7
-    if np.any(general):
-        # axis from skew-symmetric part:  (R - R^T) / (2 sin θ)
-        # r = [R32-R23, R13-R31, R21-R12]
-        r = np.empty((N, 3), dtype=np.float64)
-        r[:, 0] = R_flat[:, 2, 1] - R_flat[:, 1, 2]
-        r[:, 1] = R_flat[:, 0, 2] - R_flat[:, 2, 0]
-        r[:, 2] = R_flat[:, 1, 0] - R_flat[:, 0, 1]
-
-        idx = np.where(general)[0]
-        aa[idx] = (r[idx] / (2.0 * sin_angle[idx, np.newaxis])) * angle[idx, np.newaxis]
-
-    # ---- Near 180° case: sin(angle) ≈ 0 but angle ≈ π ----
-    near_pi = (~general) & (angle > 1e-7)  # angle > 0 but sin≈0 ⟹ near π
-    if np.any(near_pi):
-        idx = np.where(near_pi)[0]
-        for i in idx:
-            # R ≈ 2 * (n n^T) - I  ⟹  n n^T = (R + I) / 2
-            # Pick the column of (R+I) with the largest norm as n
-            M = (R_flat[i] + np.eye(3)) / 2.0
-            col_norms = np.sum(M ** 2, axis=0)
-            best = np.argmax(col_norms)
-            axis = M[:, best]
-            axis = axis / np.linalg.norm(axis)
-            aa[i] = axis * angle[i]
-
-    # Near-zero angle case: aa stays at 0 (identity rotation)
-
-    aa = aa.reshape(batch_shape + (3,))
-    if single:
-        return aa[0]
-    return aa
+    q = rotmat_to_quat(R)  # canonical w >= 0 -> angle in [0, π]
+    vec = q[..., 1:]
+    vec_norm = np.linalg.norm(vec, axis=-1)
+    angle = 2.0 * np.arctan2(vec_norm, q[..., 0])
+    # aa = (vec / ‖vec‖) · angle; the ratio tends to 2 at identity (bounded),
+    # and the exact-identity entries map to the zero vector.
+    safe = np.where(vec_norm > 1e-12, vec_norm, 1.0)
+    scale = np.where(vec_norm > 1e-12, angle / safe, 0.0)
+    return vec * scale[..., None]
 
 
 def axisangle_to_rotmat(aa: npt.ArrayLike) -> npt.NDArray[np.float64]:
@@ -624,7 +646,6 @@ def axisangle_to_rotmat(aa: npt.ArrayLike) -> npt.NDArray[np.float64]:
 
     batch_shape = aa_arr.shape[:-1]
     aa_flat = aa_arr.reshape(-1, 3)
-    N = aa_flat.shape[0]
 
     angle = np.linalg.norm(aa_flat, axis=-1)  # (N,)
 
@@ -635,13 +656,7 @@ def axisangle_to_rotmat(aa: npt.ArrayLike) -> npt.NDArray[np.float64]:
 
     # Rodrigues: R = I + sin(θ) [k]× + (1 - cos θ) [k]×²
     # where [k]× is the skew-symmetric matrix of the unit axis k
-    K = np.zeros((N, 3, 3), dtype=np.float64)
-    K[:, 0, 1] = -axis[:, 2]
-    K[:, 0, 2] =  axis[:, 1]
-    K[:, 1, 0] =  axis[:, 2]
-    K[:, 1, 2] = -axis[:, 0]
-    K[:, 2, 0] = -axis[:, 1]
-    K[:, 2, 1] =  axis[:, 0]
+    K = _skew(axis)
 
     sin_a = np.sin(angle)[:, np.newaxis, np.newaxis]
     cos_a = np.cos(angle)[:, np.newaxis, np.newaxis]
@@ -737,38 +752,28 @@ def quat_slerp(
     q1_arr: npt.NDArray[np.float64] = np.asarray(q1, dtype=np.float64)
     q2_arr: npt.NDArray[np.float64] = np.asarray(q2, dtype=np.float64)
     t_arr: npt.NDArray[np.float64] = np.asarray(t, dtype=np.float64)
+    if t_arr.ndim > 0:
+        t_arr = t_arr[..., np.newaxis]  # broadcast against the quaternion axis
 
     # Ensure shortest path: flip q2 if dot product is negative
     dot = np.sum(q1_arr * q2_arr, axis=-1, keepdims=True)
     q2_arr = np.where(dot < 0, -q2_arr, q2_arr)
-    dot = np.abs(dot)
+    dot = np.clip(np.abs(dot), 0.0, 1.0)  # clamp for numerical safety
 
-    # Clamp for numerical safety
-    dot = np.clip(dot, 0.0, 1.0)
     theta = np.arccos(dot)
     sin_theta = np.sin(theta)
-    # Replace zeros with 1.0 to avoid division warnings — the result
-    # is discarded via np.where for these entries anyway.
-    safe_sin = np.where(sin_theta < 1e-7, 1.0, sin_theta)
+    # Near-identical quaternions fall back to normalized lerp; the tiny
+    # sines are replaced by 1.0 so no divide warning fires — those
+    # entries are discarded via np.where anyway. Shapes stay keepdims
+    # (*, 1) throughout, broadcasting against the quaternion axis.
+    near_zero = sin_theta < 1e-7
+    safe_sin = np.where(near_zero, 1.0, sin_theta)
 
-    # Near-identical quaternions: fall back to normalized lerp
-    near_zero = (sin_theta.squeeze(-1) < 1e-7) if sin_theta.ndim > 1 else (sin_theta < 1e-7)
-    near_zero = np.expand_dims(near_zero, -1) if near_zero.ndim < q1_arr.ndim else near_zero
-
-    # Reshape t for broadcasting
-    if t_arr.ndim == 0:
-        t_val = float(t_arr)
-        s1 = np.where(near_zero, 1.0 - t_val, np.sin((1.0 - t_val) * theta) / safe_sin)
-        s2 = np.where(near_zero, t_val, np.sin(t_val * theta) / safe_sin)
-    else:
-        t_arr = t_arr[..., np.newaxis]  # add quaternion dim
-        s1 = np.where(near_zero, 1.0 - t_arr, np.sin((1.0 - t_arr) * theta) / safe_sin)
-        s2 = np.where(near_zero, t_arr, np.sin(t_arr * theta) / safe_sin)
+    s1 = np.where(near_zero, 1.0 - t_arr, np.sin((1.0 - t_arr) * theta) / safe_sin)
+    s2 = np.where(near_zero, t_arr, np.sin(t_arr * theta) / safe_sin)
 
     result = s1 * q1_arr + s2 * q2_arr
-    # Normalize result
-    result = result / np.linalg.norm(result, axis=-1, keepdims=True)
-    return result
+    return result / np.linalg.norm(result, axis=-1, keepdims=True)
 
 
 # ============================================================================
@@ -861,16 +866,16 @@ def _normalize(v: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     return v / norm
 
 
-def _elementary_rotmat(angle: npt.NDArray[np.float64], axis: str) -> npt.NDArray[np.float64]:
+def _elementary_rotmat(angle: npt.ArrayLike, axis: str) -> npt.NDArray[np.float64]:
     """
     Build elementary (single-axis) rotation matrices (batch).
-    
+
     It constructs the standard Rx, Ry, or Rz matrices for a given angle.
 
     Parameters
     ----------
-    angle : ndarray, shape (N,)
-        Rotation angles in radians.
+    angle : array_like, shape (*)
+        Rotation angles in radians (scalar or any batch shape).
     axis : str
         One of 'X', 'Y', 'Z'.
 
@@ -878,29 +883,31 @@ def _elementary_rotmat(angle: npt.NDArray[np.float64], axis: str) -> npt.NDArray
     -------
     R : ndarray, shape (*, 3, 3)
     """
-    c = np.cos(angle)
-    s = np.sin(angle)
-    one = np.ones_like(angle)
-    zero = np.zeros_like(angle)
+    angle_arr = np.asarray(angle, dtype=np.float64)
+    c = np.cos(angle_arr)
+    s = np.sin(angle_arr)
 
+    # Preallocate and fill the 5 non-zero slots — this is the hottest path
+    # in Euler→rotmat conversion, so avoid the temporaries of nested stacks.
+    R = np.zeros(angle_arr.shape + (3, 3), dtype=np.float64)
     if axis == 'X':
-        R = np.stack([
-            np.stack([one,  zero, zero], axis=-1),
-            np.stack([zero, c,   -s],    axis=-1),
-            np.stack([zero, s,    c],    axis=-1),
-        ], axis=-2)
+        R[..., 0, 0] = 1.0
+        R[..., 1, 1] = c
+        R[..., 1, 2] = -s
+        R[..., 2, 1] = s
+        R[..., 2, 2] = c
     elif axis == 'Y':
-        R = np.stack([
-            np.stack([c,    zero, s],    axis=-1),
-            np.stack([zero, one,  zero], axis=-1),
-            np.stack([-s,   zero, c],    axis=-1),
-        ], axis=-2)
+        R[..., 0, 0] = c
+        R[..., 0, 2] = s
+        R[..., 1, 1] = 1.0
+        R[..., 2, 0] = -s
+        R[..., 2, 2] = c
     elif axis == 'Z':
-        R = np.stack([
-            np.stack([c,   -s,   zero], axis=-1),
-            np.stack([s,    c,   zero], axis=-1),
-            np.stack([zero, zero, one],  axis=-1),
-        ], axis=-2)
+        R[..., 0, 0] = c
+        R[..., 0, 1] = -s
+        R[..., 1, 0] = s
+        R[..., 1, 1] = c
+        R[..., 2, 2] = 1.0
     else:
         raise ValueError(f"axis must be 'X', 'Y', or 'Z', got '{axis}'")
 
@@ -927,11 +934,9 @@ def _extract_euler(R: npt.NDArray[np.float64], i: int, j: int, k: int) -> npt.ND
     angles = np.empty((N, 3), dtype=np.float64)
 
     if i == k:
-        # Proper Euler angles (e.g., ZYZ, XYX, ...)
-        # Find the third axis: the one that is not i or j
-        k_actual = 3 - i - j  # since {0,1,2} and we know i,j
-        # But the user specified i==k, so the actual third axis in the
-        # decomposition is i again. We use the proper Euler formula.
+        # Proper Euler angles (e.g., ZYZ, XYX, ...): the extraction
+        # formulas also involve the third distinct axis, k_actual.
+        k_actual = 3 - i - j
         # Sign factor for the cross-product parity
         sign = 1.0 if (j - i) % 3 == 2 else -1.0
         c2 = R[:, i, i]
@@ -948,9 +953,6 @@ def _extract_euler(R: npt.NDArray[np.float64], i: int, j: int, k: int) -> npt.ND
         angles[:, 2] = np.where(safe,
             np.arctan2(R[:, i, j], -sign * R[:, i, k_actual]),
             np.arctan2(sign * R[:, j, k_actual], R[:, j, j]))
-
-        # The above k_actual is 3 - i - j; for proper Euler this is the
-        # third distinct axis
     else:
         # Tait-Bryan angles (e.g., ZYX, XYZ, ...)
         # Sign factor: +1 if (i,j,k) is an even permutation of (0,1,2), else -1
@@ -1002,20 +1004,28 @@ def _skew(w: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     return K
 
 
-def _v_coeffs(theta: npt.NDArray[np.float64]) -> tuple[npt.NDArray, npt.NDArray]:
-    """Coefficients ``b, c`` of the left-Jacobian ``V = I + b[ω]× + c[ω]×²``.
+def _v_coeffs(
+    theta: npt.NDArray[np.float64],
+) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
+    """Coefficients ``a, b, c`` shared by Rodrigues and the left Jacobian.
 
-    ``b = (1−cosθ)/θ²``, ``c = (θ−sinθ)/θ³`` — Taylor-expanded below
-    ``_SE3_SMALL`` so θ→0 stays finite and accurate.
+    On the **unnormalized** ``[ω]×`` (θ = ‖ω‖):
+    ``R = I + a[ω]× + b[ω]×²`` and ``V = I + b[ω]× + c[ω]×²`` with
+    ``a = sinθ/θ``, ``b = (1−cosθ)/θ²``, ``c = (θ−sinθ)/θ³`` —
+    Taylor-expanded below ``_SE3_SMALL`` so θ→0 stays finite and accurate.
     """
     small = theta < _SE3_SMALL
     safe = np.where(small, 1.0, theta)
+    a_exact = np.sin(safe) / safe
     b_exact = (1.0 - np.cos(safe)) / safe ** 2
     c_exact = (safe - np.sin(safe)) / safe ** 3
     t2 = theta ** 2
+    a_series = 1.0 - t2 / 6.0 + t2 ** 2 / 120.0
     b_series = 0.5 - t2 / 24.0 + t2 ** 2 / 720.0
     c_series = 1.0 / 6.0 - t2 / 120.0 + t2 ** 2 / 5040.0
-    return np.where(small, b_series, b_exact), np.where(small, c_series, c_exact)
+    return (np.where(small, a_series, a_exact),
+            np.where(small, b_series, b_exact),
+            np.where(small, c_series, c_exact))
 
 
 def _vinv_coeff(theta: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
@@ -1066,11 +1076,14 @@ def se3_exp(twist: npt.ArrayLike) -> npt.NDArray[np.float64]:
     omega = xi[..., :3]
     v = xi[..., 3:]
     theta = np.linalg.norm(omega, axis=-1)
-    R = axisangle_to_rotmat(omega)
+    # Rodrigues and the left Jacobian share K, K² and the b coefficient
+    # (see _v_coeffs), so both are built from one pair of matrix products.
     K = _skew(omega)
-    b, c = _v_coeffs(theta)
+    KK = K @ K
+    a, b, c = _v_coeffs(theta)
     eye = np.eye(3, dtype=np.float64)
-    V = eye + b[..., None, None] * K + c[..., None, None] * (K @ K)
+    R = eye + a[..., None, None] * K + b[..., None, None] * KK
+    V = eye + b[..., None, None] * K + c[..., None, None] * KK
     d = (V @ v[..., None])[..., 0]
 
     T = np.zeros(xi.shape[:-1] + (4, 4), dtype=np.float64)
@@ -1078,26 +1091,6 @@ def se3_exp(twist: npt.ArrayLike) -> npt.NDArray[np.float64]:
     T[..., :3, 3] = d
     T[..., 3, 3] = 1.0
     return T[0] if single else T
-
-
-def _so3_log(R: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-    """Rotation-matrix log as axis-angle, via the quaternion (robust at θ≈π).
-
-    The ``arccos((trace−1)/2)`` angle and the eigenvector axis used by
-    :func:`rotmat_to_axisangle` are ill-conditioned near π (errors ~1e-4 at
-    θ = π − 1e-6); the quaternion route stays machine-precise everywhere, so
-    the SE(3) log and geodesic build on this. Returns ``axis × angle`` with
-    angle in ``[0, π]``.
-    """
-    q = rotmat_to_quat(R)
-    q = np.where(q[..., :1] < 0.0, -q, q)  # canonical w >= 0 -> angle in [0, π]
-    vec = q[..., 1:]
-    vec_norm = np.linalg.norm(vec, axis=-1)
-    angle = 2.0 * np.arctan2(vec_norm, q[..., 0])
-    # aa = (vec / ‖vec‖) · angle; the ratio tends to 2 at identity (bounded).
-    safe = np.where(vec_norm > 1e-12, vec_norm, 1.0)
-    scale = np.where(vec_norm > 1e-12, angle / safe, 0.0)
-    return vec * scale[..., None]
 
 
 def se3_log(transform: npt.ArrayLike) -> npt.NDArray[np.float64]:
@@ -1130,7 +1123,7 @@ def se3_log(transform: npt.ArrayLike) -> npt.NDArray[np.float64]:
 
     R = T[..., :3, :3]
     d = T[..., :3, 3]
-    omega = _so3_log(R)
+    omega = rotmat_to_axisangle(R)
     theta = np.linalg.norm(omega, axis=-1)
     K = _skew(omega)
     e = _vinv_coeff(theta)
@@ -1142,10 +1135,40 @@ def se3_log(transform: npt.ArrayLike) -> npt.NDArray[np.float64]:
     return twist[0] if single else twist
 
 
+def se3_inverse(transform: npt.ArrayLike) -> npt.NDArray[np.float64]:
+    """Closed-form inverse of rigid transforms (batch).
+
+    ``[R, d]⁻¹ = [Rᵀ, −Rᵀd]`` — exact and cheaper than a general matrix
+    inverse, since the rotation block of a rigid transform is orthogonal.
+
+    Parameters
+    ----------
+    transform : array_like, shape (*, 4, 4)
+        Homogeneous rigid transforms.
+
+    Returns
+    -------
+    ndarray, shape (*, 4, 4)
+        The inverse transforms.
+
+    See Also
+    --------
+    se3_exp, se3_log : SE(3) exp/log maps.
+    screw_interpolate : SE(3) geodesic blend (uses this inverse).
+    """
+    T = np.asarray(transform, dtype=np.float64)
+    R_t = np.swapaxes(T[..., :3, :3], -1, -2)
+    out = np.zeros_like(T)
+    out[..., :3, :3] = R_t
+    out[..., :3, 3] = -(R_t @ T[..., :3, 3:])[..., 0]
+    out[..., 3, 3] = 1.0
+    return out
+
+
 def screw_interpolate(
     T0: npt.ArrayLike,
     T1: npt.ArrayLike,
-    t: float,
+    t: float | npt.ArrayLike,
 ) -> npt.NDArray[np.float64]:
     """Screw-motion interpolation between two rigid transforms.
 
@@ -1158,9 +1181,11 @@ def screw_interpolate(
     ----------
     T0, T1 : array_like, shape (*, 4, 4)
         Endpoint transforms.
-    t : float
-        Interpolation parameter (typically in ``[0, 1]``, extrapolates
-        outside).
+    t : float or array_like
+        Interpolation parameter(s) (typically in ``[0, 1]``, extrapolates
+        outside). An array ``t`` broadcasts against the batch shape like
+        :func:`quat_slerp` — e.g. a single transform pair with ``t`` of
+        shape ``(K,)`` yields ``(K, 4, 4)``.
 
     Returns
     -------
@@ -1173,8 +1198,11 @@ def screw_interpolate(
     """
     T0 = np.asarray(T0, dtype=np.float64)
     T1 = np.asarray(T1, dtype=np.float64)
-    relative = se3_log(np.linalg.inv(T0) @ T1)
-    return T0 @ se3_exp(t * relative)
+    relative = se3_log(se3_inverse(T0) @ T1)
+    t_arr = np.asarray(t, dtype=np.float64)
+    if t_arr.ndim > 0:
+        t_arr = t_arr[..., np.newaxis]  # broadcast against the twist axis
+    return T0 @ se3_exp(t_arr * relative)
 
 
 def relative_transform(
@@ -1206,11 +1234,29 @@ def relative_transform(
     """
     Tm = _segment_frame(np.asarray(seg_m, dtype=np.float64))
     Tn = _segment_frame(np.asarray(seg_n, dtype=np.float64))
-    return np.linalg.inv(Tm) @ Tn
+    return se3_inverse(Tm) @ Tn
 
 
-def _segment_frame(seg: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+# Default reference direction for _segment_frame: a fixed world-up-style
+# constant (+y, the most common BVH up axis).
+_SEGMENT_REF_AXIS = np.array([0.0, 1.0, 0.0])
+
+
+def _segment_frame(
+    seg: npt.NDArray[np.float64],
+    ref: npt.ArrayLike | None = None,
+) -> npt.NDArray[np.float64]:
     """World←segment transform: origin at start, x along the segment.
+
+    The y axis comes from crossing one fixed reference direction ``ref``
+    (default ``_SEGMENT_REF_AXIS``) with x. A *fixed* reference keeps the
+    frame temporally continuous while a segment rotates — choosing the
+    reference per entry (as the previous "world axis least aligned with x"
+    rule did) makes the frame jump whenever the segment crosses an axis
+    bisector, which turned smooth motion into discontinuous
+    ``relative_transform`` features. Only entries whose x is (near)
+    parallel to ``ref`` fall back to the least-aligned world axis, where
+    any perpendicular choice is equally arbitrary.
 
     A zero-length segment (coincident endpoints) has no direction, hence no
     frame — those entries are filled with ``nan`` (guarded so no divide
@@ -1222,10 +1268,17 @@ def _segment_frame(seg: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     x_norm = np.linalg.norm(x, axis=-1, keepdims=True)
     defined = x_norm[..., 0] > 1e-12
     x = x / np.where(x_norm > 1e-12, x_norm, 1.0)
-    # Reference axis = the world axis least aligned with x (stable cross).
-    least = np.argmin(np.abs(x), axis=-1)
-    ref = np.eye(3, dtype=np.float64)[least]
-    y = np.cross(ref, x)
+
+    ref_vec = _SEGMENT_REF_AXIS if ref is None else np.asarray(ref, dtype=np.float64)
+    ref_dir = np.broadcast_to(ref_vec, x.shape)
+    # ‖ref × x‖ = sin(angle between them): near-parallel entries have no
+    # stable cross product, so they get a per-entry perpendicular fallback.
+    parallel = np.linalg.norm(np.cross(ref_dir, x), axis=-1) < 1e-6
+    if np.any(parallel):
+        least = np.argmin(np.abs(x), axis=-1)
+        fallback = np.eye(3, dtype=np.float64)[least]
+        ref_dir = np.where(parallel[..., None], fallback, ref_dir)
+    y = np.cross(ref_dir, x)
     y_norm = np.linalg.norm(y, axis=-1, keepdims=True)
     y = y / np.where(y_norm > 1e-12, y_norm, 1.0)
     z = np.cross(x, y)
@@ -1266,4 +1319,4 @@ def rotation_geodesic_distance(
     R1 = np.asarray(R1, dtype=np.float64)
     R2 = np.asarray(R2, dtype=np.float64)
     relative = np.swapaxes(R1, -1, -2) @ R2
-    return np.linalg.norm(_so3_log(relative), axis=-1)
+    return np.linalg.norm(rotmat_to_axisangle(relative), axis=-1)

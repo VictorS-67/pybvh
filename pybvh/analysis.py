@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import warnings
 from collections import namedtuple
+from collections.abc import Mapping
 from typing import Callable
 
 import numpy as np
@@ -579,6 +580,9 @@ def foot_contacts(
     floor: float | str = "auto",
     min_contact_duration: float = 0.1,
     min_gap_duration: float = 0.1,
+    hysteresis: float = 0.25,
+    adaptive: bool = False,
+    height_reference: str = "velocity",
     return_info: bool = False,
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
     """Detect binary foot contact labels per frame.
@@ -638,15 +642,34 @@ def foot_contacts(
         phase, catching pivot-foot artefacts where the joint briefly
         exceeds the velocity threshold even though the physical foot
         is planted.  Set to ``0.0`` to disable.
+    hysteresis : float, keyword-only, optional
+        Schmitt-trigger band fraction (default ``0.25``). A frame enters
+        swing only when its signal rises above ``threshold*(1+hysteresis)``
+        and a contact is kept only if it ever drops below
+        ``threshold*(1-hysteresis)`` — so an isolated dip near the
+        threshold no longer flips the label. Strictly suppresses boundary
+        flicker (it cannot invent contacts). Set to ``0.0`` for the plain
+        single-threshold behaviour.
+    adaptive : bool, keyword-only, optional
+        If True, derive each foot's thresholds from its own signal
+        distribution (Otsu's bimodal split between the stance and swing
+        clusters) instead of the fixed scale fraction, falling back to the
+        fixed default for any foot whose signal is not convincingly
+        bimodal (e.g. standing, or a foot that never clearly swings).
+        Default ``False``; recommended for known-locomotion clips where the
+        fixed threshold under- or over-detects.
     return_info : bool, keyword-only, optional
-        If True, return ``(contacts, info)`` where ``info`` is a dict
-        holding the detected joints, the thresholds actually applied,
-        the estimated floor, the skeleton scale used for auto-
-        calibration, and the method used.  Useful for debugging and
-        for downstream pipelines that need to record the detection
-        parameters.  ``"skeleton_scale"`` is only present when
-        auto-calibration ran (i.e., at least one threshold was left
-        at its default).
+        If True, return ``(contacts, info)`` where ``info`` holds the
+        detected joints, method, thresholds actually applied, estimated
+        floor, skeleton scale, the ``hysteresis`` band, a per-foot
+        ``confidence`` in ``[0, 1]`` (detection decisiveness), and
+        unsupervised quality diagnostics: ``foot_skate`` (``mean``/``max``
+        horizontal drift of a planted foot, ÷ skeleton scale — should be
+        ~0), ``airborne_fraction`` (frames with no foot down — a
+        false-negative signal), and ``height_at_contact`` (mean clearance
+        during contact, per foot). With ``adaptive=True`` it also reports
+        per-foot thresholds and ``adaptive_used_*`` flags.
+        ``"skeleton_scale"`` is only present when auto-calibration ran.
 
     Returns
     -------
@@ -686,6 +709,8 @@ def foot_contacts(
     # Rest-pose coords are used by auto-detect and by the height-signal
     # sanity check; compute once, reuse.
     rest_coords: npt.NDArray[np.float64] | None = None
+
+    auto_feet = foot_joints is None   # provenance: gates use of the canonical floor
 
     if foot_joints is None:
         rest_coords = bvh.rest_pose_coords()
@@ -738,56 +763,62 @@ def foot_contacts(
                 f"it manually with `bvh.world_up = '<axis>'`."
             )
 
-    # ---- Velocity signal ----
-    vel_mask: npt.NDArray[np.bool_] | None = None
-    vel_thr_used: float | None = None
+    # ---- Signals (F, num_feet), threshold resolution ----
+    speed = None
+    clearance = None
+    vel_thr_used = None
+    height_thr_used = None
+    floor_raw = None
+    vel_adaptive_used = None
+    height_adaptive_used = None
+
     if needs_vel:
+        if F < 2:
+            # No motion info — treat as "no velocity evidence against contact"
+            # (speed 0 < any positive threshold) so combined falls back to height.
+            speed = np.zeros((F, num_feet))
+        else:
+            sp = np.linalg.norm(foot_coords[1:] - foot_coords[:-1], axis=-1)  # (F-1, nf)
+            speed = np.concatenate([sp[0:1], sp], axis=0)   # frame-0 propagated
         if vel_threshold is None:
             assert scale is not None
-            # 0.4% of the root-to-foot rest distance per frame.
-            # Reverse-engineered from HuMoR-equivalent + pivot-foot tolerance
-            # on real BVH clips.
-            vel_threshold = 0.004 * scale
-        vel_thr_used = float(vel_threshold)
-        if F < 2:
-            # No motion info available — treat as "no velocity evidence
-            # against contact" so combined falls back to the height signal.
-            vel_mask = np.ones((F, num_feet), dtype=bool)
-        else:
-            foot_vel = foot_coords[1:] - foot_coords[:-1]  # (F-1, nf, 3)
-            speed = np.linalg.norm(foot_vel, axis=-1)       # (F-1, nf)
-            inner = speed < vel_threshold
-            # Propagate frame 0 from frame 1 (velocity undefined at frame 0)
-            vel_mask = np.concatenate([inner[0:1], inner], axis=0)
+            base = 0.004 * scale   # 0.4% of root-to-foot rest distance per frame
+            if adaptive and F >= 2:
+                vel_threshold, vel_adaptive_used = _resolve_adaptive(speed, base)
+            else:
+                vel_threshold = base
+        vel_thr_used = vel_threshold
 
-    # ---- Height signal ----
-    height_mask: npt.NDArray[np.bool_] | None = None
-    height_thr_used: float | None = None
-    floor_raw: float | None = None
     if needs_height:
         heights_signed = foot_coords[:, :, up_idx] * up_sign  # up-positive
         if isinstance(floor, str):
-            floor_signed = _estimate_floor(heights_signed)
+            # The canonical (cached) floor only when feet were auto-detected;
+            # an explicit foot_joints set keeps its own per-call estimate.
+            floor_signed = (bvh.floor_height * up_sign if auto_feet
+                            else _estimate_floor(heights_signed))
         else:
             floor_signed = float(floor) * up_sign
         floor_raw = float(floor_signed * up_sign)
+        clearance = heights_signed - floor_signed
         if height_threshold is None:
             assert scale is not None
-            # ~1.3% of root-to-foot rest distance above floor.
-            height_threshold = 0.013 * scale
-        height_thr_used = float(height_threshold)
-        height_mask = (heights_signed - floor_signed) < height_threshold
+            base = 0.013 * scale   # ~1.3% of root-to-foot rest distance above floor
+            if method == "combined" and height_reference == "velocity":
+                # Calibrate the height threshold per foot to its own stance
+                # level (handles retargeting hover); reduces to `base` on rigs
+                # where the foot reaches the floor.
+                height_threshold = _velocity_informed_height(
+                    clearance, speed, vel_threshold, base)
+            elif adaptive:
+                height_threshold, height_adaptive_used = _resolve_adaptive(clearance, base)
+            else:
+                height_threshold = base
+        height_thr_used = height_threshold
 
-    # ---- Combine ----
-    if method == "velocity":
-        assert vel_mask is not None
-        mask = vel_mask
-    elif method == "height":
-        assert height_mask is not None
-        mask = height_mask
-    else:  # combined
-        assert vel_mask is not None and height_mask is not None
-        mask = vel_mask & height_mask
+    mask, confidence = _detect_contacts(
+        speed, clearance, method=method,
+        vel_threshold=vel_threshold, height_threshold=height_threshold,
+        hysteresis=hysteresis)
 
     # ---- Morphological duration filters (time → frames) ----
     dt = bvh.frame_time if bvh.frame_time > 0 else 1.0
@@ -809,14 +840,34 @@ def foot_contacts(
         "method": method,
         "min_contact_duration": float(min_contact_duration),
         "min_gap_duration": float(min_gap_duration),
+        "hysteresis": float(hysteresis),
+        "height_reference": height_reference,
+        "confidence": confidence,
     }
     if scale is not None:
         info["skeleton_scale"] = float(scale)
     if vel_thr_used is not None:
-        info["vel_threshold"] = vel_thr_used
+        arr = np.atleast_1d(np.asarray(vel_thr_used, dtype=float))
+        info["vel_threshold"] = float(arr.mean())
+        if arr.size > 1:
+            info["vel_threshold_per_foot"] = arr
+        if vel_adaptive_used is not None:
+            info["adaptive_used_velocity"] = vel_adaptive_used
     if height_thr_used is not None:
-        info["height_threshold"] = height_thr_used
+        arr = np.atleast_1d(np.asarray(height_thr_used, dtype=float))
+        info["height_threshold"] = float(arr.mean())
+        if arr.size > 1:
+            info["height_threshold_per_foot"] = arr
         info["floor"] = floor_raw
+        if height_adaptive_used is not None:
+            info["adaptive_used_height"] = height_adaptive_used
+
+    diag_scale = scale if scale is not None else _skeleton_scale(
+        bvh.rest_pose_coords(), foot_indices)
+    if clearance is None:   # method="velocity": derive a clearance for diagnostics
+        h = foot_coords[:, :, up_idx] * up_sign
+        clearance = h - _estimate_floor(h)
+    info.update(_contact_diagnostics(mask, foot_coords, clearance, up_idx, diag_scale))
     return contacts, info
 
 
@@ -995,6 +1046,26 @@ def _estimate_floor(
     return float(np.percentile(min_per_frame, percentile))
 
 
+def _compute_floor_height(bvh: Bvh) -> float:
+    """Canonical geometric floor height in raw world coordinates.
+
+    Backs the cached :attr:`Bvh.floor_height`. The floor is the
+    2nd-percentile of the per-frame minimum foot height (see
+    :func:`_estimate_floor`), measured over auto-detected feet and signed
+    back into the raw up axis. For footless skeletons (or rigs whose feet
+    are end sites, where auto-detection returns ``[]``) it falls back to
+    *all* nodes. This is the scene's ground plane — a per-foot stance
+    *hover* above it is handled separately inside :func:`foot_contacts`.
+    """
+    up_sign = 1 if bvh.world_up[0] == '+' else -1
+    up_idx = {'x': 0, 'y': 1, 'z': 2}[bvh.world_up[1]]
+    coords = bvh.node_positions()                       # (F, N, 3), world
+    feet = auto_detect_foot_joints(bvh)
+    idx = [bvh.node_index[n] for n in feet] if feet else list(range(coords.shape[1]))
+    heights_signed = coords[:, idx, up_idx] * up_sign
+    return float(_estimate_floor(heights_signed) * up_sign)
+
+
 def _filter_short_runs(
     mask: npt.NDArray[np.bool_],
     min_run: int,
@@ -1006,6 +1077,9 @@ def _filter_short_runs(
     (morphological open — removes contact jitter).  With
     ``value=False``: fills in short False runs (morphological close —
     bridges short gaps in an otherwise continuous contact phase).
+
+    Runs touching frame 0 or the last frame are exempt: the clip truncates them,
+    so their observed length is only a lower bound and cannot be judged "short".
 
     Returns the input unchanged when ``min_run <= 1``.
     """
@@ -1033,12 +1107,326 @@ def _filter_short_runs(
     end_idx = np.where(diffs == -1, pos_col, F + 2)
     end_pos = np.minimum.accumulate(end_idx[::-1], axis=0)[::-1]
 
-    run_length = end_pos[1:F + 1] - start_pos[:F]
-    short_run_mask = m & (run_length < min_run)
+    starts = start_pos[:F]
+    ends = end_pos[1:F + 1]
+    run_length = ends - starts
+    # A run touching frame 0 or the last frame is "open": the clip cut it off, so
+    # its observed length is only a lower bound — we can't conclude it is short.
+    # Exempt it, so the offline detector never extrapolates across the clip edge
+    # (don't remove a truncated contact; don't fill a truncated gap, e.g. a foot
+    # lifting at the very end is not "closed" back into a held stance).
+    open_run = (starts == 0) | (ends == F)
+    short_run_mask = m & (run_length < min_run) & ~open_run
 
     if value:
         return mask & ~short_run_mask
     return mask | short_run_mask
+
+
+def _true_runs(col: npt.NDArray[np.bool_]) -> list[tuple[int, int]]:
+    """Half-open ``[start, end)`` ranges of contiguous True runs in a 1-D mask."""
+    idx = np.flatnonzero(col)
+    if idx.size == 0:
+        return []
+    breaks = np.flatnonzero(np.diff(idx) > 1)
+    starts = np.concatenate([[idx[0]], idx[breaks + 1]])
+    ends = np.concatenate([idx[breaks], [idx[-1]]]) + 1
+    return list(zip(starts.tolist(), ends.tolist()))
+
+
+def _hysteresis_mask(
+    signal: npt.NDArray[np.float64],
+    low_thr: npt.NDArray[np.float64] | float,
+    high_thr: npt.NDArray[np.float64] | float,
+) -> npt.NDArray[np.bool_]:
+    """Schmitt-trigger threshold for "contact = LOW signal".
+
+    A frame is *weak* (maybe-contact) when ``signal < high_thr`` and *strong*
+    (definitely-contact) when ``signal < low_thr`` (``low_thr <= high_thr``,
+    since being below the lower threshold is stronger evidence of contact). A
+    weak run is kept only if it contains at least one strong frame — so an
+    isolated dip below ``high_thr`` that never reaches ``low_thr`` is rejected,
+    killing boundary flicker. Fully vectorized per column, reusing the
+    run-machinery of :func:`_filter_short_runs`. ``low_thr == high_thr`` reduces
+    to ``signal < high_thr``. Thresholds may be scalar or per-foot ``(nf,)``.
+    """
+    weak = signal < high_thr
+    strong = signal < low_thr
+    F, M = signal.shape
+    padded = np.zeros((F + 2, M), dtype=np.int8)
+    padded[1:-1] = weak
+    diffs = np.diff(padded, axis=0)                      # (F+1, M)
+    pos_col = np.arange(F + 1)[:, None]
+    start_idx = np.where(diffs == 1, pos_col, -1)
+    start_pos = np.maximum.accumulate(start_idx, axis=0)
+    end_idx = np.where(diffs == -1, pos_col, F + 2)
+    end_pos = np.minimum.accumulate(end_idx[::-1], axis=0)[::-1]
+    s = np.clip(start_pos[:F], 0, F)                     # run start per row (F, M)
+    e = np.clip(end_pos[1:F + 1], 0, F)                  # run end per row (F, M)
+    strong_cum = np.concatenate(
+        [np.zeros((1, M), dtype=np.int64),
+         np.cumsum(strong.astype(np.int64), axis=0)], axis=0)   # (F+1, M)
+    strong_in_run = (np.take_along_axis(strong_cum, e, axis=0)
+                     - np.take_along_axis(strong_cum, s, axis=0))
+    return weak & (strong_in_run > 0)
+
+
+def _release_open_runs(
+    mask: npt.NDArray[np.bool_],
+    raw: npt.NDArray[np.bool_],
+) -> npt.NDArray[np.bool_]:
+    """Trim hysteresis-filled contact runs that reach a clip boundary back to
+    their raw single-threshold support on the open side.
+
+    A contact run touching frame 0 or the last frame is *open*: what the foot
+    does past the clip edge is unknown. Hysteresis fills the weak band around a
+    run's strong frames, but an open run never crosses back out of the band, so
+    the fill extrapolates contact all the way to the edge — a foot cut off
+    mid-toe-off stays labelled "planted" to the last frame. The detector is
+    offline (the whole clip is in hand), so that extrapolation is unjustified:
+    on the open side, contact must not extend past the last frame the raw
+    threshold (``signal < thr``) supports. Interior runs — closed on both ends,
+    where the band genuinely re-opens — are left untouched.
+
+    ``raw`` is the single-threshold mask ``signal < thr``. Every filled run
+    contains a strong frame and every strong frame is raw (``low_thr < thr``),
+    so an open run always has raw support to trim back to.
+    """
+    F = mask.shape[0]
+    out = mask.copy()
+    for j in range(mask.shape[1]):
+        runs = _true_runs(out[:, j])
+        if not runs:
+            continue
+        s, e = runs[0]
+        if s == 0:                                   # left-open: drop leading band
+            support = np.flatnonzero(raw[s:e, j])
+            out[s:s + support[0], j] = False
+        s, e = runs[-1]
+        if e == F:                                   # right-open: drop trailing band
+            support = np.flatnonzero(raw[s:e, j])
+            out[s + support[-1] + 1:e, j] = False
+    return out
+
+
+def _otsu_threshold(
+    values: npt.NDArray[np.float64],
+    *,
+    nbins: int = 64,
+    valley_ratio: float = 0.6,
+    mass_min: float = 0.1,
+) -> tuple[float | None, float]:
+    """Otsu bimodal threshold of a 1-D sample, gated by a valley-depth test.
+
+    Returns ``(threshold, strength)`` — ``threshold`` maximizes between-class
+    variance (centred in any flat valley) and ``strength`` is Otsu's η
+    (between/total variance). Returns ``(None, strength)`` — caller should fall
+    back to a fixed threshold — when the distribution is not convincingly
+    bimodal: the histogram density at the split is not clearly below both
+    surrounding peaks (``> valley_ratio × min(peak)``), either side carries less
+    than ``mass_min`` of the mass, fewer than 8 samples, or zero variance.
+    η alone cannot tell bimodal from unimodal (a Gaussian split at its mean has
+    η ≈ 0.6), so the *valley depth* is the real discriminator.
+    """
+    v = values[np.isfinite(values)]
+    if v.size < 8:
+        return None, 0.0
+    vmin, vmax = float(v.min()), float(v.max())
+    total_var = float(v.var())
+    if vmax <= vmin or total_var <= 0:
+        return None, 0.0
+    hist, edges = np.histogram(v, bins=nbins, range=(vmin, vmax))
+    p = hist / hist.sum()
+    centers = (edges[:-1] + edges[1:]) / 2.0
+    w0 = np.cumsum(p)
+    w1 = 1.0 - w0
+    cum_mean = np.cumsum(p * centers)
+    mu_t = cum_mean[-1]
+    valid = (w0 > 0) & (w1 > 0)
+    sigma_b2 = np.zeros_like(p)
+    sigma_b2[valid] = ((mu_t * w0[valid] - cum_mean[valid]) ** 2
+                       / (w0[valid] * w1[valid]))
+    # Centre the split in any flat plateau (a wide empty valley makes σ_b²
+    # constant across it; argmax alone would snap to its left edge).
+    plateau = np.flatnonzero(sigma_b2 >= sigma_b2.max() - 1e-12)
+    k = int(plateau[len(plateau) // 2])
+    if not valid[k]:
+        return None, 0.0
+    thr = float(centers[k])
+    eta = float(sigma_b2[k] / total_var)
+    # Smooth the histogram before the valley test — raw bin noise in a unimodal
+    # distribution would otherwise fake a dip next to the mode.
+    sm = np.convolve(hist.astype(np.float64), np.ones(5) / 5.0, mode="same")
+    left_peak = float(sm[:k + 1].max())
+    right_peak = float(sm[k:].max())
+    valley = float(sm[max(0, k - 1):k + 2].min())
+    peak = min(left_peak, right_peak)
+    valley_ok = peak > 0 and valley <= valley_ratio * peak
+    mass_ok = (w0[k] >= mass_min) and (w1[k] >= mass_min)
+    if not valley_ok or not mass_ok:
+        return None, eta
+    return thr, eta
+
+
+def _resolve_adaptive(
+    signal: npt.NDArray[np.float64],
+    base: float,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.bool_]]:
+    """Per-foot adaptive thresholds (Otsu) with fallback to ``base`` and clamp.
+
+    Returns ``(thresholds (nf,), used (nf,) bool)``. A foot whose signal is not
+    convincingly bimodal falls back to ``base`` (``used=False``); accepted
+    thresholds are clamped to ``[0.25*base, 4*base]`` to bound the blast radius.
+    """
+    nf = signal.shape[1]
+    thr = np.full(nf, float(base))
+    used = np.zeros(nf, dtype=bool)
+    lo, hi = 0.25 * base, 4.0 * base
+    for i in range(nf):
+        t, _ = _otsu_threshold(signal[:, i])
+        if t is not None:
+            thr[i] = float(np.clip(t, lo, hi))
+            used[i] = True
+    return thr, used
+
+
+def _velocity_informed_height(
+    clearance: npt.NDArray[np.float64],   # (F, nf), up-positive height above floor
+    speed: npt.NDArray[np.float64],       # (F, nf), per-frame foot speed
+    vel_threshold,                        # scalar or (nf,) — the stance velocity gate
+    margin: float,                        # 0.013*scale, the fixed default reused as a margin
+) -> npt.NDArray[np.float64]:
+    """Per-foot height threshold calibrated to each foot's own stance level.
+
+    Retargeted mocap leaves the foot hovering a clip-dependent amount above the
+    floor, so a fixed height threshold misses real stance. Here the threshold is
+    pinned to where each foot actually sits when it is *slow* (a stance
+    candidate). Per foot ``i``::
+
+        slow_i      = speed_i < vel_threshold
+        contact_h   = median(clearance_i[slow_i])      # this foot's stance level
+        swing_high  = p90(clearance_i)                 # swing apex
+        thr_i = contact_h + margin   if swing_high > contact_h + 2*margin
+              = margin               otherwise          # guard
+
+    The *additive* margin makes ``thr_i`` reduce to ``margin`` exactly when the
+    foot reaches the floor (``contact_h ≈ 0``) — identical to the old fixed
+    behaviour. The guard requires a clear swing above the contact level, so a
+    slow-but-airborne *held* foot (no swing) falls back to the fixed threshold
+    and is correctly rejected. Returns ``(nf,)``.
+    """
+    nf = clearance.shape[1]
+    thr = np.full(nf, float(margin))
+    vt = np.broadcast_to(np.atleast_1d(np.asarray(vel_threshold, dtype=np.float64)), (nf,))
+    for i in range(nf):
+        slow = speed[:, i] < vt[i]
+        if not slow.any():
+            continue                                   # no stance candidate -> fixed
+        contact_h = float(np.median(clearance[slow, i]))
+        swing_high = float(np.percentile(clearance[:, i], 90))
+        if swing_high > contact_h + 2.0 * margin:      # a clear swing exists
+            thr[i] = contact_h + margin
+    return thr
+
+
+def _contact_confidence(
+    speed, clearance, vel_mask, height_mask, mask, method,
+    vel_threshold, height_threshold,
+) -> npt.NDArray[np.float64]:
+    """Per-foot detection confidence in ``[0, 1]`` (decisiveness, not probability).
+
+    ``margin`` = mean over contact frames of how far each active signal sits
+    below its threshold; ``agreement`` (combined only) = fraction of frames the
+    velocity and height masks concur. ``confidence = sqrt(margin*agreement)``
+    for combined, ``margin`` otherwise. Zero when a foot never contacts.
+    """
+    nf = mask.shape[1]
+    margins = []
+    if vel_mask is not None:
+        margins.append(np.clip((vel_threshold - speed) / vel_threshold, 0.0, 1.0))
+    if height_mask is not None:
+        margins.append(np.clip((height_threshold - clearance) / height_threshold, 0.0, 1.0))
+    margin_frame = (np.mean(margins, axis=0) if margins
+                    else np.zeros_like(mask, dtype=np.float64))
+    contact_count = mask.sum(axis=0)
+    safe = np.where(contact_count > 0, contact_count, 1)
+    margin = np.where(contact_count > 0,
+                      (margin_frame * mask).sum(axis=0) / safe, 0.0)
+    if method == "combined" and vel_mask is not None and height_mask is not None:
+        agreement = np.mean(vel_mask == height_mask, axis=0)
+        return np.sqrt(margin * agreement)
+    return margin
+
+
+def _detect_contacts(
+    speed: npt.NDArray[np.float64] | None,
+    clearance: npt.NDArray[np.float64] | None,
+    *,
+    method: str,
+    vel_threshold,
+    height_threshold,
+    hysteresis: float,
+) -> tuple[npt.NDArray[np.bool_], npt.NDArray[np.float64]]:
+    """Pure contact-detection core on precomputed ``(F, nf)`` signals.
+
+    Returns ``(mask, confidence)`` — the raw (pre-morphology) contact mask and a
+    per-foot confidence. Thresholds may be scalar or per-foot ``(nf,)``.
+    """
+    def thresholded(sig, thr):
+        if hysteresis and hysteresis > 0:
+            mask = _hysteresis_mask(sig, thr * (1.0 - hysteresis), thr * (1.0 + hysteresis))
+            # Don't let the band latch extrapolate a contact across an open clip
+            # edge (e.g. a foot cut off mid-swing held "planted" to the last frame).
+            return _release_open_runs(mask, sig < thr)
+        return sig < thr
+
+    vel_mask = thresholded(speed, vel_threshold) if method in ("velocity", "combined") else None
+    height_mask = thresholded(clearance, height_threshold) if method in ("height", "combined") else None
+
+    if method == "velocity":
+        mask = vel_mask
+    elif method == "height":
+        mask = height_mask
+    else:
+        mask = vel_mask & height_mask
+
+    confidence = _contact_confidence(
+        speed, clearance, vel_mask, height_mask, mask, method,
+        vel_threshold, height_threshold)
+    return mask, confidence
+
+
+def _contact_diagnostics(mask, foot_coords, clearance, up_idx, scale):
+    """Unsupervised detection-quality diagnostics (no ground truth needed).
+
+    - ``foot_skate``: horizontal drift of each foot within its detected contact
+      runs, normalized by skeleton scale (a planted foot should be ~0).
+    - ``airborne_fraction``: fraction of frames with no foot in contact.
+    - ``height_at_contact``: mean clearance over each foot's contact frames.
+    """
+    horiz_axes = [a for a in range(3) if a != up_idx]
+    horiz = foot_coords[:, :, horiz_axes]                # (F, nf, 2)
+    nf = mask.shape[1]
+    skate_mean = np.zeros(nf)
+    skate_max = np.zeros(nf)
+    for i in range(nf):
+        drifts = []
+        for s, e in _true_runs(mask[:, i]):
+            if e - s >= 2:
+                p = horiz[s:e, i, :]
+                drifts.append(float(np.linalg.norm(p - p[0], axis=1).max()))
+        if drifts:
+            skate_mean[i] = np.mean(drifts) / scale
+            skate_max[i] = np.max(drifts) / scale
+    airborne = float(np.mean(mask.sum(axis=1) == 0))
+    cc = mask.sum(axis=0)
+    height_at_contact = np.where(
+        cc > 0, (np.where(mask, clearance, 0.0)).sum(axis=0) / np.where(cc > 0, cc, 1), np.nan)
+    return {
+        "foot_skate": {"mean": skate_mean, "max": skate_max},
+        "airborne_fraction": airborne,
+        "height_at_contact": height_at_contact,
+    }
 
 
 # ----------------------------------------------------------------
@@ -1420,7 +1808,8 @@ def smoothness(
 # ----------------------------------------------------------------
 
 VelocityReductions = namedtuple(
-    "VelocityReductions", ["peak", "mean", "peak_to_mean", "peak_deceleration"])
+    "VelocityReductions",
+    ["peak", "mean", "peak_to_mean", "peak_acceleration", "peak_deceleration"])
 
 
 def velocity_reductions(
@@ -1434,15 +1823,17 @@ def velocity_reductions(
     speed : ndarray, shape (T,)
         1-D speed profile.
     fs : float, optional
-        Sampling rate in Hz (default 1.0); scales ``peak_deceleration``
-        into units/second.
+        Sampling rate in Hz (default 1.0); scales ``peak_acceleration``
+        and ``peak_deceleration`` into units/second.
 
     Returns
     -------
     VelocityReductions
-        Named tuple ``(peak, mean, peak_to_mean, peak_deceleration)`` —
-        ``peak_deceleration`` is the largest instantaneous rate of speed
-        decrease (``≥ 0``).
+        Named tuple ``(peak, mean, peak_to_mean, peak_acceleration,
+        peak_deceleration)``. ``peak_acceleration`` is the largest
+        instantaneous rate of speed *increase* and ``peak_deceleration``
+        the largest rate of speed *decrease*; both are ``>= 0`` (``0`` when
+        the speed never rises / never falls).
 
     Notes
     -----
@@ -1452,9 +1843,11 @@ def velocity_reductions(
     peak = float(speed.max())
     mean = float(speed.mean())
     rate = np.diff(speed) * fs
-    peak_deceleration = float(-rate.min()) if rate.size else 0.0
+    peak_acceleration = float(max(rate.max(), 0.0)) if rate.size else 0.0
+    peak_deceleration = float(max(-rate.min(), 0.0)) if rate.size else 0.0
     peak_to_mean = peak / mean if abs(mean) > _EPS else float("nan")
-    return VelocityReductions(peak, mean, peak_to_mean, peak_deceleration)
+    return VelocityReductions(peak, mean, peak_to_mean,
+                              peak_acceleration, peak_deceleration)
 
 
 def zero_crossings(
@@ -1543,9 +1936,43 @@ def active_duration(
 #  Kinetic energy & gait — [Bvh]
 # ----------------------------------------------------------------
 
+def _resolve_masses(
+    masses: npt.NDArray[np.float64] | Mapping[str, float],
+    joint_names: list[str],
+) -> npt.NDArray[np.float64]:
+    """Resolve a ``masses`` argument to a ``(J,)`` vector in joint-axis order.
+
+    Accepts either a ``{joint_name: mass}`` mapping (validated for exact
+    coverage — every joint once, no strangers) or an already-ordered ``(J,)``
+    array (length-checked). Raises a clear ``ValueError`` otherwise, rather
+    than letting a mismatch surface as a cryptic broadcast error downstream.
+    """
+    names = list(joint_names)
+    if isinstance(masses, Mapping):
+        known = set(names)
+        missing = [n for n in names if n not in masses]
+        unknown = [k for k in masses if k not in known]
+        if missing or unknown:
+            problems = []
+            if missing:
+                problems.append(f"missing masses for {missing}")
+            if unknown:
+                problems.append(f"unknown joint names {unknown}")
+            raise ValueError(
+                "masses dict must map every joint exactly once "
+                f"({'; '.join(problems)})")
+        return np.array([float(masses[n]) for n in names], dtype=np.float64)
+    m = np.asarray(masses, dtype=np.float64)
+    if m.shape != (len(names),):
+        raise ValueError(
+            f"masses must have shape ({len(names)},) in joint-axis order "
+            f"(see Bvh.joint_names), got {m.shape}")
+    return m
+
+
 def kinetic_energy(
     bvh: Bvh,
-    masses: npt.NDArray[np.float64] | None = None,
+    masses: npt.NDArray[np.float64] | Mapping[str, float] | None = None,
     centered: str = "world",
     stencil: str = "central",
     pad: str = "edge",
@@ -1554,15 +1981,19 @@ def kinetic_energy(
 
     With ``masses``, ``Σ_j ½ m_j ‖v_j‖²`` (true kinetic energy). Without,
     ``Σ_j ‖v_j‖²`` (unit-mass energy proxy) — pybvh ships no segment-mass
-    model, so pass anatomical masses for physical energy.
+    model, so pass anatomical masses for physical energy. This is a
+    point-mass-at-joints model; rigid-body energy (segment-CoM masses,
+    rotational inertia) is not supported.
 
     Parameters
     ----------
     bvh : Bvh
         Input motion.
-    masses : ndarray, shape (J,), optional
-        Per-joint masses (joint-axis order, end sites excluded). Default
-        None → unit-mass proxy.
+    masses : ndarray of shape (J,), or mapping {joint_name: mass}, optional
+        Per-joint masses (end sites excluded). A mapping keyed by joint name
+        is validated for exact coverage and is the safer form — an array
+        relies on matching ``Bvh.joint_names`` order. Default None →
+        unit-mass proxy.
     centered : str, optional
         Centering mode for the velocities (default ``"world"``).
     stencil, pad : optional
@@ -1575,6 +2006,12 @@ def kinetic_energy(
         Per-frame energy; leading length follows the velocity
         ``stencil`` × ``pad`` shape.
 
+    Raises
+    ------
+    ValueError
+        If a ``masses`` mapping does not cover the joints exactly, or a
+        ``masses`` array has the wrong length.
+
     Notes
     -----
     Source: Głowinski et al., Piana et al., Lu et al. 2025.
@@ -1583,7 +2020,7 @@ def kinetic_energy(
     speed_sq = np.sum(vel ** 2, axis=-1)  # (F, J)
     if masses is None:
         return speed_sq.sum(axis=-1)
-    m = np.asarray(masses, dtype=np.float64)
+    m = _resolve_masses(masses, bvh.joint_names)
     return 0.5 * np.sum(m * speed_sq, axis=-1)
 
 
@@ -1597,13 +2034,30 @@ def _root_horizontal_distance(bvh: Bvh) -> float:
     return float(geometry.path_length(horizontal))
 
 
+def _foot_contact_events(
+    contacts: npt.NDArray[np.float64],
+) -> list[tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]]:
+    """Per foot column, the onset and offset frame indices.
+
+    Onsets are 0→1 transitions (touchdown), offsets 1→0 (lift-off); the
+    frame index is the first frame of the new state. Returns a list over
+    feet of ``(onset_frames, offset_frames)``.
+    """
+    planted = np.asarray(contacts) > 0.5
+    events = []
+    for fi in range(planted.shape[1]):
+        c = planted[:, fi]
+        onsets = np.flatnonzero(c[1:] & ~c[:-1]) + 1
+        offsets = np.flatnonzero(~c[1:] & c[:-1]) + 1
+        events.append((onsets, offsets))
+    return events
+
+
 def _contact_onsets(bvh: Bvh, foot_joints: list[str] | None) -> int:
     """Number of foot-contact onsets (0→1 transitions) across all feet."""
     contacts = foot_contacts(bvh, foot_joints=foot_joints)
     assert isinstance(contacts, np.ndarray)
-    in_contact = contacts > 0.5
-    onsets = in_contact[1:] & ~in_contact[:-1]
-    return int(onsets.sum())
+    return sum(len(onsets) for onsets, _ in _foot_contact_events(contacts))
 
 
 def cadence(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
@@ -1632,10 +2086,13 @@ def cadence(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
 
 
 def stride_length(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
-    """Mean stride length — horizontal distance travelled per stride.
+    """Mean stride length — distance between successive same-foot landings.
 
-    One stride is two steps (a full gait cycle), so this is the root's
-    horizontal path length divided by ``onsets / 2``.
+    The standard, foot-measured stride: for each foot, the horizontal
+    distance between its position at consecutive contact onsets, pooled
+    over feet and averaged. See :func:`gait_parameters` for the full
+    spatiotemporal set (variability, step length, stance, double-support,
+    asymmetry) computed in one pass.
 
     Parameters
     ----------
@@ -1647,17 +2104,14 @@ def stride_length(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
     Returns
     -------
     float
-        Distance per stride in skeleton units (``nan`` if no strides
-        were detected).
+        Mean stride length in skeleton units (``nan`` if no foot completes
+        a stride — fewer than two contacts).
 
     Notes
     -----
     Source: Crane & Gross, Gross et al. 2012, Karg et al. 2010.
     """
-    n_strides = _contact_onsets(bvh, foot_joints) / 2.0
-    if n_strides <= 0:
-        return float("nan")
-    return _root_horizontal_distance(bvh) / n_strides
+    return gait_parameters(bvh, foot_joints=foot_joints).stride_length
 
 
 def walking_pace(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
@@ -1686,6 +2140,168 @@ def walking_pace(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
     if duration <= 0:
         return 0.0
     return _root_horizontal_distance(bvh) / duration
+
+
+GaitParameters = namedtuple("GaitParameters", [
+    "cadence", "walking_pace", "stride_length", "stride_cv",
+    "step_length", "stance_fraction", "double_support_fraction", "asymmetry"])
+
+
+def _compute_gait_parameters(contacts, foot_h, foot_names, frame_time,
+                             root_distance, progression):
+    """Spatiotemporal gait parameters from contacts + foot ground positions.
+
+    Pure array core (no ``Bvh``) so it is directly testable. ``foot_h`` is the
+    feet's horizontal (ground-projected) positions, shape ``(F, n_feet, 3)``,
+    column order matching ``foot_names`` and the ``contacts`` columns.
+    ``progression`` is the net horizontal travel vector (e.g. the root's
+    first→last displacement); ``step_length`` is measured along it.
+    """
+    n_frames = contacts.shape[0]
+    duration = (n_frames - 1) * frame_time
+    events = _foot_contact_events(contacts)
+
+    total_onsets = sum(len(onsets) for onsets, _ in events)
+    cadence = total_onsets / duration if duration > 0 else 0.0
+    pace = root_distance / duration if duration > 0 else 0.0
+
+    # stride length: per foot, distance between consecutive landing positions
+    per_foot_strides: dict[str, npt.NDArray[np.float64]] = {}
+    pooled = []
+    for fi, (onsets, _) in enumerate(events):
+        if len(onsets) >= 2:
+            landings = foot_h[onsets, fi, :]
+            d = np.linalg.norm(np.diff(landings, axis=0), axis=1)
+            per_foot_strides[foot_names[fi]] = d
+            pooled.append(d)
+    pooled = np.concatenate(pooled) if pooled else np.empty(0)
+    stride = float(pooled.mean()) if pooled.size else float("nan")
+    # stride variability: within-foot CV (so left/right *asymmetry* does not leak
+    # in as "variability"). Undefined until some foot has >= 2 strides.
+    resid = [d - d.mean() for d in per_foot_strides.values() if len(d) >= 2]
+    if resid and abs(stride) > _EPS:
+        stride_cv = float(np.concatenate(resid).std() / stride)
+    else:
+        stride_cv = float("nan")
+
+    # step length: forward advance between consecutive landings (any foot),
+    # projected onto the progression direction so lateral step *width* is
+    # excluded. nan when there is no net travel to define a direction.
+    prog_norm = float(np.linalg.norm(progression))
+    if total_onsets >= 2 and prog_norm > _EPS:
+        direction = np.asarray(progression, dtype=np.float64) / prog_norm
+        frames = np.concatenate([onsets for onsets, _ in events])
+        positions = np.concatenate(
+            [foot_h[onsets, fi, :] for fi, (onsets, _) in enumerate(events)], axis=0)
+        pts = positions[np.argsort(frames, kind="stable")]
+        advances = np.abs(np.diff(pts, axis=0) @ direction)
+        step = float(advances.mean())
+    else:
+        step = float("nan")
+
+    # stance fraction: stance time / gait-cycle time, per cycle, meaned
+    stance_fracs = []
+    for onsets, offsets in events:
+        for k in range(len(onsets) - 1):
+            o0, o1 = onsets[k], onsets[k + 1]
+            after = offsets[(offsets > o0) & (offsets <= o1)]
+            if after.size:
+                stance_fracs.append((after[0] - o0) / (o1 - o0))
+    stance = float(np.mean(stance_fracs)) if stance_fracs else float("nan")
+
+    # double support: fraction of frames with >= 2 feet planted
+    if contacts.shape[1] >= 2:
+        n_planted = (np.asarray(contacts) > 0.5).sum(axis=1)
+        double_support = float((n_planted >= 2).mean())
+    else:
+        double_support = float("nan")
+
+    # asymmetry: |L − R| mean stride / their average; needs one L and one R foot
+    lefts = [n for n in per_foot_strides if "left" in n.lower()]
+    rights = [n for n in per_foot_strides if "right" in n.lower()]
+    if len(lefts) == 1 and len(rights) == 1:
+        mL = per_foot_strides[lefts[0]].mean()
+        mR = per_foot_strides[rights[0]].mean()
+        denom = 0.5 * (mL + mR)
+        asymmetry = float(abs(mL - mR) / denom) if abs(denom) > _EPS else float("nan")
+    else:
+        asymmetry = float("nan")
+
+    return GaitParameters(cadence, pace, stride, stride_cv, step,
+                          stance, double_support, asymmetry)
+
+
+def gait_parameters(
+    bvh: Bvh,
+    foot_joints: list[str] | None = None,
+    *,
+    contacts: npt.NDArray[np.float64] | None = None,
+) -> GaitParameters:
+    """Spatiotemporal gait parameters in one pass.
+
+    Bundles the foot-measured gait analysis: ``cadence`` (onsets/s),
+    ``walking_pace`` (root ground speed), ``stride_length`` and its
+    coefficient of variation ``stride_cv`` (landing→next-same-foot-landing),
+    ``step_length`` (forward advance between successive any-foot landings,
+    measured along the direction of travel so step *width* is excluded),
+    ``stance_fraction`` (mean fraction of a cycle a foot is planted),
+    ``double_support_fraction`` (fraction of frames with ≥2 feet planted), and
+    ``asymmetry`` (left/right stride difference). Underdetermined fields are
+    ``nan`` (e.g. ``asymmetry`` without one identifiable left and right foot,
+    ``stride_length`` if no foot completes two contacts, ``step_length`` if
+    there is no net travel).
+
+    These are *kinematic* — computed from foot positions and contact timing
+    alone. Dynamic gait analysis (joint torques, ground-reaction force,
+    mechanical work) needs a physical model and is out of scope.
+
+    Parameters
+    ----------
+    bvh : Bvh
+        Input motion.
+    foot_joints : list of str, optional
+        Foot joints; auto-detected if None.
+    contacts : ndarray, shape (F, n_feet), optional
+        Pre-computed contact labels (column order matching ``foot_joints``);
+        otherwise :func:`foot_contacts` is run with its robust defaults.
+
+    Returns
+    -------
+    GaitParameters
+        Named tuple of the eight parameters above.
+
+    Raises
+    ------
+    ValueError
+        If no foot joints can be found.
+
+    Notes
+    -----
+    Source: Crane & Gross, Gross et al. 2012, Karg et al. 2010.
+    """
+    if foot_joints is None:
+        foot_joints = auto_detect_foot_joints(bvh)
+    if not foot_joints:
+        raise ValueError(
+            "gait_parameters: no foot joints found; pass foot_joints explicitly")
+    if contacts is None:
+        contacts = foot_contacts(bvh, foot_joints=foot_joints)
+    contacts = np.asarray(contacts, dtype=np.float64)
+
+    from .tools import _axis_to_vector
+    up = _axis_to_vector(bvh.world_up)
+    node_pos = bvh.node_positions()
+    foot_idx = [bvh.index(name, axis="node") for name in foot_joints]
+    foot_xyz = node_pos[:, foot_idx, :]                       # (F, n_feet, 3)
+    foot_h = foot_xyz - (foot_xyz @ up)[..., None] * up       # project to ground
+
+    root = bvh.root_pos
+    root_h = root - (root @ up)[:, None] * up                 # (F, 3) on the ground
+    progression = root_h[-1] - root_h[0]                      # net travel direction
+
+    return _compute_gait_parameters(
+        contacts, foot_h, list(foot_joints), bvh.frame_time,
+        _root_horizontal_distance(bvh), progression)
 
 
 def range_of_motion(

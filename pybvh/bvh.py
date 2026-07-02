@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Literal, Sequence, TYPE_CHECKING, Union, overload
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from . import geometry
 
 import numpy as np
@@ -118,6 +120,9 @@ class Bvh:
         # and the property will lazily compute on first access.
         self._world_up_override: str | None = None
         self._world_up_cached: str | None = None
+        # Geometric floor height — lazily computed on first access (FK is too
+        # costly to run in every constructor), invalidated by the motion setters.
+        self._floor_height_cached: float | None = None
         if world_up != "auto":
             from .tools import _validate_axis_string
             self._world_up_override = _validate_axis_string(world_up)
@@ -209,6 +214,8 @@ class Bvh:
         self._root_pos = arr
         if hasattr(self, '_world_up_cached'):
             self._world_up_cached = None
+        if hasattr(self, '_floor_height_cached'):
+            self._floor_height_cached = None
 
     @property
     def joint_angles(self) -> npt.NDArray[np.float64]:
@@ -236,6 +243,8 @@ class Bvh:
         self._joint_angles = arr
         if hasattr(self, '_world_up_cached'):
             self._world_up_cached = None
+        if hasattr(self, '_floor_height_cached'):
+            self._floor_height_cached = None
 
     @property
     def frame_count(self) -> int:
@@ -620,6 +629,26 @@ class Bvh:
         """
         from .tools import _infer_world_up
         return _infer_world_up(self)
+
+    @property
+    def floor_height(self) -> float:
+        """Estimated ground-plane height, in raw world coordinates along ``world_up``.
+
+        A single scalar: the floor level in the BVH's own coordinate system,
+        signed along the raw up axis (so for ``world_up='-y'`` a floor at raw
+        ``y≈5`` returns ``≈5``). It is the 2nd-percentile of the per-frame
+        minimum foot height over auto-detected feet (all nodes for footless
+        rigs); see :func:`pybvh.analysis._compute_floor_height`. This is the
+        scene's ground plane — `foot_contacts` layers a per-foot stance hover on
+        top of it.
+
+        Lazily computed and cached; the cache is invalidated whenever
+        ``root_pos`` or ``joint_angles`` is reassigned.
+        """
+        if self._floor_height_cached is None:
+            from . import analysis
+            self._floor_height_cached = analysis._compute_floor_height(self)
+        return self._floor_height_cached
 
     @property
     def rest_up(self) -> str:
@@ -2186,6 +2215,9 @@ class Bvh:
         floor: float | str = "auto",
         min_contact_duration: float = 0.1,
         min_gap_duration: float = 0.1,
+        hysteresis: float = 0.25,
+        adaptive: bool = False,
+        height_reference: str = "velocity",
         return_info: bool = False,
     ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
         """Detect foot contact labels.  See :func:`pybvh.analysis.foot_contacts`."""
@@ -2201,6 +2233,9 @@ class Bvh:
             floor=floor,
             min_contact_duration=min_contact_duration,
             min_gap_duration=min_gap_duration,
+            hysteresis=hysteresis,
+            adaptive=adaptive,
+            height_reference=height_reference,
             return_info=return_info,
         )
 
@@ -2281,10 +2316,12 @@ class Bvh:
         return float(geometry.path_length(
             self.node_positions()[:, self._node_idx(joint), :]))
 
-    def straightness(self, joint: str | int) -> float:
-        """Straightness index of ``joint``'s path. See :func:`pybvh.geometry.straightness`."""
+    def directness(self, joint: str | int) -> float:
+        """Directness of ``joint``'s path (net displacement ÷ path length).
+
+        See :func:`pybvh.geometry.directness`."""
         from . import geometry
-        return float(geometry.straightness(
+        return float(geometry.directness(
             self.node_positions()[:, self._node_idx(joint), :]))
 
     def ground_path(self, joint: str | int) -> "geometry.GroundPath":
@@ -2356,14 +2393,17 @@ class Bvh:
         weights: npt.NDArray[np.float64] | None = None,
         com_ref: npt.NDArray[np.float64] | None = None,
     ) -> npt.NDArray[np.float64]:
-        """Per-frame centre-of-mass displacement from a reference.
+        """Per-frame centre-of-mass travel from a reference.
 
-        ``com_ref`` defaults to the **rest-pose** centre of mass. See
-        :func:`pybvh.geometry.com_displacement`."""
+        ``com_ref`` defaults to the **first frame's** centre of mass, in the
+        same world frame as :meth:`center_of_mass`, so the result is how far
+        the CoM has travelled since the start (``0`` at frame 0). Pass an
+        explicit ``com_ref`` (e.g. ``center_of_mass().mean(0)``) for a
+        different baseline. See :func:`pybvh.geometry.com_displacement`."""
         from . import geometry
         com = geometry.centroid(self.node_positions(), weights=weights)
         if com_ref is None:
-            com_ref = geometry.centroid(self.rest_pose_coords(), weights=weights)
+            com_ref = com[0]
         return geometry.com_displacement(com, com_ref)
 
     def verticality(self) -> npt.NDArray[np.float64]:
@@ -2399,10 +2439,11 @@ class Bvh:
         speed = np.linalg.norm(vel, axis=-1)
         return analysis.smoothness(speed, 1.0 / self.frame_time, metric=metric, **kwargs)
 
-    def kinetic_energy(self, masses: npt.NDArray[np.float64] | None = None,
+    def kinetic_energy(self, masses: npt.NDArray[np.float64] | Mapping[str, float] | None = None,
                        centered: str = "world", stencil: str = "central",
                        pad: str = "edge") -> npt.NDArray[np.float64]:
-        """Per-frame kinetic energy over joints. See :func:`pybvh.analysis.kinetic_energy`."""
+        """Per-frame kinetic energy over joints. ``masses`` may be a ``(J,)`` array
+        or a ``{joint_name: mass}`` mapping. See :func:`pybvh.analysis.kinetic_energy`."""
         from . import analysis
         return analysis.kinetic_energy(self, masses=masses, centered=centered,
                                        stencil=stencil, pad=pad)
@@ -2421,6 +2462,12 @@ class Bvh:
         """Mean horizontal speed. See :func:`pybvh.analysis.walking_pace`."""
         from . import analysis
         return analysis.walking_pace(self, foot_joints=foot_joints)
+
+    def gait_parameters(self, foot_joints: list[str] | None = None,
+                        *, contacts: npt.NDArray[np.float64] | None = None):
+        """Spatiotemporal gait parameters. See :func:`pybvh.analysis.gait_parameters`."""
+        from . import analysis
+        return analysis.gait_parameters(self, foot_joints=foot_joints, contacts=contacts)
 
     def range_of_motion(self, joint: str | int) -> npt.NDArray[np.float64]:
         """Peak-to-peak range of ``joint``'s Euler angles — ``(3,)`` per channel.

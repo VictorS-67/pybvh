@@ -802,13 +802,24 @@ class TestFootContactsDurationFilters:
     def test_helper_removes_short_true_runs(self):
         from pybvh.analysis import _filter_short_runs
         mask = np.array(
-            [[True, True, False, True, False, False,
-              True, True, True, True]]).T  # True runs of 2, 1, 4
+            [[False, True, True, False, True, False, False,
+              True, True, True, True, False]]).T  # interior True runs of 2, 1, 4
         filtered = _filter_short_runs(mask, min_run=3, value=True)
         expected = np.array(
-            [[False, False, False, False, False, False,
-              True, True, True, True]]).T  # only the 4-run survives
+            [[False, False, False, False, False, False, False,
+              True, True, True, True, False]]).T  # only the 4-run survives
         np.testing.assert_array_equal(filtered, expected)
+
+    def test_helper_exempts_open_boundary_runs(self):
+        from pybvh.analysis import _filter_short_runs
+        # A run touching frame 0 or the last frame is truncated by the clip, so
+        # its length is only a lower bound -> exempt from the short-run filter.
+        contacts = np.array([[True, False, False, False, False, True]]).T  # 1-frame at each end
+        np.testing.assert_array_equal(            # open: boundary contacts kept
+            _filter_short_runs(contacts, min_run=3, value=True), contacts)
+        gaps = np.array([[False, True, True, True, True, False]]).T  # 1-frame gap at each end
+        np.testing.assert_array_equal(            # close: boundary gaps not filled
+            _filter_short_runs(gaps, min_run=3, value=False), gaps)
 
     def test_helper_fills_short_false_gaps(self):
         from pybvh.analysis import _filter_short_runs

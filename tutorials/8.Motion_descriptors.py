@@ -49,7 +49,7 @@ print(bvh)
 # ## 1. Trajectory descriptors
 #
 # How a single joint moves through space: how far it travels (`path_length`),
-# how directly (`straightness`, where 1 is a perfectly straight line), and how
+# how directly (`directness`, where 1 is a perfectly straight line), and how
 # sharply it turns (`curvature`). Relational and trajectory methods index in
 # **node space**, so end sites (fingertips, head top, toe tips) are
 # first-class — pass any joint or end-site name.
@@ -57,7 +57,7 @@ print(bvh)
 # %%
 joint = "RightHand"
 print(f"{joint}: path length = {bvh.path_length(joint):.2f}, "
-      f"straightness = {bvh.straightness(joint):.3f}")
+      f"directness = {bvh.directness(joint):.3f}")
 
 kappa = bvh.curvature(joint)
 fig, ax = plt.subplots(figsize=(8, 3))
@@ -69,7 +69,7 @@ plt.tight_layout()
 # ### Sanity check: a hand tracing a circle
 #
 # A trajectory we *know* — a circle of radius `r` traced at constant speed —
-# must have curvature exactly `1/r` everywhere and straightness ≈ 0 (it returns
+# must have curvature exactly `1/r` everywhere and directness ≈ 0 (it returns
 # to its start). This pins the convention against a closed-form answer.
 
 # %%
@@ -81,7 +81,7 @@ dt = theta[1] - theta[0]
 kappa_circle = geometry.curvature(circle, dt)
 print(f"radius r = {r}  ->  1/r = {1 / r:.4f}")
 print(f"measured curvature (interior mean) = {kappa_circle[5:-5].mean():.4f}")
-print(f"straightness = {geometry.straightness(circle):.4f}   (≈ 0, closed loop)")
+print(f"directness = {geometry.directness(circle):.4f}   (≈ 0, closed loop)")
 
 fig, ax = plt.subplots(figsize=(8, 3))
 ax.plot(kappa_circle, label="measured κ")
@@ -185,7 +185,7 @@ plt.tight_layout()
 #
 # | Module | Descriptor | Bvh method | Returns |
 # |---|---|---|---|
-# | `geometry` | `path_length`, `straightness`, `curvature`, `torsion`, `ground_path` | yes (single joint) | trajectory shape |
+# | `geometry` | `path_length`, `directness`, `curvature`, `torsion`, `ground_path` | yes (single joint) | trajectory shape |
 # | `geometry` | `inter_joint_distance`, `joint_angle`, `triangle_area`, `bounding_box`, `bounding_sphere`, `center_of_mass`, `verticality` | yes | per-frame geometry |
 # | `analysis` | `node_jerk`, `smoothness`, `kinetic_energy` | yes | dynamics |
 # | `analysis` | `cadence`, `stride_length`, `walking_pace`, `range_of_motion` | yes | gait / ROM |

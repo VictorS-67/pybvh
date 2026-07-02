@@ -18,7 +18,7 @@ model (rotations and positions) plus their dynamics:
 ## Geometry — what the body traces out
 
 `pybvh.geometry` measures points and trajectories: how far a joint travels
-(`path_length`) and how directly (`straightness`); how sharply its path turns
+(`path_length`) and how directly (`directness`); how sharply its path turns
 (`curvature`) and twists out of plane (`torsion`); the size and shape of the
 whole pose (`bounding_box`, `bounding_sphere`, `bounding_ellipsoid`,
 `verticality`); its centre of mass (`centroid`, `com_displacement`); and

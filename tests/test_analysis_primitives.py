@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from pybvh import analysis
-from synthetic_bvh import make_pos_y_up_bvh
+from synthetic_bvh import make_pos_y_up_bvh, make_neg_y_up_bvh
 
 
 # ----------------------------------------------------------------
@@ -92,8 +92,22 @@ def test_velocity_reductions_known_profile():
     assert vr.peak == 4.0
     np.testing.assert_allclose(vr.mean, 1.75)
     np.testing.assert_allclose(vr.peak_to_mean, 4.0 / 1.75)
-    # largest decrease is 4 -> 1 (rate -3); peak_deceleration is +3
+    # rates are [+2, +2, -3]: largest increase is +2, largest decrease is +3
+    np.testing.assert_allclose(vr.peak_acceleration, 2.0)
     np.testing.assert_allclose(vr.peak_deceleration, 3.0)
+
+
+def test_velocity_reductions_directional_rates_clamp_at_zero():
+    # a monotonically rising profile never decelerates (and vice versa);
+    # both directional rates are >= 0 per the contract.
+    rising = np.array([0.0, 1.0, 2.0, 3.0])
+    vr = analysis.velocity_reductions(rising, fs=1.0)
+    np.testing.assert_allclose(vr.peak_acceleration, 1.0)
+    assert vr.peak_deceleration == 0.0
+    falling = rising[::-1]
+    vr = analysis.velocity_reductions(falling, fs=1.0)
+    assert vr.peak_acceleration == 0.0
+    np.testing.assert_allclose(vr.peak_deceleration, 1.0)
 
 
 def test_zero_crossings_count_and_axis():
@@ -131,6 +145,31 @@ def test_kinetic_energy_with_masses():
     np.testing.assert_allclose(analysis.kinetic_energy(bvh, masses=masses), expected)
 
 
+def test_kinetic_energy_masses_dict_matches_ordered_array():
+    bvh = make_pos_y_up_bvh()
+    names = bvh.joint_names
+    masses_arr = np.arange(1, len(names) + 1, dtype=float)
+    masses_dict = {n: float(m) for n, m in zip(names, masses_arr)}
+    # name-keyed dict is order-independent: shuffle it, result is unchanged
+    shuffled = dict(reversed(list(masses_dict.items())))
+    np.testing.assert_allclose(
+        analysis.kinetic_energy(bvh, masses=shuffled),
+        analysis.kinetic_energy(bvh, masses=masses_arr))
+
+
+def test_kinetic_energy_masses_validation():
+    bvh = make_pos_y_up_bvh()
+    names = bvh.joint_names
+    full = {n: 1.0 for n in names}
+    with pytest.raises(ValueError, match="missing masses"):
+        incomplete = {n: 1.0 for n in names[:-1]}
+        analysis.kinetic_energy(bvh, masses=incomplete)
+    with pytest.raises(ValueError, match="unknown joint"):
+        analysis.kinetic_energy(bvh, masses={**full, "NotAJoint": 1.0})
+    with pytest.raises(ValueError, match="shape"):
+        analysis.kinetic_energy(bvh, masses=np.ones(len(names) - 1))
+
+
 # ----------------------------------------------------------------
 #  Gait
 # ----------------------------------------------------------------
@@ -142,25 +181,144 @@ def test_walking_pace_translating_root():
     np.testing.assert_allclose(analysis.walking_pace(bvh), 50.0 / duration)
 
 
-def test_cadence_and_stride_from_known_contacts(monkeypatch):
+def test_cadence_from_known_contacts(monkeypatch):
     bvh = make_pos_y_up_bvh()
     contacts = np.zeros((bvh.frame_count, 2))
-    contacts[2:4, 0] = 1   # foot 0: one onset at frame 2
-    contacts[6:8, 0] = 1   # foot 0: another onset at frame 6
-    contacts[4:6, 1] = 1   # foot 1: one onset at frame 4
+    contacts[2:4, 0] = 1   # foot 0: onset at frame 2
+    contacts[6:8, 0] = 1   # foot 0: onset at frame 6
+    contacts[4:6, 1] = 1   # foot 1: onset at frame 4
     monkeypatch.setattr(analysis, "foot_contacts", lambda *a, **k: contacts)
 
     duration = (bvh.frame_count - 1) * bvh.frame_time
     np.testing.assert_allclose(analysis.cadence(bvh), 3 / duration)   # 3 onsets
-    np.testing.assert_allclose(analysis.stride_length(bvh), 50.0 / (3 / 2))
+    # foot-measured stride_length is covered by the _compute_gait_parameters tests
 
 
 def test_stride_length_nan_without_contacts(monkeypatch):
     bvh = make_pos_y_up_bvh()
+    feet = ["LeftFoot", "RightFoot"]              # end-site feet, passed explicitly
     monkeypatch.setattr(analysis, "foot_contacts",
                         lambda *a, **k: np.zeros((bvh.frame_count, 2)))
-    assert np.isnan(analysis.stride_length(bvh))
-    assert analysis.cadence(bvh) == 0.0
+    assert np.isnan(analysis.stride_length(bvh, foot_joints=feet))
+    assert analysis.cadence(bvh, foot_joints=feet) == 0.0
+
+
+def _two_foot_walk():
+    """Clean periodic 2-foot walk with known landings.
+
+    Left onsets at frames 1,5,9 (x = 0,2,4); Right onsets at 3,7,11 (x = 1,3,5);
+    each contact lasts 2 frames; feet never overlap.
+    """
+    F = 13
+    contacts = np.zeros((F, 2))
+    for s, e in [(1, 3), (5, 7), (9, 11)]:
+        contacts[s:e, 0] = 1
+    for s, e in [(3, 5), (7, 9), (11, 13)]:
+        contacts[s:e, 1] = 1
+    foot_h = np.zeros((F, 2, 3))
+    foot_h[[1, 5, 9], 0, 0] = [0.0, 2.0, 4.0]
+    foot_h[[3, 7, 11], 1, 0] = [1.0, 3.0, 5.0]
+    return contacts, foot_h
+
+
+def test_gait_core_symmetric_walk():
+    contacts, foot_h = _two_foot_walk()
+    g = analysis._compute_gait_parameters(
+        contacts, foot_h, ["LeftFoot", "RightFoot"], 1.0, 11.0, [1.0, 0.0, 0.0])
+    np.testing.assert_allclose(g.stride_length, 2.0)             # 0→2→4, 1→3→5
+    np.testing.assert_allclose(g.stride_cv, 0.0)                 # all strides equal
+    np.testing.assert_allclose(g.step_length, 1.0)              # landings 0,1,2,3,4,5
+    np.testing.assert_allclose(g.stance_fraction, 0.5)          # 2-frame stance, 4 cycle
+    np.testing.assert_allclose(g.double_support_fraction, 0.0)  # feet never overlap
+    np.testing.assert_allclose(g.asymmetry, 0.0)               # L and R equal
+    np.testing.assert_allclose(g.cadence, 6 / 12)              # 6 onsets / 12 s
+    np.testing.assert_allclose(g.walking_pace, 11.0 / 12)
+
+
+def test_gait_core_asymmetry_and_cv():
+    contacts, foot_h = _two_foot_walk()
+    foot_h[[3, 7, 11], 1, 0] = [0.0, 1.0, 2.0]    # Right strides 1,1 (Left stays 2,2)
+    g = analysis._compute_gait_parameters(
+        contacts, foot_h, ["LeftFoot", "RightFoot"], 1.0, 0.0, [1.0, 0.0, 0.0])
+    # strides: Left [2,2], Right [1,1] -> mean 1.5
+    np.testing.assert_allclose(g.stride_length, 1.5)
+    # each foot is internally constant, so within-foot variability is 0;
+    # the left/right difference shows up in asymmetry, not stride_cv
+    np.testing.assert_allclose(g.stride_cv, 0.0)
+    np.testing.assert_allclose(g.asymmetry, abs(2 - 1) / 1.5)
+
+
+def test_gait_core_stride_cv_is_within_foot():
+    F = 13
+    contacts = np.zeros((F, 1))
+    for s, e in [(1, 3), (5, 7), (9, 11)]:
+        contacts[s:e, 0] = 1                       # onsets 1,5,9
+    foot_h = np.zeros((F, 1, 3))
+    foot_h[[1, 5, 9], 0, 0] = [0.0, 2.0, 6.0]      # strides 2, 4 (mean 3)
+    g = analysis._compute_gait_parameters(
+        contacts, foot_h, ["LeftFoot"], 1.0, 0.0, [1.0, 0.0, 0.0])
+    np.testing.assert_allclose(g.stride_length, 3.0)
+    np.testing.assert_allclose(g.stride_cv, np.std([2.0, 4.0]) / 3.0)
+
+
+def test_gait_core_stride_cv_nan_with_single_stride_per_foot():
+    # two feet, one stride each -> stride_length defined, but no within-foot
+    # variability is measurable, so stride_cv is nan (not a misleading 0)
+    F = 9
+    contacts = np.zeros((F, 2))
+    for s, e in [(1, 3), (5, 7)]:
+        contacts[s:e, 0] = 1                       # Left onsets 1,5  -> 1 stride
+    for s, e in [(3, 5), (7, 9)]:
+        contacts[s:e, 1] = 1                       # Right onsets 3,7 -> 1 stride
+    foot_h = np.zeros((F, 2, 3))
+    foot_h[[1, 5], 0, 0] = [0.0, 2.0]
+    foot_h[[3, 7], 1, 0] = [1.0, 3.0]
+    g = analysis._compute_gait_parameters(
+        contacts, foot_h, ["LeftFoot", "RightFoot"], 1.0, 0.0, [1.0, 0.0, 0.0])
+    assert not np.isnan(g.stride_length)           # 2 strides pooled
+    assert np.isnan(g.stride_cv)                   # no foot has >= 2 strides
+
+
+def test_gait_core_double_support():
+    contacts = np.zeros((4, 2))
+    contacts[0:3, 0] = 1     # foot 0 planted 0,1,2
+    contacts[1:4, 1] = 1     # foot 1 planted 1,2,3  -> overlap 1,2
+    g = analysis._compute_gait_parameters(
+        contacts, np.zeros((4, 2, 3)), ["LeftFoot", "RightFoot"], 1.0, 0.0, [1.0, 0.0, 0.0])
+    np.testing.assert_allclose(g.double_support_fraction, 2 / 4)
+
+
+def test_gait_core_nan_edges():
+    contacts = np.zeros((6, 1))
+    contacts[1:3, 0] = 1     # a single foot, one onset only
+    g = analysis._compute_gait_parameters(
+        contacts, np.zeros((6, 1, 3)), ["LeftFoot"], 1.0, 0.0, [1.0, 0.0, 0.0])
+    assert np.isnan(g.stride_length)                # <2 contacts
+    assert np.isnan(g.asymmetry)                    # no left/right pair
+    assert np.isnan(g.double_support_fraction)      # only one foot
+
+
+def test_gait_core_step_length_is_forward_only():
+    # opposite feet sit far apart laterally (y) but advance little forward (x);
+    # step_length must measure the forward advance, not the lateral step width.
+    F = 8
+    contacts = np.zeros((F, 2))
+    contacts[1:3, 0] = 1; contacts[5:7, 0] = 1     # left onsets 1,5
+    contacts[3:5, 1] = 1                            # right onset 3
+    foot_h = np.zeros((F, 2, 3))
+    foot_h[[1, 5], 0, :] = [[0.0, 5.0, 0.0], [2.0, 5.0, 0.0]]   # left forward 0->2, y=+5
+    foot_h[3, 1, :] = [1.0, -5.0, 0.0]                          # right x=1, y=-5
+    g = analysis._compute_gait_parameters(
+        contacts, foot_h, ["LeftFoot", "RightFoot"], 1.0, 0.0, [1.0, 0.0, 0.0])
+    # landings by frame L@1(x0), R@3(x1), L@5(x2): forward advances |1-0|,|2-1| = 1
+    np.testing.assert_allclose(g.step_length, 1.0)   # Euclidean would be ~10 (y-gap)
+
+
+def test_gait_core_step_length_nan_without_net_travel():
+    contacts, foot_h = _two_foot_walk()
+    g = analysis._compute_gait_parameters(
+        contacts, foot_h, ["LeftFoot", "RightFoot"], 1.0, 0.0, [0.0, 0.0, 0.0])
+    assert np.isnan(g.step_length)
 
 
 # ----------------------------------------------------------------
@@ -198,3 +356,304 @@ def test_lagged_correlation_lag0_and_bounds():
         analysis.lagged_correlation(v, 30)
     with pytest.raises(ValueError):
         analysis.lagged_correlation(v, -1)
+
+
+# ----------------------------------------------------------------
+#  foot_contacts detection core (hysteresis / Otsu / confidence /
+#  timing refinement / diagnostics) — pure-signal oracles
+# ----------------------------------------------------------------
+
+def test_hysteresis_mask_equals_single_threshold_at_zero_band():
+    sig = np.array([[5.0, 0.5], [1.5, 3.0], [0.2, 0.1]])
+    np.testing.assert_array_equal(analysis._hysteresis_mask(sig, 1.0, 1.0), sig < 1.0)
+
+
+def test_hysteresis_keeps_strong_runs_and_drops_weak_only():
+    # contact = LOW signal; low=1, high=2
+    sig = np.array([
+        [5.0, 5.0],
+        [1.5, 1.5],   # weak (between 1 and 2)
+        [0.5, 5.0],   # col0 strong here; col1 back high
+        [1.5, 5.0],   # weak
+        [5.0, 5.0],
+    ])
+    got = analysis._hysteresis_mask(sig, 1.0, 2.0)
+    expected = np.array([
+        [False, False],
+        [True,  False],   # col0 run rows1-3 contains a strong frame -> kept
+        [True,  False],
+        [True,  False],
+        [False, False],   # col1 isolated weak-only frame -> dropped
+    ])
+    np.testing.assert_array_equal(got, expected)
+
+
+def test_otsu_finds_valley_on_bimodal():
+    rng = np.random.default_rng(0)
+    v = np.concatenate([rng.normal(0.0, 0.05, 200), rng.normal(2.0, 0.05, 200)])
+    thr, strength = analysis._otsu_threshold(v)
+    assert thr is not None and 0.3 < thr < 1.7 and strength > 0.6
+
+
+def test_otsu_fallback_on_unimodal_and_edges():
+    rng = np.random.default_rng(1)
+    assert analysis._otsu_threshold(rng.normal(1.0, 0.1, 300))[0] is None  # unimodal
+    assert analysis._otsu_threshold(np.zeros(50))[0] is None               # zero variance
+    assert analysis._otsu_threshold(np.array([1.0, 2.0, 3.0]))[0] is None  # < 8 samples
+
+
+def test_resolve_adaptive_per_foot_fallback_and_clamp():
+    rng = np.random.default_rng(2)
+    sig = np.empty((400, 2))
+    sig[:, 0] = np.concatenate([rng.normal(0, 0.02, 200), rng.normal(1.0, 0.02, 200)])
+    sig[:, 1] = rng.normal(0.5, 0.1, 400)   # unimodal -> fallback
+    base = 0.05
+    thr, used = analysis._resolve_adaptive(sig, base)
+    assert used[0] and not used[1]
+    np.testing.assert_allclose(thr[1], base)               # fallback
+    assert 0.25 * base <= thr[0] <= 4.0 * base             # clamped
+
+
+def test_detect_contacts_recovers_plant_lift_two_feet():
+    F = 10
+    speed = np.full((F, 2), 5.0); clearance = np.full((F, 2), 5.0)
+    speed[3:7, 0] = 0.1; clearance[3:7, 0] = 0.1
+    speed[1:4, 1] = 0.1; clearance[1:4, 1] = 0.1
+    mask, _ = analysis._detect_contacts(
+        speed, clearance, method="combined",
+        vel_threshold=1.0, height_threshold=1.0, hysteresis=0.0)
+    expected = np.zeros((F, 2), bool); expected[3:7, 0] = True; expected[1:4, 1] = True
+    np.testing.assert_array_equal(mask, expected)
+
+
+def test_contact_confidence_combined_formula():
+    speed = np.array([[5.0], [0.5], [0.5], [5.0]])
+    clearance = speed.copy()
+    _, conf = analysis._detect_contacts(
+        speed, clearance, method="combined",
+        vel_threshold=1.0, height_threshold=1.0, hysteresis=0.0)
+    # contact rows 1,2: margin=(1-0.5)/1=0.5 per signal; masks identical -> agreement 1
+    np.testing.assert_allclose(conf, np.sqrt(0.5 * 1.0))
+
+
+def test_foot_contacts_detects_bouncing_root_dwell():
+    # Feet dwell low (contact) on known frames and lift between -> the height
+    # method must recover the dwells. Drive the foot trajectory via `coords`.
+    bvh = make_pos_y_up_bvh()
+    up = 1  # +y
+    coords = bvh.node_positions().copy()
+    for f in [bvh.index(n, axis="node") for n in ["LeftFoot", "RightFoot"]]:
+        coords[4:7, f, up] += 40.0         # lift frames 4-6; dwell low elsewhere
+    c = bvh.foot_contacts(foot_joints=["LeftFoot", "RightFoot"],
+                          method="height", coords=coords, hysteresis=0.0)
+    assert c[0:4].all() and c[7:10].all()  # contact during the low dwells
+    assert not c[4:7].any()                # airborne during the lift
+
+
+# --- boundary-aware hysteresis release (open runs trimmed to raw support) ---
+
+def test_release_open_runs_trims_truncated_swing():
+    # filled run reaches the last frame, but raw support ends earlier: the
+    # trailing band is speculative (a swing cut off by the clip) -> dropped.
+    F = 8
+    mask = np.zeros((F, 1), bool); mask[2:8, 0] = True   # filled run [2,8) touches end
+    raw = np.zeros((F, 1), bool); raw[2:5, 0] = True     # raw lift at frame 5
+    out = analysis._release_open_runs(mask, raw)
+    expected = np.zeros((F, 1), bool); expected[2:5, 0] = True
+    np.testing.assert_array_equal(out, expected)
+
+
+def test_release_open_runs_trims_leading_band():
+    # symmetric at the start: a run touching frame 0 trims to where raw begins.
+    F = 8
+    mask = np.zeros((F, 1), bool); mask[0:6, 0] = True
+    raw = np.zeros((F, 1), bool); raw[3:6, 0] = True
+    out = analysis._release_open_runs(mask, raw)
+    expected = np.zeros((F, 1), bool); expected[3:6, 0] = True
+    np.testing.assert_array_equal(out, expected)
+
+
+def test_release_open_runs_leaves_closed_and_supported_runs():
+    # col0: interior run (touches neither edge) -> untouched even with no raw.
+    # col1: boundary run raw-supported to the edge -> untouched.
+    # col2: planted the whole clip (raw all true) -> untouched.
+    F = 10
+    mask = np.zeros((F, 3), bool); raw = np.zeros((F, 3), bool)
+    mask[3:6, 0] = True
+    mask[7:10, 1] = True; raw[7:10, 1] = True
+    mask[:, 2] = True; raw[:, 2] = True
+    out = analysis._release_open_runs(mask, raw)
+    np.testing.assert_array_equal(out, mask)
+
+
+def test_detect_contacts_releases_open_swing_under_hysteresis():
+    # thr=1, band +-0.5 -> low=0.5 high=1.5 raw=<1. A deep contact rising into
+    # the band at the clip end: the latch must release at the raw lift, not hold.
+    F = 8
+    speed = np.array([5, 5, 0.1, 0.1, 0.1, 0.8, 1.2, 1.4]).reshape(F, 1)
+    mask, _ = analysis._detect_contacts(
+        speed, None, method="velocity",
+        vel_threshold=1.0, height_threshold=None, hysteresis=0.5)
+    expected = np.zeros((F, 1), bool); expected[2:6, 0] = True   # released at frame 6
+    np.testing.assert_array_equal(mask, expected)
+
+
+def test_detect_contacts_keeps_genuine_boundary_contact():
+    # control: signal stays in deep contact to the last frame -> raw supports the
+    # edge, nothing is trimmed.
+    F = 8
+    speed = np.array([5, 5, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]).reshape(F, 1)
+    mask, _ = analysis._detect_contacts(
+        speed, None, method="velocity",
+        vel_threshold=1.0, height_threshold=None, hysteresis=0.5)
+    expected = np.zeros((F, 1), bool); expected[2:8, 0] = True
+    np.testing.assert_array_equal(mask, expected)
+
+
+def test_foot_contacts_releases_foot_lifting_at_clip_end():
+    # end-to-end: a foot planted then lifting in the final frames, clip cut
+    # mid-lift. With default hysteresis the latch must not hold it to the edge.
+    bvh = make_pos_y_up_bvh()
+    feet = ["LeftFoot", "RightFoot"]
+    fis = [bvh.index(n, axis="node") for n in feet]
+    coords = bvh.node_positions().copy()
+    coords[:, fis, 1] = 0.0          # planted at the floor...
+    coords[7:10, fis, 1] = 1.1       # ...then in the band (above raw thr=1, below high=1.25)
+    c = np.asarray(bvh.foot_contacts(
+        foot_joints=feet, method="height", coords=coords, floor=0.0,
+        height_threshold=1.0, min_contact_duration=0.0, min_gap_duration=0.0))
+    assert c[:7].all()               # genuine plant kept
+    assert not c[7:].any()           # open-end lift released, not held to frame 9
+
+
+def test_contact_diagnostics_skate_airborne_height():
+    F = 6
+    mask = np.zeros((F, 2), bool); mask[1:4, 0] = True; mask[2:5, 1] = True
+    foot_coords = np.zeros((F, 2, 3))
+    foot_coords[2:5, 1, 0] = [0.0, 1.5, 3.0]    # foot1 slides 3 in x during contact
+    clearance = np.zeros((F, 2))                # all on the floor
+    diag = analysis._contact_diagnostics(mask, foot_coords, clearance, up_idx=2, scale=10.0)
+    np.testing.assert_allclose(diag["foot_skate"]["max"][0], 0.0)
+    np.testing.assert_allclose(diag["foot_skate"]["max"][1], 3.0 / 10.0)
+    np.testing.assert_allclose(diag["airborne_fraction"], 2 / 6)   # rows 0,5 have no contact
+    np.testing.assert_allclose(diag["height_at_contact"], [0.0, 0.0])
+
+
+# ----------------------------------------------------------------
+#  Velocity-informed height threshold + floor_height
+# ----------------------------------------------------------------
+
+def test_velocity_informed_height_reduces_to_margin_on_floor():
+    F, margin = 20, 1.0
+    clearance = np.zeros((F, 1)); clearance[10:, 0] = 10.0     # stance on floor, swing high
+    speed = np.zeros((F, 1)); speed[10:, 0] = 5.0             # slow then fast
+    thr = analysis._velocity_informed_height(clearance, speed, 1.0, margin)
+    np.testing.assert_allclose(thr, [margin])                # contact_h≈0 -> margin
+
+
+def test_velocity_informed_height_calibrates_to_hover():
+    F, margin, h0 = 20, 1.0, 5.0
+    clearance = np.full((F, 1), h0); clearance[10:, 0] = h0 + 5 * margin
+    speed = np.zeros((F, 1)); speed[10:, 0] = 5.0
+    thr = analysis._velocity_informed_height(clearance, speed, 1.0, margin)
+    np.testing.assert_allclose(thr, [h0 + margin])           # lifts to the hover level
+
+
+def test_velocity_informed_height_guard_rejects_held_airborne():
+    F, margin = 20, 1.0
+    clearance = np.full((F, 1), 8.0)                          # flat high, no swing
+    speed = np.zeros((F, 1))                                  # all slow (held still)
+    thr = analysis._velocity_informed_height(clearance, speed, 1.0, margin)
+    np.testing.assert_allclose(thr, [margin])                # guard -> fixed -> rejected
+
+
+def test_velocity_informed_height_per_foot_and_no_slow():
+    F, margin = 20, 1.0
+    clearance = np.zeros((F, 2))
+    clearance[:, 0] = 5.0; clearance[10:, 0] = 10.0           # foot0 hovers at 5
+    clearance[10:, 1] = 10.0                                  # foot1 reaches floor
+    speed = np.zeros((F, 2)); speed[10:, :] = 5.0
+    thr = analysis._velocity_informed_height(clearance, speed, 1.0, margin)
+    np.testing.assert_allclose(thr, [5 + margin, 0 + margin])  # distinct per foot
+    # never slow -> fixed margin
+    thr2 = analysis._velocity_informed_height(np.zeros((F, 1)), np.full((F, 1), 5.0), 1.0, margin)
+    np.testing.assert_allclose(thr2, [margin])
+
+
+def test_floor_height_cache_invalidates_on_mutation():
+    bvh = make_pos_y_up_bvh()
+    f0 = bvh.floor_height
+    bvh.root_pos = bvh.root_pos + np.array([0.0, 7.0, 0.0])   # +y shift
+    np.testing.assert_allclose(bvh.floor_height, f0 + 7.0)    # recomputed, not stale
+
+
+def test_floor_height_footless_fallback_to_all_nodes():
+    bvh = make_pos_y_up_bvh()
+    assert analysis.auto_detect_foot_joints(bvh) == []        # feet are end sites
+    coords = bvh.node_positions()
+    expected = float(np.percentile(coords[:, :, 1].min(axis=1), 2.0))  # all-nodes min, +y
+    np.testing.assert_allclose(bvh.floor_height, expected)
+
+
+def test_floor_height_negative_up_raw_coords_and_copy():
+    bvh = make_neg_y_up_bvh()
+    assert bvh.floor_height == bvh.copy().floor_height        # survives copy
+    # raw coordinate (not sign-corrected): for -y up the floor is a high +y value
+    coords = bvh.node_positions()
+    expected = float(np.percentile((coords[:, :, 1] * -1).min(axis=1), 2.0) * -1)
+    np.testing.assert_allclose(bvh.floor_height, expected)
+
+
+def _hover_clip(hover_frac, swing_frac=0.3):
+    """make_pos_y_up_bvh + coords where each foot is fully stationary during stance
+    (at floor+hover) then swings high and moving. base = the floor (rest foot height)."""
+    bvh = make_pos_y_up_bvh()
+    feet = ["LeftFoot", "RightFoot"]
+    fidx = [bvh.index(n, axis="node") for n in feet]
+    scale = analysis._skeleton_scale(bvh.rest_pose_coords(), fidx)
+    coords = bvh.node_positions().copy()
+    F = bvh.frame_count; half = F // 2
+    for f in fidx:
+        rest = coords[0, f, :].copy()
+        stance = rest.copy(); stance[1] = rest[1] + hover_frac * scale
+        coords[:half, f, :] = stance                                   # fully still (slow)
+        coords[half:, f, :] = stance
+        coords[half:, f, 1] = rest[1] + swing_frac * scale             # swing high
+        coords[half:, f, 0] = stance[0] + np.linspace(0.1 * scale, scale, F - half)  # moving -> fast
+    base = float(coords[0, fidx[0], 1] - hover_frac * scale)           # the floor (rest height)
+    return bvh, feet, coords, base
+
+
+def test_height_reference_recovers_hovering_stance():
+    # hysteresis=0 isolates the height-threshold logic from the band machinery.
+    bvh, feet, coords, base = _hover_clip(hover_frac=0.05)
+    # explicit low floor (below the hover) mimics the retargeting artifact
+    cv = bvh.foot_contacts(foot_joints=feet, coords=coords, floor=float(base),
+                           height_reference="velocity", hysteresis=0.0)
+    cf = bvh.foot_contacts(foot_joints=feet, coords=coords, floor=float(base),
+                           height_reference="fixed", hysteresis=0.0)
+    assert cv.sum() > cf.sum()           # velocity recovers stance the fixed threshold rejects
+
+
+def test_height_reference_clean_rig_identity():
+    # feet reach the floor during stance -> velocity and fixed are identical
+    # (same threshold), regardless of hysteresis.
+    bvh, feet, coords, base = _hover_clip(hover_frac=0.0)
+    cv = bvh.foot_contacts(foot_joints=feet, coords=coords, height_reference="velocity")
+    cf = bvh.foot_contacts(foot_joints=feet, coords=coords, height_reference="fixed")
+    np.testing.assert_array_equal(cv, cf)
+
+
+def test_height_reference_rejects_held_airborne_foot():
+    bvh = make_pos_y_up_bvh()
+    feet = ["LeftFoot", "RightFoot"]
+    fidx = [bvh.index(n, axis="node") for n in feet]
+    scale = analysis._skeleton_scale(bvh.rest_pose_coords(), fidx)
+    coords = bvh.node_positions().copy()
+    F = bvh.frame_count; base = coords[0, fidx[0], 1]; half = F // 2
+    coords[:, fidx[1], :] = coords[0, fidx[1], :]             # foot1 held still...
+    coords[:, fidx[1], 1] = base + 0.3 * scale                # ...and high (airborne)
+    coords[:half, fidx[0], :] = coords[0, fidx[0], :]; coords[:half, fidx[0], 1] = base  # foot0 stance on floor
+    coords[half:, fidx[0], 1] = base + 0.3 * scale; coords[half:, fidx[0], 0] = np.linspace(0, scale, F - half)
+    cv = bvh.foot_contacts(foot_joints=feet, coords=coords, height_reference="velocity", hysteresis=0.0)
+    assert cv[:, 1].sum() == 0                                # held-airborne foot rejected

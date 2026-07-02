@@ -2161,9 +2161,9 @@ class TestBatchProcessing:
         return Path(__file__).parent.parent / "bvh_data"
 
     def test_read_bvh_directory_basic(self, bvh_dir):
-        """Should load all 5 BVH files from bvh_data/."""
+        """Should load all 6 BVH files from bvh_data/."""
         result = read_bvh_directory(bvh_dir)
-        assert len(result) == 5
+        assert len(result) == 6
         for bvh in result:
             assert isinstance(bvh, Bvh)
 

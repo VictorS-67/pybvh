@@ -20,7 +20,7 @@ def _bvh():
 #  Trajectory wrappers == kernel on the extracted joint trajectory
 # ----------------------------------------------------------------
 
-def test_curvature_torsion_path_straightness_match_kernel():
+def test_curvature_torsion_path_directness_match_kernel():
     bvh = _bvh()
     idx = bvh.index("Spine", axis="node")
     traj = bvh.node_positions()[:, idx, :]
@@ -29,7 +29,7 @@ def test_curvature_torsion_path_straightness_match_kernel():
     np.testing.assert_allclose(bvh.torsion("Spine"),
                                geometry.torsion(traj, bvh.frame_time))
     np.testing.assert_allclose(bvh.path_length("Spine"), geometry.path_length(traj))
-    assert np.isnan(bvh.straightness("Spine")) == np.isnan(geometry.straightness(traj))
+    assert np.isnan(bvh.directness("Spine")) == np.isnan(geometry.directness(traj))
 
 
 def test_ground_path_matches_kernel():
@@ -97,12 +97,13 @@ def test_bounding_and_centroid_wrappers_match_kernel():
                                geometry.verticality(pos, _axis_to_vector(bvh.world_up)))
 
 
-def test_com_displacement_defaults_to_rest_pose_com():
+def test_com_displacement_defaults_to_first_frame_com():
     bvh = _bvh()
     com = geometry.centroid(bvh.node_positions())
-    ref = geometry.centroid(bvh.rest_pose_coords())
+    # default reference is the first-frame CoM (same world frame) -> travel
     np.testing.assert_allclose(bvh.com_displacement(),
-                               geometry.com_displacement(com, ref))
+                               geometry.com_displacement(com, com[0]))
+    assert bvh.com_displacement()[0] == 0.0  # zero displacement at the start
 
 
 # ----------------------------------------------------------------
@@ -136,6 +137,20 @@ def test_gait_wrappers_pass_foot_joints_through():
     assert bvh.cadence(foot_joints=feet) == analysis.cadence(bvh, foot_joints=feet)
     w, m = bvh.stride_length(foot_joints=feet), analysis.stride_length(bvh, foot_joints=feet)
     assert (np.isnan(w) and np.isnan(m)) or np.isclose(w, m)
+    g_method = bvh.gait_parameters(foot_joints=feet)
+    g_module = analysis.gait_parameters(bvh, foot_joints=feet)
+    assert np.allclose(np.array(g_method), np.array(g_module), equal_nan=True)
+
+
+def test_gait_standalone_scalars_match_bundle():
+    # the unified definition: each standalone scalar equals the bundle field
+    bvh = _bvh()
+    feet = ["LeftFoot", "RightFoot"]
+    g = bvh.gait_parameters(foot_joints=feet)
+    np.testing.assert_allclose(bvh.cadence(foot_joints=feet), g.cadence)
+    np.testing.assert_allclose(bvh.walking_pace(foot_joints=feet), g.walking_pace)
+    s = bvh.stride_length(foot_joints=feet)
+    assert (np.isnan(s) and np.isnan(g.stride_length)) or np.isclose(s, g.stride_length)
 
 
 def test_range_of_motion_wrapper_matches_kernel():

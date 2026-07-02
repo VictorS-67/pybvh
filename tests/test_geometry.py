@@ -1,7 +1,7 @@
 """Analytic tests for pybvh.geometry — closed-form known answers.
 
 Every assertion here has a hand-derivable oracle (circle curvature = 1/r,
-straight-line straightness = 1, unit right-triangle area = 1/2, ...), so these
+straight-line directness = 1, unit right-triangle area = 1/2, ...), so these
 never go stale and pin pybvh's conventions independently of any reference lib.
 Also covers the structural invariants from the implementation plan: shape
 sweeps, vectorization over the frame axis (no Python frame loop), the shared
@@ -166,13 +166,13 @@ def test_path_length_straight_and_square():
     np.testing.assert_allclose(geo.path_length(square), 4.0)
 
 
-def test_straightness_line_loop_and_L():
+def test_directness_line_loop_and_L():
     line = np.linspace([0, 0, 0], [5, 0, 0], 20)
-    np.testing.assert_allclose(geo.straightness(line), 1.0)
+    np.testing.assert_allclose(geo.directness(line), 1.0)
     out_and_back = np.array([[0, 0, 0], [1, 0, 0], [0, 0, 0.0]])
-    np.testing.assert_allclose(geo.straightness(out_and_back), 0.0)
+    np.testing.assert_allclose(geo.directness(out_and_back), 0.0)
     L = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0.0]])
-    np.testing.assert_allclose(geo.straightness(L), np.sqrt(2) / 2)
+    np.testing.assert_allclose(geo.directness(L), np.sqrt(2) / 2)
 
 
 def _circle(n, r):
@@ -317,7 +317,7 @@ def test_finite_difference_rejects_bad_args():
 def test_nan_sentinels_on_degenerate_input():
     stationary = np.zeros((10, 3))
     assert np.all(np.isnan(geo.curvature(stationary, 0.1)))
-    assert np.isnan(geo.straightness(stationary))
+    assert np.isnan(geo.directness(stationary))
     # a perfectly vertical point set has zero horizontal width
     vertical = np.array([[0.0, 0, 0], [0, 1, 0], [0, 2, 0]])
     assert np.isnan(geo.verticality(vertical, np.array([0.0, 1, 0])))

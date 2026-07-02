@@ -12,7 +12,7 @@ Two shape conventions run through the module:
   ``(..., P, 3)`` and reduce over the point axis ``P``, keeping any leading
   batch axes (e.g. a frame axis ``F``) — so they vectorize over time with no
   Python frame loop.
-* **Trajectory** kernels (``path_length``, ``straightness``, ``curvature``,
+* **Trajectory** kernels (``path_length``, ``directness``, ``curvature``,
   ``torsion``, ``movement_phase``, ``ground_path``) take ``traj`` shaped
   ``(F, 3)`` or ``(F, N, 3)`` — the first axis ``F`` is time.
 
@@ -21,7 +21,7 @@ Derivatives (``curvature``, ``torsion``, ``movement_phase``) route through
 kinematics ladder, so geometry and velocity derivatives stay consistent.
 
 **Zero-denominator policy.** Every ratio kernel (``curvature``,
-``straightness``, ``verticality``) returns ``np.nan`` at samples where its
+``directness``, ``verticality``) returns ``np.nan`` at samples where its
 denominator vanishes (a stationary joint, a perfectly vertical pose). ``nan``
 is used deliberately over ``0.0`` so an *undefined* value is never confused
 with a genuine zero (e.g. the real zero curvature of a straight segment).
@@ -414,7 +414,8 @@ def com_displacement(
     com : ndarray, shape (..., 3)
         Centre-of-mass position(s) (e.g. per-frame, ``(F, 3)``).
     com_ref : ndarray, shape (3,) or (..., 3)
-        Reference centre of mass (e.g. the rest-pose CoM).
+        Reference centre of mass (e.g. the first-frame or mean CoM). Must be
+        in the same coordinate frame as ``com``.
 
     Returns
     -------
@@ -494,12 +495,17 @@ def path_length(traj: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     return np.linalg.norm(np.diff(traj, axis=0), axis=-1).sum(axis=0)
 
 
-def straightness(traj: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-    """Straightness index — ``‖p_T − p_0‖ / path_length``, in ``[0, 1]``.
+def directness(traj: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """Directness — ``‖p_T − p_0‖ / path_length``, in ``[0, 1]``.
 
-    ``1`` for a perfectly straight path, approaching ``0`` for a path
-    that wanders back on itself. Returns ``np.nan`` for a stationary
-    trajectory (zero path length).
+    The net start→end displacement as a fraction of the total distance
+    travelled: ``1`` for a path straight to its destination, approaching
+    ``0`` for one that nets little progress — note an out-and-back returns
+    ``0`` (zero net displacement), since this measures *directness of
+    travel*, not per-segment straightness. Returns ``np.nan`` for a
+    stationary trajectory (zero path length).
+
+    Also known as the straightness index (Camurri's "Directness Index").
 
     Parameters
     ----------

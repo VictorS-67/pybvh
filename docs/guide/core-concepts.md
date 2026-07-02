@@ -37,4 +37,4 @@ Several functions accept a `centered` parameter:
 
 - `"world"` — positions as stored in the BVH file
 - `"skeleton"` — root forced to `(0, 0, 0)` every frame
-- `"first"` — first frame's root at origin, subsequent frames relative
+- `"first"` — ground-plane centering: the first frame's root position is subtracted in the two horizontal axes only (the `world_up` coordinate is untouched), so the motion starts above the origin at its original height

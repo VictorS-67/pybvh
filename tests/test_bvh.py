@@ -366,12 +366,21 @@ class TestSpatialCoordinates:
         assert spatial.shape == (75, 29, 3)
 
     def test_all_frames_first_centered(self, bvh_example):
-        """Verify 'first' centering mode - first frame root at origin."""
+        """'first' = ground-plane centering: first-frame root over the origin,
+        up coordinate untouched."""
         spatial = bvh_example.node_positions(frame_num=-1, centered="first")
-        
+
         assert spatial.shape == (75, 29, 3)
-        # First frame root should be at origin
-        np.testing.assert_allclose(spatial[0, 0], [0.0, 0.0, 0.0], atol=1e-10)
+        # First-frame root: zero in the two horizontal axes, original
+        # height along world_up.
+        up_idx = {'x': 0, 'y': 1, 'z': 2}[bvh_example.world_up[1]]
+        expected_root = np.zeros(3)
+        expected_root[up_idx] = bvh_example.root_pos[0, up_idx]
+        np.testing.assert_allclose(spatial[0, 0], expected_root, atol=1e-10)
+        # The subtracted offset is constant: relative geometry matches world.
+        world = bvh_example.node_positions(frame_num=-1, centered="world")
+        np.testing.assert_allclose(
+            spatial - spatial[0:1, 0:1], world - world[0:1, 0:1], atol=1e-10)
 
     def test_invalid_centered_raises(self, bvh_example):
         """Invalid centered value should raise ValueError."""
@@ -741,9 +750,14 @@ class TestVectorizedFK:
         coords_skel = bvh.node_positions(centered="skeleton")
         np.testing.assert_allclose(coords_skel[:, 0, :], 0.0, atol=1e-10)
 
-        # First centering: frame 0 root should be at origin
+        # First centering (ground-plane): frame 0 root over the origin,
+        # up coordinate preserved.
         coords_first = bvh.node_positions(centered="first")
-        np.testing.assert_allclose(coords_first[0, 0, :], 0.0, atol=1e-10)
+        up_idx = {'x': 0, 'y': 1, 'z': 2}[bvh.world_up[1]]
+        horizontal = [i for i in range(3) if i != up_idx]
+        np.testing.assert_allclose(coords_first[0, 0, horizontal], 0.0, atol=1e-10)
+        np.testing.assert_allclose(
+            coords_first[0, 0, up_idx], bvh.root_pos[0, up_idx], atol=1e-10)
 
     def test_fk_frame_independence(self, bvh_example):
         """Modifying one frame's angles should not affect other frames' coords."""
@@ -1612,6 +1626,195 @@ class TestFramesToSpatialCoordsStandalone:
         """Passing node list without root_pos/joint_angles raises."""
         with pytest.raises(ValueError):
             frames_to_node_positions(bvh_example.nodes)
+
+    def test_frame_count_mismatch_raises(self, bvh_example):
+        """root_pos and joint_angles with different frame counts raise."""
+        with pytest.raises(ValueError, match="frame count"):
+            frames_to_node_positions(
+                bvh_example.nodes,
+                root_pos=bvh_example.root_pos[:10],
+                joint_angles=bvh_example.joint_angles[:9])
+
+    def test_duplicate_joint_names_fk_unaffected(self, bvh_example):
+        """Topology is keyed by node identity: duplicate names can't corrupt FK."""
+        from copy import deepcopy
+        nodes = deepcopy(bvh_example.nodes)
+        for node in nodes:
+            node.name = "same_name"
+        result = frames_to_node_positions(
+            nodes,
+            root_pos=bvh_example.root_pos,
+            joint_angles=bvh_example.joint_angles)
+        expected = frames_to_node_positions(
+            bvh_example.nodes,
+            root_pos=bvh_example.root_pos,
+            joint_angles=bvh_example.joint_angles)
+        np.testing.assert_allclose(result, expected, atol=1e-12)
+
+    def test_first_centering_is_ground_plane_only(self, bvh_example):
+        """centered='first' zeroes the horizontal axes only, per the up param."""
+        for up in ('+y', '-z', '+x'):
+            up_idx = {'x': 0, 'y': 1, 'z': 2}[up[1]]
+            world = frames_to_node_positions(bvh_example, centered="world")
+            first = frames_to_node_positions(bvh_example, centered="first", up=up)
+            expected_offset = bvh_example.root_pos[0].copy()
+            expected_offset[up_idx] = 0.0
+            np.testing.assert_allclose(first, world - expected_offset, atol=1e-12)
+
+    def test_first_centering_invalid_up_raises(self, bvh_example):
+        with pytest.raises(ValueError, match="Axis"):
+            frames_to_node_positions(bvh_example, centered="first", up="up")
+
+
+# =============================================================================
+# Test: constructor cross-validation
+# =============================================================================
+
+class TestConstructorValidation:
+    """Bvh() rejects inconsistent root_pos / joint_angles combinations."""
+
+    def test_only_root_pos_raises(self, bvh_example):
+        from copy import deepcopy
+        with pytest.raises(ValueError, match="together"):
+            Bvh(nodes=deepcopy(bvh_example.nodes),
+                root_pos=bvh_example.root_pos.copy())
+
+    def test_only_joint_angles_raises(self, bvh_example):
+        from copy import deepcopy
+        with pytest.raises(ValueError, match="together"):
+            Bvh(nodes=deepcopy(bvh_example.nodes),
+                joint_angles=bvh_example.joint_angles.copy())
+
+    def test_frame_count_mismatch_raises(self, bvh_example):
+        from copy import deepcopy
+        with pytest.raises(ValueError, match="frame count"):
+            Bvh(nodes=deepcopy(bvh_example.nodes),
+                root_pos=bvh_example.root_pos[:10].copy(),
+                joint_angles=bvh_example.joint_angles[:9].copy())
+
+    def test_joint_count_mismatch_raises(self, bvh_example):
+        from copy import deepcopy
+        with pytest.raises(ValueError, match="non-end-site joints"):
+            Bvh(nodes=deepcopy(bvh_example.nodes),
+                root_pos=bvh_example.root_pos.copy(),
+                joint_angles=bvh_example.joint_angles[:, :-1].copy())
+
+    def test_consistent_arrays_accepted(self, bvh_example):
+        from copy import deepcopy
+        bvh = Bvh(nodes=deepcopy(bvh_example.nodes),
+                  root_pos=bvh_example.root_pos.copy(),
+                  joint_angles=bvh_example.joint_angles.copy(),
+                  frame_time=bvh_example.frame_time)
+        assert bvh.frame_count == bvh_example.frame_count
+
+
+# =============================================================================
+# Test: __eq__ covers the full hierarchy
+# =============================================================================
+
+class TestEqualityHierarchy:
+    """__eq__ must include offsets / parent structure, not just motion."""
+
+    def test_equal_copies(self, bvh_example):
+        assert bvh_example == bvh_example.copy()
+
+    def test_offset_difference_detected(self, bvh_example):
+        other = bvh_example.copy()
+        other.nodes[2].offset = other.nodes[2].offset + 1.0
+        assert bvh_example != other
+
+    def test_end_site_offset_difference_detected(self, bvh_example):
+        other = bvh_example.copy()
+        end_idx = next(i for i, n in enumerate(other.nodes) if n.is_end_site())
+        other.nodes[end_idx].offset = other.nodes[end_idx].offset + 1.0
+        assert bvh_example != other
+
+
+# =============================================================================
+# Test: world-frame FK cache
+# =============================================================================
+
+class TestNodePositionsCache:
+    """node_positions() caches world FK and invalidates on motion changes."""
+
+    def test_cache_populated_and_reused(self, bvh_example):
+        assert bvh_example._node_positions_cached is None
+        first = bvh_example.node_positions(centered="world")
+        assert bvh_example._node_positions_cached is not None
+        second = bvh_example.node_positions(centered="world")
+        np.testing.assert_array_equal(first, second)
+
+    def test_returned_array_is_a_copy(self, bvh_example):
+        first = bvh_example.node_positions(centered="world")
+        first += 1000.0  # must not corrupt the cache
+        second = bvh_example.node_positions(centered="world")
+        assert not np.allclose(first, second)
+
+    def test_setter_invalidates(self, bvh_example):
+        before = bvh_example.node_positions(centered="world").copy()
+        ja = bvh_example.joint_angles.copy()
+        ja[:, :, :] = 0.0
+        bvh_example.joint_angles = ja
+        assert bvh_example._node_positions_cached is None
+        after = bvh_example.node_positions(centered="world")
+        assert not np.allclose(before, after)
+
+    def test_setitem_invalidates(self, bvh_example):
+        before = bvh_example.node_positions(centered="world").copy()
+        bvh_example[0] = bvh_example[5]
+        after = bvh_example.node_positions(centered="world")
+        np.testing.assert_allclose(after[0], before[5], atol=1e-12)
+        np.testing.assert_allclose(after[1:], before[1:], atol=1e-12)
+
+    def test_retarget_inplace_invalidates(self, bvh_example):
+        before = bvh_example.node_positions(centered="world").copy()
+        new_skeleton = bvh_example.scale(2.0)
+        bvh_example.retarget(new_skeleton, inplace=True)
+        after = bvh_example.node_positions(centered="world")
+        assert not np.allclose(before, after)
+
+    def test_warm_cache_single_frame_matches_cold(self, bvh_example):
+        for centered in ("world", "skeleton", "first"):
+            cold = bvh_example.copy()
+            cold_frame = cold.node_positions(frame_num=3, centered=centered)
+            warm = bvh_example.copy()
+            warm.node_positions()  # populate cache
+            warm_frame = warm.node_positions(frame_num=3, centered=centered)
+            np.testing.assert_allclose(warm_frame, cold_frame, atol=1e-12)
+
+    def test_warm_cache_centered_modes_match_array_level(self, bvh_example):
+        bvh_example.node_positions()  # populate cache
+        for centered in ("world", "skeleton", "first"):
+            expected = frames_to_node_positions(
+                bvh_example, centered=centered, up=bvh_example.world_up)
+            served = bvh_example.node_positions(centered=centered)
+            np.testing.assert_allclose(served, expected, atol=1e-12)
+
+
+# =============================================================================
+# Test: skeleton-only copy metadata preservation
+# =============================================================================
+
+class TestSkeletonCopyMetadata:
+    """slice/concat/resample preserve metadata without full-motion deepcopy."""
+
+    def test_slice_preserves_world_up_override(self, bvh_example):
+        bvh_example.world_up = '+x'
+        assert bvh_example[0:5].world_up == '+x'
+
+    def test_concat_preserves_world_up_override(self, bvh_example):
+        bvh_example.world_up = '+x'
+        assert (bvh_example[0:5] + bvh_example[5:10]).world_up == '+x'
+
+    def test_resample_preserves_world_up_override(self, bvh_example):
+        bvh_example.world_up = '+x'
+        assert bvh_example.resample(60).world_up == '+x'
+
+    def test_slice_preserves_user_lr_mapping(self, bvh_example):
+        bvh_example.lr_mapping = {'LeftArm': 'RightArm'}
+        sliced = bvh_example[0:5]
+        assert sliced.lr_mapping == bvh_example.lr_mapping
+        assert sliced._lr_mapping_source == 'user'
 
 
 # =============================================================================

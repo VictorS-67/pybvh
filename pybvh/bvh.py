@@ -14,7 +14,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .bvhnode import BvhNode, BvhJoint, BvhRoot
-from .spatial_coord import frames_to_node_positions
+from .spatial_coord import frames_to_node_positions, _ground_plane_offset
 from . import rotations
 
 
@@ -78,6 +78,21 @@ class Bvh:
         lr_mapping: dict[str, str] | None = None,
         source_path: str | None = None,
     ) -> None:
+        # All lazy caches exist before any property setter runs, so the
+        # setters can invalidate them unconditionally. ``_world_up_override``
+        # is set via the public ``world_up`` setter; ``_world_up_cached`` is
+        # computed eagerly below (from first animation frame, with rest-pose
+        # fallback) so that file-reading paths have a ready-to-use world_up
+        # immediately. Floor height and FK positions are lazily computed on
+        # first access (FK is too costly to run in every constructor) and
+        # invalidated by the motion setters.
+        self._world_up_override: str | None = None
+        self._world_up_cached: str | None = None
+        self._floor_height_cached: float | None = None
+        self._node_positions_cached: npt.NDArray[np.float64] | None = None
+        self._lr_mapping: dict[str, str] | None = None
+        self._lr_mapping_source: str | None = None  # 'names' | 'user' | None
+
         if nodes is None:
             nodes = [BvhRoot()]
         self.nodes = nodes
@@ -93,9 +108,25 @@ class Bvh:
                 f"Expected ['X', 'Y', 'Z'].")
 
         # ---------- Determine root_pos / joint_angles ----------
-        if root_pos is not None and joint_angles is not None:
+        if (root_pos is None) != (joint_angles is None):
+            missing = "joint_angles" if joint_angles is None else "root_pos"
+            raise ValueError(
+                f"root_pos and joint_angles must be provided together; "
+                f"{missing} is missing.")
+        if root_pos is not None:
             self.root_pos = np.asarray(root_pos, dtype=np.float64)
             self.joint_angles = np.asarray(joint_angles, dtype=np.float64)
+            if self._root_pos.shape[0] != self._joint_angles.shape[0]:
+                raise ValueError(
+                    f"root_pos and joint_angles disagree on frame count: "
+                    f"root_pos has {self._root_pos.shape[0]} frames, "
+                    f"joint_angles has {self._joint_angles.shape[0]}.")
+            joint_count = sum(1 for n in self.nodes if not n.is_end_site())
+            if self._joint_angles.shape[1] != joint_count:
+                raise ValueError(
+                    f"joint_angles has {self._joint_angles.shape[1]} joints "
+                    f"on axis 1, but the skeleton has {joint_count} "
+                    f"non-end-site joints.")
         else:
             # Empty object
             self.root_pos = np.empty((0, 3), dtype=np.float64)
@@ -112,17 +143,6 @@ class Bvh:
             if hasattr(node, '_frozen'):
                 node._frozen = True
 
-        # Orientation cache/override. ``_world_up_override`` is set via the
-        # public ``world_up`` setter. ``_world_up_cached`` is computed
-        # eagerly below (from first animation frame, with rest-pose fallback)
-        # so that file-reading paths have a ready-to-use world_up immediately.
-        # For empty/partially-constructed Bvhs the eager compute is skipped
-        # and the property will lazily compute on first access.
-        self._world_up_override: str | None = None
-        self._world_up_cached: str | None = None
-        # Geometric floor height — lazily computed on first access (FK is too
-        # costly to run in every constructor), invalidated by the motion setters.
-        self._floor_height_cached: float | None = None
         if world_up != "auto":
             from .tools import _validate_axis_string
             self._world_up_override = _validate_axis_string(world_up)
@@ -134,8 +154,6 @@ class Bvh:
         # no runtime invalidation hooks are needed (no pybvh operation
         # mutates names on an existing Bvh). See also the `lr_mapping`
         # property docstring.
-        self._lr_mapping: dict[str, str] | None = None
-        self._lr_mapping_source: str | None = None  # 'names' | 'user' | None
         if lr_mapping is not None:
             # B3 — explicit user mapping at construction time
             self._validate_and_set_lr_mapping(lr_mapping, source='user')
@@ -212,10 +230,7 @@ class Bvh:
             raise ValueError(
                 f"root_pos must have shape (F, 3), got {arr.shape}")
         self._root_pos = arr
-        if hasattr(self, '_world_up_cached'):
-            self._world_up_cached = None
-        if hasattr(self, '_floor_height_cached'):
-            self._floor_height_cached = None
+        self._invalidate_motion_caches()
 
     @property
     def joint_angles(self) -> npt.NDArray[np.float64]:
@@ -241,10 +256,18 @@ class Bvh:
             raise ValueError(
                 f"joint_angles must have shape (F, J, 3), got {arr.shape}")
         self._joint_angles = arr
-        if hasattr(self, '_world_up_cached'):
-            self._world_up_cached = None
-        if hasattr(self, '_floor_height_cached'):
-            self._floor_height_cached = None
+        self._invalidate_motion_caches()
+
+    def _invalidate_motion_caches(self) -> None:
+        """Drop every cache derived from the motion data.
+
+        Called by the ``root_pos`` / ``joint_angles`` setters and by any
+        code path that mutates motion or rest-pose geometry without going
+        through them (``__setitem__``, in-place ``retarget``).
+        """
+        self._world_up_cached = None
+        self._floor_height_cached = None
+        self._node_positions_cached = None
 
     @property
     def frame_count(self) -> int:
@@ -308,15 +331,19 @@ class Bvh:
         return f'Bvh(nodes={nodes_repr}, frames={frames_str}, frame_time={self.frame_time:.6f})'
     
     def __eq__(self, other: object) -> bool:
+        """Full-content equality: skeleton, channel layout, timing, motion.
+
+        Hierarchy (names, parents, offsets, end sites) is compared via
+        :meth:`matches_hierarchy` with ``atol=0``, channel layout via
+        :meth:`matches_channels`. ``source_path`` is ignored.
+        """
         if not isinstance(other, Bvh):
             return NotImplemented
-        if self.joint_count != other.joint_count:
+        if not self.matches_hierarchy(other, atol=0):
             return False
-        if self.joint_names != other.joint_names:
+        if not self.matches_channels(other):
             return False
         if self.frame_time != other.frame_time:
-            return False
-        if self.euler_orders != other.euler_orders:
             return False
         if not np.array_equal(self.root_pos, other.root_pos):
             return False
@@ -519,8 +546,8 @@ class Bvh:
         must equal ``value.frame_count``. Integer keys require
         ``value.frame_count == 1``.
 
-        Assignment goes through the ``root_pos`` and ``joint_angles``
-        setters so the world_up cache is invalidated.
+        Frames are written into the motion arrays in place (no full-array
+        copies); motion-derived caches are invalidated explicitly.
         """
         # --- key → canonical slice ---
         if isinstance(key, (int, np.integer)):
@@ -562,16 +589,32 @@ class Bvh:
                 "concat() to append, or slice_frames() + manual array "
                 "assignment for more complex splicing.")
 
-        # --- apply via setters (triggers cache invalidation) ---
-        new_rp = self.root_pos.copy()
-        new_ja = self.joint_angles.copy()
-        new_rp[s] = value.root_pos
-        new_ja[s] = value.joint_angles
-        self.root_pos = new_rp
-        self.joint_angles = new_ja
+        # --- in-place splice + explicit cache invalidation ---
+        self._root_pos[s] = value.root_pos
+        self._joint_angles[s] = value.joint_angles
+        self._invalidate_motion_caches()
 
     def copy(self) -> Bvh:
         return copy.deepcopy(self)
+
+    def _copy_skeleton(self) -> Bvh:
+        """Deep-copy the hierarchy and metadata into a zero-frame Bvh.
+
+        Copies ``nodes`` (deeply), ``frame_time``, ``source_path``, the
+        ``world_up`` override, and the L/R mapping — but not the motion
+        arrays. Frame-producing operations (slicing, concatenation,
+        resampling) use this instead of :meth:`copy` so full motion arrays
+        aren't deep-copied only to be overwritten immediately.
+        """
+        new_bvh = Bvh(
+            nodes=copy.deepcopy(self.nodes),
+            frame_time=self.frame_time,
+            source_path=self.source_path,
+        )
+        new_bvh._world_up_override = self._world_up_override
+        new_bvh._lr_mapping = copy.deepcopy(self._lr_mapping)
+        new_bvh._lr_mapping_source = self._lr_mapping_source
+        return new_bvh
 
     # ------------------------------------------------------------------
     # Orientation: world_up and forward_at
@@ -942,6 +985,19 @@ class Bvh:
         """
         return [i for i, n in enumerate(self.nodes) if not n.is_end_site()]
 
+    def _world_node_positions(self) -> npt.NDArray[np.float64]:
+        """World-frame FK positions for all frames — lazily computed, cached.
+
+        The cache is invalidated by :meth:`_invalidate_motion_caches`
+        whenever motion data changes. Callers must not mutate the returned
+        array; :meth:`node_positions` derives fresh arrays from it.
+        """
+        if self._node_positions_cached is None:
+            self._node_positions_cached = frames_to_node_positions(
+                self, root_pos=self.root_pos,
+                joint_angles=self.joint_angles, centered="world")
+        return self._node_positions_cached
+
     def node_positions(self, frame_num: int = -1, centered: str = "world") -> npt.NDArray[np.float64]:
         """Per-node 3D positions (joints + end sites) — shape ``(F, N, 3)``.
 
@@ -954,6 +1010,10 @@ class Bvh:
         :attr:`joint_angles` and :meth:`joint_velocities`, use
         :meth:`joint_positions` instead.
 
+        World-frame forward kinematics is cached across calls (invalidated
+        whenever motion data changes), so repeated calls — including with
+        different ``centered`` modes — only pay for FK once.
+
         Parameters
         ----------
         frame_num : int
@@ -961,7 +1021,10 @@ class Bvh:
         centered : str
             ``"world"`` – root at actual position.
             ``"skeleton"`` – root at origin for all frames.
-            ``"first"`` – first-frame root at origin, then moves normally.
+            ``"first"`` – ground-plane centering: the first frame's root
+            position is subtracted in the two axes perpendicular to
+            :attr:`world_up`; the up coordinate is untouched, so the
+            motion starts above the origin at its original height.
         """
         centered_options = ['skeleton', 'first', 'world']
         if centered not in centered_options:
@@ -972,14 +1035,33 @@ class Bvh:
         if frame_num == -1:
             # Sentinel for "all frames" — distinct from a negative index,
             # which would return a single frame counted from the end.
-            return frames_to_node_positions(
-                self, root_pos=self.root_pos,
-                joint_angles=self.joint_angles, centered=centered)
+            world = self._world_node_positions()
+            if centered == "world":
+                return world.copy()
+            if centered == "skeleton":
+                return world - self.root_pos[:, np.newaxis, :]
+            # centered == "first"; with no frames there is nothing to center on
+            if self.frame_count == 0:
+                return world.copy()
+            return world - _ground_plane_offset(self.root_pos[0], self.world_up)
         if not -self.frame_count <= frame_num < self.frame_count:
             raise IndexError(
                 f"frame_num {frame_num} is out of range for "
                 f"{self.frame_count} frames. Use -1 for all frames.")
         actual = frame_num if frame_num >= 0 else frame_num + self.frame_count
+        if self._node_positions_cached is not None:
+            world_frame = self._node_positions_cached[actual]
+            if centered == "world":
+                return world_frame.copy()
+            if centered == "skeleton":
+                return world_frame - self.root_pos[actual]
+            return world_frame - _ground_plane_offset(
+                self.root_pos[actual], self.world_up)
+        if centered == "first":
+            return frames_to_node_positions(
+                self, root_pos=self.root_pos[actual],
+                joint_angles=self.joint_angles[actual], centered="first",
+                up=self.world_up)
         return frames_to_node_positions(
             self, root_pos=self.root_pos[actual],
             joint_angles=self.joint_angles[actual], centered=centered)
@@ -1049,8 +1131,9 @@ class Bvh:
             ``'coordinates'`` — columns are ``'JointName_X'`` etc.,
             including end sites.
         centered : str, optional
-            ``"world"`` (default), ``"skeleton"``, or ``"first"``.
-            Only used when ``mode='coordinates'``.
+            ``"world"`` (default), ``"skeleton"``, or ``"first"`` — see
+            :meth:`node_positions` for their semantics. Only used when
+            ``mode='coordinates'``.
 
         Returns
         -------
@@ -1366,8 +1449,12 @@ class Bvh:
                     f"in new_skeleton and strict=True.")
             # else: keep original offset (lenient mode)
 
+        # Offsets changed without going through the motion setters, so
+        # FK-derived caches (positions, floor height, world_up) are stale.
         if inplace:
+            self._invalidate_motion_caches()
             return None
+        new_bvh._invalidate_motion_caches()
         return new_bvh
 
     @overload
@@ -1826,7 +1913,7 @@ class Bvh:
         Bvh
             New Bvh object with the sliced frames and same skeleton.
         """
-        new_bvh = self.copy()
+        new_bvh = self._copy_skeleton()
         s = slice(start, end, step)
         new_bvh.root_pos = self.root_pos[s].copy()
         new_bvh.joint_angles = self.joint_angles[s].copy()
@@ -1882,7 +1969,7 @@ class Bvh:
                 f"Frame time mismatch: {self.frame_time} vs "
                 f"{other.frame_time}. Using self's frame time.")
 
-        new_bvh = self.copy()
+        new_bvh = self._copy_skeleton()
         new_bvh.root_pos = np.concatenate(
             [self.root_pos, other.root_pos], axis=0)
         new_bvh.joint_angles = np.concatenate(
@@ -1962,7 +2049,7 @@ class Bvh:
                 rotations.quat_to_rotmat(new_quats[:, j_idx]),
                 order)
 
-        new_bvh = self.copy()
+        new_bvh = self._copy_skeleton()
         new_bvh.root_pos = new_root_pos
         new_bvh.joint_angles = new_angles
         new_bvh.frame_time = new_freq

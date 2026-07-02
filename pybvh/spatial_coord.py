@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Union
 import numpy as np
 import numpy.typing as npt
 
-from .tools import get_premult_mat_rot, batch_get_premult_mat_rot
+from .tools import get_premult_mat_rot, batch_get_premult_mat_rot, _validate_axis_string
 from .bvhnode import BvhNode
 
 if TYPE_CHECKING:
@@ -17,6 +17,7 @@ def frames_to_node_positions(
     root_pos: npt.ArrayLike | None = None,
     joint_angles: npt.ArrayLike | None = None,
     centered: str = "world",
+    up: str = '+y',
 ) -> npt.NDArray[np.float64]:
     """
     Return spatial coordinates of all nodes for one or multiple frames.
@@ -35,7 +36,13 @@ def frames_to_node_positions(
     centered : str
         ``"world"``  – root at its actual position.
         ``"skeleton"`` – root at origin in every frame.
-        ``"first"`` – root at origin in the first frame, then moves normally.
+        ``"first"`` – ground-plane centering: the first frame's root
+        position is subtracted in the two non-``up`` axes only, so the
+        motion starts above the origin at its original height.
+    up : str, optional
+        Signed world-up axis string (``'+y'`` default) — only used by
+        ``centered="first"`` to decide which coordinate is left untouched.
+        :meth:`Bvh.node_positions` passes ``bvh.world_up`` automatically.
 
     Returns
     -------
@@ -47,6 +54,8 @@ def frames_to_node_positions(
     accepted_centered = ["skeleton", "first", "world"]
     if centered not in accepted_centered:
         raise ValueError(f"centered argument must be one of {accepted_centered}.")
+    if centered == "first":
+        up = _validate_axis_string(up)
 
     # Resolve nodes_container to a list of nodes
     nodes, is_bvh = _nodes_container_to_nodes_list(nodes_container)
@@ -73,6 +82,12 @@ def frames_to_node_positions(
 
     # -- From here, root_pos_arr is (F, 3) and joint_angles_arr is (F, J, 3) --
 
+    if root_pos_arr.shape[0] != joint_angles_arr.shape[0]:
+        raise ValueError(
+            f"root_pos and joint_angles disagree on frame count: "
+            f"root_pos has {root_pos_arr.shape[0]} frames, joint_angles "
+            f"has {joint_angles_arr.shape[0]}.")
+
     num_frames = root_pos_arr.shape[0]
     num_nodes = len(nodes)
     skel_centered = (centered == "skeleton")
@@ -86,6 +101,8 @@ def frames_to_node_positions(
     # offsets[i]    = (3,) offset vector
     # rot_orders[j] = rotation order for joint j
 
+    # Keyed by object identity, not name — duplicate joint names would
+    # silently corrupt the parent lookup otherwise.
     node2idx = {}
     parent_idx = np.empty(num_nodes, dtype=np.intp)
     joint_idx = np.empty(num_nodes, dtype=np.intp)
@@ -94,10 +111,10 @@ def frames_to_node_positions(
 
     j_counter = 0
     for i, node in enumerate(nodes):
-        node2idx[node.name] = i
+        node2idx[id(node)] = i
         offsets[i] = node.offset
         if node.parent is not None:
-            parent_idx[i] = node2idx[node.parent.name]
+            parent_idx[i] = node2idx[id(node.parent)]
         else:
             parent_idx[i] = -1
 
@@ -142,14 +159,32 @@ def frames_to_node_positions(
     if not skel_centered:
         positions += root_pos_arr[:, np.newaxis, :]  # (F,1,3) broadcasts over (F,N,3)
 
-    # Handle "first" centering mode - subtract first frame's root position
-    if centered == "first":
-        positions -= positions[0:1, 0:1, :]  # (1,1,3) broadcasts over (F,N,3)
+    # "first" centering: subtract the first frame's root position in the
+    # two non-up axes only — the up coordinate stays in world units.
+    if centered == "first" and num_frames > 0:
+        positions -= _ground_plane_offset(root_pos_arr[0], up)
 
     # Return (N, 3) for single frame, (F, N, 3) for multiple
     if single_frame:
         return positions[0]
     return positions
+
+
+def _ground_plane_offset(
+    root_position: npt.NDArray[np.float64],
+    up: str,
+) -> npt.NDArray[np.float64]:
+    """A ``(3,)`` copy of *root_position* with its ``up`` component zeroed.
+
+    Subtracting this vector centers positions on the origin in the ground
+    plane while leaving the height above the ground untouched — the
+    ``centered="first"`` convention shared by
+    :func:`frames_to_node_positions` and :meth:`Bvh.node_positions`.
+    """
+    up_idx = {'x': 0, 'y': 1, 'z': 2}[up[-1].lower()]
+    offset = np.array(root_position, dtype=np.float64)
+    offset[up_idx] = 0.0
+    return offset
 
 
 def _nodes_container_to_nodes_list(
@@ -165,7 +200,8 @@ def _nodes_container_to_nodes_list(
     is_bvh : bool
         True if *nodes_container* is a Bvh object (has root_pos / joint_angles).
     """
-    if hasattr(nodes_container, 'nodes') and hasattr(nodes_container, 'root_pos'):
+    from .bvh import Bvh  # lazy: bvh.py imports this module at top level
+    if isinstance(nodes_container, Bvh):
         return nodes_container.nodes, True
     elif isinstance(nodes_container, list):
         if not all(isinstance(n, BvhNode) for n in nodes_container):

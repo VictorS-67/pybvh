@@ -94,7 +94,7 @@ plt.show()
 # The `centered` parameter controls this:
 #
 # - **`"world"`** (default): absolute positions from the BVH file. The skeleton is wherever it was recorded.
-# - **`"first"`**: the root's position in the first frame is shifted to `[0, 0, 0]`. The skeleton still moves from there.
+# - **`"first"`**: ground-plane centering — the first frame's root is shifted over the origin in the two horizontal axes, keeping its original height above the ground. The skeleton still moves from there.
 # - **`"skeleton"`**: the root is at `[0, 0, 0]` in **every** frame. Only the pose changes, not the global position.
 #
 # The best way to understand this is visually:
@@ -128,7 +128,7 @@ print(coords_skel[:5, 0])  # all zeros
 # %% [markdown]
 # **When to use each mode:**
 # - `"world"` — when you need the original recording positions (e.g., analyzing room-scale trajectories).
-# - `"first"` — when you want the motion to start at the origin but still move naturally (common for ML training data).
+# - `"first"` — when you want the motion to start over the origin (at its natural height) but still move naturally (common for ML training data).
 # - `"skeleton"` — when you only care about the body pose, not the global position (e.g., pose classification).
 
 # %% [markdown]

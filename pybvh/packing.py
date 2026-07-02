@@ -11,6 +11,7 @@ import numpy.typing as npt
 
 from .bvh import Bvh
 from .rotations import REPRESENTATION_CHANNELS as _REPRESENTATION_WIDTHS
+from .spatial_coord import _ground_plane_offset
 from .analysis import joint_velocities, foot_contacts, _validate_stencil_pad
 
 
@@ -161,7 +162,10 @@ def to_feature_array(
         if centered == "skeleton":
             parts.append(np.zeros_like(bvh.root_pos))
         elif centered == "first":
-            parts.append(bvh.root_pos - bvh.root_pos[0:1])
+            # Ground-plane centering: first-frame root subtracted in the
+            # non-up axes only, matching node_positions(centered="first").
+            parts.append(
+                bvh.root_pos - _ground_plane_offset(bvh.root_pos[0], bvh.world_up))
         else:  # "world"
             parts.append(bvh.root_pos)
 

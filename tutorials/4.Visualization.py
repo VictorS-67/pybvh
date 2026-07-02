@@ -160,7 +160,7 @@ plt.show()
 # All visualization functions accept a `centered` parameter — the same centering modes as `node_positions()` (see Tutorial 2 for a full explanation):
 #
 # - `'world'` (default): absolute positions from the BVH file.
-# - `'first'`: root at the origin in the first frame, motion continues from there.
+# - `'first'`: first frame's root over the origin (horizontal axes only, original height kept), motion continues from there.
 # - `'skeleton'`: root at the origin in every frame (pose only, no global movement).
 
 # %%

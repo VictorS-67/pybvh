@@ -6,7 +6,8 @@ import numpy as np
 from typing import TYPE_CHECKING
 
 from .bvh import Bvh
-from .bvhnode import BvhNode, BvhJoint, BvhRoot
+from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
+from .io import _snap_frame_time
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -36,26 +37,29 @@ def _check_df_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     new_df = df.copy()
     # first we keep only the columns following the aforementioned format
-    valid_pattern = r'(.+_[xyzXYZ]_pos|.+_[xyzXYZ]_rot)'
+    # (axis letters are uppercase by convention — see Bvh.to_df_dict output)
+    valid_pattern = r'.+_[XYZ]_(pos|rot)'
     for col_name in new_df.columns:
         pattern_ok = (re.fullmatch(valid_pattern, col_name) != None)
         if not pattern_ok:
             new_df = new_df.drop(col_name, axis=1) #that includes dropping the time col
 
+    if len(new_df.columns) == 0:
+        raise ValueError("No column found following the naming convention 'name_ax_pos' or 'name_ax_rot'")
+
     #check that root pos and rot appear first
-    root_name = new_df.columns[0].split('_')
-    root_name = root_name[0]
+    # rsplit from the right: joint names may themselves contain underscores
+    # (e.g. 'Left_Hip_X_rot' -> joint 'Left_Hip', axis 'X', kind 'rot')
+    root_name = new_df.columns[0].rsplit('_', 2)[0]
     root_er = 'The first rotational data appearing in the DataFrane should be 3 columns for the root position followed by 3 columns for the root rotation'
     for col_name in new_df.columns[0:3]:
         #those should be the root pos
-        splitted_name = col_name.split('_')
-        col_joint_name, ax, rotpos = splitted_name[0], splitted_name[1], splitted_name[2]
+        col_joint_name, ax, rotpos = col_name.rsplit('_', 2)
         if col_joint_name != root_name or rotpos != 'pos' :
             raise ValueError(root_er)
     for col_name in new_df.columns[3:6]:
         #those should be the root rot
-        splitted_name = col_name.split('_')
-        col_joint_name, ax, rotpos = splitted_name[0], splitted_name[1], splitted_name[2]
+        col_joint_name, ax, rotpos = col_name.rsplit('_', 2)
         if col_joint_name != root_name or rotpos != 'rot' :
             raise ValueError(root_er)
 
@@ -67,9 +71,7 @@ def _check_df_columns(df: pd.DataFrame) -> pd.DataFrame:
             has_time = True
             time_col = df[col_name]
             break
-    if len(new_df.columns) == 0:
-        raise ValueError("No column found following the naming convention 'name_ax_pos' or 'name_ax_rot'")
-    elif not has_time or time_col is None:
+    if not has_time or time_col is None:
         raise ValueError("No 'time' column found in the DataFrame")
 
     new_df.insert(0, 'time', time_col)
@@ -140,6 +142,14 @@ def _check_df_match_with_hier(hier: list[BvhNode], df: pd.DataFrame) -> tuple[li
 
     return hier, df
 
+def _is_end_site_entry(info_dict: dict) -> bool:
+    """Whether a hierarchy-dict entry describes an end site.
+
+    Detection is structural — an end site is a leaf marker carrying only ``'offset'`` and ``'parent'``, so an entry with neither ``'children'`` nor ``'rot_channels'`` is an end site. The entry's key/name (e.g. ``'EndSiteHips'``) is display-only and carries no semantics.
+    """
+    return 'children' not in info_dict and 'rot_channels' not in info_dict
+
+
 def _complete_hier_dict(hier: dict[str, dict], df: pd.DataFrame) -> dict[str, dict]:
     """Fill missing rotation/position channel info in a hierarchy dictionary.
 
@@ -196,7 +206,7 @@ def _complete_hier_dict(hier: dict[str, dict], df: pd.DataFrame) -> dict[str, di
             parent_info = hier[parent]
 
         #for end site, that's all there is to it
-        if name.startswith('EndSite'):
+        if _is_end_site_entry(info_dict):
             continue
 
         try:
@@ -215,13 +225,14 @@ def _complete_hier_dict(hier: dict[str, dict], df: pd.DataFrame) -> dict[str, di
         # In case they are not, we will add them from the df
         try:
             rot_channels = info_dict['rot_channels']
-        except:
+        except KeyError:
             rot_channels = []
-            corresponding_cols = df.columns[df.columns.str.contains(name)]
-            for col_name in corresponding_cols:
-                splitted_name = col_name.split('_')
-                col_joint_name, ax, rotpos = splitted_name[0], splitted_name[1], splitted_name[2]
-                if rotpos != 'rot':
+            # exact match on the joint-name part (rsplit from the right, so
+            # underscored joint names work) — a substring match would let
+            # e.g. 'Hip' pick up 'LHip' columns. df.columns[0] is 'time'.
+            for col_name in df.columns[1:]:
+                col_joint_name, ax, rotpos = col_name.rsplit('_', 2)
+                if col_joint_name != name or rotpos != 'rot':
                     continue
                 rot_channels.append(ax)
 
@@ -232,7 +243,7 @@ def _complete_hier_dict(hier: dict[str, dict], df: pd.DataFrame) -> dict[str, di
     if not root_has_pos:
         pos_channels = []
         for pos_col in df_cols[1:4]:
-            pos_channels.append(pos_col.split('_')[1])
+            pos_channels.append(pos_col.rsplit('_', 2)[1])
         hier[root]['pos_channels'] = pos_channels
 
     return hier
@@ -253,17 +264,17 @@ def _hier_dict_to_list(hier: dict[str, dict]) -> list[BvhNode]:
     -------
     list_nodes : list of BvhNode
         Depth-first ordered list of ``BvhRoot``, ``BvhJoint``, and
-        ``BvhNode`` (end-site) objects with parent/children references set.
+        ``BvhEndSite`` objects with parent/children references set.
     """
     #first we create the list, without filling children or parent yet
     #we will use a recursive function for that going through the children of the nodes
     def create_list_rec(node_name: str, is_start: bool = False) -> list[BvhNode]:
         info_dict = hier[node_name]
-        if node_name.startswith('EndSite'):
-            node = BvhNode(node_name, offset=info_dict['offset'])
+        if _is_end_site_entry(info_dict):
+            node = BvhEndSite(node_name, offset=info_dict['offset'])
             return [node]
         else:
-            #We want only the node at the very beginning to be BvhRoot, the rest BvhJoint (or BvhNode if End Site)
+            #We want only the node at the very beginning to be BvhRoot, the rest BvhJoint (end sites are handled above as BvhEndSite)
             if is_start :
                 node = BvhRoot(node_name, offset=info_dict['offset'],
                                rot_channels=info_dict['rot_channels'], pos_channels=info_dict['pos_channels'])
@@ -327,13 +338,15 @@ def df_to_bvh(hier: list[BvhNode] | dict[str, dict], df: pd.DataFrame) -> Bvh:
     hier : list of BvhNode or dict
         Skeletal hierarchy, supplied as either:
 
-        * A **list** of ``BvhRoot``, ``BvhJoint``, and ``BvhNode`` objects
+        * A **list** of ``BvhRoot``, ``BvhJoint``, and ``BvhEndSite`` objects
           with parent/children already set.
         * A **dict** keyed by joint name, where each value contains at least
           ``'offset'`` (list of 3 floats), ``'parent'`` (str or None), and
           ``'children'`` (list of str).  Optional keys ``'rot_channels'``
           and ``'pos_channels'`` (each a list such as ``['X', 'Y', 'Z']``)
-          will be inferred from *df* if absent.
+          will be inferred from *df* if absent.  End-site entries carry only
+          ``'offset'`` and ``'parent'`` — an entry with neither
+          ``'children'`` nor ``'rot_channels'`` is treated as an end site.
     df : pandas.DataFrame
         Motion data.  Must include a ``time`` column and motion columns
         named ``<joint>_<axis>_pos`` or ``<joint>_<axis>_rot`` (e.g.
@@ -355,6 +368,10 @@ def df_to_bvh(hier: list[BvhNode] | dict[str, dict], df: pd.DataFrame) -> Bvh:
         If *df* columns do not satisfy naming or ordering requirements (see
         ``_check_df_columns``), or if *df* and *hier* are inconsistent (see
         ``_check_df_match_with_hier``).
+
+    Notes
+    -----
+    The DataFrame's ``_rot`` columns are in **degrees** — the human-readable convention used by :meth:`Bvh.to_df_dict` output. ``df_to_bvh`` converts them to the radians held on :attr:`Bvh.joint_angles`; feed this function degrees even though the rest of the pybvh API works in radians.
     """
 
     df = _check_df_columns(df) # this creates a copy of the df
@@ -374,14 +391,14 @@ def df_to_bvh(hier: list[BvhNode] | dict[str, dict], df: pd.DataFrame) -> Bvh:
     time_series = df['time']
     frames = df.drop(['time'], axis=1)
     frames = frames.to_numpy()
-    frame_time = time_series.to_numpy()[-1] / (len(time_series) - 1)
-    # Snap to exact 1/N when the measured frame time is within 0.01% of
-    # one (protects round-trips on 30/60/120 fps sources without
-    # corrupting non-integer rates like 23.976 fps).
-    if frame_time > 0:
-        snapped = 1.0 / round(1.0 / frame_time)
-        if abs(snapped - frame_time) / frame_time < 1e-4:
-            frame_time = snapped
+    time_values = time_series.to_numpy()
+    if len(time_values) < 2:
+        raise ValueError(
+            f"df must contain at least 2 rows to derive the frame time "
+            f"from the 'time' column (got {len(time_values)})")
+    # Elapsed time over frame intervals — robust to a nonzero first timestamp.
+    frame_time = float((time_values[-1] - time_values[0]) / (len(time_values) - 1))
+    frame_time = _snap_frame_time(frame_time)
 
     num_joints = len([n for n in hier_list if not n.is_end_site()])
     root_pos = frames[:, :3].astype(np.float64)

@@ -177,7 +177,7 @@ for node in bvh.nodes:
 #
 # - **BvhRoot** — the root joint (always first in the list). Has position channels, rotation channels, and children.
 # - **BvhJoint** — a regular joint. Has rotation channels, children, and a parent.
-# - **BvhNode** — an end site (leaf node). Has only an offset and a parent. Represents the tip of a terminal bone (e.g., top of the head, tip of the toes).
+# - **BvhEndSite** — an end site (leaf node). Has only an offset and a parent. Represents the tip of a terminal bone (e.g., top of the head, tip of the toes).
 
 # %%
 # The root

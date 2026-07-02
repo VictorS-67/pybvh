@@ -16,7 +16,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from pybvh import read_bvh_file, Bvh  # noqa: E402
 from pybvh import analysis, packing  # noqa: E402
-from pybvh.bvhnode import BvhRoot, BvhJoint, BvhNode  # noqa: E402
+from pybvh.bvhnode import BvhRoot, BvhJoint, BvhEndSite  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent))
 from synthetic_bvh import (  # noqa: E402
@@ -48,10 +48,10 @@ def _make_ik_helper_skeleton() -> Bvh:
     hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
     left_leg = BvhJoint("LeftLeg", offset=[-3, 0, -5], rot_channels=['Z', 'Y', 'X'])
     left_foot = BvhJoint("LeftFoot", offset=[0, 0, -5], rot_channels=['Z', 'Y', 'X'])
-    left_foot_end = BvhNode("EndSite", offset=[0, 0, -2])
+    left_foot_end = BvhEndSite("EndSite", offset=[0, 0, -2])
     right_leg = BvhJoint("RightLeg", offset=[3, 0, -5], rot_channels=['Z', 'Y', 'X'])
     right_foot = BvhJoint("RightFoot", offset=[0, 0, -5], rot_channels=['Z', 'Y', 'X'])
-    right_foot_end = BvhNode("EndSite", offset=[0, 0, -2])
+    right_foot_end = BvhEndSite("EndSite", offset=[0, 0, -2])
     # IK helpers — no children (no tip descendants)
     left_foot_ik = BvhJoint(
         "LeftFootIK", offset=[-3, 0, -10], rot_channels=['Z', 'Y', 'X'])

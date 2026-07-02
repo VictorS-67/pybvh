@@ -18,7 +18,7 @@ from __future__ import annotations
 import numpy as np
 
 from pybvh.bvh import Bvh
-from pybvh.bvhnode import BvhRoot, BvhJoint, BvhNode
+from pybvh.bvhnode import BvhRoot, BvhJoint, BvhNode, BvhEndSite
 
 
 # ---------------------------------------------------------------------------
@@ -71,17 +71,17 @@ def _build_skeleton(
     foot_end_offset = _off(up_idx, -5.0 * up_sign)
 
     # --- Build nodes (bottom-up so we can assign children) ---
-    head_end = BvhNode("Head", offset=head_end_offset)
+    head_end = BvhEndSite("Head", offset=head_end_offset)
     spine = BvhJoint("Spine", offset=spine_offset, rot_channels=list(root_rot_order),
                       children=[head_end])
     head_end.parent = spine
 
-    left_foot_end = BvhNode("LeftFoot", offset=foot_end_offset)
+    left_foot_end = BvhEndSite("LeftFoot", offset=foot_end_offset)
     left_leg = BvhJoint(left_name, offset=left_offset, rot_channels=list(left_rot_order),
                          children=[left_foot_end])
     left_foot_end.parent = left_leg
 
-    right_foot_end = BvhNode("RightFoot", offset=foot_end_offset)
+    right_foot_end = BvhEndSite("RightFoot", offset=foot_end_offset)
     right_leg = BvhJoint(right_name, offset=right_offset, rot_channels=list(right_rot_order),
                           children=[right_foot_end])
     right_foot_end.parent = right_leg

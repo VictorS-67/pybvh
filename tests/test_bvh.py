@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from pybvh import (read_bvh_file, df_to_bvh, Bvh, frames_to_node_positions,
                     read_bvh_directory, batch_to_numpy,
                     compute_normalization_stats, normalize_array, denormalize_array)
-from pybvh.bvhnode import BvhNode, BvhJoint, BvhRoot
+from pybvh.bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
 from pybvh.rotations import euler_to_rotmat
 
 sys.path.insert(0, str(Path(__file__).parent))  # for synthetic_bvh
@@ -266,13 +266,15 @@ class TestBvhSourcePath:
 class TestNodeHierarchy:
     """Tests for BvhNode, BvhJoint, BvhRoot classes."""
 
-    def test_end_sites_are_bvhnode(self, bvh_example):
-        """End sites should be BvhNode (not BvhJoint)."""
+    def test_end_sites_are_bvhendsite(self, bvh_example):
+        """End sites should be BvhEndSite (not BvhJoint) — identity by class, not name."""
         end_sites = [n for n in bvh_example.nodes if n.is_end_site()]
         assert len(end_sites) == 5  # Head, RightHand, LeftHand, RightToeBase, LeftToeBase
         for es in end_sites:
             assert es.is_end_site() is True
-            assert isinstance(es, BvhNode)
+            assert isinstance(es, BvhEndSite)
+            assert not isinstance(es, BvhJoint)
+            # The generated 'EndSite<parent>' name is display-only
             assert es.name.startswith("EndSite")
 
     def test_joints_are_bvhjoint(self, bvh_example):
@@ -417,13 +419,62 @@ class TestDataFrameConversion:
         """DataFrame to Bvh round-trip should preserve data."""
         df_data = bvh_example.to_df_dict(mode='euler', centered='world')
         df = pd.DataFrame(df_data)
-        
+
         bvh2 = df_to_bvh(bvh_example.nodes, df)
-        
+
         assert bvh2.frame_count == bvh_example.frame_count
         assert len(bvh2.nodes) == len(bvh_example.nodes)
         np.testing.assert_allclose(bvh2.root_pos, bvh_example.root_pos, atol=1e-10)
         np.testing.assert_allclose(bvh2.joint_angles, bvh_example.joint_angles, atol=1e-10)
+
+    @staticmethod
+    def _make_underscored_bvh():
+        """Skeleton exercising two column-parsing traps: an underscored joint name ('Left_Hip') and a root name ('Hip') that is a substring of it."""
+        end = BvhEndSite("tip", offset=[0.0, 2.0, 0.0])
+        hip = BvhJoint("Left_Hip", offset=[1.0, -3.0, 0.0],
+                       rot_channels=['X', 'Y', 'Z'], children=[end])
+        end.parent = hip
+        root = BvhRoot("Hip", offset=[0.0, 0.0, 0.0],
+                       rot_channels=['Z', 'Y', 'X'], children=[hip])
+        hip.parent = root
+        rng = np.random.default_rng(0)
+        frames = 5
+        return Bvh(nodes=[root, hip, end],
+                   root_pos=rng.normal(size=(frames, 3)),
+                   joint_angles=rng.normal(scale=0.5, size=(frames, 2, 3)),
+                   frame_time=1.0 / 30.0)
+
+    def test_df_to_bvh_list_underscored_joint_names(self):
+        """Underscored joint names must survive the name_ax_pos/rot column convention (rsplit from the right)."""
+        bvh = self._make_underscored_bvh()
+        df = pd.DataFrame(bvh.to_df_dict(mode='euler'))
+        bvh2 = df_to_bvh(bvh.nodes, df)
+        assert [n.name for n in bvh2.nodes] == ["Hip", "Left_Hip", "tip"]
+        np.testing.assert_allclose(bvh2.root_pos, bvh.root_pos, atol=1e-10)
+        np.testing.assert_allclose(bvh2.joint_angles, bvh.joint_angles, atol=1e-10)
+
+    def test_df_to_bvh_dict_exact_channel_inference(self):
+        """Channel inference from the df must exact-match joint names ('Hip' must not pick up 'Left_Hip' columns) and detect end sites structurally (no 'EndSite' name prefix here)."""
+        bvh = self._make_underscored_bvh()
+        df = pd.DataFrame(bvh.to_df_dict(mode='euler'))
+        hier = bvh.hierarchy_info_as_dict()
+        # Drop channel info so the df-based inference path runs
+        for info in hier.values():
+            info.pop('rot_channels', None)
+            info.pop('pos_channels', None)
+        bvh2 = df_to_bvh(hier, df)
+        assert bvh2.root.rot_channels == ['Z', 'Y', 'X']
+        assert bvh2.nodes[1].rot_channels == ['X', 'Y', 'Z']
+        assert bvh2.nodes[2].is_end_site()
+        np.testing.assert_allclose(bvh2.root_pos, bvh.root_pos, atol=1e-10)
+        np.testing.assert_allclose(bvh2.joint_angles, bvh.joint_angles, atol=1e-10)
+
+    def test_df_to_bvh_single_row_raises(self):
+        """Frame time needs >= 2 time samples — a clear error, not ZeroDivisionError."""
+        bvh = self._make_underscored_bvh()
+        df = pd.DataFrame(bvh.to_df_dict(mode='euler')).iloc[:1]
+        with pytest.raises(ValueError, match="at least 2"):
+            df_to_bvh(bvh.nodes, df)
 
 
 # =============================================================================
@@ -469,8 +520,10 @@ class TestFileRoundTrip:
         out = tmp_path / "ntsc.bvh"
         bvh_example.write(out, verbose=False)
         reloaded = read_bvh_file(out)
-        # 6-digit text formatting bounds the achievable precision
-        assert reloaded.frame_time == pytest.approx(bvh_example.frame_time, abs=5e-7)
+        # Frame Time is written at 10 significant digits ('%.10g'), so the
+        # relative error is bounded by 5e-10 (and 23.976 fps is far enough
+        # from 24 fps that the read-side 1/N snap does not fire).
+        assert reloaded.frame_time == pytest.approx(bvh_example.frame_time, rel=1e-9)
 
     def test_write_to_invalid_extension_raises(self, bvh_example, tmp_path):
         """Writing to non-.bvh file should raise Exception."""
@@ -1282,7 +1335,8 @@ class TestFileRoundTripAllFiles:
         np.testing.assert_allclose(bvh2.root_pos, bvh.root_pos, atol=1e-5)
         np.testing.assert_allclose(bvh2.joint_angles, bvh.joint_angles, atol=1e-5)
         assert len(bvh2.nodes) == len(bvh.nodes)
-        assert abs(bvh2.frame_time - bvh.frame_time) < 1e-6
+        # '%.10g' frame-time formatting bounds the relative error at 5e-10
+        assert bvh2.frame_time == pytest.approx(bvh.frame_time, rel=1e-9)
 
     def test_roundtrip_bvh_test2_yxz(self, bvh_test2, tmp_path):
         """Round-trip bvh_test2.bvh (YXZ channel order) preserves data."""
@@ -1290,7 +1344,7 @@ class TestFileRoundTripAllFiles:
         np.testing.assert_allclose(bvh2.root_pos, bvh_test2.root_pos, atol=1e-5)
         np.testing.assert_allclose(bvh2.joint_angles, bvh_test2.joint_angles, atol=1e-5)
         assert len(bvh2.nodes) == len(bvh_test2.nodes)
-        assert abs(bvh2.frame_time - bvh_test2.frame_time) < 1e-6
+        assert bvh2.frame_time == pytest.approx(bvh_test2.frame_time, rel=1e-9)
 
     def test_roundtrip_bvh_test3_mixed(self, bvh_test3, tmp_path):
         """Round-trip bvh_test3.bvh (60 joints, mixed orders) preserves data."""
@@ -1298,7 +1352,7 @@ class TestFileRoundTripAllFiles:
         np.testing.assert_allclose(bvh2.root_pos, bvh_test3.root_pos, atol=1e-5)
         np.testing.assert_allclose(bvh2.joint_angles, bvh_test3.joint_angles, atol=1e-5)
         assert len(bvh2.nodes) == len(bvh_test3.nodes)
-        assert abs(bvh2.frame_time - bvh_test3.frame_time) < 1e-6
+        assert bvh2.frame_time == pytest.approx(bvh_test3.frame_time, rel=1e-9)
 
     def test_roundtrip_standard_skeleton(self, standard_skeleton, tmp_path):
         """Round-trip standard_skeleton.bvh (1 frame) preserves data."""
@@ -1306,7 +1360,7 @@ class TestFileRoundTripAllFiles:
         np.testing.assert_allclose(bvh2.root_pos, standard_skeleton.root_pos, atol=1e-5)
         np.testing.assert_allclose(bvh2.joint_angles, standard_skeleton.joint_angles, atol=1e-5)
         assert len(bvh2.nodes) == len(standard_skeleton.nodes)
-        assert abs(bvh2.frame_time - standard_skeleton.frame_time) < 1e-6
+        assert bvh2.frame_time == pytest.approx(standard_skeleton.frame_time, rel=1e-9)
 
     def test_roundtrip_preserves_rotation_orders(self, bvh_test3, tmp_path):
         """For bvh_test3, verify each joint's rot_channels match after roundtrip."""
@@ -1330,6 +1384,109 @@ class TestFileRoundTripAllFiles:
                 children2 = sorted([c.name for c in n2.children])
                 assert children1 == children2, \
                     f"Children mismatch for {n1.name}: {children1} vs {children2}"
+
+
+# =============================================================================
+# Test: read→write→read equality (all shipped files + parser-edge fixtures)
+# =============================================================================
+
+BVH_DATA_DIR = Path(__file__).parent.parent / "bvh_data"
+PARSER_FIXTURES_DIR = Path(__file__).parent / "fixtures"
+ROUND_TRIP_FILES = sorted(BVH_DATA_DIR.glob("*.bvh")) + [
+    PARSER_FIXTURES_DIR / "rotation_first_root.bvh",
+    PARSER_FIXTURES_DIR / "full_precision_frame_time.bvh",
+]
+
+
+class TestReadWriteReadEquality:
+    """Read→write→read equality over every shipped BVH file plus the parser-edge fixtures (rotation-first root, full-precision frame time)."""
+
+    @pytest.mark.parametrize("src", ROUND_TRIP_FILES, ids=lambda p: p.name)
+    def test_read_write_read_equality(self, src, tmp_path):
+        bvh1 = read_bvh_file(src)
+        first = tmp_path / "rt1.bvh"
+        bvh1.write(first, verbose=False)
+        bvh2 = read_bvh_file(first)
+
+        # Hierarchy and channel layout are preserved exactly
+        assert bvh2.matches_hierarchy(bvh1, atol=0)
+        assert bvh2.matches_channels(bvh1)
+        # Frame time is written at 10 significant digits ('%.10g')
+        assert bvh2.frame_time == pytest.approx(bvh1.frame_time, rel=1e-9)
+        # Motion survives within the '%.6f' text quantization, which applies
+        # in degrees / world units
+        np.testing.assert_allclose(bvh2.root_pos, bvh1.root_pos, atol=1e-6)
+        np.testing.assert_allclose(np.rad2deg(bvh2.joint_angles),
+                                   np.rad2deg(bvh1.joint_angles), atol=1e-6)
+
+        # Once quantized to the text grid, a second round-trip is exact
+        second = tmp_path / "rt2.bvh"
+        bvh2.write(second, verbose=False)
+        bvh3 = read_bvh_file(second)
+        assert bvh3 == bvh2
+
+    def test_rotation_first_root_matches_position_first_twin(self, tmp_path):
+        """A rotation-first root must load with the same semantics as its position-first twin (regression: rotation-first files used to load with root positions and rotations swapped)."""
+        src = PARSER_FIXTURES_DIR / "rotation_first_root.bvh"
+        text = src.read_text()
+        rot_first_channels = ("CHANNELS 6 Zrotation Xrotation Yrotation "
+                              "Xposition Yposition Zposition")
+        assert rot_first_channels in text
+
+        # Build the position-first twin: swap the CHANNELS declaration and
+        # the first six values of every motion line accordingly.
+        header, motion = text.split("MOTION")
+        header = header.replace(
+            rot_first_channels,
+            "CHANNELS 6 Xposition Yposition Zposition "
+            "Zrotation Xrotation Yrotation")
+        motion_lines = motion.strip().splitlines()
+        data_lines = []
+        for ln in motion_lines[2:]:  # first two lines: Frames / Frame Time
+            vals = ln.split()
+            data_lines.append(" ".join(vals[3:6] + vals[0:3] + vals[6:]))
+        twin = tmp_path / "position_first_twin.bvh"
+        twin.write_text(header + "MOTION\n"
+                        + "\n".join(motion_lines[:2]) + "\n"
+                        + "\n".join(data_lines) + "\n")
+
+        bvh_rot_first = read_bvh_file(src)
+        bvh_pos_first = read_bvh_file(twin)
+        assert bvh_rot_first == bvh_pos_first
+        np.testing.assert_array_equal(bvh_rot_first.root_pos[0], [10.0, 50.0, -20.0])
+
+    def test_full_precision_frame_time_not_snapped(self):
+        """A non-integer-rate frame time is read verbatim — the 1/N snap only fires within 0.01% of an exact rate."""
+        bvh = read_bvh_file(PARSER_FIXTURES_DIR / "full_precision_frame_time.bvh")
+        assert bvh.frame_time == float("0.0417083750417")
+
+    def test_six_channel_non_root_joint_raises(self, tmp_path):
+        """Layouts pybvh doesn't model get a clear error instead of silent corruption."""
+        content = (
+            "HIERARCHY\n"
+            "ROOT Hips\n"
+            "{\n"
+            "  OFFSET 0.0 0.0 0.0\n"
+            "  CHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation\n"
+            "  JOINT Chest\n"
+            "  {\n"
+            "    OFFSET 0.0 10.0 0.0\n"
+            "    CHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation\n"
+            "    End Site\n"
+            "    {\n"
+            "      OFFSET 0.0 5.0 0.0\n"
+            "    }\n"
+            "  }\n"
+            "}\n"
+            "MOTION\n"
+            "Frames: 1\n"
+            "Frame Time: 0.033333\n"
+            "0 0 0 0 0 0 0 0 0 0 0 0\n"
+        )
+        p = tmp_path / "six_channel_joint.bvh"
+        p.write_text(content)
+        with pytest.raises(ValueError, match="position channels on non-root"):
+            read_bvh_file(str(p))
 
 
 # =============================================================================
@@ -3053,7 +3210,7 @@ class TestNodeVelocities:
         root_pos = np.zeros((F, 3))
         root_pos[:, 0] = np.arange(F) * 5.0  # 5 units/frame along X
         joint_angles = np.zeros((F, 1, 3))
-        bvh = Bvh(nodes=[root, BvhNode("End Site", offset=np.array([0, 1, 0]), parent=root)],
+        bvh = Bvh(nodes=[root, BvhEndSite("End Site", offset=np.array([0, 1, 0]), parent=root)],
                    root_pos=root_pos, joint_angles=joint_angles,
                    frame_time=1/30)
         root.children = [bvh.nodes[1]]
@@ -3125,7 +3282,7 @@ class TestNodeAccelerations:
         root_pos = np.zeros((F, 3))
         root_pos[:, 0] = np.arange(F) * 5.0
         joint_angles = np.zeros((F, 1, 3))
-        bvh = Bvh(nodes=[root, BvhNode("End Site", offset=np.array([0, 1, 0]), parent=root)],
+        bvh = Bvh(nodes=[root, BvhEndSite("End Site", offset=np.array([0, 1, 0]), parent=root)],
                    root_pos=root_pos, joint_angles=joint_angles,
                    frame_time=1/30)
         root.children = [bvh.nodes[1]]
@@ -5234,7 +5391,7 @@ class TestStrategyAMixedConventions:
     @staticmethod
     def _build_mixed_skeleton():
         """Build a linear skeleton: Hips -> LeftArm -> RightArm -> leg.L -> leg.R -> End."""
-        end = BvhNode('End', offset=np.array([0.0, 0.0, 1.0]))
+        end = BvhEndSite('End', offset=np.array([0.0, 0.0, 1.0]))
         leg_r = BvhJoint('leg.R', offset=np.array([0.0, 0.0, 1.0]),
                          rot_channels=['Z', 'Y', 'X'], children=[end])
         end.parent = leg_r

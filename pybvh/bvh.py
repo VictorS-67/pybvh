@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 import numpy as np
 import numpy.typing as npt
 
-from .bvhnode import BvhNode, BvhJoint, BvhRoot
+from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
 from .spatial_coord import frames_to_node_positions, _ground_plane_offset
 from . import rotations
 
@@ -77,6 +77,7 @@ class Bvh:
         world_up: str = "auto",
         lr_mapping: dict[str, str] | None = None,
         source_path: str | None = None,
+        warn_on_disagreement: bool = True,
     ) -> None:
         # All lazy caches exist before any property setter runs, so the
         # setters can invalidate them unconditionally. ``_world_up_override``
@@ -148,7 +149,9 @@ class Bvh:
             self._world_up_override = _validate_axis_string(world_up)
         elif self.frame_count > 0 and len(self.nodes) > 1:
             from .tools import _infer_world_up
-            self._world_up_cached = _infer_world_up(self)
+            # warn_on_disagreement=False silences only the rest-pose vs
+            # first-frame disagreement warning of this eager inference.
+            self._world_up_cached = _infer_world_up(self, warn=warn_on_disagreement)
 
         # L/R pair mapping — cached. Depends on names + topology only, so
         # no runtime invalidation hooks are needed (no pybvh operation
@@ -2114,7 +2117,7 @@ class Bvh:
                     # (in case there were removed intermediates — though
                     # end sites are always direct children, just be safe)
                     acc_offset = node.offset.copy()
-                    new_end = BvhNode(
+                    new_end = BvhEndSite(
                         node.name, offset=acc_offset,
                         parent=new_node_map[node.parent.name])
                     new_nodes.append(new_end)
@@ -2173,7 +2176,8 @@ class Bvh:
                         orig_node = n
                         break
                 end_offset = self._find_end_site_offset(orig_node)  # type: ignore[arg-type]
-                end_site = BvhNode(
+                # 'EndSite<name>' is display-only; end-site identity is the class.
+                end_site = BvhEndSite(
                     f'EndSite{node.name}', offset=end_offset, parent=node)
                 node.children = [end_site]  # type: ignore[attr-defined]
                 new_nodes.append(end_site)

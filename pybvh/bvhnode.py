@@ -6,7 +6,9 @@ import numpy.typing as npt
 from .tools import are_permutations
 
 class BvhNode:
-    """A BVH hierarchy node, representing end-sites or serving as base for joints.
+    """Base class for BVH hierarchy nodes.
+
+    ``BvhNode`` itself carries only the data shared by every node kind (name, offset, parent). Concrete hierarchies are built from its subclasses: :class:`BvhRoot`, :class:`BvhJoint`, and :class:`BvhEndSite`. Node-kind checks go through :meth:`is_end_site` / :meth:`is_root` (never through name conventions), so a bare ``BvhNode`` cannot answer :meth:`is_end_site`.
 
     Attributes
     ----------
@@ -19,9 +21,9 @@ class BvhNode:
     """
 
 
-    def __init__(self, name: str, offset: list[float] | npt.NDArray[np.float64] = [0.0, 0.0, 0.0], parent: BvhNode | None = None) -> None:
+    def __init__(self, name: str, offset: list[float] | npt.NDArray[np.float64] | None = None, parent: BvhNode | None = None) -> None:
         self.name = name
-        self.offset = offset  # type: ignore[assignment]
+        self.offset = offset if offset is not None else [0.0, 0.0, 0.0]  # type: ignore[assignment]
         self.parent = parent
 
     @property
@@ -38,10 +40,15 @@ class BvhNode:
         return self._offset
     @offset.setter
     def offset(self, value: list[float] | npt.NDArray[np.float64]) -> None:
-        # ensure that we have 3 numbers. Convert to numpy list
-        #if len(value) != 3 or any([not isinstance(x, numbers.Number) for x in value]):
-        #    raise ValueError("offset should be a list or numpy array of 3 numbers")
-        self._offset: npt.NDArray[np.float64] = np.array(value, dtype=np.float64)
+        try:
+            offset_arr = np.array(value, dtype=np.float64)
+        except (TypeError, ValueError) as e:
+            raise ValueError("offset should be a list or numpy array of 3 numbers") from e
+        if offset_arr.shape != (3,):
+            raise ValueError(
+                f"offset should be a list or numpy array of 3 numbers, "
+                f"got shape {offset_arr.shape}")
+        self._offset: npt.NDArray[np.float64] = offset_arr
 
     @property
     def parent(self) -> BvhNode | None:
@@ -60,10 +67,36 @@ class BvhNode:
         return f'BvhNode(name = {self.name}, offset = {self.offset}, parent = {self.parent})'
 
     def is_end_site(self) -> bool:
-        return True
+        raise NotImplementedError(
+            "BvhNode is the abstract base class; build hierarchies from "
+            "BvhRoot, BvhJoint, and BvhEndSite.")
 
     def is_root(self) -> bool:
         return False
+
+
+#---------------------------------------------------------------------------------------------
+
+class BvhEndSite(BvhNode):
+    """A BVH End Site — a channel-less leaf marking the tip of a bone chain.
+
+    End sites carry only an offset (the bone-tip position relative to the parent joint); they have no channels, no children, and no motion data. End-site identity is carried by this class — check it via :meth:`is_end_site` or ``isinstance``. Generated display names like ``'EndSiteHips'`` are cosmetic only and carry no semantics.
+
+    Attributes
+    ----------
+    name : str
+        Display name of the end site.
+    offset : np.ndarray
+        3-element array of positional offset values.
+    parent : BvhNode or None
+        Parent joint in the hierarchy.
+    """
+
+    def __repr__(self) -> str:
+        return f'BvhEndSite(name = {self.name}, offset = {self.offset}, parent = {self.parent})'
+
+    def is_end_site(self) -> bool:
+        return True
 
 
 #---------------------------------------------------------------------------------------------
@@ -84,14 +117,14 @@ class BvhJoint(BvhNode):
     parent : BvhNode or None
         Parent node, or None if this is a root.
     """
-    def __init__(self, name: str, offset: list[float] | npt.NDArray[np.float64] = [0.0, 0.0, 0.0],
-                 rot_channels: list[str] | str = ['Z', 'Y', 'X'], children: list[BvhNode] | None = None,
+    def __init__(self, name: str, offset: list[float] | npt.NDArray[np.float64] | None = None,
+                 rot_channels: list[str] | str | None = None, children: list[BvhNode] | None = None,
                  parent: BvhNode | None = None) -> None:
         #inheritance
         super().__init__(name, offset, parent)
 
         self._frozen = False
-        self.rot_channels = rot_channels  # type: ignore[assignment]
+        self.rot_channels = rot_channels if rot_channels is not None else ['Z', 'Y', 'X']  # type: ignore[assignment]
         self.children = children if children is not None else []
 
     @property
@@ -142,13 +175,14 @@ class BvhJoint(BvhNode):
     def _check_channels(self, value: list[str] | str) -> list[str]:
         # we will check if the channels are either a list of 3 elements,
         # or a string of 3 elements, belonging to a permutation of 'XYZ'
-        # we return the result as a list of 3 characters
+        # we return the result as a new list of 3 characters (never the
+        # caller's own list — channel lists are frozen after Bvh
+        # construction and must not be mutable from the outside)
         er = ValueError("the channels should be a list or a string of 3 elements, one of each from 'X' 'Y' 'Z'")
         if isinstance(value, str):
             if not are_permutations('XYZ', value):
                 raise er
-            else:
-                return list(value)
+            return list(value)
         elif isinstance(value, list):
             try:
                 str_conv = ''.join(value)
@@ -156,8 +190,7 @@ class BvhJoint(BvhNode):
                 raise er
             if not are_permutations('XYZ', str_conv):
                 raise er
-            else:
-                return value
+            return list(value)
         else:
             raise er
 
@@ -185,13 +218,13 @@ class BvhRoot(BvhJoint):
     parent : BvhNode or None
         Parent node, or None.
     """
-    def __init__(self, name: str = 'root', offset: list[float] | npt.NDArray[np.float64] = [0.0, 0.0, 0.0],
-                 pos_channels: list[str] | str = ['X', 'Y', 'Z'], rot_channels: list[str] | str = ['Z', 'Y', 'X'],
+    def __init__(self, name: str = 'root', offset: list[float] | npt.NDArray[np.float64] | None = None,
+                 pos_channels: list[str] | str | None = None, rot_channels: list[str] | str | None = None,
                  children: list[BvhNode] | None = None, parent: BvhNode | None = None) -> None:
         #inheritance
         super().__init__(name, offset, rot_channels, children, parent)
 
-        self.pos_channels = pos_channels  # type: ignore[assignment]
+        self.pos_channels = pos_channels if pos_channels is not None else ['X', 'Y', 'Z']  # type: ignore[assignment]
 
     @property
     def pos_channels(self) -> list[str]:

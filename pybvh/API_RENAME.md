@@ -35,6 +35,17 @@ The duplicate Euler→rotmat implementation in `pybvh.tools` **no longer exists*
 
 ---
 
+## v0.8.0 — end sites are `BvhEndSite`, not plain `BvhNode`
+
+`pybvh.bvhnode.BvhNode` is now the abstract-ish base class shared by all node kinds and no longer answers `is_end_site()`. End-site identity is carried by the new `BvhEndSite` class (checked via `isinstance` / `is_end_site()`); the generated `'EndSite<parent>'` display names carry no semantics anywhere.
+
+| Old | New |
+|---|---|
+| `BvhNode(name, offset, parent)` *(as an end site)* | `BvhEndSite(name, offset, parent)` |
+| `'EndSite'` name prefix marking end sites in `df_to_bvh` hierarchy dicts | structural: an entry with neither `'children'` nor `'rot_channels'` is an end site |
+
+---
+
 ## Bvh class — Properties / Attributes
 
 | Old name | New name | Notes |

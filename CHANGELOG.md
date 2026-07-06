@@ -61,6 +61,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - ⚠️ **`transforms.auto_detect_lr_mapping`** — it was a thin back-compat shim over `Bvh.lr_mapping`. Read `bvh.lr_mapping` instead (same symmetric dict, but `None` — not `{}` — when nothing is detected). `auto_detect_lr_pairs()` remains for the index-pair form.
 - **`pybvh.tools.test_file` and `pybvh.tools.are_permutations`** — internal helpers removed from the module surface. Path validation lives on as the private `tools._validate_bvh_path` used by `read_bvh_file`; the permutation check is inlined at its single call site.
+- ⚠️ **`compute_normalization_stats` / `normalize_array` / `denormalize_array` moved to pybvh-ml.** Dataset-level z-score normalization is an ML-pipeline concern, and pybvh-ml already privately reimplements the array-level core — the trio moves there rather than being duplicated across the two libraries. Behavior is unchanged (same stats dict with `mean` / `std` / `constant_channels`, same z-score math). Migration: `from pybvh_ml import compute_normalization_stats, normalize_array, denormalize_array`.
 
 ### Fixed
 

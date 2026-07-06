@@ -473,4 +473,4 @@ print(f"\nSpatial coordinates preserved? {np.allclose(spatial_orig, spatial_unif
 # - **Tutorial 4 — Visualization**: video export, interactive playback, camera control
 # - **Tutorial 5 — Transforms**: data augmentation (mirroring, rotation, noise, speed)
 # - **Tutorial 6 — Features**: velocities, foot contacts, feature arrays for ML
-# - **Tutorial 7 — Batch processing**: directories, normalization, dataset preparation
+# - **Tutorial 7 — Batch processing**: directories, harmonization, dataset preparation

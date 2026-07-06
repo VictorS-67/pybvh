@@ -41,6 +41,18 @@ The array-pure signal utilities moved out of `pybvh.tools` (which shrinks to pri
 
 ---
 
+## v0.8.0 — normalization moved to pybvh-ml
+
+Dataset-level z-score normalization is an ML-pipeline concern, and pybvh-ml already privately reimplemented the array-level core — the public trio moved there outright. Behavior is unchanged (same `mean` / `std` / `constant_channels` stats dict, same z-score math).
+
+| Old (`pybvh.batch.*`, also exported as `pybvh.*`) | New |
+|---|---|
+| `compute_normalization_stats` | `pybvh_ml.compute_normalization_stats` |
+| `normalize_array` | `pybvh_ml.normalize_array` |
+| `denormalize_array` | `pybvh_ml.denormalize_array` |
+
+---
+
 ## v0.8.0 — `pybvh.tools` rotation helpers folded into `pybvh.rotations`
 
 The duplicate Euler→rotmat implementation in `pybvh.tools` **no longer exists**; `pybvh.rotations.euler_to_rotmat` is the single batched implementation (it also powers forward kinematics).
@@ -250,7 +262,7 @@ Unchanged by v0.6.0: `translate_root()`, `auto_detect_lr_pairs()`, `mirror_angle
 
 - `pybvh.io` — `read_bvh_file()`, `write_bvh_file()` unchanged
 - `pybvh.rotations` — all 15 functions unchanged
-- `pybvh.batch` — all 5 functions unchanged
+- `pybvh.batch` — unchanged by v0.6.0 (v0.8.0 later moved `relative_scale_factor` to `pybvh.analysis` and the normalization trio to pybvh-ml — see above)
 - `pybvh.df_to_bvh` — `df_to_bvh()` unchanged
 - `pybvh.bvhplot` — `rest_pose()`, `frame()`, `trajectory()`, `render()`, `play()` unchanged
 - `pybvh.bvhnode` — `BvhNode`, `BvhJoint`, `BvhRoot` unchanged

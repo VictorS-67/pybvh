@@ -12,7 +12,7 @@ pybvh is framework-agnostic and outputs pure NumPy arrays. It understands motion
 - **Skeleton operations**: retargeting, scaling, joint extraction, Euler order changes
 - **Frame operations**: slicing, concatenation, resampling
 - **Data augmentation**: mirroring, rotation, speed perturbation, noise, dropout
-- **ML pipeline features**: velocities, foot contacts, normalization, feature export
+- **Motion features**: velocities, foot contacts, feature export
 - **Batch loading** with optional parallel I/O
 - **3D visualization** with multiple backends (matplotlib, OpenCV, k3d, vedo) — including a `follow=True` render mode where the camera tracks the character's rotation
 

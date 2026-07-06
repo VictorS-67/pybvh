@@ -84,13 +84,18 @@ from .io import read_bvh_file, write_bvh_file
 from .df_to_bvh import df_to_bvh
 from .spatial_coord import frames_to_node_positions
 from .batch import (read_bvh_directory, batch_to_numpy, harmonize,
-                    compute_normalization_stats, normalize_array, denormalize_array)
+                    HarmonizeReport)
+from .analysis import relative_scale_factor
+
+from . import io
+from . import batch
 from . import bvhplot
 from . import rotations
 from . import transforms
 from . import geometry
 from . import analysis
-from . import packing
+from . import signal
+from . import features
 ```
 
 **Module renamed `plot` → `bvhplot`** in v0.5.0 to avoid confusion with matplotlib's `plot()`.
@@ -147,7 +152,7 @@ Three modes controlling how root position is handled:
 
 ### 4.5 `pybvh/batch.py` — Batch Loading & NumPy Export
 
-Batch loading of BVH directories with optional parallelism, conversion to packed NumPy arrays, dataset-level harmonization, and normalization. Provides `read_bvh_directory` (supports `world_up=`, `lr_mapping=`, `skip_errors=`), `harmonize` (topology drop/raise + retarget + resample + reorient + Euler-order unification in one call; emits one summary `UserWarning` per call; pass `return_report=True` for a JSON-serializable `HarmonizeReport`), `batch_to_numpy` (representation-aware skeleton checks: full topology for `'euler'`/`'axisangle'`, hierarchy only for `'6d'`/`'quat'`/`'rotmat'`; error messages name clips by `source_path` when set), `compute_normalization_stats` (returns `mean`, `std`, `constant_channels`), `normalize_array`, and `denormalize_array`. See source docstrings for method signatures.
+Batch loading of BVH directories with optional parallelism, conversion to packed NumPy arrays, and dataset-level harmonization. Provides `read_bvh_directory` (supports `world_up=`, `lr_mapping=`, `skip_errors=`), `harmonize` (topology drop/raise + retarget + resample + reorient + Euler-order unification in one call; emits one summary `UserWarning` per call; pass `return_report=True` for a JSON-serializable `HarmonizeReport`), and `batch_to_numpy` (per-clip extraction delegates to `features.to_feature_array`; representation-aware skeleton checks: full topology for `'euler'`/`'axisangle'`, hierarchy only for `'6d'`/`'quat'`/`'rotmat'`; error messages name clips by `source_path` when set). Dataset-level normalization (`compute_normalization_stats` / `normalize_array` / `denormalize_array`) moved to pybvh-ml in v0.8.0. See source docstrings for method signatures.
 
 ### 4.6 `pybvh/io.py` — BVH File I/O
 
@@ -161,9 +166,9 @@ Provides `read_bvh_file(filepath)` and `write_bvh_file(bvh, filepath)`. The read
 
 `df_to_bvh(hier, df)` converts a pandas DataFrame back to a `Bvh` object. `hier` can be a list of BvhNode objects or a dict describing the hierarchy. See source docstrings for method signatures.
 
-### 4.9 `pybvh/tools.py` — Utility Functions
+### 4.9 `pybvh/tools.py` — Private Helpers
 
-Low-level helpers: string utilities (`are_permutations`, `get_main_direction`, `extract_sign`) and file validation (`test_file`). Rotation-matrix construction lives in `rotations.py` (v0.8.0 deleted the duplicate `rotX/Y/Z` / `get_premult_mat_rot` family here in favor of `rotations.euler_to_rotmat` / `_elementary_rotmat`). Also contains private orientation helpers (`_rest_upward`, `_rest_lateral`, `_infer_world_up`, `_compute_forward_at`, `_world_lateral_unit_at_frame`, `_signed_rotation_delta_around_axis`, `_validate_axis_string`) used by `Bvh.world_up`, `Bvh.forward_at()`, and follow-mode rendering. v0.8.0 added array-pure signal utilities: `finite_difference` (the shared stencil/pad derivative used by the kinematics ladder and geometry derivatives), `temporal_stats` (mean/std/min/max/skew/kurtosis, manual moments — no scipy), `box_filter_smooth` (cumsum moving average), `fft_magnitude` / `dominant_frequency`, and `ramer_douglas_peucker` (polyline simplification, explicit-stack). See source docstrings for method signatures.
+Mostly-private low-level helpers: string utilities (`get_main_direction`, `extract_sign`), file validation (`_validate_bvh_path`, used by `read_bvh_file`), and private orientation heuristics (`_rest_upward`, `_rest_leftward`, `_infer_world_up`, `_compute_forward_at`, `_compute_left_at`, `_world_leftward_unit_at_frame`, `_signed_rotation_delta_around_axis`, `_validate_axis_string`, plus the name-string L/R pairing heuristics) used by `Bvh.world_up`, `Bvh.forward_at()`, `mirror()`, and follow-mode rendering. Rotation-matrix construction lives in `rotations.py` (v0.8.0 deleted the duplicate `rotX/Y/Z` / `get_premult_mat_rot` family here in favor of `rotations.euler_to_rotmat` / `_elementary_rotmat`); the array-pure signal utilities that briefly lived here moved to `pybvh/signal.py` (§4.15). See source docstrings for method signatures.
 
 ### 4.10 `pybvh/bvhplot/` — Visualization Package
 
@@ -179,13 +184,17 @@ Standalone functions for extracting motion descriptors: `joint_velocities` / `jo
 
 v0.8.0 added (the descriptor-review primitives): **jerk** `node_jerk` / `joint_jerk` (third-derivative rung of the velocity→accel ladder, same `stencil`/`pad`); **smoothness** on a 1-D speed profile — `sparc` (spectral arc length), `dimensionless_jerk`, `log_dimensionless_jerk`, `number_of_peaks`, `speed_metric`, `integrated`/`mean`/`rms_squared_jerk`, plus a `smoothness(metric=…)` dispatcher (SPARC/DLJ/LDLJ validated against the Balasubramanian reference via golden fixtures); **reductions** `velocity_reductions`, `zero_crossings`, `active_segments` / `active_duration` (time-based kernels take a required `fs`); **`kinetic_energy`** (Σ‖v‖² or Σ½m‖v‖²); **gait** `cadence` / `stride_length` (projections of `gait_parameters`, with a `contacts=` passthrough) and `walking_pace` (root ground path / duration); **`range_of_motion`**; the covariance descriptors `cov3dj` / `lagged_covariance` (mean-centered); and the scale primitives `skeleton_size` / `relative_scale_factor`. The array-pure kernels (smoothness, reductions, covariance) take signals/arrays directly; jerk/energy/gait/ROM-wrapper are Bvh-bound. See source docstrings for signatures.
 
-### 4.13 `pybvh/packing.py` — ML Feature-Array Packing
+### 4.13 `pybvh/features.py` — Feature-Array Export
 
-`to_feature_array` and `feature_array_layout`: compose the `analysis` descriptors (rotations, root position, velocities, foot contacts) into a single flat `(F, D)` array for ML pipelines, plus the column-layout map describing it. Split out of the former `features.py` in v0.8.0 so the analysis layer stays free of pipeline-assembly concerns. See source docstrings for signatures.
+`to_feature_array` and `feature_array_layout`: compose the `analysis` descriptors (rotations, root position, velocities, foot contacts) into a single flat `(F, D)` array, plus the column-layout map describing it. Split out of the old mixed `features.py` in v0.8.0 so the analysis layer stays free of assembly concerns (briefly named `pybvh.packing` during 0.8.0 development; that interim name never shipped). See source docstrings for signatures.
 
 ### 4.14 `pybvh/geometry.py` — Position Descriptors (array-pure)
 
-The position half of pybvh's geometry surface — the companion to `rotations.py` (§4.2, the orientation half). All functions are **array-pure** (plain NumPy point arrays in, arrays out; no `Bvh`), so downstream libraries build on them directly. Added in v0.8.0. Two shape conventions: point-set kernels take `(..., P, 3)` and reduce over the point axis `P` (`bounding_box`/`bounding_sphere`/`bounding_ellipsoid`/`center_of_mass`/`verticality`); trajectory kernels take `(F, …, 3)` over the time axis (`path_length`, `directness`, `curvature`, `torsion`, `movement_phase`, `ground_path`). Also inter-point relations (`inter_joint_distance`, `joint_angle`, `segment_axis_angle`, `triangle_area`, `point_to_plane_distance`, `point_to_segment_distance`) and pose ops (`pose_distance`, `mean_pose_subtract`). Derivative kernels route through `tools.finite_difference` (the shared stencil/pad convention, bit-identical to the velocity ladder). Zero-denominator ratios return `np.nan` consistently. Bounding sphere is Ritter's approximate 2-pass (vectorized, not exact Welzl); ellipsoid is PCA via batched `eigh` — no scipy.
+The position half of pybvh's geometry surface — the companion to `rotations.py` (§4.2, the orientation half). All functions are **array-pure** (plain NumPy point arrays in, arrays out; no `Bvh`), so downstream libraries build on them directly. Added in v0.8.0. Two shape conventions: point-set kernels take `(..., P, 3)` and reduce over the point axis `P` (`bounding_box`/`bounding_sphere`/`bounding_ellipsoid`/`center_of_mass`/`verticality`); trajectory kernels take `(F, …, 3)` over the time axis (`path_length`, `directness`, `curvature`, `torsion`, `movement_phase`, `ground_path`). Also inter-point relations (`inter_joint_distance`, `joint_angle`, `segment_axis_angle`, `triangle_area`, `point_to_plane_distance`, `point_to_segment_distance`) and pose ops (`pose_distance`, `mean_pose_subtract`). Derivative kernels route through `signal.finite_difference` (§4.15 — the shared stencil/pad convention, bit-identical to the velocity ladder). Zero-denominator ratios return `np.nan` consistently. Bounding sphere is Ritter's approximate 2-pass (vectorized, not exact Welzl); ellipsoid is PCA via batched `eigh` — no scipy.
+
+### 4.15 `pybvh/signal.py` — Signal Utilities (array-pure)
+
+Array-pure 1-D/N-D signal helpers shared by the analysis and geometry layers, public since v0.8.0 (moved out of `tools.py` so they are documented and discoverable): `finite_difference` (the single stencil/pad derivative convention used by the velocity→acceleration→jerk ladder and the geometry derivative kernels), `temporal_stats` (mean/std/min/max/skew/kurtosis, manual moments — no scipy), `box_filter_smooth` (cumsum moving average), `fft_magnitude` / `dominant_frequency`, and `ramer_douglas_peucker` (polyline simplification, explicit-stack). See source docstrings for signatures.
 
 ---
 
@@ -243,7 +252,7 @@ where the order comes from the joint's `rot_channels`.
 - **Numerical assertions**: `np.testing.assert_allclose` with `atol=1e-4` to `1e-10` depending on precision needs. File round-trips use `atol=1e-5` (due to `%.6f` formatting).
 - **Round-trip tests**: BVH → file → BVH, BVH → DataFrame → BVH, BVH → {6D, quaternion, axis-angle} → BVH, Euler order conversion → re-conversion.
 - **Test files**:
-  - `tests/test_bvh.py` — File I/O, hierarchy, spatial coordinates, DataFrame conversion, skeleton operations, batch processing, freeze preservation, ML pipeline features (velocities, foot contacts, normalization, feature export), edge cases.
+  - `tests/test_bvh.py` — File I/O, hierarchy, spatial coordinates, DataFrame conversion, skeleton operations, batch processing, freeze preservation, motion features (velocities, foot contacts, feature export), edge cases.
   - `tests/test_rotations.py` — All conversion paths, gimbal lock, 180° SLERP, analytical values.
   - `tests/test_plot.py` — Visualization module tests (bvhplot functions, backends, camera presets).
   - `tests/test_audit_fixes.py` — 86 audit tests verifying correctness of specific bug fixes and edge cases identified during code audits.
@@ -349,7 +358,7 @@ R = rotations.euler_to_rotmat([30, 45, 60], 'ZYX', degrees=True)
 q = rotations.rotmat_to_quat(R)
 q_mid = rotations.quat_slerp(q1, q2, t=0.5)
 
-# ML pipeline features (de-prefixed)
+# Motion features (de-prefixed)
 vel = bvh.joint_velocities()                     # (F, J, 3) units/second (default stencil="central", pad="edge")
 acc = bvh.joint_accelerations()                  # (F, J, 3) units/second^2
 node_vel = bvh.node_velocities()                 # (F, N, 3) — all nodes incl. end sites
@@ -363,11 +372,8 @@ layout = bvh.feature_array_layout(                # slice map for unpacking
          representation="6d", include_velocities=True, include_foot_contacts=True)
 # {'root_pos': slice(0, 3), 'rotations': slice(3, ...), 'velocities': ..., 'foot_contacts': ...}
 
-# Normalization (dataset-level)
-from pybvh import compute_normalization_stats, normalize_array, denormalize_array
-stats = compute_normalization_stats(clips, representation="6d")
-normalized = normalize_array(data, stats)
-recovered = denormalize_array(normalized, stats)
+# Dataset-level normalization (compute_normalization_stats / normalize_array /
+# denormalize_array) lives in pybvh-ml as of v0.8.0.
 
 # DataFrame (pybvh does NOT import pandas)
 df = pd.DataFrame(bvh.to_df_dict(mode='euler'))
@@ -445,8 +451,8 @@ pybvh-ml is a primary consumer of pybvh's public API. When modifying pybvh, be a
 - `bvh.matches_topology(other)` — conjunction `matches_hierarchy(other) and matches_channels(other)`. Pre-0.7.0 this was a looser check (just `joint_names` + `euler_orders`); the new definition is stricter and additionally compares parent structure and rest offsets.
 - `bvh.source_path` — on-disk origin set by `read_bvh_file`; preserved through `copy()` / frame slicing / single-source concatenation; surfaced in `batch_to_numpy` error messages and `HarmonizeReport.kept_sources` / `dropped_sources`.
 - `pybvh.rotations.*` — rotation primitives (especially `quat_slerp`)
-- `pybvh.analysis.*` — motion analysis descriptors (`joint_velocities`, `foot_contacts`, etc.); `pybvh.packing.*` — ML feature-array assembly (`to_feature_array`, `feature_array_layout`). Split from the former `pybvh.features` in v0.8.0.
-- `pybvh.batch.*` — batch loading and normalization, plus `batch.harmonize(clips, *, reference, target_fps, target_world_up, target_rest_up, target_rest_forward, target_euler_order, on_incompatible, verbose, return_report)` for dataset-level preprocessing (topology drop/raise + retarget + resample + three-axis reorient + Euler-order unification, applied in the order world_up → rest_up → rest_forward → euler_order). Emits one summary `UserWarning` per call on drops. With `return_report=True`, returns `(clips, HarmonizeReport)` — a JSON-serializable audit trail with per-clip `applied_stages` records suitable for embedding alongside preprocessed datasets. `compute_normalization_stats` return dict includes `constant_channels` (bool mask of zero-std channels); `read_bvh_directory` accepts `skip_errors=` to tolerate corrupt files.
+- `pybvh.analysis.*` — motion analysis descriptors (`joint_velocities`, `foot_contacts`, etc.); `pybvh.features.*` — feature-array export (`to_feature_array`, `feature_array_layout`). The old mixed module was split by responsibility in v0.8.0.
+- `pybvh.batch.*` — batch loading and NumPy export, plus `batch.harmonize(clips, *, reference, target_fps, target_world_up, target_rest_up, target_rest_forward, target_euler_order, on_incompatible, verbose, return_report)` for dataset-level preprocessing (topology drop/raise + retarget + resample + three-axis reorient + Euler-order unification, applied in the order world_up → rest_up → rest_forward → euler_order). Emits one summary `UserWarning` per call on drops. With `return_report=True`, returns `(clips, HarmonizeReport)` — a JSON-serializable audit trail with per-clip `applied_stages` records suitable for embedding alongside preprocessed datasets. `read_bvh_directory` accepts `skip_errors=` to tolerate corrupt files. The normalization trio (`compute_normalization_stats` / `normalize_array` / `denormalize_array`) moved to pybvh-ml in v0.8.0.
 
 **Compatibility**: v0.6.0 removed all pre-0.6 `get_*` / `set_frames_from_*` / `scale_skeleton` / `change_skeleton` / `speed_perturbation` / `dropout_frames` etc. aliases outright (no deprecation cycle — the only known consumer, pybvh-ml, was briefed ahead of time). Code written against a pre-0.6 pybvh will `AttributeError` / `ImportError` until migrated. See `pybvh/API_RENAME.md` for the complete old → new mapping.
 

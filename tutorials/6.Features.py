@@ -295,4 +295,4 @@ print(f'Foot contacts block: {contacts_block.shape}')
 # %% [markdown]
 # # What's next
 #
-# - **Tutorial 7 — Batch Processing**: loading directories of BVH files, normalization statistics, and dataset preparation at scale.
+# - **Tutorial 7 — Batch Processing**: loading directories of BVH files, harmonization, and dataset preparation at scale.

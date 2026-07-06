@@ -254,4 +254,4 @@ print(f"Animation saved to: {path}")
 # - **Tutorial 4 — Visualization**: video export, interactive playback, camera control
 # - **Tutorial 5 — Transforms**: data augmentation (mirroring, rotation, noise, speed)
 # - **Tutorial 6 — Features**: velocities, foot contacts, feature arrays for ML
-# - **Tutorial 7 — Batch Processing**: loading directories, normalization, dataset preparation
+# - **Tutorial 7 — Batch Processing**: loading directories, harmonization, dataset preparation

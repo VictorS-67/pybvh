@@ -17,7 +17,7 @@ For datasets with occasional corrupt files, pass `skip_errors=True` — failing 
 
 ## Harmonizing datasets
 
-Clips from heterogeneous sources typically differ in skeleton topology, frame rate, up-axis convention, and per-joint Euler order. Apply dataset-wide normalization in one call before batching:
+Clips from heterogeneous sources typically differ in skeleton topology, frame rate, up-axis convention, and per-joint Euler order. Unify all of them in one call before batching:
 
 ```python
 from pybvh import batch
@@ -108,22 +108,13 @@ Use `bvh.feature_array_layout(...)` to get `{block_name: slice}` for unpacking t
 
 ## Normalization
 
-Per-channel z-score normalization across a dataset:
+Per-channel z-score normalization (dataset mean/std statistics, apply, reverse) is an ML-pipeline concern and moved to [pybvh-ml](https://github.com/VictorS-67/pybvh-ml) in v0.8.0:
 
 ```python
-from pybvh import compute_normalization_stats, normalize_array, denormalize_array
-
-stats = compute_normalization_stats(clips, representation="6d")
-normalized = normalize_array(data, stats)
-recovered = denormalize_array(normalized, stats)
-
-# Save/load stats
-import numpy as np
-np.savez("stats.npz", **stats)
-loaded = dict(np.load("stats.npz"))
+from pybvh_ml import compute_normalization_stats, normalize_array, denormalize_array
 ```
 
-The stats dict contains `"mean"` (shape `(D,)`), `"std"` (shape `(D,)`), and `"constant_channels"` (bool mask, shape `(D,)`). `constant_channels[i]` is True where the raw standard deviation for channel `i` was below `1e-8` and the guard replaced it with `1.0` — normalized values on those channels are identically zero rather than ~N(0, 1). Use the mask to exclude constant channels from per-channel diagnostics.
+The functions behave exactly as they used to in `pybvh.batch` — same stats dict (`mean`, `std`, `constant_channels`), same z-score math.
 
 ## Skeleton metadata
 

@@ -17,15 +17,14 @@
 # # Batch Processing
 
 # %% [markdown]
-# Real-world motion capture datasets contain hundreds or thousands of BVH files. `pybvh.batch` provides utilities for loading directories, validating compatibility, converting to NumPy, and computing dataset-level normalization statistics.
+# Real-world motion capture datasets contain hundreds or thousands of BVH files. `pybvh.batch` provides utilities for loading directories, validating compatibility, and converting to NumPy.
 #
-# Before you can batch-process a dataset, three classical problems need to be addressed:
+# Before you can batch-process a dataset, two classical problems need to be addressed:
 #
 # 1. **Heterogeneous sources.** Different files may use different up-axis conventions (`+y` vs `+z`), different frame rates, and different skeleton topologies. These have to be **harmonized** before batching.
 # 2. **Shape uniformity.** ML models consume tensors of fixed shape. BVH clips have variable length; we either pad to a common length or keep them as a list.
-# 3. **Feature scaling.** Joint rotations, root positions, and velocities have very different numerical scales. Models trained on raw values are gradient-dominated by the largest-scale channels. **Per-channel normalization** fixes this.
 #
-# This tutorial walks through all three in order, then puts them together into a complete dataset-preparation pipeline.
+# This tutorial walks through both in order, then puts them together into a complete dataset-preparation pipeline. A third classical step — **per-channel feature normalization** — is an ML-pipeline concern and lives in [pybvh-ml](https://github.com/VictorS-67/pybvh-ml); see the note near the end of this tutorial.
 
 # %%
 import numpy as np
@@ -342,90 +341,14 @@ except ValueError as e:
 
 # %% [markdown]
 # # Normalization
-
-# %% [markdown]
-# ML models trained on raw motion features are gradient-dominated by the largest-scale channels. Concretely:
 #
-# - **Root positions** are in file units (typically centimeters) with magnitudes in the 10-100 range.
-# - **Euler angles** are in radians, range `[-π, π]`.
-# - **Quaternions, 6D components** are in `[-1, 1]`.
+# Per-channel z-score normalization — dataset mean/std statistics, apply, reverse — is an ML-pipeline concern, and as of pybvh v0.8.0 it lives in [pybvh-ml](https://github.com/VictorS-67/pybvh-ml):
 #
-# Without normalization, a neural network sees the position channels ~10-100× more strongly than rotation channels. **Per-channel z-score normalization** — subtract mean, divide by std — brings every channel to the same scale.
-
-# %% [markdown]
-# ## Computing statistics
+# ```python
+# from pybvh_ml import compute_normalization_stats, normalize_array, denormalize_array
+# ```
 #
-# `compute_normalization_stats()` concatenates all clips along the time axis and computes per-channel mean and std across the resulting `(total_frames, D)` tensor.
-
-# %%
-stats = batch.compute_normalization_stats(clips, representation='6d')
-
-print(f'Stats keys: {list(stats.keys())}')
-print(f'Mean shape: {stats["mean"].shape}  (D channels)')
-print(f'Std shape:  {stats["std"].shape}')
-
-print(f'\nRoot position channels (0–2) — centimeter-scale:')
-print(f'  mean: {stats["mean"][:3]}')
-print(f'  std:  {stats["std"][:3]}')
-print(f'\nFirst rotation channel (index 3, root 6D[0]) — unit-scale:')
-print(f'  mean: {stats["mean"][3]:.3f}, std: {stats["std"][3]:.3f}')
-
-# %% [markdown]
-# ## Applying and reversing
-#
-# `normalize_array()` applies `(data - mean) / std`; `denormalize_array()` reverses it.
-
-# %%
-arrays = batch.batch_to_numpy(clips, representation='6d')
-normalized = [batch.normalize_array(arr, stats) for arr in arrays]
-
-# Round-trip check
-recovered = batch.denormalize_array(normalized[0], stats)
-print(f'Round-trip max error: {np.max(np.abs(arrays[0] - recovered)):.2e}')
-
-# %% [markdown]
-# ## Verifying the result
-#
-# If normalization worked, the concatenated normalized data should have per-channel mean ≈ 0 and std ≈ 1:
-
-# %%
-concat = np.concatenate(normalized, axis=0)
-
-# Constant channels (same value across the whole dataset) have their std
-# protected at 1.0, so their post-norm std is 0, not 1. Use the mask from
-# compute_normalization_stats to exclude them from the verification.
-active = ~stats['constant_channels']
-
-print(f'Post-normalization over {concat.shape[0]} frames, {concat.shape[1]} channels '
-      f'({(~active).sum()} skipped as constant):')
-print(f'  Max |per-channel mean|:    {np.abs(concat.mean(axis=0)[active]).max():.2e}')
-print(f'  Max |per-channel std − 1|: {np.abs(concat.std(axis=0)[active] - 1).max():.2e}')
-
-# %% [markdown]
-# ## Caveats
-#
-# Three details that bite users normalizing motion data:
-#
-# - **Use unpadded arrays for stats.** `compute_normalization_stats` calls `batch_to_numpy(..., pad=False)` internally, so padded zeros don't bias the mean toward zero. If you compute stats by hand on pre-padded data, drop the padding first.
-# - **Train-only stats.** Including validation or test clips when computing stats leaks information from held-out data into the normalization. Standard pattern: compute `stats` on the training split, then apply the same `stats` to validation and test at inference time.
-# - **Zero-std channels are protected.** Channels that are constant across the dataset (std = 0) would cause division by zero. `compute_normalization_stats` sets their std to `1.0` automatically, and exposes which channels were guarded via the `constant_channels` bool mask in the returned dict (the verification cell above uses it to exclude those channels from the mean/std checks).
-
-# %% [markdown]
-# ## Saving and loading stats
-#
-# Normalization stats are part of the pipeline, not the model. Save them alongside the model so inference code can denormalize predictions back into BVH units.
-
-# %%
-stats_path = output_folder / 'norm_stats.npz'
-np.savez(stats_path, **stats)
-
-# Later (e.g., at inference):
-loaded = dict(np.load(stats_path))
-match = (np.allclose(stats['mean'], loaded['mean']) and
-         np.allclose(stats['std'],  loaded['std']))
-print(f'Saved to {stats_path.name} and reloaded — round-trip OK: {match}')
-
-stats_path.unlink()  # clean up
+# The functions work exactly as they used to in `pybvh.batch`: compute stats over unpadded training-split arrays, `(data - mean) / std` to normalize, the reverse to map model output back into BVH units.
 
 # %% [markdown]
 # # End-to-end pipeline
@@ -461,23 +384,16 @@ print(f'Step 2 — Harmonized, kept {len(harmonized)} of {len(raw)} clips')
 arrays = batch.batch_to_numpy(harmonized, representation='6d')
 print(f'Step 3 — Converted, D = {arrays[0].shape[1]}')
 
-# 4. Compute normalization stats
-stats = batch.compute_normalization_stats(harmonized, representation='6d')
-print(f'Step 4 — Stats computed over D = {len(stats["mean"])} channels')
-
-# 5. Normalize and save
-normalized = [batch.normalize_array(a, stats) for a in arrays]
+# 4. Save
 np.savez(output_folder / 'dataset.npz',
-         **{f'clip_{i}': a for i, a in enumerate(normalized)})
-np.savez(output_folder / 'stats.npz', **stats)
-print(f'Step 5 — Saved {len(normalized)} normalized clips + stats to {output_folder}/')
+         **{f'clip_{i}': a for i, a in enumerate(arrays)})
+print(f'Step 4 — Saved {len(arrays)} clips to {output_folder}/')
 
 # Clean up (for tutorial reruns)
 (output_folder / 'dataset.npz').unlink()
-(output_folder / 'stats.npz').unlink()
 
 # %% [markdown]
-# For ML-framework-specific downstream work — PyTorch `Dataset` classes, DataLoaders, collate functions, augmentation pipelines, HDF5 packing — see [pybvh-ml](https://github.com/VictorS-67/pybvh-ml), the companion library that builds on top of pybvh.
+# For ML-framework-specific downstream work — per-channel normalization, PyTorch `Dataset` classes, DataLoaders, collate functions, augmentation pipelines, HDF5 packing — see [pybvh-ml](https://github.com/VictorS-67/pybvh-ml), the companion library that builds on top of pybvh.
 
 # %% [markdown]
 # # Summary
@@ -490,18 +406,15 @@ print(f'Step 5 — Saved {len(normalized)} normalized clips + stats to {output_f
 # | `bvh.resample(target_fps)` | Resample to a target frame rate (SLERP) |
 # | `bvh.reorient_world_up(axis)` | Rotate scene into a common up axis |
 # | `batch.batch_to_numpy(clips)` | Convert to `(F_i, D)` arrays or `(B, F_max, D)` tensor |
-# | `batch.compute_normalization_stats(clips)` | Per-channel dataset mean and std |
-# | `batch.normalize_array(data, stats)` | Z-score normalize |
-# | `batch.denormalize_array(data, stats)` | Reverse normalization |
 #
 # Key parameters (selection — see the [feature-export guide](https://victors-67.github.io/pybvh/guide/feature-export/) for the full reference):
 #
 # - **`read_bvh_directory`**: `pattern`, `sort`, `parallel`, `max_workers`, `world_up`, `lr_mapping`
-# - **`batch_to_numpy` / `compute_normalization_stats`**: `representation`, `include_root_pos`, `pad`, `pad_value`
+# - **`batch_to_numpy`**: `representation`, `include_root_pos`, `pad`, `pad_value`
 
 # %% [markdown]
 # # What's next
 #
-# - [Tutorial 5 — Transforms](5.Transforms.ipynb) covered augmentation transforms (mirror, yaw rotation, noise, speed). Apply them after normalization as a stochastic augmentation step.
+# - [Tutorial 5 — Transforms](5.Transforms.ipynb) covered augmentation transforms (mirror, yaw rotation, noise, speed). Apply them to the harmonized clips as a stochastic augmentation step before array conversion.
 # - [Tutorial 6 — Motion Features](6.Features.ipynb) covered velocities, foot contacts, and `to_feature_array()` — richer alternatives to raw joint angles.
 # - For ML-framework integration (PyTorch, TensorFlow), see [pybvh-ml](https://github.com/VictorS-67/pybvh-ml).

@@ -18,8 +18,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pybvh import (read_bvh_file, df_to_bvh, Bvh, frames_to_node_positions,
-                    read_bvh_directory, batch_to_numpy,
-                    compute_normalization_stats, normalize_array, denormalize_array)
+                    read_bvh_directory, batch_to_numpy)
 from pybvh.bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
 from pybvh.rotations import euler_to_rotmat
 
@@ -3489,114 +3488,9 @@ class TestToFeatureArray:
             assert feat.shape == (bvh.frame_count, 3 + bvh.joint_count * 6)
 
 
-class TestNormalization:
-    """Tests for normalization utilities."""
-
-    def test_round_trip(self, bvh_example):
-        """Normalize then denormalize should recover original."""
-        stats = compute_normalization_stats([bvh_example])
-        data = batch_to_numpy([bvh_example], pad=False)
-        original = data[0].copy()
-        normalized = normalize_array(original, stats)
-        recovered = denormalize_array(normalized, stats)
-        np.testing.assert_allclose(recovered, original, atol=1e-10)
-
-    def test_stats_shapes(self, bvh_example):
-        stats = compute_normalization_stats([bvh_example])
-        D = 3 + bvh_example.joint_count * 3  # root_pos + euler
-        assert stats["mean"].shape == (D,)
-        assert stats["std"].shape == (D,)
-
-    def test_stats_shapes_6d(self, bvh_example):
-        stats = compute_normalization_stats(
-            [bvh_example], representation="6d")
-        D = 3 + bvh_example.joint_count * 6
-        assert stats["mean"].shape == (D,)
-        assert stats["std"].shape == (D,)
-
-    def test_zero_std_guard(self, bvh_example):
-        """Constant channels should get std=1.0, not 0.0."""
-        static = bvh_example.copy()
-        static.root_pos = np.broadcast_to(
-            static.root_pos[0:1], static.root_pos.shape).copy()
-        static.joint_angles = np.broadcast_to(
-            static.joint_angles[0:1], static.joint_angles.shape).copy()
-        stats = compute_normalization_stats([static])
-        assert np.all(stats["std"] >= 1e-8)
-
-    def test_normalized_mean_zero(self, bvh_example):
-        """After normalization, mean should be ~0."""
-        stats = compute_normalization_stats([bvh_example])
-        data = batch_to_numpy([bvh_example], pad=False)
-        normalized = normalize_array(data[0], stats)
-        np.testing.assert_allclose(normalized.mean(axis=0), 0.0, atol=1e-10)
-
-    def test_multiple_files(self, bvh_example, bvh_test2):
-        """Stats from multiple files should have correct shape (if same skeleton)."""
-        # bvh_example and bvh_test2 may have different skeletons
-        # Use two copies of the same file to test multi-file path
-        bvh2 = bvh_example.copy()
-        stats = compute_normalization_stats([bvh_example, bvh2])
-        D = 3 + bvh_example.joint_count * 3
-        assert stats["mean"].shape == (D,)
-
-    def test_quaternion_round_trip(self, bvh_example):
-        stats = compute_normalization_stats(
-            [bvh_example], representation="quat")
-        data = batch_to_numpy(
-            [bvh_example], representation="quat", pad=False)
-        recovered = denormalize_array(
-            normalize_array(data[0], stats), stats)
-        np.testing.assert_allclose(recovered, data[0], atol=1e-10)
-
-    def test_no_root_pos(self, bvh_example):
-        stats = compute_normalization_stats(
-            [bvh_example], include_root_pos=False)
-        D = bvh_example.joint_count * 3
-        assert stats["mean"].shape == (D,)
-
-    def test_constant_channels_key_present(self, bvh_example):
-        stats = compute_normalization_stats([bvh_example])
-        assert "constant_channels" in stats
-
-    def test_constant_channels_shape_and_dtype(self, bvh_example):
-        stats = compute_normalization_stats([bvh_example])
-        D = 3 + bvh_example.joint_count * 3
-        assert stats["constant_channels"].shape == (D,)
-        assert stats["constant_channels"].dtype == bool
-
-    def test_constant_channels_content(self, bvh_example):
-        """Known-constant channels should be flagged True."""
-        static = bvh_example.copy()
-        static.root_pos = np.broadcast_to(
-            static.root_pos[0:1], static.root_pos.shape).copy()
-        static.joint_angles = np.broadcast_to(
-            static.joint_angles[0:1], static.joint_angles.shape).copy()
-        stats = compute_normalization_stats([static])
-        # Every channel is constant — all flagged
-        assert stats["constant_channels"].all()
-
-    def test_constant_channels_mixed(self, bvh_example):
-        """Only channels that are actually constant should be flagged."""
-        partial = bvh_example.copy()
-        # Freeze only channel 0 (root X position) across frames
-        rp = partial.root_pos.copy()
-        rp[:, 0] = rp[0, 0]
-        partial.root_pos = rp
-        stats = compute_normalization_stats([partial])
-        assert stats["constant_channels"][0]
-        # Other channels generally vary across the 75-frame clip
-        assert not stats["constant_channels"][1:].all()
-
-    def test_roundtrip_through_npz(self, bvh_example, tmp_path):
-        """Bool arrays round-trip cleanly through np.savez/np.load."""
-        stats = compute_normalization_stats([bvh_example])
-        path = tmp_path / "stats.npz"
-        np.savez(path, **stats)
-        loaded = dict(np.load(path))
-        np.testing.assert_array_equal(
-            loaded["constant_channels"], stats["constant_channels"])
-        assert loaded["constant_channels"].dtype == bool
+# The normalization trio (compute_normalization_stats / normalize_array /
+# denormalize_array) moved to pybvh-ml in v0.8.0; the TestNormalization
+# class that lived here moves with it into pybvh-ml's test suite.
 
 
 class TestAxisDetection:

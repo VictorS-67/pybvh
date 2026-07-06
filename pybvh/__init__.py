@@ -9,7 +9,6 @@ from .spatial_coord import frames_to_node_positions
 
 from .batch import (
     read_bvh_directory, batch_to_numpy, harmonize, HarmonizeReport,
-    compute_normalization_stats, normalize_array, denormalize_array,
 )
 from .analysis import relative_scale_factor
 

@@ -495,4 +495,4 @@ print(f'Same seed → same results: {np.allclose(result_a.root_pos, result_b.roo
 # # What's next
 #
 # - **Tutorial 6 — Motion Features**: velocities, accelerations, foot contacts, and feature-array export for ML.
-# - **Tutorial 7 — Batch Processing**: loading directories of BVH files, normalization statistics, and dataset preparation at scale.
+# - **Tutorial 7 — Batch Processing**: loading directories of BVH files, harmonization, and dataset preparation at scale.

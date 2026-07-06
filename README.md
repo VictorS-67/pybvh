@@ -15,7 +15,7 @@ Built for researchers and developers working with skeletal animation and motion 
 - **Skeleton operations**: retargeting, scaling, joint extraction, Euler order changes
 - **Frame operations**: slicing, concatenation, resampling to different frame rates
 - **Spatial transforms**: mirroring, vertical rotation, speed perturbation, joint noise, root translation, frame dropout — all with seeded randomization
-- **Motion analysis**: joint velocities/accelerations, root trajectory, foot contact detection, normalization utilities, and a one-stop `to_feature_array()` export
+- **Motion analysis**: joint velocities/accelerations, root trajectory, foot contact detection, and a one-stop `to_feature_array()` export
 - **Motion descriptors**: trajectory geometry (curvature, torsion, path length, bounding volumes, centre of mass), dynamics (jerk, smoothness/SPARC, kinetic energy, gait), and SE(3) rigid-transform math (twists, screw interpolation, geodesic distance) — all pure NumPy
 - **Batch loading** of entire directories with optional parallel I/O
 - **NumPy export** in any rotation representation — ready for any downstream workflow
@@ -110,15 +110,7 @@ features = bvh.to_feature_array(
 )  # (F, D)
 ```
 
-Normalize across a dataset:
-
-```python
-from pybvh import compute_normalization_stats, normalize_array, denormalize_array
-
-stats = compute_normalization_stats(clips, representation="6d")
-normalized = normalize_array(data, stats)
-# stats are plain dicts — save with np.savez("stats.npz", **stats)
-```
+Dataset-level per-channel normalization (z-score stats, apply, reverse) lives in the companion library [pybvh-ml](https://github.com/VictorS-67/pybvh-ml).
 
 ## Spatial Transforms
 
@@ -249,7 +241,7 @@ The repository includes Jupyter notebooks with detailed walkthroughs:
 4. [Visualization](https://github.com/VictorS-67/pybvh/blob/main/tutorials/4.Visualization.ipynb) — static frames, video export, and interactive playback
 5. [Transforms](https://github.com/VictorS-67/pybvh/blob/main/tutorials/5.Transforms.ipynb) — mirroring, rotation, speed perturbation, noise
 6. [Features](https://github.com/VictorS-67/pybvh/blob/main/tutorials/6.Features.ipynb) — velocities, foot contacts, feature-array export
-7. [Batch processing](https://github.com/VictorS-67/pybvh/blob/main/tutorials/7.Batch_processing.ipynb) — directory loading, normalization, harmonization
+7. [Batch processing](https://github.com/VictorS-67/pybvh/blob/main/tutorials/7.Batch_processing.ipynb) — directory loading, harmonization, NumPy export
 8. [Motion descriptors](https://github.com/VictorS-67/pybvh/blob/main/tutorials/8.Motion_descriptors.ipynb) — curvature, smoothness, bounding volumes, gait, SE(3) features
 
 Each tutorial is committed as a Jupytext-paired `.ipynb` + `.py` (Percent format) so the source is reviewable as plain Python. See the [tutorials docs](https://victors-67.github.io/pybvh/tutorials/) for the contributor workflow.

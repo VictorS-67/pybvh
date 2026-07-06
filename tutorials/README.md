@@ -29,8 +29,8 @@ Reading all eight in order gives you:
 - how to load, inspect, modify, and write BVH files losslessly,
 - the trade-offs between every rotation representation used in modern motion-capture ML, and how to convert between them safely,
 - pybvh's visualization tools (static plots, video export, interactive playback),
-- the standard augmentation and preprocessing recipes (mirror, yaw, noise, speed, harmonize, normalize),
-- a complete end-to-end pipeline from a directory of `.bvh` files to a normalized NumPy dataset ready for a dataloader.
+- the standard augmentation and preprocessing recipes (mirror, yaw, noise, speed, harmonize),
+- a complete end-to-end pipeline from a directory of `.bvh` files to a padded NumPy dataset ready for a dataloader (per-channel normalization is an ML-pipeline concern and lives in [pybvh-ml](https://github.com/VictorS-67/pybvh-ml)).
 
 ## Reading order
 
@@ -38,7 +38,7 @@ Reading all eight in order gives you:
 
 After that, tutorials **2–6 are mostly parallel deep-dives**, each focused on one axis of the library. You can read them in any order that matches your needs; the numbering reflects a progression from fundamentals to ML-style workflows, not a strict dependency chain. When a tutorial does lean on a concept from another, it re-explains what it needs and links out for the full story.
 
-**Tutorial 7 is the capstone** — directory loading, harmonization across heterogeneous clips, normalization, end-to-end pipeline. It draws on 2 and 5 but re-explains the pieces it uses, so you can also read it out of order if the complete pipeline is what brought you here.
+**Tutorial 7 is the capstone** — directory loading, harmonization across heterogeneous clips, end-to-end pipeline. It draws on 2 and 5 but re-explains the pieces it uses, so you can also read it out of order if the complete pipeline is what brought you here.
 
 1. **Introduction** — the BVH format, loading files, the `Bvh` object, joint hierarchy, writing back.
 2. **Spatial coordinates** — forward kinematics, centering modes, skeleton operations (`retarget`, `scale`, `extract_joints`).
@@ -46,7 +46,7 @@ After that, tutorials **2–6 are mostly parallel deep-dives**, each focused on 
 4. **Visualization** — static snapshots, video export, interactive playback, camera control, side-by-side comparisons.
 5. **Transforms** — mirror, vertical rotation, noise, speed perturbation, frame dropout, reorientation.
 6. **Features** — joint velocities and accelerations, angular velocities, foot contacts, the `to_feature_array()` export.
-7. **Batch processing** — directory loading, harmonization across heterogeneous clips, normalization, end-to-end pipeline.
+7. **Batch processing** — directory loading, harmonization across heterogeneous clips, NumPy export, end-to-end pipeline.
 8. **Motion descriptors** — geometry (curvature, bounding volumes, centre of mass), dynamics (jerk, smoothness, kinetic energy, gait), and SE(3) rigid-transform features, with closed-form sanity checks.
 
 ## Running locally

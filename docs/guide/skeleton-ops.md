@@ -44,13 +44,16 @@ bvh_30fps = bvh.resample(30)
 
 ## Pandas integration
 
+`to_df_dict()` exports the motion as labeled columns; `to_hierarchy_dict()` exports the skeleton as a plain dict. Together they carry everything needed to rebuild the Bvh with `Bvh.from_df(hier, df)` — `hier` accepts either the hierarchy dict or a `bvh.nodes` list (the module-level `pybvh.df_to_bvh` is the same function):
+
 ```python
 import pandas as pd
+from pybvh import Bvh
 
 df = pd.DataFrame(bvh.to_df_dict(mode="euler"))
+hier = bvh.to_hierarchy_dict()   # {name: {offset, parent, rot_channels, ...}}
 
-from pybvh import df_to_bvh
-bvh_from_df = df_to_bvh(bvh.nodes, df)
+bvh_from_df = Bvh.from_df(hier, df)
 ```
 
 ## Inplace convention

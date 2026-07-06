@@ -141,12 +141,36 @@ plt.tight_layout()
 # From foot contacts plus the root's ground-plane path, pybvh estimates cadence
 # (steps per second), stride length, and walking pace. The foot joints are
 # auto-detected from skeleton topology (pass `foot_joints=[...]` to override).
+# `gait_parameters()` measures the full spatiotemporal set in one pass —
+# `cadence` and `stride_length` are one-line projections of it. Every gait
+# function accepts a pre-computed `contacts=` array, so one `foot_contacts()`
+# run can feed the whole family (underdetermined values come back as `nan`).
 
 # %%
 print("detected feet:", analysis.auto_detect_foot_joints(bvh))
-print(f"cadence       = {bvh.cadence():.3f} steps/s")
-print(f"stride length = {bvh.stride_length():.3f}")
+contacts = bvh.foot_contacts()
+
+print(f"cadence       = {bvh.cadence(contacts=contacts):.3f} steps/s")
+print(f"stride length = {bvh.stride_length(contacts=contacts):.3f}")
 print(f"walking pace  = {bvh.walking_pace():.3f} units/s")
+
+gait = bvh.gait_parameters(contacts=contacts)
+print(f"stance fraction        = {gait.stance_fraction:.2f}")
+print(f"double-support fraction = {gait.double_support_fraction:.2f}")
+
+# %% [markdown]
+# ### Reusing forward kinematics with `coords=`
+#
+# Every descriptor method accepts pre-computed node positions via `coords=` —
+# handy when a pipeline already holds the FK output (the `Bvh` FK cache makes
+# the default path cheap, so this mainly matters for externally modified or
+# batch-shared position arrays).
+
+# %%
+pos_all = bvh.node_positions()
+print(f"path length (coords=) = {bvh.path_length('RightHand', coords=pos_all):.2f}")
+print(f"verticality (coords=) matches: "
+      f"{np.allclose(bvh.verticality(coords=pos_all), bvh.verticality())}")
 
 # %% [markdown]
 # ## 5. SE(3) rigid-transform math
@@ -188,9 +212,10 @@ plt.tight_layout()
 # | `geometry` | `path_length`, `directness`, `curvature`, `torsion`, `ground_path` | yes (single joint) | trajectory shape |
 # | `geometry` | `inter_joint_distance`, `joint_angle`, `triangle_area`, `bounding_box`, `bounding_sphere`, `center_of_mass`, `verticality` | yes | per-frame geometry |
 # | `analysis` | `node_jerk`, `smoothness`, `kinetic_energy` | yes | dynamics |
-# | `analysis` | `cadence`, `stride_length`, `walking_pace`, `range_of_motion` | yes | gait / ROM |
+# | `analysis` | `gait_parameters`, `cadence`, `stride_length`, `walking_pace`, `range_of_motion` | yes | gait / ROM |
 # | `rotations` | `se3_exp`/`se3_log`, `screw_interpolate`, `relative_transform`, `rotation_geodesic_distance` | — | SE(3) |
 #
-# Everything is pure NumPy and vectorized over frames. The array-pure kernels
-# (`geometry.*`, the smoothness functions, the SE(3) math) take plain arrays, so
-# a downstream library can call them without a `Bvh` at all.
+# Everything is pure NumPy and vectorized over frames. The `Bvh` methods take
+# joint *names* and accept pre-computed positions via `coords=`; the array-pure
+# kernels (`geometry.*`, the smoothness functions, the SE(3) math) take plain
+# arrays, so a downstream library can call them without a `Bvh` at all.

@@ -15,11 +15,12 @@ Built for researchers and developers working with skeletal animation and motion 
 - **Skeleton operations**: retargeting, scaling, joint extraction, Euler order changes
 - **Frame operations**: slicing, concatenation, resampling to different frame rates
 - **Spatial transforms**: mirroring, vertical rotation, speed perturbation, joint noise, root translation, frame dropout — all with seeded randomization
-- **Motion analysis**: joint velocities/accelerations, root trajectory, foot contact detection, and a one-stop `to_feature_array()` export
+- **Motion analysis**: joint velocities/accelerations, root trajectory, foot contact detection, gait parameters, and a one-stop `to_feature_array()` export
 - **Motion descriptors**: trajectory geometry (curvature, torsion, path length, bounding volumes, centre of mass), dynamics (jerk, smoothness/SPARC, kinetic energy, gait), and SE(3) rigid-transform math (twists, screw interpolation, geodesic distance) — all pure NumPy
+- **Signal utilities** (`pybvh.signal`): finite differences, temporal statistics, smoothing, FFT/dominant frequency, polyline simplification
 - **Batch loading** of entire directories with optional parallel I/O
 - **NumPy export** in any rotation representation — ready for any downstream workflow
-- **Pandas ready** via an export option ready to become a DataFrame
+- **Pandas ready** — `to_df_dict()` output drops straight into `pd.DataFrame`
 - **3D visualization** with multiple backends (matplotlib, OpenCV, k3d, vedo)
 
 ## Philosophy
@@ -30,7 +31,7 @@ pybvh is framework-agnostic and outputs pure NumPy arrays. It understands motion
 
 **pybvh is in 0.x — expect breaking changes between minor versions.**
 
-We treat 0.x as design space: when a past choice turns out to be wrong, we fix it at the root rather than carry scar tissue forward. No deprecation cycles, no compatibility shims; each release ships a single clean migration path, documented in the [CHANGELOG](CHANGELOG.md). If you depend on pybvh from production code, **pin to an exact version** (`pybvh==0.7.0`) and read the upgrade notes before bumping.
+We treat 0.x as design space: when a past choice turns out to be wrong, we fix it at the root rather than carry scar tissue forward. No deprecation cycles, no compatibility shims; each release ships a single clean migration path, documented in the [CHANGELOG](CHANGELOG.md). If you depend on pybvh from production code, **pin to an exact version** (`pybvh==0.8.0`) and read the upgrade notes before bumping.
 
 This will change at **1.0**: from then on, pybvh will commit to strict semver — no breaking changes within a major version, deprecation warnings (at least one minor release) before any future removal. Until 1.0, "make the library better" wins over "preserve the old behavior."
 
@@ -45,7 +46,7 @@ pip install pybvh
 ```python
 import pybvh
 
-# Load a BVH file
+# Load a BVH file (pybvh.Bvh.from_file("walk.bvh") is the classmethod spelling)
 bvh = pybvh.read_bvh_file("walk.bvh")
 print(bvh)  # "24 joints, 75 frames at 30.0 fps (frame_time=0.033333s, from walk.bvh)"
 
@@ -91,8 +92,8 @@ Compute motion derivatives, foot contacts, and export everything in a single arr
 # Defaults: central stencil + edge padding — output has the same leading
 # dimension as the input.  Pass stencil="forward", pad="none" for the
 # traditional (F-1, ...) / (F-2, ...) forward-difference shapes.
-vel = bvh.joint_velocities()        # (F, N, 3) in units/second
-acc = bvh.joint_accelerations()     # (F, N, 3)
+vel = bvh.joint_velocities()        # (F, J, 3) in units/second
+acc = bvh.joint_accelerations()     # (F, J, 3)
 ang_vel = bvh.angular_velocities()  # (F, J, 3) in radians/second
 
 # Skeleton-centered positions and trajectory
@@ -117,14 +118,17 @@ Dataset-level per-channel normalization (z-score stats, apply, reverse) lives in
 Standard motion transforms — all support seeded randomization for reproducibility:
 
 ```python
+import numpy as np
 from pybvh import transforms
+
+rng = np.random.default_rng(42)
 
 # Left-right mirroring (auto-detects joint pairs and lateral axis)
 bvh_mirrored = transforms.mirror(bvh)
 
 # Vertical rotation (auto-detects up axis)
 bvh_rotated = transforms.rotate_vertical(bvh, np.pi / 2)   # radians (degrees=True to opt in)
-bvh_rotated = transforms.random_rotate_vertical(bvh, rng=np.random.default_rng(42))
+bvh_rotated = transforms.random_rotate_vertical(bvh, rng=rng)
 
 # Speed perturbation (factor > 1 = faster, < 1 = slower)
 bvh_fast = transforms.perturb_speed(bvh, factor=1.5)
@@ -149,7 +153,7 @@ bvh_xyz = bvh.change_euler_order("XYZ")
 bvh_hips_xyz = bvh.change_euler_order("XYZ", joint="Hips")
 
 # Scale the skeleton
-bvh_scaled = bvh.scale(0.01)  # meters to centimeters
+bvh_scaled = bvh.scale(0.01)  # centimeters to meters
 
 # Retarget motion to a different skeleton
 bvh_retarget = bvh.retarget(reference_bvh)
@@ -175,7 +179,7 @@ from pybvh import rotations
 # Convert between any pair of representations
 R = rotations.euler_to_rotmat(angles, order="ZYX", degrees=True)
 q = rotations.rotmat_to_quat(R)
-aa = rotations.quat_to_euler(q, order="ZYX", degrees=True)
+angles_back = rotations.quat_to_euler(q, order="ZYX", degrees=True)
 
 # Quaternion SLERP interpolation
 q_mid = rotations.quat_slerp(q1, q2, t=0.5)

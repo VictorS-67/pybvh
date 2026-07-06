@@ -1,6 +1,6 @@
 # pybvh API Rename — Complete Reference
 
-Most renames below were applied in v0.6.0; the **`pybvh.features` → `pybvh.analysis` + `pybvh.features`** module split landed in v0.8.0 (documented first, immediately below). **Old names are removed outright** — there is no deprecation cycle. Because pybvh has no known production consumers beyond pybvh-ml (which has been briefed separately), shipping wrappers that would be removed one release later wasn't worth the maintenance tax. Old names will raise `AttributeError` on the `Bvh` class / `ImportError` at module level.
+This file is the complete old → new rename ledger. The **v0.8.0 sections come first** (module split, signal utilities, normalization move, rotation-helper consolidation, end sites, analysis/geometry, transforms, `Bvh` surface, bvhplot); the v0.6.0 rename wave follows. **Old names are removed outright** — there is no deprecation cycle. Because pybvh has no known production consumers beyond pybvh-ml (which has been briefed separately), shipping wrappers that would be removed one release later wasn't worth the maintenance tax. Old names will raise `AttributeError` on the `Bvh` class / `ImportError` at module level.
 
 Migration: grep for the old name in the left column, replace with the right column.
 
@@ -167,7 +167,7 @@ New in the same release (no old names): `Bvh.from_file(path)`, `Bvh.from_df(hier
 
 | Old name | New name |
 |---|---|
-| `get_spatial_coord(...)` | `spatial_coords(...)` |
+| `get_spatial_coord(...)` | `node_positions(...)` *(named `spatial_coords` in v0.6.x)* |
 | `get_rest_pose(...)` | `rest_pose_positions()` *(named `rest_pose_coords` in v0.6.0–v0.7.x)* |
 
 ## Bvh class — Rotation conversions
@@ -208,7 +208,7 @@ Unchanged: `translate_root()`. The v0.8.0 radians/parameter changes (see the *tr
 | `get_joint_velocities(...)` | `joint_velocities(...)` | |
 | `get_joint_accelerations(...)` | `joint_accelerations(...)` | |
 | `get_angular_velocities(...)` | `angular_velocities(...)` | |
-| `get_root_relative_positions(...)` | *(removed)* | Use `spatial_coords(centered='skeleton')` — mathematically identical. |
+| `get_root_relative_positions(...)` | *(removed)* | Use `node_positions(centered='skeleton')` — mathematically identical. *(named `spatial_coords` in v0.6.x)* |
 | `root_relative_positions(...)` | *(removed)* | Same. Was soft-deprecated in drafts; removed before release. |
 | `get_root_trajectory(...)` | `root_trajectory(...)` | |
 | `get_foot_contacts(...)` | `foot_contacts(...)` | |
@@ -245,8 +245,8 @@ These bare-name renames happened in v0.6.0, while the functions still lived in t
 | `get_joint_velocities(bvh, ...)` | `joint_velocities(bvh, ...)` |
 | `get_joint_accelerations(bvh, ...)` | `joint_accelerations(bvh, ...)` |
 | `get_angular_velocities(bvh, ...)` | `angular_velocities(bvh, ...)` |
-| `get_root_relative_positions(bvh, ...)` | *(removed)* — use `bvh.spatial_coords(centered='skeleton')` |
-| `root_relative_positions(bvh, ...)` | *(removed)* — use `bvh.spatial_coords(centered='skeleton')` |
+| `get_root_relative_positions(bvh, ...)` | *(removed)* — use `bvh.node_positions(centered='skeleton')` |
+| `root_relative_positions(bvh, ...)` | *(removed)* — use `bvh.node_positions(centered='skeleton')` |
 | `get_root_trajectory(bvh, ...)` | `root_trajectory(bvh, ...)` |
 | `get_foot_contacts(bvh, ...)` | `foot_contacts(bvh, ...)` |
 
@@ -269,11 +269,11 @@ Unchanged by v0.6.0: `translate_root()`, `auto_detect_lr_pairs()`, `mirror_angle
 |---|---|
 | `frames_to_spatial_coord(...)` | `frames_to_spatial_coords(...)` |
 
-### Modules with no changes
+### Modules unchanged by v0.6.0
 
 - `pybvh.io` — `read_bvh_file()`, `write_bvh_file()` unchanged
-- `pybvh.rotations` — all 15 functions unchanged
+- `pybvh.rotations` — all functions unchanged by v0.6.0 (v0.8.0 renamed the `"quaternion"` representation token to `"quat"` in `REPRESENTATION_CHANNELS` / `convert` — see the *Bvh API surface* section above)
 - `pybvh.batch` — unchanged by v0.6.0 (v0.8.0 later moved `relative_scale_factor` to `pybvh.analysis` and the normalization trio to pybvh-ml — see above)
 - `pybvh.df_to_bvh` — `df_to_bvh()` unchanged
-- `pybvh.bvhplot` — `rest_pose()`, `frame()`, `trajectory()`, `render()`, `play()` unchanged
-- `pybvh.bvhnode` — `BvhNode`, `BvhJoint`, `BvhRoot` unchanged
+- `pybvh.bvhplot` — `rest_pose()`, `frame()`, `trajectory()`, `render()`, `play()` unchanged by v0.6.0 (v0.8.0 signature changes: see the *bvhplot signatures* section above)
+- `pybvh.bvhnode` — `BvhNode`, `BvhJoint`, `BvhRoot` unchanged by v0.6.0 (v0.8.0 added `BvhEndSite` and made `BvhNode` the base class — see above)

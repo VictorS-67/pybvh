@@ -11,7 +11,7 @@ Interactive Jupyter notebooks with detailed walkthroughs, progressing from basic
 5. **[Transforms and augmentation](https://github.com/VictorS-67/pybvh/blob/main/tutorials/5.Transforms.ipynb)** — `mirror`, `rotate_vertical`, `translate_root`, `add_noise`, `perturb_speed`, `drop_frames`, composing transforms, reproducibility
 6. **[Motion features and analysis](https://github.com/VictorS-67/pybvh/blob/main/tutorials/6.Features.ipynb)** — joint velocities and accelerations, angular velocities, root-relative positions, root trajectory, foot contacts, `to_feature_array()`
 7. **[Batch processing](https://github.com/VictorS-67/pybvh/blob/main/tutorials/7.Batch_processing.ipynb)** — `read_bvh_directory`, `harmonize`, `batch_to_numpy`, save/load pattern
-8. **[Motion descriptors](https://github.com/VictorS-67/pybvh/blob/main/tutorials/8.Motion_descriptors.ipynb)** — geometry (`curvature`, `bounding_box`, `center_of_mass`), dynamics (`node_jerk`, `smoothness`, `kinetic_energy`, gait), and SE(3) (`relative_transform`, `se3_log`, `rotation_geodesic_distance`), with closed-form sanity checks
+8. **[Motion descriptors](https://github.com/VictorS-67/pybvh/blob/main/tutorials/8.Motion_descriptors.ipynb)** — geometry (`curvature`, `bounding_box`, `center_of_mass`), dynamics (`node_jerk`, `smoothness`, `kinetic_energy`), gait (`gait_parameters` and its `contacts=`-sharing projections), SE(3) (`relative_transform`, `se3_log`, `rotation_geodesic_distance`), and reusing FK output via `coords=` — with closed-form sanity checks
 
 A reader who finishes all eight has a solid working understanding of BVH data and the complete pybvh API.
 

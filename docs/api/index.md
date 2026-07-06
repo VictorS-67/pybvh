@@ -14,3 +14,4 @@
         - HarmonizeReport
         - df_to_bvh
         - frames_to_node_positions
+        - relative_scale_factor

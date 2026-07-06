@@ -17,7 +17,7 @@
 | **Package** | Published on PyPI as `pybvh`. Install via `pip install pybvh`. Optional extras: `pybvh[opencv]` (fast render), `pybvh[interactive]` (k3d for Jupyter), `pybvh[viewer]` (vedo desktop), `pybvh[all-viz]` (all of the above), `pybvh[pandas]` (pandas integration) |
 | **CI/CD** | GitHub Actions: test workflow (push/PR, Python 3.9–3.12) + publish workflow (PyPI on release) + docs workflow (MkDocs to GitHub Pages on push to main) |
 | **Type safety** | Full type annotations on all source files, `@overload` on inplace methods, mypy clean |
-| **Tests** | 1232 unit tests via pytest (plus ~23 000 parametrized `test_transforms_battle` cases across 3 real-world datasets, skipped unless the private fixtures are present) |
+| **Tests** | 1711 unit tests via pytest (plus ~23 000 parametrized `test_transforms_battle` cases across 3 real-world datasets, skipped unless the private fixtures are present) |
 | **Documentation** | MkDocs + mkdocstrings + Material theme, auto-deployed to GitHub Pages |
 
 ---
@@ -142,13 +142,13 @@ The central container holding skeleton + motion data. Constructor: `Bvh(nodes, r
 
 There is **no flat `.frames` property** — code should use `root_pos` and `joint_angles` directly.
 
-The class provides methods for I/O (`write`, `from_file`, `from_df`, `node_positions`, `rest_pose_positions`, `rest_pose_angles`, `to_df_dict`, `to_hierarchy_dict`, `copy`), skeleton ops (`retarget`, `scale`, `change_euler_order`, `extract_joints`), topology checks (`matches_topology`, `matches_hierarchy`, `matches_channels`), rotation conversions (`to_rotmat`, `to_6d`, `to_quat`, `to_axisangle`, `from_rotmat`, `from_6d`, `from_quat`, `from_axisangle`), frame ops (`bvh[a:b:c]` slicing, `a + b` concatenation, `resample`), features (`joint_velocities`, `joint_accelerations`, `node_velocities`, `node_accelerations`, `angular_velocities`, `root_relative_positions`, `root_trajectory`, `foot_contacts`, `to_feature_array`, `feature_array_layout`, `auto_detect_foot_joints`), transforms (`translate_root`, `random_translate_root`, `add_noise`, `perturb_speed`, `random_perturb_speed`, `drop_frames`, `rotate_vertical`, `random_rotate_vertical`, `mirror`), reorientation (`reorient_world_up`, `reorient_rest_up`, `reorient_rest_forward`), orientation (`forward_at`), motion descriptors added in v0.8.0 (`curvature`, `torsion`, `path_length`, `directness`, `ground_path`, `inter_joint_distance`, `joint_angle`, `triangle_area`, `segment_axis_angle`, `bounding_box`, `bounding_sphere`, `center_of_mass`, `com_displacement`, `verticality`, `node_jerk`, `joint_jerk`, `smoothness`, `kinetic_energy`, `cadence`, `stride_length`, `walking_pace`, `range_of_motion` — relational/trajectory ones resolve in node space so end sites are first-class; `range_of_motion` resolves in joint space), and visualization wrappers (`plot_rest_pose`, `plot_frame`, `plot_trajectory`, `render`, `play`). The `joint_index` and `lr_mapping` properties complement `node_index` for joint-axis lookups and L/R joint pairing respectively. The `source_path` attribute (populated by `read_bvh_file`) carries the on-disk origin for diagnostics. Many methods were renamed in v0.6.0 — old names were removed outright (no deprecation wrappers); see `pybvh/API_RENAME.md` for the complete old → new mapping. See source docstrings for method signatures.
+The class provides methods for I/O (`write`, `from_file`, `from_df`, `node_positions`, `rest_pose_positions`, `rest_pose_angles`, `to_df_dict`, `to_hierarchy_dict`, `copy`), skeleton ops (`retarget`, `scale`, `change_euler_order`, `extract_joints`), topology checks (`matches_topology`, `matches_hierarchy`, `matches_channels`), rotation conversions (`to_rotmat`, `to_6d`, `to_quat`, `to_axisangle`, `from_rotmat`, `from_6d`, `from_quat`, `from_axisangle`), frame ops (`bvh[a:b:c]` slicing, `a + b` concatenation, `resample`), features (`joint_velocities`, `joint_accelerations`, `node_velocities`, `node_accelerations`, `angular_velocities`, `root_trajectory`, `foot_contacts`, `to_feature_array`, `feature_array_layout`, `auto_detect_foot_joints`), transforms (`translate_root`, `random_translate_root`, `add_noise`, `perturb_speed`, `random_perturb_speed`, `drop_frames`, `rotate_vertical`, `random_rotate_vertical`, `mirror`), reorientation (`reorient_world_up`, `reorient_rest_up`, `reorient_rest_forward`), orientation (`forward_at`), motion descriptors added in v0.8.0 (`curvature`, `torsion`, `path_length`, `directness`, `ground_path`, `inter_joint_distance`, `joint_angle`, `triangle_area`, `segment_axis_angle`, `bounding_box`, `bounding_sphere`, `bounding_ellipsoid`, `movement_phase`, `center_of_mass`, `com_displacement`, `verticality`, `node_jerk`, `joint_jerk`, `smoothness`, `kinetic_energy`, `velocity_reductions`, `cadence`, `stride_length`, `walking_pace`, `gait_parameters`, `range_of_motion`, `skeleton_size` — relational/trajectory ones resolve in node space so end sites are first-class; `range_of_motion` resolves in joint space; joint arguments are names only, and every descriptor method accepts pre-computed positions via `coords=`), and visualization wrappers (`plot_rest_pose`, `plot_frame`, `plot_trajectory`, `render`, `play`). The `joint_index` and `lr_mapping` properties complement `node_index` for joint-axis lookups and L/R joint pairing respectively. The `source_path` attribute (populated by `read_bvh_file`) carries the on-disk origin for diagnostics. Many methods were renamed in v0.6.0 — old names were removed outright (no deprecation wrappers); see `pybvh/API_RENAME.md` for the complete old → new mapping. See source docstrings for method signatures.
 
 #### The `centered` Parameter (appears throughout the codebase)
 Three modes controlling how root position is handled:
 - `"world"` — Root at the actual saved coordinates from the BVH file.
 - `"skeleton"` — Root forced to `(0, 0, 0)` in every frame.
-- `"first"` — First frame's root is at `(0, 0, 0)`, subsequent frames move relative to that.
+- `"first"` — Ground-plane-only centering (since v0.8.0): the first frame's root position is subtracted in the two horizontal axes only, so the ground track starts at the origin while heights stay in world units (floor estimation and height-based features keep working).
 
 ### 4.5 `pybvh/batch.py` — Batch Loading & NumPy Export
 
@@ -156,7 +156,7 @@ Batch loading of BVH directories with optional parallelism, conversion to packed
 
 ### 4.6 `pybvh/io.py` — BVH File I/O
 
-Provides `read_bvh_file(filepath)` and `write_bvh_file(bvh, filepath)`. The reader parses the HIERARCHY into node objects, pre-allocates a NumPy array for frame data, and splits it into `root_pos` + `joint_angles`. The writer serializes back to `.bvh` format with `%.6f` precision. See source docstrings for method signatures.
+Provides `read_bvh_file(filepath)` and `write_bvh_file(bvh, filepath)`. The reader parses the HIERARCHY with a brace-stack parser (token-driven node-block reading, so blank lines and line-order variations don't break it), classifies `CHANNELS` entries by token suffix (rotation-first 6-channel roots parse correctly; unsupported layouts raise), and loads the motion block via `np.loadtxt` (row count validated against `Frames:`). The writer serializes back to `.bvh` format with `%.6f` precision for offsets/motion and full-precision `Frame Time:` (`%.10g`, so non-integer rates like 23.976 fps round-trip losslessly; the read side keeps a documented snap-to-`1/N` salvage for 6-digit-truncated foreign files). See source docstrings for method signatures.
 
 ### 4.7 `pybvh/spatial_coord.py` — Forward Kinematics
 
@@ -247,17 +247,21 @@ where the order comes from the joint's `rot_channels`.
 ## 8. Testing Conventions
 
 - **Framework**: pytest
-- **Fixture files**: `bvh_data/bvh_example.bvh` (primary), plus `bvh_test1.bvh`, `bvh_test2.bvh`, `bvh_test3.bvh`, `standard_skeleton.bvh`
+- **Fixture files**: `bvh_data/bvh_example.bvh` (primary), plus `bvh_test1.bvh`, `bvh_test2.bvh`, `bvh_test3.bvh`, `standard_skeleton.bvh`, `cmu_12_01_walk.bvh`; `tests/fixtures/` holds frozen golden references (scipy/pytransform3d/SPARC `.npz` files with a `generate_fixtures.py` regenerator) and synthetic round-trip files (`rotation_first_root.bvh`, `full_precision_frame_time.bvh`).
 - **Synthetic fixtures**: `tests/synthetic_bvh.py` — a library of 8 factory functions for programmatically creating BVH objects with known properties: `make_pos_y_up_bvh`, `make_neg_y_up_bvh`, `make_pos_z_up_bvh`, `make_neg_z_up_bvh`, `make_heterogeneous_euler_bvh`, `make_lowercase_lr_bvh`, `make_pos_y_up_rotating_bvh`, `make_simple_bvh`.
 - **Numerical assertions**: `np.testing.assert_allclose` with `atol=1e-4` to `1e-10` depending on precision needs. File round-trips use `atol=1e-5` (due to `%.6f` formatting).
-- **Round-trip tests**: BVH → file → BVH, BVH → DataFrame → BVH, BVH → {6D, quaternion, axis-angle} → BVH, Euler order conversion → re-conversion.
+- **Round-trip tests**: BVH → file → BVH, BVH → DataFrame → BVH, BVH → {6D, quat, axis-angle, rotmat} → BVH, Euler order conversion → re-conversion.
 - **Test files**:
   - `tests/test_bvh.py` — File I/O, hierarchy, spatial coordinates, DataFrame conversion, skeleton operations, batch processing, freeze preservation, motion features (velocities, foot contacts, feature export), edge cases.
-  - `tests/test_rotations.py` — All conversion paths, gimbal lock, 180° SLERP, analytical values.
+  - `tests/test_analysis.py` / `tests/test_analysis_primitives.py` — foot contacts, gait, jerk/smoothness, reductions, covariance descriptors.
+  - `tests/test_geometry.py` — position-descriptor kernels; `tests/test_signal.py` — signal utilities.
+  - `tests/test_rotations.py` / `tests/test_rotations_se3.py` — all conversion paths, gimbal lock, 180° SLERP, analytical values, SE(3) math.
+  - `tests/test_rotations_golden.py` / `tests/test_se3_golden.py` / `tests/test_smoothness_golden.py` — comparisons against frozen scipy / pytransform3d / SPARC references in `tests/fixtures/`.
+  - `tests/test_bvh_descriptors.py` — the `Bvh` descriptor method wrappers; `tests/test_reorient.py` — the three reorientation transforms.
   - `tests/test_plot.py` — Visualization module tests (bvhplot functions, backends, camera presets).
-  - `tests/test_audit_fixes.py` — 86 audit tests verifying correctness of specific bug fixes and edge cases identified during code audits.
+  - `tests/test_audit_fixes.py` — audit tests verifying correctness of specific bug fixes and edge cases identified during code audits.
 - **Run command**: `conda run -n pybvh pytest tests/ -v`
-- **Current count**: 1232 tests, all passing.
+- **Current count**: 1711 tests, all passing.
 - **Note**: `tests/test_transforms_battle.py` uses private datasets from `internal_bvh_data/` and is gitignored — never publish or share this file.
 
 ---
@@ -271,6 +275,7 @@ where the order comes from the joint's `rot_channels`.
 | `bvh_test2.bvh` | 23 | 28 | 61 | 120 | +y | Y-up test with root rotated ~180° from rest (regression fixture for `camera='front'`) |
 | `bvh_test3.bvh` | 60 | 73 | 100 | 120 | +z* | Large skeleton, rest pose and first frame disagree on world up — triggers the `_infer_world_up` `UserWarning` |
 | `standard_skeleton.bvh` | 24 | 29 | 1 | 120 | +z | Reference skeleton for retargeting |
+| `cmu_12_01_walk.bvh` | 31 | 38 | 524 | 120 | +y | Real CMU walk clip — gait / foot-contact ground truth |
 
 *`bvh_test3` rest pose suggests `+y` but frame-0 head-hips is closer to `+z`; the new inference picks `+z` from the animation data. This is exactly the edge case the `world_up` warning was designed to catch.
 
@@ -371,6 +376,12 @@ feat = bvh.to_feature_array(representation="6d", # (F, D) one-stop export
 layout = bvh.feature_array_layout(                # slice map for unpacking
          representation="6d", include_velocities=True, include_foot_contacts=True)
 # {'root_pos': slice(0, 3), 'rotations': slice(3, ...), 'velocities': ..., 'foot_contacts': ...}
+
+# Motion descriptors (names only; coords= accepts pre-computed positions)
+k = bvh.curvature('LeftHand')                    # (F,) trajectory curvature
+com = bvh.center_of_mass()                       # (F, 3) per-frame centre of mass
+gait = bvh.gait_parameters()                     # GaitParameters named tuple
+sm = bvh.smoothness('RightHand', metric='sparc') # scalar smoothness score
 
 # Dataset-level normalization (compute_normalization_stats / normalize_array /
 # denormalize_array) lives in pybvh-ml as of v0.8.0.

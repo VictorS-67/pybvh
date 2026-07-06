@@ -76,7 +76,7 @@ for i, line in enumerate(lines):
 # %% [markdown]
 # # Loading a BVH file
 #
-# The function `read_bvh_file` parses a `.bvh` file and returns a `Bvh` object — the central container in pybvh. A `Bvh` object holds two things: the **skeleton** (a hierarchy of joints with their bone offsets and rotation orders) and the **motion** (per-frame angles for every joint).
+# The function `read_bvh_file` parses a `.bvh` file and returns a `Bvh` object — the central container in pybvh. A `Bvh` object holds two things: the **skeleton** (a hierarchy of joints with their bone offsets and rotation orders) and the **motion** (per-frame angles for every joint). The classmethod `pybvh.Bvh.from_file(path)` is an equivalent spelling of the same call — the constructor counterpart of `bvh.write(path)`.
 
 # %%
 bvh = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')
@@ -158,7 +158,7 @@ df = pd.DataFrame(bvh.to_df_dict())
 df.head()
 
 # %% [markdown]
-# You can also export spatial coordinates instead of Euler angles with `to_df_dict(mode='coordinates')` (see Tutorial 2). To reconstruct a `Bvh` object from a DataFrame, see `df_to_bvh()` in the API documentation.
+# You can also export spatial coordinates instead of Euler angles with `to_df_dict(mode='coordinates')` (see Tutorial 2). To reconstruct a `Bvh` object from a DataFrame, see `Bvh.from_df()` (or the module-level `df_to_bvh()`) in the API documentation.
 
 # %% [markdown]
 # # Skeleton hierarchy
@@ -227,10 +227,11 @@ print(f"Children:          {[c.name for c in bvh.root.children]}")
 # %% [markdown]
 # # Writing and exporting
 #
-# To save a `Bvh` object back to a `.bvh` file, use `write()`. The round-trip is lossless — reading and writing produces an identical file.
+# To save a `Bvh` object back to a `.bvh` file, use `write()`. The round-trip is lossless — reading a written file back gives an equal `Bvh` (within the `%.6f` motion formatting; `Frame Time:` is written at full precision).
 
 # %%
-bvh.write(bvh_folder / 'bvh_example.bvh', verbose=False)
+bvh.write(output_folder / 'bvh_example_copy.bvh', verbose=False)
+assert pybvh.read_bvh_file(output_folder / 'bvh_example_copy.bvh') == bvh
 
 # %% [markdown]
 # You can also export the animation as a video file with `bvhplot.render()`.

@@ -17,7 +17,7 @@ Two shape conventions run through the module:
   ``(F, 3)`` or ``(F, N, 3)`` — the first axis ``F`` is time.
 
 Derivatives (``curvature``, ``torsion``, ``movement_phase``) route through
-:func:`pybvh.tools.finite_difference`, the same convention used by the
+:func:`pybvh.signal.finite_difference`, the same convention used by the
 kinematics ladder, so geometry and velocity derivatives stay consistent.
 
 **Zero-denominator policy.** Every ratio kernel (``curvature``,
@@ -33,7 +33,7 @@ from collections import namedtuple
 import numpy as np
 import numpy.typing as npt
 
-from .tools import finite_difference
+from .signal import finite_difference
 
 _EPS = 1e-12
 
@@ -602,7 +602,7 @@ def curvature(
         Seconds between frames.
     stencil, pad : optional
         Finite-difference convention, shared with the kinematics ladder
-        (see :func:`pybvh.tools.finite_difference`). Default
+        (see :func:`pybvh.signal.finite_difference`). Default
         ``"central"`` / ``"edge"`` keeps the output length ``F``.
 
     Returns

@@ -3453,11 +3453,14 @@ class TestToFeatureArray:
         assert feat.shape == (bvh_example.frame_count, expected_dim)
 
     def test_with_velocities_trimmed(self, bvh_example):
-        """Including velocities with stencil='forward' + pad='none' drops first frame."""
+        """Velocities with stencil='forward' + pad='none' drop the last frame
+        (a forward difference labels frame i, so frame F-1 has no velocity)."""
         feat = bvh_example.to_feature_array(
             representation='euler', include_velocities=True,
             stencil="forward", pad="none")
         assert feat.shape[0] == bvh_example.frame_count - 1
+        np.testing.assert_allclose(
+            feat[:, :3], bvh_example.root_pos[:-1], atol=1e-12)
 
     def test_with_foot_contacts(self, bvh_example):
         feat = bvh_example.to_feature_array(

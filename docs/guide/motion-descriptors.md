@@ -24,7 +24,7 @@ whole pose (`bounding_box`, `bounding_sphere`, `bounding_ellipsoid`,
 `verticality`); its centre of mass (`center_of_mass`, `com_displacement`); and
 relations between joints (`inter_joint_distance`, `joint_angle`,
 `triangle_area`). Derivative-based kernels share pybvh's one finite-difference
-convention with the velocity ladder (`tools.finite_difference`), so geometry and
+convention with the velocity ladder (`signal.finite_difference`), so geometry and
 kinematics derivatives stay consistent when you combine them.
 
 ## Analysis — how the body moves

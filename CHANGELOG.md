@@ -52,10 +52,15 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - ⚠️ **`random_translate_root(range_xyz=)` → `offset_range=`** — matches the `angle_range` / `factor_range` sibling parameter names.
 - **Axis-string validation in transforms.** `rotate_vertical(up_axis='y')` now raises a clear `ValueError` demanding a signed axis (previously an `IndexError`); `mirror(lateral_axis=)` accepts `'x'` or `'+x'`/`'-x'` (the sign is irrelevant for mirroring) and rejects anything else.
 - **`Bvh.rest_up` returns `None` for degenerate skeletons** (single-node rigs, all-zero offsets, or no motion data) instead of an arbitrary axis or a crash.
+- ⚠️ **`pybvh.packing` → `pybvh.features`.** The feature-export module is renamed — `import pybvh.packing` now raises `ImportError`. `to_feature_array` / `feature_array_layout` live in `pybvh.features`; the `Bvh` methods (`bvh.to_feature_array()`, `bvh.feature_array_layout()`) are unchanged. Migration: `pybvh.packing.X` → `pybvh.features.X`.
+- ⚠️ **Signal utilities moved from `pybvh.tools` to the new `pybvh.signal` module** — `finite_difference`, `temporal_stats`, `box_filter_smooth`, `fft_magnitude`, `dominant_frequency`, `ramer_douglas_peucker`. They were previously invisible in the docs; `pybvh.signal` now has its own API page. Migration: `pybvh.tools.X` → `pybvh.signal.X`.
+- ⚠️ **`to_feature_array` forward-stencil trim drops the *last* frame.** With `include_velocities=True, stencil="forward", pad="none"`, the root-position / rotation / foot-contact blocks now drop the last frame instead of the first — a forward difference labels frame `i` with `(x[i+1] − x[i]) / dt`, so the frame without a defined velocity is the final one, and every output row now describes a single frame consistently across all blocks. Migration: rows correspond to frames `0..F-2` (previously `1..F-1`).
+- **`batch_to_numpy` extracts each clip via `features.to_feature_array`** — one implementation owns the flat `(F, D)` layout, the valid-representation set, and its error message (previously duplicated in `pybvh.batch`).
 
 ### Removed
 
 - ⚠️ **`transforms.auto_detect_lr_mapping`** — it was a thin back-compat shim over `Bvh.lr_mapping`. Read `bvh.lr_mapping` instead (same symmetric dict, but `None` — not `{}` — when nothing is detected). `auto_detect_lr_pairs()` remains for the index-pair form.
+- **`pybvh.tools.test_file` and `pybvh.tools.are_permutations`** — internal helpers removed from the module surface. Path validation lives on as the private `tools._validate_bvh_path` used by `read_bvh_file`; the permutation check is inlined at its single call site.
 
 ### Fixed
 

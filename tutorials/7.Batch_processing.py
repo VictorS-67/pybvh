@@ -494,7 +494,7 @@ print(f'Step 5 — Saved {len(normalized)} normalized clips + stats to {output_f
 # | `batch.normalize_array(data, stats)` | Z-score normalize |
 # | `batch.denormalize_array(data, stats)` | Reverse normalization |
 #
-# Key parameters (selection — see the [ML pipeline guide](https://victors-67.github.io/pybvh/guide/ml-pipeline/) for the full reference):
+# Key parameters (selection — see the [feature-export guide](https://victors-67.github.io/pybvh/guide/feature-export/) for the full reference):
 #
 # - **`read_bvh_directory`**: `pattern`, `sort`, `parallel`, `max_workers`, `world_up`, `lr_mapping`
 # - **`batch_to_numpy` / `compute_normalization_stats`**: `representation`, `include_root_pos`, `pad`, `pad_value`

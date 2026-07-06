@@ -1,4 +1,4 @@
-"""Tests for pybvh.analysis / pybvh.packing modules (v3 remediation).
+"""Tests for pybvh.analysis / pybvh.features modules (v3 remediation).
 
 Structure mirrors FEATURES_AUDIT_V2.md / v3 implementation plan.
 Each test class exercises the invariants introduced by a specific
@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from pybvh import read_bvh_file, Bvh  # noqa: E402
-from pybvh import analysis, packing  # noqa: E402
+from pybvh import analysis, features  # noqa: E402
 from pybvh.bvhnode import BvhRoot, BvhJoint, BvhEndSite  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -393,7 +393,7 @@ class TestFeatureArrayLayout:
     """Phase 3: pure keyword-only function returning column slices."""
 
     def test_basic_6d(self):
-        layout = packing.feature_array_layout(
+        layout = features.feature_array_layout(
             num_joints=24, representation="6d")
         assert layout["root_pos"] == slice(0, 3)
         assert layout["rotations"] == slice(3, 3 + 24 * 6)
@@ -401,7 +401,7 @@ class TestFeatureArrayLayout:
         assert "foot_contacts" not in layout
 
     def test_with_velocities(self):
-        layout = packing.feature_array_layout(
+        layout = features.feature_array_layout(
             num_joints=24, representation="6d",
             include_velocities=True)
         expected_start = 3 + 24 * 6
@@ -410,7 +410,7 @@ class TestFeatureArrayLayout:
             expected_start, expected_start + 24 * 3)
 
     def test_with_foot_contacts(self):
-        layout = packing.feature_array_layout(
+        layout = features.feature_array_layout(
             num_joints=24, num_feet=2,
             representation="6d", include_foot_contacts=True)
         expected_start = 3 + 24 * 6
@@ -418,7 +418,7 @@ class TestFeatureArrayLayout:
             expected_start, expected_start + 2)
 
     def test_no_root_pos(self):
-        layout = packing.feature_array_layout(
+        layout = features.feature_array_layout(
             num_joints=24, representation="6d",
             include_root_pos=False)
         assert "root_pos" not in layout
@@ -426,34 +426,34 @@ class TestFeatureArrayLayout:
 
     def test_foot_contacts_without_num_feet_raises(self):
         with pytest.raises(ValueError, match="num_feet"):
-            packing.feature_array_layout(
+            features.feature_array_layout(
                 num_joints=24, representation="6d",
                 include_foot_contacts=True)
 
     def test_rotmat_width_9(self):
-        layout = packing.feature_array_layout(
+        layout = features.feature_array_layout(
             num_joints=24, representation="rotmat")
         assert layout["rotations"] == slice(3, 3 + 24 * 9)
 
     def test_euler_width_3(self):
-        layout = packing.feature_array_layout(
+        layout = features.feature_array_layout(
             num_joints=24, representation="euler")
         assert layout["rotations"] == slice(3, 3 + 24 * 3)
 
     def test_quaternion_width_4(self):
-        layout = packing.feature_array_layout(
+        layout = features.feature_array_layout(
             num_joints=24, representation="quat")
         assert layout["rotations"] == slice(3, 3 + 24 * 4)
 
     def test_unknown_representation_raises(self):
         with pytest.raises(ValueError, match="representation"):
-            packing.feature_array_layout(
+            features.feature_array_layout(
                 num_joints=24, representation="nonsense")
 
     def test_keyword_only(self):
         """Positional args should fail — signature is keyword-only."""
         with pytest.raises(TypeError):
-            packing.feature_array_layout(24)  # type: ignore[misc]
+            features.feature_array_layout(24)  # type: ignore[misc]
 
     def test_bvh_method_wrapper(self, bvh_example):
         layout = bvh_example.feature_array_layout(representation="6d")
@@ -476,10 +476,15 @@ class TestToFeatureArrayPad:
         feat = bvh_example.to_feature_array(include_velocities=True)
         assert feat.shape[0] == bvh_example.frame_count
 
-    def test_include_velocities_forward_none_drops_first_frame(self, bvh_example):
+    def test_include_velocities_forward_none_drops_last_frame(self, bvh_example):
         feat = bvh_example.to_feature_array(
             include_velocities=True, stencil="forward", pad="none")
         assert feat.shape[0] == bvh_example.frame_count - 1
+        # A forward difference labels frame i with (x[i+1] - x[i]) / dt, so
+        # the frame without a defined derivative — the last one — is the
+        # dropped one: the root_pos block must be frames 0..F-2.
+        np.testing.assert_allclose(
+            feat[:, :3], bvh_example.root_pos[:-1], atol=1e-12)
 
     def test_include_velocities_central_none_drops_boundaries(self, bvh_example):
         feat = bvh_example.to_feature_array(

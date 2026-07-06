@@ -17,7 +17,7 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from IPython.display import Image
 
 import pybvh
-from pybvh import geometry, analysis, rotations, tools, batch
+from pybvh import geometry, analysis, rotations, tools, signal
 from pybvh.bvhplot import get_skeleton_lines
 
 VIEW_ELEV, VIEW_AZIM = 20, 72        # default 3D camera (degrees); tweak freely
@@ -438,7 +438,7 @@ def fig_smoothness_profiles(smooth, jerky, sparc, fs):
                              (jerky, "jerky", "tab:red", sparc[1])]:
         npk = analysis.number_of_peaks(prof)     # the wiggle count, visible on the left
         a1.plot(prof, color=c, label=f"{lab}: SPARC={sp:.2f}, peaks={npk}")
-        freqs, mag = tools.fft_magnitude(prof, fs=fs); mag = mag / mag.max()
+        freqs, mag = signal.fft_magnitude(prof, fs=fs); mag = mag / mag.max()
         m = freqs <= band
         a2.plot(freqs[m], mag[m], color=c, marker="o", ms=3,
                 label=f"{lab}: arc length = {-sp:.2f}")
@@ -668,22 +668,22 @@ def fig_geodesic(root_R, geo, t):
 
 
 # ----------------------------------------------------------------
-#  Section 6 — tools  &  Section 7 — batch
+#  Section 6 — signal  &  Section 7 — scale
 # ----------------------------------------------------------------
 
 def fig_finite_difference(x, sig, h):
     fig, ax = plt.subplots(figsize=(9, 3.5))
     ax.plot(x, np.cos(x), "k--", lw=2, label="analytic d/dx (cos)")
-    ax.plot(x, tools.finite_difference(sig, h, stencil="central"),
+    ax.plot(x, signal.finite_difference(sig, h, stencil="central"),
             color="tab:blue", alpha=0.8, label="central")
-    ax.plot(x, tools.finite_difference(sig, h, stencil="forward"),
+    ax.plot(x, signal.finite_difference(sig, h, stencil="forward"),
             color="tab:orange", alpha=0.7, label="forward")
     ax.set(title="finite_difference of sin(x)", xlabel="x")
     ax.legend(fontsize=8); plt.tight_layout()
 
 
 def fig_temporal_box(x, noisy):
-    st = tools.temporal_stats(noisy)
+    st = signal.temporal_stats(noisy)
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(12, 3.6))
     a1.plot(x, noisy, color="0.6", lw=1)
     a1.axhline(st.mean, color="tab:blue", label="mean")
@@ -691,16 +691,16 @@ def fig_temporal_box(x, noisy):
     a1.set(title=f"temporal_stats (skew={st.skewness:.2f}, kurt={st.kurtosis:.2f})")
     a1.legend(fontsize=8)
     a2.plot(x, noisy, color="0.75", lw=1, label="noisy")
-    a2.plot(x, tools.box_filter_smooth(noisy, 15), color="tab:red", lw=2,
+    a2.plot(x, signal.box_filter_smooth(noisy, 15), color="tab:red", lw=2,
             label="box_filter_smooth(w=15)")
     a2.set(title="box_filter_smooth"); a2.legend(fontsize=8); plt.tight_layout()
 
 
 def fig_fft(mix, fs):
-    freqs, mag = tools.fft_magnitude(mix, fs)
+    freqs, mag = signal.fft_magnitude(mix, fs)
     fig, ax = plt.subplots(figsize=(9, 3.5))
     ax.plot(freqs, mag, color="tab:blue")
-    dom = tools.dominant_frequency(mix, fs)
+    dom = signal.dominant_frequency(mix, fs)
     ax.axvline(dom, ls="--", color="tab:red", label=f"dominant = {dom:.1f} Hz")
     ax.set(title="fft_magnitude / dominant_frequency", xlabel="Hz", ylabel="|F|", xlim=(0, 20))
     ax.legend(fontsize=8); plt.tight_layout()

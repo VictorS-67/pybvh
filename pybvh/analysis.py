@@ -4,7 +4,7 @@ Velocities, accelerations, angular velocities, root trajectory, and foot
 contacts. Every function takes a :class:`~pybvh.bvh.Bvh` object as its
 first argument; thin wrapper methods on the ``Bvh`` class delegate here.
 
-Feature-array packing for ML pipelines lives in :mod:`pybvh.packing`.
+Feature-array export for ML pipelines lives in :mod:`pybvh.features`.
 """
 from __future__ import annotations
 

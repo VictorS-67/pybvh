@@ -3,7 +3,6 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
-from .tools import are_permutations
 
 class BvhNode:
     """Base class for BVH hierarchy nodes.
@@ -180,7 +179,7 @@ class BvhJoint(BvhNode):
         # construction and must not be mutable from the outside)
         er = ValueError("the channels should be a list or a string of 3 elements, one of each from 'X' 'Y' 'Z'")
         if isinstance(value, str):
-            if not are_permutations('XYZ', value):
+            if sorted(value) != ['X', 'Y', 'Z']:
                 raise er
             return list(value)
         elif isinstance(value, list):
@@ -188,7 +187,7 @@ class BvhJoint(BvhNode):
                 str_conv = ''.join(value)
             except:
                 raise er
-            if not are_permutations('XYZ', str_conv):
+            if sorted(str_conv) != ['X', 'Y', 'Z']:
                 raise er
             return list(value)
         else:

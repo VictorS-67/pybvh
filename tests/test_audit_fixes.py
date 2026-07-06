@@ -559,17 +559,17 @@ class TestParserRobustness:
 
 class TestCodeQualityFixes:
 
-    def test_test_file_raises_file_not_found(self):
-        from pybvh.tools import test_file
+    def test_validate_bvh_path_raises_file_not_found(self):
+        from pybvh.tools import _validate_bvh_path
         with pytest.raises(FileNotFoundError):
-            test_file("definitely_nonexistent_42.bvh")
+            _validate_bvh_path("definitely_nonexistent_42.bvh")
 
-    def test_test_file_raises_value_error_wrong_ext(self, tmp_path):
+    def test_validate_bvh_path_raises_value_error_wrong_ext(self, tmp_path):
         f = tmp_path / "test.txt"
         f.write_text("hello")
-        from pybvh.tools import test_file
+        from pybvh.tools import _validate_bvh_path
         with pytest.raises(ValueError):
-            test_file(str(f))
+            _validate_bvh_path(str(f))
 
     def test_auto_detect_lr_lowercase(self):
         bvh = make_lowercase_lr_bvh()

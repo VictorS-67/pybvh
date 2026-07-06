@@ -15,7 +15,7 @@ import numpy.typing as npt
 
 from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
 from .bvh import Bvh
-from .tools import test_file
+from .tools import _validate_bvh_path
 
 
 # ----------------------------------------------------------------
@@ -108,7 +108,7 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
     root_pos_cols: list[int] = []
     root_rot_cols: list[int] = []
 
-    filepath = test_file(filepath)
+    filepath = _validate_bvh_path(filepath)
 
     with open(filepath, "r") as f:
         #---------- first, read the hierarchy (first part of the file)

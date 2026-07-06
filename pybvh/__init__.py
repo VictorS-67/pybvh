@@ -13,9 +13,12 @@ from .batch import (
 )
 from .analysis import relative_scale_factor
 
+from . import io
+from . import batch
 from . import bvhplot
 from . import rotations
 from . import transforms
 from . import geometry
 from . import analysis
-from . import packing
+from . import signal
+from . import features

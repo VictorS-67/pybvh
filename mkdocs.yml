@@ -50,7 +50,7 @@ nav:
     - Rotation Representations: guide/rotations.md
     - Choosing a Representation: guide/choosing-rotations.md
     - Data Augmentation: guide/augmentation.md
-    - ML Pipeline: guide/ml-pipeline.md
+    - Feature Export: guide/feature-export.md
     - Skeleton Operations: guide/skeleton-ops.md
     - Motion Descriptors: guide/motion-descriptors.md
   - API Reference:
@@ -61,7 +61,8 @@ nav:
     - Geometry: api/geometry.md
     - Transforms: api/transforms.md
     - Analysis: api/analysis.md
-    - Packing: api/packing.md
+    - Features: api/features.md
+    - Signal: api/signal.md
     - Batch Processing: api/batch.md
     - Visualization: api/bvhplot.md
   - Tutorials: tutorials.md

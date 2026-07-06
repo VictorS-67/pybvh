@@ -1,14 +1,14 @@
 # pybvh API Rename — Complete Reference
 
-Most renames below were applied in v0.6.0; the **`pybvh.features` → `pybvh.analysis` + `pybvh.packing`** module split landed in v0.8.0 (documented first, immediately below). **Old names are removed outright** — there is no deprecation cycle. Because pybvh has no known production consumers beyond pybvh-ml (which has been briefed separately), shipping wrappers that would be removed one release later wasn't worth the maintenance tax. Old names will raise `AttributeError` on the `Bvh` class / `ImportError` at module level.
+Most renames below were applied in v0.6.0; the **`pybvh.features` → `pybvh.analysis` + `pybvh.features`** module split landed in v0.8.0 (documented first, immediately below). **Old names are removed outright** — there is no deprecation cycle. Because pybvh has no known production consumers beyond pybvh-ml (which has been briefed separately), shipping wrappers that would be removed one release later wasn't worth the maintenance tax. Old names will raise `AttributeError` on the `Bvh` class / `ImportError` at module level.
 
 Migration: grep for the old name in the left column, replace with the right column.
 
 ---
 
-## v0.8.0 — `pybvh.features` split into `pybvh.analysis` + `pybvh.packing`
+## v0.8.0 — `pybvh.features` split: descriptors → `pybvh.analysis`
 
-`pybvh.features` was split by responsibility and **no longer exists** (`import pybvh.features` raises `ImportError`). `Bvh` method names are **unchanged** — `bvh.joint_velocities()`, `bvh.foot_contacts()`, `bvh.to_feature_array()`, … all still work. Only the module-level functions moved:
+The old mixed `pybvh.features` module was split by responsibility: motion descriptors moved to the new `pybvh.analysis`; `pybvh.features` remains but now holds **only** feature-array export. `Bvh` method names are **unchanged** — `bvh.joint_velocities()`, `bvh.foot_contacts()`, `bvh.to_feature_array()`, … all still work. Only the module-level functions moved:
 
 | Old (`pybvh.features.*`) | New |
 |---|---|
@@ -16,9 +16,28 @@ Migration: grep for the old name in the left column, replace with the right colu
 | `node_accelerations`, `joint_accelerations` | `pybvh.analysis.*` |
 | `angular_velocities`, `root_trajectory` | `pybvh.analysis.*` |
 | `foot_contacts`, `auto_detect_foot_joints` | `pybvh.analysis.*` |
-| `to_feature_array`, `feature_array_layout` | `pybvh.packing.*` |
+| `to_feature_array`, `feature_array_layout` | `pybvh.features.*` *(unchanged path)* |
 
-Rule of thumb: **motion descriptors → `analysis`; ML feature-array assembly → `packing`.**
+Rule of thumb: **motion descriptors → `analysis`; ML feature-array export stays in `features`.**
+
+*(During 0.8.0 development the export half was briefly named `pybvh.packing`; that interim name never shipped in a release — `pybvh.packing.X` → `pybvh.features.X`.)*
+
+---
+
+## v0.8.0 — signal utilities: `pybvh.tools` → `pybvh.signal`
+
+The array-pure signal utilities moved out of `pybvh.tools` (which shrinks to private helpers) into the new documented `pybvh.signal` module:
+
+| Old (`pybvh.tools.*`) | New |
+|---|---|
+| `finite_difference` | `pybvh.signal.finite_difference` |
+| `temporal_stats` | `pybvh.signal.temporal_stats` |
+| `box_filter_smooth` | `pybvh.signal.box_filter_smooth` |
+| `fft_magnitude` | `pybvh.signal.fft_magnitude` |
+| `dominant_frequency` | `pybvh.signal.dominant_frequency` |
+| `ramer_douglas_peucker` | `pybvh.signal.ramer_douglas_peucker` |
+
+`pybvh.tools.test_file` (BVH path validation) is now the private `tools._validate_bvh_path`; `pybvh.tools.are_permutations` is removed (inlined at its single call site).
 
 ---
 
@@ -196,7 +215,7 @@ Unchanged: `to_feature_array()`.
 
 ### `pybvh.features` (v0.6.0 function renames — module since split, see top)
 
-These bare-name renames happened in v0.6.0, while the functions still lived in `pybvh.features`. As of v0.8.0 they live in `pybvh.analysis` (`to_feature_array` / `feature_array_layout` in `pybvh.packing`).
+These bare-name renames happened in v0.6.0, while the functions still lived in the old mixed `pybvh.features`. As of v0.8.0 they live in `pybvh.analysis` (`to_feature_array` / `feature_array_layout` in `pybvh.features`).
 
 | Old name | New name |
 |---|---|

@@ -2173,7 +2173,7 @@ class Bvh:
 
 
     # ----------------------------------------------------------------
-    #  ML Pipeline Features (delegate to analysis / packing modules)
+    #  Feature export (delegate to analysis / features modules)
     # ----------------------------------------------------------------
 
     def joint_velocities(
@@ -2309,9 +2309,9 @@ class Bvh:
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
-        """Export motion as a flat feature array.  See :func:`pybvh.packing.to_feature_array`."""
-        from . import packing
-        return packing.to_feature_array(
+        """Export motion as a flat feature array.  See :func:`pybvh.features.to_feature_array`."""
+        from . import features
+        return features.to_feature_array(
             self, representation=representation,
             include_root_pos=include_root_pos,
             include_velocities=include_velocities,
@@ -2328,9 +2328,9 @@ class Bvh:
         include_velocities: bool = False,
         include_foot_contacts: bool = False,
     ) -> dict[str, slice]:
-        """Column layout of :meth:`to_feature_array` output.  See :func:`pybvh.packing.feature_array_layout`."""
-        from . import packing
-        return packing.feature_array_layout(
+        """Column layout of :meth:`to_feature_array` output.  See :func:`pybvh.features.feature_array_layout`."""
+        from . import features
+        return features.feature_array_layout(
             num_joints=self.joint_count,
             num_feet=num_feet,
             representation=representation,

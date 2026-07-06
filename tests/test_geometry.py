@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from pybvh import geometry as geo
-from pybvh import tools
+from pybvh import signal
 
 
 # ----------------------------------------------------------------
@@ -288,7 +288,7 @@ def test_finite_difference_central_matches_np_gradient():
     arr = rng.normal(size=(20, 4, 3))
     dt = 0.0333
     np.testing.assert_allclose(
-        tools.finite_difference(arr, dt, stencil="central", pad="edge"),
+        signal.finite_difference(arr, dt, stencil="central", pad="edge"),
         np.gradient(arr, dt, axis=0))
 
 
@@ -296,19 +296,19 @@ def test_finite_difference_forward_formula_and_shapes():
     rng = np.random.default_rng(8)
     arr = rng.normal(size=(10, 3))
     dt = 0.5
-    fwd_none = tools.finite_difference(arr, dt, stencil="forward", pad="none")
+    fwd_none = signal.finite_difference(arr, dt, stencil="forward", pad="none")
     np.testing.assert_allclose(fwd_none, (arr[1:] - arr[:-1]) / dt)
     assert fwd_none.shape == (9, 3)
-    assert tools.finite_difference(arr, dt, stencil="forward", pad="edge").shape == (10, 3)
-    assert tools.finite_difference(arr, dt, stencil="central", pad="none").shape == (8, 3)
+    assert signal.finite_difference(arr, dt, stencil="forward", pad="edge").shape == (10, 3)
+    assert signal.finite_difference(arr, dt, stencil="central", pad="none").shape == (8, 3)
 
 
 def test_finite_difference_rejects_bad_args():
     arr = np.zeros((5, 3))
     with pytest.raises(ValueError):
-        tools.finite_difference(arr, 0.1, stencil="bogus")
+        signal.finite_difference(arr, 0.1, stencil="bogus")
     with pytest.raises(ValueError):
-        tools.finite_difference(arr, 0.1, pad="bogus")
+        signal.finite_difference(arr, 0.1, pad="bogus")
 
 
 def test_trajectory_derivative_kernels_reject_bad_args():

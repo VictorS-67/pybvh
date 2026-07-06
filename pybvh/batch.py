@@ -11,6 +11,7 @@ import numpy.typing as npt
 
 from .io import read_bvh_file
 from .bvh import Bvh
+from .features import to_feature_array
 
 
 @dataclass
@@ -73,7 +74,10 @@ def read_bvh_directory(
         If True (default), sort files alphabetically for
         deterministic ordering.
     parallel : bool, optional
-        If True, load files in parallel using threads.
+        If True, load files in parallel using threads. Parsing is
+        CPU-bound and GIL-limited, so this mainly helps on slow storage
+        (network filesystems, cold disks); expect little speedup on a
+        warm local disk.
     max_workers : int or None, optional
         Maximum number of threads when ``parallel=True``.
         None defers to the ``ThreadPoolExecutor`` default.
@@ -469,12 +473,6 @@ def batch_to_numpy(
     if not bvh_list:
         raise ValueError("bvh_list is empty.")
 
-    valid_reps = {"euler", "6d", "quat", "axisangle", "rotmat"}
-    if representation not in valid_reps:
-        raise ValueError(
-            f"Unknown representation '{representation}'. "
-            f"Choose from {sorted(valid_reps)}.")
-
     channel_layout_matters = representation in ("euler", "axisangle")
 
     # Validate skeleton compatibility
@@ -486,10 +484,15 @@ def batch_to_numpy(
             raise ValueError(
                 _channel_mismatch_message(ref, bvh, 0, i, representation))
 
-    arrays: list[npt.NDArray[np.float64]] = []
-    for bvh in bvh_list:
-        arr = _bvh_to_flat(bvh, representation, include_root_pos)
-        arrays.append(arr)
+    # Per-clip extraction delegates to the features module — one place
+    # owns the flat (F, D) layout, the valid-representation set, and its
+    # error message.
+    arrays: list[npt.NDArray[np.float64]] = [
+        to_feature_array(
+            bvh, representation=representation,
+            include_root_pos=include_root_pos)
+        for bvh in bvh_list
+    ]
 
     if pad:
         max_len = max(a.shape[0] for a in arrays)
@@ -501,35 +504,6 @@ def batch_to_numpy(
         return result
 
     return arrays
-
-
-def _bvh_to_flat(
-    bvh: Bvh,
-    representation: str,
-    include_root_pos: bool,
-) -> npt.NDArray[np.float64]:
-    """Convert a single Bvh to a flat 2-D array ``(F, D)``."""
-    if representation == "euler":
-        # (F, J, 3) → (F, J*3)
-        rot = bvh.joint_angles.reshape(bvh.frame_count, -1)
-    elif representation == "6d":
-        _, rot_raw = bvh.to_6d()
-        rot = rot_raw.reshape(bvh.frame_count, -1)
-    elif representation == "quat":
-        _, rot_raw = bvh.to_quat()
-        rot = rot_raw.reshape(bvh.frame_count, -1)
-    elif representation == "axisangle":
-        _, rot_raw = bvh.to_axisangle()
-        rot = rot_raw.reshape(bvh.frame_count, -1)
-    elif representation == "rotmat":
-        _, rot_raw = bvh.to_rotmat()
-        rot = rot_raw.reshape(bvh.frame_count, -1)
-    else:
-        raise ValueError(f"Unknown representation: {representation}")
-
-    if include_root_pos:
-        return np.concatenate([bvh.root_pos, rot], axis=1)
-    return rot
 
 
 # =========================================================================

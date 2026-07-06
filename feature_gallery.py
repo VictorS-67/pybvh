@@ -20,7 +20,7 @@
 #
 # Each cell shows the **feature call** (`bvh.curvature(...)`, …); all the matplotlib for drawing lives in the companion module **`gallery_plots.py`** (imported as `gp`), so the notebook stays about the features, not the plumbing.
 #
-# Sections: **1** geometry (relations) · **2** geometry (bounding & centre of mass) · **3** geometry (trajectory) · **4** analysis (dynamics) · **5** SE(3) rigid transforms · **6** tools (signal utilities) · **7** scale.
+# Sections: **1** geometry (relations) · **2** geometry (bounding & centre of mass) · **3** geometry (trajectory) · **4** analysis (dynamics) · **5** SE(3) rigid transforms · **6** signal (signal utilities) · **7** scale.
 
 # %%
 from pathlib import Path
@@ -28,7 +28,7 @@ import numpy as np
 from IPython.display import Image
 
 import pybvh
-from pybvh import geometry, analysis, rotations, tools
+from pybvh import geometry, analysis, rotations, signal
 import gallery_plots as gp
 
 REPO = Path.cwd().parent if Path.cwd().name in ("tutorials", "gallery") else Path.cwd()
@@ -353,7 +353,7 @@ geo = np.degrees(rotations.rotation_geodesic_distance(
 gp.fig_geodesic(root_R, geo, t)
 
 # %% [markdown]
-# ## 6 · Tools — signal utilities
+# ## 6 · Signal — signal utilities
 #
 # Array-pure numeric helpers, each shown on a small constructed signal where the effect is obvious.
 
@@ -387,7 +387,7 @@ gp.fig_fft(mix, fsx)
 # %%
 tc = np.linspace(0, 1, 300)
 curve = np.stack([tc, np.sin(2 * np.pi * tc) + 0.05 * rng.standard_normal(tc.size)], 1)
-simp = tools.ramer_douglas_peucker(curve, eps=0.15)
+simp = signal.ramer_douglas_peucker(curve, eps=0.15)
 gp.fig_rdp(curve, simp, 0.15)
 
 # %% [markdown]
@@ -402,4 +402,4 @@ gp.fig_relative_scale(bvh, factor, 1.6)
 
 # %% [markdown]
 # ---
-# That is every descriptor, transform, and utility added in **pybvh 0.8.0** — each one drawn so the picture explains the number. The array-pure kernels (`geometry.*`, the smoothness functions, the SE(3) math, `tools.*`) take plain NumPy arrays, so any of these visuals can be reproduced without a `Bvh` at all.
+# That is every descriptor, transform, and utility added in **pybvh 0.8.0** — each one drawn so the picture explains the number. The array-pure kernels (`geometry.*`, the smoothness functions, the SE(3) math, `signal.*`) take plain NumPy arrays, so any of these visuals can be reproduced without a `Bvh` at all.

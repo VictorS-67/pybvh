@@ -132,6 +132,17 @@ New in the same release (no old names): `Bvh.from_file(path)`, `Bvh.from_df(hier
 
 ---
 
+## v0.8.0 — bvhplot signatures
+
+| Old | New | Notes |
+|---|---|---|
+| `render(..., fps=-1)` / `play(..., fps=-1)` | `fps=None` *(default)* | `fps` is `float \| None`: `None` = BVH frame rate, fractional rates (119.88) accepted, `fps <= 0` raises `ValueError` (previously `render(fps=0)` crashed with `ZeroDivisionError`). |
+| `frame(bvh, coords_array)` | `frame(bvh, coords=coords_array)` | Pre-computed positions move to an explicit keyword; the positional `frame` parameter is an int frame index only (NumPy negative-index semantics — `frame=-1` is now the **last** frame, no longer an all-frames sentinel). |
+| `render(backend=<typo>)` *(silent matplotlib fallback)* | raises `ValueError` | Validated against `{"auto", "opencv", "matplotlib"}`, mirroring `play()`. Under `"auto"`, `.gif`/`.webp`/`.apng`/`.html` always route to matplotlib/pillow even with cv2 installed; a forced `backend="opencv"` rejects extensions it cannot write. |
+| `play()` return value | `None` | Documented and true for every backend (the k3d path previously documented returning the plot widget it deliberately didn't return). |
+
+---
+
 ## Bvh class — Properties / Attributes
 
 | Old name | New name | Notes |

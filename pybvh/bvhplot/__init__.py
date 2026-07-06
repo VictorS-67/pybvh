@@ -68,17 +68,57 @@ def _detect_notebook() -> bool:
 def _has_display() -> bool:
     """Check if a display server is available."""
     import os
+    import sys
+    if sys.platform in ('darwin', 'win32'):
+        return True  # macOS/Windows always have a windowing system
     return bool(os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'))
 
 
-def _resolve_render_backend(requested: str) -> str:
+def _module_importable(name: str) -> bool:
+    try:
+        __import__(name)
+        return True
+    except ImportError:
+        return False
+
+
+# Formats only the matplotlib/pillow pipeline can write — OpenCV's
+# VideoWriter handles video containers only (its .gif support is a
+# dedicated pillow-based path inside render_opencv).
+_MPL_ONLY_EXTENSIONS = {'.html', '.webp', '.apng', '.gif'}
+
+
+def _resolve_render_backend(requested: str, ext: str) -> str:
+    """Resolve the render backend from the request and the file extension.
+
+    Under ``"auto"``, extensions OpenCV cannot write route to matplotlib
+    even when cv2 is installed (previously they hit a misleading codec
+    error); everything else prefers OpenCV when available.
+    """
+    valid = {"auto", "opencv", "matplotlib"}
+    if requested not in valid:
+        raise ValueError(
+            f"Unknown backend {requested!r}. "
+            f"Choose from: {sorted(valid)}")
     if requested != "auto":
         return requested
-    try:
-        import cv2  # noqa: F401
-        return "opencv"
-    except ImportError:
+    if ext in _MPL_ONLY_EXTENSIONS:
         return "matplotlib"
+    return "opencv" if _module_importable("cv2") else "matplotlib"
+
+
+def _resolve_fps(fps: float | None, frame_time: float) -> float:
+    """Resolve the shared ``fps`` parameter of ``play()`` and ``render()``.
+
+    ``None`` means "use the BVH frame rate"; anything else must be a
+    positive number (fractional rates like 119.88 are fine).
+    """
+    if fps is None:
+        return 1.0 / frame_time
+    fps = float(fps)
+    if not fps > 0:
+        raise ValueError(f"fps must be positive, got {fps}")
+    return fps
 
 
 def _resolve_play_backend(requested: str) -> tuple[str, int]:
@@ -298,6 +338,32 @@ def _prepare(
 
     bvh_list, coords_list = normalize_input(bvh, frames, centered)
     coords_list = align_frame_counts(coords_list, pad=pad)
+
+    (skeleton_lines_list, centers, half_spans,
+     azimuths, elevations, up_axes) = _prepare_from_coords(
+        bvh_list, coords_list, camera)
+
+    return (bvh_list, coords_list, skeleton_lines_list,
+            centers, half_spans, azimuths, elevations, up_axes)
+
+
+def _prepare_from_coords(
+    bvh_list: list[Bvh],
+    coords_list: list[npt.NDArray[np.float64]],
+    camera: str | tuple[float, float],
+) -> tuple[
+    list[list[tuple[int, int]]],              # skeleton_lines_list
+    list[npt.NDArray[np.float64]],            # centers (per skeleton)
+    list[float],                              # half_spans (per skeleton)
+    list[float],                              # azimuths (per skeleton)
+    list[float],                              # elevations (per skeleton)
+    list[str],                                # up_axes (per skeleton)
+]:
+    """Per-skeleton topology, bounding boxes, and cameras for given coords.
+
+    The coords-independent half of :func:`_prepare`, also used directly
+    by :func:`rest_pose` (whose coords come from the rest pose, not FK).
+    """
     skeleton_lines_list = [get_skeleton_lines(b) for b in bvh_list]
 
     # Per-skeleton bounding box: each subplot gets its own cubic box
@@ -324,8 +390,8 @@ def _prepare(
         elevations.append(el)
         up_axes.append(ua)
 
-    return (bvh_list, coords_list, skeleton_lines_list,
-            centers, half_spans, azimuths, elevations, up_axes)
+    return (skeleton_lines_list, centers, half_spans,
+            azimuths, elevations, up_axes)
 
 
 # ---------------------------------------------------------------------------
@@ -377,25 +443,9 @@ def rest_pose(
 
     coords_list = [b.rest_pose_positions()[np.newaxis]
                    for b in bvh_list]
-    skeleton_lines_list = [get_skeleton_lines(b) for b in bvh_list]
-
-    # Per-skeleton bounding box and camera so mixed-up-axis comparisons
-    # render each skeleton in its own orientation.
-    centers: list = []
-    half_spans: list[float] = []
-    for c in coords_list:
-        ctr, hs = compute_unified_limits([c])
-        centers.append(ctr)
-        half_spans.append(hs)
-
-    azimuths: list[float] = []
-    elevations: list[float] = []
-    up_axes: list[str] = []
-    for b, c in zip(bvh_list, coords_list):
-        az, el, ua = get_camera_angles(b, c[0], camera)
-        azimuths.append(az)
-        elevations.append(el)
-        up_axes.append(ua)
+    (skeleton_lines_list, centers, half_spans,
+     azimuths, elevations, up_axes) = _prepare_from_coords(
+        bvh_list, coords_list, camera)
 
     return frame_mpl(
         bvh_list, coords_list, labels, figsize, show,
@@ -406,8 +456,9 @@ def rest_pose(
 
 def frame(
     bvh: Bvh | list[Bvh],
-    frame: int | npt.NDArray[np.floating] = 0,
+    frame: int = 0,
     *,
+    coords: npt.NDArray[np.floating] | None = None,
     centered: str = "world",
     labels: list[str] | None = None,
     figsize: tuple[float, float] | None = None,
@@ -421,10 +472,17 @@ def frame(
     ----------
     bvh : Bvh or list[Bvh]
         One or more BVH objects. Pass a list for side-by-side comparison.
-    frame : int or ndarray, optional
-        Frame index (default 0) or pre-computed spatial coordinates.
+    frame : int, optional
+        Frame index (default 0). Negative indices count from the end.
+        Ignored when *coords* is given.
+    coords : ndarray, optional
+        Pre-computed spatial coordinates to plot instead of computing
+        forward kinematics from *bvh*: ``(N, 3)`` for one frame, or
+        ``(F, N, 3)`` of which the first frame is drawn. Only valid
+        when *bvh* is a single Bvh object.
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
+        Ignored when *coords* is given.
     labels : list[str], optional
         Subplot titles for side-by-side comparison.
     figsize : (float, float), optional
@@ -447,9 +505,10 @@ def frame(
     """
     from ._matplotlib import frame_mpl
 
+    frame_spec = coords if coords is not None else frame
     (bvh_list, coords_list, skeleton_lines_list,
      centers, half_spans, azimuths, elevations, up_axes) = _prepare(
-        bvh, frame, centered, camera)
+        bvh, frame_spec, centered, camera)
 
     return frame_mpl(
         bvh_list, coords_list, labels, figsize, show,
@@ -464,7 +523,7 @@ def render(
     *,
     centered: str = "world",
     labels: list[str] | None = None,
-    fps: int = -1,
+    fps: float | None = None,
     backend: str = "auto",
     camera: str | tuple[float, float] = "front",
     resolution: tuple[int, int] = (1920, 1080),
@@ -487,16 +546,19 @@ def render(
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional
         Labels for each skeleton when comparing.
-    fps : int, optional
-        Frames per second. ``-1`` (default) uses the BVH frame rate.
+    fps : float, optional
+        Frames per second (fractional rates like 119.88 are fine).
+        ``None`` (default) uses the BVH frame rate.
     backend : str, optional
         ``"auto"`` (default), ``"opencv"``, or ``"matplotlib"``.
+        Under ``"auto"``, formats OpenCV cannot write (``.gif``,
+        ``.webp``, ``.apng``, ``.html``) always use matplotlib.
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``) or
         ``(azimuth_deg, elevation_deg)`` tuple. Default ``"front"``.
     resolution : (int, int), optional
         Output resolution ``(width, height)`` in pixels.
-        Default ``(1920, 1080)``. Only used by the OpenCV backend.
+        Default ``(1920, 1080)``.
     show_axis : bool, optional
         Show 3D axes (default ``False``). Only used by matplotlib backend.
     sync : str, optional
@@ -527,6 +589,8 @@ def render(
     _validate_sync(sync)
     pad = sync == "pad"
 
+    backend_name = _resolve_render_backend(backend, filepath.suffix.lower())
+
     # Handle frame-rate mismatch before computing FK coordinates
     if not isinstance(bvh, list):
         bvh_input = [bvh]
@@ -543,17 +607,10 @@ def render(
     # a no-op in that case because there's no orientation to track.
     effective_follow = follow and not isinstance(camera, tuple)
 
-    # Resolve FPS
-    actual_fps: float
-    if fps == -1:
-        actual_fps = 1.0 / bvh_list[0].frame_time
-    else:
-        actual_fps = float(fps)
+    actual_fps = _resolve_fps(fps, bvh_list[0].frame_time)
 
-    backend_name = _resolve_render_backend(backend)
-
-    if backend_name != backend and backend == "auto" and backend_name == "matplotlib":
-        import warnings
+    if (backend == "auto" and backend_name == "matplotlib"
+            and filepath.suffix.lower() not in _MPL_ONLY_EXTENSIONS):
         warnings.warn(
             "OpenCV not found for fast rendering. "
             "Install with: pip install pybvh[opencv]. "
@@ -561,9 +618,7 @@ def render(
             stacklevel=2)
 
     if backend_name == "opencv":
-        try:
-            import cv2  # noqa: F401
-        except ImportError:
+        if not _module_importable("cv2"):
             raise ImportError(
                 "OpenCV backend requires opencv-python. "
                 "Install with: pip install pybvh[opencv]")
@@ -572,7 +627,7 @@ def render(
             bvh_list, coords_list, filepath, actual_fps,
             resolution, labels, show_axis, skeleton_lines_list,
             centers, half_spans, azimuths, elevations, up_axes,
-            follow=effective_follow, camera=camera)
+            follow=effective_follow)
 
     else:  # matplotlib
         from ._matplotlib import render_mpl
@@ -580,7 +635,7 @@ def render(
             bvh_list, coords_list, filepath, actual_fps, labels,
             skeleton_lines_list, centers, half_spans,
             azimuths, elevations, up_axes, show_axis,
-            follow=effective_follow, camera=camera)
+            follow=effective_follow, resolution=resolution)
 
 
 def play(
@@ -588,7 +643,7 @@ def play(
     *,
     centered: str = "world",
     labels: list[str] | None = None,
-    fps: int = -1,
+    fps: float | None = None,
     backend: str = "auto",
     camera: str | tuple[float, float] = "front",
     sync: str = "truncate",
@@ -596,7 +651,7 @@ def play(
     quality: str = "high",
     match_fps: str | None = None,
     spacing: float | str = "auto",
-) -> object:
+) -> None:
     """Play back motion data.
 
     Auto-detects the best backend for the current environment:
@@ -618,9 +673,12 @@ def play(
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional
         Labels for each skeleton when comparing.
-    fps : int, optional
-        Frames per second. ``-1`` (default) uses the BVH frame rate,
-        capped at 30 for matplotlib backends (via frame subsampling).
+    fps : float, optional
+        Frames per second (fractional rates like 119.88 are fine).
+        ``None`` (default) uses the BVH frame rate, capped at 30 for
+        the k3d and matplotlib backends (via frame subsampling) —
+        notebook widgets and matplotlib windows can't keep up with
+        high frame rates.
     backend : str, optional
         ``"auto"`` (default), ``"k3d"``, ``"vedo"``, or ``"matplotlib"``.
     camera : str or (float, float), optional
@@ -655,8 +713,8 @@ def play(
 
     Returns
     -------
-    object
-        Backend-specific return value (widget, plotter, or None).
+    None
+        All backends display or open their viewer as a side effect.
     """
     import math
 
@@ -699,12 +757,15 @@ def play(
         bvh, None, centered, camera, pad=pad)
 
     bvh_fps = 1.0 / bvh_list[0].frame_time
-    actual_fps = float(fps) if fps > 0 else bvh_fps
+    actual_fps = _resolve_fps(fps, bvh_list[0].frame_time)
 
     backend_name, tier = _resolve_play_backend(backend)
 
     # --- Warnings (auto mode only, tier > 0) ---
-    if tier >= 2:
+    # Gate the install hint on vedo actually being missing: on a
+    # headless display-less machine vedo may well be installed (the
+    # fallback is about the display, not the install).
+    if tier >= 2 and not _module_importable("vedo"):
         warnings.warn(
             "No interactive backend (k3d, vedo) found. "
             "Install with: pip install pybvh[interactive]",
@@ -722,7 +783,7 @@ def play(
     # opencv_notebook uses a video player that handles any fps natively.
     # vedo uses persistent actors + timer, handles high fps well.
     _PLAY_MAX_FPS = 30.0
-    if (fps == -1
+    if (fps is None
             and backend_name not in ("opencv_notebook", "vedo")
             and bvh_fps > _PLAY_MAX_FPS):
         subsample_step = math.ceil(bvh_fps / _PLAY_MAX_FPS)
@@ -747,10 +808,11 @@ def play(
         spread_coords = _apply_scene_spacing(
             bvh_list, coords_list, spacing, up_axes[0], centered)
         shared_center, shared_half_span = compute_unified_limits(spread_coords)
-        return play_k3d(
+        play_k3d(
             bvh_list, spread_coords, actual_fps, labels,
             skeleton_lines_list, shared_center, shared_half_span,
             azimuths[0], elevations[0], up_axes[0])
+        return None
 
     elif backend_name == "vedo":
         try:

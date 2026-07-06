@@ -61,8 +61,9 @@ def normalize_input(
     bvh : Bvh or list[Bvh]
         One or more BVH objects to visualize.
     frames : int, ndarray, or None
-        - ``None`` or ``-1``: all frames (spatial coords for entire motion).
-        - Non-negative int: single frame index.
+        - ``None``: all frames (spatial coords for entire motion).
+        - int: single frame index (NumPy semantics — negative counts
+          from the end).
         - 2-D array ``(N, 3)``: single frame of spatial coordinates
           (only valid when *bvh* is a single Bvh).
         - 3-D array ``(F, N, 3)``: pre-computed spatial coordinates
@@ -88,7 +89,7 @@ def normalize_input(
 
     coords_list: list[npt.NDArray[np.float64]] = []
 
-    if frames is None or (isinstance(frames, int) and frames == -1):
+    if frames is None:
         # All frames for each Bvh
         for b in bvh_list:
             coords = b.node_positions(centered=centered)
@@ -257,6 +258,69 @@ def get_camera_angles(
         raise ValueError(
             f"Unknown camera preset {camera!r}. "
             f"Use 'front', 'side', 'top', or (azimuth, elevation).")
+
+
+def compute_follow_azimuths(
+    bvh: Bvh,
+    coords: npt.NDArray[np.float64],
+    base_azim: float,
+) -> npt.NDArray[np.float64]:
+    """Per-frame camera azimuths that track the character's rotation.
+
+    Follow mode uses CONTINUOUS rotation tracking: the base camera azimuth
+    corresponds to frame 0, and every frame adds the signed rotation delta
+    between frame 0's lateral (left-to-right) axis and the current frame's,
+    measured around ``world_up``. This gives a smooth orbit that tracks the
+    character's actual rotation — not a snap-every-90°-to-a-signed-axis.
+
+    Parameters
+    ----------
+    bvh : Bvh
+        The skeleton (used for L/R pairs and ``world_up``).
+    coords : ndarray of shape (F, N, 3)
+        Spatial coordinates for the whole clip.
+    base_azim : float
+        The frame-0 azimuth in degrees (from :func:`get_camera_angles`).
+
+    Returns
+    -------
+    azimuths : ndarray of shape (F,)
+        Azimuth in degrees for every frame. Frames where the lateral
+        direction is degenerate (parallel to world up, or no L/R pairs)
+        fall back to ``base_azim``.
+    """
+    from ..tools import _axis_to_vector, _resolve_lr_pairs
+
+    num_frames = coords.shape[0]
+    azimuths = np.full(num_frames, float(base_azim))
+
+    pairs = _resolve_lr_pairs(bvh.lr_mapping, bvh.node_index)
+    if not pairs:
+        return azimuths
+
+    left_idx = [li for li, _ in pairs]
+    right_idx = [ri for _, ri in pairs]
+    up_vec = _axis_to_vector(bvh.world_up)
+
+    # World-space leftward unit vector per frame, projected onto the
+    # plane perpendicular to world_up (vectorized form of
+    # tools._world_leftward_unit_at_frame).
+    leftward = np.mean(coords[:, left_idx] - coords[:, right_idx], axis=1)
+    leftward = leftward - (leftward @ up_vec)[:, np.newaxis] * up_vec
+    norms = np.linalg.norm(leftward, axis=1)
+    valid = norms >= 1e-6
+    if not valid[0]:
+        return azimuths  # no frame-0 reference — camera stays fixed
+    leftward[valid] /= norms[valid, np.newaxis]
+
+    # Signed angle rotating frame 0's leftward onto each frame's,
+    # around world_up (vectorized _signed_rotation_delta_around_axis).
+    left_0 = leftward[0]
+    cos_a = np.clip(leftward @ left_0, -1.0, 1.0)
+    sin_a = np.cross(np.broadcast_to(left_0, leftward.shape), leftward) @ up_vec
+    deltas = np.degrees(np.arctan2(sin_a, cos_a))
+    azimuths[valid] = base_azim + deltas[valid]
+    return azimuths
 
 
 # ---------------------------------------------------------------------------

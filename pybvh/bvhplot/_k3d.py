@@ -30,7 +30,7 @@ def play_k3d(
     azimuth: float,
     elevation: float,
     up_axis: str,
-) -> object:
+) -> None:
     """Interactive skeleton playback in a Jupyter notebook via k3d.
 
     Parameters
@@ -58,15 +58,9 @@ def play_k3d(
 
     Returns
     -------
-    plot : k3d.Plot
-        The k3d plot widget.
+    None
+        The plot and its controls are displayed as a side effect.
     """
-    # Suppress traittypes dtype coercion warning (k3d passes uint32 indices
-    # to a trait that validates as float32; the coercion is harmless).
-    warnings.filterwarnings(
-        "ignore", message=".*dtype.*does not match required type.*",
-        module="traittypes")
-
     import k3d
     from IPython.display import display  # type: ignore[import-untyped]
     from ipywidgets import Play, IntSlider, jslink, HBox, VBox, Label  # type: ignore[import-untyped]
@@ -77,73 +71,82 @@ def play_k3d(
     num_frames = coords_f32[0].shape[0]
     n_skeletons = len(bvh_list)
 
-    plot = k3d.plot(name='pybvh skeleton viewer')
+    # k3d passes uint32 indices to a trait that traittypes validates as
+    # float32; the coercion is harmless but noisy. Scoped to object
+    # construction (the only place the warning fires) so the filter
+    # doesn't leak into the caller's process-wide warning state.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", message=".*dtype.*does not match required type.*",
+            module="traittypes")
 
-    # Build k3d objects for each skeleton
-    skeleton_objects: list[tuple[k3d.objects.Lines, k3d.objects.Points]] = []
+        plot = k3d.plot(name='pybvh skeleton viewer')
 
-    for s, (coords, bones) in enumerate(
-            zip(coords_f32, skeleton_lines_list)):
-        frame0 = coords[0]
+        # Build k3d objects for each skeleton
+        skeleton_objects: list[tuple[k3d.objects.Lines, k3d.objects.Points]] = []
 
-        # Build indices array for k3d.lines: pairs of [start, end]
-        indices = np.array(bones, dtype=np.uint32)  # (num_bones, 2)
+        for s, (coords, bones) in enumerate(
+                zip(coords_f32, skeleton_lines_list)):
+            frame0 = coords[0]
 
-        # Color as hex int (0xRRGGBB)
-        r, g, b = PALETTE_RGB[s % len(PALETTE_RGB)]
-        color = int(r) << 16 | int(g) << 8 | int(b)
+            # Build indices array for k3d.lines: pairs of [start, end]
+            indices = np.array(bones, dtype=np.uint32)  # (num_bones, 2)
 
-        lines = k3d.lines(
-            frame0, indices,
-            indices_type='segment',
-            color=color,
-            width=0.02 * half_span,
-            name=labels[s] if labels and s < len(labels) else f"Skeleton {s}",
-        )
-        points = k3d.points(
-            frame0,
-            color=color,
-            point_size=0.03 * half_span,
-            name=f"Joints {s}",
-        )
+            # Color as hex int (0xRRGGBB)
+            r, g, b = PALETTE_RGB[s % len(PALETTE_RGB)]
+            color = int(r) << 16 | int(g) << 8 | int(b)
 
-        plot += lines
-        plot += points
-        skeleton_objects.append((lines, points))
+            lines = k3d.lines(
+                frame0, indices,
+                indices_type='segment',
+                color=color,
+                width=0.02 * half_span,
+                name=labels[s] if labels and s < len(labels) else f"Skeleton {s}",
+            )
+            points = k3d.points(
+                frame0,
+                color=color,
+                point_size=0.03 * half_span,
+                name=f"Joints {s}",
+            )
 
-    # --- Root trajectory projected on the floor ---
-    # Animated trail: vertices [0:current_frame] show the actual past
-    # path, the remaining vertices collapse to the current frame so the
-    # trail "grows" as the animation plays.
-    # Snap the trail to the grid bottom (center - half_span on the up axis)
-    # rather than to the lowest joint, because the k3d bbox is cubic and
-    # extends below the lowest joint. Otherwise the trail floats above the
-    # visible grid floor and parallax makes it appear offset from its true
-    # XY position when viewed from an oblique angle.
-    up_idx = UP_AXIS_INDEX.get(up_axis, 2)
-    floor_level = float(center[up_idx] - half_span)
-    trail_objects: list[k3d.objects.Line] = []
-    trail_full_paths: list[npt.NDArray[np.float32]] = []
-    for s, coords in enumerate(coords_f32):
-        root_path = coords[:, 0, :].copy()  # (F, 3)
-        root_path[:, up_idx] = floor_level
-        trail_full_paths.append(root_path)
+            plot += lines
+            plot += points
+            skeleton_objects.append((lines, points))
 
-        # Initial trail: all vertices collapsed at frame 0
-        initial = np.tile(root_path[0], (num_frames, 1)).astype(np.float32)
+        # --- Root trajectory projected on the floor ---
+        # Animated trail: vertices [0:current_frame] show the actual past
+        # path, the remaining vertices collapse to the current frame so the
+        # trail "grows" as the animation plays.
+        # Snap the trail to the grid bottom (center - half_span on the up axis)
+        # rather than to the lowest joint, because the k3d bbox is cubic and
+        # extends below the lowest joint. Otherwise the trail floats above the
+        # visible grid floor and parallax makes it appear offset from its true
+        # XY position when viewed from an oblique angle.
+        up_idx = UP_AXIS_INDEX.get(up_axis, 2)
+        floor_level = float(center[up_idx] - half_span)
+        trail_objects: list[k3d.objects.Line] = []
+        trail_full_paths: list[npt.NDArray[np.float32]] = []
+        for s, coords in enumerate(coords_f32):
+            root_path = coords[:, 0, :].copy()  # (F, 3)
+            root_path[:, up_idx] = floor_level
+            trail_full_paths.append(root_path)
 
-        r, g, b = PALETTE_RGB[s % len(PALETTE_RGB)]
-        color = int(r) << 16 | int(g) << 8 | int(b)
-        trail = k3d.line(
-            initial,
-            color=color,
-            width=0.015 * half_span,
-            opacity=0.6,
-            shader='thick',
-            name=f"Trajectory {s}",
-        )
-        plot += trail
-        trail_objects.append(trail)
+            # Initial trail: all vertices collapsed at frame 0
+            initial = np.tile(root_path[0], (num_frames, 1)).astype(np.float32)
+
+            r, g, b = PALETTE_RGB[s % len(PALETTE_RGB)]
+            color = int(r) << 16 | int(g) << 8 | int(b)
+            trail = k3d.line(
+                initial,
+                color=color,
+                width=0.015 * half_span,
+                opacity=0.6,
+                shader='thick',
+                name=f"Trajectory {s}",
+            )
+            plot += trail
+            trail_objects.append(trail)
 
     # Set grid to cover the full motion extent
     grid_min = center - half_span
@@ -212,8 +215,6 @@ def play_k3d(
 
     controls = HBox([play_widget, slider, frame_label])
     display(VBox([plot, controls]))
-
-    # Return None — the plot is already displayed above.
-    # Returning the k3d.Plot would cause Jupyter to auto-display it
-    # a second time with different axis ranges.
-    return None
+    # No return value — the plot is already displayed above. Returning
+    # the k3d.Plot would cause Jupyter to auto-display it a second time
+    # with different axis ranges.

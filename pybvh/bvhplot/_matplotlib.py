@@ -14,6 +14,8 @@ import matplotlib.animation as animation
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
+from mpl_toolkits.mplot3d.art3d import Line3DCollection
+
 from ._common import PALETTE_MPL
 
 if TYPE_CHECKING:
@@ -161,7 +163,7 @@ def render_mpl(
     up_axes: list[str],
     show_axis: bool,
     follow: bool = False,
-    camera: str | tuple[float, float] = "front",
+    resolution: tuple[int, int] = (1920, 1080),
 ) -> Path:
     """Render animation to a video/GIF/HTML file via matplotlib.
 
@@ -182,16 +184,25 @@ def render_mpl(
     num_frames = coords_list[0].shape[0]
 
     n = len(bvh_list)
+    # matplotlib sizes figures in inches; convert the requested pixel
+    # resolution via the figure dpi so the saved frames honor it.
+    dpi = float(plt.rcParams['figure.dpi'])
+    w, h = resolution
     fig, axs = plt.subplots(
         1, n, subplot_kw=dict(projection="3d"),
-        figsize=(6.5 * n, 6), squeeze=False)
+        figsize=(w / dpi, h / dpi), squeeze=False)
     axs_flat: list[matplotlib.axes.Axes] = list(axs[0])
 
-    all_line_artists: list[list[Any]] = []
-    for i, (bones, ax) in enumerate(zip(skeleton_lines_list, axs_flat)):
+    bones_arrays = [np.asarray(bones, dtype=int)
+                    for bones in skeleton_lines_list]
+    bone_collections: list[Line3DCollection] = []
+    for i, (coords, bones, ax) in enumerate(
+            zip(coords_list, bones_arrays, axs_flat)):
         color = PALETTE_MPL[i % len(PALETTE_MPL)] if n > 1 else (0.1, 0.2, 0.8)
-        line_artists = [ax.plot([], [], [], c=color, lw=2.5)[0] for _ in bones]
-        all_line_artists.append(line_artists)
+        collection = Line3DCollection(
+            coords[0][bones], colors=[color], linewidths=2.5)
+        ax.add_collection3d(collection)
+        bone_collections.append(collection)
 
         _set_axis_limits(ax, centers[i], half_spans[i])
         ax.view_init(  # type: ignore[attr-defined]
@@ -225,11 +236,11 @@ def render_mpl(
 
     if follow:
         update = _make_follow_update_fn(
-            bvh_list, coords_list, skeleton_lines_list,
-            all_line_artists, axs_flat, camera)
+            bvh_list, coords_list, bones_arrays, bone_collections,
+            axs_flat, azimuths, elevations, up_axes)
     else:
         update = _make_update_fn(
-            coords_list, skeleton_lines_list, all_line_artists)
+            coords_list, bones_arrays, bone_collections)
 
     interval = int(1000.0 / fps)
     anim = animation.FuncAnimation(
@@ -240,7 +251,10 @@ def render_mpl(
         with open(filepath, 'w') as f:
             f.write(html_content)
     else:
-        anim.save(filepath, writer=writer_name)
+        # Pass fps explicitly: the writer's rate would otherwise be
+        # derived from the integer-millisecond interval, quantizing e.g.
+        # 24 fps (41.67 ms) to 1000/41 ≈ 24.4 fps.
+        anim.save(filepath, writer=writer_name, fps=round(fps))
 
     plt.close(fig)
     return filepath
@@ -249,58 +263,37 @@ def render_mpl(
 def _make_follow_update_fn(
     bvh_list,
     coords_list,
-    skeleton_lines_list,
-    all_line_artists,
+    bones_arrays,
+    bone_collections,
     axs_flat,
-    camera,
+    azimuths,
+    elevations,
+    up_axes,
 ):
     """Build an animation update fn that also recomputes view_init per frame.
 
-    Uses CONTINUOUS rotation tracking: for each skeleton, the base camera
-    angle is computed once from frame 0, then on every frame we add the
-    signed rotation delta between frame 0's lateral axis and the current
-    frame's lateral axis (measured around ``world_up``). This gives a
-    smooth orbit that tracks the character's actual rotation — not a
-    snap-every-90°-to-a-signed-axis.
+    Per-frame camera azimuths come from
+    :func:`~._common.compute_follow_azimuths` (continuous rotation
+    tracking around ``world_up``), precomputed once per skeleton from
+    the base azimuth that ``_prepare`` already resolved.
     """
-    from ._common import get_camera_angles
-    from ..tools import (
-        _axis_to_vector,
-        _signed_rotation_delta_around_axis,
-        _world_leftward_unit_at_frame,
-    )
+    from ._common import compute_follow_azimuths
 
     base_update = _make_update_fn(
-        coords_list, skeleton_lines_list, all_line_artists)
+        coords_list, bones_arrays, bone_collections)
 
-    # Precompute per-skeleton base camera and frame-0 lateral unit vectors.
-    base_angles: list[tuple[float, float, str]] = []
-    base_lefts: list[np.ndarray | None] = []
-    up_vecs: list[np.ndarray] = []
-    for bvh_obj, coords in zip(bvh_list, coords_list):
-        az, el, up = get_camera_angles(bvh_obj, coords[0], camera)
-        base_angles.append((az, el, up))
-        base_lefts.append(
-            _world_leftward_unit_at_frame(bvh_obj, coords[0], bvh_obj.world_up))
-        up_vecs.append(_axis_to_vector(bvh_obj.world_up))
+    follow_azimuths = [
+        compute_follow_azimuths(bvh_obj, coords, base_azim)
+        for bvh_obj, coords, base_azim
+        in zip(bvh_list, coords_list, azimuths)
+    ]
 
     def update(frame):
         artists = base_update(frame)
-        for i, (bvh_obj, coords, ax) in enumerate(
-                zip(bvh_list, coords_list, axs_flat)):
-            az0, el0, up0 = base_angles[i]
-            left_0 = base_lefts[i]
-            if left_0 is None:
-                ax.view_init(elev=el0, azim=az0, vertical_axis=up0)
-                continue
-            left_f = _world_leftward_unit_at_frame(
-                bvh_obj, coords[frame], bvh_obj.world_up)
-            if left_f is None:
-                ax.view_init(elev=el0, azim=az0, vertical_axis=up0)
-                continue
-            delta = _signed_rotation_delta_around_axis(
-                left_0, left_f, up_vecs[i])
-            ax.view_init(elev=el0, azim=az0 + delta, vertical_axis=up0)
+        for az_per_frame, elev, up, ax in zip(
+                follow_azimuths, elevations, up_axes, axs_flat):
+            ax.view_init(elev=elev, azim=az_per_frame[frame],
+                         vertical_axis=up)
         return artists
 
     return update
@@ -339,11 +332,16 @@ def play_mpl(
         figsize=(6 * n, 6), squeeze=False)
     axs_flat: list[matplotlib.axes.Axes] = list(axs[0])
 
-    all_line_artists: list[list[Any]] = []
-    for i, (bones, ax) in enumerate(zip(skeleton_lines_list, axs_flat)):
+    bones_arrays = [np.asarray(bones, dtype=int)
+                    for bones in skeleton_lines_list]
+    bone_collections: list[Line3DCollection] = []
+    for i, (coords, bones, ax) in enumerate(
+            zip(coords_list, bones_arrays, axs_flat)):
         color = PALETTE_MPL[i % len(PALETTE_MPL)] if n > 1 else (0.1, 0.2, 0.8)
-        line_artists = [ax.plot([], [], [], c=color, lw=2.5)[0] for _ in bones]
-        all_line_artists.append(line_artists)
+        collection = Line3DCollection(
+            coords[0][bones], colors=[color], linewidths=2.5)
+        ax.add_collection3d(collection)
+        bone_collections.append(collection)
 
         _set_axis_limits(ax, centers[i], half_spans[i])
         ax.view_init(  # type: ignore[attr-defined]
@@ -357,7 +355,7 @@ def play_mpl(
 
     plt.tight_layout()
 
-    update = _make_update_fn(coords_list, skeleton_lines_list, all_line_artists)
+    update = _make_update_fn(coords_list, bones_arrays, bone_collections)
 
     interval = int(1000.0 / fps)
     anim = animation.FuncAnimation(
@@ -566,21 +564,19 @@ def trajectory_mpl(
 
 def _make_update_fn(
     coords_list: list[npt.NDArray[np.float64]],
-    skeleton_lines_list: list[list[tuple[int, int]]],
-    all_line_artists: list[list[Any]],
+    bones_arrays: list[npt.NDArray[np.intp]],
+    bone_collections: list[Line3DCollection],
 ) -> Any:
-    """Create a FuncAnimation update function for bone rendering."""
+    """Create a FuncAnimation update function for bone rendering.
+
+    One ``Line3DCollection`` per skeleton: a single ``set_segments``
+    call replaces a Python loop over ~60 individual line artists.
+    """
     def update(f: int) -> list[Any]:
-        artists: list[Any] = []
-        for coords, bones, line_artists in zip(
-                coords_list, skeleton_lines_list, all_line_artists):
-            frame_data = coords[f]
-            for line, (p_idx, c_idx) in zip(line_artists, bones):
-                p = frame_data[p_idx]
-                c = frame_data[c_idx]
-                line.set_data_3d([p[0], c[0]], [p[1], c[1]], [p[2], c[2]])
-            artists.extend(line_artists)
-        return artists
+        for coords, bones, collection in zip(
+                coords_list, bones_arrays, bone_collections):
+            collection.set_segments(coords[f][bones])
+        return list(bone_collections)
     return update
 
 
@@ -591,11 +587,9 @@ def _draw_bones(
     color: tuple[float, float, float],
 ) -> None:
     """Draw all skeleton bones for a single frame on a 3D axes."""
-    for p_idx, c_idx in bones:
-        p = frame_data[p_idx]
-        c = frame_data[c_idx]
-        ax.plot([p[0], c[0]], [p[1], c[1]], [p[2], c[2]],
-                c=color, lw=2.5)
+    segments = frame_data[np.asarray(bones, dtype=int)]  # (n_bones, 2, 3)
+    ax.add_collection3d(
+        Line3DCollection(segments, colors=[color], linewidths=2.5))
 
 
 def _disable_3d_label_clipping(ax: matplotlib.axes.Axes) -> None:

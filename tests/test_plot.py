@@ -859,6 +859,142 @@ class TestRenderOpenCV:
 
 
 # =============================================================================
+# Backend / extension routing and fps resolution
+# =============================================================================
+
+class TestRenderBackendResolution:
+    """Extension-aware backend routing for render()."""
+
+    def test_mpl_only_extensions_route_to_matplotlib(self):
+        """Formats OpenCV cannot write always go to matplotlib under auto,
+        even when cv2 is installed."""
+        from pybvh.bvhplot import _resolve_render_backend
+        for ext in ('.html', '.webp', '.apng', '.gif'):
+            assert _resolve_render_backend("auto", ext) == "matplotlib"
+
+    def test_video_extensions_prefer_opencv_when_available(self):
+        pytest.importorskip("cv2")
+        from pybvh.bvhplot import _resolve_render_backend
+        for ext in ('.mp4', '.mov', '.avi'):
+            assert _resolve_render_backend("auto", ext) == "opencv"
+
+    def test_explicit_backend_wins_over_extension(self):
+        from pybvh.bvhplot import _resolve_render_backend
+        assert _resolve_render_backend("matplotlib", ".mp4") == "matplotlib"
+        assert _resolve_render_backend("opencv", ".gif") == "opencv"
+
+    def test_unknown_backend_raises(self, bvh_example, tmp_path):
+        with pytest.raises(ValueError, match="backend"):
+            bvhplot.render(bvh_example, tmp_path / "x.mp4", backend="opencvv")
+
+    def test_forced_opencv_rejects_unsupported_extension(
+            self, bvh_example, tmp_path):
+        pytest.importorskip("cv2")
+        with pytest.raises(ValueError, match="cannot write"):
+            bvhplot.render(
+                bvh_example, tmp_path / "x.html", backend="opencv")
+
+    def test_auto_gif_renders_without_codec_error(self, bvh_example, tmp_path):
+        """The routing regression: auto + .gif must not hit OpenCV's
+        VideoWriter (which cannot write GIF containers)."""
+        import matplotlib
+        matplotlib.use('Agg')
+        bvh_short = bvh_example[0:3]
+        path = bvhplot.render(bvh_short, tmp_path / "route.gif")
+        assert path.exists()
+        assert path.suffix == '.gif'
+        assert path.stat().st_size > 0
+
+
+class TestFpsResolution:
+    """Shared fps parameter of play() and render()."""
+
+    def test_none_uses_bvh_frame_rate(self):
+        from pybvh.bvhplot import _resolve_fps
+        assert _resolve_fps(None, 1.0 / 30.0) == pytest.approx(30.0)
+
+    def test_fractional_fps_preserved(self):
+        from pybvh.bvhplot import _resolve_fps
+        assert _resolve_fps(119.88, 1.0 / 30.0) == pytest.approx(119.88)
+
+    def test_zero_fps_raises(self):
+        from pybvh.bvhplot import _resolve_fps
+        with pytest.raises(ValueError, match="fps must be positive"):
+            _resolve_fps(0, 1.0 / 30.0)
+
+    def test_negative_fps_raises(self):
+        from pybvh.bvhplot import _resolve_fps
+        with pytest.raises(ValueError, match="fps must be positive"):
+            _resolve_fps(-1, 1.0 / 30.0)
+
+    def test_render_fps_zero_raises(self, bvh_example, tmp_path):
+        with pytest.raises(ValueError, match="fps must be positive"):
+            bvhplot.render(bvh_example, tmp_path / "x.gif", fps=0)
+
+    def test_render_fractional_fps(self, bvh_example, tmp_path):
+        import matplotlib
+        matplotlib.use('Agg')
+        bvh_short = bvh_example[0:3]
+        path = bvhplot.render(
+            bvh_short, tmp_path / "frac.gif",
+            backend="matplotlib", fps=12.5)
+        assert path.exists()
+        assert path.stat().st_size > 0
+
+
+class TestComputeFollowAzimuths:
+    """Vectorized follow-camera azimuth tracking (shared by all backends)."""
+
+    def test_frame0_equals_base(self, bvh_example):
+        from pybvh.bvhplot._common import compute_follow_azimuths
+        coords = bvh_example.node_positions()
+        az = compute_follow_azimuths(bvh_example, coords, -20.0)
+        assert az.shape == (coords.shape[0],)
+        assert az[0] == pytest.approx(-20.0)
+
+    def test_matches_per_frame_reference(self, bvh_example):
+        """compute_follow_azimuths must be numerically identical to the
+        per-frame tools helpers it vectorizes."""
+        from pybvh.bvhplot._common import compute_follow_azimuths
+        from pybvh.tools import (
+            _axis_to_vector,
+            _signed_rotation_delta_around_axis,
+            _world_leftward_unit_at_frame,
+        )
+
+        coords = bvh_example.node_positions()
+        base_azim = 160.0
+        vec = compute_follow_azimuths(bvh_example, coords, base_azim)
+
+        up_vec = _axis_to_vector(bvh_example.world_up)
+        left_0 = _world_leftward_unit_at_frame(
+            bvh_example, coords[0], bvh_example.world_up)
+        assert left_0 is not None
+        for f in range(coords.shape[0]):
+            left_f = _world_leftward_unit_at_frame(
+                bvh_example, coords[f], bvh_example.world_up)
+            if left_f is None:
+                expected = base_azim
+            else:
+                expected = base_azim + _signed_rotation_delta_around_axis(
+                    left_0, left_f, up_vec)
+            assert vec[f] == pytest.approx(expected, abs=1e-9)
+
+    def test_no_lr_pairs_falls_back_to_base(self, bvh_example):
+        """A skeleton without L/R pairs keeps the base azimuth on all
+        frames (camera stays fixed)."""
+        from pybvh.bvhplot._common import compute_follow_azimuths
+        # Spine-only skeleton: no lateral joints, so lr auto-detection
+        # finds no pairs.
+        bvh = bvh_example.extract_joints(
+            ['Hips', 'Spine', 'Spine1', 'Spine2', 'Spine3', 'Neck', 'Head'])
+        assert bvh.lr_mapping is None
+        coords = bvh.node_positions()
+        az = compute_follow_azimuths(bvh, coords, 45.0)
+        assert np.allclose(az, 45.0)
+
+
+# =============================================================================
 # match_fps
 # =============================================================================
 

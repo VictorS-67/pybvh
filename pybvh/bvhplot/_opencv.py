@@ -16,24 +16,26 @@ from typing import TYPE_CHECKING
 
 from ._common import (
     build_view_matrix,
+    compute_follow_azimuths,
     ortho_project,
     PALETTE_BGR,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from ..bvh import Bvh
 
 
+# Extensions this backend can actually write: video containers via
+# cv2.VideoWriter, plus GIF via a dedicated Pillow path.
+_OPENCV_EXTENSIONS = {'.mp4', '.mov', '.avi', '.gif'}
+
+
 def _compute_fixed_view_halves_for_follow(
-    bvh_list,
-    coords_list,
-    centers,
-    half_spans,
-    azimuths,
-    elevations,
-    up_axes,
-    base_lefts,
-    up_vecs,
+    follow_azimuths: list[npt.NDArray[np.float64]],
+    elevations: list[float],
+    up_axes: list[str],
+    half_spans: list[float],
 ) -> list[tuple[float, float]]:
     """For follow mode: precompute per-skeleton view-space half extents
     that stay constant across the whole animation.
@@ -48,35 +50,17 @@ def _compute_fixed_view_halves_for_follow(
     view_half_v) across every frame ahead of time and reuse those as
     a fixed scale at render time.
     """
-    from ..tools import _signed_rotation_delta_around_axis, _world_leftward_unit_at_frame
-
-    n_skeletons = len(bvh_list)
     result: list[tuple[float, float]] = []
-    for i, bvh_obj in enumerate(bvh_list):
-        az0, el0, ua = azimuths[i], elevations[i], up_axes[i]
-        left_0 = base_lefts[i]
-        half_span = half_spans[i]
-
+    for azimuths_per_frame, el, ua, half_span in zip(
+            follow_azimuths, elevations, up_axes, half_spans):
         corners = np.array([[sx, sy, sz]
                             for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)],
                            dtype=np.float64) * half_span
 
         max_u = 0.0
         max_v = 0.0
-        num_frames = coords_list[i].shape[0]
-        for f in range(num_frames):
-            if left_0 is None:
-                az_f = az0
-            else:
-                left_f = _world_leftward_unit_at_frame(
-                    bvh_obj, coords_list[i][f], bvh_obj.world_up)
-                if left_f is None:
-                    az_f = az0
-                else:
-                    delta = _signed_rotation_delta_around_axis(
-                        left_0, left_f, up_vecs[i])
-                    az_f = az0 + delta
-            vm = build_view_matrix(az_f, el0, ua)
+        for az_f in azimuths_per_frame:
+            vm = build_view_matrix(az_f, el, ua)
             cv_corners = corners @ vm.T
             u = float(np.abs(cv_corners[:, 0]).max())
             v = float(np.abs(cv_corners[:, 1]).max())
@@ -149,6 +133,114 @@ def _draw_skeletons_on_frame(
             cv2.line(img, (x, 0), (x, h), (200, 200, 200), 1)
 
 
+def _generate_frames(
+    bvh_list: list[Bvh],
+    coords_list: list[npt.NDArray[np.float64]],
+    resolution: tuple[int, int],
+    labels: list[str] | None,
+    show_axis: bool,
+    skeleton_lines_list: list[list[tuple[int, int]]],
+    centers: list[npt.NDArray[np.float64]],
+    half_spans: list[float],
+    azimuths: list[float],
+    elevations: list[float],
+    up_axes: list[str],
+    follow: bool = False,
+    frame_counter: bool = True,
+) -> Iterator[npt.NDArray[np.uint8]]:
+    """Yield one rendered BGR image ``(H, W, 3)`` per animation frame.
+
+    Shared by the video and GIF paths of :func:`render_opencv` — only
+    the sink (``cv2.VideoWriter`` vs Pillow) differs between them.
+
+    Parameters
+    ----------
+    bvh_list : list[Bvh]
+        Skeleton objects.
+    coords_list : list[ndarray]
+        Spatial coordinates per skeleton, each ``(F, N, 3)``.
+    resolution : (int, int)
+        ``(width, height)`` in pixels.
+    labels : list[str] or None
+        Labels for each skeleton.
+    show_axis : bool
+        If ``True``, draw a simple axis indicator in each panel.
+    skeleton_lines_list : list
+        Precomputed bone index pairs per skeleton.
+    centers, half_spans : list[ndarray], list[float]
+        Per-skeleton bounding boxes.
+    azimuths, elevations : list[float]
+        Per-skeleton camera angles in degrees.
+    up_axes : list[str]
+        Per-skeleton vertical axis, each ``'x'``, ``'y'``, or ``'z'``.
+    follow : bool, optional
+        If ``True``, per-frame view matrices track each skeleton's
+        rotation (continuous azimuth tracking around ``world_up``).
+    frame_counter : bool, optional
+        Draw a ``Frame f/F`` counter in the bottom-right corner.
+        Default ``True`` (the GIF path opts out to preserve its
+        historical counter-free output).
+    """
+    import cv2
+
+    w, h = resolution
+    num_frames = coords_list[0].shape[0]
+    n_skeletons = len(bvh_list)
+    panel_w = w // n_skeletons if n_skeletons > 1 else w
+    per_skeleton_limits = list(zip(centers, half_spans))
+
+    base_view_matrices = [
+        build_view_matrix(az, el, ua)
+        for az, el, ua in zip(azimuths, elevations, up_axes)]
+
+    # Follow mode: per-frame azimuths precomputed once per skeleton,
+    # plus the MAX view-space half extents across every frame so the
+    # projection scale stays constant and the character doesn't zoom
+    # in and out as the camera orbits.
+    follow_azimuths: list[npt.NDArray[np.float64]] | None = None
+    fixed_view_halves: list[tuple[float, float]] | None = None
+    if follow:
+        follow_azimuths = [
+            compute_follow_azimuths(b, coords, base_azim)
+            for b, coords, base_azim
+            in zip(bvh_list, coords_list, azimuths)]
+        fixed_view_halves = _compute_fixed_view_halves_for_follow(
+            follow_azimuths, elevations, up_axes, half_spans)
+
+    for f in range(num_frames):
+        if follow_azimuths is not None:
+            view_matrices = [
+                build_view_matrix(az_per_frame[f], el, ua)
+                for az_per_frame, el, ua
+                in zip(follow_azimuths, elevations, up_axes)]
+        else:
+            view_matrices = base_view_matrices
+
+        img = np.full((h, w, 3), 255, dtype=np.uint8)
+
+        _draw_skeletons_on_frame(
+            img, f, coords_list, skeleton_lines_list,
+            view_matrices, per_skeleton_limits, panel_w, h, labels,
+            fixed_view_halves=fixed_view_halves)
+
+        if frame_counter:
+            fc_text = f"Frame {f}/{num_frames - 1}"
+            fc_x = max(5, w - 200)
+            cv2.putText(
+                img, fc_text,
+                (fc_x, h - 15),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1,
+                cv2.LINE_AA)
+
+        if show_axis:
+            for s in range(n_skeletons):
+                _draw_axis_indicator(
+                    img, view_matrices[s], up_axes[s],
+                    panel_w, h, panel_idx=s)
+
+        yield img
+
+
 def render_opencv(
     bvh_list: list[Bvh],
     coords_list: list[npt.NDArray[np.float64]],
@@ -164,14 +256,16 @@ def render_opencv(
     elevations: list[float],
     up_axes: list[str],
     follow: bool = False,
-    camera: str | tuple[float, float] = "front",
 ) -> Path:
-    """Render skeleton animation to video using OpenCV.
+    """Render skeleton animation to a video or GIF file using OpenCV.
 
     Each panel uses its own bounding box and camera so that mixed-up-axis
     side-by-side comparisons render correctly. If ``follow`` is True, the
     per-panel view matrices are recomputed every frame so each camera
     tracks its skeleton's current facing direction.
+
+    Frame generation is shared with the GIF path via
+    :func:`_generate_frames`; this function only picks the sink.
 
     Parameters
     ----------
@@ -180,7 +274,8 @@ def render_opencv(
     coords_list : list[ndarray]
         Spatial coordinates per skeleton, each ``(F, N, 3)``.
     filepath : Path
-        Output file path.
+        Output file path. Must end in one of ``.mp4``, ``.mov``,
+        ``.avi``, or ``.gif``.
     fps : float
         Frames per second.
     resolution : (int, int)
@@ -200,111 +295,43 @@ def render_opencv(
     follow : bool, optional
         If ``True``, recompute view matrices each frame so the camera
         follows the character's orientation. Default ``False``.
-    camera : str or (float, float), optional
-        Camera spec passed through to ``get_camera_angles`` when
-        ``follow=True``. Ignored otherwise.
 
     Returns
     -------
     Path
         The path to the written video file.
+
+    Raises
+    ------
+    ValueError
+        If the file extension is not one this backend can write
+        (``.html``/``.webp``/``.apng`` need the matplotlib backend).
     """
-    import cv2
-
     ext = filepath.suffix.lower()
+    if ext not in _OPENCV_EXTENSIONS:
+        raise ValueError(
+            f"The OpenCV backend cannot write {ext!r} files. "
+            f"Supported extensions: {sorted(_OPENCV_EXTENSIONS)}. "
+            f"Use backend='matplotlib' for other formats.")
 
-    # Use Pillow for GIF output (cv2.VideoWriter doesn't support GIF)
+    # Pillow sink for GIF output (cv2.VideoWriter doesn't support GIF).
     if ext == '.gif':
-        return _render_gif(
-            bvh_list, coords_list, filepath, fps, resolution, labels,
-            show_axis, skeleton_lines_list, centers, half_spans,
+        frames = _generate_frames(
+            bvh_list, coords_list, resolution, labels, show_axis,
+            skeleton_lines_list, centers, half_spans,
             azimuths, elevations, up_axes,
-            follow=follow, camera=camera)
+            follow=follow, frame_counter=False)
+        return _render_gif(frames, filepath, fps)
 
-    w, h = resolution
-    num_frames = coords_list[0].shape[0]
-    n_skeletons = len(bvh_list)
+    frames = _generate_frames(
+        bvh_list, coords_list, resolution, labels, show_axis,
+        skeleton_lines_list, centers, half_spans,
+        azimuths, elevations, up_axes,
+        follow=follow)
 
-    # Per-skeleton view matrices: each panel's camera is built from its
-    # own skeleton's detected forward/up axes. In follow mode these get
-    # recomputed every frame inside the loop (continuous rotation tracking).
-    view_matrices = [
-        build_view_matrix(az, el, ua)
-        for az, el, ua in zip(azimuths, elevations, up_axes)]
-
-    panel_w = w // n_skeletons if n_skeletons > 1 else w
-    per_skeleton_limits = list(zip(centers, half_spans))
-
-    # Follow-mode precomputation: base azim per skeleton and frame-0 lateral
-    # unit vectors, used to apply a continuous rotation delta per frame.
-    # Also precompute the MAX view_half_u/v across every frame so the
-    # scale is constant and the character doesn't zoom in and out as
-    # the camera orbits.
-    fixed_view_halves: list[tuple[float, float]] | None = None
-    if follow:
-        from ..tools import (
-            _axis_to_vector,
-            _signed_rotation_delta_around_axis,
-            _world_leftward_unit_at_frame,
-        )
-        base_lefts = [
-            _world_leftward_unit_at_frame(b, coords_list[i][0], b.world_up)
-            for i, b in enumerate(bvh_list)
-        ]
-        up_vecs = [_axis_to_vector(b.world_up) for b in bvh_list]
-
-        fixed_view_halves = _compute_fixed_view_halves_for_follow(
-            bvh_list, coords_list, centers, half_spans,
-            azimuths, elevations, up_axes,
-            base_lefts, up_vecs)
-
-    # Open video writer with codec fallback
-    writer = _open_writer(filepath, fps, (w, h))
-
-    for f in range(num_frames):
-        if follow:
-            view_matrices = []
-            frame_up_axes: list[str] = list(up_axes)
-            for i, bvh_obj in enumerate(bvh_list):
-                az0, el0, ua = azimuths[i], elevations[i], up_axes[i]
-                left_0 = base_lefts[i]
-                if left_0 is None:
-                    az_f = az0
-                else:
-                    left_f = _world_leftward_unit_at_frame(
-                        bvh_obj, coords_list[i][f], bvh_obj.world_up)
-                    if left_f is None:
-                        az_f = az0
-                    else:
-                        delta = _signed_rotation_delta_around_axis(
-                            left_0, left_f, up_vecs[i])
-                        az_f = az0 + delta
-                view_matrices.append(build_view_matrix(az_f, el0, ua))
-        else:
-            frame_up_axes = up_axes
-
-        img = np.full((h, w, 3), 255, dtype=np.uint8)
-
-        _draw_skeletons_on_frame(
-            img, f, coords_list, skeleton_lines_list,
-            view_matrices, per_skeleton_limits, panel_w, h, labels,
-            fixed_view_halves=fixed_view_halves)
-
-        fc_text = f"Frame {f}/{num_frames - 1}"
-        fc_x = max(5, w - 200)
-        cv2.putText(
-            img, fc_text,
-            (fc_x, h - 15),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1, cv2.LINE_AA)
-
-        if show_axis:
-            for s in range(n_skeletons):
-                _draw_axis_indicator(
-                    img, view_matrices[s], frame_up_axes[s],
-                    panel_w, h, panel_idx=s)
-
+    writer = _open_writer(filepath, fps, resolution)
+    for img in frames:
         writer.write(img)  # type: ignore[attr-defined]
-
     writer.release()  # type: ignore[attr-defined]
     return filepath
 
@@ -334,99 +361,24 @@ def _open_writer(
 
 
 def _render_gif(
-    bvh_list: list[Bvh],
-    coords_list: list[npt.NDArray[np.float64]],
+    frames: Iterator[npt.NDArray[np.uint8]],
     filepath: Path,
     fps: float,
-    resolution: tuple[int, int],
-    labels: list[str] | None,
-    show_axis: bool,
-    skeleton_lines_list: list[list[tuple[int, int]]],
-    centers: list[npt.NDArray[np.float64]],
-    half_spans: list[float],
-    azimuths: list[float],
-    elevations: list[float],
-    up_axes: list[str],
-    follow: bool = False,
-    camera: str | tuple[float, float] = "front",
 ) -> Path:
-    """Render to GIF using Pillow (cv2 doesn't support GIF)."""
+    """Pillow sink for GIF output (cv2.VideoWriter doesn't support GIF).
+
+    Consumes the BGR frames from :func:`_generate_frames`, converting
+    each to RGB for Pillow.
+    """
     from PIL import Image
 
-    w, h = resolution
-    num_frames = coords_list[0].shape[0]
-    n_skeletons = len(bvh_list)
-
-    base_view_matrices = [
-        build_view_matrix(az, el, ua)
-        for az, el, ua in zip(azimuths, elevations, up_axes)]
-
-    panel_w = w // n_skeletons if n_skeletons > 1 else w
-    per_skeleton_limits = list(zip(centers, half_spans))
-
     duration_ms = int(1000.0 / fps)
-
-    fixed_view_halves: list[tuple[float, float]] | None = None
-    if follow:
-        from ..tools import (
-            _axis_to_vector,
-            _signed_rotation_delta_around_axis,
-            _world_leftward_unit_at_frame,
-        )
-        base_lefts = [
-            _world_leftward_unit_at_frame(b, coords_list[i][0], b.world_up)
-            for i, b in enumerate(bvh_list)
-        ]
-        up_vecs = [_axis_to_vector(b.world_up) for b in bvh_list]
-
-        fixed_view_halves = _compute_fixed_view_halves_for_follow(
-            bvh_list, coords_list, centers, half_spans,
-            azimuths, elevations, up_axes,
-            base_lefts, up_vecs)
-
-    def _generate_frames():
-        for f in range(num_frames):
-            if follow:
-                view_matrices = []
-                for i, bvh_obj in enumerate(bvh_list):
-                    az0, el0, ua = azimuths[i], elevations[i], up_axes[i]
-                    left_0 = base_lefts[i]
-                    if left_0 is None:
-                        az_f = az0
-                    else:
-                        left_f = _world_leftward_unit_at_frame(
-                            bvh_obj, coords_list[i][f], bvh_obj.world_up)
-                        if left_f is None:
-                            az_f = az0
-                        else:
-                            delta = _signed_rotation_delta_around_axis(
-                                left_0, left_f, up_vecs[i])
-                            az_f = az0 + delta
-                    view_matrices.append(build_view_matrix(az_f, el0, ua))
-            else:
-                view_matrices = base_view_matrices
-
-            img = np.full((h, w, 3), 255, dtype=np.uint8)
-
-            _draw_skeletons_on_frame(
-                img, f, coords_list, skeleton_lines_list,
-                view_matrices, per_skeleton_limits, panel_w, h, labels,
-                fixed_view_halves=fixed_view_halves)
-
-            if show_axis:
-                for s in range(n_skeletons):
-                    _draw_axis_indicator(
-                        img, view_matrices[s], up_axes[s],
-                        panel_w, h, panel_idx=s)
-
-            yield Image.fromarray(img[:, :, ::-1])
-
-    frames_iter = _generate_frames()
-    first_frame = next(frames_iter)
+    pil_frames = (Image.fromarray(img[:, :, ::-1]) for img in frames)
+    first_frame = next(pil_frames)
     first_frame.save(
         filepath,
         save_all=True,
-        append_images=frames_iter,
+        append_images=pil_frames,
         duration=duration_ms,
         loop=0)
 

@@ -28,7 +28,7 @@ coords = bvh.node_positions()  # (F, N, 3) via forward kinematics
 ## Rotation representations
 
 ```python
-root_pos, quats = bvh.to_quaternions()  # (F, J, 4)
+root_pos, quats = bvh.to_quat()         # (F, J, 4)
 root_pos, rot6d = bvh.to_6d()           # (F, J, 6)
 root_pos, aa = bvh.to_axisangle()    # (F, J, 3)
 ```

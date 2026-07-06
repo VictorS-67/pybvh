@@ -89,25 +89,25 @@ class TestSyntheticFixtures:
 
     def test_pos_y_up_head_above_root(self):
         bvh = make_pos_y_up_bvh()
-        coords = bvh.rest_pose_coords()
+        coords = bvh.rest_pose_positions()
         head_idx = bvh.node_index["Head"]
         assert coords[head_idx, 1] > coords[0, 1]
 
     def test_neg_y_up_head_above_root(self):
         bvh = make_neg_y_up_bvh()
-        coords = bvh.rest_pose_coords()
+        coords = bvh.rest_pose_positions()
         head_idx = bvh.node_index["Head"]
         assert coords[head_idx, 1] < coords[0, 1]  # more negative = higher
 
     def test_pos_z_up_head_above_root(self):
         bvh = make_pos_z_up_bvh()
-        coords = bvh.rest_pose_coords()
+        coords = bvh.rest_pose_positions()
         head_idx = bvh.node_index["Head"]
         assert coords[head_idx, 2] > coords[0, 2]
 
     def test_neg_z_up_head_above_root(self):
         bvh = make_neg_z_up_bvh()
-        coords = bvh.rest_pose_coords()
+        coords = bvh.rest_pose_positions()
         head_idx = bvh.node_index["Head"]
         assert coords[head_idx, 2] < coords[0, 2]
 
@@ -296,7 +296,7 @@ class TestFrequencyTerminology:
         bvh2 = bvh1.copy()
         bvh2.frame_time = 0.01
         with pytest.warns(UserWarning, match="[Ff]rame time"):
-            bvh1.concat(bvh2)
+            bvh1 + bvh2
 
 
 # ========================================================================
@@ -459,11 +459,11 @@ class TestMissingForwarding:
         with pytest.raises(ValueError, match="[Ff]rame"):
             bvh.from_6d(root_pos[:10], rot6d[:20])
 
-    def test_from_quaternions_mismatched_frames_raises(self):
+    def test_from_quat_mismatched_frames_raises(self):
         bvh = read_bvh_file(EXAMPLE)
-        root_pos, quats = bvh.to_quaternions()
+        root_pos, quats = bvh.to_quat()
         with pytest.raises(ValueError, match="[Ff]rame"):
-            bvh.from_quaternions(root_pos[:10], quats[:20])
+            bvh.from_quat(root_pos[:10], quats[:20])
 
     def test_from_axisangle_mismatched_frames_raises(self):
         bvh = read_bvh_file(EXAMPLE)
@@ -473,8 +473,8 @@ class TestMissingForwarding:
 
     def test_spatial_coords_negative_index(self):
         bvh = read_bvh_file(EXAMPLE)
-        second_to_last = bvh.node_positions(frame_num=-2)
-        expected = bvh.node_positions(frame_num=bvh.frame_count - 2)
+        second_to_last = bvh.node_positions(frame=-2)
+        expected = bvh.node_positions(frame=bvh.frame_count - 2)
         npt.assert_array_equal(second_to_last, expected)
 
 

@@ -102,7 +102,7 @@ assert np.allclose(kappa_circle[5:-5], 1 / r, rtol=1e-2)
 
 # %%
 hand = "RightHand"
-node = bvh.index(hand, axis="node")
+node = bvh.index(hand, space="node")
 print(f"{hand} SPARC      = {bvh.smoothness(hand, metric='sparc'):.3f}")
 print(f"{hand} LDLJ       = {bvh.smoothness(hand, metric='log_dimensionless_jerk'):.3f}")
 print(f"{hand} # of peaks = {bvh.smoothness(hand, metric='number_of_peaks')}")
@@ -160,8 +160,8 @@ print(f"walking pace  = {bvh.walking_pace():.3f} units/s")
 # %%
 pos = bvh.node_positions()
 def seg(a, b):
-    return np.stack([pos[:, bvh.index(a, axis="node")],
-                     pos[:, bvh.index(b, axis="node")]], axis=1)  # (F, 2, 3)
+    return np.stack([pos[:, bvh.index(a, space="node")],
+                     pos[:, bvh.index(b, space="node")]], axis=1)  # (F, 2, 3)
 
 relative = rotations.relative_transform(seg("RightArm", "RightForeArm"),
                                         seg("RightForeArm", "RightHand"))

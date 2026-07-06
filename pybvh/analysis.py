@@ -536,7 +536,7 @@ def root_trajectory(
     ground_axes = [i for i in range(3) if i != up_idx]
 
     # Rest-pose forward direction — independent of animation start
-    rest_coords = bvh.rest_pose_coords()
+    rest_coords = bvh.rest_pose_positions()
     fwd_axis = _compute_forward_at(bvh, rest_coords, up_str)
     fwd_rest = _axis_to_vector(fwd_axis)  # (3,) unit vector
 
@@ -774,7 +774,7 @@ def foot_contacts(
     rest_coords: npt.NDArray[np.float64] | None = None
 
     if foot_joints is None:
-        rest_coords = bvh.rest_pose_coords()
+        rest_coords = bvh.rest_pose_positions()
         foot_joints = auto_detect_foot_joints(bvh, _rest_coords=rest_coords)
         if not foot_joints:
             raise ValueError(
@@ -801,7 +801,7 @@ def foot_contacts(
         or (needs_height and height_threshold is None)
     )
     if (needs_height or needs_scale) and rest_coords is None:
-        rest_coords = bvh.rest_pose_coords()
+        rest_coords = bvh.rest_pose_positions()
 
     scale: float | None = None
     if needs_scale:
@@ -929,7 +929,7 @@ def foot_contacts(
             info["adaptive_used_height"] = height_adaptive_used
 
     diag_scale = scale if scale is not None else _skeleton_scale(
-        bvh.rest_pose_coords(), foot_indices)
+        bvh.rest_pose_positions(), foot_indices)
     if clearance is None:   # method="velocity": derive a clearance for diagnostics
         h = foot_coords[:, :, up_idx] * up_sign
         clearance = h - _estimate_floor(h)
@@ -1024,7 +1024,7 @@ def auto_detect_foot_joints(
     most_distal = [n for n in with_tip if not _has_candidate_descendant(n)]
 
     # Step 4: stable sort — height (ascending) then name (alphabetical)
-    rest_coords = _rest_coords if _rest_coords is not None else bvh.rest_pose_coords()
+    rest_coords = _rest_coords if _rest_coords is not None else bvh.rest_pose_positions()
     assert isinstance(rest_coords, np.ndarray)  # mypy narrowing
 
     def _sort_key(node: BvhNode) -> tuple[float, str]:
@@ -1102,7 +1102,7 @@ def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
         if unknown:
             raise ValueError(
                 f"skeleton_size: joint names {unknown} not found in skeleton.")
-    rest_coords = bvh.rest_pose_coords()
+    rest_coords = bvh.rest_pose_positions()
     foot_indices = [bvh.node_index[name] for name in foot_joints]
     return _skeleton_scale(rest_coords, foot_indices)
 
@@ -2430,7 +2430,7 @@ def gait_parameters(
     contacts = np.asarray(contacts, dtype=np.float64)
 
     up = _axis_to_vector(bvh.world_up)
-    foot_idx = [bvh.index(name, axis="node") for name in foot_joints]
+    foot_idx = [bvh.index(name, space="node") for name in foot_joints]
     foot_xyz = node_pos[:, foot_idx, :]                       # (F, n_feet, 3)
     foot_h = foot_xyz - (foot_xyz @ up)[..., None] * up       # project to ground
 

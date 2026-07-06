@@ -43,7 +43,7 @@ def test_jerk_shapes_per_stencil_pad():
 
 def test_jerk_too_short_raises():
     bvh = make_pos_y_up_bvh()
-    short = bvh.slice_frames(0, 5)  # 5 frames < 7 needed for central+none
+    short = bvh[0:5]  # 5 frames < 7 needed for central+none
     with pytest.raises(ValueError):
         analysis.node_jerk(short, stencil="central", pad="none")
 
@@ -451,7 +451,7 @@ def test_foot_contacts_detects_bouncing_root_dwell():
     bvh = make_pos_y_up_bvh()
     up = 1  # +y
     coords = bvh.node_positions().copy()
-    for f in [bvh.index(n, axis="node") for n in ["LeftFoot", "RightFoot"]]:
+    for f in [bvh.index(n, space="node") for n in ["LeftFoot", "RightFoot"]]:
         coords[4:7, f, up] += 40.0         # lift frames 4-6; dwell low elsewhere
     c = bvh.foot_contacts(foot_joints=["LeftFoot", "RightFoot"],
                           method="height", coords=coords, hysteresis=0.0)
@@ -524,7 +524,7 @@ def test_foot_contacts_releases_foot_lifting_at_clip_end():
     # mid-lift. With default hysteresis the latch must not hold it to the edge.
     bvh = make_pos_y_up_bvh()
     feet = ["LeftFoot", "RightFoot"]
-    fis = [bvh.index(n, axis="node") for n in feet]
+    fis = [bvh.index(n, space="node") for n in feet]
     coords = bvh.node_positions().copy()
     coords[:, fis, 1] = 0.0          # planted at the floor...
     coords[7:10, fis, 1] = 1.1       # ...then in the band (above raw thr=1, below high=1.25)
@@ -618,8 +618,8 @@ def _hover_clip(hover_frac, swing_frac=0.3):
     (at floor+hover) then swings high and moving. base = the floor (rest foot height)."""
     bvh = make_pos_y_up_bvh()
     feet = ["LeftFoot", "RightFoot"]
-    fidx = [bvh.index(n, axis="node") for n in feet]
-    scale = analysis._skeleton_scale(bvh.rest_pose_coords(), fidx)
+    fidx = [bvh.index(n, space="node") for n in feet]
+    scale = analysis._skeleton_scale(bvh.rest_pose_positions(), fidx)
     coords = bvh.node_positions().copy()
     F = bvh.frame_count; half = F // 2
     for f in fidx:
@@ -656,8 +656,8 @@ def test_height_reference_clean_rig_identity():
 def test_height_reference_rejects_held_airborne_foot():
     bvh = make_pos_y_up_bvh()
     feet = ["LeftFoot", "RightFoot"]
-    fidx = [bvh.index(n, axis="node") for n in feet]
-    scale = analysis._skeleton_scale(bvh.rest_pose_coords(), fidx)
+    fidx = [bvh.index(n, space="node") for n in feet]
+    scale = analysis._skeleton_scale(bvh.rest_pose_positions(), fidx)
     coords = bvh.node_positions().copy()
     F = bvh.frame_count; base = coords[0, fidx[0], 1]; half = F // 2
     coords[:, fidx[1], :] = coords[0, fidx[1], :]             # foot1 held still...

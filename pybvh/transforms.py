@@ -325,7 +325,7 @@ def drop_frames(
 
     # SLERP all joints of the dropped frames in one broadcast call:
     # (D, J, 4) endpoints with (D, 1) t broadcasting over the joint axis.
-    _, quats = bvh.to_quaternions()  # (F, J, 4)
+    _, quats = bvh.to_quat()  # (F, J, 4)
     dropped_quats = rotations.quat_slerp(
         quats[left_frames], quats[right_frames], alpha[:, None])
 
@@ -966,7 +966,7 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
             f"world_up ({bvh.world_up})")
 
     # Determine current rest-pose forward from topology
-    rest_coords = bvh.rest_pose_coords()
+    rest_coords = bvh.rest_pose_positions()
     current_fwd = _compute_forward_at(bvh, rest_coords, bvh.world_up)
 
     target = bvh if inplace else bvh.copy()

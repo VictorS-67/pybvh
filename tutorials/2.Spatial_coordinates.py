@@ -74,10 +74,10 @@ print(f"Head 3D position (frame 0): {coords[0, head_idx]}")
 # %% [markdown]
 # ## Single-frame extraction
 #
-# If you only need one frame, pass `frame_num` to avoid computing the entire sequence. The result is a 2D array `(num_nodes, 3)` instead of 3D.
+# If you only need one frame, pass `frame` to avoid computing the entire sequence (negative indices count from the end, NumPy-style). The result is a 2D array `(num_nodes, 3)` instead of 3D.
 
 # %%
-frame_15 = bvh.node_positions(frame_num=15)
+frame_15 = bvh.node_positions(frame=15)
 print(f"Single frame shape: {frame_15.shape}")
 
 fig, ax = bvh.plot_frame(frame_15)

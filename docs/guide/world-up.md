@@ -32,7 +32,7 @@ bvh.world_up = '+y'  # override auto-detection
 
 Validated input -- only accepts `{+x, -x, +y, -y, +z, -z}`. Anything else raises `ValueError`.
 
-The override propagates through `copy()`, `slice_frames()`, `mirror()`, `scale()`, `rotate_vertical()`, `translate_root()`, and `extract_joints()`. `retarget()` re-infers from the new skeleton. Note that BVH files have no world-up field, so manual overrides are lost on write/read round trips and must be re-applied.
+The override propagates through `copy()`, frame slicing (`bvh[a:b]`), `mirror()`, `scale()`, `rotate_vertical()`, `translate_root()`, and `extract_joints()`. Assign `"auto"` (or `None`) to clear the override and return to auto-detection. `retarget()` re-infers from the new skeleton. Note that BVH files have no world-up field, so manual overrides are lost on write/read round trips and must be re-applied.
 
 ## forward_at(frame)
 

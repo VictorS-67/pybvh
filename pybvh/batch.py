@@ -249,7 +249,7 @@ def harmonize(
         the channel layout is rewritten. Numerical drift can occur
         on gimbal-lock-adjacent rotations — for bit-exact round-trips
         across the conversion, prefer rotation-invariant representations
-        (``'6d'`` / ``'quaternion'``) downstream.
+        (``'6d'`` / ``'quat'``) downstream.
     on_incompatible : {"drop", "raise"}, optional
         Behavior on topology mismatch with ``reference``.
         ``"drop"`` (default) skips the clip; ``"raise"`` raises
@@ -418,7 +418,7 @@ def _channel_mismatch_message(ref: Bvh, bvh: Bvh, ref_idx: int, idx: int,
         f"mismatched Euler orders corrupt the concatenated tensor's channel "
         f"layout — pre-harmonize the dataset with "
         f"harmonize(clips, target_euler_order='<ORDER>'). For "
-        f"representation='6d' / 'quaternion' / 'rotmat', the tensor is "
+        f"representation='6d' / 'quat' / 'rotmat', the tensor is "
         f"order-agnostic and this check is skipped.")
 
 
@@ -435,7 +435,7 @@ def batch_to_numpy(
     representations whose channel layout depends on the source Euler
     order (``'euler'``, ``'axisangle'``), all clips must additionally
     share the same per-joint Euler orders. For rotation-invariant
-    representations (``'6d'``, ``'quaternion'``, ``'rotmat'``) the
+    representations (``'6d'``, ``'quat'``, ``'rotmat'``) the
     Euler-order check is skipped.
 
     Parameters
@@ -444,7 +444,7 @@ def batch_to_numpy(
         BVH objects to convert.
     representation : str, optional
         Rotation representation: ``'euler'`` (default), ``'6d'``,
-        ``'quaternion'``, ``'axisangle'``, or ``'rotmat'``.
+        ``'quat'``, ``'axisangle'``, or ``'rotmat'``.
     include_root_pos : bool, optional
         If True (default), prepend root position (3 columns) to
         the rotation data.
@@ -469,7 +469,7 @@ def batch_to_numpy(
     if not bvh_list:
         raise ValueError("bvh_list is empty.")
 
-    valid_reps = {"euler", "6d", "quaternion", "axisangle", "rotmat"}
+    valid_reps = {"euler", "6d", "quat", "axisangle", "rotmat"}
     if representation not in valid_reps:
         raise ValueError(
             f"Unknown representation '{representation}'. "
@@ -515,8 +515,8 @@ def _bvh_to_flat(
     elif representation == "6d":
         _, rot_raw = bvh.to_6d()
         rot = rot_raw.reshape(bvh.frame_count, -1)
-    elif representation == "quaternion":
-        _, rot_raw = bvh.to_quaternions()
+    elif representation == "quat":
+        _, rot_raw = bvh.to_quat()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     elif representation == "axisangle":
         _, rot_raw = bvh.to_axisangle()
@@ -553,7 +553,7 @@ def compute_normalization_stats(
         Dataset of BVH objects (must share the same skeleton topology).
     representation : str, optional
         Rotation representation: ``'euler'`` (default), ``'6d'``,
-        ``'quaternion'``, ``'axisangle'``, or ``'rotmat'``.
+        ``'quat'``, ``'axisangle'``, or ``'rotmat'``.
     include_root_pos : bool, optional
         If True (default), include root position in the features.
 

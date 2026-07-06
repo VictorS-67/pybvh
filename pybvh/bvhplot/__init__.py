@@ -375,7 +375,7 @@ def rest_pose(
     # same pipeline as frame(), bypassing spatial_coords.
     from ._matplotlib import frame_mpl
 
-    coords_list = [b.rest_pose_coords(mode='coordinates')[np.newaxis]
+    coords_list = [b.rest_pose_positions()[np.newaxis]
                    for b in bvh_list]
     skeleton_lines_list = [get_skeleton_lines(b) for b in bvh_list]
 

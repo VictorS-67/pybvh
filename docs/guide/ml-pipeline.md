@@ -9,7 +9,7 @@ clips = read_bvh_directory("dataset/", parallel=True)
 data = batch_to_numpy(clips, representation="6d", pad=True)  # (B, F_max, D)
 ```
 
-Supported representations: `"euler"`, `"quaternion"`, `"6d"`, `"axisangle"`, `"rotmat"`.
+Supported representations: `"euler"`, `"quat"`, `"6d"`, `"axisangle"`, `"rotmat"`.
 
 When `pad=False` (default), returns a list of arrays with different frame counts. When `pad=True`, zero-pads to the longest clip and returns a single `(B, F_max, D)` array.
 
@@ -56,7 +56,7 @@ metadata = json.dumps(dataclasses.asdict(report))
 
 For ad-hoc filtering without invoking `harmonize`, pybvh exposes three predicates on `Bvh`:
 
-- `a.matches_hierarchy(b)` — joint names, parent structure, and rest offsets match (within `atol`). Pass `match_offsets=False` to ignore bone proportions, e.g. when retargeting is about to overwrite them. Use this gate when batching to rotation-invariant representations (`'6d'`, `'quaternion'`, `'rotmat'`) where channel layout is irrelevant.
+- `a.matches_hierarchy(b)` — joint names, parent structure, and rest offsets match (within `atol`). Pass `match_offsets=False` to ignore bone proportions, e.g. when retargeting is about to overwrite them. Use this gate when batching to rotation-invariant representations (`'6d'`, `'quat'`, `'rotmat'`) where channel layout is irrelevant.
 - `a.matches_channels(b)` — per-joint Euler rotation orders and root position-channel order match. Use in addition to `matches_hierarchy` when batching to `'euler'` or `'axisangle'`, where the channel layout depends on the source Euler order.
 - `a.matches_topology(b)` — conjunction of both. Use when every aspect must align.
 

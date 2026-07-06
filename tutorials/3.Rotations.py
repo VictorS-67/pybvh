@@ -364,7 +364,7 @@ print(f"||q_noisy|| = {np.linalg.norm(q_noisy):.4f}  (a valid unit quaternion ha
 # Get the same animation in all four representations
 _, rotmats = bvh.to_rotmat()
 _, rot6d = bvh.to_6d()
-_, quats = bvh.to_quaternions()
+_, quats = bvh.to_quat()
 _, axisang = bvh.to_axisangle()
 
 print(f"Rotation matrices: {rotmats.shape}")
@@ -383,7 +383,7 @@ spatial_before = bvh.node_positions()
 results = {}
 for name, get_fn_name, set_fn_name in [
     ("6D",         'to_6d',         'from_6d'),
-    ("quaternion", 'to_quaternions', 'from_quaternions'),
+    ("quaternion", 'to_quat',        'from_quat'),
     ("axis-angle", 'to_axisangle',  'from_axisangle'),
 ]:
     test = bvh.copy()
@@ -456,10 +456,11 @@ print(f"\nSpatial coordinates preserved? {np.allclose(spatial_orig, spatial_unif
 # |---|---|
 # | `to_rotmat()` | Euler → rotation matrices `(F, J, 3, 3)` |
 # | `to_6d()` | Euler → 6D `(F, J, 6)` |
-# | `to_quaternions()` | Euler → quaternions `(F, J, 4)` |
+# | `to_quat()` | Euler → quaternions `(F, J, 4)` |
 # | `to_axisangle()` | Euler → axis-angle `(F, J, 3)` |
-# | `from_6d(root_pos, joint_rot6d)` | 6D → Euler (writes back into frames) |
-# | `from_quaternions(root_pos, joint_quats)` | Quaternion → Euler |
+# | `from_rotmat(root_pos, joint_rotmats)` | Rotation matrices → Euler (writes back into frames) |
+# | `from_6d(root_pos, joint_rot6d)` | 6D → Euler |
+# | `from_quat(root_pos, joint_quats)` | Quaternion → Euler |
 # | `from_axisangle(root_pos, joint_aa)` | Axis-angle → Euler |
 # | `change_euler_order(order, joint=name, inplace)` | Change one joint's Euler order |
 # | `change_euler_order(order, inplace)` | Unify all joints to one Euler order |

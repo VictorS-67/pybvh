@@ -13,8 +13,7 @@ bvh_single = bvh.change_euler_order("XYZ", joint="Hips")
 ## Skeleton scaling
 
 ```python
-bvh_scaled = bvh.scale(0.01)         # uniform — scales offsets AND root translation
-bvh_scaled = bvh.scale([1, 2, 1])    # per-axis
+bvh_scaled = bvh.scale(0.01)   # uniform — scales offsets AND root translation
 ```
 
 ## Retargeting
@@ -38,8 +37,8 @@ upper = bvh.extract_joints(["Hips", "Spine", "Neck", "Head"])
 ## Frame operations
 
 ```python
-clip = bvh.slice_frames(10, 50)
-combined = bvh.concat(other_bvh)
+clip = bvh[10:50]              # frame slicing (steps work too: bvh[::2])
+combined = bvh + other_bvh     # concatenation (same skeleton required)
 bvh_30fps = bvh.resample(30)
 ```
 

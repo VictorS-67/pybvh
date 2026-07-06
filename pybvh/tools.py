@@ -229,15 +229,13 @@ def _rest_upward(bvh: Bvh) -> str | None:
     -------
     str or None
         Signed axis string (e.g. '+z'), or ``None`` when the rest pose
-        carries no directional information (single-node skeletons, all
-        offsets zero, or no motion data to derive the rest pose from).
+        carries no directional information (single-node skeletons or
+        all-zero offsets).
     """
-    # rest_pose_coords derives its zero-angle array shape from
-    # joint_angles, so it cannot run on a 0-frame Bvh.
-    if len(bvh.nodes) < 2 or bvh.frame_count == 0:
+    if len(bvh.nodes) < 2:
         return None
 
-    rest = bvh.rest_pose_coords(mode='coordinates')  # (N, 3)
+    rest = bvh.rest_pose_positions()  # (N, 3)
     local_coord = rest - rest[0]  # root at origin
 
     up_body_parts = ["head", "neck", "chest", "spine"]
@@ -526,7 +524,7 @@ def _rest_leftward(
     if not pairs:
         return None
 
-    rest = bvh.rest_pose_coords(mode='coordinates')  # (N, 3)
+    rest = bvh.rest_pose_positions()  # (N, 3)
     left_idx = [li for li, _ in pairs]
     right_idx = [ri for _, ri in pairs]
     avg_leftward = np.mean(rest[left_idx] - rest[right_idx], axis=0)
@@ -587,7 +585,7 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
     if head_idx is None or head_idx == hips_idx:
         return fallback_up
 
-    frame0 = bvh.node_positions(frame_num=0)
+    frame0 = bvh.node_positions(frame=0)
     head_hips = frame0[head_idx] - frame0[hips_idx]
 
     # Check for a clear dominant axis: the largest component must be

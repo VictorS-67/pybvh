@@ -39,7 +39,7 @@ dt = bvh.frame_time
 t = np.arange(F) * dt
 FRAME = F // 2                              # a representative pose
 P = pos[FRAME]
-idx = lambda name: bvh.index(name, axis="node")
+idx = lambda name: bvh.index(name, space="node")
 print(bvh)
 
 # %% [markdown]
@@ -396,7 +396,7 @@ gp.fig_rdp(curve, simp, 0.15)
 # **`relative_scale_factor`** — the least-squares uniform scale that best matches one skeleton to another. Here a skeleton (blue) and a 1.6× copy (orange) are shown; the recovered factor matches the original poses back together.
 
 # %%
-rest = bvh.rest_pose_coords()
+rest = bvh.rest_pose_positions()
 factor = analysis.relative_scale_factor(rest, rest * 1.6)
 gp.fig_relative_scale(bvh, factor, 1.6)
 

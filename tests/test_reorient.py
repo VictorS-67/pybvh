@@ -352,7 +352,7 @@ class TestReorientRestForward:
         bvh = make_pos_y_up_bvh()
         coords_before = bvh.node_positions()
         # Get current forward, pick a different one
-        rest = bvh.rest_pose_coords()
+        rest = bvh.rest_pose_positions()
         current_fwd = _compute_forward_at(bvh, rest, bvh.world_up)
         # Pick target that's perpendicular to up and different from current
         candidates = ["+x", "-x", "+z", "-z"]
@@ -365,7 +365,7 @@ class TestReorientRestForward:
     def test_fk_invariance_with_rotation(self):
         bvh = make_pos_y_up_rotating_bvh()
         coords_before = bvh.node_positions()
-        rest = bvh.rest_pose_coords()
+        rest = bvh.rest_pose_positions()
         current_fwd = _compute_forward_at(bvh, rest, bvh.world_up)
         candidates = ["+x", "-x", "+z", "-z"]
         target = [c for c in candidates if c != current_fwd
@@ -381,7 +381,7 @@ class TestReorientRestForward:
 
     def test_inplace(self):
         bvh = make_pos_y_up_bvh()
-        rest = bvh.rest_pose_coords()
+        rest = bvh.rest_pose_positions()
         current_fwd = _compute_forward_at(bvh, rest, bvh.world_up)
         candidates = ["+x", "-x", "+z", "-z"]
         target = [c for c in candidates if c != current_fwd
@@ -394,7 +394,7 @@ class TestReorientRestForward:
 
     def test_bvh_method_wrapper(self):
         bvh = make_pos_y_up_bvh()
-        rest = bvh.rest_pose_coords()
+        rest = bvh.rest_pose_positions()
         current_fwd = _compute_forward_at(bvh, rest, bvh.world_up)
         candidates = ["+x", "-x", "+z", "-z"]
         target = [c for c in candidates if c != current_fwd

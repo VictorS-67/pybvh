@@ -72,11 +72,11 @@ class Bvh:
     source_path : str or None
         Path of the file this Bvh was read from, or ``None`` if it was
         constructed in memory. Set by :func:`read_bvh_file`. Preserved
-        through ``copy()``, ``slice_frames()``, and rotations / transforms
-        that don't change which file the data originated from. Cleared
-        (set to ``None``) when :meth:`concat` joins two clips whose
-        ``source_path`` differ. Writable — callers can assign manually
-        when constructing a Bvh from arrays.
+        through ``copy()``, frame slicing (``bvh[a:b]``), and rotations /
+        transforms that don't change which file the data originated from.
+        Cleared (set to ``None``) when concatenation (``a + b``) joins two
+        clips whose ``source_path`` differ. Writable — callers can assign
+        manually when constructing a Bvh from arrays.
     """
     def __init__(
         self,
@@ -313,33 +313,21 @@ class Bvh:
 
             
     def __str__(self) -> str:
-        count_joints =  0
-        for node in self.nodes:
-            if not node.is_end_site() : count_joints += 1
-        fps = 1.0 / self.frame_time if self.frame_time > 0 else 0.0
         source = ""
         if self.source_path is not None:
-            from pathlib import Path
             source = f", from {Path(self.source_path).name}"
         return (
-            f'{count_joints} joints, {self.frame_count} frames at '
-            f'{fps:.1f} fps (frame_time={self.frame_time:.6f}s{source})'
+            f'{self.joint_count} joints, {self.frame_count} frames at '
+            f'{self.fps:.1f} fps (frame_time={self.frame_time:.6f}s{source})'
         )
-        
+
     def __repr__(self) -> str:
-        nodes_str = []
-        for node in self.nodes:
-            sep = node.__str__().split()
-            if sep[0] == 'ROOT':
-                nodes_str += [node.__str__()]
-            elif sep[0] == 'JOINT':
-                nodes_str += [sep[1]]
-        nodes_repr = ''.join(str(nodes_str).split("'"))
+        return (
+            f'Bvh(joints={self.joint_names!r}, '
+            f'frame_count={self.frame_count}, '
+            f'frame_time={self.frame_time:.6f})'
+        )
 
-        frames_str = f'array(root_pos={self.root_pos.shape}, joint_angles={self.joint_angles.shape}, dtype={self.root_pos.dtype})'
-
-        return f'Bvh(nodes={nodes_repr}, frames={frames_str}, frame_time={self.frame_time:.6f})'
-    
     def __eq__(self, other: object) -> bool:
         """Full-content equality: skeleton, channel layout, timing, motion.
 
@@ -373,7 +361,7 @@ class Bvh:
 
         Use this when you need to know that two clips describe the same
         skeleton in the same rest pose — e.g. before batching to a
-        rotation-invariant representation (``6d`` / ``quaternion`` /
+        rotation-invariant representation (``6d`` / ``quat`` /
         ``rotmat``) whose channel layout doesn't depend on Euler order.
 
         Pass ``match_offsets=False`` when the caller is about to overwrite
@@ -452,7 +440,7 @@ class Bvh:
 
         Convenience for ``matches_hierarchy(other) and matches_channels(other)``.
         Two Bvhs that satisfy this predicate can be batched together for
-        any representation (``euler``, ``axisangle``, ``6d``, ``quaternion``,
+        any representation (``euler``, ``axisangle``, ``6d``, ``quat``,
         ``rotmat``) without conversion.
 
         .. note::
@@ -484,8 +472,8 @@ class Bvh:
     def __getitem__(self, key: int | slice) -> Bvh:
         """Return a new Bvh containing the selected frame(s).
 
-        Integer keys return a single-frame (F=1) Bvh; slice keys delegate
-        to :meth:`slice_frames`. Negative indices and reversed slices
+        Integer keys return a single-frame (F=1) Bvh; slice keys return
+        the selected frame range. Negative indices and reversed slices
         (``bvh[::-1]``) work as expected. ``frame_time`` is scaled by
         ``abs(step)`` when ``|step| > 1``; reversed playback at ``|step|=1``
         preserves ``frame_time``.
@@ -510,25 +498,30 @@ class Bvh:
                 raise IndexError(
                     f"frame index {k} out of range for Bvh with {F} frames")
             i = k if k >= 0 else k + F
-            return self.slice_frames(i, i + 1)
+            return self._slice_frames(i, i + 1)
         if isinstance(key, slice):
-            return self.slice_frames(key.start, key.stop, key.step)
+            return self._slice_frames(key.start, key.stop, key.step)
         raise TypeError(
             f"Bvh indices must be int or slice, got {type(key).__name__}. "
-            "For arbitrary frame selection, use slice_frames() or build a "
-            "new Bvh manually from the required root_pos and joint_angles arrays.")
+            "For arbitrary frame selection, build a new Bvh manually from "
+            "the required root_pos and joint_angles arrays.")
 
     def __add__(self, other: object) -> Bvh:
-        """Concatenate two Bvh clips. Sugar for :meth:`concat`."""
+        """Concatenate two Bvh clips with the same skeleton.
+
+        Returns a new Bvh with frames from ``self`` followed by ``other``.
+        Raises ``ValueError`` if the skeletons are incompatible and warns
+        on ``frame_time`` mismatch (``self``'s frame time wins).
+        """
         if not isinstance(other, Bvh):
             return NotImplemented  # type: ignore[return-value]
-        return self.concat(other)
+        return self._concat(other)
 
     def __iadd__(self, other: object) -> Bvh:
         """In-place concatenation. Grows ``self`` by appending ``other``'s frames.
 
         Validates skeleton compatibility and warns on ``frame_time`` mismatch
-        just like :meth:`concat`. Mutates ``self.root_pos`` and
+        just like ``a + b``. Mutates ``self.root_pos`` and
         ``self.joint_angles`` via their setters so ``_world_up_cached`` is
         invalidated.
         """
@@ -596,8 +589,8 @@ class Bvh:
             raise ValueError(
                 f"Cannot assign {value.frame_count} frames to a slice of "
                 f"length {target_len}; __setitem__ does not resize. Use "
-                "concat() to append, or slice_frames() + manual array "
-                "assignment for more complex splicing.")
+                "`a + b` to append, or frame slicing (`bvh[a:b]`) + manual "
+                "array assignment for more complex splicing.")
 
         # --- in-place splice + explicit cache invalidation ---
         self._root_pos[s] = value.root_pos
@@ -645,10 +638,13 @@ class Bvh:
 
             >>> bvh.world_up = '+y'
 
-        The override is preserved through ``copy()``, ``slice_frames()``,
-        and transforms that don't change the world coordinate system
-        (``mirror``, ``rotate_vertical``, ``scale``, ``translate_root``).
-        ``retarget()`` re-infers from the new skeleton.
+        The override is preserved through ``copy()``, frame slicing
+        (``bvh[a:b]``), and transforms that don't change the world
+        coordinate system (``mirror``, ``rotate_vertical``, ``scale``,
+        ``translate_root``). ``retarget()`` re-infers from the new skeleton.
+
+        Assign ``'auto'`` or ``None`` to clear a previous override and
+        return to auto-detection.
 
         Note: BVH files do not store a world-up field, so manual overrides
         are lost on write→read round trips and must be re-applied.
@@ -660,7 +656,10 @@ class Bvh:
         return self._world_up_cached
 
     @world_up.setter
-    def world_up(self, value: str) -> None:
+    def world_up(self, value: str | None) -> None:
+        if value is None or value == 'auto':
+            self._world_up_override = None
+            return
         self._world_up_override = _validate_axis_string(value)
 
     @property
@@ -747,7 +746,7 @@ class Bvh:
         str
             Signed axis string (e.g. ``'+z'``, ``'-x'``).
         """
-        return _compute_forward_at(self, self.rest_pose_coords(), self.world_up)
+        return _compute_forward_at(self, self.rest_pose_positions(), self.world_up)
 
     @property
     def lr_mapping(self) -> dict[str, str] | None:
@@ -904,7 +903,7 @@ class Bvh:
             facing direction in world coordinates at the given frame.
         """
         if coords is None:
-            frame_coords = self.node_positions(frame_num=frame)
+            frame_coords = self.node_positions(frame=frame)
         else:
             frame_coords = coords[frame]
         return _compute_forward_at(self, frame_coords, self.world_up)
@@ -948,15 +947,45 @@ class Bvh:
         world_up : World vertical axis.
         """
         if coords is None:
-            frame_coords = self.node_positions(frame_num=frame)
+            frame_coords = self.node_positions(frame=frame)
         else:
             frame_coords = coords[frame]
         return _compute_left_at(self, frame_coords, self.world_up)
 
-    def write(self, new_filepath: str | Path, verbose: bool = False) -> None:
+    def write(self, filepath: str | Path, verbose: bool = False) -> None:
         """Write the Bvh object to a ``.bvh`` file.  See :func:`pybvh.io.write_bvh_file`."""
         from . import io
-        io.write_bvh_file(self, new_filepath, verbose=verbose)
+        io.write_bvh_file(self, filepath, verbose=verbose)
+
+    @classmethod
+    def from_file(
+        cls,
+        filepath: str | Path,
+        world_up: str = "auto",
+        warn_on_world_up_disagreement: bool = True,
+        lr_mapping: dict[str, str] | None = None,
+    ) -> Bvh:
+        """Read a Bvh from a ``.bvh`` file — the constructor counterpart of :meth:`write`.
+
+        Delegates to :func:`pybvh.io.read_bvh_file`; see it for parameter
+        details.
+        """
+        from . import io
+        return io.read_bvh_file(
+            filepath, world_up=world_up,
+            warn_on_world_up_disagreement=warn_on_world_up_disagreement,
+            lr_mapping=lr_mapping)
+
+    @classmethod
+    def from_df(cls, hier: list[BvhNode] | dict[str, dict], df) -> Bvh:
+        """Build a Bvh from a hierarchy description and a motion DataFrame.
+
+        The constructor counterpart of :meth:`to_df_dict` /
+        :meth:`to_hierarchy_dict`. Delegates to :func:`pybvh.df_to_bvh`;
+        see it for the expected column naming and hierarchy formats.
+        """
+        from .df_to_bvh import df_to_bvh
+        return df_to_bvh(hier, df)
 
 
     def _non_end_site_indices(self) -> list[int]:
@@ -981,7 +1010,7 @@ class Bvh:
                 joint_angles=self.joint_angles, centered="world")
         return self._node_positions_cached
 
-    def node_positions(self, frame_num: int = -1, centered: str = "world") -> npt.NDArray[np.float64]:
+    def node_positions(self, frame: int | None = None, centered: str = "world") -> npt.NDArray[np.float64]:
         """Per-node 3D positions (joints + end sites) — shape ``(F, N, 3)``.
 
         Returns an ndarray of shape ``(N, 3)`` for a single frame or
@@ -999,8 +1028,10 @@ class Bvh:
 
         Parameters
         ----------
-        frame_num : int
-            Frame index to return.  ``-1`` (default) returns all frames.
+        frame : int or None
+            Frame index to return. ``None`` (default) returns all frames.
+            Negative indices count from the end (NumPy semantics), so
+            ``-1`` is the **last** frame.
         centered : str
             ``"world"`` – root at actual position.
             ``"skeleton"`` – root at origin for all frames.
@@ -1015,9 +1046,7 @@ class Bvh:
                 f'The value {centered} is not recognized for the centered '
                 f'argument. Currently recognized keywords are {centered_options}')
 
-        if frame_num == -1:
-            # Sentinel for "all frames" — distinct from a negative index,
-            # which would return a single frame counted from the end.
+        if frame is None:
             world = self._world_node_positions()
             if centered == "world":
                 return world.copy()
@@ -1027,11 +1056,11 @@ class Bvh:
             if self.frame_count == 0:
                 return world.copy()
             return world - _ground_plane_offset(self.root_pos[0], self.world_up)
-        if not -self.frame_count <= frame_num < self.frame_count:
+        if not -self.frame_count <= frame < self.frame_count:
             raise IndexError(
-                f"frame_num {frame_num} is out of range for "
-                f"{self.frame_count} frames. Use -1 for all frames.")
-        actual = frame_num if frame_num >= 0 else frame_num + self.frame_count
+                f"frame {frame} is out of range for "
+                f"{self.frame_count} frames. Use frame=None for all frames.")
+        actual = frame if frame >= 0 else frame + self.frame_count
         if self._node_positions_cached is not None:
             world_frame = self._node_positions_cached[actual]
             if centered == "world":
@@ -1049,7 +1078,7 @@ class Bvh:
             self, root_pos=self.root_pos[actual],
             joint_angles=self.joint_angles[actual], centered=centered)
 
-    def joint_positions(self, frame_num: int = -1, centered: str = "world") -> npt.NDArray[np.float64]:
+    def joint_positions(self, frame: int | None = None, centered: str = "world") -> npt.NDArray[np.float64]:
         """Per-joint 3D positions (end sites excluded) — shape ``(F, J, 3)``.
 
         Joint-axis subset of :meth:`node_positions`. Index-aligns with
@@ -1058,12 +1087,13 @@ class Bvh:
 
         Parameters
         ----------
-        frame_num : int
-            Frame index to return.  ``-1`` (default) returns all frames.
+        frame : int or None
+            Frame index to return. ``None`` (default) returns all frames;
+            negative indices count from the end (``-1`` = last frame).
         centered : str
             See :meth:`node_positions`.
         """
-        np_arr = self.node_positions(frame_num=frame_num, centered=centered)
+        np_arr = self.node_positions(frame=frame, centered=centered)
         keep = self._non_end_site_indices()
         # node_positions output is either (N, 3) or (F, N, 3); slice the
         # node axis with `keep` — works for both shapes.
@@ -1071,35 +1101,27 @@ class Bvh:
 
         
 
-    @overload
-    def rest_pose_coords(self, mode: Literal['coordinates'] = ...) -> npt.NDArray[np.float64]: ...
-    @overload
-    def rest_pose_coords(self, mode: Literal['euler']) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
-    def rest_pose_coords(self, mode: str = 'coordinates') -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-        """
-        Return the rest pose of the skeleton (all angles zero, root at origin).
+    def rest_pose_positions(self) -> npt.NDArray[np.float64]:
+        """Rest-pose node positions (all angles zero, root at origin) — ``(N, 3)``.
 
-        Parameters
-        ----------
-        mode : str
-            ``'euler'`` – return a tuple ``(root_pos, joint_angles)`` of zeros
-            matching the structured shapes.
-            ``'coordinates'`` – return spatial coordinates as ``(N, 3)``.
+        Derived from the skeleton offsets alone, so it works on Bvh objects
+        with no motion data. Use :attr:`node_index` to look up rows by name.
         """
-        correct_modes = ['euler', 'coordinates']
-        if mode == 'euler':
-            return np.zeros(3, dtype=np.float64), np.zeros_like(self.joint_angles[0])
-        elif mode == 'coordinates':
-            return frames_to_node_positions(
-                self,
-                root_pos=np.zeros(3),
-                joint_angles=np.zeros_like(self.joint_angles[0]),
-                centered="skeleton")
-        else:
-            raise ValueError(
-                f'The value {mode} is not recognized for the mode argument. '
-                f'Currently recognized keywords are {correct_modes}')
-        
+        return frames_to_node_positions(
+            self,
+            root_pos=np.zeros(3),
+            joint_angles=np.zeros((self.joint_count, 3), dtype=np.float64),
+            centered="skeleton")
+
+    def rest_pose_angles(self) -> npt.NDArray[np.float64]:
+        """Rest-pose joint angles — zeros of shape ``(J, 3)`` (radians).
+
+        Companion of :meth:`rest_pose_positions` in ``joint_angles`` space
+        (one single-frame row, matching :attr:`joint_index`).
+        """
+        return np.zeros((self.joint_count, 3), dtype=np.float64)
+
+
 
     def to_df_dict(self, mode: str = 'euler', centered: str = "world") -> dict[str, npt.NDArray[np.float64]]:
         """Return a dict of arrays for ``pd.DataFrame(result)``.
@@ -1176,8 +1198,11 @@ class Bvh:
 
 
     
-    def hierarchy_info_as_dict(self) -> dict:
+    def to_hierarchy_dict(self) -> dict:
         """Return the skeleton hierarchy as a plain dictionary.
+
+        The inverse-direction counterpart of :meth:`from_df`'s ``hier``
+        argument.
 
         Returns
         -------
@@ -1185,20 +1210,21 @@ class Bvh:
             ``{name: {'offset': [...], 'parent': str|None,
             'rot_channels': [...], 'children': [...]}, ...}``.
             Root entries also include ``'pos_channels'``.
-            The returned dict is a deep copy (safe to mutate).
+            All values are copies (safe to mutate).
         """
         hier_dict: dict[str, dict[str, object]] = {}
         for node in self.nodes:
-            hier_dict[node.name] = {'offset' : node.offset}
+            entry: dict[str, object] = {'offset': node.offset.copy()}
             if isinstance(node, BvhRoot):
-                hier_dict[node.name]['pos_channels'] = node.pos_channels
+                entry['pos_channels'] = list(node.pos_channels)
             if isinstance(node, BvhJoint):
-                hier_dict[node.name]['rot_channels'] = node.rot_channels
-                hier_dict[node.name]['children'] = [child.name for child in node.children]
-            hier_dict[node.name]['parent'] = None if node.parent is None else node.parent.name
-            
-        return copy.deepcopy(hier_dict)
-    
+                entry['rot_channels'] = list(node.rot_channels)
+                entry['children'] = [child.name for child in node.children]
+            entry['parent'] = None if node.parent is None else node.parent.name
+            hier_dict[node.name] = entry
+        return hier_dict
+
+
     def _create_node_index(self) -> None:
         """Build ``node_index`` mapping node name to its index in ``nodes``."""
         self._node_index = {node.name: i for i, node in enumerate(self.nodes)}
@@ -1259,15 +1285,15 @@ class Bvh:
         """
         return self._joint_index
 
-    def index(self, name: str, axis: Literal['joint', 'node']) -> int:
-        """Look up the integer index for ``name`` on the requested axis.
+    def index(self, name: str, space: Literal['joint', 'node']) -> int:
+        """Look up the integer index for ``name`` in the requested index space.
 
         Unambiguous alternative to picking between :attr:`joint_index`
-        and :attr:`node_index` at the call site. Use ``axis='joint'``
+        and :attr:`node_index` at the call site. Use ``space='joint'``
         when indexing :attr:`joint_angles` / :meth:`joint_velocities` /
         :meth:`joint_accelerations` / :meth:`joint_positions` /
         :meth:`angular_velocities` (any ``(F, J, ...)`` array). Use
-        ``axis='node'`` when indexing :meth:`node_positions` /
+        ``space='node'`` when indexing :meth:`node_positions` /
         :meth:`node_velocities` / :meth:`node_accelerations` (any
         ``(F, N, ...)`` array).
 
@@ -1275,7 +1301,7 @@ class Bvh:
         ----------
         name : str
             Joint or node name.
-        axis : {'joint', 'node'}
+        space : {'joint', 'node'}
             Which index space to look up. ``'joint'`` excludes end sites.
 
         Returns
@@ -1285,16 +1311,16 @@ class Bvh:
         Raises
         ------
         KeyError
-            If ``name`` is not present in the requested axis (e.g. an
-            end-site name with ``axis='joint'``).
+            If ``name`` is not present in the requested index space (e.g.
+            an end-site name with ``space='joint'``).
         ValueError
-            If ``axis`` is not ``'joint'`` or ``'node'``.
+            If ``space`` is not ``'joint'`` or ``'node'``.
         """
-        if axis == 'joint':
+        if space == 'joint':
             return self._joint_index[name]
-        if axis == 'node':
+        if space == 'node':
             return self._node_index[name]
-        raise ValueError(f"axis must be 'joint' or 'node', got {axis!r}")
+        raise ValueError(f"space must be 'joint' or 'node', got {space!r}")
 
     @property
     def joint_names(self) -> list[str]:
@@ -1441,16 +1467,18 @@ class Bvh:
         return new_bvh
 
     @overload
-    def scale(self, scale: float | npt.ArrayLike, *, inplace: Literal[True]) -> None: ...
+    def scale(self, scale: float, *, inplace: Literal[True]) -> None: ...
     @overload
-    def scale(self, scale: float | npt.ArrayLike, inplace: Literal[False] = ...) -> Bvh: ...
-    def scale(self, scale: float | npt.ArrayLike, inplace: bool = False) -> Bvh | None:
-        """Scale all node offsets by a factor.
+    def scale(self, scale: float, inplace: Literal[False] = ...) -> Bvh: ...
+    def scale(self, scale: float, inplace: bool = False) -> Bvh | None:
+        """Uniformly scale all node offsets and the root translation.
 
         Parameters
         ----------
-        scale : float or array_like of shape (3,)
-            Uniform scalar or per-axis scale factors.
+        scale : float
+            Uniform scale factor. Only scalars are accepted: per-axis
+            world factors applied to parent-local offsets are not
+            geometrically meaningful once joints rotate during animation.
         inplace : bool, optional
             If True, modify self and return None.
             If False (default), return a modified copy.
@@ -1459,29 +1487,23 @@ class Bvh:
         -------
         None or Bvh
         """
-        if isinstance(scale, (int, float)):
-            scale_arr: npt.NDArray[np.float64] = np.array([scale, scale, scale], dtype=np.float64)
-        else:
-            scale_arr = np.asarray(scale, dtype=np.float64)
-            if scale_arr.shape != (3,):
-                raise ValueError('The scale argument should be a float, or a list/np array of 3 floats')
+        if isinstance(scale, bool) or not isinstance(
+                scale, (int, float, np.integer, np.floating)):
+            raise TypeError(
+                f"scale must be a scalar, got {type(scale).__name__}. "
+                "Per-axis scaling is not supported: node offsets are "
+                "parent-local, so per-axis world factors do not commute "
+                "with joint rotations and would distort the animation.")
 
-
+        factor = float(scale)
+        target = self if inplace else self.copy()
+        for node in target.nodes:
+            node.offset = node.offset * factor
+        target.root_pos = target.root_pos * factor
         if inplace:
-            for node in self.nodes:
-                node.offset = node.offset * scale_arr
-            self.root_pos = self.root_pos * scale_arr
             return None
+        return target
 
-        else:
-            new_bvh = self.copy()
-            for node in new_bvh.nodes:
-                node.offset = node.offset * scale_arr
-            new_bvh.root_pos = new_bvh.root_pos * scale_arr
-            return new_bvh
-        
-
-        
 
     @overload
     def change_euler_order(self, order: Union[str, Sequence[str]], joint: str | BvhNode | None = ..., *, inplace: Literal[True]) -> None: ...
@@ -1512,82 +1534,46 @@ class Bvh:
             None if inplace, otherwise a new Bvh object.
         """
         if isinstance(order, str):
-            new_order_list = list(order.upper())
+            new_order = list(order.upper())
         else:
-            new_order_list = [c.upper() for c in order]
+            new_order = [c.upper() for c in order]
 
-        if joint is not None:
-            # --- Single joint mode ---
+        if joint is None:
+            joint_indices = list(range(self.joint_count))
+        else:
             if isinstance(joint, BvhNode):
                 joint_name = joint.name
             elif isinstance(joint, str):
                 joint_name = joint
             else:
-                raise ValueError("joint should be a string (joint name), a BvhNode object, or None")
+                raise ValueError(
+                    "joint should be a string (joint name), a BvhNode object, or None")
+            if joint_name not in self.joint_index:
+                raise ValueError(
+                    f"Joint '{joint_name}' not found among non-end-site nodes.")
+            joint_indices = [self.joint_index[joint_name]]
 
-            found_joint: BvhNode | None = None
-            for node in self.nodes:
-                if not node.is_end_site() and node.name == joint_name:
-                    found_joint = node
-                    break
-            if found_joint is None:
-                raise ValueError(f"Joint '{joint_name}' not found among non-end-site nodes.")
+        target = self if inplace else self.copy()
+        joints = [n for n in target.nodes if not n.is_end_site()]
 
-            old_order = found_joint.rot_channels  # type: ignore[attr-defined]
+        for j_idx in joint_indices:
+            node = joints[j_idx]
+            old_order = node.rot_channels  # type: ignore[attr-defined]
+            if old_order == new_order:
+                continue
+            # Convert: old Euler → rotmat → new Euler, then write back
+            # (private array — the public view is read-only).
+            R = rotations.euler_to_rotmat(target.joint_angles[:, j_idx], old_order)
+            target._joint_angles[:, j_idx] = rotations.rotmat_to_euler(R, new_order)
+            # Update rot_channels (bypasses the freeze check)
+            node._set_rot_channels_internal(new_order)  # type: ignore[attr-defined]
 
-            # If the order is already the same, nothing to do
-            if old_order == new_order_list:
-                return None if inplace else self.copy()
-
-            target = self if inplace else self.copy()
-
-            # Find the joint index in joint_angles
-            j_idx = 0
-            target_joint = None
-            for node in target.nodes:
-                if node.is_end_site():
-                    continue
-                if node.name == joint_name:
-                    target_joint = node
-                    break
-                j_idx += 1
-
-            # Convert: old Euler → rotmat → new Euler
-            angles_old = target.joint_angles[:, j_idx]  # (num_frames, 3) degrees
-            R = rotations.euler_to_rotmat(angles_old, old_order)
-            angles_new = rotations.rotmat_to_euler(R, new_order_list)
-
-            # Write new angles back (private array — public view is read-only).
-            target._joint_angles[:, j_idx] = angles_new
-
-            # Update node's rot_channels (bypass freeze check)
-            target_joint._set_rot_channels_internal(new_order_list)  # type: ignore[union-attr]
-
-            if inplace:
-                return None
-            return target
-
-        else:
-            # --- All joints mode ---
-            target = self if inplace else self.copy()
-
-            j_idx = 0
-            for node in target.nodes:
-                if node.is_end_site():
-                    continue
-
-                old_order = node.rot_channels  # type: ignore[attr-defined]
-                if old_order != new_order_list:
-                    angles_old = target.joint_angles[:, j_idx]
-                    R = rotations.euler_to_rotmat(angles_old, old_order)
-                    angles_new = rotations.rotmat_to_euler(R, new_order_list)
-                    target._joint_angles[:, j_idx] = angles_new
-                    node._set_rot_channels_internal(new_order_list)  # type: ignore[attr-defined]
-                j_idx += 1
-
-            if inplace:
-                return None
-            return target
+        # Cache invalidation is intentionally skipped: the physical
+        # rotations — and therefore all FK-derived caches — are unchanged
+        # by an Euler-order re-expression.
+        if inplace:
+            return None
+        return target
 
 
 
@@ -1644,7 +1630,7 @@ class Bvh:
         return root_pos, joint_rot6d
 
 
-    def to_quaternions(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def to_quat(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """
         Convert all per-joint Euler angles to quaternions.
 
@@ -1688,6 +1674,68 @@ class Bvh:
         return root_pos, joint_aa
 
 
+    def _set_from_rotmats(
+        self,
+        root_pos: npt.NDArray[np.float64],
+        joint_rotmats: npt.NDArray[np.float64],
+        param_name: str,
+    ) -> None:
+        """Shared validation + Euler conversion + assignment for the ``from_*`` importers.
+
+        Writes into ``self`` — callers pass their ``target`` (self or a
+        copy). Euler conversion is vectorized across joints in one
+        per-joint-order :func:`pybvh.rotations.rotmat_to_euler` call.
+        """
+        if root_pos.shape[0] != joint_rotmats.shape[0]:
+            raise ValueError(
+                f"Frame count mismatch: root_pos has {root_pos.shape[0]} frames "
+                f"but joint data has {joint_rotmats.shape[0]} frames")
+        if joint_rotmats.shape[1] != self.joint_count:
+            raise ValueError(
+                f"Expected {self.joint_count} joints in {param_name}, "
+                f"got {joint_rotmats.shape[1]}")
+        new_angles = rotations.rotmat_to_euler(joint_rotmats, self.euler_orders)
+        self.root_pos = root_pos
+        self.joint_angles = new_angles
+
+
+    @overload
+    def from_rotmat(self, root_pos: npt.ArrayLike, joint_rotmats: npt.ArrayLike, *, inplace: Literal[True]) -> None: ...
+    @overload
+    def from_rotmat(self, root_pos: npt.ArrayLike, joint_rotmats: npt.ArrayLike, inplace: Literal[False] = ...) -> Bvh: ...
+    def from_rotmat(self, root_pos: npt.ArrayLike, joint_rotmats: npt.ArrayLike, inplace: bool = False) -> Bvh | None:
+        """
+        Set motion data from root positions and rotation matrices.
+
+        Converts rotation matrices back to Euler angles using each joint's
+        rot_channels order, then writes into root_pos and joint_angles.
+        Inverse of :meth:`to_rotmat`.
+
+        Parameters
+        ----------
+        root_pos : array_like, shape (num_frames, 3)
+            Root position per frame.
+        joint_rotmats : array_like, shape (num_frames, num_joints, 3, 3)
+            Rotation matrix per joint per frame.
+            Joint order must match self.nodes (end sites excluded).
+        inplace : bool
+            If True, modify self and return None.
+            If False, return a modified copy while leaving self unchanged.
+
+        Returns
+        -------
+        None or Bvh
+            None if inplace, otherwise a new Bvh object.
+        """
+        target = self if inplace else self.copy()
+        root_pos_arr = np.asarray(root_pos, dtype=np.float64)
+        joint_rotmats_arr = np.asarray(joint_rotmats, dtype=np.float64)
+        target._set_from_rotmats(root_pos_arr, joint_rotmats_arr, "joint_rotmats")
+        if inplace:
+            return None
+        return target
+
+
     @overload
     def from_6d(self, root_pos: npt.ArrayLike, joint_rot6d: npt.ArrayLike, *, inplace: Literal[True]) -> None: ...
     @overload
@@ -1716,46 +1764,20 @@ class Bvh:
             None if inplace, otherwise a new Bvh object.
         """
         target = self if inplace else self.copy()
-
-        root_pos_arr: npt.NDArray[np.float64] = np.asarray(root_pos, dtype=np.float64)
-        joint_rot6d_arr: npt.NDArray[np.float64] = np.asarray(joint_rot6d, dtype=np.float64)
-
-        if root_pos_arr.shape[0] != joint_rot6d_arr.shape[0]:
-            raise ValueError(
-                f"Frame count mismatch: root_pos has {root_pos_arr.shape[0]} frames "
-                f"but joint data has {joint_rot6d_arr.shape[0]} frames")
-
-        joints = [n for n in target.nodes if not n.is_end_site()]
-        num_joints = len(joints)
-        num_frames = root_pos_arr.shape[0]
-
-        if joint_rot6d_arr.shape[1] != num_joints:
-            raise ValueError(
-                f"Expected {num_joints} joints in joint_rot6d, "
-                f"got {joint_rot6d_arr.shape[1]}")
-
-        # Convert 6D -> rotation matrices -> Euler angles per joint
-        joint_rotmats = rotations.rot6d_to_rotmat(joint_rot6d_arr)
-
-        new_angles = np.empty((num_frames, num_joints, 3), dtype=np.float64)
-        for j_idx, joint in enumerate(joints):
-            order = joint.rot_channels  # type: ignore[attr-defined]
-            new_angles[:, j_idx] = rotations.rotmat_to_euler(
-                joint_rotmats[:, j_idx], order)
-
-        target.root_pos = root_pos_arr
-        target.joint_angles = new_angles
-
+        root_pos_arr = np.asarray(root_pos, dtype=np.float64)
+        joint_rot6d_arr = np.asarray(joint_rot6d, dtype=np.float64)
+        target._set_from_rotmats(
+            root_pos_arr, rotations.rot6d_to_rotmat(joint_rot6d_arr), "joint_rot6d")
         if inplace:
             return None
         return target
 
 
     @overload
-    def from_quaternions(self, root_pos: npt.ArrayLike, joint_quats: npt.ArrayLike, *, inplace: Literal[True]) -> None: ...
+    def from_quat(self, root_pos: npt.ArrayLike, joint_quats: npt.ArrayLike, *, inplace: Literal[True]) -> None: ...
     @overload
-    def from_quaternions(self, root_pos: npt.ArrayLike, joint_quats: npt.ArrayLike, inplace: Literal[False] = ...) -> Bvh: ...
-    def from_quaternions(self, root_pos: npt.ArrayLike, joint_quats: npt.ArrayLike, inplace: bool = False) -> Bvh | None:
+    def from_quat(self, root_pos: npt.ArrayLike, joint_quats: npt.ArrayLike, inplace: Literal[False] = ...) -> Bvh: ...
+    def from_quat(self, root_pos: npt.ArrayLike, joint_quats: npt.ArrayLike, inplace: bool = False) -> Bvh | None:
         """
         Set motion data from root positions and quaternion data.
 
@@ -1779,35 +1801,10 @@ class Bvh:
             None if inplace, otherwise a new Bvh object.
         """
         target = self if inplace else self.copy()
-
-        root_pos_arr: npt.NDArray[np.float64] = np.asarray(root_pos, dtype=np.float64)
-        joint_quats_arr: npt.NDArray[np.float64] = np.asarray(joint_quats, dtype=np.float64)
-
-        if root_pos_arr.shape[0] != joint_quats_arr.shape[0]:
-            raise ValueError(
-                f"Frame count mismatch: root_pos has {root_pos_arr.shape[0]} frames "
-                f"but joint data has {joint_quats_arr.shape[0]} frames")
-
-        joints = [n for n in target.nodes if not n.is_end_site()]
-        num_joints = len(joints)
-        num_frames = root_pos_arr.shape[0]
-
-        if joint_quats_arr.shape[1] != num_joints:
-            raise ValueError(
-                f"Expected {num_joints} joints in joint_quats, "
-                f"got {joint_quats_arr.shape[1]}")
-
-        joint_rotmats = rotations.quat_to_rotmat(joint_quats_arr)
-
-        new_angles = np.empty((num_frames, num_joints, 3), dtype=np.float64)
-        for j_idx, joint in enumerate(joints):
-            order = joint.rot_channels  # type: ignore[attr-defined]
-            new_angles[:, j_idx] = rotations.rotmat_to_euler(
-                joint_rotmats[:, j_idx], order)
-
-        target.root_pos = root_pos_arr
-        target.joint_angles = new_angles
-
+        root_pos_arr = np.asarray(root_pos, dtype=np.float64)
+        joint_quats_arr = np.asarray(joint_quats, dtype=np.float64)
+        target._set_from_rotmats(
+            root_pos_arr, rotations.quat_to_rotmat(joint_quats_arr), "joint_quats")
         if inplace:
             return None
         return target
@@ -1841,35 +1838,10 @@ class Bvh:
             None if inplace, otherwise a new Bvh object.
         """
         target = self if inplace else self.copy()
-
-        root_pos_arr: npt.NDArray[np.float64] = np.asarray(root_pos, dtype=np.float64)
-        joint_aa_arr: npt.NDArray[np.float64] = np.asarray(joint_aa, dtype=np.float64)
-
-        if root_pos_arr.shape[0] != joint_aa_arr.shape[0]:
-            raise ValueError(
-                f"Frame count mismatch: root_pos has {root_pos_arr.shape[0]} frames "
-                f"but joint data has {joint_aa_arr.shape[0]} frames")
-
-        joints = [n for n in target.nodes if not n.is_end_site()]
-        num_joints = len(joints)
-        num_frames = root_pos_arr.shape[0]
-
-        if joint_aa_arr.shape[1] != num_joints:
-            raise ValueError(
-                f"Expected {num_joints} joints in joint_aa, "
-                f"got {joint_aa_arr.shape[1]}")
-
-        joint_rotmats = rotations.axisangle_to_rotmat(joint_aa_arr)
-
-        new_angles = np.empty((num_frames, num_joints, 3), dtype=np.float64)
-        for j_idx, joint in enumerate(joints):
-            order = joint.rot_channels  # type: ignore[attr-defined]
-            new_angles[:, j_idx] = rotations.rotmat_to_euler(
-                joint_rotmats[:, j_idx], order)
-
-        target.root_pos = root_pos_arr
-        target.joint_angles = new_angles
-
+        root_pos_arr = np.asarray(root_pos, dtype=np.float64)
+        joint_aa_arr = np.asarray(joint_aa, dtype=np.float64)
+        target._set_from_rotmats(
+            root_pos_arr, rotations.axisangle_to_rotmat(joint_aa_arr), "joint_aa")
         if inplace:
             return None
         return target
@@ -1879,12 +1851,8 @@ class Bvh:
     # Frame slicing, concatenation, and resampling
     # ----------------------------------------------------------------
 
-    def slice_frames(self, start: int | None = None, end: int | None = None, step: int | None = None) -> Bvh:
-        """Return a new Bvh with a slice of frames.
-
-        Equivalent to ``bvh[start:end:step]`` (the sequence-protocol form).
-        Use this functional form when you want explicit kwargs; use the
-        slice form for natural Python syntax.
+    def _slice_frames(self, start: int | None = None, end: int | None = None, step: int | None = None) -> Bvh:
+        """Implementation of ``bvh[start:end:step]`` (see :meth:`__getitem__`).
 
         Parameters
         ----------
@@ -1910,7 +1878,7 @@ class Bvh:
 
         Compares node count, per-node names, and per-joint rotation
         orders (end sites excluded since they have no rotation channels).
-        Shared by ``concat``, ``__iadd__``, and ``__setitem__``.
+        Shared by ``__add__``, ``__iadd__``, and ``__setitem__``.
         """
         if len(self.nodes) != len(other.nodes):
             raise ValueError(
@@ -1925,8 +1893,8 @@ class Bvh:
                         f"Rotation order mismatch for '{n1.name}': "
                         f"{n1.rot_channels} vs {n2.rot_channels}")  # type: ignore[attr-defined]
 
-    def concat(self, other: Bvh) -> Bvh:
-        """Concatenate frames from another Bvh with the same skeleton.
+    def _concat(self, other: Bvh) -> Bvh:
+        """Implementation of ``self + other`` (see :meth:`__add__`).
 
         Parameters
         ----------
@@ -1979,20 +1947,30 @@ class Bvh:
         -------
         Bvh
             New Bvh with resampled frames.
-        """
-        if self.frame_count < 2:
-            return self.copy()
 
-        # Original and target timestamps
-        t_orig = np.arange(self.frame_count) * self.frame_time
+        Raises
+        ------
+        ValueError
+            If ``target_fps`` is not positive.
+        """
+        if target_fps <= 0:
+            raise ValueError(f"target_fps must be > 0, got {target_fps}")
+
         new_freq = 1.0 / target_fps
+        if self.frame_count < 2:
+            # Nothing to interpolate, but the clip still adopts the new rate.
+            new_bvh = self.copy()
+            new_bvh.frame_time = new_freq
+            return new_bvh
+
+        # Original and target timestamps. The epsilon on the arange stop
+        # keeps the final original timestamp reachable despite float
+        # rounding (np.arange guarantees values strictly below the stop).
+        t_orig = np.arange(self.frame_count) * self.frame_time
         t_new = np.arange(0, t_orig[-1] + 1e-12, new_freq)
-        # Clip to avoid floating-point overshoot
-        t_new = t_new[t_new <= t_orig[-1] + 1e-12]
 
         num_new = len(t_new)
-        joints = [n for n in self.nodes if not n.is_end_site()]
-        num_joints = len(joints)
+        num_joints = self.joint_count
 
         # --- Root position: linear interpolation ---
         new_root_pos = np.empty((num_new, 3), dtype=np.float64)
@@ -2001,7 +1979,7 @@ class Bvh:
 
         # --- Joint angles: quaternion SLERP ---
         # Convert all joints to quaternions: (F, J, 4)
-        _, joint_quats = self.to_quaternions()
+        _, joint_quats = self.to_quat()
 
         # Find surrounding frame indices for each new timestamp
         idx_right = np.searchsorted(t_orig, t_new, side='right')
@@ -2024,13 +2002,10 @@ class Bvh:
         alpha_jt = np.broadcast_to(alpha[:, np.newaxis], (num_new, num_joints))
         new_quats = rotations.quat_slerp(q_left, q_right, alpha_jt)
 
-        # Convert back to Euler angles per joint
-        new_angles = np.empty((num_new, num_joints, 3), dtype=np.float64)
-        for j_idx, joint in enumerate(joints):
-            order = joint.rot_channels  # type: ignore[attr-defined]
-            new_angles[:, j_idx] = rotations.rotmat_to_euler(
-                rotations.quat_to_rotmat(new_quats[:, j_idx]),
-                order)
+        # Convert back to Euler angles — vectorized across joints via the
+        # per-joint-order overload of rotmat_to_euler.
+        new_angles = rotations.rotmat_to_euler(
+            rotations.quat_to_rotmat(new_quats), self.euler_orders)
 
         new_bvh = self._copy_skeleton()
         new_bvh.root_pos = new_root_pos
@@ -2048,6 +2023,10 @@ class Bvh:
         Removed joints' offsets are collapsed into their nearest kept
         descendant via vector addition (valid at rest pose).  Their
         rotation contribution during animation is lost.
+
+        ``source_path``, a manual ``world_up`` override, and a user-set
+        ``lr_mapping`` (filtered to pairs whose joints are both kept) are
+        preserved on the result.
 
         Parameters
         ----------
@@ -2149,13 +2128,8 @@ class Bvh:
         # using the offset to its nearest original end-site descendant.
         for node in new_nodes:
             if not node.is_end_site() and not node.children:  # type: ignore[attr-defined]
-                # Find original end-site descendant
-                orig_node = None
-                for n in self.nodes:
-                    if n.name == node.name:
-                        orig_node = n
-                        break
-                end_offset = self._find_end_site_offset(orig_node)  # type: ignore[arg-type]
+                orig_node = self.nodes[self.node_index[node.name]]
+                end_offset = self._find_end_site_offset(orig_node)
                 # 'EndSite<name>' is display-only; end-site identity is the class.
                 end_site = BvhEndSite(
                     f'EndSite{node.name}', offset=end_offset, parent=node)
@@ -2169,8 +2143,19 @@ class Bvh:
             nodes=new_nodes,
             root_pos=self.root_pos.copy(),
             joint_angles=new_joint_angles.copy(),
-            frame_time=self.frame_time)
+            frame_time=self.frame_time,
+            source_path=self.source_path)
         new_bvh._world_up_override = self._world_up_override
+        # A user-set L/R mapping survives, filtered to pairs whose joints
+        # are both kept. Name-detected mappings are re-derived by the
+        # constructor from the reduced skeleton.
+        if self._lr_mapping_source == 'user' and self._lr_mapping:
+            kept_pairs = {
+                left: right for left, right in self._lr_mapping.items()
+                if left in keep_set and right in keep_set
+            }
+            if kept_pairs:
+                new_bvh._validate_and_set_lr_mapping(kept_pairs, source='user')
         return new_bvh
 
     def _find_end_site_offset(self, node: BvhNode) -> npt.NDArray[np.float64]:
@@ -2359,106 +2344,162 @@ class Bvh:
     # ----------------------------------------------------------------
     #  Relational / trajectory queries index in NODE space (node_index), so
     #  end sites (fingertips, toe tips, head top) are first-class; pass a
-    #  joint or end-site name, or an integer node index.
+    #  joint or end-site name. Every descriptor accepts pre-computed
+    #  positions via ``coords=`` for hot loops over many descriptors.
 
-    def _node_idx(self, ref: str | int) -> int:
-        """Resolve a node name (joint or end site) or index to a node index."""
-        return self.index(ref, axis='node') if isinstance(ref, str) else int(ref)
+    def _descriptor_index(self, joint: str, space: str = 'node') -> int:
+        """Resolve a name for the descriptor methods — names only, no ints.
 
-    def curvature(self, joint: str | int, stencil: str = "central",
-                  pad: str = "edge") -> npt.NDArray[np.float64]:
+        Integer indices are rejected because they are ambiguous between
+        joint space and node space (the historical source of silently
+        misaligned lookups).
+        """
+        if not isinstance(joint, str):
+            raise TypeError(
+                f"joint must be a name (str), got {type(joint).__name__}. "
+                f"Integer indices are ambiguous between joint and node index "
+                f"spaces — resolve names explicitly with "
+                f"bvh.index(name, space={space!r}) and use the functional "
+                f"pybvh.geometry / pybvh.analysis API for index-based access.")
+        return self.index(joint, space=space)  # type: ignore[arg-type]
+
+    def _positions_or(
+        self, coords: npt.NDArray[np.float64] | None,
+    ) -> npt.NDArray[np.float64]:
+        """``coords`` if given, else the (cached) world-frame node positions."""
+        if coords is None:
+            return self.node_positions()
+        return np.asarray(coords, dtype=np.float64)
+
+    def curvature(self, joint: str, stencil: str = "central",
+                  pad: str = "edge", *,
+                  coords: npt.NDArray[np.float64] | None = None) -> npt.NDArray[np.float64]:
         """Per-frame trajectory curvature of ``joint``. See :func:`pybvh.geometry.curvature`."""
         from . import geometry
-        traj = self.node_positions()[:, self._node_idx(joint), :]
+        traj = self._positions_or(coords)[:, self._descriptor_index(joint), :]
         return geometry.curvature(traj, self.frame_time, stencil, pad)
 
-    def torsion(self, joint: str | int, stencil: str = "central",
-                pad: str = "edge") -> npt.NDArray[np.float64]:
+    def torsion(self, joint: str, stencil: str = "central",
+                pad: str = "edge", *,
+                coords: npt.NDArray[np.float64] | None = None) -> npt.NDArray[np.float64]:
         """Per-frame trajectory torsion of ``joint``. See :func:`pybvh.geometry.torsion`."""
         from . import geometry
-        traj = self.node_positions()[:, self._node_idx(joint), :]
+        traj = self._positions_or(coords)[:, self._descriptor_index(joint), :]
         return geometry.torsion(traj, self.frame_time, stencil, pad)
 
-    def path_length(self, joint: str | int) -> float:
+    def movement_phase(self, joint: str, stencil: str = "central",
+                       pad: str = "edge", *,
+                       coords: npt.NDArray[np.float64] | None = None) -> npt.NDArray[np.float64]:
+        """Per-frame movement phase (``speed · curvature``) of ``joint``.
+
+        See :func:`pybvh.geometry.movement_phase`."""
+        from . import geometry
+        traj = self._positions_or(coords)[:, self._descriptor_index(joint), :]
+        return geometry.movement_phase(traj, self.frame_time, stencil, pad)
+
+    def path_length(self, joint: str, *,
+                    coords: npt.NDArray[np.float64] | None = None) -> float:
         """Arc length travelled by ``joint``. See :func:`pybvh.geometry.path_length`."""
         from . import geometry
         return float(geometry.path_length(
-            self.node_positions()[:, self._node_idx(joint), :]))
+            self._positions_or(coords)[:, self._descriptor_index(joint), :]))
 
-    def directness(self, joint: str | int) -> float:
+    def directness(self, joint: str, *,
+                   coords: npt.NDArray[np.float64] | None = None) -> float:
         """Directness of ``joint``'s path (net displacement ÷ path length).
 
         See :func:`pybvh.geometry.directness`."""
         from . import geometry
         return float(geometry.directness(
-            self.node_positions()[:, self._node_idx(joint), :]))
+            self._positions_or(coords)[:, self._descriptor_index(joint), :]))
 
-    def ground_path(self, joint: str | int) -> "geometry.GroundPath":
+    def ground_path(self, joint: str, *,
+                    coords: npt.NDArray[np.float64] | None = None) -> "geometry.GroundPath":
         """Ground-plane path of ``joint`` (uses ``world_up``). See :func:`pybvh.geometry.ground_path`."""
         from . import geometry
-        traj = self.node_positions()[:, self._node_idx(joint), :]
+        traj = self._positions_or(coords)[:, self._descriptor_index(joint), :]
         return geometry.ground_path(traj, _axis_to_vector(self.world_up))
 
     def inter_joint_distance(
-        self, pairs: list[tuple[str | int, str | int]]
+        self, pairs: list[tuple[str, str]], *,
+        coords: npt.NDArray[np.float64] | None = None,
     ) -> npt.NDArray[np.float64]:
         """Per-frame distances between node pairs. See :func:`pybvh.geometry.inter_joint_distance`."""
         from . import geometry
-        idx_pairs = [[self._node_idx(a), self._node_idx(b)] for a, b in pairs]
-        return geometry.inter_joint_distance(self.node_positions(), idx_pairs)
+        idx_pairs = [
+            [self._descriptor_index(a), self._descriptor_index(b)]
+            for a, b in pairs
+        ]
+        return geometry.inter_joint_distance(self._positions_or(coords), idx_pairs)
 
-    def joint_angle(self, a: str | int, vertex: str | int, b: str | int,
-                    degrees: bool = False) -> npt.NDArray[np.float64]:
+    def joint_angle(self, a: str, vertex: str, b: str,
+                    degrees: bool = False, *,
+                    coords: npt.NDArray[np.float64] | None = None) -> npt.NDArray[np.float64]:
         """Per-frame angle at ``vertex`` in ``a–vertex–b``. See :func:`pybvh.geometry.joint_angle`."""
         from . import geometry
-        pos = self.node_positions()
+        pos = self._positions_or(coords)
         return geometry.joint_angle(
-            pos[:, self._node_idx(a)], pos[:, self._node_idx(vertex)],
-            pos[:, self._node_idx(b)], degrees=degrees)
+            pos[:, self._descriptor_index(a)],
+            pos[:, self._descriptor_index(vertex)],
+            pos[:, self._descriptor_index(b)], degrees=degrees)
 
-    def triangle_area(self, a: str | int, b: str | int,
-                      c: str | int) -> npt.NDArray[np.float64]:
+    def triangle_area(self, a: str, b: str, c: str, *,
+                      coords: npt.NDArray[np.float64] | None = None) -> npt.NDArray[np.float64]:
         """Per-frame area of triangle ``(a, b, c)``. See :func:`pybvh.geometry.triangle_area`."""
         from . import geometry
-        pos = self.node_positions()
+        pos = self._positions_or(coords)
         return geometry.triangle_area(
-            pos[:, self._node_idx(a)], pos[:, self._node_idx(b)],
-            pos[:, self._node_idx(c)])
+            pos[:, self._descriptor_index(a)],
+            pos[:, self._descriptor_index(b)],
+            pos[:, self._descriptor_index(c)])
 
-    def segment_axis_angle(self, joint_a: str | int, joint_b: str | int,
-                           degrees: bool = False) -> npt.NDArray[np.float64]:
+    def segment_axis_angle(self, joint_a: str, joint_b: str,
+                           degrees: bool = False, *,
+                           coords: npt.NDArray[np.float64] | None = None) -> npt.NDArray[np.float64]:
         """Per-frame angle of the bone ``joint_a→joint_b`` to ``world_up``.
 
         See :func:`pybvh.geometry.segment_axis_angle`."""
         from . import geometry
-        pos = self.node_positions()
-        seg = pos[:, self._node_idx(joint_b)] - pos[:, self._node_idx(joint_a)]
+        pos = self._positions_or(coords)
+        seg = (pos[:, self._descriptor_index(joint_b)]
+               - pos[:, self._descriptor_index(joint_a)])
         return geometry.segment_axis_angle(
             seg, _axis_to_vector(self.world_up), degrees=degrees)
 
-    def bounding_box(self) -> "geometry.BoundingBox":
+    def bounding_box(self, *,
+                     coords: npt.NDArray[np.float64] | None = None) -> "geometry.BoundingBox":
         """Per-frame axis-aligned bounding box of all nodes. See :func:`pybvh.geometry.bounding_box`."""
         from . import geometry
-        return geometry.bounding_box(self.node_positions())
+        return geometry.bounding_box(self._positions_or(coords))
 
-    def bounding_sphere(self) -> "geometry.BoundingSphere":
+    def bounding_sphere(self, *,
+                        coords: npt.NDArray[np.float64] | None = None) -> "geometry.BoundingSphere":
         """Per-frame approximate enclosing sphere of all nodes. See :func:`pybvh.geometry.bounding_sphere`."""
         from . import geometry
-        return geometry.bounding_sphere(self.node_positions())
+        return geometry.bounding_sphere(self._positions_or(coords))
+
+    def bounding_ellipsoid(self, *,
+                           coords: npt.NDArray[np.float64] | None = None) -> "geometry.BoundingEllipsoid":
+        """Per-frame PCA-aligned bounding ellipsoid of all nodes. See :func:`pybvh.geometry.bounding_ellipsoid`."""
+        from . import geometry
+        return geometry.bounding_ellipsoid(self._positions_or(coords))
 
     def center_of_mass(
-        self, weights: npt.NDArray[np.float64] | None = None
+        self, weights: npt.NDArray[np.float64] | None = None, *,
+        coords: npt.NDArray[np.float64] | None = None,
     ) -> npt.NDArray[np.float64]:
         """Per-frame centre of mass of all nodes (uniform by default; pass per-node masses).
 
         See :func:`pybvh.geometry.center_of_mass`."""
         from . import geometry
-        return geometry.center_of_mass(self.node_positions(), weights=weights)
+        return geometry.center_of_mass(self._positions_or(coords), weights=weights)
 
     def com_displacement(
         self,
         weights: npt.NDArray[np.float64] | None = None,
         com_ref: npt.NDArray[np.float64] | None = None,
+        *,
+        coords: npt.NDArray[np.float64] | None = None,
     ) -> npt.NDArray[np.float64]:
         """Per-frame centre-of-mass travel from a reference.
 
@@ -2468,15 +2509,17 @@ class Bvh:
         explicit ``com_ref`` (e.g. ``center_of_mass().mean(0)``) for a
         different baseline. See :func:`pybvh.geometry.com_displacement`."""
         from . import geometry
-        com = geometry.center_of_mass(self.node_positions(), weights=weights)
+        com = geometry.center_of_mass(self._positions_or(coords), weights=weights)
         if com_ref is None:
             com_ref = com[0]
         return geometry.com_displacement(com, com_ref)
 
-    def verticality(self) -> npt.NDArray[np.float64]:
+    def verticality(self, *,
+                    coords: npt.NDArray[np.float64] | None = None) -> npt.NDArray[np.float64]:
         """Per-frame height/width ratio along ``world_up``. See :func:`pybvh.geometry.verticality`."""
         from . import geometry
-        return geometry.verticality(self.node_positions(), _axis_to_vector(self.world_up))
+        return geometry.verticality(
+            self._positions_or(coords), _axis_to_vector(self.world_up))
 
     def node_jerk(self, centered: str = "world", in_frames: bool = False,
                   coords: npt.NDArray[np.float64] | None = None,
@@ -2494,16 +2537,46 @@ class Bvh:
         return analysis.joint_jerk(self, centered=centered, in_frames=in_frames,
                                    coords=coords, stencil=stencil, pad=pad)
 
-    def smoothness(self, joint: str | int, metric: str = "sparc",
+    def smoothness(self, joint: str, metric: str = "sparc", *,
+                   coords: npt.NDArray[np.float64] | None = None,
                    **kwargs: float) -> float:
         """Smoothness of ``joint``'s speed profile. See :func:`pybvh.analysis.smoothness`.
 
-        Computes the joint's per-frame speed ``‖velocity‖`` and passes it to the
-        chosen ``metric`` at sampling rate ``1 / frame_time``."""
+        Computes the joint's per-frame speed ``‖velocity‖`` and passes it
+        to the chosen ``metric`` at sampling rate ``1 / frame_time``.
+
+        ``metric`` is one of ``"sparc"`` (default),
+        ``"dimensionless_jerk"``, ``"log_dimensionless_jerk"``,
+        ``"integrated_squared_jerk"``, ``"mean_squared_jerk"``,
+        ``"rms_squared_jerk"``, ``"number_of_peaks"``, ``"speed_metric"``.
+        Metric-specific options are forwarded as keyword arguments —
+        ``"sparc"`` accepts ``padlevel`` (FFT zero-padding exponent,
+        default ``4``), ``fc`` (max cutoff frequency in Hz, default
+        ``10.0``) and ``amp_th`` (amplitude threshold, default ``0.05``);
+        the other metrics take none."""
         from . import analysis
-        vel = self.node_velocities()[:, self._node_idx(joint), :]
-        speed = np.linalg.norm(vel, axis=-1)
+        vel = self.node_velocities(coords=coords)
+        speed = np.linalg.norm(vel[:, self._descriptor_index(joint), :], axis=-1)
         return analysis.smoothness(speed, 1.0 / self.frame_time, metric=metric, **kwargs)
+
+    def velocity_reductions(self, joint: str, *,
+                            coords: npt.NDArray[np.float64] | None = None):
+        """Scalar reductions of ``joint``'s speed profile (peak, mean, …).
+
+        Computes the joint's per-frame speed ``‖velocity‖`` and reduces it
+        at sampling rate ``1 / frame_time``. See
+        :func:`pybvh.analysis.velocity_reductions`."""
+        from . import analysis
+        vel = self.node_velocities(coords=coords)
+        speed = np.linalg.norm(vel[:, self._descriptor_index(joint), :], axis=-1)
+        return analysis.velocity_reductions(speed, 1.0 / self.frame_time)
+
+    def skeleton_size(self, foot_joints: list[str] | None = None) -> float:
+        """Absolute skeleton scale — mean rest-pose root-to-foot distance.
+
+        See :func:`pybvh.analysis.skeleton_size`."""
+        from . import analysis
+        return analysis.skeleton_size(self, foot_joints=foot_joints)
 
     def kinetic_energy(self, masses: npt.NDArray[np.float64] | Mapping[str, float] | None = None,
                        centered: str = "world", stencil: str = "central",
@@ -2537,13 +2610,13 @@ class Bvh:
         from . import analysis
         return analysis.gait_parameters(self, foot_joints=foot_joints, contacts=contacts)
 
-    def range_of_motion(self, joint: str | int) -> npt.NDArray[np.float64]:
+    def range_of_motion(self, joint: str) -> npt.NDArray[np.float64]:
         """Peak-to-peak range of ``joint``'s Euler angles — ``(3,)`` per channel.
 
         Indexes in JOINT space (rotations exist only on joints). See
         :func:`pybvh.analysis.range_of_motion`."""
         from . import analysis
-        idx = self.index(joint, axis='joint') if isinstance(joint, str) else int(joint)
+        idx = self._descriptor_index(joint, space='joint')
         return analysis.range_of_motion(self.joint_angles[:, idx, :], axis=0)
 
     # ----------------------------------------------------------------
@@ -2665,10 +2738,10 @@ class Bvh:
         from . import bvhplot
         return bvhplot.trajectory(self, **kwargs)
 
-    def render(self, output_path, **kwargs):
+    def render(self, filepath: str | Path = Path("./anim.mp4"), **kwargs):
         """Render animation to file. See :func:`pybvh.bvhplot.render`."""
         from . import bvhplot
-        return bvhplot.render(self, output_path, **kwargs)
+        return bvhplot.render(self, filepath, **kwargs)
 
     def play(self, **kwargs):
         """Interactive playback. See :func:`pybvh.bvhplot.play`."""

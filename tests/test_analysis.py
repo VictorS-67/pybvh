@@ -109,7 +109,7 @@ class TestRootTrajectoryHeadingRestForward:
     def _expected_rest_heading(self, bvh):
         """Derive ground-truth heading from rest-pose forward + world_up."""
         from pybvh.tools import _compute_forward_at, _axis_to_vector
-        rest_coords = bvh.rest_pose_coords()
+        rest_coords = bvh.rest_pose_positions()
         fwd_axis = _compute_forward_at(bvh, rest_coords, bvh.world_up)
         fwd_vec = _axis_to_vector(fwd_axis)
         up_idx = {'x': 0, 'y': 1, 'z': 2}[bvh.world_up[1]]
@@ -442,7 +442,7 @@ class TestFeatureArrayLayout:
 
     def test_quaternion_width_4(self):
         layout = packing.feature_array_layout(
-            num_joints=24, representation="quaternion")
+            num_joints=24, representation="quat")
         assert layout["rotations"] == slice(3, 3 + 24 * 4)
 
     def test_unknown_representation_raises(self):

@@ -36,7 +36,7 @@ import numpy.typing as npt
 REPRESENTATION_CHANNELS = {
     "euler": 3,
     "axisangle": 3,
-    "quaternion": 4,
+    "quat": 4,
     "6d": 6,
     "rotmat": 9,
 }
@@ -780,7 +780,7 @@ def quat_slerp(
 # String-dispatch converter
 # ============================================================================
 
-_VALID_REPRS = ("euler", "rotmat", "6d", "quaternion", "axisangle")
+_VALID_REPRS = ("euler", "rotmat", "6d", "quat", "axisangle")
 
 
 def convert(
@@ -805,7 +805,7 @@ def convert(
         Input data. Shape depends on ``from_repr`` — see
         :data:`REPRESENTATION_CHANNELS` for the channel count.
     from_repr, to_repr : str
-        One of ``"euler"``, ``"rotmat"``, ``"6d"``, ``"quaternion"``,
+        One of ``"euler"``, ``"rotmat"``, ``"6d"``, ``"quat"``,
         ``"axisangle"``.
     order : str or sequence of strings, optional
         Euler rotation order(s).  Required when ``from_repr == "euler"``
@@ -838,7 +838,7 @@ def convert(
         R = euler_to_rotmat(data, order, degrees=degrees)  # type: ignore[arg-type]
     elif from_repr == "6d":
         R = rot6d_to_rotmat(data)
-    elif from_repr == "quaternion":
+    elif from_repr == "quat":
         R = quat_to_rotmat(data)
     else:  # "axisangle"
         R = axisangle_to_rotmat(data)
@@ -850,7 +850,7 @@ def convert(
         return rotmat_to_euler(R, order, degrees=degrees)  # type: ignore[arg-type]
     if to_repr == "6d":
         return rotmat_to_rot6d(R)
-    if to_repr == "quaternion":
+    if to_repr == "quat":
         return rotmat_to_quat(R)
     return rotmat_to_axisangle(R)  # "axisangle"
 

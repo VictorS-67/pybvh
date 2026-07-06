@@ -42,7 +42,7 @@ def feature_array_layout(
         when ``include_foot_contacts=True``.
     representation : str, optional
         Rotation representation: ``'euler'``, ``'axisangle'`` (3 values
-        per joint), ``'quaternion'`` (4), ``'6d'`` (6, default),
+        per joint), ``'quat'`` (4), ``'6d'`` (6, default),
         ``'rotmat'`` (9).
     include_root_pos, include_velocities, include_foot_contacts : bool
         Mirror the flags of :func:`to_feature_array`.
@@ -111,7 +111,7 @@ def to_feature_array(
         Input motion.
     representation : str, optional
         Rotation representation: ``'euler'``, ``'6d'`` (default),
-        ``'quaternion'``, ``'axisangle'``, or ``'rotmat'`` (9 values
+        ``'quat'``, ``'axisangle'``, or ``'rotmat'`` (9 values
         per joint as a flattened 3×3).
     include_root_pos : bool, optional
         If True (default), include root position (3 columns).
@@ -177,8 +177,8 @@ def to_feature_array(
     elif representation == "6d":
         _, rot_raw = bvh.to_6d()
         rot = rot_raw.reshape(bvh.frame_count, -1)
-    elif representation == "quaternion":
-        _, rot_raw = bvh.to_quaternions()
+    elif representation == "quat":
+        _, rot_raw = bvh.to_quat()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     elif representation == "axisangle":
         _, rot_raw = bvh.to_axisangle()

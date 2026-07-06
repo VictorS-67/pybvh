@@ -52,6 +52,6 @@ root_pos, rot6d = bvh.to_6d()  # (F, J, 6)
 bvh_pred = bvh.from_6d(pred_root_pos, pred_rot6d)
 
 # Evaluate with quaternion distance or rotation matrix comparison
-_, q_gt = bvh.to_quaternions()
-_, q_pred = bvh_pred.to_quaternions()
+_, q_gt = bvh.to_quat()
+_, q_pred = bvh_pred.to_quat()
 ```

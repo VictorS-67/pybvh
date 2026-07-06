@@ -259,7 +259,7 @@ for idx, src, reason in zip(report.dropped_indices,
 
 # %%
 base = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')
-clips = [base, base.slice_frames(0, 40), base.slice_frames(20, 75)]
+clips = [base, base[0:40], base[20:75]]
 
 print(f'Clip frame counts: {[c.frame_count for c in clips]}')
 
@@ -290,7 +290,7 @@ print(f'\npad=True  → single array: shape {padded.shape}  (B, F_max, D)')
 # |---|---|---|
 # | `euler`     | 3 | Raw Euler angles, radians |
 # | `6d`        | 6 | First two columns of rotation matrix (Zhou et al., 2019) |
-# | `quaternion`| 4 | Scalar-first (w, x, y, z) |
+# | `quat`      | 4 | Scalar-first (w, x, y, z) |
 # | `axisangle` | 3 | Rotation vector; norm = angle in radians |
 # | `rotmat`    | 9 | Full 3×3 rotation matrix, flattened |
 #
@@ -298,7 +298,7 @@ print(f'\npad=True  → single array: shape {padded.shape}  (B, F_max, D)')
 
 # %%
 print(f'Joint count: {base.joint_count}; expected D = 3 + J × rep_dim\n')
-for rep in ['euler', '6d', 'quaternion', 'axisangle', 'rotmat']:
+for rep in ['euler', '6d', 'quat', 'axisangle', 'rotmat']:
     arr = batch.batch_to_numpy(clips, representation=rep)[0]
     rep_dim = (arr.shape[1] - 3) // base.joint_count
     print(f'  {rep:11s}  rep_dim = {rep_dim}  →  D = {arr.shape[1]}')
@@ -308,7 +308,7 @@ for rep in ['euler', '6d', 'quaternion', 'axisangle', 'rotmat']:
 #
 # Three predicates let you check compatibility at the granularity the downstream operation requires:
 #
-# - **`bvh.matches_hierarchy(other)`** — node names, parent structure, and rest offsets match. Use this when batching to rotation-invariant representations (`'6d'`, `'quaternion'`, `'rotmat'`), where channel layout is irrelevant. Pass `match_offsets=False` to also accept clips with differing bone proportions (about to be retargeted).
+# - **`bvh.matches_hierarchy(other)`** — node names, parent structure, and rest offsets match. Use this when batching to rotation-invariant representations (`'6d'`, `'quat'`, `'rotmat'`), where channel layout is irrelevant. Pass `match_offsets=False` to also accept clips with differing bone proportions (about to be retargeted).
 # - **`bvh.matches_channels(other)`** — per-joint Euler rotation orders match. Combine with `matches_hierarchy` when batching to `'euler'` or `'axisangle'`, where the channel layout depends on the source Euler order.
 # - **`bvh.matches_topology(other)`** — conjunction of both. Strictest check; use when every aspect must align.
 #

@@ -81,7 +81,7 @@ class TestNormalizeInput:
         assert len(coords_list) == 2
 
     def test_precomputed_array_2d(self, bvh_example):
-        coords = bvh_example.node_positions(frame_num=0)
+        coords = bvh_example.node_positions(frame=0)
         _, coords_list = normalize_input(bvh_example, coords, "world")
         assert coords_list[0].shape == (1, len(bvh_example.nodes), 3)
 
@@ -147,31 +147,31 @@ class TestAlignFrameCounts:
 
 class TestGetCameraAngles:
     def test_front_returns_tuple(self, bvh_example):
-        frame = bvh_example.node_positions(frame_num=0)
+        frame = bvh_example.node_positions(frame=0)
         azim, elev, up = get_camera_angles(bvh_example, frame, "front")
         assert isinstance(azim, float)
         assert isinstance(elev, float)
         assert up in ('x', 'y', 'z')
 
     def test_side_differs_from_front(self, bvh_example):
-        frame = bvh_example.node_positions(frame_num=0)
+        frame = bvh_example.node_positions(frame=0)
         azim_f, _, _ = get_camera_angles(bvh_example, frame, "front")
         azim_s, _, _ = get_camera_angles(bvh_example, frame, "side")
         assert abs(azim_s - azim_f) == pytest.approx(90.0)
 
     def test_top_has_high_elevation(self, bvh_example):
-        frame = bvh_example.node_positions(frame_num=0)
+        frame = bvh_example.node_positions(frame=0)
         _, elev, _ = get_camera_angles(bvh_example, frame, "top")
         assert elev == pytest.approx(90.0)
 
     def test_custom_tuple(self, bvh_example):
-        frame = bvh_example.node_positions(frame_num=0)
+        frame = bvh_example.node_positions(frame=0)
         azim, elev, _ = get_camera_angles(bvh_example, frame, (45.0, 30.0))
         assert azim == pytest.approx(45.0)
         assert elev == pytest.approx(30.0)
 
     def test_unknown_preset_raises(self, bvh_example):
-        frame = bvh_example.node_positions(frame_num=0)
+        frame = bvh_example.node_positions(frame=0)
         with pytest.raises(ValueError, match="Unknown camera"):
             get_camera_angles(bvh_example, frame, "below")
 
@@ -273,7 +273,7 @@ class TestFrontViewSemantics:
     def test_front_view_toes_toward_viewer(self, bvh_example):
         """In front view, the forward axis should point toward the viewer
         (positive w component in view space)."""
-        frame = bvh_example.node_positions(frame_num=0)
+        frame = bvh_example.node_positions(frame=0)
         fwd = bvh_example.forward_at(frame=0)
         azim, elev, up = get_camera_angles(bvh_example, frame, "front")
 
@@ -291,7 +291,7 @@ class TestFrontViewSemantics:
 
     def test_front_view_right_hand_rule(self, bvh_example):
         """The view matrix should preserve right-handedness: det > 0."""
-        frame = bvh_example.node_positions(frame_num=0)
+        frame = bvh_example.node_positions(frame=0)
         azim, elev, up = get_camera_angles(bvh_example, frame, "front")
         vm = build_view_matrix(azim, elev, up)
         assert np.linalg.det(vm) > 0, (
@@ -300,7 +300,7 @@ class TestFrontViewSemantics:
 
     def test_side_view_perpendicular_to_front(self, bvh_example):
         """Side view should look 90 degrees from front along the forward axis."""
-        frame = bvh_example.node_positions(frame_num=0)
+        frame = bvh_example.node_positions(frame=0)
         fwd = bvh_example.forward_at(frame=0)
         azim_f, elev, up = get_camera_angles(bvh_example, frame, "front")
         azim_s, _, _ = get_camera_angles(bvh_example, frame, "side")
@@ -330,7 +330,7 @@ class TestFrontViewSemantics:
         import matplotlib.pyplot as plt
         from mpl_toolkits.mplot3d import proj3d
 
-        rest = bvh_example.rest_pose_coords(mode='coordinates')
+        rest = bvh_example.rest_pose_positions()
         azim, elev, up = get_camera_angles(bvh_example, rest, "front")
         idx = bvh_example.node_index
 
@@ -380,7 +380,7 @@ class TestFrontViewSemantics:
         After the orientation refactor, camera='front' should show the FRONT:
         for both feet, the toes should be CLOSER to the viewer than the ankles.
         """
-        frame = bvh_test2.node_positions(frame_num=15)
+        frame = bvh_test2.node_positions(frame=15)
         azim, elev, up = get_camera_angles(bvh_test2, frame, "front")
         vm = build_view_matrix(azim, elev, up)
 
@@ -423,7 +423,7 @@ class TestFrame:
     def test_from_array(self, bvh_example):
         import matplotlib
         matplotlib.use('Agg')
-        coords = bvh_example.node_positions(frame_num=0)
+        coords = bvh_example.node_positions(frame=0)
         fig, ax = bvhplot.frame(bvh_example, coords, show=False)
         assert fig is not None
 
@@ -705,7 +705,7 @@ class TestRenderMatplotlib:
         import matplotlib
         matplotlib.use('Agg')
         # Use only first 5 frames for speed
-        bvh_short = bvh_example.slice_frames(0, 5)
+        bvh_short = bvh_example[0:5]
         path = bvhplot.render(
             bvh_short, tmp_path / "test.gif",
             backend="matplotlib")
@@ -715,7 +715,7 @@ class TestRenderMatplotlib:
     def test_render_html(self, bvh_example, tmp_path):
         import matplotlib
         matplotlib.use('Agg')
-        bvh_short = bvh_example.slice_frames(0, 3)
+        bvh_short = bvh_example[0:3]
         path = bvhplot.render(
             bvh_short, tmp_path / "test.html",
             backend="matplotlib")
@@ -726,7 +726,7 @@ class TestRenderMatplotlib:
         """render(follow=True) should produce a file without crashing."""
         import matplotlib
         matplotlib.use('Agg')
-        bvh_short = bvh_example.slice_frames(0, 5)
+        bvh_short = bvh_example[0:5]
         path = bvhplot.render(
             bvh_short, tmp_path / "follow.gif",
             backend="matplotlib", follow=True)
@@ -804,7 +804,7 @@ class TestRenderOpenCV:
         # Apply a 90° rotation at frame 0, then rotate_vertical to sweep
         # through an extra 180° over the clip — guaranteed to produce a
         # turning character.
-        bvh_short = bvh_example.slice_frames(0, 5)
+        bvh_short = bvh_example[0:5]
         path_static = bvhplot.render(
             bvh_short, tmp_path / "static.mp4", backend="opencv",
             resolution=(320, 240), follow=False)
@@ -835,7 +835,7 @@ class TestRenderOpenCV:
         assert path.exists()
 
     def test_gif_output(self, bvh_example, tmp_path):
-        bvh_short = bvh_example.slice_frames(0, 5)
+        bvh_short = bvh_example[0:5]
         path = bvhplot.render(
             bvh_short, tmp_path / "out.gif",
             backend="opencv", resolution=(320, 240))

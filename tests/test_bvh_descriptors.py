@@ -22,7 +22,7 @@ def _bvh():
 
 def test_curvature_torsion_path_directness_match_kernel():
     bvh = _bvh()
-    idx = bvh.index("Spine", axis="node")
+    idx = bvh.index("Spine", space="node")
     traj = bvh.node_positions()[:, idx, :]
     np.testing.assert_allclose(bvh.curvature("Spine"),
                                geometry.curvature(traj, bvh.frame_time))
@@ -34,7 +34,7 @@ def test_curvature_torsion_path_directness_match_kernel():
 
 def test_ground_path_matches_kernel():
     bvh = _bvh()
-    idx = bvh.index("Head", axis="node")
+    idx = bvh.index("Head", space="node")
     traj = bvh.node_positions()[:, idx, :]
     up = _axis_to_vector(bvh.world_up)
     got = bvh.ground_path("Head")
@@ -51,7 +51,7 @@ def test_inter_joint_distance_by_name_matches_kernel():
     bvh = _bvh()
     pos = bvh.node_positions()
     pairs = [("Hips", "Head"), ("LeftFoot", "RightFoot")]
-    idx_pairs = [[bvh.index(a, axis="node"), bvh.index(b, axis="node")] for a, b in pairs]
+    idx_pairs = [[bvh.index(a, space="node"), bvh.index(b, space="node")] for a, b in pairs]
     np.testing.assert_allclose(bvh.inter_joint_distance(pairs),
                                geometry.inter_joint_distance(pos, idx_pairs))
 
@@ -59,7 +59,7 @@ def test_inter_joint_distance_by_name_matches_kernel():
 def test_joint_angle_and_triangle_area_by_name():
     bvh = _bvh()
     pos = bvh.node_positions()
-    i = lambda n: bvh.index(n, axis="node")
+    i = lambda n: bvh.index(n, space="node")
     np.testing.assert_allclose(
         bvh.joint_angle("LeftFoot", "Hips", "RightFoot"),
         geometry.joint_angle(pos[:, i("LeftFoot")], pos[:, i("Hips")], pos[:, i("RightFoot")]))
@@ -71,16 +71,46 @@ def test_joint_angle_and_triangle_area_by_name():
 def test_segment_axis_angle_matches_kernel():
     bvh = _bvh()
     pos = bvh.node_positions()
-    seg = pos[:, bvh.index("Head", axis="node")] - pos[:, bvh.index("Hips", axis="node")]
+    seg = pos[:, bvh.index("Head", space="node")] - pos[:, bvh.index("Hips", space="node")]
     np.testing.assert_allclose(
         bvh.segment_axis_angle("Hips", "Head"),
         geometry.segment_axis_angle(seg, _axis_to_vector(bvh.world_up)))
 
 
-def test_relational_accepts_int_node_index():
+def test_descriptor_int_index_raises_type_error():
     bvh = _bvh()
-    # integer index path must agree with the name path
-    np.testing.assert_allclose(bvh.path_length(1), bvh.path_length(bvh.nodes[1].name))
+    # descriptor methods are names-only: ints are ambiguous between joint
+    # and node index spaces and must raise with a pointer at index()
+    with pytest.raises(TypeError, match="index"):
+        bvh.path_length(1)
+    with pytest.raises(TypeError, match="index"):
+        bvh.curvature(0)
+    with pytest.raises(TypeError, match="index"):
+        bvh.range_of_motion(0)
+
+
+def test_movement_phase_wrapper_matches_kernel():
+    bvh = make_pos_y_up_rotating_bvh()
+    idx = bvh.index("LeftFoot", space="node")
+    traj = bvh.node_positions()[:, idx, :]
+    np.testing.assert_allclose(
+        bvh.movement_phase("LeftFoot"),
+        geometry.movement_phase(traj, bvh.frame_time))
+
+
+def test_descriptors_accept_precomputed_coords():
+    bvh = make_pos_y_up_rotating_bvh()
+    pos = bvh.node_positions()
+    np.testing.assert_allclose(bvh.curvature("Spine", coords=pos),
+                               bvh.curvature("Spine"))
+    np.testing.assert_allclose(bvh.path_length("Head", coords=pos),
+                               bvh.path_length("Head"))
+    np.testing.assert_allclose(bvh.center_of_mass(coords=pos),
+                               bvh.center_of_mass())
+    # constant-offset coords actually flow through (not silently ignored)
+    shifted = pos + np.array([100.0, 0.0, 0.0])
+    np.testing.assert_allclose(bvh.center_of_mass(coords=shifted),
+                               bvh.center_of_mass() + np.array([100.0, 0.0, 0.0]))
 
 
 # ----------------------------------------------------------------
@@ -95,6 +125,15 @@ def test_bounding_and_center_of_mass_wrappers_match_kernel():
     np.testing.assert_allclose(bvh.center_of_mass(), geometry.center_of_mass(pos))
     np.testing.assert_allclose(bvh.verticality(),
                                geometry.verticality(pos, _axis_to_vector(bvh.world_up)))
+
+
+def test_bounding_ellipsoid_wrapper_matches_kernel():
+    bvh = _bvh()
+    ref = geometry.bounding_ellipsoid(bvh.node_positions())
+    got = bvh.bounding_ellipsoid()
+    np.testing.assert_allclose(got.center, ref.center)
+    np.testing.assert_allclose(got.radii, ref.radii)
+    np.testing.assert_allclose(got.axes, ref.axes)
 
 
 def test_com_displacement_defaults_to_first_frame_com():
@@ -118,11 +157,28 @@ def test_jerk_wrappers_match_module():
 
 def test_smoothness_wrapper_uses_joint_speed():
     bvh = make_pos_y_up_rotating_bvh()
-    idx = bvh.index("LeftFoot", axis="node")
+    idx = bvh.index("LeftFoot", space="node")
     speed = np.linalg.norm(bvh.node_velocities()[:, idx, :], axis=-1)
     fs = 1.0 / bvh.frame_time
     np.testing.assert_allclose(bvh.smoothness("LeftFoot", metric="number_of_peaks"),
                                analysis.smoothness(speed, fs, metric="number_of_peaks"))
+
+
+def test_velocity_reductions_wrapper_matches_kernel():
+    bvh = make_pos_y_up_rotating_bvh()
+    idx = bvh.index("LeftFoot", space="node")
+    speed = np.linalg.norm(bvh.node_velocities()[:, idx, :], axis=-1)
+    ref = analysis.velocity_reductions(speed, 1.0 / bvh.frame_time)
+    got = bvh.velocity_reductions("LeftFoot")
+    np.testing.assert_allclose(np.array(got), np.array(ref))
+
+
+def test_skeleton_size_wrapper_matches_kernel():
+    bvh = _bvh()
+    assert bvh.skeleton_size() == analysis.skeleton_size(bvh)
+    feet = ["LeftFoot", "RightFoot"]
+    assert bvh.skeleton_size(foot_joints=feet) == \
+        analysis.skeleton_size(bvh, foot_joints=feet)
 
 
 def test_kinetic_energy_and_walking_pace_match_module():
@@ -167,7 +223,7 @@ def test_gait_wrappers_accept_precomputed_contacts():
 
 def test_range_of_motion_wrapper_matches_kernel():
     bvh = make_pos_y_up_rotating_bvh()
-    jidx = bvh.index("Hips", axis="joint")
+    jidx = bvh.index("Hips", space="joint")
     np.testing.assert_allclose(
         bvh.range_of_motion("Hips"),
         analysis.range_of_motion(bvh.joint_angles[:, jidx, :], axis=0))

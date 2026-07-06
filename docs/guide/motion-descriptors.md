@@ -58,7 +58,11 @@ Two layers, by design:
   `bvh.cadence()`. Relational and trajectory methods resolve names in **node
   space**, so end sites (fingertips, toe tips, head top) are first-class;
   `range_of_motion` resolves in **joint** space, since rotations exist only on
-  joints.
+  joints. Joints are addressed by **name only** — integer indices raise
+  `TypeError` (they were ambiguous between the two index spaces); resolve with
+  `bvh.index(name, space=...)` and use the array-pure kernels for index-based
+  access. Every descriptor method also accepts pre-computed positions via
+  `coords=` for hot loops (the default path is served by the FK cache anyway).
 
 !!! note "Name-based primitives assume one consistent skeleton"
     Descriptors addressed by joint name (`inter_joint_distance(pairs)`, foot and

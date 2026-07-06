@@ -80,6 +80,27 @@ All angle parameters in `pybvh.transforms` are now **radians** (matching `Bvh.jo
 
 ---
 
+## v0.8.0 — Bvh API surface
+
+| Old | New | Notes |
+|---|---|---|
+| `to_quaternions()` / `from_quaternions(...)` | `to_quat()` / `from_quat(...)` | Representation *strings* are also `"quat"` everywhere (`to_feature_array`, `batch_to_numpy`, `rotations.convert`, `REPRESENTATION_CHANNELS`). |
+| `rest_pose_coords()` / `rest_pose_coords(mode='coordinates')` | `rest_pose_positions()` | No motion-data dependence — now works on 0-frame Bvh objects. |
+| `rest_pose_coords(mode='euler')` | `rest_pose_angles()` | Returns just the `(J, 3)` zeros; the tuple's root-position element is gone (it was always `zeros(3)`). |
+| `hierarchy_info_as_dict()` | `to_hierarchy_dict()` | Pairs with the new `Bvh.from_df(hier, df)` classmethod. |
+| `slice_frames(a, b, s)` | `bvh[a:b:s]` | Public method removed — the sequence protocol is the only spelling. |
+| `concat(other)` | `bvh + other` / `bvh += other` | Public method removed — the operator is the only spelling. |
+| `node_positions(frame_num=-1)` / `joint_positions(frame_num=-1)` | `node_positions(frame=None)` | `frame=None` (default) = all frames; `frame=-1` now returns the **last** frame (NumPy negative-index semantics). |
+| `index(name, axis='joint'/'node')` | `index(name, space='joint'/'node')` | Parameter rename. |
+| `write(new_filepath)` | `write(filepath)` | Parameter rename. |
+| `scale((sx, sy, sz))` | *(removed)* | `scale()` is scalar-only — per-axis world factors on parent-local offsets are not geometrically meaningful under animation; non-scalar input raises `TypeError`. |
+| descriptor methods with integer joint indices | names only (`str`) | `curvature` … `smoothness`, `range_of_motion` raise `TypeError` on ints (they were ambiguous between joint/node index spaces); use `bvh.index(name, space=...)` + the functional `pybvh.geometry` / `pybvh.analysis` API for index-based access. |
+| `pybvh.api_rename_path()` | *(removed)* | This file stays in the repo / docs; the helper added no value. |
+
+New in the same release (no old names): `Bvh.from_file(path)`, `Bvh.from_df(hier, df)`, `Bvh.from_rotmat(root_pos, rotmats)`, and method wrappers `bounding_ellipsoid()`, `movement_phase()`, `skeleton_size()`, `velocity_reductions()`. All motion-descriptor methods accept pre-computed positions via `coords=`. `bvh.world_up = 'auto'` (or `None`) now clears a manual override.
+
+---
+
 ## Bvh class — Properties / Attributes
 
 | Old name | New name | Notes |
@@ -105,7 +126,7 @@ All angle parameters in `pybvh.transforms` are now **radians** (matching `Bvh.jo
 | Old name | New name |
 |---|---|
 | `get_spatial_coord(...)` | `spatial_coords(...)` |
-| `get_rest_pose(...)` | `rest_pose_coords(...)` |
+| `get_rest_pose(...)` | `rest_pose_positions()` *(named `rest_pose_coords` in v0.6.0–v0.7.x)* |
 
 ## Bvh class — Rotation conversions
 
@@ -113,10 +134,10 @@ All angle parameters in `pybvh.transforms` are now **radians** (matching `Bvh.jo
 |---|---|---|
 | `get_frames_as_rotmat()` | `to_rotmat()` | Returns 2-tuple `(root_pos, joint_data)` — third `joints` element removed. |
 | `get_frames_as_6d()` | `to_6d()` | Same 2-tuple shape change. |
-| `get_frames_as_quaternion()` | `to_quaternions()` | Same 2-tuple shape change. |
+| `get_frames_as_quaternion()` | `to_quat()` *(named `to_quaternions` in v0.6.0–v0.7.x)* | Same 2-tuple shape change. |
 | `get_frames_as_axisangle()` | `to_axisangle()` | Same 2-tuple shape change. |
 | `set_frames_from_6d(...)` | `from_6d(...)` | |
-| `set_frames_from_quaternion(...)` | `from_quaternions(...)` | |
+| `set_frames_from_quaternion(...)` | `from_quat(...)` *(named `from_quaternions` in v0.6.0–v0.7.x)* | |
 | `set_frames_from_axisangle(...)` | `from_axisangle(...)` | |
 
 ## Bvh class — Skeleton operations

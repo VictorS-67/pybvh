@@ -99,7 +99,7 @@ def normalize_input(
     elif isinstance(frames, int):
         # Single frame index
         for b in bvh_list:
-            coords = b.node_positions(frame_num=frames, centered=centered)
+            coords = b.node_positions(frame=frames, centered=centered)
             coords_list.append(coords[np.newaxis])  # (N, 3) -> (1, N, 3)
 
     elif isinstance(frames, np.ndarray):

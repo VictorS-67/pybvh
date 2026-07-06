@@ -38,7 +38,7 @@ def bones(bvh):
 
 
 def idx(bvh, name):
-    return bvh.index(name, axis="node")
+    return bvh.index(name, space="node")
 
 
 def set_view(ax, elev=None, azim=None):
@@ -580,7 +580,7 @@ def fig_gait(bvh, feet, g, t):
 
 
 def fig_range_of_motion(bvh, jname, rom, t):
-    jang = np.degrees(bvh.joint_angles[:, bvh.index(jname, axis="joint"), :])
+    jang = np.degrees(bvh.joint_angles[:, bvh.index(jname, space="joint"), :])
     rom = np.degrees(rom)
     fig, ax = plt.subplots(figsize=(9, 3.6))
     for ch in range(3):
@@ -603,7 +603,7 @@ def fig_covariance(C, L):
 
 def fig_skeleton_size(bvh, feet, value):
     fig, ax = new3d("skeleton_size: mean root→foot distance (rest pose)")
-    rest = bvh.rest_pose_coords()
+    rest = bvh.rest_pose_positions()
     draw_skeleton(ax, bvh, rest, joints=True)
     root = rest[0]
     for fname in feet:
@@ -715,7 +715,7 @@ def fig_rdp(curve, simp, eps):
 
 def fig_relative_scale(bvh, factor, scale):
     fig, ax = new3d("relative_scale_factor: matching two skeletons")
-    rest = bvh.rest_pose_coords(); big = rest * scale
+    rest = bvh.rest_pose_positions(); big = rest * scale
     draw_skeleton(ax, bvh, rest, color="tab:blue")
     draw_skeleton(ax, bvh, big, color="tab:orange")
     ax.text2D(0.02, 0.92, f"target is {scale}× reference\nrelative_scale_factor = {factor:.3f}\n"

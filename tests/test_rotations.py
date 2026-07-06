@@ -381,7 +381,7 @@ class TestQuatMultiply:
 # =============================================================================
 
 class TestBvhRotationMethods:
-    """Tests for Bvh.to_6d, to_quaternions, etc."""
+    """Tests for Bvh.to_6d, to_quat, etc."""
 
     def test_to_rotmat_shape(self, bvh_example):
         """to_rotmat should return correct shapes."""
@@ -407,9 +407,9 @@ class TestBvhRotationMethods:
         assert root_pos.shape == (75, 3)
         assert joint_rot6d.shape == (75, num_joints, 6)
 
-    def test_to_quaternions_shape(self, bvh_example):
-        """to_quaternions should return correct shapes."""
-        root_pos, joint_quats = bvh_example.to_quaternions()
+    def test_to_quat_shape(self, bvh_example):
+        """to_quat should return correct shapes."""
+        root_pos, joint_quats = bvh_example.to_quat()
         num_joints = len([n for n in bvh_example.nodes if not n.is_end_site()])
         assert root_pos.shape == (75, 3)
         assert joint_quats.shape == (75, num_joints, 4)
@@ -430,12 +430,12 @@ class TestBvhRotationMethods:
             err_msg="6D round-trip did not preserve joint_angles")
 
     def test_quaternion_roundtrip_through_bvh(self, bvh_example):
-        """Bvh → quaternion → from_quaternions should preserve data."""
+        """Bvh → quaternion → from_quat should preserve data."""
         original_root_pos = bvh_example.root_pos.copy()
         original_joint_angles = bvh_example.joint_angles.copy()
 
-        root_pos, joint_quats = bvh_example.to_quaternions()
-        bvh_example.from_quaternions(root_pos, joint_quats, inplace=True)
+        root_pos, joint_quats = bvh_example.to_quat()
+        bvh_example.from_quat(root_pos, joint_quats, inplace=True)
 
         np.testing.assert_allclose(
             bvh_example.root_pos, original_root_pos, atol=1e-6,
@@ -470,12 +470,12 @@ class TestBvhRotationMethods:
         with pytest.raises(ValueError):
             bvh_example.from_6d(root_pos, wrong_6d, inplace=True)
 
-    def test_from_quaternions_wrong_joints_raises(self, bvh_example):
-        """from_quaternions with wrong number of joints should raise."""
+    def test_from_quat_wrong_joints_raises(self, bvh_example):
+        """from_quat with wrong number of joints should raise."""
         root_pos = bvh_example.root_pos
         wrong_quats = np.zeros((75, 5, 4))
         with pytest.raises(ValueError):
-            bvh_example.from_quaternions(root_pos, wrong_quats, inplace=True)
+            bvh_example.from_quat(root_pos, wrong_quats, inplace=True)
 
 
 # =============================================================================

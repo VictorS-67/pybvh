@@ -58,7 +58,7 @@ bvh.joint_names       # ['Hips', 'Spine', ...] (excludes end sites)
 coords = bvh.node_positions()  # (F, N, 3)
 
 # Convert to other rotation representations
-root_pos, quats = bvh.to_quaternions()   # (F, 3), (F, J, 4)
+root_pos, quats = bvh.to_quat()          # (F, 3), (F, J, 4)
 root_pos, rot6d = bvh.to_6d()            # (F, 3), (F, J, 6)
 
 # Write back to file
@@ -80,7 +80,7 @@ data = batch_to_numpy(clips, representation="6d", pad=True)
 # shape: (batch, max_frames, features)
 ```
 
-Supported representations: `"euler"`, `"quaternion"`, `"6d"`, `"axisangle"`, `"rotmat"`.
+Supported representations: `"euler"`, `"quat"`, `"6d"`, `"axisangle"`, `"rotmat"`.
 
 ## Motion Analysis
 
@@ -166,8 +166,8 @@ bvh_retarget = bvh.retarget(reference_bvh)
 bvh_upper = bvh.extract_joints(["Hips", "Spine", "Neck", "Head"])
 
 # Slice and concatenate frames
-clip = bvh.slice_frames(10, 50)
-combined = bvh.concat(other_bvh)
+clip = bvh[10:50]
+combined = bvh + other_bvh
 
 # Resample to a different frame rate
 bvh_30fps = bvh.resample(30)
@@ -236,7 +236,7 @@ df = pd.DataFrame(bvh.to_df_dict(mode="euler"))
 
 # DataFrame back to BVH
 from pybvh import df_to_bvh
-bvh_from_df = df_to_bvh(bvh.hierarchy_info_as_dict(), df)
+bvh_from_df = df_to_bvh(bvh.to_hierarchy_dict(), df)
 ```
 
 ## Tutorials

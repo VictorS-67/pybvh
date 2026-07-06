@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path as _Path
-
 __version__ = "0.8.0"
 
 from .bvh import Bvh
@@ -21,16 +19,3 @@ from . import transforms
 from . import geometry
 from . import analysis
 from . import packing
-
-
-def api_rename_path() -> _Path:
-    """Return the on-disk path to the bundled `API_RENAME.md` reference.
-
-    The file documents every renamed / removed symbol from earlier
-    pybvh versions, with the new name to use instead. Useful when
-    migrating downstream code:
-
-        >>> import pybvh
-        >>> print(pybvh.api_rename_path().read_text())
-    """
-    return _Path(__file__).parent / "API_RENAME.md"

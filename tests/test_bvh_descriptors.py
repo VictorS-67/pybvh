@@ -157,6 +157,19 @@ def test_jerk_wrappers_match_module():
     np.testing.assert_allclose(bvh.joint_jerk(), analysis.joint_jerk(bvh))
 
 
+def test_speed_derivative_wrappers_match_module():
+    bvh = _bvh()
+    np.testing.assert_allclose(bvh.node_speed_derivative(),
+                               analysis.node_speed_derivative(bvh))
+    np.testing.assert_allclose(bvh.joint_speed_derivative(),
+                               analysis.joint_speed_derivative(bvh))
+    # coords= passthrough
+    coords = bvh.node_positions() + 3.0
+    np.testing.assert_allclose(
+        bvh.node_speed_derivative(coords=coords),
+        analysis.node_speed_derivative(bvh, coords=coords))
+
+
 def test_smoothness_wrapper_uses_joint_speed():
     bvh = make_pos_y_up_rotating_bvh()
     idx = bvh.index("LeftFoot", space="node")

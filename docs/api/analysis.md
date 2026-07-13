@@ -24,6 +24,14 @@ The finite-difference kinematics ladder over FK positions and rotations.
     options:
       heading_level: 3
 
+::: pybvh.analysis.node_speed_derivative
+    options:
+      heading_level: 3
+
+::: pybvh.analysis.joint_speed_derivative
+    options:
+      heading_level: 3
+
 ::: pybvh.analysis.angular_velocities
     options:
       heading_level: 3
@@ -58,7 +66,7 @@ The third rung of the velocity → acceleration → jerk ladder.
 
 ## Smoothness metrics
 
-Array-pure kernels on a 1-D speed profile, plus the `smoothness(metric=…)` dispatcher.
+Array-pure kernels on a speed profile — `(T,)` for a scalar, or `(T, K)` reduced per column — plus the `smoothness(metric=…)` dispatcher.
 
 ::: pybvh.analysis.sparc
     options:

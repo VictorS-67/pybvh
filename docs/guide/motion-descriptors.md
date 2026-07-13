@@ -32,12 +32,7 @@ kinematics derivatives stay consistent when you combine them.
 
 ## Analysis — how the body moves
 
-`pybvh.analysis` adds dynamics on top of the kinematics it already owned:
-`node_jerk`/`joint_jerk` (the third rung of the velocity → acceleration ladder);
-**smoothness** of a speed profile via SPARC, dimensionless jerk, log
-dimensionless jerk, number of peaks, and a `smoothness(metric=…)` dispatcher;
-`kinetic_energy`; gait (`cadence`, `stride_length`, `walking_pace`); peak-to-peak
-`range_of_motion`; and covariance descriptors (`cov3dj`, `lagged_covariance`).
+`pybvh.analysis` adds dynamics on top of the kinematics it already owned: `node_jerk`/`joint_jerk` (the third rung of the velocity → acceleration ladder) and `node_speed_derivative`/`joint_speed_derivative` (the ladder's tangential rung — the per-frame `d‖v‖/dt`, positive while a joint speeds up and negative while it brakes; distinct from `node_accelerations`, whose norm also counts direction changes); **smoothness** of a speed profile via SPARC, dimensionless jerk, log dimensionless jerk, number of peaks, and a `smoothness(metric=…)` dispatcher — every speed-profile kernel also reduces a `(T, K)` stack of profiles per column; `kinetic_energy`; gait (`cadence`, `stride_length`, `walking_pace`); peak-to-peak `range_of_motion`; and covariance descriptors (`cov3dj`, `lagged_covariance`).
 
 ## SE(3) — rigid-transform features
 

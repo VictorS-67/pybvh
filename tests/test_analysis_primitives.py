@@ -9,7 +9,8 @@ import numpy as np
 import pytest
 
 from pybvh import analysis
-from synthetic_bvh import make_pos_y_up_bvh, make_neg_y_up_bvh
+from synthetic_bvh import (make_clip_bvh, make_pos_y_up_bvh,
+                           make_neg_y_up_bvh, make_pos_y_up_rotating_bvh)
 
 
 # ----------------------------------------------------------------
@@ -49,6 +50,81 @@ def test_jerk_too_short_raises():
 
 
 # ----------------------------------------------------------------
+#  Speed derivative (tangential acceleration d‖v‖/dt)
+# ----------------------------------------------------------------
+
+def _sculpted_coords(bvh, traj):
+    """Node-shaped ``(F, N, 3)`` coords with every node following ``traj``."""
+    F, N = bvh.frame_count, len(bvh.nodes)
+    return np.broadcast_to(traj[:, None, :], (F, N, 3)).copy()
+
+
+def test_speed_derivative_zero_on_uniform_circular_motion():
+    # constant speed, changing direction: d‖v‖/dt ~ 0 everywhere while the
+    # (centripetal) acceleration vector is large — the delta-of-norm is NOT
+    # recoverable from the norm-of-delta (node_accelerations).
+    bvh = make_clip_bvh(n_frames=60, frame_time=1.0 / 30.0)
+    t = np.arange(bvh.frame_count) * bvh.frame_time
+    omega, radius = 2.0 * np.pi, 5.0
+    circle = np.stack([radius * np.cos(omega * t),
+                       np.zeros_like(t),
+                       radius * np.sin(omega * t)], axis=-1)
+    coords = _sculpted_coords(bvh, circle)
+    sd = analysis.node_speed_derivative(bvh, coords=coords,
+                                        stencil="central", pad="none")
+    acc = analysis.node_accelerations(bvh, coords=coords,
+                                      stencil="central", pad="none")
+    np.testing.assert_allclose(sd, 0.0, atol=1e-9)
+    # centripetal magnitude ~ omega^2 * radius ~ 197 units/s^2
+    assert np.linalg.norm(acc, axis=-1).min() > 100.0
+
+
+def test_speed_derivative_matches_analytic_on_accelerating_line():
+    # p(t) = 1/2 a t^2 x̂ -> speed = a t -> d‖v‖/dt = a; the central stencil
+    # is exact on quadratics, so pad="none" recovers a exactly.
+    bvh = make_clip_bvh(n_frames=20, frame_time=1.0 / 30.0)
+    t = np.arange(bvh.frame_count) * bvh.frame_time
+    a = 3.0
+    line = np.zeros((bvh.frame_count, 3))
+    line[:, 0] = 0.5 * a * t ** 2
+    coords = _sculpted_coords(bvh, line)
+    sd = analysis.node_speed_derivative(bvh, coords=coords,
+                                        stencil="central", pad="none")
+    np.testing.assert_allclose(sd, a, atol=1e-9)
+
+
+def test_joint_speed_derivative_is_node_variant_on_joints():
+    bvh = make_pos_y_up_rotating_bvh()
+    nsd = analysis.node_speed_derivative(bvh)
+    jsd = analysis.joint_speed_derivative(bvh)
+    joint_idx = [i for i, n in enumerate(bvh.nodes) if not n.is_end_site()]
+    np.testing.assert_allclose(jsd, nsd[:, joint_idx])
+
+
+def test_speed_derivative_shapes_per_stencil_pad():
+    bvh = make_pos_y_up_bvh()  # F = 10
+    n = len(bvh.nodes)
+    assert analysis.node_speed_derivative(bvh, stencil="central", pad="edge").shape == (10, n)
+    assert analysis.node_speed_derivative(bvh, stencil="central", pad="none").shape == (6, n)
+    assert analysis.node_speed_derivative(bvh, stencil="forward", pad="edge").shape == (10, n)
+    assert analysis.node_speed_derivative(bvh, stencil="forward", pad="none").shape == (8, n)
+
+
+def test_speed_derivative_too_short_raises():
+    bvh = make_pos_y_up_bvh()
+    short = bvh[0:4]  # 4 frames < 5 needed for central+none (two applications)
+    with pytest.raises(ValueError):
+        analysis.node_speed_derivative(short, stencil="central", pad="none")
+
+
+def test_joint_speed_derivative_rejects_joint_shaped_coords():
+    bvh = make_pos_y_up_bvh()
+    joint_coords = bvh.node_positions()[:, :bvh.joint_count, :]
+    with pytest.raises(ValueError, match="node-shaped"):
+        analysis.joint_speed_derivative(bvh, coords=joint_coords)
+
+
+# ----------------------------------------------------------------
 #  Smoothness dispatcher + simple kernels
 # ----------------------------------------------------------------
 
@@ -85,6 +161,91 @@ def test_smoothness_dispatcher_matches_kernels_and_rejects_unknown():
 
 
 # ----------------------------------------------------------------
+#  Trailing-axis (batched) reduction kernels
+# ----------------------------------------------------------------
+
+_ALL_SMOOTHNESS_METRICS = [
+    "sparc", "dimensionless_jerk", "log_dimensionless_jerk",
+    "integrated_squared_jerk", "mean_squared_jerk", "rms_squared_jerk",
+    "number_of_peaks", "speed_metric",
+]
+
+
+@pytest.mark.parametrize("metric", _ALL_SMOOTHNESS_METRICS)
+def test_smoothness_kernels_batch_equals_python_loop(metric):
+    rng = np.random.default_rng(3)
+    speeds = np.abs(rng.normal(size=(64, 5))) + 0.1
+    fs = 100.0
+    batched = analysis.smoothness(speeds, fs, metric=metric)
+    looped = np.array([analysis.smoothness(speeds[:, k], fs, metric=metric)
+                       for k in range(speeds.shape[1])])
+    assert batched.shape == (5,)
+    # last-ulp tolerance: axis-0 reductions may sum in a different order
+    # than the contiguous 1-D column reduction
+    np.testing.assert_allclose(batched, looped, rtol=1e-12)
+
+
+def test_velocity_reductions_batch_equals_python_loop():
+    rng = np.random.default_rng(4)
+    speeds = np.abs(rng.normal(size=(50, 5)))
+    fs = 30.0
+    batched = analysis.velocity_reductions(speeds, fs)
+    for k in range(speeds.shape[1]):
+        single = analysis.velocity_reductions(speeds[:, k], fs)
+        for field_batched, field_single in zip(batched, single):
+            assert field_batched.shape == (5,)
+            np.testing.assert_allclose(field_batched[k], field_single,
+                                       rtol=1e-12)
+
+
+def test_active_duration_batch_equals_python_loop():
+    rng = np.random.default_rng(5)
+    speeds = np.abs(rng.normal(size=(40, 5)))
+    batched = analysis.active_duration(speeds, threshold=0.5, fs=2.0)
+    looped = np.array([analysis.active_duration(speeds[:, k], 0.5, 2.0)
+                       for k in range(speeds.shape[1])])
+    assert batched.shape == (5,)
+    np.testing.assert_array_equal(batched, looped)
+
+
+def test_batched_kernels_per_column_nan_isolation():
+    # a degenerate column goes nan on its own; its neighbors are unaffected
+    rng = np.random.default_rng(6)
+    speeds = np.abs(rng.normal(size=(64, 3))) + 0.1
+    speeds[:, 1] = 0.0  # zero peak -> nan (sparc / DLJ / speed_metric)
+    for metric in ("sparc", "dimensionless_jerk", "speed_metric"):
+        out = analysis.smoothness(speeds, 100.0, metric=metric)
+        assert np.isnan(out[1])
+        assert np.isfinite(out[[0, 2]]).all()
+    # LDLJ: a constant-speed column is perfectly smooth -> +inf, per column
+    speeds[:, 1] = 2.0
+    ldlj = analysis.smoothness(speeds, 100.0, metric="log_dimensionless_jerk")
+    assert ldlj[1] == np.inf
+    assert np.isfinite(ldlj[[0, 2]]).all()
+
+
+def test_velocity_reductions_batch_per_column_nan_and_clamp():
+    speeds = np.zeros((10, 2))
+    speeds[:, 1] = np.linspace(0.0, 1.0, 10)  # monotonically rising
+    vr = analysis.velocity_reductions(speeds, fs=1.0)
+    assert np.isnan(vr.peak_to_mean[0])       # zero-mean column -> nan
+    np.testing.assert_allclose(vr.peak_to_mean[1], 2.0)  # 1.0 / 0.5
+    assert vr.peak_deceleration[1] == 0.0     # never falls -> clamped at 0
+    assert vr.peak_acceleration[0] == 0.0     # never rises -> clamped at 0
+
+
+def test_reduction_kernels_reject_higher_rank_input():
+    bad = np.ones((4, 3, 2))
+    with pytest.raises(ValueError, match=r"\(T,\)"):
+        analysis.velocity_reductions(bad, fs=1.0)
+    with pytest.raises(ValueError, match=r"\(T, K\)"):
+        analysis.active_duration(bad, threshold=0.5, fs=1.0)
+    for metric in _ALL_SMOOTHNESS_METRICS:
+        with pytest.raises(ValueError, match=r"\(T, K\)"):
+            analysis.smoothness(bad, 100.0, metric=metric)
+
+
+# ----------------------------------------------------------------
 #  Signal reductions
 # ----------------------------------------------------------------
 
@@ -110,6 +271,24 @@ def test_velocity_reductions_directional_rates_clamp_at_zero():
     vr = analysis.velocity_reductions(falling, fs=1.0)
     assert vr.peak_acceleration == 0.0
     np.testing.assert_allclose(vr.peak_deceleration, 1.0)
+
+
+def test_velocity_reductions_extrema_are_speed_derivative_extrema():
+    # peak_acceleration / peak_deceleration are the clamped positive/negative
+    # extrema of the per-frame d‖v‖/dt series: velocity_reductions on the
+    # forward/none speed profile must agree with node_speed_derivative under
+    # the same convention. Asserted so the two can never drift apart.
+    bvh = make_pos_y_up_rotating_bvh()
+    fs = 1.0 / bvh.frame_time
+    speed = np.linalg.norm(
+        analysis.node_velocities(bvh, stencil="forward", pad="none"), axis=-1)
+    sd = analysis.node_speed_derivative(bvh, stencil="forward", pad="none")
+    vr = analysis.velocity_reductions(speed, fs)
+    assert (sd > 0).any() and (sd < 0).any()  # non-degenerate motion
+    np.testing.assert_allclose(
+        vr.peak_acceleration, np.maximum(sd.max(axis=0), 0.0), rtol=1e-12)
+    np.testing.assert_allclose(
+        vr.peak_deceleration, np.maximum(-sd.min(axis=0), 0.0), rtol=1e-12)
 
 
 def test_zero_crossings_count_and_axis():

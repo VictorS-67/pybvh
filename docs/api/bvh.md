@@ -260,6 +260,14 @@ The velocity ladder, the root-trajectory features, and foot-contact detection (s
     options:
       heading_level: 3
 
+::: pybvh.bvh.Bvh.joint_speed_derivative
+    options:
+      heading_level: 3
+
+::: pybvh.bvh.Bvh.node_speed_derivative
+    options:
+      heading_level: 3
+
 ::: pybvh.bvh.Bvh.angular_velocities
     options:
       heading_level: 3

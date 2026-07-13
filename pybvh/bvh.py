@@ -2232,6 +2232,34 @@ class Bvh:
             self, centered=centered, in_frames=in_frames, coords=coords,
             stencil=stencil, pad=pad)
 
+    def joint_speed_derivative(
+        self,
+        centered: str = "world",
+        in_frames: bool = False,
+        coords: npt.NDArray[np.float64] | None = None,
+        stencil: str = "central",
+        pad: str = "edge",
+    ) -> npt.NDArray[np.float64]:
+        """Per-joint rate of change of speed ``d‖v‖/dt`` — shape ``(F, J)``. See :func:`pybvh.analysis.joint_speed_derivative`."""
+        from . import analysis
+        return analysis.joint_speed_derivative(
+            self, centered=centered, in_frames=in_frames, coords=coords,
+            stencil=stencil, pad=pad)
+
+    def node_speed_derivative(
+        self,
+        centered: str = "world",
+        in_frames: bool = False,
+        coords: npt.NDArray[np.float64] | None = None,
+        stencil: str = "central",
+        pad: str = "edge",
+    ) -> npt.NDArray[np.float64]:
+        """Per-node rate of change of speed ``d‖v‖/dt`` (joints + end sites) — shape ``(F, N)``. See :func:`pybvh.analysis.node_speed_derivative`."""
+        from . import analysis
+        return analysis.node_speed_derivative(
+            self, centered=centered, in_frames=in_frames, coords=coords,
+            stencil=stencil, pad=pad)
+
     def angular_velocities(
         self,
         in_frames: bool = False,

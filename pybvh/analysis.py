@@ -351,6 +351,147 @@ def joint_accelerations(
     return na[:, _non_end_site_indices(bvh), :]
 
 
+def node_speed_derivative(
+    bvh: Bvh,
+    centered: str = "world",
+    in_frames: bool = False,
+    coords: npt.NDArray[np.float64] | None = None,
+    stencil: str = "central",
+    pad: str = "edge",
+) -> npt.NDArray[np.float64]:
+    """Per-node rate of change of speed ``d‖v‖/dt`` (joints + end sites).
+
+    Computes the per-node speed ``‖v‖`` from :func:`node_velocities`, then
+    applies the same finite-difference stencil once more to that scalar
+    series.  Positive values mean the node is *speeding up*, negative
+    values mean it is *slowing down* — the natural "is the movement
+    accelerating or braking" signal, independent of direction changes.
+
+    This is the **tangential acceleration** ``a_t = d‖v‖/dt`` of the
+    node's trajectory.  The complementary normal (centripetal) component
+    is ``a_n = ‖v‖² · κ`` with ``κ`` the trajectory curvature
+    (:func:`pybvh.geometry.curvature`), and the two decompose the full
+    acceleration vector: ``a_t² + a_n² = ‖a‖²``.
+
+    It is **not recoverable from** :func:`node_accelerations`: this is
+    the difference of the norm (``Δ‖v⃗‖``), not the norm of the
+    difference (``‖Δv⃗‖ = ‖a⃗‖``).  A direction change at constant speed
+    gives ``‖a⃗‖ > 0`` but ``d‖v‖/dt = 0``.
+
+    Parameters
+    ----------
+    bvh : Bvh
+        Input motion.
+    centered : str, optional
+        Coordinate centering mode (default ``"world"``).
+        **Ignored if `coords` is provided** — `coords` takes precedence.
+    in_frames : bool, optional
+        If True, return the rate in units/frame^2.
+        If False (default), return in units/second^2.
+    coords : ndarray, shape (F, N, 3), optional
+        Pre-computed spatial coordinates. If None, computed
+        internally via :meth:`Bvh.node_positions`.
+    stencil : {"central", "forward"}, optional
+        Finite-difference method, applied at both stages (positions →
+        velocities, speed → its derivative).  Default ``"central"``.
+    pad : {"edge", "none"}, optional
+        Boundary handling, applied at both stages.  ``"edge"``
+        (default): output shape equals input length ``(F, N)``.
+        ``"none"``: drop boundary frames the repeated stencil can't
+        define — central drops 4 frames total ``(F-4, N)``; forward
+        drops 2 ``(F-2, N)``.
+
+    Returns
+    -------
+    ndarray
+        Shape depends on ``stencil`` × ``pad`` — the frame trimming of
+        :func:`node_accelerations`, without the trailing 3-axis:
+
+        =========  ======  ================
+        stencil    pad     shape
+        =========  ======  ================
+        central    edge    ``(F, N)``
+        central    none    ``(F-4, N)``
+        forward    edge    ``(F, N)``
+        forward    none    ``(F-2, N)``
+        =========  ======  ================
+
+    See Also
+    --------
+    joint_speed_derivative : Same data restricted to non-end-site
+        joints (``(F, J)``).
+    node_accelerations : The vector second derivative — its norm is the
+        full ``‖a‖``, of which this is the tangential component.
+    velocity_reductions : ``peak_acceleration`` / ``peak_deceleration``
+        are the extrema of this series (``stencil="forward"``,
+        ``pad="none"``).
+
+    Raises
+    ------
+    ValueError
+        If the clip is too short for the chosen combination,
+        ``frame_time == 0`` when ``in_frames=False``, or either
+        parameter is invalid.  Minimum frames match
+        :func:`node_accelerations` (two stencil applications): 3 for
+        ``central``+``edge``, ``forward``+``edge``, and
+        ``forward``+``none``; 5 for ``central``+``none``.
+
+    Notes
+    -----
+    Source: Hachimura et al. 2005 (Time Effort).
+    """
+    _validate_stencil_pad(stencil, pad)
+    min_frames = _finite_difference_min_frames(2, stencil, pad)
+    if bvh.frame_count < min_frames:
+        raise ValueError(
+            f"stencil={stencil!r}, pad={pad!r} requires at least "
+            f"{min_frames} frames (have {bvh.frame_count})."
+        )
+    if not in_frames and bvh.frame_time == 0:
+        raise ValueError(
+            "frame_time is 0; cannot compute a per-second speed derivative. "
+            "Use in_frames=True for per-frame units.")
+
+    vel = node_velocities(
+        bvh, centered=centered, in_frames=in_frames, coords=coords,
+        stencil=stencil, pad=pad)
+    speed = np.linalg.norm(vel, axis=-1)
+    dt = 1.0 if in_frames else bvh.frame_time
+    return _finite_difference(speed, dt, 1, stencil, pad)
+
+
+def joint_speed_derivative(
+    bvh: Bvh,
+    centered: str = "world",
+    in_frames: bool = False,
+    coords: npt.NDArray[np.float64] | None = None,
+    stencil: str = "central",
+    pad: str = "edge",
+) -> npt.NDArray[np.float64]:
+    """Per-joint rate of change of speed ``d‖v‖/dt`` (end sites excluded).
+
+    Returns the joint-axis subset of :func:`node_speed_derivative` —
+    same two-stage finite-difference math, restricted to non-end-site
+    joints so output indexes match :attr:`Bvh.joint_angles`. Output
+    shape is ``(F, J)`` (or the appropriate trimmed variant per
+    ``stencil`` × ``pad``).
+
+    See :func:`node_speed_derivative` for the full parameter / shape /
+    sign-semantics docs.
+
+    Raises
+    ------
+    ValueError
+        If ``coords`` is not node-shaped ``(F, N, 3)`` (in addition to
+        the :func:`node_speed_derivative` conditions).
+    """
+    _validate_node_coords(bvh, coords)
+    sd = node_speed_derivative(
+        bvh, centered=centered, in_frames=in_frames, coords=coords,
+        stencil=stencil, pad=pad)
+    return sd[:, _non_end_site_indices(bvh)]
+
+
 # ----------------------------------------------------------------
 #  Angular velocities
 # ----------------------------------------------------------------
@@ -1703,56 +1844,28 @@ def joint_jerk(
 
 
 # ----------------------------------------------------------------
-#  Smoothness — array-pure kernels on a 1-D speed profile
+#  Smoothness — array-pure kernels on a speed profile
 # ----------------------------------------------------------------
+#  Every kernel accepts a 1-D ``(T,)`` profile (scalar out) or a 2-D
+#  ``(T, K)`` stack of profiles reduced independently per column
+#  (``(K,)`` out). ``_validate_speed_profile`` rejects anything else up
+#  front — silently reducing a higher-rank array globally produced
+#  plausible-looking garbage.
 
-def sparc(
-    speed: npt.NDArray[np.float64],
-    fs: float,
-    padlevel: int = 4,
-    fc: float = 10.0,
-    amp_th: float = 0.05,
+def _validate_speed_profile(speed: npt.NDArray[np.float64]) -> None:
+    if speed.ndim not in (1, 2):
+        raise ValueError(
+            f"speed must have shape (T,) — one profile — or (T, K) — K "
+            f"profiles reduced per column; got shape {speed.shape}.")
+
+
+def _sparc_from_spectrum(
+    freq: npt.NDArray[np.float64],
+    mag: npt.NDArray[np.float64],
+    fc: float,
+    amp_th: float,
 ) -> float:
-    """Spectral arc length (SPARC) smoothness of a speed profile.
-
-    The negative arc length of the normalized Fourier magnitude spectrum
-    over ``[0, fc]`` Hz — a smoothness measure that is robust to noise and
-    invariant to amplitude/duration. Values are ``≤ 0``; closer to ``0``
-    is smoother.
-
-    Parameters
-    ----------
-    speed : ndarray, shape (T,)
-        1-D speed (magnitude) profile.
-    fs : float
-        Sampling rate in Hz.
-    padlevel : int, optional
-        Zero-padding exponent: ``nfft = 2**(ceil(log2(T)) + padlevel)``
-        (default 4).
-    fc : float, optional
-        Upper cutoff frequency in Hz (default 10.0).
-    amp_th : float, optional
-        Normalized amplitude threshold selecting the spectral band
-        (default 0.05).
-
-    Returns
-    -------
-    float
-        The spectral arc length (SAL). ``nan`` for a zero speed profile
-        (a perfectly still joint), whose spectrum carries no energy and
-        whose smoothness is therefore undefined.
-
-    Notes
-    -----
-    Source: Balasubramanian et al. 2015, "On the analysis of movement
-    smoothness." Reimplemented in NumPy; validated against the authors'
-    reference output (see ``tests/test_smoothness_golden.py``).
-    """
-    speed = np.asarray(speed, dtype=np.float64)
-    n = speed.shape[0]
-    nfft = int(2 ** (np.ceil(np.log2(n)) + padlevel))
-    freq = fs * np.arange(nfft) / nfft
-    mag = np.abs(np.fft.fft(speed, nfft))
+    """SPARC of one magnitude spectrum (the original 1-D code path)."""
     peak = mag.max()
     if peak == 0:
         return float("nan")  # flat/zero speed: spectrum is degenerate
@@ -1776,10 +1889,70 @@ def sparc(
     return float(-arc.sum())
 
 
+def sparc(
+    speed: npt.NDArray[np.float64],
+    fs: float,
+    padlevel: int = 4,
+    fc: float = 10.0,
+    amp_th: float = 0.05,
+) -> float | npt.NDArray[np.float64]:
+    """Spectral arc length (SPARC) smoothness of a speed profile.
+
+    The negative arc length of the normalized Fourier magnitude spectrum
+    over ``[0, fc]`` Hz — a smoothness measure that is robust to noise and
+    invariant to amplitude/duration. Values are ``≤ 0``; closer to ``0``
+    is smoother.
+
+    Parameters
+    ----------
+    speed : ndarray, shape (T,) or (T, K)
+        Speed (magnitude) profile. A 2-D input is ``K`` independent
+        profiles in columns, reduced per column (the FFT is batched
+        along the time axis; each column's result is identical to the
+        1-D call on that column).
+    fs : float
+        Sampling rate in Hz.
+    padlevel : int, optional
+        Zero-padding exponent: ``nfft = 2**(ceil(log2(T)) + padlevel)``
+        (default 4).
+    fc : float, optional
+        Upper cutoff frequency in Hz (default 10.0).
+    amp_th : float, optional
+        Normalized amplitude threshold selecting the spectral band
+        (default 0.05).
+
+    Returns
+    -------
+    float or ndarray
+        The spectral arc length (SAL) — a scalar for ``(T,)`` input, a
+        ``(K,)`` array for ``(T, K)``. ``nan`` for a zero speed profile
+        (a perfectly still joint), whose spectrum carries no energy and
+        whose smoothness is therefore undefined.
+
+    Notes
+    -----
+    Source: Balasubramanian et al. 2015, "On the analysis of movement
+    smoothness." Reimplemented in NumPy; validated against the authors'
+    reference output (see ``tests/test_smoothness_golden.py``).
+    """
+    speed = np.asarray(speed, dtype=np.float64)
+    _validate_speed_profile(speed)
+    n = speed.shape[0]
+    nfft = int(2 ** (np.ceil(np.log2(n)) + padlevel))
+    freq = fs * np.arange(nfft) / nfft
+    mag = np.abs(np.fft.fft(speed, nfft, axis=0))
+    if speed.ndim == 1:
+        return _sparc_from_spectrum(freq, mag, fc, amp_th)
+    # the band bounds (lo, hi) are data-dependent per column, so the
+    # arc-length tail stays a per-column pass over the batched spectrum
+    return np.array([_sparc_from_spectrum(freq, mag[:, k], fc, amp_th)
+                     for k in range(speed.shape[1])])
+
+
 def dimensionless_jerk(
     speed: npt.NDArray[np.float64],
     fs: float,
-) -> float:
+) -> float | npt.NDArray[np.float64]:
     """Dimensionless jerk (DLJ) smoothness of a speed profile.
 
     ``-(duration³ / peak²) · ∫ (d²v/dt²)² dt`` — scale-invariant integrated
@@ -1787,15 +1960,17 @@ def dimensionless_jerk(
 
     Parameters
     ----------
-    speed : ndarray, shape (T,)
-        1-D speed profile.
+    speed : ndarray, shape (T,) or (T, K)
+        Speed profile; a 2-D input is ``K`` independent profiles in
+        columns, reduced per column.
     fs : float
         Sampling rate in Hz.
 
     Returns
     -------
-    float
-        The dimensionless jerk (``≤ 0``). ``nan`` for an all-zero speed
+    float or ndarray
+        The dimensionless jerk (``≤ 0``) — a scalar for ``(T,)`` input,
+        a ``(K,)`` array for ``(T, K)``. ``nan`` for an all-zero speed
         profile (zero peak — the normalization is undefined), matching
         the degenerate-input convention of :func:`sparc` and
         :func:`speed_metric`.
@@ -1806,20 +1981,23 @@ def dimensionless_jerk(
     the reference output.
     """
     speed = np.asarray(speed, dtype=np.float64)
+    _validate_speed_profile(speed)
     dt = 1.0 / fs
     duration = speed.shape[0] * dt
-    peak = np.abs(speed).max()
-    if peak == 0:
-        return float("nan")  # zero speed: peak normalization is undefined
-    jerk = np.diff(speed, 2) / dt ** 2
-    scale = duration ** 3 / peak ** 2
-    return float(-scale * np.sum(jerk ** 2) * dt)
+    peak = np.abs(speed).max(axis=0)
+    jerk = np.diff(speed, 2, axis=0) / dt ** 2
+    with np.errstate(divide="ignore", invalid="ignore"):
+        scale = duration ** 3 / peak ** 2
+        dlj = -scale * np.sum(jerk ** 2, axis=0) * dt
+    # zero speed: peak normalization is undefined
+    dlj = np.where(peak == 0, np.nan, dlj)
+    return float(dlj) if speed.ndim == 1 else dlj
 
 
 def log_dimensionless_jerk(
     speed: npt.NDArray[np.float64],
     fs: float,
-) -> float:
+) -> float | npt.NDArray[np.float64]:
     """Log dimensionless jerk (LDLJ) — ``-ln|DLJ|``.
 
     The log transform of :func:`dimensionless_jerk`, the form most used in
@@ -1827,15 +2005,17 @@ def log_dimensionless_jerk(
 
     Parameters
     ----------
-    speed : ndarray, shape (T,)
-        1-D speed profile.
+    speed : ndarray, shape (T,) or (T, K)
+        Speed profile; a 2-D input is ``K`` independent profiles in
+        columns, reduced per column.
     fs : float
         Sampling rate in Hz.
 
     Returns
     -------
-    float
-        ``-ln|DLJ|``. A zero-jerk (constant-speed) profile is perfectly
+    float or ndarray
+        ``-ln|DLJ|`` — a scalar for ``(T,)`` input, a ``(K,)`` array for
+        ``(T, K)``. A zero-jerk (constant-speed) profile is perfectly
         smooth and returns ``+inf``.
 
     Notes
@@ -1843,12 +2023,16 @@ def log_dimensionless_jerk(
     Source: Balasubramanian et al. Validated against the reference output.
     """
     dlj = dimensionless_jerk(speed, fs)
-    if dlj == 0:
-        return float("inf")  # zero jerk -> perfectly smooth
-    return float(-np.log(np.abs(dlj)))
+    with np.errstate(divide="ignore"):
+        ldlj = np.where(dlj == 0,
+                        np.inf,  # zero jerk -> perfectly smooth
+                        -np.log(np.abs(dlj)))
+    return float(ldlj) if np.ndim(speed) == 1 else ldlj
 
 
-def number_of_peaks(speed: npt.NDArray[np.float64]) -> int:
+def number_of_peaks(
+    speed: npt.NDArray[np.float64],
+) -> int | npt.NDArray[np.int_]:
     """Number of local maxima in a speed profile.
 
     A simple smoothness proxy — a single smooth movement has one velocity
@@ -1856,24 +2040,30 @@ def number_of_peaks(speed: npt.NDArray[np.float64]) -> int:
 
     Parameters
     ----------
-    speed : ndarray, shape (T,)
-        1-D speed profile.
+    speed : ndarray, shape (T,) or (T, K)
+        Speed profile; a 2-D input is ``K`` independent profiles in
+        columns, counted per column.
 
     Returns
     -------
-    int
-        Count of strict interior local maxima.
+    int or ndarray
+        Count of strict interior local maxima — a scalar for ``(T,)``
+        input, a ``(K,)`` array for ``(T, K)``.
 
     Notes
     -----
     Source: Balasubramanian et al. (number-of-peaks metric).
     """
     speed = np.asarray(speed, dtype=np.float64)
+    _validate_speed_profile(speed)
     interior = speed[1:-1]
-    return int(np.sum((interior > speed[:-2]) & (interior > speed[2:])))
+    peaks = np.sum((interior > speed[:-2]) & (interior > speed[2:]), axis=0)
+    return int(peaks) if speed.ndim == 1 else peaks
 
 
-def speed_metric(speed: npt.NDArray[np.float64]) -> float:
+def speed_metric(
+    speed: npt.NDArray[np.float64],
+) -> float | npt.NDArray[np.float64]:
     """Mean-to-peak speed ratio — ``mean(v) / max(v)``, in ``[0, 1]``.
 
     A bell-shaped (smooth) speed profile has a low ratio; a flat plateau
@@ -1881,42 +2071,73 @@ def speed_metric(speed: npt.NDArray[np.float64]) -> float:
 
     Parameters
     ----------
-    speed : ndarray, shape (T,)
-        1-D speed profile.
+    speed : ndarray, shape (T,) or (T, K)
+        Speed profile; a 2-D input is ``K`` independent profiles in
+        columns, reduced per column.
 
     Returns
     -------
-    float
-        The mean/peak ratio.
+    float or ndarray
+        The mean/peak ratio — a scalar for ``(T,)`` input, a ``(K,)``
+        array for ``(T, K)``. ``nan`` for an all-zero profile.
 
     Notes
     -----
     Source: Balasubramanian et al. (speed-metric); Flash & Hogan.
     """
     speed = np.asarray(speed, dtype=np.float64)
-    peak = np.abs(speed).max()
-    return float(speed.mean() / peak) if peak > 0 else float("nan")
+    _validate_speed_profile(speed)
+    peak = np.abs(speed).max(axis=0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.where(peak > 0, speed.mean(axis=0) / peak, np.nan)
+    return float(ratio) if speed.ndim == 1 else ratio
 
 
-def integrated_squared_jerk(speed: npt.NDArray[np.float64], fs: float) -> float:
-    """Integrated squared jerk — ``∫ (d²v/dt²)² dt`` (dimensional)."""
+def integrated_squared_jerk(
+    speed: npt.NDArray[np.float64],
+    fs: float,
+) -> float | npt.NDArray[np.float64]:
+    """Integrated squared jerk — ``∫ (d²v/dt²)² dt`` (dimensional).
+
+    Accepts ``(T,)`` (scalar out) or ``(T, K)`` (``(K,)`` out, reduced
+    per column).
+    """
     speed = np.asarray(speed, dtype=np.float64)
+    _validate_speed_profile(speed)
     dt = 1.0 / fs
-    jerk = np.diff(speed, 2) / dt ** 2
-    return float(np.sum(jerk ** 2) * dt)
+    jerk = np.diff(speed, 2, axis=0) / dt ** 2
+    isj = np.sum(jerk ** 2, axis=0) * dt
+    return float(isj) if speed.ndim == 1 else isj
 
 
-def mean_squared_jerk(speed: npt.NDArray[np.float64], fs: float) -> float:
-    """Mean squared jerk — ``mean((d²v/dt²)²)``."""
+def mean_squared_jerk(
+    speed: npt.NDArray[np.float64],
+    fs: float,
+) -> float | npt.NDArray[np.float64]:
+    """Mean squared jerk — ``mean((d²v/dt²)²)``.
+
+    Accepts ``(T,)`` (scalar out) or ``(T, K)`` (``(K,)`` out, reduced
+    per column).
+    """
     speed = np.asarray(speed, dtype=np.float64)
+    _validate_speed_profile(speed)
     dt = 1.0 / fs
-    jerk = np.diff(speed, 2) / dt ** 2
-    return float(np.mean(jerk ** 2))
+    jerk = np.diff(speed, 2, axis=0) / dt ** 2
+    msj = np.mean(jerk ** 2, axis=0)
+    return float(msj) if speed.ndim == 1 else msj
 
 
-def rms_squared_jerk(speed: npt.NDArray[np.float64], fs: float) -> float:
-    """Root-mean-square jerk — ``sqrt(mean((d²v/dt²)²))``."""
-    return float(np.sqrt(mean_squared_jerk(speed, fs)))
+def rms_squared_jerk(
+    speed: npt.NDArray[np.float64],
+    fs: float,
+) -> float | npt.NDArray[np.float64]:
+    """Root-mean-square jerk — ``sqrt(mean((d²v/dt²)²))``.
+
+    Accepts ``(T,)`` (scalar out) or ``(T, K)`` (``(K,)`` out, reduced
+    per column).
+    """
+    rms = np.sqrt(mean_squared_jerk(speed, fs))
+    return float(rms) if np.ndim(speed) == 1 else rms
 
 
 _SMOOTHNESS_FS_METRICS: dict[str, Callable[..., float]] = {
@@ -1938,13 +2159,14 @@ def smoothness(
     fs: float,
     metric: str = "sparc",
     **kwargs: float,
-) -> float:
-    """Dispatch to a named smoothness metric on a 1-D speed profile.
+) -> float | npt.NDArray[np.float64]:
+    """Dispatch to a named smoothness metric on a speed profile.
 
     Parameters
     ----------
-    speed : ndarray, shape (T,)
-        1-D speed profile.
+    speed : ndarray, shape (T,) or (T, K)
+        Speed profile; a 2-D input is ``K`` independent profiles in
+        columns, reduced per column.
     fs : float
         Sampling rate in Hz.
     metric : str, optional
@@ -1958,8 +2180,9 @@ def smoothness(
 
     Returns
     -------
-    float
-        The selected smoothness scalar.
+    float or ndarray
+        The selected smoothness value — a scalar for ``(T,)`` input, a
+        ``(K,)`` array for ``(T, K)``.
 
     Raises
     ------
@@ -1991,8 +2214,10 @@ def velocity_reductions(
 
     Parameters
     ----------
-    speed : ndarray, shape (T,)
-        1-D speed profile.
+    speed : ndarray, shape (T,) or (T, K)
+        Speed profile; a 2-D input is ``K`` independent profiles in
+        columns, reduced per column (every field of the result becomes
+        a ``(K,)`` array).
     fs : float
         Sampling rate in Hz; scales ``peak_acceleration`` and
         ``peak_deceleration`` into units/second².  Required — like the
@@ -2003,22 +2228,40 @@ def velocity_reductions(
     -------
     VelocityReductions
         Named tuple ``(peak, mean, peak_to_mean, peak_acceleration,
-        peak_deceleration)``. ``peak_acceleration`` is the largest
+        peak_deceleration)`` — floats for ``(T,)`` input, ``(K,)``
+        arrays for ``(T, K)``. ``peak_acceleration`` is the largest
         instantaneous rate of speed *increase* and ``peak_deceleration``
         the largest rate of speed *decrease*; both are ``>= 0`` (``0`` when
         the speed never rises / never falls).
 
     Notes
     -----
+    ``peak_acceleration`` and ``peak_deceleration`` are the positive and
+    negative extrema (clamped at 0) of the per-frame speed-derivative
+    series ``d‖v‖/dt``: when ``speed`` is the norm of
+    :func:`node_velocities` with ``stencil="forward"``, ``pad="none"``,
+    they equal the extrema of :func:`node_speed_derivative` under the
+    same convention (asserted in the test suite so the two can't drift).
+
     Source: Pollick et al., Halovic & Kroos, Samadani et al.
     """
     speed = np.asarray(speed, dtype=np.float64)
-    peak = float(speed.max())
-    mean = float(speed.mean())
-    rate = np.diff(speed) * fs
-    peak_acceleration = float(max(rate.max(), 0.0)) if rate.size else 0.0
-    peak_deceleration = float(max(-rate.min(), 0.0)) if rate.size else 0.0
-    peak_to_mean = peak / mean if abs(mean) > _EPS else float("nan")
+    _validate_speed_profile(speed)
+    peak = speed.max(axis=0)
+    mean = speed.mean(axis=0)
+    rate = np.diff(speed, axis=0) * fs
+    if rate.shape[0]:
+        peak_acceleration = np.maximum(rate.max(axis=0), 0.0)
+        peak_deceleration = np.maximum(-rate.min(axis=0), 0.0)
+    else:  # single-sample profile: no rate is measurable
+        peak_acceleration = np.zeros_like(peak)
+        peak_deceleration = np.zeros_like(peak)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        peak_to_mean = np.where(np.abs(mean) > _EPS, peak / mean, np.nan)
+    if speed.ndim == 1:
+        return VelocityReductions(
+            float(peak), float(mean), float(peak_to_mean),
+            float(peak_acceleration), float(peak_deceleration))
     return VelocityReductions(peak, mean, peak_to_mean,
                               peak_acceleration, peak_deceleration)
 
@@ -2085,13 +2328,14 @@ def active_duration(
     speed: npt.NDArray[np.float64],
     threshold: float,
     fs: float,
-) -> float:
+) -> float | npt.NDArray[np.float64]:
     """Total time spent active — active sample count / ``fs``.
 
     Parameters
     ----------
-    speed : ndarray
-        Speed signal.
+    speed : ndarray, shape (T,) or (T, K)
+        Speed signal; a 2-D input is ``K`` independent signals in
+        columns, reduced per column.
     threshold : float
         Activity threshold (see :func:`active_segments`).
     fs : float
@@ -2100,10 +2344,14 @@ def active_duration(
 
     Returns
     -------
-    float
-        Active duration in seconds.
+    float or ndarray
+        Active duration in seconds — a scalar for ``(T,)`` input, a
+        ``(K,)`` array for ``(T, K)``.
     """
-    return float(np.count_nonzero(active_segments(speed, threshold)) / fs)
+    active = active_segments(speed, threshold)
+    _validate_speed_profile(active)
+    duration = np.count_nonzero(active, axis=0) / fs
+    return float(duration) if active.ndim == 1 else duration
 
 
 # ----------------------------------------------------------------

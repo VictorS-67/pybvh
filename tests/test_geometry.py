@@ -132,7 +132,20 @@ def test_bounding_ellipsoid_axis_aligned_box():
                         for z in (-3, 3.0)])
     ell = geo.bounding_ellipsoid(corners)
     np.testing.assert_allclose(ell.center, [0, 0, 0], atol=1e-12)
-    np.testing.assert_allclose(np.sort(ell.radii), np.sort(half))
+    # Every corner projects to the per-axis maxima simultaneously
+    # (Σ(x/r)² = 3 at the box half-extents), so the enclosure scaling
+    # grows the radii by exactly √3 and the corners land on the surface.
+    np.testing.assert_allclose(np.sort(ell.radii), np.sort(half) * np.sqrt(3))
+
+
+def test_bounding_ellipsoid_encloses_all_points():
+    rng = np.random.default_rng(4)
+    pts = rng.normal(size=(50, 3)) * np.array([5.0, 2.0, 0.5])
+    ell = geo.bounding_ellipsoid(pts)
+    coords = (pts - ell.center) @ ell.axes
+    norm_sq = np.sum((coords / ell.radii) ** 2, axis=-1)
+    assert np.all(norm_sq <= 1.0 + 1e-9)  # enclosure guarantee
+    assert np.isclose(norm_sq.max(), 1.0)  # tight: the worst point touches
 
 
 def test_center_of_mass_uniform_and_weighted():

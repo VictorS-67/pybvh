@@ -162,6 +162,24 @@ def make_pos_y_up_bvh() -> Bvh:
     return bvh
 
 
+def make_clip_bvh(n_frames: int, frame_time: float) -> Bvh:
+    """+Y up skeleton with ``n_frames`` zero-rotation frames at ``frame_time``.
+
+    For tests that sculpt trajectories via the ``coords=`` escape hatch at
+    controlled frame rates (the fixed-length fixtures below are all
+    ``N_FRAMES`` frames at 30 fps).
+    """
+    up_idx, up_sign, lat_idx, fwd_idx = 1, 1, 0, 2
+    nodes = _build_skeleton(up_idx, up_sign, lat_idx, fwd_idx)
+    n_joints = sum(1 for n in nodes if not n.is_end_site())
+    root_pos, joint_angles = _build_motion(n_frames, up_idx, up_sign, fwd_idx,
+                                            n_joints)
+    bvh = Bvh(nodes=nodes, root_pos=root_pos, joint_angles=joint_angles,
+              frame_time=frame_time)
+    bvh.world_up = '+y'
+    return bvh
+
+
 def make_neg_y_up_bvh() -> Bvh:
     """Inverted -Y up skeleton.  Same physical motion as pos_y, negated Y."""
     up_idx, up_sign, lat_idx, fwd_idx = 1, -1, 0, 2

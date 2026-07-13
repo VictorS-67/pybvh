@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from synthetic_bvh import (  # noqa: E402
     make_pos_y_up_bvh, make_neg_y_up_bvh,
     make_pos_z_up_bvh, make_neg_z_up_bvh,
-    make_pos_y_up_rotating_bvh,
+    make_pos_y_up_rotating_bvh, make_clip_bvh,
 )
 
 
@@ -927,7 +927,10 @@ class TestFootContactsDurationFilters:
         """vel_threshold is in units/second (v0.8.0): the same *frame*
         data reinterpreted at 4x the fps has 4x the per-second foot
         speed, so reproducing the 30 fps labels requires scaling the
-        threshold by 4 (migration: new = old_per_frame / frame_time)."""
+        threshold by 4 (migration: new = old_per_frame / frame_time).
+        Velocity smoothing is disabled to isolate threshold-unit
+        semantics; frame-rate robustness of the default signal is
+        covered by TestFootContactsFrameRateRobustness."""
         bvh_30 = make_pos_y_up_bvh()
         bvh_120 = bvh_30.copy()
         bvh_120.frame_time = bvh_30.frame_time / 4
@@ -935,12 +938,14 @@ class TestFootContactsDurationFilters:
         c_30, info = bvh_30.foot_contacts(
             method="velocity", foot_joints=["LeftLeg", "RightLeg"],
             min_contact_duration=0.0, min_gap_duration=0.0,
+            vel_smooth_duration=0.0,
             return_info=True)
         thr_30 = info["vel_threshold"]                # default, u/s
         c_120_scaled = bvh_120.foot_contacts(
             method="velocity", foot_joints=["LeftLeg", "RightLeg"],
             vel_threshold=4.0 * thr_30,
-            min_contact_duration=0.0, min_gap_duration=0.0)
+            min_contact_duration=0.0, min_gap_duration=0.0,
+            vel_smooth_duration=0.0)
         np.testing.assert_array_equal(c_30, c_120_scaled)
 
     def test_default_vel_threshold_matches_old_per_frame_value_at_30fps(self):
@@ -955,6 +960,143 @@ class TestFootContactsDurationFilters:
         np.testing.assert_allclose(info["vel_threshold"], 0.12 * scale)
         np.testing.assert_allclose(
             info["vel_threshold"] * bvh.frame_time, 0.004 * scale)
+
+
+class TestFootContactsFrameRateRobustness:
+    """The default velocity signal is conditioned over a fixed physical
+    time span (vel_smooth_duration, 1/30 s), so contact detection does
+    not depend on the capture rate: high-fps clips no longer see
+    high-frequency jitter that 30 fps differencing averages out."""
+
+    @staticmethod
+    def _clip(fps, duration, sculpt):
+        """Synthetic clip whose LeftFoot follows ``sculpt(t)`` on one axis.
+
+        Returns (bvh, coords) for the ``coords=`` escape hatch; all other
+        nodes keep the factory motion (irrelevant — tests pass
+        foot_joints=["LeftFoot"]).
+        """
+        n = int(round(duration * fps)) + 1
+        bvh = make_clip_bvh(n, 1.0 / fps)
+        coords = bvh.node_positions().copy()
+        fi = bvh.node_index["LeftFoot"]
+        coords[:, fi, :] = 0.0
+        coords[:, fi, 0] = sculpt(np.arange(n) / fps)
+        return bvh, coords
+
+    @staticmethod
+    def _runs_sec(contacts, fps):
+        """Half-open (onset, offset) times in seconds of column-0 runs."""
+        from pybvh.analysis import _true_runs
+        return [(s / fps, e / fps)
+                for s, e in _true_runs(contacts[:, 0] > 0.5)]
+
+    def test_same_motion_same_labels_across_frame_rates(self):
+        """Swing -> jittery stance -> swing gives the same segmentation at
+        30 and 120 fps.  The stance jitter is 40 Hz (above 30 fps Nyquist):
+        raw 120 fps differencing sees it at ~2 u/s and destroys the stance,
+        while 30 fps differencing averages it out — the default smoothing
+        makes 120 fps match."""
+        def sculpt(t):
+            swing_in = 3.0 * t
+            stance = 2.1 + 0.01 * np.sin(2 * np.pi * 40.0 * (t - 0.7))
+            swing_out = 2.1 + 3.0 * (t - 1.4)
+            return np.where(t < 0.7, swing_in,
+                            np.where(t < 1.4, stance, swing_out))
+
+        runs = {}
+        for fps in (30, 120):
+            bvh, coords = self._clip(fps, 2.0, sculpt)
+            c = bvh.foot_contacts(
+                method="velocity", foot_joints=["LeftFoot"],
+                coords=coords, vel_threshold=1.0)
+            runs[fps] = self._runs_sec(c, fps)
+
+        assert len(runs[30]) == 1, runs[30]
+        assert len(runs[120]) == 1, runs[120]
+        tol = 1.5 / 30.0                      # 1.5 coarse frames
+        assert abs(runs[120][0][0] - runs[30][0][0]) <= tol
+        assert abs(runs[120][0][1] - runs[30][0][1]) <= tol
+
+        # Contrast: raw differencing at 120 fps does NOT recover the stance.
+        bvh, coords = self._clip(120, 2.0, sculpt)
+        c_raw = bvh.foot_contacts(
+            method="velocity", foot_joints=["LeftFoot"],
+            coords=coords, vel_threshold=1.0, vel_smooth_duration=0.0)
+        assert len(self._runs_sec(c_raw, 120)) != 1
+
+    def test_single_frame_spike_does_not_split_stance_at_120fps(self):
+        """A one-frame position glitch produces two raw speed spikes whose
+        +d/-d displacements cancel vectorially inside the smoothing window.
+        Duration filters are pinned to 0 — otherwise the default gap-close
+        would heal the split by itself and the test would be vacuous."""
+        bvh, coords = self._clip(120, 1.0, lambda t: np.zeros_like(t))
+        fi = bvh.node_index["LeftFoot"]
+        coords[60, fi, 0] = 0.02              # raw spikes ~2.4 u/s
+
+        kwargs = dict(method="velocity", foot_joints=["LeftFoot"],
+                      coords=coords, vel_threshold=1.0,
+                      min_contact_duration=0.0, min_gap_duration=0.0)
+        c_default = bvh.foot_contacts(**kwargs)
+        c_raw = bvh.foot_contacts(**kwargs, vel_smooth_duration=0.0)
+        assert len(self._runs_sec(c_default, 120)) == 1
+        assert len(self._runs_sec(c_raw, 120)) == 2
+
+    def test_default_is_noop_at_30fps(self, bvh_example):
+        """At <= 30 fps the smoothing window is 1 frame — labels are
+        bit-identical to the raw adjacent-frame signal."""
+        synthetic = make_pos_y_up_bvh()               # frame_time = 1/30
+        cases = [(synthetic, ["LeftLeg", "RightLeg"]),
+                 (bvh_example, None)]                 # real 30 fps file
+        for bvh, feet in cases:
+            for method in ("velocity", "combined"):
+                c_default = bvh.foot_contacts(
+                    method=method, foot_joints=feet)
+                c_raw = bvh.foot_contacts(
+                    method=method, foot_joints=feet,
+                    vel_smooth_duration=0.0)
+                np.testing.assert_array_equal(c_default, c_raw)
+
+    def test_negative_vel_smooth_duration_raises(self):
+        bvh = make_pos_y_up_bvh()
+        with pytest.raises(ValueError, match="vel_smooth_duration"):
+            bvh.foot_contacts(foot_joints=["LeftLeg", "RightLeg"],
+                              vel_smooth_duration=-0.1)
+
+    def test_info_records_vel_smoothing(self):
+        bvh_30 = make_pos_y_up_bvh()                  # frame_time = 1/30
+        _, info = bvh_30.foot_contacts(
+            method="velocity", foot_joints=["LeftLeg", "RightLeg"],
+            return_info=True)
+        assert info["vel_smooth_duration"] == pytest.approx(1.0 / 30.0)
+        assert info["vel_smooth_frames"] == 1
+
+        bvh_120 = bvh_30.copy()
+        bvh_120.frame_time = 1.0 / 120.0
+        _, info = bvh_120.foot_contacts(
+            method="velocity", foot_joints=["LeftLeg", "RightLeg"],
+            return_info=True)
+        assert info["vel_smooth_frames"] == 4
+
+    def test_no_spurious_contact_at_clip_boundaries(self):
+        """Guards the position-smoothing failure mode: edge-replicated
+        *positions* would fake ~0 speed at the clip edges and invent
+        boundary contacts; replicated *displacements* preserve the speed.
+        Also exercises the _release_open_runs boundary interaction."""
+        def sculpt(t):
+            swing_in = 5.0 * t
+            stance = np.full_like(t, 3.5)
+            swing_out = 3.5 + 5.0 * (t - 1.3)
+            return np.where(t < 0.7, swing_in,
+                            np.where(t < 1.3, stance, swing_out))
+
+        bvh, coords = self._clip(120, 2.0, sculpt)
+        c = bvh.foot_contacts(
+            method="velocity", foot_joints=["LeftFoot"],
+            coords=coords, vel_threshold=1.0)
+        assert not c[:36].any()               # first 0.3 s: moving at 5 u/s
+        assert not c[-36:].any()              # last 0.3 s: moving at 5 u/s
+        assert len(self._runs_sec(c, 120)) == 1
 
 
 class TestFootContactsReturnInfo:
@@ -973,8 +1115,9 @@ class TestFootContactsReturnInfo:
         _, info = bvh_example.foot_contacts(
             method="combined", return_info=True)
         for key in ("joints", "method", "min_contact_duration",
-                    "min_gap_duration", "skeleton_scale",
-                    "vel_threshold", "height_threshold", "floor"):
+                    "min_gap_duration", "vel_smooth_duration",
+                    "skeleton_scale", "vel_threshold",
+                    "height_threshold", "floor"):
             assert key in info, f"missing key {key!r}"
 
     def test_info_omits_skeleton_scale_when_both_thresholds_explicit(self, bvh_example):

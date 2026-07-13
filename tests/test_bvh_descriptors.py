@@ -4,10 +4,12 @@ Each wrapper is a thin delegation, so the core check is that it equals the
 module-level kernel applied to the data it extracts — plus the node-space
 resolution contract (end sites are first-class) and a few analytic values.
 """
+from pathlib import Path
+
 import numpy as np
 import pytest
 
-from pybvh import geometry, analysis
+from pybvh import geometry, analysis, read_bvh_file
 from synthetic_bvh import make_pos_y_up_bvh, make_pos_y_up_rotating_bvh
 from pybvh.tools import _axis_to_vector
 
@@ -212,13 +214,34 @@ def test_gait_standalone_scalars_match_bundle():
 def test_gait_wrappers_accept_precomputed_contacts():
     bvh = _bvh()
     feet = ["LeftFoot", "RightFoot"]
-    contacts = np.asarray(bvh.foot_contacts(foot_joints=feet))
+    # adaptive=True mirrors the detection gait_parameters runs internally,
+    # so precomputed-vs-internal labels are identical by construction
+    contacts = np.asarray(bvh.foot_contacts(foot_joints=feet, adaptive=True))
     np.testing.assert_allclose(
         bvh.cadence(foot_joints=feet, contacts=contacts),
         bvh.cadence(foot_joints=feet))
     s_pre = bvh.stride_length(foot_joints=feet, contacts=contacts)
     s = bvh.stride_length(foot_joints=feet)
     assert (np.isnan(s_pre) and np.isnan(s)) or np.isclose(s_pre, s)
+
+
+def test_gait_parameters_adaptive_default_sane_on_real_walk():
+    # gait input is locomotion by definition, so gait_parameters detects
+    # contacts with adaptive=True.  The fixed thresholds under-detect stance
+    # on this retargeted CMU clip (feet hover above the estimated floor),
+    # yielding physically impossible numbers: airborne 58% of frames and
+    # double_support_fraction = 0.0 on a plain walk.
+    walk = read_bvh_file(
+        Path(__file__).parent.parent / "bvh_data" / "cmu_12_01_walk.bvh")
+    g = walk.gait_parameters()
+    assert g.double_support_fraction > 0.0    # a walk always has double support
+    assert 0.35 < g.stance_fraction < 0.75    # human stance ~60% of the cycle
+    assert 1.2 < g.cadence < 2.5              # ~1.8 steps/s on this clip
+    # explicit contacts= still fully overrides the internal detection
+    feet = analysis.auto_detect_foot_joints(walk)
+    pre = walk.foot_contacts(foot_joints=feet, adaptive=True)
+    g_pre = walk.gait_parameters(foot_joints=feet, contacts=pre)
+    np.testing.assert_allclose(np.array(g_pre), np.array(g), equal_nan=True)
 
 
 def test_range_of_motion_wrapper_matches_kernel():

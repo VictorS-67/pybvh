@@ -21,6 +21,7 @@ from .bvhnode import BvhNode
 from .tools import _axis_to_vector, _compute_forward_at
 from . import rotations
 from . import geometry
+from .signal import box_filter_smooth
 
 _EPS = 1e-12
 
@@ -602,6 +603,7 @@ def foot_contacts(
     coords: npt.NDArray[np.float64] | None = None,
     *,
     vel_threshold: float | None = None,
+    vel_smooth_duration: float = 1.0 / 30.0,
     height_threshold: float | None = None,
     floor: float | str = "auto",
     min_contact_duration: float = 0.1,
@@ -647,6 +649,25 @@ def foot_contacts(
         skeletons, and unaffected by finger/spine subdivision (unlike
         a median-bone-length reference, which shrinks when a skeleton
         has many short finger bones).
+    vel_smooth_duration : float, keyword-only, optional
+        Physical time span (seconds) the foot-speed estimator is
+        conditioned over before thresholding.  Displacement vectors are
+        box-averaged over ``max(1, round(vel_smooth_duration /
+        frame_time))`` frames (capped at ``F - 1``) before taking the
+        norm — for interior frames this equals differencing positions
+        ``~vel_smooth_duration`` apart, making the *signal* (not just
+        the threshold units) frame-rate independent: adjacent-frame
+        differencing at 120 fps picks up high-frequency jitter that
+        30 fps differencing averages out, splitting genuine stance
+        phases.  Averaging the vectors (norm-of-mean, not
+        mean-of-norms) lets oscillatory jitter cancel.  Default
+        ``1/30`` s — a 1-frame no-op at ≤ 30 fps (labels identical to
+        the raw signal there), 4 frames at 120 fps.  Set ``0.0`` to
+        disable (raw adjacent-frame differencing).  Trade-off: a
+        single-frame glitch smears over up to one window (~33 ms), the
+        same timescale the duration filters already treat as noise.
+        Applies to the velocity signal only; the height signal is
+        position-level and is never smoothed.
     height_threshold : float or None, keyword-only, optional
         Clearance above the estimated floor, in world units.  Defaults
         to ``0.013 × skeleton_scale``.  A foot is "low enough" when
@@ -688,7 +709,9 @@ def foot_contacts(
         fixed default for any foot whose signal is not convincingly
         bimodal (e.g. standing, or a foot that never clearly swings).
         Default ``False``; recommended for known-locomotion clips where the
-        fixed threshold under- or over-detects.
+        fixed threshold under- or over-detects.  :func:`gait_parameters`
+        enables this by default — calling it declares the clip is
+        locomotion.
     height_reference : {"velocity", "floor"}, keyword-only, optional
         How the default ``height_threshold`` is anchored (only used with
         ``method="combined"`` when ``height_threshold`` is None).
@@ -709,6 +732,9 @@ def foot_contacts(
         during contact, per foot). With ``adaptive=True`` it also reports
         per-foot thresholds and ``adaptive_used_*`` flags.
         ``"skeleton_scale"`` is only present when auto-calibration ran.
+        The velocity-smoothing span is echoed as ``vel_smooth_duration``,
+        with the effective window in frames as ``vel_smooth_frames``
+        (present whenever the velocity signal was computed).
 
     Returns
     -------
@@ -727,6 +753,7 @@ def foot_contacts(
         - If ``floor`` is a string other than ``"auto"``.
         - If no foot joints can be found or any named joint is
           missing from the skeleton.
+        - If ``vel_smooth_duration`` is negative.
         - When the height signal is involved and ``bvh.world_up`` is
           inconsistent with rest-pose geometry (feet above hips).
         - If ``frame_time == 0`` and the velocity signal (units/second)
@@ -745,6 +772,11 @@ def foot_contacts(
     if isinstance(floor, str) and floor != "auto":
         raise ValueError(
             f"floor must be 'auto' or a float, got {floor!r}")
+
+    if vel_smooth_duration < 0:
+        raise ValueError(
+            f"vel_smooth_duration must be >= 0 (seconds), "
+            f"got {vel_smooth_duration}")
 
     if bvh.frame_time == 0:
         if method in ("velocity", "combined"):
@@ -832,6 +864,7 @@ def foot_contacts(
     floor_raw = None
     vel_adaptive_used = None
     height_adaptive_used = None
+    vel_smooth_frames = None
 
     if needs_vel:
         if F < 2:
@@ -839,8 +872,17 @@ def foot_contacts(
             # (speed 0 < any positive threshold) so combined falls back to height.
             speed = np.zeros((F, num_feet))
         else:
-            sp = np.linalg.norm(
-                foot_coords[1:] - foot_coords[:-1], axis=-1) / bvh.frame_time  # (F-1, nf), u/s
+            disp = foot_coords[1:] - foot_coords[:-1]   # (F-1, nf, 3)
+            # Condition the speed estimator over a fixed physical time span
+            # so detection does not depend on the capture rate: box-averaging
+            # the displacement *vectors* (norm-of-mean) cancels the
+            # high-frequency jitter that adjacent-frame differencing picks up
+            # at high fps.  Window is 1 at <= 30 fps — the raw signal, exactly.
+            vel_smooth_frames = min(
+                F - 1, max(1, round(vel_smooth_duration / bvh.frame_time)))
+            if vel_smooth_frames > 1:
+                disp = box_filter_smooth(disp, vel_smooth_frames, axis=0)
+            sp = np.linalg.norm(disp, axis=-1) / bvh.frame_time  # (F-1, nf), u/s
             speed = np.concatenate([sp[0:1], sp], axis=0)   # frame-0 propagated
         if vel_threshold is None:
             assert scale is not None
@@ -907,6 +949,7 @@ def foot_contacts(
         "min_contact_duration": float(min_contact_duration),
         "min_gap_duration": float(min_gap_duration),
         "hysteresis": float(hysteresis),
+        "vel_smooth_duration": float(vel_smooth_duration),
         "height_reference": height_reference,
         "confidence": confidence,
     }
@@ -919,6 +962,8 @@ def foot_contacts(
             info["vel_threshold_per_foot"] = arr
         if vel_adaptive_used is not None:
             info["adaptive_used_velocity"] = vel_adaptive_used
+        if vel_smooth_frames is not None:
+            info["vel_smooth_frames"] = int(vel_smooth_frames)
     if height_thr_used is not None:
         arr = np.atleast_1d(np.asarray(height_thr_used, dtype=float))
         info["height_threshold"] = float(arr.mean())
@@ -2402,7 +2447,12 @@ def gait_parameters(
         Foot joints; auto-detected if None.
     contacts : ndarray, shape (F, n_feet), optional
         Pre-computed contact labels (column order matching ``foot_joints``);
-        otherwise :func:`foot_contacts` is run with its robust defaults.
+        otherwise :func:`foot_contacts` is run with ``adaptive=True`` —
+        gait input is locomotion by definition, which is the documented
+        precondition for the adaptive per-foot thresholds (the fixed
+        defaults under-detect stance on retargeted mocap whose feet hover
+        above the estimated floor).  Pass explicit ``contacts`` for full
+        control over the detection.
 
     Returns
     -------
@@ -2426,7 +2476,13 @@ def gait_parameters(
 
     node_pos = bvh.node_positions()
     if contacts is None:
-        contacts = foot_contacts(bvh, foot_joints=foot_joints, coords=node_pos)
+        # adaptive=True: calling gait_parameters *is* the declaration that the
+        # clip is locomotion — exactly the precondition foot_contacts documents
+        # for its adaptive thresholds.  The fixed thresholds under-detect
+        # stance on retargeted mocap whose feet hover above the floor, which
+        # yields impossible gait numbers (double_support = 0 on a plain walk).
+        contacts = foot_contacts(bvh, foot_joints=foot_joints, coords=node_pos,
+                                 adaptive=True)
     contacts = np.asarray(contacts, dtype=np.float64)
 
     up = _axis_to_vector(bvh.world_up)

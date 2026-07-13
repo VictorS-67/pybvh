@@ -338,11 +338,15 @@ def bounding_ellipsoid(pts: npt.NDArray[np.float64]) -> BoundingEllipsoid:
     """PCA-aligned bounding ellipsoid of a point set.
 
     The principal axes are the eigenvectors of the point covariance
-    (via batched :func:`numpy.linalg.eigh`); each semi-axis radius is the
-    maximum absolute projection of the centred points onto that axis, so
-    the ellipsoid's bounding box along each principal direction contains
-    every point. Approximate (not the minimal-volume Löwner–John
-    ellipsoid), but vectorized over the leading axes.
+    (via batched :func:`numpy.linalg.eigh`). The semi-axis radii start
+    from the maximum absolute projection of the centred points onto each
+    axis and are then grown by one shared factor — the worst point's
+    ellipsoidal norm — so **every point satisfies**
+    ``Σ_k (x_k / r_k)² ≤ 1``: the per-axis maxima alone only bound the
+    points' box, and a point projecting strongly onto two axes at once
+    would sit outside that inscribed ellipsoid. Approximate (not the
+    minimal-volume Löwner–John ellipsoid), but vectorized over the
+    leading axes.
 
     Parameters
     ----------
@@ -369,6 +373,15 @@ def bounding_ellipsoid(pts: npt.NDArray[np.float64]) -> BoundingEllipsoid:
     _evals, evecs = np.linalg.eigh(cov)
     coords = np.einsum("...pi,...ij->...pj", centered, evecs)
     radii = np.abs(coords).max(axis=-2)
+    # Per-axis max projections fit the points' box, not the ellipsoid: a
+    # point near a box corner has Σ(x_k/r_k)² up to 3. Grow all radii by
+    # the worst point's ellipsoidal norm so the ellipsoid encloses every
+    # point while keeping the PCA orientation and aspect ratio. A ~zero
+    # radius means zero extent on that axis (its projections are all ~0),
+    # so the guarded ratio contributes nothing there.
+    guarded = np.where(radii > _EPS, radii, 1.0)
+    norm_sq = np.sum((coords / guarded[..., None, :]) ** 2, axis=-1)
+    radii = radii * np.sqrt(norm_sq.max(axis=-1))[..., None]
     return BoundingEllipsoid(center, radii, evecs)
 
 

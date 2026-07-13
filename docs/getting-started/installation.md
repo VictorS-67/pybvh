@@ -29,3 +29,6 @@ Optional visualization backends have their own requirements:
 - OpenCV: `opencv-python >= 4.5`
 - k3d: `k3d >= 2.14`
 - vedo: `vedo >= 2024.5`
+
+!!! info "See also"
+    [Quick Start](quickstart.md) — load your first file · [Feature Gallery](../gallery/index.md) — what pybvh can do, one picture per feature

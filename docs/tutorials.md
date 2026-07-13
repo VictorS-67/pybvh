@@ -6,7 +6,7 @@ Interactive Jupyter notebooks with detailed walkthroughs, progressing from basic
 
 1. **[Introduction to pybvh](https://github.com/VictorS-67/pybvh/blob/main/tutorials/1.Introduction.ipynb)** — the BVH file format, reading/writing, the `Bvh` object, basic inspection
 2. **[Spatial coordinates and skeleton operations](https://github.com/VictorS-67/pybvh/blob/main/tutorials/2.Spatial_coordinates.ipynb)** — forward kinematics, centering modes, skeleton operations (`retarget`, `scale`, `extract_joints`)
-3. **[Rotations](https://github.com/VictorS-67/pybvh/blob/main/tutorials/3.Rotations.ipynb)** — Euler angles, rotation matrices, quaternions, 6D representation, axis-angle, Euler order changes, gimbal lock and discontinuity illustrations
+3. **[Rotations](https://github.com/VictorS-67/pybvh/blob/main/tutorials/3.Rotations.ipynb)** — Euler angles, rotation matrices, quaternions, SLERP, 6D representation, axis-angle, Euler order changes, gimbal lock and discontinuity illustrations
 4. **[Visualization with bvhplot](https://github.com/VictorS-67/pybvh/blob/main/tutorials/4.Visualization.ipynb)** — static snapshots, video export, interactive playback, side-by-side comparison, camera control, `follow=True` tracking, backend options
 5. **[Transforms and augmentation](https://github.com/VictorS-67/pybvh/blob/main/tutorials/5.Transforms.ipynb)** — `mirror`, `rotate_vertical`, `translate_root`, `add_noise`, `perturb_speed`, `drop_frames`, composing transforms, reproducibility
 6. **[Motion features and analysis](https://github.com/VictorS-67/pybvh/blob/main/tutorials/6.Features.ipynb)** — joint velocities and accelerations, angular velocities, root-relative positions, root trajectory, foot contacts, `to_feature_array()`
@@ -72,3 +72,16 @@ jupytext --sync tutorials/*.ipynb
 ```
 
 This is also safe to run as a pre-commit step. A future commit may add a pre-commit hook to enforce sync automatically.
+
+### The Feature Gallery page
+
+The [Gallery](gallery/index.md) docs page is **generated** from `gallery/feature_gallery.ipynb` (a Jupytext pair like the tutorials, executed and committed with outputs). CI regenerates it on every deploy; `docs/gallery/` is gitignored — never edit it by hand. To preview locally:
+
+```bash
+python scripts/export_gallery.py
+mkdocs serve
+```
+
+After editing gallery code cells, re-execute the notebook (`jupyter nbconvert --to notebook --execute --inplace gallery/feature_gallery.ipynb`) before exporting, so the committed outputs stay in sync with the source. CI enforces this: the gallery notebook executes under nbmake in `tutorials.yml` (GIF cells are tagged `slow-on-pr`, like the tutorials), and `tests/test_gallery_notebook.py` fails if the jupytext pair drifts or the committed outputs are stale (non-sequential execution counts, error/stderr outputs).
+
+A handful of figures are also embedded inline in the guide pages via stable names (`docs/gallery/img/centered-modes.png`, …) declared in `STABLE_FIGURES` inside [`scripts/export_gallery.py`](https://github.com/VictorS-67/pybvh/blob/main/scripts/export_gallery.py); the exporter fails loudly if a gallery refactor breaks one of those matches.

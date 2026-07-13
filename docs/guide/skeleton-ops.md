@@ -34,6 +34,10 @@ bvh_retarget = bvh.retarget(reference, name_mapping={
 upper = bvh.extract_joints(["Hips", "Spine", "Neck", "Head"])
 ```
 
+The three skeleton operations on one shared scale — scaled to half, retargeted back to the original proportions, and reduced to 11 joints:
+
+![Four skeleton variants drawn at one shared scale: original, half-size scale, a tall clip retargeted to the original proportions, and an 11-joint extraction](../gallery/img/skeleton-ops.png)
+
 ## Frame operations
 
 ```python
@@ -64,3 +68,6 @@ All mutation methods default to `inplace=False` (return a new Bvh):
 bvh2 = bvh.scale(0.01)                     # new object
 bvh.scale(0.01, inplace=True)              # modifies self, returns None
 ```
+
+!!! info "See also"
+    [Gallery](../gallery/index.md) — `scale`/`retarget`/`extract_joints` and `resample` drawn (section 4) · [Bvh Class API](../api/bvh.md) — full signatures · [Core Concepts](core-concepts.md) — the index spaces these operations preserve

@@ -7,6 +7,7 @@ on:
       - 'tutorials/**'
       - 'pybvh/**'
       - 'bvh_data/**'
+      - 'gallery/**'
       - 'pyproject.toml'
       - '.github/workflows/tutorials.yml'
   pull_request:
@@ -15,6 +16,7 @@ on:
       - 'tutorials/**'
       - 'pybvh/**'
       - 'bvh_data/**'
+      - 'gallery/**'
       - 'pyproject.toml'
       - '.github/workflows/tutorials.yml'
   workflow_dispatch:
@@ -54,7 +56,9 @@ jobs:
           python - <<'EOF'
           import nbformat
           from pathlib import Path
-          for p in Path('tutorials').glob('*.ipynb'):
+          notebooks = list(Path('tutorials').glob('*.ipynb'))
+          notebooks.append(Path('gallery/feature_gallery.ipynb'))
+          for p in notebooks:
               nb = nbformat.read(p, as_version=4)
               changed = False
               for c in nb.cells:
@@ -69,12 +73,14 @@ jobs:
 
       - name: Execute tutorials
         run: |
-          xvfb-run -a pytest --nbmake --nbmake-timeout=300 tutorials/
+          xvfb-run -a pytest --nbmake --nbmake-timeout=300 tutorials/ gallery/feature_gallery.ipynb
 
       - name: Upload executed notebooks on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: executed-tutorials
-          path: tutorials/*.ipynb
+          path: |
+            tutorials/*.ipynb
+            gallery/feature_gallery.ipynb
           retention-days: 7

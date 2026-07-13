@@ -1,6 +1,6 @@
-# Rotation Representations
+# Rotation Representations & SE(3)
 
-pybvh supports five rotation representations, all batch-vectorized with NumPy.
+pybvh supports five rotation representations, all batch-vectorized with NumPy, plus the SE(3) rigid-transform layer (twists, screw interpolation). This page is the *machinery* — for the *which should I use* question, see [Choosing a Representation](choosing-rotations.md).
 
 ## Supported formats
 
@@ -59,3 +59,32 @@ bvh_hips = bvh.change_euler_order("XYZ", joint="Hips")
 ```python
 q_mid = rotations.quat_slerp(q1, q2, t=0.5)  # Spherical linear interpolation
 ```
+
+## SE(3) rigid transforms
+
+Beyond pure rotations, `pybvh.rotations` covers rigid transforms (rotation + translation as one 4×4 matrix) through the twist parameterization: a twist `[ω, v]` is six numbers — an axis-angle rotation vector `ω` and a linear generator `v` — that the exponential map turns into a transform.
+
+```python
+import numpy as np
+from pybvh import rotations
+
+# twist [ω, v] -> 4x4 rigid transform, and back exactly
+twist = np.array([0.0, 0.0, 1.4, 1.0, 0.0, 0.6])
+T = rotations.se3_exp(twist)
+assert np.allclose(rotations.se3_log(T), twist)
+
+# the SE(3) analogue of SLERP: blend two transforms along a constant screw
+T_mid = rotations.screw_interpolate(T0, T1, t=0.5)   # t can be an array
+
+# pose of one body segment in another's local frame (the geometry -> SE(3) bridge)
+T_rel = rotations.relative_transform(segment_a, segment_b)   # (*, 2, 3) endpoint pairs
+feats = rotations.se3_log(T_rel)                             # Lie-group features
+
+# shortest angular distance between two orientations, in radians
+angle = rotations.rotation_geodesic_distance(R1, R2)
+```
+
+Every one of these is drawn as a figure in the [Gallery](../gallery/index.md) (section 10), and the full signatures live in the [Rotations & SE(3) API](../api/rotations.md#se3-rigid-transforms).
+
+!!! info "See also"
+    [Choosing a Representation](choosing-rotations.md) — the decision guide · [Rotations & SE(3) API](../api/rotations.md) — every function · [Gallery](../gallery/index.md) — continuity and SE(3) figures

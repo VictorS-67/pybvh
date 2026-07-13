@@ -32,6 +32,7 @@ interactive = ["k3d>=2.14"]
 viewer = ["vedo>=2024.5"]
 all-viz = ["opencv-python>=4.5", "k3d>=2.14", "vedo>=2024.5"]
 dev = ["pytest>=8", "pandas>=1.5", "mypy>=1.0", "jupytext>=1.16", "nbmake>=1.5"]
+docs = ["mkdocs>=1.6", "mkdocs-material>=9.5", "mkdocstrings[python]>=0.26", "pillow>=9.0"]
 # Reference libraries for REGENERATING the golden fixtures in tests/fixtures/.
 # Dev-only — never a runtime dependency; the committed .npz fixtures load with
 # numpy alone, so running the tests does not need these. See tests/fixtures/README.md.

@@ -20,10 +20,19 @@ theme:
         icon: material/brightness-4
         name: Switch to light mode
   features:
+    - navigation.tabs
     - navigation.sections
     - navigation.expand
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - toc.follow
     - search.suggest
+    - search.highlight
     - content.code.copy
+
+extra_css:
+  - stylesheets/extra.css
 
 plugins:
   - search
@@ -44,24 +53,25 @@ nav:
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
+  - Gallery: gallery/index.md
   - User Guide:
     - Core Concepts: guide/core-concepts.md
     - World Up & Orientation: guide/world-up.md
-    - Rotation Representations: guide/rotations.md
+    - Rotation Representations & SE(3): guide/rotations.md
     - Choosing a Representation: guide/choosing-rotations.md
     - Data Augmentation: guide/augmentation.md
     - Feature Export: guide/feature-export.md
     - Skeleton Operations: guide/skeleton-ops.md
     - Motion Descriptors: guide/motion-descriptors.md
   - API Reference:
-    - pybvh: api/index.md
+    - api/index.md
     - Bvh Class: api/bvh.md
     - I/O: api/io.md
-    - Rotations: api/rotations.md
-    - Geometry: api/geometry.md
-    - Transforms: api/transforms.md
-    - Analysis: api/analysis.md
-    - Features: api/features.md
+    - Rotations & SE(3): api/rotations.md
+    - Geometry (trajectory & pose): api/geometry.md
+    - Transforms (augmentation): api/transforms.md
+    - Analysis (contacts, gait, smoothness): api/analysis.md
+    - Features (ML export): api/features.md
     - Signal: api/signal.md
     - Batch Processing: api/batch.md
     - Visualization: api/bvhplot.md
@@ -74,5 +84,10 @@ markdown_extensions:
   - pymdownx.inlinehilite
   - admonition
   - pymdownx.details
+  - attr_list
+  - md_in_html
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - toc:
       permalink: true

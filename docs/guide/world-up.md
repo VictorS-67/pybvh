@@ -65,6 +65,10 @@ left = world_up × forward        (equivalently, forward = left × world_up)
 
 Positive step along `left_at` moves from the character's right side toward their left (right-shoulder → left-shoulder direction). This matches the standard rigging convention used in Blender, Maya, and Unity.
 
+The triple drawn on a pose:
+
+![The orientation triple drawn as three arrows on a skeleton: world_up in blue, forward_at in red, left_at in green](../gallery/img/orientation-triad.png)
+
 `left_at()` shares the L/R pair machinery with `forward_at()`, so the same `bvh.lr_mapping` caveats apply.
 
 ### coords= (skip per-call FK)
@@ -137,3 +141,6 @@ bvh.world_up = '+y'    # manual metadata override
 # Suppress disagreement warning for bulk processing
 clips = pybvh.read_bvh_directory("dataset/", warn_on_world_up_disagreement=False)
 ```
+
+!!! info "See also"
+    [Core Concepts](core-concepts.md) — the index spaces and `centered` modes this page's conventions feed into · [Transforms API](../api/transforms.md) — the reorientation functions at array level · [Gallery](../gallery/index.md) — the orientation triple and reorientation drawn (section 2)

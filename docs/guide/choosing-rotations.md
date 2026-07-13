@@ -1,6 +1,6 @@
 # Choosing a Rotation Representation
 
-pybvh supports five rotation representations. Each has trade-offs that make it better suited for different tasks.
+pybvh supports five rotation representations. Each has trade-offs that make it better suited for different tasks. This page is the *decision guide* — the conversion API, shapes, and SE(3) layer live in [Rotation Representations & SE(3)](rotations.md).
 
 ## Decision table
 
@@ -20,6 +20,12 @@ The native BVH format. Use when reading/writing files or when you need human-rea
 ### 6D rotation (Zhou et al.)
 The recommended representation for neural networks. It is **continuous** — nearby rotations map to nearby 6D vectors — so gradient-based optimization works smoothly. Use `bvh.to_6d()` for feature extraction and `bvh.from_6d()` to convert predictions back.
 
+The continuity difference in one picture — a smooth rotation crossing the ±180° boundary, read out in three representations:
+
+![A smooth rotation crossing 180 degrees: the Euler readout jumps, the canonical quaternion flips the sign of z, 6D stays perfectly smooth](../gallery/img/rotation-continuity.png)
+
+*Euler jumps, the canonical quaternion flips sign where `w` crosses zero, 6D stays smooth. ([Gallery](../gallery/index.md), section 2.)*
+
 ### Quaternions
 Best for interpolation via `rotations.quat_slerp()`. Compact (4 values vs. 9 for matrices). However, quaternions have **double cover** (`q` and `-q` represent the same rotation), which can cause discontinuities during training. pybvh canonicalizes to `w >= 0`.
 
@@ -31,16 +37,7 @@ Compact (3 values) and intuitive (direction = axis, magnitude = angle). Good for
 
 ## Converting between representations
 
-```python
-from pybvh import rotations
-
-# Any pair — direct or via convenience wrappers
-R = rotations.euler_to_rotmat(angles, order="ZYX", degrees=True)
-q = rotations.rotmat_to_quat(R)
-rot6d = rotations.euler_to_rot6d(angles, "ZYX", degrees=True)
-```
-
-All functions support arbitrary batch dimensions: `(3,)`, `(N, 3)`, `(F, J, 3)`.
+Any pair converts directly — see [Rotation Representations & SE(3)](rotations.md) for the conversion API and shape conventions, and the [Gallery](../gallery/index.md) for the continuity figure that shows *why* 6D wins for training.
 
 ## Typical ML pipeline
 

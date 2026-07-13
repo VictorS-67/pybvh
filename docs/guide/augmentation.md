@@ -17,6 +17,10 @@ mapping = bvh.lr_mapping                      # name pairs (or None)
 pairs = transforms.auto_detect_lr_pairs(bvh)  # index pairs
 ```
 
+![Original and mirrored skeleton side by side: the pose is reflected and every Left/Right joint pair has swapped data](../gallery/img/mirror.png)
+
+*Mirroring is not just an axis flip: the lateral axis is negated **and** every `Left*`/`Right*` pair swaps data, so the result stays anatomically possible. ([Gallery](../gallery/index.md), section 3, for every transform drawn.)*
+
 #### L/R pair detection
 
 pybvh auto-detects left/right joint pairs at load time by scanning joint names. The heuristic recognizes:
@@ -120,3 +124,6 @@ m_angles, m_pos = mirror_angles(
 
 !!! note "For tensor-level augmentation pipelines"
     pybvh provides per-Bvh transforms in Euler space. For batched augmentation on packed tensors in quaternion or 6D space (e.g., during training), see the companion library [pybvh-ml](https://github.com/VictorS-67/pybvh-ml).
+
+!!! info "See also"
+    [Gallery](../gallery/index.md) — every transform drawn as before/after (section 3) · [Transforms API](../api/transforms.md) — full signatures · [World Up & Orientation](world-up.md) — the up-axis and L/R conventions `mirror` and `rotate_vertical` rely on

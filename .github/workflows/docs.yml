@@ -17,8 +17,13 @@ jobs:
         with:
           python-version: '3.11'
 
-      - run: pip install mkdocs mkdocs-material "mkdocstrings[python]"
+      - run: pip install -e ".[docs]"
 
-      - run: pip install -e .
+      # The gallery docs page is generated from the committed notebook
+      # outputs (no execution) — see scripts/export_gallery.py.
+      - run: python scripts/export_gallery.py
+
+      # --strict fails the deploy on any broken internal link or cross-reference.
+      - run: mkdocs build --strict
 
       - run: mkdocs gh-deploy --force

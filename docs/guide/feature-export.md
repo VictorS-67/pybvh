@@ -90,6 +90,10 @@ Defaults are `stencil="central", pad="edge"` on the velocity-like functions — 
 | **Root trajectory** | Ground-plane position (2D) + heading as sin/cos (2D) | Locomotion conditioning, path prediction |
 | **Foot contacts** | Binary per-frame indicators (combined velocity + height by default; see `method=`) | Contact-aware generation, foot skating loss |
 
+What the contact detector actually thresholds — foot speed and clearance above the floor, ANDed (green spans = detected stance):
+
+![Foot speed and clearance signals over a walking clip with their thresholds; green spans mark the detected stance phases where both signals sit below threshold](../gallery/img/foot-contacts.png)
+
 For root-relative positions, use `bvh.node_positions(centered='skeleton')`.
 
 ## One-stop feature export
@@ -104,7 +108,9 @@ features = bvh.to_feature_array(
 )  # (F, D) flat array under default stencil="central", pad="edge"
 ```
 
-Use `bvh.feature_array_layout(...)` to get `{block_name: slice}` for unpacking the flat array back into `root_pos` / `rotations` / `velocities` / `foot_contacts` blocks.
+Use `bvh.feature_array_layout(...)` to get `{block_name: slice}` for unpacking the flat array back into `root_pos` / `rotations` / `velocities` / `foot_contacts` blocks — this is the column layout of the exact call above:
+
+![Column-band diagram of the feature array: root_pos, rotations, velocities, and foot_contacts blocks with their widths](../gallery/img/feature-layout.png)
 
 ## Normalization
 
@@ -129,3 +135,6 @@ bvh.joint_count    # 24
 
 !!! tip "For full ML workflows"
     [pybvh-ml](https://github.com/VictorS-67/pybvh-ml) provides tensor packing (CTV/TVC layouts), PyTorch Datasets, augmentation pipelines, and preprocessing to HDF5/npz.
+
+!!! info "See also"
+    [Gallery](../gallery/index.md) — foot contacts, `root_trajectory`, and the feature-array layout drawn (section 5) · [Features API](../api/features.md) and [Batch API](../api/batch.md) — full signatures · [Choosing a Representation](choosing-rotations.md) — which rotation block to export

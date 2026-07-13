@@ -6,14 +6,17 @@ dynamic properties measured directly from the motion. They are properties of the
 developer, and an ML engineer all read the same curvature, smoothness, and gait
 numbers. Everything is pure NumPy in and out, so it composes with any framework.
 
-The descriptors live in three modules, mirroring the two halves of the BVH data
-model (rotations and positions) plus their dynamics:
+**Every descriptor on this page is drawn in the [Feature Gallery](../gallery/index.md)** — one figure and one call each; skim it first if you want the visual overview before the prose.
+
+The descriptors live in four modules, mirroring the two halves of the BVH data
+model (rotations and positions) plus their dynamics and the shared signal layer:
 
 | Module | Owns | Examples |
 |---|---|---|
 | [`pybvh.geometry`](../api/geometry.md) | positions in R³ | `curvature`, `bounding_box`, `center_of_mass`, `inter_joint_distance` |
 | [`pybvh.analysis`](../api/analysis.md) | motion dynamics | `node_jerk`, `smoothness`, `kinetic_energy`, `cadence` |
 | [`pybvh.rotations`](../api/rotations.md) | orientation & rigid transforms | `se3_exp`/`se3_log`, `screw_interpolate`, `rotation_geodesic_distance` |
+| [`pybvh.signal`](../api/signal.md) | array-pure signal utilities | `finite_difference`, `box_filter_smooth`, `fft_magnitude`, `temporal_stats` |
 
 ## Geometry — what the body traces out
 
@@ -73,7 +76,9 @@ Two layers, by design:
 
 ## See also
 
+- The [Feature Gallery](../gallery/index.md) — every descriptor drawn, one figure
+  and one call each (sections 6-12).
 - The [Motion descriptors tutorial](https://github.com/VictorS-67/pybvh/blob/main/tutorials/8.Motion_descriptors.ipynb)
   walks through these on a real clip with closed-form sanity checks.
 - API reference: [geometry](../api/geometry.md), [analysis](../api/analysis.md),
-  [rotations](../api/rotations.md).
+  [rotations](../api/rotations.md), [signal](../api/signal.md).

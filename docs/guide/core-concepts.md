@@ -38,3 +38,12 @@ Several functions accept a `centered` parameter:
 - `"world"` — positions as stored in the BVH file
 - `"skeleton"` — root forced to `(0, 0, 0)` every frame
 - `"first"` — ground-plane centering: the first frame's root position is subtracted in the two horizontal axes only (the `world_up` coordinate is untouched), so the motion starts above the origin at its original height
+
+One look makes the difference obvious — same walking clip, same frame, three coordinate frames (the blue trail is the root's path over the whole clip):
+
+![The three centered modes on a walking clip: world keeps file coordinates, first starts the path at the origin, skeleton pins the root so the trail collapses to a point](../gallery/img/centered-modes.png)
+
+*More one-figure-per-feature visuals: the [Gallery](../gallery/index.md).*
+
+!!! info "See also"
+    [World Up & Orientation](world-up.md) — the up-axis and facing conventions behind `centered` · [Bvh Class API](../api/bvh.md) — every attribute and method · [Quick Start](../getting-started/quickstart.md)

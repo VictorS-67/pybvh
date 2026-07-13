@@ -30,6 +30,7 @@ Reading all eight in order gives you:
 - the trade-offs between every rotation representation used in modern motion-capture ML, and how to convert between them safely,
 - pybvh's visualization tools (static plots, video export, interactive playback),
 - the standard augmentation and preprocessing recipes (mirror, yaw, noise, speed, harmonize),
+- how to compute motion features and descriptors — velocities, foot contacts, trajectory geometry, smoothness, gait parameters — for analysis or as ML inputs,
 - a complete end-to-end pipeline from a directory of `.bvh` files to a padded NumPy dataset ready for a dataloader (per-channel normalization is an ML-pipeline concern and lives in [pybvh-ml](https://github.com/VictorS-67/pybvh-ml)).
 
 ## Reading order
@@ -40,14 +41,9 @@ After that, tutorials **2–6 are mostly parallel deep-dives**, each focused on 
 
 **Tutorial 7 is the capstone** — directory loading, harmonization across heterogeneous clips, end-to-end pipeline. It draws on 2 and 5 but re-explains the pieces it uses, so you can also read it out of order if the complete pipeline is what brought you here.
 
-1. **Introduction** — the BVH format, loading files, the `Bvh` object, joint hierarchy, writing back.
-2. **Spatial coordinates** — forward kinematics, centering modes, skeleton operations (`retarget`, `scale`, `extract_joints`).
-3. **Rotations** — Euler pitfalls (gimbal lock, discontinuities), rotation matrices, quaternions, 6D, axis-angle.
-4. **Visualization** — static snapshots, video export, interactive playback, camera control, side-by-side comparisons.
-5. **Transforms** — mirror, vertical rotation, noise, speed perturbation, frame dropout, reorientation.
-6. **Features** — joint velocities and accelerations, angular velocities, foot contacts, the `to_feature_array()` export.
-7. **Batch processing** — directory loading, harmonization across heterogeneous clips, NumPy export, end-to-end pipeline.
-8. **Motion descriptors** — geometry (curvature, bounding volumes, centre of mass), dynamics (jerk, smoothness, kinetic energy, gait), and SE(3) rigid-transform features, with closed-form sanity checks.
+**Tutorial 8 is a standalone deep-dive** into motion descriptors — trajectory geometry, smoothness, gait, SE(3) features. It sits outside the 1→7 pipeline arc: read it whenever quantitative motion analysis becomes relevant to your work (it assumes only Tutorial 1, plus the foot-contact idea from Tutorial 6 for the gait section).
+
+The per-notebook summaries (with links) live on the [tutorials docs page](https://victors-67.github.io/pybvh/tutorials/) — kept in one place so the descriptions can't drift apart.
 
 ## Running locally
 

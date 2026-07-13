@@ -86,10 +86,10 @@ print(bvh)
 print(f"Number of joints:   {bvh.joint_count}")
 print(f"Number of frames:   {bvh.frame_count}")
 print(f"Seconds per frame:  {bvh.frame_time}")
-print(f"FPS:                {1 / bvh.frame_time:.0f}")
+print(f"FPS:                {bvh.fps:.0f}")
 
 # %% [markdown]
-# Note: the `frame_time` property stores the **time between frames** in seconds (i.e., the inverse of FPS). A value of 0.0333 means ~30 frames per second.
+# Note: the `frame_time` property stores the **time between frames** in seconds — that's what the BVH file format records. A value of 0.0333 means ~30 frames per second. Its convenience inverse, `bvh.fps`, gives the frame rate directly.
 
 # %% [markdown]
 # pybvh also auto-detects which axis is "up" in the file (Y-up vs Z-up, which varies across software). You can check it with `bvh.world_up`, or pass it explicitly at load time if you know your dataset's convention: `read_bvh_file("walk.bvh", world_up="+y")`. See the [World Up guide](https://victors-67.github.io/pybvh/guide/world-up/) for details.
@@ -145,6 +145,26 @@ print(bvh.joint_angles[:5, 0])
 
 # %% [markdown]
 # These arrays are standard NumPy — you can slice, index, and operate on them as you normally would.
+
+# %% [markdown]
+# ## Slicing and joining clips
+#
+# The `Bvh` object itself also supports NumPy-style frame indexing: `bvh[start:stop]` returns a new `Bvh` holding just the selected frame range. Negative indices and steps work as expected — `bvh[::2]` keeps every other frame (and doubles `frame_time` accordingly), and an integer index like `bvh[0]` returns a single-frame clip.
+
+# %%
+first_half = bvh[:bvh.frame_count // 2]
+last_30 = bvh[-30:]
+
+print(f"Original:   {bvh.frame_count} frames")
+print(f"First half: {first_half.frame_count} frames")
+print(f"Last 30:    {last_30.frame_count} frames")
+
+# %% [markdown]
+# Clips with the same skeleton concatenate with `+` — the second clip's frames are appended after the first's. (If the two clips have different frame rates, pybvh warns and keeps the left clip's `frame_time`; resample first when mixing rates — see Tutorial 7.)
+
+# %%
+joined = first_half + last_30
+print(f"Concatenated: {joined.frame_count} frames")
 
 # %% [markdown]
 # ## Pandas DataFrame export
@@ -256,3 +276,4 @@ print(f"Animation saved to: {path}")
 # - **Tutorial 5 — Transforms**: data augmentation (mirroring, rotation, noise, speed)
 # - **Tutorial 6 — Features**: velocities, foot contacts, feature arrays for ML
 # - **Tutorial 7 — Batch Processing**: loading directories, harmonization, dataset preparation
+# - **Tutorial 8 — Motion Descriptors**: trajectory geometry, smoothness, gait, SE(3) features

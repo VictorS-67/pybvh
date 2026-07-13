@@ -30,6 +30,8 @@
 import numpy as np
 np.set_printoptions(precision=4, suppress=True)
 
+import warnings
+
 import pybvh
 from pybvh import batch
 from pathlib import Path
@@ -51,7 +53,7 @@ bvh_list = batch.read_bvh_directory(bvh_folder)
 print(f'Loaded {len(bvh_list)} BVH files:')
 for i, b in enumerate(bvh_list):
     print(f'  [{i}] {b.joint_count:>2d} joints, {b.frame_count:>3d} frames, '
-          f'fps={1/b.frame_time:>5.0f}, world_up={b.world_up}')
+          f'fps={b.fps:>5.0f}, world_up={b.world_up}')
 
 # %% [markdown]
 # Notice that the loaded files are heterogeneous: different joint counts, frame rates, and up-axis conventions. We'll unify them below.
@@ -147,15 +149,15 @@ bvh_120 = pybvh.read_bvh_file(bvh_folder / 'bvh_test2.bvh')  # 120 fps
 
 print('Before unification:')
 for name, b in [('bvh_30', bvh_30), ('bvh_120', bvh_120)]:
-    print(f'  {name:7s}  {b.frame_count:>3d} frames @ {1/b.frame_time:>4.0f} fps')
+    print(f'  {name:7s}  {b.frame_count:>3d} frames @ {b.fps:>4.0f} fps')
 
 target_fps = 30
-unified = [b if abs(1/b.frame_time - target_fps) < 0.1 else b.resample(target_fps)
+unified = [b if abs(b.fps - target_fps) < 0.1 else b.resample(target_fps)
            for b in [bvh_30, bvh_120]]
 
 print(f'\nAfter resampling to {target_fps} fps:')
 for i, c in enumerate(unified):
-    print(f'  clip_{i}:   {c.frame_count:>3d} frames @ {1/c.frame_time:>4.0f} fps')
+    print(f'  clip_{i}:   {c.frame_count:>3d} frames @ {c.fps:>4.0f} fps')
 
 # %% [markdown]
 # ## Up-axis unification
@@ -194,8 +196,6 @@ for i, c in enumerate(unified):
 # Any of `reference`, `target_fps`, `target_world_up`, `target_rest_up`, `target_rest_forward`, `target_euler_order` may be `None` to skip that stage. When clips are dropped, `harmonize` emits **one summary `UserWarning` per call** (not one per dropped clip), or raises `ValueError` immediately with `on_incompatible='raise'`. For workflows `batch.harmonize` doesn't fit — e.g. using `extract_joints` to reduce clips to a common joint subset instead of dropping mismatched files — fall back on the three primitives directly.
 
 # %%
-import warnings
-
 reference = pybvh.read_bvh_file(bvh_folder / 'bvh_example.bvh')
 raw = [pybvh.read_bvh_file(bvh_folder / name) for name in
        ['bvh_example.bvh', 'bvh_test1.bvh', 'bvh_test2.bvh']]
@@ -215,7 +215,7 @@ print(f'In: {len(raw)}  Out: {len(harmonized)} '
       f'(bvh_test2 dropped — different topology)')
 for i, c in enumerate(harmonized):
     print(f'  clip {i}: {c.joint_count} joints, {c.frame_count} frames '
-          f'@ {1/c.frame_time:.0f} fps, up={c.world_up}, '
+          f'@ {c.fps:.0f} fps, up={c.world_up}, '
           f"order={c.euler_orders[0]}")
 
 # %% [markdown]
@@ -254,7 +254,7 @@ for idx, src, reason in zip(report.dropped_indices,
 # %% [markdown]
 # Once clips are harmonized, `batch.batch_to_numpy()` converts a list of `Bvh` objects into NumPy arrays with a flat per-frame feature vector. It validates skeleton compatibility first — mismatched clips raise `ValueError` before any conversion happens.
 #
-# Build a small demo batch from one clip sliced at different ranges so all share the same skeleton:
+# Build a small demo batch from one clip sliced at different ranges so all share the same skeleton (frame slicing — `bvh[start:stop]` — was introduced in Tutorial 1):
 
 # %%
 base = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')
@@ -328,7 +328,6 @@ print(f'bvh_example vs bvh_test3: hierarchy={ex.matches_hierarchy(t3)}, '
 
 # %%
 # Files with different joint counts cannot batch together
-import warnings
 with warnings.catch_warnings():
     warnings.simplefilter('ignore')  # bvh_test3 emits a rest/animation warning on load
     incompat_a = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')  # 24 joints
@@ -357,8 +356,6 @@ except ValueError as e:
 # Complete dataset-preparation workflow, combining everything above:
 
 # %%
-import warnings
-
 # 1. Load raw files
 raw = batch.read_bvh_directory(bvh_folder, pattern='bvh_*.bvh')
 print(f'Step 1 — Loaded {len(raw)} files')
@@ -417,4 +414,5 @@ print(f'Step 4 — Saved {len(arrays)} clips to {output_folder}/')
 #
 # - [Tutorial 5 — Transforms](5.Transforms.ipynb) covered augmentation transforms (mirror, yaw rotation, noise, speed). Apply them to the harmonized clips as a stochastic augmentation step before array conversion.
 # - [Tutorial 6 — Motion Features](6.Features.ipynb) covered velocities, foot contacts, and `to_feature_array()` — richer alternatives to raw joint angles.
+# - [Tutorial 8 — Motion Descriptors](8.Motion_descriptors.ipynb) is a standalone deep-dive into higher-level descriptors (trajectory geometry, smoothness, gait, SE(3) features) — useful as engineered features alongside the arrays exported here.
 # - For ML-framework integration (PyTorch, TensorFlow), see [pybvh-ml](https://github.com/VictorS-67/pybvh-ml).

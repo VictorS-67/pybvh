@@ -100,14 +100,10 @@ plt.show()
 # The best way to understand this is visually:
 
 # %% tags=["skip-execution"]
+# Interactive playback — run locally to compare the three modes side by side
+# (opens a player window/widget, so no output is stored in the notebook)
 bvh.play(centered="world", labels=["world"])
-
-# %% tags=["skip-execution"]
-# Cell 2
 bvh.play(centered="first", labels=["first"])
-
-# %% tags=["skip-execution"]
-# Cell 3
 bvh.play(centered="skeleton", labels=["skeleton"])
 
 # %%

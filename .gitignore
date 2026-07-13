@@ -47,6 +47,7 @@ site/
 
 # --- Project Specific ---
 FUTURE_PLANS.md
+improve_visualization.md
 *.CHARTER.md
 pybvh.egg-info/
 tutorials/output/

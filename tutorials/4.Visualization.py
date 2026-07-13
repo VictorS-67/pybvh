@@ -43,10 +43,10 @@ print(bvh)
 #
 # All visualization functions live in the `pybvh.bvhplot` module. For convenience, they're also available as **wrapper methods** on the `Bvh` class:
 #
-# | Use case | API style |
-# |---|---|
-# | Single skeleton | `bvh.plot_frame()`, `bvh.render()`, etc. | (recommended — more intuitive) |
-# | Multiple skeletons (side-by-side) | `bvhplot.frame([bvh1, bvh2], ...)` | (required — designed for lists) |
+# | Use case | API style | Why |
+# |---|---|---|
+# | Single skeleton | `bvh.plot_frame()`, `bvh.render()`, etc. | Recommended — more intuitive |
+# | Multiple skeletons (side-by-side) | `bvhplot.frame([bvh1, bvh2], ...)` | Required — designed for lists |
 #
 # In this tutorial, we use `bvh.method()` for single-object operations to keep the code clean and intuitive. We switch to `bvhplot.function()` when comparing multiple skeletons, since those functions are designed to handle lists.
 #
@@ -59,12 +59,12 @@ print(bvh)
 #
 # | What you want to know | Tool | Output |
 # |---|---|---|
-# | What does the skeleton look like | rest_pose() | Static rest pose (all joint angles zero) |
-# | What's the pose at frame N? | frame(frame=N) | Static pose at a specific moment |
-# | What does the motion look like over time? | play() or render() | Animated sequence |
-# | Does the character walk in a straight line? | trajectory() | 2D top-down root path |
+# | What does the skeleton look like | `rest_pose()` | Static rest pose (all joint angles zero) |
+# | What's the pose at frame N? | `frame(frame=N)` | Static pose at a specific moment |
+# | What does the motion look like over time? | `play()` or `render()` | Animated sequence |
+# | Does the character walk in a straight line? | `trajectory()` | 2D top-down root path |
 #
-# This section covers all of these. Most workflows start with rest_pose() or frame() to sanity-check the skeleton, then move to play() for exploration or render() to export results.
+# This section covers all of these. Most workflows start with `rest_pose()` or `frame()` to sanity-check the skeleton, then move to `play()` for exploration or `render()` to export results.
 
 # %% [markdown]
 # # Static snapshots
@@ -74,7 +74,7 @@ print(bvh)
 #
 # The rest pose (also called bind pose) is the skeleton's shape when all joint angles are zero. Only the bone offsets define the posture. It's the first thing to check: does the skeleton look right?
 #
-# Use bvhplot.rest_pose() to display it.
+# Use `bvh.plot_rest_pose()` to display it.
 
 # %%
 fig, ax = bvh.plot_rest_pose()
@@ -83,9 +83,9 @@ plt.show()
 # %% [markdown]
 # ## Viewing a single frame
 #
-# bvhplot.frame() plots the skeleton at a specific frame of the animation. This is useful for inspecting the pose at a moment in time.
+# `bvh.plot_frame()` plots the skeleton at a specific frame of the animation. This is useful for inspecting the pose at a moment in time.
 #
-# Pass the frame index (0-based) as the frame parameter:
+# Pass the frame index (0-based) as the `frame` parameter:
 
 # %%
 # Early frame
@@ -134,7 +134,7 @@ plt.show()
 # %% [markdown]
 # ## Side-by-side comparison
 #
-# All bvhplot functions accept a list of Bvh objects to display multiple skeletons side by side. Use the labels parameter to title each subplot.
+# All `bvhplot` functions accept a list of `Bvh` objects to display multiple skeletons side by side. Use the `labels` parameter to title each subplot.
 #
 # This is useful for comparing different skeletons or the same motion with different transformations.
 
@@ -210,20 +210,16 @@ plt.show()
 # # Video and animation export
 
 # %% [markdown]
-# To export an animation to a file, use bvhplot.render(). This is especially useful for sharing results, including in papers or presentations.
+# To export an animation to a file, use `bvh.render()`. This is especially useful for sharing results, including in papers or presentations.
 #
-# The output format is inferred from the file extension. Supported formats include .mp4, .gif, .webp, .mov, .avi, and .html.
+# The output format is inferred from the file extension. Supported formats include `.mp4`, `.gif`, `.webp`, `.mov`, `.avi`, and `.html`.
 #
-# Rendered files are saved to the output/ folder in the tutorials directory.
+# Rendered files are saved to the `output/` folder in the tutorials directory.
 
 # %% [markdown]
 # ## A note on backends
 #
-# `render()` supports two backends:
-# - **`'opencv'`** — fast rendering (~100x faster than matplotlib). Requires `pip install pybvh[opencv]`.
-# - **`'matplotlib'`** — always available, no extra dependencies.
-#
-# By default (`backend='auto'`), OpenCV is used if installed, otherwise matplotlib. All the examples below use the auto default, so the same code runs on any install — it's just faster if you have OpenCV. The `resolution` parameter (e.g. `(1920, 1080)`) only applies to the OpenCV backend.
+# By default (`backend='auto'`), `render()` uses OpenCV when installed (~100x faster) and falls back to matplotlib otherwise — all the examples below run on any install, just faster with `pip install pybvh[opencv]`. The `resolution` parameter (e.g. `(1920, 1080)`) only applies to the OpenCV backend. The *Interactive backends* section at the end of this tutorial covers the full backend matrix.
 
 # %% [markdown]
 # ## Basic rendering
@@ -261,7 +257,7 @@ print(f'Animation with options saved to: {output_path}')
 # bvh.render('walk.mp4', follow=True)
 # ```
 #
-# With this option, the character always face the viewer while the world orbits around them.
+# With this option, the character always faces the viewer while the world orbits around them.
 #
 # `follow=True` only makes sense with preset cameras (`'front'`, `'side'`, `'top'`). A custom `(azim, elev)` tuple is a fixed camera — `follow` is a silent no-op in that case.
 
@@ -279,9 +275,9 @@ print(f'Follow-mode animation saved to: {output_path}')
 # %% [markdown]
 # ## Side-by-side video
 #
-# Just like static plots, you can render multiple skeletons side by side. The sync parameter controls behavior when clips have different lengths:
-# - 'truncate' (default): stop at the shortest clip
-# - 'pad': pad shorter clips by freezing on their last frame
+# Just like static plots, you can render multiple skeletons side by side. The `sync` parameter controls behavior when clips have different lengths:
+# - `'truncate'` (default): stop at the shortest clip
+# - `'pad'`: pad shorter clips by freezing on their last frame
 
 # %% tags=["slow-on-pr"]
 bvh2 = pybvh.read_bvh_file(bvh_folder / 'bvh_test2.bvh')
@@ -299,10 +295,10 @@ print(f'Comparison video saved to: {output_path}')
 # # Interactive playback
 
 # %% [markdown]
-# bvhplot.play() provides interactive animation playback. It auto-detects the best backend available for your environment:
-# - k3d (Jupyter widget) — if in Jupyter with k3d installed, interactive 3D widget
-# - vedo (desktop window) — if installed, full 3D interactive viewer
-# - matplotlib (fallback) — always available, but less interactive
+# `bvh.play()` provides interactive animation playback. It auto-detects the best backend available for your environment:
+# - **k3d** (Jupyter widget) — if in Jupyter with k3d installed, interactive 3D widget
+# - **vedo** (desktop window) — if installed, full 3D interactive viewer
+# - **matplotlib** (fallback) — always available, but less interactive
 
 # %% tags=["skip-execution"]
 # This auto-detects the best backend
@@ -344,38 +340,52 @@ bvhplot.play([bvh, bvh2_zup], labels=['Motion 1', 'Motion 2'],
 # %% [markdown]
 # ## Desktop viewer with vedo
 #
-# The vedo backend opens a full 3D window with keyboard controls:
+# The vedo backend opens a full 3D window with keyboard controls (press `h` inside the viewer to toggle this list on screen):
 #
-# The quality parameter controls visual quality:
-# - 'high' (default) — 3D tubes and spheres with lighting
-# - 'fast' — flat lines and points for maximum performance
+# | Key | Action |
+# |---|---|
+# | `Space` | Play / pause |
+# | `←` / `→` | Step one frame back / forward |
+# | `Home` / `End` | Jump to first / last frame |
+# | `+` / `-` | Speed playback up / down |
+# | `f` | Cycle FPS presets |
+# | `l` | Cycle loop mode |
+# | `t` | Toggle the root trajectory trail |
+# | `j` | Toggle joint name labels |
+# | `1`–`9` | Toggle visibility of skeleton 1–9 (side-by-side mode) |
+# | `s` | Save a screenshot of the current frame |
+# | `r` | Reset the camera |
+# | `h` | Toggle the on-screen help panel |
+#
+# The `quality` parameter controls visual quality:
+# - `'high'` (default) — 3D tubes and spheres with lighting
+# - `'fast'` — flat lines and points for maximum performance
 
-# %%
-# Only works if vedo is installed: pip install pybvh[viewer]
-# Uncomment to try (this will not work on remote/headless notebook):
-# bvh.play(backend='vedo', quality='high')
+# %% tags=["skip-execution"]
+# Requires vedo (pip install pybvh[viewer]) and a desktop session — opens a window,
+# so this will not work on a remote/headless notebook
+bvh.play(backend='vedo', quality='high')
 
 # %% [markdown]
 # ## Jupyter playback with k3d
 #
 # In Jupyter notebooks, the k3d backend renders an interactive 3D widget directly in the cell output. You can rotate, zoom, and scrub through the animation.
 
-# %%
-# Only works in Jupyter with k3d installed: pip install pybvh[interactive]
-# Uncomment to try:
-# bvh.play(backend='k3d')
+# %% tags=["skip-execution"]
+# Requires k3d and a Jupyter session: pip install pybvh[interactive]
+bvh.play(backend='k3d')
 
 # %% [markdown]
 # # Summary
 #
 # | Function | Purpose | Returns |
 # |---|---|---|
-# | bvhplot.rest_pose(bvh) | Static T-pose | (Figure, Axes) |
-# | bvhplot.frame(bvh, frame=N) | Static frame | (Figure, Axes) |
-# | bvhplot.trajectory(bvh) | 2D root path | (Figure, Axes) |
-# | bvhplot.render(bvh, path) | Export animation to file | Path |
-# | bvhplot.play(bvh) | Interactive playback | backend-specific |
+# | `bvhplot.rest_pose(bvh)` | Static rest pose | `(Figure, Axes)` |
+# | `bvhplot.frame(bvh, frame=N)` | Static frame | `(Figure, Axes)` |
+# | `bvhplot.trajectory(bvh)` | 2D root path | `(Figure, Axes)` |
+# | `bvhplot.render(bvh, path)` | Export animation to file | `Path` |
+# | `bvhplot.play(bvh)` | Interactive playback | backend-specific |
 #
-# All functions accept Bvh | list[Bvh], and support centered, camera, and labels parameters. The optional backends (vedo, k3d, OpenCV) provide richer playback and faster rendering when installed.
+# All functions accept `Bvh | list[Bvh]`, and support the `centered`, `camera`, and `labels` parameters. The optional backends (vedo, k3d, OpenCV) provide richer playback and faster rendering when installed.
 #
 # For the full parameter reference, see the API documentation.

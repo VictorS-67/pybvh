@@ -295,7 +295,7 @@ print(f'Original root position (frame 0): {bvh.root_pos[0]}')
 print(f'Noisy    root position (frame 0): {noisy_pos.root_pos[0]}')
 
 # %% [markdown]
-# One subtle behavior: by default the noised angles are **not** wrapped into `[-π, π]` (`wrap=False`) — BVH channels can legitimately hold values outside that range (rotations accumulated over multiple turns), and wrapping those would corrupt the motion. Pass `wrap=True` if your downstream pipeline expects canonical Euler ranges (see Tutorial 3 on why angle-range wrapping matters for Euler representations).
+# One subtle behavior: by default the noised angles are **not** wrapped into `[-π, π]` (`wrap=False`) — BVH channels can legitimately hold values outside that range (rotations accumulated over multiple turns), and wrapping those would corrupt the motion. Pass `wrap=True` if your downstream pipeline expects canonical Euler ranges (Tutorial 3's discontinuity demo shows what happens to Euler values at the ±180° boundary).
 
 # %% [markdown]
 # # Speed perturbation
@@ -434,7 +434,7 @@ plt.show()
 # %% [markdown]
 # ## Reproducibility
 #
-# All stochastic transforms accept an `rng` parameter (a `numpy.random.Generator`). Seed it to make augmentations reproducible — essential for debugging, for unit tests, and for comparisons accross experiments.
+# All stochastic transforms accept an `rng` parameter (a `numpy.random.Generator`). Seed it to make augmentations reproducible — essential for debugging, for unit tests, and for comparisons across experiments.
 #
 # Two patterns:
 #

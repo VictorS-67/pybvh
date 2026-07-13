@@ -78,11 +78,11 @@ vel_per_frame = bvh.joint_velocities(in_frames=True)  # units/frame
 
 print(f'Velocity per second (frame 10, joint 0): {vel_per_sec[10, 0]}')
 print(f'Velocity per frame  (frame 10, joint 0): {vel_per_frame[10, 0]}')
-print(f'Ratio (should be 1/frame_time = {1/bvh.frame_time:.1f}): '
+print(f'Ratio (should be fps = {bvh.fps:.1f}): '
       f'{vel_per_sec[10, 0, 0] / vel_per_frame[10, 0, 0]:.1f}')
 
 # %% [markdown]
-# Let's plot the speed (magnitude of velocity) of a specific joint over time to see the motion dynamics — peaks correspond to fast movements, valleys to rest.
+# Let's plot the speed (magnitude of velocity) of a specific joint over time to see the motion dynamics — peaks correspond to fast movements, valleys to rest. To connect the curve to the actual motion, it helps to watch the clip first (interactive — run locally):
 
 # %% tags=["skip-execution"]
 bvh.play()
@@ -290,7 +290,11 @@ print(f'Foot contacts block: {contacts_block.shape}')
 # | `bvh.to_feature_array()` | Combined flat array | `(F, D)` |
 # | `bvh.feature_array_layout(...)` | Column slice map | `dict[str, slice]` |
 #
-# `J` = non-end-site joints (matches `joint_angles` axis 1), `N` = all nodes including end sites (matches `node_positions` axis 1). The `joint_*` versions are what most ML pipelines want — they index-align with `joint_angles`, `angular_velocities`, and the rotation block of `to_feature_array`. The `node_*` versions are for extremity tracking when end-site positions matter. Defaults are `stencil="central", pad="edge"` on every velocity-like function — central interior + one-sided boundaries, output shape matches input. Pass `stencil="forward", pad="none"` for strict forward differences matching pre-v3 pybvh (`(F-1, ...)` / `(F-2, ...)`); `stencil="central", pad="none"` drops both boundaries symmetrically. `bvh.node_positions(centered='skeleton')` gives skeleton-centered positions (equivalent to root-relative positions in an old v0.5 API).
+# `J` = non-end-site joints (matches `joint_angles` axis 1); `N` = all nodes including end sites (matches `node_positions` axis 1). The `joint_*` versions are what most ML pipelines want — they index-align with `joint_angles`, `angular_velocities`, and the rotation block of `to_feature_array`. The `node_*` versions are for extremity tracking when end-site positions matter.
+#
+# Every velocity-like function defaults to `stencil="central", pad="edge"` — central differences in the interior, one-sided at the boundaries, output shape matching the input. Pass `stencil="forward"` for strict one-step forward differences, and `pad="none"` to drop the boundary frames instead of padding them (`(F-1, ...)` for forward, `(F-2, ...)` for central).
+#
+# For pose-only positions with the global movement removed, use `bvh.node_positions(centered='skeleton')` (see Tutorial 2).
 
 # %% [markdown]
 # # What's next

@@ -287,6 +287,28 @@ recovered = pybvh.rotations.quat_to_euler(q, 'ZYX', degrees=True)
 print(f"Recovered: {recovered}")
 
 # %% [markdown]
+# ### SLERP: interpolating between rotations
+#
+# The quaternion superpower is **SLERP** (spherical linear interpolation): blending two orientations along the shortest arc between them, at constant angular speed. Interpolating Euler angles component-wise does *not* do this — near the ±180° wraparound it takes the long way around. Consider two orientations that are only 20° apart, at +170° and −170° around Z:
+
+# %%
+q_a = pybvh.rotations.euler_to_quat(np.array([170.0, 0, 0]), 'ZYX', degrees=True)
+q_b = pybvh.rotations.euler_to_quat(np.array([-170.0, 0, 0]), 'ZYX', degrees=True)
+
+print("Interpolating from Z=170° to Z=-170° (20° apart across the boundary):\n")
+print(f"{'t':>6} {'Euler lerp':>12} {'SLERP':>12}")
+for t in [0.0, 0.25, 0.5, 0.75, 1.0]:
+    euler_lerp = (1 - t) * 170.0 + t * -170.0
+    q_t = pybvh.rotations.quat_slerp(q_a, q_b, t)
+    slerp_z = pybvh.rotations.quat_to_euler(q_t, 'ZYX', degrees=True)[0]
+    print(f"{t:>6.2f} {euler_lerp:>11.1f}° {slerp_z:>11.1f}°")
+
+# %% [markdown]
+# Component-wise Euler interpolation swings 340° the wrong way through 0°, passing through orientations that were never between the two inputs. SLERP travels the actual 20° arc: 170° → 175° → 180° → −175° → −170° (the sign flip at ±180° is just the Euler *readout* wrapping — the underlying rotation moves smoothly, as we saw in the discontinuity section).
+#
+# This is why every pybvh operation that blends frames — `resample()`, `perturb_speed()`, `drop_frames()` (Tutorials 5 and 7) — converts rotations to quaternions internally and SLERPs, regardless of the representation you work in.
+
+# %% [markdown]
 # ## Axis-angle
 #
 # The axis-angle representation encodes a rotation as a single 3D vector $\mathbf{v}$ where:
@@ -445,6 +467,7 @@ print(f"\nSpatial coordinates preserved? {np.allclose(spatial_orig, spatial_unif
 # | `rot6d_to_rotmat(rot6d)` | `(*, 6)` → `(*, 3, 3)` |
 # | `rotmat_to_quat(R)` | `(*, 3, 3)` → `(*, 4)` |
 # | `quat_to_rotmat(q)` | `(*, 4)` → `(*, 3, 3)` |
+# | `quat_slerp(q1, q2, t)` | two `(*, 4)` + fraction(s) `t` → `(*, 4)` |
 # | `rotmat_to_axisangle(R)` | `(*, 3, 3)` → `(*, 3)` |
 # | `axisangle_to_rotmat(aa)` | `(*, 3)` → `(*, 3, 3)` |
 #

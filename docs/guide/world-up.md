@@ -81,6 +81,17 @@ forwards = [bvh.forward_at(f, coords=coords) for f in range(bvh.frame_count)]
 lefts    = [bvh.left_at(f,    coords=coords) for f in range(bvh.frame_count)]
 ```
 
+## facing_frame() — the continuous basis
+
+`forward_at()` / `left_at()` snap the facing direction to the nearest of the six signed world axes — useful for canonicalization checks, but lossy: through a gentle turn the label stays constant while the true facing rotates. `bvh.facing_frame()` returns the same construction *before* the snap, as a `FacingFrame(forward, left, up)` named tuple of three `(F, 3)` unit-vector arrays — a per-frame orthonormal right-handed basis (`forward × left = up`):
+
+```python
+frame = bvh.facing_frame()        # or bvh.facing_frame(coords=coords)
+frame.forward[120]                # continuous facing vector at frame 120
+```
+
+This is a yaw-only, gravity-aligned *facing* frame: `up` is always exactly `world_up`, so the basis only rotates about the vertical — it is deliberately not a pelvis orientation (no roll/pitch), and distinct from `root_trajectory()`'s travel heading (a side-stepping character faces one way while moving another). Frames with no usable L/R direction fall back to the same chain as `forward_at()`; see [`analysis.facing_frame`](../api/analysis.md#pybvh.analysis.facing_frame) for the full policy.
+
 ## Rest-pose axes: rest_up and rest_forward
 
 `world_up` and `forward_at(frame)` are *animation*-derived — they read the actual joint positions at playback time. `rest_up` and `rest_forward` are *topology*-derived — they read only the rest-pose offsets, independent of any animation data:

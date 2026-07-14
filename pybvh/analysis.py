@@ -18,7 +18,7 @@ import numpy.typing as npt
 
 from .bvh import Bvh
 from .bvhnode import BvhNode
-from .tools import _axis_to_vector, _compute_forward_at
+from .tools import _axis_to_vector, _compute_forward_at, _facing_basis
 from . import rotations
 from . import geometry
 from .signal import box_filter_smooth
@@ -731,6 +731,87 @@ def root_trajectory(
     if degrees:
         heading_vel = np.degrees(heading_vel)
     return np.column_stack([base_aligned, ground_vel, heading_vel])
+
+
+# ----------------------------------------------------------------
+#  Facing frame
+# ----------------------------------------------------------------
+
+FacingFrame = namedtuple("FacingFrame", ["forward", "left", "up"])
+
+
+def facing_frame(
+    bvh: Bvh,
+    coords: npt.NDArray[np.float64] | None = None,
+) -> FacingFrame:
+    """Per-frame facing basis of the character, as continuous unit vectors.
+
+    Returns the orthonormal right-handed triple ``(forward, left, up)``
+    for every frame — the continuous form of the axis-label pair
+    :meth:`Bvh.forward_at` / :meth:`Bvh.left_at`, which snap exactly
+    this basis to the nearest signed world axis. Use the labels for
+    rest-pose canonicalization and dataset-convention checks; use this
+    function whenever the actual facing direction matters — the snapped
+    label stays constant while a character turns through less than 90°,
+    the vectors track the rotation frame by frame.
+
+    This is a **yaw-only, gravity-aligned facing frame**: ``up`` is the
+    exact :attr:`Bvh.world_up` unit vector on every frame, so the basis
+    only ever rotates about the vertical — deliberately *not* a pelvis
+    orientation (no roll or pitch; a character bending forward keeps
+    their facing frame level). It is also distinct from
+    :func:`root_trajectory`'s travel heading: facing is where the body
+    points, heading is where it moves — side-stepping or moon-walking
+    separates the two.
+
+    Construction (per frame, all in world space): the leftward
+    direction is the average of ``(left_pos - right_pos)`` over the
+    L/R joint pairs in :attr:`Bvh.lr_mapping`, projected onto the
+    horizontal plane and normalized; ``forward = leftward × up``;
+    ``left = up × forward`` (re-orthogonalized). The triple satisfies
+    ``forward × left = up``.
+
+    Fallback policy (mirrors :meth:`Bvh.forward_at`): frames with no
+    usable L/R direction — the skeleton has no ``lr_mapping``, or the
+    frame's horizontal ``(left - right)`` average nearly vanishes /
+    is nearly parallel to ``world_up`` (norm below ``1e-6``) — receive
+    a constant fallback basis instead: forward from the rest-pose
+    leftward crossed with ``world_up``, or the arbitrary-but-stable
+    per-up-axis default (``'+z'`` for a ``y``-up world) when no
+    rest-pose L/R geometry exists either; ``left = up × forward``
+    keeps the triple orthonormal. The bvhplot follow camera applies
+    the same policy — it holds its orientation on such frames rather
+    than inventing a rotation.
+
+    Parameters
+    ----------
+    bvh : Bvh
+        Input motion.
+    coords : ndarray, shape (F, N, 3), optional
+        Pre-computed spatial coordinates for all frames (as returned
+        by ``Bvh.node_positions()``). When provided, skips the
+        per-call forward kinematics.
+
+    Returns
+    -------
+    FacingFrame
+        Named tuple ``(forward, left, up)`` of three ``(F, 3)``
+        float64 arrays of per-frame unit vectors forming a
+        right-handed orthonormal basis.
+
+    See Also
+    --------
+    Bvh.forward_at, Bvh.left_at : The categorical (snapped axis label)
+        form of the same construction.
+    root_trajectory : Travel heading of the root (facing ≠ heading).
+    """
+    if coords is None:
+        coords = bvh.node_positions()
+    else:
+        coords = np.asarray(coords, dtype=np.float64)
+    _validate_node_coords(bvh, coords)
+    forward, left, up = _facing_basis(bvh, coords, bvh.world_up)
+    return FacingFrame(forward, left, up)
 
 
 # ----------------------------------------------------------------

@@ -993,6 +993,28 @@ class TestComputeFollowAzimuths:
         az = compute_follow_azimuths(bvh, coords, 45.0)
         assert np.allclose(az, 45.0)
 
+    def test_pinned_values_on_real_turning_walk(self):
+        """Hard-pinned outputs on cmu_12_01_walk, captured BEFORE the
+        leftward geometry was consolidated into pybvh.tools (the
+        facing_frame refactor): the follow camera must not move."""
+        from pybvh.bvhplot._common import compute_follow_azimuths
+        bvh = read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")
+        coords = bvh.node_positions()
+        az = compute_follow_azimuths(bvh, coords, -20.0)
+        assert az.shape == (524,)
+        expected = {
+            0: -20.0,
+            50: -7.614185304051565,
+            100: -28.527208890651654,
+            200: -3.4412318759617193,
+            300: -30.822573480565033,
+            400: -25.65914814654527,
+            523: -4.049526760718898,
+        }
+        for frame_idx, value in expected.items():
+            assert az[frame_idx] == pytest.approx(value, abs=1e-12), \
+                f"azimuth moved at frame {frame_idx}"
+
 
 # =============================================================================
 # match_fps

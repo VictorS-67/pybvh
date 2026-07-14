@@ -1152,3 +1152,159 @@ class TestFootContactsReturnInfo:
             assert info["method"] == m
 
 
+class TestFacingFrame:
+    """analysis.facing_frame / Bvh.facing_frame — the continuous per-frame
+    facing basis (Request C from pybvh-qualities)."""
+
+    @pytest.fixture
+    def cmu_walk(self):
+        return read_bvh_file(
+            Path(__file__).parent.parent / "bvh_data" / "cmu_12_01_walk.bvh")
+
+    def test_turning_walk_labels_constant_but_vectors_rotate(self, cmu_walk):
+        """The exact lossiness Request C documents: on a 524-frame turning
+        walk the snapped forward_at label is constant while the true
+        facing rotates by a measurable angle."""
+        coords = cmu_walk.node_positions()
+        labels = [cmu_walk.forward_at(f, coords=coords)
+                  for f in (0, 100, 300, 523)]
+        assert labels == ['+z', '+z', '+z', '+z']
+
+        frame = cmu_walk.facing_frame(coords=coords)
+        cos_angle = np.clip(frame.forward[0] @ frame.forward[-1], -1.0, 1.0)
+        angle_deg = np.degrees(np.arccos(cos_angle))
+        assert angle_deg > 10.0
+
+    def test_orthonormal_right_handed_per_frame(self, cmu_walk):
+        frame = cmu_walk.facing_frame()
+        for arr in (frame.forward, frame.left, frame.up):
+            assert arr.shape == (cmu_walk.frame_count, 3)
+            assert arr.dtype == np.float64
+            np.testing.assert_allclose(
+                np.linalg.norm(arr, axis=1), 1.0, atol=1e-12)
+        np.testing.assert_allclose(
+            np.einsum('ij,ij->i', frame.forward, frame.left), 0.0, atol=1e-12)
+        np.testing.assert_allclose(
+            np.einsum('ij,ij->i', frame.forward, frame.up), 0.0, atol=1e-12)
+        np.testing.assert_allclose(
+            np.einsum('ij,ij->i', frame.left, frame.up), 0.0, atol=1e-12)
+        # Right-handed: forward x left = up on every frame
+        np.testing.assert_allclose(
+            np.cross(frame.forward, frame.left), frame.up, atol=1e-12)
+
+    def test_up_is_exact_world_up(self, cmu_walk):
+        """Yaw-only, gravity-aligned frame: up is the exact world_up unit
+        vector on every frame — never tilted by the pose."""
+        from pybvh.tools import _axis_to_vector
+        frame = cmu_walk.facing_frame()
+        expected = np.tile(_axis_to_vector(cmu_walk.world_up),
+                           (cmu_walk.frame_count, 1))
+        np.testing.assert_array_equal(frame.up, expected)
+
+    def test_left_matches_per_frame_scalar_helper(self, cmu_walk):
+        """The vectorized basis must agree with the single-frame leftward
+        helper the axis-string snappers consume."""
+        from pybvh.tools import _world_leftward_unit_at_frame
+        coords = cmu_walk.node_positions()
+        frame = cmu_walk.facing_frame(coords=coords)
+        for f in range(cmu_walk.frame_count):
+            leftward = _world_leftward_unit_at_frame(
+                cmu_walk, coords[f], cmu_walk.world_up)
+            assert leftward is not None
+            np.testing.assert_allclose(frame.left[f], leftward, atol=1e-12)
+
+    def test_forward_snap_matches_forward_at(self, cmu_walk):
+        """facing_frame is the pre-snap form of forward_at: snapping its
+        forward vectors reproduces the labels."""
+        from pybvh.tools import get_main_direction
+        coords = cmu_walk.node_positions()
+        frame = cmu_walk.facing_frame(coords=coords)
+        for f in range(0, cmu_walk.frame_count, 25):
+            assert (get_main_direction(frame.forward[f])
+                    == cmu_walk.forward_at(f, coords=coords))
+
+    def test_function_and_method_agree(self, cmu_walk):
+        got_fn = analysis.facing_frame(cmu_walk)
+        got_method = cmu_walk.facing_frame()
+        np.testing.assert_array_equal(got_fn.forward, got_method.forward)
+        np.testing.assert_array_equal(got_fn.left, got_method.left)
+        np.testing.assert_array_equal(got_fn.up, got_method.up)
+
+    def test_coords_passthrough_is_used(self, cmu_walk):
+        """coords= must actually feed the computation: passing L/R-swapped
+        positions flips leftward, hence forward."""
+        from pybvh.tools import _resolve_lr_pairs
+        coords = cmu_walk.node_positions()
+        baseline = cmu_walk.facing_frame(coords=coords)
+        np.testing.assert_array_equal(
+            baseline.forward, cmu_walk.facing_frame().forward)
+
+        swapped = coords.copy()
+        for li, ri in _resolve_lr_pairs(cmu_walk.lr_mapping,
+                                        cmu_walk.node_index):
+            swapped[:, [li, ri]] = coords[:, [ri, li]]
+        flipped = cmu_walk.facing_frame(coords=swapped)
+        np.testing.assert_allclose(
+            flipped.forward, -baseline.forward, atol=1e-12)
+        np.testing.assert_allclose(flipped.left, -baseline.left, atol=1e-12)
+
+    def test_no_lr_pairs_falls_back_to_documented_basis(self):
+        """A skeleton without L/R pairs gets the constant fallback basis:
+        the vector form of forward_at's documented fallback chain (here
+        no rest-pose leftward either, so the arbitrary per-up default:
+        forward '+z' for a y-up world, left = up x forward = '+x')."""
+        bvh = make_pos_y_up_bvh()
+        bvh.lr_mapping = None
+        assert bvh.world_up == '+y'
+        frame = bvh.facing_frame()
+        f_count = bvh.frame_count
+        np.testing.assert_array_equal(
+            frame.forward, np.tile([0.0, 0.0, 1.0], (f_count, 1)))
+        np.testing.assert_array_equal(
+            frame.left, np.tile([1.0, 0.0, 0.0], (f_count, 1)))
+        np.testing.assert_array_equal(
+            frame.up, np.tile([0.0, 1.0, 0.0], (f_count, 1)))
+        # Consistent with the snapped labels on the same skeleton
+        assert bvh.forward_at(0) == '+z'
+        assert bvh.left_at(0) == '+x'
+
+    def test_degenerate_frame_gets_fallback_others_unaffected(self, cmu_walk):
+        """Frames whose horizontal (left - right) average vanishes get the
+        constant fallback basis; the fallback's snap agrees with
+        forward_at on the same degenerate frame. Other frames unchanged."""
+        from pybvh.tools import _resolve_lr_pairs, get_main_direction
+        coords = cmu_walk.node_positions()
+        baseline = cmu_walk.facing_frame(coords=coords)
+
+        degenerate = coords.copy()
+        for li, ri in _resolve_lr_pairs(cmu_walk.lr_mapping,
+                                        cmu_walk.node_index):
+            degenerate[3, ri] = degenerate[3, li]  # left - right == 0
+        frame = cmu_walk.facing_frame(coords=degenerate)
+
+        assert np.linalg.norm(frame.forward[3]) == pytest.approx(1.0)
+        np.testing.assert_allclose(
+            np.cross(frame.forward[3], frame.left[3]), frame.up[3],
+            atol=1e-12)
+        assert (get_main_direction(frame.forward[3])
+                == cmu_walk.forward_at(3, coords=degenerate))
+        np.testing.assert_array_equal(frame.forward[2], baseline.forward[2])
+        np.testing.assert_array_equal(frame.forward[4], baseline.forward[4])
+
+    def test_single_frame_and_empty_clip_shapes(self, cmu_walk):
+        one = cmu_walk[0:1].facing_frame()
+        assert one.forward.shape == (1, 3)
+        assert one.left.shape == (1, 3)
+        assert one.up.shape == (1, 3)
+
+        empty = cmu_walk[0:0].facing_frame()
+        assert empty.forward.shape == (0, 3)
+        assert empty.left.shape == (0, 3)
+        assert empty.up.shape == (0, 3)
+
+    def test_joint_shaped_coords_rejected(self, cmu_walk):
+        joint_shaped = cmu_walk.node_positions()[:, :3, :]
+        with pytest.raises(ValueError, match="node-shaped"):
+            cmu_walk.facing_frame(coords=joint_shaped)
+
+

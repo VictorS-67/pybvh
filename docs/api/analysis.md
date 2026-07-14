@@ -52,6 +52,18 @@ Ground-plane root features and binary contact labels — the contact signals are
     options:
       heading_level: 3
 
+## Facing frame
+
+The continuous per-frame facing basis — the vector form of the snapped [`Bvh.forward_at`](bvh.md#pybvh.bvh.Bvh.forward_at) / [`Bvh.left_at`](bvh.md#pybvh.bvh.Bvh.left_at) axis labels.
+
+::: pybvh.analysis.FacingFrame
+    options:
+      heading_level: 3
+
+::: pybvh.analysis.facing_frame
+    options:
+      heading_level: 3
+
 ## Jerk
 
 The third rung of the velocity → acceleration → jerk ladder.

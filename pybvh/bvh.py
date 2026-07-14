@@ -776,8 +776,9 @@ class Bvh:
 
             >>> bvh = read_bvh_file('weird.bvh', lr_mapping={...})
 
-        Consumers: ``mirror()``, ``forward_at()``, ``_rest_leftward``,
-        ``_compute_forward_at``, ``reorient_rest_forward``.
+        Consumers: ``mirror()``, ``forward_at()``, ``facing_frame()``,
+        ``_rest_leftward``, ``_compute_forward_at``,
+        ``reorient_rest_forward``.
 
         Note: BVH files don't store L/R pair info, so user-set mappings
         are lost on ``bvh.write()`` round-trips — same wart as
@@ -885,6 +886,11 @@ class Bvh:
         leftward × up). This tracks the character's actual facing as
         they rotate through the animation.
 
+        This is the snapped classification — the continuous facing
+        vector is quantized to the nearest of the six signed world
+        axes. See :meth:`facing_frame` for the continuous per-frame
+        basis as unit vectors.
+
         Parameters
         ----------
         frame : int, optional
@@ -901,6 +907,12 @@ class Bvh:
         str
             Signed axis string (e.g. ``'-z'``) pointing in the character's
             facing direction in world coordinates at the given frame.
+
+        See Also
+        --------
+        facing_frame : The continuous per-frame basis (vectors, all
+            frames at once).
+        left_at : Leftward direction.
         """
         if coords is None:
             frame_coords = self.node_positions(frame=frame)
@@ -926,6 +938,9 @@ class Bvh:
         Computed from joint positions at the given frame, so it tracks
         hip twist and shoulder rotation as the character moves.
 
+        This is the snapped classification — see :meth:`facing_frame`
+        for the continuous per-frame basis as unit vectors.
+
         Parameters
         ----------
         frame : int, optional
@@ -944,6 +959,8 @@ class Bvh:
         See Also
         --------
         forward_at : Facing direction.
+        facing_frame : The continuous per-frame basis (vectors, all
+            frames at once).
         world_up : World vertical axis.
         """
         if coords is None:
@@ -951,6 +968,22 @@ class Bvh:
         else:
             frame_coords = coords[frame]
         return _compute_left_at(self, frame_coords, self.world_up)
+
+    def facing_frame(
+        self,
+        coords: npt.NDArray[np.float64] | None = None,
+    ):
+        """Per-frame facing basis as continuous unit vectors.
+
+        Returns a ``FacingFrame(forward, left, up)`` named tuple of
+        three ``(F, 3)`` arrays — the yaw-only, gravity-aligned
+        orthonormal basis that :meth:`forward_at` / :meth:`left_at`
+        snap to axis labels. See
+        :func:`pybvh.analysis.facing_frame` for the full construction,
+        conventions, and fallback policy.
+        """
+        from . import analysis
+        return analysis.facing_frame(self, coords=coords)
 
     def write(self, filepath: str | Path, verbose: bool = False) -> None:
         """Write the Bvh object to a ``.bvh`` file.  See :func:`pybvh.io.write_bvh_file`."""

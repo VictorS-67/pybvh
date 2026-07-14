@@ -141,26 +141,28 @@ def extract_sign(ax: str) -> bool:
 #           │          │       │
 #           │          │       └──→ used by transforms.mirror()
 #           │          ▼
-#           │    _world_leftward_unit_at_frame
-#           │          │       │
-#           │          ▼       │
-#           │    _compute_     │
-#           │    forward_at,   │
-#           │    _compute_     │
-#           │    left_at       │   _signed_rotation_delta_around_axis
-#           │          │       │          │
-#           ▼          ▼       │          │
-#       _infer_world_up        │          │
-#           │                  │          │
-#           ▼                  ▼          ▼
-#   ┌──────────────┐   ┌───────────┐   ┌──────────────────────┐
-#   │ Bvh.world_up │   │Bvh.forward│   │ bvhplot follow-mode  │
-#   │  (property)  │   │_at/left_at│   │ (render_mpl/opencv)  │
-#   └──────────────┘   └───────────┘   └──────────────────────┘
+#           │    _world_leftward_units ── the ONLY place the per-frame
+#           │      │        │       │     leftward geometry is computed
+#           │      │        │       └──→ bvhplot follow-mode azimuths
+#           │      │        ▼            (render_mpl/opencv)
+#           │      │   _world_leftward_unit_at_frame (1-frame view)
+#           │      │        │
+#           │      │        ▼
+#           │      │   _compute_forward_at, ──→ Bvh.forward_at /
+#           │      │   _compute_left_at         Bvh.left_at
+#           │      ▼     (axis-string snap)
+#           │  _facing_basis ──→ analysis.facing_frame
+#           │     (+ _fallback_forward_vector, shared with the
+#           ▼      axis-string snappers)
+#       _infer_world_up ──→ Bvh.world_up (property)
 #
-# Public surface: ONLY `Bvh.world_up` (property + setter) and
-# `Bvh.forward_at(frame=0)` / `Bvh.left_at(frame=0)` (methods). Everything
-# else is underscore-prefixed and intended for internal use by pybvh modules.
+#   (_signed_rotation_delta_around_axis is the scalar angle helper the
+#    follow camera's vectorized delta math mirrors.)
+#
+# Public surface: ONLY `Bvh.world_up` (property + setter),
+# `Bvh.forward_at(frame=0)` / `Bvh.left_at(frame=0)` (methods), and — via
+# `analysis.facing_frame` — the continuous vector basis. Everything else is
+# underscore-prefixed and intended for internal use by pybvh modules.
 # ---------------------------------------------------------------------------
 
 _VALID_AXIS_STRINGS = frozenset(
@@ -584,39 +586,152 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
     return frame_up
 
 
+def _world_leftward_units(
+    bvh: Bvh,
+    coords: npt.NDArray[np.float64],
+    world_up: str,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.bool_]]:
+    """Per-frame world-space leftward **unit vectors** for a whole clip.
+
+    The single implementation of the facing construction's first stage:
+    average ``(left_pos - right_pos)`` across matching L/R joint pairs
+    in world space, project onto the plane perpendicular to
+    ``world_up``, normalize. Continuous (not snapped to a signed axis);
+    matches the ``up × forward`` right-hand-rule convention used by
+    :meth:`Bvh.left_at`. Every consumer of the leftward geometry —
+    :func:`_facing_basis`, the single-frame axis-string snappers, the
+    bvhplot follow camera — routes through here.
+
+    Parameters
+    ----------
+    bvh : Bvh
+        The skeleton (used for L/R pairs).
+    coords : np.ndarray
+        Spatial coordinates of shape (F, N, 3).
+    world_up : str
+        Signed axis string for the world vertical axis.
+
+    Returns
+    -------
+    leftward : ndarray of shape (F, 3)
+        Leftward unit vector per frame. Rows where ``valid`` is False
+        carry no usable direction and must not be consumed.
+    valid : ndarray of shape (F,), bool
+        False for every frame when no L/R pairs exist; per-frame False
+        where the averaged leftward is degenerate (parallel to world
+        up, or zero). Callers should handle invalid frames by falling
+        back to the topological rest-pose direction.
+    """
+    num_frames = coords.shape[0]
+    pairs = _resolve_lr_pairs(bvh.lr_mapping, bvh.node_index)
+    if not pairs:
+        return (np.zeros((num_frames, 3)),
+                np.zeros(num_frames, dtype=bool))
+
+    left_idx = [li for li, _ in pairs]
+    right_idx = [ri for _, ri in pairs]
+    up_vec = _axis_to_vector(world_up)
+
+    leftward = np.mean(coords[:, left_idx] - coords[:, right_idx], axis=1)
+    # Project onto plane perpendicular to world_up
+    leftward = leftward - (leftward @ up_vec)[:, np.newaxis] * up_vec
+    norms = np.linalg.norm(leftward, axis=1)
+    valid = norms >= 1e-6
+    leftward[valid] /= norms[valid, np.newaxis]
+    return leftward, valid
+
+
 def _world_leftward_unit_at_frame(
     bvh: Bvh,
     frame_coords: npt.NDArray[np.float64],
     world_up: str,
 ) -> npt.NDArray[np.float64] | None:
-    """Return the character's world-space leftward **unit vector** at a frame.
+    """Single-frame view of :func:`_world_leftward_units`.
 
-    Continuous (not snapped to a signed axis), projected onto the plane
-    perpendicular to ``world_up``. Averages ``(left_pos - right_pos)``
-    across matching L/R joint pairs in world space at the given frame —
-    a unit vector pointing from the character's right toward their
-    left. Matches the ``up × forward`` right-hand-rule convention used
-    by :meth:`Bvh.left_at`.
+    Takes (N, 3) coordinates for one frame; returns the leftward unit
+    vector, or ``None`` for the degenerate cases where the vectorized
+    form flags the frame invalid (no L/R pairs, or leftward parallel to
+    world up / zero).
+    """
+    leftward, valid = _world_leftward_units(
+        bvh, frame_coords[np.newaxis], world_up)
+    if not valid[0]:
+        return None
+    return leftward[0]
 
-    Returns ``None`` if no L/R pairs exist or the averaged leftward is
-    degenerate (parallel to world up, or zero). Callers should handle
-    ``None`` by falling back to the topological ``_rest_leftward``.
+
+def _fallback_forward_vector(
+    bvh: Bvh,
+    world_up: str,
+) -> npt.NDArray[np.float64]:
+    """Unit forward vector for frames carrying no usable L/R direction.
+
+    The vector form of the fallback chain documented on
+    :meth:`Bvh.forward_at`: the topological rest-pose leftward crossed
+    with ``world_up``; when the skeleton has no usable rest-pose L/R
+    geometry either (or it is parallel to ``world_up``), the
+    arbitrary-but-stable ``_FALLBACK_FORWARD`` axis for this up axis.
+    Always axis-aligned and perpendicular to ``world_up``, so snapping
+    it reproduces the string fallback exactly.
     """
     up_vec = _axis_to_vector(world_up)
-    pairs = _resolve_lr_pairs(bvh.lr_mapping, bvh.node_index)
-    if not pairs:
-        return None
+    rest_left = _rest_leftward(bvh)
+    if rest_left is not None:
+        forward = np.cross(_axis_to_vector(rest_left), up_vec)
+        # Cross of two distinct signed axes is exactly a unit axis
+        # vector; it is zero only when rest_left is (anti)parallel to
+        # world_up (possible when rest-pose topology and world_up
+        # disagree), in which case fall through.
+        if float(np.linalg.norm(forward)) >= 1e-6:
+            return forward
+    return _axis_to_vector(_FALLBACK_FORWARD[world_up[1]])
 
-    left_idx = [li for li, _ in pairs]
-    right_idx = [ri for _, ri in pairs]
-    avg_leftward = np.mean(
-        frame_coords[left_idx] - frame_coords[right_idx], axis=0)
-    # Project onto plane perpendicular to world_up
-    avg_leftward = avg_leftward - np.dot(avg_leftward, up_vec) * up_vec
-    norm = float(np.linalg.norm(avg_leftward))
-    if norm < 1e-6:
-        return None
-    return avg_leftward / norm
+
+def _facing_basis(
+    bvh: Bvh,
+    coords: npt.NDArray[np.float64],
+    world_up: str,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64],
+           npt.NDArray[np.float64]]:
+    """Vectorized per-frame facing basis — the geometry under ``facing_frame``.
+
+    Builds the right-handed orthonormal triple from the leftward
+    geometry: ``forward = leftward × up``, ``left = up × forward``,
+    ``up`` = the exact ``world_up`` unit vector on every frame. Frames
+    flagged invalid by :func:`_world_leftward_units` receive the
+    constant :func:`_fallback_forward_vector` basis instead — the same
+    fallback chain the axis-string snappers use.
+
+    Parameters
+    ----------
+    bvh : Bvh
+        The skeleton (used for L/R pairs and the rest-pose fallback).
+    coords : np.ndarray
+        Spatial coordinates of shape (F, N, 3).
+    world_up : str
+        Signed axis string for the world vertical axis.
+
+    Returns
+    -------
+    forward, left, up : ndarray of shape (F, 3) each
+        Unit vectors forming a right-handed basis per frame
+        (``forward × left = up``).
+    """
+    up_vec = _axis_to_vector(world_up)
+    leftward, valid = _world_leftward_units(bvh, coords, world_up)
+
+    # leftward is unit and perpendicular to up on valid rows, so both
+    # crosses below give unit vectors and `left` re-orthogonalizes to
+    # leftward itself (up × (leftward × up) = leftward).
+    forward = np.cross(leftward, up_vec)
+    left = np.cross(up_vec, forward)
+    if not valid.all():
+        fallback_forward = _fallback_forward_vector(bvh, world_up)
+        forward[~valid] = fallback_forward
+        left[~valid] = np.cross(up_vec, fallback_forward)
+
+    up = np.tile(up_vec, (coords.shape[0], 1))
+    return forward, left, up
 
 
 def _signed_rotation_delta_around_axis(
@@ -653,8 +768,9 @@ def _compute_forward_at(
          ``up × forward = leftward`` right-hand-rule convention.
       3. Snap to nearest signed axis via :func:`get_main_direction`.
       4. Fallback: if leftward is degenerate (parallel to world_up) or
-         no L/R pairs found, use :func:`_rest_leftward` and cross with
-         world_up.
+         no L/R pairs found, use :func:`_fallback_forward_vector`
+         (rest-pose leftward crossed with world_up, then the arbitrary
+         per-up-axis default).
 
     Parameters
     ----------
@@ -671,23 +787,17 @@ def _compute_forward_at(
         Signed axis string (e.g. '-z') giving the character's forward
         direction in world space at the given frame.
     """
-    up_vec = _axis_to_vector(world_up)
     leftward_vec = _world_leftward_unit_at_frame(bvh, frame_coords, world_up)
 
-    # Fallback: use rest-pose leftward (topology) if current-frame
-    # leftward is degenerate or no L/R pairs exist.
     if leftward_vec is None:
-        rest_left = _rest_leftward(bvh)
-        if rest_left is None:
-            # Truly no information available — pick an arbitrary horizontal
-            # direction so we at least return a valid axis.
-            return _FALLBACK_FORWARD[world_up[1]]
-        leftward_vec = _axis_to_vector(rest_left)
+        forward_vec = _fallback_forward_vector(bvh, world_up)
+    else:
+        forward_vec = np.cross(leftward_vec, _axis_to_vector(world_up))
 
-    forward_vec = np.cross(leftward_vec, up_vec)
+    # Both branches yield a unit vector perpendicular to world_up, so
+    # the snap never degenerates and never lands on the up axis.
     forward_ax = get_main_direction(forward_vec)
-    if forward_ax is None or forward_ax[1] == world_up[1]:
-        return _FALLBACK_FORWARD[world_up[1]]
+    assert forward_ax is not None
     return forward_ax
 
 
@@ -724,23 +834,23 @@ def _compute_left_at(
     """
     left_vec = _world_leftward_unit_at_frame(bvh, frame_coords, world_up)
 
-    left_ax: str | None = None
-    if left_vec is None:
-        rest_left = _rest_leftward(bvh)
-        if rest_left is not None:
-            return rest_left
-    else:
+    if left_vec is not None:
+        # Unit and perpendicular to world_up by construction, so the
+        # snap never degenerates and never lands on the up axis.
         left_ax = get_main_direction(left_vec)
-        if left_ax is not None and left_ax[1] == world_up[1]:
-            left_ax = None
+        assert left_ax is not None
+        return left_ax
 
-    if left_ax is None:
-        # No usable L/R information — derive left from the fallback
-        # forward via the right-hand rule (leftward = up × forward).
-        fwd_vec = _axis_to_vector(_FALLBACK_FORWARD[world_up[1]])
-        up_vec = _axis_to_vector(world_up)
-        left_ax = get_main_direction(np.cross(up_vec, fwd_vec))
-        assert left_ax is not None  # axis-aligned cross never degenerate
+    rest_left = _rest_leftward(bvh)
+    if rest_left is not None:
+        return rest_left
+
+    # No usable L/R information — derive left from the fallback
+    # forward via the right-hand rule (leftward = up × forward).
+    fwd_vec = _axis_to_vector(_FALLBACK_FORWARD[world_up[1]])
+    up_vec = _axis_to_vector(world_up)
+    left_ax = get_main_direction(np.cross(up_vec, fwd_vec))
+    assert left_ax is not None  # axis-aligned cross never degenerate
     return left_ax
 
 

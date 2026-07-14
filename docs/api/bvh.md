@@ -140,6 +140,10 @@ Up axis, facing direction, L/R pairs, and the reorientation family (see the [Wor
     options:
       heading_level: 3
 
+::: pybvh.bvh.Bvh.facing_frame
+    options:
+      heading_level: 3
+
 ::: pybvh.bvh.Bvh.lr_mapping
     options:
       heading_level: 3

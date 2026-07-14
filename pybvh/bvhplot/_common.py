@@ -289,29 +289,18 @@ def compute_follow_azimuths(
         direction is degenerate (parallel to world up, or no L/R pairs)
         fall back to ``base_azim``.
     """
-    from ..tools import _axis_to_vector, _resolve_lr_pairs
+    from ..tools import _axis_to_vector, _world_leftward_units
 
     num_frames = coords.shape[0]
     azimuths = np.full(num_frames, float(base_azim))
 
-    pairs = _resolve_lr_pairs(bvh.lr_mapping, bvh.node_index)
-    if not pairs:
-        return azimuths
-
-    left_idx = [li for li, _ in pairs]
-    right_idx = [ri for _, ri in pairs]
-    up_vec = _axis_to_vector(bvh.world_up)
-
-    # World-space leftward unit vector per frame, projected onto the
-    # plane perpendicular to world_up (vectorized form of
-    # tools._world_leftward_unit_at_frame).
-    leftward = np.mean(coords[:, left_idx] - coords[:, right_idx], axis=1)
-    leftward = leftward - (leftward @ up_vec)[:, np.newaxis] * up_vec
-    norms = np.linalg.norm(leftward, axis=1)
-    valid = norms >= 1e-6
-    if not valid[0]:
+    # World-space leftward unit vector per frame — the shared facing
+    # geometry in pybvh.tools. All-invalid when no L/R pairs exist.
+    leftward, valid = _world_leftward_units(bvh, coords, bvh.world_up)
+    if num_frames == 0 or not valid[0]:
         return azimuths  # no frame-0 reference — camera stays fixed
-    leftward[valid] /= norms[valid, np.newaxis]
+
+    up_vec = _axis_to_vector(bvh.world_up)
 
     # Signed angle rotating frame 0's leftward onto each frame's,
     # around world_up (vectorized _signed_rotation_delta_around_axis).

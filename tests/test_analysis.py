@@ -25,6 +25,13 @@ from synthetic_bvh import (  # noqa: E402
     make_pos_y_up_rotating_bvh, make_clip_bvh,
 )
 
+# The foot_contacts behavior-pin run spec is shared with the fixture
+# generator, so the calls replayed here are exactly the calls that produced
+# the committed fixture (importing it regenerates nothing — the reference
+# libraries only load inside the gen_* functions that need them).
+sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
+from generate_fixtures import FOOT_CONTACT_RUNS, flatten_info  # noqa: E402
+
 
 # ============================================================================
 # Fixtures
@@ -1150,6 +1157,93 @@ class TestFootContactsReturnInfo:
         for m in ("combined", "velocity", "height"):
             _, info = bvh_example.foot_contacts(method=m, return_info=True)
             assert info["method"] == m
+
+
+# ============================================================================
+# foot_contacts behavior pin — golden fixture + floor-cache gating
+# ============================================================================
+
+CMU_WALK_PATH = Path(__file__).parent.parent / "bvh_data" / "cmu_12_01_walk.bvh"
+FOOT_PIN_PATH = Path(__file__).parent / "fixtures" / "foot_contacts_pinned.npz"
+
+
+class TestFootContactsPinnedGolden:
+    """Bit-exact pin of foot_contacts on the CMU walk clip.
+
+    The committed fixture freezes contacts + the FULL info dict (exact key sets included) for the nine parameterizations in ``FOOT_CONTACT_RUNS``. Every comparison is ``assert_array_equal`` — this is the bit-identity gate any refactor of the contacts machinery must pass. If it fails, the code change altered behavior; do NOT regenerate the fixture to make it pass (that re-baselines the pin and erases the evidence).
+    """
+
+    @pytest.fixture(scope="class")
+    def pin(self):
+        assert FOOT_PIN_PATH.exists(), (
+            "foot_contacts_pinned.npz missing — it is a COMMITTED behavior "
+            "pin, loaded (never regenerated) at test time; regenerate "
+            "deliberately via generate_fixtures.py --foot-contacts-pin")
+        return np.load(FOOT_PIN_PATH)
+
+    @pytest.mark.parametrize(
+        "run_idx, run_name",
+        [(i, name) for i, (name, _) in enumerate(FOOT_CONTACT_RUNS, start=1)],
+        ids=[name for name, _ in FOOT_CONTACT_RUNS])
+    def test_run_matches_pin(self, pin, run_idx, run_name):
+        _, build = FOOT_CONTACT_RUNS[run_idx - 1]
+        # Fresh Bvh per run: no floor-cache state carries over, mirroring
+        # exactly how the fixture was generated.
+        bvh = read_bvh_file(CMU_WALK_PATH)
+        contacts, info = bvh.foot_contacts(return_info=True, **build(bvh))
+
+        np.testing.assert_array_equal(
+            contacts, pin[f"run{run_idx}/contacts"],
+            err_msg=f"run{run_idx} ({run_name}): contacts changed")
+
+        flat = flatten_info(info)
+        pinned_keys = pin[f"run{run_idx}/__keys__"].tolist()
+        assert sorted(flat) == pinned_keys, (
+            f"run{run_idx} ({run_name}): info key set changed")
+        for key in pinned_keys:
+            np.testing.assert_array_equal(
+                np.asarray(flat[key]), pin[f"run{run_idx}/{key}"],
+                err_msg=f"run{run_idx} ({run_name}): info[{key!r}] changed")
+
+        if run_idx == 1:
+            # The canonical default path fills the floor cache with exactly
+            # the floor it reports.
+            assert bvh._floor_height_cached == info["floor"]
+
+
+class TestFootContactsFloorCacheGating:
+    """Which foot_contacts paths may touch ``Bvh._floor_height_cached``.
+
+    Only the canonical path — world coords + auto-detected feet — fills or serves the cache; explicit ``foot_joints=`` or ``coords=`` must leave it untouched (their floor estimate describes a different joint set / coordinate frame than the one :attr:`Bvh.floor_height` promises).
+    """
+
+    @pytest.fixture
+    def cmu_walk(self):
+        return read_bvh_file(CMU_WALK_PATH)
+
+    def test_default_path_fills_cache(self, cmu_walk):
+        assert cmu_walk._floor_height_cached is None
+        _, info = cmu_walk.foot_contacts(return_info=True)
+        assert cmu_walk._floor_height_cached == info["floor"]
+
+    def test_explicit_foot_joints_does_not_fill_cache(self, cmu_walk):
+        feet = cmu_walk.auto_detect_foot_joints()
+        cmu_walk.foot_contacts(foot_joints=feet)
+        assert cmu_walk._floor_height_cached is None
+
+    def test_explicit_coords_does_not_fill_cache(self, cmu_walk):
+        coords = cmu_walk.node_positions()
+        cmu_walk.foot_contacts(coords=coords)
+        assert cmu_walk._floor_height_cached is None
+
+    def test_prewarmed_cache_is_served_on_canonical_path(self, cmu_walk):
+        # A sentinel offset from the true estimate distinguishes "served
+        # from cache" from "recomputed" (which would report the estimate).
+        sentinel = cmu_walk.floor_height + 1.0
+        cmu_walk._floor_height_cached = sentinel
+        _, info = cmu_walk.foot_contacts(return_info=True)
+        assert info["floor"] == sentinel
+        assert cmu_walk._floor_height_cached == sentinel
 
 
 class TestFacingFrame:

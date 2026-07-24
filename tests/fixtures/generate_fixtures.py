@@ -1,28 +1,31 @@
 #!/usr/bin/env python3
 """Generate golden reference fixtures for pybvh's differential tests.
 
-Run ONCE, offline, in the `pybvh_test` conda env (which has the reference
-libraries). The committed `.npz` outputs are then loaded by numpy-only tests
-in the `pybvh` env — so CI validates pybvh against scipy/pytransform3d WITHOUT
-those libraries being a runtime (or even CI) dependency.
+Run ONCE, offline, in the `pybvh_test` conda env (which has the reference libraries). The committed `.npz` outputs are then loaded by numpy-only tests in the `pybvh` env — so CI validates pybvh against scipy/pytransform3d WITHOUT those libraries being a runtime (or even CI) dependency.
 
     conda run -n pybvh_test python tests/fixtures/generate_fixtures.py
 
-Each fixture stores its INPUTS, the reference OUTPUTS, and a `meta` JSON string
-documenting the exact convention mapping (the antidote to "definition drift":
-a future mismatch should be debugged against this meta, not assumed to be a bug).
+Each fixture stores its INPUTS, the reference OUTPUTS, and a `meta` JSON string documenting the exact convention mapping (the antidote to "definition drift": a future mismatch should be debugged against this meta, not assumed to be a bug).
 
 References used:
 - scipy.spatial.transform.Rotation  (rotation conversions)
 - pytransform3d                      (SE(3) exp/log/interp — added when those land)
+
+One fixture is different in kind: `foot_contacts_pinned.npz` is a BEHAVIOR PIN of pybvh's own `foot_contacts` (no external reference). It is excluded from the default run above and regenerates only via an explicit flag, in the `pybvh` env — see `gen_foot_contacts` for the re-baselining warning:
+
+    conda run -n pybvh python tests/fixtures/generate_fixtures.py --foot-contacts-pin
 """
 from __future__ import annotations
 import json
 import os
+import sys
 
 import numpy as np
-from scipy.spatial.transform import Rotation as SR
-import pytransform3d.transformations as pt
+
+# The reference libraries (scipy, pytransform3d) are imported inside the
+# gen_* functions that need them, not here: the behavior-pin generator and
+# the pin tests (tests/test_analysis.py) import this module in the
+# numpy-only `pybvh` env, where those libraries do not exist.
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SEED = 0xB7  # fixed: fixtures must be reproducible
@@ -43,6 +46,8 @@ def _save(name: str, meta: dict, **arrays) -> None:
 
 
 def gen_rotations() -> None:
+    from scipy.spatial.transform import Rotation as SR
+
     rng = np.random.default_rng(SEED)
 
     # --- inputs: rotation matrices from bounded-angle rotvecs (clean,
@@ -103,6 +108,8 @@ def _se3_twists() -> np.ndarray:
 
 
 def gen_se3() -> None:
+    import pytransform3d.transformations as pt
+
     twist = _se3_twists()                       # (N,6) [omega, v], rotation-first
     transform = np.array([pt.transform_from_exponential_coordinates(x) for x in twist])
     theta = np.linalg.norm(twist[:, :3], axis=1)
@@ -129,6 +136,8 @@ def gen_se3() -> None:
 
 
 def gen_geodesic() -> None:
+    from scipy.spatial.transform import Rotation as SR
+
     rng = np.random.default_rng(SEED ^ 0x6E0)
 
     def rotvecs(n):
@@ -188,10 +197,128 @@ def gen_smoothness() -> None:
           signals=sig, fs=np.array(fs), sparc=sparc, dlj=dlj, ldlj=ldlj)
 
 
+# ----------------------------------------------------------------------------
+# foot_contacts behavior pin (self-referential golden — no external reference)
+# ----------------------------------------------------------------------------
+
+# The nine pinned parameterizations. Each builder takes a FRESH Bvh of the
+# CMU walk clip and returns the kwargs for one foot_contacts call (always
+# with return_info=True). tests/test_analysis.py imports this list and
+# replays the exact same calls against the fixture, so the pinned calls and
+# the replayed calls cannot drift apart.
+
+def _run_default(bvh):
+    return {}
+
+
+def _run_explicit_feet_reversed(bvh):
+    # Reversed auto-detection: pins column order = foot_joints order, and
+    # that explicit foot_joints bypasses the floor cache.
+    return {"foot_joints": list(reversed(bvh.auto_detect_foot_joints()))}
+
+
+def _run_method_velocity(bvh):
+    return {"method": "velocity"}
+
+
+def _run_method_height_floor0(bvh):
+    return {"method": "height", "floor": 0.0}
+
+
+def _run_height_reference_floor(bvh):
+    return {"height_reference": "floor"}
+
+
+def _run_adaptive(bvh):
+    return {"adaptive": True}
+
+
+def _run_coords_centered_first(bvh):
+    return {"coords": bvh.node_positions(centered="first")}
+
+
+def _run_no_morphology(bvh):
+    return {"hysteresis": 0.0, "min_contact_duration": 0.0,
+            "min_gap_duration": 0.0}
+
+
+def _run_explicit_thresholds(bvh):
+    # Explicit floats near the clip's auto-calibrated defaults (so the labels
+    # stay meaningful); pins that "skeleton_scale" is ABSENT from info when no
+    # auto-calibration ran (the conditional-key logic).
+    return {"vel_threshold": 2.0, "height_threshold": 0.5}
+
+
+FOOT_CONTACT_RUNS = [
+    ("default", _run_default),
+    ("explicit_feet_reversed", _run_explicit_feet_reversed),
+    ("method_velocity", _run_method_velocity),
+    ("method_height_floor0", _run_method_height_floor0),
+    ("height_reference_floor", _run_height_reference_floor),
+    ("adaptive", _run_adaptive),
+    ("coords_centered_first", _run_coords_centered_first),
+    ("no_morphology", _run_no_morphology),
+    ("explicit_thresholds", _run_explicit_thresholds),
+]
+
+
+def flatten_info(info: dict, prefix: str = "") -> dict:
+    """Flatten foot_contacts' info dict into ``{"key" | "key/subkey": leaf}`` (recursing into nested dicts such as ``foot_skate``), the exact view the pin fixture stores and the pin tests compare."""
+    flat: dict = {}
+    for key, value in info.items():
+        if isinstance(value, dict):
+            flat.update(flatten_info(value, f"{prefix}{key}/"))
+        else:
+            flat[prefix + key] = value
+    return flat
+
+
+def gen_foot_contacts() -> None:
+    # ------------------------------------------------------------------
+    # !! BEHAVIOR PIN — regenerating RE-BASELINES it !!
+    #
+    # Unlike every other fixture in this file, this one has NO external
+    # reference: it freezes pybvh's OWN foot_contacts output (contacts +
+    # the full info dict) so a refactor can be proven bit-identical.
+    # The committed .npz must come from the PRE-refactor tree. If the
+    # pin test fails after a code change, the change altered behavior —
+    # rerunning this generator does not "fix" that, it silently erases
+    # the evidence. Regenerate only to deliberately re-baseline.
+    # ------------------------------------------------------------------
+    repo_root = os.path.dirname(os.path.dirname(HERE))
+    # Pin the CURRENT tree's pybvh, never an installed copy.
+    sys.path.insert(0, repo_root)
+    from pybvh import read_bvh_file
+
+    bvh_path = os.path.join(repo_root, "bvh_data", "cmu_12_01_walk.bvh")
+    arrays: dict[str, np.ndarray] = {}
+    for i, (name, build) in enumerate(FOOT_CONTACT_RUNS, start=1):
+        # Fresh Bvh per run: no floor-cache state carries over between runs.
+        bvh = read_bvh_file(bvh_path)
+        contacts, info = bvh.foot_contacts(return_info=True, **build(bvh))
+        flat = flatten_info(info)
+        arrays[f"run{i}/contacts"] = contacts
+        arrays[f"run{i}/__keys__"] = np.array(sorted(flat))
+        for key, value in flat.items():
+            arrays[f"run{i}/{key}"] = np.asarray(value)
+    _save("foot_contacts_pinned",
+          {"ref": "pybvh itself — BEHAVIOR PIN, no external reference",
+           "source": "bvh_data/cmu_12_01_walk.bvh",
+           "runs": [name for name, _ in FOOT_CONTACT_RUNS],
+           "env": "pybvh (numpy-only), NOT pybvh_test",
+           "warning": "regenerating re-baselines the pin; the committed "
+                      "fixture must come from the pre-refactor tree"},
+          **arrays)
+
+
 if __name__ == "__main__":
-    print("Generating golden fixtures into", HERE)
-    gen_rotations()
-    gen_se3()
-    gen_geodesic()
-    gen_smoothness()   # fetches the SPARC reference offline; commits numbers only
+    if "--foot-contacts-pin" in sys.argv:
+        print("RE-BASELINING the foot_contacts behavior pin in", HERE)
+        gen_foot_contacts()
+    else:
+        print("Generating golden fixtures into", HERE)
+        gen_rotations()
+        gen_se3()
+        gen_geodesic()
+        gen_smoothness()   # fetches the SPARC reference offline; commits numbers only
     print("done.")

@@ -156,6 +156,27 @@ def test_center_of_mass_uniform_and_weighted():
         geo.center_of_mass(pts, weights=[0, 0, 0, 1.0]), [0, 0, 2])
 
 
+def test_center_of_mass_nonpositive_weight_total_raises():
+    # zero, sub-epsilon, and negative totals are argument errors, not data
+    # degeneracy: they raise instead of silently going all-NaN
+    pts = np.array([[0.0, 0, 0], [2, 0, 0], [0, 2, 0], [0, 0, 2]])
+    with pytest.raises(ValueError, match="positive total"):
+        geo.center_of_mass(pts, weights=[0.0, 0, 0, 0])
+    with pytest.raises(ValueError, match="positive total"):
+        geo.center_of_mass(pts, weights=[1e-15, 1e-15, 1e-15, 1e-15])
+    with pytest.raises(ValueError, match="positive total"):
+        geo.center_of_mass(pts, weights=[1.0, -2.0, 0.5, 0.0])
+
+
+def test_center_of_mass_negative_individual_weight_allowed():
+    # only the TOTAL must be positive — individual negative weights are legal
+    pts = np.array([[0.0, 0, 0], [2, 0, 0], [0, 2, 0], [0, 0, 2]])
+    weights = np.array([2.0, -1.0, 1.0, 2.0])
+    expected = (weights[:, None] * pts).sum(axis=0) / weights.sum()
+    np.testing.assert_allclose(
+        geo.center_of_mass(pts, weights=weights), expected)
+
+
 def test_com_displacement_known():
     np.testing.assert_allclose(
         geo.com_displacement([3.0, 4, 0], [0, 0, 0]), 5.0)

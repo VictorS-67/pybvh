@@ -80,6 +80,10 @@ The raw motion arrays, the joint hierarchy, and the two index spaces (see the [C
     options:
       heading_level: 3
 
+::: pybvh.bvh.Bvh.joint_tips
+    options:
+      heading_level: 3
+
 ::: pybvh.bvh.Bvh.edges
     options:
       heading_level: 3
@@ -117,6 +121,14 @@ Up axis, facing direction, L/R pairs, and the reorientation family (see the [Wor
       heading_level: 3
 
 ::: pybvh.bvh.Bvh.world_up_inferred
+    options:
+      heading_level: 3
+
+::: pybvh.bvh.Bvh.up_axis
+    options:
+      heading_level: 3
+
+::: pybvh.bvh.UpAxis
     options:
       heading_level: 3
 
@@ -281,6 +293,10 @@ The velocity ladder, the root-trajectory features, and foot-contact detection (s
       heading_level: 3
 
 ::: pybvh.bvh.Bvh.foot_contacts
+    options:
+      heading_level: 3
+
+::: pybvh.bvh.Bvh.ground_contacts
     options:
       heading_level: 3
 

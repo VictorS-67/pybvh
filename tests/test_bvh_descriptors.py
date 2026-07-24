@@ -263,3 +263,18 @@ def test_range_of_motion_wrapper_matches_kernel():
     np.testing.assert_allclose(
         bvh.range_of_motion("Hips"),
         analysis.range_of_motion(bvh.joint_angles[:, jidx, :], axis=0))
+
+
+def test_ground_contacts_wrapper_matches_module():
+    walk = read_bvh_file(
+        Path(__file__).parent.parent / "bvh_data" / "cmu_12_01_walk.bvh")
+    feet = walk.auto_detect_foot_joints()
+    got, got_info = walk.ground_contacts(feet, return_info=True)
+    ref, ref_info = analysis.ground_contacts(walk, feet, return_info=True)
+    np.testing.assert_array_equal(got, ref)
+    assert got_info["joints"] == ref_info["joints"]
+    # keyword passthrough: a non-default parameterization delegates too
+    np.testing.assert_array_equal(
+        walk.ground_contacts(feet, method="height", floor=walk.floor_height),
+        analysis.ground_contacts(walk, feet, method="height",
+                                 floor=walk.floor_height))

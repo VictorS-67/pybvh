@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import warnings
+from collections import namedtuple
 from pathlib import Path
 from typing import Literal, Sequence, TYPE_CHECKING, Union, overload
 
@@ -17,6 +18,7 @@ from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
 from .spatial_coord import frames_to_node_positions, _ground_plane_offset
 from . import rotations
 from .tools import (
+    _axis_index_sign,
     _axis_to_vector,
     _compute_forward_at,
     _compute_left_at,
@@ -26,6 +28,13 @@ from .tools import (
     _rest_upward,
     _validate_axis_string,
 )
+
+
+UpAxis = namedtuple("UpAxis", ["index", "sign", "vector"])
+UpAxis.__doc__ = """Parsed form of :attr:`Bvh.world_up` — see :attr:`Bvh.up_axis`.
+
+Fields: ``index`` (int, 0/1/2 — the up coordinate's column in any ``(..., 3)`` position array), ``sign`` (float, ``+1.0`` / ``-1.0`` — multiply by it to make heights up-positive), ``vector`` (float64 ``(3,)`` unit vector along the up direction, sign included).
+"""
 
 
 class Bvh:
@@ -678,6 +687,29 @@ class Bvh:
             >>> bvh.world_up           # '+z'  (user override)
         """
         return _infer_world_up(self)
+
+    @property
+    def up_axis(self) -> UpAxis:
+        """:attr:`world_up` parsed into numeric form — ``UpAxis(index, sign, vector)``.
+
+        The three fields are the machine-usable views of the same signed axis string (always derived from the resolved :attr:`world_up`, so manual overrides are respected):
+
+        - ``index`` (int): the up coordinate's column (0 = x, 1 = y, 2 = z) in any ``(..., 3)`` position array.
+        - ``sign`` (float): ``+1.0`` or ``-1.0`` — multiply the raw coordinate by it to get an up-positive height.
+        - ``vector`` (ndarray, shape ``(3,)``): the unit vector along the up direction, sign included (e.g. ``[0, -1, 0]`` for ``'-y'``). A fresh array on every access — mutating it never corrupts the Bvh.
+
+        Example — up-positive heights of every node in every frame:
+
+            >>> coords = bvh.node_positions()
+            >>> heights = coords[:, :, bvh.up_axis.index] * bvh.up_axis.sign
+
+        See Also
+        --------
+        world_up : The signed axis string this is parsed from (settable).
+        floor_height : The estimated ground level along this axis, in raw (unsigned) coordinates.
+        """
+        index, sign = _axis_index_sign(self.world_up)
+        return UpAxis(index, sign, _axis_to_vector(self.world_up))
 
     @property
     def floor_height(self) -> float:
@@ -1354,6 +1386,35 @@ class Bvh:
         if space == 'node':
             return self._node_index[name]
         raise ValueError(f"space must be 'joint' or 'node', got {space!r}")
+
+    @property
+    def joint_tips(self) -> dict[str, int | None]:
+        """Mapping from joint name to its end-site **node** index, or None.
+
+        For every non-end-site joint (root included): the node-space index of the joint's end-site child — a row of :meth:`node_positions` output — or ``None`` for interior joints whose children are all joints. The tip is the bone's far end, so ``bvh.node_positions()[:, bvh.joint_tips["LeftFoot"]]`` is the toe-tip trajectory without knowing the end site's generated display name.
+
+        Resolution is identity-based on the node tree, never by name: end-site display names are cosmetic (the parser generates ``'EndSite' + parent name``) and may even collide with a real joint's name, which would make a name-keyed lookup through :attr:`node_index` silently pick the wrong node. A joint with several end-site children (nonstandard, but the parser accepts it) maps to the **first one in file order**.
+
+        Returns
+        -------
+        dict
+            ``{joint_name: int | None}`` for every non-end-site joint, in topological (``joint_names``) order. A fresh dict per access — mutate freely.
+
+        See Also
+        --------
+        node_index : Name → node index for every node (joints *and* end sites).
+        nodes : The flat depth-first node list these indices point into.
+        """
+        node_position = {id(node): i for i, node in enumerate(self.nodes)}
+        tips: dict[str, int | None] = {}
+        for node in self.nodes:
+            if node.is_end_site():
+                continue
+            tips[node.name] = next(
+                (node_position[id(child)] for child in node.children  # type: ignore[attr-defined]
+                 if child.is_end_site()),
+                None)
+        return tips
 
     @property
     def joint_names(self) -> list[str]:
@@ -2342,6 +2403,42 @@ class Bvh:
         return analysis.foot_contacts(
             self,
             foot_joints=foot_joints,
+            method=method,
+            coords=coords,
+            vel_threshold=vel_threshold,
+            vel_smooth_duration=vel_smooth_duration,
+            height_threshold=height_threshold,
+            floor=floor,
+            min_contact_duration=min_contact_duration,
+            min_gap_duration=min_gap_duration,
+            hysteresis=hysteresis,
+            adaptive=adaptive,
+            height_reference=height_reference,
+            return_info=return_info,
+        )
+
+    def ground_contacts(
+        self,
+        joints: Sequence[str | int],
+        method: str = "combined",
+        coords: npt.NDArray[np.float64] | None = None,
+        *,
+        vel_threshold: float | None = None,
+        vel_smooth_duration: float = 1.0 / 30.0,
+        height_threshold: float | None = None,
+        floor: float | str = "auto",
+        min_contact_duration: float = 0.1,
+        min_gap_duration: float = 0.1,
+        hysteresis: float = 0.25,
+        adaptive: bool = False,
+        height_reference: str = "floor",
+        return_info: bool = False,
+    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
+        """Detect ground contacts for an arbitrary joint set.  See :func:`pybvh.analysis.ground_contacts`."""
+        from . import analysis
+        return analysis.ground_contacts(
+            self,
+            joints,
             method=method,
             coords=coords,
             vel_threshold=vel_threshold,

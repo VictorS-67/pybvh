@@ -197,3 +197,85 @@ def test_segment_frame_explicit_ref_axis():
     # y = ref × x = z × x = +y
     np.testing.assert_allclose(T[:3, 1], [0.0, 1.0, 0.0], atol=1e-12)
     _assert_is_se3(T[np.newaxis])
+
+
+# ----------------------------------------------------------------
+#  mean_rotation — chordal (Frobenius) mean on SO(3)
+# ----------------------------------------------------------------
+
+def _random_rotations(rng, n):
+    axes = rng.normal(size=(n, 3))
+    axes /= np.linalg.norm(axes, axis=-1, keepdims=True)
+    angles = rng.uniform(0.0, np.pi, size=(n, 1))
+    return rot.axisangle_to_rotmat(axes * angles)
+
+
+def test_mean_rotation_identical_inputs():
+    rng = np.random.default_rng(10)
+    R = _random_rotations(rng, 1)[0]
+    stack = np.broadcast_to(R, (5, 3, 3)).copy()
+    np.testing.assert_allclose(rot.mean_rotation(stack), R, atol=1e-12)
+
+
+def test_mean_rotation_same_axis_pair_bisects():
+    # mean of Rz(a), Rz(b) is exactly Rz((a+b)/2): the matrix mean is a
+    # scaled rotation in the z-block and the SVD projection rescales it
+    Ra = rot.axisangle_to_rotmat(np.array([0.0, 0.0, 0.3]))
+    Rb = rot.axisangle_to_rotmat(np.array([0.0, 0.0, 0.7]))
+    mid = rot.axisangle_to_rotmat(np.array([0.0, 0.0, 0.5]))
+    np.testing.assert_allclose(
+        rot.mean_rotation(np.stack([Ra, Rb])), mid, atol=1e-12)
+
+
+def test_mean_rotation_random_batch_is_rotation():
+    rng = np.random.default_rng(11)
+    m = rot.mean_rotation(_random_rotations(rng, 20))
+    np.testing.assert_allclose(m @ m.T, np.eye(3), atol=1e-12)
+    np.testing.assert_allclose(np.linalg.det(m), 1.0, atol=1e-12)
+
+
+def test_mean_rotation_batch_matches_loop():
+    rng = np.random.default_rng(12)
+    R = _random_rotations(rng, 4 * 7).reshape(4, 7, 3, 3)
+    batched = rot.mean_rotation(R)
+    assert batched.shape == (4, 3, 3)
+    for b in range(4):
+        np.testing.assert_allclose(batched[b], rot.mean_rotation(R[b]),
+                                   atol=1e-14)
+
+
+def test_mean_rotation_antipodal_pair_stays_right_handed():
+    # 180 degrees apart: the arithmetic mean loses rank, so the mean's
+    # orientation in the collapsed plane is documented-arbitrary — but the
+    # result must still be a proper (right-handed) rotation, never a
+    # reflection.  Validity only; the specific choice is not pinned.
+    pair = np.stack([
+        np.eye(3), rot.axisangle_to_rotmat(np.array([0.0, 0.0, np.pi]))])
+    m = rot.mean_rotation(pair)
+    np.testing.assert_allclose(m @ m.T, np.eye(3), atol=1e-12)
+    np.testing.assert_allclose(np.linalg.det(m), 1.0, atol=1e-12)
+
+
+def test_mean_rotation_small_spread_matches_quaternion_mean():
+    # For tight clusters the chordal mean agrees with normalized
+    # sign-aligned quaternion averaging to first order
+    rng = np.random.default_rng(13)
+    base = _random_rotations(rng, 1)[0]
+    perturbations = rot.axisangle_to_rotmat(
+        rng.normal(scale=0.02, size=(30, 3)))
+    R = base @ perturbations
+    q = rot.rotmat_to_quat(R)
+    q = np.where((q @ q[0])[:, None] < 0.0, -q, q)   # sign-align to the first
+    q_mean = q.mean(axis=0)
+    q_mean /= np.linalg.norm(q_mean)
+    np.testing.assert_allclose(
+        rot.mean_rotation(R), rot.quat_to_rotmat(q_mean), atol=1e-6)
+
+
+def test_mean_rotation_empty_and_bad_shapes_raise():
+    with pytest.raises(ValueError, match="empty"):
+        rot.mean_rotation(np.zeros((0, 3, 3)))
+    with pytest.raises(ValueError, match="shape"):
+        rot.mean_rotation(np.eye(3))            # no N axis
+    with pytest.raises(ValueError, match="shape"):
+        rot.mean_rotation(np.zeros((4, 3, 4)))  # trailing shape not (3, 3)

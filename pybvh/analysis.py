@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import warnings
 from collections import namedtuple
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Callable
 
 import numpy as np
@@ -935,13 +935,10 @@ def foot_contacts(
         enables this by default — calling it declares the clip is
         locomotion.
     height_reference : {"velocity", "floor"}, keyword-only, optional
-        How the default ``height_threshold`` is anchored (only used with
-        ``method="combined"`` when ``height_threshold`` is None).
-        ``"velocity"`` (default) calibrates each foot's threshold to its
-        own stance level, measured where the foot is slow (handles
-        retargeted mocap whose feet hover above the floor).  ``"floor"``
-        uses the fixed ``0.013 × skeleton_scale`` margin above the
-        estimated floor.
+        How the default ``height_threshold`` is anchored (only used with ``method="combined"`` when ``height_threshold`` is None).
+        ``"velocity"`` (default): per-foot stance-median calibration — each foot's threshold is set from the median of its clearance over the frames where that foot is slow (speed below ``vel_threshold``, default ``0.12 × skeleton_scale`` u/s), so retargeted mocap whose feet hover above the estimated floor still detects stance; on rigs whose feet reach the floor this reduces to the ``"floor"`` margin.
+        ``"floor"``: the fixed ``0.013 × skeleton_scale`` margin above the estimated floor — no per-foot calibration.
+        The stance calibration presumes the joints contact the ground regularly; for arbitrary (non-foot) joint sets, :func:`ground_contacts` defaults to ``"floor"`` for exactly that reason.
     return_info : bool, keyword-only, optional
         If True, return ``(contacts, info)`` where ``info`` holds the
         detected joints, method, thresholds actually applied, estimated
@@ -975,11 +972,187 @@ def foot_contacts(
         - If ``floor`` is a string other than ``"auto"``.
         - If no foot joints can be found or any named joint is
           missing from the skeleton.
+        - If ``foot_joints`` is explicitly an empty list — contact
+          detection needs at least one joint.
         - If ``vel_smooth_duration`` is negative.
         - When the height signal is involved and ``bvh.world_up`` is
           inconsistent with rest-pose geometry (feet above hips).
         - If ``frame_time == 0`` and the velocity signal (units/second)
           or a nonzero duration filter needs a time base.
+
+    See Also
+    --------
+    ground_contacts : The same detection engine for arbitrary (non-foot) joint sets — hands, knees, props.
+    auto_detect_foot_joints : The detection used when ``foot_joints`` is None.
+    """
+    # The canonical path — world coords + auto-detected feet — is the one
+    # the cached Bvh.floor_height describes; only it fills/serves the cache.
+    # Computed from the RAW arguments, before auto-detection replaces
+    # foot_joints=None with explicit names.
+    canonical_floor = coords is None and foot_joints is None
+
+    # Rest-pose coords are used by auto-detect and by the core's scale
+    # estimate and height-signal sanity check; compute once, hand down.
+    rest_coords: npt.NDArray[np.float64] | None = None
+
+    if foot_joints is None:
+        rest_coords = bvh.rest_pose_positions()
+        foot_joints = auto_detect_foot_joints(bvh, _rest_coords=rest_coords)
+        if not foot_joints:
+            raise ValueError(
+                "Could not auto-detect foot joints. Please provide "
+                "foot_joints explicitly (e.g. ['LeftFoot', 'RightFoot']).")
+
+    foot_indices: list[int] = []
+    for name in foot_joints:
+        if name not in bvh.node_index:
+            raise ValueError(f"Joint {name!r} not found in skeleton.")
+        foot_indices.append(bvh.node_index[name])
+
+    return _contacts_core(
+        bvh, list(foot_joints), foot_indices,
+        method=method, coords=coords,
+        vel_threshold=vel_threshold,
+        vel_smooth_duration=vel_smooth_duration,
+        height_threshold=height_threshold, floor=floor,
+        min_contact_duration=min_contact_duration,
+        min_gap_duration=min_gap_duration,
+        hysteresis=hysteresis, adaptive=adaptive,
+        height_reference=height_reference, return_info=return_info,
+        canonical_floor=canonical_floor, check_rest_height=True,
+        rest_coords=rest_coords)
+
+
+def ground_contacts(
+    bvh: Bvh,
+    joints: Sequence[str | int],
+    method: str = "combined",
+    coords: npt.NDArray[np.float64] | None = None,
+    *,
+    vel_threshold: float | None = None,
+    vel_smooth_duration: float = 1.0 / 30.0,
+    height_threshold: float | None = None,
+    floor: float | str = "auto",
+    min_contact_duration: float = 0.1,
+    min_gap_duration: float = 0.1,
+    hysteresis: float = 0.25,
+    adaptive: bool = False,
+    height_reference: str = "floor",
+    return_info: bool = False,
+) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
+    """Detect ground-contact labels for an arbitrary set of joints.
+
+    The same detection engine as :func:`foot_contacts` — velocity and/or clearance-above-floor thresholding with hysteresis and duration filters — but for any joint set: hands during floor work, knees in a crawl, a prop bone. Because the joints are not assumed to be feet, three foot-specific behaviors are dropped: there is no rest-pose "feet below hips" sanity check, the call never reads or writes the cached :attr:`Bvh.floor_height` (the floor estimated from an arbitrary joint set describes those joints, not the scene), and ``height_reference`` defaults to ``"floor"`` instead of :func:`foot_contacts`' ``"velocity"`` — the per-joint stance calibration behind ``"velocity"`` presumes regular ground contact, which feet in locomotion have and a hand that touches the floor twice does not.
+
+    .. warning::
+        With the default ``floor="auto"`` the floor is estimated **from the given joints' own trajectories** (2nd percentile of their per-frame minimum height). A joint set that never actually grounds makes its lowest hover point the "floor" and fabricates contacts there. Unless the joints genuinely reach the ground for a meaningful fraction of the clip, pass ``floor=bvh.floor_height`` (the scene floor from the feet) or an explicit float.
+
+    Parameters
+    ----------
+    bvh : Bvh
+        Input motion.
+    joints : sequence of str or int
+        The joints to test, as node names and/or **node**-space indices (rows of :meth:`Bvh.node_positions`; NumPy-style negative indices allowed). End sites are legal — fingertips and toe tips are often exactly the grounding points. Output column order matches this sequence.
+    method : {"combined", "velocity", "height"}, optional
+        Same meaning as in :func:`foot_contacts`.
+    coords : ndarray, shape (F, N, 3), optional
+        Pre-computed **world-frame** positions (or a constant translation thereof), as in :func:`foot_contacts`.
+    vel_threshold, vel_smooth_duration, height_threshold, floor, min_contact_duration, min_gap_duration, hysteresis, adaptive : keyword-only, optional
+        Same meaning and defaults as in :func:`foot_contacts`. The auto thresholds scale by the mean rest-pose distance from the root to the **given** joints (the same skeleton-scale rule, applied to this joint set) — so the defaults stay proportionate for short chains like hands. Mind the ``floor="auto"`` warning above.
+    height_reference : {"floor", "velocity"}, keyword-only, optional
+        Default ``"floor"`` — the fixed ``0.013 × skeleton_scale`` margin above the floor. ``"velocity"`` enables :func:`foot_contacts`' per-joint stance calibration; only use it when the joints ground regularly enough to have stance statistics.
+    return_info : bool, keyword-only, optional
+        As in :func:`foot_contacts`; ``info["joints"]`` always holds the resolved **names** (indices are mapped back through ``bvh.nodes``).
+
+    Returns
+    -------
+    ndarray of shape ``(F, num_joints)``, or tuple ``(ndarray, dict)`` when ``return_info=True``.
+        Binary contact labels (1.0 = contact); columns follow ``joints`` order.
+
+    Raises
+    ------
+    ValueError
+        - If ``method`` or ``height_reference`` is unknown.
+        - If ``floor`` is a string other than ``"auto"``.
+        - If ``joints`` is empty — contact detection needs at least one joint.
+        - If a joint name is not in the skeleton.
+        - If ``vel_smooth_duration`` is negative.
+        - If ``frame_time == 0`` and the velocity signal (units/second) or a nonzero duration filter needs a time base.
+    TypeError
+        If a ``joints`` entry is neither a str nor an int (``bool`` is rejected explicitly — ``True``/``False`` silently indexing nodes 1/0 would be a trap).
+    IndexError
+        If a node index is out of range for ``bvh.nodes``.
+
+    See Also
+    --------
+    foot_contacts : The foot-specialized entry point (auto-detection, rest-pose sanity check, floor-height caching, ``height_reference="velocity"`` default).
+    """
+    num_nodes = len(bvh.nodes)
+    joint_names: list[str] = []
+    joint_indices: list[int] = []
+    for joint in joints:
+        # bool is an int subclass; catch it before the int branch.
+        if isinstance(joint, bool):
+            raise TypeError(
+                "joints entries must be node names (str) or node indices "
+                f"(int), got bool {joint!r}")
+        if isinstance(joint, (int, np.integer)):
+            index = int(joint)
+            if not -num_nodes <= index < num_nodes:
+                raise IndexError(
+                    f"node index {index} out of range for a skeleton with "
+                    f"{num_nodes} nodes")
+            if index < 0:
+                index += num_nodes
+            joint_indices.append(index)
+            joint_names.append(bvh.nodes[index].name)
+        elif isinstance(joint, str):
+            if joint not in bvh.node_index:
+                raise ValueError(f"Joint {joint!r} not found in skeleton.")
+            joint_indices.append(bvh.node_index[joint])
+            joint_names.append(joint)
+        else:
+            raise TypeError(
+                "joints entries must be node names (str) or node indices "
+                f"(int), got {type(joint).__name__}")
+
+    return _contacts_core(
+        bvh, joint_names, joint_indices,
+        method=method, coords=coords,
+        vel_threshold=vel_threshold,
+        vel_smooth_duration=vel_smooth_duration,
+        height_threshold=height_threshold, floor=floor,
+        min_contact_duration=min_contact_duration,
+        min_gap_duration=min_gap_duration,
+        hysteresis=hysteresis, adaptive=adaptive,
+        height_reference=height_reference, return_info=return_info,
+        canonical_floor=False, check_rest_height=False)
+
+
+def _contacts_core(
+    bvh: Bvh,
+    joint_names: list[str],
+    joint_indices: list[int],
+    *,
+    method: str,
+    coords: npt.NDArray[np.float64] | None,
+    vel_threshold: float | None,
+    vel_smooth_duration: float,
+    height_threshold: float | None,
+    floor: float | str,
+    min_contact_duration: float,
+    min_gap_duration: float,
+    hysteresis: float,
+    adaptive: bool,
+    height_reference: str,
+    return_info: bool,
+    canonical_floor: bool,
+    check_rest_height: bool,
+    rest_coords: npt.NDArray[np.float64] | None = None,
+) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
+    """Shared contact-detection engine behind :func:`foot_contacts` and :func:`ground_contacts`.
+
+    Both entry points resolve their joint arguments into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists and delegate here. ``canonical_floor`` marks the one call pattern allowed to fill/serve ``Bvh._floor_height_cached`` (foot_contacts' default world-coords + auto-detected-feet path). ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet. ``rest_coords`` forwards an already-computed rest pose so auto-detection and the scale/sanity logic share one FK evaluation.
     """
     if method not in ("velocity", "height", "combined"):
         raise ValueError(
@@ -1013,60 +1186,44 @@ def foot_contacts(
                 "filters with min_contact_duration=0.0 and "
                 "min_gap_duration=0.0.")
 
-    # The canonical path — world coords + auto-detected feet — is the one
-    # the cached Bvh.floor_height describes; only it fills/serves the cache.
-    canonical_floor = coords is None and foot_joints is None
+    if not joint_indices:
+        raise ValueError(
+            "contact detection needs at least one joint; got an empty "
+            "joint list. (auto_detect_foot_joints returns [] on footless "
+            "rigs — pass joints explicitly.)")
 
     if coords is None:
         coords = bvh.node_positions()
 
-    up_sign = 1 if bvh.world_up[0] == '+' else -1
-    up_idx = {'x': 0, 'y': 1, 'z': 2}[bvh.world_up[1]]
+    up_idx, up_sign, _ = bvh.up_axis
 
-    # Rest-pose coords are used by auto-detect and by the height-signal
-    # sanity check; compute once, reuse.
-    rest_coords: npt.NDArray[np.float64] | None = None
-
-    if foot_joints is None:
-        rest_coords = bvh.rest_pose_positions()
-        foot_joints = auto_detect_foot_joints(bvh, _rest_coords=rest_coords)
-        if not foot_joints:
-            raise ValueError(
-                "Could not auto-detect foot joints. Please provide "
-                "foot_joints explicitly (e.g. ['LeftFoot', 'RightFoot']).")
-
-    foot_indices: list[int] = []
-    for name in foot_joints:
-        if name not in bvh.node_index:
-            raise ValueError(f"Joint {name!r} not found in skeleton.")
-        foot_indices.append(bvh.node_index[name])
-
-    foot_coords = coords[:, foot_indices, :]  # (F, num_feet, 3)
-    num_feet = len(foot_joints)
+    joint_coords = coords[:, joint_indices, :]  # (F, num_joints, 3)
+    num_joints = len(joint_names)
     F = bvh.frame_count
 
     needs_vel = method in ("velocity", "combined")
     needs_height = method in ("height", "combined")
 
     # Rest-pose coords drive both the skeleton-scale estimate and the
-    # height-signal sanity check.  Compute once, reuse.
+    # height-signal sanity check.  Compute once (unless the caller already
+    # did), reuse.
     needs_scale = (
         (needs_vel and vel_threshold is None)
         or (needs_height and height_threshold is None)
     )
-    if (needs_height or needs_scale) and rest_coords is None:
+    if (needs_scale or (needs_height and check_rest_height)) and rest_coords is None:
         rest_coords = bvh.rest_pose_positions()
 
     scale: float | None = None
     if needs_scale:
         assert rest_coords is not None
-        scale = _skeleton_scale(rest_coords, foot_indices)
+        scale = _skeleton_scale(rest_coords, joint_indices)
 
-    # ---- Sanity check for the height signal ----
-    if needs_height:
+    # ---- Sanity check for the height signal (feet-presuming entry only) ----
+    if needs_height and check_rest_height:
         assert rest_coords is not None
         rest_foot_height = (
-            rest_coords[foot_indices, up_idx].mean() * up_sign
+            rest_coords[joint_indices, up_idx].mean() * up_sign
         )
         rest_hip_height = rest_coords[0, up_idx] * up_sign
         if rest_foot_height > rest_hip_height:
@@ -1078,7 +1235,7 @@ def foot_contacts(
                 f"it manually with `bvh.world_up = '<axis>'`."
             )
 
-    # ---- Signals (F, num_feet), threshold resolution ----
+    # ---- Signals (F, num_joints), threshold resolution ----
     speed = None
     clearance = None
     vel_thr_used = None
@@ -1092,9 +1249,9 @@ def foot_contacts(
         if F < 2:
             # No motion info — treat as "no velocity evidence against contact"
             # (speed 0 < any positive threshold) so combined falls back to height.
-            speed = np.zeros((F, num_feet))
+            speed = np.zeros((F, num_joints))
         else:
-            disp = foot_coords[1:] - foot_coords[:-1]   # (F-1, nf, 3)
+            disp = joint_coords[1:] - joint_coords[:-1]   # (F-1, nj, 3)
             # Condition the speed estimator over a fixed physical time span
             # so detection does not depend on the capture rate: box-averaging
             # the displacement *vectors* (norm-of-mean) cancels the
@@ -1104,7 +1261,7 @@ def foot_contacts(
                 F - 1, max(1, round(vel_smooth_duration / bvh.frame_time)))
             if vel_smooth_frames > 1:
                 disp = box_filter_smooth(disp, vel_smooth_frames, axis=0)
-            sp = np.linalg.norm(disp, axis=-1) / bvh.frame_time  # (F-1, nf), u/s
+            sp = np.linalg.norm(disp, axis=-1) / bvh.frame_time  # (F-1, nj), u/s
             speed = np.concatenate([sp[0:1], sp], axis=0)   # frame-0 propagated
         if vel_threshold is None:
             assert scale is not None
@@ -1116,15 +1273,15 @@ def foot_contacts(
         vel_thr_used = vel_threshold
 
     if needs_height:
-        heights_signed = foot_coords[:, :, up_idx] * up_sign  # up-positive
+        heights_signed = joint_coords[:, :, up_idx] * up_sign  # up-positive
         if isinstance(floor, str):   # "auto": estimate from the coords in use
             if canonical_floor:
                 if bvh._floor_height_cached is None:
                     bvh._floor_height_cached = _floor_from_coords(
-                        coords, foot_indices, up_idx, up_sign)
+                        coords, joint_indices, up_idx, up_sign)
                 floor_raw = float(bvh._floor_height_cached)
             else:
-                floor_raw = _floor_from_coords(coords, foot_indices, up_idx, up_sign)
+                floor_raw = _floor_from_coords(coords, joint_indices, up_idx, up_sign)
         else:
             floor_raw = float(floor)
         floor_signed = floor_raw * up_sign
@@ -1166,7 +1323,7 @@ def foot_contacts(
         return contacts
 
     info: dict = {
-        "joints": list(foot_joints),
+        "joints": list(joint_names),
         "method": method,
         "min_contact_duration": float(min_contact_duration),
         "min_gap_duration": float(min_gap_duration),
@@ -1196,11 +1353,11 @@ def foot_contacts(
             info["adaptive_used_height"] = height_adaptive_used
 
     diag_scale = scale if scale is not None else _skeleton_scale(
-        bvh.rest_pose_positions(), foot_indices)
+        bvh.rest_pose_positions(), joint_indices)
     if clearance is None:   # method="velocity": derive a clearance for diagnostics
-        h = foot_coords[:, :, up_idx] * up_sign
+        h = joint_coords[:, :, up_idx] * up_sign
         clearance = h - _estimate_floor(h)
-    info.update(_contact_diagnostics(mask, foot_coords, clearance, up_idx, diag_scale))
+    info.update(_contact_diagnostics(mask, joint_coords, clearance, up_idx, diag_scale))
     return contacts, info
 
 
@@ -1239,6 +1396,9 @@ def auto_detect_foot_joints(
     -------
     list of str
         Joint names in deterministic order.  Empty if no candidates.
+        Returning ``[]`` — never raising — is the contract for footless
+        rigs (no ``"foot"``/``"toe"`` names, or matches with no tip
+        descendants that step 2's fallback also rejects).
 
     Notes
     -----
@@ -1246,9 +1406,10 @@ def auto_detect_foot_joints(
     :func:`foot_contacts` when ``foot_joints=None``.  Call it
     directly to preview the detection or to feed an explicit list
     back in.
+
+    An empty result is a *report*, not an error: this function never raises on footless rigs. The contact detectors are where emptiness becomes fatal — :func:`foot_contacts` and :func:`ground_contacts` both raise ``ValueError`` when handed an empty joint list, so a silent ``[]`` cannot flow into a zero-column contact array.
     """
-    up_sign = 1 if bvh.world_up[0] == '+' else -1
-    up_idx = {'x': 0, 'y': 1, 'z': 2}[bvh.world_up[1]]
+    up_idx, up_sign, _ = bvh.up_axis
 
     # Step 1: substring match
     matched = [
@@ -1435,7 +1596,7 @@ def _floor_from_coords(
     coords: npt.NDArray[np.float64],
     foot_indices: list[int],
     up_idx: int,
-    up_sign: int,
+    up_sign: float,
 ) -> float:
     """Floor height in raw world coordinates, from the coords in use.
 
@@ -1458,8 +1619,7 @@ def _compute_floor_height(bvh: Bvh) -> float:
     *all* nodes. This is the scene's ground plane — a per-foot stance
     *hover* above it is handled separately inside :func:`foot_contacts`.
     """
-    up_sign = 1 if bvh.world_up[0] == '+' else -1
-    up_idx = {'x': 0, 'y': 1, 'z': 2}[bvh.world_up[1]]
+    up_idx, up_sign, _ = bvh.up_axis
     coords = bvh.node_positions()                       # (F, N, 3), world
     feet = auto_detect_foot_joints(bvh)
     idx = [bvh.node_index[n] for n in feet] if feet else list(range(coords.shape[1]))
@@ -2449,6 +2609,8 @@ def _resolve_masses(
     coverage — every joint once, no strangers) or an already-ordered ``(J,)``
     array (length-checked). Raises a clear ``ValueError`` otherwise, rather
     than letting a mismatch surface as a cryptic broadcast error downstream.
+    Either form must sum to a positive total — an all-zero (or
+    negative-total) mass vector silently zeroes every energy it multiplies.
     """
     names = list(joint_names)
     if isinstance(masses, Mapping):
@@ -2464,12 +2626,21 @@ def _resolve_masses(
             raise ValueError(
                 "masses dict must map every joint exactly once "
                 f"({'; '.join(problems)})")
-        return np.array([float(masses[n]) for n in names], dtype=np.float64)
-    m = np.asarray(masses, dtype=np.float64)
-    if m.shape != (len(names),):
+        m = np.array([float(masses[n]) for n in names], dtype=np.float64)
+    else:
+        m = np.asarray(masses, dtype=np.float64)
+        if m.shape != (len(names),):
+            raise ValueError(
+                f"masses must have shape ({len(names)},) in joint-axis order "
+                f"(see Bvh.joint_names), got {m.shape}")
+    total = float(m.sum())
+    # Strict > 0 with no epsilon — deliberately looser than geometry's
+    # _EPS guard: masses only ever multiply (never divide), so any true
+    # positive total is usable; only zero/negative/NaN totals are traps.
+    if not total > 0.0:
         raise ValueError(
-            f"masses must have shape ({len(names)},) in joint-axis order "
-            f"(see Bvh.joint_names), got {m.shape}")
+            f"masses must have a positive total, got sum {total!r} — a "
+            f"zero/negative/NaN total silently zeroes the energy")
     return m
 
 
@@ -2512,8 +2683,11 @@ def kinetic_energy(
     Raises
     ------
     ValueError
-        If a ``masses`` mapping does not cover the joints exactly, or a
-        ``masses`` array has the wrong length.
+        If a ``masses`` mapping does not cover the joints exactly, a
+        ``masses`` array has the wrong length, or the masses do not sum
+        to a positive total (an all-zero mass vector would silently
+        zero the energy). The unit-mass ``masses=None`` default is
+        unaffected.
 
     Notes
     -----

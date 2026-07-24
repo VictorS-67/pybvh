@@ -23,6 +23,7 @@ from .bvhnode import BvhJoint
 from . import rotations
 from .tools import (
     _axis_aligned_rotation,
+    _axis_index_sign,
     _compute_forward_at,
     _resolve_lr_pairs,
     _rest_leftward,
@@ -462,8 +463,7 @@ def rotate_vertical(
         axis_str = target.world_up
     else:
         axis_str = _validate_axis_string(up_axis)
-    up_sign = 1 if axis_str[0] == '+' else -1
-    up_idx = _AXIS_CHAR_TO_IDX[axis_str[1]]
+    up_idx, up_sign = _axis_index_sign(axis_str)
 
     root_order = "".join(target.root.rot_channels)
     new_angles, new_root_pos = rotate_angles_vertical(
@@ -958,7 +958,7 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
         If ``new_forward`` is parallel to ``world_up``.
     """
     new_forward = _validate_axis_string(new_forward)
-    up_idx = _AXIS_CHAR_TO_IDX[bvh.world_up[1]]
+    up_idx = bvh.up_axis.index
     fwd_idx = _AXIS_CHAR_TO_IDX[new_forward[1]]
     if up_idx == fwd_idx:
         raise ValueError(

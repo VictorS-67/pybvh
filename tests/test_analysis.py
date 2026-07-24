@@ -1246,6 +1246,210 @@ class TestFootContactsFloorCacheGating:
         assert cmu_walk._floor_height_cached == sentinel
 
 
+class TestGroundContacts:
+    """analysis.ground_contacts — the contact engine for arbitrary joint sets (round-3 request).
+
+    Same detection machinery as foot_contacts, minus the foot-presuming behaviors: no rest-pose feet-below-hips sanity check, no floor-cache interaction, and a ``height_reference="floor"`` default (the ``"velocity"`` stance calibration presumes regular ground contact).
+    """
+
+    @pytest.fixture
+    def cmu_walk(self):
+        return read_bvh_file(CMU_WALK_PATH)
+
+    def test_equivalent_to_foot_contacts_on_feet(self, cmu_walk):
+        # On actual feet with foot_contacts' height_reference, the two entry
+        # points are the same computation: contacts AND full info must match.
+        feet = cmu_walk.auto_detect_foot_joints()
+        ref_contacts, ref_info = analysis.foot_contacts(
+            cmu_walk, foot_joints=feet, return_info=True)
+        got_contacts, got_info = analysis.ground_contacts(
+            cmu_walk, feet, height_reference="velocity", return_info=True)
+        np.testing.assert_array_equal(got_contacts, ref_contacts)
+        ref_flat = flatten_info(ref_info)
+        got_flat = flatten_info(got_info)
+        assert sorted(got_flat) == sorted(ref_flat)
+        for key in ref_flat:
+            np.testing.assert_array_equal(
+                np.asarray(got_flat[key]), np.asarray(ref_flat[key]),
+                err_msg=f"info[{key!r}] differs")
+
+    def test_int_str_mixed_equivalence(self, cmu_walk):
+        feet = cmu_walk.auto_detect_foot_joints()
+        indices = [cmu_walk.node_index[name] for name in feet]
+        by_name, info_name = analysis.ground_contacts(
+            cmu_walk, feet, return_info=True)
+        by_index, info_index = analysis.ground_contacts(
+            cmu_walk, indices, return_info=True)
+        by_mixed, info_mixed = analysis.ground_contacts(
+            cmu_walk, [feet[0], indices[1]], return_info=True)
+        np.testing.assert_array_equal(by_index, by_name)
+        np.testing.assert_array_equal(by_mixed, by_name)
+        # indices are mapped back to names for the info dict
+        assert info_name["joints"] == feet
+        assert info_index["joints"] == feet
+        assert info_mixed["joints"] == feet
+
+    def test_negative_index_resolves_numpy_style(self, cmu_walk):
+        feet = cmu_walk.auto_detect_foot_joints()
+        num_nodes = len(cmu_walk.nodes)
+        negative = cmu_walk.node_index[feet[0]] - num_nodes
+        _, info = analysis.ground_contacts(
+            cmu_walk, [negative, feet[1]], return_info=True)
+        assert info["joints"] == feet
+
+    def test_out_of_range_index_raises(self, cmu_walk):
+        num_nodes = len(cmu_walk.nodes)
+        with pytest.raises(IndexError, match="out of range"):
+            analysis.ground_contacts(cmu_walk, [num_nodes])
+        with pytest.raises(IndexError, match="out of range"):
+            analysis.ground_contacts(cmu_walk, [-num_nodes - 1])
+
+    def test_bool_and_bad_types_raise_type_error(self, cmu_walk):
+        # bool is an int subclass — silently indexing node 1/0 would be a trap
+        with pytest.raises(TypeError, match="bool"):
+            analysis.ground_contacts(cmu_walk, [True])
+        with pytest.raises(TypeError, match="float"):
+            analysis.ground_contacts(cmu_walk, [1.5])
+
+    def test_unknown_name_raises(self, cmu_walk):
+        with pytest.raises(ValueError, match="not found in skeleton"):
+            analysis.ground_contacts(cmu_walk, ["NotAJoint"])
+
+    def test_column_order_matches_input_order(self, cmu_walk):
+        feet = cmu_walk.auto_detect_foot_joints()
+        forward, _ = analysis.ground_contacts(cmu_walk, feet, return_info=True)
+        reordered, info = analysis.ground_contacts(
+            cmu_walk, list(reversed(feet)), return_info=True)
+        np.testing.assert_array_equal(reordered, forward[:, ::-1])
+        assert info["joints"] == list(reversed(feet))
+
+    def test_default_height_reference_is_floor(self, cmu_walk):
+        feet = cmu_walk.auto_detect_foot_joints()
+        default_contacts, info = analysis.ground_contacts(
+            cmu_walk, feet, return_info=True)
+        explicit = analysis.ground_contacts(
+            cmu_walk, feet, height_reference="floor")
+        assert info["height_reference"] == "floor"
+        np.testing.assert_array_equal(default_contacts, explicit)
+
+    def test_never_touches_floor_cache(self, cmu_walk):
+        feet = cmu_walk.auto_detect_foot_joints()
+        assert cmu_walk._floor_height_cached is None
+        analysis.ground_contacts(cmu_walk, feet)   # auto floor, default coords
+        assert cmu_walk._floor_height_cached is None
+        # ... and a pre-warmed cache is never served either
+        sentinel = cmu_walk.floor_height + 1.0
+        cmu_walk._floor_height_cached = sentinel
+        _, info = analysis.ground_contacts(cmu_walk, feet, return_info=True)
+        assert info["floor"] != sentinel
+        assert cmu_walk._floor_height_cached == sentinel
+
+    def test_arm_set_skips_rest_height_sanity_check(self, cmu_walk):
+        # foot_contacts refuses hands (feet-above-hips world_up sanity check);
+        # ground_contacts must accept them — hands above hips is not an error
+        # for an arbitrary joint set.
+        hands = ["LeftHand", "RightHand"]
+        with pytest.raises(ValueError, match="feet are above hips"):
+            analysis.foot_contacts(cmu_walk, foot_joints=hands)
+        contacts = analysis.ground_contacts(
+            cmu_walk, hands, floor=cmu_walk.floor_height)
+        assert contacts.shape == (cmu_walk.frame_count, 2)
+
+    def test_end_site_index_allowed(self, cmu_walk):
+        toe_tip = cmu_walk.node_index["EndSiteLeftToeBase"]
+        contacts, info = analysis.ground_contacts(
+            cmu_walk, [toe_tip], height_reference="velocity", return_info=True)
+        assert info["joints"] == ["EndSiteLeftToeBase"]
+        assert contacts.shape == (cmu_walk.frame_count, 1)
+        assert contacts.any()   # the toe tip does ground during a walk
+
+    def test_return_info_keys(self, cmu_walk):
+        feet = cmu_walk.auto_detect_foot_joints()
+        _, info = analysis.ground_contacts(cmu_walk, feet, return_info=True)
+        for key in ("joints", "method", "min_contact_duration",
+                    "min_gap_duration", "hysteresis", "vel_smooth_duration",
+                    "height_reference", "confidence", "skeleton_scale",
+                    "vel_threshold", "height_threshold", "floor"):
+            assert key in info, f"missing key {key!r}"
+
+    def test_frame_time_zero_raises(self):
+        bvh = make_pos_y_up_bvh()
+        bvh.frame_time = 0.0
+        with pytest.raises(ValueError, match="frame_time is 0"):
+            analysis.ground_contacts(bvh, ["LeftFoot", "RightFoot"])
+
+    def test_adaptive_with_floor_reference(self, cmu_walk):
+        # adaptive=True + the default "floor" reference reaches the middle
+        # (elif adaptive) branch of the height-threshold chain; it must match
+        # foot_contacts under the same parameterization.
+        feet = cmu_walk.auto_detect_foot_joints()
+        got_contacts, got_info = analysis.ground_contacts(
+            cmu_walk, feet, adaptive=True, return_info=True)
+        ref_contacts, ref_info = analysis.foot_contacts(
+            cmu_walk, foot_joints=feet, adaptive=True,
+            height_reference="floor", return_info=True)
+        np.testing.assert_array_equal(got_contacts, ref_contacts)
+        assert "adaptive_used_height" in got_info
+        np.testing.assert_array_equal(
+            np.asarray(got_info["adaptive_used_height"]),
+            np.asarray(ref_info["adaptive_used_height"]))
+
+
+def _make_arm_only_bvh() -> Bvh:
+    """Root + two arm chains — no ``"foot"``/``"toe"`` substring anywhere."""
+    hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+    left_arm = BvhJoint("LeftArm", offset=[-3, 0, 0], rot_channels=['Z', 'Y', 'X'])
+    left_hand = BvhJoint("LeftHand", offset=[-3, 0, 0], rot_channels=['Z', 'Y', 'X'])
+    left_end = BvhEndSite("EndSiteLeftHand", offset=[-1, 0, 0])
+    right_arm = BvhJoint("RightArm", offset=[3, 0, 0], rot_channels=['Z', 'Y', 'X'])
+    right_hand = BvhJoint("RightHand", offset=[3, 0, 0], rot_channels=['Z', 'Y', 'X'])
+    right_end = BvhEndSite("EndSiteRightHand", offset=[1, 0, 0])
+
+    left_end.parent = left_hand
+    left_hand.children = [left_end]
+    left_hand.parent = left_arm
+    left_arm.children = [left_hand]
+    left_arm.parent = hips
+    right_end.parent = right_hand
+    right_hand.children = [right_end]
+    right_hand.parent = right_arm
+    right_arm.children = [right_hand]
+    right_arm.parent = hips
+    hips.children = [left_arm, right_arm]
+
+    nodes = [hips, left_arm, left_hand, left_end,
+             right_arm, right_hand, right_end]
+    n_joints = sum(1 for n in nodes if not n.is_end_site())
+    n_frames = 10
+    root_pos = np.zeros((n_frames, 3))
+    root_pos[:, 1] = 10.0
+    joint_angles = np.zeros((n_frames, n_joints, 3))
+    bvh = Bvh(nodes=nodes, root_pos=root_pos, joint_angles=joint_angles,
+              frame_time=1 / 30, world_up='+y')
+    return bvh
+
+
+class TestFootlessRigContract:
+    """The footless-rig contract: auto-detection reports emptiness by returning ``[]`` (never raising); the contact detectors are where emptiness becomes a hard error, on BOTH entry points."""
+
+    def test_auto_detect_returns_empty_on_arm_only_rig(self):
+        assert analysis.auto_detect_foot_joints(_make_arm_only_bvh()) == []
+
+    def test_footless_auto_detection_raises_could_not_detect(self):
+        with pytest.raises(ValueError, match="Could not auto-detect"):
+            analysis.foot_contacts(_make_arm_only_bvh())
+
+    def test_explicit_empty_list_raises_on_foot_contacts(self):
+        bvh = make_pos_y_up_bvh()
+        with pytest.raises(ValueError, match="at least one joint"):
+            analysis.foot_contacts(bvh, foot_joints=[])
+
+    def test_explicit_empty_list_raises_on_ground_contacts(self):
+        bvh = make_pos_y_up_bvh()
+        with pytest.raises(ValueError, match="at least one joint"):
+            analysis.ground_contacts(bvh, [])
+
+
 class TestFacingFrame:
     """analysis.facing_frame / Bvh.facing_frame — the continuous per-frame
     facing basis (Request C from pybvh-qualities)."""

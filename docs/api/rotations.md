@@ -111,3 +111,7 @@ Twists, the exp/log maps, screw interpolation, and segment-relative poses — ea
 ::: pybvh.rotations.rotation_geodesic_distance
     options:
       heading_level: 3
+
+::: pybvh.rotations.mean_rotation
+    options:
+      heading_level: 3

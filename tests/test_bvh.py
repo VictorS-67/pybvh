@@ -26,7 +26,8 @@ sys.path.insert(0, str(Path(__file__).parent))  # for synthetic_bvh
 from synthetic_bvh import (
     make_dot_lr_bvh, make_underscore_lr_bvh, make_namespace_lr_bvh,
     make_numbered_lr_bvh, make_bare_substring_lr_bvh, make_nameless_lr_bvh,
-    make_singleton_lr_bvh,
+    make_singleton_lr_bvh, make_pos_y_up_bvh, make_neg_y_up_bvh,
+    make_pos_z_up_bvh, make_neg_z_up_bvh,
 )
 
 
@@ -5587,3 +5588,147 @@ class TestRotateVerticalDegreesCarryOver:
         by_deg = bvh_example.rotate_vertical(60.0, degrees=True)
         np.testing.assert_allclose(by_deg.joint_angles, by_rad.joint_angles, atol=1e-12)
         np.testing.assert_allclose(by_deg.root_pos, by_rad.root_pos, atol=1e-12)
+
+
+class TestUpAxisProperty:
+    """Bvh.up_axis — world_up parsed into UpAxis(index, sign, vector)."""
+
+    @pytest.mark.parametrize("factory, index, sign", [
+        (make_pos_y_up_bvh, 1, 1.0),
+        (make_neg_y_up_bvh, 1, -1.0),
+        (make_pos_z_up_bvh, 2, 1.0),
+        (make_neg_z_up_bvh, 2, -1.0),
+    ])
+    def test_synthetic_rigs(self, factory, index, sign):
+        up = factory().up_axis
+        assert up.index == index
+        assert up.sign == sign
+        expected = np.zeros(3)
+        expected[index] = sign
+        np.testing.assert_array_equal(up.vector, expected)
+
+    @pytest.mark.parametrize("axis", ['+x', '-x', '+y', '-y', '+z', '-z'])
+    def test_agrees_with_every_override_string(self, axis):
+        bvh = make_pos_y_up_bvh()
+        bvh.world_up = axis
+        up = bvh.up_axis
+        assert up.index == {'x': 0, 'y': 1, 'z': 2}[axis[1]]
+        assert up.sign == (1.0 if axis[0] == '+' else -1.0)
+        # vector is exactly the parsed string: one nonzero entry, sign included
+        assert up.vector[up.index] == up.sign
+        assert np.count_nonzero(up.vector) == 1
+
+    def test_override_and_clear_via_auto(self):
+        bvh = make_pos_y_up_bvh()
+        bvh.world_up = '-x'
+        assert (bvh.up_axis.index, bvh.up_axis.sign) == (0, -1.0)
+        bvh.world_up = 'auto'
+        assert (bvh.up_axis.index, bvh.up_axis.sign) == (1, 1.0)
+
+    def test_vector_is_fresh_copy_per_access(self):
+        bvh = make_pos_y_up_bvh()
+        vec = bvh.up_axis.vector
+        vec[:] = 99.0
+        np.testing.assert_array_equal(bvh.up_axis.vector, [0.0, 1.0, 0.0])
+
+    def test_namedtuple_unpacking(self):
+        index, sign, vector = make_pos_z_up_bvh().up_axis
+        assert index == 2
+        assert sign == 1.0
+        np.testing.assert_array_equal(vector, [0.0, 0.0, 1.0])
+
+
+def _tips_bvh(nodes, n_frames=2):
+    """Wrap a hand-built node list into a minimal Bvh (zero motion)."""
+    n_joints = sum(1 for n in nodes if not n.is_end_site())
+    return Bvh(nodes=nodes, root_pos=np.zeros((n_frames, 3)),
+               joint_angles=np.zeros((n_frames, n_joints, 3)),
+               frame_time=1 / 30, world_up='+y')
+
+
+class TestJointTips:
+    """Bvh.joint_tips — identity-based joint → end-site node index mapping."""
+
+    def test_keys_are_exactly_joint_names(self):
+        bvh = make_pos_y_up_bvh()
+        assert list(bvh.joint_tips) == bvh.joint_names   # root included
+
+    def test_each_tip_is_an_end_site_child_of_its_joint(self):
+        bvh = make_pos_y_up_bvh()
+        tips = bvh.joint_tips
+        for node in bvh.nodes:
+            if node.is_end_site():
+                continue
+            tip = tips[node.name]
+            if tip is not None:
+                tip_node = bvh.nodes[tip]
+                assert tip_node.is_end_site()
+                assert tip_node.parent is node   # identity, not name equality
+
+    def test_internal_joints_map_to_none(self):
+        bvh = make_pos_y_up_bvh()
+        # Hips' children (Spine, LeftLeg, RightLeg) are all joints
+        assert bvh.joint_tips["Hips"] is None
+
+    def test_indexes_node_positions(self):
+        bvh = make_pos_y_up_bvh()
+        tip = bvh.joint_tips["LeftLeg"]   # the 'LeftFoot' end site
+        assert tip == bvh.node_index["LeftFoot"]
+        np.testing.assert_array_equal(
+            bvh.node_positions()[:, tip],
+            bvh.node_positions()[:, bvh.node_index["LeftFoot"]])
+
+    def test_name_collision_resolves_by_identity(self):
+        # A real joint named 'EndSiteHand' collides with the parser-generated
+        # display name of Hand's end site. node_index (last wins) points the
+        # shared name at the joint; joint_tips must keep resolving Hand's tip
+        # to the actual end-site node by identity.
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        hand = BvhJoint("Hand", offset=[3, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        hand_end = BvhEndSite("EndSiteHand", offset=[1, 0, 0])
+        cursed = BvhJoint("EndSiteHand", offset=[-3, 0, 0],
+                          rot_channels=['Z', 'Y', 'X'])
+        cursed_end = BvhEndSite("EndSiteEndSiteHand", offset=[-1, 0, 0])
+        hand_end.parent = hand
+        hand.children = [hand_end]
+        hand.parent = hips
+        cursed_end.parent = cursed
+        cursed.children = [cursed_end]
+        cursed.parent = hips
+        hips.children = [hand, cursed]
+        bvh = _tips_bvh([hips, hand, hand_end, cursed, cursed_end])
+
+        assert bvh.node_index["EndSiteHand"] == 3   # the collision, joint wins
+        tips = bvh.joint_tips
+        assert "EndSiteHand" in tips                # the joint appears as a key
+        assert tips["Hand"] == 2                    # the real end site, by identity
+        assert tips["EndSiteHand"] == 4
+
+    def test_two_end_sites_returns_first_in_file_order(self):
+        # The parser never closes a joint on 'End Site', so several end sites
+        # under one joint are structurally possible; the first one wins.
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        arm = BvhJoint("Arm", offset=[3, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        end_a = BvhEndSite("EndSiteArm", offset=[1, 0, 0])
+        end_b = BvhEndSite("EndSiteArm2", offset=[0, 1, 0])
+        end_a.parent = arm
+        end_b.parent = arm
+        arm.children = [end_a, end_b]
+        arm.parent = hips
+        hips.children = [arm]
+        bvh = _tips_bvh([hips, arm, end_a, end_b])
+        assert bvh.joint_tips["Arm"] == 2
+
+    def test_tipless_rig_is_all_none(self):
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        stub = BvhJoint("Stub", offset=[0, -3, 0], rot_channels=['Z', 'Y', 'X'])
+        stub.parent = hips
+        hips.children = [stub]
+        bvh = _tips_bvh([hips, stub])
+        assert bvh.joint_tips == {"Hips": None, "Stub": None}
+
+    def test_fresh_dict_per_access(self):
+        bvh = make_pos_y_up_bvh()
+        tips = bvh.joint_tips
+        tips.clear()
+        assert list(bvh.joint_tips) == bvh.joint_names

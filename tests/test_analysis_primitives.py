@@ -352,6 +352,23 @@ def test_kinetic_energy_masses_validation():
         analysis.kinetic_energy(bvh, masses=np.ones(len(names) - 1))
 
 
+def test_kinetic_energy_nonpositive_mass_total_raises():
+    # an all-zero (or negative-total) mass vector would silently zero the
+    # energy — both the array and the dict form must reject it
+    bvh = make_pos_y_up_bvh()
+    names = bvh.joint_names
+    with pytest.raises(ValueError, match="positive total"):
+        analysis.kinetic_energy(bvh, masses=np.zeros(len(names)))
+    with pytest.raises(ValueError, match="positive total"):
+        analysis.kinetic_energy(bvh, masses={n: 0.0 for n in names})
+    negative_total = np.zeros(len(names))
+    negative_total[0] = -1.0
+    with pytest.raises(ValueError, match="positive total"):
+        analysis.kinetic_energy(bvh, masses=negative_total)
+    # the unit-mass masses=None default path is untouched
+    assert np.all(np.isfinite(analysis.kinetic_energy(bvh)))
+
+
 # ----------------------------------------------------------------
 #  Gait
 # ----------------------------------------------------------------

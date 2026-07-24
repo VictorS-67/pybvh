@@ -25,6 +25,7 @@ kinematics ladder, so geometry and velocity derivatives stay consistent.
 denominator vanishes (a stationary joint, a perfectly vertical pose). ``nan``
 is used deliberately over ``0.0`` so an *undefined* value is never confused
 with a genuine zero (e.g. the real zero curvature of a straight segment).
+The ``nan`` policy covers *data* degeneracy — values the motion itself made undefined. Invalid *arguments* (e.g. a ``weights`` vector with no positive total in ``center_of_mass``) are caller mistakes and raise ``ValueError`` instead of silently propagating ``nan``.
 """
 from __future__ import annotations
 
@@ -405,6 +406,11 @@ def center_of_mass(
     ndarray, shape (..., 3)
         The (weighted) centre of mass.
 
+    Raises
+    ------
+    ValueError
+        If ``weights`` has no positive total (zero, sub-epsilon, negative, or NaN sum) — the weighted mean would be all-NaN (or sign-flipped) for every frame. Individual negative weights are allowed as long as the total stays positive.
+
     Notes
     -----
     Source: Larboulette & Gibet, Kapadia et al., Piana et al.
@@ -413,7 +419,16 @@ def center_of_mass(
     if weights is None:
         return pts.mean(axis=-2)
     w = np.asarray(weights, dtype=np.float64)
-    return np.sum(pts * w[:, None], axis=-2) / w.sum()
+    total = float(w.sum())
+    # One predicate rejects zero, sub-epsilon, negative, AND NaN totals
+    # (NaN comparisons are False). This is an argument error, not data
+    # degeneracy, so it raises instead of following the module's nan policy.
+    if not total > _EPS:
+        raise ValueError(
+            f"center_of_mass weights must have a positive total, got sum "
+            f"{total!r} — a zero/negative/NaN total makes the weighted "
+            f"mean undefined for every frame")
+    return np.sum(pts * w[:, None], axis=-2) / total
 
 
 def com_displacement(

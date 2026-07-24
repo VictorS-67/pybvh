@@ -1320,3 +1320,52 @@ def rotation_geodesic_distance(
     R2 = np.asarray(R2, dtype=np.float64)
     relative = np.swapaxes(R1, -1, -2) @ R2
     return np.linalg.norm(rotmat_to_axisangle(relative), axis=-1)
+
+
+def mean_rotation(R: npt.ArrayLike) -> npt.NDArray[np.float64]:
+    """Chordal (Frobenius) mean of a set of rotation matrices (batch).
+
+    The rotation minimizing ``Σᵢ ‖R − Rᵢ‖²_F`` over SO(3) — the projection of the arithmetic matrix mean back onto the rotation group: ``M = mean(Rᵢ)``, ``M = U Σ Vᵀ`` (SVD), result ``U diag(1, 1, det(U Vᵀ)) Vᵀ``. The determinant guard keeps the result right-handed (a proper rotation, never a reflection). For rotations within ~π/2 of each other this closely tracks the geodesic (Karcher) mean while staying closed-form and batch-vectorized.
+
+    Parameters
+    ----------
+    R : array_like, shape (..., N, 3, 3)
+        Rotation matrices; the mean is taken over axis ``-3`` (the ``N`` axis). Leading batch axes are preserved.
+
+    Returns
+    -------
+    ndarray, shape (..., 3, 3)
+        The mean rotation per batch entry.
+
+    Raises
+    ------
+    ValueError
+        If the input is not at least 3-D with trailing ``(3, 3)`` shape, or if ``N == 0`` (the mean of an empty set is undefined; catching it here beats the NaN-mean warning and the cryptic SVD failure it would otherwise become).
+
+    See Also
+    --------
+    rotation_geodesic_distance : Use it to check the spread of the inputs before trusting the mean.
+    pybvh.analysis.facing_frame : Per-frame facing bases — averaging a clip's facing (via the frames' rotation matrices) is the motivating use.
+
+    Notes
+    -----
+    **Degenerate spreads.** When the inputs are spread wide on SO(3) (angles approaching π apart — e.g. antipodal pairs), the arithmetic mean ``M`` loses rank and the SVD's choice of singular vectors in the collapsed subspace is arbitrary: the returned matrix is still a valid right-handed rotation, but its orientation *within the collapsed plane* is meaningless and numerically unstable (a tiny input perturbation can swing it). Check the spread with :func:`rotation_geodesic_distance` against the returned mean before interpreting it.
+
+    Source: Moakher 2002 (means on SO(3)); Hartley, Trumpf, Dai & Li 2013 (rotation averaging).
+    """
+    R = np.asarray(R, dtype=np.float64)
+    if R.ndim < 3 or R.shape[-2:] != (3, 3):
+        raise ValueError(
+            f"R must have shape (..., N, 3, 3), got {R.shape}")
+    if R.shape[-3] == 0:
+        raise ValueError(
+            "mean_rotation of an empty set (N == 0) is undefined")
+    M = R.mean(axis=-3)
+    U, _, Vt = np.linalg.svd(M)
+    # Batched diag(1, 1, det(U @ Vt)): flip the smallest singular direction
+    # when the projection would otherwise be a reflection.
+    D = np.zeros(M.shape, dtype=np.float64)
+    D[..., 0, 0] = 1.0
+    D[..., 1, 1] = 1.0
+    D[..., 2, 2] = np.linalg.det(U @ Vt)
+    return U @ D @ Vt

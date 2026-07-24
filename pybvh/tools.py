@@ -182,6 +182,14 @@ def _axis_to_vector(ax: str) -> npt.NDArray[np.float64]:
     return vec
 
 
+def _axis_index_sign(ax: str) -> tuple[int, float]:
+    """Split a signed axis string ('-z') into ``(coordinate index, sign)``.
+
+    The scalar companion of :func:`_axis_to_vector`: ``index`` selects the coordinate column, ``sign`` (``+1.0`` / ``-1.0``) restores the direction, so ``coords[..., index] * sign`` is the up-positive height. The single parsing implementation behind :attr:`Bvh.up_axis` and the internal up-axis consumers.
+    """
+    return _AXIS_CHAR_TO_IDX[ax[1]], 1.0 if ax[0] == '+' else -1.0
+
+
 def _rest_upward(bvh: Bvh) -> str | None:
     """Infer the skeleton's topological up axis from the rest pose.
 

@@ -4,6 +4,12 @@ site_url: https://victors-67.github.io/pybvh/
 repo_url: https://github.com/VictorS-67/pybvh
 repo_name: VictorS-67/pybvh
 
+# docs/internal_logs/ is the gitignored internal development history — never
+# part of the site, even from a local `mkdocs build` / `gh-deploy` where the
+# directory exists on disk (CI checkouts never contain it).
+exclude_docs: |
+  /internal_logs/
+
 theme:
   name: material
   palette:

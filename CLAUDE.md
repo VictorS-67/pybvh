@@ -76,3 +76,10 @@ pybvh never depends on or knows about either. Dependencies flow one way: `pybvh-
 - pybvh-ml tests use a separate env: `conda run -n pybvh_ml pytest tests/ -v`
 - README is the PyPI page — must look professional, not like a personal project
 - Never add PyTorch/TensorFlow as dependencies — numpy-only output
+
+## Release records: CHANGELOG vs internal session logs
+
+Two records with different audiences, kept deliberately different:
+
+- **CHANGELOG.md is public-facing and shows only the net change per version.** Every entry describes the migration from the *previous shipped release* to this one. While a version is still unreleased, entries in its dated section are **rewritten in place** as the code evolves — never append churn: if a thing added during the version is later renamed, revised, or removed before shipping, the CHANGELOG shows only the final state, phrased so "previously" always refers to the last shipped release (verify against `git show v<prev>:...` when unsure). Dated sections of *shipped* versions are immutable and period-accurate.
+- **`docs/internal_logs/<version>/` (gitignored) is the internal development history.** It records all substantive changes made during the version — including intermediate states that were overwritten before release — each with the *reason* for the change and for its supersession. When you rewrite a CHANGELOG entry per the rule above, the superseded state moves here (see the `05-superseded-*.md` ledger pattern in `docs/internal_logs/v0.8.0/`). Update these logs as part of landing significant work, not retroactively at release time.

@@ -421,6 +421,7 @@ bvhplot.trajectory([bvh1, bvh2], labels=["A", "B"])
 6. **Performance**: Pre-allocate arrays, vectorize with NumPy, avoid Python loops over frames.
 7. **Type all new code**: Use `npt.NDArray[np.float64]` for returns, `npt.ArrayLike` for inputs. Add `@overload` for inplace methods.
 8. **Caching opportunity**: `euler_orders` and `edges` properties recompute on every access (they traverse the node list). This is fine for single calls but wasteful in hot loops. If profiling shows these as bottlenecks, consider caching with invalidation on skeleton mutation (e.g. `change_euler_order`, `extract_joints`).
+9. **Two release records, two audiences**: `CHANGELOG.md` (public) carries only the net change per version — entries in an unreleased version's dated section are rewritten in place as code evolves, always phrased against the last shipped release. The full internal development history, including intermediate states superseded before release and the reasons for every change, lives in `docs/internal_logs/<version>/` (gitignored; convention in its `README.md` and in `CLAUDE.md`). Update both as part of landing significant work.
 
 ---
 

@@ -49,7 +49,7 @@ features = bvh.to_feature_array(representation="6d", include_velocities=True)
 
 ## Companion library
 
-For ML-specific features (tensor packing, PyTorch Datasets, augmentation pipelines), see [pybvh-ml](https://github.com/VictorS-67/pybvh-ml).
+For ML-specific features (tensor packing, PyTorch Datasets, augmentation pipelines), see [pybvh-ml](https://victors-67.github.io/pybvh-ml/) ([repo](https://github.com/VictorS-67/pybvh-ml)).
 
 ## Stability and versioning
 

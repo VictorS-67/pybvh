@@ -1800,6 +1800,11 @@ def _otsu_threshold(
     total_var = float(v.var())
     if vmax <= vmin or total_var <= 0:
         return None, 0.0
+    # A sample whose whole range spans only a few float ULPs is constant for
+    # our purposes; np.histogram (>= 2.2) raises when the bin edges collapse.
+    edges = np.linspace(vmin, vmax, nbins + 1)
+    if np.any(edges[:-1] >= edges[1:]):
+        return None, 0.0
     hist, edges = np.histogram(v, bins=nbins, range=(vmin, vmax))
     p = hist / hist.sum()
     centers = (edges[:-1] + edges[1:]) / 2.0

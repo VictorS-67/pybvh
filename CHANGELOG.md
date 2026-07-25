@@ -7,7 +7,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [0.8.0] — 2026-07-06
+## [0.8.0] — 2026-07-25
 
 A single release with two layers of work. First, a breaking module split plus a new layer of theory-neutral motion descriptors: trajectory geometry, jerk/smoothness, gait, and SE(3) rigid-transform math. Second, a whole-codebase review fix-up (~80 verified findings): silent-data-corruption fixes in the parser and transforms, one source of truth for the rotation math, a world-frame FK cache, a radians-first transforms API, short representation tokens, and a leaner `Bvh` surface. Everything ships as one break with a single migration path (0.x policy); the complete old → new ledger lives in [pybvh/API_RENAME.md](pybvh/API_RENAME.md).
 

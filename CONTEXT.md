@@ -16,7 +16,7 @@
 | **Version** | 0.8.2 |
 | **Package** | Published on PyPI as `pybvh`. Install via `pip install pybvh`. Optional extras: `pybvh[opencv]` (fast render), `pybvh[interactive]` (k3d for Jupyter), `pybvh[viewer]` (vedo desktop), `pybvh[all-viz]` (all of the above), `pybvh[pandas]` (pandas integration) |
 | **CI/CD** | GitHub Actions: test workflow (push/PR, Python 3.9–3.12) + publish workflow (PyPI on release) + docs workflow (MkDocs to GitHub Pages on push to main) |
-| **Type safety** | Full type annotations on all source files, `@overload` on inplace methods, mypy clean |
+| **Type safety** | Full type annotations on all source files, `@overload` on inplace methods. `mypy pybvh/` reports 39 annotation-accuracy errors (see §7.2) — not gated in CI |
 | **Tests** | 1984 unit tests via pytest (plus ~23 000 parametrized `test_transforms_battle` cases across 3 real-world datasets, skipped unless the private fixtures are present) |
 | **Documentation** | MkDocs + mkdocstrings + Material theme, auto-deployed to GitHub Pages |
 
@@ -234,7 +234,7 @@ where the order comes from the joint's `rot_channels`.
 ## 7. Coding Conventions & Patterns
 
 1. **Property validation**: All core attributes use `@property` with setters that type-check inputs.
-2. **Full type annotations**: All source files use `from __future__ import annotations`, `npt.NDArray`, `@overload` for inplace methods. mypy passes with 0 errors.
+2. **Full type annotations**: All source files use `from __future__ import annotations`, `npt.NDArray`, `@overload` for inplace methods. `mypy pybvh/` is **not** clean and is not run in CI: it reports 39 errors as of 0.8.2. All are annotation-accuracy or narrowing issues — none is a runtime bug, and each was checked. Two thirds trace to three causes: `analysis._reduce_like` is typed `cast: Callable[[object], object]`, so every smoothness/reduction kernel routed through it degrades its return type to `object` (~15 errors, one fix); `foot_contacts`' `vel_threshold` / `height_threshold` are declared `float | None` but hold a per-foot `ndarray` once adaptive thresholding runs (4); and the `mask = vel_mask & height_mask` branch is only reachable when `method == "combined"`, where both are non-None by construction, but nothing in the types says so (1). The rest are one-line annotations (`list[slice]` that also holds an `int`, `list[BvhEndSite]` inferred from a first append where `list[BvhNode]` was meant) plus three matplotlib-stub false positives (`Axes` has no `add_collection3d`; the object is an `Axes3D`). Cleaning this up is a worthwhile standalone change — see the note in `docs/internal_logs/v0.8.2/00-overview.md` — but it touches signatures in `analysis.py` and so is not patch-release material.
 3. **NumPy throughout**: All numerical data as NumPy arrays. No ML framework dependencies.
 4. **Deep copy safety**: `Bvh.copy()` uses `copy.deepcopy()`. `to_hierarchy_dict()` returns copies (safe to mutate).
 5. **Channel freeze**: After `Bvh.__init__`, `rot_channels` and `pos_channels` are frozen. Mutation must go through Bvh methods.

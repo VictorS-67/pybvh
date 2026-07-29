@@ -14,7 +14,9 @@ import numpy as np
 import numpy.typing as npt
 
 from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
-from .spatial_coord import frames_to_node_positions, _ground_plane_offset
+from .spatial_coord import (
+    FkTopology, frames_to_node_positions, _ground_plane_offset,
+)
 from . import rotations
 from .tools import (
     Axis,
@@ -26,6 +28,7 @@ from .tools import (
     _facing_is_measured,
     _infer_world_up,
     _iter_unique_lr_pairs,
+    _resolve_node_lr_pairs,
     _rest_upward,
     _validate_axis_string,
 )
@@ -943,6 +946,49 @@ class Bvh:
                 pairs.append((j_name2idx[left], j_name2idx[right]))
         return pairs
 
+    @property
+    def node_lr_pairs(self) -> list[tuple[int, int]] | None:
+        """Left/right node pairs as index tuples in ``nodes`` index space.
+
+        Node-space counterpart of :attr:`lr_pairs`, covering joints **and**
+        their end sites — so a mirror over :meth:`node_positions` output
+        can swap every paired vertex, including the fingertips, toe tips
+        and head top that only exist in node space. ``None`` when no L/R
+        mapping is available, the same sentinel as :attr:`lr_pairs` and
+        :attr:`lr_mapping`.
+
+        Order is deterministic: every joint pair in :attr:`lr_mapping`
+        order first, then the end-site pairs in that same order, so
+        metadata built from it reproduces across runs.
+
+        Left and right joints are matched by name (that is what
+        :attr:`lr_mapping` is), but looked up among joints only, so an
+        end site whose generated display name collides with a joint's
+        cannot shadow it. The end sites themselves are matched
+        positionally within each joint and resolved by identity.
+
+        A joint pair whose two sides carry **different numbers of end
+        sites** has no well-defined tip correspondence. The pair itself is
+        still returned and its end sites are dropped, matching
+        :attr:`lr_pairs`' habit of filtering what it cannot resolve rather
+        than raising from a property. :func:`~pybvh.transforms.mirror`
+        raises on the same condition instead, because a half-swapped
+        skeleton is a wrong answer rather than a partial one.
+
+        Returns
+        -------
+        list of (int, int) or None
+
+        See Also
+        --------
+        lr_pairs : The same pairing in ``joint_angles`` index space.
+        joint_tips : Each joint's first end site, for tip trajectories.
+        """
+        if self._lr_mapping is None:
+            return None
+        pairs, _mismatches = _resolve_node_lr_pairs(self, self._lr_mapping)
+        return pairs
+
     def _validate_and_set_lr_mapping(
         self, mapping: dict[str, str], source: str,
     ) -> None:
@@ -1548,6 +1594,36 @@ class Bvh:
         ]
 
     @property
+    def fk_topology(self) -> FkTopology:
+        """The skeleton as plain arrays — everything forward kinematics reads.
+
+        Bone offsets, parent indices, joint-column indices and Euler
+        orders, with no node objects: see :class:`~pybvh.FkTopology`.
+        Pass it to :func:`~pybvh.frames_to_node_positions` to run FK from
+        a preprocessed dataset, where the source ``.bvh`` is long closed.
+
+        It is also this class's single derivation of skeleton topology —
+        :attr:`edges`, :attr:`node_edges` and the bone list the
+        :mod:`~pybvh.bvhplot` backends draw are all views of its
+        ``parent_idx``, so they cannot disagree with the geometry FK
+        produces.
+
+        Recomputed per access rather than cached: it is an O(N) walk over
+        a few dozen nodes, and a cache would need invalidating on every
+        operation that touches offsets or channel order (:meth:`retarget`,
+        :meth:`scale`, :meth:`mirror`, :meth:`change_euler_order`) for a
+        saving that does not show up in a profile.
+
+        Returns
+        -------
+        FkTopology
+            ``joint_idx`` counts up in :attr:`nodes` order, so
+            ``euler_orders`` matches :attr:`euler_orders` element for
+            element.
+        """
+        return FkTopology.from_nodes(self.nodes)
+
+    @property
     def edges(self) -> list[tuple[int, int]]:
         """Skeleton edge list as ``(child_idx, parent_idx)`` tuples.
 
@@ -1556,19 +1632,22 @@ class Bvh:
         parent and produces no edge, so a skeleton with *J* joints
         yields *J - 1* edges.
 
+        Parents are resolved by node identity (via
+        :attr:`fk_topology`), never by name — see :attr:`node_edges`.
+
         See Also
         --------
         node_edges : Same list but in ``nodes`` index space (includes
             end sites) — what graph models over the full visual skeleton
             typically want.
         """
-        joints = [n for n in self.nodes if not n.is_end_site()]
-        j_name2idx = {j.name: i for i, j in enumerate(joints)}
-        edges: list[tuple[int, int]] = []
-        for j_idx, joint in enumerate(joints):
-            if joint.parent is not None and joint.parent.name in j_name2idx:
-                edges.append((j_idx, j_name2idx[joint.parent.name]))
-        return edges
+        topology = self.fk_topology
+        joint_idx = topology.joint_idx
+        return [
+            (int(joint_idx[child]), int(joint_idx[parent]))
+            for child, parent in enumerate(topology.parent_idx)
+            if parent >= 0 and joint_idx[child] >= 0
+        ]
 
     @property
     def node_edges(self) -> list[tuple[int, int]]:
@@ -1580,12 +1659,20 @@ class Bvh:
         (visual skeleton, per-bone styling, GCN inputs over the full
         topology).  ``node_edges`` has one more edge per end site than
         ``edges``.
+
+        Parents are resolved by node identity (via
+        :attr:`fk_topology`), never by name. Node names are not unique in
+        general — the parser derives end-site display names from the
+        parent joint's name, so two end sites under one joint collide —
+        and a name-keyed lookup would silently emit an edge pointing at
+        the wrong parent, yielding a graph of the right length that
+        encodes the wrong skeleton.
         """
-        edges: list[tuple[int, int]] = []
-        for i, node in enumerate(self.nodes):
-            if node.parent is not None:
-                edges.append((i, self.node_index[node.parent.name]))
-        return edges
+        return [
+            (child, int(parent))
+            for child, parent in enumerate(self.fk_topology.parent_idx)
+            if parent >= 0
+        ]
 
 
 
@@ -2278,6 +2365,8 @@ class Bvh:
         kept_old_j_indices = []
         # Map old node name → new node object (for parent/children wiring)
         new_node_map: dict[str, BvhNode] = {}
+        # Map id(new node) → the original node it was built from
+        original_of: dict[int, BvhNode] = {}
 
         for node in self.nodes:
             if node.is_end_site():
@@ -2326,6 +2415,11 @@ class Bvh:
 
             new_nodes.append(new_node)
             new_node_map[node.name] = new_node
+            # Remember which original each new joint came from, so the
+            # end-site synthesis below reaches back by identity rather
+            # than re-looking-up a name through node_index (where an end
+            # site sharing the name would shadow the joint).
+            original_of[id(new_node)] = node
             kept_old_j_indices.append(old_j_idx[node.name])
 
         # Wire end-site children into their parents
@@ -2339,8 +2433,7 @@ class Bvh:
         # using the offset to its nearest original end-site descendant.
         for node in new_nodes:
             if not node.is_end_site() and not node.children:  # type: ignore[attr-defined]
-                orig_node = self.nodes[self.node_index[node.name]]
-                end_offset = self._find_end_site_offset(orig_node)
+                end_offset = self._find_end_site_offset(original_of[id(node)])
                 # 'EndSite<name>' is display-only; end-site identity is the class.
                 end_site = BvhEndSite(
                     f'EndSite{node.name}', offset=end_offset, parent=node)

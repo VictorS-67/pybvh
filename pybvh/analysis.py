@@ -1501,8 +1501,12 @@ def auto_detect_foot_joints(
     rest_coords = _rest_coords if _rest_coords is not None else bvh.rest_pose_positions()
     assert isinstance(rest_coords, np.ndarray)  # mypy narrowing
 
+    # Identity-keyed: node names are not unique in general, and a name
+    # lookup here would read another node's height into the sort.
+    node_position = {id(node): i for i, node in enumerate(bvh.nodes)}
+
     def _sort_key(node: BvhNode) -> tuple[float, str]:
-        idx = bvh.node_index[node.name]
+        idx = node_position[id(node)]
         height = float(rest_coords[idx, up_idx] * up_sign)
         return (height, node.name)
 

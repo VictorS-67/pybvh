@@ -35,14 +35,15 @@ def get_skeleton_lines(bvh: Bvh) -> list[tuple[int, int]]:
     lines : list of (int, int)
         Each tuple is ``(parent_index, child_index)`` into the flat
         ``nodes`` list (i.e. the same indexing used by spatial coordinates).
+
+    Notes
+    -----
+    The parent-first view of :attr:`Bvh.node_edges`, so the drawn bones
+    are the same topology forward kinematics posed — including on
+    skeletons whose node names repeat, where a name-keyed lookup would
+    draw one bone twice and omit another.
     """
-    node_index = bvh.node_index
-    lines: list[tuple[int, int]] = []
-    for node in bvh.nodes[1:]:  # skip root (has no parent bone to draw)
-        child_idx = node_index[node.name]
-        parent_idx = node_index[node.parent.name]  # type: ignore[union-attr]
-        lines.append((parent_idx, child_idx))
-    return lines
+    return [(parent, child) for child, parent in bvh.node_edges]
 
 
 # ---------------------------------------------------------------------------

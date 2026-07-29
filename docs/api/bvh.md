@@ -92,6 +92,10 @@ The raw motion arrays, the joint hierarchy, and the two index spaces (see the [C
     options:
       heading_level: 3
 
+::: pybvh.bvh.Bvh.fk_topology
+    options:
+      heading_level: 3
+
 ::: pybvh.bvh.Bvh.matches_hierarchy
     options:
       heading_level: 3
@@ -173,6 +177,10 @@ Up axis, facing direction, L/R pairs, and the reorientation family (see the [Wor
       heading_level: 3
 
 ::: pybvh.bvh.Bvh.lr_pairs
+    options:
+      heading_level: 3
+
+::: pybvh.bvh.Bvh.node_lr_pairs
     options:
       heading_level: 3
 

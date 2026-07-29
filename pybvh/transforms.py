@@ -26,6 +26,7 @@ from .tools import (
     _axis_index_sign,
     _compute_forward_at,
     _resolve_lr_pairs,
+    _resolve_node_lr_pairs,
     _rest_leftward,
     _rest_upward,
     _validate_axis_string,
@@ -876,26 +877,20 @@ def mirror(
             lateral_axis, allow_unsigned=True)[1]
     lateral_idx = _AXIS_CHAR_TO_IDX[lateral_char]
 
-    # Build node-index pairs for offset swapping (includes end sites)
-    node_name2idx = target.node_index
-    lr_node_pairs = _resolve_lr_pairs(lr_mapping, node_name2idx)
-    end_site_pairs: list[tuple[int, int]] = []
-    for li, ri in lr_node_pairs:
-        left_node = target.nodes[li]
-        right_node = target.nodes[ri]
-        if isinstance(left_node, BvhJoint) and isinstance(right_node, BvhJoint):
-            left_ends = [c for c in left_node.children if c.is_end_site()]
-            right_ends = [c for c in right_node.children if c.is_end_site()]
-            if len(left_ends) != len(right_ends):
-                raise ValueError(
-                    f"Cannot pair end sites for mirror(): joint "
-                    f"{left_node.name!r} has {len(left_ends)} end site(s) "
-                    f"but its L/R partner {right_node.name!r} has "
-                    f"{len(right_ends)}.")
-            for left_end, right_end in zip(left_ends, right_ends):
-                end_site_pairs.append((node_name2idx[left_end.name],
-                                       node_name2idx[right_end.name]))
-    lr_node_pairs.extend(end_site_pairs)
+    # Build node-index pairs for offset swapping (includes end sites).
+    # Shared with `Bvh.node_lr_pairs` — one pairing, two policies on an
+    # unpairable joint: the property drops its end sites, mirror refuses,
+    # because swapping some of a joint's tips and not others produces a
+    # skeleton that is wrong rather than incomplete.
+    lr_node_pairs, end_site_mismatches = _resolve_node_lr_pairs(
+        target, lr_mapping)
+    if end_site_mismatches:
+        left_name, num_left, right_name, num_right = end_site_mismatches[0]
+        raise ValueError(
+            f"Cannot pair end sites for mirror(): joint "
+            f"{left_name!r} has {num_left} end site(s) "
+            f"but its L/R partner {right_name!r} has "
+            f"{num_right}.")
 
     # --- Steps 1, 4, 5: Mirror arrays via NumPy-level API ---
     rot_ch = [list(j.rot_channels) for j in joints]

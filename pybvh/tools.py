@@ -273,9 +273,11 @@ def _rest_upward(bvh: Bvh) -> str | None:
 
     up_body_parts = ["head", "neck", "chest", "spine"]
     for part_name in up_body_parts:
-        for joint in bvh.nodes:
+        # Indexed by position in the walk, not by name: a name lookup
+        # would read a same-named node's coordinate instead of this one's.
+        for idx, joint in enumerate(bvh.nodes):
             if joint.name.lower() == part_name:
-                coord = local_coord[bvh.node_index[joint.name]]
+                coord = local_coord[idx]
                 direction = get_main_direction(coord)
                 if direction is not None:
                     return direction
@@ -514,6 +516,77 @@ def _resolve_lr_pairs(
             f"lr_mapping references unknown joint names: "
             f"{sorted(unknown)}. Check against `bvh.joint_names`.")
     return pairs
+
+
+def _resolve_node_lr_pairs(
+    bvh: Bvh,
+    mapping: dict[str, str] | None,
+) -> tuple[list[tuple[int, int]], list[tuple[str, int, str, int]]]:
+    """Resolve an L/R name mapping to ``nodes``-space pairs, end sites included.
+
+    The single implementation behind :attr:`Bvh.node_lr_pairs` and
+    :func:`~pybvh.transforms.mirror`, which need the same pairs but
+    disagree on what to do about an unpairable joint — so this reports
+    that case rather than deciding it.
+
+    Parameters
+    ----------
+    bvh : Bvh
+        Skeleton whose ``nodes`` index space the result points into.
+    mapping : dict or None
+        L/R name mapping.  ``None`` or empty resolves to ``([], [])``.
+
+    Returns
+    -------
+    pairs : list of (int, int)
+        ``(left_idx, right_idx)`` in ``nodes`` index space: every joint
+        pair in *mapping* order first, then the end-site pairs in that
+        same order.  Deterministic, so downstream metadata built from it
+        reproduces across runs.
+    mismatches : list of (str, int, str, int)
+        ``(left_name, left_end_count, right_name, right_end_count)`` for
+        each pair whose two joints carry different numbers of end sites,
+        so their tips cannot be zipped.  The joint pair itself is still
+        returned in *pairs*; only its end sites are omitted.
+
+    Notes
+    -----
+    Joint names are looked up among joints only — an end site whose
+    generated display name collides with a joint's cannot shadow it — and
+    the end sites themselves are resolved by object identity, since two
+    end sites under one joint are given the same generated name and a
+    name lookup would return one of them twice.
+    """
+    if not mapping:
+        return [], []
+
+    node_position = {id(node): i for i, node in enumerate(bvh.nodes)}
+    joint_by_name = {
+        node.name: node for node in bvh.nodes if not node.is_end_site()}
+
+    joint_pairs: list[tuple[int, int]] = []
+    end_site_pairs: list[tuple[int, int]] = []
+    mismatches: list[tuple[str, int, str, int]] = []
+
+    for left_name, right_name in _iter_unique_lr_pairs(mapping):
+        left_joint = joint_by_name.get(left_name)
+        right_joint = joint_by_name.get(right_name)
+        if left_joint is None or right_joint is None:
+            continue
+        joint_pairs.append(
+            (node_position[id(left_joint)], node_position[id(right_joint)]))
+
+        left_ends = [c for c in left_joint.children if c.is_end_site()]  # type: ignore[attr-defined]
+        right_ends = [c for c in right_joint.children if c.is_end_site()]  # type: ignore[attr-defined]
+        if len(left_ends) != len(right_ends):
+            mismatches.append(
+                (left_name, len(left_ends), right_name, len(right_ends)))
+            continue
+        for left_end, right_end in zip(left_ends, right_ends):
+            end_site_pairs.append(
+                (node_position[id(left_end)], node_position[id(right_end)]))
+
+    return joint_pairs + end_site_pairs, mismatches
 
 
 def _rest_leftward(

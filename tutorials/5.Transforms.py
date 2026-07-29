@@ -24,7 +24,7 @@
 # | Family | Purpose | Examples |
 # |---|---|---|
 # | **Deterministic augmentation** | Expand a dataset in a predictable way | `mirror`, `rotate_vertical`, `translate_root` |
-# | **Stochastic augmentation** | Randomized variants for online training | `random_rotate_vertical`, `add_noise`, `drop_frames` |
+# | **Stochastic augmentation** | Randomized variants for online training | `random_rotate_vertical`, `add_rotation_noise`, `drop_frames` |
 # | **Preprocessing / normalization** | Bring heterogeneous files into a common frame | `reorient_world_up`, `reorient_rest_up`, `reorient_rest_forward` |
 #
 # We cover each in turn, then look at how to compose them.
@@ -267,7 +267,7 @@ print(f'Max joint-position difference after reorient_rest_forward: {np.abs(coord
 # # Joint noise
 
 # %% [markdown]
-# `add_noise()` adds zero-mean Gaussian noise to joint rotation angles. This simulates sensor noise and regularizes models that might otherwise overfit to exact pose values.
+# `add_rotation_noise()` adds zero-mean Gaussian noise to joint rotation angles. This simulates sensor noise and regularizes models that might otherwise overfit to exact pose values.
 #
 # The key parameter is `sigma` — the standard deviation of the noise in **radians** (the same unit as `bvh.joint_angles`; `np.radians(...)` converts from degrees). Rough calibration:
 #
@@ -277,19 +277,20 @@ print(f'Max joint-position difference after reorient_rest_forward: {np.abs(coord
 # - **σ > 0.17 rad (~10°)** — destructive; rarely useful.
 
 # %%
-noisy_small = bvh.add_noise(sigma=np.radians(0.5), rng=np.random.default_rng(42))
-noisy_large = bvh.add_noise(sigma=np.radians(5.0), rng=np.random.default_rng(42))
+noisy_small = bvh.add_rotation_noise(sigma=np.radians(0.5), rng=np.random.default_rng(42))
+noisy_large = bvh.add_rotation_noise(sigma=np.radians(5.0), rng=np.random.default_rng(42))
 
 fig, axes = pybvh.bvhplot.frame([bvh, noisy_small, noisy_large], frame=20,
                                  labels=['Original', 'σ=0.5°', 'σ=5.0°'])
 plt.show()
 
 # %% [markdown]
-# The optional `sigma_pos` parameter adds noise to root position as well. Its **units are file units** — typically centimeters for mocap, but check with `bvh.nodes[1].offset` to be sure. A `sigma_pos=1.0` noise that's imperceptible on a 170 cm skeleton would be catastrophic on a 1.7 m skeleton.
+# `add_position_noise()` is the separate call for root translation. It's a separate function precisely because its `sigma` is in a different unit: **file units** — typically centimeters for mocap, but check with `bvh.nodes[1].offset` to be sure. A `sigma=1.0` noise that's imperceptible on a 170 cm skeleton would be catastrophic on a 1.7 m skeleton. (This is also why only `add_rotation_noise` takes `degrees=` — there is no angular unit for a length.)
 
 # %%
-noisy_pos = bvh.add_noise(sigma=np.radians(1.0), sigma_pos=2.0,
-                          rng=np.random.default_rng(42))
+rng = np.random.default_rng(42)
+noisy_pos = (bvh.add_rotation_noise(sigma=np.radians(1.0), rng=rng)
+                .add_position_noise(sigma=2.0, rng=rng))
 
 print(f'Original root position (frame 0): {bvh.root_pos[0]}')
 print(f'Noisy    root position (frame 0): {noisy_pos.root_pos[0]}')
@@ -413,13 +414,13 @@ rng = np.random.default_rng(42)
 aug_a = (bvh
          .mirror()
          .rotate_vertical(np.pi / 4)
-         .add_noise(sigma=0.02, rng=rng)
+         .add_rotation_noise(sigma=0.02, rng=rng)
          .perturb_speed(1.1))
 
 # Style B: explicit reassignment (easier to debug, easier to branch)
 aug_b = bvh.mirror()
 aug_b = aug_b.rotate_vertical(np.pi / 4)
-aug_b = aug_b.add_noise(sigma=0.02, rng=np.random.default_rng(42))
+aug_b = aug_b.add_rotation_noise(sigma=0.02, rng=np.random.default_rng(42))
 aug_b = aug_b.perturb_speed(1.1)
 
 print(f'Style A result: {aug_a.frame_count} frames')
@@ -453,7 +454,7 @@ print(f'Same seed → same results: {np.allclose(result_a.root_pos, result_b.roo
 # **Order matters for non-commutative transforms.** A few rules of thumb:
 #
 # - **Apply deterministic preprocessing first.** `reorient_world_up`, `reorient_rest_up`, `reorient_rest_forward` should run before any stochastic augmentation so all augmentations operate in a normalized coordinate system.
-# - **Apply `add_noise` after `perturb_speed`, not before.** `perturb_speed` resamples via SLERP, which smooths away any noise injected beforehand — defeating the purpose.
+# - **Apply `add_rotation_noise` after `perturb_speed`, not before.** `perturb_speed` resamples via SLERP, which smooths away any noise injected beforehand — defeating the purpose.
 # - **Apply frame-count-changing transforms last** (`perturb_speed`, `drop_frames`). Transforms like `mirror` and `rotate_vertical` work frame-by-frame and are indifferent to frame count; keeping them upstream keeps the pipeline simple.
 # - **`mirror` + `rotate_vertical` commute** (both preserve lateral symmetry), so order doesn't matter for those two.
 
@@ -481,7 +482,7 @@ print(f'Same seed → same results: {np.allclose(result_a.root_pos, result_b.roo
 # | Random yaw | `bvh.random_rotate_vertical(rng=...)` | Stochastic aug |
 # | Root translation | `bvh.translate_root(offset)` | Deterministic aug |
 # | Random translation | `bvh.random_translate_root(rng=...)` | Stochastic aug |
-# | Joint noise | `bvh.add_noise(sigma, rng=...)` | Stochastic aug |
+# | Joint noise | `bvh.add_rotation_noise(sigma, rng=...)` | Stochastic aug |
 # | Speed change | `bvh.perturb_speed(factor)` | Deterministic aug |
 # | Random speed | `bvh.random_perturb_speed(rng=...)` | Stochastic aug |
 # | Frame dropout | `bvh.drop_frames(drop_rate, rng=...)` | Stochastic aug |

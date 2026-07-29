@@ -85,6 +85,48 @@ def test_fft_magnitude_shapes_and_peak():
     np.testing.assert_allclose(freqs[np.argmax(mag)], 8.0)
 
 
+def test_fft_magnitude_norm_amplitude_reads_physical_amplitude():
+    """norm="amplitude": an exact-bin sine of amplitude A peaks at A, and
+    the un-doubled DC / Nyquist bins read their own value."""
+    fs, T, A = 64.0, 128, 3.0
+    t = np.arange(T) / fs
+    sig = A * np.cos(2 * np.pi * 8.0 * t)
+    _, mag = signal.fft_magnitude(sig, fs, norm="amplitude")
+    np.testing.assert_allclose(mag[np.argmax(mag)], A, atol=1e-12)
+
+    _, mag_dc = signal.fft_magnitude(np.full(T, 2.5), fs, norm="amplitude")
+    np.testing.assert_allclose(mag_dc[0], 2.5, atol=1e-12)
+
+    nyquist_tone = A * np.cos(np.pi * np.arange(T))   # +A, -A, +A, ...
+    _, mag_nyq = signal.fft_magnitude(nyquist_tone, fs, norm="amplitude")
+    np.testing.assert_allclose(mag_nyq[-1], A, atol=1e-12)
+
+
+def test_fft_magnitude_norm_scalings_match_numpy_vocabulary():
+    rng = np.random.default_rng(7)
+    sig = rng.standard_normal(100)
+    _, raw = signal.fft_magnitude(sig)                       # "backward"
+    _, ortho = signal.fft_magnitude(sig, norm="ortho")
+    _, forward = signal.fft_magnitude(sig, norm="forward")
+    np.testing.assert_allclose(ortho, raw / np.sqrt(100))
+    np.testing.assert_allclose(forward, raw / 100)
+    with pytest.raises(ValueError, match="norm"):
+        signal.fft_magnitude(sig, norm="nope")
+
+
+def test_fft_magnitude_amplitude_multidim_axis():
+    """The DC/Nyquist un-doubling must land on the transform axis for
+    multi-dimensional input."""
+    fs, T = 64.0, 128
+    t = np.arange(T) / fs
+    rows = np.stack([np.cos(2 * np.pi * 8.0 * t),
+                     2.0 * np.cos(2 * np.pi * 4.0 * t) + 1.0])   # (2, T)
+    _, mag = signal.fft_magnitude(rows, fs, axis=1, norm="amplitude")
+    for i in range(2):
+        _, expected = signal.fft_magnitude(rows[i], fs, norm="amplitude")
+        np.testing.assert_allclose(mag[i], expected)
+
+
 # ----------------------------------------------------------------
 #  ramer_douglas_peucker
 # ----------------------------------------------------------------
@@ -137,8 +179,18 @@ def test_skeleton_size_unknown_explicit_joint_raises():
     bvh = make_pos_y_up_bvh()
     with pytest.raises(ValueError, match="not found"):
         analysis.skeleton_size(bvh, foot_joints=["NotAJoint"])
-    # the 1.0 fallback remains for footless *auto-detection* only
-    assert analysis.skeleton_size(bvh) == 1.0        # feet are end sites here
+
+
+def test_skeleton_size_unmeasurable_raises_not_fabricates():
+    """A rig whose size cannot be measured raises rather than returning a
+    substitute — 1.0 reads as a plausible metre-scale humanoid."""
+    bvh = make_pos_y_up_bvh()
+    # feet are end sites here, so auto-detection finds none
+    with pytest.raises(ValueError, match="no foot joints"):
+        analysis.skeleton_size(bvh)
+    # explicit feet that coincide with the root: no measurable size either
+    with pytest.raises(ValueError, match="no measurable size"):
+        analysis.skeleton_size(bvh, foot_joints=["Hips"])
 
 
 def test_relative_scale_factor_recovers_known_scale():
@@ -156,3 +208,21 @@ def test_relative_scale_factor_edges():
     assert np.isnan(analysis.relative_scale_factor(np.ones((4, 3)), np.zeros((4, 3))))
     with pytest.raises(ValueError):
         analysis.relative_scale_factor(np.ones((4, 3)), np.ones((5, 3)))
+
+
+def test_relative_scale_factor_centered_ignores_translation():
+    """centered=True recovers the scale of a translated pair; the default
+    origin fit is corrupted in proportion to the centroid offset."""
+    rng = np.random.default_rng(11)
+    target = rng.normal(size=(20, 3))
+    reference = 2.5 * target + np.array([4.0, -1.0, 2.0])
+    shifted_target = target + np.array([10.0, -3.0, 7.0])
+
+    s_origin = analysis.relative_scale_factor(reference, shifted_target)
+    assert not np.isclose(s_origin, 2.5)
+    np.testing.assert_allclose(
+        analysis.relative_scale_factor(reference, shifted_target,
+                                       centered=True), 2.5)
+    # centered fit of a constant target is degenerate -> nan
+    assert np.isnan(analysis.relative_scale_factor(
+        np.ones((4, 3)), np.full((4, 3), 9.0), centered=True))

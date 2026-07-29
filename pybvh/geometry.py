@@ -772,30 +772,61 @@ def ground_path(
 def pose_distance(
     pose_a: npt.NDArray[np.float64],
     pose_b: npt.NDArray[np.float64],
+    reduction: str = "frobenius",
 ) -> npt.NDArray[np.float64]:
-    """Euclidean distance between two poses — ``‖X₁ − X₂‖``.
+    """Distance between two poses — Frobenius norm or MPJPE.
 
-    The root of the summed squared differences over the joint and
-    coordinate axes (a pose-similarity kernel for nearest-neighbour /
-    alignment work). A true metric — square it if a squared-distance
-    kernel is wanted.
+    Two standard reductions of the per-joint position errors, selected
+    by ``reduction``:
+
+    - ``"frobenius"`` (default): ``‖X₁ − X₂‖`` — the root of the summed
+      squared differences over the joint and coordinate axes (a
+      pose-similarity kernel for nearest-neighbour / alignment work).
+      A true metric — square it if a squared-distance kernel is wanted.
+    - ``"mpjpe"``: mean per-joint position error — the mean over joints
+      of each joint's Euclidean error, the near-universal pose-error
+      metric of the pose-estimation and motion-reconstruction
+      literature. Also a true metric.
+
+    For a uniform per-joint error ``e`` over ``N`` joints the two differ
+    by the constant factor ``√N`` (``frobenius = √N·e``, ``mpjpe = e``);
+    when per-joint errors are *unequal* they diverge beyond any constant
+    — Frobenius weights large per-joint errors quadratically, MPJPE
+    linearly — so a published MPJPE figure cannot be recovered from the
+    Frobenius value.
 
     Parameters
     ----------
     pose_a, pose_b : ndarray, shape (..., N, 3)
         Poses (e.g. ``(N, 3)`` single poses, or ``(F, N, 3)`` sequences).
+    reduction : {"frobenius", "mpjpe"}, optional
+        How the trailing ``(N, 3)`` axes reduce to a scalar (see above).
+        Default ``"frobenius"``.
 
     Returns
     -------
     ndarray, shape (...)
-        Euclidean distance, reduced over the trailing ``(N, 3)`` axes.
+        Distance, reduced over the trailing ``(N, 3)`` axes.
+
+    Raises
+    ------
+    ValueError
+        If ``reduction`` is not one of the two options.
 
     Notes
     -----
-    Source: trajectory-basis pose models (Torresani-era).
+    Source: trajectory-basis pose models (Torresani-era) for the
+    Frobenius form; standard 3D pose-estimation evaluation (e.g. the
+    Human3.6M protocol) for MPJPE.
     """
     diff = np.asarray(pose_a, dtype=np.float64) - np.asarray(pose_b, dtype=np.float64)
-    return np.sqrt(np.sum(diff * diff, axis=(-2, -1)))
+    if reduction == "frobenius":
+        return np.sqrt(np.sum(diff * diff, axis=(-2, -1)))
+    if reduction == "mpjpe":
+        per_joint = np.sqrt(np.sum(diff * diff, axis=-1))
+        return np.mean(per_joint, axis=-1)
+    raise ValueError(
+        f"reduction must be 'frobenius' or 'mpjpe', got {reduction!r}")
 
 
 def mean_pose_subtract(seq: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:

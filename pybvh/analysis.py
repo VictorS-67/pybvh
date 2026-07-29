@@ -11,7 +11,7 @@ from __future__ import annotations
 import warnings
 from collections import namedtuple
 from collections.abc import Mapping, Sequence
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 import numpy.typing as npt
@@ -505,6 +505,19 @@ def angular_velocities(
 ) -> npt.NDArray[np.float64]:
     """Compute per-joint angular velocities via rotation matrix log map.
 
+    These are the rates of each joint's **parent-relative (local)
+    rotation** — the BVH channels themselves — expressed in the joint's
+    own (body) frame: ``ω[i] = log(R_i^T @ R_{i+1}) / dt`` on the local
+    rotation matrices, no forward kinematics involved. Two published
+    alternatives differ: the **world-frame angular velocity of a
+    segment** (the biomechanics convention) composes rotations down the
+    chain first and diverges for every joint whose parent is itself
+    rotating; and the **spatial-frame** rate ``log(R_{i+1} @ R_i^T)``
+    differs from the body-frame rate by conjugation with ``R`` — same
+    magnitude, rotated axis. The local convention is what BVH data
+    natively parameterizes; compose ``Bvh.to_rotmat`` output through
+    the hierarchy yourself if you need segment rates.
+
     Parameters
     ----------
     bvh : Bvh
@@ -633,6 +646,15 @@ def root_trajectory(
     rotation is identity, regardless of what rotation the clip
     starts with.
 
+    The heading is **orientation-derived** — the root bone's rotation
+    applied to the rest forward, projected to the ground plane — not
+    the direction of travel (a side-stepping character keeps its
+    heading). It therefore inherits pelvis twist, and its ground-plane
+    projection shrinks toward numerical ambiguity when the character
+    bends far forward; :func:`facing_frame` is the whole-body, yaw-only
+    alternative that avoids both. For the direction of motion,
+    differentiate the ground position (the ``ground_*_vel`` columns).
+
     Parameters
     ----------
     bvh : Bvh
@@ -737,7 +759,7 @@ def root_trajectory(
 #  Facing frame
 # ----------------------------------------------------------------
 
-FacingFrame = namedtuple("FacingFrame", ["forward", "left", "up"])
+FacingFrame = namedtuple("FacingFrame", ["forward", "left", "up", "valid"])
 
 
 def facing_frame(
@@ -760,9 +782,15 @@ def facing_frame(
     only ever rotates about the vertical — deliberately *not* a pelvis
     orientation (no roll or pitch; a character bending forward keeps
     their facing frame level). It is also distinct from
-    :func:`root_trajectory`'s travel heading: facing is where the body
-    points, heading is where it moves — side-stepping or moon-walking
-    separates the two.
+    :func:`root_trajectory`'s heading, which is a *second facing
+    estimate built differently* — the root bone's rotation applied to
+    the rest forward — not a direction of motion: that heading inherits
+    pelvis twist and collapses toward numerical ambiguity when the
+    character bends far forward, while this basis measures the
+    whole-body L/R geometry and stays yaw-only. The two diverge
+    whenever the pelvis turns or tilts relative to the body. Neither
+    is velocity-based; for the direction of *travel*, differentiate
+    ground position (``root_trajectory``'s ``ground_*_vel`` columns).
 
     Construction (per frame, all in world space): the leftward
     direction is the average of ``(left_pos - right_pos)`` over the
@@ -779,9 +807,15 @@ def facing_frame(
     leftward crossed with ``world_up``, or the arbitrary-but-stable
     per-up-axis default (``'+z'`` for a ``y``-up world) when no
     rest-pose L/R geometry exists either; ``left = up × forward``
-    keeps the triple orthonormal. The bvhplot follow camera applies
-    the same policy — it holds its orientation on such frames rather
-    than inventing a rotation.
+    keeps the triple orthonormal. The ``valid`` field reports exactly
+    those frames: ``False`` where the basis is the fallback, not a
+    measurement (all-``False`` when the skeleton has no L/R pairs at
+    all — the per-frame refinement of :attr:`Bvh.has_lr_geometry`).
+    The fallback rows still carry the usable constant basis rather
+    than ``nan``, so rendering-style consumers can ignore ``valid``;
+    anything *measuring* facing should mask by it. The bvhplot follow
+    camera applies the same policy — it holds its orientation on such
+    frames rather than inventing a rotation.
 
     Parameters
     ----------
@@ -795,23 +829,26 @@ def facing_frame(
     Returns
     -------
     FacingFrame
-        Named tuple ``(forward, left, up)`` of three ``(F, 3)``
+        Named tuple ``(forward, left, up, valid)``: three ``(F, 3)``
         float64 arrays of per-frame unit vectors forming a
-        right-handed orthonormal basis.
+        right-handed orthonormal basis, and a ``(F,)`` bool array,
+        ``False`` on frames whose basis is the constant fallback
+        rather than a measurement (see the fallback policy above).
 
     See Also
     --------
     Bvh.forward_at, Bvh.left_at : The categorical (snapped axis label)
         form of the same construction.
-    root_trajectory : Travel heading of the root (facing ≠ heading).
+    root_trajectory : Root-bone-orientation heading (a different facing
+        estimate — see Notes above; not a travel direction).
     """
     if coords is None:
         coords = bvh.node_positions()
     else:
         coords = np.asarray(coords, dtype=np.float64)
     _validate_node_coords(bvh, coords)
-    forward, left, up = _facing_basis(bvh, coords, bvh.world_up)
-    return FacingFrame(forward, left, up)
+    forward, left, up, valid = _facing_basis(bvh, coords, bvh.world_up)
+    return FacingFrame(forward, left, up, valid)
 
 
 # ----------------------------------------------------------------
@@ -894,14 +931,18 @@ def foot_contacts(
         Clearance above the estimated floor, in world units.  Defaults
         to ``0.013 × skeleton_scale``.  A foot is "low enough" when
         ``foot_height − floor < height_threshold``.
-    floor : float or ``"auto"``, keyword-only, optional
+    floor : float, ``"auto"`` or ``"min"``, keyword-only, optional
         Floor height along the raw ``world_up`` axis.  ``"auto"``
         (default) estimates it as the 2nd percentile of the per-frame
-        minimum foot height, always from the ``coords`` actually in
-        use (the cached :attr:`Bvh.floor_height` fills in / is filled
-        from this estimate on the default world-coords + auto-feet
-        path).  Pass a float to pin the floor explicitly (e.g.
-        ``floor=0.0`` when the rig is already ground-aligned).
+        minimum foot height — robust to occasional spurious low frames —
+        always from the ``coords`` actually in use (the cached
+        :attr:`Bvh.floor_height` fills in / is filled from this estimate
+        on the default world-coords + auto-feet path).  ``"min"`` uses
+        the true minimum instead — exact, but a single glitched-low
+        frame drags the floor down with it; it never reads or writes the
+        cache. The two diverge on clips with marker noise or long
+        airborne phases.  Pass a float to pin the floor explicitly
+        (e.g. ``floor=0.0`` when the rig is already ground-aligned).
     min_contact_duration : float, keyword-only, optional
         Morphological open: contact runs shorter than this many
         **seconds** are set to 0.  Default ``0.1`` s (3 frames at
@@ -969,7 +1010,7 @@ def foot_contacts(
     ------
     ValueError
         - If ``method`` or ``height_reference`` is unknown.
-        - If ``floor`` is a string other than ``"auto"``.
+        - If ``floor`` is a string other than ``"auto"`` or ``"min"``.
         - If no foot joints can be found or any named joint is
           missing from the skeleton.
         - If ``foot_joints`` is explicitly an empty list — contact
@@ -1073,7 +1114,7 @@ def ground_contacts(
     ------
     ValueError
         - If ``method`` or ``height_reference`` is unknown.
-        - If ``floor`` is a string other than ``"auto"``.
+        - If ``floor`` is a string other than ``"auto"`` or ``"min"``.
         - If ``joints`` is empty — contact detection needs at least one joint.
         - If a joint name is not in the skeleton.
         - If ``vel_smooth_duration`` is negative.
@@ -1164,9 +1205,9 @@ def _contacts_core(
             f"height_reference must be 'velocity' or 'floor', "
             f"got {height_reference!r}")
 
-    if isinstance(floor, str) and floor != "auto":
+    if isinstance(floor, str) and floor not in ("auto", "min"):
         raise ValueError(
-            f"floor must be 'auto' or a float, got {floor!r}")
+            f"floor must be 'auto', 'min' or a float, got {floor!r}")
 
     if vel_smooth_duration < 0:
         raise ValueError(
@@ -1274,14 +1315,19 @@ def _contacts_core(
 
     if needs_height:
         heights_signed = joint_coords[:, :, up_idx] * up_sign  # up-positive
-        if isinstance(floor, str):   # "auto": estimate from the coords in use
-            if canonical_floor:
+        if isinstance(floor, str):   # "auto"/"min": estimate from the coords in use
+            if floor == "auto" and canonical_floor:
+                # Only the robust 2nd-percentile estimate is the canonical
+                # floor Bvh.floor_height caches; "min" always computes fresh.
                 if bvh._floor_height_cached is None:
                     bvh._floor_height_cached = _floor_from_coords(
                         coords, joint_indices, up_idx, up_sign)
                 floor_raw = float(bvh._floor_height_cached)
             else:
-                floor_raw = _floor_from_coords(coords, joint_indices, up_idx, up_sign)
+                percentile = 0.0 if floor == "min" else 2.0
+                floor_raw = _floor_from_coords(
+                    coords, joint_indices, up_idx, up_sign,
+                    percentile=percentile)
         else:
             floor_raw = float(floor)
         floor_signed = floor_raw * up_sign
@@ -1483,7 +1529,9 @@ def _skeleton_scale(
     dists = [float(np.linalg.norm(rest_coords[i] - root)) for i in foot_indices]
     # Fallback: if all feet sit on the root (degenerate rig), use 1.0 so
     # thresholds don't collapse to zero.  Callers should not hit this in
-    # practice — auto-detection requires tip descendants.
+    # practice — auto-detection requires tip descendants.  Deliberately
+    # private: the public `skeleton_size` raises instead of fabricating,
+    # but a threshold scale must exist even where a measurement does not.
     return float(np.mean(dists)) if dists and max(dists) > 0 else 1.0
 
 
@@ -1497,27 +1545,37 @@ def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
     for size normalization. For the *relative* scale between two skeletons,
     see :func:`relative_scale_factor`.
 
+    A skeleton whose size cannot be measured — auto-detection finds no
+    feet, or every foot sits exactly on the root — raises rather than
+    returning a substitute: any fabricated number (``1.0`` reads as a
+    plausible metre-scale humanoid, ``nan`` poisons everything scaled by
+    it) would be indistinguishable from, or worse than, a measurement.
+    Catch the error and choose your own scale if a total function is
+    needed. (``foot_contacts``' *internal* threshold scale keeps a
+    private ``1.0`` fallback for degenerate rigs — a threshold must
+    exist even where a measurement does not.)
+
     Parameters
     ----------
     bvh : Bvh
         Input skeleton.
     foot_joints : list of str, optional
-        Foot joints; auto-detected from topology if None. Explicitly passed
-        names must exist in the skeleton (``ValueError`` otherwise); only
-        when *auto-detection* finds no feet does the function return the
-        ``1.0`` fallback, so callers that scale by this value do not
-        collapse to zero.
+        Foot joints; auto-detected from topology if None. Explicitly
+        passed names must exist in the skeleton (``ValueError``
+        otherwise).
 
     Returns
     -------
     float
-        Mean rest-pose distance from the root to the foot joints (``1.0``
-        fallback for a footless rig under auto-detection).
+        Mean rest-pose distance from the root to the foot joints
+        (always ``> 0``).
 
     Raises
     ------
     ValueError
-        If an explicitly passed foot joint name is not in the skeleton.
+        If an explicitly passed foot joint name is not in the skeleton;
+        if auto-detection finds no foot joints; or if all foot joints
+        coincide with the root in the rest pose (no measurable size).
 
     Notes
     -----
@@ -1525,6 +1583,12 @@ def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
     """
     if foot_joints is None:
         foot_joints = auto_detect_foot_joints(bvh)
+        if not foot_joints:
+            raise ValueError(
+                "skeleton_size: no foot joints auto-detected on this "
+                "skeleton, so its size cannot be measured. Pass foot_joints= "
+                "explicitly (the deepest leg-chain joints), or catch this "
+                "error and choose your own scale.")
     else:
         unknown = [n for n in foot_joints if n not in bvh.node_index]
         if unknown:
@@ -1532,12 +1596,22 @@ def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
                 f"skeleton_size: joint names {unknown} not found in skeleton.")
     rest_coords = bvh.rest_pose_positions()
     foot_indices = [bvh.node_index[name] for name in foot_joints]
-    return _skeleton_scale(rest_coords, foot_indices)
+    root = rest_coords[0]
+    dists = [float(np.linalg.norm(rest_coords[i] - root)) for i in foot_indices]
+    if not dists or max(dists) <= 0:
+        raise ValueError(
+            "skeleton_size: every foot joint coincides with the root in the "
+            "rest pose, so this skeleton has no measurable size. Pass "
+            "different foot_joints=, or catch this error and choose your "
+            "own scale.")
+    return float(np.mean(dists))
 
 
 def relative_scale_factor(
     reference: npt.NDArray[np.float64],
     target: npt.NDArray[np.float64],
+    *,
+    centered: bool = False,
 ) -> float:
     """Least-squares uniform scale matching ``target`` to ``reference``.
 
@@ -1549,21 +1623,39 @@ def relative_scale_factor(
     This is the *relative* scale between skeletons; for a single skeleton's
     absolute size, see :func:`skeleton_size`.
 
+    By default the fit is taken **about the coordinate origin** — neither
+    array is mean-centered first. The Procrustes/Umeyama convention
+    centers both point sets on their centroids before fitting scale; the
+    two agree only when the poses are already centered, and diverge in
+    proportion to the centroid offset. That makes the origin form right
+    for rest poses (root at the origin) and wrong for world-frame
+    sequences with a translated root — pass ``centered=True`` for those.
+    Note ``centered=True`` is the *scale-only* Procrustes fit: no
+    rotation is estimated, so it is not the full Umeyama similarity
+    estimate, whose scale differs once a rotation is jointly fitted.
+
     Parameters
     ----------
     reference : ndarray
         The pose/sequence to match.
     target : ndarray
         The pose/sequence being scaled. Same shape as ``reference``.
+    centered : bool, keyword-only, optional
+        If True, subtract each array's centroid — the mean over every
+        axis except the last (i.e. over all points, and all frames for a
+        sequence) — before fitting. Default False (fit about the origin).
 
     Returns
     -------
     float
-        The optimal scale ``s`` (``nan`` if ``target`` is all-zero).
+        The optimal scale ``s`` (``nan`` if ``target`` is all-zero — or,
+        with ``centered=True``, constant, since a centered constant array
+        is all-zero).
 
     Notes
     -----
-    Source: Troje 2002 (pose normalization).
+    Source: Troje 2002 (pose normalization); Umeyama 1991 for the
+    centered convention.
     """
     reference = np.asarray(reference, dtype=np.float64)
     target = np.asarray(target, dtype=np.float64)
@@ -1571,6 +1663,10 @@ def relative_scale_factor(
         raise ValueError(
             f"reference and target must share shape, got {reference.shape} "
             f"and {target.shape}")
+    if centered:
+        point_axes = tuple(range(reference.ndim - 1))
+        reference = reference - reference.mean(axis=point_axes, keepdims=True)
+        target = target - target.mean(axis=point_axes, keepdims=True)
     denom = float(np.sum(target * target))
     if denom <= 1e-12:
         return float("nan")
@@ -1597,15 +1693,17 @@ def _floor_from_coords(
     foot_indices: list[int],
     up_idx: int,
     up_sign: float,
+    percentile: float = 2.0,
 ) -> float:
     """Floor height in raw world coordinates, from the coords in use.
 
     Pure array core shared by :func:`foot_contacts` (which estimates the
     floor from whatever coords it is running on) and the cached canonical
     :attr:`Bvh.floor_height` (see :func:`_compute_floor_height`).
+    ``percentile=0.0`` gives the true minimum (``floor="min"``).
     """
     heights_signed = coords[:, foot_indices, up_idx] * up_sign
-    return float(_estimate_floor(heights_signed) * up_sign)
+    return float(_estimate_floor(heights_signed, percentile) * up_sign)
 
 
 def _compute_floor_height(bvh: Bvh) -> float:
@@ -2097,12 +2195,42 @@ def joint_jerk(
 #  (``(K,)`` out). ``_validate_speed_profile`` rejects anything else up
 #  front — silently reducing a higher-rank array globally produced
 #  plausible-looking garbage.
+#
+#  WHAT ``speed`` MAY CONTAIN, and why it is not restricted to magnitudes.
+#  Two input kinds are valid, and both appear in the source literature:
+#
+#    * a speed profile ``‖v‖ >= 0`` — what ``Bvh.smoothness`` feeds, from
+#      ``np.linalg.norm`` of a joint velocity;
+#    * a *signed* scalar velocity ``ẋ`` — Hogan & Sternad define these
+#      measures on ``x(t)``, "any scalar coordinate", so its derivative
+#      carries a sign. The pinned Balasubramanian reference is built for
+#      it (``movement_peak = max(abs(movement))``), and one of the four
+#      golden fixture signals genuinely goes negative.
+#
+#  So sign is not an error, and rejecting it would break the formulation
+#  these kernels come from. What each kernel does with it is stated in
+#  its own docstring; the rule of thumb is that *normalizers* take the
+#  magnitude (``max|v|``, ``mean|v|``) while the *signal being
+#  differentiated or transformed* is used as given.
 
 def _validate_speed_profile(speed: npt.NDArray[np.float64]) -> None:
     if speed.ndim not in (1, 2):
         raise ValueError(
             f"speed must have shape (T,) — one profile — or (T, K) — K "
             f"profiles reduced per column; got shape {speed.shape}.")
+
+
+def _reduce_like(
+    speed: npt.NDArray[np.float64],
+    result: npt.NDArray[np.float64],
+    cast: Callable[[object], object] = float,
+) -> object:
+    """Shape a reduced result to match its input: scalar out for ``(T,)``.
+
+    The single implementation of the ``(T,) -> scalar`` /
+    ``(T, K) -> (K,)`` contract every kernel in this section shares.
+    """
+    return cast(result) if speed.ndim == 1 else result
 
 
 def _sparc_from_spectrum(
@@ -2152,10 +2280,13 @@ def sparc(
     Parameters
     ----------
     speed : ndarray, shape (T,) or (T, K)
-        Speed (magnitude) profile. A 2-D input is ``K`` independent
-        profiles in columns, reduced per column (the FFT is batched
-        along the time axis; each column's result is identical to the
-        1-D call on that column).
+        Speed profile, or a signed scalar velocity — the spectrum is
+        taken of the values as given, not their magnitude, so the two
+        are genuinely different inputs here (matching the reference
+        implementation). A 2-D input is ``K`` independent profiles in
+        columns, reduced per column (the FFT is batched along the time
+        axis; each column's result is identical to the 1-D call on that
+        column).
     fs : float
         Sampling rate in Hz.
     padlevel : int, optional
@@ -2195,54 +2326,157 @@ def sparc(
                      for k in range(speed.shape[1])])
 
 
+DLJ_NORMALIZERS = ("peak_speed", "mean_speed", "amplitude")
+
+
+def _dlj_scale(
+    speed: npt.NDArray[np.float64],
+    duration: float,
+    normalize: str,
+    amplitude: float | npt.NDArray[np.float64] | None,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """The DLJ normalization factor, and the extent it divides by.
+
+    The extent is returned alongside so the caller can apply the shared
+    ``extent == 0 -> nan`` guard on the quantity that actually degenerates.
+    """
+    if normalize not in DLJ_NORMALIZERS:
+        raise ValueError(f"Unknown normalize {normalize!r}; "
+                         f"choose from {list(DLJ_NORMALIZERS)}.")
+
+    if normalize == "amplitude":
+        if amplitude is None:
+            raise ValueError(
+                "normalize='amplitude' needs the movement extent A, which "
+                "cannot be recovered from a speed profile alone — pass "
+                "amplitude=<float or (K,) array>.")
+        extent = np.asarray(amplitude, dtype=np.float64)
+        valid_shapes = {()} if speed.ndim == 1 else {(), (speed.shape[1],)}
+        wanted = ("a scalar" if speed.ndim == 1
+                  else f"a scalar or shape ({speed.shape[1]},)")
+        if extent.shape not in valid_shapes:
+            raise ValueError(
+                f"amplitude must be {wanted} to match speed of shape "
+                f"{speed.shape}; got shape {extent.shape}.")
+        if np.any(extent < 0):
+            raise ValueError("amplitude is a movement extent and must be >= 0.")
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return duration ** 5 / extent ** 2, extent
+
+    # An ignored amplitude= is how a convention mismatch turns into an
+    # unnoticed wrong number, so reject it instead of dropping it silently.
+    if amplitude is not None:
+        raise ValueError(f"amplitude= applies only to normalize='amplitude'; "
+                         f"got normalize={normalize!r}.")
+    # magnitudes: the normalizer is a scale, and a signed velocity's mean
+    # would otherwise cancel toward zero on an out-and-back movement
+    extent = (np.abs(speed).max(axis=0) if normalize == "peak_speed"
+              else np.abs(speed).mean(axis=0))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return duration ** 3 / extent ** 2, extent
+
+
 def dimensionless_jerk(
     speed: npt.NDArray[np.float64],
     fs: float,
+    normalize: str = "peak_speed",
+    amplitude: float | npt.NDArray[np.float64] | None = None,
 ) -> float | npt.NDArray[np.float64]:
     """Dimensionless jerk (DLJ) smoothness of a speed profile.
 
-    ``-(duration³ / peak²) · ∫ (d²v/dt²)² dt`` — scale-invariant integrated
-    squared jerk. More negative is less smooth.
+    Integrated squared jerk made scale-invariant by dividing out movement
+    duration and size — ``-(duration³ / peak²) · ∫ (d²v/dt²)² dt`` at the
+    default. More negative is less smooth.
 
     Parameters
     ----------
     speed : ndarray, shape (T,) or (T, K)
-        Speed profile; a 2-D input is ``K`` independent profiles in
-        columns, reduced per column.
+        Speed profile, or a signed scalar velocity (Hogan & Sternad
+        define the measure on ``x(t)``, "any scalar coordinate", whose
+        derivative carries a sign). The signal is differentiated as
+        given; only the normalizer takes magnitudes. A 2-D input is
+        ``K`` independent profiles in columns, reduced per column.
     fs : float
         Sampling rate in Hz.
+    normalize : {"peak_speed", "mean_speed", "amplitude"}, optional
+        Which published normalizer to apply to the jerk integral
+        (default ``"peak_speed"``). All three are dimensionless and keep
+        the same negative-is-less-smooth sign; they differ in magnitude
+        only. The two speed-based ones take magnitudes (``max|v|``,
+        ``mean|v|``), so a signed velocity normalizes by its excursion
+        rather than by a mean that cancels on an out-and-back. See the
+        Notes for how to choose.
+    amplitude : float or ndarray, optional
+        The movement extent ``A`` — required by ``normalize="amplitude"``
+        and rejected by the other two. Scalar, or shape ``(K,)`` to match
+        a ``(T, K)`` speed input.
 
     Returns
     -------
     float or ndarray
         The dimensionless jerk (``≤ 0``) — a scalar for ``(T,)`` input,
-        a ``(K,)`` array for ``(T, K)``. ``nan`` for an all-zero speed
-        profile (zero peak — the normalization is undefined), matching
-        the degenerate-input convention of :func:`sparc` and
+        a ``(K,)`` array for ``(T, K)``. ``nan`` when the normalizing
+        extent is zero (an all-zero speed profile, or ``amplitude=0``),
+        matching the degenerate-input convention of :func:`sparc` and
         :func:`speed_metric`.
+
+    Raises
+    ------
+    ValueError
+        If ``normalize`` is unknown, if ``normalize="amplitude"`` is used
+        without ``amplitude=``, or if ``amplitude=`` is passed with one of
+        the speed-based normalizers.
 
     Notes
     -----
-    Source: Hogan & Sternad 2009; Balasubramanian et al. Validated against
-    the reference output.
+    Hogan & Sternad 2009 give the measure in three forms::
+
+        ∫(d²v/dt²)² dt · D⁵/A²   ≡   · D³/v_mean²   |   variant: · D³/v_peak²
+
+    The first two are the same measure — ``A = v_mean · D`` — so
+    ``"mean_speed"`` is exactly ``"amplitude"`` evaluated at the arc
+    length the speed profile itself implies, ``A = ∫|v| dt``. Passing
+    ``amplitude=`` is only a *different* measure when the extent comes
+    from somewhere else, most usefully the endpoint displacement
+    ``‖p_T − p_0‖``, which is smaller than the arc length for any path
+    that is not straight. (For the arc length of a trajectory, prefer
+    ``"mean_speed"`` over ``amplitude=geometry.path_length(traj)``: the
+    chord sum uses a different quadrature than this function's integral
+    and will not agree exactly.)
+
+    ``"peak_speed"`` — the default, and what the widely used reference
+    implementation computes — is genuinely distinct from the other two.
+    It differs by a factor of ``(v_mean / v_peak)²``, which depends on the
+    *shape* of the speed profile rather than being constant, so a
+    bell-shaped reach and a plateaued sustained movement of equal extent
+    and duration rank differently under it. That factor is
+    :func:`speed_metric`, so ``dimensionless_jerk(v, fs, "mean_speed")``
+    equals ``dimensionless_jerk(v, fs) / speed_metric(v)**2``.
+
+    Reproducing a published DLJ figure therefore means matching its
+    convention; the default is unchanged from earlier pybvh releases.
+
+    Source: Hogan & Sternad 2009; Balasubramanian et al. (the
+    ``"peak_speed"`` form). Validated against the reference output.
     """
     speed = np.asarray(speed, dtype=np.float64)
     _validate_speed_profile(speed)
     dt = 1.0 / fs
     duration = speed.shape[0] * dt
-    peak = np.abs(speed).max(axis=0)
+    scale, extent = _dlj_scale(speed, duration, normalize, amplitude)
     jerk = np.diff(speed, 2, axis=0) / dt ** 2
-    with np.errstate(divide="ignore", invalid="ignore"):
-        scale = duration ** 3 / peak ** 2
+    with np.errstate(invalid="ignore"):
         dlj = -scale * np.sum(jerk ** 2, axis=0) * dt
-    # zero speed: peak normalization is undefined
-    dlj = np.where(peak == 0, np.nan, dlj)
-    return float(dlj) if speed.ndim == 1 else dlj
+    # zero extent: the normalization is undefined
+    dlj = np.where(extent == 0, np.nan, dlj)
+    return _reduce_like(speed, dlj)
 
 
 def log_dimensionless_jerk(
     speed: npt.NDArray[np.float64],
     fs: float,
+    normalize: str = "peak_speed",
+    amplitude: float | npt.NDArray[np.float64] | None = None,
 ) -> float | npt.NDArray[np.float64]:
     """Log dimensionless jerk (LDLJ) — ``-ln|DLJ|``.
 
@@ -2256,6 +2490,13 @@ def log_dimensionless_jerk(
         columns, reduced per column.
     fs : float
         Sampling rate in Hz.
+    normalize : {"peak_speed", "mean_speed", "amplitude"}, optional
+        Normalizer forwarded to :func:`dimensionless_jerk` (default
+        ``"peak_speed"``). Under the log transform the choice becomes an
+        additive offset of ``-ln`` of the normalizer ratio.
+    amplitude : float or ndarray, optional
+        Movement extent forwarded to :func:`dimensionless_jerk`; required
+        by ``normalize="amplitude"`` and rejected by the other two.
 
     Returns
     -------
@@ -2268,16 +2509,18 @@ def log_dimensionless_jerk(
     -----
     Source: Balasubramanian et al. Validated against the reference output.
     """
-    dlj = dimensionless_jerk(speed, fs)
+    speed = np.asarray(speed, dtype=np.float64)
+    dlj = dimensionless_jerk(speed, fs, normalize=normalize, amplitude=amplitude)
     with np.errstate(divide="ignore"):
         ldlj = np.where(dlj == 0,
                         np.inf,  # zero jerk -> perfectly smooth
                         -np.log(np.abs(dlj)))
-    return float(ldlj) if np.ndim(speed) == 1 else ldlj
+    return _reduce_like(speed, ldlj)
 
 
 def number_of_peaks(
     speed: npt.NDArray[np.float64],
+    min_height: float | None = None,
 ) -> int | npt.NDArray[np.int_]:
     """Number of local maxima in a speed profile.
 
@@ -2289,28 +2532,67 @@ def number_of_peaks(
     speed : ndarray, shape (T,) or (T, K)
         Speed profile; a 2-D input is ``K`` independent profiles in
         columns, counted per column.
+    min_height : float or None, optional
+        Minimum height a maximum must reach to be counted, in the same
+        units as ``speed``. ``None`` (default) counts every strict local
+        maximum, however small. See Notes — the default makes this
+        metric sensitive to noise, and the literature says so.
 
     Returns
     -------
     int or ndarray
-        Count of strict interior local maxima — a scalar for ``(T,)``
-        input, a ``(K,)`` array for ``(T, K)``.
+        Count of qualifying strict interior local maxima — a scalar for
+        ``(T,)`` input, a ``(K,)`` array for ``(T, K)``.
 
     Notes
     -----
-    Source: Balasubramanian et al. (number-of-peaks metric).
+    **Strictness.** A sample counts when it is strictly greater than
+    *both* neighbours. The alternative, allowing ties, would count every
+    sample of a flat-topped peak separately, which is worse; the cost of
+    strictness is that an exactly flat maximum — two or more equal
+    adjacent samples — counts as **zero** peaks rather than one. Exact
+    ties are rare in float data but reachable after quantization or
+    box-filter smoothing.
+
+    **Sign.** The comparison is on the values as given, not their
+    magnitude, so for a signed velocity this counts maxima of the signed
+    signal — velocity peaks in one direction — and a trough at ``-5``
+    beside neighbours at ``-6`` is a maximum. That is the right reading
+    for a scalar velocity and a no-op for a speed profile; use
+    ``min_height`` if you want only the positive-going peaks.
+
+    **Height threshold.** With no threshold, every micro-fluctuation is a
+    "sub-movement", so on noisy data the count tracks the noise rather
+    than the movement — Hogan & Sternad 2009 warn about exactly this
+    (peak counting is "prone to spurious peaks", and separately blind to
+    arrests). The default is unthresholded because that is what the
+    metric means in its source literature, not because it is the better
+    choice for real data; set ``min_height`` when the profile is noisy.
+    It is absolute rather than a fraction of the peak so it composes with
+    whatever normalization you have already applied — for a relative
+    threshold, pass ``min_height=0.05 * speed.max()``.
+
+    Source: Balasubramanian et al. (number-of-peaks metric); Hogan &
+    Sternad 2009 (its noise sensitivity). Note the pinned SPARC reference
+    implementation ships no peak-counting function, so unlike
+    :func:`sparc` and :func:`dimensionless_jerk` this metric has no
+    golden-reference test — only the properties asserted in
+    ``tests/test_analysis_primitives.py``.
     """
     speed = np.asarray(speed, dtype=np.float64)
     _validate_speed_profile(speed)
     interior = speed[1:-1]
-    peaks = np.sum((interior > speed[:-2]) & (interior > speed[2:]), axis=0)
-    return int(peaks) if speed.ndim == 1 else peaks
+    is_peak = (interior > speed[:-2]) & (interior > speed[2:])
+    if min_height is not None:
+        is_peak &= interior >= min_height
+    peaks = np.sum(is_peak, axis=0)
+    return _reduce_like(speed, peaks, cast=int)
 
 
 def speed_metric(
     speed: npt.NDArray[np.float64],
 ) -> float | npt.NDArray[np.float64]:
-    """Mean-to-peak speed ratio — ``mean(v) / max(v)``, in ``[0, 1]``.
+    """Mean-to-peak speed ratio — ``mean|v| / max|v|``, in ``[0, 1]``.
 
     A bell-shaped (smooth) speed profile has a low ratio; a flat plateau
     approaches 1.
@@ -2318,8 +2600,8 @@ def speed_metric(
     Parameters
     ----------
     speed : ndarray, shape (T,) or (T, K)
-        Speed profile; a 2-D input is ``K`` independent profiles in
-        columns, reduced per column.
+        Speed profile, or a signed scalar velocity; a 2-D input is ``K``
+        independent profiles in columns, reduced per column.
 
     Returns
     -------
@@ -2329,14 +2611,27 @@ def speed_metric(
 
     Notes
     -----
+    Both reductions take the magnitude. For a non-negative speed profile
+    that is simply ``mean(v) / max(v)``; for a signed velocity it is what
+    keeps the documented ``[0, 1]`` range true, since a raw mean cancels
+    toward zero on an out-and-back movement and would yield a ratio at or
+    below zero against a positive peak.
+
+    The same magnitude convention is used by
+    :func:`dimensionless_jerk`'s ``"mean_speed"`` normalizer, which makes
+    this the exact conversion factor between its two distinct
+    normalizers: ``dimensionless_jerk(v, fs, "mean_speed") ==
+    dimensionless_jerk(v, fs) / speed_metric(v)**2``.
+
     Source: Balasubramanian et al. (speed-metric); Flash & Hogan.
     """
     speed = np.asarray(speed, dtype=np.float64)
     _validate_speed_profile(speed)
-    peak = np.abs(speed).max(axis=0)
+    magnitude = np.abs(speed)
+    peak = magnitude.max(axis=0)
     with np.errstate(divide="ignore", invalid="ignore"):
-        ratio = np.where(peak > 0, speed.mean(axis=0) / peak, np.nan)
-    return float(ratio) if speed.ndim == 1 else ratio
+        ratio = np.where(peak > 0, magnitude.mean(axis=0) / peak, np.nan)
+    return _reduce_like(speed, ratio)
 
 
 def integrated_squared_jerk(
@@ -2353,7 +2648,7 @@ def integrated_squared_jerk(
     dt = 1.0 / fs
     jerk = np.diff(speed, 2, axis=0) / dt ** 2
     isj = np.sum(jerk ** 2, axis=0) * dt
-    return float(isj) if speed.ndim == 1 else isj
+    return _reduce_like(speed, isj)
 
 
 def mean_squared_jerk(
@@ -2370,7 +2665,7 @@ def mean_squared_jerk(
     dt = 1.0 / fs
     jerk = np.diff(speed, 2, axis=0) / dt ** 2
     msj = np.mean(jerk ** 2, axis=0)
-    return float(msj) if speed.ndim == 1 else msj
+    return _reduce_like(speed, msj)
 
 
 def rms_squared_jerk(
@@ -2382,8 +2677,9 @@ def rms_squared_jerk(
     Accepts ``(T,)`` (scalar out) or ``(T, K)`` (``(K,)`` out, reduced
     per column).
     """
+    speed = np.asarray(speed, dtype=np.float64)
     rms = np.sqrt(mean_squared_jerk(speed, fs))
-    return float(rms) if np.ndim(speed) == 1 else rms
+    return _reduce_like(speed, rms)
 
 
 _SMOOTHNESS_FS_METRICS: dict[str, Callable[..., float]] = {
@@ -2404,7 +2700,7 @@ def smoothness(
     speed: npt.NDArray[np.float64],
     fs: float,
     metric: str = "sparc",
-    **kwargs: float,
+    **kwargs: Any,
 ) -> float | npt.NDArray[np.float64]:
     """Dispatch to a named smoothness metric on a speed profile.
 
@@ -2421,8 +2717,11 @@ def smoothness(
         ``"mean_squared_jerk"``, ``"rms_squared_jerk"``,
         ``"number_of_peaks"``, ``"speed_metric"``.
     **kwargs
-        Metric-specific options (e.g. ``padlevel`` / ``fc`` / ``amp_th``
-        for ``"sparc"``).
+        Metric-specific options: ``padlevel`` / ``fc`` / ``amp_th`` for
+        ``"sparc"``; ``normalize`` / ``amplitude`` for
+        ``"dimensionless_jerk"`` and ``"log_dimensionless_jerk"``;
+        ``min_height`` for ``"number_of_peaks"``. The remaining metrics
+        take none. See each kernel's own docstring for defaults.
 
     Returns
     -------
@@ -2482,6 +2781,17 @@ def velocity_reductions(
 
     Notes
     -----
+    All fields reduce the **values as given** — none takes a magnitude
+    first. For a genuine (non-negative) speed profile that is the only
+    reading; for a signed scalar velocity it means ``peak`` is the
+    signed maximum (not the excursion ``max|v|``) and ``peak_to_mean``
+    is unbounded (a raw mean cancels toward zero on an out-and-back
+    movement, going ``nan`` at exactly zero). This differs from
+    :func:`speed_metric`, whose documented ``[0, 1]`` range forces the
+    magnitude convention ``mean|v| / max|v|`` — so for signed input
+    ``peak_to_mean`` is *not* ``1 / speed_metric``. Take ``np.abs``
+    first if you want magnitude reductions of a signed velocity.
+
     ``peak_acceleration`` and ``peak_deceleration`` are the positive and
     negative extrema (clamped at 0) of the per-frame speed-derivative
     series ``d‖v‖/dt``: when ``speed`` is the norm of
@@ -2519,7 +2829,13 @@ def zero_crossings(
     """Count sign changes of a signal along an axis.
 
     Strict crossings only — consecutive samples with a product ``< 0``;
-    exact zeros are not counted as crossings.
+    exact zeros are not counted as crossings. The consequence: a sign
+    change that passes *through* an exact zero sample (``+1, 0, -1``)
+    counts **zero** crossings, not one. The alternative convention —
+    sign-change counting, ``np.diff(np.sign(x)) != 0`` — counts it
+    (twice, unless zeros are carried forward). Exact zeros are rare in
+    float data but reachable after quantization, rectification, or
+    box-filter smoothing.
 
     Parameters
     ----------
@@ -2594,10 +2910,10 @@ def active_duration(
         Active duration in seconds — a scalar for ``(T,)`` input, a
         ``(K,)`` array for ``(T, K)``.
     """
-    active = active_segments(speed, threshold)
-    _validate_speed_profile(active)
-    duration = np.count_nonzero(active, axis=0) / fs
-    return float(duration) if active.ndim == 1 else duration
+    speed = np.asarray(speed, dtype=np.float64)
+    _validate_speed_profile(speed)  # the input, not the derived boolean mask
+    duration = np.count_nonzero(active_segments(speed, threshold), axis=0) / fs
+    return _reduce_like(speed, duration)
 
 
 # ----------------------------------------------------------------
@@ -2757,10 +3073,18 @@ def cadence(
     Returns
     -------
     float
-        Steps per second (0.0 if the clip has no duration).
+        Steps per second (``nan`` if the clip has no duration — the
+        rate is undefined, not zero).
 
     Notes
     -----
+    **Unit.** Steps per *second*, consistent with every other rate in
+    pybvh (Hz, units/s). The clinical gait literature — including the
+    sources below — reports cadence in steps per **minute**; multiply
+    by 60 to compare against published figures. Onsets are pooled over
+    *all* contact columns, so passing more than two contact-bearing
+    joints per foot inflates the count proportionally.
+
     Source: Crane & Gross, Gross et al. 2012, Karg et al. 2010.
     """
     return gait_parameters(bvh, foot_joints=foot_joints, contacts=contacts).cadence
@@ -2822,7 +3146,8 @@ def walking_pace(bvh: Bvh) -> float:
     Returns
     -------
     float
-        Horizontal units per second (0.0 if the clip has no duration).
+        Horizontal units per second (``nan`` if the clip has no
+        duration — the rate is undefined, not zero).
 
     Notes
     -----
@@ -2830,7 +3155,7 @@ def walking_pace(bvh: Bvh) -> float:
     """
     duration = (bvh.frame_count - 1) * bvh.frame_time
     if duration <= 0:
-        return 0.0
+        return float("nan")
     return _root_horizontal_distance(bvh) / duration
 
 
@@ -2854,8 +3179,10 @@ def _compute_gait_parameters(contacts, foot_h, foot_names, frame_time,
     events = _foot_contact_events(contacts)
 
     total_onsets = sum(len(onsets) for onsets, _ in events)
-    cadence = total_onsets / duration if duration > 0 else 0.0
-    pace = root_distance / duration if duration > 0 else 0.0
+    # nan, not 0.0: a zero-duration clip leaves the rates *undefined* —
+    # "not stepping" would be a measurement — matching the other fields.
+    cadence = total_onsets / duration if duration > 0 else float("nan")
+    pace = root_distance / duration if duration > 0 else float("nan")
 
     # stride length: per foot, distance between consecutive landing positions
     per_foot_strides: dict[str, npt.NDArray[np.float64]] = {}
@@ -2939,13 +3266,45 @@ def gait_parameters(
     ``stance_fraction`` (mean fraction of a cycle a foot is planted),
     ``double_support_fraction`` (fraction of frames with ≥2 feet planted), and
     ``asymmetry`` (left/right stride difference). Underdetermined fields are
-    ``nan`` (e.g. ``asymmetry`` without one identifiable left and right foot,
-    ``stride_length`` if no foot completes two contacts, ``step_length`` if
-    there is no net travel).
+    ``nan`` — uniformly, across all eight (e.g. ``asymmetry`` without one
+    identifiable left and right foot, ``stride_length`` if no foot completes
+    two contacts, ``step_length`` if there is no net travel, ``cadence`` and
+    ``walking_pace`` on a zero-duration clip).
 
     These are *kinematic* — computed from foot positions and contact timing
     alone. Dynamic gait analysis (joint torques, ground-reaction force,
     mechanical work) needs a physical model and is out of scope.
+
+    Conventions worth naming, since published gait figures differ on all
+    three:
+
+    - ``stride_cv`` pools each foot's deviations from that **same foot's**
+      mean before taking the standard deviation, then divides by the
+      overall mean stride. The plainer alternative — the CV of the pooled
+      stride sample — folds left/right asymmetry into "variability"; here
+      the two are separate fields, and they diverge exactly in proportion
+      to ``asymmetry``.
+    - ``asymmetry`` is ``|mean_L − mean_R| / (½(mean_L + mean_R))``:
+      **unsigned and unitless**. Robinson's Symmetry Index, standard in
+      the gait literature, is the same ratio kept **signed** and ×100 —
+      multiply by 100 for SI magnitude; the direction of the asymmetry is
+      not recoverable from this field.
+    - ``step_length`` projects onto a **single whole-clip progression
+      chord** (the root's first→last horizontal displacement), not a
+      per-step heading. On a curved walk this systematically shortens the
+      value, and a closed loop has no net travel and returns ``nan``.
+      ``stride_length`` by contrast is the full **Euclidean** distance
+      between same-foot landings, so it *includes* lateral step width
+      while ``step_length`` excludes it — the two are not the 2:1 pair a
+      clinical report would use on curved or wide-stance gait.
+
+    Two fields pick one convention among published ones. ``stride_cv``
+    is a **within-foot** CV: each foot's deviations from its *own* mean
+    stride are pooled, and their std is divided by the overall mean —
+    so a steady but asymmetric gait reads as low-variability, with the
+    L/R difference reported separately in ``asymmetry``. The plain
+    pooled CV (``std / mean`` over all strides regardless of foot), the
+    other common definition, folds as
 
     Parameters
     ----------

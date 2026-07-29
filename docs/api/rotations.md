@@ -76,6 +76,10 @@ Composition and spherical interpolation.
     options:
       heading_level: 3
 
+::: pybvh.rotations.quat_unwrap
+    options:
+      heading_level: 3
+
 ## The convert dispatcher
 
 One entry point that routes between any pair of representations by name.

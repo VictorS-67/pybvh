@@ -184,17 +184,42 @@ def _smoothness_signals():
     return np.vstack([s0, s1, s2, s3]).astype(float), fs
 
 
+# SPARC parameter sets to pin. The first is the default pybvh ships; the
+# rest exist because `padlevel` / `fc` / `amp_th` are the whole point of
+# that function and had no reference coverage at all — only the default
+# path was ever checked against the reference, which is the same blind
+# spot that hid the dimensionless-jerk normalizer divergence.
+SPARC_PARAM_SETS = [
+    {"padlevel": 4, "fc": 10.0, "amp_th": 0.05},   # pybvh's defaults
+    {"padlevel": 1, "fc": 10.0, "amp_th": 0.05},   # minimal zero-padding
+    {"padlevel": 4, "fc": 2.0, "amp_th": 0.05},    # band cut below the default's
+    {"padlevel": 4, "fc": 20.0, "amp_th": 0.01},   # wider band, lower threshold
+]
+
+
 def gen_smoothness() -> None:
     ref, url = _load_smoothness_reference()
     sig, fs = _smoothness_signals()
-    sparc = np.array([ref.sparc(s, fs)[0] for s in sig])      # [0] = scalar SAL
     dlj = np.array([ref.dimensionless_jerk(s, fs) for s in sig])
     ldlj = np.array([ref.log_dimensionless_jerk(s, fs) for s in sig])
+
+    arrays = {"signals": sig, "fs": np.array(fs), "dlj": dlj, "ldlj": ldlj}
+    for i, params in enumerate(SPARC_PARAM_SETS):
+        # [0] = scalar SAL
+        arrays[f"sparc{i}"] = np.array(
+            [ref.sparc(s, fs, **params)[0] for s in sig])
+    # `sparc` (no index) stays the default-parameter row under its original
+    # name so the committed numbers keep their identity across this change
+    arrays["sparc"] = arrays["sparc0"]
+
     _save("smoothness",
           {"ref": url, "license": "ISC (siva82kb/SPARC)",
-           "sparc_params": {"padlevel": 4, "fc": 10.0, "amp_th": 0.05},
-           "input": "1-D speed profile, fs Hz", "signals": "deterministic"},
-          signals=sig, fs=np.array(fs), sparc=sparc, dlj=dlj, ldlj=ldlj)
+           "sparc_params": SPARC_PARAM_SETS[0],
+           "sparc_param_sets": SPARC_PARAM_SETS,
+           "input": "1-D speed profile, fs Hz", "signals": "deterministic",
+           "note": "signal 3 goes negative on purpose — these measures are "
+                   "defined on a signed scalar velocity, not only a magnitude"},
+          **arrays)
 
 
 # ----------------------------------------------------------------------------

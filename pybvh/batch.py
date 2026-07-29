@@ -1,6 +1,7 @@
 """Batch file loading and numpy export utilities for BVH datasets."""
 from __future__ import annotations
 
+import re
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,10 +53,21 @@ class HarmonizeReport:
     applied_stages: list[dict[str, str]] = field(default_factory=list)
 
 
+def _natural_sort_key(path: Path) -> tuple:
+    """Sort key comparing embedded digit runs numerically, case-insensitively.
+
+    ``(is_digit, value)`` pairs keep number/text comparisons type-safe at
+    run boundaries (a digit run never compares against a text run).
+    """
+    return tuple(
+        (True, int(token)) if token.isdigit() else (False, token.lower())
+        for token in re.split(r"(\d+)", str(path)))
+
+
 def read_bvh_directory(
     dirpath: str | Path,
     pattern: str = "*.bvh",
-    sort: bool = True,
+    sort: bool | str = True,
     parallel: bool = False,
     max_workers: int | None = None,
     world_up: str = "auto",
@@ -70,9 +82,17 @@ def read_bvh_directory(
         Directory to search for BVH files.
     pattern : str, optional
         Glob pattern to filter files (default ``"*.bvh"``).
-    sort : bool, optional
-        If True (default), sort files alphabetically for
-        deterministic ordering.
+    sort : bool or {"lexicographic", "natural"}, optional
+        File ordering. ``True`` (default) and ``"lexicographic"`` sort
+        by full path string — the same order Python's ``sorted()`` over
+        paths produces, so a list built elsewhere with ``sorted()``
+        (labels, split manifests) stays index-aligned; note it puts
+        ``file10.bvh`` before ``file2.bvh``. ``"natural"`` compares
+        embedded digit runs numerically (``file2`` before ``file10``,
+        case-insensitive) — opt-in, because silently diverging from the
+        ecosystem's lexicographic default would misalign such parallel
+        lists. ``False`` keeps the filesystem's glob order
+        (non-deterministic across platforms).
     parallel : bool, optional
         If True, load files in parallel using threads. Parsing is
         CPU-bound and GIL-limited, so this mainly helps on slow storage
@@ -106,12 +126,18 @@ def read_bvh_directory(
     FileNotFoundError
         If ``dirpath`` does not exist.
     """
+    if isinstance(sort, str) and sort not in ("lexicographic", "natural"):
+        raise ValueError(
+            f"sort must be a bool, 'lexicographic' or 'natural', got {sort!r}")
+
     dirpath = Path(dirpath)
     if not dirpath.is_dir():
         raise FileNotFoundError(f"Directory not found: {dirpath}")
 
     files = list(dirpath.glob(pattern))
-    if sort:
+    if sort == "natural":
+        files.sort(key=_natural_sort_key)
+    elif sort:
         files.sort()
 
     if not files:

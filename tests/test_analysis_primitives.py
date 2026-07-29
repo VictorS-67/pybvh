@@ -5,10 +5,14 @@ kernels (SPARC/DLJ/LDLJ exactness is in test_smoothness_golden.py), signal
 reductions, kinetic energy, gait, range of motion, and the covariance
 descriptors. Every assertion has a hand-derivable oracle.
 """
+import inspect
+import re
+
 import numpy as np
 import pytest
 
 from pybvh import analysis
+from pybvh.bvh import Bvh
 from synthetic_bvh import (make_clip_bvh, make_pos_y_up_bvh,
                            make_neg_y_up_bvh, make_pos_y_up_rotating_bvh)
 
@@ -138,6 +142,67 @@ def test_speed_metric_flat_profile_is_one():
     np.testing.assert_allclose(analysis.speed_metric(np.ones(20)), 1.0)
 
 
+def test_speed_metric_stays_in_range_for_a_signed_velocity():
+    """A signed velocity must not produce a ratio outside the documented [0, 1]."""
+    signed = np.concatenate([np.ones(25), -np.ones(25)])  # raw mean is 0
+    np.testing.assert_allclose(analysis.speed_metric(signed), 1.0)
+    # unchanged for a genuine (non-negative) speed profile
+    rng = np.random.default_rng(20)
+    s = np.abs(rng.normal(size=64)) + 0.1
+    np.testing.assert_allclose(analysis.speed_metric(s), s.mean() / s.max(),
+                               rtol=1e-12)
+
+
+def test_speed_metric_is_the_exact_dlj_normalizer_ratio_for_signed_input():
+    """One magnitude convention across both, so the identity survives sign."""
+    signed = np.concatenate([np.ones(25), -np.ones(25)])
+    fs = 100.0
+    np.testing.assert_allclose(
+        analysis.dimensionless_jerk(signed, fs, normalize="mean_speed"),
+        analysis.dimensionless_jerk(signed, fs) / analysis.speed_metric(signed) ** 2,
+        rtol=1e-12)
+
+
+def test_signed_scalar_velocity_is_a_supported_input():
+    """Hogan & Sternad define these on x(t), so ẋ is signed by construction.
+
+    The pinned golden fixture's fourth signal genuinely goes negative, so
+    rejecting sign here would invalidate the reference test.
+    """
+    fs = 100.0
+    t = np.linspace(0.0, 1.0, 200)
+    minjerk = (t ** 2) * (1.0 - t) ** 2
+    signed = minjerk / minjerk.max() + 0.10 * np.sin(8 * np.pi * t)
+    assert (signed < 0).any()
+    for metric in _ALL_SMOOTHNESS_METRICS:
+        out = analysis.smoothness(signed, fs, metric=metric)
+        assert np.isfinite(out), metric
+
+
+def test_number_of_peaks_min_height_filters_small_maxima():
+    # three maxima at heights 1.0, 0.2, 1.0
+    profile = np.array([0.0, 1.0, 0.0, 0.2, 0.0, 1.0, 0.0])
+    assert analysis.number_of_peaks(profile) == 3
+    assert analysis.number_of_peaks(profile, min_height=0.5) == 2
+    assert analysis.number_of_peaks(profile, min_height=2.0) == 0
+    # default is exactly the unthresholded count, including for signed input
+    signed = np.array([-3.0, -1.0, -3.0])
+    assert analysis.number_of_peaks(signed) == 1
+    assert analysis.number_of_peaks(signed, min_height=0.0) == 0
+
+
+def test_number_of_peaks_flat_maximum_counts_zero():
+    """Documented consequence of strict comparison — a tie is not a peak."""
+    assert analysis.number_of_peaks([0.0, 1.0, 1.0, 0.0]) == 0
+    assert analysis.number_of_peaks([0.0, 1.0, 0.9, 1.0, 0.0]) == 2
+
+
+def test_number_of_peaks_min_height_batches_per_column():
+    speeds = np.array([[0.0, 0.0], [1.0, 0.2], [0.0, 0.0]])
+    np.testing.assert_array_equal(
+        analysis.number_of_peaks(speeds, min_height=0.5), [1, 0])
+
+
 def test_smoothness_degenerate_inputs_are_graceful():
     # a perfectly still joint (zero speed) -> degenerate spectrum -> nan, no crash
     assert np.isnan(analysis.sparc(np.zeros(64), 100.0))
@@ -145,6 +210,120 @@ def test_smoothness_degenerate_inputs_are_graceful():
     assert np.isnan(analysis.dimensionless_jerk(np.zeros(50), 100.0))
     # constant speed -> zero jerk -> perfectly smooth -> +inf (no leaked warning)
     assert analysis.log_dimensionless_jerk(np.full(50, 2.0), 100.0) == np.inf
+
+
+def test_dlj_mean_speed_variant_is_peak_variant_over_speed_metric_squared():
+    # the two genuinely distinct normalizers differ by exactly
+    # (v_mean / v_peak)**2, which is what speed_metric returns
+    rng = np.random.default_rng(11)
+    s = np.abs(rng.normal(size=64)) + 0.1
+    fs = 100.0
+    np.testing.assert_allclose(
+        analysis.dimensionless_jerk(s, fs, normalize="mean_speed"),
+        analysis.dimensionless_jerk(s, fs) / analysis.speed_metric(s) ** 2,
+        rtol=1e-12)
+
+
+def test_dlj_mean_speed_equals_amplitude_at_the_implied_arc_length():
+    # "mean_speed" IS "amplitude" evaluated at A = ∫|v| dt, so passing that
+    # arc length explicitly must reproduce it to float precision
+    rng = np.random.default_rng(12)
+    s = np.abs(rng.normal(size=64)) + 0.1
+    fs = 100.0
+    dt = 1.0 / fs
+    arc_length = s.sum() * dt
+    np.testing.assert_allclose(
+        analysis.dimensionless_jerk(s, fs, normalize="amplitude",
+                                    amplitude=arc_length),
+        analysis.dimensionless_jerk(s, fs, normalize="mean_speed"),
+        rtol=1e-12)
+
+
+def test_dlj_default_normalizer_is_unchanged_and_variants_share_the_sign():
+    rng = np.random.default_rng(13)
+    s = np.abs(rng.normal(size=64)) + 0.1
+    fs = 100.0
+    duration = s.shape[0] / fs
+    peak_form = -(duration ** 3 / s.max() ** 2) * analysis.integrated_squared_jerk(s, fs)
+    np.testing.assert_allclose(analysis.dimensionless_jerk(s, fs), peak_form,
+                               rtol=1e-12)
+    for normalize, amplitude in (("peak_speed", None), ("mean_speed", None),
+                                 ("amplitude", 2.5)):
+        assert analysis.dimensionless_jerk(s, fs, normalize=normalize,
+                                           amplitude=amplitude) < 0
+
+
+def test_dlj_amplitude_batches_per_column():
+    rng = np.random.default_rng(14)
+    speeds = np.abs(rng.normal(size=(64, 3))) + 0.1
+    fs = 100.0
+    extents = np.array([1.0, 2.0, 4.0])
+    batched = analysis.dimensionless_jerk(speeds, fs, normalize="amplitude",
+                                          amplitude=extents)
+    looped = np.array([
+        analysis.dimensionless_jerk(speeds[:, k], fs, normalize="amplitude",
+                                    amplitude=extents[k])
+        for k in range(speeds.shape[1])])
+    assert batched.shape == (3,)
+    np.testing.assert_allclose(batched, looped, rtol=1e-12)
+
+
+def test_dlj_rejects_mismatched_normalize_and_amplitude():
+    s = np.abs(np.random.default_rng(15).normal(size=32)) + 0.1
+    fs = 100.0
+    with pytest.raises(ValueError, match="Unknown normalize"):
+        analysis.dimensionless_jerk(s, fs, normalize="path_length")
+    with pytest.raises(ValueError, match="needs the movement extent"):
+        analysis.dimensionless_jerk(s, fs, normalize="amplitude")
+    # a silently-ignored amplitude= is exactly how a convention mismatch
+    # becomes an unnoticed wrong number
+    with pytest.raises(ValueError, match="applies only to"):
+        analysis.dimensionless_jerk(s, fs, normalize="peak_speed", amplitude=1.0)
+    with pytest.raises(ValueError, match="applies only to"):
+        analysis.log_dimensionless_jerk(s, fs, normalize="mean_speed", amplitude=1.0)
+    with pytest.raises(ValueError, match="must be >= 0"):
+        analysis.dimensionless_jerk(s, fs, normalize="amplitude", amplitude=-1.0)
+    with pytest.raises(ValueError, match="must be a scalar"):
+        analysis.dimensionless_jerk(s, fs, normalize="amplitude",
+                                    amplitude=np.ones(3))
+
+
+def test_dlj_variants_degenerate_only_on_a_genuinely_zero_extent():
+    fs = 100.0
+    dt = 1.0 / fs
+    # all three normalizers go nan on the same input the peak form always
+    # has: a profile with no movement in it
+    assert np.isnan(analysis.dimensionless_jerk(np.zeros(50), fs))
+    assert np.isnan(analysis.dimensionless_jerk(np.zeros(50), fs,
+                                                normalize="mean_speed"))
+    assert np.isnan(analysis.dimensionless_jerk(np.ones(50), fs,
+                                                normalize="amplitude", amplitude=0.0))
+    # the mean normalizer takes |v|, so a sign-flipping profile — whose raw
+    # mean is 0 but which covers real distance — stays well defined, and
+    # still matches the arc length it implies
+    signed = np.concatenate([np.ones(25), -np.ones(25)])
+    assert signed.mean() == 0.0
+    dlj_mean = analysis.dimensionless_jerk(signed, fs, normalize="mean_speed")
+    assert np.isfinite(dlj_mean)
+    np.testing.assert_allclose(
+        dlj_mean,
+        analysis.dimensionless_jerk(signed, fs, normalize="amplitude",
+                                    amplitude=np.abs(signed).sum() * dt),
+        rtol=1e-12)
+
+
+def test_dlj_normalize_reaches_the_kernel_through_both_wrappers():
+    rng = np.random.default_rng(16)
+    s = np.abs(rng.normal(size=64)) + 0.1
+    fs = 100.0
+    np.testing.assert_allclose(
+        analysis.smoothness(s, fs, metric="dimensionless_jerk",
+                            normalize="mean_speed"),
+        analysis.dimensionless_jerk(s, fs, normalize="mean_speed"), rtol=1e-12)
+    np.testing.assert_allclose(
+        analysis.log_dimensionless_jerk(s, fs, normalize="mean_speed"),
+        -np.log(np.abs(analysis.dimensionless_jerk(s, fs, normalize="mean_speed"))),
+        rtol=1e-12)
 
 
 def test_smoothness_dispatcher_matches_kernels_and_rejects_unknown():
@@ -164,11 +343,63 @@ def test_smoothness_dispatcher_matches_kernels_and_rejects_unknown():
 #  Trailing-axis (batched) reduction kernels
 # ----------------------------------------------------------------
 
-_ALL_SMOOTHNESS_METRICS = [
-    "sparc", "dimensionless_jerk", "log_dimensionless_jerk",
-    "integrated_squared_jerk", "mean_squared_jerk", "rms_squared_jerk",
-    "number_of_peaks", "speed_metric",
-]
+_ALL_SMOOTHNESS_METRICS = sorted(
+    {**analysis._SMOOTHNESS_FS_METRICS, **analysis._SMOOTHNESS_PLAIN_METRICS})
+
+
+def _metrics_named_in(docstring):
+    """The metric names a `... one of ``"a"``, ``"b"``.` sentence lists."""
+    lowered = docstring.lower()
+    start = lowered.index("one of")
+    sentence = docstring[start:docstring.index(".", start)]
+    return set(re.findall(r'``"([a-z_0-9]+)"``', sentence))
+
+
+@pytest.mark.parametrize("documented", [
+    pytest.param(analysis.smoothness.__doc__, id="analysis.smoothness"),
+    pytest.param(Bvh.smoothness.__doc__, id="Bvh.smoothness"),
+])
+def test_smoothness_docstrings_list_exactly_the_registry(documented):
+    """The metric names live in four places; this keeps three in step with one.
+
+    Same shape as tests/test_docs_api_coverage.py: two-way, so a metric
+    added without a docs update fails, and so does a stale name left
+    behind after a removal.
+    """
+    assert _metrics_named_in(documented) == set(_ALL_SMOOTHNESS_METRICS)
+
+
+@pytest.mark.parametrize("documented", [
+    pytest.param(analysis.smoothness.__doc__, id="analysis.smoothness"),
+    pytest.param(Bvh.smoothness.__doc__, id="Bvh.smoothness"),
+])
+def test_smoothness_docstrings_name_every_metric_option(documented):
+    """Every kernel option must be named at both dispatcher docstrings.
+
+    One-way on purpose (an option name can legitimately appear in prose
+    even after a rename elsewhere), but exhaustive: a kwarg added to any
+    registered kernel without a dispatcher-docs update fails here. This
+    is the guard that was missing when ``number_of_peaks`` gained
+    ``min_height`` and both dispatcher docstrings kept claiming the
+    non-DLJ metrics "take none".
+    """
+    registry = {**analysis._SMOOTHNESS_FS_METRICS,
+                **analysis._SMOOTHNESS_PLAIN_METRICS}
+    for metric, kernel in registry.items():
+        options = [name for name in inspect.signature(kernel).parameters
+                   if name not in ("speed", "fs")]
+        for option in options:
+            assert f"``{option}``" in documented, (
+                f"{metric}'s option {option!r} is not named in this "
+                f"dispatcher docstring")
+
+
+def test_smoothness_dispatcher_accepts_every_registered_metric():
+    """The registry is the source of truth, so nothing in it may be unreachable."""
+    rng = np.random.default_rng(31)
+    s = np.abs(rng.normal(size=64)) + 0.1
+    for metric in _ALL_SMOOTHNESS_METRICS:
+        assert np.isfinite(analysis.smoothness(s, 100.0, metric=metric)), metric
 
 
 @pytest.mark.parametrize("metric", _ALL_SMOOTHNESS_METRICS)
@@ -401,7 +632,21 @@ def test_stride_length_nan_without_contacts():
     no_contacts = np.zeros((bvh.frame_count, 2))
     assert np.isnan(analysis.stride_length(bvh, foot_joints=feet,
                                            contacts=no_contacts))
+    # zero onsets over a *positive* duration is a measurement: rate 0.0
     assert analysis.cadence(bvh, foot_joints=feet, contacts=no_contacts) == 0.0
+
+
+def test_zero_duration_rates_are_nan_not_zero():
+    """A zero-duration clip leaves cadence/walking_pace *undefined* — nan,
+    matching the other six GaitParameters fields ("not stepping" would be
+    a measurement, and 0.0 claims it)."""
+    one = make_pos_y_up_bvh()[0:1]                # single frame: no duration
+    assert np.isnan(analysis.walking_pace(one))
+    feet = ["LeftFoot", "RightFoot"]
+    g = analysis.gait_parameters(one, foot_joints=feet,
+                                 contacts=np.zeros((1, 2)))
+    assert np.isnan(g.cadence)
+    assert np.isnan(g.walking_pace)
 
 
 def _two_foot_walk():

@@ -18,7 +18,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pybvh import (read_bvh_file, df_to_bvh, Bvh, frames_to_node_positions,
-                    read_bvh_directory, batch_to_numpy)
+                    read_bvh_directory, batch_to_numpy, Axis, parse_axis)
 from pybvh.bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
 from pybvh.rotations import euler_to_rotmat
 
@@ -534,6 +534,27 @@ class TestFileRoundTrip:
         """Writing to non-existent directory should raise Exception."""
         with pytest.raises(Exception):
             bvh_example.write("/nonexistent/dir/output.bvh")
+
+    def test_write_overwrites_by_default(self, bvh_example, tmp_path):
+        out = tmp_path / "output.bvh"
+        out.write_text("stale contents")
+        bvh_example.write(out, verbose=False)
+        assert out.read_text().startswith("HIERARCHY")
+
+    def test_write_overwrite_false_refuses_and_leaves_the_file_intact(
+            self, bvh_example, tmp_path):
+        out = tmp_path / "output.bvh"
+        out.write_text("precious hand-authored data")
+        with pytest.raises(FileExistsError, match="already exists"):
+            bvh_example.write(out, overwrite=False)
+        # the guard must fire before open(..., "w") truncates
+        assert out.read_text() == "precious hand-authored data"
+
+    def test_write_overwrite_false_still_writes_a_new_file(
+            self, bvh_example, tmp_path):
+        out = tmp_path / "fresh.bvh"
+        bvh_example.write(out, overwrite=False, verbose=False)
+        assert out.exists()
 
 
 # =============================================================================
@@ -2529,6 +2550,26 @@ class TestBatchProcessing:
         result = read_bvh_directory(bvh_dir, pattern="bvh_test*.bvh")
         assert len(result) == 3
 
+    def test_read_bvh_directory_natural_sort(self, bvh_dir, tmp_path):
+        """sort="natural" orders digit runs numerically (clip2 before
+        clip10); the default stays lexicographic so lists built elsewhere
+        with plain sorted() remain index-aligned."""
+        src = (bvh_dir / "bvh_test1.bvh").read_text()
+        for name in ("clip10.bvh", "clip2.bvh", "clip1.bvh"):
+            (tmp_path / name).write_text(src)
+
+        lex = read_bvh_directory(tmp_path)
+        assert [Path(b.source_path).name for b in lex] == \
+            ["clip1.bvh", "clip10.bvh", "clip2.bvh"]
+
+        nat = read_bvh_directory(tmp_path, sort="natural")
+        assert [Path(b.source_path).name for b in nat] == \
+            ["clip1.bvh", "clip2.bvh", "clip10.bvh"]
+
+    def test_read_bvh_directory_invalid_sort_raises(self, bvh_dir):
+        with pytest.raises(ValueError, match="sort"):
+            read_bvh_directory(bvh_dir, sort="alphabetical")
+
     def test_read_bvh_directory_sorted(self, bvh_dir):
         """Results should be sorted alphabetically by default."""
         result = read_bvh_directory(bvh_dir)
@@ -3797,67 +3838,96 @@ class TestTranslateRoot:
 
 
 class TestJointNoise:
-    """Tests for add_noise transform."""
+    """Tests for the add_rotation_noise / add_position_noise transforms."""
 
     def test_zero_sigma_identity(self, bvh_example):
-        from pybvh.transforms import add_noise
-        result = add_noise(bvh_example, sigma=0.0)
+        from pybvh.transforms import add_rotation_noise
+        result = add_rotation_noise(bvh_example, sigma=0.0)
         np.testing.assert_array_equal(result.joint_angles, bvh_example.joint_angles)
         np.testing.assert_array_equal(result.root_pos, bvh_example.root_pos)
 
     def test_nonzero_sigma_changes_values(self, bvh_example):
-        from pybvh.transforms import add_noise
-        result = add_noise(bvh_example, sigma=0.1, rng=np.random.default_rng(0))
+        from pybvh.transforms import add_rotation_noise
+        result = add_rotation_noise(bvh_example, sigma=0.1, rng=np.random.default_rng(0))
         assert not np.array_equal(result.joint_angles, bvh_example.joint_angles)
 
-    def test_sigma_pos_zero_no_change(self, bvh_example):
-        from pybvh.transforms import add_noise
-        result = add_noise(bvh_example, sigma=0.1, sigma_pos=0.0, rng=np.random.default_rng(0))
+    def test_rotation_noise_leaves_the_root_alone(self, bvh_example):
+        from pybvh.transforms import add_rotation_noise
+        result = add_rotation_noise(bvh_example, sigma=0.1,
+                                    rng=np.random.default_rng(0))
         np.testing.assert_array_equal(result.root_pos, bvh_example.root_pos)
 
-    def test_sigma_pos_nonzero(self, bvh_example):
-        from pybvh.transforms import add_noise
-        result = add_noise(bvh_example, sigma=0.0, sigma_pos=1.0, rng=np.random.default_rng(0))
+    def test_position_noise_moves_the_root_and_not_the_angles(self, bvh_example):
+        from pybvh.transforms import add_position_noise
+        result = add_position_noise(bvh_example, sigma=1.0,
+                                    rng=np.random.default_rng(0))
         assert not np.array_equal(result.root_pos, bvh_example.root_pos)
+        np.testing.assert_array_equal(result.joint_angles, bvh_example.joint_angles)
+
+    def test_chaining_reproduces_the_old_combined_call(self, bvh_example):
+        """The documented migration: same rng, rotation first, then position."""
+        from pybvh.transforms import add_rotation_noise, add_position_noise
+        rng = np.random.default_rng(7)
+        chained = add_position_noise(
+            add_rotation_noise(bvh_example, sigma=0.1, rng=rng),
+            sigma=2.0, rng=rng)
+        # the old add_noise drew rotation noise then position noise from
+        # one generator; chaining with a shared rng gives the same stream
+        expect_rng = np.random.default_rng(7)
+        angles = bvh_example.joint_angles + expect_rng.normal(
+            0.0, 0.1, bvh_example.joint_angles.shape)
+        root = bvh_example.root_pos + expect_rng.normal(
+            0.0, 2.0, bvh_example.root_pos.shape)
+        np.testing.assert_allclose(chained.joint_angles, angles, rtol=1e-12)
+        np.testing.assert_allclose(chained.root_pos, root, rtol=1e-12)
+
+    def test_position_noise_rejects_negative_sigma(self, bvh_example):
+        from pybvh.transforms import add_position_noise
+        with pytest.raises(ValueError, match="sigma"):
+            add_position_noise(bvh_example, sigma=-1.0)
+
+    def test_position_noise_has_no_degrees_flag(self, bvh_example):
+        """A length has no angular unit; the split is what removes the trap."""
+        from pybvh.transforms import add_position_noise
+        with pytest.raises(TypeError):
+            add_position_noise(bvh_example, sigma=1.0, degrees=True)
 
     def test_skeleton_unchanged(self, bvh_example):
-        from pybvh.transforms import add_noise
-        result = add_noise(bvh_example, sigma=0.1, rng=np.random.default_rng(0))
+        from pybvh.transforms import add_rotation_noise
+        result = add_rotation_noise(bvh_example, sigma=0.1, rng=np.random.default_rng(0))
         assert [n.name for n in result.nodes] == [n.name for n in bvh_example.nodes]
 
     def test_inplace(self, bvh_example):
-        from pybvh.transforms import add_noise
+        from pybvh.transforms import add_rotation_noise
         bvh = bvh_example.copy()
-        ret = add_noise(bvh, sigma=0.1, rng=np.random.default_rng(0), inplace=True)
+        ret = add_rotation_noise(bvh, sigma=0.1, rng=np.random.default_rng(0), inplace=True)
         assert ret is None
         assert not np.array_equal(bvh.joint_angles, bvh_example.joint_angles)
 
     def test_seeded_reproducibility(self, bvh_example):
-        from pybvh.transforms import add_noise
-        r1 = add_noise(bvh_example, sigma=0.05, rng=np.random.default_rng(99))
-        r2 = add_noise(bvh_example, sigma=0.05, rng=np.random.default_rng(99))
+        from pybvh.transforms import add_rotation_noise
+        r1 = add_rotation_noise(bvh_example, sigma=0.05, rng=np.random.default_rng(99))
+        r2 = add_rotation_noise(bvh_example, sigma=0.05, rng=np.random.default_rng(99))
         np.testing.assert_array_equal(r1.joint_angles, r2.joint_angles)
 
     def test_negative_sigma_raises(self, bvh_example):
-        from pybvh.transforms import add_noise
+        from pybvh.transforms import add_rotation_noise
         with pytest.raises(ValueError, match="sigma"):
-            add_noise(bvh_example, sigma=-0.1)
-        with pytest.raises(ValueError, match="sigma_pos"):
-            add_noise(bvh_example, sigma=0.0, sigma_pos=-1.0)
+            add_rotation_noise(bvh_example, sigma=-0.1)
 
     def test_no_wrap_by_default(self, bvh_example):
         """Default wrap=False must leave out-of-range channels out of range."""
-        from pybvh.transforms import add_noise
+        from pybvh.transforms import add_rotation_noise
         bvh = bvh_example.copy()
         ja = bvh.joint_angles.copy()
         ja[:, 1, 0] = 3.0 * np.pi  # legitimately accumulated rotation
         bvh.joint_angles = ja
-        result = add_noise(bvh, sigma=0.001, rng=np.random.default_rng(0))
+        result = add_rotation_noise(bvh, sigma=0.001, rng=np.random.default_rng(0))
         assert np.all(result.joint_angles[:, 1, 0] > np.pi)
 
     def test_wrap_true_wraps(self, bvh_example):
-        from pybvh.transforms import add_noise
-        result = add_noise(bvh_example, sigma=0.1,
+        from pybvh.transforms import add_rotation_noise
+        result = add_rotation_noise(bvh_example, sigma=0.1,
                            rng=np.random.default_rng(0), wrap=True)
         assert np.all(result.joint_angles >= -np.pi)
         assert np.all(result.joint_angles <= np.pi)
@@ -4045,6 +4115,131 @@ class TestRotateVertical:
         r_meth = bvh_example.random_rotate_vertical(rng=np.random.default_rng(5))
         np.testing.assert_allclose(r_func.root_pos, r_meth.root_pos, atol=1e-10)
         np.testing.assert_allclose(r_func.joint_angles, r_meth.joint_angles, atol=1e-10)
+
+
+class TestRotateVerticalPivot:
+    """Tests for rotate_vertical(pivot=)."""
+
+    def test_default_is_the_world_origin(self, bvh_example):
+        from pybvh.transforms import rotate_vertical
+        default = rotate_vertical(bvh_example, angle=np.pi / 3)
+        explicit = rotate_vertical(bvh_example, angle=np.pi / 3, pivot=[0.0, 0.0, 0.0])
+        np.testing.assert_array_equal(default.root_pos, explicit.root_pos)
+        np.testing.assert_array_equal(default.joint_angles, explicit.joint_angles)
+
+    def test_root_pivot_holds_the_first_frame_in_place(self, bvh_example):
+        from pybvh.transforms import rotate_vertical
+        up = bvh_example.up_axis.index
+        start = bvh_example.root_pos[0]
+        assert np.linalg.norm(np.delete(start, up)) > 1e-6, \
+            "fixture must start away from the vertical axis for this to bite"
+
+        turned = rotate_vertical(bvh_example, angle=np.pi / 3, pivot="root")
+        swept = rotate_vertical(bvh_example, angle=np.pi / 3)
+        np.testing.assert_allclose(turned.root_pos[0], start, atol=1e-12)
+        assert not np.allclose(swept.root_pos[0], start, atol=1e-6)
+
+    def test_root_pivot_equals_center_rotate_uncenter(self, bvh_example):
+        """The identity the docstring promises for already-centered pipelines."""
+        from pybvh.transforms import rotate_vertical, translate_root
+        up = bvh_example.up_axis.index
+        offset = bvh_example.root_pos[0].copy()
+        offset[up] = 0.0
+
+        turned = rotate_vertical(bvh_example, angle=0.7, pivot="root")
+        centered = translate_root(bvh_example, -offset)
+        recentered = translate_root(rotate_vertical(centered, angle=0.7), offset)
+        np.testing.assert_allclose(turned.root_pos, recentered.root_pos, atol=1e-10)
+        np.testing.assert_allclose(
+            turned.joint_angles, recentered.joint_angles, atol=1e-12)
+
+    def test_explicit_point_is_the_fixed_point(self, bvh_example):
+        from pybvh.transforms import rotate_vertical
+        up = bvh_example.up_axis.index
+        point = np.zeros(3)
+        point[(up + 1) % 3] = 12.0
+        point[(up + 2) % 3] = -5.0
+
+        # A full turn about any pivot is the identity; a half turn reflects the
+        # root path through the pivot in the ground plane.
+        half = rotate_vertical(bvh_example, angle=np.pi, pivot=point)
+        expected = 2 * point - bvh_example.root_pos
+        expected[:, up] = bvh_example.root_pos[:, up]
+        np.testing.assert_allclose(half.root_pos, expected, atol=1e-8)
+
+    def test_pivot_only_moves_the_root_trajectory(self, bvh_example):
+        from pybvh.transforms import rotate_vertical
+        origin = rotate_vertical(bvh_example, angle=1.1)
+        rooted = rotate_vertical(bvh_example, angle=1.1, pivot="root")
+        # Root world rotation and every parent-local angle are pivot-independent.
+        np.testing.assert_array_equal(rooted.joint_angles, origin.joint_angles)
+
+    def test_heights_are_untouched_by_any_pivot(self, bvh_example):
+        from pybvh.transforms import rotate_vertical
+        up = bvh_example.up_axis.index
+        point = [3.0, 3.0, 3.0]
+        rotated = rotate_vertical(bvh_example, angle=0.4, pivot=point)
+        np.testing.assert_array_equal(
+            rotated.root_pos[:, up], bvh_example.root_pos[:, up])
+
+    def test_up_component_of_an_explicit_pivot_is_ignored(self, bvh_example):
+        from pybvh.transforms import rotate_vertical
+        up = bvh_example.up_axis.index
+        ground = np.array([2.0, 2.0, 2.0])
+        ground[up] = 0.0
+        raised = np.array([2.0, 2.0, 2.0])
+        raised[up] = 900.0
+        a = rotate_vertical(bvh_example, angle=0.4, pivot=ground)
+        b = rotate_vertical(bvh_example, angle=0.4, pivot=raised)
+        np.testing.assert_array_equal(a.root_pos, b.root_pos)
+
+    def test_explicit_pivot_array_is_not_mutated(self, bvh_example):
+        from pybvh.transforms import rotate_vertical
+        point = np.array([1.0, 2.0, 3.0])
+        rotate_vertical(bvh_example, angle=0.4, pivot=point)
+        np.testing.assert_array_equal(point, [1.0, 2.0, 3.0])
+
+    def test_array_level_matches_bvh_level(self, bvh_example):
+        from pybvh.transforms import rotate_angles_vertical, rotate_vertical
+        up_idx = bvh_example.up_axis.index
+        up_sign = bvh_example.up_axis.sign
+        order = "".join(bvh_example.root.rot_channels)
+        angles, pos = rotate_angles_vertical(
+            bvh_example.joint_angles, bvh_example.root_pos, 0.6 * up_sign,
+            up_idx, order, pivot="root")
+        expected = rotate_vertical(bvh_example, angle=0.6, pivot="root")
+        np.testing.assert_array_equal(pos, expected.root_pos)
+        np.testing.assert_array_equal(angles, expected.joint_angles)
+
+    def test_random_variant_takes_a_pivot(self, bvh_example):
+        from pybvh.transforms import random_rotate_vertical
+        start = bvh_example.root_pos[0]
+        turned = random_rotate_vertical(
+            bvh_example, pivot="root", rng=np.random.default_rng(3))
+        np.testing.assert_allclose(turned.root_pos[0], start, atol=1e-12)
+
+    def test_method_parity(self, bvh_example):
+        from pybvh.transforms import rotate_vertical
+        r_func = rotate_vertical(bvh_example, angle=0.9, pivot="root")
+        r_meth = bvh_example.rotate_vertical(0.9, pivot="root")
+        np.testing.assert_array_equal(r_func.root_pos, r_meth.root_pos)
+
+    def test_unknown_pivot_name_raises(self, bvh_example):
+        from pybvh.transforms import rotate_vertical
+        with pytest.raises(ValueError, match="pivot must be"):
+            rotate_vertical(bvh_example, angle=0.4, pivot="centroid")
+
+    def test_wrong_shape_raises(self, bvh_example):
+        from pybvh.transforms import rotate_vertical
+        with pytest.raises(ValueError, match=r"shape \(3,\)"):
+            rotate_vertical(bvh_example, angle=0.4, pivot=[1.0, 2.0])
+
+    def test_root_pivot_without_frames_raises(self):
+        from pybvh.transforms import rotate_angles_vertical
+        with pytest.raises(ValueError, match="at least one frame"):
+            rotate_angles_vertical(
+                np.zeros((0, 4, 3)), np.zeros((0, 3)), 0.4, 1, "ZYX",
+                pivot="root")
 
 
 class TestAutoDetectLRMapping:
@@ -5636,6 +5831,188 @@ class TestUpAxisProperty:
         assert index == 2
         assert sign == 1.0
         np.testing.assert_array_equal(vector, [0.0, 0.0, 1.0])
+
+
+def assert_same_axis(actual, expected):
+    """Axis holds a NumPy array, so `==` raises; compare the scalar fields."""
+    assert (actual.index, actual.sign) == (expected.index, expected.sign)
+    np.testing.assert_array_equal(actual.vector, expected.vector)
+
+
+class TestParseAxis:
+    """pybvh.parse_axis — the public form of the signed-axis parser."""
+
+    @pytest.mark.parametrize("axis", ['+x', '-x', '+y', '-y', '+z', '-z'])
+    def test_matches_the_axis_string_it_parses(self, axis):
+        parsed = parse_axis(axis)
+        assert parsed.index == {'x': 0, 'y': 1, 'z': 2}[axis[1]]
+        assert parsed.sign == (1.0 if axis[0] == '+' else -1.0)
+        assert parsed.vector[parsed.index] == parsed.sign
+        assert np.count_nonzero(parsed.vector) == 1
+
+    def test_axis_letter_is_case_insensitive(self):
+        assert_same_axis(parse_axis('-Z'), parse_axis('-z'))
+
+    def test_bare_letter_needs_allow_unsigned(self):
+        # a bare letter states no direction; defaulting it to positive
+        # would invent one the caller did not ask for
+        with pytest.raises(ValueError):
+            parse_axis('x')
+        assert_same_axis(parse_axis('x', allow_unsigned=True), parse_axis('+x'))
+
+    @pytest.mark.parametrize("bad", ['', 'q', '+q', 'xy', '++x', None, 3])
+    def test_rejects_garbage_rather_than_indexing_into_it(self, bad):
+        # the internal helpers assume pre-validated input and would
+        # IndexError/KeyError here; the public parser must validate first
+        with pytest.raises(ValueError):
+            parse_axis(bad)
+
+    def test_axis_is_constructible_directly(self):
+        # a plain named tuple, so tests and synthetic skeletons can build one
+        axis = Axis(1, -1.0, np.array([0.0, -1.0, 0.0]))
+        assert (axis.index, axis.sign) == (1, -1.0)
+        assert_same_axis(axis, parse_axis('-y'))
+
+    def test_equality_raises_on_the_array_field(self):
+        # documented on Axis: compare (index, sign), not the whole tuple
+        with pytest.raises(ValueError, match="truth value"):
+            bool(parse_axis('+y') == parse_axis('+y'))
+
+
+class TestParsedAxisProperties:
+    """up_axis / forward_axis / rest_up_axis — parsed views of the strings."""
+
+    def test_each_property_parses_its_own_string(self, bvh_example):
+        assert_same_axis(bvh_example.up_axis,
+                         parse_axis(bvh_example.world_up))
+        assert_same_axis(bvh_example.forward_axis,
+                         parse_axis(bvh_example.rest_forward))
+        assert_same_axis(bvh_example.rest_up_axis,
+                         parse_axis(bvh_example.rest_up))
+
+    def test_rest_up_axis_mirrors_rest_up_nullability(self, bvh_example):
+        # the stated contract: a parsed view is null exactly when the
+        # string it parses is, so the two never disagree
+        assert (bvh_example.rest_up is None) == (bvh_example.rest_up_axis is None)
+
+    def test_rest_up_axis_is_none_for_a_degenerate_rest_pose(self):
+        bvh = make_pos_y_up_bvh()
+        for node in bvh.nodes:
+            node.offset = np.zeros(3)
+        assert bvh.rest_up is None
+        assert bvh.rest_up_axis is None
+        # forward stays defined — it falls back rather than returning None
+        assert bvh.forward_axis is not None
+
+    def test_up_axis_follows_a_world_up_override(self):
+        bvh = make_pos_y_up_bvh()
+        bvh.world_up = '-x'
+        assert_same_axis(bvh.up_axis, parse_axis('-x'))
+
+
+class TestHasLrGeometry:
+    """Bvh.has_lr_geometry — did rest_forward measure, or fall back?"""
+
+    def test_true_for_a_normal_skeleton(self, bvh_example):
+        assert bvh_example.has_lr_geometry is True
+
+    def test_false_without_a_mapping_to_measure_from(self, bvh_example):
+        bvh = bvh_example.copy()
+        bvh.lr_mapping = None   # auto-detection ran at construction; this clears it
+        assert bvh.has_lr_geometry is False
+
+    def test_rest_forward_still_answers_when_it_is_false(self, bvh_example):
+        """The point of the predicate: the axis is a default, not a measurement."""
+        bvh = bvh_example.copy()
+        bvh.lr_mapping = None
+        assert bvh.has_lr_geometry is False
+        # falls through to the arbitrary-but-stable axis for this up axis,
+        # indistinguishable from a measured result in the return value alone
+        assert bvh.rest_forward == {'y': '+z', 'z': '+x',
+                                    'x': '+y'}[bvh.world_up[1]]
+
+    def test_the_fallback_warns_rather_than_answering_silently(self, bvh_example):
+        """Same class of silent substitution as _infer_world_up, same treatment."""
+        bvh = bvh_example.copy()
+        bvh.lr_mapping = None
+        with pytest.warns(UserWarning, match="cannot be measured"):
+            bvh.rest_forward
+        with pytest.warns(UserWarning, match="has_lr_geometry"):
+            bvh.left_at(0)
+
+    def test_a_measured_facing_warns_about_nothing(self, bvh_example):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            assert bvh_example.rest_forward
+            assert bvh_example.left_at(0)
+
+    def test_an_explicit_mapping_is_the_documented_remedy(self, bvh_example):
+        bvh = bvh_example.copy()
+        measured_forward = bvh.rest_forward
+        bvh.lr_mapping = None
+        assert bvh.has_lr_geometry is False
+        bvh.lr_mapping = bvh_example.lr_mapping
+        assert bvh.has_lr_geometry is True
+        assert bvh.rest_forward == measured_forward
+
+    # A skeleton whose rest pose is authored y-up (head along +y, arms
+    # along ±z) but whose animation is z-up (root X-rotated 90°): the
+    # L/R lateral axis exists and is usable against the REST up, yet is
+    # parallel to the resolved world_up, so the facing chain bottoms out
+    # in the house default anyway. The predicate must track the chain's
+    # actual decision, not merely whether L/R pairs exist.
+    _LATERAL_PARALLEL_TO_WORLD_UP = (
+        "HIERARCHY\n"
+        "ROOT Hips\n{\n"
+        "\tOFFSET 0.0 0.0 0.0\n"
+        "\tCHANNELS 6 Xposition Yposition Zposition"
+        " Zrotation Xrotation Yrotation\n"
+        "\tJOINT Head\n\t{\n"
+        "\t\tOFFSET 0.0 10.0 0.0\n"
+        "\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\tEnd Site\n\t\t{\n\t\t\tOFFSET 0.0 2.0 0.0\n\t\t}\n\t}\n"
+        "\tJOINT LeftArm\n\t{\n"
+        "\t\tOFFSET 0.0 0.0 3.0\n"
+        "\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\tEnd Site\n\t\t{\n\t\t\tOFFSET 0.0 0.0 1.0\n\t\t}\n\t}\n"
+        "\tJOINT RightArm\n\t{\n"
+        "\t\tOFFSET 0.0 0.0 -3.0\n"
+        "\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+        "\t\tEnd Site\n\t\t{\n\t\t\tOFFSET 0.0 0.0 -1.0\n\t\t}\n\t}\n"
+        "}\nMOTION\nFrames: 2\nFrame Time: 0.033333\n"
+        + "0.0 0.0 0.0 0.0 90.0 0.0" + " 0.0" * 9 + "\n"
+        + "0.0 0.0 0.0 0.0 90.0 0.0" + " 0.0" * 9 + "\n")
+
+    def _lateral_parallel_bvh(self, tmp_path):
+        path = tmp_path / "lateral_parallel.bvh"
+        path.write_text(self._LATERAL_PARALLEL_TO_WORLD_UP)
+        with warnings.catch_warnings():
+            # construction warns about the rest-vs-animation up-axis
+            # disagreement; that warning is _infer_world_up's, not ours
+            warnings.simplefilter("ignore", UserWarning)
+            return read_bvh_file(path)
+
+    def test_false_when_the_lateral_axis_is_parallel_to_world_up(
+            self, tmp_path):
+        bvh = self._lateral_parallel_bvh(tmp_path)
+        assert bvh.world_up == '+z'
+        assert bvh.rest_up == '+y'
+        assert bvh.lr_mapping is not None   # the pairs exist...
+        assert bvh.has_lr_geometry is False  # ...but cannot give a facing
+
+    def test_the_predicate_agrees_with_the_fallback_warning(
+            self, bvh_example, tmp_path):
+        """False exactly when deriving a facing warns — the docstring's
+        contract, and the property's whole reason to exist."""
+        divergent = self._lateral_parallel_bvh(tmp_path)
+        assert divergent.has_lr_geometry is False
+        with pytest.warns(UserWarning, match="has_lr_geometry"):
+            assert divergent.rest_forward == '+x'  # z-up house default
+
+        assert bvh_example.has_lr_geometry is True
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            bvh_example.rest_forward
 
 
 def _tips_bvh(nodes, n_frames=2):

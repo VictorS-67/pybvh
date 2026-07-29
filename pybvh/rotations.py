@@ -175,7 +175,22 @@ def rotmat_to_euler(
     Convert rotation matrices to Euler angles (batch).
 
     Uses the convention of intrinsic rotations with pre-multiplication.
-    Handles gimbal lock by setting the third angle to 0.
+
+    Every rotation has two equivalent Euler decompositions (middle angle
+    reflected, both outer angles shifted by π). This function always
+    returns the branch with the middle angle in ``[-π/2, π/2]`` for
+    Tait-Bryan orders (distinct axes) or ``[0, π]`` for proper Euler
+    orders (first axis repeated), outer angles in ``[-π, π]`` — so a
+    triple authored outside those ranges round-trips to the equivalent
+    in-range triple, not to itself.
+
+    In gimbal lock (middle angle at that range's boundary) only a
+    combination of the two outer angles is determined; this function
+    sets the **first** angle to 0 and folds the whole residual into the
+    third. SciPy's ``Rotation.as_euler`` makes the opposite choice
+    (third angle zeroed). Both describe the input rotation exactly —
+    the round-trip is unaffected — and differ only in how the locked
+    pair is split between the first and third slots.
 
     Parameters
     ----------
@@ -368,7 +383,24 @@ def rotmat_to_quat(R: npt.ArrayLike) -> npt.NDArray[np.float64]:
     Returns
     -------
     q : ndarray, shape (*, 4)
-        Unit quaternions in (w, x, y, z) scalar-first convention.
+        Unit quaternions in (w, x, y, z) scalar-first convention, in
+        **canonical form** (``w >= 0``) — see Notes.
+
+    Notes
+    -----
+    ``q`` and ``-q`` are the same rotation, so a convention is needed to
+    pick one. This returns the ``w >= 0`` half, applied **per element**:
+    the alternative is to choose signs so a *sequence* stays in one
+    hemisphere, and the two disagree whenever a rotation passes through
+    180°, where ``w`` crosses zero.
+
+    The consequence is that a converted sequence is not guaranteed to be
+    temporally continuous: a joint sweeping smoothly through 180° flips
+    sign between adjacent frames. The rotations remain exact — this
+    round-trips through :func:`quat_to_rotmat` — but code that
+    differences or measures distance on the raw values sees a jump that
+    is not in the motion. Pass the result through :func:`quat_unwrap`
+    when you need sequence continuity.
     """
     R_arr: npt.NDArray[np.float64] = np.asarray(R, dtype=np.float64)
     single = (R_arr.ndim == 2)
@@ -586,6 +618,82 @@ def quat_multiply(
     ], axis=-1)
 
 
+def quat_unwrap(
+    q: npt.ArrayLike,
+    axis: int = 0,
+) -> npt.NDArray[np.float64]:
+    """Make a quaternion *sequence* continuous by flipping signs along ``axis``.
+
+    ``q`` and ``-q`` are the same rotation, so a per-frame canonical form
+    — such as the ``w >= 0`` one :func:`rotmat_to_quat` produces — can
+    jump sign between adjacent frames while the motion itself is smooth.
+    The rotations are correct either way, but the *representation* is
+    discontinuous, which corrupts anything that differences, interpolates,
+    or measures distance on the raw values: quaternion velocities, feature
+    arrays fed to a model, naive L2 rotation distances.
+
+    This flips each element so consecutive quaternions lie in the same
+    hemisphere, choosing the sign that keeps ``dot(q[i], q[i-1]) >= 0``.
+    The first element along ``axis`` is left as-is and sets the branch.
+
+    Parameters
+    ----------
+    q : array_like, shape (*, 4)
+        Quaternions in (w, x, y, z) scalar-first convention. The sequence
+        runs along ``axis``; all other leading axes are independent
+        sequences (e.g. ``(F, J, 4)`` unwraps each joint separately).
+    axis : int, optional
+        The time/sequence axis (default 0). May not be the trailing
+        quaternion axis.
+
+    Returns
+    -------
+    ndarray, shape (*, 4)
+        A new array; the input is not modified. Every element is either
+        the input or its negation, so each still represents exactly the
+        same rotation.
+
+    Raises
+    ------
+    ValueError
+        If the trailing axis is not length 4, or ``axis`` refers to it.
+
+    Examples
+    --------
+    >>> _, quats = bvh.to_quat()             # (F, J, 4), canonical w >= 0
+    >>> quats = rotations.quat_unwrap(quats)  # continuous along frames
+
+    See Also
+    --------
+    rotmat_to_quat : Produces the ``w >= 0`` canonical form this undoes.
+    quat_slerp : Handles the hemisphere itself; needs no unwrapping.
+    """
+    q_arr: npt.NDArray[np.float64] = np.asarray(q, dtype=np.float64)
+    if q_arr.ndim < 1 or q_arr.shape[-1] != 4:
+        raise ValueError(
+            f"q must have shape (*, 4), got {q_arr.shape}")
+    normalized_axis = axis % q_arr.ndim if q_arr.ndim else 0
+    if normalized_axis == q_arr.ndim - 1:
+        raise ValueError(
+            f"axis={axis} is the quaternion component axis, not a sequence "
+            f"axis; unwrapping runs over time/frames.")
+
+    seq = np.moveaxis(q_arr, normalized_axis, 0)
+    if seq.shape[0] < 2:
+        return q_arr.copy()  # nothing to be continuous with
+
+    # A flip at step i must persist for the rest of the sequence, so the
+    # per-element sign is the running product of the pairwise decisions.
+    # Comparing raw (unflipped) neighbours is equivalent: the accumulated
+    # sign cancels on both sides of the dot product.
+    pair_dots = np.sum(seq[1:] * seq[:-1], axis=-1)
+    step_sign = np.where(pair_dots < 0.0, -1.0, 1.0)
+    signs = np.concatenate(
+        [np.ones((1,) + step_sign.shape[1:]), np.cumprod(step_sign, axis=0)],
+        axis=0)
+    return np.moveaxis(seq * signs[..., np.newaxis], 0, normalized_axis)
+
+
 # ============================================================================
 # Rotation matrices <-> Axis-angle
 # ============================================================================
@@ -732,6 +840,7 @@ def quat_slerp(
     q1: npt.ArrayLike,
     q2: npt.ArrayLike,
     t: float | npt.ArrayLike,
+    shortest: bool = True,
 ) -> npt.NDArray[np.float64]:
     """Spherical linear interpolation between quaternions.
 
@@ -743,11 +852,33 @@ def quat_slerp(
         End quaternions (w, x, y, z).
     t : float or array_like
         Interpolation parameter(s) in [0, 1].
+    shortest : bool, optional
+        Which of the two arcs joining the rotations to travel. ``True``
+        (default) takes the short way round, never turning more than
+        180°. ``False`` takes the arc the given quaternions describe,
+        which is the long way whenever ``dot(q1, q2) < 0``. See Notes.
 
     Returns
     -------
     q : ndarray, shape (*, 4)
         Interpolated unit quaternions.
+
+    Notes
+    -----
+    ``q`` and ``-q`` are the same rotation but describe opposite arcs
+    between the same endpoints, so "interpolate between these two
+    rotations" has two answers and a convention has to pick one.
+    ``shortest=True`` is what resampling and blending want — a motion
+    should not detour the long way just because a sign flipped, and
+    :meth:`Bvh.resample` relies on it. ``shortest=False`` preserves a
+    turn that genuinely exceeds 180°, such as a wind-up or a full spin,
+    which the shortest arc would silently shorten.
+
+    With ``shortest=False`` and near-antipodal inputs (``dot(q1, q2)``
+    near ``-1``) the two rotations are half a turn apart and *every*
+    great circle between them is equally valid; the result there is
+    numerically unstable and not meaningful. ``shortest=True`` cannot
+    reach that regime.
     """
     q1_arr: npt.NDArray[np.float64] = np.asarray(q1, dtype=np.float64)
     q2_arr: npt.NDArray[np.float64] = np.asarray(q2, dtype=np.float64)
@@ -755,17 +886,20 @@ def quat_slerp(
     if t_arr.ndim > 0:
         t_arr = t_arr[..., np.newaxis]  # broadcast against the quaternion axis
 
-    # Ensure shortest path: flip q2 if dot product is negative
     dot = np.sum(q1_arr * q2_arr, axis=-1, keepdims=True)
-    q2_arr = np.where(dot < 0, -q2_arr, q2_arr)
-    dot = np.clip(np.abs(dot), 0.0, 1.0)  # clamp for numerical safety
+    if shortest:
+        q2_arr = np.where(dot < 0, -q2_arr, q2_arr)
+        dot = np.abs(dot)
+    dot = np.clip(dot, -1.0, 1.0)  # clamp for numerical safety
 
     theta = np.arccos(dot)
     sin_theta = np.sin(theta)
-    # Near-identical quaternions fall back to normalized lerp; the tiny
-    # sines are replaced by 1.0 so no divide warning fires — those
-    # entries are discarded via np.where anyway. Shapes stay keepdims
-    # (*, 1) throughout, broadcasting against the quaternion axis.
+    # Degenerate arcs fall back to normalized lerp: near-identical
+    # endpoints always, plus near-antipodal ones when shortest=False (an
+    # ambiguous arc — documented, not fixable here). The tiny sines are
+    # replaced by 1.0 so no divide warning fires — those entries are
+    # discarded via np.where anyway. Shapes stay keepdims (*, 1)
+    # throughout, broadcasting against the quaternion axis.
     near_zero = sin_theta < 1e-7
     safe_sin = np.where(near_zero, 1.0, sin_theta)
 

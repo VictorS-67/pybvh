@@ -57,8 +57,26 @@ def read_bvh_file(
     -----
     BVH files store joint angles in degrees; pybvh holds them in radians
     on :attr:`Bvh.joint_angles`. This function converts on read;
-    :func:`write_bvh_file` converts back on write. Round-trip is lossless
-    within float precision.
+    :func:`write_bvh_file` converts back on write.
+
+    Three things the reader normalizes rather than preserving verbatim,
+    so a round-trip is lossless in *motion* but not byte-for-byte:
+
+    - **Frame time is snapped** to an exact ``1 / N`` when the file's
+      value is within 0.01% of one — salvaging the ubiquitous
+      ``0.033333`` truncation, at the cost of ``bvh.frame_time`` not
+      being the literal file value. Non-integer rates (23.976 fps) are
+      left alone, and no other parser does this snap.
+    - **Root channels are reordered** to position-first. A file
+      declaring rotations before positions parses correctly but writes
+      back in pybvh's canonical order.
+    - **Offsets and motion values are written at 6 decimal places**
+      (frame time at full precision), so re-reading a written file
+      quantizes at ~1e-6 in the file's own units.
+
+    Values pybvh infers or you set — ``world_up``, ``lr_mapping`` — have
+    nowhere to live in the BVH format and are lost on write; re-apply
+    them after reading.
     """
     node_list, frame_array, frame_time = _extract_bvh_file_info(filepath)
     num_joints = len([n for n in node_list if not n.is_end_site()])
@@ -321,7 +339,8 @@ def _read_node_block(node_type: str, f: TextIO, line_number: int) -> tuple[list[
 #  Writing
 # ----------------------------------------------------------------
 
-def write_bvh_file(bvh: Bvh, filepath: str | Path, verbose: bool = False) -> None:
+def write_bvh_file(bvh: Bvh, filepath: str | Path, verbose: bool = False,
+                   overwrite: bool = True) -> None:
     """Write a Bvh object to a ``.bvh`` file.
 
     Parameters
@@ -334,6 +353,11 @@ def write_bvh_file(bvh: Bvh, filepath: str | Path, verbose: bool = False) -> Non
         If True, print a one-line confirmation to stdout on success.
         Default ``False`` — preprocessing loops that write many files
         shouldn't flood the terminal by default.
+    overwrite : bool, optional
+        If True (default), replace an existing file at ``filepath``.
+        Pass ``False`` to refuse instead, raising ``FileExistsError`` —
+        worth doing when the destination is hand-authored data rather
+        than a regenerable output.
 
     Raises
     ------
@@ -341,17 +365,37 @@ def write_bvh_file(bvh: Bvh, filepath: str | Path, verbose: bool = False) -> Non
         If the file extension is not ``.bvh``.
     FileNotFoundError
         If the parent directory does not exist.
+    FileExistsError
+        If ``filepath`` exists and ``overwrite=False``.
 
     Notes
     -----
     pybvh stores joint angles in radians, but the BVH format requires
     degrees; this function converts on write.
+
+    Offsets and motion values are written with 6 decimal places, the de
+    facto BVH convention (and what most DCC tools emit) — motion data
+    re-read from a written file is therefore quantized at ~1e-6 in the
+    skeleton's length unit and in degrees. ``Frame Time`` is the
+    exception: it is written at full precision (``%.10g``), because a
+    truncated frame time compounds across every frame of a resample
+    while a truncated coordinate does not.
+
+    The BVH format carries no place for ``world_up``, ``lr_mapping``, or
+    ``source_path``; those are lost on write and re-inferred on read.
+    Root channels are always written position-first, whatever order the
+    source file declared.
     """
     filepath = Path(filepath)
     if filepath.suffix != '.bvh':
         raise ValueError(f"{filepath.name} is not a .bvh file")
     elif not filepath.parent.exists():
         raise FileNotFoundError(f"directory does not exist: {filepath.parent}")
+    # checked before the file is opened — "w" truncates on open, so a late
+    # check would already have destroyed the data it is meant to protect
+    elif not overwrite and filepath.exists():
+        raise FileExistsError(
+            f"{filepath} already exists; pass overwrite=True to replace it.")
 
     def offset_to_str(node: BvhNode) -> str:
         offset_str = 'OFFSET'

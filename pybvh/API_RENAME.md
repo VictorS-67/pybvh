@@ -1,8 +1,18 @@
 # pybvh API Rename — Complete Reference
 
-This file is the complete old → new rename ledger. The **v0.8.0 sections come first** (module split, signal utilities, normalization move, rotation-helper consolidation, end sites, analysis/geometry, transforms, `Bvh` surface, bvhplot); the v0.6.0 rename wave follows. **Old names are removed outright** — there is no deprecation cycle. Because pybvh has no known production consumers beyond pybvh-ml (which has been briefed separately), shipping wrappers that would be removed one release later wasn't worth the maintenance tax. Old names will raise `AttributeError` on the `Bvh` class / `ImportError` at module level.
+This file is the complete old → new rename ledger. The **v0.8.1 section comes first**, then the v0.8.0 sections (module split, signal utilities, normalization move, rotation-helper consolidation, end sites, analysis/geometry, transforms, `Bvh` surface, bvhplot); the v0.6.0 rename wave follows. **Old names are removed outright** — there is no deprecation cycle. Because pybvh has no known production consumers beyond pybvh-ml (which has been briefed separately), shipping wrappers that would be removed one release later wasn't worth the maintenance tax. Old names will raise `AttributeError` on the `Bvh` class / `ImportError` at module level.
 
 Migration: grep for the old name in the left column, replace with the right column.
+
+---
+
+## v0.8.1 — noise split by unit, and `UpAxis` → `Axis`
+
+| Old | New | Notes |
+|---|---|---|
+| `transforms.add_noise(bvh, sigma, sigma_pos)` | `transforms.add_rotation_noise(bvh, sigma)` + `transforms.add_position_noise(bvh, sigma)` | The two sigmas were in different units — radians and the skeleton's length unit — so `degrees=` had to apply to one argument and not the other. To reproduce a combined call exactly, chain them with the *same* generator, rotation first: `add_position_noise(add_rotation_noise(bvh, s, rng=rng), p, rng=rng)`. `degrees=` exists only on the rotation form. |
+| `Bvh.add_noise(sigma, sigma_pos)` | `Bvh.add_rotation_noise(sigma)` + `Bvh.add_position_noise(sigma)` | Same; chains cleanly: `bvh.add_rotation_noise(s, rng=rng).add_position_noise(p, rng=rng)`. |
+| `pybvh.bvh.UpAxis` | `pybvh.Axis` | Renamed and exported top-level; the type never described anything up-specific and now annotates forward and rest-up axes too. Only `from pybvh.bvh import UpAxis` breaks — it was never exported in 0.8.0. |
 
 ---
 

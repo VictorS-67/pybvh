@@ -54,6 +54,17 @@ def feature_array_layout(
         ``{"root_pos", "rotations", "velocities", "foot_contacts"}``
         depending on the flags.
 
+    Notes
+    -----
+    Within the ``rotations`` and ``velocities`` blocks joints are in
+    **skeleton hierarchy order** — the file's declaration order, i.e.
+    ``Bvh.joint_names``, end sites excluded — not alphabetical. For
+    ``representation='euler'`` the three columns per joint follow *that
+    joint's own* channel order from the file (which can differ per
+    joint and between files), not a fixed XYZ; every other
+    representation is order-independent. ``'rotmat'`` flattens each 3×3
+    row-major (C order).
+
     Raises
     ------
     ValueError
@@ -112,11 +123,24 @@ def to_feature_array(
     representation : str, optional
         Rotation representation: ``'euler'``, ``'6d'`` (default),
         ``'quat'``, ``'axisangle'``, or ``'rotmat'`` (9 values
-        per joint as a flattened 3×3).
+        per joint as a flattened 3×3). ``'quat'`` inherits the
+        per-frame canonical form (``w >= 0``) of :meth:`Bvh.to_quat`,
+        which is **not** temporally continuous — a joint passing
+        through 180° flips sign between frames. Apply
+        :func:`pybvh.rotations.quat_unwrap` to the array yourself if
+        your model is sensitive to that; ``'6d'`` (the default) has no
+        such discontinuity, which is the representation's whole point.
     include_root_pos : bool, optional
         If True (default), include root position (3 columns).
     include_velocities : bool, optional
-        If True, include joint velocity features.
+        If True, include joint velocity features, in units per
+        **frame** — deliberately not :func:`joint_velocities`' own
+        units-per-second default, because a feature array is consumed
+        per-frame by a model and a per-frame delta keeps the block on
+        the same time base as the rest of the array. Multiply by
+        ``1 / bvh.frame_time`` to recover units/second, and note the
+        two disagree by exactly that factor if you cross-check this
+        block against a direct ``joint_velocities(bvh)`` call.
     include_foot_contacts : bool, optional
         If True, include foot contact labels.  Contacts are always
         detected in world frame (see :func:`pybvh.analysis.foot_contacts`),

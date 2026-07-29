@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import copy
 import warnings
-from collections import namedtuple
 from pathlib import Path
-from typing import Literal, Sequence, TYPE_CHECKING, Union, overload
+from typing import Any, Literal, Sequence, TYPE_CHECKING, Union, overload
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -18,23 +17,18 @@ from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
 from .spatial_coord import frames_to_node_positions, _ground_plane_offset
 from . import rotations
 from .tools import (
-    _axis_index_sign,
+    Axis,
+    parse_axis,
     _axis_to_vector,
     _compute_forward_at,
     _compute_left_at,
     _detect_lr_mapping_by_names,
+    _facing_is_measured,
     _infer_world_up,
     _iter_unique_lr_pairs,
     _rest_upward,
     _validate_axis_string,
 )
-
-
-UpAxis = namedtuple("UpAxis", ["index", "sign", "vector"])
-UpAxis.__doc__ = """Parsed form of :attr:`Bvh.world_up` — see :attr:`Bvh.up_axis`.
-
-Fields: ``index`` (int, 0/1/2 — the up coordinate's column in any ``(..., 3)`` position array), ``sign`` (float, ``+1.0`` / ``-1.0`` — multiply by it to make heights up-positive), ``vector`` (float64 ``(3,)`` unit vector along the up direction, sign included).
-"""
 
 
 class Bvh:
@@ -641,6 +635,18 @@ class Bvh:
         head-above-hips direction, with rest-pose topology as fallback.
         Issues a ``UserWarning`` if the first frame and rest pose disagree.
 
+        The detection specifics, since they decide which answer you get:
+        "head" is the first **exact** lowercase name match among
+        ``head``, ``neck``, ``chest``, ``spine`` (so a namespaced
+        ``mixamorig:Head`` does not match), "hips" is always the root
+        node whatever it is called, and the frame-0 reading is accepted
+        only when its largest component exceeds twice the second-largest
+        — a crouched, lying or leaning first frame is treated as
+        ambiguous and silently defers to :attr:`rest_up`. When the rest
+        pose is degenerate too, the property warns and returns ``'+y'``.
+        Use :attr:`world_up_inferred` to see what the heuristic picks
+        while an override is in effect.
+
         Can be overridden manually via the setter when auto-detection
         produces the wrong answer (e.g. authored BVH files where the rest
         pose convention differs from the animation's world orientation):
@@ -689,8 +695,8 @@ class Bvh:
         return _infer_world_up(self)
 
     @property
-    def up_axis(self) -> UpAxis:
-        """:attr:`world_up` parsed into numeric form — ``UpAxis(index, sign, vector)``.
+    def up_axis(self) -> Axis:
+        """:attr:`world_up` parsed into numeric form — ``Axis(index, sign, vector)``.
 
         The three fields are the machine-usable views of the same signed axis string (always derived from the resolved :attr:`world_up`, so manual overrides are respected):
 
@@ -706,10 +712,39 @@ class Bvh:
         See Also
         --------
         world_up : The signed axis string this is parsed from (settable).
+        forward_axis, rest_up_axis : The other two parsed axis properties.
         floor_height : The estimated ground level along this axis, in raw (unsigned) coordinates.
         """
-        index, sign = _axis_index_sign(self.world_up)
-        return UpAxis(index, sign, _axis_to_vector(self.world_up))
+        return parse_axis(self.world_up)
+
+    @property
+    def forward_axis(self) -> Axis:
+        """:attr:`rest_forward` parsed into numeric form — ``Axis(index, sign, vector)``.
+
+        Never ``None``: :attr:`rest_forward` always resolves, because forward is defined relative to :attr:`world_up` and falls back to an arbitrary-but-stable horizontal axis when the skeleton carries no usable L/R geometry. That fallback is indistinguishable here from a measured result — see :attr:`rest_forward` for the chain.
+
+        See Also
+        --------
+        rest_forward : The signed axis string this is parsed from.
+        up_axis, rest_up_axis : The other two parsed axis properties.
+        """
+        return parse_axis(self.rest_forward)
+
+    @property
+    def rest_up_axis(self) -> Axis | None:
+        """:attr:`rest_up` parsed into numeric form — ``Axis(index, sign, vector)``, or ``None``.
+
+        ``None`` exactly when :attr:`rest_up` is ``None`` — a degenerate rest pose (single-node skeleton, or all joints coincident) that carries no directional information. Each parsed axis property mirrors the nullability of the string it parses, so ``bvh.rest_up is None`` and ``bvh.rest_up_axis is None`` always agree.
+
+        Note this is the *topological* up axis. For the world vertical — animation-derived, and always defined — use :attr:`up_axis`.
+
+        See Also
+        --------
+        rest_up : The signed axis string this is parsed from.
+        up_axis, forward_axis : The other two parsed axis properties.
+        """
+        rest_up = self.rest_up
+        return None if rest_up is None else parse_axis(rest_up)
 
     @property
     def floor_height(self) -> float:
@@ -719,7 +754,11 @@ class Bvh:
         signed along the raw up axis (so for ``world_up='-y'`` a floor at raw
         ``y≈5`` returns ``≈5``). It is the 2nd-percentile of the per-frame
         minimum foot height over auto-detected feet (all nodes for footless
-        rigs); see :func:`pybvh.analysis._compute_floor_height`. This is the
+        rigs); see :func:`pybvh.analysis._compute_floor_height`. The 2nd
+        percentile is the canonical robust estimate — resistant to
+        occasional glitched-low frames; for the true minimum, or any other
+        convention, call ``foot_contacts(floor="min")`` / pass an explicit
+        float per call (this property stays 2nd-percentile). This is the
         scene's ground plane — `foot_contacts` layers a per-foot stance hover on
         top of it.
 
@@ -823,6 +862,57 @@ class Bvh:
             symmetric[left] = right
             symmetric[right] = left
         return symmetric
+
+    @property
+    def has_lr_geometry(self) -> bool:
+        """Whether the rest pose carries usable left/right direction.
+
+        ``True`` when the skeleton's L/R joint pairs give a lateral axis
+        that is neither degenerate nor parallel to :attr:`world_up` —
+        i.e. when the orientation properties are **measuring** this
+        skeleton rather than falling back to a default. The check walks
+        the same chain :attr:`rest_forward` computes with, so it is
+        ``False`` exactly when deriving a facing from the rest pose
+        emits the fallback ``UserWarning``. In particular, on a file
+        whose rest-pose and animation up axes disagree (the case
+        :attr:`world_up` inference warns about), an L/R axis parallel
+        to :attr:`world_up` is unusable and reports ``False`` even
+        though the pairs themselves exist.
+
+        This is the check :attr:`rest_forward` (and so
+        :attr:`forward_axis`, :meth:`forward_at`, :meth:`left_at` and
+        ``facing_frame``) cannot express in its own return value. Those
+        always yield an axis: with no usable L/R geometry they return an
+        arbitrary-but-stable horizontal axis chosen from
+        :attr:`world_up` alone, which is indistinguishable from a
+        measured result. When it matters whether a facing was derived
+        from the data — comparing a skeleton against a dataset
+        convention, say, where a fallback would "match" every time —
+        check this first.
+
+        Assigning :attr:`lr_mapping` explicitly is what fixes a ``False``
+        on a skeleton whose joints simply are not named recognizably.
+
+        This property describes the *rest-pose* chain. The per-frame
+        :meth:`forward_at` / :meth:`facing_frame` measure each frame's
+        coordinates first and only fall back to this chain on frames
+        where that fails, so on a skeleton with zero rest offsets but
+        animated L/R separation they can still measure while this
+        reports ``False``.
+
+        Example
+        -------
+            >>> if bvh.has_lr_geometry:
+            ...     assert bvh.rest_forward == dataset_convention
+            ... else:
+            ...     ...  # facing is a default, not a measurement
+
+        See Also
+        --------
+        rest_forward : The axis whose fallback this reports.
+        lr_mapping : The pairs the measurement is derived from.
+        """
+        return _facing_is_measured(self, self.world_up)
 
     @lr_mapping.setter
     def lr_mapping(self, value: dict[str, str] | None) -> None:
@@ -1007,20 +1097,25 @@ class Bvh:
     ):
         """Per-frame facing basis as continuous unit vectors.
 
-        Returns a ``FacingFrame(forward, left, up)`` named tuple of
+        Returns a ``FacingFrame(forward, left, up, valid)`` named tuple:
         three ``(F, 3)`` arrays — the yaw-only, gravity-aligned
         orthonormal basis that :meth:`forward_at` / :meth:`left_at`
-        snap to axis labels. See
-        :func:`pybvh.analysis.facing_frame` for the full construction,
-        conventions, and fallback policy.
+        snap to axis labels — plus a ``(F,)`` bool array, ``False`` on
+        frames whose basis is the constant fallback rather than a
+        measurement. See :func:`pybvh.analysis.facing_frame` for the
+        full construction, conventions, and fallback policy.
         """
         from . import analysis
         return analysis.facing_frame(self, coords=coords)
 
-    def write(self, filepath: str | Path, verbose: bool = False) -> None:
-        """Write the Bvh object to a ``.bvh`` file.  See :func:`pybvh.io.write_bvh_file`."""
+    def write(self, filepath: str | Path, verbose: bool = False,
+              overwrite: bool = True) -> None:
+        """Write the Bvh object to a ``.bvh`` file.
+
+        Pass ``overwrite=False`` to raise ``FileExistsError`` rather than
+        replace an existing file.  See :func:`pybvh.io.write_bvh_file`."""
         from . import io
-        io.write_bvh_file(self, filepath, verbose=verbose)
+        io.write_bvh_file(self, filepath, verbose=verbose, overwrite=overwrite)
 
     @classmethod
     def from_file(
@@ -1733,10 +1828,20 @@ class Bvh:
         root_pos : ndarray, shape (num_frames, 3)
             Root position for each frame.
         joint_quats : ndarray, shape (num_frames, num_joints, 4)
-            Quaternion (w, x, y, z) for each joint in each frame.
+            Quaternion (w, x, y, z) for each joint in each frame, in
+            canonical form (``w >= 0``).
 
         Notes
         -----
+        The canonical form is applied **per frame**, so the returned
+        sequence is not guaranteed to be temporally continuous: a joint
+        rotating through 180° flips sign between adjacent frames even
+        though the motion is smooth. Every quaternion is still exactly
+        the right rotation; it is the representation that jumps. Wrap
+        with :func:`pybvh.rotations.quat_unwrap` when feeding the array
+        to anything that differences or measures distance on the raw
+        values.
+
         See :meth:`to_rotmat` for the multi-representation reuse pattern.
         """
         root_pos, joint_rotmats = self.to_rotmat()
@@ -2031,6 +2136,18 @@ class Bvh:
         smooth, gimbal-lock-free results.  This is the rotation-aware
         alternative to naive per-channel linear interpolation on Euler
         angles, which produces wobble and gimbal-lock artifacts.
+
+        The new timestamps are ``0, 1/fps, 2/fps, …`` up to the original
+        clip's duration — anchored at ``t = 0``, and the last sample is
+        the largest multiple of the new period that still fits. The
+        original final frame is reproduced only when the duration is an
+        exact multiple of that period; otherwise the clip is shortened
+        by up to one new frame period. The alternative convention —
+        stretch the grid to land exactly on the final frame, giving
+        ``round(duration · fps) + 1`` samples and an irregular last
+        interval — keeps the endpoint at the cost of an inexact rate.
+        Clips shorter than two frames have nothing to interpolate and
+        simply adopt the new ``frame_time``.
 
         Parameters
         ----------
@@ -2699,7 +2816,7 @@ class Bvh:
 
     def smoothness(self, joint: str, metric: str = "sparc", *,
                    coords: npt.NDArray[np.float64] | None = None,
-                   **kwargs: float) -> float:
+                   **kwargs: Any) -> float:
         """Smoothness of ``joint``'s speed profile. See :func:`pybvh.analysis.smoothness`.
 
         Computes the joint's per-frame speed ``‖velocity‖`` and passes it
@@ -2713,7 +2830,11 @@ class Bvh:
         ``"sparc"`` accepts ``padlevel`` (FFT zero-padding exponent,
         default ``4``), ``fc`` (max cutoff frequency in Hz, default
         ``10.0``) and ``amp_th`` (amplitude threshold, default ``0.05``);
-        the other metrics take none."""
+        ``"dimensionless_jerk"`` and ``"log_dimensionless_jerk"`` accept
+        ``normalize`` (``"peak_speed"`` default, ``"mean_speed"`` or
+        ``"amplitude"``) and ``amplitude``; ``"number_of_peaks"``
+        accepts ``min_height`` (minimum height for a maximum to count;
+        default counts all). The remaining metrics take none."""
         from . import analysis
         vel = self.node_velocities(coords=coords)
         speed = np.linalg.norm(vel[:, self._descriptor_index(joint), :], axis=-1)
@@ -2734,7 +2855,9 @@ class Bvh:
     def skeleton_size(self, foot_joints: list[str] | None = None) -> float:
         """Absolute skeleton scale — mean rest-pose root-to-foot distance.
 
-        See :func:`pybvh.analysis.skeleton_size`."""
+        Raises ``ValueError`` for a skeleton whose size cannot be
+        measured (no feet found, or all feet on the root) rather than
+        returning a substitute. See :func:`pybvh.analysis.skeleton_size`."""
         from . import analysis
         return analysis.skeleton_size(self, foot_joints=foot_joints)
 
@@ -2793,13 +2916,22 @@ class Bvh:
         return transforms.translate_root(self, offset, inplace=inplace)  # type: ignore[call-overload, return-value]
 
     @overload
-    def add_noise(self, sigma: float, *, sigma_pos: float = ..., rng: np.random.Generator | None = ..., inplace: Literal[True], wrap: bool = ...) -> None: ...
+    def add_rotation_noise(self, sigma: float, *, rng: np.random.Generator | None = ..., inplace: Literal[True], wrap: bool = ..., degrees: bool = ...) -> None: ...
     @overload
-    def add_noise(self, sigma: float, sigma_pos: float = ..., rng: np.random.Generator | None = ..., inplace: Literal[False] = ..., wrap: bool = ...) -> Bvh: ...
-    def add_noise(self, sigma: float, sigma_pos: float = 0.0, rng: np.random.Generator | None = None, inplace: bool = False, wrap: bool = False) -> Bvh | None:
-        """Add Gaussian noise (``sigma`` in radians) to joint angles.  See :func:`pybvh.transforms.add_noise`."""
+    def add_rotation_noise(self, sigma: float, rng: np.random.Generator | None = ..., inplace: Literal[False] = ..., wrap: bool = ..., degrees: bool = ...) -> Bvh: ...
+    def add_rotation_noise(self, sigma: float, rng: np.random.Generator | None = None, inplace: bool = False, wrap: bool = False, degrees: bool = False) -> Bvh | None:
+        """Add Gaussian noise (``sigma`` in radians, or degrees with ``degrees=True``) to joint angles.  See :func:`pybvh.transforms.add_rotation_noise`."""
         from . import transforms
-        return transforms.add_noise(self, sigma, sigma_pos=sigma_pos, rng=rng, inplace=inplace, wrap=wrap)  # type: ignore[call-overload, return-value]
+        return transforms.add_rotation_noise(self, sigma, rng=rng, inplace=inplace, wrap=wrap, degrees=degrees)  # type: ignore[call-overload, return-value]
+
+    @overload
+    def add_position_noise(self, sigma: float, *, rng: np.random.Generator | None = ..., inplace: Literal[True]) -> None: ...
+    @overload
+    def add_position_noise(self, sigma: float, rng: np.random.Generator | None = ..., inplace: Literal[False] = ...) -> Bvh: ...
+    def add_position_noise(self, sigma: float, rng: np.random.Generator | None = None, inplace: bool = False) -> Bvh | None:
+        """Add Gaussian noise (``sigma`` in the skeleton's length unit) to the root translation.  See :func:`pybvh.transforms.add_position_noise`."""
+        from . import transforms
+        return transforms.add_position_noise(self, sigma, rng=rng, inplace=inplace)  # type: ignore[call-overload, return-value]
 
     def perturb_speed(self, factor: float) -> Bvh:
         """Change motion speed by resampling.  See :func:`pybvh.transforms.perturb_speed`."""
@@ -2816,13 +2948,13 @@ class Bvh:
         return transforms.drop_frames(self, drop_rate, rng=rng, inplace=inplace)  # type: ignore[call-overload, return-value]
 
     @overload
-    def rotate_vertical(self, angle: float, *, up_axis: str | None = ..., degrees: bool = ..., inplace: Literal[True]) -> None: ...
+    def rotate_vertical(self, angle: float, *, up_axis: str | None = ..., degrees: bool = ..., pivot: str | npt.ArrayLike = ..., inplace: Literal[True]) -> None: ...
     @overload
-    def rotate_vertical(self, angle: float, up_axis: str | None = ..., degrees: bool = ..., inplace: Literal[False] = ...) -> Bvh: ...
-    def rotate_vertical(self, angle: float, up_axis: str | None = None, degrees: bool = False, inplace: bool = False) -> Bvh | None:
-        """Rotate entire motion around the vertical axis (``angle`` in radians).  See :func:`pybvh.transforms.rotate_vertical`."""
+    def rotate_vertical(self, angle: float, up_axis: str | None = ..., degrees: bool = ..., pivot: str | npt.ArrayLike = ..., inplace: Literal[False] = ...) -> Bvh: ...
+    def rotate_vertical(self, angle: float, up_axis: str | None = None, degrees: bool = False, pivot: str | npt.ArrayLike = "origin", inplace: bool = False) -> Bvh | None:
+        """Rotate entire motion around the vertical axis (``angle`` in radians), about the world origin or ``pivot=``.  See :func:`pybvh.transforms.rotate_vertical`."""
         from . import transforms
-        return transforms.rotate_vertical(self, angle, up_axis=up_axis, degrees=degrees, inplace=inplace)  # type: ignore[call-overload, return-value]
+        return transforms.rotate_vertical(self, angle, up_axis=up_axis, degrees=degrees, pivot=pivot, inplace=inplace)  # type: ignore[call-overload, return-value]
 
     @overload
     def mirror(self, *, lr_mapping: dict[str, str] | None = ..., lateral_axis: str | None = ..., inplace: Literal[True]) -> None: ...
@@ -2838,10 +2970,10 @@ class Bvh:
         from . import transforms
         return transforms.random_translate_root(self, offset_range=offset_range, rng=rng)
 
-    def random_rotate_vertical(self, angle_range: tuple[float, float] = (-np.pi, np.pi), up_axis: str | None = None, degrees: bool = False, rng: np.random.Generator | None = None) -> Bvh:
+    def random_rotate_vertical(self, angle_range: tuple[float, float] = (-np.pi, np.pi), up_axis: str | None = None, degrees: bool = False, pivot: str | npt.ArrayLike = "origin", rng: np.random.Generator | None = None) -> Bvh:
         """Rotate motion by a random angle around the vertical axis (radians).  See :func:`pybvh.transforms.random_rotate_vertical`."""
         from . import transforms
-        return transforms.random_rotate_vertical(self, angle_range=angle_range, up_axis=up_axis, degrees=degrees, rng=rng)
+        return transforms.random_rotate_vertical(self, angle_range=angle_range, up_axis=up_axis, degrees=degrees, pivot=pivot, rng=rng)
 
     def random_perturb_speed(self, factor_range: tuple[float, float] = (0.8, 1.2), rng: np.random.Generator | None = None) -> Bvh:
         """Apply a random speed change.  See :func:`pybvh.transforms.random_perturb_speed`."""

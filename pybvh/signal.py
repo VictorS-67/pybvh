@@ -95,6 +95,17 @@ def temporal_stats(
     kurtosis are computed by hand (no scipy). Where the std is ~0 (a
     constant signal) skewness and kurtosis are ``nan``.
 
+    All estimators are the **population** (biased) forms: ``std`` uses
+    ``ddof=0``, and the moments are plain ``1/N`` sums, giving
+    ``g₁ = m₃/s³`` and ``g₂ = m₄/s⁴ − 3``. The bias-corrected **sample**
+    forms — what ``pandas.Series.skew()`` / ``.kurt()`` / ``.std()``
+    return, and what scipy gives with ``bias=False`` — carry extra
+    ``N``-dependent factors and differ materially on short signals
+    (converging as ``N`` grows). Kurtosis is *excess* (normal ⇒ 0), not
+    raw (normal ⇒ 3). The population convention matches ``cov3dj`` and
+    the rest of pybvh's descriptors, which treat a clip as the whole
+    population rather than a sample of one.
+
     Parameters
     ----------
     signal : ndarray
@@ -129,9 +140,18 @@ def box_filter_smooth(
 ) -> npt.NDArray[np.float64]:
     """Moving-average smoothing with a box kernel of width ``window``.
 
-    Edge samples are handled by edge-padding so the output keeps the input
-    length. Fully vectorized via a cumulative-sum sliding window (no Python
-    loop over the signal).
+    Edge samples are handled by edge-padding (the alternatives — reflect,
+    zero-pad, or a shrinking window at the ends — bias the first and last
+    samples differently) so the output keeps the input length. Fully
+    vectorized via a cumulative-sum sliding window (no Python loop over
+    the signal).
+
+    An **even** ``window`` cannot be centered on a sample; this takes the
+    extra sample from the future (``(window-1)//2`` back,
+    ``window//2`` forward), so the output leads the input by half a
+    sample. The mirror choice lags by the same amount. Use an odd window
+    when that half-sample matters, or when matching another
+    implementation's even-window output.
 
     Parameters
     ----------
@@ -177,8 +197,18 @@ def fft_magnitude(
     signal: npt.NDArray[np.float64],
     fs: float = 1.0,
     axis: int = 0,
+    *,
+    norm: str = "backward",
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """One-sided FFT magnitude spectrum of a real signal.
+
+    The default is **unnormalized** — the raw ``|rfft(signal)|``, with
+    no rectangular window correction and no scaling. Raw magnitude
+    scales with signal length, so values are comparable across bins and
+    across signals of the *same* length only; select a normalization
+    via ``norm`` before comparing spectra of different lengths or
+    against published amplitudes. :func:`sparc` normalizes by its own
+    peak, so this choice does not affect it.
 
     Parameters
     ----------
@@ -188,17 +218,53 @@ def fft_magnitude(
         Sampling rate in Hz (default 1.0).
     axis : int, optional
         Axis to transform along (default 0).
+    norm : {"backward", "ortho", "forward", "amplitude"}, keyword-only, optional
+        Normalization of the returned magnitude. The first three follow
+        numpy's ``rfft`` vocabulary: ``"backward"`` (default) applies no
+        scaling — the raw ``|rfft|``; ``"ortho"`` divides by ``√N``;
+        ``"forward"`` divides by ``N``. ``"amplitude"`` is the
+        single-sided amplitude spectrum the signal-processing literature
+        plots — ``2|X|/N``, with the DC bin (and the Nyquist bin, for
+        even ``N``) *not* doubled, since those frequencies have no
+        negative-frequency twin to fold in — so a pure sine of amplitude
+        ``A`` peaks at ``A``. Note ``"amplitude"`` is **not** one of
+        numpy's norms: numpy's ``"forward"`` lacks the one-sided
+        doubling, so it reads half the sine's amplitude.
 
     Returns
     -------
     freqs : ndarray, shape (T//2 + 1,)
         Non-negative frequency bins in Hz.
     magnitude : ndarray
-        ``|rfft(signal)|`` along ``axis``.
+        ``|rfft(signal)|`` along ``axis``, scaled per ``norm``.
+
+    Raises
+    ------
+    ValueError
+        If ``norm`` is not one of the four options.
     """
     signal = np.asarray(signal, dtype=np.float64)
+    n = signal.shape[axis]
     magnitude = np.abs(np.fft.rfft(signal, axis=axis))
-    freqs = np.fft.rfftfreq(signal.shape[axis], d=1.0 / fs)
+    if norm == "ortho":
+        magnitude /= np.sqrt(n)
+    elif norm == "forward":
+        magnitude /= n
+    elif norm == "amplitude":
+        magnitude *= 2.0 / n
+        # DC (and Nyquist, when it exists as its own bin) appear once in
+        # the full spectrum, so folding to one side must not double them.
+        edge = [slice(None)] * magnitude.ndim
+        edge[axis] = 0
+        magnitude[tuple(edge)] /= 2.0
+        if n % 2 == 0:
+            edge[axis] = -1
+            magnitude[tuple(edge)] /= 2.0
+    elif norm != "backward":
+        raise ValueError(
+            f"norm must be 'backward', 'ortho', 'forward' or 'amplitude', "
+            f"got {norm!r}")
+    freqs = np.fft.rfftfreq(n, d=1.0 / fs)
     return freqs, magnitude
 
 
@@ -210,6 +276,14 @@ def dominant_frequency(
     """Frequency (Hz) of the largest non-DC spectral component.
 
     The DC bin is excluded so a non-zero mean doesn't dominate.
+
+    The peak is the argmax of the raw spectrum at native bin resolution
+    ``fs / T``: no zero-padding, no window, no sub-bin interpolation.
+    Resolution is therefore ``fs / T``, and rectangular-window leakage
+    can move the winning bin for a tone falling between bins — pad the
+    signal or use quadratic peak interpolation if you need better than
+    bin precision. Exact ties go to the **lowest** frequency
+    (``np.argmax``).
 
     Parameters
     ----------

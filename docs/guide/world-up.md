@@ -83,14 +83,15 @@ lefts    = [bvh.left_at(f,    coords=coords) for f in range(bvh.frame_count)]
 
 ## facing_frame() — the continuous basis
 
-`forward_at()` / `left_at()` snap the facing direction to the nearest of the six signed world axes — useful for canonicalization checks, but lossy: through a gentle turn the label stays constant while the true facing rotates. `bvh.facing_frame()` returns the same construction *before* the snap, as a `FacingFrame(forward, left, up)` named tuple of three `(F, 3)` unit-vector arrays — a per-frame orthonormal right-handed basis (`forward × left = up`):
+`forward_at()` / `left_at()` snap the facing direction to the nearest of the six signed world axes — useful for canonicalization checks, but lossy: through a gentle turn the label stays constant while the true facing rotates. `bvh.facing_frame()` returns the same construction *before* the snap, as a `FacingFrame(forward, left, up, valid)` named tuple: three `(F, 3)` unit-vector arrays — a per-frame orthonormal right-handed basis (`forward × left = up`) — plus a `(F,)` bool array that is `False` on frames whose basis is the constant fallback rather than a measurement:
 
 ```python
 frame = bvh.facing_frame()        # or bvh.facing_frame(coords=coords)
 frame.forward[120]                # continuous facing vector at frame 120
+frame.valid[120]                  # False if that vector is the fallback
 ```
 
-This is a yaw-only, gravity-aligned *facing* frame: `up` is always exactly `world_up`, so the basis only rotates about the vertical — it is deliberately not a pelvis orientation (no roll/pitch), and distinct from `root_trajectory()`'s travel heading (a side-stepping character faces one way while moving another). Frames with no usable L/R direction fall back to the same chain as `forward_at()`; see [`analysis.facing_frame`](../api/analysis.md#pybvh.analysis.facing_frame) for the full policy.
+This is a yaw-only, gravity-aligned *facing* frame: `up` is always exactly `world_up`, so the basis only rotates about the vertical — it is deliberately not a pelvis orientation (no roll/pitch), and distinct from `root_trajectory()`'s heading, which is a second facing estimate built differently (the root bone's rotation applied to the rest forward — it inherits pelvis twist and is not a direction of travel). Frames with no usable L/R direction fall back to the same chain as `forward_at()` and are flagged in `valid`; see [`analysis.facing_frame`](../api/analysis.md#pybvh.analysis.facing_frame) for the full policy.
 
 ## Rest-pose axes: rest_up and rest_forward
 

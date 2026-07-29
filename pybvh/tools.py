@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import warnings
+from collections import namedtuple
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -159,7 +160,9 @@ def extract_sign(ax: str) -> bool:
 #   (_signed_rotation_delta_around_axis is the scalar angle helper the
 #    follow camera's vectorized delta math mirrors.)
 #
-# Public surface: ONLY `Bvh.world_up` (property + setter),
+# Public surface: `Axis` / `parse_axis` (re-exported as `pybvh.Axis` /
+# `pybvh.parse_axis`), `Bvh.world_up` (property + setter), the parsed
+# `Bvh.up_axis` / `Bvh.forward_axis` / `Bvh.rest_up_axis` properties,
 # `Bvh.forward_at(frame=0)` / `Bvh.left_at(frame=0)` (methods), and — via
 # `analysis.facing_frame` — the continuous vector basis. Everything else is
 # underscore-prefixed and intended for internal use by pybvh modules.
@@ -169,6 +172,18 @@ _VALID_AXIS_STRINGS = frozenset(
     {'+x', '-x', '+y', '-y', '+z', '-z'})
 
 _AXIS_CHAR_TO_IDX = {'x': 0, 'y': 1, 'z': 2}
+
+Axis = namedtuple("Axis", ["index", "sign", "vector"])
+Axis.__doc__ = """A signed coordinate axis parsed into machine-usable form.
+
+The parsed counterpart of pybvh's signed axis strings (``'+y'``, ``'-z'``), produced by :func:`pybvh.parse_axis` and returned by :attr:`Bvh.up_axis`, :attr:`Bvh.forward_axis` and :attr:`Bvh.rest_up_axis`.
+
+Fields: ``index`` (int, 0/1/2 — the axis's column in any ``(..., 3)`` coordinate array), ``sign`` (float, ``+1.0`` / ``-1.0`` — multiply by it to make the coordinate positive along the axis direction), ``vector`` (float64 ``(3,)`` unit vector along the axis, sign included).
+
+A plain named tuple: construct one directly for a synthetic skeleton or a test, unpack it as ``index, sign, vector = axis``, or read the fields by name.
+
+Comparing two ``Axis`` values with ``==`` raises, because tuple equality reaches the ``vector`` field and NumPy will not reduce an array to a single truth value. Compare ``(index, sign)`` instead — those two fields determine the axis completely, and ``vector`` is derived from them.
+"""
 
 # Arbitrary-but-stable horizontal forward per up axis, used when a
 # skeleton carries no L/R orientation information at all.
@@ -188,6 +203,46 @@ def _axis_index_sign(ax: str) -> tuple[int, float]:
     The scalar companion of :func:`_axis_to_vector`: ``index`` selects the coordinate column, ``sign`` (``+1.0`` / ``-1.0``) restores the direction, so ``coords[..., index] * sign`` is the up-positive height. The single parsing implementation behind :attr:`Bvh.up_axis` and the internal up-axis consumers.
     """
     return _AXIS_CHAR_TO_IDX[ax[1]], 1.0 if ax[0] == '+' else -1.0
+
+
+def parse_axis(axis: str, *, allow_unsigned: bool = False) -> Axis:
+    """Parse a signed axis string into an :class:`Axis`.
+
+    The public form of the parser behind :attr:`Bvh.up_axis` and friends,
+    for code that holds an axis string of its own — a dataset convention
+    from a config file, or one of the axis strings pybvh returns.
+
+    Parameters
+    ----------
+    axis : str
+        Signed axis string: ``'+x'``, ``'-x'``, ``'+y'``, ``'-y'``,
+        ``'+z'``, ``'-z'``. The axis letter is case-insensitive.
+    allow_unsigned : bool, optional
+        If True, also accept a bare letter (``'x'``), reading it as the
+        positive direction. Default False — a bare letter states no
+        direction, and defaulting it to positive invents one the caller
+        did not ask for. Use it only where the sign is genuinely
+        irrelevant, as for ``mirror``'s ``lateral_axis``.
+
+    Returns
+    -------
+    Axis
+        The parsed ``(index, sign, vector)`` triple.
+
+    Raises
+    ------
+    ValueError
+        If ``axis`` is not one of the accepted strings.
+
+    Examples
+    --------
+    >>> parse_axis('-z').index, parse_axis('-z').sign
+    (2, -1.0)
+    >>> heights = coords[..., up.index] * up.sign   # up = parse_axis('-y')
+    """
+    normalized = _validate_axis_string(axis, allow_unsigned=allow_unsigned)
+    index, sign = _axis_index_sign(normalized)
+    return Axis(index, sign, _axis_to_vector(normalized))
 
 
 def _rest_upward(bvh: Bvh) -> str | None:
@@ -543,11 +598,29 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
     # Compute rest-pose topology once; used both as fallback and as the
     # reference to compare against when emitting the disagreement warning.
     rest_up = _rest_upward(bvh)
-    fallback_up = rest_up if rest_up is not None else '+y'
+
+    def fallback() -> str:
+        """The rest-pose axis, or the house default when there is none."""
+        if rest_up is not None:
+            return rest_up
+        # Neither the animation nor the rest pose said anything, so '+y'
+        # is invented, not measured, and the returned string cannot say
+        # so — same silent substitution _fallback_forward_vector warns
+        # about, same treatment.
+        warnings.warn(
+            "Could not infer a world up axis: this skeleton has no "
+            "recognizable head/neck/chest/spine joint to read the first "
+            "frame from, and its rest pose is degenerate (single node, or "
+            "all offsets coincident). Falling back to '+y', the house "
+            "default — anything derived from up (floor_height, "
+            "foot_contacts, facing, ground-plane projections) rests on a "
+            "guess here. Set `bvh.world_up = '<axis>'` to fix it.",
+            UserWarning, stacklevel=3)
+        return '+y'
 
     # Need animation frames to do first-frame inference
     if bvh.frame_count == 0:
-        return fallback_up
+        return fallback()
 
     # Try to find a "head-ish" and "hips-ish" joint in the skeleton.
     # Priority: head -> neck -> last joint in spine chain.
@@ -561,7 +634,7 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
     hips_idx = 0
 
     if head_idx is None or head_idx == hips_idx:
-        return fallback_up
+        return fallback()
 
     frame0 = bvh.node_positions(frame=0)
     head_hips = frame0[head_idx] - frame0[hips_idx]
@@ -572,12 +645,12 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
     abs_components = np.abs(head_hips)
     sorted_abs = np.sort(abs_components)
     if sorted_abs[-1] < 2.0 * sorted_abs[-2] or sorted_abs[-1] < 1e-6:
-        return fallback_up
+        return fallback()
 
     # Clear winner from animation data
     frame_up = get_main_direction(head_hips)
     if frame_up is None:
-        return fallback_up
+        return fallback()
 
     # Warn if rest-pose topology disagrees (different dominant axis)
     if warn and rest_up is not None and rest_up[1] != frame_up[1]:
@@ -668,6 +741,53 @@ def _world_leftward_unit_at_frame(
     return leftward[0]
 
 
+def _rest_forward_from_topology(
+    bvh: Bvh,
+    world_up: str,
+) -> npt.NDArray[np.float64] | None:
+    """Forward measured from the topological rest leftward, or ``None``.
+
+    The middle step of the facing fallback chain: :func:`_rest_leftward`
+    (the L/R axis measured against the *rest-pose* up) crossed with
+    ``world_up``. Returns ``None`` when there is no usable rest leftward,
+    or when it is (anti)parallel to ``world_up`` — possible when
+    rest-pose topology and ``world_up`` disagree — i.e. exactly the
+    cases where the caller must fall through to the arbitrary
+    ``_FALLBACK_FORWARD`` default. Shared by
+    :func:`_fallback_forward_vector` (which does the falling through)
+    and :func:`_facing_is_measured` (which reports it), so the warning
+    and the predicate cannot disagree about what counts as measured.
+    """
+    rest_left = _rest_leftward(bvh)
+    if rest_left is None:
+        return None
+    forward = np.cross(_axis_to_vector(rest_left), _axis_to_vector(world_up))
+    # Cross of two distinct signed axes is exactly a unit axis vector;
+    # it is zero only in the (anti)parallel case described above.
+    if float(np.linalg.norm(forward)) < 1e-6:
+        return None
+    return forward
+
+
+def _facing_is_measured(bvh: Bvh, world_up: str) -> bool:
+    """Whether the rest-pose facing chain measures this skeleton.
+
+    ``True`` exactly when :attr:`Bvh.rest_forward` derives from the
+    skeleton's L/R geometry — either the rest-pose L/R offsets give a
+    usable leftward against ``world_up`` directly, or the topological
+    rest leftward crossed with ``world_up`` does. ``False`` exactly when
+    that chain bottoms out in the warned ``_FALLBACK_FORWARD`` house
+    default. The implementation walks the same two measuring steps
+    :func:`_compute_forward_at` walks on the rest pose, so the predicate
+    tracks the fallback by construction rather than by parallel logic.
+    """
+    rest_leftward = _world_leftward_unit_at_frame(
+        bvh, bvh.rest_pose_positions(), world_up)
+    if rest_leftward is not None:
+        return True
+    return _rest_forward_from_topology(bvh, world_up) is not None
+
+
 def _fallback_forward_vector(
     bvh: Bvh,
     world_up: str,
@@ -682,17 +802,24 @@ def _fallback_forward_vector(
     Always axis-aligned and perpendicular to ``world_up``, so snapping
     it reproduces the string fallback exactly.
     """
-    up_vec = _axis_to_vector(world_up)
-    rest_left = _rest_leftward(bvh)
-    if rest_left is not None:
-        forward = np.cross(_axis_to_vector(rest_left), up_vec)
-        # Cross of two distinct signed axes is exactly a unit axis
-        # vector; it is zero only when rest_left is (anti)parallel to
-        # world_up (possible when rest-pose topology and world_up
-        # disagree), in which case fall through.
-        if float(np.linalg.norm(forward)) >= 1e-6:
-            return forward
-    return _axis_to_vector(_FALLBACK_FORWARD[world_up[1]])
+    forward = _rest_forward_from_topology(bvh, world_up)
+    if forward is not None:
+        return forward
+    fallback = _FALLBACK_FORWARD[world_up[1]]
+    # The returned axis is a house default, not a measurement, and the
+    # return type cannot say so — mirroring `_infer_world_up`, which warns
+    # on the same class of silent substitution. Python's default filter
+    # shows this once per call site, so per-frame consumers stay quiet.
+    warnings.warn(
+        f"No usable left/right geometry on this skeleton, so its facing "
+        f"direction cannot be measured; falling back to {fallback!r}, the "
+        f"arbitrary-but-stable horizontal axis for world_up={world_up!r}. "
+        f"Anything derived from facing (rest_forward, forward_axis, "
+        f"forward_at, left_at, facing_frame) is a default here, not a "
+        f"property of this file. Set `bvh.lr_mapping = {{...}}` to fix it, "
+        f"or check `bvh.has_lr_geometry` to detect it.",
+        UserWarning, stacklevel=2)
+    return _axis_to_vector(fallback)
 
 
 def _facing_basis(
@@ -700,7 +827,7 @@ def _facing_basis(
     coords: npt.NDArray[np.float64],
     world_up: str,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64],
-           npt.NDArray[np.float64]]:
+           npt.NDArray[np.float64], npt.NDArray[np.bool_]]:
     """Vectorized per-frame facing basis — the geometry under ``facing_frame``.
 
     Builds the right-handed orthonormal triple from the leftward
@@ -708,7 +835,9 @@ def _facing_basis(
     ``up`` = the exact ``world_up`` unit vector on every frame. Frames
     flagged invalid by :func:`_world_leftward_units` receive the
     constant :func:`_fallback_forward_vector` basis instead — the same
-    fallback chain the axis-string snappers use.
+    fallback chain the axis-string snappers use — and are reported as
+    such in ``valid``, which is passed through unchanged so the report
+    tracks the fallback by construction.
 
     Parameters
     ----------
@@ -724,6 +853,8 @@ def _facing_basis(
     forward, left, up : ndarray of shape (F, 3) each
         Unit vectors forming a right-handed basis per frame
         (``forward × left = up``).
+    valid : ndarray of shape (F,), bool
+        False on the rows that carry the constant fallback basis.
     """
     up_vec = _axis_to_vector(world_up)
     leftward, valid = _world_leftward_units(bvh, coords, world_up)
@@ -739,7 +870,7 @@ def _facing_basis(
         left[~valid] = np.cross(up_vec, fallback_forward)
 
     up = np.tile(up_vec, (coords.shape[0], 1))
-    return forward, left, up
+    return forward, left, up, valid
 
 
 def _signed_rotation_delta_around_axis(
@@ -853,9 +984,11 @@ def _compute_left_at(
     if rest_left is not None:
         return rest_left
 
-    # No usable L/R information — derive left from the fallback
-    # forward via the right-hand rule (leftward = up × forward).
-    fwd_vec = _axis_to_vector(_FALLBACK_FORWARD[world_up[1]])
+    # No usable L/R information — derive left from the fallback forward
+    # via the right-hand rule (leftward = up × forward). Routed through
+    # _fallback_forward_vector so this path emits the same warning: a
+    # defaulted "left" is exactly as unmeasured as a defaulted forward.
+    fwd_vec = _fallback_forward_vector(bvh, world_up)
     up_vec = _axis_to_vector(world_up)
     left_ax = get_main_direction(np.cross(up_vec, fwd_vec))
     assert left_ax is not None  # axis-aligned cross never degenerate

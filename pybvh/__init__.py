@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-__version__ = "0.8.0"
+__version__ = "0.8.1"
 
 from .bvh import Bvh
+from .tools import Axis, parse_axis
 from .io import read_bvh_file, write_bvh_file
 from .df_to_bvh import df_to_bvh
 from .spatial_coord import frames_to_node_positions

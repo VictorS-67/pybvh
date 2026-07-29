@@ -1922,3 +1922,136 @@ class TestArbitraryBatchDimensions:
         recovered = rotations.rot6d_to_euler(rot6d, 'ZYX', degrees=True)
         R_recov = rotations.euler_to_rotmat(recovered, 'ZYX', degrees=True)
         np.testing.assert_allclose(R_recov, R_orig, atol=1e-6)
+
+
+# =============================================================================
+# Convention-choice items: quaternion hemisphere and slerp arc
+# (FUTURE_PLANS "Convention-choice audit" items 1 and 2)
+# =============================================================================
+
+class TestQuatUnwrap:
+    """rotations.quat_unwrap — sequence continuity over the w>=0 canonical form."""
+
+    @staticmethod
+    def _sweep_through_180(n=9):
+        """A joint turning smoothly through 180 deg — monotonic Euler input."""
+        angles = np.zeros((n, 3))
+        angles[:, 0] = np.radians(np.linspace(140.0, 220.0, n))
+        return rotations.euler_to_rotmat(angles, "xyz")
+
+    def test_canonical_form_is_discontinuous_through_180(self):
+        """The motivating defect: smooth motion, jumping representation."""
+        q = rotations.rotmat_to_quat(self._sweep_through_180())
+        assert (q[..., 0] >= 0).all()                      # canonical form holds
+        assert (np.sum(q[1:] * q[:-1], axis=-1) < 0).any()  # ...and it flips
+
+    def test_unwrap_removes_the_flip(self):
+        q = rotations.rotmat_to_quat(self._sweep_through_180())
+        u = rotations.quat_unwrap(q)
+        assert (np.sum(u[1:] * u[:-1], axis=-1) >= 0).all()
+
+    def test_unwrap_preserves_every_rotation(self):
+        R = self._sweep_through_180()
+        u = rotations.quat_unwrap(rotations.rotmat_to_quat(R))
+        np.testing.assert_allclose(rotations.quat_to_rotmat(u), R, atol=1e-12)
+
+    def test_unwrap_only_negates_never_alters(self):
+        q = rotations.rotmat_to_quat(self._sweep_through_180())
+        u = rotations.quat_unwrap(q)
+        np.testing.assert_allclose(np.abs(u), np.abs(q), atol=1e-15)
+
+    def test_unwrap_does_not_modify_input(self):
+        q = rotations.rotmat_to_quat(self._sweep_through_180())
+        before = q.copy()
+        rotations.quat_unwrap(q)
+        np.testing.assert_array_equal(q, before)
+
+    def test_unwrap_batches_each_sequence_independently(self):
+        rng = np.random.default_rng(0)
+        q = rotations.rotmat_to_quat(rotations.euler_to_rotmat(
+            rng.uniform(-np.pi, np.pi, size=(40, 5, 3)), "xyz"))
+        batched = rotations.quat_unwrap(q)
+        looped = np.stack([rotations.quat_unwrap(q[:, j]) for j in range(5)],
+                          axis=1)
+        np.testing.assert_array_equal(batched, looped)
+        assert (np.sum(batched[1:] * batched[:-1], axis=-1) >= 0).all()
+
+    def test_unwrap_honours_a_non_zero_axis(self):
+        rng = np.random.default_rng(1)
+        q = rotations.rotmat_to_quat(rotations.euler_to_rotmat(
+            rng.uniform(-np.pi, np.pi, size=(30, 4, 3)), "xyz"))
+        moved = np.moveaxis(q, 0, 1)                    # (J, F, 4)
+        np.testing.assert_array_equal(
+            np.moveaxis(rotations.quat_unwrap(moved, axis=1), 1, 0),
+            rotations.quat_unwrap(q))
+
+    def test_unwrap_single_element_sequence_is_a_noop(self):
+        q = np.array([[0.0, 0.0, 0.0, 1.0]])
+        np.testing.assert_array_equal(rotations.quat_unwrap(q), q)
+
+    def test_unwrap_rejects_bad_shape_and_component_axis(self):
+        with pytest.raises(ValueError, match=r"shape \(\*, 4\)"):
+            rotations.quat_unwrap(np.zeros((4, 3)))
+        with pytest.raises(ValueError, match="component axis"):
+            rotations.quat_unwrap(np.zeros((4, 4)), axis=-1)
+        with pytest.raises(ValueError, match="component axis"):
+            rotations.quat_unwrap(np.zeros((4, 4)), axis=1)
+
+
+class TestSlerpArcChoice:
+    """rotations.quat_slerp(shortest=) — which of the two arcs to travel."""
+
+    @staticmethod
+    def _pair_270_apart():
+        """q1, q2 whose signs describe the 270 deg arc (short way is 90)."""
+        q1 = rotations.rotmat_to_quat(
+            rotations.euler_to_rotmat(np.array([0.0, 0.0, 0.0]), "xyz"))
+        q2 = rotations.rotmat_to_quat(
+            rotations.euler_to_rotmat(np.radians([270.0, 0.0, 0.0]), "xyz"))
+        return q1, (-q2 if np.dot(q1, q2) > 0 else q2)
+
+    def _degrees_from(self, a, b):
+        return np.degrees(rotations.rotation_geodesic_distance(
+            rotations.quat_to_rotmat(a), rotations.quat_to_rotmat(b)))
+
+    def test_default_takes_the_short_way(self):
+        q1, q2 = self._pair_270_apart()
+        mid = rotations.quat_slerp(q1, q2, 0.5)
+        assert self._degrees_from(q1, mid) == pytest.approx(45.0, abs=1e-6)
+
+    def test_shortest_false_preserves_the_long_turn(self):
+        q1, q2 = self._pair_270_apart()
+        mid = rotations.quat_slerp(q1, q2, 0.5, shortest=False)
+        assert self._degrees_from(q1, mid) == pytest.approx(135.0, abs=1e-6)
+
+    def test_the_flag_is_irrelevant_below_180(self):
+        q1 = rotations.rotmat_to_quat(
+            rotations.euler_to_rotmat(np.array([0.0, 0.0, 0.0]), "xyz"))
+        q2 = rotations.rotmat_to_quat(
+            rotations.euler_to_rotmat(np.radians([60.0, 0.0, 0.0]), "xyz"))
+        np.testing.assert_allclose(
+            rotations.quat_slerp(q1, q2, 0.5, shortest=True),
+            rotations.quat_slerp(q1, q2, 0.5, shortest=False), atol=1e-15)
+
+    def test_both_arcs_still_hit_the_endpoints(self):
+        q1, q2 = self._pair_270_apart()
+        for shortest in (True, False):
+            start = rotations.quat_slerp(q1, q2, 0.0, shortest=shortest)
+            end = rotations.quat_slerp(q1, q2, 1.0, shortest=shortest)
+            assert self._degrees_from(q1, start) == pytest.approx(0.0, abs=1e-6)
+            assert self._degrees_from(q2, end) == pytest.approx(0.0, abs=1e-6)
+
+    def test_resample_keeps_the_short_arc(self, ):
+        """Bvh.resample depends on the default; a motion must never detour."""
+        bvh = read_bvh_file(Path(__file__).parent.parent / "bvh_data"
+                            / "bvh_example.bvh")
+        resampled = bvh.resample(bvh.fps * 2.0)
+        _, q = resampled.to_quat()
+        # a doubled frame rate can only interpolate between existing poses,
+        # so no interpolated step may exceed the largest original step
+        _, q0 = bvh.to_quat()
+        orig_max = np.degrees(np.arccos(np.clip(
+            np.abs(np.sum(q0[1:] * q0[:-1], axis=-1)), 0, 1))).max() * 2
+        step = np.degrees(np.arccos(np.clip(
+            np.abs(np.sum(q[1:] * q[:-1], axis=-1)), 0, 1))).max() * 2
+        assert step <= orig_max + 1e-6

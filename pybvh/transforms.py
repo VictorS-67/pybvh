@@ -109,38 +109,41 @@ def random_translate_root(
 # 6.4  Joint Noise Injection
 # =========================================================================
 
+# Rotation noise and position noise are separate functions because their
+# sigmas are in different units — radians and the skeleton's length unit.
+# A single call taking both meant `degrees=` had to apply to one argument
+# and not the other, which is the shape of a unit bug waiting to happen.
+
 @overload
-def add_noise(
-    bvh: Bvh, sigma: float, *, sigma_pos: float = ...,
+def add_rotation_noise(
+    bvh: Bvh, sigma: float, *,
     rng: np.random.Generator | None = ..., inplace: Literal[True],
-    wrap: bool = ...,
+    wrap: bool = ..., degrees: bool = ...,
 ) -> None: ...
 @overload
-def add_noise(
-    bvh: Bvh, sigma: float, sigma_pos: float = ...,
+def add_rotation_noise(
+    bvh: Bvh, sigma: float,
     rng: np.random.Generator | None = ..., inplace: Literal[False] = ...,
-    wrap: bool = ...,
+    wrap: bool = ..., degrees: bool = ...,
 ) -> Bvh: ...
-def add_noise(
+def add_rotation_noise(
     bvh: Bvh,
     sigma: float,
-    sigma_pos: float = 0.0,
     rng: np.random.Generator | None = None,
     inplace: bool = False,
     wrap: bool = False,
+    degrees: bool = False,
 ) -> Bvh | None:
-    """Add Gaussian noise to joint rotation angles.
+    """Add zero-mean Gaussian noise to joint rotation angles.
 
     Parameters
     ----------
     bvh : Bvh
         Input motion.
     sigma : float
-        Standard deviation of the rotation noise in **radians**, added
-        to ``joint_angles``.
-    sigma_pos : float, optional
-        Standard deviation of noise added to ``root_pos``
-        (default 0 — no position noise).
+        Standard deviation of the rotation noise in **radians** (or
+        degrees if ``degrees=True``), added to ``joint_angles``.
+        ``0`` is a no-op and draws nothing from ``rng``.
     rng : numpy.random.Generator or None
         Random generator for reproducibility.
     inplace : bool, optional
@@ -150,31 +153,87 @@ def add_noise(
         BVH channels can legitimately hold values outside that range
         (accumulated rotations spanning multiple turns), and wrapping
         those would corrupt them.
+    degrees : bool, optional
+        If True, interpret ``sigma`` in degrees. Default False (radians).
 
     Returns
     -------
     Bvh or None
+
+    See Also
+    --------
+    add_position_noise : The root-translation counterpart.
     """
     if sigma < 0:
         raise ValueError(f"sigma must be >= 0, got {sigma}")
-    if sigma_pos < 0:
-        raise ValueError(f"sigma_pos must be >= 0, got {sigma_pos}")
+    sigma_rad = np.radians(sigma) if degrees else sigma
+    if rng is None:
+        rng = np.random.default_rng()
+
+    target = bvh if inplace else bvh.copy()
+    if sigma_rad > 0:
+        noised = (
+            target.joint_angles
+            + rng.normal(0.0, sigma_rad, target.joint_angles.shape)
+        )
+        if wrap:
+            noised = (noised + np.pi) % (2.0 * np.pi) - np.pi
+        target.joint_angles = noised
+    if inplace:
+        return None
+    return target
+
+
+@overload
+def add_position_noise(
+    bvh: Bvh, sigma: float, *,
+    rng: np.random.Generator | None = ..., inplace: Literal[True],
+) -> None: ...
+@overload
+def add_position_noise(
+    bvh: Bvh, sigma: float,
+    rng: np.random.Generator | None = ..., inplace: Literal[False] = ...,
+) -> Bvh: ...
+def add_position_noise(
+    bvh: Bvh,
+    sigma: float,
+    rng: np.random.Generator | None = None,
+    inplace: bool = False,
+) -> Bvh | None:
+    """Add zero-mean Gaussian noise to the root translation.
+
+    Parameters
+    ----------
+    bvh : Bvh
+        Input motion.
+    sigma : float
+        Standard deviation of the noise added to ``root_pos``, in the
+        skeleton's length unit — the same unit as the bone offsets, so
+        it scales with the file rather than being absolute. There is no
+        ``degrees=`` here because this is a length, not an angle.
+        ``0`` is a no-op and draws nothing from ``rng``.
+    rng : numpy.random.Generator or None
+        Random generator for reproducibility.
+    inplace : bool, optional
+        If True, modify *bvh* and return None.
+
+    Returns
+    -------
+    Bvh or None
+
+    See Also
+    --------
+    add_rotation_noise : The joint-angle counterpart.
+    """
+    if sigma < 0:
+        raise ValueError(f"sigma must be >= 0, got {sigma}")
     if rng is None:
         rng = np.random.default_rng()
 
     target = bvh if inplace else bvh.copy()
     if sigma > 0:
-        noised = (
-            target.joint_angles
-            + rng.normal(0.0, sigma, target.joint_angles.shape)
-        )
-        if wrap:
-            noised = (noised + np.pi) % (2.0 * np.pi) - np.pi
-        target.joint_angles = noised
-    if sigma_pos > 0:
         target.root_pos = (
-            target.root_pos
-            + rng.normal(0.0, sigma_pos, target.root_pos.shape)
+            target.root_pos + rng.normal(0.0, sigma, target.root_pos.shape)
         )
     if inplace:
         return None
@@ -202,7 +261,19 @@ def perturb_speed(bvh: Bvh, factor: float) -> Bvh:
     Returns
     -------
     Bvh
-        New Bvh with adjusted frame count and ``frame_time``.
+        New Bvh with an adjusted frame count and the **original**
+        ``frame_time`` — the clip's duration changes, its playback rate
+        does not.
+
+    Notes
+    -----
+    This resamples: the motion is re-interpolated onto a new time grid
+    (see :meth:`Bvh.resample`), so joint rotations pass through SLERP
+    and the frame count changes. The alternative convention — scale
+    ``frame_time`` by ``1 / factor`` and leave the samples untouched —
+    is lossless and changes duration too, but yields a non-standard
+    frame rate rather than a resampled clip. Use that directly when you
+    want playback-rate change without interpolation.
     """
     if factor <= 0:
         raise ValueError(f"factor must be > 0, got {factor}")
@@ -348,6 +419,42 @@ def drop_frames(
 # NumPy-level API — rotate_angles_vertical
 # =========================================================================
 
+def _resolve_vertical_pivot(
+    pivot: str | npt.ArrayLike,
+    root_pos: npt.NDArray[np.float64],
+    up_idx: int,
+) -> npt.NDArray[np.float64]:
+    """Resolve a ``pivot=`` argument to a ground-plane point ``(3,)``.
+
+    The up-axis component is dropped from every form, including an
+    explicit point: a vertical rotation about any point on a vertical
+    line is the same rotation, so the component carries no information —
+    and zeroing it keeps heights bit-identical through the
+    translate-rotate-translate round trip instead of subtracting and
+    re-adding an offset.
+    """
+    if isinstance(pivot, str):
+        if pivot == "origin":
+            return np.zeros(3)
+        if pivot != "root":
+            raise ValueError(
+                f"pivot must be 'origin', 'root', or a (3,) point, "
+                f"got {pivot!r}")
+        if len(root_pos) == 0:
+            raise ValueError(
+                "pivot='root' needs at least one frame to read the root "
+                "position from")
+        point = np.array(root_pos[0], dtype=np.float64)
+    else:
+        point = np.array(pivot, dtype=np.float64)
+        if point.shape != (3,):
+            raise ValueError(
+                f"an explicit pivot must have shape (3,), got {point.shape}")
+
+    point[up_idx] = 0.0
+    return point
+
+
 def rotate_angles_vertical(
     joint_angles: npt.NDArray[np.float64],
     root_pos: npt.NDArray[np.float64],
@@ -355,6 +462,7 @@ def rotate_angles_vertical(
     up_idx: int,
     root_order: str,
     degrees: bool = False,
+    pivot: str | npt.ArrayLike = "origin",
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Rotate motion around the vertical axis (NumPy-level).
 
@@ -376,11 +484,28 @@ def rotate_angles_vertical(
         Euler order of the root joint, e.g. ``'ZYX'``.
     degrees : bool, optional
         If True, interpret ``angle`` in degrees. Default False (radians).
+    pivot : {"origin", "root"} or array-like of shape (3,), optional
+        World-space point the motion turns about. ``"origin"`` (default)
+        turns about the world origin, so a motion standing away from it
+        sweeps through space along an arc; ``"root"`` turns about the
+        first frame's root position, i.e. turn-in-place; an explicit
+        ``(3,)`` point turns about a fixed landmark. Only the two
+        horizontal components are read — every point on a vertical line
+        spans the same rotation axis — so ``"root"`` is equivalently the
+        first-frame root projected to the ground plane.
 
     Returns
     -------
     (new_joint_angles, new_root_pos)
         Copies with the rotation applied. Angles in radians.
+
+    Notes
+    -----
+    The pivot only translates the root trajectory: rotating about ``p``
+    is the same as ``root_pos - p`` → rotate about the origin →
+    ``+ p``, and the root's world rotation is identical either way. So a
+    pipeline that already centers its clips on the first-frame root gets
+    turn-in-place from the default ``"origin"`` and needs no ``pivot=``.
 
     See Also
     --------
@@ -397,10 +522,11 @@ def rotate_angles_vertical(
     ...     angles, pos, np.pi / 2, up, order)
     """
     angle_rad = np.radians(angle) if degrees else angle
+    pivot_point = _resolve_vertical_pivot(pivot, root_pos, up_idx)
     R_vert: npt.NDArray[np.float64] = rotations._elementary_rotmat(
         angle_rad, 'XYZ'[up_idx])
 
-    new_root_pos = (R_vert @ root_pos.T).T
+    new_root_pos = (R_vert @ (root_pos - pivot_point).T).T + pivot_point
 
     new_angles = joint_angles.copy()
     R_root = rotations.euler_to_rotmat(joint_angles[:, 0], root_order)
@@ -417,18 +543,21 @@ def rotate_angles_vertical(
 @overload
 def rotate_vertical(
     bvh: Bvh, angle: float, *, up_axis: str | None = ...,
-    degrees: bool = ..., inplace: Literal[True],
+    degrees: bool = ..., pivot: str | npt.ArrayLike = ...,
+    inplace: Literal[True],
 ) -> None: ...
 @overload
 def rotate_vertical(
     bvh: Bvh, angle: float, up_axis: str | None = ...,
-    degrees: bool = ..., inplace: Literal[False] = ...,
+    degrees: bool = ..., pivot: str | npt.ArrayLike = ...,
+    inplace: Literal[False] = ...,
 ) -> Bvh: ...
 def rotate_vertical(
     bvh: Bvh,
     angle: float,
     up_axis: str | None = None,
     degrees: bool = False,
+    pivot: str | npt.ArrayLike = "origin",
     inplace: bool = False,
 ) -> Bvh | None:
     """Rotate the entire motion around the vertical (up) axis.
@@ -448,12 +577,39 @@ def rotate_vertical(
         Signed axis string (e.g. ``'+y'``).  Auto-detected if None.
     degrees : bool, optional
         If True, interpret ``angle`` in degrees. Default False (radians).
+    pivot : {"origin", "root"} or array-like of shape (3,), optional
+        World-space point the motion turns about. Default ``"origin"``,
+        the world origin: a character standing away from it sweeps
+        through space along an arc rather than turning where it stands.
+        ``"root"`` is that turn-in-place — it pivots about the first
+        frame's root position, projected to the ground plane. An
+        explicit ``(3,)`` point pivots about a fixed landmark (a dataset
+        capture centre, a stage mark). Only the two horizontal
+        components of a point are read: every point on a vertical line
+        spans the same rotation axis, so the up-axis component is
+        dropped and heights come through untouched.
     inplace : bool, optional
         If True, modify *bvh* and return None.
 
     Returns
     -------
     Bvh or None
+
+    Notes
+    -----
+    The pivot moves only the root trajectory — the root's world
+    rotation, and every child joint's parent-local angles, are identical
+    for any pivot. Equivalently, ``pivot="root"`` is *center on the
+    first-frame root → rotate about the origin → un-center*: a pipeline
+    that already centers its clips gets turn-in-place from the default
+    and needs no ``pivot=`` at all.
+
+    Randomized pivots are deliberately not offered here (unlike
+    ``angle``, which has :func:`random_rotate_vertical`). A random pivot
+    is a rotation composed with a translation, so it is already
+    expressible as ``rotate_vertical`` + :func:`translate_root`, and
+    which distribution to draw from is a pipeline's decision, not a
+    motion's.
     """
     target = bvh if inplace else bvh.copy()
 
@@ -468,7 +624,7 @@ def rotate_vertical(
     root_order = "".join(target.root.rot_channels)
     new_angles, new_root_pos = rotate_angles_vertical(
         target.joint_angles, target.root_pos, angle * up_sign, up_idx,
-        root_order, degrees=degrees,
+        root_order, degrees=degrees, pivot=pivot,
     )
     target.joint_angles = new_angles
     target.root_pos = new_root_pos
@@ -483,6 +639,7 @@ def random_rotate_vertical(
     angle_range: tuple[float, float] = (-np.pi, np.pi),
     up_axis: str | None = None,
     degrees: bool = False,
+    pivot: str | npt.ArrayLike = "origin",
     rng: np.random.Generator | None = None,
 ) -> Bvh:
     """Rotate motion by a random angle around the vertical axis.
@@ -499,6 +656,9 @@ def random_rotate_vertical(
     degrees : bool, optional
         If True, interpret ``angle_range`` in degrees. Default False
         (radians).
+    pivot : {"origin", "root"} or array-like of shape (3,), optional
+        World-space point to turn about, as in :func:`rotate_vertical`.
+        Only the *angle* is random; the pivot is fixed for the call.
     rng : numpy.random.Generator or None
         Random generator for reproducibility.
 
@@ -509,7 +669,8 @@ def random_rotate_vertical(
     if rng is None:
         rng = np.random.default_rng()
     angle = float(rng.uniform(angle_range[0], angle_range[1]))
-    return rotate_vertical(bvh, angle, up_axis=up_axis, degrees=degrees)  # type: ignore[return-value]
+    return rotate_vertical(  # type: ignore[return-value]
+        bvh, angle, up_axis=up_axis, degrees=degrees, pivot=pivot)
 
 
 # =========================================================================
@@ -650,8 +811,13 @@ def mirror(
     lateral_axis : str or None
         Axis perpendicular to the mirror plane, e.g. ``'x'`` or
         ``'+x'`` (the sign is irrelevant for mirroring).
-        Auto-detected if None (the axis that is neither forward
-        nor upward).
+        **Auto-detected if None**, and the detection is usually the
+        right thing to use: it averages the left-minus-right rest-pose
+        offsets over the L/R joint pairs and takes the dominant axis, so
+        it measures how *this* skeleton is actually built rather than
+        assuming a convention. Pass an explicit axis only to override
+        that, or when the detection raises because the L/R offsets are
+        degenerate (parallel to the up axis, or zero).
     inplace : bool, optional
         If True, modify *bvh* and return None.
 

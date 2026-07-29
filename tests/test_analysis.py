@@ -834,6 +834,41 @@ class TestFootContactsFloorEstimation:
         with pytest.raises(ValueError, match="floor"):
             bvh_example.foot_contacts(method="height", floor="bogus")
 
+    def test_floor_min_tracks_true_minimum(self, bvh_example):
+        """floor="min" is the exact minimum foot height — a single
+        glitched-low frame drags it down — while the robust "auto"
+        percentile shrugs the glitch off. The named divergence between
+        the two conventions."""
+        feet = bvh_example.auto_detect_foot_joints()
+        idx = [bvh_example.node_index[n] for n in feet]
+        up = bvh_example.up_axis
+        coords = bvh_example.node_positions().copy()
+        coords[5, idx, up.index] = -100.0 * up.sign  # one spurious low frame
+
+        _, info_auto = bvh_example.foot_contacts(
+            method="height", coords=coords, return_info=True)
+        _, info_min = bvh_example.foot_contacts(
+            method="height", coords=coords, floor="min", return_info=True)
+
+        heights = coords[:, idx, up.index] * up.sign
+        true_min = heights.min(axis=1).min()
+        assert info_min["floor"] * up.sign == pytest.approx(true_min)
+        assert info_auto["floor"] * up.sign > true_min + 50.0
+
+    def test_floor_min_never_touches_canonical_cache(self, bvh_example):
+        """Only the 2nd-percentile "auto" estimate is the canonical floor
+        Bvh.floor_height caches; "min" computes fresh and must neither
+        fill nor serve the cache."""
+        bvh = bvh_example.copy()
+        assert bvh._floor_height_cached is None
+        _, info_min = bvh.foot_contacts(floor="min", return_info=True)
+        assert bvh._floor_height_cached is None      # not filled
+        canonical = bvh.floor_height                 # fill it canonically
+        _, info_min2 = bvh.foot_contacts(floor="min", return_info=True)
+        assert info_min2["floor"] == pytest.approx(info_min["floor"])
+        assert bvh._floor_height_cached == pytest.approx(canonical)
+        assert info_min["floor"] <= canonical + 1e-12  # min ≤ 2nd percentile
+
     def test_auto_floor_estimated_from_coords_in_use(self):
         """floor='auto' with explicit coords estimates the floor from those
         coords — the canonical cached floor_height only serves the default
@@ -1475,6 +1510,9 @@ class TestFacingFrame:
 
     def test_orthonormal_right_handed_per_frame(self, cmu_walk):
         frame = cmu_walk.facing_frame()
+        assert frame.valid.shape == (cmu_walk.frame_count,)
+        assert frame.valid.dtype == np.bool_
+        assert frame.valid.all()          # every frame measured on this clip
         for arr in (frame.forward, frame.left, frame.up):
             assert arr.shape == (cmu_walk.frame_count, 3)
             assert arr.dtype == np.float64
@@ -1527,6 +1565,7 @@ class TestFacingFrame:
         np.testing.assert_array_equal(got_fn.forward, got_method.forward)
         np.testing.assert_array_equal(got_fn.left, got_method.left)
         np.testing.assert_array_equal(got_fn.up, got_method.up)
+        np.testing.assert_array_equal(got_fn.valid, got_method.valid)
 
     def test_coords_passthrough_is_used(self, cmu_walk):
         """coords= must actually feed the computation: passing L/R-swapped
@@ -1562,6 +1601,8 @@ class TestFacingFrame:
             frame.left, np.tile([1.0, 0.0, 0.0], (f_count, 1)))
         np.testing.assert_array_equal(
             frame.up, np.tile([0.0, 1.0, 0.0], (f_count, 1)))
+        # The fallback is reported, not hidden: no frame is a measurement
+        assert not frame.valid.any()
         # Consistent with the snapped labels on the same skeleton
         assert bvh.forward_at(0) == '+z'
         assert bvh.left_at(0) == '+x'
@@ -1588,17 +1629,22 @@ class TestFacingFrame:
                 == cmu_walk.forward_at(3, coords=degenerate))
         np.testing.assert_array_equal(frame.forward[2], baseline.forward[2])
         np.testing.assert_array_equal(frame.forward[4], baseline.forward[4])
+        # valid is the per-frame report of exactly that fallback
+        assert not frame.valid[3]
+        assert frame.valid[2] and frame.valid[4]
 
     def test_single_frame_and_empty_clip_shapes(self, cmu_walk):
         one = cmu_walk[0:1].facing_frame()
         assert one.forward.shape == (1, 3)
         assert one.left.shape == (1, 3)
         assert one.up.shape == (1, 3)
+        assert one.valid.shape == (1,)
 
         empty = cmu_walk[0:0].facing_frame()
         assert empty.forward.shape == (0, 3)
         assert empty.left.shape == (0, 3)
         assert empty.up.shape == (0, 3)
+        assert empty.valid.shape == (0,)
 
     def test_joint_shaped_coords_rejected(self, cmu_walk):
         joint_shaped = cmu_walk.node_positions()[:, :3, :]

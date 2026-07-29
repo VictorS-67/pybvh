@@ -128,7 +128,11 @@ Up axis, facing direction, L/R pairs, and the reorientation family (see the [Wor
     options:
       heading_level: 3
 
-::: pybvh.bvh.UpAxis
+::: pybvh.tools.Axis
+    options:
+      heading_level: 3
+
+::: pybvh.tools.parse_axis
     options:
       heading_level: 3
 
@@ -136,7 +140,15 @@ Up axis, facing direction, L/R pairs, and the reorientation family (see the [Wor
     options:
       heading_level: 3
 
+::: pybvh.bvh.Bvh.rest_up_axis
+    options:
+      heading_level: 3
+
 ::: pybvh.bvh.Bvh.rest_forward
+    options:
+      heading_level: 3
+
+::: pybvh.bvh.Bvh.forward_axis
     options:
       heading_level: 3
 
@@ -161,6 +173,10 @@ Up axis, facing direction, L/R pairs, and the reorientation family (see the [Wor
       heading_level: 3
 
 ::: pybvh.bvh.Bvh.lr_pairs
+    options:
+      heading_level: 3
+
+::: pybvh.bvh.Bvh.has_lr_geometry
     options:
       heading_level: 3
 
@@ -448,7 +464,11 @@ Seeded data augmentation (see the [Data Augmentation guide](../guide/augmentatio
     options:
       heading_level: 3
 
-::: pybvh.bvh.Bvh.add_noise
+::: pybvh.bvh.Bvh.add_rotation_noise
+    options:
+      heading_level: 3
+
+::: pybvh.bvh.Bvh.add_position_noise
     options:
       heading_level: 3
 

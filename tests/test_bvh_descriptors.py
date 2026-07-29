@@ -190,10 +190,13 @@ def test_velocity_reductions_wrapper_matches_kernel():
 
 def test_skeleton_size_wrapper_matches_kernel():
     bvh = _bvh()
-    assert bvh.skeleton_size() == analysis.skeleton_size(bvh)
     feet = ["LeftFoot", "RightFoot"]
     assert bvh.skeleton_size(foot_joints=feet) == \
         analysis.skeleton_size(bvh, foot_joints=feet)
+    # feet are end sites on this fixture, so auto-detection finds none and
+    # both entry points refuse to fabricate a size
+    with pytest.raises(ValueError, match="no foot joints"):
+        bvh.skeleton_size()
 
 
 def test_kinetic_energy_and_walking_pace_match_module():

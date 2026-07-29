@@ -58,6 +58,15 @@ bvh_rotated = transforms.rotate_vertical(bvh, 90, degrees=True)   # same thing
 bvh_random = transforms.random_rotate_vertical(bvh, rng=np.random.default_rng(42))  # uniform over (-pi, pi)
 ```
 
+The rotation turns about the **world origin** by default, so a character captured away from the origin sweeps along an arc rather than turning where it stands. `pivot=` chooses the point instead:
+
+```python
+bvh_turned = transforms.rotate_vertical(bvh, np.pi / 2, pivot="root")        # turn in place
+bvh_turned = transforms.rotate_vertical(bvh, np.pi / 2, pivot=[100, 0, -50])  # about a fixed landmark
+```
+
+`pivot="root"` is the first frame's root position projected to the ground plane. Only the two horizontal components of an explicit point are read — every point on a vertical line spans the same rotation axis — so heights are never altered by the choice, and neither are joint angles: the pivot moves the root trajectory and nothing else. Equivalently, `pivot="root"` is *center on the first-frame root → rotate about the origin → un-center*, which means a pipeline that already centers its clips gets turn-in-place from the default and needs no `pivot=`.
+
 ### Speed perturbation
 
 ```python
@@ -67,11 +76,14 @@ bvh_slow = transforms.perturb_speed(bvh, factor=0.7)  # slower
 
 ### Noise injection
 
-`sigma` is the rotation-noise standard deviation in radians. By default noised angles are left unwrapped (BVH channels can legitimately hold values outside `[-π, π]`); pass `wrap=True` to wrap them into `[-π, π]`.
+Rotation noise and translation noise are separate calls, because their `sigma`s are in different units — radians for joint angles, the skeleton's length unit for the root. By default noised angles are left unwrapped (BVH channels can legitimately hold values outside `[-π, π]`); pass `wrap=True` to wrap them into `[-π, π]`.
 
 ```python
-bvh_noisy = transforms.add_noise(bvh, sigma=0.02, sigma_pos=0.5, rng=rng)
+bvh_noisy = transforms.add_rotation_noise(bvh, sigma=0.02, rng=rng)      # radians
+bvh_noisy = transforms.add_position_noise(bvh_noisy, sigma=0.5, rng=rng)  # length
 ```
+
+Only `add_rotation_noise` takes `degrees=True`; there is no angular unit for a translation.
 
 ### Root translation
 
@@ -97,7 +109,7 @@ rng = np.random.default_rng(42)
 augmented = (bvh
     .mirror()
     .rotate_vertical(np.pi / 2)
-    .add_noise(sigma=0.02, rng=rng)
+    .add_rotation_noise(sigma=0.02, rng=rng)
     .perturb_speed(1.2))
 ```
 
@@ -113,7 +125,7 @@ from pybvh.transforms import rotate_angles_vertical, mirror_angles
 # Operate directly on (F, J, 3) Euler arrays
 new_angles, new_pos = rotate_angles_vertical(
     bvh.joint_angles, bvh.root_pos, angle=np.pi / 4,
-    up_idx=1, root_order="ZYX")
+    up_idx=1, root_order="ZYX")   # same pivot= as the Bvh-level twin
 
 # Mirror with index pairs
 pairs = transforms.auto_detect_lr_pairs(bvh)

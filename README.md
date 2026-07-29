@@ -103,7 +103,7 @@ Multi-skeleton comparison, camera control, and backend details: [Visualization A
 | Topic | In one line | Docs |
 |---|---|---|
 | Batch loading | Load a directory, harmonize heterogeneous skeletons, export one padded array | [Feature Export](https://victors-67.github.io/pybvh/guide/feature-export/) |
-| Spatial transforms | `mirror`, `rotate_vertical`, `add_noise`, `perturb_speed`, `drop_frames` — seeded randomization | [Data Augmentation](https://victors-67.github.io/pybvh/guide/augmentation/) |
+| Spatial transforms | `mirror`, `rotate_vertical`, `add_rotation_noise`, `perturb_speed`, `drop_frames` — seeded randomization | [Data Augmentation](https://victors-67.github.io/pybvh/guide/augmentation/) |
 | Skeleton & frame ops | `retarget`, `scale`, `extract_joints`, slicing, concatenation, `resample` | [Skeleton Operations](https://victors-67.github.io/pybvh/guide/skeleton-ops/) |
 | Rotation utilities | Batch-vectorized conversions between all five representations, SLERP, SE(3) | [Rotations & SE(3)](https://victors-67.github.io/pybvh/guide/rotations/) |
 | World up & orientation | Up-axis detection, `forward_at`/`left_at`, reorientation | [World Up](https://victors-67.github.io/pybvh/guide/world-up/) |

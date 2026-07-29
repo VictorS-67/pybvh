@@ -447,11 +447,31 @@ class TestMissingForwarding:
         extracted = bvh.extract_joints(bvh.joint_names[:5])
         assert extracted.world_up == "+y"
 
-    def test_add_noise_wrap_parameter(self):
+    def test_add_rotation_noise_wrap_parameter(self):
         bvh = read_bvh_file(EXAMPLE)
         # Should not raise TypeError for unexpected kwarg
-        noisy = bvh.add_noise(sigma=0.1, wrap=True)
+        noisy = bvh.add_rotation_noise(sigma=0.1, wrap=True)
         assert noisy is not None
+
+    def test_add_rotation_noise_degrees_matches_the_radian_call(self):
+        bvh = read_bvh_file(EXAMPLE)
+        deg = bvh.add_rotation_noise(sigma=5.0, degrees=True,
+                            rng=np.random.default_rng(0))
+        rad = bvh.add_rotation_noise(sigma=np.radians(5.0),
+                            rng=np.random.default_rng(0))
+        np.testing.assert_allclose(deg.joint_angles, rad.joint_angles, rtol=1e-12)
+
+    # The former test_add_noise_degrees_never_converts_the_position_sigma
+    # guarded a 57x unit bug in the old combined add_noise(sigma, sigma_pos).
+    # Splitting the function removed the hazard rather than defending it:
+    # add_position_noise has no degrees= to mis-apply. The replacement lives
+    # in test_bvh.py::TestJointNoise::test_position_noise_has_no_degrees_flag,
+    # which asserts the parameter is absent rather than harmless.
+
+    def test_add_rotation_noise_degrees_rejects_negative_sigma(self):
+        bvh = read_bvh_file(EXAMPLE)
+        with pytest.raises(ValueError, match="sigma must be >= 0"):
+            bvh.add_rotation_noise(sigma=-5.0, degrees=True)
 
     def test_from_6d_mismatched_frames_raises(self):
         bvh = read_bvh_file(EXAMPLE)

@@ -140,13 +140,13 @@ pybvh.bvhplot.trajectory(
     labels=["original", "rotate_vertical(π/2)", "translate_root(+50 x)"]);
 
 # %% [markdown]
-# **`add_noise`** — zero-mean Gaussian noise on the joint angles (σ in radians). Calibration on a human skeleton: σ ≈ 0.5° is imperceptible sensor-level noise, ≈ 2° a typical augmentation, ≈ 5° clearly visible, > 10° destructive.
+# **`add_rotation_noise`** — zero-mean Gaussian noise on the joint angles (σ in radians). Calibration on a human skeleton: σ ≈ 0.5° is imperceptible sensor-level noise, ≈ 2° a typical augmentation, ≈ 5° clearly visible, > 10° destructive.
 
 # %%
 pybvh.bvhplot.frame(
     [bvh,
-     bvh.add_noise(sigma=np.radians(0.5), rng=np.random.default_rng(42)),
-     bvh.add_noise(sigma=np.radians(5.0), rng=np.random.default_rng(42))],
+     bvh.add_rotation_noise(sigma=np.radians(0.5), rng=np.random.default_rng(42)),
+     bvh.add_rotation_noise(sigma=np.radians(5.0), rng=np.random.default_rng(42))],
     frame=FRAME, labels=["original", "σ = 0.5°", "σ = 5°"]);
 
 # %% [markdown]
@@ -167,7 +167,7 @@ gp.fig_drop_frames(bvh, bvh.drop_frames(drop_rate=0.5, rng=np.random.default_rng
 # %%
 augmented = (bvh.mirror()
                 .rotate_vertical(np.pi / 4)
-                .add_noise(sigma=0.02, rng=np.random.default_rng(42))
+                .add_rotation_noise(sigma=0.02, rng=np.random.default_rng(42))
                 .perturb_speed(1.1))
 pybvh.bvhplot.frame([bvh, augmented], frame=45,
                     labels=["original", "mirror → yaw 45° → noise → 1.1× speed"],

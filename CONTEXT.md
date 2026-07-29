@@ -13,7 +13,7 @@
 | **Dependencies** | `numpy` (required), `matplotlib` (required), `pandas` (optional), `opencv-python` (optional, fast render), `k3d` (optional, Jupyter), `vedo` (optional, desktop) |
 | **Primary use-case** | Reading, writing, and manipulating BVH (Biovision Hierarchy) motion capture files — serving ML pipelines, biomechanics research, game dev, and any workflow that consumes skeleton animation data |
 | **Design principles** | **Fast** (NumPy-vectorised, pre-allocated arrays), **Lightweight** (minimal code surface, no ML framework deps), **Self-contained** (no scipy, no PyTorch, no TensorFlow) |
-| **Version** | 0.8.0 |
+| **Version** | 0.8.1 |
 | **Package** | Published on PyPI as `pybvh`. Install via `pip install pybvh`. Optional extras: `pybvh[opencv]` (fast render), `pybvh[interactive]` (k3d for Jupyter), `pybvh[viewer]` (vedo desktop), `pybvh[all-viz]` (all of the above), `pybvh[pandas]` (pandas integration) |
 | **CI/CD** | GitHub Actions: test workflow (push/PR, Python 3.9–3.12) + publish workflow (PyPI on release) + docs workflow (MkDocs to GitHub Pages on push to main) |
 | **Type safety** | Full type annotations on all source files, `@overload` on inplace methods, mypy clean |
@@ -77,7 +77,7 @@ Defines a skeleton as a tree of joints. Each joint has:
 ### 4.1 `pybvh/__init__.py`
 Public API surface. Exports:
 ```python
-__version__ = "0.8.0"
+__version__ = "0.8.1"
 
 from .bvh import Bvh
 from .io import read_bvh_file, write_bvh_file
@@ -138,11 +138,11 @@ The central container holding skeleton + motion data. Constructor: `Bvh(nodes, r
 - `joint_angles`: Shape `(F, J, 3)`. Euler angles in **radians** per joint per frame. Joint order follows `nodes` (end sites excluded). BVH files store degrees; pybvh converts at the I/O boundary in `read_bvh_file` / `write_bvh_file`.
 - `frame_time`: Seconds per frame (e.g. `1/30`).
 - `world_up`: Gravity axis (e.g. `'+y'`), auto-detected from frame 0 with rest-pose fallback. Settable; propagates through `copy()` / frame slicing (`bvh[a:b]`). Assign `"auto"`/`None` to clear.
-- Read-only properties: `frame_count`, `joint_names`, `joint_count`, `euler_orders`, `edges`, `node_index`, `joint_index`, `joint_tips` (joint name → end-site node index or `None`, identity-resolved so name collisions with generated end-site display names can't mislead it), `root`, `up_axis` (`world_up` parsed into an `UpAxis(index, sign, vector)` named tuple).
+- Read-only properties: `frame_count`, `joint_names`, `joint_count`, `euler_orders`, `edges`, `node_index`, `joint_index`, `joint_tips` (joint name → end-site node index or `None`, identity-resolved so name collisions with generated end-site display names can't mislead it), `root`, `up_axis` / `forward_axis` / `rest_up_axis` (`world_up` / `rest_forward` / `rest_up` parsed into an `Axis(index, sign, vector)` named tuple via the top-level `pybvh.parse_axis`; each mirrors the nullability of the string it parses, so `rest_up_axis` is `Axis | None` and the other two are always defined).
 
 There is **no flat `.frames` property** — code should use `root_pos` and `joint_angles` directly.
 
-The class provides methods for I/O (`write`, `from_file`, `from_df`, `node_positions`, `rest_pose_positions`, `rest_pose_angles`, `to_df_dict`, `to_hierarchy_dict`, `copy`), skeleton ops (`retarget`, `scale`, `change_euler_order`, `extract_joints`), topology checks (`matches_topology`, `matches_hierarchy`, `matches_channels`), rotation conversions (`to_rotmat`, `to_6d`, `to_quat`, `to_axisangle`, `from_rotmat`, `from_6d`, `from_quat`, `from_axisangle`), frame ops (`bvh[a:b:c]` slicing, `a + b` concatenation, `resample`), features (`joint_velocities`, `joint_accelerations`, `node_velocities`, `node_accelerations`, `angular_velocities`, `root_trajectory`, `foot_contacts`, `ground_contacts`, `to_feature_array`, `feature_array_layout`, `auto_detect_foot_joints`), transforms (`translate_root`, `random_translate_root`, `add_noise`, `perturb_speed`, `random_perturb_speed`, `drop_frames`, `rotate_vertical`, `random_rotate_vertical`, `mirror`), reorientation (`reorient_world_up`, `reorient_rest_up`, `reorient_rest_forward`), orientation (`forward_at`, `left_at`, `facing_frame`), motion descriptors added in v0.8.0 (`curvature`, `torsion`, `path_length`, `directness`, `ground_path`, `inter_joint_distance`, `joint_angle`, `triangle_area`, `segment_axis_angle`, `bounding_box`, `bounding_sphere`, `bounding_ellipsoid`, `movement_phase`, `center_of_mass`, `com_displacement`, `verticality`, `node_jerk`, `joint_jerk`, `node_speed_derivative`, `joint_speed_derivative`, `smoothness`, `kinetic_energy`, `velocity_reductions`, `cadence`, `stride_length`, `walking_pace`, `gait_parameters`, `range_of_motion`, `skeleton_size` — relational/trajectory ones resolve in node space so end sites are first-class; `range_of_motion` resolves in joint space; joint arguments are names only, and every descriptor method accepts pre-computed positions via `coords=`), and visualization wrappers (`plot_rest_pose`, `plot_frame`, `plot_trajectory`, `render`, `play`). The `joint_index` and `lr_mapping` properties complement `node_index` for joint-axis lookups and L/R joint pairing respectively. The `source_path` attribute (populated by `read_bvh_file`) carries the on-disk origin for diagnostics. Many methods were renamed in v0.6.0 — old names were removed outright (no deprecation wrappers); see `pybvh/API_RENAME.md` for the complete old → new mapping. See source docstrings for method signatures.
+The class provides methods for I/O (`write`, `from_file`, `from_df`, `node_positions`, `rest_pose_positions`, `rest_pose_angles`, `to_df_dict`, `to_hierarchy_dict`, `copy`), skeleton ops (`retarget`, `scale`, `change_euler_order`, `extract_joints`), topology checks (`matches_topology`, `matches_hierarchy`, `matches_channels`), rotation conversions (`to_rotmat`, `to_6d`, `to_quat`, `to_axisangle`, `from_rotmat`, `from_6d`, `from_quat`, `from_axisangle`), frame ops (`bvh[a:b:c]` slicing, `a + b` concatenation, `resample`), features (`joint_velocities`, `joint_accelerations`, `node_velocities`, `node_accelerations`, `angular_velocities`, `root_trajectory`, `foot_contacts`, `ground_contacts`, `to_feature_array`, `feature_array_layout`, `auto_detect_foot_joints`), transforms (`translate_root`, `random_translate_root`, `add_rotation_noise`, `add_position_noise`, `perturb_speed`, `random_perturb_speed`, `drop_frames`, `rotate_vertical`, `random_rotate_vertical`, `mirror`), reorientation (`reorient_world_up`, `reorient_rest_up`, `reorient_rest_forward`), orientation (`forward_at`, `left_at`, `facing_frame`), motion descriptors added in v0.8.0 (`curvature`, `torsion`, `path_length`, `directness`, `ground_path`, `inter_joint_distance`, `joint_angle`, `triangle_area`, `segment_axis_angle`, `bounding_box`, `bounding_sphere`, `bounding_ellipsoid`, `movement_phase`, `center_of_mass`, `com_displacement`, `verticality`, `node_jerk`, `joint_jerk`, `node_speed_derivative`, `joint_speed_derivative`, `smoothness`, `kinetic_energy`, `velocity_reductions`, `cadence`, `stride_length`, `walking_pace`, `gait_parameters`, `range_of_motion`, `skeleton_size` — relational/trajectory ones resolve in node space so end sites are first-class; `range_of_motion` resolves in joint space; joint arguments are names only, and every descriptor method accepts pre-computed positions via `coords=`), and visualization wrappers (`plot_rest_pose`, `plot_frame`, `plot_trajectory`, `render`, `play`). The `joint_index` and `lr_mapping` properties complement `node_index` for joint-axis lookups and L/R joint pairing respectively. The `source_path` attribute (populated by `read_bvh_file`) carries the on-disk origin for diagnostics. Many methods were renamed in v0.6.0 — old names were removed outright (no deprecation wrappers); see `pybvh/API_RENAME.md` for the complete old → new mapping. See source docstrings for method signatures.
 
 #### The `centered` Parameter (appears throughout the codebase)
 Three modes controlling how root position is handled:
@@ -176,7 +176,7 @@ Quick-look visualization module with 5 public functions: `rest_pose`, `frame`, `
 
 ### 4.11 `pybvh/transforms.py` — Spatial Augmentation Transforms
 
-Data augmentation transforms operating on `Bvh` objects: `translate_root`, `random_translate_root`, `add_noise`, `perturb_speed`, `random_perturb_speed`, `drop_frames`, `rotate_vertical`, `random_rotate_vertical`, `auto_detect_lr_pairs`, and `mirror`. All angle parameters are radians (a `degrees=True` flag opts in to degrees), matching `Bvh.joint_angles`. Also provides coordinate-frame reorientation (`reorient_world_up`, `reorient_rest_up`, `reorient_rest_forward`) for dataset preprocessing. All follow the `inplace=False` convention. NumPy-level functions (`rotate_angles_vertical`, `mirror_angles`) are exposed for users working with pre-extracted arrays. See source docstrings for method signatures.
+Data augmentation transforms operating on `Bvh` objects: `translate_root`, `random_translate_root`, `add_rotation_noise`, `add_position_noise`, `perturb_speed`, `random_perturb_speed`, `drop_frames`, `rotate_vertical`, `random_rotate_vertical`, `auto_detect_lr_pairs`, and `mirror`. All angle parameters are radians (a `degrees=True` flag opts in to degrees), matching `Bvh.joint_angles`. Also provides coordinate-frame reorientation (`reorient_world_up`, `reorient_rest_up`, `reorient_rest_forward`) for dataset preprocessing. All follow the `inplace=False` convention. NumPy-level functions (`rotate_angles_vertical`, `mirror_angles`) are exposed for users working with pre-extracted arrays. See source docstrings for method signatures.
 
 ### 4.12 `pybvh/analysis.py` — Motion Analysis
 
@@ -264,7 +264,7 @@ where the order comes from the joint's `rot_channels`.
   - `tests/test_gallery_notebook.py` — gallery freshness guard: the `gallery/feature_gallery.{py,ipynb}` jupytext pair must match, the committed execution counts must be sequential 1..N (stale-output detector), and no error/stderr outputs may be committed.
 - **Run command**: `conda run -n pybvh pytest tests/ -v`
 - **Current count**: 1821 tests, all passing.
-- **Note**: `tests/test_transforms_battle.py` uses private datasets from `internal_bvh_data/` and is gitignored — never publish or share this file.
+- **Note**: `tests/test_transforms_battle.py` uses private datasets from `internal_data/` and is gitignored — never publish or share this file.
 
 ---
 
@@ -331,7 +331,7 @@ retargeted = bvh.retarget(standard_skeleton)
 upper = bvh.extract_joints(["Hips", "Spine", "Neck", "Head"])
 
 # Transforms (augmentation)
-noisy = bvh.add_noise(sigma=0.02)      # radians
+noisy = bvh.add_rotation_noise(sigma=0.02)   # radians
 faster = bvh.perturb_speed(factor=1.5)
 dropped = bvh.drop_frames(drop_rate=0.1)
 mirrored = bvh.mirror()

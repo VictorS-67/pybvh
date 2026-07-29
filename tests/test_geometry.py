@@ -284,6 +284,31 @@ def test_pose_distance_vectorizes_over_frames():
     np.testing.assert_allclose(out[5], geo.pose_distance(a[5], b[5]))
 
 
+def test_pose_distance_mpjpe():
+    a = np.zeros((4, 3))
+    b = a.copy()
+    b[2] = [3, 4, 0]
+    # one joint off by 5, three exact -> mean per-joint error 5/4
+    np.testing.assert_allclose(
+        geo.pose_distance(a, b, reduction="mpjpe"), 1.25)
+    # uniform per-joint error: frobenius = sqrt(N) * mpjpe exactly
+    c = np.zeros((4, 3))
+    d = np.tile([1.0, 2.0, 2.0], (4, 1))          # every joint off by 3
+    np.testing.assert_allclose(geo.pose_distance(c, d, reduction="mpjpe"), 3.0)
+    np.testing.assert_allclose(geo.pose_distance(c, d), 2.0 * 3.0)  # sqrt(4)*3
+    with pytest.raises(ValueError, match="reduction"):
+        geo.pose_distance(a, b, reduction="nope")
+
+
+def test_pose_distance_mpjpe_vectorizes_over_frames():
+    rng = np.random.default_rng(6)
+    a, b = rng.normal(size=(2, 8, 6, 3))
+    out = geo.pose_distance(a, b, reduction="mpjpe")
+    assert out.shape == (8,)
+    np.testing.assert_allclose(
+        out[5], geo.pose_distance(a[5], b[5], reduction="mpjpe"))
+
+
 def test_mean_pose_subtract_removes_temporal_mean():
     rng = np.random.default_rng(5)
     seq = rng.normal(size=(30, 7, 3)) + np.array([1.0, 2, 3])

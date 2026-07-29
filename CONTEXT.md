@@ -17,7 +17,7 @@
 | **Package** | Published on PyPI as `pybvh`. Install via `pip install pybvh`. Optional extras: `pybvh[opencv]` (fast render), `pybvh[interactive]` (k3d for Jupyter), `pybvh[viewer]` (vedo desktop), `pybvh[all-viz]` (all of the above), `pybvh[pandas]` (pandas integration) |
 | **CI/CD** | GitHub Actions: test workflow (push/PR, Python 3.9–3.12) + publish workflow (PyPI on release) + docs workflow (MkDocs to GitHub Pages on push to main) |
 | **Type safety** | Full type annotations on all source files, `@overload` on inplace methods, mypy clean |
-| **Tests** | 1821 unit tests via pytest (plus ~23 000 parametrized `test_transforms_battle` cases across 3 real-world datasets, skipped unless the private fixtures are present) |
+| **Tests** | 1922 unit tests via pytest (plus ~23 000 parametrized `test_transforms_battle` cases across 3 real-world datasets, skipped unless the private fixtures are present) |
 | **Documentation** | MkDocs + mkdocstrings + Material theme, auto-deployed to GitHub Pages |
 
 ---

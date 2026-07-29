@@ -13,11 +13,11 @@
 | **Dependencies** | `numpy` (required), `matplotlib` (required), `pandas` (optional), `opencv-python` (optional, fast render), `k3d` (optional, Jupyter), `vedo` (optional, desktop) |
 | **Primary use-case** | Reading, writing, and manipulating BVH (Biovision Hierarchy) motion capture files — serving ML pipelines, biomechanics research, game dev, and any workflow that consumes skeleton animation data |
 | **Design principles** | **Fast** (NumPy-vectorised, pre-allocated arrays), **Lightweight** (minimal code surface, no ML framework deps), **Self-contained** (no scipy, no PyTorch, no TensorFlow) |
-| **Version** | 0.8.1 |
+| **Version** | 0.8.2 |
 | **Package** | Published on PyPI as `pybvh`. Install via `pip install pybvh`. Optional extras: `pybvh[opencv]` (fast render), `pybvh[interactive]` (k3d for Jupyter), `pybvh[viewer]` (vedo desktop), `pybvh[all-viz]` (all of the above), `pybvh[pandas]` (pandas integration) |
 | **CI/CD** | GitHub Actions: test workflow (push/PR, Python 3.9–3.12) + publish workflow (PyPI on release) + docs workflow (MkDocs to GitHub Pages on push to main) |
 | **Type safety** | Full type annotations on all source files, `@overload` on inplace methods, mypy clean |
-| **Tests** | 1922 unit tests via pytest (plus ~23 000 parametrized `test_transforms_battle` cases across 3 real-world datasets, skipped unless the private fixtures are present) |
+| **Tests** | 1984 unit tests via pytest (plus ~23 000 parametrized `test_transforms_battle` cases across 3 real-world datasets, skipped unless the private fixtures are present) |
 | **Documentation** | MkDocs + mkdocstrings + Material theme, auto-deployed to GitHub Pages |
 
 ---
@@ -77,12 +77,12 @@ Defines a skeleton as a tree of joints. Each joint has:
 ### 4.1 `pybvh/__init__.py`
 Public API surface. Exports:
 ```python
-__version__ = "0.8.1"
+__version__ = "0.8.2"
 
 from .bvh import Bvh
 from .io import read_bvh_file, write_bvh_file
 from .df_to_bvh import df_to_bvh
-from .spatial_coord import frames_to_node_positions
+from .spatial_coord import FkTopology, frames_to_node_positions
 from .batch import (read_bvh_directory, batch_to_numpy, harmonize,
                     HarmonizeReport)
 from .analysis import relative_scale_factor
@@ -138,7 +138,7 @@ The central container holding skeleton + motion data. Constructor: `Bvh(nodes, r
 - `joint_angles`: Shape `(F, J, 3)`. Euler angles in **radians** per joint per frame. Joint order follows `nodes` (end sites excluded). BVH files store degrees; pybvh converts at the I/O boundary in `read_bvh_file` / `write_bvh_file`.
 - `frame_time`: Seconds per frame (e.g. `1/30`).
 - `world_up`: Gravity axis (e.g. `'+y'`), auto-detected from frame 0 with rest-pose fallback. Settable; propagates through `copy()` / frame slicing (`bvh[a:b]`). Assign `"auto"`/`None` to clear.
-- Read-only properties: `frame_count`, `joint_names`, `joint_count`, `euler_orders`, `edges`, `node_index`, `joint_index`, `joint_tips` (joint name → end-site node index or `None`, identity-resolved so name collisions with generated end-site display names can't mislead it), `root`, `up_axis` / `forward_axis` / `rest_up_axis` (`world_up` / `rest_forward` / `rest_up` parsed into an `Axis(index, sign, vector)` named tuple via the top-level `pybvh.parse_axis`; each mirrors the nullability of the string it parses, so `rest_up_axis` is `Axis | None` and the other two are always defined).
+- Read-only properties: `frame_count`, `joint_names`, `joint_count`, `euler_orders`, `edges`, `node_edges`, `fk_topology`, `node_index`, `joint_index`, `joint_tips` (joint name → end-site node index or `None`, identity-resolved so name collisions with generated end-site display names can't mislead it), `root`, `up_axis` / `forward_axis` / `rest_up_axis` (`world_up` / `rest_forward` / `rest_up` parsed into an `Axis(index, sign, vector)` named tuple via the top-level `pybvh.parse_axis`; each mirrors the nullability of the string it parses, so `rest_up_axis` is `Axis | None` and the other two are always defined).
 
 There is **no flat `.frames` property** — code should use `root_pos` and `joint_angles` directly.
 
@@ -160,7 +160,9 @@ Provides `read_bvh_file(filepath)` and `write_bvh_file(bvh, filepath)`. The read
 
 ### 4.7 `pybvh/spatial_coord.py` — Forward Kinematics
 
-`frames_to_node_positions(nodes_container, root_pos, joint_angles, centered)` computes 3D joint positions via forward kinematics. Output shape: `(F, N, 3)` for multiple frames, `(N, 3)` for a single frame, where N = total nodes including end sites. Fully vectorized across all frames using batch matrix operations. See source docstrings for method signatures.
+`frames_to_node_positions(skeleton, root_pos, joint_angles, centered, up)` computes 3D joint positions via forward kinematics. Output shape: `(F, N, 3)` for multiple frames, `(N, 3)` for a single frame, where N = total nodes including end sites. Fully vectorized across all frames using batch matrix operations.
+
+v0.8.2 added **`FkTopology`** — the skeleton as plain arrays (`offsets (N, 3)`, `parent_idx (N,)`, `joint_idx (N,)`, `euler_orders` length J) — as a third accepted value for the first parameter (renamed `nodes_container` → `skeleton` at the same time), so FK runs from arrays with no node objects. `_resolve_topology` is the single point where all three input forms converge; the FK loop reads nothing but the resulting topology. `FkTopology.from_nodes` / `Bvh.fk_topology` derive one, and the constructor validates every invariant the loop relies on (parents precede children, exactly one root, the root is a joint, no node parented to an end site, joint columns are a complete `0..J-1` range) — the last two would otherwise produce silently wrong geometry rather than an error, via `-1`-as-negative-index and an uninitialized rotation read respectively. It is an FK *input bundle*, deliberately not a skeleton descriptor: no names, no orientation axes. `euler_orders` is indexed by joint column, not by node. See source docstrings for signatures.
 
 ### 4.8 `pybvh/df_to_bvh.py` — DataFrame to Bvh Conversion
 
@@ -255,6 +257,8 @@ where the order comes from the joint's `rot_channels`.
   - `tests/test_bvh.py` — File I/O, hierarchy, spatial coordinates, DataFrame conversion, skeleton operations, batch processing, freeze preservation, motion features (velocities, foot contacts, feature export), edge cases.
   - `tests/test_analysis.py` / `tests/test_analysis_primitives.py` — foot contacts, gait, jerk/smoothness, reductions, covariance descriptors.
   - `tests/test_geometry.py` — position-descriptor kernels; `tests/test_signal.py` — signal utilities.
+  - `tests/test_fk_topology.py` — the `FkTopology` array-signature FK input: extraction, bit-exact equivalence with the node-object path, serialization round-trip, the `centered="first"` up-axis requirement, and every construction-time invariant.
+  - `tests/test_name_collisions.py` — identity-resolution regressions on two hand-built rigs (a joint shadowed by a generated end-site name; two joints sharing a name). Pins `edges` / `node_edges` / `get_skeleton_lines` / `joint_tips` / FK / `extract_joints` against an identity-derived truth, plus the multi-end-site `mirror` fix and `node_lr_pairs`.
   - `tests/test_rotations.py` / `tests/test_rotations_se3.py` — all conversion paths, gimbal lock, 180° SLERP, analytical values, SE(3) math.
   - `tests/test_rotations_golden.py` / `tests/test_se3_golden.py` / `tests/test_smoothness_golden.py` — comparisons against frozen scipy / pytransform3d / SPARC references in `tests/fixtures/`.
   - `tests/test_bvh_descriptors.py` — the `Bvh` descriptor method wrappers; `tests/test_reorient.py` — the three reorientation transforms.
@@ -263,7 +267,7 @@ where the order comes from the joint's `rot_channels`.
   - `tests/test_docs_api_coverage.py` — docs guard: two-way set equality between the curated member lists in `docs/api/{bvh,analysis,rotations}.md` and the actual public API (a new public member missing from the docs fails CI, as does a stale entry).
   - `tests/test_gallery_notebook.py` — gallery freshness guard: the `gallery/feature_gallery.{py,ipynb}` jupytext pair must match, the committed execution counts must be sequential 1..N (stale-output detector), and no error/stderr outputs may be committed.
 - **Run command**: `conda run -n pybvh pytest tests/ -v`
-- **Current count**: 1821 tests, all passing.
+- **Current count**: 1984 tests, all passing.
 - **Note**: `tests/test_transforms_battle.py` uses private datasets from `internal_data/` and is gitignored — never publish or share this file.
 
 ---
@@ -453,7 +457,9 @@ pybvh-ml is a primary consumer of pybvh's public API. When modifying pybvh, be a
 - `bvh.to_quat()`, `bvh.to_6d()`, `bvh.to_rotmat()`, `bvh.to_axisangle()` — representation conversion. Return `(root_pos, joint_data)` 2-tuples (the third `joints` element in the old 3-tuple shape was removed in v0.6.0 — derivable from `bvh.nodes` / `bvh.joint_names` / `bvh.joint_index`).
 - `bvh.from_rotmat()`, `bvh.from_6d()`, `bvh.from_quat()`, `bvh.from_axisangle()` — inverse representation conversion.
 - `bvh.euler_orders` — per-joint Euler order strings
-- `bvh.edges` — skeleton edge list as index tuples
+- `bvh.edges` / `bvh.node_edges` — skeleton edge list as index tuples, in `joint_angles` and `nodes` index space respectively. Both are views of `bvh.fk_topology.parent_idx`, so they cannot disagree with the topology FK poses. Parents are resolved by node identity, never by name (node names are not unique — the parser derives end-site display names from the parent joint).
+- `bvh.fk_topology` — the skeleton as plain arrays (`FkTopology`), for running `frames_to_node_positions` with no `Bvh` in hand. The array-signature FK entry point pybvh-ml uses to refresh positions after rotation augmentation at train time.
+- `bvh.node_lr_pairs` — L/R pairs in `nodes` index space, joints **and** end sites, for mirroring a `(F, N, 3)` position stream. Node-space counterpart of `lr_pairs`; same `None` sentinel.
 - `bvh.nodes`, `bvh.node_index` — skeleton topology (indexes `node_positions()` output)
 - `bvh.joint_index` — joint-only name → index dict (indexes `joint_angles` axis 1). Symmetric counterpart to `node_index`; preferred over `bvh.joint_names.index(name)`.
 - `bvh.world_up`, `bvh.rest_up`, `bvh.rest_forward`, `bvh.forward_at(frame)`, `bvh.left_at(frame)`, `bvh.facing_frame()` — orientation API. `world_up` / `forward_at` are animation-derived; `rest_up` / `rest_forward` are topology-derived (rest pose only). On clean files the two pairs agree. `(world_up, forward_at, left_at)` form an orthonormal right-hand-rule triple: `left = up × forward`; `facing_frame()` is the continuous (pre-snap) vector form of the same triple for all frames at once.

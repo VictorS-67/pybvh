@@ -7,6 +7,47 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.8.2] — 2026-07-29
+
+### Breaking changes & migration
+
+| Old | New | Migration |
+|---|---|---|
+| `frames_to_node_positions(nodes_container=...)` | `frames_to_node_positions(skeleton=...)` | Rename, keyword callers only — the parameter now also accepts an `FkTopology`, and "nodes container" stopped describing it. Positional calls are unaffected. |
+| `centered="first"` defaulted `up` to `'+y'` | `up` is resolved or required | `frames_to_node_positions(..., centered="first")` no longer assumes `'+y'`. Given a `Bvh` it now uses that skeleton's own `world_up` — which is a **fix**: the old default silently mis-centered every non-y-up file, including three of this repo's six fixtures. Given a node list or an `FkTopology`, which carry no gravity direction, it raises instead of guessing; pass `up=` explicitly. `Bvh.node_positions` already passed `world_up` and is unchanged. |
+
+### Added
+
+- **`pybvh.FkTopology`** — a skeleton's topology as plain arrays: `offsets (N, 3)`, `parent_idx (N,)`, `joint_idx (N,)` and `euler_orders` (length *J*). `frames_to_node_positions` accepts one in place of a `Bvh` or a `list[BvhNode]`, so forward kinematics runs from arrays alone — a data loader holding a preprocessed dataset, or an augmentation step that has moved a joint rotation and needs the positions refreshed, no longer has to reopen the source `.bvh`. Get one from `Bvh.fk_topology`, or build one directly with the constructor.
+
+  It is an **FK input bundle, not a skeleton descriptor**: it carries what the FK loop reads and nothing else — no names, no orientation axes. Every *field* is independently serializable (three arrays and a list of strings) so the four values store in whatever container the caller already uses; the type itself is not a serialization format.
+
+  `euler_orders` is indexed by **joint column, not by node** — `euler_orders[j]` belongs to the node whose `joint_idx == j`. The two coincide only when `joint_idx` counts up in node order, which is what `Bvh.fk_topology` produces; code that repacks the joint axis must permute the orders the same way. No check can catch a mismatch, because every permutation is a valid topology — just not the one you meant.
+
+  The constructor validates, since a caller building one from arrays has no node tree to check against, and two of the failure modes are indistinguishable from valid input downstream: a root marked as an end site reads its `-1` as a *negative index* and applies the last joint's rotation to the whole skeleton, and a node parented to an end site reads uninitialized memory for its parent's accumulated rotation. Both now raise, along with forward parent references, multiple roots, and joint columns that are not a complete `0..J-1` range.
+
+- **`Bvh.fk_topology`** — the property form of the above, and now this class's single derivation of skeleton topology: `edges`, `node_edges` and the bone list the `bvhplot` backends draw are all views of its `parent_idx`, so they cannot disagree with the geometry FK produces. Recomputed per access rather than cached — an O(N) walk over a few dozen nodes, against a cache that would need invalidating on `retarget` / `scale` / `mirror` / `change_euler_order`.
+
+- **`Bvh.node_lr_pairs`** — left/right pairs as index tuples in `nodes` index space, the node-space counterpart of `lr_pairs`. Covers joints **and** their end sites, so a mirror over `node_positions()` output can swap every paired vertex — including the fingertips, toe tips and head top that only exist in node space. `None` when no L/R mapping is available, the same sentinel as `lr_pairs` and `lr_mapping`. Order is deterministic: joint pairs in `lr_mapping` order, then end-site pairs in that same order.
+
+  A joint pair whose two sides carry different numbers of end sites has no well-defined tip correspondence; the property returns the joint pair and drops its end sites, matching `lr_pairs`' habit of filtering what it cannot resolve rather than raising from an attribute access. `mirror` refuses on the same condition, because a half-swapped skeleton is a wrong answer rather than a partial one. Both read one shared resolver, so the two policies cannot drift apart.
+
+### Fixed
+
+- **`Bvh.node_edges` could return a graph of the right length describing the wrong skeleton.** It resolved each node's parent by name through `node_index`, which is built as a plain dict over the node list and so keeps only the *last* node of any repeated name. Node names are not unique in general: the parser derives every end site's display name from its parent joint (`'EndSite' + parent.name`), so two end sites under one joint collide outright, and nothing rejects two joints sharing a name either. Under a collision the emitted edge pointed at whichever node won the name — in the end-site case, at a node that cannot have children at all, leaving the real parent isolated. No exception, no shape change, no `nan`; downstream it became a GCN adjacency that trained fine on the wrong topology. Parents are now resolved by node identity.
+
+  `Bvh.edges` had the same name lookup in joint space, where it is reachable only through two joints sharing a name (end sites are absent from that index space). Also fixed. Its `joint.parent.name in j_name2idx` guard was dead code — the parent of a joint is a joint, so its name is necessarily a key — and now asks the question it was written to ask, by identity.
+
+  The same lookup was fixed in three more places that already held the node object and took a name detour: the bone list `bvhplot` draws (`get_skeleton_lines`, which under a collision drew one bone twice and omitted another), the end-site offset `extract_joints` reaches back for, and the rest-pose height `auto_detect_foot_joints` sorts on. Forward kinematics and `joint_tips` were already identity-keyed; they are what the rest now match.
+
+- **`mirror` left end sites unswapped on any joint carrying more than one.** Both end sites of a joint receive the same generated display name, so the name-keyed lookup returned one of them twice: that pair was swapped twice — a no-op — and the other never at all, leaving the tips negated but not exchanged. A mirrored hand's fingertips pointed the wrong way. Multiple end sites per joint are nonstandard but the parser accepts them, and `joint_tips` already documented the case. End sites are now resolved by identity. Note that `mirror(mirror(x)) == x` held throughout, so a round-trip test could not have caught this.
+
+### Changed
+
+- `frames_to_node_positions` now raises when `joint_angles`' joint count disagrees with the skeleton's, instead of failing further in with a message about angle shapes.
+
+---
+
 ## [0.8.1] — 2026-07-29
 
 ### Breaking changes & migration

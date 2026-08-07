@@ -89,3 +89,17 @@ Two records with different audiences, kept deliberately different:
 
 - **CHANGELOG.md is public-facing and shows only the net change per version.** Every entry describes the migration from the *previous shipped release* to this one. While a version is still unreleased, entries in its dated section are **rewritten in place** as the code evolves — never append churn: if a thing added during the version is later renamed, revised, or removed before shipping, the CHANGELOG shows only the final state, phrased so "previously" always refers to the last shipped release (verify against `git show v<prev>:...` when unsure). Dated sections of *shipped* versions are immutable and period-accurate.
 - **`docs/internal_logs/<version>/` (gitignored) is the internal development history.** It records all substantive changes made during the version — including intermediate states that were overwritten before release — each with the *reason* for the change and for its supersession. When you rewrite a CHANGELOG entry per the rule above, the superseded state moves here (see the `05-superseded-*.md` ledger pattern in `docs/internal_logs/v0.8.0/`). Update these logs as part of landing significant work, not retroactively at release time.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked as GitHub Issues on `VictorS-67/pybvh` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.

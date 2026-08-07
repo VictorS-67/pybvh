@@ -7,8 +7,11 @@ repo_name: VictorS-67/pybvh
 # docs/internal_logs/ is the gitignored internal development history — never
 # part of the site, even from a local `mkdocs build` / `gh-deploy` where the
 # directory exists on disk (CI checkouts never contain it).
+# docs/agents/ is agent-workflow configuration (issue tracker, triage labels,
+# domain-doc rules), not user documentation.
 exclude_docs: |
   /internal_logs/
+  /agents/
 
 theme:
   name: material

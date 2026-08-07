@@ -1,0 +1,2256 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A lightweight Python library for BVH motion capture files">
+      
+      
+      
+        <link rel="canonical" href="https://victors-67.github.io/pybvh/gallery/">
+      
+      
+        <link rel="prev" href="../getting-started/quickstart/">
+      
+      
+        <link rel="next" href="../guide/core-concepts/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Gallery - pybvh</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pybvh-feature-gallery" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="pybvh" class="md-header__button md-logo" aria-label="pybvh" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pybvh
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Gallery
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/VictorS-67/pybvh" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    VictorS-67/pybvh
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting-started/installation/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Gallery
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../guide/core-concepts/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../api/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../tutorials/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Tutorials
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="pybvh" class="md-nav__button md-logo" aria-label="pybvh" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pybvh
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/VictorS-67/pybvh" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    VictorS-67/pybvh
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gallery
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-load-see" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1 · Load &amp; see
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-core-concepts-drawn" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2 · Core concepts, drawn
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-transforms-augmentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3 · Transforms &amp; augmentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-skeleton-frame-ops" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4 · Skeleton &amp; frame ops
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-contacts-feature-export" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5 · Contacts &amp; feature export
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-geometry-relations-between-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6 · Geometry — relations between points
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-geometry-bounding-volumes-centre-of-mass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7 · Geometry — bounding volumes &amp; centre of mass
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-geometry-trajectory-descriptors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8 · Geometry — trajectory descriptors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-analysis-dynamics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9 · Analysis — dynamics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9 · Analysis — dynamics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gait-on-real-walking-mocap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gait — on real walking mocap
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-rotations-se3-rigid-transform-math" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10 · Rotations — SE(3) rigid-transform math
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-signal-signal-utilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11 · Signal — signal utilities
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12 · Scale
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/core-concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/world-up/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World Up & Orientation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/rotations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rotation Representations & SE(3)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/choosing-rotations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Choosing a Representation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/augmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Augmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/feature-export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Feature Export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/skeleton-ops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skeleton Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/motion-descriptors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Motion Descriptors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/bvh/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bvh Class
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/io/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    I/O
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/rotations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rotations & SE(3)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/geometry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Geometry (trajectory & pose)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/transforms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transforms (augmentation)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis (contacts, gait, smoothness)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features (ML export)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/signal/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Signal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/batch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Batch Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/bvhplot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visualization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-load-see" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1 · Load &amp; see
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-core-concepts-drawn" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2 · Core concepts, drawn
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-transforms-augmentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3 · Transforms &amp; augmentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-skeleton-frame-ops" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4 · Skeleton &amp; frame ops
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-contacts-feature-export" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5 · Contacts &amp; feature export
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-geometry-relations-between-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6 · Geometry — relations between points
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-geometry-bounding-volumes-centre-of-mass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7 · Geometry — bounding volumes &amp; centre of mass
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-geometry-trajectory-descriptors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8 · Geometry — trajectory descriptors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-analysis-dynamics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9 · Analysis — dynamics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9 · Analysis — dynamics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gait-on-real-walking-mocap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gait — on real walking mocap
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-rotations-se3-rigid-transform-math" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10 · Rotations — SE(3) rigid-transform math
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-signal-signal-utilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11 · Signal — signal utilities
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12 · Scale
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="pybvh-feature-gallery">pybvh Feature Gallery<a class="headerlink" href="#pybvh-feature-gallery" title="Permanent link">&para;</a></h1>
+<p>One <strong>picture per feature</strong>, designed so the figure <em>is</em> the explanation: operations and geometric descriptors are drawn in 3D on the skeleton, dynamic descriptors are annotated on the signals they summarize, and SE(3) transforms are drawn as coordinate frames. Where a real pose would obscure the idea, a small synthetic example is used instead. Sections 1-5 cover the core library (viewing, concepts, transforms, skeleton ops, export); sections 6-12 the motion-descriptor layer introduced in pybvh 0.8.0.</p>
+<p>Each cell shows the <strong>feature call</strong> (<code>bvh.mirror()</code>, <code>bvh.curvature(...)</code>, …); where a figure needs extra annotation, the matplotlib lives in the companion module <strong><code>gallery_plots.py</code></strong> (imported as <code>gp</code>), so the notebook stays about the features, not the plumbing.</p>
+<p>API reference for everything shown here: <a href="https://victors-67.github.io/pybvh/api/bvh/">Bvh class</a> · <a href="https://victors-67.github.io/pybvh/api/geometry/">geometry</a> · <a href="https://victors-67.github.io/pybvh/api/analysis/">analysis</a> · <a href="https://victors-67.github.io/pybvh/api/rotations/">rotations &amp; SE(3)</a> · <a href="https://victors-67.github.io/pybvh/api/transforms/">transforms</a> · <a href="https://victors-67.github.io/pybvh/api/signal/">signal</a></p>
+<p>Sections: <strong>1</strong> load &amp; see · <strong>2</strong> core concepts, drawn · <strong>3</strong> transforms &amp; augmentation · <strong>4</strong> skeleton &amp; frame ops · <strong>5</strong> contacts &amp; feature export · <strong>6</strong> geometry (relations) · <strong>7</strong> geometry (bounding &amp; centre of mass) · <strong>8</strong> geometry (trajectory) · <strong>9</strong> analysis (dynamics &amp; gait) · <strong>10</strong> SE(3) rigid transforms · <strong>11</strong> signal utilities · <strong>12</strong> scale.</p>
+<p><em>If your viewer fails to render any figure or clip, <a href="https://nbviewer.org/github/VictorS-67/pybvh/blob/main/gallery/feature_gallery.ipynb">the notebook on nbviewer</a> renders everything.</em></p>
+<div class="admonition info">
+<p class="admonition-title">Generated page</p>
+<p>This page is generated from the executed notebook
+<a href="https://github.com/VictorS-67/pybvh/blob/main/gallery/feature_gallery.ipynb"><code>feature_gallery.ipynb</code></a>
+— download it to run every figure live. Do not edit <code>docs/gallery/</code>
+by hand; regenerate with <code>python scripts/export_gallery.py</code>.</p>
+</div>
+<p><strong>Every figure at a glance</strong> — click any tile to jump to it.</p>
+<div class="gallery-grid">
+<a href="#fig-0" title="the test clip, rendered by bvh.render with the front camera"><img src="img/thumb_00.png" alt="the test clip, rendered by bvh.render with the front camera" loading="lazy"></a>
+<a href="#fig-1" title="plot_rest_pose"><img src="img/thumb_01.png" alt="plot_rest_pose" loading="lazy"></a>
+<a href="#fig-2" title="plot_rest_pose"><img src="img/thumb_02.png" alt="plot_rest_pose" loading="lazy"></a>
+<a href="#fig-3" title="node_positions(centered=…)"><img src="img/thumb_03.png" alt="node_positions(centered=…)" loading="lazy"></a>
+<a href="#fig-4" title="Why 6D exists"><img src="img/thumb_04.png" alt="Why 6D exists" loading="lazy"></a>
+<a href="#fig-5" title="figure 5"><img src="img/thumb_05.png" alt="figure 5" loading="lazy"></a>
+<a href="#fig-6" title="reorient_world_up"><img src="img/thumb_06.png" alt="reorient_world_up" loading="lazy"></a>
+<a href="#fig-7" title="reorient_rest_up"><img src="img/thumb_07.png" alt="reorient_rest_up" loading="lazy"></a>
+<a href="#fig-8" title="mirror"><img src="img/thumb_08.png" alt="mirror" loading="lazy"></a>
+<a href="#fig-9" title="rotate_vertical"><img src="img/thumb_09.png" alt="rotate_vertical" loading="lazy"></a>
+<a href="#fig-10" title="add_rotation_noise"><img src="img/thumb_10.png" alt="add_rotation_noise" loading="lazy"></a>
+<a href="#fig-11" title="perturb_speed"><img src="img/thumb_11.png" alt="perturb_speed" loading="lazy"></a>
+<a href="#fig-12" title="drop_frames"><img src="img/thumb_12.png" alt="drop_frames" loading="lazy"></a>
+<a href="#fig-13" title="Composing transforms"><img src="img/thumb_13.png" alt="Composing transforms" loading="lazy"></a>
+<a href="#fig-14" title="scale"><img src="img/thumb_14.png" alt="scale" loading="lazy"></a>
+<a href="#fig-15" title="resample"><img src="img/thumb_15.png" alt="resample" loading="lazy"></a>
+<a href="#fig-16" title="the walking clip, rendered by bvh.render with a fixed side camera"><img src="img/thumb_16.png" alt="the walking clip, rendered by bvh.render with a fixed side camera" loading="lazy"></a>
+<a href="#fig-17" title="foot_contacts"><img src="img/thumb_17.png" alt="foot_contacts" loading="lazy"></a>
+<a href="#fig-18" title="root_trajectory"><img src="img/thumb_18.png" alt="root_trajectory" loading="lazy"></a>
+<a href="#fig-19" title="to_feature_array"><img src="img/thumb_19.png" alt="to_feature_array" loading="lazy"></a>
+<a href="#fig-20" title="inter_joint_distance"><img src="img/thumb_20.png" alt="inter_joint_distance" loading="lazy"></a>
+<a href="#fig-21" title="joint_angle"><img src="img/thumb_21.png" alt="joint_angle" loading="lazy"></a>
+<a href="#fig-22" title="segment_axis_angle"><img src="img/thumb_22.png" alt="segment_axis_angle" loading="lazy"></a>
+<a href="#fig-23" title="triangle_area"><img src="img/thumb_23.png" alt="triangle_area" loading="lazy"></a>
+<a href="#fig-24" title="point_to_plane_distance"><img src="img/thumb_24.png" alt="point_to_plane_distance" loading="lazy"></a>
+<a href="#fig-25" title="On the skeleton."><img src="img/thumb_25.png" alt="On the skeleton." loading="lazy"></a>
+<a href="#fig-26" title="bounding_box"><img src="img/thumb_26.png" alt="bounding_box" loading="lazy"></a>
+<a href="#fig-27" title="center_of_mass"><img src="img/thumb_27.png" alt="center_of_mass" loading="lazy"></a>
+<a href="#fig-28" title="verticality"><img src="img/thumb_28.png" alt="verticality" loading="lazy"></a>
+<a href="#fig-29" title="the right hand tracing its trajectory, frame by frame"><img src="img/thumb_29.png" alt="the right hand tracing its trajectory, frame by frame" loading="lazy"></a>
+<a href="#fig-30" title="path_length"><img src="img/thumb_30.png" alt="path_length" loading="lazy"></a>
+<a href="#fig-31" title="curvature"><img src="img/thumb_31.png" alt="curvature" loading="lazy"></a>
+<a href="#fig-32" title="torsion"><img src="img/thumb_32.png" alt="torsion" loading="lazy"></a>
+<a href="#fig-33" title="movement_phase"><img src="img/thumb_33.png" alt="movement_phase" loading="lazy"></a>
+<a href="#fig-34" title="ground_path"><img src="img/thumb_34.png" alt="ground_path" loading="lazy"></a>
+<a href="#fig-35" title="pose_distance"><img src="img/thumb_35.png" alt="pose_distance" loading="lazy"></a>
+<a href="#fig-36" title="mean_pose_subtract"><img src="img/thumb_36.png" alt="mean_pose_subtract" loading="lazy"></a>
+<a href="#fig-37" title="the right hand tracing its trajectory, frame by frame"><img src="img/thumb_37.png" alt="the right hand tracing its trajectory, frame by frame" loading="lazy"></a>
+<a href="#fig-38" title="figure 38"><img src="img/thumb_38.png" alt="figure 38" loading="lazy"></a>
+<a href="#fig-39" title="smoothness(metric=…)"><img src="img/thumb_39.png" alt="smoothness(metric=…)" loading="lazy"></a>
+<a href="#fig-40" title="figure 40"><img src="img/thumb_40.png" alt="figure 40" loading="lazy"></a>
+<a href="#fig-41" title="velocity_reductions"><img src="img/thumb_41.png" alt="velocity_reductions" loading="lazy"></a>
+<a href="#fig-42" title="zero_crossings"><img src="img/thumb_42.png" alt="zero_crossings" loading="lazy"></a>
+<a href="#fig-43" title="kinetic_energy"><img src="img/thumb_43.png" alt="kinetic_energy" loading="lazy"></a>
+<a href="#fig-44" title="range_of_motion"><img src="img/thumb_44.png" alt="range_of_motion" loading="lazy"></a>
+<a href="#fig-45" title="cov3dj"><img src="img/thumb_45.png" alt="cov3dj" loading="lazy"></a>
+<a href="#fig-46" title="skeleton_size"><img src="img/thumb_46.png" alt="skeleton_size" loading="lazy"></a>
+<a href="#fig-47" title="gait_parameters"><img src="img/thumb_47.png" alt="gait_parameters" loading="lazy"></a>
+<a href="#fig-48" title="not"><img src="img/thumb_48.png" alt="not" loading="lazy"></a>
+<a href="#fig-49" title="screw_interpolate"><img src="img/thumb_49.png" alt="screw_interpolate" loading="lazy"></a>
+<a href="#fig-50" title="relative_transform"><img src="img/thumb_50.png" alt="relative_transform" loading="lazy"></a>
+<a href="#fig-51" title="rotation_geodesic_distance"><img src="img/thumb_51.png" alt="rotation_geodesic_distance" loading="lazy"></a>
+<a href="#fig-52" title="finite_difference"><img src="img/thumb_52.png" alt="finite_difference" loading="lazy"></a>
+<a href="#fig-53" title="temporal_stats"><img src="img/thumb_53.png" alt="temporal_stats" loading="lazy"></a>
+<a href="#fig-54" title="figure 54"><img src="img/thumb_54.png" alt="figure 54" loading="lazy"></a>
+<a href="#fig-55" title="ramer_douglas_peucker"><img src="img/thumb_55.png" alt="ramer_douglas_peucker" loading="lazy"></a>
+<a href="#fig-56" title="relative_scale_factor"><img src="img/thumb_56.png" alt="relative_scale_factor" loading="lazy"></a>
+</div>
+
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">%</span><span class="n">matplotlib</span> <span class="n">inline</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pybvh</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pybvh</span><span class="w"> </span><span class="kn">import</span> <span class="n">geometry</span><span class="p">,</span> <span class="n">analysis</span><span class="p">,</span> <span class="n">rotations</span><span class="p">,</span> <span class="n">signal</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="kn">import</span><span class="w"> </span><span class="nn">gallery_plots</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">gp</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="n">REPO</span> <span class="o">=</span> <span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span> <span class="k">if</span> <span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;tutorials&quot;</span><span class="p">,</span> <span class="s2">&quot;gallery&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="n">bvh</span> <span class="o">=</span> <span class="n">pybvh</span><span class="o">.</span><span class="n">read_bvh_file</span><span class="p">(</span><span class="n">REPO</span> <span class="o">/</span> <span class="s2">&quot;bvh_data&quot;</span> <span class="o">/</span> <span class="s2">&quot;bvh_test1.bvh&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="n">pos</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">node_positions</span><span class="p">()</span>                  <span class="c1"># (F, N, 3)</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="n">F</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">frame_count</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="n">dt</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">frame_time</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="n">t</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">F</span><span class="p">)</span> <span class="o">*</span> <span class="n">dt</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="n">FRAME</span> <span class="o">=</span> <span class="n">F</span> <span class="o">//</span> <span class="mi">2</span>                              <span class="c1"># a representative pose</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="n">P</span> <span class="o">=</span> <span class="n">pos</span><span class="p">[</span><span class="n">FRAME</span><span class="p">]</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="n">idx</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">name</span><span class="p">:</span> <span class="n">bvh</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">space</span><span class="o">=</span><span class="s2">&quot;node&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="nb">print</span><span class="p">(</span><span class="n">bvh</span><span class="p">)</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>24 joints, 75 frames at 30.0 fps (frame_time=0.033333s, from bvh_test1.bvh)
+</code></pre></div>
+<p><strong>Where the drawing lives &amp; adjusting the view.</strong> Every figure is built by a <code>gp.fig_*</code> function in <code>gallery_plots.py</code>. To re-aim the 3D camera for <em>all</em> figures, set <code>gp.VIEW_ELEV</code> / <code>gp.VIEW_AZIM</code>; a handful of figures pin their own angle inside their function (edit it there). The skeleton/triad/equal-box helpers also live in that module.</p>
+<h2 id="1-load-see">1 · Load &amp; see<a class="headerlink" href="#1-load-see" title="Permanent link">&para;</a></h2>
+<p>The test clip used through most of this gallery, rendered with <strong><code>bvh.render</code></strong> to a GIF committed beside this notebook (resampled to the GIF's 20 fps so it plays in real time). The markdown cell below displays the committed file rather than the cell embedding the clip as an output: GitHub's notebook renderer shows <code>image/png</code> outputs but silently drops <code>image/gif</code> ones, so an embedded clip would be invisible exactly where most readers meet the library. For an interactive scrubber instead, use <code>bvh.play()</code> in a live kernel.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">seq_gif</span> <span class="o">=</span> <span class="n">gp</span><span class="o">.</span><span class="n">motion_clip_gif</span><span class="p">(</span><span class="n">bvh</span><span class="p">)</span>   <span class="c1"># renders the clip itself — no single feature value to surface</span>
+</code></pre></div>
+<p><img alt="the test clip, rendered by bvh.render with the front camera" id="fig-0" loading="lazy" src="img/00_6c470862.gif" /></p>
+<p><strong><code>plot_rest_pose</code></strong> &amp; <strong><code>plot_frame</code></strong> — the two static snapshots: the rest pose (all joint angles zero, offsets only — the first thing to check on a new file) and any animation frame, with <code>camera="front"/"side"/"top"</code> or a custom <code>(azimuth, elevation)</code> tuple. Multi-skeleton comparisons use the same functions from <code>pybvh.bvhplot</code> with a list, as later sections show.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">plot_rest_pose</span><span class="p">()</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">ax</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="s2">&quot;plot_rest_pose() — offsets only, angles zero&quot;</span><span class="p">);</span>
+</code></pre></div>
+<p><img alt="plot_rest_pose" id="fig-1" loading="lazy" src="img/01_ce40753f.png" /></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">plot_frame</span><span class="p">(</span><span class="n">frame</span><span class="o">=</span><span class="n">FRAME</span><span class="p">,</span> <span class="n">camera</span><span class="o">=</span><span class="s2">&quot;side&quot;</span><span class="p">)</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">ax</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;plot_frame(</span><span class="si">{</span><span class="n">FRAME</span><span class="si">}</span><span class="s2">, camera=&#39;side&#39;)&quot;</span><span class="p">);</span>
+</code></pre></div>
+<p><img alt="plot_rest_pose" id="fig-2" loading="lazy" src="img/02_9ad5481a.png" /></p>
+<h2 id="2-core-concepts-drawn">2 · Core concepts, drawn<a class="headerlink" href="#2-core-concepts-drawn" title="Permanent link">&para;</a></h2>
+<p>The ideas every pybvh user needs, one figure each. Full prose: the <a href="https://victors-67.github.io/pybvh/guide/core-concepts/">Core Concepts</a> and <a href="https://victors-67.github.io/pybvh/guide/world-up/">World Up</a> guides.</p>
+<p><strong><code>node_positions(centered=…)</code></strong> — the three coordinate modes for forward-kinematics output. Shown on <strong>real walking mocap</strong> (CMU subject 12, <em>data from <a href="http://mocap.cs.cmu.edu">mocap.cs.cmu.edu</a></em> — travel makes the modes unmistakable; sections 5 and 9 reuse this clip). Same clip, same frame; the blue trail is the root's path over the whole clip. <code>"world"</code> keeps absolute file coordinates, <code>"first"</code> shifts the first frame's root over the origin (the character still travels), <code>"skeleton"</code> pins the root at the origin every frame — the trail collapses to a point: pose only, no travel.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">walk</span> <span class="o">=</span> <span class="n">pybvh</span><span class="o">.</span><span class="n">read_bvh_file</span><span class="p">(</span><span class="n">REPO</span> <span class="o">/</span> <span class="s2">&quot;bvh_data&quot;</span> <span class="o">/</span> <span class="s2">&quot;cmu_12_01_walk.bvh&quot;</span><span class="p">)</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_centered_modes</span><span class="p">(</span><span class="n">walk</span><span class="p">,</span> <span class="n">walk</span><span class="o">.</span><span class="n">frame_count</span> <span class="o">//</span> <span class="mi">2</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="node_positions(centered=…)" id="fig-3" loading="lazy" src="img/03_5cd76c7a.png" /></p>
+<p><strong>Why 6D exists</strong> — a smooth rotation crossing the ±180° boundary, read out in three representations. Euler snaps from +180° to −180°; the canonical quaternion flips the sign of <code>z</code> where <code>w</code> crosses zero; 6D stays perfectly smooth — the property that makes it the default for neural-network outputs. (The other two Euler pitfalls — gimbal lock and order-dependence — are illustrated in <a href="https://victors-67.github.io/pybvh/tutorials/">tutorial 3</a>.)</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">input_angles</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">170</span><span class="p">,</span> <span class="mi">190</span><span class="p">,</span> <span class="mi">41</span><span class="p">)</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">euler</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">41</span><span class="p">,</span> <span class="mi">3</span><span class="p">));</span> <span class="n">euler</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">input_angles</span>          <span class="c1"># Z component in ZYX order</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">recovered</span> <span class="o">=</span> <span class="n">rotations</span><span class="o">.</span><span class="n">rotmat_to_euler</span><span class="p">(</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">rotations</span><span class="o">.</span><span class="n">euler_to_rotmat</span><span class="p">(</span><span class="n">euler</span><span class="p">,</span> <span class="s2">&quot;ZYX&quot;</span><span class="p">,</span> <span class="n">degrees</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span> <span class="s2">&quot;ZYX&quot;</span><span class="p">,</span> <span class="n">degrees</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">quats</span> <span class="o">=</span> <span class="n">rotations</span><span class="o">.</span><span class="n">euler_to_quat</span><span class="p">(</span><span class="n">euler</span><span class="p">,</span> <span class="s2">&quot;ZYX&quot;</span><span class="p">,</span> <span class="n">degrees</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">rot6d</span> <span class="o">=</span> <span class="n">rotations</span><span class="o">.</span><span class="n">euler_to_rot6d</span><span class="p">(</span><span class="n">euler</span><span class="p">,</span> <span class="s2">&quot;ZYX&quot;</span><span class="p">,</span> <span class="n">degrees</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_rotation_continuity</span><span class="p">(</span><span class="n">input_angles</span><span class="p">,</span> <span class="n">recovered</span><span class="p">,</span> <span class="n">quats</span><span class="p">,</span> <span class="n">rot6d</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="Why 6D exists" id="fig-4" loading="lazy" src="img/04_b821a17a.png" /></p>
+<p><strong><code>world_up</code> · <code>forward_at</code> · <code>left_at</code></strong> — the orientation triple. <code>world_up</code> is the gravity axis (auto-detected from the animation), <code>forward_at(frame)</code> is the character's facing direction at a frame (derived from the L/R joint pairs), and <code>left_at = world_up × forward</code> completes the right-handed frame. All three return signed-axis strings like <code>'+z'</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_orientation_triad</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">FRAME</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="figure 5" id="fig-5" loading="lazy" src="img/05_d6bc8c4f.png" /></p>
+<p><strong><code>reorient_world_up</code></strong> — files disagree on which axis is "up" (Y-up vs Z-up exporters). This rotates the whole scene into a chosen convention: the character looks identical, only the coordinates are rewritten. Here a Y-up file is unified to Z-up.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">bvh_yup</span> <span class="o">=</span> <span class="n">pybvh</span><span class="o">.</span><span class="n">read_bvh_file</span><span class="p">(</span><span class="n">REPO</span> <span class="o">/</span> <span class="s2">&quot;bvh_data&quot;</span> <span class="o">/</span> <span class="s2">&quot;bvh_test2.bvh&quot;</span><span class="p">)</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">pybvh</span><span class="o">.</span><span class="n">bvhplot</span><span class="o">.</span><span class="n">frame</span><span class="p">([</span><span class="n">bvh_yup</span><span class="p">,</span> <span class="n">bvh_yup</span><span class="o">.</span><span class="n">reorient_world_up</span><span class="p">(</span><span class="s2">&quot;+z&quot;</span><span class="p">)],</span> <span class="n">frame</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>                    <span class="n">labels</span><span class="o">=</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;original (world_up &#39;</span><span class="si">{</span><span class="n">bvh_yup</span><span class="o">.</span><span class="n">world_up</span><span class="si">}</span><span class="s2">&#39;)&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>                            <span class="s2">&quot;reorient_world_up(&#39;+z&#39;)&quot;</span><span class="p">]);</span>
+</code></pre></div>
+<p><img alt="reorient_world_up" id="fig-6" loading="lazy" src="img/06_00c39304.png" /></p>
+<p><strong><code>reorient_rest_up</code></strong> — some files author the rest pose in one convention but the animation in another (pybvh warns on load and trusts the animation). This rewrites the rest pose to match, compensating every joint rotation so the animated joint positions are unchanged to machine precision (printed below). <code>reorient_rest_forward</code> is the same idea for the facing axis.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="k">with</span> <span class="n">warnings</span><span class="o">.</span><span class="n">catch_warnings</span><span class="p">():</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>    <span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">&quot;ignore&quot;</span><span class="p">)</span>   <span class="c1"># test3&#39;s rest/animation mismatch warns on load — that mismatch is the point</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>    <span class="n">bvh_mixed</span> <span class="o">=</span> <span class="n">pybvh</span><span class="o">.</span><span class="n">read_bvh_file</span><span class="p">(</span><span class="n">REPO</span> <span class="o">/</span> <span class="s2">&quot;bvh_data&quot;</span> <span class="o">/</span> <span class="s2">&quot;bvh_test3.bvh&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="n">bvh_fixedrest</span> <span class="o">=</span> <span class="n">bvh_mixed</span><span class="o">.</span><span class="n">reorient_rest_up</span><span class="p">(</span><span class="s2">&quot;+z&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;max joint-position change:&quot;</span><span class="p">,</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>      <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">bvh_mixed</span><span class="o">.</span><span class="n">node_positions</span><span class="p">()</span> <span class="o">-</span> <span class="n">bvh_fixedrest</span><span class="o">.</span><span class="n">node_positions</span><span class="p">())</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="n">pybvh</span><span class="o">.</span><span class="n">bvhplot</span><span class="o">.</span><span class="n">rest_pose</span><span class="p">([</span><span class="n">bvh_mixed</span><span class="p">,</span> <span class="n">bvh_fixedrest</span><span class="p">],</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>                        <span class="n">labels</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;rest pose as authored (up ≠ animation up)&quot;</span><span class="p">,</span>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>                                <span class="s2">&quot;reorient_rest_up(&#39;+z&#39;)&quot;</span><span class="p">]);</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>max joint-position change: 2.1316282072803006e-14
+</code></pre></div>
+<p><img alt="reorient_rest_up" id="fig-7" loading="lazy" src="img/07_85603b8c.png" /></p>
+<h2 id="3-transforms-augmentation">3 · Transforms &amp; augmentation<a class="headerlink" href="#3-transforms-augmentation" title="Permanent link">&para;</a></h2>
+<p>The standard motion augmentations, each drawn as before/after. All exist as <code>Bvh</code> methods and as array-level <code>pybvh.transforms</code> functions, all accept a seeded <code>rng</code>, and each has a <code>random_*</code> variant that samples its parameter. Full prose: the <a href="https://victors-67.github.io/pybvh/guide/augmentation/">Data Augmentation guide</a>.</p>
+<p><strong><code>mirror</code></strong> — flips the motion left↔right. Not just an axis negation: the lateral axis is flipped <strong>and</strong> every <code>Left*</code>/<code>Right*</code> joint pair swaps data (both auto-detected), so the result stays anatomically possible.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">pybvh</span><span class="o">.</span><span class="n">bvhplot</span><span class="o">.</span><span class="n">frame</span><span class="p">([</span><span class="n">bvh</span><span class="p">,</span> <span class="n">bvh</span><span class="o">.</span><span class="n">mirror</span><span class="p">()],</span> <span class="n">frame</span><span class="o">=</span><span class="n">FRAME</span><span class="p">,</span> <span class="n">labels</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;original&quot;</span><span class="p">,</span> <span class="s2">&quot;mirror()&quot;</span><span class="p">]);</span>
+</code></pre></div>
+<p><img alt="mirror" id="fig-8" loading="lazy" src="img/08_5ac0eae1.png" /></p>
+<p><strong><code>rotate_vertical</code></strong> &amp; <strong><code>translate_root</code></strong> — yaw the whole motion about the up axis (the one rotation that preserves ground contact), and shift it by a constant offset. The top-down root paths show both at once: the rotated path pivots 90° about the origin, the translated one is the same shape displaced.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">pybvh</span><span class="o">.</span><span class="n">bvhplot</span><span class="o">.</span><span class="n">trajectory</span><span class="p">(</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>    <span class="p">[</span><span class="n">bvh</span><span class="p">,</span> <span class="n">bvh</span><span class="o">.</span><span class="n">rotate_vertical</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">/</span> <span class="mi">2</span><span class="p">),</span> <span class="n">bvh</span><span class="o">.</span><span class="n">translate_root</span><span class="p">([</span><span class="mi">50</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">])],</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>    <span class="n">labels</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;original&quot;</span><span class="p">,</span> <span class="s2">&quot;rotate_vertical(π/2)&quot;</span><span class="p">,</span> <span class="s2">&quot;translate_root(+50 x)&quot;</span><span class="p">]);</span>
+</code></pre></div>
+<p><img alt="rotate_vertical" id="fig-9" loading="lazy" src="img/09_8c98946d.png" /></p>
+<p><strong><code>add_rotation_noise</code></strong> — zero-mean Gaussian noise on the joint angles (σ in radians). Calibration on a human skeleton: σ ≈ 0.5° is imperceptible sensor-level noise, ≈ 2° a typical augmentation, ≈ 5° clearly visible, &gt; 10° destructive.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">pybvh</span><span class="o">.</span><span class="n">bvhplot</span><span class="o">.</span><span class="n">frame</span><span class="p">(</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>    <span class="p">[</span><span class="n">bvh</span><span class="p">,</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>     <span class="n">bvh</span><span class="o">.</span><span class="n">add_rotation_noise</span><span class="p">(</span><span class="n">sigma</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">radians</span><span class="p">(</span><span class="mf">0.5</span><span class="p">),</span> <span class="n">rng</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">42</span><span class="p">)),</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>     <span class="n">bvh</span><span class="o">.</span><span class="n">add_rotation_noise</span><span class="p">(</span><span class="n">sigma</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">radians</span><span class="p">(</span><span class="mf">5.0</span><span class="p">),</span> <span class="n">rng</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">42</span><span class="p">))],</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>    <span class="n">frame</span><span class="o">=</span><span class="n">FRAME</span><span class="p">,</span> <span class="n">labels</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;original&quot;</span><span class="p">,</span> <span class="s2">&quot;σ = 0.5°&quot;</span><span class="p">,</span> <span class="s2">&quot;σ = 5°&quot;</span><span class="p">]);</span>
+</code></pre></div>
+<p><img alt="add_rotation_noise" id="fig-10" loading="lazy" src="img/10_409019fc.png" /></p>
+<p><strong><code>perturb_speed</code></strong> — changes how fast the motion plays by resampling (SLERP under the hood). The subtlety worth a figure: it changes the <strong>frame count</strong>, not the frame rate — this 75-frame 30 fps clip at factor 2 becomes ~38 frames, still at 30 fps.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_perturb_speed</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">bvh</span><span class="o">.</span><span class="n">perturb_speed</span><span class="p">(</span><span class="mf">0.5</span><span class="p">),</span> <span class="n">bvh</span><span class="o">.</span><span class="n">perturb_speed</span><span class="p">(</span><span class="mf">2.0</span><span class="p">))</span>
+</code></pre></div>
+<p><img alt="perturb_speed" id="fig-11" loading="lazy" src="img/11_71e8dd1c.png" /></p>
+<p><strong><code>drop_frames</code></strong> — simulates mocap dropouts: a random fraction of frames is <strong>replaced</strong> (not removed) by values interpolated from the nearest kept neighbours — linear for the root, SLERP for rotations. Same frame count out; the red dots mark the re-synthesized frames, visibly flattened where fine motion was lost.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_drop_frames</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">bvh</span><span class="o">.</span><span class="n">drop_frames</span><span class="p">(</span><span class="n">drop_rate</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">rng</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">0</span><span class="p">)))</span>
+</code></pre></div>
+<p><img alt="drop_frames" id="fig-12" loading="lazy" src="img/12_9dfacb71.png" /></p>
+<p><strong>Composing transforms</strong> — every transform returns a new <code>Bvh</code>, so augmentation pipelines chain:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">augmented</span> <span class="o">=</span> <span class="p">(</span><span class="n">bvh</span><span class="o">.</span><span class="n">mirror</span><span class="p">()</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>                <span class="o">.</span><span class="n">rotate_vertical</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">/</span> <span class="mi">4</span><span class="p">)</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>                <span class="o">.</span><span class="n">add_rotation_noise</span><span class="p">(</span><span class="n">sigma</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span> <span class="n">rng</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">42</span><span class="p">))</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>                <span class="o">.</span><span class="n">perturb_speed</span><span class="p">(</span><span class="mf">1.1</span><span class="p">))</span>
+<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="n">pybvh</span><span class="o">.</span><span class="n">bvhplot</span><span class="o">.</span><span class="n">frame</span><span class="p">([</span><span class="n">bvh</span><span class="p">,</span> <span class="n">augmented</span><span class="p">],</span> <span class="n">frame</span><span class="o">=</span><span class="mi">45</span><span class="p">,</span>
+<a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>                    <span class="n">labels</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;original&quot;</span><span class="p">,</span> <span class="s2">&quot;mirror → yaw 45° → noise → 1.1× speed&quot;</span><span class="p">],</span>
+<a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a>                    <span class="n">camera</span><span class="o">=</span><span class="p">(</span><span class="mi">120</span><span class="p">,</span> <span class="mi">20</span><span class="p">));</span>
+</code></pre></div>
+<p><img alt="Composing transforms" id="fig-13" loading="lazy" src="img/13_8b7db50c.png" /></p>
+<h2 id="4-skeleton-frame-ops">4 · Skeleton &amp; frame ops<a class="headerlink" href="#4-skeleton-frame-ops" title="Permanent link">&para;</a></h2>
+<p>Editing the skeleton and the timeline. Full prose: the <a href="https://victors-67.github.io/pybvh/guide/skeleton-ops/">Skeleton Operations guide</a>.</p>
+<p><strong><code>scale</code></strong>, <strong><code>retarget</code></strong> &amp; <strong><code>extract_joints</code></strong> — resize the skeleton (rotations untouched), copy another skeleton's bone proportions while keeping the motion (the dataset-normalization move), and keep a subset of joints (removed joints' offsets collapse into the nearest kept descendant). Left to right on <strong>one shared scale</strong>: original, scaled 0.5×, a 1.5×-tall clip retargeted back to the original proportions (so it matches the original's size again), and an 11-joint subset.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">tall</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">scale</span><span class="p">(</span><span class="mf">1.5</span><span class="p">)</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="n">major</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;Hips&quot;</span><span class="p">,</span> <span class="s2">&quot;Spine3&quot;</span><span class="p">,</span> <span class="s2">&quot;Head&quot;</span><span class="p">,</span> <span class="s2">&quot;RightArm&quot;</span><span class="p">,</span> <span class="s2">&quot;RightHand&quot;</span><span class="p">,</span> <span class="s2">&quot;LeftArm&quot;</span><span class="p">,</span> <span class="s2">&quot;LeftHand&quot;</span><span class="p">,</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>         <span class="s2">&quot;RightUpLeg&quot;</span><span class="p">,</span> <span class="s2">&quot;RightFoot&quot;</span><span class="p">,</span> <span class="s2">&quot;LeftUpLeg&quot;</span><span class="p">,</span> <span class="s2">&quot;LeftFoot&quot;</span><span class="p">]</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_skeleton_ops</span><span class="p">(</span>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>    <span class="p">[</span><span class="n">bvh</span><span class="p">,</span> <span class="n">bvh</span><span class="o">.</span><span class="n">scale</span><span class="p">(</span><span class="mf">0.5</span><span class="p">),</span> <span class="n">tall</span><span class="o">.</span><span class="n">retarget</span><span class="p">(</span><span class="n">bvh</span><span class="p">),</span> <span class="n">bvh</span><span class="o">.</span><span class="n">extract_joints</span><span class="p">(</span><span class="n">major</span><span class="p">)],</span>
+<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>    <span class="p">[</span><span class="s2">&quot;original&quot;</span><span class="p">,</span> <span class="s2">&quot;scale(0.5)&quot;</span><span class="p">,</span> <span class="s2">&quot;tall.retarget(bvh)&quot;</span><span class="p">,</span> <span class="s2">&quot;extract_joints</span><span class="se">\n</span><span class="s2">(11 of 24)&quot;</span><span class="p">],</span> <span class="n">FRAME</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="scale" id="fig-14" loading="lazy" src="img/14_14d199c7.png" /></p>
+<p><strong><code>resample</code></strong> — change the frame rate; the new samples are SLERP-interpolated onto the same motion. (Slicing <code>bvh[10:50]</code> and concatenation <code>bvh_a + bvh_b</code> round out the timeline operations — no figure needed.)</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_resample</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">bvh</span><span class="o">.</span><span class="n">resample</span><span class="p">(</span><span class="mi">10</span><span class="p">))</span>
+</code></pre></div>
+<p><img alt="resample" id="fig-15" loading="lazy" src="img/15_739e7da8.png" /></p>
+<h2 id="5-contacts-feature-export">5 · Contacts &amp; feature export<a class="headerlink" href="#5-contacts-feature-export" title="Permanent link">&para;</a></h2>
+<p>From motion to ML-ready labels and arrays. Contact detection needs locomotion to be interesting, so this section runs on the <strong>walking clip</strong> loaded in section 2 — first the clip itself, rendered from a fixed side camera so the skeleton walks through world space. The gait descriptors in section 9 reuse it too.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="n">walk_gif</span> <span class="o">=</span> <span class="n">gp</span><span class="o">.</span><span class="n">walk_clip_gif</span><span class="p">(</span><span class="n">walk</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="the walking clip, rendered by bvh.render with a fixed side camera" id="fig-16" loading="lazy" src="img/16_e2f3f002.gif" /></p>
+<p><strong><code>foot_contacts</code></strong> — binary planted/swing labels per foot per frame. The default detector thresholds two signals and ANDs them (the HuMoR heuristic): foot <strong>speed</strong> (slow enough?) and <strong>clearance</strong> above the estimated floor (low enough?) — each catches the other's failure mode. Here with <code>adaptive=True</code> (per-foot thresholds fitted to each foot's own signal — the right setting for known locomotion); the green spans are the detected stance phases.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="n">feet</span> <span class="o">=</span> <span class="n">analysis</span><span class="o">.</span><span class="n">auto_detect_foot_joints</span><span class="p">(</span><span class="n">walk</span><span class="p">)</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_foot_contacts_signals</span><span class="p">(</span><span class="n">walk</span><span class="p">,</span> <span class="n">feet</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="foot_contacts" id="fig-17" loading="lazy" src="img/17_597c9539.png" /></p>
+<p><strong><code>root_trajectory</code></strong> — the root's ground-plane position plus its heading as a (sin, cos) pair: the standard root parameterization in motion-generation pipelines. <code>bvhplot.trajectory(..., facing_arrows=True)</code> draws the heading along the path.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="n">traj_feats</span> <span class="o">=</span> <span class="n">walk</span><span class="o">.</span><span class="n">root_trajectory</span><span class="p">()</span>          <span class="c1"># (F, 4): ground a/b + heading sin/cos</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="n">pybvh</span><span class="o">.</span><span class="n">bvhplot</span><span class="o">.</span><span class="n">trajectory</span><span class="p">(</span><span class="n">walk</span><span class="p">,</span> <span class="n">facing_arrows</span><span class="o">=</span><span class="kc">True</span><span class="p">);</span>
+</code></pre></div>
+<p><img alt="root_trajectory" id="fig-18" loading="lazy" src="img/18_516b1156.png" /></p>
+<p><strong><code>to_feature_array</code></strong> — composes root position, joint rotations (any representation), velocities, and foot contacts into one flat <code>(F, D)</code> array; <strong><code>feature_array_layout</code></strong> reports each block's column slice so downstream code never counts columns. The diagram shows the layout of the exact call below.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="n">feat</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">to_feature_array</span><span class="p">(</span><span class="n">representation</span><span class="o">=</span><span class="s2">&quot;6d&quot;</span><span class="p">,</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>                            <span class="n">include_velocities</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">include_foot_contacts</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="n">layout</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">feature_array_layout</span><span class="p">(</span><span class="n">num_feet</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">representation</span><span class="o">=</span><span class="s2">&quot;6d&quot;</span><span class="p">,</span>
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>                                  <span class="n">include_velocities</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">include_foot_contacts</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_feature_layout</span><span class="p">(</span><span class="n">layout</span><span class="p">,</span> <span class="n">feat</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="to_feature_array" id="fig-19" loading="lazy" src="img/19_2e3327a7.png" /></p>
+<hr />
+<p>Everything below is the quantitative <strong>motion-descriptor layer</strong> added in pybvh 0.8.0 — geometry, dynamics, gait, SE(3), and signal utilities, each drawn so the picture explains the number. Prose overview: the <a href="https://victors-67.github.io/pybvh/guide/motion-descriptors/">Motion Descriptors guide</a>.</p>
+<h2 id="6-geometry-relations-between-points">6 · Geometry — relations between points<a class="headerlink" href="#6-geometry-relations-between-points" title="Permanent link">&para;</a></h2>
+<p>These measure relationships among joint <em>positions</em>. Each is drawn on a single pose with the measured quantity labelled.</p>
+<p><strong><code>inter_joint_distance</code></strong> — the straight-line distance between two joints. The dashed line is the measured segment; its length is printed on it.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="n">d</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">inter_joint_distance</span><span class="p">([(</span><span class="s2">&quot;RightHand&quot;</span><span class="p">,</span> <span class="s2">&quot;LeftHand&quot;</span><span class="p">)])[</span><span class="n">FRAME</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_inter_joint_distance</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">FRAME</span><span class="p">,</span> <span class="s2">&quot;RightHand&quot;</span><span class="p">,</span> <span class="s2">&quot;LeftHand&quot;</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a>                            <span class="s2">&quot;inter_joint_distance: ‖RightHand − LeftHand‖&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="inter_joint_distance" id="fig-20" loading="lazy" src="img/20_2c830b02.png" /></p>
+<p><strong><code>joint_angle</code></strong> — the angle at a <em>vertex</em> joint between its two neighbours. The two red bones meet at the elbow; the orange arc and label show the angle. (Drawn at the most-bent-elbow frame so the angle is unmistakable.)</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="n">elbow</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">joint_angle</span><span class="p">(</span><span class="s2">&quot;RightArm&quot;</span><span class="p">,</span> <span class="s2">&quot;RightForeArm&quot;</span><span class="p">,</span> <span class="s2">&quot;RightHand&quot;</span><span class="p">,</span> <span class="n">degrees</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="n">fa</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">elbow</span><span class="p">))</span>                  <span class="c1"># most-bent elbow frame</span>
+<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_joint_angle</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">fa</span><span class="p">,</span> <span class="s2">&quot;RightArm&quot;</span><span class="p">,</span> <span class="s2">&quot;RightForeArm&quot;</span><span class="p">,</span> <span class="s2">&quot;RightHand&quot;</span><span class="p">,</span> <span class="n">elbow</span><span class="p">[</span><span class="n">fa</span><span class="p">],</span>
+<a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a>                   <span class="s2">&quot;joint_angle: shoulder–elbow–wrist (the elbow angle)&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="joint_angle" id="fig-21" loading="lazy" src="img/21_55a46f37.png" /></p>
+<p><strong><code>segment_axis_angle</code></strong> — the angle of a bone relative to a reference axis (here the world up). The blue arrow is "up", the red bone is the segment, the arc is the angle between them.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="n">saa</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">segment_axis_angle</span><span class="p">(</span><span class="s2">&quot;RightForeArm&quot;</span><span class="p">,</span> <span class="s2">&quot;RightHand&quot;</span><span class="p">,</span> <span class="n">degrees</span><span class="o">=</span><span class="kc">True</span><span class="p">)[</span><span class="n">FRAME</span><span class="p">]</span>
+<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_segment_axis_angle</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">FRAME</span><span class="p">,</span> <span class="s2">&quot;RightForeArm&quot;</span><span class="p">,</span> <span class="s2">&quot;RightHand&quot;</span><span class="p">,</span> <span class="n">saa</span><span class="p">,</span>
+<a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>                          <span class="s2">&quot;segment_axis_angle: forearm vs world-up&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="segment_axis_angle" id="fig-22" loading="lazy" src="img/22_a504f574.png" /></p>
+<p><strong><code>triangle_area</code></strong> — the area of the triangle spanned by three joints (a coarse "openness" measure). The shaded triangle is the measured region.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="n">area</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">triangle_area</span><span class="p">(</span><span class="s2">&quot;Head&quot;</span><span class="p">,</span> <span class="s2">&quot;RightHand&quot;</span><span class="p">,</span> <span class="s2">&quot;LeftHand&quot;</span><span class="p">)[</span><span class="n">FRAME</span><span class="p">]</span>
+<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_triangle_area</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">FRAME</span><span class="p">,</span> <span class="s2">&quot;Head&quot;</span><span class="p">,</span> <span class="s2">&quot;RightHand&quot;</span><span class="p">,</span> <span class="s2">&quot;LeftHand&quot;</span><span class="p">,</span> <span class="n">area</span><span class="p">,</span>
+<a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a>                     <span class="s2">&quot;triangle_area: Head · RightHand · LeftHand&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="triangle_area" id="fig-23" loading="lazy" src="img/23_c548620c.png" /></p>
+<p><strong><code>point_to_plane_distance</code></strong> &amp; <strong><code>point_to_segment_distance</code></strong> — signed distance from a point to an infinite plane, and shortest distance to a finite segment (clamped to the endpoints). Shown on a clean synthetic setup so the perpendicular drop is unmistakable.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_point_to_plane_segment_synthetic</span><span class="p">()</span>   <span class="c1"># didactic illustration on synthetic points (no bvh feature)</span>
+</code></pre></div>
+<p><img alt="point_to_plane_distance" id="fig-24" loading="lazy" src="img/24_9a99977e.png" /></p>
+<p><strong>On the skeleton.</strong> The same two distances become useful motion features: <code>point_to_plane_distance</code> to the ground gives a foot's <strong>clearance</strong> (how high it is lifted off the floor), and <code>point_to_segment_distance</code> to a body axis gives how far a hand <strong>reaches</strong> from the torso. Both are drawn on the same pose (the frame where the toe is most lifted), with the red perpendicular as the measured distance.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="n">floor</span> <span class="o">=</span> <span class="n">pos</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">min</span><span class="p">()</span>
+<a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="n">kf</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">pos</span><span class="p">[:,</span> <span class="n">idx</span><span class="p">(</span><span class="s2">&quot;RightToeBase&quot;</span><span class="p">),</span> <span class="mi">2</span><span class="p">]))</span>          <span class="c1"># most-lifted-toe frame</span>
+<a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="n">clearance</span> <span class="o">=</span> <span class="n">geometry</span><span class="o">.</span><span class="n">point_to_plane_distance</span><span class="p">(</span><span class="n">pos</span><span class="p">[</span><span class="n">kf</span><span class="p">,</span> <span class="n">idx</span><span class="p">(</span><span class="s2">&quot;RightToeBase&quot;</span><span class="p">)],</span>
+<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a>                                             <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">floor</span><span class="p">]),</span> <span class="n">gp</span><span class="o">.</span><span class="n">UP</span><span class="p">)</span>
+<a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="n">reach</span> <span class="o">=</span> <span class="n">geometry</span><span class="o">.</span><span class="n">point_to_segment_distance</span><span class="p">(</span><span class="n">pos</span><span class="p">[</span><span class="n">kf</span><span class="p">,</span> <span class="n">idx</span><span class="p">(</span><span class="s2">&quot;RightHand&quot;</span><span class="p">)],</span>
+<a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a>                                           <span class="n">pos</span><span class="p">[</span><span class="n">kf</span><span class="p">,</span> <span class="n">idx</span><span class="p">(</span><span class="s2">&quot;Hips&quot;</span><span class="p">)],</span> <span class="n">pos</span><span class="p">[</span><span class="n">kf</span><span class="p">,</span> <span class="n">idx</span><span class="p">(</span><span class="s2">&quot;Neck&quot;</span><span class="p">)])</span>
+<a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_point_to_plane_segment_skeleton</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">kf</span><span class="p">,</span> <span class="n">clearance</span><span class="p">,</span> <span class="n">reach</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="On the skeleton." id="fig-25" loading="lazy" src="img/25_c27ad64e.png" /></p>
+<h2 id="7-geometry-bounding-volumes-centre-of-mass">7 · Geometry — bounding volumes &amp; centre of mass<a class="headerlink" href="#7-geometry-bounding-volumes-centre-of-mass" title="Permanent link">&para;</a></h2>
+<p>Whole-pose descriptors, drawn as the actual bounding shape around the skeleton.</p>
+<p><strong><code>bounding_box</code></strong> (axis-aligned), <strong><code>bounding_sphere</code></strong> (Ritter, approximate), <strong><code>bounding_ellipsoid</code></strong> (PCA-aligned) — three ways to enclose the pose. Each wireframe encloses every joint; the ellipsoid tilts with the body's spread.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="n">box</span><span class="p">,</span> <span class="n">sph</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">bounding_box</span><span class="p">(),</span> <span class="n">bvh</span><span class="o">.</span><span class="n">bounding_sphere</span><span class="p">()</span>
+<a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a><span class="n">ell</span> <span class="o">=</span> <span class="n">geometry</span><span class="o">.</span><span class="n">bounding_ellipsoid</span><span class="p">(</span><span class="n">P</span><span class="p">)</span>
+<a id="__codelineno-29-3" name="__codelineno-29-3" href="#__codelineno-29-3"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_bounding_volumes</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">FRAME</span><span class="p">,</span> <span class="n">box</span><span class="p">,</span> <span class="n">sph</span><span class="p">,</span> <span class="n">ell</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="bounding_box" id="fig-26" loading="lazy" src="img/26_4ab5f2a6.png" /></p>
+<p><strong><code>center_of_mass</code></strong> (uniform centroid) and <strong><code>com_displacement</code></strong> — the black dot is the per-frame CoM; the dashed line shows how far it has travelled from the <strong>start</strong> CoM (frame 0, the default reference). The CoM <em>trail</em> over the whole clip is faint blue.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="n">com</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">center_of_mass</span><span class="p">()</span>
+<a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a><span class="n">disp</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">com_displacement</span><span class="p">()</span>
+<a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_com</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">com</span><span class="p">,</span> <span class="n">disp</span><span class="p">,</span> <span class="n">frame</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="center_of_mass" id="fig-27" loading="lazy" src="img/27_938b1523.png" /></p>
+<p><strong><code>verticality</code></strong> — vertical extent ÷ horizontal extent. The green bar is the height span (along up); the orange bar is the horizontal width. Their ratio is the verticality (&gt; 1 = tall/upright).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_verticality</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">FRAME</span><span class="p">,</span> <span class="n">bvh</span><span class="o">.</span><span class="n">verticality</span><span class="p">()[</span><span class="n">FRAME</span><span class="p">])</span>
+</code></pre></div>
+<p><img alt="verticality" id="fig-28" loading="lazy" src="img/28_d03e1275.png" /></p>
+<h2 id="8-geometry-trajectory-descriptors">8 · Geometry — trajectory descriptors<a class="headerlink" href="#8-geometry-trajectory-descriptors" title="Permanent link">&para;</a></h2>
+<p>These read a <em>single joint's path</em> over the whole clip. We use the right hand.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="n">JT</span> <span class="o">=</span> <span class="s2">&quot;RightHand&quot;</span>
+<a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a><span class="n">traj</span> <span class="o">=</span> <span class="n">pos</span><span class="p">[:,</span> <span class="n">idx</span><span class="p">(</span><span class="n">JT</span><span class="p">),</span> <span class="p">:]</span>
+</code></pre></div>
+<p>First, to make the static trajectory plots below intuitive, watch the hand <strong>trace its path</strong>: the skeleton animates while the blue trail grows behind the hand, frame by frame. The finished blue curve is the hand trajectory every descriptor in this section reads as <code>traj</code> (the GIF is resampled to 20 fps so it plays in real time).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="n">gif_path</span> <span class="o">=</span> <span class="n">gp</span><span class="o">.</span><span class="n">trajectory_trace_gif</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">JT</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="the right hand tracing its trajectory, frame by frame" id="fig-29" loading="lazy" src="img/29_3ee53e43.gif" /></p>
+<p><strong><code>path_length</code></strong> vs <strong><code>directness</code></strong> — the blue curve is the actual path (its arc length = <code>path_length</code>); the dashed chord is the straight start→end distance. <code>directness</code> = chord ÷ path (1 = perfectly straight).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_path_directness</span><span class="p">(</span><span class="n">traj</span><span class="p">,</span> <span class="n">bvh</span><span class="o">.</span><span class="n">path_length</span><span class="p">(</span><span class="n">JT</span><span class="p">),</span> <span class="n">bvh</span><span class="o">.</span><span class="n">directness</span><span class="p">(</span><span class="n">JT</span><span class="p">),</span>
+<a id="__codelineno-34-2" name="__codelineno-34-2" href="#__codelineno-34-2"></a>                       <span class="sa">f</span><span class="s2">&quot;path_length &amp; directness (</span><span class="si">{</span><span class="n">JT</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="path_length" id="fig-30" loading="lazy" src="img/30_a148330f.png" /></p>
+<p><strong><code>curvature</code></strong> — how sharply the path bends (κ = 1 ÷ the radius of the circle that best hugs the path at each point). Drawn by colouring the trajectory: bright = tight turn, dark = nearly straight.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="n">kappa</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">curvature</span><span class="p">(</span><span class="n">JT</span><span class="p">)</span>
+<a id="__codelineno-35-2" name="__codelineno-35-2" href="#__codelineno-35-2"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_curvature</span><span class="p">(</span><span class="n">traj</span><span class="p">,</span> <span class="n">kappa</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;curvature along </span><span class="si">{</span><span class="n">JT</span><span class="si">}</span><span class="s2"> path&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="curvature" id="fig-31" loading="lazy" src="img/31_0a904fad.png" /></p>
+<p><strong><code>torsion</code></strong> — how a path twists <em>out of its plane</em> (0 for any flat curve). It is a <em>third</em>-derivative quantity, so on real mocap it is swamped by finite-difference noise and spikes wherever the path is momentarily straight (its denominator → 0). To see what it actually measures we use a clean synthetic curve — a flat circle that lifts into a helix: torsion is ~0 on the flat part and rises where the curve leaves the plane.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="n">s</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">6</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">,</span> <span class="mi">600</span><span class="p">)</span>
+<a id="__codelineno-36-2" name="__codelineno-36-2" href="#__codelineno-36-2"></a><span class="n">climb_rate</span> <span class="o">=</span> <span class="mf">0.4</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">tanh</span><span class="p">(</span><span class="n">s</span> <span class="o">-</span> <span class="mi">3</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">))</span> <span class="o">/</span> <span class="mi">2</span>          <span class="c1"># vertical speed: smoothly 0 → 0.4</span>
+<a id="__codelineno-36-3" name="__codelineno-36-3" href="#__codelineno-36-3"></a><span class="n">z</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">climb_rate</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">s</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>                    <span class="c1"># integrate it: flat, then climbs</span>
+<a id="__codelineno-36-4" name="__codelineno-36-4" href="#__codelineno-36-4"></a><span class="n">helix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="n">s</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">s</span><span class="p">),</span> <span class="n">z</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>          <span class="c1"># smooth join → no torsion spike</span>
+<a id="__codelineno-36-5" name="__codelineno-36-5" href="#__codelineno-36-5"></a><span class="n">tor</span> <span class="o">=</span> <span class="n">geometry</span><span class="o">.</span><span class="n">torsion</span><span class="p">(</span><span class="n">helix</span><span class="p">,</span> <span class="n">s</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">s</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<a id="__codelineno-36-6" name="__codelineno-36-6" href="#__codelineno-36-6"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_torsion</span><span class="p">(</span><span class="n">helix</span><span class="p">,</span> <span class="n">tor</span><span class="p">,</span> <span class="s2">&quot;torsion: flat circle → rising helix&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="torsion" id="fig-32" loading="lazy" src="img/32_04d47c5c.png" /></p>
+<blockquote>
+<p><strong>Note — the ratio torsion / curvature - or τ/κ (Lancret invariant).</strong> Curvature and torsion are the <em>complete</em> pair of Frenet invariants: together they fix a 3D curve up to a rigid motion. Their ratio has a clean meaning — <strong>τ/κ is constant iff the curve is a generalized helix</strong>, and that constant <em>is</em> the helix's pitch. On the curve above it is ~0 along the flat circle and ≈0.40 (the climb rate) on the helix. It's a one-liner from the two primitives — <code>geometry.torsion(traj, dt) / geometry.curvature(traj, dt)</code> — and is left at that: as a feature it inherits torsion's noise <em>and</em> adds a second blow-up where κ→0, so it stays a documented composition rather than a library call.</p>
+</blockquote>
+<p><strong><code>movement_phase</code></strong> — speed·curvature, so it peaks where the joint moves both <em>fast</em> and <em>sharply</em>. Shown along the real hand path: bright marks the moments that combine high speed with a tight turn.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="n">mp</span> <span class="o">=</span> <span class="n">geometry</span><span class="o">.</span><span class="n">movement_phase</span><span class="p">(</span><span class="n">traj</span><span class="p">,</span> <span class="n">dt</span><span class="p">)</span>
+<a id="__codelineno-37-2" name="__codelineno-37-2" href="#__codelineno-37-2"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_movement_phase</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">JT</span><span class="p">,</span> <span class="n">mp</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="movement_phase" id="fig-33" loading="lazy" src="img/33_b5a10607.png" /></p>
+<p><strong><code>ground_path</code></strong> — the joint's path projected onto the ground plane (its shadow). <code>distance</code> is the length of that shadow; <code>area</code> is the region it encloses (shoelace). The 3D path, its shadow, and the filled area are shown.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_ground_path</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">JT</span><span class="p">,</span> <span class="n">bvh</span><span class="o">.</span><span class="n">ground_path</span><span class="p">(</span><span class="n">JT</span><span class="p">))</span>
+</code></pre></div>
+<p><img alt="ground_path" id="fig-34" loading="lazy" src="img/34_04897792.png" /></p>
+<p><strong><code>pose_distance</code></strong> — the Euclidean distance between two whole poses. Computed between <em>every</em> pair of frames it gives a self-similarity matrix: with this colormap bright = similar (the diagonal is brightest — every pose matches itself) and dark = dissimilar. Recurring motifs show up as off-diagonal bright streaks.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="n">D</span> <span class="o">=</span> <span class="n">geometry</span><span class="o">.</span><span class="n">pose_distance</span><span class="p">(</span><span class="n">pos</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">],</span> <span class="n">pos</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:])</span>      <span class="c1"># (F, F) self-similarity</span>
+<a id="__codelineno-39-2" name="__codelineno-39-2" href="#__codelineno-39-2"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_pose_distance</span><span class="p">(</span><span class="n">D</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="pose_distance" id="fig-35" loading="lazy" src="img/35_9da22084.png" /></p>
+<p><strong><code>mean_pose_subtract</code></strong> — removes the average pose, returning a per-frame, per-joint deviation from it (shape <code>(F, N, 3)</code>) — the motion <em>about</em> the mean. The figure shows the mean pose (grey skeleton, what gets subtracted) and a single frame's slice of that deviation field (red arrows).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="n">resid</span> <span class="o">=</span> <span class="n">geometry</span><span class="o">.</span><span class="n">mean_pose_subtract</span><span class="p">(</span><span class="n">pos</span><span class="p">)</span>                    <span class="c1"># motion about the mean pose</span>
+<a id="__codelineno-40-2" name="__codelineno-40-2" href="#__codelineno-40-2"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_mean_pose_subtract</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">FRAME</span><span class="p">,</span> <span class="n">resid</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="mean_pose_subtract" id="fig-36" loading="lazy" src="img/36_cc1ad378.png" /></p>
+<h2 id="9-analysis-dynamics">9 · Analysis — dynamics<a class="headerlink" href="#9-analysis-dynamics" title="Permanent link">&para;</a></h2>
+<p>Velocity-derived descriptors. Most are best read on the signal itself, with the quantity they compute annotated directly. The right-hand speed profile and sampling rate are reused below.</p>
+<p>The traced right-hand clip from section 8 once more — it is the signal these descriptors summarize:</p>
+<p><img alt="the right hand tracing its trajectory, frame by frame" id="fig-37" loading="lazy" src="img/37_3ee53e43.gif" /></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="n">speed</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">bvh</span><span class="o">.</span><span class="n">node_velocities</span><span class="p">()[:,</span> <span class="n">idx</span><span class="p">(</span><span class="n">JT</span><span class="p">)],</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-41-2" name="__codelineno-41-2" href="#__codelineno-41-2"></a><span class="n">fs</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="n">dt</span>
+</code></pre></div>
+<p><strong><code>node_jerk</code> / <code>joint_jerk</code></strong> — the third derivative of position (rate of change of acceleration). Large jerk = abrupt, unsmooth motion. Shown as the hand's speed, acceleration, and jerk magnitude stacked by frame. Note that the acceleration here is the full acceleration-vector magnitude, so it also spikes on sharp turns (direction changes), not only on speed changes.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="n">acc</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">bvh</span><span class="o">.</span><span class="n">node_accelerations</span><span class="p">()[:,</span> <span class="n">idx</span><span class="p">(</span><span class="n">JT</span><span class="p">)],</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-42-2" name="__codelineno-42-2" href="#__codelineno-42-2"></a><span class="n">jerk</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">bvh</span><span class="o">.</span><span class="n">node_jerk</span><span class="p">()[:,</span> <span class="n">idx</span><span class="p">(</span><span class="n">JT</span><span class="p">)],</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-42-3" name="__codelineno-42-3" href="#__codelineno-42-3"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_jerk_ladder</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">F</span><span class="p">),</span> <span class="n">speed</span><span class="p">,</span> <span class="n">acc</span><span class="p">,</span> <span class="n">jerk</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">JT</span><span class="si">}</span><span class="s2">: the velocity → acceleration → jerk ladder&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="figure 38" id="fig-38" loading="lazy" src="img/38_f73f66ae.png" /></p>
+<p><strong><code>smoothness(metric=…)</code></strong> scores a <em>speed profile</em>; each metric has its own scale and direction (the next cell spells them out). <strong>SPARC</strong> — more negative = less smooth — is the one with a clean geometric picture, so we use it to build intuition here; the others have no natural 2D drawing and are compared as numbers below. <em>(Synthetic on purpose: smoothness is a contrast metric, so we show a known smooth vs jerky pair.)</em> <strong>Left:</strong> the two speed profiles (the jerky one's wiggle count is what <code>number_of_peaks</code> reports). <strong>Right:</strong> their normalized spectra. SPARC is the <em>arc length</em> of this curve: the smooth motion's energy sits entirely at low frequency (a short arc), while the jerky tremor adds a bump at 7 Hz that lengthens the arc — that extra length is its lower SPARC.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="c1"># -- synthetic data creation --</span>
+<a id="__codelineno-43-2" name="__codelineno-43-2" href="#__codelineno-43-2"></a><span class="n">FS</span> <span class="o">=</span> <span class="mf">200.0</span>                                           <span class="c1"># sampling rate of the synthetic signal</span>
+<a id="__codelineno-43-3" name="__codelineno-43-3" href="#__codelineno-43-3"></a><span class="n">tt</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">200</span><span class="p">)</span> <span class="o">/</span> <span class="n">FS</span>                             <span class="c1"># one second of samples at FS</span>
+<a id="__codelineno-43-4" name="__codelineno-43-4" href="#__codelineno-43-4"></a><span class="n">smooth</span> <span class="o">=</span> <span class="p">(</span><span class="n">tt</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">tt</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">);</span> <span class="n">smooth</span> <span class="o">/=</span> <span class="n">smooth</span><span class="o">.</span><span class="n">max</span><span class="p">()</span>
+<a id="__codelineno-43-5" name="__codelineno-43-5" href="#__codelineno-43-5"></a><span class="n">jerky</span> <span class="o">=</span> <span class="n">smooth</span> <span class="o">+</span> <span class="mf">0.12</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="mi">7</span> <span class="o">*</span> <span class="n">tt</span><span class="p">)</span>   <span class="c1"># a superimposed 7 Hz tremor adds jerk</span>
+<a id="__codelineno-43-6" name="__codelineno-43-6" href="#__codelineno-43-6"></a><span class="c1"># -- data analysis --</span>
+<a id="__codelineno-43-7" name="__codelineno-43-7" href="#__codelineno-43-7"></a><span class="n">sparc</span> <span class="o">=</span> <span class="p">[</span><span class="n">analysis</span><span class="o">.</span><span class="n">smoothness</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">FS</span><span class="p">,</span> <span class="n">metric</span><span class="o">=</span><span class="s2">&quot;sparc&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="p">(</span><span class="n">smooth</span><span class="p">,</span> <span class="n">jerky</span><span class="p">)]</span>
+<a id="__codelineno-43-8" name="__codelineno-43-8" href="#__codelineno-43-8"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_smoothness_profiles</span><span class="p">(</span><span class="n">smooth</span><span class="p">,</span> <span class="n">jerky</span><span class="p">,</span> <span class="n">sparc</span><span class="p">,</span> <span class="n">FS</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="smoothness(metric=…)" id="fig-39" loading="lazy" src="img/39_b6ca5a2b.png" /></p>
+<p><strong>The full <code>smoothness</code> family</strong> — every metric scored on the same smooth vs jerky pair through the <code>smoothness(metric=…)</code> dispatcher (the call is now shown in the cell). The jerk-based metrics all rate the tremulous motion as less smooth (more negative for SPARC / DLJ / LDLJ, larger for the squared-jerk metrics and the peak count); <code>speed_metric</code> captures a different notion (mean-to-peak ratio), so it need not move the same way.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="n">metrics</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;sparc&quot;</span><span class="p">,</span> <span class="s2">&quot;dimensionless_jerk&quot;</span><span class="p">,</span> <span class="s2">&quot;log_dimensionless_jerk&quot;</span><span class="p">,</span> <span class="s2">&quot;number_of_peaks&quot;</span><span class="p">,</span>
+<a id="__codelineno-44-2" name="__codelineno-44-2" href="#__codelineno-44-2"></a>           <span class="s2">&quot;speed_metric&quot;</span><span class="p">,</span> <span class="s2">&quot;integrated_squared_jerk&quot;</span><span class="p">,</span> <span class="s2">&quot;mean_squared_jerk&quot;</span><span class="p">,</span> <span class="s2">&quot;rms_squared_jerk&quot;</span><span class="p">]</span>
+<a id="__codelineno-44-3" name="__codelineno-44-3" href="#__codelineno-44-3"></a><span class="n">scores</span> <span class="o">=</span> <span class="p">{</span><span class="n">m</span><span class="p">:</span> <span class="p">[</span><span class="n">analysis</span><span class="o">.</span><span class="n">smoothness</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">FS</span><span class="p">,</span> <span class="n">metric</span><span class="o">=</span><span class="n">m</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="p">(</span><span class="n">smooth</span><span class="p">,</span> <span class="n">jerky</span><span class="p">)]</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">metrics</span><span class="p">}</span>
+<a id="__codelineno-44-4" name="__codelineno-44-4" href="#__codelineno-44-4"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_smoothness_bars</span><span class="p">(</span><span class="n">scores</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="figure 40" id="fig-40" loading="lazy" src="img/40_28fccaed.png" /></p>
+<p><strong><code>velocity_reductions</code></strong> — scalar summaries of a speed profile: <code>peak</code>, <code>mean</code>, their ratio <code>peak_to_mean</code>, <code>peak_acceleration</code> (the steepest speed-up) and <code>peak_deceleration</code> (the steepest slowing). All shown on the hand's speed.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="n">vr</span> <span class="o">=</span> <span class="n">analysis</span><span class="o">.</span><span class="n">velocity_reductions</span><span class="p">(</span><span class="n">speed</span><span class="p">,</span> <span class="n">fs</span><span class="o">=</span><span class="n">fs</span><span class="p">)</span>
+<a id="__codelineno-45-2" name="__codelineno-45-2" href="#__codelineno-45-2"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_velocity_reductions</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">speed</span><span class="p">,</span> <span class="n">vr</span><span class="p">,</span> <span class="n">fs</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;velocity_reductions (</span><span class="si">{</span><span class="n">JT</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="velocity_reductions" id="fig-41" loading="lazy" src="img/41_59c7a928.png" /></p>
+<p><strong><code>zero_crossings</code></strong> &amp; <strong><code>active_segments</code> / <code>active_duration</code></strong> — left: where a (centred) signal changes sign, with the count; right: a speed profile with a threshold, the <em>active</em> (moving) spans shaded and their total duration.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="n">zc</span> <span class="o">=</span> <span class="n">analysis</span><span class="o">.</span><span class="n">zero_crossings</span><span class="p">(</span><span class="n">speed</span> <span class="o">-</span> <span class="n">speed</span><span class="o">.</span><span class="n">mean</span><span class="p">())</span>
+<a id="__codelineno-46-2" name="__codelineno-46-2" href="#__codelineno-46-2"></a><span class="n">active</span> <span class="o">=</span> <span class="n">analysis</span><span class="o">.</span><span class="n">active_duration</span><span class="p">(</span><span class="n">speed</span><span class="p">,</span> <span class="n">speed</span><span class="o">.</span><span class="n">mean</span><span class="p">(),</span> <span class="n">fs</span><span class="p">)</span>
+<a id="__codelineno-46-3" name="__codelineno-46-3" href="#__codelineno-46-3"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_zero_crossings_active</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">speed</span><span class="p">,</span> <span class="n">zc</span><span class="p">,</span> <span class="n">active</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="zero_crossings" id="fig-42" loading="lazy" src="img/42_595dd049.png" /></p>
+<p><strong><code>kinetic_energy</code></strong> — per-frame Σ‖vⱼ‖² over all joints (unit-mass). Left: the energy curve; right: a pose with each joint coloured by its instantaneous speed (red or black = fast), showing <em>where</em> the energy is. Pass <code>masses={joint: m}</code> for mass-weighted energy — pybvh ships no mass model.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="n">ke</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">kinetic_energy</span><span class="p">()</span>
+<a id="__codelineno-47-2" name="__codelineno-47-2" href="#__codelineno-47-2"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_kinetic_energy</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">ke</span><span class="p">,</span> <span class="n">FRAME</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="kinetic_energy" id="fig-43" loading="lazy" src="img/43_a206260e.png" /></p>
+<p><strong><code>range_of_motion</code></strong> — the peak-to-peak span of a joint's Euler angles over the clip. Shown as each rotation channel's trace with its min–max band shaded; the band height is the ROM.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="n">rom</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">range_of_motion</span><span class="p">(</span><span class="s2">&quot;RightForeArm&quot;</span><span class="p">)</span>
+<a id="__codelineno-48-2" name="__codelineno-48-2" href="#__codelineno-48-2"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_range_of_motion</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="s2">&quot;RightForeArm&quot;</span><span class="p">,</span> <span class="n">rom</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="range_of_motion" id="fig-44" loading="lazy" src="img/44_7bc217dc.png" /></p>
+<p>Note that ch1 has no range of motion here (ROM = 0°). This is because the forearm's rotation order is <code>ZYX</code>, so ch1 is the Y-rotation — and for the elbow that is the <strong>non-hinge</strong> axis: the elbow is a hinge, it flexes in a single plane (captured here by ch0, the Z-rotation, ~101°) and the bone twists along its length (ch2, the X-rotation, ~103° of pronation/supination), but it physically cannot bend sideways, so that channel stays at 0 for the whole clip.</p>
+<p><strong><code>cov3dj</code></strong> &amp; <strong><code>lagged_covariance</code></strong> — fixed-size statistical descriptors of a whole sequence: the covariance of all 3D joint coordinates (<code>cov3dj</code>, 3N×3N), and the channel covariance at a temporal lag (<code>lagged_covariance</code>). Drawn as heatmaps — block structure reflects coordinated joints.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="n">C</span> <span class="o">=</span> <span class="n">analysis</span><span class="o">.</span><span class="n">cov3dj</span><span class="p">(</span><span class="n">bvh</span><span class="o">.</span><span class="n">joint_positions</span><span class="p">())</span>
+<a id="__codelineno-49-2" name="__codelineno-49-2" href="#__codelineno-49-2"></a><span class="n">L</span> <span class="o">=</span> <span class="n">analysis</span><span class="o">.</span><span class="n">lagged_covariance</span><span class="p">(</span><span class="n">bvh</span><span class="o">.</span><span class="n">joint_velocities</span><span class="p">()</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">F</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">lag</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-49-3" name="__codelineno-49-3" href="#__codelineno-49-3"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_covariance</span><span class="p">(</span><span class="n">C</span><span class="p">,</span> <span class="n">L</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="cov3dj" id="fig-45" loading="lazy" src="img/45_fd4e6ecc.png" /></p>
+<p><strong><code>skeleton_size</code></strong> — the absolute scale proxy: the mean rest-pose distance from the root to the feet (red lines). It scales linearly with the whole skeleton.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="n">bvh_feet</span> <span class="o">=</span> <span class="n">analysis</span><span class="o">.</span><span class="n">auto_detect_foot_joints</span><span class="p">(</span><span class="n">bvh</span><span class="p">)</span>
+<a id="__codelineno-50-2" name="__codelineno-50-2" href="#__codelineno-50-2"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_skeleton_size</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">bvh_feet</span><span class="p">,</span> <span class="n">analysis</span><span class="o">.</span><span class="n">skeleton_size</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">foot_joints</span><span class="o">=</span><span class="n">bvh_feet</span><span class="p">))</span>
+</code></pre></div>
+<p><img alt="skeleton_size" id="fig-46" loading="lazy" src="img/46_8237f73b.png" /></p>
+<h3 id="gait-on-real-walking-mocap">Gait — on real walking mocap<a class="headerlink" href="#gait-on-real-walking-mocap" title="Permanent link">&para;</a></h3>
+<p>The remaining descriptors in this section are gait metrics; unlike everything above they run on the <strong>real walking clip</strong> shown in section 5 (<code>walk</code>, with its auto-detected <code>feet</code>), because gait only becomes meaningful over several real strides.</p>
+<p><strong><code>gait_parameters</code></strong> — one-pass spatiotemporal gait analysis from foot contacts + foot landings (it also exposes the <code>cadence</code> / <code>stride_length</code> / <code>walking_pace</code> scalars individually). Since gait input is locomotion by definition, it detects contacts with <code>foot_contacts(…, adaptive=True)</code> — per-foot thresholds fitted to each foot's own signal, which is what handles retargeted mocap whose feet hover above the estimated floor. <strong>Top:</strong> the contact raster (blue = planted) with double-support frames shaded orange — illustrating <code>stance_fraction</code> and <code>double_support_fraction</code>. <strong>Bottom:</strong> each foot's ground path (in travel-aligned coordinates) with its landing points marked and joined, so <code>stride_length</code> (landing→landing) and left/right <code>asymmetry</code> are visible; the remaining scalars are printed in the titles. <em>(Kinematic only — dynamic gait like joint torques or ground-reaction force needs a physical model and is out of scope.)</em></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="n">t_walk</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">walk</span><span class="o">.</span><span class="n">frame_count</span><span class="p">)</span> <span class="o">*</span> <span class="n">walk</span><span class="o">.</span><span class="n">frame_time</span>
+<a id="__codelineno-51-2" name="__codelineno-51-2" href="#__codelineno-51-2"></a><span class="n">g</span> <span class="o">=</span> <span class="n">walk</span><span class="o">.</span><span class="n">gait_parameters</span><span class="p">(</span><span class="n">foot_joints</span><span class="o">=</span><span class="n">feet</span><span class="p">)</span>     <span class="c1"># feet auto-detected in section 5</span>
+<a id="__codelineno-51-3" name="__codelineno-51-3" href="#__codelineno-51-3"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_gait</span><span class="p">(</span><span class="n">walk</span><span class="p">,</span> <span class="n">feet</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">t_walk</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="gait_parameters" id="fig-47" loading="lazy" src="img/47_91e07fc1.png" /></p>
+<h2 id="10-rotations-se3-rigid-transform-math">10 · Rotations — SE(3) rigid-transform math<a class="headerlink" href="#10-rotations-se3-rigid-transform-math" title="Permanent link">&para;</a></h2>
+<p>Rigid transforms are drawn as coordinate frames (triads): red/green/blue = the x/y/z axes of the frame.</p>
+<p><strong><code>se3_exp</code> / <code>se3_log</code></strong> — a twist <code>[ω, v]</code> (six numbers, rotation first) exponentiates to a 4×4 rigid transform; <code>se3_log</code> inverts it exactly (see the inset round-trip). <code>ω</code> is an axis-angle vector — here 1.4 rad ≈ 80° about z — and <code>v</code> is the twist's <em>linear generator</em>, <strong>not</strong> the final translation: the exp map couples it to the ongoing rotation (<code>d = V(ω)·v</code>), so the origin of the identity frame (faint) travels along the dashed helix to the black dot at <code>d ≈ [0.70, 0.59, 0.60]</code>, where the transformed frame (bold) lands. The grey line is the <strong>true screw axis</strong>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="n">twist</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.4</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">])</span>     <span class="c1"># ω about z, with translation</span>
+<a id="__codelineno-52-2" name="__codelineno-52-2" href="#__codelineno-52-2"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_se3_exp</span><span class="p">(</span><span class="n">twist</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="not" id="fig-48" loading="lazy" src="img/48_7012d42e.png" /></p>
+<p><strong><code>screw_interpolate</code></strong> — the SE(3) analogue of SLERP: it blends two rigid transforms along the constant screw connecting them, rotating and translating together. <code>t = 0</code> returns T₀ and <code>t = 1</code> returns T₁; an array of <code>t</code>s broadcasts, so the single call below yields all seven triads at once. They fade in with <code>t</code> — T₀ faintest, T₁ boldest — and the dashed curve traces the origin's screw arc between them.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="n">T0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
+<a id="__codelineno-53-2" name="__codelineno-53-2" href="#__codelineno-53-2"></a><span class="n">T1</span> <span class="o">=</span> <span class="n">rotations</span><span class="o">.</span><span class="n">se3_exp</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">0.3</span><span class="p">,</span> <span class="mf">1.2</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">]))</span>
+<a id="__codelineno-53-3" name="__codelineno-53-3" href="#__codelineno-53-3"></a><span class="n">ts</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">7</span><span class="p">)</span>
+<a id="__codelineno-53-4" name="__codelineno-53-4" href="#__codelineno-53-4"></a><span class="n">frames</span> <span class="o">=</span> <span class="n">rotations</span><span class="o">.</span><span class="n">screw_interpolate</span><span class="p">(</span><span class="n">T0</span><span class="p">,</span> <span class="n">T1</span><span class="p">,</span> <span class="n">ts</span><span class="p">)</span>     <span class="c1"># (7, 4, 4): t=0 → T₀ … t=1 → T₁</span>
+<a id="__codelineno-53-5" name="__codelineno-53-5" href="#__codelineno-53-5"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_screw_interpolate</span><span class="p">(</span><span class="n">frames</span><span class="p">,</span> <span class="n">ts</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="screw_interpolate" id="fig-49" loading="lazy" src="img/49_6ed96f4d.png" /></p>
+<p><strong><code>relative_transform</code></strong> — the pose of one body segment in another's local frame (the geometry→SE(3) bridge). The two arm bones are drawn; the printed twist is the relative transform <code>se3_log(T_upper⁻¹ T_fore)</code>. Segment frames are completed with a fixed world reference direction, which keeps the features smooth over time but ties them to global heading — root-align the motion (e.g. <code>harmonize</code>) before comparing these features across clips.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="n">upper</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">P</span><span class="p">[</span><span class="n">idx</span><span class="p">(</span><span class="s2">&quot;RightArm&quot;</span><span class="p">)],</span> <span class="n">P</span><span class="p">[</span><span class="n">idx</span><span class="p">(</span><span class="s2">&quot;RightForeArm&quot;</span><span class="p">)]])</span>
+<a id="__codelineno-54-2" name="__codelineno-54-2" href="#__codelineno-54-2"></a><span class="n">fore</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">P</span><span class="p">[</span><span class="n">idx</span><span class="p">(</span><span class="s2">&quot;RightForeArm&quot;</span><span class="p">)],</span> <span class="n">P</span><span class="p">[</span><span class="n">idx</span><span class="p">(</span><span class="s2">&quot;RightHand&quot;</span><span class="p">)]])</span>
+<a id="__codelineno-54-3" name="__codelineno-54-3" href="#__codelineno-54-3"></a><span class="n">twist</span> <span class="o">=</span> <span class="n">rotations</span><span class="o">.</span><span class="n">se3_log</span><span class="p">(</span><span class="n">rotations</span><span class="o">.</span><span class="n">relative_transform</span><span class="p">(</span><span class="n">upper</span><span class="p">[</span><span class="kc">None</span><span class="p">],</span> <span class="n">fore</span><span class="p">[</span><span class="kc">None</span><span class="p">])[</span><span class="mi">0</span><span class="p">])</span>
+<a id="__codelineno-54-4" name="__codelineno-54-4" href="#__codelineno-54-4"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_relative_transform</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">FRAME</span><span class="p">,</span> <span class="n">twist</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="relative_transform" id="fig-50" loading="lazy" src="img/50_e108bf84.png" /></p>
+<p><strong><code>rotation_geodesic_distance</code></strong> — the shortest angular distance between two orientations. Left: two orientation triads and the angle between them. Right: the geodesic distance of the root's orientation at each frame from frame 0.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="n">_</span><span class="p">,</span> <span class="n">rotmats</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">to_rotmat</span><span class="p">()</span>
+<a id="__codelineno-55-2" name="__codelineno-55-2" href="#__codelineno-55-2"></a><span class="n">root_R</span> <span class="o">=</span> <span class="n">rotmats</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span>
+<a id="__codelineno-55-3" name="__codelineno-55-3" href="#__codelineno-55-3"></a><span class="n">geo</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">degrees</span><span class="p">(</span><span class="n">rotations</span><span class="o">.</span><span class="n">rotation_geodesic_distance</span><span class="p">(</span>
+<a id="__codelineno-55-4" name="__codelineno-55-4" href="#__codelineno-55-4"></a>    <span class="n">np</span><span class="o">.</span><span class="n">broadcast_to</span><span class="p">(</span><span class="n">root_R</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">root_R</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span> <span class="n">root_R</span><span class="p">))</span>
+<a id="__codelineno-55-5" name="__codelineno-55-5" href="#__codelineno-55-5"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_geodesic</span><span class="p">(</span><span class="n">root_R</span><span class="p">,</span> <span class="n">geo</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="rotation_geodesic_distance" id="fig-51" loading="lazy" src="img/51_c30053ea.png" /></p>
+<h2 id="11-signal-signal-utilities">11 · Signal — signal utilities<a class="headerlink" href="#11-signal-signal-utilities" title="Permanent link">&para;</a></h2>
+<p>Array-pure numeric helpers, each shown on a small constructed signal where the effect is obvious.</p>
+<p><strong><code>finite_difference</code></strong> — the shared derivative operator. On a sine wave, the central and forward differences both track the analytic derivative (cosine); central is symmetric and more accurate.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">4</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">,</span> <span class="mi">200</span><span class="p">);</span> <span class="n">h</span> <span class="o">=</span> <span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+<a id="__codelineno-56-2" name="__codelineno-56-2" href="#__codelineno-56-2"></a><span class="n">d_central</span> <span class="o">=</span> <span class="n">signal</span><span class="o">.</span><span class="n">finite_difference</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">h</span><span class="p">,</span> <span class="n">stencil</span><span class="o">=</span><span class="s2">&quot;central&quot;</span><span class="p">)</span>
+<a id="__codelineno-56-3" name="__codelineno-56-3" href="#__codelineno-56-3"></a><span class="n">d_forward</span> <span class="o">=</span> <span class="n">signal</span><span class="o">.</span><span class="n">finite_difference</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">h</span><span class="p">,</span> <span class="n">stencil</span><span class="o">=</span><span class="s2">&quot;forward&quot;</span><span class="p">)</span>
+<a id="__codelineno-56-4" name="__codelineno-56-4" href="#__codelineno-56-4"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_finite_difference</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">d_central</span><span class="p">,</span> <span class="n">d_forward</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="finite_difference" id="fig-52" loading="lazy" src="img/52_3e689005.png" /></p>
+<p><strong><code>temporal_stats</code></strong> &amp; <strong><code>box_filter_smooth</code></strong> — left: a noisy signal with its mean ± std band, and skewness/kurtosis printed. Right: the same signal smoothed by a box (moving-average) filter.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-57-2" name="__codelineno-57-2" href="#__codelineno-57-2"></a><span class="n">noisy</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">+</span> <span class="mf">0.4</span> <span class="o">*</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">size</span><span class="p">)</span>
+<a id="__codelineno-57-3" name="__codelineno-57-3" href="#__codelineno-57-3"></a><span class="n">st</span> <span class="o">=</span> <span class="n">signal</span><span class="o">.</span><span class="n">temporal_stats</span><span class="p">(</span><span class="n">noisy</span><span class="p">)</span>
+<a id="__codelineno-57-4" name="__codelineno-57-4" href="#__codelineno-57-4"></a><span class="n">smoothed</span> <span class="o">=</span> <span class="n">signal</span><span class="o">.</span><span class="n">box_filter_smooth</span><span class="p">(</span><span class="n">noisy</span><span class="p">,</span> <span class="n">window</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+<a id="__codelineno-57-5" name="__codelineno-57-5" href="#__codelineno-57-5"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_temporal_box</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">noisy</span><span class="p">,</span> <span class="n">st</span><span class="p">,</span> <span class="n">smoothed</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="temporal_stats" id="fig-53" loading="lazy" src="img/53_970da3c3.png" /></p>
+<p><strong><code>fft_magnitude</code> / <code>dominant_frequency</code></strong> — left: a signal mixing 3 Hz and 11 Hz, shown in time (first second). Right: its one-sided magnitude spectrum (<code>fft_magnitude</code>) resolves both components as peaks, and <code>dominant_frequency</code> picks the strongest — the red line lands on the taller 3 Hz peak, not merely any peak.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="n">fsx</span><span class="p">,</span> <span class="n">n</span> <span class="o">=</span> <span class="mf">100.0</span><span class="p">,</span> <span class="mi">512</span>
+<a id="__codelineno-58-2" name="__codelineno-58-2" href="#__codelineno-58-2"></a><span class="n">tx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">n</span><span class="p">)</span> <span class="o">/</span> <span class="n">fsx</span>
+<a id="__codelineno-58-3" name="__codelineno-58-3" href="#__codelineno-58-3"></a><span class="n">mix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="mi">3</span> <span class="o">*</span> <span class="n">tx</span><span class="p">)</span> <span class="o">+</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="mi">11</span> <span class="o">*</span> <span class="n">tx</span><span class="p">)</span>
+<a id="__codelineno-58-4" name="__codelineno-58-4" href="#__codelineno-58-4"></a><span class="n">freqs</span><span class="p">,</span> <span class="n">mag</span> <span class="o">=</span> <span class="n">signal</span><span class="o">.</span><span class="n">fft_magnitude</span><span class="p">(</span><span class="n">mix</span><span class="p">,</span> <span class="n">fsx</span><span class="p">)</span>
+<a id="__codelineno-58-5" name="__codelineno-58-5" href="#__codelineno-58-5"></a><span class="n">dom</span> <span class="o">=</span> <span class="n">signal</span><span class="o">.</span><span class="n">dominant_frequency</span><span class="p">(</span><span class="n">mix</span><span class="p">,</span> <span class="n">fsx</span><span class="p">)</span>
+<a id="__codelineno-58-6" name="__codelineno-58-6" href="#__codelineno-58-6"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_fft</span><span class="p">(</span><span class="n">tx</span><span class="p">,</span> <span class="n">mix</span><span class="p">,</span> <span class="n">freqs</span><span class="p">,</span> <span class="n">mag</span><span class="p">,</span> <span class="n">dom</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="figure 54" id="fig-54" loading="lazy" src="img/54_5fbd8815.png" /></p>
+<p><strong><code>ramer_douglas_peucker</code></strong> — simplifies a curve, keeping only the points needed to preserve its shape within a tolerance. The noisy curve (grey) is reduced to a few vertices (red) that still capture its form.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="n">tc</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">300</span><span class="p">)</span>
+<a id="__codelineno-59-2" name="__codelineno-59-2" href="#__codelineno-59-2"></a><span class="n">curve</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">tc</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="n">tc</span><span class="p">)</span> <span class="o">+</span> <span class="mf">0.05</span> <span class="o">*</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span><span class="n">tc</span><span class="o">.</span><span class="n">size</span><span class="p">)],</span> <span class="mi">1</span><span class="p">)</span>
+<a id="__codelineno-59-3" name="__codelineno-59-3" href="#__codelineno-59-3"></a><span class="n">simp</span> <span class="o">=</span> <span class="n">signal</span><span class="o">.</span><span class="n">ramer_douglas_peucker</span><span class="p">(</span><span class="n">curve</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="mf">0.15</span><span class="p">)</span>
+<a id="__codelineno-59-4" name="__codelineno-59-4" href="#__codelineno-59-4"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_rdp</span><span class="p">(</span><span class="n">curve</span><span class="p">,</span> <span class="n">simp</span><span class="p">,</span> <span class="mf">0.15</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="ramer_douglas_peucker" id="fig-55" loading="lazy" src="img/55_6aa77430.png" /></p>
+<h2 id="12-scale">12 · Scale<a class="headerlink" href="#12-scale" title="Permanent link">&para;</a></h2>
+<p><strong><code>relative_scale_factor</code></strong> — the least-squares uniform scale that best matches one skeleton to another. Here a skeleton (blue) and a 1.6× copy (orange) are shown; the recovered factor matches the original poses back together.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="n">rest</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">rest_pose_positions</span><span class="p">()</span>
+<a id="__codelineno-60-2" name="__codelineno-60-2" href="#__codelineno-60-2"></a><span class="n">factor</span> <span class="o">=</span> <span class="n">analysis</span><span class="o">.</span><span class="n">relative_scale_factor</span><span class="p">(</span><span class="n">rest</span><span class="p">,</span> <span class="n">rest</span> <span class="o">*</span> <span class="mf">1.6</span><span class="p">)</span>
+<a id="__codelineno-60-3" name="__codelineno-60-3" href="#__codelineno-60-3"></a><span class="n">gp</span><span class="o">.</span><span class="n">fig_relative_scale</span><span class="p">(</span><span class="n">bvh</span><span class="p">,</span> <span class="n">factor</span><span class="p">,</span> <span class="mf">1.6</span><span class="p">)</span>
+</code></pre></div>
+<p><img alt="relative_scale_factor" id="fig-56" loading="lazy" src="img/56_9de35b53.png" /></p>
+<hr />
+<p>That is pybvh's visual surface — every operation, transform, descriptor, and utility that has a picture, each drawn so the picture explains the call. What has no natural picture (file I/O, batch loading, harmonization, pandas) lives in the <a href="https://victors-67.github.io/pybvh/api/">capability map</a> instead. The array-pure kernels (<code>geometry.*</code>, the smoothness functions, the SE(3) math, <code>signal.*</code>) take plain NumPy arrays, so any of these visuals can be reproduced without a <code>Bvh</code> at all.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../getting-started/quickstart/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Quick Start">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Quick Start
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../guide/core-concepts/" class="md-footer__link md-footer__link--next" aria-label="Next: Core Concepts">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Core Concepts
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "navigation.footer", "toc.follow", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

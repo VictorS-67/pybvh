@@ -33,6 +33,7 @@ np.set_printoptions(precision=4, suppress=True)
 
 import pybvh
 from pybvh import analysis, features
+# %matplotlib inline
 import matplotlib.pyplot as plt
 from pathlib import Path
 

@@ -27,6 +27,7 @@
 # %%
 from pathlib import Path
 import numpy as np
+# %matplotlib inline
 from IPython.display import Image
 
 import pybvh

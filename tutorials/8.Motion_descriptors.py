@@ -29,6 +29,7 @@
 # %%
 import numpy as np
 np.set_printoptions(precision=4, suppress=True)
+# %matplotlib inline
 import matplotlib.pyplot as plt
 from pathlib import Path
 

@@ -26,6 +26,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      # Agg keeps the headless runner from reaching for a GUI backend. The
+      # notebooks override it per-kernel with `%matplotlib inline` in their
+      # setup cells — without that magic this variable silently strips every
+      # figure from the executed notebooks. Keep both; they are not redundant.
       MPLBACKEND: Agg
       PYBVH_CI: "1"
 

@@ -8,6 +8,7 @@ loud:
 - the jupytext pair drifting (``.py`` edited, ``.ipynb`` not re-synced),
 - outputs not regenerated after an edit (non-sequential / missing
   execution counts, exactly the state a partial re-run leaves behind),
+- the figures going missing wholesale (see ``test_figures_are_committed``),
 
 plus basic hygiene: no error outputs and no stderr in what gets published.
 CI executes the notebook itself in ``tutorials.yml`` (nbmake), which
@@ -62,6 +63,36 @@ def test_notebook_was_fully_executed_in_order():
         "are stale (a cell was edited without a full re-run). Re-execute: "
         "`jupyter nbconvert --to notebook --execute --inplace "
         "gallery/feature_gallery.ipynb`")
+
+
+def test_notebook_pins_the_inline_backend():
+    """The gallery's figures are never explicitly shown or saved.
+
+    Every one of them reaches the committed outputs through the inline backend's end-of-cell flush of open figures. That flush is not installed when ``MPLBACKEND`` names another backend — CI sets ``Agg`` for the headless runner — and the loss is *silent*: no warning, no error, execution counts still sequential, so every other check in this file passes on a gallery with no pictures in it. ``%matplotlib inline`` in the setup cell pins the backend regardless of the environment.
+    """
+    nb = json.loads(IPYNB.read_text())
+    sources = ["".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code"]
+    assert any("%matplotlib inline" in s for s in sources), (
+        "feature_gallery.ipynb no longer runs `%matplotlib inline`. Without "
+        "it, executing under MPLBACKEND=Agg drops every figure without "
+        "warning and the docs gallery page publishes empty. Restore the "
+        "magic in feature_gallery.py's setup cell as `# %matplotlib inline` "
+        "— jupytext uncomments it into the notebook.")
+
+
+def test_figures_are_committed():
+    """A wipeout detector, not an inventory.
+
+    The floor is deliberately far below the real figure count so that adding or retiring a capability never touches this test — it only fires when the notebook has lost its figures en masse, which is what a backend misconfiguration does.
+    """
+    nb = json.loads(IPYNB.read_text())
+    figures = sum(1 for c in nb["cells"] for out in c.get("outputs", [])
+                  for key in out.get("data", {}) if key.startswith("image/"))
+    assert figures >= 40, (
+        f"only {figures} figures in the committed gallery — the docs page is "
+        f"generated from these outputs, so it would publish near-empty. "
+        f"Re-execute: `jupyter nbconvert --to notebook --execute --inplace "
+        f"gallery/feature_gallery.ipynb`")
 
 
 def test_notebook_outputs_are_clean():

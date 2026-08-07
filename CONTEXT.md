@@ -17,7 +17,7 @@
 | **Package** | Published on PyPI as `pybvh`. Install via `pip install pybvh`. Optional extras: `pybvh[opencv]` (fast render), `pybvh[interactive]` (k3d for Jupyter), `pybvh[viewer]` (vedo desktop), `pybvh[all-viz]` (all of the above), `pybvh[pandas]` (pandas integration) |
 | **CI/CD** | GitHub Actions: test workflow (push/PR, Python 3.9–3.12) + publish workflow (PyPI on release) + docs workflow (MkDocs to GitHub Pages on push to main) |
 | **Type safety** | Full type annotations on all source files, `@overload` on inplace methods. `mypy pybvh/` reports 39 annotation-accuracy errors (see §7.2) — not gated in CI |
-| **Tests** | 1984 unit tests via pytest (plus ~23 000 parametrized `test_transforms_battle` cases across 3 real-world datasets, skipped unless the private fixtures are present) |
+| **Tests** | 2026 unit tests via pytest (plus ~23 000 parametrized `test_transforms_battle` cases across 3 real-world datasets, skipped unless the private fixtures are present) |
 | **Documentation** | MkDocs + mkdocstrings + Material theme, auto-deployed to GitHub Pages |
 
 ---
@@ -265,9 +265,10 @@ where the order comes from the joint's `rot_channels`.
   - `tests/test_plot.py` — Visualization module tests (bvhplot functions, backends, camera presets).
   - `tests/test_audit_fixes.py` — audit tests verifying correctness of specific bug fixes and edge cases identified during code audits.
   - `tests/test_docs_api_coverage.py` — docs guard: two-way set equality between the curated member lists in `docs/api/{bvh,analysis,rotations}.md` and the actual public API (a new public member missing from the docs fails CI, as does a stale entry).
-  - `tests/test_gallery_notebook.py` — gallery freshness guard: the `gallery/feature_gallery.{py,ipynb}` jupytext pair must match, the committed execution counts must be sequential 1..N (stale-output detector), and no error/stderr outputs may be committed.
+  - `tests/test_gallery_notebook.py` — gallery freshness guard: the `gallery/feature_gallery.{py,ipynb}` jupytext pair must match, the committed execution counts must be sequential 1..N (stale-output detector), no error/stderr outputs may be committed, the setup cell must pin `%matplotlib inline`, and at least 40 figures must be present (wipeout detector).
+  - `tests/test_tutorial_notebooks.py` — same guard for `tutorials/*.ipynb`, which GitHub renders straight from the committed outputs: pair sync, sequential execution counts, `%matplotlib inline` pinned in every plotting tutorial, every `plt.show()` cell carrying its figure, and no backend warnings or tracebacks. Unlike the gallery's, it does **not** ban all stderr — tutorials 4, 5 and 7 deliberately show the `bvh_test3.bvh` world-up `UserWarning` to the reader. Cells tagged `skip-execution` are excluded throughout.
 - **Run command**: `conda run -n pybvh pytest tests/ -v`
-- **Current count**: 1984 tests, all passing.
+- **Current count**: 2026 tests, all passing.
 - **Note**: `tests/test_transforms_battle.py` uses private datasets from `internal_data/` and is gitignored — never publish or share this file.
 
 ---
@@ -491,6 +492,7 @@ The mkdocs-material site (`mkdocs.yml`, deployed by `.github/workflows/docs.yml`
 
 - **Source of truth**: `gallery/feature_gallery.ipynb` (jupytext-paired with `gallery/feature_gallery.py`; plotting helpers in `gallery/gallery_plots.py`), executed manually and committed **with outputs** — the docs build never executes it. One figure + one call per visual capability, journey-ordered (core library first, 0.8.0 descriptors after).
 - **Exporter**: `scripts/export_gallery.py` (stdlib + optional Pillow) converts the committed notebook into `docs/gallery/` (gitignored, regenerated per deploy): a thumbnail grid with jump anchors, every figure as a cacheable lazy-loaded file, and **stable-named copies** (declared in its `STABLE_FIGURES` dict) that six guide pages embed inline — it raises if a stable pattern stops matching a cell.
-- **Guards**: `tests/test_gallery_notebook.py` (pair sync + output freshness), `tests/test_docs_api_coverage.py` (API-page completeness), and nbmake execution of the gallery in `tutorials.yml` (GIF cells tagged `slow-on-pr`).
+- **Guards**: `tests/test_gallery_notebook.py` (pair sync + output freshness + figures present), `tests/test_docs_api_coverage.py` (API-page completeness), and nbmake execution of the gallery in `tutorials.yml` (GIF cells tagged `slow-on-pr`).
+- **The figures depend on the inline backend.** No gallery cell calls `plt.show()` or `savefig` — every figure reaches the committed outputs through the inline backend's end-of-cell flush of open figures. That flush is not installed when `MPLBACKEND` names another backend, and the loss is silent: no warning, no error, execution counts still sequential. The setup cell therefore pins `%matplotlib inline`; keep it there, and re-execute with it in place. The same applies to the tutorials, which additionally *do* call `plt.show()` and so at least warn when it happens.
 - **Editing workflow**: edit `gallery/feature_gallery.py` → `jupytext --sync gallery/feature_gallery.ipynb` → `jupyter nbconvert --to notebook --execute --inplace gallery/feature_gallery.ipynb` → `python scripts/export_gallery.py` to preview. Full instructions: the contributors section of `docs/tutorials.md`.
 - The GIFs the notebook renders (`gallery/*.gif`) are gitignored byproducts; the committed hero copy lives at `docs/assets/hand-trajectory.gif` (referenced by the README via a raw.githubusercontent URL — refresh it manually when the trace figure changes).

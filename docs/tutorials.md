@@ -47,6 +47,20 @@ Then edit either side:
   ```
   Jupytext picks the newer file by mtime and updates the other side. Outputs on unchanged cells are preserved; outputs on modified cells are cleared (re-run the notebook to regenerate).
 
+### Re-executing a tutorial
+
+The `.ipynb` is the artifact GitHub renders, straight from its committed outputs — nothing re-executes it at view time, so a notebook committed without its figures teaches nothing. After changing code cells, regenerate the outputs:
+
+```bash
+jupyter nbconvert --to notebook --execute --inplace tutorials/3.Rotations.ipynb
+```
+
+Run it from the repository root; cells tagged `skip-execution` are honoured automatically.
+
+Each plotting tutorial runs `%matplotlib inline` in its setup cell (written as `# %matplotlib inline` in the `.py`, which jupytext uncomments into the notebook). **Leave it there.** Matplotlib picks its backend from the `MPLBACKEND` environment variable, and if that names a non-interactive backend — CI sets `MPLBACKEND=Agg` for the headless runner — then executing the notebook drops every figure and replaces it with a `FigureCanvasAgg is non-interactive` warning on stderr. The magic pins the inline backend regardless of the environment, so the same command produces the same figures on any machine.
+
+`tests/test_tutorial_notebooks.py` enforces all of this: the jupytext pair must match, execution counts must be sequential 1..N, the magic must be present in every tutorial that imports pyplot, every `plt.show()` cell must carry a figure, and no backend warning or traceback may reach the committed outputs.
+
 ### Cell-level execution control on CI
 
 The tutorial CI ([.github/workflows/tutorials.yml](https://github.com/VictorS-67/pybvh/blob/main/.github/workflows/tutorials.yml)) executes every tutorial under [nbmake](https://github.com/treebeardtech/nbmake) with two tag conventions:
@@ -82,6 +96,8 @@ python scripts/export_gallery.py
 mkdocs serve
 ```
 
-After editing gallery code cells, re-execute the notebook (`jupyter nbconvert --to notebook --execute --inplace gallery/feature_gallery.ipynb`) before exporting, so the committed outputs stay in sync with the source. CI enforces this: the gallery notebook executes under nbmake in `tutorials.yml` (GIF cells are tagged `slow-on-pr`, like the tutorials), and `tests/test_gallery_notebook.py` fails if the jupytext pair drifts or the committed outputs are stale (non-sequential execution counts, error/stderr outputs).
+After editing gallery code cells, re-execute the notebook (`jupyter nbconvert --to notebook --execute --inplace gallery/feature_gallery.ipynb`) before exporting, so the committed outputs stay in sync with the source. CI enforces this: the gallery notebook executes under nbmake in `tutorials.yml` (GIF cells are tagged `slow-on-pr`, like the tutorials), and `tests/test_gallery_notebook.py` fails if the jupytext pair drifts, the committed outputs are stale (non-sequential execution counts, error/stderr outputs), or the figures have gone missing.
+
+The gallery's setup cell pins `%matplotlib inline` for the same reason the tutorials do, and it matters more here: no gallery cell calls `plt.show()`, so every figure arrives via the inline backend's end-of-cell flush of open figures. Under a different `MPLBACKEND` they vanish without even a warning — sequential execution counts, clean stderr, and an empty docs page.
 
 A handful of figures are also embedded inline in the guide pages via stable names (`docs/gallery/img/centered-modes.png`, …) declared in `STABLE_FIGURES` inside [`scripts/export_gallery.py`](https://github.com/VictorS-67/pybvh/blob/main/scripts/export_gallery.py); the exporter fails loudly if a gallery refactor breaks one of those matches.

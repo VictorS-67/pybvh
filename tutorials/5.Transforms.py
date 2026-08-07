@@ -318,19 +318,18 @@ print(f'2x speed: {faster.frame_count:>3d} frames, fps={1/faster.frame_time:.0f}
 print(f'0.5x speed: {slower.frame_count:>3d} frames, fps={1/slower.frame_time:.0f}, duration={slower.frame_count*slower.frame_time:.2f}s')
 
 # %%
-from IPython.display import Image
-
-output_folder = Path('./output')
-output_folder.mkdir(exist_ok=True)
-
 gif_path = pybvh.bvhplot.render(
     [slower, bvh, faster],
-    output_folder / 'speed_comparison.gif',
+    Path('assets') / 'speed_comparison.gif',
     labels=['0.5x', '1.0x (original)', '2.0x'],
     sync='pad',
     fps=15,
 )
-Image(str(gif_path))
+
+# %% [markdown]
+# ![0.5x, 1x and 2x speed versions of the same clip, rendered side by side](https://raw.githubusercontent.com/VictorS-67/pybvh/main/tutorials/assets/speed_comparison.gif)
+#
+# *The clip above is the committed `assets/speed_comparison.gif` the cell writes, displayed from a markdown cell: GitHub's notebook renderer silently drops `image/gif` cell outputs, so an embedded clip would be invisible on github.com.*
 
 # %% [markdown]
 # The random variant samples uniformly from `factor_range` (default `(0.8, 1.2)` — moderate speed jitter).

@@ -55,7 +55,7 @@ bvh = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')
 #
 # The animation below shows the z-x'-z" intrinsic sequence. Notice how each rotation axis belongs to the frame produced by the previous rotation, not the original fixed frame:
 #
-# ![Intrinsic Euler rotations: z-x'-z" sequence](assets/Euler2a.gif)
+# ![Intrinsic Euler rotations: z-x'-z" sequence](https://raw.githubusercontent.com/VictorS-67/pybvh/main/tutorials/assets/Euler2a.gif)
 #
 # *Image: [Juansempere / Xavax](https://commons.wikimedia.org/w/index.php?curid=24338647), CC BY-SA 3.0*
 #
@@ -68,7 +68,7 @@ bvh = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')
 #
 # When the middle rotation in a three-axis Euler sequence (like ZYX) reaches ±90°, the first and third rotation axes become **parallel** — they now rotate around the same axis, and the system loses one degree of freedom. This is called **gimbal lock**. (BVH files always use three distinct axes, so the singularity is always at ±90° on the middle axis.)
 #
-# ![Gimbal lock: two gimbals aligning](assets/Gimbal_Lock_Plane.gif)
+# ![Gimbal lock: two gimbals aligning](https://raw.githubusercontent.com/VictorS-67/pybvh/main/tutorials/assets/Gimbal_Lock_Plane.gif)
 #
 # *When the pitch (green) and yaw (magenta) gimbals align, changes to roll (blue) and yaw (magenta) produce the same rotation — the airplane can no longer distinguish between them. (Image: [Drummyfish](https://commons.wikimedia.org/w/index.php?curid=77738933), CC0)*
 #

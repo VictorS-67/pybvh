@@ -8,6 +8,11 @@ happens here) and writes:
 - ``docs/gallery/img/`` — every figure as its own cacheable file, plus
   small thumbnails for the grid (real thumbnails when Pillow is
   available, full images otherwise);
+- local copies of the animated clips: the notebook displays them as
+  markdown images with absolute ``raw.githubusercontent.com`` URLs (the
+  only form GitHub's notebook renderer shows — it drops ``image/gif``
+  outputs), and this export rewrites each to a copy of the committed
+  file so the docs site stays self-contained;
 - stable-named copies (``img/centered-modes.png`` …) for the handful of
   figures that guide pages embed inline, so those references survive
   reordering and content edits.
@@ -65,6 +70,12 @@ IMAGE_MIMES = {"image/png": "png", "image/gif": "gif", "image/jpeg": "jpg"}
 THUMB_WIDTH = 280
 
 _FEATURE_NAME_RE = re.compile(r"\*\*`?([^*`\n]+)`?\*\*")
+
+# A markdown image whose src is an absolute URL into this repository
+# (any branch/ref); group 2 is the repo-relative path of the file.
+_RAW_IMAGE_RE = re.compile(
+    r"!\[([^\]]*)\]\(https://raw\.githubusercontent\.com/VictorS-67/pybvh/"
+    r"[^/)#?\s]+/([^)#?\s]+)\)")
 
 
 def _payload_bytes(payload) -> bytes:
@@ -133,6 +144,25 @@ def main() -> None:
         source = "".join(cell["source"]).rstrip()
 
         if cell["cell_type"] == "markdown":
+
+            def _localize(match: re.Match) -> str:
+                nonlocal image_count
+                alt, repo_rel = match.group(1), match.group(2)
+                src_file = REPO / repo_rel
+                if not src_file.exists():
+                    raise RuntimeError(
+                        f"markdown cell references {repo_rel}, which is not "
+                        f"in the repository — fix the URL or commit the file")
+                raw = src_file.read_bytes()
+                rel = _write_image(raw, src_file.suffix.lstrip("."), image_count)
+                anchor = f"fig-{image_count}"
+                label = alt.strip() or f"figure {image_count}"
+                grid_entries.append(
+                    (_write_thumbnail(raw, image_count, rel), anchor, label))
+                image_count += 1
+                return f"![{alt}]({rel}){{ #{anchor} loading=lazy }}"
+
+            source = _RAW_IMAGE_RE.sub(_localize, source)
             parts.append(source)
             last_markdown = source
             if grid_slot is None:

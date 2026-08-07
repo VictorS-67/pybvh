@@ -15,7 +15,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import animation
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from IPython.display import Image
 
 import pybvh
 from pybvh import geometry, analysis, rotations, tools, signal
@@ -115,6 +114,12 @@ def _arc(vertex, a, b, r=6.0, n=24):
 
 # ----------------------------------------------------------------
 #  The motion clip + trajectory-tracing animations
+#
+#  Every helper here returns the *path* of the GIF it wrote, never an
+#  IPython Image: GitHub's notebook renderer displays image/png outputs
+#  but silently drops image/gif ones, so an embedded clip would be
+#  invisible on github.com. The notebook displays the committed file
+#  from a markdown cell instead (and skips ~900 KB of base64 per clip).
 # ----------------------------------------------------------------
 
 def motion_clip_gif(bvh, path="feature_gallery_seq.gif", fps=20):
@@ -123,7 +128,7 @@ def motion_clip_gif(bvh, path="feature_gallery_seq.gif", fps=20):
     # plays in slow motion. 20 fps also sits exactly on the GIF format's
     # centisecond frame-delay grid (50 ms), so playback is true real time.
     clip = bvh.resample(fps)
-    return Image(str(clip.render(path, backend="matplotlib", camera="front", fps=fps)))
+    return str(clip.render(path, backend="matplotlib", camera="front", fps=fps))
 
 
 def walk_clip_gif(bvh, path="feature_gallery_walk.gif", fps=25):
@@ -133,8 +138,8 @@ def walk_clip_gif(bvh, path="feature_gallery_walk.gif", fps=25):
     # 25 fps (40 ms) sits exactly on the GIF centisecond frame-delay grid;
     # 30 fps would be stored as 30 ms frames and play ~11% fast.
     clip = bvh.resample(fps)
-    return Image(str(clip.render(path, backend="matplotlib", camera="side",
-                                 show_axis=True, fps=fps)))
+    return str(clip.render(path, backend="matplotlib", camera="side",
+                           show_axis=True, fps=fps))
 
 
 def trajectory_trace_gif(bvh, joint, path="feature_gallery_hand_traj.gif", fps=20):

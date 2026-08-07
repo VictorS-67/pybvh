@@ -16,12 +16,28 @@ Cells tagged `skip-execution` are excluded throughout: they are never executed, 
 from __future__ import annotations
 
 import json
+import re
+import subprocess
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 TUTORIALS = sorted((REPO / "tutorials").glob("*.ipynb"))
+
+RAW_PREFIX = "https://raw.githubusercontent.com/VictorS-67/pybvh/main/"
+
+
+def _servable_from_github(repo_rel: str) -> bool:
+    """The file exists and is not gitignored — ``exists()`` alone would accept a local byproduct that raw.githubusercontent.com will 404 on."""
+    if not (REPO / repo_rel).exists():
+        return False
+    if not (REPO / ".git").exists():
+        return True                     # sdist/tarball: existence is all we have
+    ignored = subprocess.run(
+        ["git", "-C", str(REPO), "check-ignore", "-q", repo_rel],
+        capture_output=True)
+    return ignored.returncode != 0
 
 # Emitted by pyplot when the active backend cannot display a figure — the
 # signature of a notebook executed with a non-interactive backend forced on.
@@ -130,6 +146,47 @@ def test_no_rendering_warnings_or_errors(ipynb):
                         f"cell {i}: matplotlib backend warning — the notebook "
                         f"was executed with a non-interactive backend and its "
                         f"figures were dropped")
+    assert not problems, f"{ipynb.name}: " + "; ".join(problems)
+
+
+@pytest.mark.parametrize("ipynb", TUTORIALS, ids=_id)
+def test_no_gif_cell_outputs(ipynb):
+    """Animated clips must not be committed as ``image/gif`` outputs.
+
+    GitHub's notebook renderer displays ``image/png`` outputs but silently drops ``image/gif`` ones — the reader sees ``<IPython.core.display.Image object>`` where the clip should play, and no check on figures-as-PNG notices. A clip belongs in a committed ``.gif`` file displayed from a markdown cell (see ``test_markdown_images_are_absolute_and_resolve`` for the form that cell must take).
+    """
+    nb = _load(ipynb)
+    offenders = [i for i, cell in enumerate(nb["cells"])
+                 for out in cell.get("outputs", [])
+                 if "image/gif" in out.get("data", {})]
+    assert not offenders, (
+        f"{ipynb.name} cells {offenders} embed image/gif outputs, invisible "
+        f"on github.com. Write the GIF to tutorials/assets/, commit it, and "
+        f"display it from a markdown cell with an absolute "
+        f"raw.githubusercontent.com URL.")
+
+
+@pytest.mark.parametrize("ipynb", TUTORIALS, ids=_id)
+def test_markdown_images_are_absolute_and_resolve(ipynb):
+    """Markdown images must be absolute repo URLs pointing at committed files.
+
+    GitHub's notebook renderer does not resolve *relative* image paths in markdown cells (the reader sees only the alt text), so every image must use an absolute ``raw.githubusercontent.com`` URL — which works because this repo is public. Resolving each URL against the working tree catches a renamed, moved, or never-committed file locally, instead of as a broken-image icon on github.com.
+    """
+    nb = _load(ipynb)
+    problems = []
+    for i, cell in enumerate(nb["cells"]):
+        if cell["cell_type"] != "markdown":
+            continue
+        for src in re.findall(r"!\[[^\]]*\]\((\S+?)\)", _source(cell)):
+            if not src.startswith(RAW_PREFIX):
+                problems.append(
+                    f"cell {i}: {src!r} is not an absolute {RAW_PREFIX} URL "
+                    f"(GitHub shows only the alt text for relative paths)")
+            elif not _servable_from_github(src[len(RAW_PREFIX):]):
+                problems.append(
+                    f"cell {i}: {src!r} does not resolve to a committed, "
+                    f"non-gitignored file (GitHub would show a broken-image "
+                    f"icon)")
     assert not problems, f"{ipynb.name}: " + "; ".join(problems)
 
 

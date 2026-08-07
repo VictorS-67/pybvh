@@ -23,12 +23,13 @@
 # API reference for everything shown here: [Bvh class](https://victors-67.github.io/pybvh/api/bvh/) · [geometry](https://victors-67.github.io/pybvh/api/geometry/) · [analysis](https://victors-67.github.io/pybvh/api/analysis/) · [rotations & SE(3)](https://victors-67.github.io/pybvh/api/rotations/) · [transforms](https://victors-67.github.io/pybvh/api/transforms/) · [signal](https://victors-67.github.io/pybvh/api/signal/)
 #
 # Sections: **1** load & see · **2** core concepts, drawn · **3** transforms & augmentation · **4** skeleton & frame ops · **5** contacts & feature export · **6** geometry (relations) · **7** geometry (bounding & centre of mass) · **8** geometry (trajectory) · **9** analysis (dynamics & gait) · **10** SE(3) rigid transforms · **11** signal utilities · **12** scale.
+#
+# *If your viewer fails to render any figure or clip, [the notebook on nbviewer](https://nbviewer.org/github/VictorS-67/pybvh/blob/main/gallery/feature_gallery.ipynb) renders everything.*
 
 # %%
 from pathlib import Path
 import numpy as np
 # %matplotlib inline
-from IPython.display import Image
 
 import pybvh
 from pybvh import geometry, analysis, rotations, signal
@@ -51,10 +52,13 @@ print(bvh)
 # %% [markdown]
 # ## 1 · Load & see
 #
-# The test clip used through most of this gallery, rendered with **`bvh.render`** to an inline GIF (resampled to the GIF's 20 fps so it plays in real time) so the sequence shows wherever the notebook is viewed — including a static GitHub render — and survives a headless re-execute. For an interactive scrubber instead, use `bvh.play()` in a live kernel.
+# The test clip used through most of this gallery, rendered with **`bvh.render`** to a GIF committed beside this notebook (resampled to the GIF's 20 fps so it plays in real time). The markdown cell below displays the committed file rather than the cell embedding the clip as an output: GitHub's notebook renderer shows `image/png` outputs but silently drops `image/gif` ones, so an embedded clip would be invisible exactly where most readers meet the library. For an interactive scrubber instead, use `bvh.play()` in a live kernel.
 
 # %% tags=["slow-on-pr"]
-gp.motion_clip_gif(bvh)   # renders the clip itself — no single feature value to surface
+seq_gif = gp.motion_clip_gif(bvh)   # renders the clip itself — no single feature value to surface
+
+# %% [markdown]
+# ![the test clip, rendered by bvh.render with the front camera](https://raw.githubusercontent.com/VictorS-67/pybvh/main/gallery/feature_gallery_seq.gif)
 
 # %% [markdown]
 # **`plot_rest_pose`** & **`plot_frame`** — the two static snapshots: the rest pose (all joint angles zero, offsets only — the first thing to check on a new file) and any animation frame, with `camera="front"/"side"/"top"` or a custom `(azimuth, elevation)` tuple. Multi-skeleton comparisons use the same functions from `pybvh.bvhplot` with a list, as later sections show.
@@ -202,7 +206,10 @@ gp.fig_resample(bvh, bvh.resample(10))
 # From motion to ML-ready labels and arrays. Contact detection needs locomotion to be interesting, so this section runs on the **walking clip** loaded in section 2 — first the clip itself, rendered from a fixed side camera so the skeleton walks through world space. The gait descriptors in section 9 reuse it too.
 
 # %% tags=["slow-on-pr"]
-gp.walk_clip_gif(walk)
+walk_gif = gp.walk_clip_gif(walk)
+
+# %% [markdown]
+# ![the walking clip, rendered by bvh.render with a fixed side camera](https://raw.githubusercontent.com/VictorS-67/pybvh/main/gallery/feature_gallery_walk.gif)
 
 # %% [markdown]
 # **`foot_contacts`** — binary planted/swing labels per foot per frame. The default detector thresholds two signals and ANDs them (the HuMoR heuristic): foot **speed** (slow enough?) and **clearance** above the estimated floor (low enough?) — each catches the other's failure mode. Here with `adaptive=True` (per-foot thresholds fitted to each foot's own signal — the right setting for known locomotion); the green spans are the detected stance phases.
@@ -328,8 +335,10 @@ traj = pos[:, idx(JT), :]
 # First, to make the static trajectory plots below intuitive, watch the hand **trace its path**: the skeleton animates while the blue trail grows behind the hand, frame by frame. The finished blue curve is the hand trajectory every descriptor in this section reads as `traj` (the GIF is resampled to 20 fps so it plays in real time).
 
 # %% tags=["slow-on-pr"]
-gif_path = gp.trajectory_trace_gif(bvh, JT) 
-Image(gif_path)
+gif_path = gp.trajectory_trace_gif(bvh, JT)
+
+# %% [markdown]
+# ![the right hand tracing its trajectory, frame by frame](https://raw.githubusercontent.com/VictorS-67/pybvh/main/gallery/feature_gallery_hand_traj.gif)
 
 # %% [markdown]
 # **`path_length`** vs **`directness`** — the blue curve is the actual path (its arc length = `path_length`); the dashed chord is the straight start→end distance. `directness` = chord ÷ path (1 = perfectly straight).
@@ -391,8 +400,10 @@ gp.fig_mean_pose_subtract(bvh, FRAME, resid)
 #
 # Velocity-derived descriptors. Most are best read on the signal itself, with the quantity they compute annotated directly. The right-hand speed profile and sampling rate are reused below.
 
-# %% tags=["slow-on-pr"]
-Image(gif_path)
+# %% [markdown]
+# The traced right-hand clip from section 8 once more — it is the signal these descriptors summarize:
+#
+# ![the right hand tracing its trajectory, frame by frame](https://raw.githubusercontent.com/VictorS-67/pybvh/main/gallery/feature_gallery_hand_traj.gif)
 
 # %%
 speed = np.linalg.norm(bvh.node_velocities()[:, idx(JT)], axis=-1)

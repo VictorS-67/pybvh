@@ -18,6 +18,8 @@ never re-run.
 from __future__ import annotations
 
 import json
+import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -25,6 +27,20 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 IPYNB = REPO / "gallery" / "feature_gallery.ipynb"
 PY = REPO / "gallery" / "feature_gallery.py"
+
+RAW_PREFIX = "https://raw.githubusercontent.com/VictorS-67/pybvh/main/"
+
+
+def _servable_from_github(repo_rel: str) -> bool:
+    """The file exists and is not gitignored — ``exists()`` alone would accept a local byproduct that raw.githubusercontent.com will 404 on."""
+    if not (REPO / repo_rel).exists():
+        return False
+    if not (REPO / ".git").exists():
+        return True                     # sdist/tarball: existence is all we have
+    ignored = subprocess.run(
+        ["git", "-C", str(REPO), "check-ignore", "-q", repo_rel],
+        capture_output=True)
+    return ignored.returncode != 0
 
 
 def _normalized_cells(nb_dict):
@@ -93,6 +109,43 @@ def test_figures_are_committed():
         f"generated from these outputs, so it would publish near-empty. "
         f"Re-execute: `jupyter nbconvert --to notebook --execute --inplace "
         f"gallery/feature_gallery.ipynb`")
+
+
+def test_clips_are_linked_files_not_embedded_outputs():
+    """The animated clips must be markdown images, never ``image/gif`` outputs.
+
+    GitHub's notebook renderer displays ``image/png`` outputs but silently drops ``image/gif`` ones (the reader sees the ``text/plain`` fallback, ``<IPython.core.display.Image object>``), and it does not resolve *relative* paths in markdown cells either. The one form it renders is a markdown image with an absolute ``raw.githubusercontent.com`` URL — which only works because this repo is public. Note ``test_figures_are_committed`` cannot catch this: its floor counts PNG outputs, and passes happily while every clip is invisible.
+
+    Each URL is also resolved against the working tree — and checked against .gitignore, since raw.githubusercontent.com serves only committed files — so a renamed, ignored, or uncommitted GIF fails here instead of as a broken image on github.com.
+    """
+    nb = json.loads(IPYNB.read_text())
+    gif_outputs = [i for i, c in enumerate(nb["cells"])
+                   for out in c.get("outputs", [])
+                   if "image/gif" in out.get("data", {})]
+    assert not gif_outputs, (
+        f"cells {gif_outputs} embed image/gif outputs, which GitHub's "
+        f"notebook renderer silently drops. Return the path from the "
+        f"gallery_plots helper and display the committed GIF from a "
+        f"markdown cell with an absolute raw.githubusercontent.com URL.")
+
+    markdown = "\n".join("".join(c["source"]) for c in nb["cells"]
+                         if c["cell_type"] == "markdown")
+    srcs = re.findall(r"!\[[^\]]*\]\((\S+?)\)", markdown)
+    gif_srcs = [s for s in srcs if s.endswith(".gif")]
+    for src in gif_srcs:
+        assert src.startswith(RAW_PREFIX), (
+            f"clip image src {src!r} is not an absolute {RAW_PREFIX} URL — "
+            f"GitHub's notebook renderer would show only the alt text")
+        assert _servable_from_github(src[len(RAW_PREFIX):]), (
+            f"clip image src {src!r} does not resolve to a committed, "
+            f"non-gitignored file — GitHub would show a broken-image icon")
+    linked = {s[len(RAW_PREFIX):] for s in gif_srcs}
+    expected = {"gallery/feature_gallery_seq.gif",
+                "gallery/feature_gallery_walk.gif",
+                "gallery/feature_gallery_hand_traj.gif"}
+    assert linked == expected, (
+        f"the notebook's markdown clips are {sorted(linked)}, expected "
+        f"{sorted(expected)} — a clip lost (or gained) its display cell")
 
 
 def test_notebook_outputs_are_clean():

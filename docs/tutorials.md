@@ -61,6 +61,16 @@ Each plotting tutorial runs `%matplotlib inline` in its setup cell (written as `
 
 `tests/test_tutorial_notebooks.py` enforces all of this: the jupytext pair must match, execution counts must be sequential 1..N, the magic must be present in every tutorial that imports pyplot, every `plt.show()` cell must carry a figure, and no backend warning or traceback may reach the committed outputs.
 
+### Animated clips: markdown images, never cell outputs
+
+Static figures reach GitHub as `image/png` cell outputs, but that route does not exist for animations: GitHub's notebook renderer **silently drops `image/gif` outputs** — the reader sees `<IPython.core.display.Image object>` where the clip should play — and it does not resolve *relative* image paths in markdown cells either (the reader sees only the alt text). The one form it renders is a markdown image with an absolute URL, which works because this repo is public:
+
+```markdown
+![the clip](https://raw.githubusercontent.com/VictorS-67/pybvh/main/tutorials/assets/my_clip.gif)
+```
+
+So for any animated clip: write the GIF to a committed location (`tutorials/assets/` for tutorials, `gallery/` for the gallery — the rendering cell just returns the path), commit the file, and display it from a markdown cell as above. Never return `IPython.display.Image` from a cell — besides being invisible on GitHub, it embeds the GIF a second time as base64 inside the `.ipynb`. `tests/test_tutorial_notebooks.py` and `tests/test_gallery_notebook.py` enforce both halves: no `image/gif` cell outputs anywhere, and every markdown image an absolute `raw.githubusercontent.com` URL that resolves to a committed, non-gitignored file.
+
 ### Cell-level execution control on CI
 
 The tutorial CI ([.github/workflows/tutorials.yml](https://github.com/VictorS-67/pybvh/blob/main/.github/workflows/tutorials.yml)) executes every tutorial under [nbmake](https://github.com/treebeardtech/nbmake) with two tag conventions:

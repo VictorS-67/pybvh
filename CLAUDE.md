@@ -103,3 +103,9 @@ Default five-label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, 
 ### Domain docs
 
 Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+
+### In-house messages from the other projects
+
+**At the start of a session, check `/home/victor/projects/lab-messages/to-pybvh/` for entries whose `status:` is not `resolved` or `declined`.** That folder is how the other pybvh-family projects raise things against this one — a missing feature, a caveat that cost someone a day, a heads-up about a coming change. Nothing routes them here automatically; they are read because this line says to read them.
+
+To raise something against another project, write a file into its inbox under `/home/victor/projects/lab-messages/` following the protocol in the hub's `README.md`. Public GitHub issues remain the channel for reports from outside the lab.

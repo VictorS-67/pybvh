@@ -2,6 +2,21 @@
 
 Issues and specs for this repo live as GitHub issues (`VictorS-67/pybvh`). Use the `gh` CLI for all operations.
 
+## Two channels, and which is which
+
+**This file describes the channel for reports from outside the lab.** Traffic *between* the pybvh-family projects — emo_mocap, pybvh, pybvh-ml, pybvh-qualities, pybvh_blender — does not go through GitHub issues. It goes to the message hub:
+
+```
+/home/victor/projects/lab-messages/to-pybvh/     <- addressed to this project
+/home/victor/projects/lab-messages/           <- other inboxes, and the protocol
+```
+
+Markdown files, one per item, with a stable ID and a `status:` field. No `gh`, no auth, no network. The hub is a private repo, so in-house feedback stays private however the visibility of any project changes — and it is version-controlled, so the queue survives the machine.
+
+Rationale, in short: the traffic is a mesh rather than a chain, so it needs one central place rather than an outbox in whichever project happens to be writing; and a public issue tracker is for people with no stake in our internal plumbing. See the hub's `README.md`.
+
+**So:** an external bug report → a GitHub issue here, as described below. Something one of our own projects needs from this one → a file in the hub.
+
 ## Conventions
 
 - **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.

@@ -31,6 +31,7 @@ from ._common import (
     UP_AXIS_INDEX,
 )
 from ._playback import PlaybackClock
+from ._vedo_capsules import CapsuleSkeleton
 
 if TYPE_CHECKING:
     from ..bvh import Bvh
@@ -65,19 +66,6 @@ def _interleave(
     out[0::2] = starts
     out[1::2] = ends
     return out
-
-
-def _apply_flat_lighting(mesh: object) -> None:
-    """Set flat ambient-only lighting so color is stable across frames.
-
-    Keeps VTK's default scalar coloring (blue-to-green gradient on
-    tubes) but removes normal-dependent shading that shifts as bones
-    rotate.
-    """
-    prop = mesh.actor.GetProperty()  # type: ignore[attr-defined]
-    prop.SetAmbient(1.0)
-    prop.SetDiffuse(0.0)
-    prop.SetSpecular(0.0)
 
 
 # =====================================================================
@@ -317,7 +305,7 @@ class _VedoPlayer:
     def _build_geometry(self) -> None:
         """Create the floor, skeleton actors, labels, camera, and trails."""
         from vedo import (  # type: ignore[import-untyped]
-            Lines, Points, Tube, Sphere, Grid, Text2D, merge,
+            Lines, Points, Grid, Text2D,
         )
         import vtk  # type: ignore[import-untyped]
 
@@ -328,37 +316,8 @@ class _VedoPlayer:
 
         # Sizing — base radius scales with the style's bone width
         # (3.0, the paper default, is the 1:1 anchor), then adapted
-        # per-bone by length.
+        # per-bone by length inside CapsuleSkeleton.
         r_bone_base = half_span * 0.013 * (self.style.bone_width / 3.0)
-
-        # Precompute adaptive radii: scale each bone's radius proportional
-        # to its length relative to the median.  Short finger bones get thin
-        # tubes; long limb bones stay thick.
-        _bone_radii: list[dict[tuple[int, int], float]] = []
-        _joint_radii: list[npt.NDArray[np.float64]] = []
-        for s in range(n_skeletons):
-            frame0 = coords_list[s][0]
-            bones = self.skeleton_lines_list[s]
-            lengths = {
-                (p, c): float(np.linalg.norm(frame0[c] - frame0[p]))
-                for p, c in bones
-            }
-            med = float(np.median(list(lengths.values()))) if lengths else 1.0
-            br: dict[tuple[int, int], float] = {}
-            for (p, c), length in lengths.items():
-                ratio = np.clip(length / med, 0.3, 2.0) if med > 0 else 1.0
-                br[(p, c)] = r_bone_base * ratio
-            # Joint radius = mean of connected bone radii
-            jr = np.full(len(frame0), r_bone_base * 0.5)
-            conn: list[list[float]] = [[] for _ in range(len(frame0))]
-            for (p, c), rad in br.items():
-                conn[p].append(rad)
-                conn[c].append(rad)
-            for j in range(len(frame0)):
-                if conn[j]:
-                    jr[j] = float(np.mean(conn[j]))
-            _bone_radii.append(br)
-            _joint_radii.append(jr)
 
         # --- Floor (high quality only; kind from the style) ---
         if self.use_high and self.style.floor is not None:
@@ -399,18 +358,15 @@ class _VedoPlayer:
 
         # --- Build persistent skeleton geometry (created once, updated in-place) ---
 
-        # High mode: 2 merged meshes per skeleton (all bones + all joints)
-        self._bones_mesh: list = []              # merged Mesh per skeleton
-        self._joints_mesh: list = []             # merged Mesh per skeleton
-        self._canonical_bone_verts: list = []    # ndarray (n_bones, V_bone, 3)
-        self._canonical_joint_verts: list = []   # ndarray (n_joints, V_joint, 3)
-        # Pre-computed bone index arrays for vectorized frame lookups
-        self._bone_parent_idx: list = []         # ndarray (n_bones,) per skeleton
-        self._bone_child_idx: list = []          # ndarray (n_bones,) per skeleton
+        # High mode: one CapsuleSkeleton (2 merged actors) per skeleton
+        self._capsules: list[CapsuleSkeleton | None] = []
 
         # Fast mode: Lines + Points per skeleton
         self._lines_actors: list = []
         self._points_actors: list = []
+        # Bone index arrays for the fast-mode vertex updates
+        self._bone_parent_idx: list = []
+        self._bone_child_idx: list = []
 
         # --- Create actors once and position to frame 0 ---
         for s in range(n_skeletons):
@@ -420,73 +376,25 @@ class _VedoPlayer:
             self._bone_child_idx.append(np.array([b[1] for b in bones]))
 
             if self.use_high:
-                br = _bone_radii[s]
-                jr = _joint_radii[s]
                 chain_rgb = self._bone_colors_255(s)
-
-                # Create canonical bone tubes and collect vertices.
-                # Chain coloring is baked as per-point colors so it
-                # survives the merge into one actor.
-                bone_meshes = []
-                bone_verts_list = []
-                for k, (p_i, c_i) in enumerate(bones):
-                    r = br.get((p_i, c_i), r_bone_base)
-                    tube = Tube([[0, 0, 0], [0, 0, 1]], r=[r, r / 2],
-                                res=12, c=color)
-                    if chain_rgb is not None:
-                        tube.pointcolors = np.tile(
-                            np.array(chain_rgb[k], dtype=np.uint8),
-                            (tube.npoints, 1))
-                    bone_verts_list.append(tube.vertices.copy())
-                    bone_meshes.append(tube)
-
-                if bone_meshes:
-                    bones_merged = merge(bone_meshes)
-                    _apply_flat_lighting(bones_merged)
-                    self._canonical_bone_verts.append(
-                        np.array(bone_verts_list))  # (n_bones, V, 3)
-                else:
-                    bones_merged = None
-                    self._canonical_bone_verts.append(np.empty((0, 0, 3)))
-                self._bones_mesh.append(bones_merged)
-
-                # Create canonical joint spheres and collect vertices.
-                # Under chain coloring a joint takes the color of the
-                # bone whose child it is (root keeps the spine color).
-                joint_rgb_by_node: dict[int, tuple[int, int, int]] = {}
                 spine_rgb: tuple[int, int, int] = (58, 63, 74)
                 if chain_rgb is not None:
                     from matplotlib.colors import to_rgb
                     spine_rgb = tuple(
                         int(c * 255) for c in to_rgb(
                             self.style.chain_colors.get("spine", "#3A3F4A")))
-                    for k, (_p, c_i) in enumerate(bones):
-                        joint_rgb_by_node[c_i] = chain_rgb[k]
-                joint_meshes = []
-                joint_verts_list = []
-                for j in range(coords_list[s].shape[1]):
-                    sph = Sphere(pos=(0, 0, 0), r=jr[j], res=12, c=color)
-                    if chain_rgb is not None:
-                        node_rgb = joint_rgb_by_node.get(j, spine_rgb)
-                        sph.pointcolors = np.tile(
-                            np.array(node_rgb, dtype=np.uint8),
-                            (sph.npoints, 1))
-                    joint_verts_list.append(sph.vertices.copy())
-                    joint_meshes.append(sph)
-                joints_merged = merge(joint_meshes)
-                _apply_flat_lighting(joints_merged)
-                self._canonical_joint_verts.append(
-                    np.array(joint_verts_list))   # (n_joints, V, 3)
-                self._joints_mesh.append(joints_merged)
-
-                # Add only 2 merged actors to plotter
-                if bones_merged is not None:
-                    self.plt += bones_merged
-                self.plt += joints_merged
+                capsule = CapsuleSkeleton(
+                    self.scene.views[s], r_bone_base, color,
+                    chain_rgb=chain_rgb, spine_rgb=spine_rgb,
+                    flat_lighting=True)
+                self._capsules.append(capsule)
+                for actor_mesh in capsule.actors:
+                    self.plt += actor_mesh
 
                 # Position to frame 0
-                self._update_skeleton_high(s, coords_list[s][0])
+                capsule.update(coords_list[s][0])
             else:
+                self._capsules.append(None)
                 frame0 = coords_list[s][0]
                 _lw = max(1, int(half_span * 0.04))
                 _pr = max(1, int(half_span * 0.05))
@@ -569,50 +477,6 @@ class _VedoPlayer:
             trail.actor.SetVisibility(0)
             self._trail_actors.append(trail)
             self.plt += trail
-
-    def _update_skeleton_high(self, s: int, frame_data: npt.NDArray) -> None:
-        """Update merged bone and joint meshes via vectorized numpy."""
-        p_idx = self._bone_parent_idx[s]
-        c_idx = self._bone_child_idx[s]
-        canonical_bones = self._canonical_bone_verts[s]
-
-        if len(p_idx) > 0 and self._bones_mesh[s] is not None:
-            starts = frame_data[p_idx]                     # (n_bones, 3)
-            ends = frame_data[c_idx]                       # (n_bones, 3)
-            diffs = ends - starts
-            lengths = np.linalg.norm(diffs, axis=1)        # (n_bones,)
-
-            # Vectorized rotation+scale matrices
-            safe_len = np.where(lengths < 1e-8, 1.0, lengths)
-            z_ax = diffs / safe_len[:, np.newaxis]
-            refs = np.tile(np.array([1., 0, 0]), (len(p_idx), 1))
-            refs[np.abs(z_ax[:, 0]) >= 0.9] = [0., 1, 0]
-            x_ax = np.cross(refs, z_ax)
-            x_ax /= np.linalg.norm(x_ax, axis=1, keepdims=True).clip(1e-10)
-            y_ax = np.cross(z_ax, x_ax)
-
-            # (n_bones, 3, 3): columns are [x, y, z*length]
-            rotscale = np.stack(
-                [x_ax, y_ax, z_ax * lengths[:, np.newaxis]], axis=2)
-
-            # Single einsum: R @ v for all bones at once
-            transformed = (
-                np.einsum('bij,bvj->bvi', rotscale, canonical_bones)
-                + starts[:, np.newaxis, :])
-
-            # Collapse zero-length bones (degenerate triangles)
-            zero = np.where(lengths < 1e-8)[0]
-            if len(zero):
-                for zi in zero:
-                    transformed[zi] = starts[zi]
-
-            self._bones_mesh[s].vertices = transformed.reshape(-1, 3)
-
-        # Joints: vectorized translation (single operation)
-        canonical_joints = self._canonical_joint_verts[s]
-        self._joints_mesh[s].vertices = (
-            canonical_joints + frame_data[:, np.newaxis, :]
-        ).reshape(-1, 3)
 
     def _update_skeleton_fast(self, s: int, frame_data: npt.NDArray) -> None:
         """Update Lines/Points vertex data in-place for skeleton *s*."""
@@ -850,7 +714,7 @@ class _VedoPlayer:
         for s in range(self.n_skeletons):
             frame_data = self.coords_list[s][f]
             if self.use_high:
-                self._update_skeleton_high(s, frame_data)
+                self._capsules[s].update(frame_data)
             else:
                 self._update_skeleton_fast(s, frame_data)
             # Update joint labels when visible
@@ -1092,9 +956,10 @@ class _VedoPlayer:
                 vis_list[idx] = not vis_list[idx]
                 v = 1 if vis_list[idx] else 0
                 if self.use_high:
-                    if self._bones_mesh[idx] is not None:
-                        self._bones_mesh[idx].actor.SetVisibility(v)
-                    self._joints_mesh[idx].actor.SetVisibility(v)
+                    capsule = self._capsules[idx]
+                    assert capsule is not None
+                    for mesh in capsule.actors:
+                        mesh.actor.SetVisibility(v)
                 else:
                     self._lines_actors[idx].actor.SetVisibility(v)
                     self._points_actors[idx].actor.SetVisibility(v)

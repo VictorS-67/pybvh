@@ -131,9 +131,11 @@ def _resolve_render_backend(requested: str, ext: str) -> str:
 
     Under ``"auto"``, extensions OpenCV cannot write route to matplotlib
     even when cv2 is installed (previously they hit a misleading codec
-    error); everything else prefers OpenCV when available.
+    error); everything else prefers OpenCV when available. ``"vedo"``
+    (the shadowed capsule renderer) is never auto-selected — it is a
+    deliberate look, not a fallback.
     """
-    valid = {"auto", "opencv", "matplotlib"}
+    valid = {"auto", "opencv", "matplotlib", "vedo"}
     if requested not in valid:
         raise ValueError(
             f"Unknown backend {requested!r}. "
@@ -455,14 +457,17 @@ def frame(
     frame: int = 0,
     *,
     style: Style | str = "paper",
+    backend: str = "matplotlib",
     coords: npt.NDArray[np.floating] | None = None,
     centered: str = "world",
     labels: list[str] | None = None,
     figsize: tuple[float, float] | None = None,
     show: bool = False,
     camera: str | tuple[float, float] = "front",
+    resolution: tuple[int, int] = (1100, 1000),
+    filepath: str | Path | None = None,
     ax: matplotlib.axes.Axes | None = None,
-) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes | list[matplotlib.axes.Axes]]:
+) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes | list[matplotlib.axes.Axes]] | npt.NDArray[np.uint8]:
     """Plot a static 3D skeleton snapshot.
 
     Parameters
@@ -479,6 +484,14 @@ def frame(
         (default) draws a ground plane, per-chain bone colors, and
         joint markers with axes hidden; ``"debug"`` reproduces the
         pre-0.9.0 look (single blue, full axes/ticks, no floor).
+    backend : str, optional
+        ``"matplotlib"`` (default) returns ``(fig, ax)``. ``"vedo"``
+        renders a shadowed 3D capsule skeleton offscreen (headless-
+        safe, requires ``pybvh[viewer]``) and returns an ``(H, W, 3)``
+        uint8 RGB image instead — display it with ``plt.imshow`` or
+        save it via *filepath*. Shadows are hard-edged projections
+        (``Style.shadow``); ``figsize``/``ax`` do not apply, and all
+        skeletons share one scene rather than side-by-side panels.
     coords : ndarray, optional
         Pre-computed spatial coordinates to plot instead of computing
         forward kinematics from *bvh*: ``(N, 3)`` for one frame, or
@@ -496,6 +509,11 @@ def frame(
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``) or
         ``(azimuth_deg, elevation_deg)`` tuple. Default ``"front"``.
+    resolution : (int, int), optional
+        Image size in pixels for ``backend="vedo"`` (ignored by
+        matplotlib, which sizes via *figsize*/*dpi*).
+    filepath : str or Path, optional
+        With ``backend="vedo"``, also write the rendered image here.
     ax : matplotlib.axes.Axes, optional
         Existing 3D axes to draw on. If provided, no new figure is
         created. Only supported for a single skeleton (raises
@@ -506,12 +524,28 @@ def frame(
     fig : matplotlib.figure.Figure
     ax : Axes or list[Axes]
         Single axes when one skeleton, list when multiple.
+        With ``backend="vedo"``: an ``(H, W, 3)`` uint8 RGB image
+        array instead.
     """
-    from ._matplotlib import frame_mpl
+    _VALID_FRAME_BACKENDS = {"matplotlib", "vedo"}
+    if backend not in _VALID_FRAME_BACKENDS:
+        raise ValueError(
+            f"Unknown backend {backend!r}. "
+            f"Choose from: {sorted(_VALID_FRAME_BACKENDS)}")
 
     frame_spec = coords if coords is not None else frame
     scene = _prepare(bvh, frame_spec, centered, camera, labels)
 
+    if backend == "vedo":
+        if not _module_importable("vedo"):
+            raise ImportError(
+                "vedo backend requires vedo. "
+                "Install with: pip install pybvh[viewer]")
+        from ._vedo_offscreen import frame_vedo
+        return frame_vedo(scene, resolve_style(style),
+                          resolution=resolution, filepath=filepath)
+
+    from ._matplotlib import frame_mpl
     return frame_mpl(scene, resolve_style(style),
                      figsize=figsize, show=show, ax=ax)
 
@@ -727,6 +761,27 @@ def render(
             "Install with: pip install pybvh[opencv]. "
             "Falling back to matplotlib (slower).",
             stacklevel=2)
+
+    if backend_name == "vedo":
+        if not _module_importable("vedo"):
+            raise ImportError(
+                "vedo backend requires vedo. "
+                "Install with: pip install pybvh[viewer]")
+        unsupported = []
+        if effective_follow or turntable:
+            unsupported.append("follow/turntable cameras")
+        if ghost:
+            unsupported.append("ghost trails")
+        if trajectory:
+            unsupported.append("trajectory traces")
+        if unsupported:
+            raise ValueError(
+                f"The vedo render backend does not support "
+                f"{', '.join(unsupported)}. Use backend='opencv' or "
+                f"'matplotlib' for those.")
+        from ._vedo_offscreen import render_vedo
+        return render_vedo(
+            scene, style_obj, filepath, actual_fps, resolution)
 
     if backend_name == "opencv":
         if not _module_importable("cv2"):

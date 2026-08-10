@@ -37,9 +37,10 @@ def player(scene, monkeypatch):
 class TestPlayerShell:
     def test_constructs_with_chain_colors(self, player):
         # merged bone mesh exists and carries per-point colors
-        assert player._bones_mesh[0] is not None
-        assert player._bones_mesh[0].pointcolors is not None
-        assert len(player._bones_mesh[0].pointcolors) > 0
+        capsule = player._capsules[0]
+        assert capsule is not None and capsule.bones_mesh is not None
+        assert capsule.bones_mesh.pointcolors is not None
+        assert len(capsule.bones_mesh.pointcolors) > 0
 
     def test_delegates_to_clock(self, player):
         assert player.clock.playing

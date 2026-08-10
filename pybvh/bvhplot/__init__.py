@@ -47,8 +47,41 @@ from ._common import (
 )
 
 __all__ = [
-    "Style", "rest_pose", "frame", "render", "play", "trajectory",
+    "Style", "rest_pose", "frame", "sequence", "render", "play",
+    "trajectory",
 ]
+
+
+def _resolve_sample_frames(
+    num_frames: int,
+    n_poses: int,
+    frames: slice | tuple[int, int] | None,
+) -> npt.NDArray[np.intp]:
+    """Equidistant sample indices for sequence(), honoring a range spec."""
+    if not (isinstance(n_poses, int) and n_poses >= 1):
+        raise ValueError(f"n_poses must be an integer >= 1, got {n_poses!r}")
+    if frames is None:
+        start, stop = 0, num_frames
+    elif isinstance(frames, slice):
+        start, stop, step = frames.indices(num_frames)
+        if step != 1:
+            raise ValueError(
+                "frames slice must have step 1 — n_poses controls the "
+                "sampling density.")
+    elif isinstance(frames, tuple) and len(frames) == 2:
+        start, stop = frames
+        start = start if start >= 0 else num_frames + start
+        stop = stop if stop >= 0 else num_frames + stop
+    else:
+        raise TypeError(
+            f"frames must be a slice, a (start, stop) tuple, or None, "
+            f"got {frames!r}")
+    if not 0 <= start < stop <= num_frames:
+        raise ValueError(
+            f"frames range [{start}, {stop}) is empty or outside the "
+            f"clip's {num_frames} frames.")
+    return np.unique(np.linspace(start, stop - 1, n_poses).round()
+                     .astype(np.intp))
 
 if TYPE_CHECKING:
     import matplotlib.figure
@@ -478,6 +511,85 @@ def frame(
                      figsize=figsize, show=show, ax=ax)
 
 
+def sequence(
+    bvh: Bvh,
+    *,
+    n_poses: int = 8,
+    frames: slice | tuple[int, int] | None = None,
+    layout: str = "offset",
+    style: Style | str = "paper",
+    centered: str = "world",
+    camera: str | tuple[float, float] | None = None,
+    trajectory: bool = True,
+    figsize: tuple[float, float] | None = None,
+    show: bool = False,
+    ax: matplotlib.axes.Axes | None = None,
+) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]:
+    """The motion-paper sequence still: sampled poses in one figure,
+    with lightness encoding time (lighter = earlier, the TEMOS
+    convention).
+
+    Parameters
+    ----------
+    bvh : Bvh
+        A single BVH object (sequence figures are single-skeleton).
+    n_poses : int, optional
+        Number of equidistantly sampled poses (default 8).
+    frames : slice or (start, stop), optional
+        Restrict sampling to a frame range. Default: the whole clip.
+    layout : str, optional
+        ``"offset"`` (default): poses at their world positions —
+        locomotion spreads them left to right; drawn orthographic from
+        the side with equal-scale non-cubic bounds so the travel fills
+        the frame. ``"overlay"``: poses superimposed (per-pose
+        horizontal root-centering), perspective from the front — the
+        right mode for in-place motion; on locomotion the legs tangle.
+    style : Style or str, optional
+        Visual styling preset or instance. Default ``"paper"``.
+    centered : str, optional
+        Centering mode for the underlying coords (default ``"world"``).
+    camera : str, (float, float), or None, optional
+        ``None`` (default) picks the layout's natural view: ``"side"``
+        for offset, ``"front"`` for overlay. Presets and explicit
+        ``(azimuth, elevation)`` tuples override it.
+    trajectory : bool, optional
+        Draw the dashed root trace on the floor (offset layout only).
+        Default ``True``.
+    figsize : (float, float), optional
+        Figure size; defaults to a wide figure for offset layout.
+    show : bool, optional
+        Call ``plt.show()``. Default ``False``.
+    ax : matplotlib.axes.Axes, optional
+        Existing 3D axes to draw into.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    ax : matplotlib.axes.Axes
+    """
+    if isinstance(bvh, list):
+        raise ValueError(
+            "sequence() takes a single Bvh — multi-skeleton sequence "
+            "figures are not supported.")
+    _VALID_LAYOUTS = {"offset", "overlay"}
+    if layout not in _VALID_LAYOUTS:
+        raise ValueError(
+            f"Unknown layout {layout!r}. "
+            f"Choose from: {sorted(_VALID_LAYOUTS)}")
+
+    if camera is None:
+        camera = "side" if layout == "offset" else "front"
+
+    scene = _prepare(bvh, None, centered, camera, None)
+    sample_frames = _resolve_sample_frames(
+        scene.num_frames, n_poses, frames)
+
+    from ._matplotlib import sequence_mpl
+    return sequence_mpl(
+        scene, resolve_style(style), sample_frames, layout,
+        trajectory=trajectory, figsize=figsize, show=show, ax=ax)
+
+
 def render(
     bvh: Bvh | list[Bvh],
     filepath: str | Path = Path("./anim.mp4"),
@@ -491,6 +603,8 @@ def render(
     resolution: tuple[int, int] = (1920, 1080),
     sync: str = "truncate",
     follow: bool = False,
+    ghost: int = 0,
+    trajectory: bool = False,
     match_fps: str | None = None,
 ) -> Path:
     """Render animation to a video, GIF, or HTML file.
@@ -538,6 +652,14 @@ def render(
         character. Only affects preset cameras (``"front"``, ``"side"``,
         ``"top"``); custom ``(azimuth, elevation)`` tuples are fixed and
         ignore ``follow``. Default ``False`` (stable camera).
+    ghost : int, optional
+        Number of faded trailing poses drawn behind the live skeleton
+        (default 0 — none). Spacing between ghosts is
+        ``style.ghost_spacing`` seconds; older ghosts fade further
+        toward the background.
+    trajectory : bool, optional
+        Draw the root trace on the floor, growing with playback
+        (default ``False``).
     match_fps : str or None, optional
         How to handle clips with different frame rates in side-by-side
         rendering.  ``None`` (default) emits a warning but does not
@@ -554,6 +676,8 @@ def render(
     _validate_sync(sync)
     pad = sync == "pad"
     style_obj = resolve_style(style)
+    if not (isinstance(ghost, int) and ghost >= 0):
+        raise ValueError(f"ghost must be an integer >= 0, got {ghost!r}")
 
     backend_name = _resolve_render_backend(backend, filepath.suffix.lower())
 
@@ -589,13 +713,14 @@ def render(
         from ._opencv import render_opencv
         return render_opencv(
             scene, style_obj, filepath, actual_fps, resolution,
-            follow=effective_follow)
+            follow=effective_follow, ghost=ghost, trajectory=trajectory)
 
     else:  # matplotlib
         from ._matplotlib import render_mpl
         return render_mpl(
             scene, style_obj, filepath, actual_fps,
-            follow=effective_follow, resolution=resolution)
+            follow=effective_follow, resolution=resolution,
+            ghost=ghost, trajectory=trajectory)
 
 
 def play(

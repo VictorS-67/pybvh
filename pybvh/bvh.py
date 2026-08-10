@@ -3118,6 +3118,12 @@ class Bvh:
         from . import bvhplot
         return bvhplot.frame(self, frame=frame, **kwargs)
 
+    def plot_sequence(self, **kwargs):
+        """Sequence still (sampled poses, lighter = past).
+        See :func:`pybvh.bvhplot.sequence`."""
+        from . import bvhplot
+        return bvhplot.sequence(self, **kwargs)
+
     def plot_trajectory(self, **kwargs):
         """Plot the root trajectory. See :func:`pybvh.bvhplot.trajectory`."""
         from . import bvhplot

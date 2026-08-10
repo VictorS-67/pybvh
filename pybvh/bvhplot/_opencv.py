@@ -184,6 +184,8 @@ def _draw_skeletons_on_frame(
     h: int,
     bg_bgr: tuple[int, int, int],
     fixed_view_halves: list[tuple[float, float]] | None = None,
+    ghost: int = 0,
+    trajectory: bool = False,
 ) -> None:
     """Draw all skeletons for one frame onto *img* (mutates in place).
 
@@ -200,6 +202,10 @@ def _draw_skeletons_on_frame(
     ``style.joint_markers`` is off). With markers off they are small
     and bone-colored (the pre-0.9.0 look); with markers on they use
     ``style.joint_color``.
+
+    ``ghost`` faded trailing poses draw behind the live skeleton
+    (oldest first); ``trajectory`` draws the root trace on the floor up
+    to the current frame (solid thin line — cv2 has no dashes).
     """
     import cv2
 
@@ -217,14 +223,41 @@ def _draw_skeletons_on_frame(
                 img, view, style, view_matrix, panel_w, h, x_offset,
                 bg_bgr, fixed)
 
-        pts_2d = ortho_project(
-            frame_data, view_matrix, view.center, view.half_span,
-            (panel_w, h), fixed_view_half=fixed)
-        pts_2d[:, 0] += x_offset
+        def project(world_pts):
+            pts = ortho_project(
+                world_pts, view_matrix, view.center, view.half_span,
+                (panel_w, h), fixed_view_half=fixed)
+            pts[:, 0] += x_offset
+            return pts
 
         bone_colors = [
             _to_bgr(c)
             for c in bone_colors_for_view(view, style, s, n_skeletons)]
+
+        if trajectory:
+            path = view.coords[:frame_idx + 1, 0, :].copy()
+            path[:, view.up_index] = view.floor_height
+            if len(path) >= 2:
+                trace_color = _blend_bgr(_to_bgr("#7A8090"), bg_bgr, 0.9)
+                cv2.polylines(img, [project(path)], False, trace_color, 1,
+                              cv2.LINE_AA)
+
+        if ghost > 0:
+            lag = max(1, round(
+                style.ghost_spacing / view.bvh.frame_time))
+            weights = np.linspace(0.32, 0.15, ghost)
+            ghost_thickness = max(1, round(style.bone_width * 0.75))
+            for j in reversed(range(ghost)):     # oldest first
+                gf = frame_idx - (j + 1) * lag
+                if gf < 0:
+                    continue
+                gpts = project(view.coords[gf])
+                for (p_idx, c_idx), color in zip(view.bones, bone_colors):
+                    faded = _blend_bgr(color, bg_bgr, float(weights[j]))
+                    cv2.line(img, tuple(gpts[p_idx]), tuple(gpts[c_idx]),
+                             faded, ghost_thickness, cv2.LINE_AA)
+
+        pts_2d = project(frame_data)
 
         for (p_idx, c_idx), color in zip(view.bones, bone_colors):
             pt1 = (int(pts_2d[p_idx, 0]), int(pts_2d[p_idx, 1]))
@@ -267,6 +300,8 @@ def _generate_frames(
     *,
     follow: bool = False,
     frame_counter: bool = True,
+    ghost: int = 0,
+    trajectory: bool = False,
 ) -> Iterator[npt.NDArray[np.uint8]]:
     """Yield one rendered BGR image ``(H, W, 3)`` per animation frame.
 
@@ -332,7 +367,8 @@ def _generate_frames(
 
         _draw_skeletons_on_frame(
             img, f, scene, style, view_matrices, panel_w, h, bg_bgr,
-            fixed_view_halves=fixed_view_halves)
+            fixed_view_halves=fixed_view_halves,
+            ghost=ghost, trajectory=trajectory)
 
         if frame_counter:
             fc_text = f"Frame {f}/{num_frames - 1}"
@@ -360,6 +396,8 @@ def render_opencv(
     resolution: tuple[int, int],
     *,
     follow: bool = False,
+    ghost: int = 0,
+    trajectory: bool = False,
 ) -> Path:
     """Render skeleton animation to a video or GIF file using OpenCV.
 
@@ -410,10 +448,12 @@ def render_opencv(
     # Pillow sink for GIF output (cv2.VideoWriter doesn't support GIF).
     if ext == '.gif':
         frames = _generate_frames(
-            scene, style, resolution, follow=follow, frame_counter=False)
+            scene, style, resolution, follow=follow, frame_counter=False,
+            ghost=ghost, trajectory=trajectory)
         return _render_gif(frames, filepath, fps)
 
-    frames = _generate_frames(scene, style, resolution, follow=follow)
+    frames = _generate_frames(scene, style, resolution, follow=follow,
+                              ghost=ghost, trajectory=trajectory)
 
     writer = _open_writer(filepath, fps, resolution)
     for img in frames:

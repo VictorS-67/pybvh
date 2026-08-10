@@ -756,6 +756,7 @@ _STYLE_PRESETS: dict[str, dict[str, object]] = {
         dpi=None,
         supersample=2,
         shadow=True,
+        ghost_spacing=0.3,
     ),
     "debug": dict(
         bone_width=2.5,
@@ -773,6 +774,7 @@ _STYLE_PRESETS: dict[str, dict[str, object]] = {
         dpi=None,
         supersample=1,
         shadow=False,
+        ghost_spacing=0.3,
     ),
     "dark": dict(
         bone_width=3.0,
@@ -790,6 +792,7 @@ _STYLE_PRESETS: dict[str, dict[str, object]] = {
         dpi=None,
         supersample=2,
         shadow=True,
+        ghost_spacing=0.3,
     ),
 }
 
@@ -819,10 +822,11 @@ class Style:
     every backend: ``bone_width``, ``bone_color``, ``color_mode``,
     ``chain_colors``, ``joint_markers``, ``joint_size``,
     ``joint_color``, ``floor``, ``floor_alpha``, ``background``,
-    ``axes``, ``projection``. **Output** fields apply only where
-    raster output is produced: ``dpi`` (matplotlib figures),
-    ``supersample`` (OpenCV export), ``shadow`` (vedo offscreen
-    renders).
+    ``axes``, ``projection``, ``ghost_spacing`` (seconds between the
+    faded trailing poses that ``render(ghost=...)`` draws). **Output**
+    fields apply only where raster output is produced: ``dpi``
+    (matplotlib figures), ``supersample`` (OpenCV export), ``shadow``
+    (vedo offscreen renders).
 
     ``color_mode``: ``"auto"`` uses per-chain colors for a single
     skeleton and flat per-skeleton palette colors for multi-skeleton
@@ -847,6 +851,7 @@ class Style:
     dpi: int | None
     supersample: int
     shadow: bool
+    ghost_spacing: float
 
     def __init__(self, preset: str = "paper", **overrides: object) -> None:
         if preset not in _STYLE_PRESETS:
@@ -889,6 +894,10 @@ class Style:
             raise ValueError(
                 f"supersample must be an integer >= 1, "
                 f"got {self.supersample!r}")
+        if not self.ghost_spacing > 0:
+            raise ValueError(
+                f"ghost_spacing must be positive (seconds), "
+                f"got {self.ghost_spacing!r}")
 
     def replace(self, **overrides: object) -> Style:
         """A new Style with the given fields changed."""

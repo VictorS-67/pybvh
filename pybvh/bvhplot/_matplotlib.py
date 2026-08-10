@@ -160,6 +160,189 @@ def _draw_joint_markers(
         s=style.joint_size, c=style.joint_color, depthshade=False)
 
 
+def _fade_toward_background(color: object, weight: float, style: Style):
+    """Blend a color toward the background: weight=1 is the full color,
+    weight->0 disappears into the ground. This is the lighter-equals-past
+    time encoding used by sequence figures and ghost trails."""
+    from matplotlib.colors import to_rgb
+
+    rgb = np.array(to_rgb(color))  # type: ignore[arg-type]
+    bg = np.array(to_rgb(style.background))
+    return tuple(bg + (rgb - bg) * weight)
+
+
+def _draw_pose(
+    ax: matplotlib.axes.Axes,
+    pose: npt.NDArray[np.float64],
+    view: SkeletonView,
+    style: Style,
+    colors: list,
+    *,
+    weight: float = 1.0,
+    line_width: float | None = None,
+    joints: bool = True,
+) -> None:
+    """Draw one skeleton pose, optionally faded toward the background."""
+    if weight < 1.0:
+        colors = [_fade_toward_background(c, weight, style) for c in colors]
+    segments = pose[np.asarray(view.bones, dtype=int)]
+    ax.add_collection3d(Line3DCollection(
+        segments, colors=colors,
+        linewidths=line_width if line_width is not None else style.bone_width))
+    if joints and style.joint_markers:
+        joint_color = (style.joint_color if weight >= 1.0 else
+                       _fade_toward_background(style.joint_color, weight,
+                                               style))
+        ax.scatter(pose[:, 0], pose[:, 1], pose[:, 2],
+                   s=style.joint_size, c=[joint_color], depthshade=False)
+
+
+def _floor_trace_points(
+    view: SkeletonView,
+    upto: int | None = None,
+) -> npt.NDArray[np.float64]:
+    """Root path projected onto the floor plane (for the dashed trace)."""
+    end = view.coords.shape[0] if upto is None else upto + 1
+    path = view.coords[:end, 0, :].copy()
+    path[:, view.up_index] = view.floor_height
+    return path
+
+
+def _draw_floor_trace(
+    ax: matplotlib.axes.Axes,
+    view: SkeletonView,
+    style: Style,
+    upto: int | None = None,
+):
+    """Dashed root-trajectory trace on the floor. Returns the artist."""
+    path = _floor_trace_points(view, upto)
+    trace_color = _fade_toward_background("#7A8090", 0.9, style)
+    (line,) = ax.plot(
+        path[:, 0], path[:, 1], path[:, 2],
+        c=trace_color, lw=1.4, ls=(0, (4, 2)))
+    return line
+
+
+def sequence_mpl(
+    scene: Scene,
+    style: Style,
+    sample_frames: npt.NDArray[np.intp],
+    layout: str,
+    *,
+    trajectory: bool = True,
+    figsize: tuple[float, float] | None = None,
+    show: bool = False,
+    ax: matplotlib.axes.Axes | None = None,
+) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]:
+    """The motion-paper sequence still: sampled poses, lighter = past.
+
+    ``layout="offset"``: poses at their world positions (locomotion
+    spreads them naturally), orthographic, equal-scale but NON-cubic
+    bounds so wide travel fills the frame instead of shrinking into a
+    cube. ``layout="overlay"``: poses superimposed with per-pose
+    horizontal root-centering, cubic bounds, perspective.
+
+    Poses draw back-to-front (oldest first) under manual z-order — the
+    correct painter's-algorithm order for the fade encoding.
+    """
+    view = scene.views[0]
+    n_samples = len(sample_frames)
+
+    # Per-pose coordinates under the chosen layout
+    poses = [view.coords[f] for f in sample_frames]
+    if layout == "overlay":
+        centered_poses = []
+        for pose in poses:
+            shift = pose[0].copy()
+            shift[view.up_index] = 0.0
+            centered_poses.append(pose - shift)
+        poses = centered_poses
+
+    stack = np.concatenate([p[np.newaxis] for p in poses], axis=0)
+
+    if ax is not None:
+        fig = ax.get_figure()
+        assert fig is not None
+    else:
+        if figsize is None:
+            figsize = (13.0, 4.5) if layout == "offset" else (7.0, 6.5)
+        fig = plt.figure(figsize=figsize, dpi=style.dpi)
+        ax = fig.add_subplot(111, projection="3d")
+
+    fig.patch.set_facecolor(style.background)
+    _apply_axes_style(ax, style)
+    ax.computed_zorder = False  # type: ignore[attr-defined]
+    if layout == "offset":
+        # The offset figure is orthographic by design (D4): perspective
+        # would shrink distant poses and break the left-to-right read.
+        ax.set_proj_type("ortho")  # type: ignore[attr-defined]
+
+    ax.view_init(  # type: ignore[attr-defined]
+        elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis)
+
+    up = view.up_index
+    flat = stack.reshape(-1, 3)
+    mins = flat.min(axis=0)
+    maxs = flat.max(axis=0)
+    if style.floor is not None:
+        mins[up] = min(mins[up],
+                       view.floor_height if layout == "offset"
+                       else float(flat[:, up].min()))
+    pad = 0.04 * float((maxs - mins).max())
+    mins, maxs = mins - pad, maxs + pad
+    spans = maxs - mins
+
+    if layout == "offset":
+        # Equal-scale, non-cubic: box aspect follows the data spans.
+        # zoom compensates for mplot3d's generous default margins.
+        ax.set_xlim(mins[0], maxs[0])
+        ax.set_ylim(mins[1], maxs[1])
+        ax.set_zlim(mins[2], maxs[2])
+        ax.set_box_aspect(  # type: ignore[attr-defined]
+            tuple(spans / spans.max()), zoom=1.25)
+    else:
+        center = (mins + maxs) / 2
+        half = float(spans.max()) / 2
+        _set_axis_limits(ax, center, half)
+        ax.set_box_aspect((1, 1, 1))  # type: ignore[attr-defined]
+
+    # Floor clipped to the box: a full-extent plane reads as a backdrop
+    # wall in wide orthographic views.
+    if style.floor is not None:
+        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+        ground = [i for i in range(3) if i != up]
+        floor_y = (view.floor_height if layout == "offset"
+                   else float(flat[:, up].min()))
+        corners = []
+        for d0, d1 in ((0, 0), (1, 0), (1, 1), (0, 1)):
+            p = [0.0, 0.0, 0.0]
+            p[ground[0]] = (mins[ground[0]], maxs[ground[0]])[d0]
+            p[ground[1]] = (mins[ground[1]], maxs[ground[1]])[d1]
+            p[up] = floor_y
+            corners.append(tuple(p))
+        dark = style.background not in ("white", "#FFFFFF", "#ffffff")
+        face = "#2A2E36" if dark else "#E8E8EC"
+        edge = "#3A3F4A" if dark else "#D0D0D8"
+        ax.add_collection3d(Poly3DCollection(
+            [corners], facecolors=face, edgecolors=edge, linewidths=0.5,
+            alpha=style.floor_alpha))
+
+    if trajectory and layout == "offset":
+        _draw_floor_trace(ax, view, style)
+
+    colors = bone_colors_for_view(view, style, 0, 1)
+    for k, pose in enumerate(poses):
+        # lighter = past: the last sampled pose is fully saturated
+        weight = 0.3 + 0.7 * (k / (n_samples - 1) if n_samples > 1 else 1.0)
+        _draw_pose(ax, pose, view, style, colors, weight=weight,
+                   joints=(k == n_samples - 1))
+
+    if show:
+        plt.show()
+    return fig, ax
+
+
 # ---------------------------------------------------------------------------
 # Static frame
 # ---------------------------------------------------------------------------
@@ -338,6 +521,74 @@ def _setup_animated_panel(
     return collection, joint_scatter
 
 
+def _setup_render_extras(
+    scene: Scene,
+    style: Style,
+    axs_flat: list[matplotlib.axes.Axes],
+    ghost: int,
+    trajectory: bool,
+) -> tuple[list, list]:
+    """Create the ghost collections and trace lines for animated output.
+
+    Ghost slot ``j`` trails the live pose by ``(j+1) * ghost_spacing``
+    seconds; nearer ghosts are darker (weights fade from 0.32 down to
+    0.15 toward the oldest).
+    """
+    ghost_slots: list = []   # per skeleton: list of (collection, lag_frames)
+    trace_lines: list = []   # per skeleton: Line3D or None
+    n = scene.num_skeletons
+    weights = np.linspace(0.32, 0.15, ghost) if ghost else []
+
+    for i, (view, ax) in enumerate(zip(scene.views, axs_flat)):
+        colors = bone_colors_for_view(view, style, i, n)
+        lag = max(1, round(style.ghost_spacing / view.bvh.frame_time))
+        slots = []
+        for j in range(ghost):
+            faded = [_fade_toward_background(c, float(weights[j]), style)
+                     for c in colors]
+            collection = Line3DCollection(
+                np.empty((0, 2, 3)), colors=faded,
+                linewidths=style.bone_width * 0.75)
+            ax.add_collection3d(collection)
+            slots.append((collection, (j + 1) * lag))
+        ghost_slots.append(slots)
+        trace_lines.append(
+            _draw_floor_trace(ax, view, style, upto=0) if trajectory
+            else None)
+
+    return ghost_slots, trace_lines
+
+
+def _wrap_update_with_extras(
+    base_update,
+    scene: Scene,
+    bones_arrays,
+    ghost_slots,
+    trace_lines,
+):
+    """Extend an animation update fn with ghost and trace updates."""
+    trace_paths = [_floor_trace_points(v) for v in scene.views]
+    empty = np.empty((0, 2, 3))
+
+    def update(f: int):
+        artists = base_update(f)
+        for view, bones, slots, trace, path in zip(
+                scene.views, bones_arrays, ghost_slots, trace_lines,
+                trace_paths):
+            for collection, lag in slots:
+                gf = f - lag
+                collection.set_segments(
+                    view.coords[gf][bones] if gf >= 0 else empty)
+                artists.append(collection)
+            if trace is not None:
+                upto = path[:f + 1]
+                trace.set_data_3d(upto[:, 0], upto[:, 1], upto[:, 2])
+                artists.append(trace)
+        return artists
+
+    return update
+
+
 def render_mpl(
     scene: Scene,
     style: Style,
@@ -346,6 +597,8 @@ def render_mpl(
     *,
     follow: bool = False,
     resolution: tuple[int, int] = (1920, 1080),
+    ghost: int = 0,
+    trajectory: bool = False,
 ) -> Path:
     """Render animation to a video/GIF/HTML file via matplotlib.
 
@@ -407,6 +660,12 @@ def render_mpl(
     else:
         update = _make_update_fn(
             coords_list, bones_arrays, bone_collections, joint_scatters)
+
+    if ghost > 0 or trajectory:
+        ghost_slots, trace_lines = _setup_render_extras(
+            scene, style, axs_flat, ghost, trajectory)
+        update = _wrap_update_with_extras(
+            update, scene, bones_arrays, ghost_slots, trace_lines)
 
     interval = int(1000.0 / fps)
     anim = animation.FuncAnimation(

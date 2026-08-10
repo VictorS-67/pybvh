@@ -16,7 +16,14 @@ from typing import Any, TYPE_CHECKING
 
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
-from ._common import PALETTE_MPL, Scene
+from ._common import (
+    PALETTE_MPL,
+    Scene,
+    SkeletonView,
+    Style,
+    UP_AXIS_INDEX,
+    bone_colors_for_view,
+)
 
 if TYPE_CHECKING:
     import matplotlib.figure
@@ -25,11 +32,141 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
+# Style application helpers
+# ---------------------------------------------------------------------------
+
+def _apply_axes_style(
+    ax: matplotlib.axes.Axes,
+    style: Style,
+) -> None:
+    """Apply the axes/projection/background part of a Style to a 3D axes.
+
+    ``axes="full"`` (the debug look) keeps default panes, ticks, and
+    labels; the caller adds the x/y/z labels itself. ``axes="off"``
+    hides everything and takes manual control of draw order so the
+    floor can be painted behind the skeleton.
+    """
+    if style.projection == "ortho":
+        ax.set_proj_type("ortho")  # type: ignore[attr-defined]
+    if style.axes == "off":
+        ax.set_axis_off()
+        # Manual draw order: floor first, then bones, then joints.
+        ax.computed_zorder = False  # type: ignore[attr-defined]
+    # Leave the default white patch untouched (pixel parity for the
+    # debug preset); only non-white backgrounds need painting.
+    if style.background != "white":
+        ax.patch.set_facecolor(style.background)
+
+
+def _floor_limits(
+    view: SkeletonView,
+    style: Style,
+) -> tuple[npt.NDArray[np.float64], float]:
+    """The view's cubic box, shifted so the floor sits just inside it.
+
+    Without the shift a floor below the box bottom would be invisible;
+    with it, the plane sits ~2% of the half-span above the bottom edge.
+    """
+    center = view.center.copy()
+    half_span = view.half_span
+    up = view.up_index
+    lo = center[up] - half_span
+    target_lo = view.floor_height - 0.02 * half_span
+    if lo > target_lo:
+        center[up] += target_lo - lo
+    return center, half_span
+
+
+def _draw_floor_mpl(
+    ax: matplotlib.axes.Axes,
+    view: SkeletonView,
+    style: Style,
+) -> None:
+    """Draw the ground plane for one view (solid, grid, or checker).
+
+    The plane is horizontal in the view's two ground axes at
+    ``view.floor_height``, extending 1.8 x half_span around the box
+    center so it fills the frame at typical camera elevations.
+    """
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+    up = view.up_index
+    ground = [i for i in range(3) if i != up]
+    center, half_span = _floor_limits(view, style)
+    ext = half_span * 1.8
+    y = view.floor_height - 0.001 * half_span
+    dark = style.background not in ("white", "#FFFFFF", "#ffffff")
+
+    def quad(c0: float, c1: float, s: float) -> list[tuple[float, ...]]:
+        pts = []
+        for d0, d1 in ((-s, -s), (s, -s), (s, s), (-s, s)):
+            p = [0.0, 0.0, 0.0]
+            p[ground[0]] = c0 + d0
+            p[ground[1]] = c1 + d1
+            p[up] = y
+            pts.append(tuple(p))
+        return pts
+
+    c0, c1 = float(center[ground[0]]), float(center[ground[1]])
+
+    if style.floor == "solid":
+        face = "#2A2E36" if dark else "#E8E8EC"
+        edge = "#3A3F4A" if dark else "#D0D0D8"
+        ax.add_collection3d(Poly3DCollection(
+            [quad(c0, c1, ext)], facecolors=face, edgecolors=edge,
+            linewidths=0.5, alpha=style.floor_alpha))
+    elif style.floor == "checker":
+        n = 8
+        s = ext / n
+        shades = (("#2A2E36", "#1E2127") if dark
+                  else ("#EDEDF1", "#DCDCE3"))
+        squares = []
+        colors = []
+        for i in range(-n, n):
+            for j in range(-n, n):
+                squares.append(quad(c0 + (i + 0.5) * s,
+                                    c1 + (j + 0.5) * s, s / 2))
+                colors.append(shades[(i + j) % 2])
+        ax.add_collection3d(Poly3DCollection(
+            squares, facecolors=colors, alpha=style.floor_alpha))
+    elif style.floor == "grid":
+        color = "#3A3F4A" if dark else "#C8C8D0"
+        n = 10
+        s = ext / n
+        segs = []
+        for i in range(-n, n + 1):
+            for horiz in (True, False):
+                p0 = [0.0, 0.0, 0.0]
+                p1 = [0.0, 0.0, 0.0]
+                if horiz:
+                    p0[ground[0]], p1[ground[0]] = c0 - ext, c0 + ext
+                    p0[ground[1]] = p1[ground[1]] = c1 + i * s
+                else:
+                    p0[ground[0]] = p1[ground[0]] = c0 + i * s
+                    p0[ground[1]], p1[ground[1]] = c1 - ext, c1 + ext
+                p0[up] = p1[up] = y
+                segs.append([tuple(p0), tuple(p1)])
+        ax.add_collection3d(Line3DCollection(
+            segs, colors=color, linewidths=0.7, alpha=0.8))
+
+
+def _draw_joint_markers(
+    ax: matplotlib.axes.Axes,
+    frame_data: npt.NDArray[np.float64],
+    style: Style,
+) -> None:
+    ax.scatter(
+        frame_data[:, 0], frame_data[:, 1], frame_data[:, 2],
+        s=style.joint_size, c=style.joint_color, depthshade=False)
+
+
+# ---------------------------------------------------------------------------
 # Static frame
 # ---------------------------------------------------------------------------
 
 def frame_mpl(
     scene: Scene,
+    style: Style,
     *,
     figsize: tuple[float, float] | None = None,
     show: bool = False,
@@ -43,6 +180,8 @@ def frame_mpl(
         Prepared visualization. Only the first frame of each view's
         coords is plotted; each view supplies its own bounding box and
         camera so mixed-axis side-by-side comparisons render correctly.
+    style : Style
+        Visual styling (colors, floor, axes, background, projection).
     figsize : (float, float) or None
         Figure size.
     show : bool
@@ -80,28 +219,44 @@ def frame_mpl(
 
         fig, axs = plt.subplots(
             1, n, subplot_kw=dict(projection="3d"), figsize=figsize,
-            squeeze=False)
+            dpi=style.dpi, squeeze=False)
         axs_flat = list(axs[0])
+
+    fig.patch.set_facecolor(style.background)
 
     for i, (view, ax_i) in enumerate(zip(scene.views, axs_flat)):
         frame_data = view.coords[0]  # (N, 3) — first frame
-        color = PALETTE_MPL[i % len(PALETTE_MPL)] if n > 1 else (0.1, 0.2, 0.8)
 
-        _draw_bones(ax_i, frame_data, view.bones, color)
-        _set_axis_limits(ax_i, view.center, view.half_span)
+        _apply_axes_style(ax_i, style)
+
+        if style.floor is not None:
+            _draw_floor_mpl(ax_i, view, style)
+            center, half_span = _floor_limits(view, style)
+        else:
+            center, half_span = view.center, view.half_span
+
+        colors = bone_colors_for_view(view, style, i, n)
+        segments = frame_data[np.asarray(view.bones, dtype=int)]
+        ax_i.add_collection3d(Line3DCollection(
+            segments, colors=colors, linewidths=style.bone_width))
+        if style.joint_markers:
+            _draw_joint_markers(ax_i, frame_data, style)
+
+        _set_axis_limits(ax_i, center, half_span)
         ax_i.view_init(  # type: ignore[attr-defined]
             elev=view.elevation, azim=view.azimuth,
             vertical_axis=view.up_axis)
-        ax_i.set_xlabel('x')
-        ax_i.set_ylabel('y')
-        ax_i.set_zlabel('z')  # type: ignore[attr-defined]
-        # 3D axis labels and tick labels are clipped to the axes patch by
-        # default. With certain camera angles (e.g. azim ≈ 160°) the labels
-        # are positioned just outside the axes rectangle and become invisible
-        # — the tick numbers may still appear, but the 'x'/'y'/'z' label can
-        # disappear entirely. Disabling clipping renders them into the
-        # surrounding figure margin instead.
-        _disable_3d_label_clipping(ax_i)
+        if style.axes == "full":
+            ax_i.set_xlabel('x')
+            ax_i.set_ylabel('y')
+            ax_i.set_zlabel('z')  # type: ignore[attr-defined]
+            # 3D axis labels and tick labels are clipped to the axes patch
+            # by default. With certain camera angles (e.g. azim ≈ 160°) the
+            # labels are positioned just outside the axes rectangle and
+            # become invisible — the tick numbers may still appear, but the
+            # 'x'/'y'/'z' label can disappear entirely. Disabling clipping
+            # renders them into the surrounding figure margin instead.
+            _disable_3d_label_clipping(ax_i)
 
         if view.label is not None:
             ax_i.set_title(view.label)
@@ -131,12 +286,64 @@ def frame_mpl(
 # Animated render (save to file)
 # ---------------------------------------------------------------------------
 
+def _setup_animated_panel(
+    ax: matplotlib.axes.Axes,
+    view: SkeletonView,
+    style: Style,
+    bones: npt.NDArray[np.intp],
+    view_index: int,
+    n_skeletons: int,
+) -> tuple[Line3DCollection, object | None]:
+    """Shared per-panel setup for animated matplotlib output.
+
+    Draws the static floor, the frame-0 bone collection, and the
+    frame-0 joint scatter; applies limits, camera, and axes style.
+    Returns the artists that get updated every frame.
+    """
+    _apply_axes_style(ax, style)
+
+    if style.floor is not None:
+        _draw_floor_mpl(ax, view, style)
+        center, half_span = _floor_limits(view, style)
+    else:
+        center, half_span = view.center, view.half_span
+
+    colors = bone_colors_for_view(view, style, view_index, n_skeletons)
+    collection = Line3DCollection(
+        view.coords[0][bones], colors=colors, linewidths=style.bone_width)
+    ax.add_collection3d(collection)
+
+    joint_scatter = None
+    if style.joint_markers:
+        frame0 = view.coords[0]
+        joint_scatter = ax.scatter(
+            frame0[:, 0], frame0[:, 1], frame0[:, 2],
+            s=style.joint_size, c=style.joint_color, depthshade=False)
+
+    _set_axis_limits(ax, center, half_span)
+    ax.view_init(  # type: ignore[attr-defined]
+        elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis)
+
+    if style.axes == "full":
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.set_zlabel('z')  # type: ignore[attr-defined]
+        # See frame_mpl: prevent rotated views from clipping their axis
+        # labels against the axes patch.
+        _disable_3d_label_clipping(ax)
+
+    if view.label is not None:
+        ax.set_title(view.label)
+
+    return collection, joint_scatter
+
+
 def render_mpl(
     scene: Scene,
+    style: Style,
     filepath: Path,
     fps: float,
     *,
-    show_axis: bool = False,
     follow: bool = False,
     resolution: tuple[int, int] = (1920, 1080),
 ) -> Path:
@@ -168,34 +375,18 @@ def render_mpl(
         figsize=(w / dpi, h / dpi), squeeze=False)
     axs_flat: list[matplotlib.axes.Axes] = list(axs[0])
 
+    fig.patch.set_facecolor(style.background)
+
     coords_list = [v.coords for v in scene.views]
     bones_arrays = [np.asarray(v.bones, dtype=int) for v in scene.views]
     bone_collections: list[Line3DCollection] = []
+    joint_scatters: list = []
     for i, (view, bones, ax) in enumerate(
             zip(scene.views, bones_arrays, axs_flat)):
-        color = PALETTE_MPL[i % len(PALETTE_MPL)] if n > 1 else (0.1, 0.2, 0.8)
-        collection = Line3DCollection(
-            view.coords[0][bones], colors=[color], linewidths=2.5)
-        ax.add_collection3d(collection)
+        collection, joint_scatter = _setup_animated_panel(
+            ax, view, style, bones, i, n)
         bone_collections.append(collection)
-
-        _set_axis_limits(ax, view.center, view.half_span)
-        ax.view_init(  # type: ignore[attr-defined]
-            elev=view.elevation, azim=view.azimuth,
-            vertical_axis=view.up_axis)
-
-        if not show_axis:
-            ax.axis('off')
-        else:
-            ax.set_xlabel('x')
-            ax.set_ylabel('y')
-            ax.set_zlabel('z')  # type: ignore[attr-defined]
-            # See frame_mpl: prevent rotated views from clipping their axis
-            # labels against the axes patch.
-            _disable_3d_label_clipping(ax)
-
-        if view.label is not None:
-            ax.set_title(view.label)
+        joint_scatters.append(joint_scatter)
 
     if n > 1:
         # Same 3D-aware spacing as frame_mpl — tight_layout under-estimates
@@ -205,17 +396,17 @@ def render_mpl(
         fig.subplots_adjust(
             left=0.05, right=0.95, top=0.92, bottom=0.05, wspace=0.1,
         )
-    if show_axis:
+    if style.axes == "full":
         # Same tight-bbox adjustment as frame_mpl, in case the animation
         # writer (jshtml/HTML) uses bbox_inches='tight' for its frames.
         _extend_fig_tightbbox_with_3d_labels(fig, axs_flat)
 
     if follow:
         update = _make_follow_update_fn(
-            scene, bones_arrays, bone_collections, axs_flat)
+            scene, bones_arrays, bone_collections, joint_scatters, axs_flat)
     else:
         update = _make_update_fn(
-            coords_list, bones_arrays, bone_collections)
+            coords_list, bones_arrays, bone_collections, joint_scatters)
 
     interval = int(1000.0 / fps)
     anim = animation.FuncAnimation(
@@ -239,6 +430,7 @@ def _make_follow_update_fn(
     scene: Scene,
     bones_arrays,
     bone_collections,
+    joint_scatters,
     axs_flat,
 ):
     """Build an animation update fn that also recomputes view_init per frame.
@@ -251,7 +443,8 @@ def _make_follow_update_fn(
     from ._common import compute_follow_azimuths
 
     base_update = _make_update_fn(
-        [v.coords for v in scene.views], bones_arrays, bone_collections)
+        [v.coords for v in scene.views], bones_arrays, bone_collections,
+        joint_scatters)
 
     follow_azimuths = [
         compute_follow_azimuths(v.bvh, v.coords, v.azimuth)
@@ -275,6 +468,7 @@ def _make_follow_update_fn(
 
 def play_mpl(
     scene: Scene,
+    style: Style,
     fps: float,
     *,
     in_notebook: bool = False,
@@ -295,31 +489,23 @@ def play_mpl(
         figsize=(6 * n, 6), squeeze=False)
     axs_flat: list[matplotlib.axes.Axes] = list(axs[0])
 
+    fig.patch.set_facecolor(style.background)
+
     coords_list = [v.coords for v in scene.views]
     bones_arrays = [np.asarray(v.bones, dtype=int) for v in scene.views]
     bone_collections: list[Line3DCollection] = []
+    joint_scatters: list = []
     for i, (view, bones, ax) in enumerate(
             zip(scene.views, bones_arrays, axs_flat)):
-        color = PALETTE_MPL[i % len(PALETTE_MPL)] if n > 1 else (0.1, 0.2, 0.8)
-        collection = Line3DCollection(
-            view.coords[0][bones], colors=[color], linewidths=2.5)
-        ax.add_collection3d(collection)
+        collection, joint_scatter = _setup_animated_panel(
+            ax, view, style, bones, i, n)
         bone_collections.append(collection)
-
-        _set_axis_limits(ax, view.center, view.half_span)
-        ax.view_init(  # type: ignore[attr-defined]
-            elev=view.elevation, azim=view.azimuth,
-            vertical_axis=view.up_axis)
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-        ax.set_zlabel('z')  # type: ignore[attr-defined]
-
-        if view.label is not None:
-            ax.set_title(view.label)
+        joint_scatters.append(joint_scatter)
 
     plt.tight_layout()
 
-    update = _make_update_fn(coords_list, bones_arrays, bone_collections)
+    update = _make_update_fn(
+        coords_list, bones_arrays, bone_collections, joint_scatters)
 
     interval = int(1000.0 / fps)
     anim = animation.FuncAnimation(
@@ -343,6 +529,7 @@ def play_mpl(
 
 def trajectory_mpl(
     scene: Scene,
+    style: Style,
     *,
     figsize: tuple[float, float] | None = None,
     show: bool = False,
@@ -397,6 +584,13 @@ def trajectory_mpl(
         # constrained_layout handles external (bbox_to_anchor) legends
         # without clipping; tight_layout does not.
         fig, ax = plt.subplots(figsize=figsize, layout='constrained')
+
+    # trajectory() is a 2D data plot: axes, ticks, and grid carry the
+    # information, so only Style's background applies here (the plot
+    # keeps its axes regardless of style.axes).
+    if style.background != "white":
+        fig.patch.set_facecolor(style.background)
+        ax.set_facecolor(style.background)
 
     # Track which horizontal axes are used across all skeletons
     all_horiz: set[tuple[int, int]] = set()
@@ -528,30 +722,28 @@ def _make_update_fn(
     coords_list: list[npt.NDArray[np.float64]],
     bones_arrays: list[npt.NDArray[np.intp]],
     bone_collections: list[Line3DCollection],
+    joint_scatters: list | None = None,
 ) -> Any:
     """Create a FuncAnimation update function for bone rendering.
 
     One ``Line3DCollection`` per skeleton: a single ``set_segments``
     call replaces a Python loop over ~60 individual line artists.
+    Joint scatters (when the style draws them) update in the same pass.
     """
+    scatters = joint_scatters or [None] * len(coords_list)
+
     def update(f: int) -> list[Any]:
-        for coords, bones, collection in zip(
-                coords_list, bones_arrays, bone_collections):
-            collection.set_segments(coords[f][bones])
-        return list(bone_collections)
+        for coords, bones, collection, scatter in zip(
+                coords_list, bones_arrays, bone_collections, scatters):
+            frame_data = coords[f]
+            collection.set_segments(frame_data[bones])
+            if scatter is not None:
+                scatter._offsets3d = (  # noqa: SLF001 — mpl's supported idiom
+                    frame_data[:, 0], frame_data[:, 1], frame_data[:, 2])
+        artists: list[Any] = list(bone_collections)
+        artists.extend(s for s in scatters if s is not None)
+        return artists
     return update
-
-
-def _draw_bones(
-    ax: matplotlib.axes.Axes,
-    frame_data: npt.NDArray[np.float64],
-    bones: list[tuple[int, int]],
-    color: tuple[float, float, float],
-) -> None:
-    """Draw all skeleton bones for a single frame on a 3D axes."""
-    segments = frame_data[np.asarray(bones, dtype=int)]  # (n_bones, 2, 3)
-    ax.add_collection3d(
-        Line3DCollection(segments, colors=[color], linewidths=2.5))
 
 
 def _disable_3d_label_clipping(ax: matplotlib.axes.Axes) -> None:

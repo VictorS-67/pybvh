@@ -38,11 +38,17 @@ from typing import TYPE_CHECKING
 
 from ._common import (
     Scene,
+    Style,
     make_scene,
     normalize_input,
     align_frame_counts,
+    resolve_style,
     UP_AXIS_INDEX,
 )
+
+__all__ = [
+    "Style", "rest_pose", "frame", "render", "play", "trajectory",
+]
 
 if TYPE_CHECKING:
     import matplotlib.figure
@@ -331,7 +337,15 @@ def _prepare(
     bvh_list, coords_list = normalize_input(bvh, frames, centered)
     coords_list = align_frame_counts(coords_list, pad=pad)
 
-    return make_scene(bvh_list, coords_list, camera, labels)
+    # Canonical (cached, robust) floor only where heights are world
+    # units: FK-computed coords under "world" or "first" centering
+    # (first-centering is ground-plane-only since 0.8.0). Root-relative
+    # or caller-supplied coords use the min of the coords in use.
+    canonical_floor = (
+        not isinstance(frames, np.ndarray) and centered in ("world", "first"))
+
+    return make_scene(bvh_list, coords_list, camera, labels,
+                      canonical_floor=canonical_floor)
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +355,7 @@ def _prepare(
 def rest_pose(
     bvh: Bvh | list[Bvh],
     *,
+    style: Style | str = "paper",
     labels: list[str] | None = None,
     figsize: tuple[float, float] | None = None,
     show: bool = False,
@@ -355,6 +370,11 @@ def rest_pose(
     ----------
     bvh : Bvh or list[Bvh]
         One or more BVH objects. Pass a list for side-by-side comparison.
+    style : Style or str, optional
+        Visual styling: a preset name (``"paper"``, ``"debug"``,
+        ``"dark"``) or a :class:`Style` instance for field-level
+        control, e.g. ``Style("paper", floor=None)``. Default
+        ``"paper"``.
     labels : list[str], optional
         Subplot titles for side-by-side comparison.
     figsize : (float, float), optional
@@ -383,15 +403,20 @@ def rest_pose(
 
     coords_list = [b.rest_pose_positions()[np.newaxis]
                    for b in bvh_list]
-    scene = make_scene(bvh_list, coords_list, camera, labels)
+    # Rest-pose coords put the root at the origin, so the canonical
+    # world floor does not apply — the floor is the pose's lowest point.
+    scene = make_scene(bvh_list, coords_list, camera, labels,
+                       canonical_floor=False)
 
-    return frame_mpl(scene, figsize=figsize, show=show, ax=ax)
+    return frame_mpl(scene, resolve_style(style),
+                     figsize=figsize, show=show, ax=ax)
 
 
 def frame(
     bvh: Bvh | list[Bvh],
     frame: int = 0,
     *,
+    style: Style | str = "paper",
     coords: npt.NDArray[np.floating] | None = None,
     centered: str = "world",
     labels: list[str] | None = None,
@@ -409,6 +434,13 @@ def frame(
     frame : int, optional
         Frame index (default 0). Negative indices count from the end.
         Ignored when *coords* is given.
+    style : Style or str, optional
+        Visual styling: a preset name (``"paper"``, ``"debug"``,
+        ``"dark"``) or a :class:`Style` instance for field-level
+        control, e.g. ``Style("paper", floor=None)``. ``"paper"``
+        (default) draws a ground plane, per-chain bone colors, and
+        joint markers with axes hidden; ``"debug"`` reproduces the
+        pre-0.9.0 look (single blue, full axes/ticks, no floor).
     coords : ndarray, optional
         Pre-computed spatial coordinates to plot instead of computing
         forward kinematics from *bvh*: ``(N, 3)`` for one frame, or
@@ -442,20 +474,21 @@ def frame(
     frame_spec = coords if coords is not None else frame
     scene = _prepare(bvh, frame_spec, centered, camera, labels)
 
-    return frame_mpl(scene, figsize=figsize, show=show, ax=ax)
+    return frame_mpl(scene, resolve_style(style),
+                     figsize=figsize, show=show, ax=ax)
 
 
 def render(
     bvh: Bvh | list[Bvh],
     filepath: str | Path = Path("./anim.mp4"),
     *,
+    style: Style | str = "paper",
     centered: str = "world",
     labels: list[str] | None = None,
     fps: float | None = None,
     backend: str = "auto",
     camera: str | tuple[float, float] = "front",
     resolution: tuple[int, int] = (1920, 1080),
-    show_axis: bool = False,
     sync: str = "truncate",
     follow: bool = False,
     match_fps: str | None = None,
@@ -470,6 +503,12 @@ def render(
         Output file path (default ``"./anim.mp4"``). Format is inferred
         from the extension: ``.mp4``, ``.mov``, ``.avi``, ``.gif``,
         ``.webp``, ``.apng``, ``.html``.
+    style : Style or str, optional
+        Visual styling: a preset name (``"paper"``, ``"debug"``,
+        ``"dark"``) or a :class:`Style` instance, e.g.
+        ``Style("paper", floor=None)``. Axes visibility follows
+        ``style.axes`` (the former ``show_axis=True`` is
+        ``Style("paper", axes="full")``).
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional
@@ -487,8 +526,6 @@ def render(
     resolution : (int, int), optional
         Output resolution ``(width, height)`` in pixels.
         Default ``(1920, 1080)``.
-    show_axis : bool, optional
-        Show 3D axes (default ``False``). Only used by matplotlib backend.
     sync : str, optional
         How to handle different frame counts in side-by-side comparison:
         ``"truncate"`` (default) stops at the shortest clip;
@@ -516,6 +553,7 @@ def render(
     filepath = Path(filepath)
     _validate_sync(sync)
     pad = sync == "pad"
+    style_obj = resolve_style(style)
 
     backend_name = _resolve_render_backend(backend, filepath.suffix.lower())
 
@@ -550,20 +588,20 @@ def render(
                 "Install with: pip install pybvh[opencv]")
         from ._opencv import render_opencv
         return render_opencv(
-            scene, filepath, actual_fps, resolution,
-            show_axis=show_axis, follow=effective_follow)
+            scene, style_obj, filepath, actual_fps, resolution,
+            follow=effective_follow)
 
     else:  # matplotlib
         from ._matplotlib import render_mpl
         return render_mpl(
-            scene, filepath, actual_fps,
-            show_axis=show_axis, follow=effective_follow,
-            resolution=resolution)
+            scene, style_obj, filepath, actual_fps,
+            follow=effective_follow, resolution=resolution)
 
 
 def play(
     bvh: Bvh | list[Bvh],
     *,
+    style: Style | str = "paper",
     centered: str = "world",
     labels: list[str] | None = None,
     fps: float | None = None,
@@ -592,6 +630,11 @@ def play(
     ----------
     bvh : Bvh or list[Bvh]
         One or more BVH objects. Pass a list for side-by-side comparison.
+    style : Style or str, optional
+        Visual styling: a preset name (``"paper"``, ``"debug"``,
+        ``"dark"``) or a :class:`Style` instance. Applies fully to the
+        matplotlib and OpenCV-notebook fallbacks; the k3d and vedo
+        interactive viewers apply Style's look fields.
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional
@@ -666,6 +709,7 @@ def play(
 
     _validate_sync(sync)
     pad = sync == "pad"
+    style_obj = resolve_style(style)
 
     # Handle frame-rate mismatch before computing FK coordinates
     if not isinstance(bvh, list):
@@ -758,7 +802,7 @@ def play(
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp_path = Path(tmp.name)
 
-        render_opencv(scene, tmp_path, actual_fps, resolution)
+        render_opencv(scene, style_obj, tmp_path, actual_fps, resolution)
 
         display(Video(str(tmp_path), embed=True, mimetype="video/mp4"))
         tmp_path.unlink(missing_ok=True)
@@ -766,13 +810,15 @@ def play(
 
     else:  # matplotlib
         from ._matplotlib import play_mpl
-        play_mpl(scene, actual_fps, in_notebook=_detect_notebook())
+        play_mpl(scene, style_obj, actual_fps,
+                 in_notebook=_detect_notebook())
         return None
 
 
 def trajectory(
     bvh: Bvh | list[Bvh],
     *,
+    style: Style | str = "paper",
     centered: str = "world",
     labels: list[str] | None = None,
     figsize: tuple[float, float] | None = None,
@@ -823,5 +869,5 @@ def trajectory(
     # internally (drop each skeleton's own up axis).
     from ._matplotlib import trajectory_mpl
     return trajectory_mpl(
-        scene, figsize=figsize, show=show, ax=ax,
+        scene, resolve_style(style), figsize=figsize, show=show, ax=ax,
         facing_arrows=facing_arrows, tight=tight)

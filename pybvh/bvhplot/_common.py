@@ -43,6 +43,11 @@ class SkeletonView:
     azimuth: float                         # degrees
     elevation: float                       # degrees
     up_axis: str                           # 'x' | 'y' | 'z'
+    floor_height: float                    # ground plane along up_axis
+
+    @property
+    def up_index(self) -> int:
+        return UP_AXIS_INDEX.get(self.up_axis, 2)
 
 
 @dataclass(frozen=True)
@@ -94,16 +99,35 @@ def make_scene(
     coords_list: list[npt.NDArray[np.float64]],
     camera: str | tuple[float, float],
     labels: list[str] | None,
+    *,
+    canonical_floor: bool = True,
 ) -> Scene:
     """Assemble a :class:`Scene` from parallel per-skeleton data.
 
-    Computes per-view topology, cubic bounding box, and camera angles —
-    the per-skeleton halves of what every visualization function needs.
+    Computes per-view topology, cubic bounding box, camera angles, and
+    floor height — the per-skeleton halves of what every visualization
+    function needs.
+
+    Floor convention: with ``canonical_floor=True`` the floor is the
+    cached robust 2nd-percentile :attr:`Bvh.floor_height` — valid for
+    world-frame coords, and for ``centered="first"`` coords because
+    first-centering is ground-plane-only (heights stay in world units).
+    An outlier-low frame can therefore dip a foot slightly below the
+    drawn plane; the alternative (the true minimum) would let a single
+    glitched frame sink the plane for the whole clip. With
+    ``canonical_floor=False`` (root-relative or caller-supplied coords)
+    the floor is the minimum up-coordinate of the coords in use,
+    mirroring ``foot_contacts``' "floor from the coords in use" rule.
     """
     views: list[SkeletonView] = []
     for i, (b, coords) in enumerate(zip(bvh_list, coords_list)):
         center, half_span = compute_unified_limits([coords])
         azimuth, elevation, up_axis = get_camera_angles(b, coords[0], camera)
+        up_idx = UP_AXIS_INDEX.get(up_axis, 2)
+        if canonical_floor:
+            floor_height = float(b.floor_height)
+        else:
+            floor_height = float(coords[..., up_idx].min())
         views.append(SkeletonView(
             bvh=b,
             coords=coords,
@@ -114,6 +138,7 @@ def make_scene(
             azimuth=azimuth,
             elevation=elevation,
             up_axis=up_axis,
+            floor_height=floor_height,
         ))
     return Scene(views=views)
 
@@ -592,18 +617,344 @@ def align_frame_counts(
 
 
 # ---------------------------------------------------------------------------
-# Color palette for multi-skeleton comparison
+# Color palettes
 # ---------------------------------------------------------------------------
 
-# BGR colors for OpenCV, converted to RGB for matplotlib where needed
-PALETTE_BGR = [
-    (255, 120, 50),   # blue
-    (50, 50, 220),    # red
+# RGB is the canonical channel order everywhere in bvhplot; the OpenCV
+# backend converts to BGR at its own border (its channel-order quirk
+# stays its own concern).
+
+# Per-skeleton comparison palette (multi-skeleton figures)
+PALETTE_RGB = [
+    (50, 120, 255),   # blue
+    (220, 50, 50),    # red
     (50, 180, 50),    # green
-    (200, 130, 50),   # teal
-    (50, 100, 200),   # orange
+    (50, 130, 200),   # teal
+    (200, 100, 50),   # orange
     (200, 50, 200),   # magenta
 ]
-
-PALETTE_RGB = [(r, g, b) for (b, g, r) in PALETTE_BGR]
 PALETTE_MPL = [(r / 255, g / 255, b / 255) for (r, g, b) in PALETTE_RGB]
+
+# Per-chain palette (single-skeleton figures): left = warm, right = cool,
+# spine dark — side is encoded by temperature, chain by shade. Derived
+# from the Okabe-Ito colorblind-safe palette.
+CHAIN_COLORS = {
+    "spine": "#3A3F4A",
+    "l_arm": "#E69F00",
+    "l_leg": "#D55E00",
+    "r_arm": "#56B4E9",
+    "r_leg": "#0072B2",
+}
+# Dark-background variant: same warm/cool encoding, spine and joints
+# lightened so they read against a near-black ground.
+CHAIN_COLORS_DARK = {
+    "spine": "#C8CCD6",
+    "l_arm": "#E69F00",
+    "l_leg": "#D55E00",
+    "r_arm": "#56B4E9",
+    "r_leg": "#0072B2",
+}
+
+
+# ---------------------------------------------------------------------------
+# Bone chain classification (for per-chain coloring)
+# ---------------------------------------------------------------------------
+
+def get_bone_chains(bvh: Bvh) -> dict[str, list[int]]:
+    """Classify each drawn bone into a kinematic chain for coloring.
+
+    Chains are ``"spine"`` (every unpaired node — torso, neck, head),
+    ``"l_arm"`` / ``"r_arm"``, and ``"l_leg"`` / ``"r_leg"``. Sides come
+    from :attr:`Bvh.node_lr_pairs` (the same left/right detection that
+    powers ``mirror``); legs are told apart from arms by walking the
+    topology from the auto-detected foot joints (paired ancestors of a
+    foot, the foot itself, and everything below it), so no joint-name
+    heuristics beyond what those two detectors already encode.
+
+    Returns
+    -------
+    chains : dict[str, list[int]]
+        Maps chain name to indices into :func:`get_skeleton_lines`'s
+        bone list (a bone belongs to its child node's chain). Every
+        bone index appears in exactly one chain.
+
+    Notes
+    -----
+    Fallbacks: with no left/right pairs (``node_lr_pairs is None``)
+    every bone lands in ``"spine"`` — the caller should draw a single
+    color. With pairs but no detectable feet, every paired bone is
+    classified as an arm: side coloring survives, the arm/leg shade
+    distinction does not.
+    """
+    bones = get_skeleton_lines(bvh)
+    pairs = bvh.node_lr_pairs
+    if pairs is None:
+        return {"spine": list(range(len(bones)))}
+
+    left_nodes = {l for l, _ in pairs}
+    right_nodes = {r for _, r in pairs}
+
+    parent_of = {child: parent for child, parent in bvh.node_edges}
+    children_of: dict[int, list[int]] = {}
+    for child, parent in bvh.node_edges:
+        children_of.setdefault(parent, []).append(child)
+
+    # Leg nodes: from each detected foot, everything below it plus the
+    # paired ancestors above it (stopping at the first unpaired node,
+    # i.e. where the leg meets the torso).
+    leg_nodes: set[int] = set()
+    for foot_name in bvh.auto_detect_foot_joints():
+        foot_idx = bvh.node_index.get(foot_name)
+        if foot_idx is None:
+            continue
+        stack = [foot_idx]
+        while stack:
+            n = stack.pop()
+            leg_nodes.add(n)
+            stack.extend(children_of.get(n, []))
+        n2 = parent_of.get(foot_idx)
+        while n2 is not None and (n2 in left_nodes or n2 in right_nodes):
+            leg_nodes.add(n2)
+            n2 = parent_of.get(n2)
+
+    chains: dict[str, list[int]] = {
+        "spine": [], "l_arm": [], "l_leg": [], "r_arm": [], "r_leg": []}
+    for i, (_parent, child) in enumerate(bones):
+        if child in left_nodes:
+            side = "l"
+        elif child in right_nodes:
+            side = "r"
+        else:
+            chains["spine"].append(i)
+            continue
+        limb = "leg" if child in leg_nodes else "arm"
+        chains[f"{side}_{limb}"].append(i)
+    return {name: idxs for name, idxs in chains.items() if idxs}
+
+
+# ---------------------------------------------------------------------------
+# Style
+# ---------------------------------------------------------------------------
+
+# Preset field values. "paper" is the publication-grade default;
+# "debug" reproduces the pre-0.9.0 output exactly (single blue, full
+# axes, no floor); "dark" is the paper look on a near-black ground.
+_STYLE_PRESETS: dict[str, dict[str, object]] = {
+    "paper": dict(
+        bone_width=3.0,
+        bone_color=(0.1, 0.2, 0.8),
+        color_mode="auto",
+        chain_colors=CHAIN_COLORS,
+        joint_markers=True,
+        joint_size=9.0,
+        joint_color="#23262E",
+        floor="solid",
+        floor_alpha=0.85,
+        background="white",
+        axes="off",
+        projection="persp",
+        dpi=None,
+        supersample=2,
+        shadow=True,
+    ),
+    "debug": dict(
+        bone_width=2.5,
+        bone_color=(0.1, 0.2, 0.8),
+        color_mode="single",
+        chain_colors=CHAIN_COLORS,
+        joint_markers=False,
+        joint_size=9.0,
+        joint_color="#23262E",
+        floor=None,
+        floor_alpha=0.85,
+        background="white",
+        axes="full",
+        projection="persp",
+        dpi=None,
+        supersample=1,
+        shadow=False,
+    ),
+    "dark": dict(
+        bone_width=3.0,
+        bone_color=(0.1, 0.2, 0.8),
+        color_mode="auto",
+        chain_colors=CHAIN_COLORS_DARK,
+        joint_markers=True,
+        joint_size=9.0,
+        joint_color="#E8E8EC",
+        floor="solid",
+        floor_alpha=0.85,
+        background="#16181D",
+        axes="off",
+        projection="persp",
+        dpi=None,
+        supersample=2,
+        shadow=True,
+    ),
+}
+
+_VALID_COLOR_MODES = {"auto", "chains", "skeleton", "single"}
+_VALID_FLOORS = {None, "solid", "grid", "checker"}
+_VALID_AXES = {"off", "full"}
+_VALID_PROJECTIONS = {"persp", "ortho"}
+
+
+@dataclass(frozen=True, init=False)
+class Style:
+    """Visual styling for every bvhplot function.
+
+    Construct from a preset name plus any field overrides::
+
+        Style("paper")                    # the defaults
+        Style("paper", floor=None)        # paper look, no ground plane
+        Style("dark", bone_width=4.0)
+
+    Presets: ``"paper"`` (publication-grade default: ground plane,
+    per-chain colors, joint markers, axes off), ``"debug"`` (the
+    pre-0.9.0 look: single blue skeleton, full axes and ticks, no
+    floor — for coordinate inspection), ``"dark"`` (paper on a
+    near-black ground, for slides and project pages).
+
+    Fields split into two documented groups. **Look** fields apply in
+    every backend: ``bone_width``, ``bone_color``, ``color_mode``,
+    ``chain_colors``, ``joint_markers``, ``joint_size``,
+    ``joint_color``, ``floor``, ``floor_alpha``, ``background``,
+    ``axes``, ``projection``. **Output** fields apply only where
+    raster output is produced: ``dpi`` (matplotlib figures),
+    ``supersample`` (OpenCV export), ``shadow`` (vedo offscreen
+    renders).
+
+    ``color_mode``: ``"auto"`` uses per-chain colors for a single
+    skeleton and flat per-skeleton palette colors for multi-skeleton
+    comparisons (the GT-vs-generated convention); ``"chains"`` forces
+    chain colors everywhere; ``"skeleton"`` forces the flat palette;
+    ``"single"`` draws one skeleton in ``bone_color`` (multi-skeleton
+    still uses the palette — the pre-0.9.0 behavior).
+    """
+
+    bone_width: float
+    bone_color: tuple[float, float, float]
+    color_mode: str
+    chain_colors: dict[str, str]
+    joint_markers: bool
+    joint_size: float
+    joint_color: str
+    floor: str | None
+    floor_alpha: float
+    background: str
+    axes: str
+    projection: str
+    dpi: int | None
+    supersample: int
+    shadow: bool
+
+    def __init__(self, preset: str = "paper", **overrides: object) -> None:
+        if preset not in _STYLE_PRESETS:
+            raise ValueError(
+                f"Unknown style preset {preset!r}. "
+                f"Choose from: {sorted(_STYLE_PRESETS)}")
+        fields = dict(_STYLE_PRESETS[preset])
+        unknown = set(overrides) - set(fields)
+        if unknown:
+            raise TypeError(
+                f"Unknown Style field(s): {sorted(unknown)}. "
+                f"Valid fields: {sorted(fields)}")
+        fields.update(overrides)
+        for name, value in fields.items():
+            object.__setattr__(self, name, value)
+        self._validate()
+
+    def _validate(self) -> None:
+        if self.color_mode not in _VALID_COLOR_MODES:
+            raise ValueError(
+                f"color_mode must be one of {sorted(_VALID_COLOR_MODES)}, "
+                f"got {self.color_mode!r}")
+        if self.floor not in _VALID_FLOORS:
+            raise ValueError(
+                f"floor must be one of "
+                f"{sorted(f for f in _VALID_FLOORS if f)} or None, "
+                f"got {self.floor!r}")
+        if self.axes not in _VALID_AXES:
+            raise ValueError(
+                f"axes must be one of {sorted(_VALID_AXES)}, "
+                f"got {self.axes!r}")
+        if self.projection not in _VALID_PROJECTIONS:
+            raise ValueError(
+                f"projection must be one of {sorted(_VALID_PROJECTIONS)}, "
+                f"got {self.projection!r}")
+        if not self.bone_width > 0:
+            raise ValueError(
+                f"bone_width must be positive, got {self.bone_width}")
+        if not (isinstance(self.supersample, int) and self.supersample >= 1):
+            raise ValueError(
+                f"supersample must be an integer >= 1, "
+                f"got {self.supersample!r}")
+
+    def replace(self, **overrides: object) -> Style:
+        """A new Style with the given fields changed."""
+        fields = {f.name: getattr(self, f.name)
+                  for f in dataclasses.fields(self)}
+        unknown = set(overrides) - set(fields)
+        if unknown:
+            raise TypeError(
+                f"Unknown Style field(s): {sorted(unknown)}. "
+                f"Valid fields: {sorted(fields)}")
+        fields.update(overrides)
+        new = object.__new__(Style)
+        for name, value in fields.items():
+            object.__setattr__(new, name, value)
+        new._validate()
+        return new
+
+
+def resolve_style(style: Style | str) -> Style:
+    """Accept a preset name or a Style instance; return a Style."""
+    if isinstance(style, Style):
+        return style
+    if isinstance(style, str):
+        return Style(style)
+    raise TypeError(
+        f"style must be a Style or a preset name string, "
+        f"got {type(style).__name__}")
+
+
+def effective_color_mode(style: Style, n_skeletons: int) -> str:
+    """Resolve ``"auto"``/``"single"`` to the concrete mode for n panels.
+
+    The multi-skeleton auto-switch rule: comparisons get flat
+    per-skeleton palette colors unless chains are forced explicitly.
+    """
+    if style.color_mode == "auto":
+        return "chains" if n_skeletons == 1 else "skeleton"
+    if style.color_mode == "single":
+        return "single" if n_skeletons == 1 else "skeleton"
+    return style.color_mode
+
+
+def bone_colors_for_view(
+    view: SkeletonView,
+    style: Style,
+    view_index: int,
+    n_skeletons: int,
+) -> list:
+    """Per-bone colors for one view, in matplotlib-friendly form.
+
+    Each entry is a hex string or an RGB float tuple, parallel to
+    ``view.bones``. The OpenCV backend converts these at its border.
+    """
+    n_bones = len(view.bones)
+    mode = effective_color_mode(style, n_skeletons)
+    if mode == "skeleton":
+        return [PALETTE_MPL[view_index % len(PALETTE_MPL)]] * n_bones
+    if mode == "single":
+        return [style.bone_color] * n_bones
+    # chains — a skeleton with no L/R pairs comes back all-"spine",
+    # i.e. a single dark color (the documented fallback).
+    chains = get_bone_chains(view.bvh)
+    spine_color = style.chain_colors.get("spine", "#3A3F4A")
+    colors: list = [spine_color] * n_bones
+    for chain_name, bone_indices in chains.items():
+        color = style.chain_colors.get(chain_name, spine_color)
+        for i in bone_indices:
+            colors[i] = color
+    return colors

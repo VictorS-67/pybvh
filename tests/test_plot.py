@@ -843,11 +843,12 @@ class TestRenderOpenCV:
         assert path.suffix == '.gif'
         assert path.stat().st_size > 0
 
-    def test_show_axis(self, bvh_example, tmp_path):
+    def test_axes_full_draws_indicator(self, bvh_example, tmp_path):
+        # axes visibility moved from show_axis= into Style (v0.9.0)
         path = bvhplot.render(
             bvh_example, tmp_path / "axis.mp4",
             backend="opencv", resolution=(320, 240),
-            show_axis=True)
+            style=bvhplot.Style("paper", axes="full"))
         assert path.exists()
 
     def test_auto_backend_selects_opencv(self, bvh_example, tmp_path):

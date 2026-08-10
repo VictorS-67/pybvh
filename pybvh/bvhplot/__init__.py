@@ -37,10 +37,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ._common import (
-    get_skeleton_lines,
+    Scene,
+    make_scene,
     normalize_input,
-    compute_unified_limits,
-    get_camera_angles,
     align_frame_counts,
     UP_AXIS_INDEX,
 )
@@ -313,22 +312,15 @@ def _prepare(
     frames: int | npt.NDArray[np.floating] | None,
     centered: str,
     camera: str | tuple[float, float],
+    labels: list[str] | None = None,
     pad: bool = False,
-) -> tuple[
-    list,                                     # bvh_list
-    list[npt.NDArray[np.float64]],            # coords_list
-    list[list[tuple[int, int]]],              # skeleton_lines_list
-    list[npt.NDArray[np.float64]],            # centers (per skeleton)
-    list[float],                              # half_spans (per skeleton)
-    list[float],                              # azimuths (per skeleton)
-    list[float],                              # elevations (per skeleton)
-    list[str],                                # up_axes (per skeleton)
-]:
+) -> Scene:
     """Shared setup for all visualization functions.
 
-    Returns per-skeleton camera angles and bounding boxes so that
-    side-by-side comparisons of skeletons with different up or forward
-    axes render each one correctly in its own subplot.
+    Returns a :class:`~._common.Scene` with per-skeleton camera angles
+    and bounding boxes so that side-by-side comparisons of skeletons
+    with different up or forward axes render each one correctly in its
+    own subplot.
     """
     _VALID_CENTERED = {"world", "skeleton", "first"}
     if centered not in _VALID_CENTERED:
@@ -339,59 +331,7 @@ def _prepare(
     bvh_list, coords_list = normalize_input(bvh, frames, centered)
     coords_list = align_frame_counts(coords_list, pad=pad)
 
-    (skeleton_lines_list, centers, half_spans,
-     azimuths, elevations, up_axes) = _prepare_from_coords(
-        bvh_list, coords_list, camera)
-
-    return (bvh_list, coords_list, skeleton_lines_list,
-            centers, half_spans, azimuths, elevations, up_axes)
-
-
-def _prepare_from_coords(
-    bvh_list: list[Bvh],
-    coords_list: list[npt.NDArray[np.float64]],
-    camera: str | tuple[float, float],
-) -> tuple[
-    list[list[tuple[int, int]]],              # skeleton_lines_list
-    list[npt.NDArray[np.float64]],            # centers (per skeleton)
-    list[float],                              # half_spans (per skeleton)
-    list[float],                              # azimuths (per skeleton)
-    list[float],                              # elevations (per skeleton)
-    list[str],                                # up_axes (per skeleton)
-]:
-    """Per-skeleton topology, bounding boxes, and cameras for given coords.
-
-    The coords-independent half of :func:`_prepare`, also used directly
-    by :func:`rest_pose` (whose coords come from the rest pose, not FK).
-    """
-    skeleton_lines_list = [get_skeleton_lines(b) for b in bvh_list]
-
-    # Per-skeleton bounding box: each subplot gets its own cubic box
-    # centered on its own skeleton. For same-skeleton comparisons the
-    # boxes end up identical; for mixed skeletons this prevents the
-    # unified box from swallowing both into a tiny corner.
-    centers: list[npt.NDArray[np.float64]] = []
-    half_spans: list[float] = []
-    for c in coords_list:
-        ctr, hs = compute_unified_limits([c])
-        centers.append(ctr)
-        half_spans.append(hs)
-
-    # Per-skeleton camera: each subplot oriented for its own detected
-    # forward/up axes. matplotlib's view_init(vertical_axis=...) needs
-    # to match the skeleton's actual vertical component, which can
-    # differ across BVH files (Y-up vs Z-up).
-    azimuths: list[float] = []
-    elevations: list[float] = []
-    up_axes: list[str] = []
-    for b, c in zip(bvh_list, coords_list):
-        az, el, ua = get_camera_angles(b, c[0], camera)
-        azimuths.append(az)
-        elevations.append(el)
-        up_axes.append(ua)
-
-    return (skeleton_lines_list, centers, half_spans,
-            azimuths, elevations, up_axes)
+    return make_scene(bvh_list, coords_list, camera, labels)
 
 
 # ---------------------------------------------------------------------------
@@ -443,15 +383,9 @@ def rest_pose(
 
     coords_list = [b.rest_pose_positions()[np.newaxis]
                    for b in bvh_list]
-    (skeleton_lines_list, centers, half_spans,
-     azimuths, elevations, up_axes) = _prepare_from_coords(
-        bvh_list, coords_list, camera)
+    scene = make_scene(bvh_list, coords_list, camera, labels)
 
-    return frame_mpl(
-        bvh_list, coords_list, labels, figsize, show,
-        skeleton_lines_list, centers, half_spans,
-        azimuths, elevations, up_axes,
-        ax=ax)
+    return frame_mpl(scene, figsize=figsize, show=show, ax=ax)
 
 
 def frame(
@@ -506,15 +440,9 @@ def frame(
     from ._matplotlib import frame_mpl
 
     frame_spec = coords if coords is not None else frame
-    (bvh_list, coords_list, skeleton_lines_list,
-     centers, half_spans, azimuths, elevations, up_axes) = _prepare(
-        bvh, frame_spec, centered, camera)
+    scene = _prepare(bvh, frame_spec, centered, camera, labels)
 
-    return frame_mpl(
-        bvh_list, coords_list, labels, figsize, show,
-        skeleton_lines_list, centers, half_spans,
-        azimuths, elevations, up_axes,
-        ax=ax)
+    return frame_mpl(scene, figsize=figsize, show=show, ax=ax)
 
 
 def render(
@@ -599,15 +527,13 @@ def render(
     bvh_input = _match_frame_rates(bvh_input, match_fps)
     bvh = bvh_input if len(bvh_input) > 1 else bvh_input[0]
 
-    (bvh_list, coords_list, skeleton_lines_list,
-     centers, half_spans, azimuths, elevations, up_axes) = _prepare(
-        bvh, None, centered, camera, pad=pad)
+    scene = _prepare(bvh, None, centered, camera, labels, pad=pad)
 
     # A custom (azim, elev) tuple means the camera is fixed; follow is
     # a no-op in that case because there's no orientation to track.
     effective_follow = follow and not isinstance(camera, tuple)
 
-    actual_fps = _resolve_fps(fps, bvh_list[0].frame_time)
+    actual_fps = _resolve_fps(fps, scene.views[0].bvh.frame_time)
 
     if (backend == "auto" and backend_name == "matplotlib"
             and filepath.suffix.lower() not in _MPL_ONLY_EXTENSIONS):
@@ -624,18 +550,15 @@ def render(
                 "Install with: pip install pybvh[opencv]")
         from ._opencv import render_opencv
         return render_opencv(
-            bvh_list, coords_list, filepath, actual_fps,
-            resolution, labels, show_axis, skeleton_lines_list,
-            centers, half_spans, azimuths, elevations, up_axes,
-            follow=effective_follow)
+            scene, filepath, actual_fps, resolution,
+            show_axis=show_axis, follow=effective_follow)
 
     else:  # matplotlib
         from ._matplotlib import render_mpl
         return render_mpl(
-            bvh_list, coords_list, filepath, actual_fps, labels,
-            skeleton_lines_list, centers, half_spans,
-            azimuths, elevations, up_axes, show_axis,
-            follow=effective_follow, resolution=resolution)
+            scene, filepath, actual_fps,
+            show_axis=show_axis, follow=effective_follow,
+            resolution=resolution)
 
 
 def play(
@@ -752,9 +675,8 @@ def play(
     bvh_input = _match_frame_rates(bvh_input, match_fps)
     bvh = bvh_input if len(bvh_input) > 1 else bvh_input[0]
 
-    (bvh_list, coords_list, skeleton_lines_list,
-     centers, half_spans, azimuths, elevations, up_axes) = _prepare(
-        bvh, None, centered, camera, pad=pad)
+    scene = _prepare(bvh, None, centered, camera, labels, pad=pad)
+    bvh_list = [v.bvh for v in scene.views]
 
     bvh_fps = 1.0 / bvh_list[0].frame_time
     actual_fps = _resolve_fps(fps, bvh_list[0].frame_time)
@@ -787,7 +709,8 @@ def play(
             and backend_name not in ("opencv_notebook", "vedo")
             and bvh_fps > _PLAY_MAX_FPS):
         subsample_step = math.ceil(bvh_fps / _PLAY_MAX_FPS)
-        coords_list = [c[::subsample_step] for c in coords_list]
+        scene = scene.replace_coords(
+            [v.coords[::subsample_step] for v in scene.views])
         actual_fps = bvh_fps / subsample_step
 
     # --- world_up consistency check (all backends) ---
@@ -796,7 +719,8 @@ def play(
     # --- Dispatch ---
     # For single-scene backends (vedo, k3d) there can only be ONE camera
     # and ONE bounding box. We apply lateral spacing so skeletons don't
-    # overlap, then compute a unified bounding box from the spread coords.
+    # overlap; the backends read the unified bounding box off the
+    # spread scene themselves.
     if backend_name == "k3d":
         try:
             import k3d  # noqa: F401
@@ -806,12 +730,9 @@ def play(
                 "Install with: pip install pybvh[interactive]")
         from ._k3d import play_k3d
         spread_coords = _apply_scene_spacing(
-            bvh_list, coords_list, spacing, up_axes[0], centered)
-        shared_center, shared_half_span = compute_unified_limits(spread_coords)
-        play_k3d(
-            bvh_list, spread_coords, actual_fps, labels,
-            skeleton_lines_list, shared_center, shared_half_span,
-            azimuths[0], elevations[0], up_axes[0])
+            bvh_list, [v.coords for v in scene.views], spacing,
+            scene.views[0].up_axis, centered)
+        play_k3d(scene.replace_coords(spread_coords), actual_fps)
         return None
 
     elif backend_name == "vedo":
@@ -823,13 +744,10 @@ def play(
                 "Install with: pip install pybvh[viewer]")
         from ._vedo import play_vedo
         spread_coords = _apply_scene_spacing(
-            bvh_list, coords_list, spacing, up_axes[0], centered)
-        shared_center, shared_half_span = compute_unified_limits(spread_coords)
-        play_vedo(
-            bvh_list, spread_coords, actual_fps, labels,
-            skeleton_lines_list, shared_center, shared_half_span,
-            up_axis=up_axes[0], azimuth=azimuths[0], elevation=elevations[0],
-            quality=quality)
+            bvh_list, [v.coords for v in scene.views], spacing,
+            scene.views[0].up_axis, centered)
+        play_vedo(scene.replace_coords(spread_coords), actual_fps,
+                  quality=quality)
         return None
 
     elif backend_name == "opencv_notebook":
@@ -840,10 +758,7 @@ def play(
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp_path = Path(tmp.name)
 
-        render_opencv(
-            bvh_list, coords_list, tmp_path, actual_fps,
-            resolution, labels, False, skeleton_lines_list,
-            centers, half_spans, azimuths, elevations, up_axes)
+        render_opencv(scene, tmp_path, actual_fps, resolution)
 
         display(Video(str(tmp_path), embed=True, mimetype="video/mp4"))
         tmp_path.unlink(missing_ok=True)
@@ -851,11 +766,7 @@ def play(
 
     else:  # matplotlib
         from ._matplotlib import play_mpl
-        play_mpl(
-            bvh_list, coords_list, actual_fps, labels,
-            skeleton_lines_list, centers, half_spans,
-            azimuths, elevations, up_axes,
-            in_notebook=_detect_notebook())
+        play_mpl(scene, actual_fps, in_notebook=_detect_notebook())
         return None
 
 
@@ -906,14 +817,11 @@ def trajectory(
     fig : matplotlib.figure.Figure
     ax : matplotlib.axes.Axes
     """
-    (bvh_list, coords_list, skeleton_lines_list,
-     centers, half_spans, azimuths, elevations, up_axes) = _prepare(
-        bvh, None, centered, "front")
+    scene = _prepare(bvh, None, centered, "front", labels)
 
     # trajectory_mpl() computes its own per-skeleton horizontal axes
-    # internally (drop each skeleton's own up axis), so we just pass
-    # the first up axis for the axis-labels fallback.
+    # internally (drop each skeleton's own up axis).
     from ._matplotlib import trajectory_mpl
     return trajectory_mpl(
-        bvh_list, coords_list, labels, figsize, show, up_axes[0], ax=ax,
+        scene, figsize=figsize, show=show, ax=ax,
         facing_arrows=facing_arrows, tight=tight)

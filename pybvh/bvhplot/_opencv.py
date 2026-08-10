@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ._common import (
+    Scene,
     build_view_matrix,
     compute_follow_azimuths,
     ortho_project,
@@ -75,13 +76,10 @@ def _compute_fixed_view_halves_for_follow(
 def _draw_skeletons_on_frame(
     img: npt.NDArray[np.uint8],
     frame_idx: int,
-    coords_list: list[npt.NDArray[np.float64]],
-    skeleton_lines_list: list[list[tuple[int, int]]],
+    scene: Scene,
     view_matrices: list[npt.NDArray[np.float64]],
-    per_skeleton_limits: list[tuple[npt.NDArray[np.float64], float]],
     panel_w: int,
     h: int,
-    labels: list[str] | None,
     fixed_view_halves: list[tuple[float, float]] | None = None,
 ) -> None:
     """Draw all skeletons for one frame onto *img* (mutates in place).
@@ -96,24 +94,22 @@ def _draw_skeletons_on_frame(
     """
     import cv2
 
-    n_skeletons = len(coords_list)
+    n_skeletons = scene.num_skeletons
 
-    for s, (coords, bones) in enumerate(
-            zip(coords_list, skeleton_lines_list)):
-        frame_data = coords[frame_idx]
-        sk_center, sk_half_span = per_skeleton_limits[s]
+    for s, view in enumerate(scene.views):
+        frame_data = view.coords[frame_idx]
         view_matrix = view_matrices[s]
         fixed = fixed_view_halves[s] if fixed_view_halves is not None else None
         pts_2d = ortho_project(
-            frame_data, view_matrix, sk_center, sk_half_span, (panel_w, h),
-            fixed_view_half=fixed)
+            frame_data, view_matrix, view.center, view.half_span,
+            (panel_w, h), fixed_view_half=fixed)
 
         x_offset = s * panel_w
         pts_2d[:, 0] += x_offset
 
         color = PALETTE_BGR[s % len(PALETTE_BGR)]
 
-        for p_idx, c_idx in bones:
+        for p_idx, c_idx in view.bones:
             pt1 = (int(pts_2d[p_idx, 0]), int(pts_2d[p_idx, 1]))
             pt2 = (int(pts_2d[c_idx, 0]), int(pts_2d[c_idx, 1]))
             cv2.line(img, pt1, pt2, color, 3, cv2.LINE_AA)
@@ -122,9 +118,9 @@ def _draw_skeletons_on_frame(
             cv2.circle(img, (int(pt[0]), int(pt[1])), 4, color, -1,
                        cv2.LINE_AA)
 
-        if labels and s < len(labels):
+        if view.label is not None:
             cv2.putText(
-                img, labels[s], (x_offset + 15, 35),
+                img, view.label, (x_offset + 15, 35),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2, cv2.LINE_AA)
 
     if n_skeletons > 1:
@@ -134,17 +130,10 @@ def _draw_skeletons_on_frame(
 
 
 def _generate_frames(
-    bvh_list: list[Bvh],
-    coords_list: list[npt.NDArray[np.float64]],
+    scene: Scene,
     resolution: tuple[int, int],
-    labels: list[str] | None,
-    show_axis: bool,
-    skeleton_lines_list: list[list[tuple[int, int]]],
-    centers: list[npt.NDArray[np.float64]],
-    half_spans: list[float],
-    azimuths: list[float],
-    elevations: list[float],
-    up_axes: list[str],
+    *,
+    show_axis: bool = False,
     follow: bool = False,
     frame_counter: bool = True,
 ) -> Iterator[npt.NDArray[np.uint8]]:
@@ -155,24 +144,12 @@ def _generate_frames(
 
     Parameters
     ----------
-    bvh_list : list[Bvh]
-        Skeleton objects.
-    coords_list : list[ndarray]
-        Spatial coordinates per skeleton, each ``(F, N, 3)``.
+    scene : Scene
+        Prepared visualization (per-view bounding boxes and cameras).
     resolution : (int, int)
         ``(width, height)`` in pixels.
-    labels : list[str] or None
-        Labels for each skeleton.
     show_axis : bool
         If ``True``, draw a simple axis indicator in each panel.
-    skeleton_lines_list : list
-        Precomputed bone index pairs per skeleton.
-    centers, half_spans : list[ndarray], list[float]
-        Per-skeleton bounding boxes.
-    azimuths, elevations : list[float]
-        Per-skeleton camera angles in degrees.
-    up_axes : list[str]
-        Per-skeleton vertical axis, each ``'x'``, ``'y'``, or ``'z'``.
     follow : bool, optional
         If ``True``, per-frame view matrices track each skeleton's
         rotation (continuous azimuth tracking around ``world_up``).
@@ -184,14 +161,13 @@ def _generate_frames(
     import cv2
 
     w, h = resolution
-    num_frames = coords_list[0].shape[0]
-    n_skeletons = len(bvh_list)
+    num_frames = scene.num_frames
+    n_skeletons = scene.num_skeletons
     panel_w = w // n_skeletons if n_skeletons > 1 else w
-    per_skeleton_limits = list(zip(centers, half_spans))
 
     base_view_matrices = [
-        build_view_matrix(az, el, ua)
-        for az, el, ua in zip(azimuths, elevations, up_axes)]
+        build_view_matrix(v.azimuth, v.elevation, v.up_axis)
+        for v in scene.views]
 
     # Follow mode: per-frame azimuths precomputed once per skeleton,
     # plus the MAX view-space half extents across every frame so the
@@ -201,26 +177,27 @@ def _generate_frames(
     fixed_view_halves: list[tuple[float, float]] | None = None
     if follow:
         follow_azimuths = [
-            compute_follow_azimuths(b, coords, base_azim)
-            for b, coords, base_azim
-            in zip(bvh_list, coords_list, azimuths)]
+            compute_follow_azimuths(v.bvh, v.coords, v.azimuth)
+            for v in scene.views]
         fixed_view_halves = _compute_fixed_view_halves_for_follow(
-            follow_azimuths, elevations, up_axes, half_spans)
+            follow_azimuths,
+            [v.elevation for v in scene.views],
+            [v.up_axis for v in scene.views],
+            [v.half_span for v in scene.views])
 
     for f in range(num_frames):
         if follow_azimuths is not None:
             view_matrices = [
-                build_view_matrix(az_per_frame[f], el, ua)
-                for az_per_frame, el, ua
-                in zip(follow_azimuths, elevations, up_axes)]
+                build_view_matrix(az_per_frame[f], v.elevation, v.up_axis)
+                for az_per_frame, v
+                in zip(follow_azimuths, scene.views)]
         else:
             view_matrices = base_view_matrices
 
         img = np.full((h, w, 3), 255, dtype=np.uint8)
 
         _draw_skeletons_on_frame(
-            img, f, coords_list, skeleton_lines_list,
-            view_matrices, per_skeleton_limits, panel_w, h, labels,
+            img, f, scene, view_matrices, panel_w, h,
             fixed_view_halves=fixed_view_halves)
 
         if frame_counter:
@@ -233,28 +210,21 @@ def _generate_frames(
                 cv2.LINE_AA)
 
         if show_axis:
-            for s in range(n_skeletons):
+            for s, v in enumerate(scene.views):
                 _draw_axis_indicator(
-                    img, view_matrices[s], up_axes[s],
+                    img, view_matrices[s], v.up_axis,
                     panel_w, h, panel_idx=s)
 
         yield img
 
 
 def render_opencv(
-    bvh_list: list[Bvh],
-    coords_list: list[npt.NDArray[np.float64]],
+    scene: Scene,
     filepath: Path,
     fps: float,
     resolution: tuple[int, int],
-    labels: list[str] | None,
-    show_axis: bool,
-    skeleton_lines_list: list[list[tuple[int, int]]],
-    centers: list[npt.NDArray[np.float64]],
-    half_spans: list[float],
-    azimuths: list[float],
-    elevations: list[float],
-    up_axes: list[str],
+    *,
+    show_axis: bool = False,
     follow: bool = False,
 ) -> Path:
     """Render skeleton animation to a video or GIF file using OpenCV.
@@ -269,10 +239,8 @@ def render_opencv(
 
     Parameters
     ----------
-    bvh_list : list[Bvh]
-        Skeleton objects.
-    coords_list : list[ndarray]
-        Spatial coordinates per skeleton, each ``(F, N, 3)``.
+    scene : Scene
+        Prepared visualization (per-view bounding boxes and cameras).
     filepath : Path
         Output file path. Must end in one of ``.mp4``, ``.mov``,
         ``.avi``, or ``.gif``.
@@ -280,18 +248,8 @@ def render_opencv(
         Frames per second.
     resolution : (int, int)
         ``(width, height)`` in pixels.
-    labels : list[str] or None
-        Labels for each skeleton.
     show_axis : bool
         If ``True``, draw a simple axis indicator in each panel.
-    skeleton_lines_list : list
-        Precomputed bone index pairs per skeleton.
-    centers, half_spans : list[ndarray], list[float]
-        Per-skeleton bounding boxes.
-    azimuths, elevations : list[float]
-        Per-skeleton camera angles in degrees.
-    up_axes : list[str]
-        Per-skeleton vertical axis, each ``'x'``, ``'y'``, or ``'z'``.
     follow : bool, optional
         If ``True``, recompute view matrices each frame so the camera
         follows the character's orientation. Default ``False``.
@@ -317,17 +275,12 @@ def render_opencv(
     # Pillow sink for GIF output (cv2.VideoWriter doesn't support GIF).
     if ext == '.gif':
         frames = _generate_frames(
-            bvh_list, coords_list, resolution, labels, show_axis,
-            skeleton_lines_list, centers, half_spans,
-            azimuths, elevations, up_axes,
+            scene, resolution, show_axis=show_axis,
             follow=follow, frame_counter=False)
         return _render_gif(frames, filepath, fps)
 
     frames = _generate_frames(
-        bvh_list, coords_list, resolution, labels, show_axis,
-        skeleton_lines_list, centers, half_spans,
-        azimuths, elevations, up_axes,
-        follow=follow)
+        scene, resolution, show_axis=show_axis, follow=follow)
 
     writer = _open_writer(filepath, fps, resolution)
     for img in frames:

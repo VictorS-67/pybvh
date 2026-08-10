@@ -13,48 +13,28 @@ import numpy.typing as npt
 
 from typing import TYPE_CHECKING
 
-from ._common import PALETTE_RGB, build_view_matrix, UP_AXIS_INDEX
+from ._common import PALETTE_RGB, Scene, build_view_matrix, UP_AXIS_INDEX
 
 if TYPE_CHECKING:
     from ..bvh import Bvh
 
 
 def play_k3d(
-    bvh_list: list[Bvh],
-    coords_list: list[npt.NDArray[np.float64]],
+    scene: Scene,
     fps: float,
-    labels: list[str] | None,
-    skeleton_lines_list: list[list[tuple[int, int]]],
-    center: npt.NDArray[np.float64],
-    half_span: float,
-    azimuth: float,
-    elevation: float,
-    up_axis: str,
 ) -> None:
     """Interactive skeleton playback in a Jupyter notebook via k3d.
 
+    A single-scene backend: all skeletons share one camera (taken from
+    the first view) and one unified bounding box (``scene.unified_box()``
+    over the — possibly laterally spread — view coords).
+
     Parameters
     ----------
-    bvh_list : list[Bvh]
-        Skeleton objects.
-    coords_list : list[ndarray]
-        Spatial coordinates per skeleton, each ``(F, N, 3)``.
+    scene : Scene
+        Prepared visualization.
     fps : float
         Frames per second.
-    labels : list[str] or None
-        Labels per skeleton.
-    skeleton_lines_list : list
-        Precomputed bone index pairs per skeleton.
-    center : ndarray (3,)
-        Bounding box center.
-    half_span : float
-        Half side of cubic bounding box.
-    azimuth : float
-        Camera azimuth in degrees.
-    elevation : float
-        Camera elevation in degrees.
-    up_axis : str
-        Up axis (``'x'``, ``'y'``, or ``'z'``).
 
     Returns
     -------
@@ -65,11 +45,18 @@ def play_k3d(
     from IPython.display import display  # type: ignore[import-untyped]
     from ipywidgets import Play, IntSlider, jslink, HBox, VBox, Label  # type: ignore[import-untyped]
 
+    center, half_span = scene.unified_box()
+    azimuth = scene.views[0].azimuth
+    elevation = scene.views[0].elevation
+    up_axis = scene.views[0].up_axis
+    labels = scene.labels
+    skeleton_lines_list = [v.bones for v in scene.views]
+
     # Pre-convert all coordinates to float32 once (k3d requires float32)
-    coords_f32 = [c.astype(np.float32) for c in coords_list]
+    coords_f32 = [v.coords.astype(np.float32) for v in scene.views]
 
     num_frames = coords_f32[0].shape[0]
-    n_skeletons = len(bvh_list)
+    n_skeletons = scene.num_skeletons
 
     # k3d passes uint32 indices to a trait that traittypes validates as
     # float32; the coercion is harmless but noisy. Scoped to object
@@ -101,7 +88,8 @@ def play_k3d(
                 indices_type='segment',
                 color=color,
                 width=0.02 * half_span,
-                name=labels[s] if labels and s < len(labels) else f"Skeleton {s}",
+                name=(labels[s] if labels and labels[s] is not None
+                      else f"Skeleton {s}"),
             )
             points = k3d.points(
                 frame0,

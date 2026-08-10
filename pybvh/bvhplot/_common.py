@@ -1,9 +1,13 @@
 """Shared helpers for all visualization backends.
 
 Pure-data operations: skeleton topology, bounding boxes, camera math,
-and orthographic projection. No plotting library imports.
+orthographic projection, and the :class:`Scene` container every backend
+consumes. No plotting library imports.
 """
 from __future__ import annotations
+
+import dataclasses
+from dataclasses import dataclass
 
 import numpy as np
 import numpy.typing as npt
@@ -14,6 +18,104 @@ if TYPE_CHECKING:
     from ..bvh import Bvh
 
 UP_AXIS_INDEX = {'x': 0, 'y': 1, 'z': 2}
+
+
+# ---------------------------------------------------------------------------
+# Scene container
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SkeletonView:
+    """Everything a backend needs to draw one skeleton in its own panel.
+
+    A dumb data container — no plotting imports, no behavior beyond
+    field access. Camera and bounding box are per-view because
+    side-by-side comparisons of skeletons with different up or forward
+    axes need each panel oriented and framed independently.
+    """
+
+    bvh: Bvh
+    coords: npt.NDArray[np.float64]        # (F, N, 3)
+    bones: list[tuple[int, int]]           # (parent_idx, child_idx) pairs
+    label: str | None
+    center: npt.NDArray[np.float64]        # (3,) cubic-box center
+    half_span: float                       # cubic-box half side
+    azimuth: float                         # degrees
+    elevation: float                       # degrees
+    up_axis: str                           # 'x' | 'y' | 'z'
+
+
+@dataclass(frozen=True)
+class Scene:
+    """A prepared visualization: the single input every backend consumes.
+
+    Multi-panel backends (matplotlib, OpenCV) iterate :attr:`views`;
+    single-scene backends (k3d, vedo) call :meth:`unified_box` for the
+    one shared bounding box and take the camera from ``views[0]``.
+    """
+
+    views: list[SkeletonView]
+
+    @property
+    def num_frames(self) -> int:
+        return int(self.views[0].coords.shape[0])
+
+    @property
+    def num_skeletons(self) -> int:
+        return len(self.views)
+
+    @property
+    def labels(self) -> list[str | None] | None:
+        """Per-view labels, or ``None`` when no view is labelled."""
+        labels = [v.label for v in self.views]
+        return labels if any(lbl is not None for lbl in labels) else None
+
+    def unified_box(self) -> tuple[npt.NDArray[np.float64], float]:
+        """Cubic bounding box covering every view's coords."""
+        return compute_unified_limits([v.coords for v in self.views])
+
+    def replace_coords(
+        self,
+        coords_list: list[npt.NDArray[np.float64]],
+    ) -> Scene:
+        """A new Scene with each view's coords swapped (e.g. after
+        lateral spacing or fps subsampling); everything else is kept."""
+        if len(coords_list) != len(self.views):
+            raise ValueError(
+                f"Expected {len(self.views)} coord arrays, "
+                f"got {len(coords_list)}.")
+        views = [dataclasses.replace(v, coords=c)
+                 for v, c in zip(self.views, coords_list)]
+        return Scene(views=views)
+
+
+def make_scene(
+    bvh_list: list[Bvh],
+    coords_list: list[npt.NDArray[np.float64]],
+    camera: str | tuple[float, float],
+    labels: list[str] | None,
+) -> Scene:
+    """Assemble a :class:`Scene` from parallel per-skeleton data.
+
+    Computes per-view topology, cubic bounding box, and camera angles —
+    the per-skeleton halves of what every visualization function needs.
+    """
+    views: list[SkeletonView] = []
+    for i, (b, coords) in enumerate(zip(bvh_list, coords_list)):
+        center, half_span = compute_unified_limits([coords])
+        azimuth, elevation, up_axis = get_camera_angles(b, coords[0], camera)
+        views.append(SkeletonView(
+            bvh=b,
+            coords=coords,
+            bones=get_skeleton_lines(b),
+            label=labels[i] if labels and i < len(labels) else None,
+            center=center,
+            half_span=half_span,
+            azimuth=azimuth,
+            elevation=elevation,
+            up_axis=up_axis,
+        ))
+    return Scene(views=views)
 
 
 # ---------------------------------------------------------------------------

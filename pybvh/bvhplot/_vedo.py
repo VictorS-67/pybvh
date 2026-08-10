@@ -21,7 +21,7 @@ import numpy.typing as npt
 
 from typing import Callable, TYPE_CHECKING, TypedDict
 
-from ._common import PALETTE_RGB, build_view_matrix, UP_AXIS_INDEX
+from ._common import PALETTE_RGB, Scene, build_view_matrix, UP_AXIS_INDEX
 
 if TYPE_CHECKING:
     from ..bvh import Bvh
@@ -135,49 +135,29 @@ _HELP_ENTRIES = [
 
 
 def play_vedo(
-    bvh_list: list[Bvh],
-    coords_list: list[npt.NDArray[np.float64]],
+    scene: Scene,
     fps: float,
-    labels: list[str] | None,
-    skeleton_lines_list: list[list[tuple[int, int]]],
-    center: npt.NDArray[np.float64],
-    half_span: float,
     *,
-    up_axis: str = "y",
-    azimuth: float = -20.0,
-    elevation: float = 20.0,
     quality: str = "high",
 ) -> None:
     """Interactive skeleton playback in a desktop window via vedo.
 
+    A single-scene backend: all skeletons share one camera (taken from
+    the first view) and one unified bounding box (``scene.unified_box()``
+    over the — possibly laterally spread — view coords).
+
     Parameters
     ----------
-    bvh_list : list[Bvh]
-        Skeleton objects.
-    coords_list : list[ndarray]
-        Spatial coordinates per skeleton, each ``(F, N, 3)``.
+    scene : Scene
+        Prepared visualization.
     fps : float
         Frames per second.
-    labels : list[str] or None
-        Labels per skeleton.
-    skeleton_lines_list : list
-        Precomputed bone index pairs per skeleton.
-    center : ndarray (3,)
-        Bounding box center.
-    half_span : float
-        Half side of cubic bounding box.
-    up_axis : str
-        ``'x'``, ``'y'``, or ``'z'``.
-    azimuth : float
-        Azimuth angle in degrees (same convention as matplotlib).
-    elevation : float
-        Elevation angle in degrees (same convention as matplotlib).
     quality : str
         ``"high"`` for 3D geometry, ``"fast"`` for flat wireframe.
     """
     import vedo  # type: ignore[import-untyped]
 
-    if coords_list[0].shape[0] < 1:
+    if scene.num_frames < 1:
         return
 
     # Disable vedo's default key bindings (L=lighting, arrows=transparency)
@@ -191,10 +171,7 @@ def play_vedo(
     vedo.settings.enable_default_keyboard_callbacks = False
     vedo.settings.enable_default_mouse_callbacks = False
     try:
-        player = _VedoPlayer(
-            bvh_list, coords_list, fps, labels, skeleton_lines_list,
-            center, half_span, up_axis=up_axis, azimuth=azimuth,
-            elevation=elevation, quality=quality)
+        player = _VedoPlayer(scene, fps, quality=quality)
         player.show()
     finally:
         (vedo.settings.enable_default_keyboard_callbacks,
@@ -213,36 +190,29 @@ class _VedoPlayer:
 
     def __init__(
         self,
-        bvh_list: list[Bvh],
-        coords_list: list[npt.NDArray[np.float64]],
+        scene: Scene,
         fps: float,
-        labels: list[str] | None,
-        skeleton_lines_list: list[list[tuple[int, int]]],
-        center: npt.NDArray[np.float64],
-        half_span: float,
         *,
-        up_axis: str,
-        azimuth: float,
-        elevation: float,
         quality: str,
     ) -> None:
         from vedo import Plotter  # type: ignore[import-untyped]
 
-        self.bvh_list = bvh_list
-        self.coords_list = coords_list
-        self.labels = labels
-        self.skeleton_lines_list = skeleton_lines_list
+        center, half_span = scene.unified_box()
+        self.bvh_list = [v.bvh for v in scene.views]
+        self.coords_list = [v.coords for v in scene.views]
+        self.labels = scene.labels
+        self.skeleton_lines_list = [v.bones for v in scene.views]
         self.center = center
         self.half_span = half_span
-        self.up_axis = up_axis
-        self.azimuth = azimuth
-        self.elevation = elevation
+        self.up_axis = scene.views[0].up_axis
+        self.azimuth = scene.views[0].azimuth
+        self.elevation = scene.views[0].elevation
         self.use_high = quality == "high"
 
-        self.num_frames = coords_list[0].shape[0]
-        self.n_skeletons = len(bvh_list)
+        self.num_frames = scene.num_frames
+        self.n_skeletons = scene.num_skeletons
         # Keep full-rate data for FPS resampling
-        self._coords_full = [c.copy() for c in coords_list]
+        self._coords_full = [v.coords.copy() for v in scene.views]
 
         # --- FPS presets ---
         self._native_fps = fps
@@ -458,6 +428,8 @@ class _VedoPlayer:
         # --- Labels ---
         if self.labels:
             for s in range(min(len(self.labels), n_skeletons)):
+                if self.labels[s] is None:
+                    continue
                 label = Text2D(
                     self.labels[s],
                     pos=(0.02 + s * 0.15, 0.95),

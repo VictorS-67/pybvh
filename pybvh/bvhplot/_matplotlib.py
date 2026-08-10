@@ -16,7 +16,7 @@ from typing import Any, TYPE_CHECKING
 
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
-from ._common import PALETTE_MPL
+from ._common import PALETTE_MPL, Scene
 
 if TYPE_CHECKING:
     import matplotlib.figure
@@ -29,42 +29,24 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 def frame_mpl(
-    bvh_list: list[Bvh],
-    coords_list: list[npt.NDArray[np.float64]],
-    labels: list[str] | None,
-    figsize: tuple[float, float] | None,
-    show: bool,
-    skeleton_lines_list: list[list[tuple[int, int]]],
-    centers: list[npt.NDArray[np.float64]],
-    half_spans: list[float],
-    azimuths: list[float],
-    elevations: list[float],
-    up_axes: list[str],
+    scene: Scene,
+    *,
+    figsize: tuple[float, float] | None = None,
+    show: bool = False,
     ax: matplotlib.axes.Axes | None = None,
 ) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes | list[matplotlib.axes.Axes]]:
     """Render one or more skeletons as static 3D subplots.
 
     Parameters
     ----------
-    bvh_list : list[Bvh]
-        Skeleton objects.
-    coords_list : list[ndarray]
-        Spatial coordinates, each ``(F, N, 3)``. Only the first frame
-        of each is plotted.
-    labels : list[str] or None
-        Subplot titles.
+    scene : Scene
+        Prepared visualization. Only the first frame of each view's
+        coords is plotted; each view supplies its own bounding box and
+        camera so mixed-axis side-by-side comparisons render correctly.
     figsize : (float, float) or None
         Figure size.
     show : bool
         Whether to call ``plt.show()``.
-    skeleton_lines_list : list
-        Precomputed bone index pairs per skeleton.
-    centers, half_spans : list[ndarray], list[float]
-        Per-skeleton bounding boxes. Each subplot uses its own.
-    azimuths, elevations : list[float]
-        Per-skeleton camera angles in degrees.
-    up_axes : list[str]
-        Per-skeleton vertical axis, each ``'x'``, ``'y'``, or ``'z'``.
     ax : matplotlib.axes.Axes, optional
         Existing 3D axes to draw on. If provided, no new figure is
         created. Only supported for a single skeleton (``n == 1``).
@@ -74,7 +56,7 @@ def frame_mpl(
     fig : Figure
     axs : Axes or list[Axes]
     """
-    n = len(bvh_list)
+    n = scene.num_skeletons
 
     if ax is not None:
         if n > 1:
@@ -101,15 +83,15 @@ def frame_mpl(
             squeeze=False)
         axs_flat = list(axs[0])
 
-    for i, (coords, bones, ax_i) in enumerate(
-            zip(coords_list, skeleton_lines_list, axs_flat)):
-        frame_data = coords[0]  # (N, 3) — first frame
+    for i, (view, ax_i) in enumerate(zip(scene.views, axs_flat)):
+        frame_data = view.coords[0]  # (N, 3) — first frame
         color = PALETTE_MPL[i % len(PALETTE_MPL)] if n > 1 else (0.1, 0.2, 0.8)
 
-        _draw_bones(ax_i, frame_data, bones, color)
-        _set_axis_limits(ax_i, centers[i], half_spans[i])
+        _draw_bones(ax_i, frame_data, view.bones, color)
+        _set_axis_limits(ax_i, view.center, view.half_span)
         ax_i.view_init(  # type: ignore[attr-defined]
-            elev=elevations[i], azim=azimuths[i], vertical_axis=up_axes[i])
+            elev=view.elevation, azim=view.azimuth,
+            vertical_axis=view.up_axis)
         ax_i.set_xlabel('x')
         ax_i.set_ylabel('y')
         ax_i.set_zlabel('z')  # type: ignore[attr-defined]
@@ -121,8 +103,8 @@ def frame_mpl(
         # surrounding figure margin instead.
         _disable_3d_label_clipping(ax_i)
 
-        if labels and i < len(labels):
-            ax_i.set_title(labels[i])
+        if view.label is not None:
+            ax_i.set_title(view.label)
 
     if ax is None and n > 1:
         # tight_layout / constrained_layout under-estimate 3D axis tick-label
@@ -150,18 +132,11 @@ def frame_mpl(
 # ---------------------------------------------------------------------------
 
 def render_mpl(
-    bvh_list: list[Bvh],
-    coords_list: list[npt.NDArray[np.float64]],
+    scene: Scene,
     filepath: Path,
     fps: float,
-    labels: list[str] | None,
-    skeleton_lines_list: list[list[tuple[int, int]]],
-    centers: list[npt.NDArray[np.float64]],
-    half_spans: list[float],
-    azimuths: list[float],
-    elevations: list[float],
-    up_axes: list[str],
-    show_axis: bool,
+    *,
+    show_axis: bool = False,
     follow: bool = False,
     resolution: tuple[int, int] = (1920, 1080),
 ) -> Path:
@@ -181,9 +156,9 @@ def render_mpl(
         and the format was changed to GIF).
     """
     filepath, writer_name = _resolve_writer(filepath)
-    num_frames = coords_list[0].shape[0]
+    num_frames = scene.num_frames
 
-    n = len(bvh_list)
+    n = scene.num_skeletons
     # matplotlib sizes figures in inches; convert the requested pixel
     # resolution via the figure dpi so the saved frames honor it.
     dpi = float(plt.rcParams['figure.dpi'])
@@ -193,20 +168,21 @@ def render_mpl(
         figsize=(w / dpi, h / dpi), squeeze=False)
     axs_flat: list[matplotlib.axes.Axes] = list(axs[0])
 
-    bones_arrays = [np.asarray(bones, dtype=int)
-                    for bones in skeleton_lines_list]
+    coords_list = [v.coords for v in scene.views]
+    bones_arrays = [np.asarray(v.bones, dtype=int) for v in scene.views]
     bone_collections: list[Line3DCollection] = []
-    for i, (coords, bones, ax) in enumerate(
-            zip(coords_list, bones_arrays, axs_flat)):
+    for i, (view, bones, ax) in enumerate(
+            zip(scene.views, bones_arrays, axs_flat)):
         color = PALETTE_MPL[i % len(PALETTE_MPL)] if n > 1 else (0.1, 0.2, 0.8)
         collection = Line3DCollection(
-            coords[0][bones], colors=[color], linewidths=2.5)
+            view.coords[0][bones], colors=[color], linewidths=2.5)
         ax.add_collection3d(collection)
         bone_collections.append(collection)
 
-        _set_axis_limits(ax, centers[i], half_spans[i])
+        _set_axis_limits(ax, view.center, view.half_span)
         ax.view_init(  # type: ignore[attr-defined]
-            elev=elevations[i], azim=azimuths[i], vertical_axis=up_axes[i])
+            elev=view.elevation, azim=view.azimuth,
+            vertical_axis=view.up_axis)
 
         if not show_axis:
             ax.axis('off')
@@ -218,8 +194,8 @@ def render_mpl(
             # labels against the axes patch.
             _disable_3d_label_clipping(ax)
 
-        if labels and i < len(labels):
-            ax.set_title(labels[i])
+        if view.label is not None:
+            ax.set_title(view.label)
 
     if n > 1:
         # Same 3D-aware spacing as frame_mpl — tight_layout under-estimates
@@ -236,8 +212,7 @@ def render_mpl(
 
     if follow:
         update = _make_follow_update_fn(
-            bvh_list, coords_list, bones_arrays, bone_collections,
-            axs_flat, azimuths, elevations, up_axes)
+            scene, bones_arrays, bone_collections, axs_flat)
     else:
         update = _make_update_fn(
             coords_list, bones_arrays, bone_collections)
@@ -261,14 +236,10 @@ def render_mpl(
 
 
 def _make_follow_update_fn(
-    bvh_list,
-    coords_list,
+    scene: Scene,
     bones_arrays,
     bone_collections,
     axs_flat,
-    azimuths,
-    elevations,
-    up_axes,
 ):
     """Build an animation update fn that also recomputes view_init per frame.
 
@@ -280,20 +251,19 @@ def _make_follow_update_fn(
     from ._common import compute_follow_azimuths
 
     base_update = _make_update_fn(
-        coords_list, bones_arrays, bone_collections)
+        [v.coords for v in scene.views], bones_arrays, bone_collections)
 
     follow_azimuths = [
-        compute_follow_azimuths(bvh_obj, coords, base_azim)
-        for bvh_obj, coords, base_azim
-        in zip(bvh_list, coords_list, azimuths)
+        compute_follow_azimuths(v.bvh, v.coords, v.azimuth)
+        for v in scene.views
     ]
 
     def update(frame):
         artists = base_update(frame)
-        for az_per_frame, elev, up, ax in zip(
-                follow_azimuths, elevations, up_axes, axs_flat):
-            ax.view_init(elev=elev, azim=az_per_frame[frame],
-                         vertical_axis=up)
+        for az_per_frame, view, ax in zip(
+                follow_azimuths, scene.views, axs_flat):
+            ax.view_init(elev=view.elevation, azim=az_per_frame[frame],
+                         vertical_axis=view.up_axis)
         return artists
 
     return update
@@ -304,16 +274,9 @@ def _make_follow_update_fn(
 # ---------------------------------------------------------------------------
 
 def play_mpl(
-    bvh_list: list[Bvh],
-    coords_list: list[npt.NDArray[np.float64]],
+    scene: Scene,
     fps: float,
-    labels: list[str] | None,
-    skeleton_lines_list: list[list[tuple[int, int]]],
-    centers: list[npt.NDArray[np.float64]],
-    half_spans: list[float],
-    azimuths: list[float],
-    elevations: list[float],
-    up_axes: list[str],
+    *,
     in_notebook: bool = False,
 ) -> None:
     """Playback via matplotlib.
@@ -324,34 +287,35 @@ def play_mpl(
     controls (play/pause/scrub). In a script, opens an animated window
     via ``plt.show()``.
     """
-    num_frames = coords_list[0].shape[0]
-    n = len(bvh_list)
+    num_frames = scene.num_frames
+    n = scene.num_skeletons
 
     fig, axs = plt.subplots(
         1, n, subplot_kw=dict(projection="3d"),
         figsize=(6 * n, 6), squeeze=False)
     axs_flat: list[matplotlib.axes.Axes] = list(axs[0])
 
-    bones_arrays = [np.asarray(bones, dtype=int)
-                    for bones in skeleton_lines_list]
+    coords_list = [v.coords for v in scene.views]
+    bones_arrays = [np.asarray(v.bones, dtype=int) for v in scene.views]
     bone_collections: list[Line3DCollection] = []
-    for i, (coords, bones, ax) in enumerate(
-            zip(coords_list, bones_arrays, axs_flat)):
+    for i, (view, bones, ax) in enumerate(
+            zip(scene.views, bones_arrays, axs_flat)):
         color = PALETTE_MPL[i % len(PALETTE_MPL)] if n > 1 else (0.1, 0.2, 0.8)
         collection = Line3DCollection(
-            coords[0][bones], colors=[color], linewidths=2.5)
+            view.coords[0][bones], colors=[color], linewidths=2.5)
         ax.add_collection3d(collection)
         bone_collections.append(collection)
 
-        _set_axis_limits(ax, centers[i], half_spans[i])
+        _set_axis_limits(ax, view.center, view.half_span)
         ax.view_init(  # type: ignore[attr-defined]
-            elev=elevations[i], azim=azimuths[i], vertical_axis=up_axes[i])
+            elev=view.elevation, azim=view.azimuth,
+            vertical_axis=view.up_axis)
         ax.set_xlabel('x')
         ax.set_ylabel('y')
         ax.set_zlabel('z')  # type: ignore[attr-defined]
 
-        if labels and i < len(labels):
-            ax.set_title(labels[i])
+        if view.label is not None:
+            ax.set_title(view.label)
 
     plt.tight_layout()
 
@@ -378,12 +342,10 @@ def play_mpl(
 # ---------------------------------------------------------------------------
 
 def trajectory_mpl(
-    bvh_list: list[Bvh],
-    coords_list: list[npt.NDArray[np.float64]],
-    labels: list[str] | None,
-    figsize: tuple[float, float] | None,
-    show: bool,
-    up_axis: str,
+    scene: Scene,
+    *,
+    figsize: tuple[float, float] | None = None,
+    show: bool = False,
     ax: matplotlib.axes.Axes | None = None,
     facing_arrows: bool = False,
     tight: bool = False,
@@ -397,18 +359,12 @@ def trajectory_mpl(
 
     Parameters
     ----------
-    bvh_list : list[Bvh]
-        Skeleton objects.
-    coords_list : list[ndarray]
-        Spatial coordinates, each ``(F, N, 3)``.
-    labels : list[str] or None
-        Legend labels.
+    scene : Scene
+        Prepared visualization; per-view labels become legend labels.
     figsize : (float, float) or None
         Figure size.
     show : bool
         Whether to call ``plt.show()``.
-    up_axis : str
-        ``'x'``, ``'y'``, or ``'z'`` — from the first skeleton.
     ax : matplotlib.axes.Axes, optional
         Existing 2D axes to draw on. If provided, no new figure is
         created. Works with single or multiple skeletons.
@@ -419,6 +375,10 @@ def trajectory_mpl(
     ax : Axes
     """
     from ..tools import _AXIS_CHAR_TO_IDX
+
+    bvh_list = [v.bvh for v in scene.views]
+    coords_list = [v.coords for v in scene.views]
+    labels = scene.labels
 
     axis_names = ['x', 'y', 'z']
 
@@ -534,6 +494,8 @@ def trajectory_mpl(
     handles: list[Line2D] = []
     if labels:
         for i, label in enumerate(labels):
+            if label is None:
+                continue
             color = PALETTE_MPL[i % len(PALETTE_MPL)]
             handles.append(Line2D([0], [0], color=color, lw=2, label=label))
     handles.append(Line2D(

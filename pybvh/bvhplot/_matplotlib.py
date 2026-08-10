@@ -596,6 +596,7 @@ def render_mpl(
     fps: float,
     *,
     follow: bool = False,
+    turntable: bool = False,
     resolution: tuple[int, int] = (1920, 1080),
     ghost: int = 0,
     trajectory: bool = False,
@@ -654,9 +655,20 @@ def render_mpl(
         # writer (jshtml/HTML) uses bbox_inches='tight' for its frames.
         _extend_fig_tightbbox_with_3d_labels(fig, axs_flat)
 
-    if follow:
-        update = _make_follow_update_fn(
-            scene, bones_arrays, bone_collections, joint_scatters, axs_flat)
+    if follow or turntable:
+        from ._common import compute_follow_azimuths, turntable_azimuths
+
+        if follow:
+            per_frame_azimuths = [
+                compute_follow_azimuths(v.bvh, v.coords, v.azimuth)
+                for v in scene.views]
+        else:
+            per_frame_azimuths = [
+                turntable_azimuths(v.azimuth, num_frames)
+                for v in scene.views]
+        update = _make_orbit_update_fn(
+            scene, bones_arrays, bone_collections, joint_scatters,
+            axs_flat, per_frame_azimuths)
     else:
         update = _make_update_fn(
             coords_list, bones_arrays, bone_collections, joint_scatters)
@@ -685,35 +697,29 @@ def render_mpl(
     return filepath
 
 
-def _make_follow_update_fn(
+def _make_orbit_update_fn(
     scene: Scene,
     bones_arrays,
     bone_collections,
     joint_scatters,
     axs_flat,
+    per_frame_azimuths: list[npt.NDArray[np.float64]],
 ):
     """Build an animation update fn that also recomputes view_init per frame.
 
-    Per-frame camera azimuths come from
-    :func:`~._common.compute_follow_azimuths` (continuous rotation
-    tracking around ``world_up``), precomputed once per skeleton from
-    the base azimuth that ``_prepare`` already resolved.
+    Used by both follow mode (azimuths from
+    :func:`~._common.compute_follow_azimuths` — continuous rotation
+    tracking around ``world_up``) and turntable mode (a constant-rate
+    ramp from :func:`~._common.turntable_azimuths`).
     """
-    from ._common import compute_follow_azimuths
-
     base_update = _make_update_fn(
         [v.coords for v in scene.views], bones_arrays, bone_collections,
         joint_scatters)
 
-    follow_azimuths = [
-        compute_follow_azimuths(v.bvh, v.coords, v.azimuth)
-        for v in scene.views
-    ]
-
     def update(frame):
         artists = base_update(frame)
         for az_per_frame, view, ax in zip(
-                follow_azimuths, scene.views, axs_flat):
+                per_frame_azimuths, scene.views, axs_flat):
             ax.view_init(elev=view.elevation, azim=az_per_frame[frame],
                          vertical_axis=view.up_axis)
         return artists

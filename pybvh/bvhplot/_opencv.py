@@ -22,6 +22,7 @@ from ._common import (
     compute_follow_azimuths,
     ortho_project,
     bone_colors_for_view,
+    turntable_azimuths,
     PALETTE_RGB,
 )
 
@@ -61,6 +62,7 @@ def _draw_floor_opencv(
     x_offset: int,
     bg_bgr: tuple[int, int, int],
     fixed_view_half: tuple[float, float] | None,
+    px_scale: float = 1.0,
 ) -> None:
     """Project and draw the ground plane into one panel.
 
@@ -124,8 +126,8 @@ def _draw_floor_opencv(
                     seg[0, ground[1]], seg[1, ground[1]] = c1 - ext, c1 + ext
                 seg[:, up] = y
                 p = project(seg)
-                cv2.line(img, tuple(p[0]), tuple(p[1]), color, 1,
-                         cv2.LINE_AA)
+                cv2.line(img, tuple(p[0]), tuple(p[1]), color,
+                         max(1, int(px_scale + 0.5)), cv2.LINE_AA)
 
 
 # Extensions this backend can actually write: video containers via
@@ -183,6 +185,7 @@ def _draw_skeletons_on_frame(
     panel_w: int,
     h: int,
     bg_bgr: tuple[int, int, int],
+    px_scale: float = 1.0,
     fixed_view_halves: list[tuple[float, float]] | None = None,
     ghost: int = 0,
     trajectory: bool = False,
@@ -210,7 +213,10 @@ def _draw_skeletons_on_frame(
     import cv2
 
     n_skeletons = scene.num_skeletons
-    thickness = max(1, round(style.bone_width))
+    # Primitive sizes scale with the drawing resolution (1080p is the
+    # 1:1 anchor: bone_width 3.0 -> 3 px there, twice that at 4K, and
+    # supersampled drawing surfaces scale up with them).
+    thickness = max(1, int(style.bone_width * px_scale + 0.5))
 
     for s, view in enumerate(scene.views):
         frame_data = view.coords[frame_idx]
@@ -221,7 +227,7 @@ def _draw_skeletons_on_frame(
         if style.floor is not None:
             _draw_floor_opencv(
                 img, view, style, view_matrix, panel_w, h, x_offset,
-                bg_bgr, fixed)
+                bg_bgr, fixed, px_scale=px_scale)
 
         def project(world_pts):
             pts = ortho_project(
@@ -239,14 +245,15 @@ def _draw_skeletons_on_frame(
             path[:, view.up_index] = view.floor_height
             if len(path) >= 2:
                 trace_color = _blend_bgr(_to_bgr("#7A8090"), bg_bgr, 0.9)
-                cv2.polylines(img, [project(path)], False, trace_color, 1,
-                              cv2.LINE_AA)
+                cv2.polylines(img, [project(path)], False, trace_color,
+                              max(1, int(px_scale + 0.5)), cv2.LINE_AA)
 
         if ghost > 0:
             lag = max(1, round(
                 style.ghost_spacing / view.bvh.frame_time))
             weights = np.linspace(0.32, 0.15, ghost)
-            ghost_thickness = max(1, round(style.bone_width * 0.75))
+            ghost_thickness = max(
+                1, int(style.bone_width * 0.75 * px_scale + 0.5))
             for j in reversed(range(ghost)):     # oldest first
                 gf = frame_idx - (j + 1) * lag
                 if gf < 0:
@@ -267,30 +274,33 @@ def _draw_skeletons_on_frame(
         if style.joint_markers:
             joint_bgr = _to_bgr(style.joint_color)
             for pt in pts_2d:
-                cv2.circle(img, (int(pt[0]), int(pt[1])), 5, joint_bgr,
-                           -1, cv2.LINE_AA)
+                cv2.circle(img, (int(pt[0]), int(pt[1])), thickness + 2,
+                           joint_bgr, -1, cv2.LINE_AA)
         else:
-            # bone-colored r=4 dots: a joint takes the color of the bone
+            # bone-colored dots: a joint takes the color of the bone
             # whose child it is (falls back to the first bone's color).
             joint_color_by_node = dict(
                 (c_idx, col)
                 for (_p, c_idx), col in zip(view.bones, bone_colors))
             default = bone_colors[0] if bone_colors else (0, 0, 0)
             for j, pt in enumerate(pts_2d):
-                cv2.circle(img, (int(pt[0]), int(pt[1])), 4,
+                cv2.circle(img, (int(pt[0]), int(pt[1])), thickness + 1,
                            joint_color_by_node.get(j, default), -1,
                            cv2.LINE_AA)
 
         if view.label is not None:
             label_color = bone_colors[0] if bone_colors else (0, 0, 0)
             cv2.putText(
-                img, view.label, (x_offset + 15, 35),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, label_color, 2, cv2.LINE_AA)
+                img, view.label,
+                (x_offset + int(15 * px_scale), int(35 * px_scale)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8 * px_scale, label_color,
+                max(1, int(2 * px_scale + 0.5)), cv2.LINE_AA)
 
     if n_skeletons > 1:
         for s in range(1, n_skeletons):
             x = s * panel_w
-            cv2.line(img, (x, 0), (x, h), (200, 200, 200), 1)
+            cv2.line(img, (x, 0), (x, h), (200, 200, 200),
+                     max(1, int(px_scale + 0.5)))
 
 
 def _generate_frames(
@@ -299,7 +309,8 @@ def _generate_frames(
     resolution: tuple[int, int],
     *,
     follow: bool = False,
-    frame_counter: bool = True,
+    turntable: bool = False,
+    frame_counter: bool = False,
     ghost: int = 0,
     trajectory: bool = False,
 ) -> Iterator[npt.NDArray[np.uint8]]:
@@ -320,18 +331,30 @@ def _generate_frames(
     follow : bool, optional
         If ``True``, per-frame view matrices track each skeleton's
         rotation (continuous azimuth tracking around ``world_up``).
+    turntable : bool, optional
+        If ``True``, the camera orbits 360 degrees over the clip
+        (a constant-rate azimuth ramp — the trivial case of follow).
     frame_counter : bool, optional
         Draw a ``Frame f/F`` counter in the bottom-right corner.
-        Default ``True`` (the GIF path opts out to preserve its
-        historical counter-free output).
+        Default ``False`` (opt-in — publication output never stamps
+        text).
     """
     import cv2
 
     w, h = resolution
     bg_bgr = _to_bgr(style.background)
+
+    # Supersampling: draw at style.supersample x the target resolution
+    # and downsample with INTER_AREA — cheap, dramatically better
+    # anti-aliasing. Primitive sizes scale with the drawing surface
+    # (1080p = the 1:1 anchor), so a 4K export looks better than a
+    # 720p one instead of thinner.
+    ss = style.supersample
+    draw_w, draw_h = w * ss, h * ss
+    px_scale = draw_h / 1080.0
     num_frames = scene.num_frames
     n_skeletons = scene.num_skeletons
-    panel_w = w // n_skeletons if n_skeletons > 1 else w
+    panel_w = draw_w // n_skeletons if n_skeletons > 1 else draw_w
 
     base_view_matrices = [
         build_view_matrix(v.azimuth, v.elevation, v.up_axis)
@@ -347,6 +370,11 @@ def _generate_frames(
         follow_azimuths = [
             compute_follow_azimuths(v.bvh, v.coords, v.azimuth)
             for v in scene.views]
+    elif turntable:
+        follow_azimuths = [
+            turntable_azimuths(v.azimuth, num_frames)
+            for v in scene.views]
+    if follow_azimuths is not None:
         fixed_view_halves = _compute_fixed_view_halves_for_follow(
             follow_azimuths,
             [v.elevation for v in scene.views],
@@ -362,14 +390,19 @@ def _generate_frames(
         else:
             view_matrices = base_view_matrices
 
-        img = np.empty((h, w, 3), dtype=np.uint8)
+        img = np.empty((draw_h, draw_w, 3), dtype=np.uint8)
         img[:] = bg_bgr
 
         _draw_skeletons_on_frame(
-            img, f, scene, style, view_matrices, panel_w, h, bg_bgr,
-            fixed_view_halves=fixed_view_halves,
+            img, f, scene, style, view_matrices, panel_w, draw_h, bg_bgr,
+            px_scale=px_scale, fixed_view_halves=fixed_view_halves,
             ghost=ghost, trajectory=trajectory)
 
+        if ss > 1:
+            img = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
+
+        # Text and the axis indicator stamp AFTER the downsample so
+        # they stay crisp at the output resolution.
         if frame_counter:
             fc_text = f"Frame {f}/{num_frames - 1}"
             fc_x = max(5, w - 200)
@@ -383,7 +416,7 @@ def _generate_frames(
             for s, v in enumerate(scene.views):
                 _draw_axis_indicator(
                     img, view_matrices[s], v.up_axis,
-                    panel_w, h, panel_idx=s)
+                    panel_w // ss, h, panel_idx=s)
 
         yield img
 
@@ -396,6 +429,8 @@ def render_opencv(
     resolution: tuple[int, int],
     *,
     follow: bool = False,
+    turntable: bool = False,
+    frame_counter: bool = False,
     ghost: int = 0,
     trajectory: bool = False,
 ) -> Path:
@@ -445,15 +480,13 @@ def render_opencv(
             f"Supported extensions: {sorted(_OPENCV_EXTENSIONS)}. "
             f"Use backend='matplotlib' for other formats.")
 
+    frames = _generate_frames(
+        scene, style, resolution, follow=follow, turntable=turntable,
+        frame_counter=frame_counter, ghost=ghost, trajectory=trajectory)
+
     # Pillow sink for GIF output (cv2.VideoWriter doesn't support GIF).
     if ext == '.gif':
-        frames = _generate_frames(
-            scene, style, resolution, follow=follow, frame_counter=False,
-            ghost=ghost, trajectory=trajectory)
         return _render_gif(frames, filepath, fps)
-
-    frames = _generate_frames(scene, style, resolution, follow=follow,
-                              ghost=ghost, trajectory=trajectory)
 
     writer = _open_writer(filepath, fps, resolution)
     for img in frames:

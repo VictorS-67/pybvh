@@ -388,6 +388,19 @@ def get_camera_angles(
             f"Use 'front', 'side', 'top', or (azimuth, elevation).")
 
 
+def turntable_azimuths(
+    base_azim: float,
+    num_frames: int,
+) -> npt.NDArray[np.float64]:
+    """Per-frame azimuths for a full 360-degree orbit over the clip.
+
+    The trivial case of follow: a constant-rate azimuth ramp starting
+    at the base camera angle (endpoint excluded so looped playback
+    doesn't hold the identical view for two frames).
+    """
+    return base_azim + np.linspace(0.0, 360.0, num_frames, endpoint=False)
+
+
 def compute_follow_azimuths(
     bvh: Bvh,
     coords: npt.NDArray[np.float64],

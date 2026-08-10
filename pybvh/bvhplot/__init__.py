@@ -172,6 +172,11 @@ def _resolve_play_backend(requested: str) -> tuple[str, int]:
         2 = fast fallback, 3 = slow fallback.
     """
     if requested != "auto":
+        # "opencv" is the user-facing name (matching render()) for the
+        # inline-video backend auto-selection calls "opencv_notebook" —
+        # everything auto can choose must be nameable.
+        if requested == "opencv":
+            return "opencv_notebook", 0
         return requested, 0
 
     in_notebook = _detect_notebook()
@@ -605,6 +610,7 @@ def render(
     follow: bool = False,
     ghost: int = 0,
     trajectory: bool = False,
+    frame_counter: bool = False,
     match_fps: str | None = None,
 ) -> Path:
     """Render animation to a video, GIF, or HTML file.
@@ -635,11 +641,16 @@ def render(
         Under ``"auto"``, formats OpenCV cannot write (``.gif``,
         ``.webp``, ``.apng``, ``.html``) always use matplotlib.
     camera : str or (float, float), optional
-        Camera preset (``"front"``, ``"side"``, ``"top"``) or
+        Camera preset (``"front"``, ``"side"``, ``"top"``), the
+        special ``"turntable"`` (a full 360-degree orbit over the clip
+        duration, starting from the front view), or an
         ``(azimuth_deg, elevation_deg)`` tuple. Default ``"front"``.
     resolution : (int, int), optional
         Output resolution ``(width, height)`` in pixels.
-        Default ``(1920, 1080)``.
+        Default ``(1920, 1080)``. The OpenCV backend draws at
+        ``style.supersample`` times this and downsamples for
+        anti-aliasing; primitive sizes scale with resolution (1080p is
+        the 1:1 anchor).
     sync : str, optional
         How to handle different frame counts in side-by-side comparison:
         ``"truncate"`` (default) stops at the shortest clip;
@@ -660,6 +671,10 @@ def render(
     trajectory : bool, optional
         Draw the root trace on the floor, growing with playback
         (default ``False``).
+    frame_counter : bool, optional
+        Stamp a ``Frame f/F`` counter in the corner (OpenCV backend
+        only). Default ``False`` — publication output never stamps
+        text; pass ``True`` to restore the pre-0.9.0 counter.
     match_fps : str or None, optional
         How to handle clips with different frame rates in side-by-side
         rendering.  ``None`` (default) emits a warning but does not
@@ -679,6 +694,12 @@ def render(
     if not (isinstance(ghost, int) and ghost >= 0):
         raise ValueError(f"ghost must be an integer >= 0, got {ghost!r}")
 
+    # "turntable" is a camera *motion*, not an angle: orbit from the
+    # front view. It overrides follow (both prescribe the azimuth).
+    turntable = camera == "turntable"
+    if turntable:
+        camera = "front"
+
     backend_name = _resolve_render_backend(backend, filepath.suffix.lower())
 
     # Handle frame-rate mismatch before computing FK coordinates
@@ -693,7 +714,9 @@ def render(
 
     # A custom (azim, elev) tuple means the camera is fixed; follow is
     # a no-op in that case because there's no orientation to track.
-    effective_follow = follow and not isinstance(camera, tuple)
+    # Turntable overrides follow — both prescribe the azimuth.
+    effective_follow = (follow and not turntable
+                        and not isinstance(camera, tuple))
 
     actual_fps = _resolve_fps(fps, scene.views[0].bvh.frame_time)
 
@@ -713,13 +736,16 @@ def render(
         from ._opencv import render_opencv
         return render_opencv(
             scene, style_obj, filepath, actual_fps, resolution,
-            follow=effective_follow, ghost=ghost, trajectory=trajectory)
+            follow=effective_follow, turntable=turntable,
+            frame_counter=frame_counter,
+            ghost=ghost, trajectory=trajectory)
 
     else:  # matplotlib
         from ._matplotlib import render_mpl
         return render_mpl(
             scene, style_obj, filepath, actual_fps,
-            follow=effective_follow, resolution=resolution,
+            follow=effective_follow, turntable=turntable,
+            resolution=resolution,
             ghost=ghost, trajectory=trajectory)
 
 
@@ -771,7 +797,9 @@ def play(
         notebook widgets and matplotlib windows can't keep up with
         high frame rates.
     backend : str, optional
-        ``"auto"`` (default), ``"k3d"``, ``"vedo"``, or ``"matplotlib"``.
+        ``"auto"`` (default), ``"k3d"``, ``"vedo"``, ``"opencv"``
+        (the notebook inline-video fallback — nameable so a backend
+        auto-selection picked can be pinned), or ``"matplotlib"``.
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``) or
         ``(azimuth_deg, elevation_deg)`` tuple. Default ``"front"``.
@@ -809,11 +837,22 @@ def play(
     """
     import math
 
-    valid_backends = {"auto", "k3d", "vedo", "matplotlib"}
+    valid_backends = {"auto", "k3d", "vedo", "opencv", "matplotlib"}
     if backend not in valid_backends:
         raise ValueError(
             f"Unknown backend {backend!r}. "
             f"Choose from: {sorted(valid_backends)}")
+    if backend == "opencv":
+        if not _module_importable("cv2"):
+            raise ImportError(
+                "The opencv play backend requires opencv-python. "
+                "Install with: pip install pybvh[opencv]")
+        if not _detect_notebook():
+            raise ValueError(
+                "backend='opencv' plays an inline video and only works "
+                "inside a Jupyter notebook. In a script, use "
+                "backend='vedo' (interactive window) or render() to a "
+                "file instead.")
 
     _VALID_QUALITY = {"fast", "high"}
     if quality not in _VALID_QUALITY:

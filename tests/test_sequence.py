@@ -116,3 +116,44 @@ class TestGhostAndTrajectory:
     def test_bad_ghost_raises(self, bvh, tmp_path):
         with pytest.raises(ValueError, match="ghost"):
             bvhplot.render(bvh, tmp_path / "x.mp4", ghost=-1)
+
+
+class TestPhase3Export:
+    def test_turntable_opencv(self, bvh, tmp_path):
+        pytest.importorskip("cv2")
+        path = bvhplot.render(
+            bvh[0:30], tmp_path / "tt.mp4", backend="opencv",
+            camera="turntable", resolution=(320, 240))
+        assert path.exists() and path.stat().st_size > 0
+
+    def test_turntable_mpl(self, bvh, tmp_path):
+        path = bvhplot.render(
+            bvh[0:6], tmp_path / "tt.gif", backend="matplotlib",
+            camera="turntable", resolution=(320, 240))
+        assert path.exists() and path.stat().st_size > 0
+
+    def test_frame_counter_opt_in(self, bvh, tmp_path):
+        pytest.importorskip("cv2")
+        path = bvhplot.render(
+            bvh[0:10], tmp_path / "fc.mp4", backend="opencv",
+            resolution=(320, 240), frame_counter=True)
+        assert path.exists()
+
+    def test_supersample_one_disables(self, bvh, tmp_path):
+        pytest.importorskip("cv2")
+        from pybvh.bvhplot import Style
+        path = bvhplot.render(
+            bvh[0:10], tmp_path / "ss1.mp4", backend="opencv",
+            resolution=(320, 240), style=Style("paper", supersample=1))
+        assert path.exists()
+
+    def test_play_opencv_backend_nameable_but_notebook_only(self, bvh):
+        pytest.importorskip("cv2")
+        # Everything auto can choose must be nameable; outside a
+        # notebook the error must say why it can't run, not "unknown".
+        with pytest.raises(ValueError, match="notebook"):
+            bvhplot.play(bvh, backend="opencv")
+
+    def test_play_unknown_backend_lists_opencv(self, bvh):
+        with pytest.raises(ValueError, match="opencv"):
+            bvhplot.play(bvh, backend="opencvv")

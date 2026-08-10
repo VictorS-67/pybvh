@@ -23,9 +23,9 @@ from typing import TYPE_CHECKING
 from ._common import (
     Scene,
     Style,
-    bone_colors_for_view,
     build_view_matrix,
 )
+from ._colors import bone_colors_255, floor_palette, rgb255
 from ._vedo_capsules import CapsuleSkeleton
 
 if TYPE_CHECKING:
@@ -54,13 +54,8 @@ def _attach_projected_shadow(
 
 def _chain_rgb_for_view(scene: Scene, style: Style, s: int):
     """Per-bone (0-255) RGB for CapsuleSkeleton, honoring color modes."""
-    from matplotlib.colors import to_rgb
-
-    colors = bone_colors_for_view(
-        scene.views[s], style, s, scene.num_skeletons)
-    rgb = [tuple(int(c * 255) for c in to_rgb(col)) for col in colors]
-    spine = tuple(int(c * 255) for c in to_rgb(
-        style.chain_colors.get("spine", "#3A3F4A")))
+    rgb = bone_colors_255(scene.views[s], style, s, scene.num_skeletons)
+    spine = rgb255(style.chain_colors.get("spine", "#3A3F4A"))
     return rgb, spine
 
 
@@ -81,13 +76,16 @@ def _build_offscreen(
     center, half_span = scene.unified_box()
     view0 = scene.views[0]
     up_idx = view0.up_index
-    floor_height = min(v.floor_height for v in scene.views)
+    agg = min if view0.up_sign > 0 else max
+    floor_height = agg(v.floor_height for v in scene.views)
 
     plt = Plotter(offscreen=True, size=resolution, bg=style.background)
 
-    r_base = half_span * 0.013 * (style.bone_width / 3.0)
-    floor_height_low = floor_height - 0.004 * half_span
-    shadow_height = floor_height - 0.002 * half_span
+    r_base = CapsuleSkeleton.base_radius(half_span, style.bone_width)
+    up_sign = view0.up_sign
+    # "Below the floor" flips direction with the sign of the up axis.
+    plane_height = floor_height - up_sign * 0.004 * half_span
+    shadow_height = floor_height - up_sign * 0.002 * half_span
 
     capsules: list[CapsuleSkeleton] = []
     for s, view in enumerate(scene.views):
@@ -112,12 +110,22 @@ def _build_offscreen(
         normal = [0.0, 0.0, 0.0]
         normal[up_idx] = 1.0
         floor_pos = center.copy()
-        floor_pos[up_idx] = floor_height_low
-        dark = style.background not in ("white", "#FFFFFF", "#ffffff")
+        floor_pos[up_idx] = plane_height
         floor = Plane(pos=tuple(floor_pos), normal=tuple(normal),
                       s=(half_span * 4, half_span * 4))
-        floor.c('#2A2E36' if dark else '#EDEDF1').lighting('off')
+        floor.c(floor_palette(style)["face"]).lighting('off')
         plt += floor
+
+    if scene.labels is not None:
+        from vedo import Text2D  # type: ignore[import-untyped]
+
+        for s, view in enumerate(scene.views):
+            if view.label is None:
+                continue
+            r, g, b = _chain_rgb_for_view(scene, style, s)[0][0]
+            plt += Text2D(
+                view.label, pos=(0.03, 0.95 - s * 0.05),
+                c=f"rgb({r},{g},{b})", s=1.2, font='Calco')
 
     view_mat = build_view_matrix(
         view0.azimuth, view0.elevation, view0.up_axis)
@@ -173,6 +181,17 @@ def render_vedo(
             f"The vedo backend cannot write {ext!r} files. Supported: "
             f".mp4, .mov, .avi, .gif. Use backend='matplotlib' for "
             f"other formats.")
+    if ext != '.gif':
+        # Guard BEFORE rendering every frame: the video sink is
+        # cv2-based, and vedo-only installs would otherwise crash deep
+        # in the writer with a raw ModuleNotFoundError.
+        try:
+            import cv2  # noqa: F401
+        except ImportError:
+            raise ImportError(
+                f"Writing {ext} via the vedo backend requires "
+                f"opencv-python. Install with: pip install "
+                f"pybvh[opencv], or render to .gif instead.")
 
     plt, capsules, camera = _build_offscreen(scene, style, resolution)
     try:

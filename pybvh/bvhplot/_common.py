@@ -44,10 +44,21 @@ class SkeletonView:
     elevation: float                       # degrees
     up_axis: str                           # 'x' | 'y' | 'z'
     floor_height: float                    # ground plane along up_axis
+    up_sign: float = 1.0                   # +1 for '+y' etc., -1 for '-y'
 
     @property
     def up_index(self) -> int:
         return UP_AXIS_INDEX.get(self.up_axis, 2)
+
+    def below_floor(self, distance: float) -> float:
+        """The coordinate *distance* visually below the floor plane.
+
+        "Below" follows the signed up axis: for a '-y'-up rig the
+        ground sits at the coordinate MAXIMUM, so below means +y.
+        Backends use this for z-fighting nudges and shadow offsets so
+        negative-up rigs get their floor under the feet, not overhead.
+        """
+        return self.floor_height - self.up_sign * distance
 
 
 @dataclass(frozen=True)
@@ -124,10 +135,16 @@ def make_scene(
         center, half_span = compute_unified_limits([coords])
         azimuth, elevation, up_axis = get_camera_angles(b, coords[0], camera)
         up_idx = UP_AXIS_INDEX.get(up_axis, 2)
+        up_sign = float(b.up_axis.sign)
         if canonical_floor:
             floor_height = float(b.floor_height)
         else:
-            floor_height = float(coords[..., up_idx].min())
+            # The ground is the signed-lowest point: the coordinate
+            # minimum for a positive up axis, the MAXIMUM for a
+            # negative one (where larger values point downward).
+            extreme = coords[..., up_idx]
+            floor_height = float(extreme.min() if up_sign > 0
+                                 else extreme.max())
         views.append(SkeletonView(
             bvh=b,
             coords=coords,
@@ -139,6 +156,7 @@ def make_scene(
             elevation=elevation,
             up_axis=up_axis,
             floor_height=floor_height,
+            up_sign=up_sign,
         ))
     return Scene(views=views)
 
@@ -386,6 +404,48 @@ def get_camera_angles(
         raise ValueError(
             f"Unknown camera preset {camera!r}. "
             f"Use 'front', 'side', 'top', or (azimuth, elevation).")
+
+
+# ---------------------------------------------------------------------------
+# Ghost trails and trajectory traces (shared backend conventions)
+# ---------------------------------------------------------------------------
+
+# The trace and ghost look must be identical across backends: one
+# render() call, different sinks. These are the single definitions.
+TRACE_COLOR = "#7A8090"
+TRACE_BLEND = 0.9          # blended toward the background at this weight
+GHOST_WIDTH_FACTOR = 0.75  # ghosts draw thinner than the live skeleton
+
+
+def ghost_schedule(
+    style: Style,
+    frame_time: float,
+    n_ghosts: int,
+) -> tuple[int, npt.NDArray[np.float64]]:
+    """Frame lag and fade weights for a ghost trail.
+
+    Ghost slot ``j`` trails the live pose by ``(j+1) * lag`` frames;
+    weights fade from 0.32 (nearest, darkest) to 0.15 (oldest).
+    """
+    lag = max(1, round(style.ghost_spacing / frame_time))
+    weights = np.linspace(0.32, 0.15, n_ghosts)
+    return lag, weights
+
+
+def floor_trace_points(
+    view: SkeletonView,
+    start: int = 0,
+    upto: int | None = None,
+) -> npt.NDArray[np.float64]:
+    """Root path projected onto the floor plane (for the dashed trace).
+
+    ``start``/``upto`` bound the traced frame range (inclusive of
+    ``upto``); the default is the whole clip.
+    """
+    end = view.coords.shape[0] if upto is None else upto + 1
+    path = view.coords[start:end, 0, :].copy()
+    path[:, view.up_index] = view.floor_height
+    return path
 
 
 def turntable_azimuths(
@@ -831,15 +891,21 @@ class Style:
     floor — for coordinate inspection), ``"dark"`` (paper on a
     near-black ground, for slides and project pages).
 
-    Fields split into two documented groups. **Look** fields apply in
-    every backend: ``bone_width``, ``bone_color``, ``color_mode``,
-    ``chain_colors``, ``joint_markers``, ``joint_size``,
-    ``joint_color``, ``floor``, ``floor_alpha``, ``background``,
-    ``axes``, ``projection``, ``ghost_spacing`` (seconds between the
-    faded trailing poses that ``render(ghost=...)`` draws). **Output**
-    fields apply only where raster output is produced: ``dpi``
-    (matplotlib figures), ``supersample`` (OpenCV export), ``shadow``
-    (vedo offscreen renders).
+    Fields split into two documented groups. **Look** fields apply to
+    every figure/video output (matplotlib, OpenCV, vedo offscreen):
+    ``bone_width``, ``bone_color``, ``color_mode``, ``chain_colors``,
+    ``joint_markers``, ``joint_size``, ``joint_color``, ``floor``,
+    ``floor_alpha``, ``background``, ``axes``, ``projection``,
+    ``ghost_spacing`` (seconds between the faded trailing poses that
+    ``render(ghost=...)`` draws). The two *interactive viewers* apply
+    the subset that has meaning in a live window: background, bone
+    width, and single-skeleton chain colors in both; floor kind in the
+    vedo viewer, where ``"checker"`` falls back to ``"grid"``. Fields
+    outside that subset (``axes``, ``projection``, ``joint_markers``,
+    ...) do not alter the viewers. **Output** fields apply only where
+    raster output is produced: ``dpi`` (matplotlib figures),
+    ``supersample`` (OpenCV export), ``shadow`` (vedo offscreen
+    renders).
 
     ``color_mode``: ``"auto"`` uses per-chain colors for a single
     skeleton and flat per-skeleton palette colors for multi-skeleton
@@ -871,7 +937,15 @@ class Style:
             raise ValueError(
                 f"Unknown style preset {preset!r}. "
                 f"Choose from: {sorted(_STYLE_PRESETS)}")
-        fields = dict(_STYLE_PRESETS[preset])
+        self._assign_fields(dict(_STYLE_PRESETS[preset]), overrides)
+
+    def _assign_fields(
+        self,
+        fields: dict[str, object],
+        overrides: dict[str, object],
+    ) -> None:
+        """Shared construction path for __init__ and replace: unknown-
+        field check, defensive copies, assignment, validation."""
         unknown = set(overrides) - set(fields)
         if unknown:
             raise TypeError(
@@ -879,6 +953,11 @@ class Style:
                 f"Valid fields: {sorted(fields)}")
         fields.update(overrides)
         for name, value in fields.items():
+            # Copy mutable field values (chain_colors) so no instance
+            # aliases the module-level preset dicts — mutating one
+            # Style must never restyle every other figure.
+            if isinstance(value, dict):
+                value = dict(value)
             object.__setattr__(self, name, value)
         self._validate()
 
@@ -916,16 +995,8 @@ class Style:
         """A new Style with the given fields changed."""
         fields = {f.name: getattr(self, f.name)
                   for f in dataclasses.fields(self)}
-        unknown = set(overrides) - set(fields)
-        if unknown:
-            raise TypeError(
-                f"Unknown Style field(s): {sorted(unknown)}. "
-                f"Valid fields: {sorted(fields)}")
-        fields.update(overrides)
         new = object.__new__(Style)
-        for name, value in fields.items():
-            object.__setattr__(new, name, value)
-        new._validate()
+        new._assign_fields(fields, overrides)
         return new
 
 

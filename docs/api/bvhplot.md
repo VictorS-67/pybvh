@@ -7,8 +7,10 @@
       members_order: source
       show_root_heading: true
       members:
+        - Style
         - rest_pose
         - frame
+        - sequence
         - render
         - play
         - trajectory

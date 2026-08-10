@@ -151,6 +151,14 @@ class CapsuleSkeleton:
                 prop.SetDiffuse(0.6)
                 prop.SetSpecular(0.05)
 
+    @staticmethod
+    def base_radius(half_span: float, bone_width: float) -> float:
+        """Base bone radius in scene units: 1.3% of the half-span,
+        scaled by the style's bone width (3.0, the paper default, is
+        the 1:1 anchor). The single sizing formula for both the viewer
+        and the offscreen renderer."""
+        return half_span * 0.013 * (bone_width / 3.0)
+
     @property
     def actors(self) -> list:
         return [m for m in (self.bones_mesh, self.joints_mesh)

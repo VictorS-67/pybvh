@@ -15,16 +15,21 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ._common import (
+    GHOST_WIDTH_FACTOR,
     Scene,
     SkeletonView,
     Style,
+    TRACE_BLEND,
+    TRACE_COLOR,
     build_view_matrix,
     compute_follow_azimuths,
+    floor_trace_points,
+    ghost_schedule,
     ortho_project,
-    bone_colors_for_view,
     turntable_azimuths,
     PALETTE_RGB,
 )
+from ._colors import bone_colors_255, floor_palette, node_colors_255
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -75,7 +80,7 @@ def _draw_floor_opencv(
     ground = [i for i in range(3) if i != up]
     ext = view.half_span * 1.8
     y = view.floor_height
-    dark = style.background not in ("white", "#FFFFFF", "#ffffff")
+    palette = floor_palette(style)
 
     def project(world_pts: npt.NDArray[np.float64]) -> npt.NDArray[np.int32]:
         pts = ortho_project(
@@ -96,23 +101,23 @@ def _draw_floor_opencv(
     c1 = float(view.center[ground[1]])
 
     if style.floor == "solid":
-        face = _blend_bgr(_to_bgr("#2A2E36" if dark else "#E8E8EC"),
-                          bg_bgr, style.floor_alpha)
+        face = _blend_bgr(_to_bgr(palette["face"]), bg_bgr,
+                          style.floor_alpha)
         cv2.fillPoly(img, [project(quad(c0, c1, ext))], face,
                      lineType=cv2.LINE_AA)
     elif style.floor == "checker":
         n = 8
         s = ext / n
-        shades = (("#2A2E36", "#1E2127") if dark else ("#EDEDF1", "#DCDCE3"))
+        shades = [
+            _blend_bgr(_to_bgr(shade), bg_bgr, style.floor_alpha)
+            for shade in palette["checker"]]
         for i in range(-n, n):
             for j in range(-n, n):
-                face = _blend_bgr(_to_bgr(shades[(i + j) % 2]), bg_bgr,
-                                  style.floor_alpha)
                 sq = quad(c0 + (i + 0.5) * s, c1 + (j + 0.5) * s, s / 2)
-                cv2.fillPoly(img, [project(sq)], face, lineType=cv2.LINE_AA)
+                cv2.fillPoly(img, [project(sq)], shades[(i + j) % 2],
+                             lineType=cv2.LINE_AA)
     elif style.floor == "grid":
-        color = _blend_bgr(_to_bgr("#3A3F4A" if dark else "#C8C8D0"),
-                           bg_bgr, 0.8)
+        color = _blend_bgr(_to_bgr(palette["grid"]), bg_bgr, 0.8)
         n = 10
         s = ext / n
         for i in range(-n, n + 1):
@@ -176,12 +181,50 @@ def _compute_fixed_view_halves_for_follow(
     return result
 
 
+class _ViewDrawContext:
+    """Frame-invariant drawing data for one view, computed once per
+    render instead of once per frame (chain classification triggers
+    rest-pose FK + foot detection — far too heavy for a frame loop)."""
+
+    def __init__(
+        self,
+        view: SkeletonView,
+        style: Style,
+        view_index: int,
+        n_skeletons: int,
+        bg_bgr: tuple[int, int, int],
+        ghost: int,
+        trajectory: bool,
+    ) -> None:
+        bone_rgb = bone_colors_255(view, style, view_index, n_skeletons)
+        self.bone_bgr = [(b, g, r) for (r, g, b) in bone_rgb]
+        # node -> BGR dot color for the markers-off (legacy) look
+        node_rgb = node_colors_255(view, style, view_index, n_skeletons,
+                                   bone_rgb)
+        self.node_bgr = node_rgb[:, ::-1]
+        self.joint_bgr = _to_bgr(style.joint_color)
+        self.label_bgr = (self.bone_bgr[0] if self.bone_bgr
+                          else (0, 0, 0))
+        if ghost > 0:
+            self.ghost_lag, weights = ghost_schedule(
+                style, view.bvh.frame_time, ghost)
+            self.ghost_bgr = [
+                [_blend_bgr(c, bg_bgr, float(w)) for c in self.bone_bgr]
+                for w in weights]
+        if trajectory:
+            # Full floored path once; per frame we slice a view of it.
+            self.trace_path = floor_trace_points(view)
+            self.trace_bgr = _blend_bgr(
+                _to_bgr(TRACE_COLOR), bg_bgr, TRACE_BLEND)
+
+
 def _draw_skeletons_on_frame(
     img: npt.NDArray[np.uint8],
     frame_idx: int,
     scene: Scene,
     style: Style,
     view_matrices: list[npt.NDArray[np.float64]],
+    contexts: list[_ViewDrawContext],
     panel_w: int,
     h: int,
     bg_bgr: tuple[int, int, int],
@@ -194,6 +237,10 @@ def _draw_skeletons_on_frame(
 
     Each skeleton is projected with its own view matrix, so skeletons
     with different forward/up axes all render correctly side by side.
+    In multi-panel mode every view draws into its own panel-sized
+    buffer that is then blitted into place — cv2 primitives have no
+    clip rectangle, and an unclipped floor quad (1.8x half_span, wider
+    than a panel) would otherwise paint over the neighboring panel.
 
     When ``fixed_view_halves`` is provided, each skeleton's projection
     uses that pre-computed ``(view_half_u, view_half_v)`` instead of
@@ -217,90 +264,85 @@ def _draw_skeletons_on_frame(
     # 1:1 anchor: bone_width 3.0 -> 3 px there, twice that at 4K, and
     # supersampled drawing surfaces scale up with them).
     thickness = max(1, int(style.bone_width * px_scale + 0.5))
+    thin = max(1, int(px_scale + 0.5))
 
     for s, view in enumerate(scene.views):
+        ctx = contexts[s]
         frame_data = view.coords[frame_idx]
         view_matrix = view_matrices[s]
         fixed = fixed_view_halves[s] if fixed_view_halves is not None else None
-        x_offset = s * panel_w
+
+        if n_skeletons > 1:
+            # Contiguous per-panel canvas: clips every primitive to the
+            # panel, then blits.
+            canvas = np.empty((h, panel_w, 3), dtype=np.uint8)
+            canvas[:] = bg_bgr
+        else:
+            canvas = img
 
         if style.floor is not None:
             _draw_floor_opencv(
-                img, view, style, view_matrix, panel_w, h, x_offset,
+                canvas, view, style, view_matrix, panel_w, h, 0,
                 bg_bgr, fixed, px_scale=px_scale)
 
         def project(world_pts):
-            pts = ortho_project(
+            return ortho_project(
                 world_pts, view_matrix, view.center, view.half_span,
                 (panel_w, h), fixed_view_half=fixed)
-            pts[:, 0] += x_offset
-            return pts
 
-        bone_colors = [
-            _to_bgr(c)
-            for c in bone_colors_for_view(view, style, s, n_skeletons)]
-
-        if trajectory:
-            path = view.coords[:frame_idx + 1, 0, :].copy()
-            path[:, view.up_index] = view.floor_height
-            if len(path) >= 2:
-                trace_color = _blend_bgr(_to_bgr("#7A8090"), bg_bgr, 0.9)
-                cv2.polylines(img, [project(path)], False, trace_color,
-                              max(1, int(px_scale + 0.5)), cv2.LINE_AA)
+        if trajectory and frame_idx >= 1:
+            path = ctx.trace_path[:frame_idx + 1]
+            cv2.polylines(canvas, [project(path)], False, ctx.trace_bgr,
+                          thin, cv2.LINE_AA)
 
         if ghost > 0:
-            lag = max(1, round(
-                style.ghost_spacing / view.bvh.frame_time))
-            weights = np.linspace(0.32, 0.15, ghost)
             ghost_thickness = max(
-                1, int(style.bone_width * 0.75 * px_scale + 0.5))
+                1, int(style.bone_width * GHOST_WIDTH_FACTOR
+                       * px_scale + 0.5))
             for j in reversed(range(ghost)):     # oldest first
-                gf = frame_idx - (j + 1) * lag
+                gf = frame_idx - (j + 1) * ctx.ghost_lag
                 if gf < 0:
                     continue
                 gpts = project(view.coords[gf])
-                for (p_idx, c_idx), color in zip(view.bones, bone_colors):
-                    faded = _blend_bgr(color, bg_bgr, float(weights[j]))
-                    cv2.line(img, tuple(gpts[p_idx]), tuple(gpts[c_idx]),
-                             faded, ghost_thickness, cv2.LINE_AA)
+                for (p_idx, c_idx), faded in zip(view.bones,
+                                                 ctx.ghost_bgr[j]):
+                    cv2.line(canvas, tuple(gpts[p_idx]),
+                             tuple(gpts[c_idx]), faded, ghost_thickness,
+                             cv2.LINE_AA)
 
         pts_2d = project(frame_data)
 
-        for (p_idx, c_idx), color in zip(view.bones, bone_colors):
+        for (p_idx, c_idx), color in zip(view.bones, ctx.bone_bgr):
             pt1 = (int(pts_2d[p_idx, 0]), int(pts_2d[p_idx, 1]))
             pt2 = (int(pts_2d[c_idx, 0]), int(pts_2d[c_idx, 1]))
-            cv2.line(img, pt1, pt2, color, thickness, cv2.LINE_AA)
+            cv2.line(canvas, pt1, pt2, color, thickness, cv2.LINE_AA)
 
         if style.joint_markers:
-            joint_bgr = _to_bgr(style.joint_color)
             for pt in pts_2d:
-                cv2.circle(img, (int(pt[0]), int(pt[1])), thickness + 2,
-                           joint_bgr, -1, cv2.LINE_AA)
+                cv2.circle(canvas, (int(pt[0]), int(pt[1])),
+                           thickness + 2, ctx.joint_bgr, -1, cv2.LINE_AA)
         else:
-            # bone-colored dots: a joint takes the color of the bone
-            # whose child it is (falls back to the first bone's color).
-            joint_color_by_node = dict(
-                (c_idx, col)
-                for (_p, c_idx), col in zip(view.bones, bone_colors))
-            default = bone_colors[0] if bone_colors else (0, 0, 0)
             for j, pt in enumerate(pts_2d):
-                cv2.circle(img, (int(pt[0]), int(pt[1])), thickness + 1,
-                           joint_color_by_node.get(j, default), -1,
+                cv2.circle(canvas, (int(pt[0]), int(pt[1])),
+                           thickness + 1,
+                           tuple(int(c) for c in ctx.node_bgr[j]), -1,
                            cv2.LINE_AA)
 
         if view.label is not None:
-            label_color = bone_colors[0] if bone_colors else (0, 0, 0)
             cv2.putText(
-                img, view.label,
-                (x_offset + int(15 * px_scale), int(35 * px_scale)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8 * px_scale, label_color,
+                canvas, view.label,
+                (int(15 * px_scale), int(35 * px_scale)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8 * px_scale, ctx.label_bgr,
                 max(1, int(2 * px_scale + 0.5)), cv2.LINE_AA)
+
+        if n_skeletons > 1:
+            x0 = s * panel_w
+            img[:, x0:x0 + panel_w] = canvas
 
     if n_skeletons > 1:
         for s in range(1, n_skeletons):
             x = s * panel_w
-            cv2.line(img, (x, 0), (x, h), (200, 200, 200),
-                     max(1, int(px_scale + 0.5)))
+            cv2.line(img, (x, 0), (x, h), (200, 200, 200), thin)
 
 
 def _generate_frames(
@@ -381,6 +423,11 @@ def _generate_frames(
             [v.up_axis for v in scene.views],
             [v.half_span for v in scene.views])
 
+    contexts = [
+        _ViewDrawContext(v, style, s, n_skeletons, bg_bgr, ghost,
+                         trajectory)
+        for s, v in enumerate(scene.views)]
+
     for f in range(num_frames):
         if follow_azimuths is not None:
             view_matrices = [
@@ -394,7 +441,8 @@ def _generate_frames(
         img[:] = bg_bgr
 
         _draw_skeletons_on_frame(
-            img, f, scene, style, view_matrices, panel_w, draw_h, bg_bgr,
+            img, f, scene, style, view_matrices, contexts, panel_w,
+            draw_h, bg_bgr,
             px_scale=px_scale, fixed_view_halves=fixed_view_halves,
             ghost=ghost, trajectory=trajectory)
 

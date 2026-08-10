@@ -17,11 +17,11 @@ from ._common import (
     PALETTE_RGB,
     Scene,
     Style,
-    bone_colors_for_view,
     build_view_matrix,
     effective_color_mode,
     UP_AXIS_INDEX,
 )
+from ._colors import node_colors_255
 
 if TYPE_CHECKING:
     from ..bvh import Bvh
@@ -33,21 +33,16 @@ def _node_colors_uint32(
     s: int,
 ) -> npt.NDArray[np.uint32] | None:
     """Per-node chain colors as k3d 0xRRGGBB ints, or None when chain
-    coloring does not apply (multi-skeleton / non-chain modes)."""
+    coloring does not apply (multi-skeleton / non-chain modes).
+
+    The node-coloring rule itself lives in
+    :func:`~._colors.node_colors_255`; this only packs the uint32s.
+    """
     if effective_color_mode(style, scene.num_skeletons) != "chains":
         return None
-    from matplotlib.colors import to_rgb
-
-    view = scene.views[s]
-    bone_cols = bone_colors_for_view(view, style, s, scene.num_skeletons)
-    spine = style.chain_colors.get("spine", "#3A3F4A")
-    n_nodes = view.coords.shape[1]
-    node_cols = np.empty(n_nodes, dtype=np.uint32)
-    by_node = {c_idx: col for (_p, c_idx), col in zip(view.bones, bone_cols)}
-    for j in range(n_nodes):
-        r, g, b = (int(c * 255) for c in to_rgb(by_node.get(j, spine)))
-        node_cols[j] = (r << 16) | (g << 8) | b
-    return node_cols
+    rgb = node_colors_255(
+        scene.views[s], style, s, scene.num_skeletons).astype(np.uint32)
+    return (rgb[:, 0] << 16) | (rgb[:, 1] << 8) | rgb[:, 2]
 
 
 def play_k3d(

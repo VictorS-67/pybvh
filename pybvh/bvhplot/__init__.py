@@ -1,29 +1,35 @@
 """Visualization module for pybvh.
 
-Provides five main functions:
+Provides six main functions, all accepting ``style=`` (a
+:class:`Style` preset name or instance; ``"paper"`` is the default):
 
 - :func:`rest_pose` — T-pose / bind pose visualization (matplotlib).
-- :func:`frame` — static 3D skeleton snapshot (matplotlib).
+- :func:`frame` — static 3D skeleton snapshot (matplotlib, or a
+  shadowed capsule render via ``backend="vedo"``).
+- :func:`sequence` — the motion-paper still: sampled poses in one
+  figure, lightness encoding time.
 - :func:`play` — interactive playback with camera controls.
-- :func:`render` — fast export to video/GIF/HTML.
+- :func:`render` — export to video/GIF/HTML.
 - :func:`trajectory` — 2D top-down root trajectory plot.
 
 Backends
 --------
-``render`` supports ``"opencv"`` (fast, optional dep) and ``"matplotlib"``
-(default fallback). When *backend* is ``"auto"`` (the default), OpenCV is
-used if available.
+``render`` supports ``"opencv"`` (fast, optional dep),
+``"matplotlib"`` (default fallback), and ``"vedo"`` (shadowed capsule
+skeletons, never auto-selected). When *backend* is ``"auto"`` (the
+default), OpenCV is used if available.
 
-``play`` supports ``"k3d"`` (Jupyter notebooks, optional dep), ``"vedo"``
-(desktop window, optional dep), and ``"matplotlib"`` (fallback). When
-*backend* is ``"auto"``, the best available backend for the current
-environment is selected automatically.
+``play`` supports ``"k3d"`` (Jupyter notebooks, optional dep),
+``"vedo"`` (desktop window, optional dep), ``"opencv"`` (notebook
+inline video), and ``"matplotlib"`` (fallback). When *backend* is
+``"auto"``, the best available backend for the current environment is
+selected automatically.
 
 Install optional backends::
 
     pip install pybvh[opencv]       # fast video rendering
     pip install pybvh[interactive]  # k3d for Jupyter
-    pip install pybvh[viewer]       # vedo for desktop
+    pip install pybvh[viewer]       # vedo desktop viewer + renders
     pip install pybvh[all-viz]      # all of the above
 """
 from __future__ import annotations
@@ -513,11 +519,15 @@ def frame(
         Image size in pixels for ``backend="vedo"`` (ignored by
         matplotlib, which sizes via *figsize*/*dpi*).
     filepath : str or Path, optional
-        With ``backend="vedo"``, also write the rendered image here.
+        Also write the rendered image here (``fig.savefig`` on the
+        matplotlib backend, a PNG write on vedo).
     ax : matplotlib.axes.Axes, optional
         Existing 3D axes to draw on. If provided, no new figure is
         created. Only supported for a single skeleton (raises
-        ``ValueError`` when ``bvh`` is a list).
+        ``ValueError`` when ``bvh`` is a list). The style is applied
+        to the provided axes — the default paper style hides its
+        ticks and panes; pass ``style="debug"`` to draw into an axes
+        whose full axis machinery you want to keep.
 
     Returns
     -------
@@ -546,8 +556,13 @@ def frame(
                           resolution=resolution, filepath=filepath)
 
     from ._matplotlib import frame_mpl
-    return frame_mpl(scene, resolve_style(style),
-                     figsize=figsize, show=show, ax=ax)
+    style_obj = resolve_style(style)
+    fig, axs = frame_mpl(scene, style_obj,
+                         figsize=figsize, show=show, ax=ax)
+    if filepath is not None:
+        fig.savefig(filepath, dpi=style_obj.dpi,
+                    facecolor=fig.get_facecolor())
+    return fig, axs
 
 
 def sequence(
@@ -816,6 +831,7 @@ def play(
     sync: str = "truncate",
     resolution: tuple[int, int] = (960, 540),
     quality: str = "high",
+    frame_counter: bool = False,
     match_fps: str | None = None,
     spacing: float | str = "auto",
 ) -> None:
@@ -872,6 +888,10 @@ def play(
         ``"high"`` (default) uses 3D tubes and spheres with lighting;
         ``"fast"`` uses flat lines and points for maximum performance.
         Ignored by other backends.
+    frame_counter : bool, optional
+        Stamp a ``Frame f/F`` counter on the OpenCV notebook preview
+        (default ``False``; pass ``True`` to restore the pre-0.9.0
+        counter). Ignored by the other backends.
     match_fps : str or None, optional
         How to handle clips with different frame rates.  ``None``
         (default) emits a warning.  ``"lowest"`` or ``"highest"``
@@ -1022,7 +1042,8 @@ def play(
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp_path = Path(tmp.name)
 
-        render_opencv(scene, style_obj, tmp_path, actual_fps, resolution)
+        render_opencv(scene, style_obj, tmp_path, actual_fps, resolution,
+                      frame_counter=frame_counter)
 
         display(Video(str(tmp_path), embed=True, mimetype="video/mp4"))
         tmp_path.unlink(missing_ok=True)

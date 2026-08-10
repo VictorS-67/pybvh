@@ -13,7 +13,6 @@ Requires ``vedo >= 2024.5``.
 """
 from __future__ import annotations
 
-import math
 import time
 
 import numpy as np
@@ -25,11 +24,11 @@ from ._common import (
     PALETTE_RGB,
     Scene,
     Style,
-    bone_colors_for_view,
     build_view_matrix,
     effective_color_mode,
     UP_AXIS_INDEX,
 )
+from ._colors import bone_colors_255, floor_palette, rgb255
 from ._playback import PlaybackClock
 from ._vedo_capsules import CapsuleSkeleton
 
@@ -215,14 +214,14 @@ class _VedoPlayer:
         self.elevation = scene.views[0].elevation
         self.use_high = quality == "high"
 
-        self.num_frames = scene.num_frames
         self.n_skeletons = scene.num_skeletons
         # Keep full-rate data for FPS resampling
         self._coords_full = [v.coords.copy() for v in scene.views]
 
         # Playback bookkeeping lives in the pure state machine; this
         # class owns rendering, UI, and event dispatch only.
-        self.clock = PlaybackClock(self.num_frames, fps)
+        # self.num_frames is a property reading it — one owner.
+        self.clock = PlaybackClock(scene.num_frames, fps)
 
         # --- UI state ---
         self.state: _UiState = {
@@ -267,6 +266,11 @@ class _VedoPlayer:
                 self.state['timer_id'] = self.plt.timer_callback(
                     'create', dt=self.clock.interval_ms)
 
+    @property
+    def num_frames(self) -> int:
+        """Frame count at the current FPS preset (owned by the clock)."""
+        return self.clock.num_frames
+
     def show(self) -> None:
         self.plt.show()
 
@@ -296,11 +300,8 @@ class _VedoPlayer:
         mode = effective_color_mode(self.style, self.n_skeletons)
         if mode != "chains":
             return None
-        from matplotlib.colors import to_rgb
-        colors = bone_colors_for_view(
+        return bone_colors_255(
             self.scene.views[s], self.style, s, self.n_skeletons)
-        return [tuple(int(c * 255) for c in to_rgb(col))
-                for col in colors]
 
     def _build_geometry(self) -> None:
         """Create the floor, skeleton actors, labels, camera, and trails."""
@@ -314,23 +315,27 @@ class _VedoPlayer:
         half_span = self.half_span
         up_idx = UP_AXIS_INDEX.get(self.up_axis, 2)
 
-        # Sizing — base radius scales with the style's bone width
-        # (3.0, the paper default, is the 1:1 anchor), then adapted
+        # Base radius from the shared sizing formula, then adapted
         # per-bone by length inside CapsuleSkeleton.
-        r_bone_base = half_span * 0.013 * (self.style.bone_width / 3.0)
+        r_bone_base = CapsuleSkeleton.base_radius(
+            half_span, self.style.bone_width)
 
         # --- Floor (high quality only; kind from the style) ---
         if self.use_high and self.style.floor is not None:
             from vedo import Plane  # type: ignore[import-untyped]
 
-            # Place floor at the lowest point of all skeletons across
-            # all frames (viewer coords may be spread/centered, so the
-            # canonical world floor does not apply here).
-            floor_y = min(c[:, :, up_idx].min() for c in coords_list)
+            # Place floor at the ground-side extreme of all skeletons
+            # across all frames (viewer coords may be spread/centered,
+            # so the canonical world floor does not apply here). For a
+            # negative up axis the ground is the coordinate MAXIMUM.
+            up_sign = self.scene.views[0].up_sign
+            if up_sign > 0:
+                floor_y = min(c[:, :, up_idx].min() for c in coords_list)
+            else:
+                floor_y = max(c[:, :, up_idx].max() for c in coords_list)
             floor_pos = self.center.copy()
             floor_pos[up_idx] = floor_y
-            dark = self.style.background not in (
-                "white", "#FFFFFF", "#ffffff")
+            palette = floor_palette(self.style)
             if self.style.floor == "solid":
                 normal = [0.0, 0.0, 0.0]
                 normal[up_idx] = 1.0
@@ -338,7 +343,7 @@ class _VedoPlayer:
                     pos=tuple(floor_pos), normal=tuple(normal),
                     s=(half_span * 2.5, half_span * 2.5))
                 floor.alpha(self.style.floor_alpha)
-                floor.c('#2A2E36' if dark else '#E8E8EC').lighting('off')
+                floor.c(palette["face"]).lighting('off')
             else:
                 # "grid" — and "checker", which falls back to grid in
                 # this viewer (no cheap checker primitive in vedo).
@@ -353,7 +358,7 @@ class _VedoPlayer:
                     floor.rotate_y(90)
                 # up_axis='z': Grid defaults to XY plane, no rotation
                 floor.lw(1).alpha(0.6)
-                floor.c('#9BA0AC' if dark else '#555555').lighting('off')
+                floor.c(palette["grid"]).lighting('off')
             self.plt += floor
 
         # --- Build persistent skeleton geometry (created once, updated in-place) ---
@@ -377,12 +382,8 @@ class _VedoPlayer:
 
             if self.use_high:
                 chain_rgb = self._bone_colors_255(s)
-                spine_rgb: tuple[int, int, int] = (58, 63, 74)
-                if chain_rgb is not None:
-                    from matplotlib.colors import to_rgb
-                    spine_rgb = tuple(
-                        int(c * 255) for c in to_rgb(
-                            self.style.chain_colors.get("spine", "#3A3F4A")))
+                spine_rgb = rgb255(
+                    self.style.chain_colors.get("spine", "#3A3F4A"))
                 capsule = CapsuleSkeleton(
                     self.scene.views[s], r_bone_base, color,
                     chain_rgb=chain_rgb, spine_rgb=spine_rgb,
@@ -681,13 +682,16 @@ class _VedoPlayer:
         self._restart_timer()
 
     def _set_fps(self, idx: int) -> None:
-        """Change FPS preset and resample coordinate data."""
-        target_fps = self.clock.fps_presets[idx]
-        step = max(1, math.ceil(self.clock.native_fps / target_fps))
-        self.coords_list = [c[::step] for c in self._coords_full]
-        self.num_frames = self.coords_list[0].shape[0]
-        self.clock.set_fps_index(idx, self.num_frames)
-        self.fps_text.text(f" {target_fps} ")
+        """Change FPS preset and resample coordinate data.
+
+        The clock owns the fps-to-step formula; the coords are sliced
+        with clock.step so the two can never disagree.
+        """
+        self.clock.set_fps_index(idx, 1)   # frame count set below
+        self.coords_list = [c[::self.clock.step]
+                            for c in self._coords_full]
+        self.clock.num_frames = self.coords_list[0].shape[0]
+        self.fps_text.text(f" {self.clock.target_fps} ")
         self.state['_slider_updating'] = True
         self.slider.GetRepresentation().SetMinimumValue(0)
         self.slider.GetRepresentation().SetMaximumValue(self.num_frames - 1)
@@ -880,7 +884,7 @@ class _VedoPlayer:
         f = int(round(widget.value))  # type: ignore[attr-defined]
         self.clock.jump_to(f)
         self._sync_all()
-        self._update_frame_display(self.clock.frame)
+        self._update_frame(self.clock.frame)
 
     def _on_key(self, event: object) -> None:
         key = self.plt.last_event.keypress  # type: ignore[attr-defined]

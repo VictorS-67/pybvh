@@ -157,3 +157,63 @@ class TestPhase3Export:
     def test_play_unknown_backend_lists_opencv(self, bvh):
         with pytest.raises(ValueError, match="opencv"):
             bvhplot.play(bvh, backend="opencvv")
+
+
+class TestReviewFixes:
+    """Regression tests for the v0.9.0 code-review findings."""
+
+    def test_sequence_trace_respects_frames_range(self, bvh):
+        fig, ax = bvhplot.sequence(bvh, frames=(100, 300), n_poses=4)
+        # the dashed trace is the only Line3D on the axes; the range is
+        # stop-exclusive, so the trace spans frames 100..299
+        (trace,) = ax.lines
+        assert len(trace.get_xdata()) == 200
+        plt.close(fig)
+
+    def test_sequence_honors_floor_kind(self, bvh):
+        from mpl_toolkits.mplot3d.art3d import (
+            Line3DCollection, Poly3DCollection)
+        from pybvh.bvhplot import Style
+        fig, ax = bvhplot.sequence(
+            bvh, n_poses=3, style=Style("paper", floor="grid"))
+        # a grid floor is a Line3DCollection at floor zorder, not a quad
+        floor_artists = [c for c in ax.collections
+                        if c.get_zorder() == 0.5]
+        assert floor_artists
+        assert all(isinstance(c, Line3DCollection) for c in floor_artists)
+        plt.close(fig)
+
+    def test_mpl_ghosts_render_under_live_skeleton(self, bvh, tmp_path):
+        """Ghost collections carry zorder 1.5, below the live bones (2)."""
+        from pybvh.bvhplot._common import make_scene
+        from pybvh.bvhplot import _matplotlib as m
+        import matplotlib.pyplot as mplt
+        coords = bvh.node_positions()[:50]
+        scene = make_scene([bvh], [coords], "front", None)
+        fig = mplt.figure()
+        ax = fig.add_subplot(111, projection="3d")
+        ghost_slots, traces = m._setup_render_extras(
+            scene, bvhplot.Style("paper"), [ax], 2, True)
+        for collection, _lag in ghost_slots[0]:
+            assert collection.get_zorder() == 1.5
+        assert traces[0].get_zorder() == 0.8
+        mplt.close(fig)
+
+    def test_opencv_panels_do_not_overdraw(self, bvh):
+        """A panel's floor must not bleed into its neighbor: the left
+        panel of a 2-up render equals the same view rendered alone."""
+        cv2 = pytest.importorskip("cv2")
+        from pybvh.bvhplot._common import make_scene
+        from pybvh.bvhplot._opencv import _generate_frames
+        from pybvh.bvhplot import Style
+        # force chains so the multi-skeleton auto-switch can't recolor
+        # the left panel relative to the solo render
+        style = Style("paper", supersample=1, color_mode="chains")
+        coords = bvh.node_positions()[:2]
+        far = coords + np.array([500.0, 0.0, 0.0])
+        pair = make_scene([bvh, bvh], [coords, far], "front", None)
+        solo = make_scene([bvh], [coords], "front", None)
+        pair_img = next(_generate_frames(pair, style, (400, 200)))
+        solo_img = next(_generate_frames(solo, style, (200, 200)))
+        # ignore the 1px divider column at x=200
+        assert np.array_equal(pair_img[:, :199], solo_img[:, :199])

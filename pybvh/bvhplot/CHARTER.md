@@ -2,7 +2,7 @@
 
 ## What bvhplot is
 
-bvhplot is pybvh's built-in visualization module. It provides **quick-look** tools for inspecting BVH motion data: static snapshots, video exports, and interactive playback. It is designed for researchers and developers who want to see their data without leaving their Python environment.
+bvhplot is pybvh's built-in visualization module. It provides **quick-look and publication-grade** tools for BVH motion data: static snapshots, sequence figures, video exports, and interactive playback. Since v0.9.0 every function accepts a `Style` (presets `paper`/`debug`/`dark`) and the paper look — ground plane, per-chain colors, joint markers, axes off — is the default. It is designed for researchers and developers who want to see their data, and put it in a paper, without leaving their Python environment.
 
 ## Core mission
 
@@ -20,12 +20,14 @@ bvhplot is pybvh's built-in visualization module. It provides **quick-look** too
 
 ## What bvhplot owns
 
-- **Static snapshots** (`frame`, `rest_pose`): Matplotlib 3D plots for papers and quick checks.
-- **Video/GIF/HTML export** (`render`): Batch rendering of animations to files. OpenCV backend for speed, matplotlib fallback for universality.
+- **Static snapshots** (`frame`, `rest_pose`): Matplotlib 3D plots for papers and quick checks; `frame(backend="vedo")` renders a shadowed 3D capsule skeleton offscreen and returns a numpy image.
+- **Sequence figures** (`sequence`): The motion-paper still — equidistantly sampled poses in one figure with lightness encoding time.
+- **Video/GIF/HTML export** (`render`): Batch rendering of animations to files. OpenCV backend for speed (supersampled, resolution-aware), matplotlib fallback for universality, vedo backend for shadowed capsule videos. Ghost trails, floor trajectory traces, and turntable cameras.
 - **Interactive playback** (`play`): In-window animation with transport controls (play/pause, speed, scrubbing, frame stepping).
 - **Trajectory plots** (`trajectory`): 2D top-down root path visualization.
-- **Camera math**: Consistent camera angles across all backends (front/side/top presets, azimuth/elevation).
-- **Desktop viewer features**: Keyboard shortcuts, FPS selector, joint labels, trajectory trail, screenshot export, ping-pong playback. These are lightweight toggles on the 3D viewport, not GUI widgets.
+- **Styling** (`Style`): The one styling object every function accepts — chain/skeleton color modes, floor kinds, backgrounds, projection, export quality knobs.
+- **Camera math**: Consistent camera angles across all backends (front/side/top presets, azimuth/elevation, turntable).
+- **Desktop viewer features**: Keyboard shortcuts, FPS selector, joint labels, trajectory trail, clean screenshot export, ping-pong playback. These are lightweight toggles on the 3D viewport, not GUI widgets.
 
 ## What bvhplot does NOT own
 
@@ -46,12 +48,13 @@ If it's a keyboard toggle on the 3D viewport (show/hide something, change a mode
 
 | Backend | Environment | Optional dep | Purpose |
 |---------|------------|-------------|---------|
-| matplotlib | Any | None (core dep) | Static plots, slow animation fallback |
-| OpenCV | Any | `opencv-python` | Fast video export (~1000fps rendering) |
+| matplotlib | Any | None (core dep) | Static plots, sequence figures, slow animation fallback |
+| OpenCV | Any | `opencv-python` | Fast video export (~1000fps rendering, supersampled) |
 | k3d | Jupyter | `k3d` | Interactive notebook playback |
-| vedo | Desktop | `vedo` | Interactive desktop viewer with full controls |
+| vedo (viewer) | Desktop | `vedo` | Interactive desktop viewer with full controls |
+| vedo (offscreen) | Any, headless-safe | `vedo` | Shadowed capsule stills/videos via `frame/render(backend="vedo")` — never auto-selected |
 
-Auto-detection priority: k3d (notebook) > vedo (desktop) > opencv (notebook fallback) > matplotlib (universal fallback).
+Auto-detection priority: k3d (notebook) > vedo viewer (desktop) > opencv (notebook fallback) > matplotlib (universal fallback). Every backend auto-detection can pick is also nameable explicitly (`play(backend="opencv")` pins the notebook inline-video fallback). Internally, every backend consumes one prepared `Scene` plus a `Style` (`_common.py`); playback state for the viewer lives in the pure `PlaybackClock` (`_playback.py`).
 
 ## Ecosystem position
 

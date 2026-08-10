@@ -5,6 +5,7 @@ playback via plt.show(), and 2D trajectory plots.
 """
 from __future__ import annotations
 
+import dataclasses
 import warnings
 import numpy as np
 import numpy.typing as npt
@@ -17,13 +18,19 @@ from typing import Any, TYPE_CHECKING
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 from ._common import (
+    GHOST_WIDTH_FACTOR,
     PALETTE_MPL,
     Scene,
     SkeletonView,
     Style,
+    TRACE_BLEND,
+    TRACE_COLOR,
     UP_AXIS_INDEX,
     bone_colors_for_view,
+    floor_trace_points,
+    ghost_schedule,
 )
+from ._colors import floor_palette
 
 if TYPE_CHECKING:
     import matplotlib.figure
@@ -50,7 +57,9 @@ def _apply_axes_style(
         ax.set_proj_type("ortho")  # type: ignore[attr-defined]
     if style.axes == "off":
         ax.set_axis_off()
-        # Manual draw order: floor first, then bones, then joints.
+        # Manual draw order via explicit zorders (mplot3d ignores
+        # zorder unless computed_zorder is off): floor 0.5, trace 0.8,
+        # ghosts 1.5, bones 2 (the artist default), joints 3.
         ax.computed_zorder = False  # type: ignore[attr-defined]
     # Leave the default white patch untouched (pixel parity for the
     # debug preset); only non-white backgrounds need painting.
@@ -70,10 +79,14 @@ def _floor_limits(
     center = view.center.copy()
     half_span = view.half_span
     up = view.up_index
-    lo = center[up] - half_span
-    target_lo = view.floor_height - 0.02 * half_span
-    if lo > target_lo:
-        center[up] += target_lo - lo
+    sign = view.up_sign
+    # The box edge visually below the skeleton is center - sign*half:
+    # for a negative up axis the ground sits at the coordinate MAXIMUM.
+    bottom = center[up] - sign * half_span
+    target = view.below_floor(0.02 * half_span)
+    delta = target - bottom
+    if sign * delta < 0:
+        center[up] += delta
     return center, half_span
 
 
@@ -81,73 +94,92 @@ def _draw_floor_mpl(
     ax: matplotlib.axes.Axes,
     view: SkeletonView,
     style: Style,
+    bounds: tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]] | None = None,
 ) -> None:
     """Draw the ground plane for one view (solid, grid, or checker).
 
     The plane is horizontal in the view's two ground axes at
-    ``view.floor_height``, extending 1.8 x half_span around the box
-    center so it fills the frame at typical camera elevations.
+    ``view.floor_height``. Without *bounds* it extends 1.8 x half_span
+    around the box center (fills the frame at typical camera
+    elevations); with ``bounds=(mins, maxs)`` it is clipped to that
+    box — the sequence figure needs this, where a full-extent plane
+    reads as a backdrop wall.
     """
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
     up = view.up_index
     ground = [i for i in range(3) if i != up]
-    center, half_span = _floor_limits(view, style)
-    ext = half_span * 1.8
-    y = view.floor_height - 0.001 * half_span
-    dark = style.background not in ("white", "#FFFFFF", "#ffffff")
+    y = view.below_floor(0.001 * view.half_span)
+    palette = floor_palette(style)
 
-    def quad(c0: float, c1: float, s: float) -> list[tuple[float, ...]]:
+    if bounds is None:
+        center, half_span = _floor_limits(view, style)
+        g0_lo = float(center[ground[0]]) - half_span * 1.8
+        g0_hi = float(center[ground[0]]) + half_span * 1.8
+        g1_lo = float(center[ground[1]]) - half_span * 1.8
+        g1_hi = float(center[ground[1]]) + half_span * 1.8
+    else:
+        mins, maxs = bounds
+        g0_lo, g0_hi = float(mins[ground[0]]), float(maxs[ground[0]])
+        g1_lo, g1_hi = float(mins[ground[1]]), float(maxs[ground[1]])
+
+    def quad(a_lo: float, a_hi: float, b_lo: float, b_hi: float):
         pts = []
-        for d0, d1 in ((-s, -s), (s, -s), (s, s), (-s, s)):
+        for a, b in ((a_lo, b_lo), (a_hi, b_lo), (a_hi, b_hi),
+                     (a_lo, b_hi)):
             p = [0.0, 0.0, 0.0]
-            p[ground[0]] = c0 + d0
-            p[ground[1]] = c1 + d1
+            p[ground[0]] = a
+            p[ground[1]] = b
             p[up] = y
             pts.append(tuple(p))
         return pts
 
-    c0, c1 = float(center[ground[0]]), float(center[ground[1]])
-
     if style.floor == "solid":
-        face = "#2A2E36" if dark else "#E8E8EC"
-        edge = "#3A3F4A" if dark else "#D0D0D8"
         ax.add_collection3d(Poly3DCollection(
-            [quad(c0, c1, ext)], facecolors=face, edgecolors=edge,
-            linewidths=0.5, alpha=style.floor_alpha))
+            [quad(g0_lo, g0_hi, g1_lo, g1_hi)],
+            facecolors=palette["face"], edgecolors=palette["edge"],
+            linewidths=0.5, alpha=style.floor_alpha, zorder=0.5))
     elif style.floor == "checker":
-        n = 8
-        s = ext / n
-        shades = (("#2A2E36", "#1E2127") if dark
-                  else ("#EDEDF1", "#DCDCE3"))
+        n = 16
+        s0 = (g0_hi - g0_lo) / n
+        s1 = (g1_hi - g1_lo) / n
         squares = []
         colors = []
-        for i in range(-n, n):
-            for j in range(-n, n):
-                squares.append(quad(c0 + (i + 0.5) * s,
-                                    c1 + (j + 0.5) * s, s / 2))
-                colors.append(shades[(i + j) % 2])
+        for i in range(n):
+            for j in range(n):
+                squares.append(quad(g0_lo + i * s0, g0_lo + (i + 1) * s0,
+                                    g1_lo + j * s1, g1_lo + (j + 1) * s1))
+                colors.append(palette["checker"][(i + j) % 2])
         ax.add_collection3d(Poly3DCollection(
-            squares, facecolors=colors, alpha=style.floor_alpha))
+            squares, facecolors=colors, alpha=style.floor_alpha,
+            zorder=0.5))
     elif style.floor == "grid":
-        color = "#3A3F4A" if dark else "#C8C8D0"
-        n = 10
-        s = ext / n
+        # Square cells: divisions per axis follow its extent, so a wide
+        # sequence floor doesn't get dense crosshatching on the short
+        # axis.
+        cell = max(g0_hi - g0_lo, g1_hi - g1_lo) / 20
+        n0 = max(1, round((g0_hi - g0_lo) / cell))
+        n1 = max(1, round((g1_hi - g1_lo) / cell))
+        s0 = (g0_hi - g0_lo) / n0
+        s1 = (g1_hi - g1_lo) / n1
         segs = []
-        for i in range(-n, n + 1):
-            for horiz in (True, False):
-                p0 = [0.0, 0.0, 0.0]
-                p1 = [0.0, 0.0, 0.0]
-                if horiz:
-                    p0[ground[0]], p1[ground[0]] = c0 - ext, c0 + ext
-                    p0[ground[1]] = p1[ground[1]] = c1 + i * s
-                else:
-                    p0[ground[0]] = p1[ground[0]] = c0 + i * s
-                    p0[ground[1]], p1[ground[1]] = c1 - ext, c1 + ext
-                p0[up] = p1[up] = y
-                segs.append([tuple(p0), tuple(p1)])
+        for i in range(n0 + 1):
+            segs.append([_pt3(ground, up, g0_lo + i * s0, g1_lo, y),
+                         _pt3(ground, up, g0_lo + i * s0, g1_hi, y)])
+        for j in range(n1 + 1):
+            segs.append([_pt3(ground, up, g0_lo, g1_lo + j * s1, y),
+                         _pt3(ground, up, g0_hi, g1_lo + j * s1, y)])
         ax.add_collection3d(Line3DCollection(
-            segs, colors=color, linewidths=0.7, alpha=0.8))
+            segs, colors=palette["grid"], linewidths=0.7, alpha=0.8,
+            zorder=0.5))
+
+
+def _pt3(ground: list[int], up: int, a: float, b: float, y: float):
+    p = [0.0, 0.0, 0.0]
+    p[ground[0]] = a
+    p[ground[1]] = b
+    p[up] = y
+    return tuple(p)
 
 
 def _draw_joint_markers(
@@ -155,9 +187,13 @@ def _draw_joint_markers(
     frame_data: npt.NDArray[np.float64],
     style: Style,
 ) -> None:
+    # zorder 3: joint dots sit on top of the bone lines (scatter's
+    # default of 1 would put them underneath once computed_zorder is
+    # off in paper mode).
     ax.scatter(
         frame_data[:, 0], frame_data[:, 1], frame_data[:, 2],
-        s=style.joint_size, c=style.joint_color, depthshade=False)
+        s=style.joint_size, c=style.joint_color, depthshade=False,
+        zorder=3)
 
 
 def _fade_toward_background(color: object, weight: float, style: Style):
@@ -194,32 +230,23 @@ def _draw_pose(
                        _fade_toward_background(style.joint_color, weight,
                                                style))
         ax.scatter(pose[:, 0], pose[:, 1], pose[:, 2],
-                   s=style.joint_size, c=[joint_color], depthshade=False)
-
-
-def _floor_trace_points(
-    view: SkeletonView,
-    upto: int | None = None,
-) -> npt.NDArray[np.float64]:
-    """Root path projected onto the floor plane (for the dashed trace)."""
-    end = view.coords.shape[0] if upto is None else upto + 1
-    path = view.coords[:end, 0, :].copy()
-    path[:, view.up_index] = view.floor_height
-    return path
+                   s=style.joint_size, c=[joint_color], depthshade=False,
+                   zorder=3)
 
 
 def _draw_floor_trace(
     ax: matplotlib.axes.Axes,
     view: SkeletonView,
     style: Style,
+    start: int = 0,
     upto: int | None = None,
 ):
     """Dashed root-trajectory trace on the floor. Returns the artist."""
-    path = _floor_trace_points(view, upto)
-    trace_color = _fade_toward_background("#7A8090", 0.9, style)
+    path = floor_trace_points(view, start, upto)
+    trace_color = _fade_toward_background(TRACE_COLOR, TRACE_BLEND, style)
     (line,) = ax.plot(
         path[:, 0], path[:, 1], path[:, 2],
-        c=trace_color, lw=1.4, ls=(0, (4, 2)))
+        c=trace_color, lw=1.4, ls=(0, (4, 2)), zorder=0.8)
     return line
 
 
@@ -248,17 +275,14 @@ def sequence_mpl(
     view = scene.views[0]
     n_samples = len(sample_frames)
 
-    # Per-pose coordinates under the chosen layout
-    poses = [view.coords[f] for f in sample_frames]
+    # Per-pose coordinates under the chosen layout — one fancy index,
+    # no Python loop over frames.
+    stack = view.coords[sample_frames]              # (S, N, 3)
     if layout == "overlay":
-        centered_poses = []
-        for pose in poses:
-            shift = pose[0].copy()
-            shift[view.up_index] = 0.0
-            centered_poses.append(pose - shift)
-        poses = centered_poses
-
-    stack = np.concatenate([p[np.newaxis] for p in poses], axis=0)
+        shifts = stack[:, :1, :].copy()             # (S, 1, 3) root positions
+        shifts[..., view.up_index] = 0.0
+        stack = stack - shifts
+    poses = list(stack)
 
     if ax is not None:
         fig = ax.get_figure()
@@ -281,13 +305,23 @@ def sequence_mpl(
         elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis)
 
     up = view.up_index
+    sign = view.up_sign
     flat = stack.reshape(-1, 3)
     mins = flat.min(axis=0)
     maxs = flat.max(axis=0)
+    # Overlay layouts re-center heights, so the world floor does not
+    # apply — use the poses' own lowest point (sign-aware: for a
+    # negative up axis the ground is at the coordinate maximum).
+    if layout == "offset":
+        floor_y = view.floor_height
+    else:
+        floor_y = float(flat[:, up].min() if sign > 0
+                        else flat[:, up].max())
     if style.floor is not None:
-        mins[up] = min(mins[up],
-                       view.floor_height if layout == "offset"
-                       else float(flat[:, up].min()))
+        if sign > 0:
+            mins[up] = min(mins[up], floor_y)
+        else:
+            maxs[up] = max(maxs[up], floor_y)
     pad = 0.04 * float((maxs - mins).max())
     mins, maxs = mins - pad, maxs + pad
     spans = maxs - mins
@@ -306,30 +340,21 @@ def sequence_mpl(
         _set_axis_limits(ax, center, half)
         ax.set_box_aspect((1, 1, 1))  # type: ignore[attr-defined]
 
-    # Floor clipped to the box: a full-extent plane reads as a backdrop
-    # wall in wide orthographic views.
+    # Floor clipped to the box (a full-extent plane reads as a backdrop
+    # wall in wide orthographic views), honoring the style's floor kind
+    # via the one shared floor renderer. Overlay layouts re-center
+    # heights, so the floor is re-anchored to the poses' lowest point.
     if style.floor is not None:
-        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-
-        ground = [i for i in range(3) if i != up]
-        floor_y = (view.floor_height if layout == "offset"
-                   else float(flat[:, up].min()))
-        corners = []
-        for d0, d1 in ((0, 0), (1, 0), (1, 1), (0, 1)):
-            p = [0.0, 0.0, 0.0]
-            p[ground[0]] = (mins[ground[0]], maxs[ground[0]])[d0]
-            p[ground[1]] = (mins[ground[1]], maxs[ground[1]])[d1]
-            p[up] = floor_y
-            corners.append(tuple(p))
-        dark = style.background not in ("white", "#FFFFFF", "#ffffff")
-        face = "#2A2E36" if dark else "#E8E8EC"
-        edge = "#3A3F4A" if dark else "#D0D0D8"
-        ax.add_collection3d(Poly3DCollection(
-            [corners], facecolors=face, edgecolors=edge, linewidths=0.5,
-            alpha=style.floor_alpha))
+        floor_view = view if layout == "offset" else dataclasses.replace(
+            view, floor_height=floor_y)
+        _draw_floor_mpl(ax, floor_view, style, bounds=(mins, maxs))
 
     if trajectory and layout == "offset":
-        _draw_floor_trace(ax, view, style)
+        # Trace only the sampled range — a frames= restriction must not
+        # leak the whole clip's path into (and beyond) the figure.
+        _draw_floor_trace(ax, view, style,
+                          start=int(sample_frames[0]),
+                          upto=int(sample_frames[-1]))
 
     colors = bone_colors_for_view(view, style, 0, 1)
     for k, pose in enumerate(poses):
@@ -419,11 +444,7 @@ def frame_mpl(
             center, half_span = view.center, view.half_span
 
         colors = bone_colors_for_view(view, style, i, n)
-        segments = frame_data[np.asarray(view.bones, dtype=int)]
-        ax_i.add_collection3d(Line3DCollection(
-            segments, colors=colors, linewidths=style.bone_width))
-        if style.joint_markers:
-            _draw_joint_markers(ax_i, frame_data, style)
+        _draw_pose(ax_i, frame_data, view, style, colors)
 
         _set_axis_limits(ax_i, center, half_span)
         ax_i.view_init(  # type: ignore[attr-defined]
@@ -537,18 +558,20 @@ def _setup_render_extras(
     ghost_slots: list = []   # per skeleton: list of (collection, lag_frames)
     trace_lines: list = []   # per skeleton: Line3D or None
     n = scene.num_skeletons
-    weights = np.linspace(0.32, 0.15, ghost) if ghost else []
 
     for i, (view, ax) in enumerate(zip(scene.views, axs_flat)):
         colors = bone_colors_for_view(view, style, i, n)
-        lag = max(1, round(style.ghost_spacing / view.bvh.frame_time))
+        lag, weights = ghost_schedule(style, view.bvh.frame_time, ghost)
         slots = []
         for j in range(ghost):
             faded = [_fade_toward_background(c, float(weights[j]), style)
                      for c in colors]
+            # zorder 1.5: ghosts sit behind the live skeleton (bones at
+            # the default 2) regardless of artist creation order.
             collection = Line3DCollection(
                 np.empty((0, 2, 3)), colors=faded,
-                linewidths=style.bone_width * 0.75)
+                linewidths=style.bone_width * GHOST_WIDTH_FACTOR,
+                zorder=1.5)
             ax.add_collection3d(collection)
             slots.append((collection, (j + 1) * lag))
         ghost_slots.append(slots)
@@ -567,7 +590,7 @@ def _wrap_update_with_extras(
     trace_lines,
 ):
     """Extend an animation update fn with ghost and trace updates."""
-    trace_paths = [_floor_trace_points(v) for v in scene.views]
+    trace_paths = [floor_trace_points(v) for v in scene.views]
     empty = np.empty((0, 2, 3))
 
     def update(f: int):

@@ -138,8 +138,10 @@ def walk_clip_gif(bvh, path="feature_gallery_walk.gif", fps=25):
     # 25 fps (40 ms) sits exactly on the GIF centisecond frame-delay grid;
     # 30 fps would be stored as 30 ms frames and play ~11% fast.
     clip = bvh.resample(fps)
+    # axes visibility moved into Style in v0.9.0 (show_axis was removed)
+    from pybvh.bvhplot import Style
     return str(clip.render(path, backend="matplotlib", camera="side",
-                           show_axis=True, fps=fps))
+                           style=Style("paper", axes="full"), fps=fps))
 
 
 def trajectory_trace_gif(bvh, joint, path="feature_gallery_hand_traj.gif", fps=20):

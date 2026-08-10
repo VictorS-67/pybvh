@@ -243,7 +243,7 @@ output_path = bvh.render(
     output_folder / 'bvh_animation_custom.mp4',
     camera='side',
     fps=30,
-    show_axis=True,
+    style=bvhplot.Style('paper', axes='full'),
 )
 print(f'Animation with options saved to: {output_path}')
 

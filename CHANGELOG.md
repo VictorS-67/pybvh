@@ -9,7 +9,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.9.0] — Unreleased
 
-The publication-grade visualization release. Every bvhplot function now produces paper-ready output by default — ground plane, per-chain bone colors, joint markers, axes off — with the old look preserved as a named style. New: sequence figures (the motion-paper still), ghost trails, floor trajectory traces, turntable videos, supersampled anti-aliased export, and a shadowed 3D capsule renderer. The reference visuals were prototyped and approved before implementation; the design record lives in `improve_visualization.md`.
+The publication-grade visualization release. Every bvhplot function now produces paper-ready output by default — ground plane, per-chain bone colors, joint markers, axes off — with the old look preserved as a named style. New: sequence figures (the motion-paper still), ghost trails, floor trajectory traces, turntable videos, supersampled anti-aliased export, and a shadowed 3D capsule renderer (its shadow-technique decision is recorded in `docs/adr/0001-vedo-projected-shadows.md`).
 
 ### Breaking changes & migration
 
@@ -17,7 +17,7 @@ The publication-grade visualization release. Every bvhplot function now produces
 |---|---|---|
 | Default look (single blue skeleton, full axes/ticks, no floor) | The `"paper"` style everywhere | Pass `style="debug"` to any bvhplot function to restore the pre-0.9.0 output exactly (pixel-identical for matplotlib stills — enforced by test). |
 | `render(show_axis=True)` | `style=Style("paper", axes="full")` | Axes visibility now lives in the style; the parameter is removed. |
-| `render()` stamped a `Frame f/F` counter on videos | Counter is opt-in | Pass `frame_counter=True` to restore it (GIF output was already counter-free). |
+| `render()` stamped a `Frame f/F` counter on videos | Counter is opt-in | Pass `frame_counter=True` to restore it — on `render()` and on `play()`'s notebook inline-video preview (GIF output was already counter-free). |
 
 ### Added
 

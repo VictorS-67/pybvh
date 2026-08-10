@@ -249,3 +249,58 @@ class TestStyledRenderSmoke:
             short, tmp_path / "paper.gif", backend="matplotlib",
             resolution=(320, 240), style="paper")
         assert path.exists() and path.stat().st_size > 0
+
+
+class TestReviewFixes:
+    """Regression tests for the v0.9.0 code-review findings."""
+
+    def test_style_does_not_alias_preset_dicts(self):
+        s = Style("paper")
+        s.chain_colors["l_arm"] = "#FF0000"
+        assert Style("paper").chain_colors["l_arm"] == CHAIN_COLORS["l_arm"]
+        assert CHAIN_COLORS["l_arm"] != "#FF0000"
+
+    def test_dark_background_by_luminance_not_string(self):
+        from pybvh.bvhplot._colors import is_dark_background
+        assert not is_dark_background("#F5F5F7")   # light gray is light
+        assert not is_dark_background("snow")
+        assert not is_dark_background((1.0, 1.0, 1.0))
+        assert is_dark_background("#16181D")
+        assert is_dark_background("black")
+
+    def test_floor_gray_unified_across_backends(self):
+        """The vedo offscreen floor had drifted to #EDEDF1; all solid
+        floors now read one palette."""
+        from pybvh.bvhplot import _colors, _vedo_offscreen, _matplotlib
+        import inspect
+        assert "#EDEDF1" not in inspect.getsource(_vedo_offscreen)
+        assert _colors.FLOOR_LIGHT["face"] == "#E8E8EC"
+
+    def test_negative_up_floor_at_ground_not_head(self, bvh):
+        from tests.synthetic_bvh import make_neg_y_up_bvh
+        from pybvh.bvhplot._common import make_scene
+        neg = make_neg_y_up_bvh()
+        coords = neg.node_positions()
+        scene = make_scene([neg], [coords], "front", None,
+                           canonical_floor=False)
+        view = scene.views[0]
+        assert view.up_sign == -1.0
+        # ground = coordinate MAXIMUM for -y up
+        assert view.floor_height == pytest.approx(
+            float(coords[..., view.up_index].max()))
+        # "below the floor" moves toward larger coordinates
+        assert view.below_floor(1.0) > view.floor_height
+
+    def test_paper_frame_zorders(self, bvh):
+        """Floor under bones under joints, by explicit zorder."""
+        fig, ax = bvhplot.frame(bvh, 10, style="paper")
+        zorders = sorted(c.get_zorder() for c in ax.collections)
+        assert zorders[0] == 0.5          # floor
+        assert 3 in zorders               # joint markers on top
+        plt.close(fig)
+
+    def test_frame_filepath_written_on_matplotlib(self, bvh, tmp_path):
+        out = tmp_path / "pose.png"
+        fig, ax = bvhplot.frame(bvh, 10, filepath=out)
+        assert out.exists() and out.stat().st_size > 0
+        plt.close(fig)

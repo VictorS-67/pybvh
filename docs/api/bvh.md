@@ -512,6 +512,10 @@ Quick-look plotting on the object; multi-skeleton comparison lives in [`pybvh.bv
     options:
       heading_level: 3
 
+::: pybvh.bvh.Bvh.plot_sequence
+    options:
+      heading_level: 3
+
 ::: pybvh.bvh.Bvh.plot_trajectory
     options:
       heading_level: 3

@@ -940,7 +940,8 @@ def play(
         spread_coords = _apply_scene_spacing(
             bvh_list, [v.coords for v in scene.views], spacing,
             scene.views[0].up_axis, centered)
-        play_k3d(scene.replace_coords(spread_coords), actual_fps)
+        play_k3d(scene.replace_coords(spread_coords), style_obj,
+                 actual_fps)
         return None
 
     elif backend_name == "vedo":
@@ -954,8 +955,8 @@ def play(
         spread_coords = _apply_scene_spacing(
             bvh_list, [v.coords for v in scene.views], spacing,
             scene.views[0].up_axis, centered)
-        play_vedo(scene.replace_coords(spread_coords), actual_fps,
-                  quality=quality)
+        play_vedo(scene.replace_coords(spread_coords), style_obj,
+                  actual_fps, quality=quality)
         return None
 
     elif backend_name == "opencv_notebook":

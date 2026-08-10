@@ -21,30 +21,37 @@ import numpy.typing as npt
 
 from typing import Callable, TYPE_CHECKING, TypedDict
 
-from ._common import PALETTE_RGB, Scene, build_view_matrix, UP_AXIS_INDEX
+from ._common import (
+    PALETTE_RGB,
+    Scene,
+    Style,
+    bone_colors_for_view,
+    build_view_matrix,
+    effective_color_mode,
+    UP_AXIS_INDEX,
+)
+from ._playback import PlaybackClock
 
 if TYPE_CHECKING:
     from ..bvh import Bvh
 
-# Rich gold for single-skeleton "high" mode (aitviewer-inspired)
+# Rich gold for single-skeleton "high" mode (aitviewer-inspired);
+# used when the style's color mode resolves to "skeleton"/"single".
 _WARM_AMBER = (230, 175, 50)
 
+# Test seam: forces the player's Plotter offscreen so construction,
+# geometry, and the screenshot path can run without a display.
+_FORCE_OFFSCREEN = False
 
-class _PlayerState(TypedDict, total=False):
-    frame: int
-    playing: bool
-    interval: int
+
+class _UiState(TypedDict, total=False):
+    """UI-only flags — playback bookkeeping lives in PlaybackClock."""
     timer_id: int | None
-    speed: float
-    loop_mode: str
-    play_direction: int
     _slider_updating: bool
     show_labels: bool
     skeleton_visible: list[bool]
     show_trail: bool
     _rendering: bool
-    _play_start_time: float | None
-    _play_start_frame: int
     _screenshot_hide_at: float | None
 
 
@@ -136,6 +143,7 @@ _HELP_ENTRIES = [
 
 def play_vedo(
     scene: Scene,
+    style: Style,
     fps: float,
     *,
     quality: str = "high",
@@ -146,10 +154,17 @@ def play_vedo(
     the first view) and one unified bounding box (``scene.unified_box()``
     over the — possibly laterally spread — view coords).
 
+    Style application (look fields): background, floor kind
+    (``"checker"`` falls back to ``"grid"`` here), bone width, and
+    chain colors for single-skeleton sessions in high quality mode.
+    Joint spheres are structural in this viewer and always drawn.
+
     Parameters
     ----------
     scene : Scene
         Prepared visualization.
+    style : Style
+        Visual styling (look fields).
     fps : float
         Frames per second.
     quality : str
@@ -171,7 +186,7 @@ def play_vedo(
     vedo.settings.enable_default_keyboard_callbacks = False
     vedo.settings.enable_default_mouse_callbacks = False
     try:
-        player = _VedoPlayer(scene, fps, quality=quality)
+        player = _VedoPlayer(scene, style, fps, quality=quality)
         player.show()
     finally:
         (vedo.settings.enable_default_keyboard_callbacks,
@@ -191,6 +206,7 @@ class _VedoPlayer:
     def __init__(
         self,
         scene: Scene,
+        style: Style,
         fps: float,
         *,
         quality: str,
@@ -198,6 +214,8 @@ class _VedoPlayer:
         from vedo import Plotter  # type: ignore[import-untyped]
 
         center, half_span = scene.unified_box()
+        self.scene = scene
+        self.style = style
         self.bvh_list = [v.bvh for v in scene.views]
         self.coords_list = [v.coords for v in scene.views]
         self.labels = scene.labels
@@ -214,56 +232,52 @@ class _VedoPlayer:
         # Keep full-rate data for FPS resampling
         self._coords_full = [v.coords.copy() for v in scene.views]
 
-        # --- FPS presets ---
-        self._native_fps = fps
-        self._fps_presets = sorted(set([15, 30, 60, 120, int(round(fps))]))
-        default_fps = 30 if fps > 30 else fps
-        self._fps_idx = self._fps_presets.index(
-            min(self._fps_presets, key=lambda x: abs(x - default_fps)))
+        # Playback bookkeeping lives in the pure state machine; this
+        # class owns rendering, UI, and event dispatch only.
+        self.clock = PlaybackClock(self.num_frames, fps)
 
-        # --- Animation state ---
-        self.state: _PlayerState = {
-            'frame': 0,
-            'playing': True,
-            'interval': max(int(1000.0 / max(fps, 1)), 8),
+        # --- UI state ---
+        self.state: _UiState = {
             'timer_id': None,
-            'speed': 1.0,
-            'loop_mode': 'loop',       # 'loop', 'ping-pong', 'off'
-            'play_direction': 1,       # 1 = forward, -1 = backward
             '_slider_updating': False,
             'show_labels': False,
             'skeleton_visible': [True] * self.n_skeletons,
             'show_trail': False,
             '_rendering': False,
-            '_play_start_time': None,
-            '_play_start_frame': 0,
+            '_screenshot_hide_at': None,
         }
 
         self.plt = Plotter(
             title="pybvh viewer",
             size=(1400, 900),
-            bg='#d4d4dc',        # soft cool gray at bottom (behind controls)
-            bg2='lightskyblue',  # sky at top
+            bg=style.background,
+            offscreen=_FORCE_OFFSCREEN,
         )
 
         # Button registry: (x0, y0, w, h, callback) per clickable region.
         self._buttons: list[
             tuple[float, float, float, float, Callable[[], None]]] = []
+        # Every UI overlay actor registers here so the clean-screenshot
+        # mode can hide the lot in one pass.
+        self._ui_actors: list = []
 
         self._build_geometry()
         self._build_ui()
 
         # Apply default FPS if it differs from native (needs the slider,
         # so this runs after _build_ui).
-        if self._fps_presets[self._fps_idx] != int(round(self._native_fps)):
-            self._set_fps(self._fps_idx)
+        if self.clock.target_fps != int(round(self.clock.native_fps)):
+            self._set_fps(self.clock.fps_idx)
 
-        self.plt.add_callback('LeftButtonPress', self._on_click)
-        self.plt.add_callback('timer', self._on_timer)
-        self.plt.add_callback('key press', self._on_key)
-        if self.state['timer_id'] is None:
-            self.state['timer_id'] = self.plt.timer_callback(
-                'create', dt=self.state['interval'])
+        # An offscreen plotter has no interactor: no events, no timers
+        # (the offscreen path renders stills; playback needs a window).
+        if self.plt.interactor is not None:
+            self.plt.add_callback('LeftButtonPress', self._on_click)
+            self.plt.add_callback('timer', self._on_timer)
+            self.plt.add_callback('key press', self._on_key)
+            if self.state['timer_id'] is None:
+                self.state['timer_id'] = self.plt.timer_callback(
+                    'create', dt=self.clock.interval_ms)
 
     def show(self) -> None:
         self.plt.show()
@@ -281,6 +295,25 @@ class _VedoPlayer:
         r, g, b = self._color_rgb(s)
         return f"rgb({r},{g},{b})"
 
+    def _bone_colors_255(self, s: int) -> list[tuple[int, int, int]] | None:
+        """Per-bone RGB (0-255) when chain coloring applies, else None.
+
+        Chain colors apply in high quality mode when the style's color
+        mode resolves to "chains" (single-skeleton sessions under the
+        default "auto"); multi-skeleton sessions keep flat per-skeleton
+        colors so the number-key visibility toggles stay color-coded.
+        """
+        if not self.use_high:
+            return None
+        mode = effective_color_mode(self.style, self.n_skeletons)
+        if mode != "chains":
+            return None
+        from matplotlib.colors import to_rgb
+        colors = bone_colors_for_view(
+            self.scene.views[s], self.style, s, self.n_skeletons)
+        return [tuple(int(c * 255) for c in to_rgb(col))
+                for col in colors]
+
     def _build_geometry(self) -> None:
         """Create the floor, skeleton actors, labels, camera, and trails."""
         from vedo import (  # type: ignore[import-untyped]
@@ -293,8 +326,10 @@ class _VedoPlayer:
         half_span = self.half_span
         up_idx = UP_AXIS_INDEX.get(self.up_axis, 2)
 
-        # Sizing — base radius, then adapted per-bone by length
-        r_bone_base = half_span * 0.013
+        # Sizing — base radius scales with the style's bone width
+        # (3.0, the paper default, is the 1:1 anchor), then adapted
+        # per-bone by length.
+        r_bone_base = half_span * 0.013 * (self.style.bone_width / 3.0)
 
         # Precompute adaptive radii: scale each bone's radius proportional
         # to its length relative to the median.  Short finger bones get thin
@@ -325,23 +360,41 @@ class _VedoPlayer:
             _bone_radii.append(br)
             _joint_radii.append(jr)
 
-        # --- Floor grid (high quality only) ---
-        if self.use_high:
-            # Place floor at the lowest point of all skeletons across all frames
+        # --- Floor (high quality only; kind from the style) ---
+        if self.use_high and self.style.floor is not None:
+            from vedo import Plane  # type: ignore[import-untyped]
+
+            # Place floor at the lowest point of all skeletons across
+            # all frames (viewer coords may be spread/centered, so the
+            # canonical world floor does not apply here).
             floor_y = min(c[:, :, up_idx].min() for c in coords_list)
             floor_pos = self.center.copy()
             floor_pos[up_idx] = floor_y
-            floor = Grid(
-                pos=tuple(floor_pos),
-                s=[half_span * 2.5, half_span * 2.5],
-                res=(30, 30),
-            )
-            if self.up_axis == 'y':
-                floor.rotate_x(90)
-            elif self.up_axis == 'x':
-                floor.rotate_y(90)
-            # up_axis='z': Grid defaults to XY plane, no rotation needed
-            floor.lw(1).alpha(0.6).c('#555555').lighting('off')
+            dark = self.style.background not in (
+                "white", "#FFFFFF", "#ffffff")
+            if self.style.floor == "solid":
+                normal = [0.0, 0.0, 0.0]
+                normal[up_idx] = 1.0
+                floor = Plane(
+                    pos=tuple(floor_pos), normal=tuple(normal),
+                    s=(half_span * 2.5, half_span * 2.5))
+                floor.alpha(self.style.floor_alpha)
+                floor.c('#2A2E36' if dark else '#E8E8EC').lighting('off')
+            else:
+                # "grid" — and "checker", which falls back to grid in
+                # this viewer (no cheap checker primitive in vedo).
+                floor = Grid(
+                    pos=tuple(floor_pos),
+                    s=[half_span * 2.5, half_span * 2.5],
+                    res=(30, 30),
+                )
+                if self.up_axis == 'y':
+                    floor.rotate_x(90)
+                elif self.up_axis == 'x':
+                    floor.rotate_y(90)
+                # up_axis='z': Grid defaults to XY plane, no rotation
+                floor.lw(1).alpha(0.6)
+                floor.c('#9BA0AC' if dark else '#555555').lighting('off')
             self.plt += floor
 
         # --- Build persistent skeleton geometry (created once, updated in-place) ---
@@ -369,14 +422,21 @@ class _VedoPlayer:
             if self.use_high:
                 br = _bone_radii[s]
                 jr = _joint_radii[s]
+                chain_rgb = self._bone_colors_255(s)
 
-                # Create canonical bone tubes and collect vertices
+                # Create canonical bone tubes and collect vertices.
+                # Chain coloring is baked as per-point colors so it
+                # survives the merge into one actor.
                 bone_meshes = []
                 bone_verts_list = []
-                for p_i, c_i in bones:
+                for k, (p_i, c_i) in enumerate(bones):
                     r = br.get((p_i, c_i), r_bone_base)
                     tube = Tube([[0, 0, 0], [0, 0, 1]], r=[r, r / 2],
                                 res=12, c=color)
+                    if chain_rgb is not None:
+                        tube.pointcolors = np.tile(
+                            np.array(chain_rgb[k], dtype=np.uint8),
+                            (tube.npoints, 1))
                     bone_verts_list.append(tube.vertices.copy())
                     bone_meshes.append(tube)
 
@@ -390,11 +450,27 @@ class _VedoPlayer:
                     self._canonical_bone_verts.append(np.empty((0, 0, 3)))
                 self._bones_mesh.append(bones_merged)
 
-                # Create canonical joint spheres and collect vertices
+                # Create canonical joint spheres and collect vertices.
+                # Under chain coloring a joint takes the color of the
+                # bone whose child it is (root keeps the spine color).
+                joint_rgb_by_node: dict[int, tuple[int, int, int]] = {}
+                spine_rgb: tuple[int, int, int] = (58, 63, 74)
+                if chain_rgb is not None:
+                    from matplotlib.colors import to_rgb
+                    spine_rgb = tuple(
+                        int(c * 255) for c in to_rgb(
+                            self.style.chain_colors.get("spine", "#3A3F4A")))
+                    for k, (_p, c_i) in enumerate(bones):
+                        joint_rgb_by_node[c_i] = chain_rgb[k]
                 joint_meshes = []
                 joint_verts_list = []
                 for j in range(coords_list[s].shape[1]):
                     sph = Sphere(pos=(0, 0, 0), r=jr[j], res=12, c=color)
+                    if chain_rgb is not None:
+                        node_rgb = joint_rgb_by_node.get(j, spine_rgb)
+                        sph.pointcolors = np.tile(
+                            np.array(node_rgb, dtype=np.uint8),
+                            (sph.npoints, 1))
                     joint_verts_list.append(sph.vertices.copy())
                     joint_meshes.append(sph)
                 joints_merged = merge(joint_meshes)
@@ -588,6 +664,7 @@ class _VedoPlayer:
                          c=c, bg=bg, font='Calco')
         self.plt += t2d
         self._buttons.append((x0, y0, w, h, callback))
+        self._ui_actors.append(t2d)
         return t2d
 
     def _build_ui(self) -> None:
@@ -602,12 +679,14 @@ class _VedoPlayer:
             c='#2c3e50', font='Calco',
         )
         self.plt += self.speed_label
+        self._ui_actors.append(self.speed_label)
         self._add_button(" < ", 0.05, 0.89, 0.03, 0.07, self._on_speed_down)
         self.speed_text = Text2D(
             " 1x ", pos=(0.08, 0.92), s=_PANEL_S,
             c='#2c3e50', bg='#c8c8d4', font='Calco',
         )
         self.plt += self.speed_text
+        self._ui_actors.append(self.speed_text)
         self._add_button(" > ", 0.12, 0.89, 0.04, 0.07, self._on_speed_up)
 
         # --- FPS selector ---
@@ -616,12 +695,14 @@ class _VedoPlayer:
             c='#2c3e50', font='Calco',
         )
         self.plt += self.fps_label
+        self._ui_actors.append(self.fps_label)
         self._add_button(" < ", 0.05, 0.83, 0.03, 0.06, self._on_fps_down)
         self.fps_text = Text2D(
-            f" {self._fps_presets[self._fps_idx]} ", pos=(0.08, 0.86),
+            f" {self.clock.target_fps} ", pos=(0.08, 0.86),
             s=_PANEL_S, c='#2c3e50', bg='#c8c8d4', font='Calco',
         )
         self.plt += self.fps_text
+        self._ui_actors.append(self.fps_text)
         self._add_button(" > ", 0.12, 0.83, 0.04, 0.06, self._on_fps_up)
 
         self.loop_btn = self._add_button(
@@ -653,6 +734,7 @@ class _VedoPlayer:
             c='white', bg='#2c3e50', font='Calco',
         )
         self.plt += self._help_header
+        self._ui_actors.append(self._help_header)
 
         self._help_items: list = []
         for i, txt in enumerate(_HELP_ENTRIES):
@@ -661,6 +743,7 @@ class _VedoPlayer:
             t.actor.SetVisibility(0)
             self._help_items.append(t)
             self.plt += t
+            self._ui_actors.append(t)
 
         # --- Screenshot feedback overlay (center-top, hidden by default) ---
         self._screenshot_text = Text2D(
@@ -669,6 +752,7 @@ class _VedoPlayer:
         )
         self._screenshot_text.actor.SetVisibility(0)
         self.plt += self._screenshot_text
+        self._ui_actors.append(self._screenshot_text)
 
         # --- Frame scrubber slider ---
         self.slider = self.plt.add_slider(
@@ -684,22 +768,17 @@ class _VedoPlayer:
     # UI SYNC HELPERS
     # =================================================================
 
-    def _current_step(self) -> int:
-        """Subsampling step for the current FPS preset."""
-        return max(1, math.ceil(
-            self._native_fps / self._fps_presets[self._fps_idx]))
-
     def _sync_all(self) -> None:
-        """Sync all UI elements to match current state."""
+        """Sync all UI elements to match the playback clock."""
         # Play/pause button
-        if self.state['playing']:
+        if self.clock.playing:
             self.btn_play.text(_L_PAUSE)
             self.btn_play.background('tomato')
         else:
             self.btn_play.text(_L_PLAY)
             self.btn_play.background('green4')
         # Loop / ping-pong button
-        mode = self.state['loop_mode']
+        mode = self.clock.loop_mode
         if mode == 'loop':
             self.loop_btn.text(" Loop ")
             self.loop_btn.background('green4')
@@ -710,74 +789,53 @@ class _VedoPlayer:
             self.loop_btn.text(" ---  ")
             self.loop_btn.background('gray')
         # Speed display
-        spd = self.state['speed']
+        spd = self.clock.speed
         self.speed_text.text(
             f" {spd:.1f}x " if spd != int(spd) else f" {int(spd)}x ")
 
     def _update_frame_display(self, f: int) -> None:
         """Update frame info in the window title bar."""
-        t = f * self._current_step() / self._native_fps
+        t = f * self.clock.step / self.clock.native_fps
         self.plt.window.SetWindowName(
             f"pybvh viewer  |  Frame {f}/{self.num_frames - 1}"
-            f"  |  t={t:.2f}s  |  {self._fps_presets[self._fps_idx]}fps"
-            f"  |  {self.state['speed']:.3g}x")
+            f"  |  t={t:.2f}s  |  {self.clock.target_fps}fps"
+            f"  |  {self.clock.speed:.3g}x")
 
-    def _reset_play_clock(self) -> None:
-        """Reset the wall-clock reference for time-based frame advancement."""
-        self.state['_play_start_time'] = None
-
-    def _set_speed(self, new_speed: float) -> None:
-        """Change playback speed and restart timer.
-
-        For speeds < 1x the timer interval is stretched (fewer ticks).
-        For speeds >= 1x the timer fires at the base rate and the
-        callback skips frames to achieve the target speed.
-        """
-        self.state['speed'] = new_speed
-        self._reset_play_clock()
-        effective_fps = self._fps_presets[self._fps_idx]
-        base_interval = max(int(1000.0 / effective_fps), 8)
-        if new_speed < 1.0:
-            self.state['interval'] = max(int(base_interval / new_speed), 8)
-        else:
-            self.state['interval'] = base_interval
-        self._sync_all()
+    def _restart_timer(self) -> None:
+        """(Re)create the render timer at the clock's current interval."""
+        if self.plt.interactor is None:
+            return
         if self.state['timer_id'] is not None:
             self.plt.timer_callback('destroy', self.state['timer_id'])
         self.state['timer_id'] = self.plt.timer_callback(
-            'create', dt=self.state['interval'])
+            'create', dt=self.clock.interval_ms)
+
+    def _set_speed(self, new_speed: float) -> None:
+        """Change playback speed and restart the timer."""
+        self.clock.set_speed(new_speed)
+        self._sync_all()
+        self._restart_timer()
 
     def _set_fps(self, idx: int) -> None:
         """Change FPS preset and resample coordinate data."""
-        self._fps_idx = idx
-        target_fps = self._fps_presets[idx]
-        step = max(1, math.ceil(self._native_fps / target_fps))
+        target_fps = self.clock.fps_presets[idx]
+        step = max(1, math.ceil(self.clock.native_fps / target_fps))
         self.coords_list = [c[::step] for c in self._coords_full]
         self.num_frames = self.coords_list[0].shape[0]
+        self.clock.set_fps_index(idx, self.num_frames)
         self.fps_text.text(f" {target_fps} ")
-        # Reset playback to frame 0 (frame indices changed)
-        self.state['playing'] = False
-        self.state['frame'] = 0
         self.state['_slider_updating'] = True
         self.slider.GetRepresentation().SetMinimumValue(0)
         self.slider.GetRepresentation().SetMaximumValue(self.num_frames - 1)
         self.slider.value = 0
         self.state['_slider_updating'] = False
-        # Restart timer at new rate
-        actual_fps = self._native_fps / step
-        base_interval = max(int(1000.0 / actual_fps), 8)
-        self.state['interval'] = base_interval
-        if self.state['timer_id'] is not None:
-            self.plt.timer_callback('destroy', self.state['timer_id'])
-        self.state['timer_id'] = self.plt.timer_callback(
-            'create', dt=self.state['interval'])
+        self._restart_timer()
         self._sync_all()
         self._update_frame(0)
 
     def _jump_to(self, f: int) -> None:
         """Jump to frame f, pause, and sync UI."""
-        self.state['playing'] = False
-        self.state['frame'] = f
+        f = self.clock.jump_to(f)
         self.state['_slider_updating'] = True
         self.slider.value = f
         self.state['_slider_updating'] = False
@@ -803,7 +861,7 @@ class _VedoPlayer:
             # Show trail [0:current_frame], collapse the rest
             if self.state['show_trail']:
                 root_pts = self._trail_full[s]
-                full_f = min(f * self._current_step(), len(root_pts) - 1)
+                full_f = min(f * self.clock.step, len(root_pts) - 1)
                 verts = self._trail_collapsed[s].copy()
                 if full_f > 0:
                     visible = _interleave(
@@ -821,6 +879,51 @@ class _VedoPlayer:
         self.plt.render()
 
     # =================================================================
+    # SCREENSHOT
+    # =================================================================
+
+    def screenshot(
+        self,
+        fname: str | None = None,
+        *,
+        clean: bool = True,
+        scale: int = 2,
+    ) -> str:
+        """Save a screenshot of the current frame.
+
+        With ``clean=True`` (default) every control-panel overlay —
+        buttons, help, speed/FPS readouts, and the frame slider — is
+        hidden for the capture and restored afterwards, and the image
+        is rendered at ``scale`` x the window resolution. Skeleton
+        labels stay visible (they are content, not chrome).
+        """
+        if fname is None:
+            fname = f"pybvh_frame_{self.clock.frame}.png"
+        if not clean:
+            self.plt.screenshot(fname)
+            return fname
+
+        hidden = []
+        for actor_obj in self._ui_actors:
+            vtk_actor = getattr(actor_obj, 'actor', actor_obj)
+            if vtk_actor.GetVisibility():
+                vtk_actor.SetVisibility(0)
+                hidden.append(vtk_actor)
+        slider_was_on = bool(self.slider.GetEnabled())
+        if slider_was_on:
+            self.slider.EnabledOff()
+        try:
+            self.plt.render()
+            self.plt.screenshot(fname, scale=scale)
+        finally:
+            for vtk_actor in hidden:
+                vtk_actor.SetVisibility(1)
+            if slider_was_on:
+                self.slider.EnabledOn()
+            self.plt.render()
+        return fname
+
+    # =================================================================
     # BUTTON / KEY ACTIONS
     # =================================================================
 
@@ -829,45 +932,40 @@ class _VedoPlayer:
         self._update_frame(0)
 
     def _on_prev(self) -> None:
-        self._jump_to(max(self.state['frame'] - 1, 0))
-        self._update_frame(self.state['frame'])
+        self._jump_to(self.clock.frame - 1)
+        self._update_frame(self.clock.frame)
 
     def _toggle_play(self) -> None:
-        self.state['playing'] = not self.state['playing']
-        self._reset_play_clock()
+        self.clock.toggle_play()
         self._sync_all()
         self.plt.render()
 
     def _on_next(self) -> None:
-        self._jump_to(min(self.state['frame'] + 1, self.num_frames - 1))
-        self._update_frame(self.state['frame'])
+        self._jump_to(self.clock.frame + 1)
+        self._update_frame(self.clock.frame)
 
     def _on_last(self) -> None:
         self._jump_to(self.num_frames - 1)
         self._update_frame(self.num_frames - 1)
 
     def _on_speed_down(self) -> None:
-        self._set_speed(max(self.state['speed'] / 2, 0.125))
+        self._set_speed(self.clock.speed / 2)
         self.plt.render()
 
     def _on_speed_up(self) -> None:
-        self._set_speed(min(self.state['speed'] * 2, 16.0))
+        self._set_speed(self.clock.speed * 2)
         self.plt.render()
 
     def _on_fps_down(self) -> None:
-        if self._fps_idx > 0:
-            self._set_fps(self._fps_idx - 1)
+        if self.clock.fps_idx > 0:
+            self._set_fps(self.clock.fps_idx - 1)
 
     def _on_fps_up(self) -> None:
-        if self._fps_idx < len(self._fps_presets) - 1:
-            self._set_fps(self._fps_idx + 1)
+        if self.clock.fps_idx < len(self.clock.fps_presets) - 1:
+            self._set_fps(self.clock.fps_idx + 1)
 
     def _on_cycle_loop(self) -> None:
-        # Cycle: loop → ping-pong → off → loop
-        _cycle = {'loop': 'ping-pong', 'ping-pong': 'off', 'off': 'loop'}
-        self.state['loop_mode'] = _cycle[self.state['loop_mode']]
-        self.state['play_direction'] = 1
-        self._reset_play_clock()
+        self.clock.cycle_loop()
         self._sync_all()
         self.plt.render()
 
@@ -892,53 +990,19 @@ class _VedoPlayer:
                 return
 
     def _on_timer(self, event: object) -> None:
-        # Skip if not playing or if a previous render is still in progress.
+        # Skip if a previous render is still in progress. Wall-clock
+        # frame advancement (accurate under dropped timer events) lives
+        # in PlaybackClock.advance.
         state = self.state
-        if not state['playing'] or state.get('_rendering'):
+        if state.get('_rendering'):
             return
         state['_rendering'] = True
         try:
-            # Use wall-clock time to determine the correct frame.
-            # This keeps animation speed accurate even when timer events
-            # are dropped (e.g., when VTK overhead > timer interval).
-            now = time.perf_counter()
-            start_time = state.get('_play_start_time')
-            if start_time is None:
-                start_time = now
-                state['_play_start_time'] = now
-                state['_play_start_frame'] = state['frame']
-
-            elapsed = now - start_time
-            effective_fps = self._fps_presets[self._fps_idx]
-            d = state['play_direction']
-            target_f = state['_play_start_frame'] + d * int(
-                elapsed * effective_fps * state['speed'])
-
-            if target_f >= self.num_frames:
-                if state['loop_mode'] == 'loop':
-                    target_f = target_f % self.num_frames
-                    state['_play_start_time'] = now
-                    state['_play_start_frame'] = target_f
-                elif state['loop_mode'] == 'ping-pong':
-                    state['play_direction'] *= -1
-                    target_f = self.num_frames - 1
-                    self._reset_play_clock()
-                else:
-                    target_f = self.num_frames - 1
-                    state['playing'] = False
-                    self._sync_all()
-            elif target_f < 0:
-                if state['loop_mode'] == 'ping-pong':
-                    state['play_direction'] *= -1
-                    target_f = 0
-                    self._reset_play_clock()
-                else:
-                    target_f = 0
-                    state['playing'] = False
-                    self._sync_all()
-
-            if target_f != state['frame']:
-                state['frame'] = target_f
+            was_playing = self.clock.playing
+            target_f = self.clock.advance(time.perf_counter())
+            if was_playing and not self.clock.playing:
+                self._sync_all()  # 'off' mode reached an end
+            if target_f is not None:
                 state['_slider_updating'] = True
                 self.slider.value = target_f
                 state['_slider_updating'] = False
@@ -950,11 +1014,9 @@ class _VedoPlayer:
         if self.state['_slider_updating']:
             return
         f = int(round(widget.value))  # type: ignore[attr-defined]
-        f = max(0, min(f, self.num_frames - 1))
-        self.state['frame'] = f
-        self.state['playing'] = False
+        self.clock.jump_to(f)
         self._sync_all()
-        self._update_frame_display(f)
+        self._update_frame_display(self.clock.frame)
 
     def _on_key(self, event: object) -> None:
         key = self.plt.last_event.keypress  # type: ignore[attr-defined]
@@ -997,14 +1059,15 @@ class _VedoPlayer:
 
         elif key == 'f':
             # Cycle FPS presets
-            self._set_fps((self._fps_idx + 1) % len(self._fps_presets))
+            self._set_fps((self.clock.fps_idx + 1)
+                          % len(self.clock.fps_presets))
 
         elif key == 'j':
             # Toggle joint name labels
             state['show_labels'] = not state['show_labels']
             vis = 1 if state['show_labels'] else 0
             for s in range(self.n_skeletons):
-                frame_data = self.coords_list[s][state['frame']]
+                frame_data = self.coords_list[s][self.clock.frame]
                 for j in range(len(frame_data)):
                     self._label_actors[s][j].SetVisibility(vis)
                     if vis:
@@ -1013,9 +1076,8 @@ class _VedoPlayer:
             self.plt.render()
 
         elif key == 's':
-            # Screenshot with feedback overlay
-            fname = f"pybvh_frame_{state['frame']}.png"
-            self.plt.screenshot(fname)
+            # Clean screenshot (UI hidden, 2x resolution) with feedback
+            fname = self.screenshot()
             print(f"Screenshot saved: {fname}")
             self._screenshot_text.text(f" Saved: {fname} ")
             self._screenshot_text.actor.SetVisibility(1)

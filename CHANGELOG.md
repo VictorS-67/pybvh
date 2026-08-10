@@ -7,6 +7,37 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.9.0] — Unreleased
+
+The publication-grade visualization release. Every bvhplot function now produces paper-ready output by default — ground plane, per-chain bone colors, joint markers, axes off — with the old look preserved as a named style. New: sequence figures (the motion-paper still), ghost trails, floor trajectory traces, turntable videos, supersampled anti-aliased export, and a shadowed 3D capsule renderer. The reference visuals were prototyped and approved before implementation; the design record lives in `improve_visualization.md`.
+
+### Breaking changes & migration
+
+| Old | New | Migration |
+|---|---|---|
+| Default look (single blue skeleton, full axes/ticks, no floor) | The `"paper"` style everywhere | Pass `style="debug"` to any bvhplot function to restore the pre-0.9.0 output exactly (pixel-identical for matplotlib stills — enforced by test). |
+| `render(show_axis=True)` | `style=Style("paper", axes="full")` | Axes visibility now lives in the style; the parameter is removed. |
+| `render()` stamped a `Frame f/F` counter on videos | Counter is opt-in | Pass `frame_counter=True` to restore it (GIF output was already counter-free). |
+
+### Added
+
+- **`Style` — one styling object for every bvhplot function.** `style: Style | str = "paper"` on `rest_pose`, `frame`, `sequence`, `render`, `play`, and `trajectory`. Presets: `"paper"` (publication default), `"debug"` (the pre-0.9.0 look, for coordinate inspection), `"dark"` (paper on a near-black ground, for slides). Field-level control via a preset-plus-overrides constructor — `Style("paper", floor=None)` — and `Style.replace()`. Fields split into two documented groups: **look** fields (`bone_width`, `color_mode`, `chain_colors`, `joint_markers`, `joint_size`, `joint_color`, `floor`, `floor_alpha`, `background`, `axes`, `projection`, `ghost_spacing`) apply in every backend, including the interactive viewers; **output** fields (`dpi`, `supersample`, `shadow`) apply where raster output is produced.
+- **Per-chain bone coloring.** Single skeletons color by kinematic chain — left warm / right cool / spine dark (Okabe-Ito derived) — with sides from `Bvh.node_lr_pairs` (the same detection that powers `mirror`) and the arm/leg split from a topology walk rooted at the auto-detected feet; no joint-name heuristics beyond what those detectors already encode. Multi-skeleton comparisons auto-switch to flat per-skeleton palette colors (the GT-vs-generated convention); `color_mode="chains"` forces chains. Fallbacks: no L/R pairs → single dark color; no detectable feet → side coloring without the arm/leg shade distinction.
+- **Ground plane** (`Style.floor`: `"solid"` default, `"grid"`, `"checker"`, or `None`) at the canonical robust 2nd-percentile `Bvh.floor_height` for world/first-centered coords — an outlier-low frame can dip a foot slightly below the plane; the alternative (the true minimum, as in `foot_contacts(floor="min")`) would let one glitched frame sink the plane for the whole clip. Root-relative or caller-supplied coords use the minimum of the coords in use.
+- **`bvhplot.sequence()` / `Bvh.plot_sequence()`** — the motion-paper still: `n_poses` equidistantly sampled poses in one figure with lightness encoding time (lighter = earlier). `layout="offset"` (default) places poses at world positions, orthographic side view, equal-scale non-cubic bounds so travel fills the frame; `layout="overlay"` superimposes root-centered poses (the mode for in-place motion). `frames=` restricts the sampled range.
+- **`render(ghost=N)`** — faded trailing poses behind the live skeleton, spaced `Style.ghost_spacing` seconds apart, nearer ghosts darker. **`render(trajectory=True)`** — root trace on the floor, growing with playback; also always-on in `sequence(layout="offset")` stills (`trajectory=False` to disable).
+- **`render(camera="turntable")`** — a full 360° orbit over the clip duration, in both the OpenCV and matplotlib backends, with a rotation-invariant projection scale so the character doesn't zoom as the camera orbits. Overrides `follow`.
+- **Supersampled, resolution-aware OpenCV export.** Drawing happens at `Style.supersample` (default 2) times the target resolution and downsamples with `INTER_AREA`; primitive sizes scale with the drawing surface (1080p is the 1:1 anchor), so a 4K export gets proportionally thicker lines instead of hairlines, and text stamps after the downsample to stay crisp. `supersample=1` disables.
+- **`frame(backend="vedo")` — shadowed 3D capsule stills.** Renders tapered-tube bones and sphere joints with diffuse shading and a projected floor shadow, offscreen and headless-safe (requires `pybvh[viewer]`), returning an `(H, W, 3)` uint8 RGB array (with optional `filepath=`). **`render(backend="vedo")`** writes the same look to `.mp4`/`.mov`/`.avi`/`.gif`. Never auto-selected. `Style.shadow` toggles the shadow, documented as a hard-edged parallel projection (no penumbra, no self-shadowing — raytraced softness is Blender territory); the choice of projected shadows over VTK's shadow-map pass is recorded with its evidence in `docs/adr/0001-vedo-projected-shadows.md`.
+- **`play(backend="opencv")`** — the notebook inline-video backend that auto-selection could pick but the user could never pin is now nameable, matching `render()`'s vocabulary; outside a notebook it raises an error that says why instead of "unknown backend".
+- **Clean viewer screenshots.** The vedo viewer's `S` key now hides every control overlay and the slider for the capture (restored after), rendering at 2× window resolution; skeleton labels stay. The desktop viewer also applies Style look fields — background, bone width, floor kind, and chain colors for single-skeleton sessions — as does k3d (background, width, per-vertex chain colors).
+
+### Changed
+
+- **bvhplot internals: one `Scene` container.** `_prepare` returns a `Scene` of per-skeleton `SkeletonView`s (coords, bones, label, bounding box, camera, floor) instead of an 8-tuple of parallel lists; every backend signature collapsed from 13–15 positional parameters to `(scene, style, **sink_options)`. Purely internal — no public API change; the debug-style output is byte-identical.
+- **Playback bookkeeping extracted from the vedo viewer.** Frame/play-pause/speed/loop state and wall-clock frame advancement live in a pure-Python `PlaybackClock`, unit-tested without a window; the viewer class is a rendering/UI shell. The capsule-geometry math is likewise shared between the viewer and the offscreen renderer (`_vedo_capsules`). Nothing user-visible.
+- **RGB is the canonical color order throughout bvhplot** — the OpenCV backend converts to BGR at its own border (previously the module-wide palette was stored in BGR, one backend's quirk defining the convention).
+
 ## [0.8.2] — 2026-07-29
 
 ### Breaking changes & migration

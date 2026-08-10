@@ -57,9 +57,13 @@ def _apply_axes_style(
         ax.set_proj_type("ortho")  # type: ignore[attr-defined]
     if style.axes == "off":
         ax.set_axis_off()
+    if style.axes == "off" or style.floor is not None:
         # Manual draw order via explicit zorders (mplot3d ignores
         # zorder unless computed_zorder is off): floor 0.5, trace 0.8,
-        # ghosts 1.5, bones 2 (the artist default), joints 3.
+        # ghosts 1.5, bones 2 (the artist default), joints 3. Required
+        # whenever a floor exists — under computed z-order the huge
+        # semi-transparent plane's average depth beats the skeleton
+        # and washes it out.
         ax.computed_zorder = False  # type: ignore[attr-defined]
     # Leave the default white patch untouched (pixel parity for the
     # debug preset); only non-white backgrounds need painting.

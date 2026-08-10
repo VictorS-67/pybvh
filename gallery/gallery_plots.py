@@ -85,6 +85,16 @@ def new3d(title, figsize=(7, 6)):
     return fig, ax
 
 
+def fig_image(img, title=None, figsize=(6.5, 6)):
+    """Display a rendered RGB array (e.g. a vedo offscreen frame) as a figure."""
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.imshow(img)
+    ax.axis("off")
+    if title:
+        ax.set_title(title)
+    return fig, ax
+
+
 def box_edges(lo, hi):
     c = np.array([[lo[0], lo[1], lo[2]], [hi[0], lo[1], lo[2]], [hi[0], hi[1], lo[2]],
                   [lo[0], hi[1], lo[2]], [lo[0], lo[1], hi[2]], [hi[0], lo[1], hi[2]],

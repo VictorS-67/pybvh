@@ -72,15 +72,36 @@ fig, ax = bvh.plot_frame(frame=FRAME, camera="side")
 ax.set_title(f"plot_frame({FRAME}, camera='side')");
 
 # %% [markdown]
+# **`plot_sequence`** — the motion-paper still: equidistantly sampled poses in one figure, lightness encoding time (lighter = earlier), the root's path dashed on the floor. `layout="offset"` (default) places poses at their world positions, so locomotion reads left to right — shown on **real walking mocap** (CMU subject 12, *data from [mocap.cs.cmu.edu](http://mocap.cs.cmu.edu)*; sections 2, 5 and 9 reuse this clip). `layout="overlay"` superimposes root-centred poses instead, the right mode for in-place motion.
+
+# %%
+walk = pybvh.read_bvh_file(REPO / "bvh_data" / "cmu_12_01_walk.bvh")
+fig, ax = walk.plot_sequence(n_poses=8)
+ax.set_title("plot_sequence(n_poses=8) — lighter = earlier");
+
+# %% [markdown]
+# **`Style`** — every figure above uses the default preset `"paper"` (ground plane, per-chain colors, joint markers, axes off). All bvhplot functions take `style=`: a preset name — `"paper"`, `"debug"` (the single-blue-with-full-axes look, for coordinate inspection), `"dark"` (for slides and project pages) — or a `Style` instance overriding any field, e.g. `Style("paper", floor="checker", bone_width=4)`.
+
+# %%
+fig, ax = bvh.plot_frame(frame=FRAME, style="dark")
+ax.set_title("plot_frame(style='dark')");
+
+# %% [markdown]
+# **`plot_frame(backend="vedo")`** — the same pose as a shadowed 3D **capsule render**, computed fully offscreen (headless-safe) and returned as an `(H, W, 3)` uint8 RGB array: the publication-figure alternative to the matplotlib stick figure. `render(backend="vedo")` exports the same look as video.
+
+# %%
+capsule_img = bvh.plot_frame(frame=FRAME, backend="vedo")
+gp.fig_image(capsule_img, "plot_frame(backend='vedo') — shadowed capsules")
+
+# %% [markdown]
 # ## 2 · Core concepts, drawn
 #
 # The ideas every pybvh user needs, one figure each. Full prose: the [Core Concepts](https://victors-67.github.io/pybvh/guide/core-concepts/) and [World Up](https://victors-67.github.io/pybvh/guide/world-up/) guides.
 
 # %% [markdown]
-# **`node_positions(centered=…)`** — the three coordinate modes for forward-kinematics output. Shown on **real walking mocap** (CMU subject 12, *data from [mocap.cs.cmu.edu](http://mocap.cs.cmu.edu)* — travel makes the modes unmistakable; sections 5 and 9 reuse this clip). Same clip, same frame; the blue trail is the root's path over the whole clip. `"world"` keeps absolute file coordinates, `"first"` shifts the first frame's root over the origin (the character still travels), `"skeleton"` pins the root at the origin every frame — the trail collapses to a point: pose only, no travel.
+# **`node_positions(centered=…)`** — the three coordinate modes for forward-kinematics output. Shown on the **walking clip** loaded in section 1 (travel makes the modes unmistakable). Same clip, same frame; the blue trail is the root's path over the whole clip. `"world"` keeps absolute file coordinates, `"first"` shifts the first frame's root over the origin (the character still travels), `"skeleton"` pins the root at the origin every frame — the trail collapses to a point: pose only, no travel.
 
 # %%
-walk = pybvh.read_bvh_file(REPO / "bvh_data" / "cmu_12_01_walk.bvh")
 gp.fig_centered_modes(walk, walk.frame_count // 2)
 
 # %% [markdown]
@@ -203,7 +224,7 @@ gp.fig_resample(bvh, bvh.resample(10))
 # %% [markdown]
 # ## 5 · Contacts & feature export
 #
-# From motion to ML-ready labels and arrays. Contact detection needs locomotion to be interesting, so this section runs on the **walking clip** loaded in section 2 — first the clip itself, rendered from a fixed side camera so the skeleton walks through world space. The gait descriptors in section 9 reuse it too.
+# From motion to ML-ready labels and arrays. Contact detection needs locomotion to be interesting, so this section runs on the **walking clip** loaded in section 1 — first the clip itself, rendered from a fixed side camera so the skeleton walks through world space. The gait descriptors in section 9 reuse it too.
 
 # %% tags=["slow-on-pr"]
 walk_gif = gp.walk_clip_gif(walk)

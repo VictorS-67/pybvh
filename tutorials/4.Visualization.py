@@ -19,7 +19,7 @@
 # %% [markdown]
 # pybvh includes a built-in visualization module called `bvhplot`. It provides quick-look tools for inspecting BVH motion data without friction — one function call to see the skeleton.
 #
-# This tutorial covers all of `bvhplot`'s capabilities. **Static plots** (`rest_pose`, `frame`, `trajectory`) always use matplotlib, which is always available. **Video rendering** (`render`) and **interactive playback** (`play`) automatically select the fastest backend available — matplotlib is the universal fallback, but when OpenCV, vedo, or k3d are installed, pybvh uses them transparently. The last section of the tutorial details those optional backends and how to install them.
+# This tutorial covers all of `bvhplot`'s capabilities. **Static plots** (`rest_pose`, `frame`, `sequence`, `trajectory`) always use matplotlib, which is always available. **Video rendering** (`render`) and **interactive playback** (`play`) automatically select the fastest backend available — matplotlib is the universal fallback, but when OpenCV, vedo, or k3d are installed, pybvh uses them transparently. Every function takes a `style=` parameter (covered in its own section below) that controls the whole look — the default is a publication-grade style with a ground plane and per-chain bone colors. The last section of the tutorial details the optional backends and how to install them.
 
 # %%
 import numpy as np
@@ -62,6 +62,7 @@ print(bvh)
 # |---|---|---|
 # | What does the skeleton look like | `rest_pose()` | Static rest pose (all joint angles zero) |
 # | What's the pose at frame N? | `frame(frame=N)` | Static pose at a specific moment |
+# | What does the whole motion look like in one image? | `sequence()` | Sampled poses in one figure, lightness encoding time |
 # | What does the motion look like over time? | `play()` or `render()` | Animated sequence |
 # | Does the character walk in a straight line? | `trajectory()` | 2D top-down root path |
 #
@@ -152,6 +153,89 @@ plt.show()
 # Compare the same frame from two different skeletons
 fig, axes = bvhplot.frame([bvh, bvh2], frame=15, labels=['BVH 1', 'BVH 2'])
 plt.tight_layout()
+plt.show()
+
+# %% [markdown]
+# # Visual styles
+#
+# Every `bvhplot` function accepts a `style=` parameter controlling the whole look of the output. It takes either a **preset name** or a **`Style` instance** for field-level control:
+#
+# - `'paper'` (default) — publication-grade: ground plane at the estimated floor height, per-chain bone colors, joint markers, axes hidden.
+# - `'debug'` — the coordinate-inspection look: single blue skeleton, full axes and ticks, no floor. Use this when you need to read positions off the axes.
+# - `'dark'` — the paper look on a near-black background, for slides and project pages.
+
+# %%
+for preset in ['paper', 'debug', 'dark']:
+    fig, ax = bvh.plot_frame(frame=30, style=preset)
+    ax.set_title(f"style='{preset}'")
+plt.show()
+
+# %% [markdown]
+# ## Overriding individual fields
+#
+# `Style(preset, **overrides)` starts from a preset and replaces any field. The commonly tweaked ones: `floor` (`'solid'`, `'checker'`, `'grid'`, or `None`), `axes` (`'off'` or `'full'`), `bone_width`, `joint_markers`, and `color_mode`. See the `Style` API docs for the full field list.
+
+# %%
+fig, axes = plt.subplots(1, 3, figsize=(16, 5), subplot_kw={'projection': '3d'})
+
+styles = [bvhplot.Style('paper', floor='checker'),
+          bvhplot.Style('paper', floor=None),
+          bvhplot.Style('paper', axes='full')]
+titles = ["floor='checker'", 'floor=None', "axes='full'"]
+
+for ax, style, title in zip(axes, styles, titles):
+    bvh.plot_frame(frame=30, style=style, ax=ax)
+    ax.set_title(title)
+
+plt.tight_layout()
+plt.show()
+
+# %% [markdown]
+# ## Color modes
+#
+# With the default `color_mode='auto'`, a **single skeleton** gets per-chain colors (left limbs warm, right limbs cool — you can tell left from right at a glance), while **side-by-side comparisons** switch to one flat color per skeleton, the standard convention for ground-truth-vs-generated figures. Force either behavior with `color_mode='chains'`, `'skeleton'`, or `'single'`.
+
+# %%
+fig, axes = bvhplot.frame([bvh, bvh.mirror()], frame=30, labels=['original', 'mirror()'])
+plt.suptitle('auto: side-by-side uses per-skeleton palette colors', y=0.98)
+plt.tight_layout()
+plt.show()
+
+# %%
+fig, axes = bvhplot.frame([bvh, bvh.mirror()], frame=30, labels=['original', 'mirror()'],
+                          style=bvhplot.Style('paper', color_mode='chains'))
+plt.suptitle("color_mode='chains': chain colors everywhere", y=0.98)
+plt.tight_layout()
+plt.show()
+
+# %% [markdown]
+# # Sequence figures
+#
+# `bvh.plot_sequence()` draws the classic *motion-paper still*: a handful of equidistantly sampled poses in one figure, with lightness encoding time — lighter poses are earlier. It is the fastest way to convey a whole motion in a static image (papers, READMEs, slides).
+#
+# The `layout` parameter picks how poses are arranged:
+#
+# - `'offset'` (default) — poses stay at their world positions, so locomotion spreads left to right, with the root's path dashed on the floor. The right mode for travelling motion.
+# - `'overlay'` — poses are superimposed (root-centered). The right mode for in-place motion, where offset poses would pile on top of each other anyway.
+
+# %%
+# A walking clip makes the offset layout shine (CMU mocap, subject 12)
+walk = pybvh.read_bvh_file(bvh_folder / 'cmu_12_01_walk.bvh')
+
+fig, ax = walk.plot_sequence(n_poses=8)
+plt.show()
+
+# %%
+# In-place motion: overlay layout
+fig, ax = bvh.plot_sequence(n_poses=5, layout='overlay')
+plt.show()
+
+# %% [markdown]
+# `n_poses` controls the sampling density, and `frames=` restricts sampling to a range — a `(start, stop)` tuple or a slice:
+
+# %%
+fig, ax = walk.plot_sequence(n_poses=6, frames=(200, 450))
+ax.set_title('frames=(200, 450)')
 plt.show()
 
 # %% [markdown]
@@ -248,6 +332,43 @@ output_path = bvh.render(
 print(f'Animation with options saved to: {output_path}')
 
 # %% [markdown]
+# ## Motion context: ghost trails and trajectory traces
+#
+# Two options add temporal context to a rendered clip:
+#
+# - `ghost=N` draws N faded copies of recent poses behind the live skeleton — older ghosts fade further toward the background. The spacing between ghosts is `Style.ghost_spacing` seconds (default 0.3).
+# - `trajectory=True` draws the root's path on the floor, growing as the clip plays.
+#
+# Both work on the OpenCV and matplotlib backends and compose freely with each other and with any style.
+
+# %% tags=["slow-on-pr"]
+output_path = walk.render(
+    output_folder / 'walk_ghost_trace.mp4',
+    camera='side',
+    ghost=3,
+    trajectory=True,
+)
+print(f'Ghost + trace animation saved to: {output_path}')
+
+# %% [markdown]
+# ## Turntable camera
+#
+# `camera='turntable'` orbits the camera a full 360° around the skeleton over the clip's duration, starting from the front view — the standard way to show a motion from all sides in one clip:
+
+# %% tags=["slow-on-pr"]
+output_path = bvh.render(output_folder / 'bvh_turntable.mp4', camera='turntable')
+print(f'Turntable animation saved to: {output_path}')
+
+# %% [markdown]
+# ## Frame counter
+#
+# Rendered clips are clean by default — publication output never stamps text on the image. For debugging or review, `frame_counter=True` stamps a `Frame f/F` counter in the corner (OpenCV backend):
+
+# %% tags=["slow-on-pr"]
+output_path = bvh.render(output_folder / 'bvh_counter.mp4', frame_counter=True)
+print(f'Frame-counter animation saved to: {output_path}')
+
+# %% [markdown]
 # ## Camera tracking: `follow=True`
 #
 # By default the camera is stable — it's pointed at the skeleton once from the first frame's orientation and stays there for the whole clip. If the character turns during the animation, you see them rotate in view (which is usually what you want for spatial awareness).
@@ -299,7 +420,10 @@ print(f'Comparison video saved to: {output_path}')
 # `bvh.play()` provides interactive animation playback. It auto-detects the best backend available for your environment:
 # - **k3d** (Jupyter widget) — if in Jupyter with k3d installed, interactive 3D widget
 # - **vedo** (desktop window) — if installed, full 3D interactive viewer
+# - **opencv** (notebook inline video) — if in Jupyter with OpenCV installed, an embedded video player
 # - **matplotlib** (fallback) — always available, but less interactive
+#
+# Playback is clean by default; pass `frame_counter=True` to overlay the frame number on backends that support it.
 
 # %% tags=["skip-execution"]
 # This auto-detects the best backend
@@ -335,7 +459,7 @@ bvhplot.play([bvh, bvh2_zup], labels=['Motion 1', 'Motion 2'],
 # |---------|------------|---------|----------|
 # | matplotlib | Any | *(included)* | Static plots, universal fallback |
 # | OpenCV | Any | `pip install pybvh[opencv]` | Fast video rendering (~100x faster) |
-# | vedo | Desktop | `pip install pybvh[viewer]` | Interactive 3D desktop viewer |
+# | vedo | Desktop or headless | `pip install pybvh[viewer]` | Interactive 3D desktop viewer, shadowed capsule renders |
 # | k3d | Jupyter | `pip install pybvh[interactive]` | Jupyter interactive 3D widget |
 
 # %% [markdown]
@@ -354,7 +478,7 @@ bvhplot.play([bvh, bvh2_zup], labels=['Motion 1', 'Motion 2'],
 # | `t` | Toggle the root trajectory trail |
 # | `j` | Toggle joint name labels |
 # | `1`–`9` | Toggle visibility of skeleton 1–9 (side-by-side mode) |
-# | `s` | Save a screenshot of the current frame |
+# | `s` | Save a clean screenshot (UI hidden, 2x resolution) |
 # | `r` | Reset the camera |
 # | `h` | Toggle the on-screen help panel |
 #
@@ -366,6 +490,27 @@ bvhplot.play([bvh, bvh2_zup], labels=['Motion 1', 'Motion 2'],
 # Requires vedo (pip install pybvh[viewer]) and a desktop session — opens a window,
 # so this will not work on a remote/headless notebook
 bvh.play(backend='vedo', quality='high')
+
+# %% [markdown]
+# ## Publication renders with vedo (offscreen)
+#
+# Beyond the interactive viewer, the vedo backend can produce **shadowed 3D capsule renders** — the volumetric skeleton-with-shadow look common in motion-generation papers. This runs fully offscreen (no window, headless-safe), so it works on remote servers and CI.
+#
+# `frame(backend='vedo')` returns an `(H, W, 3)` uint8 RGB image array instead of a matplotlib figure — display it with `plt.imshow` or save it directly via `filepath=`:
+
+# %%
+img = bvh.plot_frame(frame=30, backend='vedo', resolution=(1100, 1000))
+plt.figure(figsize=(7, 6.4))
+plt.imshow(img)
+plt.axis('off')
+plt.show()
+
+# %% [markdown]
+# `render(backend='vedo')` exports the same look as a video or GIF. The capsule renders honor `style=` like everything else (presets, floor kinds, chain colors, and the `Style.shadow` toggle); camera motions, ghosts, and traces are not supported on this backend — use OpenCV or matplotlib for those.
+
+# %% tags=["slow-on-pr"]
+output_path = bvh.render(output_folder / 'bvh_capsules.mp4', backend='vedo')
+print(f'Capsule render saved to: {output_path}')
 
 # %% [markdown]
 # ## Jupyter playback with k3d
@@ -382,11 +527,12 @@ bvh.play(backend='k3d')
 # | Function | Purpose | Returns |
 # |---|---|---|
 # | `bvhplot.rest_pose(bvh)` | Static rest pose | `(Figure, Axes)` |
-# | `bvhplot.frame(bvh, frame=N)` | Static frame | `(Figure, Axes)` |
+# | `bvhplot.frame(bvh, frame=N)` | Static frame | `(Figure, Axes)`, or an RGB array with `backend='vedo'` |
+# | `bvhplot.sequence(bvh)` | Sampled poses in one figure, lightness encoding time | `(Figure, Axes)` |
 # | `bvhplot.trajectory(bvh)` | 2D root path | `(Figure, Axes)` |
 # | `bvhplot.render(bvh, path)` | Export animation to file | `Path` |
 # | `bvhplot.play(bvh)` | Interactive playback | backend-specific |
 #
-# All functions accept `Bvh | list[Bvh]`, and support the `centered`, `camera`, and `labels` parameters. The optional backends (vedo, k3d, OpenCV) provide richer playback and faster rendering when installed.
+# All functions accept a `style=` preset or `Style` instance; most accept `Bvh | list[Bvh]` and the `centered`, `camera`, and `labels` parameters (`sequence` is single-skeleton). The optional backends (vedo, k3d, OpenCV) provide richer playback, faster rendering, and shadowed capsule renders when installed.
 #
 # For the full parameter reference, see the API documentation.

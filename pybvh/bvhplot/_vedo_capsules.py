@@ -21,13 +21,19 @@ def adaptive_radii(
     frame0: npt.NDArray[np.float64],
     bones: list[tuple[int, int]],
     r_base: float,
+    hand_bones: frozenset[tuple[int, int]] = frozenset(),
 ) -> tuple[dict[tuple[int, int], float], npt.NDArray[np.float64]]:
-    """Per-bone and per-joint radii scaled by bone length.
+    """Per-bone and per-joint radii: plump body, slender hands.
 
-    Each bone's radius is proportional to its length relative to the
-    median (clipped to [0.3, 2]x): short finger bones get thin tubes,
-    long limb bones stay thick. A joint's radius is the mean of its
-    connected bones' radii.
+    Two sizing regions, both scaled by bone length relative to the
+    skeleton-wide median. *Body* bones get the full ``r_base`` with the
+    ratio clipped to [0.12, 1.5]x — long limbs read as plump capsules,
+    short torso links stay slim beads. Bones in *hand_bones* get half
+    the base radius with a wider [0.3, 2]x clip — on full-hand rigs a
+    uniformly plump rule congests the fingers into a mitten, and this
+    split (chosen against that single-region alternative after visual
+    review) keeps them articulate. A joint's radius is the mean of its
+    connected bones' radii, so wrists blend the two scales smoothly.
     """
     lengths = {
         (p, c): float(np.linalg.norm(frame0[c] - frame0[p]))
@@ -36,8 +42,11 @@ def adaptive_radii(
     med = float(np.median(list(lengths.values()))) if lengths else 1.0
     bone_radii: dict[tuple[int, int], float] = {}
     for (p, c), length in lengths.items():
-        ratio = np.clip(length / med, 0.3, 2.0) if med > 0 else 1.0
-        bone_radii[(p, c)] = r_base * ratio
+        ratio = length / med if med > 0 else 1.0
+        if (p, c) in hand_bones:
+            bone_radii[(p, c)] = r_base * 0.5 * np.clip(ratio, 0.3, 2.0)
+        else:
+            bone_radii[(p, c)] = r_base * np.clip(ratio, 0.12, 1.5)
 
     joint_radii = np.full(len(frame0), r_base * 0.5)
     connected: list[list[float]] = [[] for _ in range(len(frame0))]
@@ -48,6 +57,25 @@ def adaptive_radii(
         if connected[j]:
             joint_radii[j] = float(np.mean(connected[j]))
     return bone_radii, joint_radii
+
+
+def hand_bone_set(
+    bvh: object,
+    bones: list[tuple[int, int]],
+) -> frozenset[tuple[int, int]]:
+    """Bones inside a hand: parent joint name contains ``"hand"``
+    (case-insensitive).
+
+    Name-based on purpose, following the precedent of the L/R pair
+    detection that drives ``mirror`` and chain coloring. The parent
+    (not the child) is tested so the forearm bone *ending* at
+    ``RightHand`` stays a body bone — the hand region starts at the
+    wrist. Rigs without named hand joints return the empty set and get
+    body sizing everywhere.
+    """
+    names = {idx: name for name, idx in bvh.node_index.items()}  # type: ignore[attr-defined]
+    return frozenset(
+        (p, c) for p, c in bones if "hand" in names.get(p, "").lower())
 
 
 class CapsuleSkeleton:
@@ -91,7 +119,8 @@ class CapsuleSkeleton:
         self.bone_parent_idx = np.array([b[0] for b in bones], dtype=int)
         self.bone_child_idx = np.array([b[1] for b in bones], dtype=int)
 
-        bone_radii, joint_radii = adaptive_radii(frame0, bones, r_base)
+        bone_radii, joint_radii = adaptive_radii(
+            frame0, bones, r_base, hand_bone_set(view.bvh, bones))
 
         # --- canonical bone tubes ---
         bone_meshes = []
@@ -144,20 +173,22 @@ class CapsuleSkeleton:
                 prop.SetDiffuse(0.0)
                 prop.SetSpecular(0.0)
             else:
-                # Offscreen renders: diffuse shading for 3D depth, with
-                # enough ambient that shadow-side faces keep their hue
-                # instead of going near-black under the headlight.
-                prop.SetAmbient(0.45)
-                prop.SetDiffuse(0.6)
-                prop.SetSpecular(0.05)
+                # Offscreen renders: near-full diffuse so the tubes
+                # shade on both sides and read as round 3D capsules,
+                # with just enough ambient that shadow-side faces keep
+                # their hue instead of going near-black.
+                prop.SetAmbient(0.2)
+                prop.SetDiffuse(0.8)
+                prop.SetSpecular(0.1)
 
     @staticmethod
     def base_radius(half_span: float, bone_width: float) -> float:
-        """Base bone radius in scene units: 1.3% of the half-span,
+        """Base bone radius in scene units: 2.6% of the half-span,
         scaled by the style's bone width (3.0, the paper default, is
         the 1:1 anchor). The single sizing formula for both the viewer
-        and the offscreen renderer."""
-        return half_span * 0.013 * (bone_width / 3.0)
+        and the offscreen renderer; hand bones draw at half this base
+        (see :func:`adaptive_radii`)."""
+        return half_span * 0.026 * (bone_width / 3.0)
 
     @property
     def actors(self) -> list:

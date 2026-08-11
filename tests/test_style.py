@@ -148,6 +148,24 @@ class TestGetBoneChains:
                         for i in chains["l_leg"] + chains["r_leg"]}
         assert foot_nodes <= leg_children
 
+    def test_junction_bones_stay_in_spine(self, bvh):
+        """Torso->limb connector bones (unpaired parent, paired child)
+        belong to the spine chain: limbs start at the shoulder ball and
+        hip socket. Regression for the arm-colored "vertebra" on rigs
+        whose shoulder joints sit on the spine axis."""
+        chains = get_bone_chains(bvh)
+        bones = get_skeleton_lines(bvh)
+        pairs = bvh.node_lr_pairs
+        paired = {n for pair in pairs for n in pair}
+        junction = {i for i, (p, c) in enumerate(bones)
+                    if c in paired and p not in paired}
+        assert junction, "walk skeleton must have torso->limb junctions"
+        assert junction <= set(chains["spine"])
+        limb_indices = {i for name, idxs in chains.items()
+                        if name != "spine" for i in idxs}
+        assert all(bones[i][0] in paired and bones[i][1] in paired
+                   for i in limb_indices)
+
     def test_no_lr_pairs_falls_back_to_spine(self, bvh):
         """A skeleton without L/R pairs puts every bone in 'spine'."""
         sub = bvh.extract_joints(

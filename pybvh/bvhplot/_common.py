@@ -748,16 +748,27 @@ def get_bone_chains(bvh: Bvh) -> dict[str, list[int]]:
     -------
     chains : dict[str, list[int]]
         Maps chain name to indices into :func:`get_skeleton_lines`'s
-        bone list (a bone belongs to its child node's chain). Every
-        bone index appears in exactly one chain.
+        bone list. Every bone index appears in exactly one chain.
 
     Notes
     -----
+    A limb is the maximal run of *paired* nodes: a bone belongs to a
+    limb chain only when both its endpoints are paired, so the
+    junction bones connecting the torso to a limb (an unpaired parent
+    like ``Spine3`` or ``Hips`` to a paired child like a shoulder or
+    hip joint) stay in ``"spine"`` — limbs start at the shoulder ball
+    and hip socket, the TEMOS/MDM capsule-figure convention. The
+    alternative (a bone belongs to its child node's chain, coloring
+    those connectors as limbs) diverges visibly on rigs whose shoulder
+    joints sit on the spine axis: the connector is then a vertical
+    segment lying *on* the spine, and limb-coloring it paints a stray
+    arm-colored "vertebra" onto the torso.
+
     Fallbacks: with no left/right pairs (``node_lr_pairs is None``)
     every bone lands in ``"spine"`` — the caller should draw a single
-    color. With pairs but no detectable feet, every paired bone is
-    classified as an arm: side coloring survives, the arm/leg shade
-    distinction does not.
+    color. With pairs but no detectable feet, every paired-to-paired
+    bone is classified as an arm: side coloring survives, the arm/leg
+    shade distinction does not.
     """
     bones = get_skeleton_lines(bvh)
     pairs = bvh.node_lr_pairs
@@ -792,12 +803,18 @@ def get_bone_chains(bvh: Bvh) -> dict[str, list[int]]:
 
     chains: dict[str, list[int]] = {
         "spine": [], "l_arm": [], "l_leg": [], "r_arm": [], "r_leg": []}
-    for i, (_parent, child) in enumerate(bones):
+    paired = left_nodes | right_nodes
+    for i, (parent, child) in enumerate(bones):
         if child in left_nodes:
             side = "l"
         elif child in right_nodes:
             side = "r"
         else:
+            chains["spine"].append(i)
+            continue
+        if parent not in paired:
+            # Junction bone (torso -> limb): stays spine-colored, the
+            # limb starts at the first fully-paired bone (see Notes).
             chains["spine"].append(i)
             continue
         limb = "leg" if child in leg_nodes else "arm"

@@ -304,3 +304,66 @@ class TestReviewFixes:
         fig, ax = bvhplot.frame(bvh, 10, filepath=out)
         assert out.exists() and out.stat().st_size > 0
         plt.close(fig)
+
+
+class TestBoneDepthSorting:
+    """Bones must occlude correctly: far-side limbs may never paint
+    over near-side ones (v0.9.0 follow-up review finding)."""
+
+    @staticmethod
+    def _render_crossing(collection_cls, seg_order):
+        """Render two crossing colored segments and return the RGB buffer."""
+        near = [(-1.0, -1.0, -1.0), (1.0, -1.0, 1.0)]
+        far = [(-1.0, 1.0, 1.0), (1.0, 1.0, -1.0)]
+        segs = {"near": near, "far": far}
+        colors = {"near": (1.0, 0.0, 0.0, 1.0), "far": (0.0, 0.0, 1.0, 1.0)}
+        fig = plt.figure(figsize=(2, 2), dpi=60)
+        ax = fig.add_subplot(111, projection="3d")
+        ax.computed_zorder = False
+        ax.set_axis_off()
+        ax.add_collection3d(collection_cls(
+            [segs[k] for k in seg_order],
+            colors=[colors[k] for k in seg_order], linewidths=6))
+        ax.set_xlim(-1, 1); ax.set_ylim(-1, 1); ax.set_zlim(-1, 1)
+        ax.view_init(elev=10, azim=-90, vertical_axis="z")
+        fig.canvas.draw()
+        buf = np.asarray(fig.canvas.buffer_rgba())[..., :3].copy()
+        plt.close(fig)
+        return buf
+
+    def test_depth_sorted_collection_is_order_invariant(self):
+        """The depth-sorted collection must produce the same image no
+        matter what order its segments arrive in — proof that draw
+        order comes from depth, not from insertion."""
+        from pybvh.bvhplot._matplotlib import _DepthSortedLine3DCollection
+        from mpl_toolkits.mplot3d.art3d import Line3DCollection
+        a = self._render_crossing(_DepthSortedLine3DCollection,
+                                  ["near", "far"])
+        b = self._render_crossing(_DepthSortedLine3DCollection,
+                                  ["far", "near"])
+        assert np.array_equal(a, b)
+        # Sanity that the test has power: the plain collection IS
+        # order-dependent on the same input.
+        c = self._render_crossing(Line3DCollection, ["near", "far"])
+        d = self._render_crossing(Line3DCollection, ["far", "near"])
+        assert not np.array_equal(c, d)
+
+    def test_paper_uses_depth_sorted_debug_uses_plain(self, bvh):
+        """The gate: paper (manual z-order) depth-sorts; debug keeps the
+        fixed-order collection for pre-0.9.0 pixel parity."""
+        from pybvh.bvhplot._matplotlib import _DepthSortedLine3DCollection
+        from mpl_toolkits.mplot3d.art3d import Line3DCollection
+
+        def bone_collections(style):
+            fig, ax = bvhplot.frame(bvh, 100, style=style)
+            found = [c for c in ax.collections
+                     if isinstance(c, Line3DCollection)]
+            plt.close(fig)
+            return found
+
+        paper = bone_collections("paper")
+        assert any(isinstance(c, _DepthSortedLine3DCollection)
+                   for c in paper)
+        debug = bone_collections("debug")
+        assert debug and all(
+            not isinstance(c, _DepthSortedLine3DCollection) for c in debug)

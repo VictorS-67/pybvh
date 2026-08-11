@@ -913,6 +913,14 @@ class Style:
     chain colors everywhere; ``"skeleton"`` forces the flat palette;
     ``"single"`` draws one skeleton in ``bone_color`` (multi-skeleton
     still uses the palette — the pre-0.9.0 behavior).
+
+    ``axes`` and ``floor`` are independent, so ``Style("paper",
+    axes="full")`` keeps the ground plane — and on the matplotlib
+    backend that plane paints over the axis panes and grid lines,
+    because any floor forces manual draw order (mplot3d's computed
+    z-order would wash the skeleton out under the semi-transparent
+    plane). For clean coordinate-inspection axes use ``"debug"``, or
+    add ``floor=None``.
     """
 
     bone_width: float

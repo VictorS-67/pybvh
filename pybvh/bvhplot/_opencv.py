@@ -295,6 +295,16 @@ def _draw_skeletons_on_frame(
             cv2.polylines(canvas, [project(path)], False, ctx.trace_bgr,
                           thin, cv2.LINE_AA)
 
+        # Painter's order: cv2 has no depth buffer, so bones draw
+        # far-to-near along the camera direction (view_matrix row 2
+        # points toward the viewer). Recomputed per frame — under
+        # follow/turntable the view matrix changes every frame.
+        bones_arr = np.asarray(view.bones, dtype=int)
+
+        def painter_order(pose):
+            return np.argsort(pose[bones_arr].mean(axis=1)
+                              @ view_matrix[2])
+
         if ghost > 0:
             ghost_thickness = max(
                 1, int(style.bone_width * GHOST_WIDTH_FACTOR
@@ -304,18 +314,20 @@ def _draw_skeletons_on_frame(
                 if gf < 0:
                     continue
                 gpts = project(view.coords[gf])
-                for (p_idx, c_idx), faded in zip(view.bones,
-                                                 ctx.ghost_bgr[j]):
+                for b in painter_order(view.coords[gf]):
+                    p_idx, c_idx = view.bones[b]
                     cv2.line(canvas, tuple(gpts[p_idx]),
-                             tuple(gpts[c_idx]), faded, ghost_thickness,
-                             cv2.LINE_AA)
+                             tuple(gpts[c_idx]), ctx.ghost_bgr[j][b],
+                             ghost_thickness, cv2.LINE_AA)
 
         pts_2d = project(frame_data)
 
-        for (p_idx, c_idx), color in zip(view.bones, ctx.bone_bgr):
+        for b in painter_order(frame_data):
+            p_idx, c_idx = view.bones[b]
             pt1 = (int(pts_2d[p_idx, 0]), int(pts_2d[p_idx, 1]))
             pt2 = (int(pts_2d[c_idx, 0]), int(pts_2d[c_idx, 1]))
-            cv2.line(canvas, pt1, pt2, color, thickness, cv2.LINE_AA)
+            cv2.line(canvas, pt1, pt2, ctx.bone_bgr[b], thickness,
+                     cv2.LINE_AA)
 
         if style.joint_markers:
             for pt in pts_2d:

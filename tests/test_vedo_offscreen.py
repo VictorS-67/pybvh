@@ -49,6 +49,24 @@ class TestFrameVedo:
         with pytest.raises(ValueError, match="backend"):
             bvhplot.frame(bvh, backend="opencv")
 
+    def test_camera_applied_under_notebook_backend(self, bvh):
+        """Regression: inside Jupyter, vedo auto-selects its '2d'
+        display backend, whose show() ignores camera= — renders came
+        out at VTK's default birdview. The offscreen renderer must
+        force the plain VTK backend and restore the user's setting."""
+        reference = bvhplot.frame(bvh, 260, backend="vedo",
+                                  resolution=(300, 280))
+        saved = vedo.settings.default_backend
+        vedo.settings.default_backend = "2d"   # simulate a notebook kernel
+        try:
+            img = bvhplot.frame(bvh, 260, backend="vedo",
+                                resolution=(300, 280))
+            assert vedo.settings.default_backend == "2d", \
+                "user's backend setting must be restored after the render"
+        finally:
+            vedo.settings.default_backend = saved
+        assert np.array_equal(img, reference)
+
 
 class TestRenderVedo:
     def test_gif(self, bvh, tmp_path):

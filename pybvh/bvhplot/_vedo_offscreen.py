@@ -17,6 +17,7 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -35,6 +36,28 @@ if TYPE_CHECKING:
 # one, and opaque identical grays overlap invisibly (translucent
 # shadows would darken where the two projections cross).
 _SHADOW_GRAY = (0.72, 0.72, 0.72)
+
+
+@contextmanager
+def _vtk_backend():
+    """Force vedo's plain-VTK backend while rendering offscreen.
+
+    Inside a Jupyter kernel vedo auto-selects its notebook display
+    backend (``"2d"``), and in that mode ``Plotter.show()`` silently
+    ignores the ``camera=`` argument — every render comes out at VTK's
+    default downward-looking camera (a birdview for z-up scenes).
+    Offscreen rendering must not depend on the calling environment, so
+    the plain backend is forced for the duration of the render and the
+    user's setting is restored afterwards.
+    """
+    import vedo  # type: ignore[import-untyped]
+
+    saved = vedo.settings.default_backend
+    vedo.settings.default_backend = "vtk"
+    try:
+        yield
+    finally:
+        vedo.settings.default_backend = saved
 
 
 def _attach_projected_shadow(
@@ -149,15 +172,16 @@ def frame_vedo(
     Returns the image as an ``(H, W, 3)`` uint8 RGB array (pybvh's
     framework-agnostic contract); optionally also writes *filepath*.
     """
-    plt, _capsules, camera = _build_offscreen(scene, style, resolution)
-    try:
-        plt.show(camera=camera, interactive=False)
-        img = np.asarray(plt.screenshot(asarray=True))
-        if filepath is not None:
-            from PIL import Image
-            Image.fromarray(img).save(filepath)
-    finally:
-        plt.close()
+    with _vtk_backend():
+        plt, _capsules, camera = _build_offscreen(scene, style, resolution)
+        try:
+            plt.show(camera=camera, interactive=False)
+            img = np.asarray(plt.screenshot(asarray=True))
+            if filepath is not None:
+                from PIL import Image
+                Image.fromarray(img).save(filepath)
+        finally:
+            plt.close()
     return img
 
 
@@ -193,6 +217,19 @@ def render_vedo(
                 f"opencv-python. Install with: pip install "
                 f"pybvh[opencv], or render to .gif instead.")
 
+    with _vtk_backend():
+        return _render_vedo_frames(scene, style, filepath, fps, resolution)
+
+
+def _render_vedo_frames(
+    scene: Scene,
+    style: Style,
+    filepath: Path,
+    fps: float,
+    resolution: tuple[int, int],
+) -> Path:
+    """The render loop of :func:`render_vedo`, run under ``_vtk_backend``."""
+    ext = filepath.suffix.lower()
     plt, capsules, camera = _build_offscreen(scene, style, resolution)
     try:
         plt.show(camera=camera, interactive=False)

@@ -15,6 +15,8 @@ import matplotlib.animation as animation
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
+from matplotlib.collections import LineCollection
+from mpl_toolkits.mplot3d import proj3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 from ._common import (
@@ -42,6 +44,75 @@ if TYPE_CHECKING:
 # Style application helpers
 # ---------------------------------------------------------------------------
 
+def _manual_zorder(style: Style) -> bool:
+    """Whether this style takes manual control of the 3D draw order.
+
+    True whenever a floor exists or the axes are hidden — the same
+    condition under which ``_apply_axes_style`` disables mplot3d's
+    computed z-order and the bone collections must depth-sort their own
+    segments (:class:`_DepthSortedLine3DCollection`).
+    """
+    return style.axes == "off" or style.floor is not None
+
+
+class _DepthSortedLine3DCollection(Line3DCollection):
+    """A bone collection that draws its segments far-to-near.
+
+    mplot3d depth-sorts *artists* against each other (computed z-order)
+    but never the segments inside one collection, so a fixed segment
+    order lets a far-side limb paint over a near-side one. This
+    subclass re-sorts segments (and their per-segment colors) by
+    projected depth at draw time, which keeps occlusion correct for any
+    camera — including per-frame follow/turntable azimuths, where the
+    right order changes during the animation.
+
+    Only used when the style controls draw order manually
+    (:func:`_manual_zorder`); the debug preset keeps the plain
+    fixed-order collection for pixel parity with pre-0.9.0 output.
+    """
+
+    def __init__(self, segments, **kwargs: Any) -> None:
+        super().__init__(segments, **kwargs)
+        self._base_edgecolors = np.array(self.get_edgecolor())
+
+    def set_segments(self, segments) -> None:
+        self._segments_sortable = np.asarray(segments, dtype=float)
+        super().set_segments(segments)
+
+    def do_3d_projection(self) -> float:
+        segs = self._segments_sortable
+        if len(segs) == 0:
+            return super().do_3d_projection()
+        pts = segs.reshape(-1, 3)
+        tx, ty, tz = proj3d.proj_transform(
+            pts[:, 0], pts[:, 1], pts[:, 2], self.axes.M)
+        depth = np.asarray(tz).reshape(len(segs), 2).mean(axis=1)
+        # In mpl's projected space larger z is farther from the viewer
+        # (Axes3D draws artists in decreasing do_3d_projection order),
+        # so far-to-near means descending depth.
+        order = np.argsort(depth)[::-1]
+        segs_2d = np.stack(
+            [np.asarray(tx).reshape(len(segs), 2),
+             np.asarray(ty).reshape(len(segs), 2)], axis=-1)
+        LineCollection.set_segments(self, list(segs_2d[order]))
+        if len(self._base_edgecolors) == len(segs):
+            LineCollection.set_color(self, self._base_edgecolors[order])
+        return float(depth.min())
+
+
+def _make_bone_collection(
+    segments,
+    style: Style,
+    **kwargs: Any,
+) -> Line3DCollection:
+    """The right bone-collection class for the style: depth-sorted under
+    manual z-order, the plain fixed-order collection otherwise (debug
+    pixel parity)."""
+    cls = (_DepthSortedLine3DCollection if _manual_zorder(style)
+           else Line3DCollection)
+    return cls(segments, **kwargs)
+
+
 def _apply_axes_style(
     ax: matplotlib.axes.Axes,
     style: Style,
@@ -57,7 +128,7 @@ def _apply_axes_style(
         ax.set_proj_type("ortho")  # type: ignore[attr-defined]
     if style.axes == "off":
         ax.set_axis_off()
-    if style.axes == "off" or style.floor is not None:
+    if _manual_zorder(style):
         # Manual draw order via explicit zorders (mplot3d ignores
         # zorder unless computed_zorder is off): floor 0.5, trace 0.8,
         # ghosts 1.5, bones 2 (the artist default), joints 3. Required
@@ -226,8 +297,8 @@ def _draw_pose(
     if weight < 1.0:
         colors = [_fade_toward_background(c, weight, style) for c in colors]
     segments = pose[np.asarray(view.bones, dtype=int)]
-    ax.add_collection3d(Line3DCollection(
-        segments, colors=colors,
+    ax.add_collection3d(_make_bone_collection(
+        segments, style, colors=colors,
         linewidths=line_width if line_width is not None else style.bone_width))
     if joints and style.joint_markers:
         joint_color = (style.joint_color if weight >= 1.0 else
@@ -517,8 +588,9 @@ def _setup_animated_panel(
         center, half_span = view.center, view.half_span
 
     colors = bone_colors_for_view(view, style, view_index, n_skeletons)
-    collection = Line3DCollection(
-        view.coords[0][bones], colors=colors, linewidths=style.bone_width)
+    collection = _make_bone_collection(
+        view.coords[0][bones], style, colors=colors,
+        linewidths=style.bone_width)
     ax.add_collection3d(collection)
 
     joint_scatter = None
@@ -572,8 +644,8 @@ def _setup_render_extras(
                      for c in colors]
             # zorder 1.5: ghosts sit behind the live skeleton (bones at
             # the default 2) regardless of artist creation order.
-            collection = Line3DCollection(
-                np.empty((0, 2, 3)), colors=faded,
+            collection = _make_bone_collection(
+                np.empty((0, 2, 3)), style, colors=faded,
                 linewidths=style.bone_width * GHOST_WIDTH_FACTOR,
                 zorder=1.5)
             ax.add_collection3d(collection)

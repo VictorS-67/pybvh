@@ -131,6 +131,7 @@ def _module_importable(name: str) -> bool:
 # VideoWriter handles video containers only (its .gif support is a
 # dedicated pillow-based path inside render_opencv).
 _MPL_ONLY_EXTENSIONS = {'.html', '.webp', '.apng', '.gif'}
+_VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi'}   # containers codec= applies to
 
 
 def _resolve_render_backend(requested: str, ext: str) -> str:
@@ -662,6 +663,7 @@ def render(
     trajectory: bool = False,
     frame_counter: bool = False,
     match_fps: str | None = None,
+    codec: str = "auto",
 ) -> Path:
     """Render animation to a video, GIF, or HTML file.
 
@@ -731,6 +733,19 @@ def render(
         resample.  ``"lowest"`` resamples all clips to the lowest frame
         rate.  ``"highest"`` resamples all clips to the highest frame rate
         (using SLERP interpolation for added frames).
+    codec : str, optional
+        Video codec for ``.mp4``/``.mov``/``.avi`` output (invalid for
+        other formats). ``"auto"`` (default) writes H.264 through the
+        system ``ffmpeg`` executable when one is on PATH, and falls
+        back to OpenCV's MPEG-4 Part 2 (``mp4v``) otherwise — OpenCV
+        builds cannot encode H.264 themselves (patent licensing). The
+        two diverge in where the file plays: H.264 plays everywhere
+        (browsers, VSCode, notebook embeds, GitHub); ``mp4v`` only in
+        desktop players such as VLC or mpv. Pass ``"h264"`` when you
+        need the guarantee (raises with an install hint if no ffmpeg
+        is found) or ``"mpeg4"`` to force the OpenCV writer. The
+        matplotlib backend always writes H.264 (its mp4 writer *is*
+        ffmpeg), so ``"mpeg4"`` is rejected there.
 
     Returns
     -------
@@ -743,6 +758,15 @@ def render(
     style_obj = resolve_style(style)
     if not (isinstance(ghost, int) and ghost >= 0):
         raise ValueError(f"ghost must be an integer >= 0, got {ghost!r}")
+
+    from ._opencv import VIDEO_CODECS
+    if codec not in VIDEO_CODECS:
+        raise ValueError(
+            f"Unknown codec {codec!r}. Choose from: {sorted(VIDEO_CODECS)}")
+    if codec != "auto" and filepath.suffix.lower() not in _VIDEO_EXTENSIONS:
+        raise ValueError(
+            f"codec= applies to video containers "
+            f"({sorted(_VIDEO_EXTENSIONS)}), not {filepath.suffix!r}.")
 
     # "turntable" is a camera *motion*, not an angle: orbit from the
     # front view. It overrides follow (both prescribe the azimuth).
@@ -797,7 +821,8 @@ def render(
                 f"'matplotlib' for those.")
         from ._vedo_offscreen import render_vedo
         return render_vedo(
-            scene, style_obj, filepath, actual_fps, resolution)
+            scene, style_obj, filepath, actual_fps, resolution,
+            codec=codec)
 
     if backend_name == "opencv":
         if not _module_importable("cv2"):
@@ -809,9 +834,14 @@ def render(
             scene, style_obj, filepath, actual_fps, resolution,
             follow=effective_follow, turntable=turntable,
             frame_counter=frame_counter,
-            ghost=ghost, trajectory=trajectory)
+            ghost=ghost, trajectory=trajectory, codec=codec)
 
     else:  # matplotlib
+        if codec == "mpeg4":
+            raise ValueError(
+                "codec='mpeg4' is only available on the OpenCV and "
+                "vedo backends — the matplotlib backend writes video "
+                "through ffmpeg, which encodes H.264.")
         from ._matplotlib import render_mpl
         return render_mpl(
             scene, style_obj, filepath, actual_fps,

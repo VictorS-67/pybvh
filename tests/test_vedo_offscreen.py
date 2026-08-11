@@ -82,6 +82,18 @@ class TestRenderVedo:
             resolution=(300, 280))
         assert path.exists() and path.stat().st_size > 0
 
+    def test_mp4_codec_plumbs_through(self, bvh, tmp_path):
+        """codec= reaches the vedo backend's video sink."""
+        cv2 = pytest.importorskip("cv2")
+        path = bvhplot.render(
+            bvh[0:4], tmp_path / "caps_m4.mp4", backend="vedo",
+            resolution=(300, 280), codec="mpeg4")
+        cap = cv2.VideoCapture(str(path))
+        fcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+        cap.release()
+        four = "".join(chr((fcc >> 8 * i) & 0xFF) for i in range(4))
+        assert four in ("FMP4", "mp4v", "XVID")
+
     def test_unsupported_extension_raises(self, bvh, tmp_path):
         with pytest.raises(ValueError, match="vedo backend"):
             bvhplot.render(bvh[0:4], tmp_path / "x.html", backend="vedo")

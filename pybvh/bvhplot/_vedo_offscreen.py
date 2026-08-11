@@ -191,6 +191,7 @@ def render_vedo(
     filepath: Path,
     fps: float,
     resolution: tuple[int, int] = (1100, 1000),
+    codec: str = "auto",
 ) -> Path:
     """Render a shadowed capsule-skeleton video (.mp4/.mov/.avi/.gif).
 
@@ -218,7 +219,8 @@ def render_vedo(
                 f"pybvh[opencv], or render to .gif instead.")
 
     with _vtk_backend():
-        return _render_vedo_frames(scene, style, filepath, fps, resolution)
+        return _render_vedo_frames(scene, style, filepath, fps, resolution,
+                                   codec)
 
 
 def _render_vedo_frames(
@@ -227,6 +229,7 @@ def _render_vedo_frames(
     filepath: Path,
     fps: float,
     resolution: tuple[int, int],
+    codec: str,
 ) -> Path:
     """The render loop of :func:`render_vedo`, run under ``_vtk_backend``."""
     ext = filepath.suffix.lower()
@@ -255,7 +258,7 @@ def _render_vedo_frames(
         # vedo may deliver a screenshot size differing from the request
         # (HiDPI scaling); size the writer from the actual frames.
         h, w = first.shape[:2]
-        writer = _open_writer(filepath, fps, (w, h))
+        writer = _open_writer(filepath, fps, (w, h), codec)
         writer.write(np.ascontiguousarray(first))  # type: ignore[attr-defined]
         for img in frame_iter:
             writer.write(np.ascontiguousarray(img))  # type: ignore[attr-defined]

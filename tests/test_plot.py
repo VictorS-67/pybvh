@@ -863,6 +863,78 @@ class TestRenderOpenCV:
 # Backend / extension routing and fps resolution
 # =============================================================================
 
+class TestRenderCodec:
+    """render(codec=): "auto" is best-available, "h264"/"mpeg4" are
+    guarantees — H.264 needs the external ffmpeg binary (OpenCV builds
+    cannot encode it), mp4v is the always-available desktop-player
+    codec."""
+
+    @pytest.fixture(autouse=True)
+    def _skip_if_no_cv2(self):
+        pytest.importorskip("cv2")
+
+    @staticmethod
+    def _fourcc(path):
+        import cv2
+        cap = cv2.VideoCapture(str(path))
+        fcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+        cap.release()
+        return "".join(chr((fcc >> 8 * i) & 0xFF) for i in range(4))
+
+    def test_mpeg4_forced(self, bvh_example, tmp_path):
+        path = bvhplot.render(
+            bvh_example, tmp_path / "m4.mp4", backend="opencv",
+            resolution=(320, 240), codec="mpeg4")
+        assert self._fourcc(path) in ("FMP4", "mp4v", "XVID")
+
+    def test_h264_without_ffmpeg_raises(self, bvh_example, tmp_path):
+        import shutil
+        if shutil.which("ffmpeg"):
+            pytest.skip("ffmpeg present — the raise path needs it absent")
+        with pytest.raises(RuntimeError, match="ffmpeg"):
+            bvhplot.render(bvh_example, tmp_path / "h264.mp4",
+                           backend="opencv", resolution=(320, 240),
+                           codec="h264")
+
+    def test_h264_with_ffmpeg(self, bvh_example, tmp_path):
+        import shutil
+        if not shutil.which("ffmpeg"):
+            pytest.skip("needs the ffmpeg executable")
+        path = bvhplot.render(
+            bvh_example, tmp_path / "h264.mp4", backend="opencv",
+            resolution=(320, 240), codec="h264")
+        assert path.exists() and path.stat().st_size > 0
+        assert self._fourcc(path) in ("avc1", "h264", "H264")
+
+    def test_auto_matches_environment(self, bvh_example, tmp_path):
+        """auto == h264 when ffmpeg is on PATH, mp4v otherwise."""
+        import shutil
+        path = bvhplot.render(
+            bvh_example, tmp_path / "auto.mp4", backend="opencv",
+            resolution=(320, 240))
+        four = self._fourcc(path)
+        if shutil.which("ffmpeg"):
+            assert four in ("avc1", "h264", "H264")
+        else:
+            assert four in ("FMP4", "mp4v", "XVID")
+
+    def test_unknown_codec_raises(self, bvh_example, tmp_path):
+        with pytest.raises(ValueError, match="codec"):
+            bvhplot.render(bvh_example, tmp_path / "x.mp4",
+                           codec="hevc")
+
+    def test_codec_invalid_for_gif(self, bvh_example, tmp_path):
+        with pytest.raises(ValueError, match="video containers"):
+            bvhplot.render(bvh_example, tmp_path / "x.gif",
+                           codec="mpeg4")
+
+    def test_mpeg4_rejected_on_matplotlib_backend(self, bvh_example,
+                                                  tmp_path):
+        with pytest.raises(ValueError, match="OpenCV"):
+            bvhplot.render(bvh_example, tmp_path / "x.mp4",
+                           backend="matplotlib", codec="mpeg4")
+
+
 class TestRenderBackendResolution:
     """Extension-aware backend routing for render()."""
 

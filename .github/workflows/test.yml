@@ -19,6 +19,12 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Install system packages
+      # ffmpeg exercises render(codec="h264"/"auto")'s H.264 pipe path,
+      # which is skipped wherever the binary is absent.
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends ffmpeg
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip

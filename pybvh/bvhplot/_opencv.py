@@ -139,6 +139,9 @@ def _draw_floor_opencv(
 # cv2.VideoWriter, plus GIF via a dedicated Pillow path.
 _OPENCV_EXTENSIONS = {'.mp4', '.mov', '.avi', '.gif'}
 
+# Valid values for render(codec=); shared by the OpenCV and vedo sinks.
+VIDEO_CODECS = {"auto", "h264", "mpeg4"}
+
 
 def _compute_fixed_view_halves_for_follow(
     follow_azimuths: list[npt.NDArray[np.float64]],
@@ -493,6 +496,7 @@ def render_opencv(
     frame_counter: bool = False,
     ghost: int = 0,
     trajectory: bool = False,
+    codec: str = "auto",
 ) -> Path:
     """Render skeleton animation to a video or GIF file using OpenCV.
 
@@ -548,28 +552,92 @@ def render_opencv(
     if ext == '.gif':
         return _render_gif(frames, filepath, fps)
 
-    writer = _open_writer(filepath, fps, resolution)
+    writer = _open_writer(filepath, fps, resolution, codec)
     for img in frames:
         writer.write(img)  # type: ignore[attr-defined]
     writer.release()  # type: ignore[attr-defined]
     return filepath
 
 
+class _FfmpegPipeWriter:
+    """H.264 video sink: BGR frames piped to the system ``ffmpeg``.
+
+    Duck-types ``cv2.VideoWriter`` (``write``/``release``) so the two
+    sinks are interchangeable downstream. Encodes libx264 + yuv420p +
+    faststart — the combination that plays in browsers, VSCode, and
+    notebook embeds. Odd frame dimensions are padded by one pixel
+    (yuv420p requires even sizes).
+    """
+
+    def __init__(
+        self,
+        filepath: Path,
+        fps: float,
+        resolution: tuple[int, int],
+    ) -> None:
+        import subprocess
+
+        w, h = resolution
+        self._frame_bytes = w * h * 3
+        self._proc = subprocess.Popen(
+            ["ffmpeg", "-y", "-loglevel", "error",
+             "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}",
+             "-r", f"{fps}", "-i", "-",
+             "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+             "-c:v", "libx264", "-pix_fmt", "yuv420p",
+             "-movflags", "+faststart", str(filepath)],
+            stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def write(self, frame: npt.NDArray[np.uint8]) -> None:
+        assert self._proc.stdin is not None
+        self._proc.stdin.write(np.ascontiguousarray(frame).tobytes())
+
+    def release(self) -> None:
+        assert self._proc.stdin is not None and self._proc.stderr is not None
+        self._proc.stdin.close()
+        err = self._proc.stderr.read().decode(errors="replace")
+        code = self._proc.wait()
+        if code != 0:
+            raise RuntimeError(
+                f"ffmpeg exited with code {code} while encoding: "
+                f"{err.strip()[:500]}")
+
+
 def _open_writer(
     filepath: Path,
     fps: float,
     resolution: tuple[int, int],
+    codec: str = "auto",
 ) -> object:
-    """Open a cv2.VideoWriter with codec fallback.
+    """Open the video sink for *codec*.
 
-    Tries MPEG-4 first (widely supported, no noisy codec probing),
-    then H.264, then XVID.
+    ``"auto"``: H.264 via the system ``ffmpeg`` when one is on PATH,
+    else OpenCV's MPEG-4 Part 2 (``mp4v``). ``"h264"``: require ffmpeg,
+    raise with an install hint otherwise. ``"mpeg4"``: always the
+    OpenCV writer. OpenCV builds ship without an H.264 encoder (patent
+    licensing), which is why H.264 needs the external binary.
     """
+    import shutil
+
+    if codec not in VIDEO_CODECS:
+        raise ValueError(
+            f"Unknown codec {codec!r}. Choose from: {sorted(VIDEO_CODECS)}")
+    have_ffmpeg = shutil.which("ffmpeg") is not None
+    if codec == "h264" and not have_ffmpeg:
+        raise RuntimeError(
+            "codec='h264' requires the ffmpeg executable on PATH — "
+            "OpenCV cannot encode H.264 itself. Install ffmpeg (e.g. "
+            "apt install ffmpeg / conda install ffmpeg), or use "
+            "codec='mpeg4' (plays in desktop players such as VLC, but "
+            "not in browsers or VSCode).")
+    if have_ffmpeg and codec in ("auto", "h264"):
+        return _FfmpegPipeWriter(filepath, fps, resolution)
+
     import cv2
 
-    codecs = ['mp4v', 'avc1', 'XVID']
-    for codec in codecs:
-        fourcc = cv2.VideoWriter_fourcc(*codec)  # type: ignore[attr-defined]
+    codecs = ['mp4v', 'XVID']
+    for fourcc_name in codecs:
+        fourcc = cv2.VideoWriter_fourcc(*fourcc_name)  # type: ignore[attr-defined]
         writer = cv2.VideoWriter(str(filepath), fourcc, fps, resolution)
         if writer.isOpened():
             return writer

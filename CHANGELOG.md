@@ -38,6 +38,10 @@ The publication-grade visualization release. Every bvhplot function now produces
 - **Playback bookkeeping extracted from the vedo viewer.** Frame/play-pause/speed/loop state and wall-clock frame advancement live in a pure-Python `PlaybackClock`, unit-tested without a window; the viewer class is a rendering/UI shell. The capsule-geometry math is likewise shared between the viewer and the offscreen renderer (`_vedo_capsules`). Nothing user-visible.
 - **RGB is the canonical color order throughout bvhplot** — the OpenCV backend converts to BGR at its own border (previously the module-wide palette was stored in BGR, one backend's quirk defining the convention).
 
+### Fixed
+
+- **`mirror()` on a skeleton whose paired joints declare different Euler orders.** BVH lets each joint pick its own rotation channel order, and solver output sometimes gives the two halves of a pair different ones. The L/R swap moved the angle triples between joints verbatim, so the destination joint read the numbers under *its* order rather than the order they were written in — a silently distorted mirror (metres of joint-position error on an otherwise ordinary clip), not a crash. Each swapped triple is now re-expressed in its destination joint's order. Skeletons whose pairs already agree — the common case, including every fixture in this repo — are unaffected and still mirror bit-exactly.
+
 ## [0.8.2] — 2026-07-29
 
 ### Breaking changes & migration

@@ -715,6 +715,23 @@ def mirror_angles(
     (new_joint_angles, new_root_pos)
         Copies with the mirroring applied.
 
+    Notes
+    -----
+    **Each joint keeps its own Euler order.** The pair members of
+    ``lr_joint_pairs`` may declare different channel orders (BVH permits
+    it, and solver output sometimes does it); when they do, the swapped
+    triple is re-expressed in the destination joint's order by way of a
+    rotation matrix rather than copied across verbatim. The alternative
+    would be to swap the orders along with the numbers, but that changes
+    the skeleton definition and would make the mirror of a mirror
+    lossless only by accident. The two agree whenever a pair already
+    shares an order, which is the common case.
+
+    Re-expressing a triple returns the canonical Euler solution for that
+    order, so the output numbers of a mismatched pair need not match the
+    input numbers even though the rotation is the same — compare
+    rotations (or FK positions), not raw angles.
+
     See Also
     --------
     mirror : Bvh-level wrapper that also mirrors skeleton offsets and
@@ -746,11 +763,26 @@ def mirror_angles(
             if ch != lateral_upper:
                 new_angles[:, j_idx, ch_idx] *= -1
 
-    # Swap L/R joint angle columns
+    # Swap L/R joint angle columns.  A raw column swap is only valid when
+    # both joints of the pair read their three numbers under the same Euler
+    # order; when the orders differ the triple must be re-expressed in its
+    # destination joint's order, or the same numbers would be interpreted
+    # as a different rotation and silently distort the mirror.
     for lj, rj in lr_joint_pairs:
+        left_order = "".join(rot_channels[lj])
+        right_order = "".join(rot_channels[rj])
         left_data = new_angles[:, lj].copy()
-        new_angles[:, lj] = new_angles[:, rj]
-        new_angles[:, rj] = left_data
+        right_data = new_angles[:, rj].copy()
+        if left_order == right_order:
+            new_angles[:, lj] = right_data
+            new_angles[:, rj] = left_data
+        else:
+            new_angles[:, lj] = rotations.rotmat_to_euler(
+                rotations.euler_to_rotmat(right_data, right_order),
+                left_order)
+            new_angles[:, rj] = rotations.rotmat_to_euler(
+                rotations.euler_to_rotmat(left_data, left_order),
+                right_order)
 
     return new_angles, new_root_pos
 

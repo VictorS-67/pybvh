@@ -350,7 +350,12 @@ class TestScaleRootPos:
 class TestMirrorAnglesEulerOrder:
 
     def test_mirror_angles_heterogeneous_raw(self):
-        """Negation must use the source joint's Euler order, not the slot's."""
+        """Negation uses the source joint's Euler order, not the slot's.
+
+        The pair (1, 2) declares different orders, so the swapped triple
+        is re-expressed in its destination slot's order — compare the
+        rotation it encodes, not the raw numbers.
+        """
         angles = np.array([[[10, 20, 30], [40, 50, 60],
                             [70, 80, 90], [1, 2, 3]]],
                           dtype=np.float64)
@@ -361,9 +366,13 @@ class TestMirrorAnglesEulerOrder:
                         ["X", "Y", "Z"], ["Z", "Y", "X"]]
         new_angles, _ = transforms.mirror_angles(
             angles, root_pos, lr_pairs, lateral_idx, rot_channels)
-        # Index 1 now holds joint 2's original [70,80,90] in XYZ order.
-        # Negate non-lateral (Y, Z): keep X(ch0), negate Y(ch1), negate Z(ch2)
-        npt.assert_allclose(new_angles[0, 1], [70, -80, -90])
+        # Joint 2's [70,80,90] is read under its own XYZ order, so the
+        # non-lateral channels are Y(ch1) and Z(ch2): -> [70,-80,-90].
+        # Slot 1 declares ZYX, so it stores that same rotation as ZYX.
+        expected = rotations.euler_to_rotmat(
+            np.array([[70.0, -80.0, -90.0]]), "XYZ")
+        stored = rotations.euler_to_rotmat(new_angles[:, 1], "ZYX")
+        npt.assert_allclose(stored, expected, atol=1e-12)
 
     def test_double_mirror_roundtrip(self):
         bvh = make_heterogeneous_euler_bvh()

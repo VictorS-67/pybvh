@@ -17,65 +17,203 @@ if TYPE_CHECKING:
     from ._common import SkeletonView
 
 
+LENGTH_BOOST = (1.0, 1.5)   # long bones get plumper; short ones never thinner
+CROWD_FRACTION = 0.45       # two crowders at 0.45x a gap leave ~10% clear
+SAME_DIR_COS = 0.5          # "same direction" = within 60 degrees
+MIN_OVERLAP = 0.25          # side-by-side run, as a fraction of the shorter bone
+STUB_CAP_FACTOR = 2.0       # a stub is at most 2x the thinnest bone it joins
+MIN_RADIUS_FRACTION = 0.10  # visibility floor
+
+
+def _segment_frames(pose, bone_array):
+    """Endpoints, lengths and unit directions for every bone."""
+    starts, ends = pose[bone_array[:, 0]], pose[bone_array[:, 1]]
+    delta = ends - starts
+    lengths = np.linalg.norm(delta, axis=1)
+    directions = delta / np.maximum(lengths, 1e-9)[:, None]
+    return starts, ends, lengths, directions
+
+
+def crowding_clearance(
+    rest_pose: npt.NDArray[np.float64],
+    bones: list[tuple[int, int]],
+) -> npt.NDArray[np.float64]:
+    """Per-bone lateral room before the nearest bone that crowds it.
+
+    A bone is *crowded* only by one that (1) runs in the same direction
+    (signed parent-to-child, within ``SAME_DIR_COS``), (2) overlaps it
+    along that shared direction, and (3) is laterally close; the return
+    value is that lateral offset, or ``inf`` for a bone nothing crowds.
+    All three conjuncts are load-bearing, and each rules out a case the
+    others accept: unsigned parallelism would read two clavicles
+    diverging from the spine as crowding each other; without the
+    overlap test a bone's own chain continuation (the link two joints
+    up a neck) counts as a crowder, which is what a plain
+    nearest-bone-distance measure gets wrong; and the lateral offset,
+    not the raw segment distance, is what merges two tubes visually.
+
+    Measured on the **rest pose**, so the result describes the
+    skeleton's structure rather than a transient pose (arms crossed in
+    frame 0 must not thin the arms); this also makes it invariant to
+    the rest/animation convention mismatches pybvh warns about, since
+    only relative geometry is used. The alternative — a low percentile
+    over sampled animation frames — tracks poses that actually occur
+    but thins limbs that merely pass close by, and costs a pass over
+    the motion.
+    """
+    bone_array = np.asarray(bones, dtype=int)
+    starts, ends, lengths, directions = _segment_frames(rest_pose, bone_array)
+    centers = (starts + ends) / 2
+
+    shares_node = (bone_array[:, None, :, None]
+                   == bone_array[None, :, None, :]).any(axis=(2, 3))
+    same_direction = (directions @ directions.T) > SAME_DIR_COS
+
+    shared_axis = directions[:, None, :] + directions[None, :, :]
+    shared_axis /= np.maximum(
+        np.linalg.norm(shared_axis, axis=-1, keepdims=True), 1e-9)
+    proj_start_i = (starts[:, None, :] * shared_axis).sum(-1)
+    proj_end_i = (ends[:, None, :] * shared_axis).sum(-1)
+    proj_start_j = (starts[None, :, :] * shared_axis).sum(-1)
+    proj_end_j = (ends[None, :, :] * shared_axis).sum(-1)
+    overlap = (np.minimum(np.maximum(proj_start_i, proj_end_i),
+                          np.maximum(proj_start_j, proj_end_j))
+               - np.maximum(np.minimum(proj_start_i, proj_end_i),
+                            np.minimum(proj_start_j, proj_end_j)))
+    side_by_side = overlap > MIN_OVERLAP * np.minimum(
+        lengths[:, None], lengths[None, :])
+
+    offset = centers[None, :, :] - centers[:, None, :]
+    axial = (offset * shared_axis).sum(-1)
+    lateral = np.linalg.norm(offset - axial[..., None] * shared_axis, axis=-1)
+
+    degenerate = lengths < 1e-8
+    crowds = (same_direction & side_by_side & ~shares_node
+              & ~degenerate[None, :] & ~degenerate[:, None])
+    np.fill_diagonal(crowds, False)
+    return np.where(crowds, lateral, np.inf).min(axis=1)
+
+
 def adaptive_radii(
     frame0: npt.NDArray[np.float64],
     bones: list[tuple[int, int]],
     r_base: float,
-    hand_bones: frozenset[tuple[int, int]] = frozenset(),
+    rest_pose: npt.NDArray[np.float64] | None = None,
 ) -> tuple[dict[tuple[int, int], float], npt.NDArray[np.float64]]:
-    """Per-bone and per-joint radii: plump body, slender hands.
+    """Per-bone and per-joint capsule radii, from geometry alone.
 
-    Two sizing regions, both scaled by bone length relative to the
-    skeleton-wide median. *Body* bones get the full ``r_base`` with the
-    ratio clipped to [0.12, 1.5]x — long limbs read as plump capsules,
-    short torso links stay slim beads. Bones in *hand_bones* get half
-    the base radius with a wider [0.3, 2]x clip — on full-hand rigs a
-    uniformly plump rule congests the fingers into a mitten, and this
-    split (chosen against that single-region alternative after visual
-    review) keeps them articulate. A joint's radius is the mean of its
-    connected bones' radii, so wrists blend the two scales smoothly.
+    Four local rules, in order. **Length** scales a bone up with its
+    length relative to the skeleton median, clipped to
+    ``LENGTH_BOOST`` — upward only, so long limbs read as plump
+    capsules while short links keep the base radius. (Scaling *down*
+    with length is the obvious alternative and is what this used to
+    do; it fails on short-but-isolated bones, thinning a two-link neck
+    to a third of the bone below it.) **Crowding** then caps a bone at
+    ``CROWD_FRACTION`` of its lateral room (:func:`crowding_clearance`)
+    — the rule that keeps fingers legible without knowing they are
+    fingers. **Propagation** carries each bone's crowding cap down the
+    chain, so a bone is never allowed more room than its parent had:
+    fingertips that splay apart in the rest pose stay as slim as the
+    knuckles feeding them. The cap is what propagates, not the radius
+    — a short clavicle feeding a long humerus means a parent is
+    legitimately thinner than its child, so propagating the radius
+    itself would spindle every limb. **Stub capping** finally limits a
+    bone *too short to read as a tube* (length below its own radius) to
+    ``STUB_CAP_FACTOR`` times the thinnest bone it joins, so the
+    transverse stubs inside a palm follow their surroundings; longer
+    bones are exempt, or a wrist joining five thin metacarpals would be
+    dragged down to finger width.
+
+    Radii are derived from *rest_pose* (structure, not a transient
+    pose) but expressed in *frame0*'s scale, so caller-supplied
+    coordinates in another unit still render correctly. A joint's
+    radius is the **minimum** of the bones it joins, never the mean:
+    at a hub where one thick bone meets several thin ones, the mean
+    bulges a sphere out past the thin tubes.
+
+    Returns ``(bone_radii, joint_radii)``.
     """
-    lengths = {
-        (p, c): float(np.linalg.norm(frame0[c] - frame0[p]))
-        for p, c in bones
-    }
-    med = float(np.median(list(lengths.values()))) if lengths else 1.0
-    bone_radii: dict[tuple[int, int], float] = {}
-    for (p, c), length in lengths.items():
-        ratio = length / med if med > 0 else 1.0
-        if (p, c) in hand_bones:
-            bone_radii[(p, c)] = r_base * 0.5 * np.clip(ratio, 0.3, 2.0)
-        else:
-            bone_radii[(p, c)] = r_base * np.clip(ratio, 0.12, 1.5)
+    if not bones:
+        return {}, np.full(len(frame0), r_base * 0.5)
+
+    bone_array = np.asarray(bones, dtype=int)
+    _, _, lengths, _ = _segment_frames(frame0, bone_array)
+    median_length = float(np.median(lengths)) if len(lengths) else 1.0
+    radii = r_base * np.clip(
+        lengths / median_length if median_length > 0 else 1.0, *LENGTH_BOOST)
+
+    if rest_pose is None:
+        rest_pose = frame0
+    _, _, rest_lengths, _ = _segment_frames(rest_pose, bone_array)
+    rest_median = float(np.median(rest_lengths)) if len(rest_lengths) else 1.0
+    # Bone lengths are FK-invariant, so this differs from 1 only when the
+    # caller passed coordinates in a different unit than the skeleton.
+    scale = median_length / rest_median if rest_median > 0 else 1.0
+    cap = CROWD_FRACTION * crowding_clearance(rest_pose, bones) * scale
+
+    parent_bone = _parent_bone_indices(bones)
+    for index in _root_first_order(parent_bone):
+        if parent_bone[index] is not None:
+            cap[index] = min(cap[index], cap[parent_bone[index]])
+    radii = np.minimum(radii, cap)
+
+    neighbours = _neighbour_indices(parent_bone)
+    uncapped = radii.copy()
+    for index in range(len(bones)):
+        if lengths[index] >= uncapped[index] or not neighbours[index]:
+            continue
+        thinnest = min(uncapped[j] for j in neighbours[index])
+        radii[index] = min(radii[index], STUB_CAP_FACTOR * thinnest)
+
+    radii = np.maximum(radii, MIN_RADIUS_FRACTION * r_base)
+    bone_radii = {bone: float(radii[k]) for k, bone in enumerate(bones)}
 
     joint_radii = np.full(len(frame0), r_base * 0.5)
     connected: list[list[float]] = [[] for _ in range(len(frame0))]
-    for (p, c), rad in bone_radii.items():
-        connected[p].append(rad)
-        connected[c].append(rad)
+    for (p, c), radius in bone_radii.items():
+        connected[p].append(radius)
+        connected[c].append(radius)
     for j in range(len(frame0)):
         if connected[j]:
-            joint_radii[j] = float(np.mean(connected[j]))
+            joint_radii[j] = float(min(connected[j]))
     return bone_radii, joint_radii
 
 
-def hand_bone_set(
-    bvh: object,
-    bones: list[tuple[int, int]],
-) -> frozenset[tuple[int, int]]:
-    """Bones inside a hand: parent joint name contains ``"hand"``
-    (case-insensitive).
+def _parent_bone_indices(bones):
+    """For each bone, the index of the bone ending at its parent node."""
+    bone_of_child = {child: k for k, (_p, child) in enumerate(bones)}
+    return [bone_of_child.get(parent) for parent, _c in bones]
 
-    Name-based on purpose, following the precedent of the L/R pair
-    detection that drives ``mirror`` and chain coloring. The parent
-    (not the child) is tested so the forearm bone *ending* at
-    ``RightHand`` stays a body bone — the hand region starts at the
-    wrist. Rigs without named hand joints return the empty set and get
-    body sizing everywhere.
-    """
-    names = {idx: name for name, idx in bvh.node_index.items()}  # type: ignore[attr-defined]
-    return frozenset(
-        (p, c) for p, c in bones if "hand" in names.get(p, "").lower())
+
+def _root_first_order(parent_bone):
+    """Bone indices ordered parents before children (cycle-safe)."""
+    children: dict[int, list[int]] = {}
+    roots = []
+    for k, parent in enumerate(parent_bone):
+        if parent is None:
+            roots.append(k)
+        else:
+            children.setdefault(parent, []).append(k)
+    order, stack, seen = [], list(reversed(roots)), set()
+    while stack:
+        k = stack.pop()
+        if k in seen:
+            continue
+        seen.add(k)
+        order.append(k)
+        stack.extend(reversed(children.get(k, [])))
+    order.extend(k for k in range(len(parent_bone)) if k not in seen)
+    return order
+
+
+def _neighbour_indices(parent_bone):
+    """Bones sharing a node with each bone (its parent and its children)."""
+    neighbours: list[list[int]] = [[] for _ in parent_bone]
+    for k, parent in enumerate(parent_bone):
+        if parent is not None:
+            neighbours[k].append(parent)
+            neighbours[parent].append(k)
+    return neighbours
 
 
 class CapsuleSkeleton:
@@ -120,7 +258,7 @@ class CapsuleSkeleton:
         self.bone_child_idx = np.array([b[1] for b in bones], dtype=int)
 
         bone_radii, joint_radii = adaptive_radii(
-            frame0, bones, r_base, hand_bone_set(view.bvh, bones))
+            frame0, bones, r_base, view.bvh.rest_pose_positions())
 
         # --- canonical bone tubes ---
         bone_meshes = []

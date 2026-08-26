@@ -17,6 +17,12 @@ def bvh():
     return read_bvh_file(BVH_PATH)
 
 
+@pytest.fixture(scope="module")
+def bvh_hands():
+    """A rig with full hands — the case capsule sizing has to survive."""
+    return read_bvh_file("bvh_data/bvh_test3.bvh")
+
+
 class TestFrameVedo:
     def test_returns_rgb_array(self, bvh):
         img = bvhplot.frame(bvh, 260, backend="vedo",
@@ -108,37 +114,104 @@ class TestRenderVedo:
 
 
 class TestCapsuleSizing:
-    """The G look: plump body capsules, slender articulated hands."""
+    """Geometry-only capsule radii: four local rules, no joint names."""
 
-    def test_hand_bone_set_starts_at_wrist(self, bvh):
-        from pybvh.bvhplot._vedo_capsules import hand_bone_set
-        from pybvh.bvhplot import get_skeleton_lines
-        bones = get_skeleton_lines(bvh)
-        hand = hand_bone_set(bvh, bones)
-        names = {idx: n for n, idx in bvh.node_index.items()}
-        assert hand, "walk skeleton has named hand joints"
-        # every hand bone's parent is a hand joint...
-        assert all("hand" in names[p].lower() for p, _c in hand)
-        # ...and the forearm bone ENDING at the wrist is a body bone
-        forearm = [(p, c) for p, c in bones
-                   if "hand" in names[c].lower()
-                   and "hand" not in names[p].lower()]
-        assert forearm and not (set(forearm) & hand)
+    @staticmethod
+    def _clear(pose, bones):
+        from pybvh.bvhplot._vedo_capsules import crowding_clearance
+        return crowding_clearance(np.asarray(pose, dtype=float), bones)
 
-    def test_hand_bones_render_slimmer(self):
+    def test_parallel_side_by_side_bones_crowd(self):
+        """Two bones running together, a hand's width apart: crowded."""
+        pose = [[0, 0, 0], [0, 0, 4], [1, 0, 0], [1, 0, 4]]
+        clear = self._clear(pose, [(0, 1), (2, 3)])
+        assert np.allclose(clear, [1.0, 1.0])
+
+    def test_diverging_branches_do_not_crowd(self):
+        """Antiparallel bones (the two clavicles leaving a spine) are
+        not crowding, though an unsigned parallelism test would say so."""
+        pose = [[0, 0, 0], [-4, 0, 0], [0.01, 0, 0], [4, 0, 0]]
+        clear = self._clear(pose, [(0, 1), (2, 3)])
+        assert np.isinf(clear).all()
+
+    def test_chain_continuation_does_not_crowd(self):
+        """Collinear bones stacked end to end (a neck) are not
+        side-by-side: this is the case a raw nearest-bone distance
+        gets wrong, thinning the neck."""
+        pose = [[0, 0, 0], [0, 0, 1], [0, 0, 2], [0, 0, 3]]
+        clear = self._clear(pose, [(0, 1), (2, 3)])
+        assert np.isinf(clear).all()
+
+    def test_crowding_cap_propagates_down_the_chain(self):
+        """A child never gets more room than its parent had, so a
+        fingertip that splays apart stays as slim as its knuckle."""
         from pybvh.bvhplot._vedo_capsules import adaptive_radii
-        frame0 = np.array([[0.0, 0, 0], [1.0, 0, 0], [2.0, 0, 0]])
-        bones = [(0, 1), (1, 2)]          # two bones, identical length
-        body, _ = adaptive_radii(frame0, bones, r_base=1.0)
-        mixed, _ = adaptive_radii(frame0, bones, r_base=1.0,
-                                  hand_bones=frozenset({(1, 2)}))
-        assert mixed[(0, 1)] == body[(0, 1)]
-        assert mixed[(1, 2)] == pytest.approx(body[(1, 2)] * 0.5)
+        # bones 0-1 and 2-3 run side by side (crowded); 1-4 continues
+        # from the first, alone in space (uncrowded on its own).
+        pose = np.array([[0., 0, 0], [0, 0, 4], [0.5, 0, 0], [0.5, 0, 4],
+                         [0, 0, 9]])
+        bones = [(0, 1), (2, 3), (1, 4)]
+        radii, _ = adaptive_radii(pose, bones, r_base=1.0)
+        assert radii[(1, 4)] <= radii[(0, 1)] + 1e-9
 
-    def test_no_named_hands_falls_back_to_body_sizing(self, bvh):
-        from pybvh.bvhplot._vedo_capsules import hand_bone_set
+    def test_long_bone_is_exempt_from_the_stub_cap(self, bvh_hands):
+        """Regression: the forearm is a hub joining one thick bone to
+        five thin metacarpals. Sizing it from the thinnest neighbour
+        collapsed it to finger width."""
+        from pybvh.bvhplot._vedo_capsules import adaptive_radii, CapsuleSkeleton
         from pybvh.bvhplot import get_skeleton_lines
-        sub = bvh.extract_joints(
-            ["Hips", "LowerBack", "Spine", "Spine1", "Neck", "Neck1",
-             "Head"])
-        assert hand_bone_set(sub, get_skeleton_lines(sub)) == frozenset()
+        bones = get_skeleton_lines(bvh_hands)
+        rest = bvh_hands.rest_pose_positions()
+        r_base = CapsuleSkeleton.base_radius(
+            float(np.linalg.norm(rest.max(0) - rest.min(0))) / 2, 3.0)
+        radii, _ = adaptive_radii(rest, bones, r_base, rest)
+        idx = bvh_hands.node_index
+        forearm = radii[(idx["RightForeArm"], idx["RightHand"])]
+        upper = radii[(idx["RightArm"], idx["RightForeArm"])]
+        assert forearm == pytest.approx(upper, rel=0.25)
+
+    def test_fingers_are_thinned_without_naming_them(self, bvh_hands):
+        from pybvh.bvhplot._vedo_capsules import adaptive_radii, CapsuleSkeleton
+        from pybvh.bvhplot import get_skeleton_lines
+        bones = get_skeleton_lines(bvh_hands)
+        rest = bvh_hands.rest_pose_positions()
+        r_base = CapsuleSkeleton.base_radius(
+            float(np.linalg.norm(rest.max(0) - rest.min(0))) / 2, 3.0)
+        radii, _ = adaptive_radii(rest, bones, r_base, rest)
+        idx = bvh_hands.node_index
+        upper = radii[(idx["RightArm"], idx["RightForeArm"])]
+        finger = radii[(idx["RightHandPinky1"], idx["RightHandPinky2"])]
+        assert finger < upper / 3
+
+    def test_short_isolated_bones_keep_full_radius(self):
+        """The neck bug: short links with nothing beside them are not
+        thinned, so a two-link neck matches the spine below it."""
+        from pybvh.bvhplot._vedo_capsules import adaptive_radii
+        from pybvh import read_bvh_file
+        from pybvh.bvhplot import get_skeleton_lines
+        neck_rig = read_bvh_file("bvh_data/bvh_test1.bvh")
+        bones = get_skeleton_lines(neck_rig)
+        rest = neck_rig.rest_pose_positions()
+        radii, _ = adaptive_radii(rest, bones, 1.0, rest)
+        idx = neck_rig.node_index
+        neck = radii[(idx["Neck"], idx["Neck1"])]
+        spine = radii[(idx["Spine2"], idx["Spine3"])]
+        assert neck == pytest.approx(spine, rel=0.1)
+
+    def test_joint_radius_is_the_min_of_its_bones(self):
+        """At a hub the mean would bulge a sphere past the thin tubes."""
+        from pybvh.bvhplot._vedo_capsules import adaptive_radii
+        pose = np.array([[0., 0, 0], [0, 0, 4], [0.4, 0, 4], [0.4, 0, 8],
+                         [0, 0, 8]])
+        bones = [(0, 1), (1, 4), (2, 3)]
+        radii, joints = adaptive_radii(pose, bones, r_base=1.0)
+        touching = [r for b, r in radii.items() if 1 in b]
+        assert joints[1] == pytest.approx(min(touching))
+
+    def test_empty_and_degenerate_skeletons(self):
+        from pybvh.bvhplot._vedo_capsules import adaptive_radii
+        pose = np.zeros((3, 3))
+        radii, joints = adaptive_radii(pose, [], r_base=1.0)
+        assert radii == {} and joints.shape == (3,)
+        radii, _ = adaptive_radii(pose, [(0, 1), (1, 2)], r_base=1.0)
+        assert all(np.isfinite(r) and r > 0 for r in radii.values())

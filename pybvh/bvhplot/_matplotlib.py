@@ -616,9 +616,15 @@ def _setup_animated_panel(
             frame0[:, 0], frame0[:, 1], frame0[:, 2],
             s=style.joint_size, c=style.joint_color, depthshade=False)
 
-    _set_span_limits(ax, lo, hi)
+    # view_init first: set_box_aspect stores the aspect rolled to whatever
+    # vertical axis is current, and get_proj rolls it back the same way. Set
+    # it before view_init picks a non-z vertical axis and the two rolls no
+    # longer cancel — the aspect ends up paired with the wrong axis limits,
+    # which scales one screen direction against the others and stretches the
+    # skeleton. Invisible on a z-up rig, where the roll is the identity.
     ax.view_init(  # type: ignore[attr-defined]
         elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis)
+    _set_span_limits(ax, lo, hi)
 
     if style.axes == "full":
         ax.set_xlabel('x')

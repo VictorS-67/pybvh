@@ -372,15 +372,59 @@ class TestFraming:
             lengths.append(abs(int(pixels[1, 1]) - int(pixels[0, 1])))
         assert max(lengths) == pytest.approx(min(lengths), rel=0.01)
 
+    @pytest.mark.parametrize("clip", ["bvh_data/bvh_test1.bvh", BVH_PATH])
+    def test_the_projection_stays_isotropic(self, clip):
+        """One world unit must cover the same screen distance in every
+        direction, whichever axis the rig calls up.
+
+        mplot3d stores a box aspect rolled to the *current* vertical
+        axis, so setting it before the camera pairs it with the wrong
+        limits and stretches the drawing along one screen direction —
+        by a factor of 5 on a +y-up rig, while a +z-up rig, where the
+        roll is the identity, looks perfectly fine.
+        """
+        from mpl_toolkits.mplot3d import proj3d
+        from pybvh.bvhplot import _prepare
+        from pybvh.bvhplot._common import resolve_style
+        from pybvh.bvhplot._matplotlib import _setup_animated_panel
+
+        view = _prepare(read_bvh_file(clip), None, "world", "side").views[0]
+        fig = plt.figure(figsize=(19.2, 10.8))
+        ax = fig.add_subplot(111, projection="3d")
+        _setup_animated_panel(ax, view, resolve_style("paper"),
+                              np.asarray(view.bones, dtype=int), 0, 1)
+
+        # The world -> screen map, differenced about the box centre so
+        # the perspective projection is linearized where the motion is.
+        projection = ax.get_proj()
+        centre = view.coords.reshape(-1, 3).mean(axis=0)
+        step = 0.01 * float(np.abs(view.coords).max())
+        columns = []
+        for axis in np.eye(3):
+            ahead = np.array(proj3d.proj_transform(
+                *(centre + step * axis), projection)[:2])
+            behind = np.array(proj3d.proj_transform(
+                *(centre - step * axis), projection)[:2])
+            columns.append((ahead - behind) / (2 * step))
+        plt.close(fig)
+
+        screen = np.array(columns).T                    # (2, 3)
+        norms = np.linalg.norm(screen, axis=1)
+        assert norms[0] == pytest.approx(norms[1], rel=0.01), (
+            "screen axes are scaled differently — the drawing is stretched")
+        assert abs(screen[0] @ screen[1]) < 0.01 * norms.prod(), (
+            "screen axes are not perpendicular — the drawing is sheared")
+
     @pytest.mark.parametrize("backend,suffix", [
         ("matplotlib", ".gif"), ("opencv", ".mp4")])
     def test_a_walking_clip_fills_the_frame(self, bvh, tmp_path,
                                             backend, suffix):
         """The end-to-end promise, in both video backends.
 
-        A cubic box put the walker at ~20% of frame height in
-        matplotlib and ~34% in OpenCV; anything back near those numbers
-        means the framing regressed to a cube.
+        A cubic box put the walker at 20% of frame height in matplotlib
+        and 34% in OpenCV; fitting the clip's own box takes them to 41%
+        and 46%. Anything back near the old numbers means the framing
+        regressed to a cube.
         """
         if backend == "opencv":
             pytest.importorskip("cv2")
@@ -391,7 +435,7 @@ class TestFraming:
         coloured = (frame.max(axis=2) - frame.min(axis=2)) > 40   # bones
         rows = np.where(coloured.any(axis=1))[0]
         occupied = (rows[-1] - rows[0] + 1) / frame.shape[0]
-        assert occupied > 0.40, (
+        assert occupied > 0.35, (
             f"{backend}: subject fills only {occupied:.0%} of the frame")
 
 

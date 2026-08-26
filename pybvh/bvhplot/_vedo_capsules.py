@@ -18,7 +18,13 @@ if TYPE_CHECKING:
 
 
 LENGTH_BOOST = (1.0, 1.5)   # long bones get plumper; short ones never thinner
-CROWD_FRACTION = 0.45       # two crowders at 0.45x a gap leave ~10% clear
+# Share of the gap to its nearest crowder that a bone may take. Two facing
+# crowders nominally sum past the gap here, but a bone is at full radius only
+# at its parent end (tubes taper to half) and CHAIN_TAPER slims each link
+# after the first, so fingers stay separate along their length while their
+# thick ends meet at the knuckles — which is what reads as a palm. Above
+# ~0.7 that fusion spreads down the fingers on tightly-packed rigs.
+CROWD_FRACTION = 0.60
 SAME_DIR_COS = 0.5          # "same direction" = within 60 degrees
 MIN_OVERLAP = 0.25          # side-by-side run, as a fraction of the shorter bone
 # Each link inside a crowded run is slimmer than the last. This compounds

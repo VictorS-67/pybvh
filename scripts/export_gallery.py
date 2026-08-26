@@ -62,6 +62,7 @@ STABLE_FIGURES = {
     "skeleton-ops": "fig_skeleton_ops",
     "foot-contacts": "fig_foot_contacts_signals",
     "feature-layout": "fig_feature_layout",
+    "style-paper-vs-debug": "side_by_side_3d",
 }
 
 # Preferred first; only the first matching image mimetype of an output is kept.

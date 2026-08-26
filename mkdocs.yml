@@ -72,6 +72,7 @@ nav:
     - Feature Export: guide/feature-export.md
     - Skeleton Operations: guide/skeleton-ops.md
     - Motion Descriptors: guide/motion-descriptors.md
+    - Publication Figures: guide/publication-figures.md
   - API Reference:
     - api/index.md
     - Bvh Class: api/bvh.md

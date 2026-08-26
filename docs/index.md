@@ -29,7 +29,7 @@ pybvh is framework-agnostic and outputs pure NumPy arrays. It understands motion
 - **Motion descriptors**: [trajectory geometry, dynamics (jerk, smoothness, kinetic energy), gait, and SE(3) rigid-transform math](guide/motion-descriptors.md) — all pure NumPy, each one [drawn in the gallery](gallery/index.md)
 - **Signal utilities**: [finite differences, temporal statistics, smoothing, FFT, polyline simplification](api/signal.md)
 - **Batch loading** of entire directories with [optional parallelism and dataset harmonization](guide/feature-export.md)
-- **3D visualization** with [multiple backends](api/bvhplot.md) (matplotlib, OpenCV, k3d, vedo) — snapshots, video export, interactive playback
+- **3D visualization**: publication-grade stills, the sampled-poses [sequence figure](guide/publication-figures.md), ghost trails, turntable orbits, video export and shadowed capsule renders, across [four backends](api/bvhplot.md) (matplotlib, OpenCV, k3d, vedo)
 
 ## Quick example
 

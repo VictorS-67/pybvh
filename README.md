@@ -8,7 +8,7 @@
 A lightweight Python library for reading, writing, and manipulating BVH motion capture files.
 Built for researchers and developers working with skeletal animation and motion data.
 
-![A skeleton animates while its hand traces a blue trajectory — pybvh renders motion and extracts analyzable trajectories from it](https://raw.githubusercontent.com/VictorS-67/pybvh/main/docs/assets/hand-trajectory.gif)
+![A skeleton walks in place while one hand's path is traced behind it — pybvh renders motion and extracts analyzable trajectories from it](https://raw.githubusercontent.com/VictorS-67/pybvh/main/docs/assets/hand-trajectory.gif)
 
 **[Documentation](https://victors-67.github.io/pybvh/)** · [Quick Start](https://victors-67.github.io/pybvh/getting-started/quickstart/) · [Feature Gallery](https://victors-67.github.io/pybvh/gallery/) — every feature, one picture each · [Find a function](https://victors-67.github.io/pybvh/api/) · [Tutorials](https://victors-67.github.io/pybvh/tutorials/)
 
@@ -25,7 +25,7 @@ Built for researchers and developers working with skeletal animation and motion 
 - **Signal utilities** (`pybvh.signal`): finite differences, temporal statistics, smoothing, FFT/dominant frequency, polyline simplification — [API](https://victors-67.github.io/pybvh/api/signal/)
 - **Batch loading** of entire directories with optional parallel I/O — [guide](https://victors-67.github.io/pybvh/guide/feature-export/)
 - **Pandas ready** — `to_df_dict()` output drops straight into `pd.DataFrame` — [guide](https://victors-67.github.io/pybvh/guide/skeleton-ops/)
-- **3D visualization** with multiple backends (matplotlib, OpenCV, k3d, vedo) — [API](https://victors-67.github.io/pybvh/api/bvhplot/)
+- **3D visualization**: publication-grade stills, the sampled-poses sequence figure, ghost trails, turntable orbits, video export, and shadowed capsule renders — matplotlib, OpenCV, k3d and vedo backends — [guide](https://victors-67.github.io/pybvh/guide/publication-figures/) · [API](https://victors-67.github.io/pybvh/api/bvhplot/)
 
 ## Philosophy
 
@@ -81,13 +81,20 @@ Beyond the basics sits a full descriptor layer — curvature, smoothness (SPARC)
 ## Visualization
 
 ```python
-bvh.plot_rest_pose()                             # T-pose
-bvh.plot_frame(frame=0, camera="front")          # also "side", "top", (azim, elev)
-bvh.plot_trajectory()                            # 2D top-down root path
-bvh.render("walk.mp4")                           # video/GIF/HTML export
-bvh.render("walk.mp4", follow=True)              # camera tracks character as it turns
-bvh.play()                                       # interactive playback (auto-detects backend)
+bvh.plot_rest_pose()                              # T-pose
+bvh.plot_frame(frame=0, camera="front")           # also "side", "top", (azim, elev)
+bvh.plot_sequence(n_poses=8)                      # the motion-paper still: time as lightness
+bvh.plot_trajectory()                             # 2D top-down root path
+bvh.render("walk.mp4", codec="h264")              # video/GIF/HTML export, browser-playable
+bvh.render("walk.mp4", ghost=3, trajectory=True)  # faded trail + root path on the floor
+bvh.render("orbit.mp4", camera="turntable")       # a full 360-degree orbit over the clip
+bvh.plot_frame(frame=0, backend="vedo")           # shadowed 3D capsules, offscreen, headless-safe
+bvh.play()                                        # interactive playback (auto-detects backend)
 ```
+
+![A walking skeleton rendered with three faded ghost poses trailing behind it and its root path traced on the floor](https://raw.githubusercontent.com/VictorS-67/pybvh/main/gallery/feature_gallery_ghost.gif)
+
+Every function takes `style=`: `"paper"` (the default — ground plane, per-chain bone colors, joint markers, axes off), `"dark"` for slides, `"debug"` for reading coordinates off the axes, or a `Style` instance overriding any field.
 
 ```bash
 pip install pybvh[opencv]       # Fast video rendering
@@ -96,7 +103,7 @@ pip install pybvh[viewer]       # vedo for desktop interactive viewer
 pip install pybvh[all-viz]      # All of the above
 ```
 
-Multi-skeleton comparison, camera control, and backend details: [Visualization API](https://victors-67.github.io/pybvh/api/bvhplot/).
+Getting figures out of Python and into a paper — vector stills, supplementary video, the capsule look: [Publication Figures](https://victors-67.github.io/pybvh/guide/publication-figures/). Multi-skeleton comparison, camera control, and backend details: [Visualization API](https://victors-67.github.io/pybvh/api/bvhplot/).
 
 ## More
 

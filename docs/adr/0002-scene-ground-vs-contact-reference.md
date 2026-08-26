@@ -36,3 +36,28 @@ Every bvhplot backend that draws a ground plane takes it from the `Scene` (which
 Cutting the cache also removes a latent order-dependence: with two definitions sharing one slot, contact output would have depended on whether anything happened to read `floor_height` first. `test_reading_floor_height_first_does_not_change_contacts` pins that it cannot.
 
 A *persistently* misplaced node — below the ground in most frames, not just a few — now drags the scene ground down, where the feet-only estimate ignored it. The 2nd percentile absorbs transient glitches, not systematic ones; no such case appeared in the 406-clip sweep, and the escape hatch is the explicit `floor=` argument the detectors already take. Documented in `Bvh.floor_height` rather than guarded with a special case.
+
+## Considered and rejected: sinking the vedo plane by the capsule radius
+
+The vedo backend draws solid capsules, so a bone's *skin* reaches one radius below its centreline while the plane sits at the centreline ground. That residual is deliberately left in place.
+
+It was the second half of the original defect. Of the 2.23 units the toe capsule sank on `bvh_test1` (6.4% of the half-span), 1.33 was the wrong floor — fixed above — and 0.90 was capsule thickness. Dropping the plane by the ground-contacting capsule radius would remove the rest.
+
+Measured on the shipped code, per frame, over the lowest point of every capsule skin (joint spheres at `centre − r`, bone capsules at `lower endpoint − r`, which is exact for a capsule at any tilt):
+
+| | pierces | median gap (skin vs plane) |
+|---|---|---|
+| `bvh_test1`, shipped | 47% of frames, worst 2.27% of span | **+0.29%** |
+| `bvh_test1`, plane dropped by the radius | 2.7% | **+2.49%** (floating) |
+| `cmu_12_01_walk`, shipped | 96% of frames, worst 2.39% | −0.89% |
+| `cmu_12_01_walk`, plane dropped by the radius | 2.1% | **+1.31%** (floating) |
+
+Three reasons not to take that trade:
+
+**The two errors are not symmetric.** The floor plane is opaque, so a buried millimetre of capsule is simply not drawn and reads as contact — penetration conceals itself. A gap does not: the eye sees daylight under the foot *and* the projected shadow detaching from it. Equal magnitudes of the two cost very differently, and the fix swaps a typical 0.3–0.9% penetration for a typical 1.3–2.5% float.
+
+**The visible failure was the other term.** What made the v0.9.0 capsule GIF look broken was the whole toe-tip sphere disappearing at 6.4% of span. At the residual 0.3% typical / 2.27% worst the skin merely kisses the plane; the worst case is one plantar-flexed moment at the end of the clip, not a systematic offset.
+
+**There is no principled constant.** To centre the median gap at zero, `bvh_test1` needs the plane to *rise* 0.29% while `cmu_12_01_walk` needs it to *drop* 0.89% — opposite directions, because the correct offset depends on foot geometry and on how much of a clip is spent with the toe pointed down. Any single constant is tuned to one rig.
+
+Genuinely removing the term needs either a per-frame ground (which a static plane cannot be) or thinner toe capsules, which would undo the reviewed capsule look. Reopen only with a rig where the residual is visible in a typical frame, not a tail one — and bring the per-frame gap distribution, not a single screenshot.

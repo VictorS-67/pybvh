@@ -87,11 +87,38 @@ fig, ax = bvh.plot_frame(frame=FRAME, style="dark")
 ax.set_title("plot_frame(style='dark')");
 
 # %% [markdown]
+# **The 0.9.0 default, and the look it replaced.** Left: `style="paper"`, applied by every bvhplot function unless told otherwise. Right: the same call with `style="debug"` — the pre-0.9.0 output, reproduced pixel-for-pixel, which is both the one-line migration for code written against the old default and the style to reach for when you need to read coordinates off the axes.
+
+# %%
+fig, (ax_paper, ax_debug) = gp.side_by_side_3d()
+bvh.plot_frame(frame=FRAME, ax=ax_paper)                    # style="paper" is the default
+bvh.plot_frame(frame=FRAME, style="debug", ax=ax_debug)
+ax_paper.set_title("style='paper' (0.9.0 default)"); ax_debug.set_title("style='debug' (pre-0.9.0)");
+
+# %% [markdown]
 # **`plot_frame(backend="vedo")`** — the same pose as a shadowed 3D **capsule render**, computed fully offscreen (headless-safe) and returned as an `(H, W, 3)` uint8 RGB array: the publication-figure alternative to the matplotlib stick figure. `render(backend="vedo")` exports the same look as video.
 
 # %%
 capsule_img = bvh.plot_frame(frame=FRAME, backend="vedo")
 gp.fig_image(capsule_img, "plot_frame(backend='vedo') — shadowed capsules")
+
+# %% [markdown]
+# **`render(ghost=N, trajectory=True)`** — motion context inside a clip: `ghost=N` trails N faded copies of recent poses behind the live skeleton (spaced `Style.ghost_spacing` seconds apart, nearer ones darker) and `trajectory=True` draws the root's path on the floor as it goes, so a single frame of the video says where the motion has been. Two seconds of the walk clip, world-centered so the character travels across the frame:
+
+# %% tags=["slow-on-pr"]
+ghost_gif = gp.ghost_trace_gif(walk[:240])
+
+# %% [markdown]
+# ![two seconds of the walk clip rendered with ghost=3 and trajectory=True](https://raw.githubusercontent.com/VictorS-67/pybvh/main/gallery/feature_gallery_ghost.gif)
+
+# %% [markdown]
+# **`render(camera="turntable")`** — a full 360° orbit over the clip's duration, the standard way to show a motion from every side in one clip (here with `centered="skeleton"`, which pins the root so the orbit is the only motion in frame). Export knobs no still can show: `supersample` (2× anti-aliasing by default on the OpenCV backend), `codec="h264"` for mp4s that play in a browser, and `frame_counter=True` to stamp `Frame f/F` for review.
+
+# %% tags=["slow-on-pr"]
+turntable_gif = gp.turntable_gif(walk)
+
+# %% [markdown]
+# ![the walk clip with the camera orbiting a full 360 degrees](https://raw.githubusercontent.com/VictorS-67/pybvh/main/gallery/feature_gallery_turntable.gif)
 
 # %% [markdown]
 # ## 2 · Core concepts, drawn

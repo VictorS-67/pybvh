@@ -20,6 +20,11 @@ import pybvh
 from pybvh import geometry, analysis, rotations, tools, signal
 from pybvh.bvhplot import get_skeleton_lines
 
+# Clips are committed to the repo and served to the docs page, where they
+# display far below 1080p anyway; half resolution keeps each GIF a few
+# hundred KB instead of a megabyte, at no visible cost on the page.
+CLIP_RESOLUTION = (960, 540)
+
 VIEW_ELEV, VIEW_AZIM = 20, 72        # default 3D camera (degrees); tweak freely
 UP = np.array([0.0, 0.0, 1.0])       # bvh_test1 is +z up
 
@@ -138,7 +143,8 @@ def motion_clip_gif(bvh, path="feature_gallery_seq.gif", fps=20):
     # plays in slow motion. 20 fps also sits exactly on the GIF format's
     # centisecond frame-delay grid (50 ms), so playback is true real time.
     clip = bvh.resample(fps)
-    return str(clip.render(path, backend="matplotlib", camera="front", fps=fps))
+    return str(clip.render(path, backend="matplotlib", camera="front", fps=fps,
+                           resolution=CLIP_RESOLUTION))
 
 
 def walk_clip_gif(bvh, path="feature_gallery_walk.gif", fps=25):
@@ -151,7 +157,34 @@ def walk_clip_gif(bvh, path="feature_gallery_walk.gif", fps=25):
     # v0.9.0: the clip showcases the paper default (floor, chain colors,
     # axes off); the old axes-on look is style=Style("paper", axes="full")
     return str(clip.render(path, backend="matplotlib", camera="side",
-                           fps=fps))
+                           fps=fps, resolution=CLIP_RESOLUTION))
+
+
+def ghost_trace_gif(bvh, path="feature_gallery_ghost.gif", fps=20):
+    # ghosts and the floor trace both answer "where has this motion been", so
+    # this one takes the travelling walk clip rather than the in-place test
+    # clip. Same resample-to-GIF-rate reasoning as motion_clip_gif.
+    clip = bvh.resample(fps)
+    return str(clip.render(path, backend="matplotlib", camera="side", fps=fps,
+                           ghost=3, trajectory=True,
+                           resolution=CLIP_RESOLUTION))
+
+
+def turntable_gif(bvh, path="feature_gallery_turntable.gif", fps=20):
+    # centered="skeleton" pins the root, so the orbit is the only motion in the
+    # frame; under world centering the character would also walk out of view
+    # while the camera came round.
+    clip = bvh.resample(fps)
+    return str(clip.render(path, backend="matplotlib", camera="turntable",
+                           fps=fps, centered="skeleton",
+                           resolution=CLIP_RESOLUTION))
+
+
+def side_by_side_3d(figsize=(11, 5)):
+    """Two empty 3D axes side by side, for before/after comparisons that
+    bvhplot itself draws into via ``plot_frame(..., ax=)``."""
+    fig = plt.figure(figsize=figsize)
+    return fig, [fig.add_subplot(1, 2, k, projection="3d") for k in (1, 2)]
 
 
 def trajectory_trace_gif(bvh, joint, path="feature_gallery_hand_traj.gif", fps=20):

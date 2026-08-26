@@ -324,6 +324,7 @@ gif_path = pybvh.bvhplot.render(
     labels=['0.5x', '1.0x (original)', '2.0x'],
     sync='pad',
     fps=15,
+    resolution=(1280, 480),   # three panels, sized for a web-served GIF
 )
 
 # %% [markdown]

@@ -15,7 +15,7 @@ The publication-grade visualization release. Every bvhplot function now produces
 
 | Old | New | Migration |
 |---|---|---|
-| Default look (single blue skeleton, full axes/ticks, no floor) | The `"paper"` style everywhere | Pass `style="debug"` to any bvhplot function to restore the pre-0.9.0 output exactly (pixel-identical for matplotlib stills — enforced by test). |
+| Default look (single blue skeleton, full axes/ticks, no floor) | The `"paper"` style everywhere | Pass `style="debug"` to any bvhplot function to restore the pre-0.9.0 output exactly (pixel-identical for matplotlib stills — enforced by test). The two looks are drawn side by side in the [feature gallery](https://victors-67.github.io/pybvh/gallery/#1-load-see). |
 | `render(show_axis=True)` | `style=Style("paper", axes="full")` | Axes visibility now lives in the style; the parameter is removed. |
 | `render()` stamped a `Frame f/F` counter on videos | Counter is opt-in | Pass `frame_counter=True` to restore it — on `render()` and on `play()`'s notebook inline-video preview (GIF output was already counter-free). |
 

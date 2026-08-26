@@ -142,7 +142,9 @@ def test_clips_are_linked_files_not_embedded_outputs():
     linked = {s[len(RAW_PREFIX):] for s in gif_srcs}
     expected = {"gallery/feature_gallery_seq.gif",
                 "gallery/feature_gallery_walk.gif",
-                "gallery/feature_gallery_hand_traj.gif"}
+                "gallery/feature_gallery_hand_traj.gif",
+                "gallery/feature_gallery_ghost.gif",
+                "gallery/feature_gallery_turntable.gif"}
     assert linked == expected, (
         f"the notebook's markdown clips are {sorted(linked)}, expected "
         f"{sorted(expected)} — a clip lost (or gained) its display cell")

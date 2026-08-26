@@ -42,6 +42,7 @@ The publication-grade visualization release. Every bvhplot function now produces
 
 ### Fixed
 
+- **Saving any 3D bvhplot figure to a vector format with a tight bounding box raised `AttributeError`.** `fig.savefig("figure.pdf", bbox_inches="tight")` — how a figure gets prepared for print — crashed on every `frame`, `rest_pose` and `sequence` figure, in every style, since 0.6.0. Those figures carry a patch that widens the tight crop to include mplot3d's axis labels (Jupyter's inline backend crops to that box and would otherwise cut labels off), and the patch asked the *canvas* for a renderer, which only the raster canvases have; PDF, SVG and PS have none. It now uses the renderer `savefig` already hands it. Raster saves were never affected.
 - **`mirror()` on a skeleton whose paired joints declare different Euler orders.** BVH lets each joint pick its own rotation channel order, and solver output sometimes gives the two halves of a pair different ones. The L/R swap moved the angle triples between joints verbatim, so the destination joint read the numbers under *its* order rather than the order they were written in — a silently distorted mirror (metres of joint-position error on an otherwise ordinary clip), not a crash. Each swapped triple is now re-expressed in its destination joint's order. Skeletons whose pairs already agree — the common case, including every fixture in this repo — are unaffected and still mirror bit-exactly.
 
 ## [0.8.2] — 2026-07-29

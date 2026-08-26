@@ -245,6 +245,59 @@ class TestDebugPixelParity:
         assert np.array_equal(got, want)
 
 
+class TestVectorExport:
+    """Figures must survive the trip to a vector file.
+
+    Saving a figure for print means ``savefig(..., bbox_inches="tight")``
+    to PDF or SVG. Those canvases carry no ``get_renderer``, and the 3D
+    label patch used to call it unconditionally, so every such save
+    raised ``AttributeError`` — on the one path a paper figure takes.
+    """
+
+    @pytest.mark.parametrize("suffix", [".pdf", ".svg"])
+    @pytest.mark.parametrize("style", ["paper", "debug"])
+    def test_stills_save_tight_to_vector(self, bvh, tmp_path, suffix, style):
+        fig, _ = bvhplot.frame(bvh, frame=100, style=style)
+        out = tmp_path / f"figure{suffix}"
+        fig.savefig(out, bbox_inches="tight")
+        plt.close(fig)
+        assert out.stat().st_size > 1000
+
+    def test_sequence_saves_tight_to_vector(self, bvh, tmp_path):
+        fig, _ = bvhplot.sequence(bvh, n_poses=4)
+        out = tmp_path / "sequence.pdf"
+        fig.savefig(out, bbox_inches="tight")
+        plt.close(fig)
+        assert out.stat().st_size > 1000
+
+    def test_axis_labels_still_fit_in_the_crop(self, bvh):
+        """The patch itself must keep working where it applies.
+
+        On an Agg canvas — Jupyter's inline path, which crops to the
+        tight bbox — every visible axis label must lie inside the crop.
+        mplot3d places them outside the axes rectangle at some camera
+        angles, and its own tight bbox leaves them out.
+        """
+        from matplotlib.transforms import Bbox
+
+        fig, ax = bvhplot.frame(bvh, frame=100,
+                                style=Style("paper", axes="full"))
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        tight = fig.get_tightbbox(renderer)
+        to_inches = fig.dpi_scale_trans.inverted()
+        labels = [getattr(ax, name).label for name in
+                  ("xaxis", "yaxis", "zaxis")]
+        extents = [label.get_window_extent(renderer).transformed(to_inches)
+                   for label in labels if label.get_visible()]
+        plt.close(fig)
+
+        assert extents, "full axes should carry visible axis labels"
+        for extent in extents:
+            assert Bbox.union([tight, extent]).extents == pytest.approx(
+                tight.extents), "an axis label falls outside the tight crop"
+
+
 class TestFraming:
     """Animated output frames the motion, not a cube around it."""
 

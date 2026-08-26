@@ -1142,6 +1142,27 @@ def _disable_3d_label_clipping(ax: matplotlib.axes.Axes) -> None:
             tick.label1.set_clip_on(False)
 
 
+def _measuring_renderer(
+    fig: matplotlib.figure.Figure,
+    args: tuple,
+    kwargs: dict,
+) -> object | None:
+    """A renderer to measure label extents with, or None if there is none.
+
+    Prefer the one the caller passed: ``savefig`` hands its renderer to
+    ``get_tightbbox``, and on a vector canvas (PDF, SVG, PS) it is the
+    only one available — those canvases have no ``get_renderer`` at all,
+    so reaching for one there raised ``AttributeError`` and took down
+    every ``savefig(..., bbox_inches="tight")`` to a vector format, which
+    is exactly how figures get saved for print.
+    """
+    renderer = kwargs.get('renderer', args[0] if args else None)
+    if renderer is not None:
+        return renderer
+    get_renderer = getattr(fig.canvas, 'get_renderer', None)
+    return get_renderer() if get_renderer is not None else None
+
+
 def _extend_fig_tightbbox_with_3d_labels(
     fig: matplotlib.figure.Figure,
     axes_list: list[matplotlib.axes.Axes],
@@ -1163,7 +1184,9 @@ def _extend_fig_tightbbox_with_3d_labels(
 
     def patched(*args, **kwargs):
         bb = original_get_tightbbox(*args, **kwargs)
-        renderer = fig.canvas.get_renderer()
+        renderer = _measuring_renderer(fig, args, kwargs)
+        if renderer is None:
+            return bb
         to_inches = fig.dpi_scale_trans.inverted()
         extras = []
         for ax in axes_list:

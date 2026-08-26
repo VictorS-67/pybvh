@@ -324,15 +324,13 @@ class _VedoPlayer:
         if self.use_high and self.style.floor is not None:
             from vedo import Plane  # type: ignore[import-untyped]
 
-            # Place floor at the ground-side extreme of all skeletons
-            # across all frames (viewer coords may be spread/centered,
-            # so the canonical world floor does not apply here). For a
-            # negative up axis the ground is the coordinate MAXIMUM.
+            # One floor for the whole scene, at the ground-side extreme
+            # of the per-skeleton grounds — the same rule the offscreen
+            # renderer uses, so viewer and render agree. For a negative
+            # up axis "ground-side" is the coordinate MAXIMUM.
             up_sign = self.scene.views[0].up_sign
-            if up_sign > 0:
-                floor_y = min(c[:, :, up_idx].min() for c in coords_list)
-            else:
-                floor_y = max(c[:, :, up_idx].max() for c in coords_list)
+            ground_side = min if up_sign > 0 else max
+            floor_y = ground_side(v.floor_height for v in self.scene.views)
             floor_pos = self.center.copy()
             floor_pos[up_idx] = floor_y
             palette = floor_palette(self.style)

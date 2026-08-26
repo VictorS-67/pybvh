@@ -1037,12 +1037,99 @@ def test_floor_height_cache_invalidates_on_mutation():
     np.testing.assert_allclose(bvh.floor_height, f0 + 7.0)    # recomputed, not stale
 
 
-def test_floor_height_footless_fallback_to_all_nodes():
+def test_floor_height_is_over_all_nodes():
     bvh = make_pos_y_up_bvh()
-    assert analysis.auto_detect_foot_joints(bvh) == []        # feet are end sites
     coords = bvh.node_positions()
     expected = float(np.percentile(coords[:, :, 1].min(axis=1), 2.0))  # all-nodes min, +y
     np.testing.assert_allclose(bvh.floor_height, expected)
+
+
+def _make_toed_skeleton(toe_tip_drop=2.0, hand_height=None, n_frames=10) -> Bvh:
+    """+z-up rig with detectable toe joints and an end site below them.
+
+    ``toe_tip_drop`` sinks each toe end site that far below its toe joint —
+    the geometry that makes a foot-JOINT floor and a NODE floor differ.
+    ``hand_height`` (when given) is the world height of a hand end site, for
+    the case where a non-foot node is the lowest thing in the clip.
+    """
+    from pybvh.bvh import BvhEndSite, BvhJoint, BvhRoot
+
+    hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+    nodes = [hips]
+    children = []
+    for side, lat in (("Left", -3.0), ("Right", 3.0)):
+        leg = BvhJoint(f"{side}Leg", offset=[lat, 0, -5],
+                       rot_channels=['Z', 'Y', 'X'])
+        toe = BvhJoint(f"{side}ToeBase", offset=[0, 0, -5],
+                       rot_channels=['Z', 'Y', 'X'])
+        tip = BvhEndSite("EndSite", offset=[0, 0, -toe_tip_drop])
+        tip.parent = toe
+        toe.parent, toe.children = leg, [tip]
+        leg.parent, leg.children = hips, [toe]
+        children.append(leg)
+        nodes += [leg, toe, tip]
+    if hand_height is not None:
+        # Root sits at z=10, so the arm offset places the hand tip exactly
+        # at `hand_height` in world coordinates.
+        arm = BvhJoint("LeftArm", offset=[-6, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        hand = BvhEndSite("EndSite", offset=[0, 0, hand_height - 10.0])
+        hand.parent = arm
+        arm.parent, arm.children = hips, [hand]
+        children.append(arm)
+        nodes += [arm, hand]
+    hips.children = children
+
+    n_joints = sum(1 for n in nodes if not n.is_end_site())
+    root_pos = np.zeros((n_frames, 3))
+    root_pos[:, 2] = 10.0
+    bvh = Bvh(nodes=nodes, root_pos=root_pos,
+              joint_angles=np.zeros((n_frames, n_joints, 3)), frame_time=1 / 30)
+    bvh.world_up = '+z'
+    return bvh
+
+
+def test_floor_height_follows_the_toe_tip_not_the_toe_joint():
+    """The end site is the part that touches the ground; the toe JOINT sits
+    inside the foot. Estimating from detected feet (joints only) reads high
+    by exactly the tip drop."""
+    bvh = _make_toed_skeleton(toe_tip_drop=2.0)
+    assert bvh.auto_detect_foot_joints() == ["LeftToeBase", "RightToeBase"]
+    coords = bvh.node_positions()
+    toe_joint = coords[:, bvh.node_index["LeftToeBase"], 2].min()
+    np.testing.assert_allclose(bvh.floor_height, toe_joint - 2.0)
+
+
+def test_floor_height_follows_a_hand_when_the_hand_is_lowest():
+    """The floor is not about the feet: whatever body part reaches lowest
+    defines the ground."""
+    toed = _make_toed_skeleton(toe_tip_drop=2.0)
+    feet_level = toed.floor_height
+    crawling = _make_toed_skeleton(toe_tip_drop=2.0,
+                                   hand_height=feet_level - 3.0)
+    np.testing.assert_allclose(crawling.floor_height, feet_level - 3.0)
+
+
+def test_floor_height_ignores_one_glitched_frame():
+    """2nd percentile, not the true minimum: a single spurious low frame
+    must not drag the ground down with it.
+
+    Needs a clip long enough for one frame to be a small share of the
+    distribution — at 100 frames the 2nd percentile lands on the third
+    lowest per-frame minimum, so one outlier is absorbed entirely.
+    """
+    bvh = _make_toed_skeleton(n_frames=100)
+    clean = bvh.floor_height
+    coords = bvh.node_positions()
+    glitched = coords.copy()
+    glitched[4, bvh.node_index["LeftToeBase"], 2] -= 500.0
+    up_idx, up_sign, _ = bvh.up_axis
+    estimate = analysis._floor_from_coords(
+        glitched, list(range(coords.shape[1])), up_idx, up_sign)
+    assert estimate == pytest.approx(clean, abs=1e-9)
+    # ... while the true minimum would follow it all the way down.
+    assert analysis._floor_from_coords(
+        glitched, list(range(coords.shape[1])), up_idx, up_sign,
+        percentile=0.0) < clean - 400.0
 
 
 def test_floor_height_negative_up_raw_coords_and_copy():

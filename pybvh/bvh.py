@@ -716,7 +716,7 @@ class Bvh:
         --------
         world_up : The signed axis string this is parsed from (settable).
         forward_axis, rest_up_axis : The other two parsed axis properties.
-        floor_height : The estimated ground level along this axis, in raw (unsigned) coordinates.
+        floor_height : The scene ground level along this axis, in raw (unsigned) coordinates.
         """
         return parse_axis(self.world_up)
 
@@ -751,25 +751,46 @@ class Bvh:
 
     @property
     def floor_height(self) -> float:
-        """Estimated ground-plane height, in raw world coordinates along ``world_up``.
+        """Scene ground height, in raw world coordinates along ``world_up``.
 
-        A single scalar: the floor level in the BVH's own coordinate system,
-        signed along the raw up axis (so for ``world_up='-y'`` a floor at raw
-        ``y≈5`` returns ``≈5``). It is the 2nd-percentile of the per-frame
-        minimum foot height over auto-detected feet (all nodes for footless
-        rigs); see :func:`pybvh.analysis._compute_floor_height`. The 2nd
-        percentile is the canonical robust estimate — resistant to
-        occasional glitched-low frames; for the true minimum, or any other
-        convention, call ``foot_contacts(floor="min")`` / pass an explicit
-        float per call (this property stays 2nd-percentile). This is the
-        scene's ground plane — `foot_contacts` layers a per-foot stance hover on
-        top of it.
+        A single scalar: where this clip's ground is, in the BVH's own
+        coordinate system, signed along the raw up axis (so for
+        ``world_up='-y'`` a floor at raw ``y≈5`` returns ``≈5``). This is the
+        height to draw a ground plane at.
+
+        Convention: the 2nd percentile of the per-frame minimum height over
+        **all nodes**, end sites included. Two choices are being made there,
+        and both have alternatives:
+
+        - **All nodes, not the feet.** The ground is where the clip's geometry
+          bottoms out, whichever body part gets there — a hand in floor work, a
+          hip in a fall, a toe *tip* in ordinary walking. Estimating from
+          auto-detected feet instead (what this property did before v0.9.0)
+          reads systematically *high*: a toe end site hangs below the toe joint
+          on most rigs, and over 406 sampled clips the feet-only estimate sat a
+          median 1% of the clip span (max 6.6%) above this one, never below.
+        - **2nd percentile, not the true minimum.** Robust to occasional
+          glitched-low frames, at the cost of letting a genuinely low frame dip
+          slightly below the returned level. For the exact minimum use
+          ``coords[..., up].min()``, or ``foot_contacts(floor="min")`` for that
+          function's own reference; this property stays 2nd-percentile.
+
+        A *persistently* misplaced node — one that sits below the ground in most
+        frames, not just a few — will drag this down; the percentile absorbs
+        transient glitches, not systematic ones. Pass an explicit ``floor=`` to
+        the contact detectors if that ever bites.
+
+        This is **not** the reference :func:`~pybvh.analysis.foot_contacts`
+        compares foot clearance against. That one is estimated per call, over
+        the joints being tested, and is returned as ``info["floor"]``. The two
+        answer different questions — this one belongs to the clip, that one to
+        the query — and they differ by roughly a toe length on any rig with toe
+        end sites. Passing this value in as ``foot_contacts(floor=...)`` will
+        make every foot read as airborne.
 
         Lazily computed and cached; the cache is invalidated whenever
-        ``root_pos`` or ``joint_angles`` is reassigned.
-        :func:`~pybvh.analysis.foot_contacts` fills/serves this cache on its
-        default world-coords + auto-detected-feet path (with explicit
-        ``coords=`` or ``foot_joints=`` it estimates its own per-call floor).
+        ``root_pos`` or ``joint_angles`` is reassigned. Nothing else fills or
+        reads that cache.
         """
         if self._floor_height_cached is None:
             from . import analysis

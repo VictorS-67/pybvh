@@ -43,7 +43,7 @@ class SkeletonView:
     azimuth: float                         # degrees
     elevation: float                       # degrees
     up_axis: str                           # 'x' | 'y' | 'z'
-    floor_height: float                    # ground plane along up_axis
+    floor_height: float                    # scene ground along up_axis
     up_sign: float = 1.0                   # +1 for '+y' etc., -1 for '-y'
 
     @property
@@ -120,15 +120,21 @@ def make_scene(
     function needs.
 
     Floor convention: with ``canonical_floor=True`` the floor is the
-    cached robust 2nd-percentile :attr:`Bvh.floor_height` — valid for
-    world-frame coords, and for ``centered="first"`` coords because
-    first-centering is ground-plane-only (heights stay in world units).
-    An outlier-low frame can therefore dip a foot slightly below the
-    drawn plane; the alternative (the true minimum) would let a single
-    glitched frame sink the plane for the whole clip. With
-    ``canonical_floor=False`` (root-relative or caller-supplied coords)
-    the floor is the minimum up-coordinate of the coords in use,
-    mirroring ``foot_contacts``' "floor from the coords in use" rule.
+    cached :attr:`Bvh.floor_height` — the robust 2nd percentile over all
+    nodes, end sites included, so the plane sits under the whole
+    skeleton rather than at a joint centre. Valid for world-frame
+    coords, and for ``centered="first"`` coords because first-centering
+    is ground-plane-only (heights stay in world units). An outlier-low
+    frame can therefore dip a node slightly below the drawn plane; the
+    alternative (the true minimum) would let a single glitched frame
+    sink the plane for the whole clip. With ``canonical_floor=False``
+    (root-relative or caller-supplied coords) the floor is the minimum
+    up-coordinate of the coords in use — the clip-wide estimate does not
+    apply to coords in another frame of reference, and the true minimum
+    is the safe choice for a pose whose own extent is all we have.
+
+    This is the scene ground, not the reference ``foot_contacts``
+    measures clearance against; see :attr:`Bvh.floor_height`.
     """
     views: list[SkeletonView] = []
     for i, (b, coords) in enumerate(zip(bvh_list, coords_list)):

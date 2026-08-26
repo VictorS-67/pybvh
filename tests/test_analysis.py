@@ -855,30 +855,31 @@ class TestFootContactsFloorEstimation:
         assert info_min["floor"] * up.sign == pytest.approx(true_min)
         assert info_auto["floor"] * up.sign > true_min + 50.0
 
-    def test_floor_min_never_touches_canonical_cache(self, bvh_example):
-        """Only the 2nd-percentile "auto" estimate is the canonical floor
-        Bvh.floor_height caches; "min" computes fresh and must neither
-        fill nor serve the cache."""
+    def test_floor_min_is_below_the_auto_estimate_and_ignores_the_cache(
+            self, bvh_example):
+        """"min" is the true minimum of the feet's own heights, computed
+        fresh every call and unaffected by the scene-ground cache."""
         bvh = bvh_example.copy()
         assert bvh._floor_height_cached is None
         _, info_min = bvh.foot_contacts(floor="min", return_info=True)
         assert bvh._floor_height_cached is None      # not filled
-        canonical = bvh.floor_height                 # fill it canonically
+        _, info_auto = bvh.foot_contacts(return_info=True)
+        assert info_min["floor"] <= info_auto["floor"] + 1e-12
+
+        bvh.floor_height                             # fill the scene ground
         _, info_min2 = bvh.foot_contacts(floor="min", return_info=True)
         assert info_min2["floor"] == pytest.approx(info_min["floor"])
-        assert bvh._floor_height_cached == pytest.approx(canonical)
-        assert info_min["floor"] <= canonical + 1e-12  # min ≤ 2nd percentile
 
     def test_auto_floor_estimated_from_coords_in_use(self):
-        """floor='auto' with explicit coords estimates the floor from those
-        coords — the canonical cached floor_height only serves the default
-        world-coords path (previously it leaked in for any auto-feet call)."""
+        """floor='auto' estimates from the coords handed in, shifted coords
+        included — never from the scene ground."""
         bvh = _make_ik_helper_skeleton()             # feet auto-detectable
-        canonical = bvh.floor_height                 # fill the canonical cache
+        _, info_world = bvh.foot_contacts(method="height", return_info=True)
         coords = bvh.node_positions() + np.array([0.0, 0.0, 25.0])  # +z up
         _, info = bvh.foot_contacts(
             method="height", coords=coords, return_info=True)
-        assert info["floor"] == pytest.approx(canonical + 25.0, abs=1e-9)
+        assert info["floor"] == pytest.approx(info_world["floor"] + 25.0,
+                                              abs=1e-9)
 
 
 class TestFootContactsDurationFilters:
@@ -1252,44 +1253,58 @@ class TestFootContactsPinnedGolden:
                     err_msg=f"run{run_idx} ({run_name}): info[{key!r}] changed")
 
         if run_idx == 1:
-            # The canonical default path fills the floor cache with exactly
-            # the floor it reports.
-            assert bvh._floor_height_cached == info["floor"]
+            # The reported reference is the feet's own, and no path leaves
+            # it behind in the scene-ground cache.
+            assert bvh._floor_height_cached is None
 
 
-class TestFootContactsFloorCacheGating:
-    """Which foot_contacts paths may touch ``Bvh._floor_height_cached``.
+class TestContactReferenceIsIndependentOfTheSceneGround:
+    """The contact reference belongs to the query; the scene ground to the clip.
 
-    Only the canonical path — world coords + auto-detected feet — fills or serves the cache; explicit ``foot_joints=`` or ``coords=`` must leave it untouched (their floor estimate describes a different joint set / coordinate frame than the one :attr:`Bvh.floor_height` promises).
+    ``foot_contacts`` measures clearance at joint *centres*, so its reference must be the level those joints reach — estimated per call, over the joints in use. :attr:`Bvh.floor_height` is measured over all nodes and sits a toe length lower on any rig with toe end sites. The two must never be substituted for one another, in either direction: these tests pin that no contact path reads or writes ``Bvh._floor_height_cached``.
     """
 
     @pytest.fixture
     def cmu_walk(self):
         return read_bvh_file(CMU_WALK_PATH)
 
-    def test_default_path_fills_cache(self, cmu_walk):
+    def test_no_contact_path_fills_the_scene_ground_cache(self, cmu_walk):
         assert cmu_walk._floor_height_cached is None
+        cmu_walk.foot_contacts()
+        assert cmu_walk._floor_height_cached is None
+        cmu_walk.foot_contacts(foot_joints=cmu_walk.auto_detect_foot_joints())
+        assert cmu_walk._floor_height_cached is None
+        cmu_walk.foot_contacts(coords=cmu_walk.node_positions())
+        assert cmu_walk._floor_height_cached is None
+
+    def test_reading_floor_height_first_does_not_change_contacts(self, cmu_walk):
+        """The bug the shared cache would cause: contacts depending on
+        whether anything happened to read the scene ground beforehand."""
+        cold = cmu_walk.foot_contacts()
+
+        warm = read_bvh_file(CMU_WALK_PATH)
+        warm.floor_height                            # fill the scene ground
+        np.testing.assert_array_equal(warm.foot_contacts(), cold)
+
+        sentinel = read_bvh_file(CMU_WALK_PATH)
+        sentinel._floor_height_cached = 1e4          # even an absurd value
+        np.testing.assert_array_equal(sentinel.foot_contacts(), cold)
+
+    def test_reference_is_the_tested_feet_not_the_scene_ground(self, cmu_walk):
+        """On a rig with toe end sites the two are measurably different, and
+        ``info["floor"]`` is the feet's own level."""
+        from pybvh.analysis import _floor_from_coords
+
         _, info = cmu_walk.foot_contacts(return_info=True)
-        assert cmu_walk._floor_height_cached == info["floor"]
-
-    def test_explicit_foot_joints_does_not_fill_cache(self, cmu_walk):
-        feet = cmu_walk.auto_detect_foot_joints()
-        cmu_walk.foot_contacts(foot_joints=feet)
-        assert cmu_walk._floor_height_cached is None
-
-    def test_explicit_coords_does_not_fill_cache(self, cmu_walk):
+        up_idx, up_sign, _ = cmu_walk.up_axis
         coords = cmu_walk.node_positions()
-        cmu_walk.foot_contacts(coords=coords)
-        assert cmu_walk._floor_height_cached is None
-
-    def test_prewarmed_cache_is_served_on_canonical_path(self, cmu_walk):
-        # A sentinel offset from the true estimate distinguishes "served
-        # from cache" from "recomputed" (which would report the estimate).
-        sentinel = cmu_walk.floor_height + 1.0
-        cmu_walk._floor_height_cached = sentinel
-        _, info = cmu_walk.foot_contacts(return_info=True)
-        assert info["floor"] == sentinel
-        assert cmu_walk._floor_height_cached == sentinel
+        feet = [cmu_walk.node_index[n]
+                for n in cmu_walk.auto_detect_foot_joints()]
+        assert info["floor"] == pytest.approx(
+            _floor_from_coords(coords, feet, up_idx, up_sign))
+        # The scene ground lies strictly below it: the toe end sites reach
+        # under the toe joints whose centres the detector compares.
+        assert cmu_walk.floor_height * up_sign < info["floor"] * up_sign
 
 
 class TestGroundContacts:

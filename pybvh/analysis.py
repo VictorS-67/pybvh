@@ -932,17 +932,23 @@ def foot_contacts(
         to ``0.013 × skeleton_scale``.  A foot is "low enough" when
         ``foot_height − floor < height_threshold``.
     floor : float, ``"auto"`` or ``"min"``, keyword-only, optional
-        Floor height along the raw ``world_up`` axis.  ``"auto"``
-        (default) estimates it as the 2nd percentile of the per-frame
-        minimum foot height — robust to occasional spurious low frames —
-        always from the ``coords`` actually in use (the cached
-        :attr:`Bvh.floor_height` fills in / is filled from this estimate
-        on the default world-coords + auto-feet path).  ``"min"`` uses
-        the true minimum instead — exact, but a single glitched-low
-        frame drags the floor down with it; it never reads or writes the
-        cache. The two diverge on clips with marker noise or long
-        airborne phases.  Pass a float to pin the floor explicitly
-        (e.g. ``floor=0.0`` when the rig is already ground-aligned).
+        Height of the reference the clearance is measured against, along
+        the raw ``world_up`` axis.  ``"auto"`` (default) estimates it as
+        the 2nd percentile of the per-frame minimum foot height — robust
+        to occasional spurious low frames — over the ``coords`` and the
+        feet actually in use.  ``"min"`` uses the true minimum instead —
+        exact, but a single glitched-low frame drags it down; the two
+        diverge on clips with marker noise or long airborne phases.
+        Pass a float to pin it explicitly (e.g. ``floor=0.0`` when the
+        rig is already ground-aligned).
+
+        This reference is **not** :attr:`Bvh.floor_height`, and passing
+        that in is usually wrong here. The scene ground is measured over
+        *all* nodes, so on a rig with toe end sites it sits a toe-length
+        below the foot *joints* whose centres this function compares
+        against — feeding it in makes every foot read as permanently
+        airborne. The reference belongs to the joints being tested; the
+        scene ground belongs to the clip.
     min_contact_duration : float, keyword-only, optional
         Morphological open: contact runs shorter than this many
         **seconds** are set to 0.  Default ``0.1`` s (3 frames at
@@ -1026,12 +1032,6 @@ def foot_contacts(
     ground_contacts : The same detection engine for arbitrary (non-foot) joint sets — hands, knees, props.
     auto_detect_foot_joints : The detection used when ``foot_joints`` is None.
     """
-    # The canonical path — world coords + auto-detected feet — is the one
-    # the cached Bvh.floor_height describes; only it fills/serves the cache.
-    # Computed from the RAW arguments, before auto-detection replaces
-    # foot_joints=None with explicit names.
-    canonical_floor = coords is None and foot_joints is None
-
     # Rest-pose coords are used by auto-detect and by the core's scale
     # estimate and height-signal sanity check; compute once, hand down.
     rest_coords: npt.NDArray[np.float64] | None = None
@@ -1060,8 +1060,7 @@ def foot_contacts(
         min_gap_duration=min_gap_duration,
         hysteresis=hysteresis, adaptive=adaptive,
         height_reference=height_reference, return_info=return_info,
-        canonical_floor=canonical_floor, check_rest_height=True,
-        rest_coords=rest_coords)
+        check_rest_height=True, rest_coords=rest_coords)
 
 
 def ground_contacts(
@@ -1083,10 +1082,10 @@ def ground_contacts(
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
     """Detect ground-contact labels for an arbitrary set of joints.
 
-    The same detection engine as :func:`foot_contacts` — velocity and/or clearance-above-floor thresholding with hysteresis and duration filters — but for any joint set: hands during floor work, knees in a crawl, a prop bone. Because the joints are not assumed to be feet, three foot-specific behaviors are dropped: there is no rest-pose "feet below hips" sanity check, the call never reads or writes the cached :attr:`Bvh.floor_height` (the floor estimated from an arbitrary joint set describes those joints, not the scene), and ``height_reference`` defaults to ``"floor"`` instead of :func:`foot_contacts`' ``"velocity"`` — the per-joint stance calibration behind ``"velocity"`` presumes regular ground contact, which feet in locomotion have and a hand that touches the floor twice does not.
+    The same detection engine as :func:`foot_contacts` — velocity and/or clearance-above-floor thresholding with hysteresis and duration filters — but for any joint set: hands during floor work, knees in a crawl, a prop bone. Because the joints are not assumed to be feet, two foot-specific behaviors are dropped: there is no rest-pose "feet below hips" sanity check, and ``height_reference`` defaults to ``"floor"`` instead of :func:`foot_contacts`' ``"velocity"`` — the per-joint stance calibration behind ``"velocity"`` presumes regular ground contact, which feet in locomotion have and a hand that touches the floor twice does not.
 
     .. warning::
-        With the default ``floor="auto"`` the floor is estimated **from the given joints' own trajectories** (2nd percentile of their per-frame minimum height). A joint set that never actually grounds makes its lowest hover point the "floor" and fabricates contacts there. Unless the joints genuinely reach the ground for a meaningful fraction of the clip, pass ``floor=bvh.floor_height`` (the scene floor from the feet) or an explicit float.
+        With the default ``floor="auto"`` the floor is estimated **from the given joints' own trajectories** (2nd percentile of their per-frame minimum height). A joint set that never actually grounds makes its lowest hover point the "floor" and fabricates contacts there. Unless the joints genuinely reach the ground for a meaningful fraction of the clip, pass an explicit float. :attr:`Bvh.floor_height` is the scene ground and reads low for this purpose — it is measured over all nodes, including end sites that reach below any joint centre — so a joint compared against it needs a ``height_threshold`` widened by that offset.
 
     Parameters
     ----------
@@ -1126,7 +1125,7 @@ def ground_contacts(
 
     See Also
     --------
-    foot_contacts : The foot-specialized entry point (auto-detection, rest-pose sanity check, floor-height caching, ``height_reference="velocity"`` default).
+    foot_contacts : The foot-specialized entry point (auto-detection, rest-pose sanity check, ``height_reference="velocity"`` default).
     """
     num_nodes = len(bvh.nodes)
     joint_names: list[str] = []
@@ -1167,7 +1166,7 @@ def ground_contacts(
         min_gap_duration=min_gap_duration,
         hysteresis=hysteresis, adaptive=adaptive,
         height_reference=height_reference, return_info=return_info,
-        canonical_floor=False, check_rest_height=False)
+        check_rest_height=False)
 
 
 def _contacts_core(
@@ -1187,13 +1186,12 @@ def _contacts_core(
     adaptive: bool,
     height_reference: str,
     return_info: bool,
-    canonical_floor: bool,
     check_rest_height: bool,
     rest_coords: npt.NDArray[np.float64] | None = None,
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
     """Shared contact-detection engine behind :func:`foot_contacts` and :func:`ground_contacts`.
 
-    Both entry points resolve their joint arguments into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists and delegate here. ``canonical_floor`` marks the one call pattern allowed to fill/serve ``Bvh._floor_height_cached`` (foot_contacts' default world-coords + auto-detected-feet path). ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet. ``rest_coords`` forwards an already-computed rest pose so auto-detection and the scale/sanity logic share one FK evaluation.
+    Both entry points resolve their joint arguments into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists and delegate here. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet. ``rest_coords`` forwards an already-computed rest pose so auto-detection and the scale/sanity logic share one FK evaluation.
     """
     if method not in ("velocity", "height", "combined"):
         raise ValueError(
@@ -1315,19 +1313,15 @@ def _contacts_core(
 
     if needs_height:
         heights_signed = joint_coords[:, :, up_idx] * up_sign  # up-positive
-        if isinstance(floor, str):   # "auto"/"min": estimate from the coords in use
-            if floor == "auto" and canonical_floor:
-                # Only the robust 2nd-percentile estimate is the canonical
-                # floor Bvh.floor_height caches; "min" always computes fresh.
-                if bvh._floor_height_cached is None:
-                    bvh._floor_height_cached = _floor_from_coords(
-                        coords, joint_indices, up_idx, up_sign)
-                floor_raw = float(bvh._floor_height_cached)
-            else:
-                percentile = 0.0 if floor == "min" else 2.0
-                floor_raw = _floor_from_coords(
-                    coords, joint_indices, up_idx, up_sign,
-                    percentile=percentile)
+        if isinstance(floor, str):
+            # "auto"/"min": the reference is estimated from the coords in
+            # use, over the joints being tested — never from the scene
+            # ground (Bvh.floor_height), which is measured over ALL nodes
+            # and would sit an end site's length below these joints.
+            percentile = 0.0 if floor == "min" else 2.0
+            floor_raw = _floor_from_coords(
+                coords, joint_indices, up_idx, up_sign,
+                percentile=percentile)
         else:
             floor_raw = float(floor)
         floor_signed = floor_raw * up_sign
@@ -1681,12 +1675,13 @@ def _estimate_floor(
     heights_signed: npt.NDArray[np.float64],
     percentile: float = 2.0,
 ) -> float:
-    """Estimate the floor height from a window of foot samples.
+    """Estimate a ground level from a window of height samples.
 
-    Works in the up-positive (sign-corrected) coordinate. Floor is the
-    low percentile of the per-frame *minimum* foot height — robust to
-    the case where feet never plant simultaneously (one foot always
-    up) and to occasional spurious low frames.
+    Works in the up-positive (sign-corrected) coordinate. The level is
+    the low percentile of the per-frame *minimum* height — robust to
+    the case where the sampled points never reach the ground
+    simultaneously (one foot always up) and to occasional spurious low
+    frames.
     """
     min_per_frame = heights_signed.min(axis=1)
     return float(np.percentile(min_per_frame, percentile))
@@ -1694,38 +1689,39 @@ def _estimate_floor(
 
 def _floor_from_coords(
     coords: npt.NDArray[np.float64],
-    foot_indices: list[int],
+    node_indices: list[int],
     up_idx: int,
     up_sign: float,
     percentile: float = 2.0,
 ) -> float:
-    """Floor height in raw world coordinates, from the coords in use.
+    """Ground level in raw world coordinates, over the given nodes.
 
-    Pure array core shared by :func:`foot_contacts` (which estimates the
-    floor from whatever coords it is running on) and the cached canonical
-    :attr:`Bvh.floor_height` (see :func:`_compute_floor_height`).
-    ``percentile=0.0`` gives the true minimum (``floor="min"``).
+    Pure array core with two callers that pass deliberately different
+    node sets: :func:`_compute_floor_height` passes *all* nodes (the
+    scene ground, cached as :attr:`Bvh.floor_height`), while the contact
+    detectors pass the joints they are testing (the reference their
+    clearance is measured against). ``percentile=0.0`` gives the true
+    minimum (``floor="min"``).
     """
-    heights_signed = coords[:, foot_indices, up_idx] * up_sign
+    heights_signed = coords[:, node_indices, up_idx] * up_sign
     return float(_estimate_floor(heights_signed, percentile) * up_sign)
 
 
 def _compute_floor_height(bvh: Bvh) -> float:
-    """Canonical geometric floor height in raw world coordinates.
+    """Scene ground level in raw world coordinates.
 
-    Backs the cached :attr:`Bvh.floor_height`. The floor is the
-    2nd-percentile of the per-frame minimum foot height (see
-    :func:`_estimate_floor`), measured over auto-detected feet and signed
-    back into the raw up axis. For footless skeletons (or rigs whose feet
-    are end sites, where auto-detection returns ``[]``) it falls back to
-    *all* nodes. This is the scene's ground plane — a per-foot stance
-    *hover* above it is handled separately inside :func:`foot_contacts`.
+    Backs the cached :attr:`Bvh.floor_height`: the 2nd-percentile of the
+    per-frame minimum height over **all** nodes (see
+    :func:`_estimate_floor`), signed back into the raw up axis. All
+    nodes, not the feet — the ground is where the motion's geometry
+    bottoms out, whichever body part gets there. See
+    :attr:`Bvh.floor_height` for the convention and the alternatives it
+    was chosen over.
     """
     up_idx, up_sign, _ = bvh.up_axis
     coords = bvh.node_positions()                       # (F, N, 3), world
-    feet = auto_detect_foot_joints(bvh)
-    idx = [bvh.node_index[n] for n in feet] if feet else list(range(coords.shape[1]))
-    return _floor_from_coords(coords, idx, up_idx, up_sign)
+    return _floor_from_coords(
+        coords, list(range(coords.shape[1])), up_idx, up_sign)
 
 
 def _run_extents(

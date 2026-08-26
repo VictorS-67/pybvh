@@ -154,6 +154,51 @@ class TestCapsuleSizing:
         radii, _ = adaptive_radii(pose, bones, r_base=1.0)
         assert radii[(1, 4)] <= radii[(0, 1)] + 1e-9
 
+    def test_crowded_runs_taper_from_base_to_tip(self, bvh_hands):
+        """A finger is thickest at the knuckle. Untapered, the caps grow
+        distally — splayed tips have more room than packed metacarpals —
+        which renders a hand thin at the wrist and fattest at the tips."""
+        from pybvh.bvhplot._vedo_capsules import adaptive_radii
+        from pybvh.bvhplot import get_skeleton_lines
+        bones = get_skeleton_lines(bvh_hands)
+        rest = bvh_hands.rest_pose_positions()
+        radii, _ = adaptive_radii(rest, bones, 1.0, rest)
+        idx = bvh_hands.node_index
+        chain = ["RightHandPinky", "RightHandPinky1", "RightHandPinky2",
+                 "RightHandPinky3"]
+        along = [radii[(idx[a], idx[b])]
+                 for a, b in zip(chain, chain[1:])]
+        assert all(later < earlier
+                   for earlier, later in zip(along, along[1:])), along
+
+    def test_taper_cannot_touch_an_uncrowded_chain(self, monkeypatch):
+        """The taper rides on the crowding cap, which is inf when nothing
+        crowds — so however hard it is set, an isolated chain is unmoved."""
+        from pybvh.bvhplot import _vedo_capsules as caps
+        pose = np.array([[0., 0, 0], [0, 0, 3], [0, 0, 6], [0, 0, 9]])
+        bones = [(0, 1), (1, 2), (2, 3)]
+        monkeypatch.setattr(caps, "CHAIN_TAPER", 1.0)
+        untapered, _ = caps.adaptive_radii(pose, bones, 1.0)
+        monkeypatch.setattr(caps, "CHAIN_TAPER", 0.2)
+        tapered, _ = caps.adaptive_radii(pose, bones, 1.0)
+        assert untapered == tapered
+
+    def test_shipped_taper_leaves_a_fingerless_rig_alone(self, monkeypatch):
+        """Scoping in practice: the taper compounds along a chain, so a
+        harsh value would eventually bite even the loosely-crowded arms of
+        a plain rig. At the shipped value a fingerless skeleton is
+        untouched — the effect stays where hands are."""
+        from pybvh import read_bvh_file
+        from pybvh.bvhplot import _vedo_capsules as caps
+        from pybvh.bvhplot import get_skeleton_lines
+        plain = read_bvh_file("bvh_data/bvh_test1.bvh")
+        bones = get_skeleton_lines(plain)
+        rest = plain.rest_pose_positions()
+        shipped, _ = caps.adaptive_radii(rest, bones, 1.0, rest)
+        monkeypatch.setattr(caps, "CHAIN_TAPER", 1.0)
+        no_taper, _ = caps.adaptive_radii(rest, bones, 1.0, rest)
+        assert shipped == no_taper
+
     def test_long_bone_is_exempt_from_the_stub_cap(self, bvh_hands):
         """Regression: the forearm is a hub joining one thick bone to
         five thin metacarpals. Sizing it from the thinnest neighbour

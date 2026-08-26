@@ -21,6 +21,10 @@ LENGTH_BOOST = (1.0, 1.5)   # long bones get plumper; short ones never thinner
 CROWD_FRACTION = 0.45       # two crowders at 0.45x a gap leave ~10% clear
 SAME_DIR_COS = 0.5          # "same direction" = within 60 degrees
 MIN_OVERLAP = 0.25          # side-by-side run, as a fraction of the shorter bone
+# Each link inside a crowded run is slimmer than the last. This compounds
+# along the chain, so a harsh value eventually bites loosely-crowded limbs
+# several links down; 0.85 shapes hands while leaving plain rigs untouched.
+CHAIN_TAPER = 0.85
 STUB_CAP_FACTOR = 2.0       # a stub is at most 2x the thinnest bone it joins
 MIN_RADIUS_FRACTION = 0.10  # visibility floor
 
@@ -112,9 +116,13 @@ def adaptive_radii(
     ``CROWD_FRACTION`` of its lateral room (:func:`crowding_clearance`)
     — the rule that keeps fingers legible without knowing they are
     fingers. **Propagation** carries each bone's crowding cap down the
-    chain, so a bone is never allowed more room than its parent had:
-    fingertips that splay apart in the rest pose stay as slim as the
-    knuckles feeding them. The cap is what propagates, not the radius
+    chain, shrinking it by ``CHAIN_TAPER`` per link, so a crowded run
+    tapers from its base outward: fingertips that splay apart in the
+    rest pose stay slimmer than the knuckles feeding them. Without the
+    taper the caps *grow* distally (splayed tips have more room than
+    packed metacarpals), which reads as a hand thin at the wrist and
+    fattest at the tips — backwards. ``inf`` is taper-invariant, so
+    uncrowded chains such as a spine are untouched. The cap is what propagates, not the radius
     — a short clavicle feeding a long humerus means a parent is
     legitimately thinner than its child, so propagating the radius
     itself would spindle every limb. **Stub capping** finally limits a
@@ -154,7 +162,8 @@ def adaptive_radii(
     parent_bone = _parent_bone_indices(bones)
     for index in _root_first_order(parent_bone):
         if parent_bone[index] is not None:
-            cap[index] = min(cap[index], cap[parent_bone[index]])
+            cap[index] = min(cap[index],
+                             cap[parent_bone[index]] * CHAIN_TAPER)
     radii = np.minimum(radii, cap)
 
     neighbours = _neighbour_indices(parent_bone)

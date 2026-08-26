@@ -12,7 +12,7 @@ import numpy as np
 import numpy.typing as npt
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import NamedTuple, TYPE_CHECKING
 
 from ._common import (
     GHOST_WIDTH_FACTOR,
@@ -21,9 +21,11 @@ from ._common import (
     Style,
     TRACE_BLEND,
     TRACE_COLOR,
+    box_corners,
     build_view_matrix,
     compute_follow_azimuths,
     floor_trace_points,
+    framing_bounds,
     ghost_schedule,
     ortho_project,
     turntable_azimuths,
@@ -66,7 +68,7 @@ def _draw_floor_opencv(
     h: int,
     x_offset: int,
     bg_bgr: tuple[int, int, int],
-    fixed_view_half: tuple[float, float] | None,
+    framing: "_PanelFraming",
     px_scale: float = 1.0,
 ) -> None:
     """Project and draw the ground plane into one panel.
@@ -84,8 +86,8 @@ def _draw_floor_opencv(
 
     def project(world_pts: npt.NDArray[np.float64]) -> npt.NDArray[np.int32]:
         pts = ortho_project(
-            world_pts, view_matrix, view.center, view.half_span,
-            (panel_w, h), fixed_view_half=fixed_view_half)
+            world_pts, view_matrix, framing.center, view.half_span,
+            (panel_w, h), fixed_view_half=framing.view_half)
         pts[:, 0] += x_offset
         return pts
 
@@ -143,45 +145,54 @@ _OPENCV_EXTENSIONS = {'.mp4', '.mov', '.avi', '.gif'}
 VIDEO_CODECS = {"auto", "h264", "mpeg4"}
 
 
-def _compute_fixed_view_halves_for_follow(
-    follow_azimuths: list[npt.NDArray[np.float64]],
-    elevations: list[float],
-    up_axes: list[str],
-    half_spans: list[float],
-) -> list[tuple[float, float]]:
-    """For follow mode: precompute per-skeleton view-space half extents
-    that stay constant across the whole animation.
+class _PanelFraming(NamedTuple):
+    """Where one panel's projection is centred and how far it reaches.
 
-    At every frame, follow rotates the camera around the world-up axis
-    (via a signed rotation delta in azimuth). The projection of the
-    cubic bounding box onto the screen varies with that rotation: it
-    is widest at 45° off-axis and narrowest axis-aligned. If we let
-    ``ortho_project`` compute the scale per frame from the current
-    view matrix, the scale oscillates and the character appears to
-    zoom in and out. To avoid this we compute the MAX (view_half_u,
-    view_half_v) across every frame ahead of time and reuse those as
-    a fixed scale at render time.
+    ``center`` is the world point that lands at the middle of the
+    panel; ``view_half`` is the half-extent of the framing box on
+    screen, in view units, which sets the projection scale.
     """
-    result: list[tuple[float, float]] = []
-    for azimuths_per_frame, el, ua, half_span in zip(
-            follow_azimuths, elevations, up_axes, half_spans):
-        corners = np.array([[sx, sy, sz]
-                            for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)],
-                           dtype=np.float64) * half_span
 
-        max_u = 0.0
-        max_v = 0.0
-        for az_f in azimuths_per_frame:
-            vm = build_view_matrix(az_f, el, ua)
-            cv_corners = corners @ vm.T
-            u = float(np.abs(cv_corners[:, 0]).max())
-            v = float(np.abs(cv_corners[:, 1]).max())
-            if u > max_u:
-                max_u = u
-            if v > max_v:
-                max_v = v
-        result.append((max_u, max_v))
-    return result
+    center: npt.NDArray[np.float64]
+    view_half: tuple[float, float]
+
+
+def _panel_framings(
+    scene: Scene,
+    base_view_matrices: list[npt.NDArray[np.float64]],
+    follow_azimuths: list[npt.NDArray[np.float64]] | None,
+) -> list[_PanelFraming]:
+    """Frame each panel to its clip's motion rather than to a cube.
+
+    The box comes from :func:`~._common.framing_bounds`, the same rule
+    the matplotlib backend fits its axes to, so one call rendered
+    through either backend frames the same volume.
+
+    Under a rotating camera (follow or turntable) the box's projection
+    still changes with azimuth — a box is widest off-axis — so the
+    halves are the MAX over every frame's view matrix. Taking them per
+    frame instead would rescale the drawing continuously and read as
+    the character zooming in and out while the camera orbits.
+    """
+    framings: list[_PanelFraming] = []
+    for index, view in enumerate(scene.views):
+        lo, hi = framing_bounds(view, rotating=follow_azimuths is not None)
+        center = (lo + hi) / 2.0
+        corners = box_corners(lo, hi) - center
+
+        if follow_azimuths is None:
+            matrices = [base_view_matrices[index]]
+        else:
+            matrices = [build_view_matrix(az, view.elevation, view.up_axis)
+                        for az in follow_azimuths[index]]
+
+        half_u = half_v = 0.0
+        for matrix in matrices:
+            projected = corners @ matrix.T
+            half_u = max(half_u, float(np.abs(projected[:, 0]).max()))
+            half_v = max(half_v, float(np.abs(projected[:, 1]).max()))
+        framings.append(_PanelFraming(center, (half_u, half_v)))
+    return framings
 
 
 class _ViewDrawContext:
@@ -231,8 +242,8 @@ def _draw_skeletons_on_frame(
     panel_w: int,
     h: int,
     bg_bgr: tuple[int, int, int],
+    framings: list["_PanelFraming"],
     px_scale: float = 1.0,
-    fixed_view_halves: list[tuple[float, float]] | None = None,
     ghost: int = 0,
     trajectory: bool = False,
 ) -> None:
@@ -245,10 +256,10 @@ def _draw_skeletons_on_frame(
     clip rectangle, and an unclipped floor quad (1.8x half_span, wider
     than a panel) would otherwise paint over the neighboring panel.
 
-    When ``fixed_view_halves`` is provided, each skeleton's projection
-    uses that pre-computed ``(view_half_u, view_half_v)`` instead of
-    deriving it from the current view matrix. This keeps the character
-    size constant across frames when the camera rotates (follow mode).
+    Each panel's ``_PanelFraming`` supplies the projection origin and
+    the fixed view-space half extents, so the drawing is framed to the
+    clip's motion and holds a constant scale across frames even when
+    the camera rotates (see :func:`_panel_framings`).
 
     Joint dots are always drawn in this backend — at raster resolution
     they are load-bearing for line joins (matplotlib omits them when
@@ -273,7 +284,7 @@ def _draw_skeletons_on_frame(
         ctx = contexts[s]
         frame_data = view.coords[frame_idx]
         view_matrix = view_matrices[s]
-        fixed = fixed_view_halves[s] if fixed_view_halves is not None else None
+        framing = framings[s]
 
         if n_skeletons > 1:
             # Contiguous per-panel canvas: clips every primitive to the
@@ -286,12 +297,12 @@ def _draw_skeletons_on_frame(
         if style.floor is not None:
             _draw_floor_opencv(
                 canvas, view, style, view_matrix, panel_w, h, 0,
-                bg_bgr, fixed, px_scale=px_scale)
+                bg_bgr, framing, px_scale=px_scale)
 
         def project(world_pts):
             return ortho_project(
-                world_pts, view_matrix, view.center, view.half_span,
-                (panel_w, h), fixed_view_half=fixed)
+                world_pts, view_matrix, framing.center, view.half_span,
+                (panel_w, h), fixed_view_half=framing.view_half)
 
         if trajectory and frame_idx >= 1:
             path = ctx.trace_path[:frame_idx + 1]
@@ -422,7 +433,6 @@ def _generate_frames(
     # projection scale stays constant and the character doesn't zoom
     # in and out as the camera orbits.
     follow_azimuths: list[npt.NDArray[np.float64]] | None = None
-    fixed_view_halves: list[tuple[float, float]] | None = None
     if follow:
         follow_azimuths = [
             compute_follow_azimuths(v.bvh, v.coords, v.azimuth)
@@ -431,12 +441,7 @@ def _generate_frames(
         follow_azimuths = [
             turntable_azimuths(v.azimuth, num_frames)
             for v in scene.views]
-    if follow_azimuths is not None:
-        fixed_view_halves = _compute_fixed_view_halves_for_follow(
-            follow_azimuths,
-            [v.elevation for v in scene.views],
-            [v.up_axis for v in scene.views],
-            [v.half_span for v in scene.views])
+    framings = _panel_framings(scene, base_view_matrices, follow_azimuths)
 
     contexts = [
         _ViewDrawContext(v, style, s, n_skeletons, bg_bgr, ghost,
@@ -458,7 +463,7 @@ def _generate_frames(
         _draw_skeletons_on_frame(
             img, f, scene, style, view_matrices, contexts, panel_w,
             draw_h, bg_bgr,
-            px_scale=px_scale, fixed_view_halves=fixed_view_halves,
+            px_scale=px_scale, framings=framings,
             ghost=ghost, trajectory=trajectory)
 
         if ss > 1:

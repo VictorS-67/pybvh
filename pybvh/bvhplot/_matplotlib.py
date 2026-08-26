@@ -30,9 +30,15 @@ from ._common import (
     UP_AXIS_INDEX,
     bone_colors_for_view,
     floor_trace_points,
+    framing_bounds,
     ghost_schedule,
 )
 from ._colors import floor_palette
+
+# mplot3d sizes its default margins for a cube free to rotate to any
+# angle; span-fitted boxes are much tighter, so they can be zoomed in
+# without the drawing ever reaching the axes edge.
+BOX_ZOOM = 1.25
 
 if TYPE_CHECKING:
     import matplotlib.figure
@@ -408,7 +414,7 @@ def sequence_mpl(
         ax.set_ylim(mins[1], maxs[1])
         ax.set_zlim(mins[2], maxs[2])
         ax.set_box_aspect(  # type: ignore[attr-defined]
-            tuple(spans / spans.max()), zoom=1.25)
+            tuple(spans / spans.max()), zoom=BOX_ZOOM)
     else:
         center = (mins + maxs) / 2
         half = float(spans.max()) / 2
@@ -572,20 +578,30 @@ def _setup_animated_panel(
     bones: npt.NDArray[np.intp],
     view_index: int,
     n_skeletons: int,
+    rotating: bool = False,
 ) -> tuple[Line3DCollection, object | None]:
     """Shared per-panel setup for animated matplotlib output.
 
     Draws the static floor, the frame-0 bone collection, and the
     frame-0 joint scatter; applies limits, camera, and axes style.
     Returns the artists that get updated every frame.
+
+    The panel is framed to the clip's own extents (see
+    :func:`~._common.framing_bounds`) rather than to a cube, and the
+    floor is clipped to that box; *rotating* squares off the ground
+    axes for orbiting cameras. Stills keep the cubic box: they frame a
+    single pose, whose extents are already tight.
     """
     _apply_axes_style(ax, style)
 
+    lo, hi = framing_bounds(view, rotating=rotating)
     if style.floor is not None:
+        # Full-extent floor, not one clipped to the framing box: the box
+        # hugs the motion, so a clipped plane would end just past the
+        # feet and read as a platform the character stands on rather
+        # than as ground. (sequence() clips its floor for the opposite
+        # reason — a wide ortho still turns a full plane into a wall.)
         _draw_floor_mpl(ax, view, style)
-        center, half_span = _floor_limits(view, style)
-    else:
-        center, half_span = view.center, view.half_span
 
     colors = bone_colors_for_view(view, style, view_index, n_skeletons)
     collection = _make_bone_collection(
@@ -600,7 +616,7 @@ def _setup_animated_panel(
             frame0[:, 0], frame0[:, 1], frame0[:, 2],
             s=style.joint_size, c=style.joint_color, depthshade=False)
 
-    _set_axis_limits(ax, center, half_span)
+    _set_span_limits(ax, lo, hi)
     ax.view_init(  # type: ignore[attr-defined]
         elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis)
 
@@ -737,7 +753,7 @@ def render_mpl(
     for i, (view, bones, ax) in enumerate(
             zip(scene.views, bones_arrays, axs_flat)):
         collection, joint_scatter = _setup_animated_panel(
-            ax, view, style, bones, i, n)
+            ax, view, style, bones, i, n, rotating=follow or turntable)
         bone_collections.append(collection)
         joint_scatters.append(joint_scatter)
 
@@ -1175,6 +1191,26 @@ def _set_axis_limits(
     ax.set_xlim(center[0] - half_span, center[0] + half_span)
     ax.set_ylim(center[1] - half_span, center[1] + half_span)
     ax.set_zlim(center[2] - half_span, center[2] + half_span)  # type: ignore[attr-defined]
+
+
+def _set_span_limits(
+    ax: matplotlib.axes.Axes,
+    lo: npt.NDArray[np.float64],
+    hi: npt.NDArray[np.float64],
+) -> None:
+    """Fit a 3D axes to a box, equal-scale but not cubic.
+
+    The box aspect follows the data spans, so the drawing fills the
+    canvas instead of padding the short axes out to the longest one;
+    ``zoom`` compensates for mplot3d's generous default margins, which
+    are sized for a rotating cube.
+    """
+    ax.set_xlim(lo[0], hi[0])
+    ax.set_ylim(lo[1], hi[1])
+    ax.set_zlim(lo[2], hi[2])  # type: ignore[attr-defined]
+    spans = hi - lo
+    ax.set_box_aspect(  # type: ignore[attr-defined]
+        tuple(spans / spans.max()), zoom=BOX_ZOOM)
 
 
 def _resolve_writer(filepath: Path) -> tuple[Path, str]:

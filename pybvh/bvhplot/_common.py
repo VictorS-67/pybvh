@@ -319,6 +319,79 @@ def compute_unified_limits(
     return center, half_span
 
 
+# Fraction of the framing box left as breathing room around the motion.
+FRAMING_MARGIN = 0.04
+
+
+def framing_bounds(
+    view: SkeletonView,
+    rotating: bool = False,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """The world-space box animated output frames to, as ``(lo, hi)``.
+
+    Animated backends frame the *motion*, not a cube around it: each
+    axis gets the extent the clip actually uses, so a clip that travels
+    two body-lengths sideways no longer forces that same extent
+    vertically, shrinking the character to fit. The floor plane is
+    included along the up axis so the ground never falls outside the
+    box. Scale stays equal on all three axes — this crops empty space,
+    it never stretches the skeleton.
+
+    We frame to the box the whole clip sweeps, not to each frame's own
+    box. The alternative — re-framing per frame — keeps the character
+    largest at every instant but makes the world drift and breathe
+    behind it, which reads as camera shake and destroys any sense of
+    travel; it is also what makes a still and a video of the same clip
+    disagree (:func:`frame` frames one pose, so its box is tighter).
+
+    With *rotating* (turntable or follow), the two ground axes are
+    squared off to the motion's circumscribed radius, so the framing is
+    invariant to azimuth. Without it, an orbiting camera would sweep a
+    long clip's travel axis from across-screen to into-screen and the
+    character would appear to zoom in and out.
+
+    Parameters
+    ----------
+    view : SkeletonView
+        The panel's view; ``coords`` supplies the motion, ``up_index``
+        and ``floor_height`` place the ground.
+    rotating : bool, optional
+        Whether the camera azimuth changes during the clip.
+
+    Returns
+    -------
+    lo, hi : ndarray of shape (3,)
+        Opposite corners of the framing box, margin included.
+    """
+    points = view.coords.reshape(-1, 3)
+    lo = points.min(axis=0)
+    hi = points.max(axis=0)
+
+    up = view.up_index
+    lo[up] = min(lo[up], view.floor_height)
+    hi[up] = max(hi[up], view.floor_height)
+
+    if rotating:
+        ground = [i for i in range(3) if i != up]
+        center = (lo[ground] + hi[ground]) / 2.0
+        radius = float(np.hypot(*(points[:, ground] - center).T).max())
+        lo[ground] = center - radius
+        hi[ground] = center + radius
+
+    pad = FRAMING_MARGIN * float((hi - lo).max())
+    return lo - pad, hi + pad
+
+
+def box_corners(
+    lo: npt.NDArray[np.float64],
+    hi: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    """The eight corners of an axis-aligned box, shape ``(8, 3)``."""
+    return np.array([[x, y, z] for x in (lo[0], hi[0])
+                     for y in (lo[1], hi[1]) for z in (lo[2], hi[2])],
+                    dtype=np.float64)
+
+
 # ---------------------------------------------------------------------------
 # Camera angles
 # ---------------------------------------------------------------------------

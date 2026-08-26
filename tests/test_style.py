@@ -177,6 +177,25 @@ class TestGetBoneChains:
             range(len(get_skeleton_lines(sub))))
 
 
+def _mid_frame(path: Path) -> np.ndarray:
+    """The middle frame of a rendered clip, as RGB."""
+    from PIL import Image
+
+    if path.suffix == ".gif":
+        clip = Image.open(path)
+        clip.seek(clip.n_frames // 2)
+        return np.asarray(clip.convert("RGB"))
+
+    import cv2
+    capture = cv2.VideoCapture(str(path))
+    capture.set(cv2.CAP_PROP_POS_FRAMES,
+                int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) // 2)
+    ok, frame = capture.read()
+    capture.release()
+    assert ok, f"could not read a frame back from {path}"
+    return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+
 def _fig_pixels(fig) -> np.ndarray:
     fig.canvas.draw()
     return np.asarray(fig.canvas.buffer_rgba()).copy()
@@ -224,6 +243,103 @@ class TestDebugPixelParity:
         want = np.asarray(
             Image.open(BASELINE_DIR / "frame_pair_f100.png").convert("RGB"))
         assert np.array_equal(got, want)
+
+
+class TestFraming:
+    """Animated output frames the motion, not a cube around it."""
+
+    def _view(self, bvh, camera="side"):
+        from pybvh.bvhplot import _prepare
+        return _prepare(bvh, None, "world", camera).views[0]
+
+    def test_box_follows_each_axis_of_the_motion(self, bvh):
+        """A travelling clip must not spend its vertical extent on travel."""
+        from pybvh.bvhplot._common import framing_bounds
+
+        lo, hi = framing_bounds(self._view(bvh))
+        spans = hi - lo
+        travel = float(spans.max())
+        assert travel > 2 * float(np.median(spans)), (
+            "fixture no longer travels far enough to exercise framing")
+        # the cube the old code framed to would have made every axis this long
+        assert float(spans.min()) < 0.6 * travel
+
+    def test_floor_is_inside_the_box(self, bvh):
+        from pybvh.bvhplot._common import framing_bounds
+
+        view = self._view(bvh)
+        lo, hi = framing_bounds(view)
+        assert lo[view.up_index] <= view.floor_height <= hi[view.up_index]
+
+    def test_rotating_squares_the_ground_off(self, bvh):
+        """An orbiting camera needs an azimuth-invariant footprint."""
+        from pybvh.bvhplot._common import framing_bounds
+
+        view = self._view(bvh)
+        lo, hi = framing_bounds(view, rotating=True)
+        ground = [i for i in range(3) if i != view.up_index]
+        assert (hi - lo)[ground[0]] == pytest.approx((hi - lo)[ground[1]])
+
+        # and it must still contain the motion it squared off around
+        fixed_lo, fixed_hi = framing_bounds(view)
+        assert np.all(lo[ground] <= fixed_lo[ground] + 1e-9)
+        assert np.all(hi[ground] >= fixed_hi[ground] - 1e-9)
+
+    def test_orbit_holds_one_scale(self, bvh):
+        """The same pose must project to the same size at every azimuth.
+
+        Without a fixed scale the drawing is refitted every frame and
+        the character pulses in and out as the camera comes round.
+        """
+        from pybvh.bvhplot._common import build_view_matrix, ortho_project
+        from pybvh.bvhplot._common import turntable_azimuths
+        from pybvh.bvhplot._opencv import _panel_framings
+        from pybvh.bvhplot import _prepare
+
+        scene = _prepare(bvh, None, "world", "front")
+        view = scene.views[0]
+        azimuths = turntable_azimuths(view.azimuth, 24)
+        base = [build_view_matrix(view.azimuth, view.elevation, view.up_axis)]
+        framing = _panel_framings(scene, base, [azimuths])[0]
+
+        # A vertical probe: spinning the camera about the up axis cannot
+        # change its projected length, so any change is the scale moving.
+        # (The skeleton itself is a poor probe — its own silhouette
+        # genuinely changes height as it turns.)
+        up = np.zeros(3)
+        up[view.up_index] = view.half_span
+        probe = np.stack([framing.center - up, framing.center + up])
+
+        lengths = []
+        for az in azimuths:
+            matrix = build_view_matrix(az, view.elevation, view.up_axis)
+            pixels = ortho_project(probe, matrix, framing.center,
+                                   view.half_span, (1920, 1080),
+                                   fixed_view_half=framing.view_half)
+            lengths.append(abs(int(pixels[1, 1]) - int(pixels[0, 1])))
+        assert max(lengths) == pytest.approx(min(lengths), rel=0.01)
+
+    @pytest.mark.parametrize("backend,suffix", [
+        ("matplotlib", ".gif"), ("opencv", ".mp4")])
+    def test_a_walking_clip_fills_the_frame(self, bvh, tmp_path,
+                                            backend, suffix):
+        """The end-to-end promise, in both video backends.
+
+        A cubic box put the walker at ~20% of frame height in
+        matplotlib and ~34% in OpenCV; anything back near those numbers
+        means the framing regressed to a cube.
+        """
+        if backend == "opencv":
+            pytest.importorskip("cv2")
+        clip = bvh[:240].resample(20)
+        out = bvhplot.render(clip, tmp_path / f"walk{suffix}", fps=20,
+                             backend=backend, camera="side")
+        frame = _mid_frame(out)
+        coloured = (frame.max(axis=2) - frame.min(axis=2)) > 40   # bones
+        rows = np.where(coloured.any(axis=1))[0]
+        occupied = (rows[-1] - rows[0] + 1) / frame.shape[0]
+        assert occupied > 0.40, (
+            f"{backend}: subject fills only {occupied:.0%} of the frame")
 
 
 class TestStyledRenderSmoke:

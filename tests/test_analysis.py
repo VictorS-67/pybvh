@@ -1205,7 +1205,7 @@ FOOT_PIN_PATH = Path(__file__).parent / "fixtures" / "foot_contacts_pinned.npz"
 class TestFootContactsPinnedGolden:
     """Bit-exact pin of foot_contacts on the CMU walk clip.
 
-    The committed fixture freezes contacts + the FULL info dict (exact key sets included) for the nine parameterizations in ``FOOT_CONTACT_RUNS``. Every comparison is ``assert_array_equal`` — this is the bit-identity gate any refactor of the contacts machinery must pass. If it fails, the code change altered behavior; do NOT regenerate the fixture to make it pass (that re-baselines the pin and erases the evidence).
+    The committed fixture freezes contacts + the FULL info dict (exact key sets included) for the nine parameterizations in ``FOOT_CONTACT_RUNS``. Contact labels, key sets, and non-float fields are compared bit-exactly; derived float info fields to ``rtol=1e-10`` — exact equality on those only holds in the environment that generated the pin (cross numpy/BLAS/platform noise is ~1e-15), while the tolerance stays ~5 orders below any behavioral change. This is the identity gate any refactor of the contacts machinery must pass. If it fails, the code change altered behavior; do NOT regenerate the fixture to make it pass (that re-baselines the pin and erases the evidence).
     """
 
     @pytest.fixture(scope="class")
@@ -1236,9 +1236,20 @@ class TestFootContactsPinnedGolden:
         assert sorted(flat) == pinned_keys, (
             f"run{run_idx} ({run_name}): info key set changed")
         for key in pinned_keys:
-            np.testing.assert_array_equal(
-                np.asarray(flat[key]), pin[f"run{run_idx}/{key}"],
-                err_msg=f"run{run_idx} ({run_name}): info[{key!r}] changed")
+            got = np.asarray(flat[key])
+            want = pin[f"run{run_idx}/{key}"]
+            if np.issubdtype(got.dtype, np.floating):
+                # Derived float fields (confidence, foot_skate, …) drift by
+                # a few ulps across numpy/BLAS/platform versions, so exact
+                # equality only holds in the environment that generated the
+                # pin; the tolerance still fails on any behavioral change.
+                np.testing.assert_allclose(
+                    got, want, rtol=1e-10, atol=1e-13,
+                    err_msg=f"run{run_idx} ({run_name}): info[{key!r}] changed")
+            else:
+                np.testing.assert_array_equal(
+                    got, want,
+                    err_msg=f"run{run_idx} ({run_name}): info[{key!r}] changed")
 
         if run_idx == 1:
             # The canonical default path fills the floor cache with exactly

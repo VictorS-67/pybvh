@@ -15,3 +15,5 @@ Source: [mocap.cs.cmu.edu](http://mocap.cs.cmu.edu) · BVH conversion: [cgspeed 
 ## Other clips
 
 `bvh_example.bvh`, `bvh_test1.bvh`, `bvh_test2.bvh`, `bvh_test3.bvh`, `standard_skeleton.bvh` are pybvh's own bundled test fixtures — small clips and a reference skeleton exercised by the unit tests and used as the default subject across most of the feature gallery.
+
+[`synthetic/`](synthetic/README.md) contains independently authored five-frame rigs and motion illustrating reference roots, tracked props, detailed hands, quadrupeds, mixed three/six-channel layouts, and animated local positions. Its README and manifest record provenance, regeneration, and anatomical expectations; as of pybvh 0.8.2, the reader rejects files with position channels on joints other than the root.

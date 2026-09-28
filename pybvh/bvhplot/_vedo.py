@@ -18,7 +18,7 @@ import time
 import numpy as np
 import numpy.typing as npt
 
-from typing import Callable, TYPE_CHECKING, TypedDict
+from typing import Callable, TypedDict
 
 from ._common import (
     PALETTE_RGB,

@@ -647,8 +647,7 @@ def turntable_azimuths(
 
 
 def compute_follow_azimuths(
-    bvh: Bvh,
-    coords: npt.NDArray[np.float64],
+    view: SkeletonView,
     base_azim: float,
 ) -> npt.NDArray[np.float64]:
     """Per-frame camera azimuths that track the character's rotation.
@@ -659,12 +658,15 @@ def compute_follow_azimuths(
     measured around ``world_up``. This gives a smooth orbit that tracks the
     character's actual rotation — not a snap-every-90°-to-a-signed-axis.
 
+    A pure function of the view: it reads ``coords``, ``lr_pairs`` and
+    ``up_vector``, so it can be recomputed after any operation that
+    changes the coords and never goes stale.
+
     Parameters
     ----------
-    bvh : Bvh
-        The skeleton (used for L/R pairs and ``world_up``).
-    coords : ndarray of shape (F, N, 3)
-        Spatial coordinates for the whole clip.
+    view : SkeletonView
+        The skeleton's coords for the whole clip plus its L/R pairs and
+        signed up vector.
     base_azim : float
         The frame-0 azimuth in degrees (from :func:`get_camera_angles`).
 
@@ -675,18 +677,19 @@ def compute_follow_azimuths(
         direction is degenerate (parallel to world up, or no L/R pairs)
         fall back to ``base_azim``.
     """
-    from ..tools import _axis_to_vector, _world_leftward_units
+    from ..tools import _leftward_units_from_pairs
 
-    num_frames = coords.shape[0]
+    num_frames = view.coords.shape[0]
     azimuths = np.full(num_frames, float(base_azim))
 
     # World-space leftward unit vector per frame — the shared facing
-    # geometry in pybvh.tools. All-invalid when no L/R pairs exist.
-    leftward, valid = _world_leftward_units(bvh, coords, bvh.world_up)
+    # geometry kernel in pybvh.tools. All-invalid when no L/R pairs exist.
+    leftward, valid = _leftward_units_from_pairs(
+        view.coords, view.lr_pairs, view.up_vector)
     if num_frames == 0 or not valid[0]:
         return azimuths  # no frame-0 reference — camera stays fixed
 
-    up_vec = _axis_to_vector(bvh.world_up)
+    up_vec = view.up_vector
 
     # Signed angle rotating frame 0's leftward onto each frame's,
     # around world_up (vectorized _signed_rotation_delta_around_axis).

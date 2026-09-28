@@ -41,7 +41,6 @@ class SkeletonView:
     ``root_heading``) always share their first axis.
     """
 
-    bvh: Bvh
     coords: npt.NDArray[np.float64]        # (F, N, 3)
     bones: list[tuple[int, int]]           # (parent_idx, child_idx) pairs
     label: str | None
@@ -269,7 +268,6 @@ def make_scene(
             floor_height = float(extreme.min() if up_sign > 0
                                  else extreme.max())
         views.append(SkeletonView(
-            bvh=b,
             coords=coords,
             bones=bones,
             label=labels[i] if labels and i < len(labels) else None,

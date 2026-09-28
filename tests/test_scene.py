@@ -1,6 +1,10 @@
 """Tests for the Scene/SkeletonView container (bvhplot Phase 0)."""
 from __future__ import annotations
 
+import ast
+import dataclasses
+import importlib
+
 import numpy as np
 import pytest
 
@@ -38,7 +42,6 @@ class TestMakeScene:
         assert scene.num_skeletons == 1
         assert scene.num_frames == coords.shape[0]
         view = scene.views[0]
-        assert view.bvh is bvh
         assert view.coords is coords
         assert view.label is None
 
@@ -263,10 +266,56 @@ class TestSceneMethods:
             scene.views[0].half_span = 1.0  # type: ignore[misc]
 
 
+# The pybvh modules that know what a Bvh is. A backend draws a Scene; it
+# must not take anything from these at runtime, and _common may only do so
+# inside the functions that turn a Bvh into a Scene.
+_CORE_MODULES = {"bvh", "bvhnode", "tools", "analysis", "transforms",
+                 "spatial_coord", "batch", "features", "io", "df_to_bvh"}
+_BACKENDS = ["_matplotlib", "_opencv", "_k3d", "_vedo", "_vedo_offscreen",
+             "_vedo_capsules", "_colors", "_playback"]
+# The Bvh -> Scene adapter functions in _common.
+_COMMON_ADAPTERS = {"make_scene", "get_camera_angles",
+                    "_camera_angles_and_forward", "get_skeleton_lines",
+                    "get_bone_chains"}
+# Array-pure kernels a draw-time helper may take from pybvh.tools: they
+# take arrays, never a Bvh.
+_COMMON_KERNELS = {"_leftward_units_from_pairs"}
+
+
+def _core_imports(module_name):
+    """Every runtime import of a core module: (line, enclosing function,
+    imported names). Imports under ``if TYPE_CHECKING:`` are skipped."""
+    module = importlib.import_module(f"pybvh.bvhplot.{module_name}")
+    tree = ast.parse(open(module.__file__).read())
+    found = []
+
+    def visit(node, func, type_checking):
+        for child in ast.iter_child_nodes(node):
+            f, tc = func, type_checking
+            if isinstance(child, ast.FunctionDef):
+                f = child.name
+            if (isinstance(child, ast.If) and isinstance(child.test, ast.Name)
+                    and child.test.id == "TYPE_CHECKING"):
+                tc = True
+            if isinstance(child, ast.ImportFrom) and not tc:
+                module = child.module or ""
+                top = (module.split(".")[0] if child.level == 0
+                       else module.split(".")[0])
+                is_core = ((child.level >= 2 and top in _CORE_MODULES)
+                           or module.startswith("pybvh.")
+                           and module.split(".")[1] in _CORE_MODULES)
+                if is_core:
+                    found.append((child.lineno, f,
+                                  [a.name for a in child.names]))
+            visit(child, f, tc)
+
+    visit(tree, None, False)
+    return found
+
+
 class TestSceneIsPureData:
     def test_no_plotting_imports_in_common(self):
         """_common (Scene's home) must never import a plotting library."""
-        import ast
         import pybvh.bvhplot._common as common
 
         tree = ast.parse(open(common.__file__).read())
@@ -282,3 +331,27 @@ class TestSceneIsPureData:
         assert not (imported & forbidden), (
             f"_common.py must stay plotting-free but imports "
             f"{sorted(imported & forbidden)}")
+
+    def test_view_has_no_bvh_field(self):
+        """The seam is real only if a view cannot hand a backend a Bvh."""
+        names = {f.name for f in dataclasses.fields(SkeletonView)}
+        assert "bvh" not in names
+
+    @pytest.mark.parametrize("backend", _BACKENDS)
+    def test_backends_take_nothing_from_the_core_at_runtime(self, backend):
+        """A backend consumes a Scene and a Style; it never reaches into
+        Bvh, tools or analysis. Type-only imports are allowed."""
+        offenders = _core_imports(backend)
+        assert offenders == [], (
+            f"{backend} imports core modules at runtime: {offenders}")
+
+    def test_common_reads_bvh_only_in_its_adapter_functions(self):
+        """Inside _common, only the Bvh -> Scene adapters may import core
+        modules; a helper called at draw time may take array kernels only."""
+        offenders = [
+            (line, func, names)
+            for line, func, names in _core_imports("_common")
+            if func not in _COMMON_ADAPTERS
+            and not set(names) <= _COMMON_KERNELS]
+        assert offenders == [], (
+            f"_common reaches into the core outside its adapters: {offenders}")

@@ -32,8 +32,6 @@ from ._colors import bone_colors_255, floor_palette, rgb255
 from ._playback import PlaybackClock
 from ._vedo_capsules import CapsuleSkeleton
 
-if TYPE_CHECKING:
-    from ..bvh import Bvh
 
 # Rich gold for single-skeleton "high" mode (aitviewer-inspired);
 # used when the style's color mode resolves to "skeleton"/"single".

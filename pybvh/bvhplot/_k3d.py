@@ -11,7 +11,6 @@ import warnings
 import numpy as np
 import numpy.typing as npt
 
-from typing import TYPE_CHECKING
 
 from ._common import (
     PALETTE_RGB,
@@ -23,8 +22,6 @@ from ._common import (
 )
 from ._colors import node_colors_255
 
-if TYPE_CHECKING:
-    from ..bvh import Bvh
 
 
 def _node_colors_uint32(

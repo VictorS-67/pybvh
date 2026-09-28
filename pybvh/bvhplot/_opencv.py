@@ -35,7 +35,6 @@ from ._colors import bone_colors_255, floor_palette, node_colors_255
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from ..bvh import Bvh
 
 # RGB is canonical in _common; the channel flip for OpenCV's BGR
 # drawing API happens here, at this backend's border.

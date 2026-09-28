@@ -1,0 +1,8 @@
+# Store text with LF line endings whatever OS or editor produced it, so a
+# Windows edit can never again leave one file CRLF among LF siblings.
+* text=auto eol=lf
+
+# BVH files keep their exact bytes. Exporters in the wild write CRLF, and
+# three of the fixtures do: they are the only CRLF input the parser sees in
+# the test suite, and normalizing them would silently drop that coverage.
+*.bvh -text

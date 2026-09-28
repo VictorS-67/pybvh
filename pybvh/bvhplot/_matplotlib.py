@@ -60,7 +60,6 @@ def _add_collection(ax: matplotlib.axes.Axes, collection: Any) -> None:
 if TYPE_CHECKING:
     import matplotlib.figure
     import matplotlib.axes
-    from ..bvh import Bvh
 
 
 # ---------------------------------------------------------------------------
@@ -964,10 +963,6 @@ def trajectory_mpl(
     fig : Figure
     ax : Axes
     """
-    from ..tools import _AXIS_CHAR_TO_IDX
-
-    bvh_list = [v.bvh for v in scene.views]
-    coords_list = [v.coords for v in scene.views]
     labels = scene.labels
 
     axis_names = ['x', 'y', 'z']
@@ -983,7 +978,7 @@ def trajectory_mpl(
     else:
         if figsize is None:
             figsize = _trajectory_figsize(
-                _trajectory_data_aspect(bvh_list, coords_list))
+                _trajectory_data_aspect(scene.views))
         # constrained_layout handles external (bbox_to_anchor) legends
         # without clipping; tight_layout does not.
         fig, ax = plt.subplots(figsize=figsize, layout='constrained')
@@ -1001,9 +996,11 @@ def trajectory_mpl(
     skeleton_h0_bounds: list[tuple[float, float]] = []
     skeleton_h1_bounds: list[tuple[float, float]] = []
 
-    for i, (bvh_obj, coords) in enumerate(zip(bvh_list, coords_list)):
-        # Per-skeleton up axis, honoring any manual world_up override
-        up_idx = _AXIS_CHAR_TO_IDX[bvh_obj.world_up[1]]
+    for i, view in enumerate(scene.views):
+        coords = view.coords
+        # Per-skeleton up axis: the view's, which honors any manual
+        # world_up override on the Bvh it was built from.
+        up_idx = view.up_index
         horiz = [j for j in range(3) if j != up_idx]
         all_horiz.add((horiz[0], horiz[1]))
 
@@ -1033,14 +1030,16 @@ def trajectory_mpl(
             # (a, b = non-up axes in natural x,y,z order with the up axis
             # removed) — i.e. cos along axis a, sin along axis b.  Our local
             # horiz[] uses the same convention, so the trig components map
-            # directly to (h0, h1) plot coordinates.
-            #
-            # Multi-skeleton plots truncate coords to the shortest clip
-            # (see _prepare), so we slice root_trajectory to match h0/h1.
+            # directly to (h0, h1) plot coordinates. view.root_heading is
+            # that [sin, cos] pair, already aligned to the coords by
+            # make_scene (truncated or padded with them).
             F_plot = h0.shape[0]
-            traj = bvh_obj.root_trajectory()[:F_plot]   # (F_plot, 4)
-            facing_cos = traj[:, 3]                     # x-component (h0)
-            facing_sin = traj[:, 2]                     # y-component (h1)
+            if view.root_heading is None:
+                raise ValueError(
+                    "facing_arrows needs a Scene built from clip frames; "
+                    "caller-supplied coordinates carry no root heading.")
+            facing_sin = view.root_heading[:, 0]        # y-component (h1)
+            facing_cos = view.root_heading[:, 1]        # x-component (h0)
             step = max(1, F_plot // 10)
             idx = np.arange(0, F_plot, step)
             # Arrow length: 8 % of the larger ground-plane span.  Using
@@ -1295,10 +1294,7 @@ def _resolve_writer(filepath: Path) -> tuple[Path, str]:
 # Trajectory layout helpers
 # ---------------------------------------------------------------------------
 
-def _trajectory_data_aspect(
-    bvh_list: list[Bvh],
-    coords_list: list[npt.NDArray[np.float64]],
-) -> float:
+def _trajectory_data_aspect(views: list[SkeletonView]) -> float:
     """Aspect ratio (dx / dy) of the combined trajectory data.
 
     Each skeleton is projected onto its own horizontal plane (dropping
@@ -1306,14 +1302,12 @@ def _trajectory_data_aspect(
     union of all projected root paths. Returns ``1.0`` for degenerate
     (single-point) data.
     """
-    from ..tools import _AXIS_CHAR_TO_IDX
-
     h0_values: list[npt.NDArray[np.float64]] = []
     h1_values: list[npt.NDArray[np.float64]] = []
-    for bvh_obj, coords in zip(bvh_list, coords_list):
-        up_idx = _AXIS_CHAR_TO_IDX[bvh_obj.world_up[1]]
+    for view in views:
+        up_idx = view.up_index
         horiz = [j for j in range(3) if j != up_idx]
-        root_traj = coords[:, 0, :]
+        root_traj = view.coords[:, 0, :]
         h0_values.append(root_traj[:, horiz[0]])
         h1_values.append(root_traj[:, horiz[1]])
 

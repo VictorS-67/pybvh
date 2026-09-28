@@ -392,8 +392,11 @@ def _prepare(
     canonical_floor = (
         not isinstance(frames, np.ndarray) and centered in ("world", "first"))
 
-    return make_scene(bvh_list, coords_list, camera, labels,
-                      canonical_floor=canonical_floor)
+    return make_scene(
+        bvh_list, coords_list, camera, labels,
+        canonical_floor=canonical_floor,
+        frame_index=frames if isinstance(frames, int) else None,
+        coords_from_clip=not isinstance(frames, np.ndarray))
 
 
 # ---------------------------------------------------------------------------

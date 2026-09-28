@@ -32,6 +32,13 @@ class SkeletonView:
     field access. Camera and bounding box are per-view because
     side-by-side comparisons of skeletons with different up or forward
     axes need each panel oriented and framed independently.
+
+    The view is complete: every fact a backend needs about the skeleton
+    (its timing, names, rest pose, left/right pairing, orientation and
+    chain classification) is a field, so a view built from plain arrays
+    with no :class:`Bvh` behind it draws exactly like one made by
+    :func:`make_scene`. Frame-indexed fields (``coords``,
+    ``root_heading``) always share their first axis.
     """
 
     bvh: Bvh
@@ -44,6 +51,14 @@ class SkeletonView:
     elevation: float                       # degrees
     up_axis: str                           # 'x' | 'y' | 'z'
     floor_height: float                    # scene ground along up_axis
+    frame_time: float                      # seconds per frame
+    node_names: list[str]                  # parallel to the N axis
+    rest_coords: npt.NDArray[np.float64]   # (N, 3) rest pose, root at origin
+    lr_pairs: npt.NDArray[np.intp]         # (P, 2) node-space L/R pairs; (0, 2) if none
+    up_vector: npt.NDArray[np.float64]     # (3,) signed world-up unit vector
+    forward_axis: str                      # signed axis string at frame 0, e.g. '+y'
+    bone_chains: list[str]                 # chain name per bone, parallel to ``bones``
+    root_heading: npt.NDArray[np.float64] | None  # (F, 2) [sin, cos] or None
     up_sign: float = 1.0                   # +1 for '+y' etc., -1 for '-y'
 
     @property
@@ -86,6 +101,15 @@ class Scene:
         labels = [v.label for v in self.views]
         return labels if any(lbl is not None for lbl in labels) else None
 
+    @property
+    def frame_time(self) -> float:
+        """Seconds per frame, from the first view.
+
+        The animated entry points match frame rates before the Scene is
+        built, so the views agree; the static ones never read it.
+        """
+        return self.views[0].frame_time
+
     def unified_box(self) -> tuple[npt.NDArray[np.float64], float]:
         """Cubic bounding box covering every view's coords."""
         return compute_unified_limits([v.coords for v in self.views])
@@ -112,12 +136,26 @@ def make_scene(
     labels: list[str] | None,
     *,
     canonical_floor: bool = True,
+    frame_index: int | None = None,
+    coords_from_clip: bool = True,
 ) -> Scene:
     """Assemble a :class:`Scene` from parallel per-skeleton data.
 
-    Computes per-view topology, cubic bounding box, camera angles, and
-    floor height — the per-skeleton halves of what every visualization
-    function needs.
+    The one place in bvhplot that reads a :class:`Bvh`. Computes, per
+    view, the topology, cubic bounding box, camera angles, floor height
+    and every skeleton fact the backends draw from (timing, node names,
+    rest pose, L/R pairs, orientation, chain classification, root
+    heading), so the views are complete once this returns.
+
+    Root heading (the ``[sin, cos]`` columns of
+    :func:`~pybvh.analysis.root_trajectory`) is frame-indexed, so it is
+    aligned to the coords: ``frame_index`` names the single clip frame
+    the coords hold (NumPy semantics, negative from the end), and
+    otherwise the whole-clip heading is truncated or last-row padded to
+    the coords' frame count, mirroring :func:`align_frame_counts`. With
+    ``coords_from_clip=False`` (caller-supplied coordinate arrays) no
+    clip frame corresponds to the coords, and ``root_heading`` is
+    ``None`` rather than a number that would be wrong.
 
     Floor convention: with ``canonical_floor=True`` the floor is the
     cached :attr:`Bvh.floor_height` — the robust 2nd percentile over all
@@ -136,12 +174,25 @@ def make_scene(
     This is the scene ground, not the reference ``foot_contacts``
     measures clearance against; see :attr:`Bvh.floor_height`.
     """
+    from ..analysis import root_trajectory
+
     views: list[SkeletonView] = []
     for i, (b, coords) in enumerate(zip(bvh_list, coords_list)):
         center, half_span = compute_unified_limits([coords])
-        azimuth, elevation, up_axis = get_camera_angles(b, coords[0], camera)
+        azimuth, elevation, up_axis, forward_axis = _camera_angles_and_forward(
+            b, coords[0], camera)
         up_idx = UP_AXIS_INDEX.get(up_axis, 2)
         up_sign = float(b.up_axis.sign)
+        bones = get_skeleton_lines(b)
+
+        if coords_from_clip:
+            heading = root_trajectory(b)[:, 2:4]
+            if frame_index is not None:
+                root_heading = heading[frame_index][np.newaxis]
+            else:
+                root_heading = _align_rows(heading, coords.shape[0])
+        else:
+            root_heading = None
         if canonical_floor:
             floor_height = float(b.floor_height)
         else:
@@ -154,7 +205,7 @@ def make_scene(
         views.append(SkeletonView(
             bvh=b,
             coords=coords,
-            bones=get_skeleton_lines(b),
+            bones=bones,
             label=labels[i] if labels and i < len(labels) else None,
             center=center,
             half_span=half_span,
@@ -162,9 +213,44 @@ def make_scene(
             elevation=elevation,
             up_axis=up_axis,
             floor_height=floor_height,
+            frame_time=float(b.frame_time),
+            node_names=[node.name for node in b.nodes],
+            rest_coords=b.rest_pose_positions(),
+            lr_pairs=np.asarray(b.node_lr_pairs or [],
+                                dtype=np.intp).reshape(-1, 2),
+            up_vector=np.asarray(b.up_axis.vector, dtype=np.float64),
+            forward_axis=forward_axis,
+            bone_chains=_chain_per_bone(get_bone_chains(b), len(bones)),
+            root_heading=root_heading,
             up_sign=up_sign,
         ))
     return Scene(views=views)
+
+
+def _align_rows(
+    arr: npt.NDArray[np.float64], num_frames: int,
+) -> npt.NDArray[np.float64]:
+    """Truncate or last-row pad ``arr`` along axis 0 to ``num_frames``.
+
+    The same rule :func:`align_frame_counts` applies to coords, so a
+    frame-indexed field follows its coords through either alignment.
+    """
+    if arr.shape[0] >= num_frames:
+        return arr[:num_frames]
+    pad = np.repeat(arr[-1:], num_frames - arr.shape[0], axis=0)
+    return np.concatenate([arr, pad], axis=0)
+
+
+def _chain_per_bone(chains: dict[str, list[int]], n_bones: int) -> list[str]:
+    """Invert :func:`get_bone_chains`' chain -> bones map into one name per bone.
+
+    Bones no chain claims read as ``"spine"``, the documented fallback.
+    """
+    per_bone = ["spine"] * n_bones
+    for chain_name, bone_indices in chains.items():
+        for i in bone_indices:
+            per_bone[i] = chain_name
+    return per_bone
 
 
 # ---------------------------------------------------------------------------
@@ -409,6 +495,9 @@ def get_camera_angles(
 ) -> tuple[float, float, str]:
     """Resolve a camera specification to (azimuth, elevation, up_axis).
 
+    Thin view of :func:`_camera_angles_and_forward`, which also returns
+    the forward axis the azimuth was derived from.
+
     Parameters
     ----------
     bvh : Bvh
@@ -430,6 +519,23 @@ def get_camera_angles(
     up_axis : str
         Single character: ``'x'``, ``'y'``, or ``'z'``.
     """
+    azimuth, elevation, up_axis, _ = _camera_angles_and_forward(
+        bvh, ref_frame, camera)
+    return azimuth, elevation, up_axis
+
+
+def _camera_angles_and_forward(
+    bvh: Bvh,
+    ref_frame: npt.NDArray[np.float64],
+    camera: str | tuple[float, float],
+) -> tuple[float, float, str, str]:
+    """:func:`get_camera_angles` plus the signed forward axis string.
+
+    ``forward_axis`` (e.g. ``'+y'``) is the character's facing at
+    *ref_frame*, the fact the ``"front"`` preset turns into an azimuth;
+    :func:`make_scene` keeps it on the view so lateral spacing and the
+    camera never disagree about which way the skeleton faces.
+    """
     from ..tools import _compute_forward_at, extract_sign
 
     # World up comes from the Bvh property (auto-detected with manual
@@ -444,7 +550,7 @@ def get_camera_angles(
     fwd_positive = extract_sign(forward_ax)
 
     if isinstance(camera, tuple):
-        return float(camera[0]), float(camera[1]), up_char
+        return float(camera[0]), float(camera[1]), up_char, forward_ax
 
     # Compute base azimuth/elevation for the "front" view.
     # The logic: determine which matplotlib azimuth faces the skeleton's
@@ -474,11 +580,11 @@ def get_camera_angles(
         base_azim += 180.0
 
     if camera == "front":
-        return base_azim, base_elev, up_char
+        return base_azim, base_elev, up_char, forward_ax
     elif camera == "side":
-        return base_azim + 90.0, base_elev, up_char
+        return base_azim + 90.0, base_elev, up_char, forward_ax
     elif camera == "top":
-        return base_azim, 90.0, up_char
+        return base_azim, 90.0, up_char, forward_ax
     else:
         raise ValueError(
             f"Unknown camera preset {camera!r}. "

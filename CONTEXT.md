@@ -13,11 +13,11 @@
 | **Dependencies** | `numpy` (required), `matplotlib` (required), `pandas` (optional), `opencv-python` (optional, fast render), `k3d` (optional, Jupyter), `vedo` (optional, desktop) |
 | **Primary use-case** | Reading, writing, and manipulating BVH (Biovision Hierarchy) motion capture files — serving ML pipelines, biomechanics research, game dev, and any workflow that consumes skeleton animation data |
 | **Design principles** | **Fast** (NumPy-vectorised, pre-allocated arrays), **Lightweight** (minimal code surface, no ML framework deps), **Self-contained** (no scipy, no PyTorch, no TensorFlow) |
-| **Version** | 0.8.2 |
+| **Version** | 0.9.0 |
 | **Package** | Published on PyPI as `pybvh`. Install via `pip install pybvh`. Optional extras: `pybvh[opencv]` (fast render), `pybvh[interactive]` (k3d for Jupyter), `pybvh[viewer]` (vedo desktop), `pybvh[all-viz]` (all of the above), `pybvh[pandas]` (pandas integration) |
 | **CI/CD** | GitHub Actions: test workflow (push/PR, Python 3.9–3.12) + publish workflow (PyPI on release) + docs workflow (MkDocs to GitHub Pages on push to main) |
 | **Type safety** | Full type annotations on all source files, `@overload` on inplace methods. `mypy pybvh/` reports 39 annotation-accuracy errors (see §7.2) — not gated in CI |
-| **Tests** | 2146 unit tests via pytest (plus ~23 000 parametrized `test_transforms_battle` cases across 3 real-world datasets, skipped unless the private fixtures are present) |
+| **Tests** | 2216 unit tests via pytest (plus ~23 000 parametrized `test_transforms_battle` cases across 3 real-world datasets, skipped unless the private fixtures are present) |
 | **Documentation** | MkDocs + mkdocstrings + Material theme, auto-deployed to GitHub Pages |
 
 ---
@@ -77,7 +77,7 @@ Defines a skeleton as a tree of joints. Each joint has:
 ### 4.1 `pybvh/__init__.py`
 Public API surface. Exports:
 ```python
-__version__ = "0.8.2"
+__version__ = "0.9.0"
 
 from .bvh import Bvh
 from .io import read_bvh_file, write_bvh_file
@@ -267,8 +267,9 @@ where the order comes from the joint's `rot_channels`.
   - `tests/test_docs_api_coverage.py` — docs guard: two-way set equality between the curated member lists in `docs/api/{bvh,analysis,rotations}.md` and the actual public API (a new public member missing from the docs fails CI, as does a stale entry).
   - `tests/test_gallery_notebook.py` — gallery freshness guard: the `gallery/feature_gallery.{py,ipynb}` jupytext pair must match, the committed execution counts must be sequential 1..N (stale-output detector), no error/stderr outputs may be committed, the setup cell must pin `%matplotlib inline`, and at least 40 figures must be present (wipeout detector). Plus the clip-visibility guard: no `image/gif` cell outputs (GitHub's notebook renderer silently drops them), and each of the three animated clips displayed as a markdown image whose absolute `raw.githubusercontent.com` URL resolves to a committed, non-gitignored file.
   - `tests/test_tutorial_notebooks.py` — same guard for `tutorials/*.ipynb`, which GitHub renders straight from the committed outputs: pair sync, sequential execution counts, `%matplotlib inline` pinned in every plotting tutorial, every `plt.show()` cell carrying its figure, and no backend warnings or tracebacks. Also the clip-visibility guard: no `image/gif` cell outputs, and every markdown image an absolute `raw.githubusercontent.com` URL resolving to a committed, non-gitignored file. Unlike the gallery's, it does **not** ban all stderr — tutorials 4, 5 and 7 deliberately show the `bvh_test3.bvh` world-up `UserWarning` to the reader. Cells tagged `skip-execution` are excluded throughout.
+  - `tests/test_release_metadata.py` — release-hygiene guard: the version in `pyproject.toml` must match `pybvh.__version__`, `CITATION.cff` and the README's BibTeX entry; `CITATION.cff`'s `date-released` must equal that version's CHANGELOG date; and the CHANGELOG footer must carry the version's compare link. All keyed off `pyproject.toml`, which only moves in a release commit, so it holds between releases.
 - **Run command**: `conda run -n pybvh pytest tests/ -v`
-- **Current count**: 2043 tests, all passing.
+- **Current count**: 2216 tests, all passing.
 - **Note**: `tests/test_transforms_battle.py` uses private datasets from `internal_data/` and is gitignored — never publish or share this file.
 
 ---

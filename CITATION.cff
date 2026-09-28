@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use pybvh in your research, please cite it using the metadata below."
+title: "pybvh"
+abstract: "A lightweight Python library for reading, writing, and manipulating BVH motion capture files."
+type: software
+authors:
+  - family-names: "Schneider"
+    given-names: "Victor"
+    orcid: "https://orcid.org/0009-0001-2751-0882"
+repository-code: "https://github.com/VictorS-67/pybvh"
+url: "https://victors-67.github.io/pybvh/"
+license: MIT
+version: "0.9.0"
+date-released: "2026-09-28"
+keywords:
+  - motion capture
+  - BVH
+  - Biovision Hierarchy
+  - skeletal animation
+  - forward kinematics
+  - NumPy

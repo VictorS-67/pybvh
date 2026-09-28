@@ -7,7 +7,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [0.9.0] — Unreleased
+## [0.9.0] — 2026-09-28
 
 The publication-grade visualization release. Every bvhplot function now produces paper-ready output by default — ground plane, per-chain bone colors, joint markers, axes off — with the old look preserved as a named style. New: sequence figures (the motion-paper still), ghost trails, floor trajectory traces, turntable videos, supersampled anti-aliased export, and a shadowed 3D capsule renderer (its shadow-technique decision is recorded in `docs/adr/0001-vedo-projected-shadows.md`).
 
@@ -34,6 +34,7 @@ The publication-grade visualization release. Every bvhplot function now produces
 - **`play(backend="opencv")`** — the notebook inline-video backend that auto-selection could pick but the user could never pin is now nameable, matching `render()`'s vocabulary; outside a notebook it raises an error that says why instead of "unknown backend".
 - **Docs: a [Publication Figures](https://victors-67.github.io/pybvh/guide/publication-figures/) guide** — the path from a clip to a file a venue accepts: vector stills and figure sizing (`fig.savefig("pose.pdf", bbox_inches="tight")` — see the fix below), the `sequence()` motion still, supplementary video (`codec=`, ghosts and traces, turntables), the capsule look, choosing a style per venue, and the handoff to Blender for anything raytraced. The gallery gains the paper-versus-debug pair and clips for the `render()` options — ghost trails, floor traces, turntable — which had no figure before; the README's hero clip is regenerated through bvhplot itself by `scripts/make_hero_gif.py`, so it shows the shipped default style instead of a hand-styled figure.
 - **Clean viewer screenshots.** The vedo viewer's `S` key now hides every control overlay and the slider for the capture (restored after), rendering at 2× window resolution; skeleton labels stay. The desktop viewer also applies Style look fields — background, bone width, floor kind, and chain colors for single-skeleton sessions — as does k3d (background, width, per-vertex chain colors).
+- **pybvh is citable.** `CITATION.cff` carries the citation metadata, which GitHub turns into a *Cite this repository* button (APA and BibTeX) on the repository page; the README's new *Citing pybvh* section has a ready BibTeX entry.
 
 ### Changed
 
@@ -689,6 +690,8 @@ Initial release.
 
 ---
 
+[0.9.0]: https://github.com/VictorS-67/pybvh/compare/v0.8.2...v0.9.0
+[0.8.2]: https://github.com/VictorS-67/pybvh/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/VictorS-67/pybvh/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/VictorS-67/pybvh/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/VictorS-67/pybvh/compare/v0.6.0...v0.7.0

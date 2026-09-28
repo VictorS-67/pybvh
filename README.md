@@ -3,7 +3,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/pybvh)](https://pypi.org/project/pybvh/)
 [![Python](https://img.shields.io/pypi/pyversions/pybvh)](https://pypi.org/project/pybvh/)
 [![Docs](https://img.shields.io/badge/docs-online-4051b5)](https://victors-67.github.io/pybvh/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/VictorS-67/pybvh/blob/main/LICENSE)
 
 A lightweight Python library for reading, writing, and manipulating BVH motion capture files.
 Built for researchers and developers working with skeletal animation and motion data.
@@ -137,6 +137,20 @@ This will change at **1.0**: from then on, pybvh will commit to strict semver â€
 
 Pandas is optional (`pip install "pybvh[pandas]"`) - only used in the tutorials, not part of pybvh library.
 
+## Citing pybvh
+
+If pybvh is useful in your research, please cite it. On GitHub, the *Cite this repository* button in the sidebar gives APA and BibTeX generated from [`CITATION.cff`](https://github.com/VictorS-67/pybvh/blob/main/CITATION.cff). In BibTeX, with `version` set to the release you used:
+
+```bibtex
+@software{schneider_pybvh,
+  author  = {Schneider, Victor},
+  title   = {pybvh},
+  url     = {https://github.com/VictorS-67/pybvh},
+  version = {0.9.0},
+  year    = {2026}
+}
+```
+
 ## License
 
-MIT
+[MIT](https://github.com/VictorS-67/pybvh/blob/main/LICENSE)

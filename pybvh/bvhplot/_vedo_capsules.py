@@ -273,7 +273,7 @@ class CapsuleSkeleton:
         self.bone_child_idx = np.array([b[1] for b in bones], dtype=int)
 
         bone_radii, joint_radii = adaptive_radii(
-            frame0, bones, r_base, view.bvh.rest_pose_positions())
+            frame0, bones, r_base, view.rest_coords)
 
         # --- canonical bone tubes ---
         bone_meshes = []

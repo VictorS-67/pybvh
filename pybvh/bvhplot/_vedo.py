@@ -203,7 +203,6 @@ class _VedoPlayer:
         center, half_span = scene.unified_box()
         self.scene = scene
         self.style = style
-        self.bvh_list = [v.bvh for v in scene.views]
         self.coords_list = [v.coords for v in scene.views]
         self.labels = scene.labels
         self.skeleton_lines_list = [v.bones for v in scene.views]
@@ -438,7 +437,7 @@ class _VedoPlayer:
         label_fontsize = max(12, int(half_span * 0.4))
         for s in range(n_skeletons):
             lbl_list: list = []
-            joint_names = [node.name for node in self.bvh_list[s].nodes]
+            joint_names = self.scene.views[s].node_names
             for j, name in enumerate(joint_names):
                 pos0 = coords_list[s][0][j] + self._label_offset
                 actor = vtk.vtkBillboardTextActor3D()

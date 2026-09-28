@@ -1251,13 +1251,8 @@ def bone_colors_for_view(
         return [PALETTE_MPL[view_index % len(PALETTE_MPL)]] * n_bones
     if mode == "single":
         return [style.bone_color] * n_bones
-    # chains — a skeleton with no L/R pairs comes back all-"spine",
-    # i.e. a single dark color (the documented fallback).
-    chains = get_bone_chains(view.bvh)
+    # chains — a skeleton with no L/R pairs is all-"spine" in
+    # view.bone_chains, i.e. a single dark color (the documented fallback).
     spine_color = style.chain_colors.get("spine", "#3A3F4A")
-    colors: list = [spine_color] * n_bones
-    for chain_name, bone_indices in chains.items():
-        color = style.chain_colors.get(chain_name, spine_color)
-        for i in bone_indices:
-            colors[i] = color
-    return colors
+    return [style.chain_colors.get(chain_name, spine_color)
+            for chain_name in view.bone_chains]

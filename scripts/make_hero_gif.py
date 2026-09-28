@@ -25,6 +25,7 @@ import numpy as np                       # noqa: E402
 
 import pybvh                             # noqa: E402
 from pybvh import bvhplot                # noqa: E402
+from pybvh.bvhplot._common import get_camera_angles  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 CLIP = REPO / "bvh_data" / "bvh_test1.bvh"
@@ -54,12 +55,18 @@ def main() -> None:
     lo, hi = lo - pad, hi + pad
     spans = hi - lo
 
+    # One camera for the whole clip, for the same reason: frame() resolves
+    # "front" from the pose it is given, snapped to the nearest world axis,
+    # so calling it per frame swings the view 90° whenever the character
+    # turns past 45°. render() resolves it once from frame 0; so do we.
+    camera = get_camera_angles(bvh, positions[0], "front")[:2]
+
     fig = plt.figure(figsize=(SIZE_INCHES, SIZE_INCHES))
     ax = fig.add_subplot(111, projection="3d")
 
     def draw(frame: int) -> None:
         ax.cla()
-        bvhplot.frame(bvh, frame=frame, ax=ax)
+        bvhplot.frame(bvh, frame=frame, ax=ax, camera=camera)
         ax.plot(traced[:frame + 1, 0], traced[:frame + 1, 1],
                 traced[:frame + 1, 2], color=TRACE_COLOR, lw=2.5, zorder=4)
         ax.scatter(*traced[frame], color=MARKER_COLOR, s=45, zorder=5)

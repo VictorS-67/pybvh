@@ -795,7 +795,7 @@ def render(
     effective_follow = (follow and not turntable
                         and not isinstance(camera, tuple))
 
-    actual_fps = _resolve_fps(fps, scene.views[0].bvh.frame_time)
+    actual_fps = _resolve_fps(fps, scene.frame_time)
 
     if (backend == "auto" and backend_name == "matplotlib"
             and filepath.suffix.lower() not in _MPL_ONLY_EXTENSIONS):
@@ -995,8 +995,8 @@ def play(
     scene = _prepare(bvh, None, centered, camera, labels, pad=pad)
     bvh_list = [v.bvh for v in scene.views]
 
-    bvh_fps = 1.0 / bvh_list[0].frame_time
-    actual_fps = _resolve_fps(fps, bvh_list[0].frame_time)
+    bvh_fps = 1.0 / scene.frame_time
+    actual_fps = _resolve_fps(fps, scene.frame_time)
 
     backend_name, tier = _resolve_play_backend(backend)
 

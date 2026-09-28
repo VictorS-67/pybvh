@@ -676,7 +676,7 @@ def _setup_render_extras(
 
     for i, (view, ax) in enumerate(zip(scene.views, axs_flat)):
         colors = bone_colors_for_view(view, style, i, n)
-        lag, weights = ghost_schedule(style, view.bvh.frame_time, ghost)
+        lag, weights = ghost_schedule(style, view.frame_time, ghost)
         slots = []
         for j in range(ghost):
             faded = [_fade_toward_background(c, float(weights[j]), style)

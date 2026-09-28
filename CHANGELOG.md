@@ -7,6 +7,12 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Internal
+
+- **bvhplot: the `Scene` is complete.** `SkeletonView` now carries every fact a backend draws from — frame time, node names, rest coords, the facing geometry's L/R pairs, the signed up vector, the forward axis, a chain name per bone and the root heading — and its `bvh` field is gone: no backend touches a `Bvh` at runtime, and an AST guard keeps it that way (backends import nothing from the core; `_common` reads a `Bvh` only inside its `make_scene` adapter functions). `Scene.replace_coords` is replaced by `subsampled(step)`, `offset(offsets)` and `spread(spacing)`, which recompute exactly what they change, so a view's box, floor and frame time no longer go stale after the `play()` fps cap or lateral spacing. A Scene built from plain arrays (`tests/synthetic_scene.py`) now renders through every backend, which gives k3d its first test. No user-facing change: `Scene` and `SkeletonView` are internal.
+
 ## [0.9.0] — 2026-09-28
 
 The publication-grade visualization release. Every bvhplot function now produces paper-ready output by default — ground plane, per-chain bone colors, joint markers, axes off — with the old look preserved as a named style. New: sequence figures (the motion-paper still), ghost trails, floor trajectory traces, turntable videos, supersampled anti-aliased export, and a shadowed 3D capsule renderer (its shadow-technique decision is recorded in `docs/adr/0001-vedo-projected-shadows.md`).
@@ -690,6 +696,7 @@ Initial release.
 
 ---
 
+[Unreleased]: https://github.com/VictorS-67/pybvh/compare/v0.9.0...HEAD
 [0.9.0]: https://github.com/VictorS-67/pybvh/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/VictorS-67/pybvh/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/VictorS-67/pybvh/compare/v0.8.0...v0.8.1

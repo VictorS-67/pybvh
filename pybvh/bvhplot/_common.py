@@ -114,19 +114,84 @@ class Scene:
         """Cubic bounding box covering every view's coords."""
         return compute_unified_limits([v.coords for v in self.views])
 
-    def replace_coords(
-        self,
-        coords_list: list[npt.NDArray[np.float64]],
-    ) -> Scene:
-        """A new Scene with each view's coords swapped (e.g. after
-        lateral spacing or fps subsampling); everything else is kept."""
-        if len(coords_list) != len(self.views):
-            raise ValueError(
-                f"Expected {len(self.views)} coord arrays, "
-                f"got {len(coords_list)}.")
-        views = [dataclasses.replace(v, coords=c)
-                 for v, c in zip(self.views, coords_list)]
+    def subsampled(self, step: int) -> Scene:
+        """Every ``step``-th frame of every view, as a new Scene.
+
+        Slices ``coords`` and every other frame-indexed field
+        (``root_heading``), scales ``frame_time`` by ``step`` so the clip
+        keeps its duration, and recomputes each view's box. The floor is
+        kept: the canonical floor is a property of the whole clip, and
+        the min-of-coords floor of a subsampled clip can only sit a hair
+        higher, which a plane under the feet does not show.
+        """
+        if step < 1:
+            raise ValueError(f"step must be >= 1, got {step}.")
+        views = []
+        for v in self.views:
+            coords = v.coords[::step]
+            center, half_span = compute_unified_limits([coords])
+            heading = (None if v.root_heading is None
+                       else v.root_heading[::step])
+            views.append(dataclasses.replace(
+                v, coords=coords, center=center, half_span=half_span,
+                frame_time=v.frame_time * step, root_heading=heading))
         return Scene(views=views)
+
+    def offset(self, offsets: list[npt.NDArray[np.float64]]) -> Scene:
+        """Translate each view by its own ``(3,)`` vector, as a new Scene.
+
+        Moves ``coords`` and ``center``, and ``floor_height`` by the
+        offset's component along the view's up axis, so the plane stays
+        under the feet. Orientation, heading and timing are
+        translation-invariant and are kept.
+        """
+        if len(offsets) != len(self.views):
+            raise ValueError(
+                f"Expected {len(self.views)} offsets, got {len(offsets)}.")
+        views = []
+        for v, off in zip(self.views, offsets):
+            off = np.asarray(off, dtype=np.float64).reshape(3)
+            views.append(dataclasses.replace(
+                v,
+                coords=v.coords + off,
+                center=v.center + off,
+                floor_height=v.floor_height + float(off[v.up_index])))
+        return Scene(views=views)
+
+    def spread(self, spacing: float | str) -> Scene:
+        """Offset the views laterally so skeletons sharing one 3-D scene
+        do not overlap.
+
+        For the single-scene backends (k3d, vedo); multi-panel backends
+        draw each view in its own axes and never need it. The lateral
+        axis is the one that is neither the first view's up axis nor its
+        forward axis at frame 0. ``"auto"`` spaces by 1.2 × the first
+        view's lateral extent (at least 0.1 scene units); a float is
+        used directly, in scene units. View ``k`` moves by
+        ``k × spacing`` in the positive lateral direction. Whether to
+        spread at all is the caller's policy (``play`` respects raw
+        world coordinates under ``"auto"``).
+        """
+        if len(self.views) <= 1:
+            return self
+        first = self.views[0]
+        up_idx = first.up_index
+        fwd_idx = UP_AXIS_INDEX.get(first.forward_axis[1], 0)
+        lat_idx = next(i for i in range(3) if i != up_idx and i != fwd_idx)
+
+        if spacing == "auto":
+            lateral = first.coords[..., lat_idx]
+            width = float(lateral.max() - lateral.min())
+            effective = max(width, 0.1) * 1.2
+        else:
+            effective = float(spacing)
+        if effective == 0.0:
+            return self
+
+        unit = np.zeros(3)
+        unit[lat_idx] = 1.0  # always the positive lateral direction
+        return self.offset(
+            [unit * k * effective for k in range(len(self.views))])
 
 
 def make_scene(

@@ -282,67 +282,21 @@ def _match_frame_rates(
     return result
 
 
-def _apply_scene_spacing(
-    bvh_list: list[Bvh],
-    coords_list: list[npt.NDArray[np.float64]],
+def _spread_for_single_scene(
+    scene: Scene,
     spacing: float | str,
-    up_axis_char: str,
     centered: str,
-) -> list[npt.NDArray[np.float64]]:
-    """Offset each skeleton laterally so they don't overlap in a shared 3D scene.
+) -> Scene:
+    """Router policy around :meth:`Scene.spread` for k3d and vedo.
 
-    Used by single-scene backends (k3d, vedo). Multi-panel backends
-    (matplotlib, opencv) don't need this — they already use separate viewports.
-
-    Parameters
-    ----------
-    bvh_list : list[Bvh]
-        Skeleton objects (used to determine forward direction).
-    coords_list : list[ndarray]
-        Spatial coordinates per skeleton, each ``(F, N, 3)``.
-    spacing : float or "auto"
-        ``"auto"`` computes spacing from skeleton 0's lateral bounding-box
-        width × 1.2. A float is used directly (in scene units).
-        ``"auto"`` with ``centered="world"`` returns the list unchanged.
-    up_axis_char : str
-        Single character ``'x'``, ``'y'``, or ``'z'``.
-    centered : str
-        Centering mode — used to determine whether auto-spacing applies.
-
-    Returns
-    -------
-    list[ndarray]
-        Possibly offset coordinate arrays (new arrays; originals unchanged).
+    ``"auto"`` spacing respects raw world coordinates: two clips drawn
+    under ``centered="world"`` are left exactly where their files put
+    them. Every other combination spreads the views laterally so they
+    do not overlap in the one shared scene.
     """
-    if len(bvh_list) <= 1:
-        return coords_list
-
     if spacing == "auto" and centered == "world":
-        return coords_list  # respect raw world coordinates
-
-    # Lateral axis = the one that is neither up nor forward
-    up_idx = UP_AXIS_INDEX.get(up_axis_char, 2)
-    fwd_str = bvh_list[0].forward_at(frame=0)
-    fwd_idx = UP_AXIS_INDEX.get(fwd_str[1], 0)
-    lat_idx = next(i for i in range(3) if i != up_idx and i != fwd_idx)
-
-    if spacing == "auto":
-        c0 = coords_list[0].reshape(-1, 3)
-        bbox_width = float(c0[:, lat_idx].max() - c0[:, lat_idx].min())
-        effective_spacing = max(bbox_width, 0.1) * 1.2
-    else:
-        effective_spacing = float(spacing)
-
-    if effective_spacing == 0.0:
-        return coords_list
-
-    offset_unit = np.zeros(3)
-    offset_unit[lat_idx] = 1.0  # always positive lateral direction
-
-    return [
-        coords + (offset_unit * k * effective_spacing)[np.newaxis, np.newaxis, :]
-        for k, coords in enumerate(coords_list)
-    ]
+        return scene
+    return scene.spread(spacing)
 
 
 def _warn_world_up_mismatch(
@@ -993,7 +947,6 @@ def play(
     bvh = bvh_input if len(bvh_input) > 1 else bvh_input[0]
 
     scene = _prepare(bvh, None, centered, camera, labels, pad=pad)
-    bvh_list = [v.bvh for v in scene.views]
 
     bvh_fps = 1.0 / scene.frame_time
     actual_fps = _resolve_fps(fps, scene.frame_time)
@@ -1026,12 +979,11 @@ def play(
             and backend_name not in ("opencv_notebook", "vedo")
             and bvh_fps > _PLAY_MAX_FPS):
         subsample_step = math.ceil(bvh_fps / _PLAY_MAX_FPS)
-        scene = scene.replace_coords(
-            [v.coords[::subsample_step] for v in scene.views])
-        actual_fps = bvh_fps / subsample_step
+        scene = scene.subsampled(subsample_step)
+        actual_fps = 1.0 / scene.frame_time
 
     # --- world_up consistency check (all backends) ---
-    _warn_world_up_mismatch(bvh_list)
+    _warn_world_up_mismatch(bvh_input)
 
     # --- Dispatch ---
     # For single-scene backends (vedo, k3d) there can only be ONE camera
@@ -1046,11 +998,8 @@ def play(
                 "k3d backend requires k3d and ipywidgets. "
                 "Install with: pip install pybvh[interactive]")
         from ._k3d import play_k3d
-        spread_coords = _apply_scene_spacing(
-            bvh_list, [v.coords for v in scene.views], spacing,
-            scene.views[0].up_axis, centered)
-        play_k3d(scene.replace_coords(spread_coords), style_obj,
-                 actual_fps)
+        play_k3d(_spread_for_single_scene(scene, spacing, centered),
+                 style_obj, actual_fps)
         return None
 
     elif backend_name == "vedo":
@@ -1061,11 +1010,8 @@ def play(
                 "vedo backend requires vedo. "
                 "Install with: pip install pybvh[viewer]")
         from ._vedo import play_vedo
-        spread_coords = _apply_scene_spacing(
-            bvh_list, [v.coords for v in scene.views], spacing,
-            scene.views[0].up_axis, centered)
-        play_vedo(scene.replace_coords(spread_coords), style_obj,
-                  actual_fps, quality=quality)
+        play_vedo(_spread_for_single_scene(scene, spacing, centered),
+                  style_obj, actual_fps, quality=quality)
         return None
 
     elif backend_name == "opencv_notebook":

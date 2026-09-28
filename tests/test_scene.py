@@ -169,24 +169,93 @@ class TestSceneMethods:
         np.testing.assert_allclose(center, expected_center)
         assert half_span == expected_half
 
-    def test_replace_coords_swaps_only_coords(self, bvh, coords):
+    def test_subsampled_slices_every_frame_indexed_field(self, bvh, coords):
         scene = make_scene([bvh], [coords], "front", ["lbl"])
-        new_coords = coords + 5.0
-        replaced = scene.replace_coords([new_coords])
-        assert replaced is not scene
-        assert replaced.views[0].coords is new_coords
-        # everything else preserved
-        assert replaced.views[0].label == "lbl"
-        assert replaced.views[0].azimuth == scene.views[0].azimuth
-        np.testing.assert_allclose(
-            replaced.views[0].center, scene.views[0].center)
-        # original untouched
-        assert scene.views[0].coords is coords
+        step = 4
+        sub = scene.subsampled(step)
+        view, original = sub.views[0], scene.views[0]
+        np.testing.assert_array_equal(view.coords, coords[::step])
+        np.testing.assert_array_equal(
+            view.root_heading, original.root_heading[::step])
+        assert view.frame_time == pytest.approx(original.frame_time * step)
+        assert sub.frame_time == view.frame_time
+        center, half_span = compute_unified_limits([coords[::step]])
+        np.testing.assert_allclose(view.center, center)
+        assert view.half_span == half_span
+        # untouched by subsampling
+        assert view.floor_height == original.floor_height
+        assert view.label == "lbl"
+        assert view.azimuth == original.azimuth
+        assert scene.views[0].coords is coords  # original untouched
 
-    def test_replace_coords_length_mismatch_raises(self, bvh, coords):
+    def test_subsampled_rejects_step_below_one(self, bvh, coords):
         scene = make_scene([bvh], [coords], "front", None)
-        with pytest.raises(ValueError, match="coord arrays"):
-            scene.replace_coords([coords, coords])
+        with pytest.raises(ValueError, match="step"):
+            scene.subsampled(0)
+
+    def test_offset_moves_coords_center_and_floor_together(self, bvh, coords):
+        scene = make_scene([bvh], [coords], "front", None)
+        view = scene.views[0]
+        off = np.zeros(3)
+        off[view.up_index] = 2.5
+        moved = scene.offset([off]).views[0]
+        np.testing.assert_allclose(moved.coords, coords + off)
+        np.testing.assert_allclose(moved.center, view.center + off)
+        assert moved.floor_height == pytest.approx(view.floor_height + 2.5)
+        # translation-invariant facts are kept
+        np.testing.assert_array_equal(moved.root_heading, view.root_heading)
+        assert moved.frame_time == view.frame_time
+
+    def test_lateral_offset_leaves_the_floor(self, bvh, coords):
+        scene = make_scene([bvh], [coords], "front", None)
+        view = scene.views[0]
+        off = np.ones(3)
+        off[view.up_index] = 0.0
+        moved = scene.offset([off]).views[0]
+        assert moved.floor_height == view.floor_height
+
+    def test_offset_length_mismatch_raises(self, bvh, coords):
+        scene = make_scene([bvh], [coords], "front", None)
+        with pytest.raises(ValueError, match="offsets"):
+            scene.offset([np.zeros(3), np.zeros(3)])
+
+    def test_spread_single_view_is_identity(self, bvh, coords):
+        scene = make_scene([bvh], [coords], "front", None)
+        assert scene.spread("auto") is scene
+        assert scene.spread(3.0) is scene
+
+    def test_spread_moves_later_views_along_the_lateral_axis(self, bvh, coords):
+        scene = make_scene([bvh, bvh], [coords, coords], "front", None)
+        first = scene.views[0]
+        fwd_idx = {"x": 0, "y": 1, "z": 2}[first.forward_axis[1]]
+        lat_idx = next(i for i in range(3)
+                       if i != first.up_index and i != fwd_idx)
+        spread = scene.spread(3.0)
+        np.testing.assert_array_equal(spread.views[0].coords, coords)
+        diff = spread.views[1].coords - coords
+        assert np.allclose(diff[..., lat_idx], 3.0)
+        for axis in range(3):
+            if axis != lat_idx:
+                assert np.allclose(diff[..., axis], 0.0)
+        # the moved view's box moved with it; its floor did not
+        np.testing.assert_allclose(
+            spread.views[1].center - first.center, diff[0, 0])
+        assert spread.views[1].floor_height == first.floor_height
+
+    def test_spread_auto_uses_the_first_views_lateral_extent(self, bvh, coords):
+        scene = make_scene([bvh, bvh], [coords, coords], "front", None)
+        first = scene.views[0]
+        fwd_idx = {"x": 0, "y": 1, "z": 2}[first.forward_axis[1]]
+        lat_idx = next(i for i in range(3)
+                       if i != first.up_index and i != fwd_idx)
+        width = float(np.ptp(coords[..., lat_idx]))
+        spread = scene.spread("auto")
+        diff = spread.views[1].coords - coords
+        assert np.allclose(diff[..., lat_idx], max(width, 0.1) * 1.2)
+
+    def test_spread_zero_is_identity(self, bvh, coords):
+        scene = make_scene([bvh, bvh], [coords, coords], "front", None)
+        assert scene.spread(0.0) is scene
 
     def test_views_are_frozen(self, bvh, coords):
         scene = make_scene([bvh], [coords], "front", None)

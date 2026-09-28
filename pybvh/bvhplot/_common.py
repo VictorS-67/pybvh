@@ -54,7 +54,7 @@ class SkeletonView:
     frame_time: float                      # seconds per frame
     node_names: list[str]                  # parallel to the N axis
     rest_coords: npt.NDArray[np.float64]   # (N, 3) rest pose, root at origin
-    lr_pairs: npt.NDArray[np.intp]         # (P, 2) node-space L/R pairs; (0, 2) if none
+    lr_pairs: npt.NDArray[np.intp]         # (P, 2) joint L/R pairs in node index space, the facing geometry's; (0, 2) if none
     up_vector: npt.NDArray[np.float64]     # (3,) signed world-up unit vector
     forward_axis: str                      # signed axis string at frame 0, e.g. '+y'
     bone_chains: list[str]                 # chain name per bone, parallel to ``bones``
@@ -175,6 +175,7 @@ def make_scene(
     measures clearance against; see :attr:`Bvh.floor_height`.
     """
     from ..analysis import root_trajectory
+    from ..tools import _facing_lr_pairs
 
     views: list[SkeletonView] = []
     for i, (b, coords) in enumerate(zip(bvh_list, coords_list)):
@@ -216,8 +217,7 @@ def make_scene(
             frame_time=float(b.frame_time),
             node_names=[node.name for node in b.nodes],
             rest_coords=b.rest_pose_positions(),
-            lr_pairs=np.asarray(b.node_lr_pairs or [],
-                                dtype=np.intp).reshape(-1, 2),
+            lr_pairs=_facing_lr_pairs(b),
             up_vector=np.asarray(b.up_axis.vector, dtype=np.float64),
             forward_axis=forward_axis,
             bone_chains=_chain_per_bone(get_bone_chains(b), len(bones)),

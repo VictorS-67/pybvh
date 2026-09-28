@@ -9,9 +9,13 @@ repo_name: VictorS-67/pybvh
 # directory exists on disk (CI checkouts never contain it).
 # docs/agents/ is agent-workflow configuration (issue tracker, triage labels,
 # domain-doc rules), not user documentation.
+# docs/adr/ holds the architecture decision records: contributor-facing like
+# CONTEXT.md, read on GitHub (the CHANGELOG links them by repo path), not user
+# documentation — without this they would be built as pages outside the nav.
 exclude_docs: |
   /internal_logs/
   /agents/
+  /adr/
 
 theme:
   name: material

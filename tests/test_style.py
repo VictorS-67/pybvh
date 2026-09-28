@@ -201,12 +201,62 @@ def _fig_pixels(fig) -> np.ndarray:
     return np.asarray(fig.canvas.buffer_rgba()).copy()
 
 
+def _text_mask(fig, shape, dpi, margin=2):
+    """Pixels covered by the figure's visible text, at the given save dpi."""
+    from matplotlib.text import Text
+
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    scale = dpi / fig.dpi
+    height, width = shape[:2]
+    mask = np.zeros((height, width), dtype=bool)
+    for text in fig.findobj(Text):
+        if not text.get_visible() or not text.get_text().strip():
+            continue
+        box = text.get_window_extent(renderer)
+        x0 = max(int(np.floor(box.x0 * scale)) - margin, 0)
+        x1 = min(int(np.ceil(box.x1 * scale)) + margin, width)
+        # display y grows upward, image rows grow downward
+        r0 = max(height - int(np.ceil(box.y1 * scale)) - margin, 0)
+        r1 = min(height - int(np.floor(box.y0 * scale)) + margin, height)
+        mask[r0:r1, x0:x1] = True
+    return mask
+
+
+def _assert_matches_v082(fig, fixture, tmp_path):
+    from PIL import Image
+
+    out = tmp_path / fixture
+    fig.savefig(out, dpi=100)
+    got = np.asarray(Image.open(out).convert("RGB"))
+    want = np.asarray(Image.open(BASELINE_DIR / fixture).convert("RGB"))
+    assert got.shape == want.shape
+    text = _text_mask(fig, got.shape, dpi=100)
+    plt.close(fig)
+
+    assert text.mean() < 0.10, (
+        "the text mask covers too much of the figure for the comparison "
+        "to mean anything")
+    differs = (got != want).any(axis=2) & ~text
+    assert not differs.any(), (
+        f"{fixture}: {differs.sum()} pixels outside text differ from the "
+        f"v0.8.2 baseline")
+
+
 class TestDebugPixelParity:
     """style="debug" must reproduce the pre-0.9.0 output exactly.
 
     The fixtures were rendered by v0.8.2 before any Phase 0/1 change;
     matching them pixel-for-pixel proves the refactor did not perturb
     geometry, camera, or styling on the legacy path.
+
+    Every pixel is compared exactly except those inside the rectangles
+    where matplotlib draws text. Glyph rasterization belongs to matplotlib
+    and changes between its versions — 3.11 draws the same tick labels as
+    3.9 with different pixels, while every line, pane and grid pixel stays
+    identical — so a byte-exact comparison could only pass on the one
+    matplotlib that rendered the fixtures. Text *placement* is still
+    checked: a label that moves leaves its baseline pixels outside the mask.
     """
 
     @pytest.mark.parametrize("fixture,kwargs", [
@@ -214,35 +264,16 @@ class TestDebugPixelParity:
         ("rest_pose.png", None),
     ])
     def test_matches_v082_baseline(self, bvh, tmp_path, fixture, kwargs):
-        from PIL import Image
-
         if kwargs is None:
             fig, _ = bvhplot.rest_pose(bvh, style="debug")
         else:
             fig, _ = bvhplot.frame(bvh, style="debug", **kwargs)
-        out = tmp_path / fixture
-        fig.savefig(out, dpi=100)
-        plt.close(fig)
-
-        got = np.asarray(Image.open(out).convert("RGB"))
-        want = np.asarray(Image.open(BASELINE_DIR / fixture).convert("RGB"))
-        assert got.shape == want.shape
-        assert np.array_equal(got, want), (
-            f"{fixture}: debug render differs from the v0.8.2 baseline")
+        _assert_matches_v082(fig, fixture, tmp_path)
 
     def test_pair_matches_v082_baseline(self, bvh, tmp_path):
-        from PIL import Image
-
         fig, _ = bvhplot.frame(
             [bvh, bvh.mirror()], 100, labels=["a", "b"], style="debug")
-        out = tmp_path / "pair.png"
-        fig.savefig(out, dpi=100)
-        plt.close(fig)
-
-        got = np.asarray(Image.open(out).convert("RGB"))
-        want = np.asarray(
-            Image.open(BASELINE_DIR / "frame_pair_f100.png").convert("RGB"))
-        assert np.array_equal(got, want)
+        _assert_matches_v082(fig, "frame_pair_f100.png", tmp_path)
 
 
 class TestVectorExport:

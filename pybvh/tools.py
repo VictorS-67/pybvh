@@ -142,10 +142,15 @@ def extract_sign(ax: str) -> bool:
 #           │          │       │
 #           │          │       └──→ used by transforms.mirror()
 #           │          ▼
-#           │    _world_leftward_units ── the ONLY place the per-frame
-#           │      │        │       │     leftward geometry is computed
-#           │      │        │       └──→ bvhplot follow-mode azimuths
-#           │      │        ▼            (render_mpl/opencv)
+#           │    _facing_lr_pairs ──→ bvhplot SkeletonView.lr_pairs
+#           │          │                       │
+#           │          ▼                       ▼
+#           │    _leftward_units_from_pairs ── the ONLY place the per-frame
+#           │      │   (array kernel)          leftward geometry is computed;
+#           │      │        │             ──→ bvhplot follow-mode azimuths
+#           │      ▼        │                  read it through the view
+#           │    _world_leftward_units (Bvh-reading resolver over the kernel)
+#           │      │        ▼
 #           │      │   _world_leftward_unit_at_frame (1-frame view)
 #           │      │        │
 #           │      │        ▼
@@ -776,15 +781,58 @@ def _world_leftward_units(
         up, or zero). Callers should handle invalid frames by falling
         back to the topological rest-pose direction.
     """
-    num_frames = coords.shape[0]
+    return _leftward_units_from_pairs(
+        coords, _facing_lr_pairs(bvh), _axis_to_vector(world_up))
+
+
+def _facing_lr_pairs(bvh: Bvh) -> npt.NDArray[np.intp]:
+    """The L/R pairs the facing construction averages, in node index space.
+
+    Joint pairs only, as :attr:`Bvh.lr_mapping` names them, resolved into
+    ``nodes`` index space so they index ``node_positions()`` output. End
+    sites are not included: that is :attr:`Bvh.node_lr_pairs`' job, for
+    mirroring positions, not for reading the facing. Returns an ``(P, 2)``
+    int array, ``(0, 2)`` when the rig has no L/R mapping, so array code
+    needs no ``None`` branch.
+
+    The Bvh-reading half of :func:`_world_leftward_units`; the array
+    half is :func:`_leftward_units_from_pairs`. bvhplot stores this
+    array on its ``SkeletonView`` so the follow camera needs no Bvh.
+    """
     pairs = _resolve_lr_pairs(bvh.lr_mapping, bvh.node_index)
-    if not pairs:
+    return np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
+
+
+def _leftward_units_from_pairs(
+    coords: npt.NDArray[np.float64],
+    lr_pairs: npt.NDArray[np.intp],
+    up_vec: npt.NDArray[np.float64],
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.bool_]]:
+    """Array kernel of :func:`_world_leftward_units`: no Bvh, arrays in.
+
+    Parameters
+    ----------
+    coords : ndarray of shape (F, N, 3)
+    lr_pairs : int ndarray of shape (P, 2)
+        ``(left_idx, right_idx)`` rows into the N axis; ``(0, 2)`` means
+        no pairs, and every frame comes back invalid.
+    up_vec : ndarray of shape (3,)
+        Signed world-up unit vector (:func:`_axis_to_vector` of the
+        world-up string).
+
+    Returns
+    -------
+    leftward, valid
+        As :func:`_world_leftward_units`.
+    """
+    num_frames = coords.shape[0]
+    lr_pairs = np.asarray(lr_pairs, dtype=np.intp).reshape(-1, 2)
+    if lr_pairs.shape[0] == 0:
         return (np.zeros((num_frames, 3)),
                 np.zeros(num_frames, dtype=bool))
 
-    left_idx = [li for li, _ in pairs]
-    right_idx = [ri for _, ri in pairs]
-    up_vec = _axis_to_vector(world_up)
+    left_idx = lr_pairs[:, 0]
+    right_idx = lr_pairs[:, 1]
 
     leftward = np.mean(coords[:, left_idx] - coords[:, right_idx], axis=1)
     # Project onto plane perpendicular to world_up

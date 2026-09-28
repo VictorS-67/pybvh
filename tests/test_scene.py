@@ -15,6 +15,7 @@ from pybvh.bvhplot._common import (
     compute_unified_limits,
     get_camera_angles,
 )
+from pybvh.tools import _resolve_lr_pairs
 from synthetic_bvh import make_nameless_lr_bvh
 
 BVH_PATH = "bvh_data/cmu_12_01_walk.bvh"
@@ -86,8 +87,18 @@ class TestViewCarriesSkeletonFacts:
         view = make_scene([bvh], [coords], "front", None).views[0]
         np.testing.assert_allclose(view.up_vector, bvh.up_axis.vector)
         assert view.forward_axis == bvh.forward_at(0)
-        assert view.lr_pairs.shape == (len(bvh.node_lr_pairs), 2)
-        assert view.lr_pairs.tolist() == [list(p) for p in bvh.node_lr_pairs]
+
+    def test_lr_pairs_are_the_facing_geometrys_joint_pairs(self, bvh, coords):
+        """The pairs the follow camera averages: joints only, resolved the
+        way tools resolves them, so follow azimuths match the Bvh path."""
+        view = make_scene([bvh], [coords], "front", None).views[0]
+        expected = _resolve_lr_pairs(bvh.lr_mapping, bvh.node_index)
+        assert view.lr_pairs.dtype == np.intp
+        assert view.lr_pairs.tolist() == [list(p) for p in expected]
+        assert len(expected) > 0
+        for left, right in view.lr_pairs:
+            assert not bvh.nodes[left].is_end_site()
+            assert not bvh.nodes[right].is_end_site()
 
     def test_lr_pairs_empty_when_rig_has_none(self):
         rig = make_nameless_lr_bvh()

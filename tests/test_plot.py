@@ -1156,9 +1156,11 @@ class TestMatchFps:
 
 
 class TestSceneSpacing:
-    """Tests for _apply_scene_spacing() and _warn_world_up_mismatch().
+    """Scene.spread() (lateral spacing for the single-scene backends), the
+    router policy around it (_spread_for_single_scene()), and
+    _warn_world_up_mismatch().
 
-    No k3d or vedo installation required — tests call helpers directly.
+    No k3d or vedo installation required — the Scene is exercised directly.
     """
 
     @pytest.fixture
@@ -1179,76 +1181,72 @@ class TestSceneSpacing:
         c2 = b2.node_positions(centered="first")
         return [c1, c2]
 
+    @staticmethod
+    def _scene(bvhs, coords):
+        from pybvh.bvhplot._common import make_scene
+        return make_scene(list(bvhs), list(coords), "front", None)
+
     # ------------------------------------------------------------------
     # Single skeleton — no offset ever applied
     # ------------------------------------------------------------------
 
     def test_single_skeleton_no_offset(self, two_bvhs, two_coords):
-        from pybvh.bvhplot import _apply_scene_spacing
         b1, _ = two_bvhs
-        c1 = two_coords[0]
-        result = _apply_scene_spacing([b1], [c1], "auto", "z", "first")
-        assert len(result) == 1
-        np.testing.assert_array_equal(result[0], c1)
+        scene = self._scene([b1], [two_coords[0]])
+        assert scene.spread("auto") is scene
 
     # ------------------------------------------------------------------
-    # centered='world' + auto → no offset
+    # Router policy: centered='world' + auto → no offset
     # ------------------------------------------------------------------
 
     def test_auto_world_no_offset(self, two_bvhs, two_coords):
-        from pybvh.bvhplot import _apply_scene_spacing
-        b1, b2 = two_bvhs
-        result = _apply_scene_spacing(
-            [b1, b2], two_coords, "auto", "z", "world")
-        np.testing.assert_array_equal(result[0], two_coords[0])
-        np.testing.assert_array_equal(result[1], two_coords[1])
+        from pybvh.bvhplot import _spread_for_single_scene
+        scene = self._scene(two_bvhs, two_coords)
+        result = _spread_for_single_scene(scene, "auto", "world")
+        np.testing.assert_array_equal(result.views[0].coords, two_coords[0])
+        np.testing.assert_array_equal(result.views[1].coords, two_coords[1])
 
     # ------------------------------------------------------------------
     # centered='first' + auto → skeleton 1 shifted laterally
     # ------------------------------------------------------------------
 
     def test_auto_first_applies_offset(self, two_bvhs, two_coords):
-        from pybvh.bvhplot import _apply_scene_spacing
-        b1, b2 = two_bvhs
-        result = _apply_scene_spacing(
-            [b1, b2], two_coords, "auto", "z", "first")
+        from pybvh.bvhplot import _spread_for_single_scene
+        scene = self._scene(two_bvhs, two_coords)
+        result = _spread_for_single_scene(scene, "auto", "first")
         # Skeleton 0 unchanged
-        np.testing.assert_array_equal(result[0], two_coords[0])
+        np.testing.assert_array_equal(result.views[0].coords, two_coords[0])
         # Skeleton 1 shifted (at least one coordinate differs)
-        assert not np.allclose(result[1], two_coords[1])
+        assert not np.allclose(result.views[1].coords, two_coords[1])
         # Skeleton 1 differs only along the lateral axis (not up axis Z=2)
-        diff = result[1] - two_coords[1]
+        diff = result.views[1].coords - two_coords[1]
         assert np.allclose(diff[:, :, 2], 0.0), "Up axis (Z) must not shift"
 
     def test_auto_skeleton_applies_offset(self, two_bvhs):
-        from pybvh.bvhplot import _apply_scene_spacing
+        from pybvh.bvhplot import _spread_for_single_scene
         b1, b2 = two_bvhs
         c1 = b1.node_positions(centered="skeleton")
         c2 = b2.node_positions(centered="skeleton")
-        result = _apply_scene_spacing(
-            [b1, b2], [c1, c2], "auto", "z", "skeleton")
-        assert not np.allclose(result[1], c2)
+        scene = self._scene([b1, b2], [c1, c2])
+        result = _spread_for_single_scene(scene, "auto", "skeleton")
+        assert not np.allclose(result.views[1].coords, c2)
 
     # ------------------------------------------------------------------
     # Explicit float spacing
     # ------------------------------------------------------------------
 
     def test_explicit_float_offset(self, two_bvhs, two_coords):
-        from pybvh.bvhplot import _apply_scene_spacing
-        b1, b2 = two_bvhs
-        result = _apply_scene_spacing(
-            [b1, b2], two_coords, 3.0, "z", "first")
-        diff = result[1] - two_coords[1]
+        scene = self._scene(two_bvhs, two_coords)
+        result = scene.spread(3.0)
+        diff = result.views[1].coords - two_coords[1]
         # Total shift magnitude = 3.0 (skeleton index 1 × spacing 3.0)
         np.testing.assert_allclose(np.linalg.norm(diff[0, 0]), 3.0, atol=1e-10)
 
     def test_explicit_zero_no_offset(self, two_bvhs, two_coords):
-        from pybvh.bvhplot import _apply_scene_spacing
-        b1, b2 = two_bvhs
-        result = _apply_scene_spacing(
-            [b1, b2], two_coords, 0.0, "z", "first")
-        np.testing.assert_array_equal(result[0], two_coords[0])
-        np.testing.assert_array_equal(result[1], two_coords[1])
+        scene = self._scene(two_bvhs, two_coords)
+        result = scene.spread(0.0)
+        np.testing.assert_array_equal(result.views[0].coords, two_coords[0])
+        np.testing.assert_array_equal(result.views[1].coords, two_coords[1])
 
     # ------------------------------------------------------------------
     # Offset is along the lateral axis only
@@ -1256,22 +1254,30 @@ class TestSceneSpacing:
 
     def test_offset_along_lateral_axis(self, two_bvhs, two_coords):
         """Offset must be along the axis that is neither up nor forward."""
-        from pybvh.bvhplot import _apply_scene_spacing
         from pybvh.bvhplot._common import UP_AXIS_INDEX
-        b1, b2 = two_bvhs
-        up_char = b1.world_up[1]
-        fwd_str = b1.forward_at(frame=0)
-        fwd_idx = UP_AXIS_INDEX[fwd_str[1]]
-        up_idx = UP_AXIS_INDEX[up_char]
+        scene = self._scene(two_bvhs, two_coords)
+        first = scene.views[0]
+        up_idx = first.up_index
+        fwd_idx = UP_AXIS_INDEX[first.forward_axis[1]]
         lat_idx = next(i for i in range(3) if i != up_idx and i != fwd_idx)
 
-        result = _apply_scene_spacing(
-            [b1, b2], two_coords, 2.0, up_char, "first")
-        diff = result[1] - two_coords[1]
+        result = scene.spread(2.0)
+        diff = result.views[1].coords - two_coords[1]
 
         # Lateral axis carries the offset; others are zero
         assert not np.allclose(diff[:, :, lat_idx], 0.0), "Lateral axis should shift"
         assert np.allclose(diff[:, :, up_idx], 0.0), "Up axis must not shift"
+
+    def test_spread_keeps_box_and_floor_consistent(self, two_bvhs, two_coords):
+        """The moved view's box moves with its coords; the floor stays."""
+        from pybvh.bvhplot._common import compute_unified_limits
+        scene = self._scene(two_bvhs, two_coords)
+        result = scene.spread(3.0)
+        for before, after in zip(scene.views, result.views):
+            center, half_span = compute_unified_limits([after.coords])
+            np.testing.assert_allclose(after.center, center)
+            assert after.half_span == half_span
+            assert after.floor_height == before.floor_height
 
     # ------------------------------------------------------------------
     # world_up mismatch warning

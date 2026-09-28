@@ -83,7 +83,7 @@ pybvh never depends on or knows about either. Dependencies flow one way: `pybvh-
 - README is the PyPI page — must look professional, not like a personal project
 - Never add PyTorch/TensorFlow as dependencies — numpy-only output
 - Git workflow (full rules in `CONTRIBUTING.md`): one branch per change, merged into `main` only through a PR with green CI; `main` is protected. Commits are atomic (each leaves the tests green) and use the `type(scope): subject` style already in the history.
-- Victor makes every commit and push himself. Agents edit files and hand over a proposed commit sequence with messages; they never run `git commit`, `git push`, `gh pr create` or `gh issue create` unless asked in that session.
+- On a feature branch, agents commit as they go (atomic commits, messages in the house style) so a long stretch of work needs no supervision; Victor reviews the whole sequence at the PR before merging. Agents never push, open PRs, create issues or commit to `main` unless asked in that session.
 - Planned work is a GitHub issue on the version's milestone; the PR body says `Closes #N`.
 
 ## Release records: CHANGELOG vs internal session logs

@@ -798,7 +798,7 @@ def render_mpl(
 
         if follow:
             per_frame_azimuths = [
-                compute_follow_azimuths(v.bvh, v.coords, v.azimuth)
+                compute_follow_azimuths(v, v.azimuth)
                 for v in scene.views]
         else:
             per_frame_azimuths = [

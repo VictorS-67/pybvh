@@ -435,7 +435,7 @@ def _generate_frames(
     follow_azimuths: list[npt.NDArray[np.float64]] | None = None
     if follow:
         follow_azimuths = [
-            compute_follow_azimuths(v.bvh, v.coords, v.azimuth)
+            compute_follow_azimuths(v, v.azimuth)
             for v in scene.views]
     elif turntable:
         follow_azimuths = [

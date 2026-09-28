@@ -1015,13 +1015,19 @@ class TestFpsResolution:
         assert path.stat().st_size > 0
 
 
+def _view(bvh, coords):
+    """The SkeletonView compute_follow_azimuths reads (no Bvh at draw time)."""
+    from pybvh.bvhplot._common import make_scene
+    return make_scene([bvh], [coords], "front", None).views[0]
+
+
 class TestComputeFollowAzimuths:
     """Vectorized follow-camera azimuth tracking (shared by all backends)."""
 
     def test_frame0_equals_base(self, bvh_example):
         from pybvh.bvhplot._common import compute_follow_azimuths
         coords = bvh_example.node_positions()
-        az = compute_follow_azimuths(bvh_example, coords, -20.0)
+        az = compute_follow_azimuths(_view(bvh_example, coords), -20.0)
         assert az.shape == (coords.shape[0],)
         assert az[0] == pytest.approx(-20.0)
 
@@ -1037,7 +1043,7 @@ class TestComputeFollowAzimuths:
 
         coords = bvh_example.node_positions()
         base_azim = 160.0
-        vec = compute_follow_azimuths(bvh_example, coords, base_azim)
+        vec = compute_follow_azimuths(_view(bvh_example, coords), base_azim)
 
         up_vec = _axis_to_vector(bvh_example.world_up)
         left_0 = _world_leftward_unit_at_frame(
@@ -1063,7 +1069,7 @@ class TestComputeFollowAzimuths:
             ['Hips', 'Spine', 'Spine1', 'Spine2', 'Spine3', 'Neck', 'Head'])
         assert bvh.lr_mapping is None
         coords = bvh.node_positions()
-        az = compute_follow_azimuths(bvh, coords, 45.0)
+        az = compute_follow_azimuths(_view(bvh, coords), 45.0)
         assert np.allclose(az, 45.0)
 
     def test_pinned_values_on_real_turning_walk(self):
@@ -1073,7 +1079,7 @@ class TestComputeFollowAzimuths:
         from pybvh.bvhplot._common import compute_follow_azimuths
         bvh = read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")
         coords = bvh.node_positions()
-        az = compute_follow_azimuths(bvh, coords, -20.0)
+        az = compute_follow_azimuths(_view(bvh, coords), -20.0)
         assert az.shape == (524,)
         expected = {
             0: -20.0,

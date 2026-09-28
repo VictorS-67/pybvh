@@ -221,7 +221,7 @@ class _ViewDrawContext:
                           else (0, 0, 0))
         if ghost > 0:
             self.ghost_lag, weights = ghost_schedule(
-                style, view.bvh.frame_time, ghost)
+                style, view.frame_time, ghost)
             self.ghost_bgr = [
                 [_blend_bgr(c, bg_bgr, float(w)) for c in self.bone_bgr]
                 for w in weights]

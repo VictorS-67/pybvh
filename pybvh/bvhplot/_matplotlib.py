@@ -6,6 +6,7 @@ playback via plt.show(), and 2D trajectory plots.
 from __future__ import annotations
 
 import dataclasses
+import inspect
 import warnings
 import numpy as np
 import numpy.typing as npt
@@ -18,6 +19,7 @@ from typing import Any, TYPE_CHECKING
 from matplotlib.collections import LineCollection
 from mpl_toolkits.mplot3d import proj3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
+from mpl_toolkits.mplot3d.axes3d import Axes3D
 
 from ._common import (
     GHOST_WIDTH_FACTOR,
@@ -39,6 +41,21 @@ from ._colors import floor_palette
 # angle; span-fitted boxes are much tighter, so they can be zoomed in
 # without the drawing ever reaching the axes edge.
 BOX_ZOOM = 1.25
+
+# matplotlib 3.10 made add_collection3d autoscale the axes to every collection
+# it adds (autolim=True), by concatenating the collection's segments — which
+# raises on an empty one, and ghost trails start empty (at frame 0 there is no
+# history to show). bvhplot sets every axis limit itself, so nothing it adds
+# should autoscale; matplotlib before 3.10 has no autolim and never did.
+_NO_AUTOSCALE = (
+    {"autolim": False}
+    if "autolim" in inspect.signature(Axes3D.add_collection3d).parameters
+    else {})
+
+
+def _add_collection(ax: matplotlib.axes.Axes, collection: Any) -> None:
+    """Add a 3D collection without letting it rescale the axes."""
+    ax.add_collection3d(collection, **_NO_AUTOSCALE)
 
 if TYPE_CHECKING:
     import matplotlib.figure
@@ -216,7 +233,7 @@ def _draw_floor_mpl(
         return pts
 
     if style.floor == "solid":
-        ax.add_collection3d(Poly3DCollection(
+        _add_collection(ax, Poly3DCollection(
             [quad(g0_lo, g0_hi, g1_lo, g1_hi)],
             facecolors=palette["face"], edgecolors=palette["edge"],
             linewidths=0.5, alpha=style.floor_alpha, zorder=0.5))
@@ -231,7 +248,7 @@ def _draw_floor_mpl(
                 squares.append(quad(g0_lo + i * s0, g0_lo + (i + 1) * s0,
                                     g1_lo + j * s1, g1_lo + (j + 1) * s1))
                 colors.append(palette["checker"][(i + j) % 2])
-        ax.add_collection3d(Poly3DCollection(
+        _add_collection(ax, Poly3DCollection(
             squares, facecolors=colors, alpha=style.floor_alpha,
             zorder=0.5))
     elif style.floor == "grid":
@@ -250,7 +267,7 @@ def _draw_floor_mpl(
         for j in range(n1 + 1):
             segs.append([_pt3(ground, up, g0_lo, g1_lo + j * s1, y),
                          _pt3(ground, up, g0_hi, g1_lo + j * s1, y)])
-        ax.add_collection3d(Line3DCollection(
+        _add_collection(ax, Line3DCollection(
             segs, colors=palette["grid"], linewidths=0.7, alpha=0.8,
             zorder=0.5))
 
@@ -303,7 +320,7 @@ def _draw_pose(
     if weight < 1.0:
         colors = [_fade_toward_background(c, weight, style) for c in colors]
     segments = pose[np.asarray(view.bones, dtype=int)]
-    ax.add_collection3d(_make_bone_collection(
+    _add_collection(ax, _make_bone_collection(
         segments, style, colors=colors,
         linewidths=line_width if line_width is not None else style.bone_width))
     if joints and style.joint_markers:
@@ -607,7 +624,7 @@ def _setup_animated_panel(
     collection = _make_bone_collection(
         view.coords[0][bones], style, colors=colors,
         linewidths=style.bone_width)
-    ax.add_collection3d(collection)
+    _add_collection(ax, collection)
 
     joint_scatter = None
     if style.joint_markers:
@@ -670,7 +687,7 @@ def _setup_render_extras(
                 np.empty((0, 2, 3)), style, colors=faded,
                 linewidths=style.bone_width * GHOST_WIDTH_FACTOR,
                 zorder=1.5)
-            ax.add_collection3d(collection)
+            _add_collection(ax, collection)
             slots.append((collection, (j + 1) * lag))
         ghost_slots.append(slots)
         trace_lines.append(

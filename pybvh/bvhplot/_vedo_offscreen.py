@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ._style import Style
-from ._viewport import build_view_matrix, make_viewport
+from ._viewport import make_viewport
 from ._scene import Scene
 from ._colors import bone_colors_255, floor_palette, rgb255
 from ._vedo_capsules import CapsuleSkeleton, floor_placement, shadow_height
@@ -139,12 +139,11 @@ def _build_offscreen(
                 view.label, pos=(0.03, 0.95 - s * 0.05),
                 c=f"rgb({r},{g},{b})", s=1.2, font='Calco')
 
-    view_mat = build_view_matrix(
-        view0.azimuth, view0.elevation, view0.up_axis)
+    eye, target, up = viewport.camera()
     camera = dict(
-        position=(center + view_mat[2] * half_span * 4.0).tolist(),
-        focal_point=center.tolist(),
-        viewup=view_mat[1].tolist(),
+        position=eye.tolist(),
+        focal_point=target.tolist(),
+        viewup=up.tolist(),
     )
     return plt, capsules, camera
 

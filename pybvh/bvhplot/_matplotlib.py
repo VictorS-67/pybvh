@@ -31,7 +31,7 @@ from ._style import (
     ghost_schedule,
 )
 from ._viewport import floor_trace_points, framing_bounds
-from ._scene import Scene, SkeletonView, UP_AXIS_INDEX
+from ._scene import Scene, SkeletonView
 from ._colors import floor_palette
 
 # mplot3d sizes its default margins for a cube free to rotate to any

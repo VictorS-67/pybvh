@@ -13,7 +13,7 @@ import pytest
 vedo = pytest.importorskip("vedo")
 
 from pybvh import read_bvh_file
-from pybvh.bvhplot._common import make_scene
+from pybvh.bvhplot._from_bvh import make_scene
 from pybvh.bvhplot._style import Style
 from pybvh.bvhplot import _vedo
 

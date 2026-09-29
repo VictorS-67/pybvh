@@ -275,7 +275,7 @@ class TestFloorAgreesAcrossBackends:
     @staticmethod
     def _scene(floor_height=None):
         import dataclasses
-        from pybvh.bvhplot._common import make_scene
+        from pybvh.bvhplot._from_bvh import make_scene
 
         bvh = read_bvh_file(BVH_PATH)
         scene = make_scene([bvh], [bvh.node_positions()[:40]], "front", None)

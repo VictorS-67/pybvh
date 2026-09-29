@@ -42,7 +42,7 @@ import numpy.typing as npt
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ._common import (
+from ._from_bvh import (
     get_skeleton_lines,   # noqa: F401 — re-export (public since 0.5.0)
     make_scene,
     normalize_input,

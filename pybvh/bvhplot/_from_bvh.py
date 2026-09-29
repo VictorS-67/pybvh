@@ -1,8 +1,10 @@
-"""Shared helpers for all visualization backends.
+"""From a :class:`~pybvh.bvh.Bvh` to a Scene.
 
-Pure-data operations: skeleton topology, bounding boxes, camera math,
-orthographic projection, and the :class:`Scene` container every backend
-consumes. No plotting library imports.
+Input normalization, Scene construction, skeleton topology, camera
+presets and bone chain classification. Together with the router, which
+is handed the user's ``Bvh`` and prepares it (resampling, rest pose,
+world-up checks), this is the Bvh-facing layer of bvhplot. The router
+imports this module; nothing else in the package does.
 """
 from __future__ import annotations
 
@@ -11,10 +13,93 @@ import numpy.typing as npt
 
 from typing import TYPE_CHECKING
 
+from ._scene import (
+    Scene,
+    SkeletonView,
+    UP_AXIS_INDEX,
+    compute_unified_limits,
+)
+
 if TYPE_CHECKING:
     from ..bvh import Bvh
 
-from ._scene import Scene, SkeletonView, UP_AXIS_INDEX, compute_unified_limits
+
+# ---------------------------------------------------------------------------
+# Input normalization
+# ---------------------------------------------------------------------------
+
+def normalize_input(
+    bvh: Bvh | list[Bvh],
+    frames: int | npt.NDArray[np.floating] | None,
+    centered: str,
+) -> tuple[list[Bvh], list[npt.NDArray[np.float64]]]:
+    """Normalize single/list Bvh + frame spec into parallel lists.
+
+    Parameters
+    ----------
+    bvh : Bvh or list[Bvh]
+        One or more BVH objects to visualize.
+    frames : int, ndarray, or None
+        - ``None``: all frames (spatial coords for entire motion).
+        - int: single frame index (NumPy semantics — negative counts
+          from the end).
+        - 2-D array ``(N, 3)``: single frame of spatial coordinates
+          (only valid when *bvh* is a single Bvh).
+        - 3-D array ``(F, N, 3)``: pre-computed spatial coordinates
+          (only valid when *bvh* is a single Bvh).
+    centered : str
+        Centering mode passed to ``bvh.node_positions()``.
+
+    Returns
+    -------
+    bvh_list : list[Bvh]
+        Always a list (length >= 1).
+    coords_list : list[ndarray]
+        Parallel list of spatial coordinates, each ``(F, N, 3)``.
+    """
+    # Wrap single Bvh
+    if not isinstance(bvh, list):
+        bvh_list = [bvh]
+    else:
+        bvh_list = bvh
+
+    if len(bvh_list) == 0:
+        raise ValueError("At least one Bvh object is required.")
+
+    coords_list: list[npt.NDArray[np.float64]] = []
+
+    if frames is None:
+        # All frames for each Bvh
+        for b in bvh_list:
+            coords = b.node_positions(centered=centered)
+            if coords.ndim == 2:
+                coords = coords[np.newaxis]  # (N, 3) -> (1, N, 3)
+            coords_list.append(coords)
+
+    elif isinstance(frames, int):
+        # Single frame index
+        for b in bvh_list:
+            coords = b.node_positions(frame=frames, centered=centered)
+            coords_list.append(coords[np.newaxis])  # (N, 3) -> (1, N, 3)
+
+    elif isinstance(frames, np.ndarray):
+        if len(bvh_list) != 1:
+            raise ValueError(
+                "Pre-computed coordinate arrays can only be passed with a "
+                "single Bvh object, not a list.")
+        arr = np.asarray(frames, dtype=np.float64)
+        if arr.ndim == 2:
+            arr = arr[np.newaxis]  # (N, 3) -> (1, N, 3)
+        elif arr.ndim != 3:
+            raise ValueError(
+                f"Expected frames array with 2 or 3 dimensions, got {arr.ndim}.")
+        coords_list.append(arr)
+
+    else:
+        raise TypeError(
+            f"frames must be int, ndarray, or None, got {type(frames).__name__}.")
+
+    return bvh_list, coords_list
 
 
 # ---------------------------------------------------------------------------
@@ -185,84 +270,6 @@ def get_skeleton_lines(bvh: Bvh) -> list[tuple[int, int]]:
     draw one bone twice and omit another.
     """
     return [(parent, child) for child, parent in bvh.node_edges]
-
-
-# ---------------------------------------------------------------------------
-# Input normalization
-# ---------------------------------------------------------------------------
-
-def normalize_input(
-    bvh: Bvh | list[Bvh],
-    frames: int | npt.NDArray[np.floating] | None,
-    centered: str,
-) -> tuple[list[Bvh], list[npt.NDArray[np.float64]]]:
-    """Normalize single/list Bvh + frame spec into parallel lists.
-
-    Parameters
-    ----------
-    bvh : Bvh or list[Bvh]
-        One or more BVH objects to visualize.
-    frames : int, ndarray, or None
-        - ``None``: all frames (spatial coords for entire motion).
-        - int: single frame index (NumPy semantics — negative counts
-          from the end).
-        - 2-D array ``(N, 3)``: single frame of spatial coordinates
-          (only valid when *bvh* is a single Bvh).
-        - 3-D array ``(F, N, 3)``: pre-computed spatial coordinates
-          (only valid when *bvh* is a single Bvh).
-    centered : str
-        Centering mode passed to ``bvh.node_positions()``.
-
-    Returns
-    -------
-    bvh_list : list[Bvh]
-        Always a list (length >= 1).
-    coords_list : list[ndarray]
-        Parallel list of spatial coordinates, each ``(F, N, 3)``.
-    """
-    # Wrap single Bvh
-    if not isinstance(bvh, list):
-        bvh_list = [bvh]
-    else:
-        bvh_list = bvh
-
-    if len(bvh_list) == 0:
-        raise ValueError("At least one Bvh object is required.")
-
-    coords_list: list[npt.NDArray[np.float64]] = []
-
-    if frames is None:
-        # All frames for each Bvh
-        for b in bvh_list:
-            coords = b.node_positions(centered=centered)
-            if coords.ndim == 2:
-                coords = coords[np.newaxis]  # (N, 3) -> (1, N, 3)
-            coords_list.append(coords)
-
-    elif isinstance(frames, int):
-        # Single frame index
-        for b in bvh_list:
-            coords = b.node_positions(frame=frames, centered=centered)
-            coords_list.append(coords[np.newaxis])  # (N, 3) -> (1, N, 3)
-
-    elif isinstance(frames, np.ndarray):
-        if len(bvh_list) != 1:
-            raise ValueError(
-                "Pre-computed coordinate arrays can only be passed with a "
-                "single Bvh object, not a list.")
-        arr = np.asarray(frames, dtype=np.float64)
-        if arr.ndim == 2:
-            arr = arr[np.newaxis]  # (N, 3) -> (1, N, 3)
-        elif arr.ndim != 3:
-            raise ValueError(
-                f"Expected frames array with 2 or 3 dimensions, got {arr.ndim}.")
-        coords_list.append(arr)
-
-    else:
-        raise TypeError(
-            f"frames must be int, ndarray, or None, got {type(frames).__name__}.")
-
-    return bvh_list, coords_list
 
 
 # ---------------------------------------------------------------------------

@@ -502,30 +502,6 @@ def box_corners(
                     dtype=np.float64)
 
 
-# ---------------------------------------------------------------------------
-# Ground path
-# ---------------------------------------------------------------------------
-
-def floor_trace_points(
-    view: SkeletonView,
-    start: int = 0,
-    upto: int | None = None,
-) -> npt.NDArray[np.float64]:
-    """Root path projected onto the floor plane (for the dashed trace).
-
-    ``start``/``upto`` bound the traced frame range (inclusive of
-    ``upto``); the default is the whole clip.
-    """
-    end = view.coords.shape[0] if upto is None else upto + 1
-    path = view.coords[start:end, 0, :].copy()
-    path[:, view.up_index] = view.floor_height
-    return path
-
-
-# ---------------------------------------------------------------------------
-# Azimuth schedules
-# ---------------------------------------------------------------------------
-
 def turntable_azimuths(
     base_azim: float,
     num_frames: int,

@@ -22,7 +22,7 @@ from ._style import (
     ghost_schedule,
     PALETTE_RGB,
 )
-from ._viewport import Viewport, floor_trace_points, panel_viewports
+from ._viewport import Viewport, panel_viewports
 from ._scene import Scene, SkeletonView
 from ._colors import bone_colors_255, floor_palette, node_colors_255
 
@@ -144,6 +144,7 @@ class _ViewDrawContext:
     def __init__(
         self,
         view: SkeletonView,
+        viewport: Viewport,
         style: Style,
         view_index: int,
         n_skeletons: int,
@@ -168,7 +169,7 @@ class _ViewDrawContext:
                 for w in weights]
         if trajectory:
             # Full floored path once; per frame we slice a view of it.
-            self.trace_path = floor_trace_points(view)
+            self.trace_path = viewport.ground_path(view.coords[:, 0])
             self.trace_bgr = _blend_bgr(
                 _to_bgr(TRACE_COLOR), bg_bgr, TRACE_BLEND)
 
@@ -366,8 +367,8 @@ def _generate_frames(
         scene.views, framing="clip", motion=motion, projection="ortho")
 
     contexts = [
-        _ViewDrawContext(v, style, s, n_skeletons, bg_bgr, ghost,
-                         trajectory)
+        _ViewDrawContext(v, viewports[s], style, s, n_skeletons, bg_bgr,
+                         ghost, trajectory)
         for s, v in enumerate(scene.views)]
 
     for f in range(num_frames):

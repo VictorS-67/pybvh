@@ -79,12 +79,22 @@ class SkeletonView:
     - ``lr_pairs`` are joint pairs only, in node index space, the pairs
       the facing geometry averages; end-site pairs are deliberately
       excluded so follow azimuths match the Bvh path bit for bit.
-    - Arrays are borrowed, not owned: a Scene operation may share array
-      storage with its source (``subsampled`` shares ``coords`` and
-      ``root_heading``; ``offset`` allocates new coords and shares the
-      heading), and ``frozen`` forbids field reassignment only. Change
-      a Scene through its operations; never mutate a view's arrays in
-      place.
+    - Arrays are read-only and borrowed. A view stores a read-only
+      NumPy view of each array it is given (``coords``, ``center``,
+      ``rest_coords``, ``lr_pairs``, ``root_heading``), so writing into
+      one through the view raises. That matters because storage is
+      shared: no array is copied at construction, and a Scene operation
+      may share storage with its source (``subsampled`` shares
+      ``coords`` and ``root_heading``; ``offset`` allocates new coords
+      and shares the heading), so a write through one Scene would
+      change another while both boxes went stale. The alternative,
+      copying, would double the memory of every clip drawn. The array
+      the caller passed in keeps its own flags; writing into *it*
+      afterwards still changes what the view shows, which is the
+      caller's to avoid. A copied or unpickled view is protected
+      like the original. The lists (``bones``, ``node_names``,
+      ``bone_chains``) are not protected: treat them as immutable.
+      Change a Scene through its operations.
     """
 
     coords: npt.NDArray[np.float64]        # (F, N, 3)
@@ -167,6 +177,28 @@ class SkeletonView:
             raise ValueError(
                 f"frame_time must be a number of seconds, zero (unset) or "
                 f"positive, got {self.frame_time!r}.")
+
+        self._protect_arrays()
+
+    _ARRAY_FIELDS = ("coords", "center", "rest_coords", "lr_pairs",
+                     "root_heading")
+
+    def _protect_arrays(self) -> None:
+        """Swap each array field for a read-only view of itself."""
+        for name in self._ARRAY_FIELDS:
+            value = getattr(self, name)
+            if value is None:
+                continue
+            read_only = np.asarray(value).view()
+            read_only.flags.writeable = False
+            # frozen forbids assignment; this is the sanctioned way in.
+            object.__setattr__(self, name, read_only)
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        # copy.deepcopy and pickle rebuild a view from its state without
+        # running __post_init__, and NumPy hands them writable arrays.
+        self.__dict__.update(state)
+        self._protect_arrays()
 
     @property
     def up_axis(self) -> str:

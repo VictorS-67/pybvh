@@ -192,8 +192,10 @@ class TestReviewFixes:
         scene = make_scene([bvh], [coords], "front", None)
         fig = mplt.figure()
         ax = fig.add_subplot(111, projection="3d")
+        from pybvh.bvhplot._viewport import panel_viewports
+        viewports = panel_viewports(scene.views, framing="clip")
         ghost_slots, traces = m._setup_render_extras(
-            scene, bvhplot.Style("paper"), [ax], 2, True)
+            scene, viewports, bvhplot.Style("paper"), [ax], 2, True)
         for collection, _lag in ghost_slots[0]:
             assert collection.get_zorder() == 1.5
         assert traces[0].get_zorder() == 0.8

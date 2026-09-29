@@ -30,12 +30,7 @@ from ._style import (
     bone_colors_for_view,
     ghost_schedule,
 )
-from ._viewport import (
-    Viewport,
-    floor_trace_points,
-    make_viewport,
-    panel_viewports,
-)
+from ._viewport import Viewport, make_viewport, panel_viewports
 from ._scene import Scene, SkeletonView
 from ._colors import floor_palette
 
@@ -320,13 +315,11 @@ def _draw_pose(
 
 def _draw_floor_trace(
     ax: matplotlib.axes.Axes,
-    view: SkeletonView,
+    path: npt.NDArray[np.float64],
     style: Style,
-    start: int = 0,
-    upto: int | None = None,
 ):
-    """Dashed root-trajectory trace on the floor. Returns the artist."""
-    path = floor_trace_points(view, start, upto)
+    """Dashed root-trajectory trace along *path*, which the viewport
+    has laid on the ground. Returns the artist."""
     trace_color = _fade_toward_background(TRACE_COLOR, TRACE_BLEND, style)
     (line,) = ax.plot(
         path[:, 0], path[:, 1], path[:, 2],
@@ -420,9 +413,9 @@ def sequence_mpl(
     if trajectory and layout == "offset":
         # Trace only the sampled range — a frames= restriction must not
         # leak the whole clip's path into (and beyond) the figure.
-        _draw_floor_trace(ax, view, style,
-                          start=int(sample_frames[0]),
-                          upto=int(sample_frames[-1]))
+        traced = slice(int(sample_frames[0]), int(sample_frames[-1]) + 1)
+        _draw_floor_trace(
+            ax, viewport.ground_path(view.coords[traced, 0]), style)
 
     colors = bone_colors_for_view(view, style, 0, 1)
     for k, pose in enumerate(poses):
@@ -631,6 +624,7 @@ def _setup_animated_panel(
 
 def _setup_render_extras(
     scene: Scene,
+    viewports: list[Viewport],
     style: Style,
     axs_flat: list[matplotlib.axes.Axes],
     ghost: int,
@@ -646,7 +640,8 @@ def _setup_render_extras(
     trace_lines: list = []   # per skeleton: Line3D or None
     n = scene.num_skeletons
 
-    for i, (view, ax) in enumerate(zip(scene.views, axs_flat)):
+    for i, (view, viewport, ax) in enumerate(
+            zip(scene.views, viewports, axs_flat)):
         colors = bone_colors_for_view(view, style, i, n)
         lag, weights = ghost_schedule(style, view.frame_time, ghost)
         slots = []
@@ -663,8 +658,9 @@ def _setup_render_extras(
             slots.append((collection, (j + 1) * lag))
         ghost_slots.append(slots)
         trace_lines.append(
-            _draw_floor_trace(ax, view, style, upto=0) if trajectory
-            else None)
+            _draw_floor_trace(
+                ax, viewport.ground_path(view.coords[:1, 0]), style)
+            if trajectory else None)
 
     return ghost_slots, trace_lines
 
@@ -672,12 +668,14 @@ def _setup_render_extras(
 def _wrap_update_with_extras(
     base_update,
     scene: Scene,
+    viewports: list[Viewport],
     bones_arrays,
     ghost_slots,
     trace_lines,
 ):
     """Extend an animation update fn with ghost and trace updates."""
-    trace_paths = [floor_trace_points(v) for v in scene.views]
+    trace_paths = [viewport.ground_path(view.coords[:, 0])
+                   for view, viewport in zip(scene.views, viewports)]
     empty = np.empty((0, 2, 3))
 
     def update(f: int):
@@ -777,9 +775,10 @@ def render_mpl(
 
     if ghost > 0 or trajectory:
         ghost_slots, trace_lines = _setup_render_extras(
-            scene, style, axs_flat, ghost, trajectory)
+            scene, viewports, style, axs_flat, ghost, trajectory)
         update = _wrap_update_with_extras(
-            update, scene, bones_arrays, ghost_slots, trace_lines)
+            update, scene, viewports, bones_arrays, ghost_slots,
+            trace_lines)
 
     interval = int(1000.0 / fps)
     anim = animation.FuncAnimation(

@@ -53,7 +53,6 @@ def _blend_bgr(
 
 def _draw_floor_opencv(
     img: npt.NDArray[np.uint8],
-    view: SkeletonView,
     style: Style,
     viewport: Viewport,
     frame_idx: int,
@@ -63,17 +62,19 @@ def _draw_floor_opencv(
     bg_bgr: tuple[int, int, int],
     px_scale: float = 1.0,
 ) -> None:
-    """Project and draw the ground plane into one panel.
+    """Project and draw the viewport's ground plane into one panel.
 
-    Mirrors the matplotlib floor geometry (same extents, same grays,
-    ``floor_alpha`` emulated by pre-blending toward the background).
+    The plane is where the viewport puts it, the same one matplotlib
+    draws (same grays too, ``floor_alpha`` emulated by pre-blending
+    toward the background). Painter's order, floor first, so no nudge
+    below the ground is needed.
     """
     import cv2
 
-    up = view.up_index
-    ground = [i for i in range(3) if i != up]
-    ext = view.half_span * 1.8
-    y = view.floor_height
+    up = viewport.up_index
+    ground = list(viewport.ground_axes)
+    ext = viewport.floor_reach
+    y = viewport.floor_height
     palette = floor_palette(style)
 
     def project(world_pts: npt.NDArray[np.float64]) -> npt.NDArray[np.int32]:
@@ -89,8 +90,8 @@ def _draw_floor_opencv(
             pts[k, up] = y
         return pts
 
-    c0 = float(view.center[ground[0]])
-    c1 = float(view.center[ground[1]])
+    c0 = float(viewport.center[ground[0]])
+    c1 = float(viewport.center[ground[1]])
 
     if style.floor == "solid":
         face = _blend_bgr(_to_bgr(palette["face"]), bg_bgr,
@@ -192,8 +193,8 @@ def _draw_skeletons_on_frame(
     with different forward/up axes all render correctly side by side.
     In multi-panel mode every view draws into its own panel-sized
     buffer that is then blitted into place — cv2 primitives have no
-    clip rectangle, and an unclipped floor quad (1.8x half_span, wider
-    than a panel) would otherwise paint over the neighboring panel.
+    clip rectangle, and an unclipped floor quad (wider than a panel)
+    would otherwise paint over the neighboring panel.
 
     The viewport frames the drawing to the clip's motion and holds one
     scale across frames even when the camera rotates (see
@@ -234,7 +235,7 @@ def _draw_skeletons_on_frame(
 
         if style.floor is not None:
             _draw_floor_opencv(
-                canvas, view, style, viewport, frame_idx, panel_w, h, 0,
+                canvas, style, viewport, frame_idx, panel_w, h, 0,
                 bg_bgr, px_scale=px_scale)
 
         def project(world_pts):

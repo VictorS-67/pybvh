@@ -200,8 +200,7 @@ def make_scene(
     labels: list[str] | None,
     *,
     canonical_floor: bool = True,
-    frame_index: int | None = None,
-    coords_from_clip: bool = True,
+    clip_frames: int | slice | None = None,
 ) -> Scene:
     """Assemble a :class:`Scene` from parallel per-skeleton data.
 
@@ -211,15 +210,21 @@ def make_scene(
     rest pose, L/R pairs, orientation, chain classification, root
     heading), so the views are complete once this returns.
 
-    Root heading (the ``[sin, cos]`` columns of
-    :func:`~pybvh.analysis.root_trajectory`) is frame-indexed, so it is
-    aligned to the coords: ``frame_index`` names the single clip frame
-    the coords hold (NumPy semantics, negative from the end), and
-    otherwise the whole-clip heading is truncated or last-row padded to
-    the coords' frame count, mirroring :func:`align_frame_counts`. With
-    ``coords_from_clip=False`` (caller-supplied coordinate arrays) no
-    clip frame corresponds to the coords, and ``root_heading`` is
-    ``None`` rather than a number that would be wrong.
+    ``clip_frames`` says which frames of the clip the coords are, so
+    the clip-derived, frame-indexed facts can be aligned to them. Root
+    heading (the ``[sin, cos]`` columns of
+    :func:`~pybvh.analysis.root_trajectory`) is the only one today. An
+    ``int`` names the single clip frame the coords hold (NumPy
+    semantics, negative from the end) and requires one-row coords; a
+    ``slice`` selects the frames, and the result is truncated or
+    last-row padded to the coords' frame count, mirroring
+    :func:`align_frame_counts`, so ``slice(None)`` is the whole clip.
+    The default ``None`` means the coords are not the clip's (a rest
+    pose, a caller-supplied array, a transformed copy) and no clip frame
+    corresponds to them; ``root_heading`` is then ``None`` rather than
+    a number that would be wrong. The default is the safe one on
+    purpose: a caller has to vouch for the coords' provenance to get
+    frame-indexed clip facts attached to them.
 
     Floor convention: with ``canonical_floor=True`` the floor is the
     cached :attr:`Bvh.floor_height` — the robust 2nd percentile over all
@@ -250,14 +255,20 @@ def make_scene(
         up_sign = float(b.up_axis.sign)
         bones = get_skeleton_lines(b)
 
-        if coords_from_clip:
-            heading = root_trajectory(b)[:, 2:4]
-            if frame_index is not None:
-                root_heading = heading[frame_index][np.newaxis]
-            else:
-                root_heading = _align_rows(heading, coords.shape[0])
-        else:
+        if clip_frames is None:
             root_heading = None
+        else:
+            heading = root_trajectory(b)[:, 2:4]
+            if isinstance(clip_frames, slice):
+                root_heading = _align_rows(heading[clip_frames],
+                                           coords.shape[0])
+            else:
+                root_heading = heading[clip_frames][np.newaxis]
+            if root_heading.shape[0] != coords.shape[0]:
+                raise ValueError(
+                    f"clip_frames={clip_frames!r} names one clip frame but "
+                    f"the coords hold {coords.shape[0]} frames; pass a slice "
+                    f"for multi-frame coords.")
         if canonical_floor:
             floor_height = float(b.floor_height)
         else:

@@ -25,7 +25,7 @@ from ._viewport import build_view_matrix, make_viewport
 from ._scene import Scene, UP_AXIS_INDEX
 from ._colors import bone_colors_255, floor_palette, rgb255
 from ._playback import PlaybackClock
-from ._vedo_capsules import CapsuleSkeleton
+from ._vedo_capsules import CapsuleSkeleton, floor_placement
 
 
 # Rich gold for single-skeleton "high" mode (aitviewer-inspired);
@@ -318,22 +318,15 @@ class _VedoPlayer:
         if self.use_high and self.style.floor is not None:
             from vedo import Plane  # type: ignore[import-untyped]
 
-            # One floor for the whole scene, at the ground-side extreme
-            # of the per-skeleton grounds — the same rule the offscreen
-            # renderer uses, so viewer and render agree. For a negative
-            # up axis "ground-side" is the coordinate MAXIMUM.
-            up_sign = self.scene.views[0].up_sign
-            ground_side = min if up_sign > 0 else max
-            floor_y = ground_side(v.floor_height for v in self.scene.views)
-            floor_pos = self.center.copy()
-            floor_pos[up_idx] = floor_y
+            # One floor for the whole scene, the viewport's: the same
+            # plane the offscreen renderer draws, so viewer and render
+            # agree.
+            floor_pos, normal, side = floor_placement(self.viewport)
             palette = floor_palette(self.style)
             if self.style.floor == "solid":
-                normal = [0.0, 0.0, 0.0]
-                normal[up_idx] = 1.0
                 floor = Plane(
                     pos=tuple(floor_pos), normal=tuple(normal),
-                    s=(half_span * 2.5, half_span * 2.5))
+                    s=(side, side))
                 floor.alpha(self.style.floor_alpha)
                 floor.c(palette["face"]).lighting('off')
             else:
@@ -341,7 +334,7 @@ class _VedoPlayer:
                 # this viewer (no cheap checker primitive in vedo).
                 floor = Grid(
                     pos=tuple(floor_pos),
-                    s=[half_span * 2.5, half_span * 2.5],
+                    s=[side, side],
                     res=(30, 30),
                 )
                 if self.up_axis == 'y':

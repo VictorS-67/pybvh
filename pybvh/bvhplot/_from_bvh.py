@@ -201,17 +201,15 @@ def make_scene(
             half_span=half_span,
             azimuth=azimuth,
             elevation=elevation,
-            up_axis=up_axis,
+            up=b.world_up,
             floor_height=floor_height,
             frame_time=float(b.frame_time),
             node_names=[node.name for node in b.nodes],
             rest_coords=b.rest_pose_positions(),
             lr_pairs=_facing_lr_pairs(b),
-            up_vector=np.asarray(b.up_axis.vector, dtype=np.float64),
             forward_axis=forward_axis,
             bone_chains=_chain_per_bone(get_bone_chains(b), len(bones)),
             root_heading=root_heading,
-            up_sign=up_sign,
         ))
     return Scene(views=views)
 

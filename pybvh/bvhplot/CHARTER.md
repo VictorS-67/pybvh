@@ -54,7 +54,7 @@ If it's a keyboard toggle on the 3D viewport (show/hide something, change a mode
 | vedo (viewer) | Desktop | `vedo` | Interactive desktop viewer with full controls |
 | vedo (offscreen) | Any, headless-safe | `vedo` | Shadowed capsule stills/videos via `frame/render(backend="vedo")` — never auto-selected |
 
-Auto-detection priority: k3d (notebook) > vedo viewer (desktop) > opencv (notebook fallback) > matplotlib (universal fallback). Every backend auto-detection can pick is also nameable explicitly (`play(backend="opencv")` pins the notebook inline-video fallback). Internally, every backend consumes one prepared `Scene` plus a `Style` (`_common.py`); playback state for the viewer lives in the pure `PlaybackClock` (`_playback.py`).
+Auto-detection priority: k3d (notebook) > vedo viewer (desktop) > opencv (notebook fallback) > matplotlib (universal fallback). Every backend auto-detection can pick is also nameable explicitly (`play(backend="opencv")` pins the notebook inline-video fallback). Internally, every backend consumes one prepared `Scene` plus a `Style` (`_scene.py`, `_style.py`; a `Bvh` is turned into a Scene in `_from_bvh.py`, and the geometry of the picture is computed in `_viewport.py`); playback state for the viewer lives in the pure `PlaybackClock` (`_playback.py`).
 
 ## Ecosystem position
 

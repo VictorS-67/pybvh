@@ -338,7 +338,7 @@ class TestFraming:
 
     def test_box_follows_each_axis_of_the_motion(self, bvh):
         """A travelling clip must not spend its vertical extent on travel."""
-        from pybvh.bvhplot._common import framing_bounds
+        from pybvh.bvhplot._viewport import framing_bounds
 
         lo, hi = framing_bounds(self._view(bvh))
         spans = hi - lo
@@ -349,7 +349,7 @@ class TestFraming:
         assert float(spans.min()) < 0.6 * travel
 
     def test_floor_is_inside_the_box(self, bvh):
-        from pybvh.bvhplot._common import framing_bounds
+        from pybvh.bvhplot._viewport import framing_bounds
 
         view = self._view(bvh)
         lo, hi = framing_bounds(view)
@@ -357,7 +357,7 @@ class TestFraming:
 
     def test_rotating_squares_the_ground_off(self, bvh):
         """An orbiting camera needs an azimuth-invariant footprint."""
-        from pybvh.bvhplot._common import framing_bounds
+        from pybvh.bvhplot._viewport import framing_bounds
 
         view = self._view(bvh)
         lo, hi = framing_bounds(view, rotating=True)
@@ -375,8 +375,8 @@ class TestFraming:
         Without a fixed scale the drawing is refitted every frame and
         the character pulses in and out as the camera comes round.
         """
-        from pybvh.bvhplot._common import build_view_matrix, ortho_project
-        from pybvh.bvhplot._common import turntable_azimuths
+        from pybvh.bvhplot._viewport import build_view_matrix, ortho_project
+        from pybvh.bvhplot._viewport import turntable_azimuths
         from pybvh.bvhplot._opencv import _panel_framings
         from pybvh.bvhplot import _prepare
 

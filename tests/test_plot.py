@@ -10,9 +10,8 @@ from pybvh.bvhplot._common import (
     get_skeleton_lines,
     normalize_input,
     get_camera_angles,
-    build_view_matrix,
-    ortho_project,
 )
+from pybvh.bvhplot._viewport import build_view_matrix, ortho_project
 from pybvh.bvhplot._scene import compute_unified_limits, align_frame_counts
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
@@ -1024,7 +1023,7 @@ class TestComputeFollowAzimuths:
     """Vectorized follow-camera azimuth tracking (shared by all backends)."""
 
     def test_frame0_equals_base(self, bvh_example):
-        from pybvh.bvhplot._common import compute_follow_azimuths
+        from pybvh.bvhplot._viewport import compute_follow_azimuths
         coords = bvh_example.node_positions()
         az = compute_follow_azimuths(_view(bvh_example, coords), -20.0)
         assert az.shape == (coords.shape[0],)
@@ -1033,7 +1032,7 @@ class TestComputeFollowAzimuths:
     def test_matches_per_frame_reference(self, bvh_example):
         """compute_follow_azimuths must be numerically identical to the
         per-frame tools helpers it vectorizes."""
-        from pybvh.bvhplot._common import compute_follow_azimuths
+        from pybvh.bvhplot._viewport import compute_follow_azimuths
         from pybvh.tools import (
             _axis_to_vector,
             _signed_rotation_delta_around_axis,
@@ -1061,7 +1060,7 @@ class TestComputeFollowAzimuths:
     def test_no_lr_pairs_falls_back_to_base(self, bvh_example):
         """A skeleton without L/R pairs keeps the base azimuth on all
         frames (camera stays fixed)."""
-        from pybvh.bvhplot._common import compute_follow_azimuths
+        from pybvh.bvhplot._viewport import compute_follow_azimuths
         # Spine-only skeleton: no lateral joints, so lr auto-detection
         # finds no pairs.
         bvh = bvh_example.extract_joints(
@@ -1075,7 +1074,7 @@ class TestComputeFollowAzimuths:
         """Hard-pinned outputs on cmu_12_01_walk, captured BEFORE the
         leftward geometry was consolidated into pybvh.tools (the
         facing_frame refactor): the follow camera must not move."""
-        from pybvh.bvhplot._common import compute_follow_azimuths
+        from pybvh.bvhplot._viewport import compute_follow_azimuths
         bvh = read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")
         coords = bvh.node_positions()
         az = compute_follow_azimuths(_view(bvh, coords), -20.0)

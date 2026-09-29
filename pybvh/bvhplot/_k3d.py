@@ -12,12 +12,8 @@ import numpy as np
 import numpy.typing as npt
 
 
-from ._common import (
-    PALETTE_RGB,
-    Style,
-    build_view_matrix,
-    effective_color_mode,
-)
+from ._common import PALETTE_RGB, Style, effective_color_mode
+from ._viewport import build_view_matrix
 from ._scene import Scene, UP_AXIS_INDEX
 from ._colors import node_colors_255
 

@@ -28,10 +28,9 @@ from ._common import (
     TRACE_BLEND,
     TRACE_COLOR,
     bone_colors_for_view,
-    floor_trace_points,
-    framing_bounds,
     ghost_schedule,
 )
+from ._viewport import floor_trace_points, framing_bounds
 from ._scene import Scene, SkeletonView, UP_AXIS_INDEX
 from ._colors import floor_palette
 
@@ -601,7 +600,7 @@ def _setup_animated_panel(
     Returns the artists that get updated every frame.
 
     The panel is framed to the clip's own extents (see
-    :func:`~._common.framing_bounds`) rather than to a cube, and the
+    :func:`~._viewport.framing_bounds`) rather than to a cube, and the
     floor is clipped to that box; *rotating* squares off the ground
     axes for orbiting cameras. Stills keep the cubic box: they frame a
     single pose, whose extents are already tight.
@@ -791,7 +790,7 @@ def render_mpl(
         _extend_fig_tightbbox_with_3d_labels(fig, axs_flat)
 
     if follow or turntable:
-        from ._common import compute_follow_azimuths, turntable_azimuths
+        from ._viewport import compute_follow_azimuths, turntable_azimuths
 
         if follow:
             per_frame_azimuths = [
@@ -843,9 +842,9 @@ def _make_orbit_update_fn(
     """Build an animation update fn that also recomputes view_init per frame.
 
     Used by both follow mode (azimuths from
-    :func:`~._common.compute_follow_azimuths` — continuous rotation
+    :func:`~._viewport.compute_follow_azimuths` — continuous rotation
     tracking around ``world_up``) and turntable mode (a constant-rate
-    ramp from :func:`~._common.turntable_azimuths`).
+    ramp from :func:`~._viewport.turntable_azimuths`).
     """
     base_update = _make_update_fn(
         [v.coords for v in scene.views], bones_arrays, bone_collections,

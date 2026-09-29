@@ -319,16 +319,16 @@ _CORE_MODULES = {"bvh", "bvhnode", "tools", "analysis", "transforms",
 _BACKENDS = ["_matplotlib", "_opencv", "_k3d", "_vedo", "_vedo_offscreen",
              "_vedo_capsules", "_colors", "_playback"]
 # Pure data: no plotting library may be imported here.
-_PURE_DATA = ["_common", "_scene"]
+_PURE_DATA = ["_common", "_scene", "_viewport"]
 # Modules that take nothing from the core at runtime.
 _CORE_FREE = _BACKENDS + ["_scene"]
 # The Bvh -> Scene adapter functions in _common.
 _COMMON_ADAPTERS = {"make_scene", "get_camera_angles",
                     "_camera_angles_and_forward", "get_skeleton_lines",
                     "get_bone_chains"}
-# Array-pure kernels a draw-time helper may take from pybvh.tools: they
-# take arrays, never a Bvh.
-_COMMON_KERNELS = {"_leftward_units_from_pairs"}
+# Array-pure kernels the viewport may take from pybvh.tools: they take
+# arrays, never a Bvh.
+_VIEWPORT_KERNELS = {"_leftward_units_from_pairs"}
 
 
 def _is_core_module(dotted: str, level: int) -> bool:
@@ -566,9 +566,20 @@ class TestSceneIsPureData:
         assert offenders == [], (
             f"{backend} imports core modules at runtime: {offenders}")
 
+    def test_viewport_takes_only_array_kernels_from_the_core(self):
+        """The viewport is computed at draw time from a view: the only
+        things it may import from the core are kernels that take arrays,
+        never a Bvh."""
+        offenders = [
+            (line, func, names)
+            for line, func, names in _core_imports("_viewport")
+            if not set(names) <= _VIEWPORT_KERNELS]
+        assert offenders == [], (
+            f"_viewport imports more than array kernels: {offenders}")
+
     def test_common_imports_the_core_only_in_its_adapter_functions(self):
         """Inside _common, only the Bvh -> Scene adapters may import core
-        modules; a helper called at draw time may take array kernels only.
+        modules.
 
         This is an import guard, not proof that only the adapters consume
         a Bvh: a function handed a Bvh (``normalize_input``) reads it
@@ -576,7 +587,6 @@ class TestSceneIsPureData:
         offenders = [
             (line, func, names)
             for line, func, names in _core_imports("_common")
-            if func not in _COMMON_ADAPTERS
-            and not set(names) <= _COMMON_KERNELS]
+            if func not in _COMMON_ADAPTERS]
         assert offenders == [], (
             f"_common reaches into the core outside its adapters: {offenders}")

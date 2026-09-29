@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from pybvh.bvhplot._common import Scene, SkeletonView, compute_unified_limits
+from pybvh.bvhplot._scene import Scene, SkeletonView, compute_unified_limits
 
 NODE_NAMES = ["Hips", "Spine", "Head", "LeftArm", "LeftHand",
               "RightArm", "RightHand", "LeftFoot", "RightFoot"]

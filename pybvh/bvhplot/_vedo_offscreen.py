@@ -21,11 +21,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ._common import (
-    Scene,
-    Style,
-    build_view_matrix,
-)
+from ._common import Style, build_view_matrix
+from ._scene import Scene
 from ._colors import bone_colors_255, floor_palette, rgb255
 from ._vedo_capsules import CapsuleSkeleton
 

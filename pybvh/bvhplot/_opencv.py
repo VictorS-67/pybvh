@@ -16,8 +16,6 @@ from typing import NamedTuple, TYPE_CHECKING
 
 from ._common import (
     GHOST_WIDTH_FACTOR,
-    Scene,
-    SkeletonView,
     Style,
     TRACE_BLEND,
     TRACE_COLOR,
@@ -31,6 +29,7 @@ from ._common import (
     turntable_azimuths,
     PALETTE_RGB,
 )
+from ._scene import Scene, SkeletonView
 from ._colors import bone_colors_255, floor_palette, node_colors_255
 
 if TYPE_CHECKING:

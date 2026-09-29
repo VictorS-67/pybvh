@@ -27,7 +27,7 @@ def test_factory_knows_nothing_about_bvh():
                 if isinstance(node, ast.ImportFrom)}
     imported |= {alias.name for node in ast.walk(tree)
                  if isinstance(node, ast.Import) for alias in node.names}
-    assert imported <= {"__future__", "numpy", "pybvh.bvhplot._common"}
+    assert imported <= {"__future__", "numpy", "pybvh.bvhplot._scene"}
 
 
 @pytest.fixture(scope="module")

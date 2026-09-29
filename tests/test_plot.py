@@ -9,12 +9,11 @@ from pybvh import read_bvh_file, bvhplot
 from pybvh.bvhplot._common import (
     get_skeleton_lines,
     normalize_input,
-    compute_unified_limits,
     get_camera_angles,
     build_view_matrix,
     ortho_project,
-    align_frame_counts,
 )
+from pybvh.bvhplot._scene import compute_unified_limits, align_frame_counts
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
 
@@ -1254,7 +1253,7 @@ class TestSceneSpacing:
 
     def test_offset_along_lateral_axis(self, two_bvhs, two_coords):
         """Offset must be along the axis that is neither up nor forward."""
-        from pybvh.bvhplot._common import UP_AXIS_INDEX
+        from pybvh.bvhplot._scene import UP_AXIS_INDEX
         scene = self._scene(two_bvhs, two_coords)
         first = scene.views[0]
         up_idx = first.up_index
@@ -1270,7 +1269,7 @@ class TestSceneSpacing:
 
     def test_spread_keeps_box_and_floor_consistent(self, two_bvhs, two_coords):
         """The moved view's box moves with its coords; the floor stays."""
-        from pybvh.bvhplot._common import compute_unified_limits
+        from pybvh.bvhplot._scene import compute_unified_limits
         scene = self._scene(two_bvhs, two_coords)
         result = scene.spread(3.0)
         for before, after in zip(scene.views, result.views):

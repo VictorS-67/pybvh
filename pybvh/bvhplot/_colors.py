@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from ._common import Style, bone_colors_for_view
 
 if TYPE_CHECKING:
-    from ._common import SkeletonView
+    from ._scene import SkeletonView
 
 
 def is_dark_background(background: object) -> bool:

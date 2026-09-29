@@ -39,6 +39,38 @@ class SkeletonView:
     with no :class:`Bvh` behind it draws exactly like one made by
     :func:`make_scene`. Frame-indexed fields (``coords``,
     ``root_heading``) always share their first axis.
+
+    Conventions the fields follow:
+
+    - ``root_heading`` is ``[sin(theta), cos(theta)]`` of
+      :func:`~pybvh.analysis.root_trajectory`'s heading angle
+      ``theta = atan2(f[b], f[a])``, where ``f`` is the rest-pose
+      forward rotated by the root rotation and ``(a, b)`` are the two
+      ground axes in natural ``x, y, z`` order with the up axis removed
+      (``(x, z)`` for a y-up rig). It is a ground-plane angle, not a
+      signed rotation about the up vector: for ``+y`` up, a positive
+      rotation about ``+y`` decreases it. Orientation-derived and
+      continuous; ``None`` when the coords are not the clip's.
+    - ``forward_axis`` is a different quantity: the facing of coordinate
+      row 0 (not necessarily clip frame 0) computed from the L/R joint
+      geometry and snapped to the dominant signed axis, the value the
+      ``"front"`` camera preset is derived from. Follow-camera math
+      never reads it; it reads ``coords``, ``lr_pairs`` and
+      ``up_vector`` directly.
+    - ``lr_pairs`` are joint pairs only, in node index space, the pairs
+      the facing geometry averages; end-site pairs are deliberately
+      excluded so follow azimuths match the Bvh path bit for bit.
+    - ``up_axis``, ``up_vector`` and ``up_sign`` describe one signed
+      axis three ways and must agree: geometry reads ``up_vector``,
+      floor and shadow offsets read ``up_axis`` and ``up_sign``. A view
+      built from arrays is responsible for their consistency; nothing
+      checks it yet.
+    - Arrays are borrowed, not owned: a Scene operation may share array
+      storage with its source (``subsampled`` shares ``coords`` and
+      ``root_heading``; ``offset`` allocates new coords and shares the
+      heading), and ``frozen`` forbids field reassignment only. Change
+      a Scene through its operations; never mutate a view's arrays in
+      place.
     """
 
     coords: npt.NDArray[np.float64]        # (F, N, 3)
@@ -55,7 +87,7 @@ class SkeletonView:
     rest_coords: npt.NDArray[np.float64]   # (N, 3) rest pose, root at origin
     lr_pairs: npt.NDArray[np.intp]         # (P, 2) joint L/R pairs in node index space, the facing geometry's; (0, 2) if none
     up_vector: npt.NDArray[np.float64]     # (3,) signed world-up unit vector
-    forward_axis: str                      # signed axis string at frame 0, e.g. '+y'
+    forward_axis: str                      # snapped facing of coords row 0, e.g. '+y'
     bone_chains: list[str]                 # chain name per bone, parallel to ``bones``
     root_heading: npt.NDArray[np.float64] | None  # (F, 2) [sin, cos] or None
     up_sign: float = 1.0                   # +1 for '+y' etc., -1 for '-y'
@@ -104,8 +136,11 @@ class Scene:
     def frame_time(self) -> float:
         """Seconds per frame, from the first view.
 
-        The animated entry points match frame rates before the Scene is
-        built, so the views agree; the static ones never read it.
+        The animated entry points offer to resample the clips to a
+        common rate before the Scene is built (``match_fps``), but the
+        default only warns on a mismatch, so views can disagree. The
+        first view's timing then drives playback and the others play at
+        its rate. The static entry points never read it.
         """
         return self.views[0].frame_time
 
@@ -117,11 +152,18 @@ class Scene:
         """Every ``step``-th frame of every view, as a new Scene.
 
         Slices ``coords`` and every other frame-indexed field
-        (``root_heading``), scales ``frame_time`` by ``step`` so the clip
-        keeps its duration, and recomputes each view's box. The floor is
-        kept: the canonical floor is a property of the whole clip, and
-        the min-of-coords floor of a subsampled clip can only sit a hair
-        higher, which a plane under the feet does not show.
+        (``root_heading``) with ``[::step]`` and scales ``frame_time`` by
+        ``step``, so the kept frames stay at their original moments in
+        time; up to ``step - 1`` trailing frames are dropped, so the
+        span from the first to the last kept sample can shorten by that
+        many original intervals and the last frame is not necessarily
+        kept. Each view's box is recomputed from the kept
+        frames. The floor is kept as is: it describes the whole clip
+        (the canonical floor is a clip-wide estimate, the coords floor
+        the full clip's extreme), and a plane that sits where the full
+        clip's ground was is the honest one for a preview of it. The
+        alternative, recomputing from the kept frames, would move the
+        ground between the full and the subsampled view of one clip.
         """
         if step < 1:
             raise ValueError(f"step must be >= 1, got {step}.")
@@ -204,7 +246,9 @@ def make_scene(
 ) -> Scene:
     """Assemble a :class:`Scene` from parallel per-skeleton data.
 
-    The one place in bvhplot that reads a :class:`Bvh`. Computes, per
+    The Bvh -> Scene adapter. Together with :func:`normalize_input`,
+    which turns a Bvh into coords, it is where bvhplot reads a
+    :class:`Bvh`; backends only ever see the Scene. Computes, per
     view, the topology, cubic bounding box, camera angles, floor height
     and every skeleton fact the backends draw from (timing, node names,
     rest pose, L/R pairs, orientation, chain classification, root
@@ -606,9 +650,16 @@ def _camera_angles_and_forward(
     """:func:`get_camera_angles` plus the signed forward axis string.
 
     ``forward_axis`` (e.g. ``'+y'``) is the character's facing at
-    *ref_frame*, the fact the ``"front"`` preset turns into an azimuth;
-    :func:`make_scene` keeps it on the view so lateral spacing and the
-    camera never disagree about which way the skeleton faces.
+    *ref_frame* snapped to the dominant signed world axis
+    (:func:`~pybvh.tools._compute_forward_at`: leftward from the L/R
+    joint geometry, crossed with up, then snapped). When that geometry
+    is degenerate (leftward parallel to up, or no L/R pairs) it falls
+    back to the rest-pose leftward and then to a fixed per-up-axis
+    default, so the string is always one of the six axes, never the
+    continuous direction. It is the fact the ``"front"`` preset turns
+    into an azimuth; :func:`make_scene` keeps it on the view so lateral
+    spacing and the camera never disagree about which way the skeleton
+    faces.
     """
     from ..tools import _compute_forward_at, extract_sign
 
@@ -749,7 +800,11 @@ def compute_follow_azimuths(
     azimuths : ndarray of shape (F,)
         Azimuth in degrees for every frame. Frames where the lateral
         direction is degenerate (parallel to world up, or no L/R pairs)
-        fall back to ``base_azim``.
+        fall back to ``base_azim``. Frame 0 is the reference every delta
+        is measured from, so when frame 0 itself is degenerate there is
+        no reference and the whole sequence stays at ``base_azim``,
+        later valid frames included: a fixed camera, not a partial
+        follow.
     """
     from ..tools import _leftward_units_from_pairs
 

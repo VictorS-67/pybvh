@@ -21,7 +21,7 @@ import numpy.typing as npt
 from typing import Callable, TypedDict
 
 from ._style import PALETTE_RGB, Style, effective_color_mode
-from ._viewport import build_view_matrix
+from ._viewport import build_view_matrix, make_viewport
 from ._scene import Scene, UP_AXIS_INDEX
 from ._colors import bone_colors_255, floor_palette, rgb255
 from ._playback import PlaybackClock
@@ -131,8 +131,8 @@ def play_vedo(
     """Interactive skeleton playback in a desktop window via vedo.
 
     A single-scene backend: all skeletons share one camera (taken from
-    the first view) and one unified bounding box (``scene.unified_box()``
-    over the — possibly laterally spread — view coords).
+    the first view) and one viewport over the — possibly laterally
+    spread — views.
 
     Style application (look fields): background, floor kind
     (``"checker"`` falls back to ``"grid"`` here), bone width, and
@@ -193,7 +193,9 @@ class _VedoPlayer:
     ) -> None:
         from vedo import Plotter  # type: ignore[import-untyped]
 
-        center, half_span = scene.unified_box()
+        # vedo draws in perspective whatever the style asks.
+        self.viewport = make_viewport(scene.views, projection="persp")
+        center, half_span = self.viewport.center, self.viewport.half_span
         self.scene = scene
         self.style = style
         self.coords_list = [v.coords for v in scene.views]

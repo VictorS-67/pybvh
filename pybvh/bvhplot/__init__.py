@@ -323,9 +323,8 @@ def _prepare(
     """Shared setup for all visualization functions.
 
     Returns a :class:`~._scene.Scene` with per-skeleton camera angles
-    and bounding boxes so that side-by-side comparisons of skeletons
-    with different up or forward axes render each one correctly in its
-    own subplot.
+    so that side-by-side comparisons of skeletons with different up or
+    forward axes render each one correctly in its own subplot.
     """
     _VALID_CENTERED = {"world", "skeleton", "first"}
     if centered not in _VALID_CENTERED:
@@ -559,7 +558,8 @@ def sequence(
         locomotion spreads them left to right; drawn orthographic from
         the side with equal-scale non-cubic bounds so the travel fills
         the frame. ``"overlay"``: poses superimposed (per-pose
-        horizontal root-centering), perspective from the front — the
+        horizontal root-centering), seen from the front in the style's
+        projection (perspective unless the style asks otherwise) — the
         right mode for in-place motion; on locomotion the legs tangle.
     style : Style or str, optional
         Visual styling preset or instance. Default ``"paper"``.
@@ -752,6 +752,9 @@ def render(
     # Turntable overrides follow — both prescribe the azimuth.
     effective_follow = (follow and not turntable
                         and not isinstance(camera, tuple))
+    # The one value the backends hand to the viewport.
+    motion = ("turntable" if turntable
+              else "follow" if effective_follow else "fixed")
 
     actual_fps = _resolve_fps(fps, scene.frame_time)
 
@@ -769,7 +772,7 @@ def render(
                 "vedo backend requires vedo. "
                 "Install with: pip install pybvh[viewer]")
         unsupported = []
-        if effective_follow or turntable:
+        if motion != "fixed":
             unsupported.append("follow/turntable cameras")
         if ghost:
             unsupported.append("ghost trails")
@@ -793,7 +796,7 @@ def render(
         from ._opencv import render_opencv
         return render_opencv(
             scene, style_obj, filepath, actual_fps, resolution,
-            follow=effective_follow, turntable=turntable,
+            motion=motion,
             frame_counter=frame_counter,
             ghost=ghost, trajectory=trajectory, codec=codec)
 
@@ -806,7 +809,7 @@ def render(
         from ._matplotlib import render_mpl
         return render_mpl(
             scene, style_obj, filepath, actual_fps,
-            follow=effective_follow, turntable=turntable,
+            motion=motion,
             resolution=resolution,
             ghost=ghost, trajectory=trajectory)
 
@@ -992,8 +995,7 @@ def play(
     # --- Dispatch ---
     # For single-scene backends (vedo, k3d) there can only be ONE camera
     # and ONE bounding box. We apply lateral spacing so skeletons don't
-    # overlap; the backends read the unified bounding box off the
-    # spread scene themselves.
+    # overlap; the backends make one viewport of the spread scene.
     if backend_name == "k3d":
         try:
             import k3d  # noqa: F401

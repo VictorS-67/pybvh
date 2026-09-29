@@ -374,32 +374,25 @@ class TestFraming:
         Without a fixed scale the drawing is refitted every frame and
         the character pulses in and out as the camera comes round.
         """
-        from pybvh.bvhplot._viewport import build_view_matrix, ortho_project
-        from pybvh.bvhplot._viewport import turntable_azimuths
-        from pybvh.bvhplot._opencv import _panel_framings
-        from pybvh.bvhplot import _prepare
+        from pybvh.bvhplot._viewport import make_viewport
 
-        scene = _prepare(bvh, None, "world", "front")
-        view = scene.views[0]
-        azimuths = turntable_azimuths(view.azimuth, 24)
-        base = [build_view_matrix(view.azimuth, view.elevation, view.up_axis)]
-        framing = _panel_framings(scene, base, [azimuths])[0]
+        view = self._view(bvh, camera="front")
+        viewport = make_viewport([view], framing="clip", motion="turntable")
+        assert viewport.rotating
 
         # A vertical probe: spinning the camera about the up axis cannot
         # change its projected length, so any change is the scale moving.
         # (The skeleton itself is a poor probe — its own silhouette
         # genuinely changes height as it turns.)
-        up = np.zeros(3)
-        up[view.up_index] = view.half_span
-        probe = np.stack([framing.center - up, framing.center + up])
+        middle = (viewport.lo + viewport.hi) / 2.0
+        reach = viewport.up_vector * viewport.half_span
+        probe = np.stack([middle - reach, middle + reach])
 
         lengths = []
-        for az in azimuths:
-            matrix = build_view_matrix(az, view.elevation, view.up_axis)
-            pixels = ortho_project(probe, matrix, framing.center,
-                                   view.half_span, (1920, 1080),
-                                   fixed_view_half=framing.view_half)
+        for frame in range(0, view.coords.shape[0], 20):
+            pixels = viewport.project(probe, (1920, 1080), frame)
             lengths.append(abs(int(pixels[1, 1]) - int(pixels[0, 1])))
+        assert len(lengths) > 10
         assert max(lengths) == pytest.approx(min(lengths), rel=0.01)
 
     @pytest.mark.parametrize("clip", ["bvh_data/bvh_test1.bvh", BVH_PATH])
@@ -417,11 +410,13 @@ class TestFraming:
         from pybvh.bvhplot import _prepare
         from pybvh.bvhplot._style import resolve_style
         from pybvh.bvhplot._matplotlib import _setup_animated_panel
+        from pybvh.bvhplot._viewport import make_viewport
 
         view = _prepare(read_bvh_file(clip), None, "world", "side").views[0]
         fig = plt.figure(figsize=(19.2, 10.8))
         ax = fig.add_subplot(111, projection="3d")
-        _setup_animated_panel(ax, view, resolve_style("paper"),
+        _setup_animated_panel(ax, view, make_viewport([view], framing="clip"),
+                              resolve_style("paper"),
                               np.asarray(view.bones, dtype=int), 0, 1)
 
         # The world -> screen map, differenced about the box centre so

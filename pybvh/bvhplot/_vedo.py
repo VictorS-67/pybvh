@@ -21,11 +21,11 @@ import numpy.typing as npt
 from typing import Callable, TypedDict
 
 from ._style import PALETTE_RGB, Style, effective_color_mode
-from ._viewport import build_view_matrix
+from ._viewport import make_viewport
 from ._scene import Scene, UP_AXIS_INDEX
 from ._colors import bone_colors_255, floor_palette, rgb255
 from ._playback import PlaybackClock
-from ._vedo_capsules import CapsuleSkeleton
+from ._vedo_capsules import CapsuleSkeleton, floor_placement
 
 
 # Rich gold for single-skeleton "high" mode (aitviewer-inspired);
@@ -131,8 +131,8 @@ def play_vedo(
     """Interactive skeleton playback in a desktop window via vedo.
 
     A single-scene backend: all skeletons share one camera (taken from
-    the first view) and one unified bounding box (``scene.unified_box()``
-    over the — possibly laterally spread — view coords).
+    the first view) and one viewport over the — possibly laterally
+    spread — views.
 
     Style application (look fields): background, floor kind
     (``"checker"`` falls back to ``"grid"`` here), bone width, and
@@ -193,7 +193,9 @@ class _VedoPlayer:
     ) -> None:
         from vedo import Plotter  # type: ignore[import-untyped]
 
-        center, half_span = scene.unified_box()
+        # vedo draws in perspective whatever the style asks.
+        self.viewport = make_viewport(scene.views, projection="persp")
+        center, half_span = self.viewport.center, self.viewport.half_span
         self.scene = scene
         self.style = style
         self.coords_list = [v.coords for v in scene.views]
@@ -201,9 +203,7 @@ class _VedoPlayer:
         self.skeleton_lines_list = [v.bones for v in scene.views]
         self.center = center
         self.half_span = half_span
-        self.up_axis = scene.views[0].up_axis
-        self.azimuth = scene.views[0].azimuth
-        self.elevation = scene.views[0].elevation
+        self.up_axis = self.viewport.up_axis
         self.use_high = quality == "high"
 
         self.n_skeletons = scene.num_skeletons
@@ -264,7 +264,10 @@ class _VedoPlayer:
         return self.clock.num_frames
 
     def show(self) -> None:
-        self.plt.show()
+        # resetcam=False: the camera is the viewport's. vedo's default
+        # would hand its distance and target back to VTK, which refits
+        # them to everything in the scene, floor plane included.
+        self.plt.show(resetcam=False)
 
     # =================================================================
     # GEOMETRY
@@ -316,37 +319,30 @@ class _VedoPlayer:
         if self.use_high and self.style.floor is not None:
             from vedo import Plane  # type: ignore[import-untyped]
 
-            # One floor for the whole scene, at the ground-side extreme
-            # of the per-skeleton grounds — the same rule the offscreen
-            # renderer uses, so viewer and render agree. For a negative
-            # up axis "ground-side" is the coordinate MAXIMUM.
-            up_sign = self.scene.views[0].up_sign
-            ground_side = min if up_sign > 0 else max
-            floor_y = ground_side(v.floor_height for v in self.scene.views)
-            floor_pos = self.center.copy()
-            floor_pos[up_idx] = floor_y
+            # One floor for the whole scene, the viewport's: the same
+            # plane the offscreen renderer draws, so viewer and render
+            # agree.
+            floor_pos, normal, side = floor_placement(self.viewport)
             palette = floor_palette(self.style)
             if self.style.floor == "solid":
-                normal = [0.0, 0.0, 0.0]
-                normal[up_idx] = 1.0
                 floor = Plane(
                     pos=tuple(floor_pos), normal=tuple(normal),
-                    s=(half_span * 2.5, half_span * 2.5))
+                    s=(side, side))
                 floor.alpha(self.style.floor_alpha)
                 floor.c(palette["face"]).lighting('off')
             else:
                 # "grid" — and "checker", which falls back to grid in
                 # this viewer (no cheap checker primitive in vedo).
-                floor = Grid(
-                    pos=tuple(floor_pos),
-                    s=[half_span * 2.5, half_span * 2.5],
-                    res=(30, 30),
-                )
+                # Built at the origin, turned to face up, then moved:
+                # vedo rotates about the world origin, so a grid that
+                # is placed first swings away from where it was put.
+                floor = Grid(s=[side, side], res=(30, 30))
                 if self.up_axis == 'y':
                     floor.rotate_x(90)
                 elif self.up_axis == 'x':
                     floor.rotate_y(90)
                 # up_axis='z': Grid defaults to XY plane, no rotation
+                floor.pos(*floor_pos)
                 floor.lw(1).alpha(0.6)
                 floor.c(palette["grid"]).lighting('off')
             self.plt += floor
@@ -412,13 +408,7 @@ class _VedoPlayer:
                 )
                 self.plt += label
 
-        # --- Camera setup (same convention as matplotlib / opencv backends) ---
-        view_mat = build_view_matrix(self.azimuth, self.elevation, self.up_axis)
-        # view_mat rows: [right, up, eye_direction (toward viewer)]
-        eye_dir = view_mat[2]
-        cam_dist = half_span * 4.0
-        self._cam_pos = self.center + eye_dir * cam_dist
-        self._cam_up = view_mat[1]
+        # --- Camera: the viewport's, the one the offscreen renderer uses ---
         self._set_camera()
 
         # --- Joint name labels (toggle with J key) ---
@@ -449,15 +439,14 @@ class _VedoPlayer:
         # --- Root trajectory trail (toggle with T key) ---
         # Pre-compute full root path; pre-allocate Lines with collapsed
         # segments.  Each frame, expand segments up to the current frame
-        # (fast vertex update).  The trail sits at the lowest joint level
-        # across all skeletons and frames, in both quality modes.
+        # (fast vertex update).  The trail lies on the scene ground, in
+        # both quality modes; the floor plane is drawn a hair below it.
         self._trail_actors: list = []
         self._trail_full: list[npt.NDArray] = []       # pre-computed root paths
         self._trail_collapsed: list[npt.NDArray] = []  # pre-allocated collapsed buffers
-        trail_floor = min(c[:, :, up_idx].min() for c in self._coords_full)
         for s in range(n_skeletons):
-            root_all = self._coords_full[s][:, 0, :].copy()  # (F, 3)
-            root_all[:, up_idx] = trail_floor
+            root_all = self.viewport.ground_path(
+                self._coords_full[s][:, 0, :])  # (F, 3)
             self._trail_full.append(root_all)
             # Pre-allocate collapsed buffer (reused every frame via .copy())
             collapsed = np.tile(root_all[0], (2 * (len(root_all) - 1), 1))
@@ -478,11 +467,17 @@ class _VedoPlayer:
         self._points_actors[s].vertices = frame_data
 
     def _set_camera(self) -> None:
-        """Apply the initial camera position."""
-        self.plt.camera.SetPosition(*self._cam_pos)
-        self.plt.camera.SetFocalPoint(*self.center)
-        self.plt.camera.SetViewUp(*self._cam_up)
-        self.plt.reset_camera()
+        """Put the camera where the viewport says, exactly.
+
+        Only the clipping planes are left to VTK: they decide what is
+        cut off in depth, not what is framed. VTK fits them to what is
+        in the scene at the moment, so :meth:`_update_frame` refits
+        them whenever the skeletons move."""
+        eye, target, up = self.viewport.camera()
+        self.plt.camera.SetPosition(*eye)
+        self.plt.camera.SetFocalPoint(*target)
+        self.plt.camera.SetViewUp(*up)
+        self.plt.renderer.ResetCameraClippingRange()
 
     # =================================================================
     # UI
@@ -726,6 +721,10 @@ class _VedoPlayer:
                         root_pts[:full_f], root_pts[1:full_f + 1])
                     verts[:len(visible)] = visible
                 self._trail_actors[s].vertices = verts
+        # The clipping planes were fitted to the previous pose; a
+        # skeleton that walked toward or away from the camera since
+        # would be cut off in depth.
+        self.plt.renderer.ResetCameraClippingRange()
 
         # Hide screenshot feedback after timeout
         hide_at = self.state.get('_screenshot_hide_at')

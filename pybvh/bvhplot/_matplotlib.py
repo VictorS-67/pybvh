@@ -30,7 +30,7 @@ from ._style import (
     bone_colors_for_view,
     ghost_schedule,
 )
-from ._viewport import floor_trace_points, framing_bounds
+from ._viewport import Viewport, make_viewport, panel_viewports
 from ._scene import Scene, SkeletonView
 from ._colors import floor_palette
 
@@ -136,15 +136,13 @@ def _apply_axes_style(
     ax: matplotlib.axes.Axes,
     style: Style,
 ) -> None:
-    """Apply the axes/projection/background part of a Style to a 3D axes.
+    """Apply the axes/background part of a Style to a 3D axes.
 
     ``axes="full"`` (the debug look) keeps default panes, ticks, and
     labels; the caller adds the x/y/z labels itself. ``axes="off"``
     hides everything and takes manual control of draw order so the
     floor can be painted behind the skeleton.
     """
-    if style.projection == "ortho":
-        ax.set_proj_type("ortho")  # type: ignore[attr-defined]
     if style.axes == "off":
         ax.set_axis_off()
     if _manual_zorder(style):
@@ -161,61 +159,48 @@ def _apply_axes_style(
         ax.patch.set_facecolor(style.background)
 
 
-def _floor_limits(
-    view: SkeletonView,
-    style: Style,
-) -> tuple[npt.NDArray[np.float64], float]:
-    """The view's cubic box, shifted so the floor sits just inside it.
+def _apply_projection(
+    ax: matplotlib.axes.Axes,
+    viewport: Viewport,
+) -> None:
+    """Draw the axes with the projection the viewport states.
 
-    Without the shift a floor below the box bottom would be invisible;
-    with it, the plane sits ~2% of the half-span above the bottom edge.
-    """
-    center = view.center.copy()
-    half_span = view.half_span
-    up = view.up_index
-    sign = view.up_sign
-    # The box edge visually below the skeleton is center - sign*half:
-    # for a negative up axis the ground sits at the coordinate MAXIMUM.
-    bottom = center[up] - sign * half_span
-    target = view.below_floor(0.02 * half_span)
-    delta = target - bottom
-    if sign * delta < 0:
-        center[up] += delta
-    return center, half_span
+    Applied to axes the caller supplies (``ax=``) as to the ones
+    bvhplot creates: the style decides the projection, as it decides
+    the background and whether the axes show. The alternative, leaving
+    supplied axes as they came, would let the picture differ from
+    what its viewport records. mplot3d sets the focal length with the
+    projection, so a perspective focal length set on supplied axes
+    beforehand goes back to the default."""
+    ax.set_proj_type(viewport.projection)  # type: ignore[attr-defined]
 
 
 def _draw_floor_mpl(
     ax: matplotlib.axes.Axes,
-    view: SkeletonView,
+    viewport: Viewport,
     style: Style,
-    bounds: tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]] | None = None,
+    clip_to_box: bool = False,
 ) -> None:
-    """Draw the ground plane for one view (solid, grid, or checker).
+    """Draw the viewport's ground plane (solid, grid, or checker).
 
-    The plane is horizontal in the view's two ground axes at
-    ``view.floor_height``. Without *bounds* it extends 1.8 x half_span
-    around the box center (fills the frame at typical camera
-    elevations); with ``bounds=(mins, maxs)`` it is clipped to that
-    box — the sequence figure needs this, where a full-extent plane
-    reads as a backdrop wall.
+    The plane is where the viewport puts it: exactly at the scene
+    ground, reaching :attr:`~._viewport.Viewport.floor_reach` around
+    the centre (fills the frame at typical camera elevations). With
+    *clip_to_box* it is clipped to the framing box — the sequence
+    figure needs this, where a full-extent plane reads as a backdrop
+    wall. No nudge below the ground: draw order here is by explicit
+    zorder, so nothing can z-fight with the plane.
     """
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-    up = view.up_index
-    ground = [i for i in range(3) if i != up]
-    y = view.below_floor(0.001 * view.half_span)
+    up = viewport.up_index
+    ground = list(viewport.ground_axes)
+    y = viewport.floor_height
     palette = floor_palette(style)
 
-    if bounds is None:
-        center, half_span = _floor_limits(view, style)
-        g0_lo = float(center[ground[0]]) - half_span * 1.8
-        g0_hi = float(center[ground[0]]) + half_span * 1.8
-        g1_lo = float(center[ground[1]]) - half_span * 1.8
-        g1_hi = float(center[ground[1]]) + half_span * 1.8
-    else:
-        mins, maxs = bounds
-        g0_lo, g0_hi = float(mins[ground[0]]), float(maxs[ground[0]])
-        g1_lo, g1_hi = float(mins[ground[1]]), float(maxs[ground[1]])
+    corners = viewport.floor_quad(clip_to_box=clip_to_box)
+    g0_lo, g0_hi = float(corners[0, ground[0]]), float(corners[2, ground[0]])
+    g1_lo, g1_hi = float(corners[0, ground[1]]), float(corners[2, ground[1]])
 
     def quad(a_lo: float, a_hi: float, b_lo: float, b_hi: float):
         pts = []
@@ -330,13 +315,11 @@ def _draw_pose(
 
 def _draw_floor_trace(
     ax: matplotlib.axes.Axes,
-    view: SkeletonView,
+    path: npt.NDArray[np.float64],
     style: Style,
-    start: int = 0,
-    upto: int | None = None,
 ):
-    """Dashed root-trajectory trace on the floor. Returns the artist."""
-    path = floor_trace_points(view, start, upto)
+    """Dashed root-trajectory trace along *path*, which the viewport
+    has laid on the ground. Returns the artist."""
     trace_color = _fade_toward_background(TRACE_COLOR, TRACE_BLEND, style)
     (line,) = ax.plot(
         path[:, 0], path[:, 1], path[:, 2],
@@ -361,7 +344,8 @@ def sequence_mpl(
     spreads them naturally), orthographic, equal-scale but NON-cubic
     bounds so wide travel fills the frame instead of shrinking into a
     cube. ``layout="overlay"``: poses superimposed with per-pose
-    horizontal root-centering, cubic bounds, perspective.
+    horizontal root-centering, cubic bounds, in the style's projection
+    (perspective unless the style asks otherwise).
 
     Poses draw back-to-front (oldest first) under manual z-order — the
     correct painter's-algorithm order for the fade encoding.
@@ -390,65 +374,48 @@ def sequence_mpl(
     fig.patch.set_facecolor(style.background)
     _apply_axes_style(ax, style)
     ax.computed_zorder = False  # type: ignore[attr-defined]
-    if layout == "offset":
-        # The offset figure is orthographic by design (D4): perspective
-        # would shrink distant poses and break the left-to-right read.
-        ax.set_proj_type("ortho")  # type: ignore[attr-defined]
 
     ax.view_init(  # type: ignore[attr-defined]
         elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis)
 
-    up = view.up_index
-    sign = view.up_sign
-    flat = stack.reshape(-1, 3)
-    mins = flat.min(axis=0)
-    maxs = flat.max(axis=0)
+    # The figure shows the sampled poses, not the clip: frame those.
     # Overlay layouts re-center heights, so the world floor does not
     # apply — use the poses' own lowest point (sign-aware: for a
     # negative up axis the ground is at the coordinate maximum).
     if layout == "offset":
         floor_y = view.floor_height
     else:
-        floor_y = float(flat[:, up].min() if sign > 0
-                        else flat[:, up].max())
-    if style.floor is not None:
-        if sign > 0:
-            mins[up] = min(mins[up], floor_y)
-        else:
-            maxs[up] = max(maxs[up], floor_y)
-    pad = 0.04 * float((maxs - mins).max())
-    mins, maxs = mins - pad, maxs + pad
-    spans = maxs - mins
+        heights = stack[..., view.up_index]
+        floor_y = float(heights.min() if view.up_sign > 0
+                        else heights.max())
+    poses_view = dataclasses.replace(
+        view, coords=stack, floor_height=floor_y, root_heading=None)
+    # The offset figure is orthographic by design (D4): perspective
+    # would shrink distant poses and break the left-to-right read.
+    viewport = make_viewport(
+        [poses_view], framing="clip", include_floor=style.floor is not None,
+        projection="ortho" if layout == "offset" else style.projection)
+    _apply_projection(ax, viewport)
 
     if layout == "offset":
         # Equal-scale, non-cubic: box aspect follows the data spans.
-        # zoom compensates for mplot3d's generous default margins.
-        ax.set_xlim(mins[0], maxs[0])
-        ax.set_ylim(mins[1], maxs[1])
-        ax.set_zlim(mins[2], maxs[2])
-        ax.set_box_aspect(  # type: ignore[attr-defined]
-            tuple(spans / spans.max()), zoom=BOX_ZOOM)
+        _set_span_limits(ax, viewport.lo, viewport.hi)
     else:
-        center = (mins + maxs) / 2
-        half = float(spans.max()) / 2
-        _set_axis_limits(ax, center, half)
+        _set_axis_limits(ax, *viewport.enclosing_cube())
         ax.set_box_aspect((1, 1, 1))  # type: ignore[attr-defined]
 
     # Floor clipped to the box (a full-extent plane reads as a backdrop
     # wall in wide orthographic views), honoring the style's floor kind
-    # via the one shared floor renderer. Overlay layouts re-center
-    # heights, so the floor is re-anchored to the poses' lowest point.
+    # via the one shared floor renderer.
     if style.floor is not None:
-        floor_view = view if layout == "offset" else dataclasses.replace(
-            view, floor_height=floor_y)
-        _draw_floor_mpl(ax, floor_view, style, bounds=(mins, maxs))
+        _draw_floor_mpl(ax, viewport, style, clip_to_box=True)
 
     if trajectory and layout == "offset":
         # Trace only the sampled range — a frames= restriction must not
         # leak the whole clip's path into (and beyond) the figure.
-        _draw_floor_trace(ax, view, style,
-                          start=int(sample_frames[0]),
-                          upto=int(sample_frames[-1]))
+        traced = slice(int(sample_frames[0]), int(sample_frames[-1]) + 1)
+        _draw_floor_trace(
+            ax, viewport.ground_path(view.coords[traced, 0]), style)
 
     colors = bone_colors_for_view(view, style, 0, 1)
     for k, pose in enumerate(poses):
@@ -480,8 +447,9 @@ def frame_mpl(
     ----------
     scene : Scene
         Prepared visualization. Only the first frame of each view's
-        coords is plotted; each view supplies its own bounding box and
-        camera so mixed-axis side-by-side comparisons render correctly.
+        coords is plotted; each view supplies its own camera angles
+        and is framed by its own viewport, so mixed-axis side-by-side
+        comparisons render correctly.
     style : Style
         Visual styling (colors, floor, axes, background, projection).
     figsize : (float, float) or None
@@ -531,16 +499,17 @@ def frame_mpl(
 
         _apply_axes_style(ax_i, style)
 
+        viewport = make_viewport(
+            [view], framing="still", include_floor=style.floor is not None,
+            projection=style.projection)
+        _apply_projection(ax_i, viewport)
         if style.floor is not None:
-            _draw_floor_mpl(ax_i, view, style)
-            center, half_span = _floor_limits(view, style)
-        else:
-            center, half_span = view.center, view.half_span
+            _draw_floor_mpl(ax_i, viewport, style)
 
         colors = bone_colors_for_view(view, style, i, n)
         _draw_pose(ax_i, frame_data, view, style, colors)
 
-        _set_axis_limits(ax_i, center, half_span)
+        _set_axis_limits(ax_i, viewport.lo, viewport.hi)
         ax_i.view_init(  # type: ignore[attr-defined]
             elev=view.elevation, azim=view.azimuth,
             vertical_axis=view.up_axis)
@@ -587,11 +556,11 @@ def frame_mpl(
 def _setup_animated_panel(
     ax: matplotlib.axes.Axes,
     view: SkeletonView,
+    viewport: Viewport,
     style: Style,
     bones: npt.NDArray[np.intp],
     view_index: int,
     n_skeletons: int,
-    rotating: bool = False,
 ) -> tuple[Line3DCollection, object | None]:
     """Shared per-panel setup for animated matplotlib output.
 
@@ -599,22 +568,21 @@ def _setup_animated_panel(
     frame-0 joint scatter; applies limits, camera, and axes style.
     Returns the artists that get updated every frame.
 
-    The panel is framed to the clip's own extents (see
-    :func:`~._viewport.framing_bounds`) rather than to a cube, and the
-    floor is clipped to that box; *rotating* squares off the ground
-    axes for orbiting cameras. Stills keep the cubic box: they frame a
-    single pose, whose extents are already tight.
+    The panel is fitted to *viewport*'s framing box: the clip's own
+    extents rather than a cube, with the ground squared off when the
+    camera rotates. Stills keep the cubic box: they frame a single
+    pose, whose extents are already tight.
     """
     _apply_axes_style(ax, style)
+    _apply_projection(ax, viewport)
 
-    lo, hi = framing_bounds(view, rotating=rotating)
     if style.floor is not None:
         # Full-extent floor, not one clipped to the framing box: the box
         # hugs the motion, so a clipped plane would end just past the
         # feet and read as a platform the character stands on rather
         # than as ground. (sequence() clips its floor for the opposite
         # reason — a wide ortho still turns a full plane into a wall.)
-        _draw_floor_mpl(ax, view, style)
+        _draw_floor_mpl(ax, viewport, style)
 
     colors = bone_colors_for_view(view, style, view_index, n_skeletons)
     collection = _make_bone_collection(
@@ -636,8 +604,9 @@ def _setup_animated_panel(
     # which scales one screen direction against the others and stretches the
     # skeleton. Invisible on a z-up rig, where the roll is the identity.
     ax.view_init(  # type: ignore[attr-defined]
-        elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis)
-    _set_span_limits(ax, lo, hi)
+        elev=viewport.elevation, azim=viewport.azimuth,
+        vertical_axis=viewport.up_axis)
+    _set_span_limits(ax, viewport.lo, viewport.hi)
 
     if style.axes == "full":
         ax.set_xlabel('x')
@@ -655,6 +624,7 @@ def _setup_animated_panel(
 
 def _setup_render_extras(
     scene: Scene,
+    viewports: list[Viewport],
     style: Style,
     axs_flat: list[matplotlib.axes.Axes],
     ghost: int,
@@ -670,7 +640,8 @@ def _setup_render_extras(
     trace_lines: list = []   # per skeleton: Line3D or None
     n = scene.num_skeletons
 
-    for i, (view, ax) in enumerate(zip(scene.views, axs_flat)):
+    for i, (view, viewport, ax) in enumerate(
+            zip(scene.views, viewports, axs_flat)):
         colors = bone_colors_for_view(view, style, i, n)
         lag, weights = ghost_schedule(style, view.frame_time, ghost)
         slots = []
@@ -687,8 +658,9 @@ def _setup_render_extras(
             slots.append((collection, (j + 1) * lag))
         ghost_slots.append(slots)
         trace_lines.append(
-            _draw_floor_trace(ax, view, style, upto=0) if trajectory
-            else None)
+            _draw_floor_trace(
+                ax, viewport.ground_path(view.coords[:1, 0]), style)
+            if trajectory else None)
 
     return ghost_slots, trace_lines
 
@@ -696,12 +668,14 @@ def _setup_render_extras(
 def _wrap_update_with_extras(
     base_update,
     scene: Scene,
+    viewports: list[Viewport],
     bones_arrays,
     ghost_slots,
     trace_lines,
 ):
     """Extend an animation update fn with ghost and trace updates."""
-    trace_paths = [floor_trace_points(v) for v in scene.views]
+    trace_paths = [viewport.ground_path(view.coords[:, 0])
+                   for view, viewport in zip(scene.views, viewports)]
     empty = np.empty((0, 2, 3))
 
     def update(f: int):
@@ -729,8 +703,7 @@ def render_mpl(
     filepath: Path,
     fps: float,
     *,
-    follow: bool = False,
-    turntable: bool = False,
+    motion: str = "fixed",
     resolution: tuple[int, int] = (1920, 1080),
     ghost: int = 0,
     trajectory: bool = False,
@@ -740,9 +713,9 @@ def render_mpl(
     Each subplot uses its own bounding box and camera orientation so
     that mixed-up-axis side-by-side comparisons render correctly.
 
-    When ``follow`` is True, the camera orientation is recomputed every
-    frame using each skeleton's current facing direction, so the view
-    orbits with the character.
+    *motion* is handed to the viewport untouched: it decides how each
+    panel's camera moves, and a panel whose camera rotates is re-aimed
+    every frame.
 
     Returns
     -------
@@ -765,14 +738,17 @@ def render_mpl(
 
     fig.patch.set_facecolor(style.background)
 
+    viewports = panel_viewports(
+        scene.views, framing="clip", motion=motion,
+        projection=style.projection)
     coords_list = [v.coords for v in scene.views]
     bones_arrays = [np.asarray(v.bones, dtype=int) for v in scene.views]
     bone_collections: list[Line3DCollection] = []
     joint_scatters: list = []
-    for i, (view, bones, ax) in enumerate(
-            zip(scene.views, bones_arrays, axs_flat)):
+    for i, (view, viewport, bones, ax) in enumerate(
+            zip(scene.views, viewports, bones_arrays, axs_flat)):
         collection, joint_scatter = _setup_animated_panel(
-            ax, view, style, bones, i, n, rotating=follow or turntable)
+            ax, view, viewport, style, bones, i, n)
         bone_collections.append(collection)
         joint_scatters.append(joint_scatter)
 
@@ -789,29 +765,20 @@ def render_mpl(
         # writer (jshtml/HTML) uses bbox_inches='tight' for its frames.
         _extend_fig_tightbbox_with_3d_labels(fig, axs_flat)
 
-    if follow or turntable:
-        from ._viewport import compute_follow_azimuths, turntable_azimuths
-
-        if follow:
-            per_frame_azimuths = [
-                compute_follow_azimuths(v, v.azimuth)
-                for v in scene.views]
-        else:
-            per_frame_azimuths = [
-                turntable_azimuths(v.azimuth, num_frames)
-                for v in scene.views]
+    if any(viewport.rotating for viewport in viewports):
         update = _make_orbit_update_fn(
             scene, bones_arrays, bone_collections, joint_scatters,
-            axs_flat, per_frame_azimuths)
+            axs_flat, viewports)
     else:
         update = _make_update_fn(
             coords_list, bones_arrays, bone_collections, joint_scatters)
 
     if ghost > 0 or trajectory:
         ghost_slots, trace_lines = _setup_render_extras(
-            scene, style, axs_flat, ghost, trajectory)
+            scene, viewports, style, axs_flat, ghost, trajectory)
         update = _wrap_update_with_extras(
-            update, scene, bones_arrays, ghost_slots, trace_lines)
+            update, scene, viewports, bones_arrays, ghost_slots,
+            trace_lines)
 
     interval = int(1000.0 / fps)
     anim = animation.FuncAnimation(
@@ -837,25 +804,20 @@ def _make_orbit_update_fn(
     bone_collections,
     joint_scatters,
     axs_flat,
-    per_frame_azimuths: list[npt.NDArray[np.float64]],
+    viewports: list[Viewport],
 ):
-    """Build an animation update fn that also recomputes view_init per frame.
-
-    Used by both follow mode (azimuths from
-    :func:`~._viewport.compute_follow_azimuths` — continuous rotation
-    tracking around ``world_up``) and turntable mode (a constant-rate
-    ramp from :func:`~._viewport.turntable_azimuths`).
-    """
+    """Build an animation update fn that also re-aims each panel's
+    camera every frame, at the azimuth its viewport schedules."""
     base_update = _make_update_fn(
         [v.coords for v in scene.views], bones_arrays, bone_collections,
         joint_scatters)
 
     def update(frame):
         artists = base_update(frame)
-        for az_per_frame, view, ax in zip(
-                per_frame_azimuths, scene.views, axs_flat):
-            ax.view_init(elev=view.elevation, azim=az_per_frame[frame],
-                         vertical_axis=view.up_axis)
+        for viewport, ax in zip(viewports, axs_flat):
+            ax.view_init(elev=viewport.elevation,
+                         azim=viewport.azimuth_at(frame),
+                         vertical_axis=viewport.up_axis)
         return artists
 
     return update
@@ -890,14 +852,16 @@ def play_mpl(
 
     fig.patch.set_facecolor(style.background)
 
+    viewports = panel_viewports(
+        scene.views, framing="clip", projection=style.projection)
     coords_list = [v.coords for v in scene.views]
     bones_arrays = [np.asarray(v.bones, dtype=int) for v in scene.views]
     bone_collections: list[Line3DCollection] = []
     joint_scatters: list = []
-    for i, (view, bones, ax) in enumerate(
-            zip(scene.views, bones_arrays, axs_flat)):
+    for i, (view, viewport, bones, ax) in enumerate(
+            zip(scene.views, viewports, bones_arrays, axs_flat)):
         collection, joint_scatter = _setup_animated_panel(
-            ax, view, style, bones, i, n)
+            ax, view, viewport, style, bones, i, n)
         bone_collections.append(collection)
         joint_scatters.append(joint_scatter)
 
@@ -1226,13 +1190,13 @@ def _extend_fig_tightbbox_with_3d_labels(
 
 def _set_axis_limits(
     ax: matplotlib.axes.Axes,
-    center: npt.NDArray[np.float64],
-    half_span: float,
+    lo: npt.NDArray[np.float64],
+    hi: npt.NDArray[np.float64],
 ) -> None:
-    """Set equal axis limits on a 3D axes from center and half_span."""
-    ax.set_xlim(center[0] - half_span, center[0] + half_span)
-    ax.set_ylim(center[1] - half_span, center[1] + half_span)
-    ax.set_zlim(center[2] - half_span, center[2] + half_span)  # type: ignore[attr-defined]
+    """Set a 3D axes' limits to a box, leaving its box aspect alone."""
+    ax.set_xlim(lo[0], hi[0])
+    ax.set_ylim(lo[1], hi[1])
+    ax.set_zlim(lo[2], hi[2])  # type: ignore[attr-defined]
 
 
 def _set_span_limits(

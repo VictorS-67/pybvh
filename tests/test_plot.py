@@ -1,6 +1,8 @@
 """Tests for the pybvh.bvhplot visualization module."""
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pytest
 from pathlib import Path
@@ -11,8 +13,12 @@ from pybvh.bvhplot._from_bvh import (
     normalize_input,
     get_camera_angles,
 )
-from pybvh.bvhplot._viewport import build_view_matrix, ortho_project
-from pybvh.bvhplot._scene import compute_unified_limits, align_frame_counts
+from pybvh.bvhplot._viewport import (
+    build_view_matrix,
+    compute_unified_limits,
+    ortho_project,
+)
+from pybvh.bvhplot._scene import align_frame_counts
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
 
@@ -179,7 +185,7 @@ class TestOrthoProject:
         coords = np.array([[0, 0, 0], [1, 1, 1], [2, 0, 0]], dtype=np.float64)
         view = build_view_matrix(0, 0, 'y')
         center = np.array([1.0, 0.5, 0.5])
-        pixels = ortho_project(coords, view, center, 2.0, (640, 480))
+        pixels = ortho_project(coords, view, center, (2.0, 2.0), (640, 480))
         assert pixels.shape == (3, 2)
         assert pixels.dtype == np.int32
 
@@ -187,7 +193,7 @@ class TestOrthoProject:
         center = np.array([5.0, 5.0, 5.0])
         coords = center.reshape(1, 3)
         view = build_view_matrix(0, 0, 'y')
-        pixels = ortho_project(coords, view, center, 2.0, (640, 480))
+        pixels = ortho_project(coords, view, center, (2.0, 2.0), (640, 480))
         assert abs(pixels[0, 0] - 320) <= 1
         assert abs(pixels[0, 1] - 240) <= 1
 
@@ -195,11 +201,29 @@ class TestOrthoProject:
         coords = np.zeros((1, 3), dtype=np.float64)
         view = build_view_matrix(0, 0, 'y')
         center = np.zeros(3)
-        p1 = ortho_project(coords, view, center, 1.0, (100, 100))
-        p2 = ortho_project(coords, view, center, 1.0, (200, 200))
+        p1 = ortho_project(coords, view, center, (1.0, 1.0), (100, 100))
+        p2 = ortho_project(coords, view, center, (1.0, 1.0), (200, 200))
         # Center point should be at the center of each resolution
         assert abs(p1[0, 0] - 50) <= 1
         assert abs(p2[0, 0] - 100) <= 1
+
+    def test_one_scale_set_by_the_tighter_direction(self):
+        """A world unit covers the same pixels across and up; the half
+        extents fit 90% of the panel in whichever direction is tighter."""
+        view = np.eye(3)
+        points = np.array([[2.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+        pixels = ortho_project(points, view, np.zeros(3), (2.0, 1.0), (400, 400))
+        # width is the tight one: 2 units fill 0.9 * 200 px
+        assert pixels[0].tolist() == [380, 200]
+        assert pixels[1].tolist() == [200, 110]
+
+    def test_a_direction_without_extent_sets_no_constraint(self):
+        view = np.eye(3)
+        points = np.array([[0.0, 1.0, 0.0]])
+        pixels = ortho_project(points, view, np.zeros(3), (0.0, 1.0), (400, 200))
+        assert pixels[0].tolist() == [200, 10]
+        flat = ortho_project(points, view, np.zeros(3), (0.0, 0.0), (400, 200))
+        assert flat[0].tolist() == [200, 99]
 
 
 class TestBuildViewMatrix:
@@ -1022,6 +1046,16 @@ def _view(bvh, coords):
 class TestComputeFollowAzimuths:
     """Vectorized follow-camera azimuth tracking (shared by all backends)."""
 
+    PINNED = {
+        0: -20.0,
+        50: -7.614185304051565,
+        100: -28.527208890651654,
+        200: -3.4412318759617193,
+        300: -30.822573480565033,
+        400: -25.65914814654527,
+        523: -4.049526760718898,
+    }
+
     def test_frame0_equals_base(self, bvh_example):
         from pybvh.bvhplot._viewport import compute_follow_azimuths
         coords = bvh_example.node_positions()
@@ -1070,6 +1104,35 @@ class TestComputeFollowAzimuths:
         az = compute_follow_azimuths(_view(bvh, coords), 45.0)
         assert np.allclose(az, 45.0)
 
+    def test_the_whole_schedule_matches_the_pin(self):
+        """Every frame of the CMU walk, against the frozen array
+        (``tests/fixtures/follow_azimuths_pinned.npz``): the follow
+        camera must not move on any of them. The seven values written
+        out in the next test tie the fixture to what was captured
+        before the facing geometry was consolidated."""
+        from pybvh.bvhplot._viewport import compute_follow_azimuths
+        pinned = np.load(
+            Path(__file__).parent / "fixtures" / "follow_azimuths_pinned.npz")
+        bvh = read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")
+        coords = bvh.node_positions()
+        az = compute_follow_azimuths(_view(bvh, coords), -20.0)
+        np.testing.assert_allclose(az, pinned["azimuths"], rtol=0, atol=1e-12)
+        for frame_idx, value in self.PINNED.items():
+            assert pinned["azimuths"][frame_idx] == pytest.approx(
+                value, abs=1e-12), "the fixture was re-baselined"
+
+    def test_the_viewport_schedules_the_pinned_azimuths(self):
+        from pybvh.bvhplot._viewport import make_viewport
+        pinned = np.load(
+            Path(__file__).parent / "fixtures" / "follow_azimuths_pinned.npz")
+        bvh = read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")
+        view = _view(bvh, bvh.node_positions())
+        viewport = make_viewport(
+            [dataclasses.replace(view, azimuth=-20.0)],
+            framing="clip", motion="follow")
+        np.testing.assert_allclose(
+            viewport.azimuths, pinned["azimuths"], rtol=0, atol=1e-12)
+
     def test_pinned_values_on_real_turning_walk(self):
         """Hard-pinned outputs on cmu_12_01_walk, captured BEFORE the
         leftward geometry was consolidated into pybvh.tools (the
@@ -1079,16 +1142,7 @@ class TestComputeFollowAzimuths:
         coords = bvh.node_positions()
         az = compute_follow_azimuths(_view(bvh, coords), -20.0)
         assert az.shape == (524,)
-        expected = {
-            0: -20.0,
-            50: -7.614185304051565,
-            100: -28.527208890651654,
-            200: -3.4412318759617193,
-            300: -30.822573480565033,
-            400: -25.65914814654527,
-            523: -4.049526760718898,
-        }
-        for frame_idx, value in expected.items():
+        for frame_idx, value in self.PINNED.items():
             assert az[frame_idx] == pytest.approx(value, abs=1e-12), \
                 f"azimuth moved at frame {frame_idx}"
 
@@ -1266,15 +1320,20 @@ class TestSceneSpacing:
         assert not np.allclose(diff[:, :, lat_idx], 0.0), "Lateral axis should shift"
         assert np.allclose(diff[:, :, up_idx], 0.0), "Up axis must not shift"
 
-    def test_spread_keeps_box_and_floor_consistent(self, two_bvhs, two_coords):
-        """The moved view's box moves with its coords; the floor stays."""
-        from pybvh.bvhplot._scene import compute_unified_limits
+    def test_spread_moves_what_is_framed_and_keeps_the_floor(
+            self, two_bvhs, two_coords):
+        """A picture of the moved view is framed where the view went;
+        a lateral move leaves the floor where it was."""
+        from pybvh.bvhplot._viewport import make_viewport
         scene = self._scene(two_bvhs, two_coords)
         result = scene.spread(3.0)
         for before, after in zip(scene.views, result.views):
-            center, half_span = compute_unified_limits([after.coords])
-            np.testing.assert_allclose(after.center, center)
-            assert after.half_span == half_span
+            shift = after.coords[0, 0] - before.coords[0, 0]
+            np.testing.assert_allclose(
+                make_viewport([after]).center,
+                make_viewport([before]).center + shift)
+            assert (make_viewport([after]).half_span
+                    == pytest.approx(make_viewport([before]).half_span))
             assert after.floor_height == before.floor_height
 
     # ------------------------------------------------------------------

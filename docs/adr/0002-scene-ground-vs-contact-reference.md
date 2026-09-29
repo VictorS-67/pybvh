@@ -27,7 +27,7 @@ Two quantities, computed independently, named for what they are:
 - `Bvh.floor_height` — all nodes, robust 2nd percentile, cached on the `Bvh`, invalidated on motion reassignment. Nothing else fills or reads that cache.
 - The contact reference — the joints in the call, estimated fresh every call, reported as `info["floor"]`.
 
-Every bvhplot backend that draws a ground plane takes it from the `Scene` (which takes it from `Bvh.floor_height`), so the three local floor rules that had grown up in `_common.py`, `_vedo.py` and `_k3d.py` cannot drift apart again. k3d is the stated exception: it draws no `Style.floor` plane, and snaps its root trail to k3d's own cubic grid, which is the surface a viewer actually sees there.
+Every bvhplot backend that draws a ground plane takes it from the `Scene` (which takes it from `Bvh.floor_height`), so the three local floor rules that had grown up in `_common.py`, `_vedo.py` and `_k3d.py` cannot drift apart again. k3d is the stated exception: it draws no `Style.floor` plane, and snaps its root trail to k3d's own cubic grid, which is the surface a viewer actually sees there. *(Amended in v0.10.0: the exception is gone. k3d draws the floor and lays its trail on the scene ground like every other backend, and the bottom face of its grid is put just under the ground (2% of a half-span below it) so that the surface a viewer sees there is, to the eye, the ground. Every backend now takes the plane from the viewport, which takes it from the `Scene`.)*
 
 ## Consequences
 

@@ -8,14 +8,22 @@ Requires ``k3d >= 2.14`` and ``ipywidgets``.
 from __future__ import annotations
 
 import warnings
+from typing import Any, NamedTuple
+
 import numpy as np
 import numpy.typing as npt
 
-
 from ._style import PALETTE_RGB, Style, effective_color_mode
-from ._viewport import build_view_matrix
-from ._scene import Scene, UP_AXIS_INDEX
-from ._colors import node_colors_255
+from ._viewport import Viewport, make_viewport
+from ._scene import Scene
+from ._colors import floor_palette, node_colors_255
+
+# The floor is drawn this far below the scene ground, in half-spans, so
+# the root trail, which lies exactly on the ground, has a fixed order
+# with it. A z-fighting epsilon and nothing more (ADR 0002).
+FLOOR_EPSILON = 0.004
+# Lines per ground direction of a "grid" floor.
+FLOOR_GRID_LINES = 21
 
 
 
@@ -37,44 +45,33 @@ def _node_colors_uint32(
     return (rgb[:, 0] << 16) | (rgb[:, 1] << 8) | rgb[:, 2]
 
 
-def play_k3d(
+class _Plot(NamedTuple):
+    """A built k3d plot and the handles its frame callback updates."""
+
+    plot: Any                        # k3d.plot.Plot
+    viewport: Viewport
+    coords: list[npt.NDArray[np.float32]]        # per skeleton, (F, N, 3)
+    skeletons: list[tuple[Any, Any]]             # (k3d Lines, k3d Points)
+    trails: list[Any]                            # k3d Line per skeleton
+    trail_paths: list[npt.NDArray[np.float32]]   # per skeleton, (F, 3)
+    floor: Any | None                # k3d Mesh or Lines, None without a floor
+
+
+def _build_plot(
     scene: Scene,
     style: Style,
-    fps: float,
-) -> None:
-    """Interactive skeleton playback in a Jupyter notebook via k3d.
+) -> _Plot:
+    """Build the k3d plot for *scene*, posed to frame 0.
 
-    A single-scene backend: all skeletons share one camera (taken from
-    the first view) and one unified bounding box (``scene.unified_box()``
-    over the — possibly laterally spread — view coords).
-
-    Style application (look fields): background, bone width, and chain
-    colors for single-skeleton sessions (per-vertex colors — segments
-    blend at chain boundaries, a k3d rendering artifact).
-
-    Parameters
-    ----------
-    scene : Scene
-        Prepared visualization.
-    style : Style
-        Visual styling (look fields).
-    fps : float
-        Frames per second.
-
-    Returns
-    -------
-    None
-        The plot and its controls are displayed as a side effect.
+    Everything :func:`play_k3d` shows except the playback widgets, so
+    that what is drawn, and where, can be read back without a notebook.
     """
     import k3d
-    from IPython.display import display  # type: ignore[import-untyped]
-    from ipywidgets import Play, IntSlider, jslink, HBox, VBox, Label  # type: ignore[import-untyped]
     from matplotlib.colors import to_rgb
 
-    center, half_span = scene.unified_box()
-    azimuth = scene.views[0].azimuth
-    elevation = scene.views[0].elevation
-    up_axis = scene.views[0].up_axis
+    # k3d draws in perspective whatever the style asks.
+    viewport = make_viewport(scene.views, projection="persp")
+    half_span = viewport.half_span
     labels = scene.labels
     skeleton_lines_list = [v.bones for v in scene.views]
 
@@ -86,8 +83,6 @@ def play_k3d(
     coords_f32 = [v.coords.astype(np.float32) for v in scene.views]
 
     num_frames = coords_f32[0].shape[0]
-    n_skeletons = scene.num_skeletons
-
     # k3d passes uint32 indices to a trait that traittypes validates as
     # float32; the coercion is harmless but noisy. Scoped to object
     # construction (the only place the warning fires) so the filter
@@ -101,7 +96,7 @@ def play_k3d(
                         background_color=background_color)
 
         # Build k3d objects for each skeleton
-        skeleton_objects: list[tuple[k3d.objects.Lines, k3d.objects.Points]] = []
+        skeleton_objects: list[tuple[Any, Any]] = []
 
         for s, (coords, bones) in enumerate(
                 zip(coords_f32, skeleton_lines_list)):
@@ -140,19 +135,15 @@ def play_k3d(
         # --- Root trajectory projected on the floor ---
         # Animated trail: vertices [0:current_frame] show the actual past
         # path, the remaining vertices collapse to the current frame so the
-        # trail "grows" as the animation plays.
-        # Snap the trail to the grid bottom (center - half_span on the up axis)
-        # rather than to the lowest joint, because the k3d bbox is cubic and
-        # extends below the lowest joint. Otherwise the trail floats above the
-        # visible grid floor and parallax makes it appear offset from its true
-        # XY position when viewed from an oblique angle.
-        up_idx = UP_AXIS_INDEX.get(up_axis, 2)
-        floor_level = float(center[up_idx] - half_span)
-        trail_objects: list[k3d.objects.Line] = []
+        # trail "grows" as the animation plays. It lies on the scene
+        # ground, and the grid's bottom face is put just under the
+        # ground (below), so it is seen on that face rather than
+        # floating inside the box.
+        trail_objects: list[Any] = []
         trail_full_paths: list[npt.NDArray[np.float32]] = []
-        for s, coords in enumerate(coords_f32):
-            root_path = coords[:, 0, :].copy()  # (F, 3)
-            root_path[:, up_idx] = floor_level
+        for s, view in enumerate(scene.views):
+            root_path = viewport.ground_path(
+                view.coords[:, 0, :]).astype(np.float32)  # (F, 3)
             trail_full_paths.append(root_path)
 
             # Initial trail: all vertices collapsed at frame 0
@@ -171,9 +162,12 @@ def play_k3d(
             plot += trail
             trail_objects.append(trail)
 
-    # Set grid to cover the full motion extent
-    grid_min = center - half_span
-    grid_max = center + half_span
+    floor = _build_floor(viewport, style)
+    if floor is not None:
+        plot += floor
+
+    # The grid covers the full motion extent, from the ground up.
+    grid_min, grid_max = viewport.grounded_box()
     plot.grid = [
         float(grid_min[0]), float(grid_min[1]), float(grid_min[2]),
         float(grid_max[0]), float(grid_max[1]), float(grid_max[2]),
@@ -181,21 +175,107 @@ def play_k3d(
     plot.grid_auto_fit = False
     plot.camera_auto_fit = False
 
-    # Set camera explicitly using the same convention as matplotlib /
-    # opencv / vedo backends so all backends produce identical views
-    # for the same (azimuth, elevation, up_axis) parameters.
-    # k3d's camera is a 9-element list:
+    # The viewport's camera, the one every backend aims from the same
+    # (azimuth, elevation, up) angles. k3d's camera is a 9-element list:
     # [eye_x, eye_y, eye_z, target_x, target_y, target_z, up_x, up_y, up_z]
-    view_mat = build_view_matrix(azimuth, elevation, up_axis)
-    eye_dir = view_mat[2]  # toward viewer
-    cam_up = view_mat[1]
-    cam_dist = half_span * 4.0
-    cam_pos = center + eye_dir * cam_dist
-    plot.camera = [
-        float(cam_pos[0]), float(cam_pos[1]), float(cam_pos[2]),
-        float(center[0]), float(center[1]), float(center[2]),
-        float(cam_up[0]), float(cam_up[1]), float(cam_up[2]),
-    ]
+    eye, target, up = viewport.camera()
+    plot.camera = [float(value) for value in (*eye, *target, *up)]
+
+    return _Plot(plot, viewport, coords_f32, skeleton_objects,
+                 trail_objects, trail_full_paths, floor)
+
+
+def _build_floor(viewport: Viewport, style: Style) -> Any | None:
+    """The viewport's ground plane as a k3d object, or ``None`` when
+    the style draws no floor.
+
+    ``"solid"`` is a quad; ``"grid"`` is lines, and so is
+    ``"checker"``, which this backend does not draw (the vedo viewer
+    falls back the same way). The plane sits ``FLOOR_EPSILON``
+    half-spans below the ground, under the trail.
+    """
+    if style.floor is None:
+        return None
+    import k3d
+    from matplotlib.colors import to_rgb
+
+    def packed(color: object) -> int:
+        r, g, b = (int(c * 255) for c in to_rgb(color))  # type: ignore[arg-type]
+        return (r << 16) | (g << 8) | b
+
+    corners = viewport.floor_quad()
+    corners[:, viewport.up_index] = viewport.below_floor(
+        FLOOR_EPSILON * viewport.half_span)
+    palette = floor_palette(style)
+
+    if style.floor == "solid":
+        return k3d.mesh(
+            corners.astype(np.float32),
+            np.array([[0, 1, 2], [0, 2, 3]], dtype=np.uint32),
+            color=packed(palette["face"]), opacity=style.floor_alpha,
+            side='double', flat_shading=True, name="Floor")
+
+    # Lines across the quad in both ground directions: from one edge
+    # to the opposite one, at equal steps.
+    steps = np.linspace(0.0, 1.0, FLOOR_GRID_LINES)[:, np.newaxis]
+    along_first = (corners[0] + steps * (corners[1] - corners[0]),
+                   corners[3] + steps * (corners[2] - corners[3]))
+    along_second = (corners[0] + steps * (corners[3] - corners[0]),
+                    corners[1] + steps * (corners[2] - corners[1]))
+    starts = np.concatenate([along_first[0], along_second[0]])
+    ends = np.concatenate([along_first[1], along_second[1]])
+    vertices = np.concatenate([starts, ends]).astype(np.float32)
+    count = len(starts)
+    indices = np.stack(
+        [np.arange(count), np.arange(count) + count], axis=1)
+    return k3d.lines(
+        vertices, indices.astype(np.uint32), indices_type='segment',
+        color=packed(palette["grid"]), width=0.004 * viewport.half_span,
+        opacity=0.8, name="Floor")
+
+
+def play_k3d(
+    scene: Scene,
+    style: Style,
+    fps: float,
+) -> None:
+    """Interactive skeleton playback in a Jupyter notebook via k3d.
+
+    A single-scene backend: all skeletons share one camera (taken from
+    the first view) and one viewport over the — possibly laterally
+    spread — views.
+
+    Style application (look fields): background, bone width, the
+    floor (``"checker"`` draws as a grid), and chain colors for
+    single-skeleton sessions (per-vertex colors — segments blend at
+    chain boundaries, a k3d rendering artifact). k3d's own grid box is
+    kept as the toolkit's frame, with its bottom face just under the
+    ground.
+
+    Parameters
+    ----------
+    scene : Scene
+        Prepared visualization.
+    style : Style
+        Visual styling (look fields).
+    fps : float
+        Frames per second.
+
+    Returns
+    -------
+    None
+        The plot and its controls are displayed as a side effect.
+    """
+    from IPython.display import display  # type: ignore[import-untyped]
+    from ipywidgets import Play, IntSlider, jslink, HBox, VBox, Label  # type: ignore[import-untyped]
+
+    built = _build_plot(scene, style)
+    plot = built.plot
+    coords_f32 = built.coords
+    skeleton_objects = built.skeletons
+    trail_objects = built.trails
+    trail_full_paths = built.trail_paths
+    num_frames = coords_f32[0].shape[0]
 
     # Animation controls
     play_widget = Play(

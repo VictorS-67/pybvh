@@ -13,12 +13,7 @@ import numpy.typing as npt
 
 from typing import TYPE_CHECKING
 
-from ._scene import (
-    Scene,
-    SkeletonView,
-    UP_AXIS_INDEX,
-    compute_unified_limits,
-)
+from ._scene import Scene, SkeletonView, UP_AXIS_INDEX
 
 if TYPE_CHECKING:
     from ..bvh import Bvh
@@ -120,7 +115,7 @@ def make_scene(
     The Bvh -> Scene adapter. Together with :func:`normalize_input`,
     which turns a Bvh into coords, it is where bvhplot reads a
     :class:`Bvh`; backends only ever see the Scene. Computes, per
-    view, the topology, cubic bounding box, camera angles, floor height
+    view, the topology, camera angles, floor height
     and every skeleton fact the backends draw from (timing, node names,
     rest pose, L/R pairs, orientation, chain classification, root
     heading), so the views are complete once this returns.
@@ -163,7 +158,6 @@ def make_scene(
 
     views: list[SkeletonView] = []
     for i, (b, coords) in enumerate(zip(bvh_list, coords_list)):
-        center, half_span = compute_unified_limits([coords])
         azimuth, elevation, up_axis, forward_axis = _camera_angles_and_forward(
             b, coords[0], camera)
         up_idx = UP_AXIS_INDEX.get(up_axis, 2)
@@ -197,8 +191,6 @@ def make_scene(
             coords=coords,
             bones=bones,
             label=labels[i] if labels and i < len(labels) else None,
-            center=center,
-            half_span=half_span,
             azimuth=azimuth,
             elevation=elevation,
             up=b.world_up,

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, NamedTuple, Sequence
 import numpy as np
 import numpy.typing as npt
 
-from ._scene import GroundFrame, UP_AXIS_INDEX, compute_unified_limits
+from ._scene import GroundFrame, UP_AXIS_INDEX
 
 if TYPE_CHECKING:
     from ._scene import SkeletonView
@@ -333,6 +333,56 @@ def panel_viewports(
     *options* are :func:`make_viewport`'s."""
     return [make_viewport([view], **options)  # type: ignore[arg-type]
             for view in views]
+
+
+# ---------------------------------------------------------------------------
+# The cube (size scale, and the framing of a still)
+# ---------------------------------------------------------------------------
+
+def compute_unified_limits(
+    coords_list: list[npt.NDArray[np.float64]],
+) -> tuple[npt.NDArray[np.float64], float]:
+    """Compute a cubic bounding box encompassing all skeletons and frames.
+
+    The half-span is the larger of the per-frame body size and the
+    trajectory extent from center. This ensures stationary skeletons
+    fill the frame while walking skeletons never clip.
+
+    Parameters
+    ----------
+    coords_list : list of ndarray
+        Each element has shape ``(F, N, 3)`` or ``(N, 3)``.
+
+    Returns
+    -------
+    center : ndarray of shape (3,)
+        Center of the bounding box in world coordinates.
+    half_span : float
+        Half the side length of the cubic bounding box.
+    """
+    global_min = np.full(3, np.inf)
+    global_max = np.full(3, -np.inf)
+    max_body_span = 0.0
+
+    for coords in coords_list:
+        if coords.ndim == 2:
+            coords = coords[np.newaxis]
+        frame_mins = coords.min(axis=1)
+        frame_maxs = coords.max(axis=1)
+        global_min = np.minimum(global_min, frame_mins.min(axis=0))
+        global_max = np.maximum(global_max, frame_maxs.max(axis=0))
+        frame_spans = frame_maxs - frame_mins
+        max_body_span = max(max_body_span, float(frame_spans.max()))
+
+    center = (global_min + global_max) / 2.0
+
+    # half_span must cover both body size AND trajectory extent from center
+    trajectory_half_span = float(
+        np.maximum(global_max - center, center - global_min).max())
+    half_span = max(max_body_span / 2.0, trajectory_half_span)
+    # Add a small margin (5%) so skeleton doesn't touch the edge
+    half_span *= 1.05
+    return center, half_span
 
 
 # ---------------------------------------------------------------------------

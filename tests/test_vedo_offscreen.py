@@ -331,7 +331,8 @@ class TestFloorAgreesAcrossBackends:
             self, monkeypatch):
         scene = self._scene()
         view = scene.views[0]
-        tolerance = 0.005 * view.half_span      # z-fighting nudges only
+        from pybvh.bvhplot._viewport import make_viewport
+        tolerance = 0.005 * make_viewport([view]).half_span  # z-fighting nudges only
         for name, height in (
                 ("vedo offscreen", self._offscreen_floor(scene)),
                 ("vedo viewer", self._viewer_floor(scene, monkeypatch)),

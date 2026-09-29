@@ -11,7 +11,6 @@ import dataclasses
 import numpy as np
 import pytest
 
-from pybvh.bvhplot._scene import compute_unified_limits
 from pybvh.bvhplot._viewport import (
     EYE_DISTANCE,
     FIT_FRACTION,
@@ -21,6 +20,7 @@ from pybvh.bvhplot._viewport import (
     Viewport,
     build_view_matrix,
     compute_follow_azimuths,
+    compute_unified_limits,
     framing_bounds,
     make_viewport,
     panel_viewports,

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from pybvh.bvhplot._scene import Scene, SkeletonView, compute_unified_limits
+from pybvh.bvhplot._scene import Scene, SkeletonView
 
 NODE_NAMES = ["Hips", "Spine", "Head", "LeftArm", "LeftHand",
               "RightArm", "RightHand", "LeftFoot", "RightFoot"]
@@ -55,7 +55,6 @@ def make_array_view(
     coords[:, 6, 2] -= swing
     coords[:, :, 0] += lateral_shift
 
-    center, half_span = compute_unified_limits([coords])
     # root_trajectory's [sin, cos] heading for a character facing +z
     # with y up: the ground basis is (x, z), cos along x, sin along z.
     root_heading = np.tile([1.0, 0.0], (n_frames, 1))
@@ -64,8 +63,6 @@ def make_array_view(
         coords=coords,
         bones=list(BONES),
         label=label,
-        center=center,
-        half_span=half_span,
         azimuth=-20.0,
         elevation=20.0,
         up="+y",

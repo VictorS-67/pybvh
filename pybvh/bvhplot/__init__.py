@@ -323,9 +323,8 @@ def _prepare(
     """Shared setup for all visualization functions.
 
     Returns a :class:`~._scene.Scene` with per-skeleton camera angles
-    and bounding boxes so that side-by-side comparisons of skeletons
-    with different up or forward axes render each one correctly in its
-    own subplot.
+    so that side-by-side comparisons of skeletons with different up or
+    forward axes render each one correctly in its own subplot.
     """
     _VALID_CENTERED = {"world", "skeleton", "first"}
     if centered not in _VALID_CENTERED:
@@ -996,8 +995,7 @@ def play(
     # --- Dispatch ---
     # For single-scene backends (vedo, k3d) there can only be ONE camera
     # and ONE bounding box. We apply lateral spacing so skeletons don't
-    # overlap; the backends read the unified bounding box off the
-    # spread scene themselves.
+    # overlap; the backends make one viewport of the spread scene.
     if backend_name == "k3d":
         try:
             import k3d  # noqa: F401

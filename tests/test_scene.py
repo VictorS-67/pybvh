@@ -18,7 +18,7 @@ from pybvh.bvhplot._from_bvh import (
     get_bone_chains,
     get_camera_angles,
 )
-from pybvh.bvhplot._scene import Scene, SkeletonView, compute_unified_limits
+from pybvh.bvhplot._scene import Scene, SkeletonView
 from pybvh.tools import _resolve_lr_pairs
 from synthetic_bvh import make_nameless_lr_bvh
 from synthetic_scene import make_array_scene, make_array_view
@@ -53,10 +53,6 @@ class TestMakeScene:
         view = scene.views[0]
 
         assert view.bones == get_skeleton_lines(bvh)
-
-        center, half_span = compute_unified_limits([coords])
-        np.testing.assert_allclose(view.center, center)
-        assert view.half_span == half_span
 
         az, el, up = get_camera_angles(bvh, coords[0], "front")
         assert view.azimuth == az
@@ -250,14 +246,12 @@ class TestViewCarriesSkeletonFacts:
 
 
 class TestSceneMethods:
-    def test_unified_box_covers_all_views(self, bvh, coords):
-        shifted = coords + np.array([100.0, 0.0, 0.0])
-        scene = make_scene([bvh, bvh], [coords, shifted], "front", None)
-        center, half_span = scene.unified_box()
-        expected_center, expected_half = compute_unified_limits(
-            [coords, shifted])
-        np.testing.assert_allclose(center, expected_center)
-        assert half_span == expected_half
+    def test_a_view_holds_no_box(self):
+        """What a picture frames is computed when the picture is made,
+        so no Scene operation can leave a stale box behind."""
+        names = {f.name for f in dataclasses.fields(SkeletonView)}
+        assert not names & {"center", "half_span", "lo", "hi"}
+        assert not hasattr(Scene, "unified_box")
 
     def test_subsampled_slices_every_frame_indexed_field(self, bvh, coords):
         scene = make_scene([bvh], [coords], "front", ["lbl"],
@@ -270,9 +264,6 @@ class TestSceneMethods:
             view.root_heading, original.root_heading[::step])
         assert view.frame_time == pytest.approx(original.frame_time * step)
         assert sub.frame_time == view.frame_time
-        center, half_span = compute_unified_limits([coords[::step]])
-        np.testing.assert_allclose(view.center, center)
-        assert view.half_span == half_span
         # untouched by subsampling
         assert view.floor_height == original.floor_height
         assert view.label == "lbl"
@@ -285,14 +276,13 @@ class TestSceneMethods:
         with pytest.raises(ValueError, match="step"):
             scene.subsampled(0)
 
-    def test_offset_moves_coords_center_and_floor_together(self, bvh, coords):
+    def test_offset_moves_coords_and_floor_together(self, bvh, coords):
         scene = make_scene([bvh], [coords], "front", None)
         view = scene.views[0]
         off = np.zeros(3)
         off[view.up_index] = 2.5
         moved = scene.offset([off]).views[0]
         np.testing.assert_allclose(moved.coords, coords + off)
-        np.testing.assert_allclose(moved.center, view.center + off)
         assert moved.floor_height == pytest.approx(view.floor_height + 2.5)
         # translation-invariant facts are kept
         np.testing.assert_array_equal(moved.root_heading, view.root_heading)
@@ -329,9 +319,7 @@ class TestSceneMethods:
         for axis in range(3):
             if axis != lat_idx:
                 assert np.allclose(diff[..., axis], 0.0)
-        # the moved view's box moved with it; its floor did not
-        np.testing.assert_allclose(
-            spread.views[1].center - first.center, diff[0, 0])
+        # a lateral move leaves the floor where it was
         assert spread.views[1].floor_height == first.floor_height
 
     def test_spread_auto_uses_the_first_views_lateral_extent(self, bvh, coords):
@@ -352,7 +340,7 @@ class TestSceneMethods:
     def test_views_are_frozen(self, bvh, coords):
         scene = make_scene([bvh], [coords], "front", None)
         with pytest.raises(Exception):
-            scene.views[0].half_span = 1.0  # type: ignore[misc]
+            scene.views[0].frame_time = 1.0  # type: ignore[misc]
 
 
 class TestViewIsCheckedAtConstruction:
@@ -375,7 +363,6 @@ class TestViewIsCheckedAtConstruction:
         (dict(up="up"), "up must be one of"),
         (dict(forward_axis="z"), "forward_axis must be one of"),
         (dict(forward_axis="-y"), "lies along the up axis"),
-        (dict(center=np.zeros(2)), "center must have shape"),
         (dict(node_names=["only"]), "node_names has 1 entries"),
         (dict(rest_coords=np.zeros((4, 3))), "rest_coords must have shape"),
         (dict(bone_chains=["spine"]), "bone_chains has 1 entries"),
@@ -448,7 +435,7 @@ class TestViewArraysAreReadOnly:
     shared between a Scene and the ones derived from it, so a write
     would change several Scenes at once."""
 
-    ARRAYS = ["coords", "center", "rest_coords", "lr_pairs", "root_heading"]
+    ARRAYS = ["coords", "rest_coords", "lr_pairs", "root_heading"]
 
     @pytest.mark.parametrize("name", ARRAYS)
     def test_writing_into_a_views_array_raises(self, name):
@@ -503,8 +490,9 @@ class TestViewArraysAreReadOnly:
 
     def test_array_likes_are_accepted(self):
         view = dataclasses.replace(
-            make_array_view(), center=[0.0, 1.0, 0.0], lr_pairs=[[3, 5]])
-        assert view.center.shape == (3,)
+            make_array_view(), rest_coords=make_array_view().rest_coords.tolist(),
+            lr_pairs=[[3, 5]])
+        assert view.rest_coords.shape == (9, 3)
         assert view.lr_pairs.shape == (1, 2)
 
 

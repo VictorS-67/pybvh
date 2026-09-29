@@ -11,8 +11,12 @@ from pybvh.bvhplot._from_bvh import (
     normalize_input,
     get_camera_angles,
 )
-from pybvh.bvhplot._viewport import build_view_matrix, ortho_project
-from pybvh.bvhplot._scene import compute_unified_limits, align_frame_counts
+from pybvh.bvhplot._viewport import (
+    build_view_matrix,
+    compute_unified_limits,
+    ortho_project,
+)
+from pybvh.bvhplot._scene import align_frame_counts
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
 
@@ -1284,15 +1288,20 @@ class TestSceneSpacing:
         assert not np.allclose(diff[:, :, lat_idx], 0.0), "Lateral axis should shift"
         assert np.allclose(diff[:, :, up_idx], 0.0), "Up axis must not shift"
 
-    def test_spread_keeps_box_and_floor_consistent(self, two_bvhs, two_coords):
-        """The moved view's box moves with its coords; the floor stays."""
-        from pybvh.bvhplot._scene import compute_unified_limits
+    def test_spread_moves_what_is_framed_and_keeps_the_floor(
+            self, two_bvhs, two_coords):
+        """A picture of the moved view is framed where the view went;
+        a lateral move leaves the floor where it was."""
+        from pybvh.bvhplot._viewport import make_viewport
         scene = self._scene(two_bvhs, two_coords)
         result = scene.spread(3.0)
         for before, after in zip(scene.views, result.views):
-            center, half_span = compute_unified_limits([after.coords])
-            np.testing.assert_allclose(after.center, center)
-            assert after.half_span == half_span
+            shift = after.coords[0, 0] - before.coords[0, 0]
+            np.testing.assert_allclose(
+                make_viewport([after]).center,
+                make_viewport([before]).center + shift)
+            assert (make_viewport([after]).half_span
+                    == pytest.approx(make_viewport([before]).half_span))
             assert after.floor_height == before.floor_height
 
     # ------------------------------------------------------------------

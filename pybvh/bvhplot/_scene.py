@@ -1,7 +1,7 @@
 """The Scene every bvhplot backend consumes.
 
 Pure data: :class:`SkeletonView`, :class:`Scene`, the operations that
-change a Scene, and the array helpers they rest on. No plotting library
+change a Scene, and the helper that aligns frame counts. No plotting library
 imports and no imports from the pybvh core; a Scene is built from a
 :class:`~pybvh.bvh.Bvh` in :mod:`._from_bvh`, or from plain arrays.
 """
@@ -80,9 +80,12 @@ class SkeletonView(GroundFrame):
     """Everything a backend needs to draw one skeleton in its own panel.
 
     A dumb data container — no plotting imports, no behavior beyond
-    field access. Camera and bounding box are per-view because
-    side-by-side comparisons of skeletons with different up or forward
-    axes need each panel oriented and framed independently.
+    field access. The camera angles are per-view because side-by-side
+    comparisons of skeletons with different up or forward axes need
+    each panel oriented independently. A view holds no bounding box:
+    what a picture frames is computed from the coords when the picture
+    is made (:func:`~._viewport.make_viewport`), so no operation on a
+    Scene can leave a box behind that no longer fits.
 
     The view is complete: every fact a backend needs about the skeleton
     (its timing, names, rest pose, left/right pairing, orientation and
@@ -134,14 +137,14 @@ class SkeletonView(GroundFrame):
       the facing geometry averages; end-site pairs are deliberately
       excluded so follow azimuths match the Bvh path bit for bit.
     - Arrays are read-only and borrowed. A view stores a read-only
-      NumPy view of each array it is given (``coords``, ``center``,
+      NumPy view of each array it is given (``coords``,
       ``rest_coords``, ``lr_pairs``, ``root_heading``), so writing into
       one through the view raises. That matters because storage is
       shared: no array is copied at construction, and a Scene operation
       may share storage with its source (``subsampled`` shares
       ``coords`` and ``root_heading``; ``offset`` allocates new coords
       and shares the heading), so a write through one Scene would
-      change another while both boxes went stale. The alternative,
+      change another. The alternative,
       copying, would double the memory of every clip drawn. The array
       the caller passed in keeps its own flags; writing into *it*
       afterwards still changes what the view shows, which is the
@@ -154,8 +157,6 @@ class SkeletonView(GroundFrame):
     coords: npt.NDArray[np.float64]        # (F, N, 3)
     bones: list[tuple[int, int]]           # (parent_idx, child_idx) pairs
     label: str | None
-    center: npt.NDArray[np.float64]        # (3,) cubic-box center
-    half_span: float                       # cubic-box half side
     azimuth: float                         # degrees
     elevation: float                       # degrees
     up: str                                # signed world-up axis, e.g. '+y', '-z'
@@ -187,9 +188,6 @@ class SkeletonView(GroundFrame):
                 f"forward_axis {self.forward_axis!r} lies along the up "
                 f"axis {self.up!r}; forward is a ground direction.")
 
-        if np.shape(self.center) != (3,):
-            raise ValueError(
-                f"center must have shape (3,), got {np.shape(self.center)}.")
         if len(self.node_names) != num_nodes:
             raise ValueError(
                 f"node_names has {len(self.node_names)} entries but coords "
@@ -234,8 +232,7 @@ class SkeletonView(GroundFrame):
 
         self._protect_arrays()
 
-    _ARRAY_FIELDS = ("coords", "center", "rest_coords", "lr_pairs",
-                     "root_heading")
+    _ARRAY_FIELDS = ("coords", "rest_coords", "lr_pairs", "root_heading")
 
     def _protect_arrays(self) -> None:
         """Swap each array field for a read-only view of itself."""
@@ -258,9 +255,10 @@ class SkeletonView(GroundFrame):
 class Scene:
     """A prepared visualization: the single input every backend consumes.
 
-    Multi-panel backends (matplotlib, OpenCV) iterate :attr:`views`;
-    single-scene backends (k3d, vedo) call :meth:`unified_box` for the
-    one shared bounding box and take the camera from ``views[0]``.
+    Multi-panel backends (matplotlib, OpenCV) iterate :attr:`views`
+    and make one viewport per view; single-scene backends (k3d, vedo)
+    make one viewport of all the views, whose camera is the first
+    view's.
 
     A Scene has at least one view, and all its views hold the same
     number of frames: backends step every view with one frame counter,
@@ -306,10 +304,6 @@ class Scene:
         """
         return self.views[0].frame_time
 
-    def unified_box(self) -> tuple[npt.NDArray[np.float64], float]:
-        """Cubic bounding box covering every view's coords."""
-        return compute_unified_limits([v.coords for v in self.views])
-
     def subsampled(self, step: int) -> Scene:
         """Every ``step``-th frame of every view, as a new Scene.
 
@@ -319,8 +313,7 @@ class Scene:
         time; up to ``step - 1`` trailing frames are dropped, so the
         span from the first to the last kept sample can shorten by that
         many original intervals and the last frame is not necessarily
-        kept. Each view's box is recomputed from the kept
-        frames. The floor is kept as is: it describes the whole clip
+        kept. The floor is kept as is: it describes the whole clip
         (the canonical floor is a clip-wide estimate, the coords floor
         the full clip's extreme), and a plane that sits where the full
         clip's ground was is the honest one for a preview of it. The
@@ -331,19 +324,17 @@ class Scene:
             raise ValueError(f"step must be >= 1, got {step}.")
         views = []
         for v in self.views:
-            coords = v.coords[::step]
-            center, half_span = compute_unified_limits([coords])
             heading = (None if v.root_heading is None
                        else v.root_heading[::step])
             views.append(dataclasses.replace(
-                v, coords=coords, center=center, half_span=half_span,
+                v, coords=v.coords[::step],
                 frame_time=v.frame_time * step, root_heading=heading))
         return Scene(views=views)
 
     def offset(self, offsets: list[npt.NDArray[np.float64]]) -> Scene:
         """Translate each view by its own ``(3,)`` vector, as a new Scene.
 
-        Moves ``coords`` and ``center``, and ``floor_height`` by the
+        Moves ``coords``, and ``floor_height`` by the
         offset's component along the view's up axis, so the plane stays
         under the feet. Orientation, heading and timing are
         translation-invariant and are kept.
@@ -357,7 +348,6 @@ class Scene:
             views.append(dataclasses.replace(
                 v,
                 coords=v.coords + off,
-                center=v.center + off,
                 floor_height=v.floor_height + float(off[v.up_index])))
         return Scene(views=views)
 
@@ -395,56 +385,6 @@ class Scene:
         unit[lat_idx] = 1.0  # always the positive lateral direction
         return self.offset(
             [unit * k * effective for k in range(len(self.views))])
-
-
-# ---------------------------------------------------------------------------
-# Bounding box / axis limits
-# ---------------------------------------------------------------------------
-
-def compute_unified_limits(
-    coords_list: list[npt.NDArray[np.float64]],
-) -> tuple[npt.NDArray[np.float64], float]:
-    """Compute a cubic bounding box encompassing all skeletons and frames.
-
-    The half-span is the larger of the per-frame body size and the
-    trajectory extent from center. This ensures stationary skeletons
-    fill the frame while walking skeletons never clip.
-
-    Parameters
-    ----------
-    coords_list : list of ndarray
-        Each element has shape ``(F, N, 3)`` or ``(N, 3)``.
-
-    Returns
-    -------
-    center : ndarray of shape (3,)
-        Center of the bounding box in world coordinates.
-    half_span : float
-        Half the side length of the cubic bounding box.
-    """
-    global_min = np.full(3, np.inf)
-    global_max = np.full(3, -np.inf)
-    max_body_span = 0.0
-
-    for coords in coords_list:
-        if coords.ndim == 2:
-            coords = coords[np.newaxis]
-        frame_mins = coords.min(axis=1)
-        frame_maxs = coords.max(axis=1)
-        global_min = np.minimum(global_min, frame_mins.min(axis=0))
-        global_max = np.maximum(global_max, frame_maxs.max(axis=0))
-        frame_spans = frame_maxs - frame_mins
-        max_body_span = max(max_body_span, float(frame_spans.max()))
-
-    center = (global_min + global_max) / 2.0
-
-    # half_span must cover both body size AND trajectory extent from center
-    trajectory_half_span = float(
-        np.maximum(global_max - center, center - global_min).max())
-    half_span = max(max_body_span / 2.0, trajectory_half_span)
-    # Add a small margin (5%) so skeleton doesn't touch the edge
-    half_span *= 1.05
-    return center, half_span
 
 
 # ---------------------------------------------------------------------------

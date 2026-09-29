@@ -62,3 +62,4 @@ Used by `/wayfinder`. The **map** is a file with one **child** file per ticket.
 - **Frontier**: scan `.scratch/<effort>/issues/` for files that are open, unblocked, and unclaimed; first by number wins.
 - **Claim**: set `Status: claimed` and save before any work.
 - **Resolve**: append the answer under an `## Answer` heading, set `Status: resolved`, then append a context pointer (gist + link) to the map's Decisions-so-far in `map.md`.
+- **Rule out of scope** (where the skill says to close a ticket without resolving it): set `Status: out-of-scope`, which unblocks the tickets it blocks as `resolved` does, then append one line (gist + why + link) to the map's Out of scope section in `map.md`, not to Decisions-so-far.

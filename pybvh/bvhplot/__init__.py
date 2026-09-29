@@ -43,15 +43,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ._common import (
-    Scene,
     Style,
     get_skeleton_lines,   # noqa: F401 — re-export (public since 0.5.0)
     make_scene,
     normalize_input,
-    align_frame_counts,
     resolve_style,
-    UP_AXIS_INDEX,
 )
+from ._scene import Scene, align_frame_counts, UP_AXIS_INDEX
 
 __all__ = [
     "Style", "rest_pose", "frame", "sequence", "render", "play",
@@ -325,7 +323,7 @@ def _prepare(
 ) -> Scene:
     """Shared setup for all visualization functions.
 
-    Returns a :class:`~._common.Scene` with per-skeleton camera angles
+    Returns a :class:`~._scene.Scene` with per-skeleton camera angles
     and bounding boxes so that side-by-side comparisons of skeletons
     with different up or forward axes render each one correctly in its
     own subplot.

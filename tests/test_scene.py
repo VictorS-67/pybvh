@@ -11,14 +11,12 @@ import pytest
 from pybvh import read_bvh_file
 from pybvh.analysis import root_trajectory
 from pybvh.bvhplot._common import (
-    Scene,
-    SkeletonView,
     make_scene,
     get_skeleton_lines,
     get_bone_chains,
-    compute_unified_limits,
     get_camera_angles,
 )
+from pybvh.bvhplot._scene import Scene, SkeletonView, compute_unified_limits
 from pybvh.tools import _resolve_lr_pairs
 from synthetic_bvh import make_nameless_lr_bvh
 
@@ -313,12 +311,17 @@ class TestSceneMethods:
 
 
 # The pybvh modules that know what a Bvh is. A backend draws a Scene; it
-# must not take anything from these at runtime, and _common may only do so
-# inside the functions that turn a Bvh into a Scene.
+# must not take anything from these at runtime, the Scene's own module
+# must not either, and _common may only do so inside the functions that
+# turn a Bvh into a Scene.
 _CORE_MODULES = {"bvh", "bvhnode", "tools", "analysis", "transforms",
                  "spatial_coord", "batch", "features", "io", "df_to_bvh"}
 _BACKENDS = ["_matplotlib", "_opencv", "_k3d", "_vedo", "_vedo_offscreen",
              "_vedo_capsules", "_colors", "_playback"]
+# Pure data: no plotting library may be imported here.
+_PURE_DATA = ["_common", "_scene"]
+# Modules that take nothing from the core at runtime.
+_CORE_FREE = _BACKENDS + ["_scene"]
 # The Bvh -> Scene adapter functions in _common.
 _COMMON_ADAPTERS = {"make_scene", "get_camera_angles",
                     "_camera_angles_and_forward", "get_skeleton_lines",
@@ -529,11 +532,13 @@ class TestCoreImportGuard:
 
 
 class TestSceneIsPureData:
-    def test_no_plotting_imports_in_common(self):
-        """_common (Scene's home) must never import a plotting library."""
-        import pybvh.bvhplot._common as common
+    @pytest.mark.parametrize("module_name", _PURE_DATA)
+    def test_no_plotting_imports_in_pure_data_modules(self, module_name):
+        """The Scene's home and the shared helpers must never import a
+        plotting library."""
+        module = importlib.import_module(f"pybvh.bvhplot.{module_name}")
 
-        tree = ast.parse(open(common.__file__).read())
+        tree = ast.parse(open(module.__file__).read())
         imported: set[str] = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -544,7 +549,7 @@ class TestSceneIsPureData:
 
         forbidden = {"matplotlib", "cv2", "k3d", "vedo", "PIL", "vtk"}
         assert not (imported & forbidden), (
-            f"_common.py must stay plotting-free but imports "
+            f"{module_name} must stay plotting-free but imports "
             f"{sorted(imported & forbidden)}")
 
     def test_view_has_no_bvh_field(self):
@@ -552,10 +557,11 @@ class TestSceneIsPureData:
         names = {f.name for f in dataclasses.fields(SkeletonView)}
         assert "bvh" not in names
 
-    @pytest.mark.parametrize("backend", _BACKENDS)
+    @pytest.mark.parametrize("backend", _CORE_FREE)
     def test_backends_take_nothing_from_the_core_at_runtime(self, backend):
         """A backend consumes a Scene and a Style; it never reaches into
-        Bvh, tools or analysis. Type-only imports are allowed."""
+        Bvh, tools or analysis, and neither does the Scene's own module.
+        Type-only imports are allowed."""
         offenders = _core_imports(backend)
         assert offenders == [], (
             f"{backend} imports core modules at runtime: {offenders}")

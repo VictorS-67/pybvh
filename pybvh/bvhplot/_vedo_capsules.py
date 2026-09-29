@@ -14,7 +14,7 @@ import numpy.typing as npt
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ._common import SkeletonView
+    from ._scene import SkeletonView
 
 
 LENGTH_BOOST = (1.0, 1.5)   # long bones get plumper; short ones never thinner

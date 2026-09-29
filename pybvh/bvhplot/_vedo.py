@@ -22,12 +22,11 @@ from typing import Callable, TypedDict
 
 from ._common import (
     PALETTE_RGB,
-    Scene,
     Style,
     build_view_matrix,
     effective_color_mode,
-    UP_AXIS_INDEX,
 )
+from ._scene import Scene, UP_AXIS_INDEX
 from ._colors import bone_colors_255, floor_palette, rgb255
 from ._playback import PlaybackClock
 from ._vedo_capsules import CapsuleSkeleton

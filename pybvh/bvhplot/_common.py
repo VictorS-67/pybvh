@@ -17,223 +17,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..bvh import Bvh
 
-UP_AXIS_INDEX = {'x': 0, 'y': 1, 'z': 2}
+from ._scene import Scene, SkeletonView, UP_AXIS_INDEX, compute_unified_limits
 
 
 # ---------------------------------------------------------------------------
-# Scene container
+# Scene construction
 # ---------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class SkeletonView:
-    """Everything a backend needs to draw one skeleton in its own panel.
-
-    A dumb data container — no plotting imports, no behavior beyond
-    field access. Camera and bounding box are per-view because
-    side-by-side comparisons of skeletons with different up or forward
-    axes need each panel oriented and framed independently.
-
-    The view is complete: every fact a backend needs about the skeleton
-    (its timing, names, rest pose, left/right pairing, orientation and
-    chain classification) is a field, so a view built from plain arrays
-    with no :class:`Bvh` behind it draws exactly like one made by
-    :func:`make_scene`. Frame-indexed fields (``coords``,
-    ``root_heading``) always share their first axis.
-
-    Conventions the fields follow:
-
-    - ``root_heading`` is ``[sin(theta), cos(theta)]`` of
-      :func:`~pybvh.analysis.root_trajectory`'s heading angle
-      ``theta = atan2(f[b], f[a])``, where ``f`` is the rest-pose
-      forward rotated by the root rotation and ``(a, b)`` are the two
-      ground axes in natural ``x, y, z`` order with the up axis removed
-      (``(x, z)`` for a y-up rig). It is a ground-plane angle, not a
-      signed rotation about the up vector: for ``+y`` up, a positive
-      rotation about ``+y`` decreases it. Orientation-derived and
-      continuous; ``None`` when the coords are not the clip's.
-    - ``forward_axis`` is a different quantity: the facing of coordinate
-      row 0 (not necessarily clip frame 0) computed from the L/R joint
-      geometry and snapped to the dominant signed axis, the value the
-      ``"front"`` camera preset is derived from. Follow-camera math
-      never reads it; it reads ``coords``, ``lr_pairs`` and
-      ``up_vector`` directly.
-    - ``lr_pairs`` are joint pairs only, in node index space, the pairs
-      the facing geometry averages; end-site pairs are deliberately
-      excluded so follow azimuths match the Bvh path bit for bit.
-    - ``up_axis``, ``up_vector`` and ``up_sign`` describe one signed
-      axis three ways and must agree: geometry reads ``up_vector``,
-      floor and shadow offsets read ``up_axis`` and ``up_sign``. A view
-      built from arrays is responsible for their consistency; nothing
-      checks it yet.
-    - Arrays are borrowed, not owned: a Scene operation may share array
-      storage with its source (``subsampled`` shares ``coords`` and
-      ``root_heading``; ``offset`` allocates new coords and shares the
-      heading), and ``frozen`` forbids field reassignment only. Change
-      a Scene through its operations; never mutate a view's arrays in
-      place.
-    """
-
-    coords: npt.NDArray[np.float64]        # (F, N, 3)
-    bones: list[tuple[int, int]]           # (parent_idx, child_idx) pairs
-    label: str | None
-    center: npt.NDArray[np.float64]        # (3,) cubic-box center
-    half_span: float                       # cubic-box half side
-    azimuth: float                         # degrees
-    elevation: float                       # degrees
-    up_axis: str                           # 'x' | 'y' | 'z'
-    floor_height: float                    # scene ground along up_axis
-    frame_time: float                      # seconds per frame
-    node_names: list[str]                  # parallel to the N axis
-    rest_coords: npt.NDArray[np.float64]   # (N, 3) rest pose, root at origin
-    lr_pairs: npt.NDArray[np.intp]         # (P, 2) joint L/R pairs in node index space, the facing geometry's; (0, 2) if none
-    up_vector: npt.NDArray[np.float64]     # (3,) signed world-up unit vector
-    forward_axis: str                      # snapped facing of coords row 0, e.g. '+y'
-    bone_chains: list[str]                 # chain name per bone, parallel to ``bones``
-    root_heading: npt.NDArray[np.float64] | None  # (F, 2) [sin, cos] or None
-    up_sign: float = 1.0                   # +1 for '+y' etc., -1 for '-y'
-
-    @property
-    def up_index(self) -> int:
-        return UP_AXIS_INDEX.get(self.up_axis, 2)
-
-    def below_floor(self, distance: float) -> float:
-        """The coordinate *distance* visually below the floor plane.
-
-        "Below" follows the signed up axis: for a '-y'-up rig the
-        ground sits at the coordinate MAXIMUM, so below means +y.
-        Backends use this for z-fighting nudges and shadow offsets so
-        negative-up rigs get their floor under the feet, not overhead.
-        """
-        return self.floor_height - self.up_sign * distance
-
-
-@dataclass(frozen=True)
-class Scene:
-    """A prepared visualization: the single input every backend consumes.
-
-    Multi-panel backends (matplotlib, OpenCV) iterate :attr:`views`;
-    single-scene backends (k3d, vedo) call :meth:`unified_box` for the
-    one shared bounding box and take the camera from ``views[0]``.
-    """
-
-    views: list[SkeletonView]
-
-    @property
-    def num_frames(self) -> int:
-        return int(self.views[0].coords.shape[0])
-
-    @property
-    def num_skeletons(self) -> int:
-        return len(self.views)
-
-    @property
-    def labels(self) -> list[str | None] | None:
-        """Per-view labels, or ``None`` when no view is labelled."""
-        labels = [v.label for v in self.views]
-        return labels if any(lbl is not None for lbl in labels) else None
-
-    @property
-    def frame_time(self) -> float:
-        """Seconds per frame, from the first view.
-
-        The animated entry points offer to resample the clips to a
-        common rate before the Scene is built (``match_fps``), but the
-        default only warns on a mismatch, so views can disagree. The
-        first view's timing then drives playback and the others play at
-        its rate. The static entry points never read it.
-        """
-        return self.views[0].frame_time
-
-    def unified_box(self) -> tuple[npt.NDArray[np.float64], float]:
-        """Cubic bounding box covering every view's coords."""
-        return compute_unified_limits([v.coords for v in self.views])
-
-    def subsampled(self, step: int) -> Scene:
-        """Every ``step``-th frame of every view, as a new Scene.
-
-        Slices ``coords`` and every other frame-indexed field
-        (``root_heading``) with ``[::step]`` and scales ``frame_time`` by
-        ``step``, so the kept frames stay at their original moments in
-        time; up to ``step - 1`` trailing frames are dropped, so the
-        span from the first to the last kept sample can shorten by that
-        many original intervals and the last frame is not necessarily
-        kept. Each view's box is recomputed from the kept
-        frames. The floor is kept as is: it describes the whole clip
-        (the canonical floor is a clip-wide estimate, the coords floor
-        the full clip's extreme), and a plane that sits where the full
-        clip's ground was is the honest one for a preview of it. The
-        alternative, recomputing from the kept frames, would move the
-        ground between the full and the subsampled view of one clip.
-        """
-        if step < 1:
-            raise ValueError(f"step must be >= 1, got {step}.")
-        views = []
-        for v in self.views:
-            coords = v.coords[::step]
-            center, half_span = compute_unified_limits([coords])
-            heading = (None if v.root_heading is None
-                       else v.root_heading[::step])
-            views.append(dataclasses.replace(
-                v, coords=coords, center=center, half_span=half_span,
-                frame_time=v.frame_time * step, root_heading=heading))
-        return Scene(views=views)
-
-    def offset(self, offsets: list[npt.NDArray[np.float64]]) -> Scene:
-        """Translate each view by its own ``(3,)`` vector, as a new Scene.
-
-        Moves ``coords`` and ``center``, and ``floor_height`` by the
-        offset's component along the view's up axis, so the plane stays
-        under the feet. Orientation, heading and timing are
-        translation-invariant and are kept.
-        """
-        if len(offsets) != len(self.views):
-            raise ValueError(
-                f"Expected {len(self.views)} offsets, got {len(offsets)}.")
-        views = []
-        for v, off in zip(self.views, offsets):
-            off = np.asarray(off, dtype=np.float64).reshape(3)
-            views.append(dataclasses.replace(
-                v,
-                coords=v.coords + off,
-                center=v.center + off,
-                floor_height=v.floor_height + float(off[v.up_index])))
-        return Scene(views=views)
-
-    def spread(self, spacing: float | str) -> Scene:
-        """Offset the views laterally so skeletons sharing one 3-D scene
-        do not overlap.
-
-        For the single-scene backends (k3d, vedo); multi-panel backends
-        draw each view in its own axes and never need it. The lateral
-        axis is the one that is neither the first view's up axis nor its
-        forward axis at frame 0. ``"auto"`` spaces by 1.2 × the first
-        view's lateral extent (at least 0.1 scene units); a float is
-        used directly, in scene units. View ``k`` moves by
-        ``k × spacing`` in the positive lateral direction. Whether to
-        spread at all is the caller's policy (``play`` respects raw
-        world coordinates under ``"auto"``).
-        """
-        if len(self.views) <= 1:
-            return self
-        first = self.views[0]
-        up_idx = first.up_index
-        fwd_idx = UP_AXIS_INDEX.get(first.forward_axis[1], 0)
-        lat_idx = next(i for i in range(3) if i != up_idx and i != fwd_idx)
-
-        if spacing == "auto":
-            lateral = first.coords[..., lat_idx]
-            width = float(lateral.max() - lateral.min())
-            effective = max(width, 0.1) * 1.2
-        else:
-            effective = float(spacing)
-        if effective == 0.0:
-            return self
-
-        unit = np.zeros(3)
-        unit[lat_idx] = 1.0  # always the positive lateral direction
-        return self.offset(
-            [unit * k * effective for k in range(len(self.views))])
-
 
 def make_scene(
     bvh_list: list[Bvh],
@@ -480,54 +269,8 @@ def normalize_input(
 
 
 # ---------------------------------------------------------------------------
-# Bounding box / axis limits
+# Framing box (animated output)
 # ---------------------------------------------------------------------------
-
-def compute_unified_limits(
-    coords_list: list[npt.NDArray[np.float64]],
-) -> tuple[npt.NDArray[np.float64], float]:
-    """Compute a cubic bounding box encompassing all skeletons and frames.
-
-    The half-span is the larger of the per-frame body size and the
-    trajectory extent from center. This ensures stationary skeletons
-    fill the frame while walking skeletons never clip.
-
-    Parameters
-    ----------
-    coords_list : list of ndarray
-        Each element has shape ``(F, N, 3)`` or ``(N, 3)``.
-
-    Returns
-    -------
-    center : ndarray of shape (3,)
-        Center of the bounding box in world coordinates.
-    half_span : float
-        Half the side length of the cubic bounding box.
-    """
-    global_min = np.full(3, np.inf)
-    global_max = np.full(3, -np.inf)
-    max_body_span = 0.0
-
-    for coords in coords_list:
-        if coords.ndim == 2:
-            coords = coords[np.newaxis]
-        frame_mins = coords.min(axis=1)
-        frame_maxs = coords.max(axis=1)
-        global_min = np.minimum(global_min, frame_mins.min(axis=0))
-        global_max = np.maximum(global_max, frame_maxs.max(axis=0))
-        frame_spans = frame_maxs - frame_mins
-        max_body_span = max(max_body_span, float(frame_spans.max()))
-
-    center = (global_min + global_max) / 2.0
-
-    # half_span must cover both body size AND trajectory extent from center
-    trajectory_half_span = float(
-        np.maximum(global_max - center, center - global_min).max())
-    half_span = max(max_body_span / 2.0, trajectory_half_span)
-    # Add a small margin (5%) so skeleton doesn't touch the edge
-    half_span *= 1.05
-    return center, half_span
-
 
 # Fraction of the framing box left as breathing room around the motion.
 FRAMING_MARGIN = 0.04
@@ -742,6 +485,10 @@ def ghost_schedule(
     return lag, weights
 
 
+# ---------------------------------------------------------------------------
+# Ground path
+# ---------------------------------------------------------------------------
+
 def floor_trace_points(
     view: SkeletonView,
     start: int = 0,
@@ -757,6 +504,10 @@ def floor_trace_points(
     path[:, view.up_index] = view.floor_height
     return path
 
+
+# ---------------------------------------------------------------------------
+# Azimuth schedules
+# ---------------------------------------------------------------------------
 
 def turntable_azimuths(
     base_azim: float,
@@ -958,52 +709,6 @@ def ortho_project(
     py = h / 2.0 - viewed[:, 1] * scale  # flip y for image coords
 
     return np.stack([px, py], axis=-1).astype(np.int32)
-
-
-# ---------------------------------------------------------------------------
-# Frame count alignment
-# ---------------------------------------------------------------------------
-
-def align_frame_counts(
-    coords_list: list[npt.NDArray[np.float64]],
-    pad: bool = False,
-) -> list[npt.NDArray[np.float64]]:
-    """Align all coordinate arrays to the same frame count.
-
-    When comparing multiple skeletons with different frame counts,
-    arrays are either truncated to the minimum or padded to the
-    maximum (by repeating the last frame).
-
-    Parameters
-    ----------
-    coords_list : list of ndarray
-        Each element has shape ``(F, N, 3)``.
-    pad : bool, optional
-        If ``False`` (default), truncate to the shortest clip.
-        If ``True``, pad shorter clips by repeating their last frame
-        so all clips match the longest.
-
-    Returns
-    -------
-    coords_list : list of ndarray
-        Arrays all with the same frame count.
-    """
-    if len(coords_list) <= 1:
-        return coords_list
-
-    if not pad:
-        min_frames = min(c.shape[0] for c in coords_list)
-        return [c[:min_frames] for c in coords_list]
-
-    max_frames = max(c.shape[0] for c in coords_list)
-    result = []
-    for c in coords_list:
-        if c.shape[0] < max_frames:
-            pad_count = max_frames - c.shape[0]
-            last_frame = c[-1:].repeat(pad_count, axis=0)
-            c = np.concatenate([c, last_frame], axis=0)
-        result.append(c)
-    return result
 
 
 # ---------------------------------------------------------------------------

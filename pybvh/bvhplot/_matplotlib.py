@@ -24,17 +24,15 @@ from mpl_toolkits.mplot3d.axes3d import Axes3D
 from ._common import (
     GHOST_WIDTH_FACTOR,
     PALETTE_MPL,
-    Scene,
-    SkeletonView,
     Style,
     TRACE_BLEND,
     TRACE_COLOR,
-    UP_AXIS_INDEX,
     bone_colors_for_view,
     floor_trace_points,
     framing_bounds,
     ghost_schedule,
 )
+from ._scene import Scene, SkeletonView, UP_AXIS_INDEX
 from ._colors import floor_palette
 
 # mplot3d sizes its default margins for a cube free to rotate to any

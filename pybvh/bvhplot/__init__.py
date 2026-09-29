@@ -48,7 +48,7 @@ from ._from_bvh import (
     normalize_input,
 )
 from ._style import Style, resolve_style
-from ._scene import Scene, align_frame_counts, UP_AXIS_INDEX
+from ._scene import Scene, align_frame_counts
 
 __all__ = [
     "Style", "rest_pose", "frame", "sequence", "render", "play",

@@ -185,7 +185,7 @@ class TestReviewFixes:
 
     def test_mpl_ghosts_render_under_live_skeleton(self, bvh, tmp_path):
         """Ghost collections carry zorder 1.5, below the live bones (2)."""
-        from pybvh.bvhplot._common import make_scene
+        from pybvh.bvhplot._from_bvh import make_scene
         from pybvh.bvhplot import _matplotlib as m
         import matplotlib.pyplot as mplt
         coords = bvh.node_positions()[:50]
@@ -203,7 +203,7 @@ class TestReviewFixes:
         """A panel's floor must not bleed into its neighbor: the left
         panel of a 2-up render equals the same view rendered alone."""
         cv2 = pytest.importorskip("cv2")
-        from pybvh.bvhplot._common import make_scene
+        from pybvh.bvhplot._from_bvh import make_scene
         from pybvh.bvhplot._opencv import _generate_frames
         from pybvh.bvhplot import Style
         # force chains so the multi-skeleton auto-switch can't recolor

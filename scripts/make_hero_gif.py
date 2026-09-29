@@ -25,7 +25,7 @@ import numpy as np                       # noqa: E402
 
 import pybvh                             # noqa: E402
 from pybvh import bvhplot                # noqa: E402
-from pybvh.bvhplot._common import get_camera_angles  # noqa: E402
+from pybvh.bvhplot._from_bvh import get_camera_angles  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 CLIP = REPO / "bvh_data" / "bvh_test1.bvh"

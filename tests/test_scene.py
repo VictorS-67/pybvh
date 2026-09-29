@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import ast
 import dataclasses
-import importlib
+import pathlib
 
 import numpy as np
 import pytest
 
-from pybvh import read_bvh_file
+from pybvh import bvhplot, read_bvh_file
 from pybvh.analysis import root_trajectory
-from pybvh.bvhplot._common import (
+from pybvh.bvhplot._from_bvh import (
     make_scene,
     get_skeleton_lines,
     get_bone_chains,
@@ -310,25 +310,38 @@ class TestSceneMethods:
             scene.views[0].half_span = 1.0  # type: ignore[misc]
 
 
-# The pybvh modules that know what a Bvh is. A backend draws a Scene; it
-# must not take anything from these at runtime, the Scene's own module
-# must not either, and _common may only do so inside the functions that
-# turn a Bvh into a Scene.
+# The pybvh modules that know what a Bvh is. bvhplot keeps them behind a
+# module boundary: the router and _from_bvh are the Bvh-facing layer, and
+# only the router imports _from_bvh; every other module draws or computes
+# from the Scene and takes nothing from the core at runtime, except the
+# viewport, which may take array kernels.
 _CORE_MODULES = {"bvh", "bvhnode", "tools", "analysis", "transforms",
                  "spatial_coord", "batch", "features", "io", "df_to_bvh"}
-_BACKENDS = ["_matplotlib", "_opencv", "_k3d", "_vedo", "_vedo_offscreen",
-             "_vedo_capsules", "_colors", "_playback"]
+_ROUTER = "__init__"
+_BVH_READER = "_from_bvh"
 # Pure data: no plotting library may be imported here.
-_PURE_DATA = ["_common", "_scene", "_viewport", "_style"]
-# Modules that take nothing from the core at runtime.
-_CORE_FREE = _BACKENDS + ["_scene", "_style"]
-# The Bvh -> Scene adapter functions in _common.
-_COMMON_ADAPTERS = {"make_scene", "get_camera_angles",
-                    "_camera_angles_and_forward", "get_skeleton_lines",
-                    "get_bone_chains"}
+_PURE_DATA = ["_scene", "_viewport", "_style", "_from_bvh"]
 # Array-pure kernels the viewport may take from pybvh.tools: they take
 # arrays, never a Bvh.
 _VIEWPORT_KERNELS = {"_leftward_units_from_pairs"}
+
+
+def _bvhplot_modules() -> list[str]:
+    """Every top-level module of the package, read from disk: a module
+    added later is guarded without anyone remembering to list it.
+
+    bvhplot is a flat package, and ``test_the_package_is_flat`` keeps it
+    so: the guards resolve imports relative to the package root and
+    would not see into a subpackage."""
+    package_dir = pathlib.Path(bvhplot.__file__).parent
+    return sorted(path.stem for path in package_dir.glob("*.py"))
+
+
+# Everything except the router and the Bvh reader.
+_BEHIND_THE_BOUNDARY = [name for name in _bvhplot_modules()
+                        if name not in (_ROUTER, _BVH_READER)]
+# ... of which the viewport alone may take array kernels from the core.
+_CORE_FREE = [name for name in _BEHIND_THE_BOUNDARY if name != "_viewport"]
 
 
 def _is_core_module(dotted: str, level: int) -> bool:
@@ -432,11 +445,35 @@ def _core_imports_in_source(source: str) -> list[tuple[int, str | None, list[str
     return found
 
 
-def _core_imports(module_name):
-    """:func:`_core_imports_in_source` over a bvhplot module's file."""
-    module = importlib.import_module(f"pybvh.bvhplot.{module_name}")
-    with open(module.__file__) as f:
-        return _core_imports_in_source(f.read())
+def _sibling_imports_in_source(source: str, sibling: str) -> list[int]:
+    """Line of every import of the bvhplot module ``sibling`` in
+    ``source``, type-only ones included, in any spelling: ``from
+    ._from_bvh import x``, ``from . import _from_bvh``, the absolute
+    ``pybvh.bvhplot._from_bvh`` forms and ``from ..bvhplot`` ones."""
+    found: list[int] = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            if any(alias.name.split(".")[:3] == ["pybvh", "bvhplot", sibling]
+                   for alias in node.names):
+                found.append(node.lineno)
+        elif isinstance(node, ast.ImportFrom):
+            parts = [p for p in (node.module or "").split(".") if p]
+            if node.level == 0 and parts[:2] == ["pybvh", "bvhplot"]:
+                parts = parts[2:]
+            elif node.level == 2 and parts[:1] == ["bvhplot"]:
+                parts = parts[1:]
+            elif node.level != 1:
+                continue
+            if parts[:1] == [sibling] or (
+                    not parts
+                    and any(alias.name == sibling for alias in node.names)):
+                found.append(node.lineno)
+    return found
+
+
+def _module_source(module_name: str) -> str:
+    package_dir = pathlib.Path(bvhplot.__file__).parent
+    return (package_dir / f"{module_name}.py").read_text()
 
 
 class TestCoreImportGuard:
@@ -461,9 +498,9 @@ class TestCoreImportGuard:
         assert [(lineno, func) for lineno, func, _ in found] == [(1, None)]
 
     @pytest.mark.parametrize("line", [
-        "from ._common import Scene",
+        "from ._scene import Scene",
         "from . import _colors",
-        "from ..bvhplot._common import Scene",
+        "from ..bvhplot._scene import Scene",
         "import numpy as np",
         "import matplotlib.pyplot as plt",
         "from typing import TYPE_CHECKING",
@@ -531,14 +568,43 @@ class TestCoreImportGuard:
             (3, "inner", ["pybvh.tools"]), (4, "outer", ["analysis"])]
 
 
+class TestSiblingImportGuard:
+    """The second guard, against small sources."""
+
+    @pytest.mark.parametrize("line", [
+        "from ._from_bvh import make_scene",
+        "from . import _from_bvh",
+        "from . import _colors, _from_bvh",
+        "from pybvh.bvhplot._from_bvh import make_scene",
+        "from pybvh.bvhplot import _from_bvh",
+        "from ..bvhplot._from_bvh import make_scene",
+        "from ..bvhplot import _from_bvh",
+        "import pybvh.bvhplot._from_bvh",
+        "import pybvh.bvhplot._from_bvh as reader",
+        "if TYPE_CHECKING:\n    from ._from_bvh import make_scene",
+        "def f():\n    from ._from_bvh import make_scene",
+    ])
+    def test_flags_every_spelling(self, line):
+        assert len(_sibling_imports_in_source(line, "_from_bvh")) == 1
+
+    @pytest.mark.parametrize("line", [
+        "from ._scene import Scene",
+        "from . import _colors",
+        "from ._from_bvh_notes import x",
+        "from pybvh.bvhplot import Style",
+        "import pybvh.bvhplot",
+        "from .. import tools",
+    ])
+    def test_passes_other_imports(self, line):
+        assert _sibling_imports_in_source(line, "_from_bvh") == []
+
+
 class TestSceneIsPureData:
     @pytest.mark.parametrize("module_name", _PURE_DATA)
     def test_no_plotting_imports_in_pure_data_modules(self, module_name):
-        """The Scene's home and the shared helpers must never import a
-        plotting library."""
-        module = importlib.import_module(f"pybvh.bvhplot.{module_name}")
-
-        tree = ast.parse(open(module.__file__).read())
+        """The Scene, the viewport, the Style and the Bvh reader must
+        never import a plotting library."""
+        tree = ast.parse(_module_source(module_name))
         imported: set[str] = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -557,14 +623,50 @@ class TestSceneIsPureData:
         names = {f.name for f in dataclasses.fields(SkeletonView)}
         assert "bvh" not in names
 
-    @pytest.mark.parametrize("backend", _CORE_FREE)
-    def test_backends_take_nothing_from_the_core_at_runtime(self, backend):
+    def test_the_package_is_flat(self):
+        """The guards below read the package's top-level modules. A
+        subpackage would escape them, so adding one must fail here and
+        send its author to extend the guards first."""
+        package_dir = pathlib.Path(bvhplot.__file__).parent
+        nested = sorted(
+            str(path.relative_to(package_dir))
+            for path in package_dir.rglob("*.py")
+            if path.parent != package_dir)
+        assert nested == [], (
+            f"bvhplot has modules below its top level, which the import "
+            f"guards do not inspect: {nested}")
+
+    def test_the_boundary_covers_the_package(self):
+        """The module list is read from disk; this pins that it finds the
+        modules the guards below are about."""
+        assert {"_scene", "_viewport", "_style", "_matplotlib", "_opencv",
+                "_k3d", "_vedo", "_vedo_offscreen", "_vedo_capsules",
+                "_colors", "_playback"} <= set(_BEHIND_THE_BOUNDARY)
+        assert _BVH_READER in _bvhplot_modules()
+
+    @pytest.mark.parametrize("module_name", _CORE_FREE)
+    def test_takes_nothing_from_the_core_at_runtime(self, module_name):
         """A backend consumes a Scene and a Style; it never reaches into
-        Bvh, tools or analysis, and neither does the Scene's own module.
-        Type-only imports are allowed."""
-        offenders = _core_imports(backend)
+        Bvh, tools or analysis, and neither do the Scene's and the
+        Style's own modules. Type-only imports are allowed."""
+        offenders = _core_imports_in_source(_module_source(module_name))
         assert offenders == [], (
-            f"{backend} imports core modules at runtime: {offenders}")
+            f"{module_name} imports core modules at runtime: {offenders}")
+
+    @pytest.mark.parametrize("module_name", _BEHIND_THE_BOUNDARY)
+    def test_only_the_router_imports_the_bvh_reader(self, module_name):
+        """``_from_bvh`` is where a Bvh becomes a Scene. No module but
+        the router imports it, not even for types.
+
+        This is a guard on import statements, not proof that nothing
+        else consumes a Bvh: a function handed one reads it without
+        importing anything, and ``importlib.import_module`` is not an
+        import statement. The router hands backends a Scene and a
+        Style, never a Bvh."""
+        offenders = _sibling_imports_in_source(
+            _module_source(module_name), _BVH_READER)
+        assert offenders == [], (
+            f"{module_name} imports {_BVH_READER} at lines {offenders}")
 
     def test_viewport_takes_only_array_kernels_from_the_core(self):
         """The viewport is computed at draw time from a view: the only
@@ -572,21 +674,8 @@ class TestSceneIsPureData:
         never a Bvh."""
         offenders = [
             (line, func, names)
-            for line, func, names in _core_imports("_viewport")
+            for line, func, names in _core_imports_in_source(
+                _module_source("_viewport"))
             if not set(names) <= _VIEWPORT_KERNELS]
         assert offenders == [], (
             f"_viewport imports more than array kernels: {offenders}")
-
-    def test_common_imports_the_core_only_in_its_adapter_functions(self):
-        """Inside _common, only the Bvh -> Scene adapters may import core
-        modules.
-
-        This is an import guard, not proof that only the adapters consume
-        a Bvh: a function handed a Bvh (``normalize_input``) reads it
-        without importing anything, and the guard cannot see that."""
-        offenders = [
-            (line, func, names)
-            for line, func, names in _core_imports("_common")
-            if func not in _COMMON_ADAPTERS]
-        assert offenders == [], (
-            f"_common reaches into the core outside its adapters: {offenders}")

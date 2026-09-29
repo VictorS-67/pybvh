@@ -6,7 +6,7 @@ import pytest
 from pathlib import Path
 
 from pybvh import read_bvh_file, bvhplot
-from pybvh.bvhplot._common import (
+from pybvh.bvhplot._from_bvh import (
     get_skeleton_lines,
     normalize_input,
     get_camera_angles,
@@ -33,7 +33,7 @@ def bvh_test2():
 
 
 # ===================================================================
-# _common.py tests
+# Scene, viewport and Bvh reader helpers
 # ===================================================================
 
 
@@ -1015,7 +1015,7 @@ class TestFpsResolution:
 
 def _view(bvh, coords):
     """The SkeletonView compute_follow_azimuths reads (no Bvh at draw time)."""
-    from pybvh.bvhplot._common import make_scene
+    from pybvh.bvhplot._from_bvh import make_scene
     return make_scene([bvh], [coords], "front", None).views[0]
 
 
@@ -1181,7 +1181,7 @@ class TestSceneSpacing:
 
     @staticmethod
     def _scene(bvhs, coords):
-        from pybvh.bvhplot._common import make_scene
+        from pybvh.bvhplot._from_bvh import make_scene
         return make_scene(list(bvhs), list(coords), "front", None)
 
     # ------------------------------------------------------------------

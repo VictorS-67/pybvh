@@ -18,7 +18,7 @@ import pytest
 
 from pybvh import Bvh
 from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhRoot
-from pybvh.bvhplot._common import get_skeleton_lines
+from pybvh.bvhplot._from_bvh import get_skeleton_lines
 
 
 def _attach(parent, child):

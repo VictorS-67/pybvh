@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from pybvh import read_bvh_file, bvhplot
-from pybvh.bvhplot._common import get_bone_chains, get_skeleton_lines
+from pybvh.bvhplot._from_bvh import get_bone_chains, get_skeleton_lines
 from pybvh.bvhplot._style import (
     CHAIN_COLORS,
     Style,
@@ -539,7 +539,7 @@ class TestReviewFixes:
 
     def test_negative_up_floor_at_ground_not_head(self, bvh):
         from tests.synthetic_bvh import make_neg_y_up_bvh
-        from pybvh.bvhplot._common import make_scene
+        from pybvh.bvhplot._from_bvh import make_scene
         neg = make_neg_y_up_bvh()
         coords = neg.node_positions()
         scene = make_scene([neg], [coords], "front", None,

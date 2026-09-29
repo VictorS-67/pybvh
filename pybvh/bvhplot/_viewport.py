@@ -1,21 +1,322 @@
-"""The geometry of the picture: framing, ground path, camera azimuths,
-view matrix and projection.
+"""The geometry of the picture: what is framed, where the ground plane
+lies, where the camera stands and how it moves.
 
-Pure numpy, computed from a :class:`~._scene.SkeletonView`. No plotting
-library imports; the one thing taken from the pybvh core is the
-array-pure facing kernel the follow camera runs.
+One :class:`Viewport` is computed from the view or views a picture
+shows, and every backend translates its numbers into its toolkit's
+calls. Pure numpy. No plotting library imports; the one thing taken
+from the pybvh core is the array-pure facing kernel the follow camera
+runs.
 """
 from __future__ import annotations
+
+from dataclasses import dataclass
+from functools import cached_property
+from typing import TYPE_CHECKING, NamedTuple, Sequence
 
 import numpy as np
 import numpy.typing as npt
 
-from typing import TYPE_CHECKING
-
-from ._scene import UP_AXIS_INDEX
+from ._scene import GroundFrame, UP_AXIS_INDEX, compute_unified_limits
 
 if TYPE_CHECKING:
     from ._scene import SkeletonView
+
+
+# ---------------------------------------------------------------------------
+# The viewport
+# ---------------------------------------------------------------------------
+
+# Every distance below is a fraction or a multiple of the half-span, the
+# half side of the cube around everything the picture shows.
+
+# The ground plane reaches this many half-spans from its centre in each
+# ground direction: wide enough to fill the frame at the usual camera
+# elevations, small enough that its far edge stays in the picture.
+FLOOR_EXTENT = 1.8
+# A still that draws a floor shifts its cube so the plane sits this far
+# above the cube's bottom edge; without the shift a floor below the
+# lowest joint would fall outside the axes.
+FLOOR_INSET = 0.02
+# A perspective camera stands this many half-spans from the cube's
+# centre. A constant, not derived from the toolkit's view angle.
+# TODO: derive the distance from the framing box and the vertical view
+# angle, so the box provably fits whatever the toolkit's default is.
+EYE_DISTANCE = 4.0
+# The orthographic projection fits the framing box into this fraction
+# of the panel, in whichever direction is tighter.
+FIT_FRACTION = 0.9
+
+_FRAMINGS = ("still", "clip")
+_MOTIONS = ("fixed", "turntable", "follow")
+
+
+class Camera(NamedTuple):
+    """Where a perspective camera stands, what it looks at, which way
+    is up on screen. World coordinates, each of shape ``(3,)``."""
+
+    eye: npt.NDArray[np.float64]
+    target: npt.NDArray[np.float64]
+    up: npt.NDArray[np.float64]
+
+
+@dataclass(frozen=True)
+class Viewport(GroundFrame):
+    """The geometry of one picture, in world coordinates.
+
+    Built by :func:`make_viewport` from one view (a panel of a
+    multi-panel figure) or from several (the one scene k3d and vedo
+    draw everything into). A backend reads the numbers and translates
+    them; it computes no box, floor extent or eye position of its own.
+
+    Two boxes, on purpose:
+
+    - ``center`` and ``half_span`` are the cube around every coordinate
+      shown, 5% margin included. It is the picture's *size scale*: line
+      widths, capsule radii, the floor's extent and the camera distance
+      are multiples of ``half_span``, and perspective cameras look at
+      ``center``.
+    - ``lo`` and ``hi`` are the *framing box*, what the axes or the
+      orthographic projection are fitted to. For ``framing="still"`` it
+      is that same cube (shifted along up when a floor must sit inside
+      it); for ``framing="clip"`` it is the box the motion sweeps, see
+      :func:`framing_bounds`.
+
+    The floor is one plane for the whole viewport: at the ground-side
+    extreme of the views' floor heights (the coordinate minimum for a
+    positive up axis, the maximum for a negative one), exactly there.
+    A toolkit that needs the plane nudged to avoid z-fighting applies
+    its own epsilon through :meth:`below_floor`.
+
+    ``azimuths`` is the camera's schedule: one azimuth in degrees per
+    frame, or ``None`` when the camera does not move. A schedule that
+    turns out constant, whatever the reason (a follow camera on a rig
+    with no left/right pairs, or on a character that never turns; a
+    facing that is degenerate at frame 0; a turntable over a single
+    frame), is stored as ``None``, so ``rotating`` means what it says
+    and such a clip is framed as a fixed camera frames it.
+    """
+
+    lo: npt.NDArray[np.float64]            # (3,) framing box, low corner
+    hi: npt.NDArray[np.float64]            # (3,) framing box, high corner
+    center: npt.NDArray[np.float64]        # (3,) centre of the cube
+    half_span: float                       # half side of the cube
+    up: str                                # signed world-up axis, e.g. '+y'
+    floor_height: float                    # ground plane along the up axis
+    azimuth: float                         # degrees, the camera's base angle
+    elevation: float                       # degrees
+    azimuths: npt.NDArray[np.float64] | None  # (F,) degrees, or None
+    projection: str                        # 'persp' | 'ortho', as drawn
+
+    @property
+    def rotating(self) -> bool:
+        """Whether the camera's azimuth changes during the clip."""
+        return self.azimuths is not None
+
+    def azimuth_at(self, frame: int = 0) -> float:
+        """The camera azimuth at *frame*, in degrees."""
+        if self.azimuths is None:
+            return self.azimuth
+        return float(self.azimuths[frame])
+
+    def view_matrix(self, frame: int = 0) -> npt.NDArray[np.float64]:
+        """World-to-view rotation at *frame*, see :func:`build_view_matrix`."""
+        if self.azimuths is None:
+            return self._view_matrices[0]
+        return self._view_matrices[frame]
+
+    def camera(self, frame: int = 0) -> Camera:
+        """Where a perspective camera stands at *frame*.
+
+        The eye is ``EYE_DISTANCE`` half-spans from the cube's centre
+        along the viewing direction, looking at the centre."""
+        matrix = self.view_matrix(frame)
+        eye = self.center + matrix[2] * (EYE_DISTANCE * self.half_span)
+        return Camera(eye=eye, target=self.center.copy(), up=matrix[1].copy())
+
+    def floor_quad(
+        self, clip_to_box: bool = False,
+    ) -> npt.NDArray[np.float64]:
+        """The four corners of the ground plane, shape ``(4, 3)``.
+
+        A square of half side ``FLOOR_EXTENT * half_span`` around the
+        cube's centre (which is also the framing box's centre on the
+        ground), at ``floor_height``. With *clip_to_box* the rectangle
+        of the framing box on the ground instead: a wide orthographic
+        still turns a full-extent plane into a backdrop wall.
+
+        Corners run ``(lo, lo), (hi, lo), (hi, hi), (lo, hi)`` over the
+        two :attr:`ground_axes`, so opposite corners are 0 and 2.
+        """
+        first, second = self.ground_axes
+        if clip_to_box:
+            a_lo, a_hi = float(self.lo[first]), float(self.hi[first])
+            b_lo, b_hi = float(self.lo[second]), float(self.hi[second])
+        else:
+            reach = self.half_span * FLOOR_EXTENT
+            a_lo = float(self.center[first]) - reach
+            a_hi = float(self.center[first]) + reach
+            b_lo = float(self.center[second]) - reach
+            b_hi = float(self.center[second]) + reach
+        quad = np.zeros((4, 3), dtype=np.float64)
+        quad[:, first] = (a_lo, a_hi, a_hi, a_lo)
+        quad[:, second] = (b_lo, b_lo, b_hi, b_hi)
+        quad[:, self.up_index] = self.floor_height
+        return quad
+
+    def ground_path(
+        self, points: npt.NDArray[np.float64],
+    ) -> npt.NDArray[np.float64]:
+        """*points* dropped onto the ground plane, as a new array.
+
+        For the root trace and the viewers' trails: the path a joint
+        takes, drawn where the floor is."""
+        path = np.array(points, dtype=np.float64)
+        path[..., self.up_index] = self.floor_height
+        return path
+
+    def project(
+        self,
+        points: npt.NDArray[np.float64],
+        resolution: tuple[int, int],
+        frame: int = 0,
+    ) -> npt.NDArray[np.int32]:
+        """Orthographic pixel coordinates of *points* at *frame*.
+
+        The framing box's centre lands in the middle of the panel, and
+        one scale holds for the whole clip: the box is fitted at the
+        widest it gets over the camera's schedule. The alternative,
+        fitting it frame by frame, rescales the drawing continuously
+        under a rotating camera and reads as the character zooming in
+        and out."""
+        return ortho_project(
+            points, self.view_matrix(frame), (self.lo + self.hi) / 2.0,
+            self.half_span, resolution, fixed_view_half=self.view_half)
+
+    @cached_property
+    def view_half(self) -> tuple[float, float]:
+        """Half extents of the framing box on screen, in view units:
+        the largest over every frame of the camera's schedule."""
+        corners = box_corners(self.lo, self.hi) - (self.lo + self.hi) / 2.0
+        projected = corners @ np.swapaxes(self._view_matrices, 1, 2)
+        return (float(np.abs(projected[..., 0]).max()),
+                float(np.abs(projected[..., 1]).max()))
+
+    @cached_property
+    def _view_matrices(self) -> npt.NDArray[np.float64]:
+        """One view matrix per scheduled frame, or a single one for a
+        fixed camera, shape ``(F, 3, 3)``."""
+        azimuths = (np.array([self.azimuth]) if self.azimuths is None
+                    else self.azimuths)
+        return np.stack([
+            build_view_matrix(float(azimuth), self.elevation, self.up_axis)
+            for azimuth in azimuths])
+
+
+def make_viewport(
+    views: Sequence[SkeletonView],
+    *,
+    framing: str = "still",
+    motion: str = "fixed",
+    include_floor: bool = True,
+    projection: str = "persp",
+) -> Viewport:
+    """Compute the :class:`Viewport` of a picture of *views*.
+
+    Parameters
+    ----------
+    views : sequence of SkeletonView
+        What the picture shows: one view for a panel, all of a Scene's
+        views for a single-scene backend. The camera angles, the up
+        axis and the follow schedule are the first view's.
+    framing : {"still", "clip"}
+        ``"still"`` frames the cube around the coordinates.
+        ``"clip"`` frames the box the motion sweeps
+        (:func:`framing_bounds`), so a clip that travels far sideways
+        does not shrink the character to fit a cube.
+    motion : {"fixed", "turntable", "follow"}
+        How the camera moves. ``"turntable"`` orbits once over the
+        clip (:func:`turntable_azimuths`); ``"follow"`` tracks the
+        character's rotation (:func:`compute_follow_azimuths`).
+    include_floor : bool
+        Whether the framing box must contain the ground plane. A still
+        whose floor lies beyond its cube's ground-side face, or closer
+        to that face than ``FLOOR_INSET`` half-spans, shifts the cube
+        along up, as far as it takes, until the plane sits that far
+        inside; the cube keeps its size. It never shifts the other
+        way: a floor beyond the far face (above the head) stays
+        outside a still. A clip extends its box to the plane on
+        whichever side the plane lies.
+    projection : {"persp", "ortho"}
+        The projection the picture is drawn with, stated by the
+        adapter that draws it: matplotlib passes what the style asks
+        for (``sequence``'s offset layout is always orthographic),
+        OpenCV always ``"ortho"``, k3d and vedo always ``"persp"``.
+        The viewport does not choose it; it records it, so that
+        ``viewport.projection`` describes the picture.
+
+    Returns
+    -------
+    Viewport
+    """
+    if not views:
+        raise ValueError("A viewport needs at least one view.")
+    if framing not in _FRAMINGS:
+        raise ValueError(
+            f"Unknown framing {framing!r}. Choose from: {list(_FRAMINGS)}")
+    if motion not in _MOTIONS:
+        raise ValueError(
+            f"Unknown motion {motion!r}. Choose from: {list(_MOTIONS)}")
+
+    first = views[0]
+    center, half_span = compute_unified_limits([v.coords for v in views])
+    ground_side = min if first.up_sign > 0 else max
+    floor_height = float(ground_side(v.floor_height for v in views))
+
+    if motion == "follow":
+        azimuths = compute_follow_azimuths(first, first.azimuth)
+    elif motion == "turntable":
+        azimuths = turntable_azimuths(first.azimuth, first.coords.shape[0])
+    else:
+        azimuths = None
+    if azimuths is not None and np.all(azimuths == azimuths[0]):
+        azimuths = None
+
+    if framing == "clip":
+        lo, hi = _swept_box(
+            np.concatenate([v.coords.reshape(-1, 3) for v in views]),
+            first.up_index, floor_height if include_floor else None,
+            rotating=azimuths is not None)
+    else:
+        box_center = center.copy()
+        if include_floor:
+            up = first.up_index
+            sign = first.up_sign
+            # The cube's edge visually below the skeleton is
+            # center - sign * half_span: for a negative up axis the
+            # ground sits at the coordinate MAXIMUM.
+            bottom = box_center[up] - sign * half_span
+            target = floor_height - sign * (FLOOR_INSET * half_span)
+            if sign * (target - bottom) < 0:
+                box_center[up] += target - bottom
+        lo, hi = box_center - half_span, box_center + half_span
+
+    return Viewport(
+        lo=lo, hi=hi, center=center, half_span=half_span, up=first.up,
+        floor_height=floor_height, azimuth=float(first.azimuth),
+        elevation=float(first.elevation), azimuths=azimuths,
+        projection=projection)
+
+
+def panel_viewports(
+    views: Sequence[SkeletonView],
+    **options: object,
+) -> list[Viewport]:
+    """One :class:`Viewport` per view, for the multi-panel backends.
+
+    Each panel is framed, floored and scheduled from its own view;
+    *options* are :func:`make_viewport`'s."""
+    return [make_viewport([view], **options)  # type: ignore[arg-type]
+            for view in views]
 
 
 # ---------------------------------------------------------------------------
@@ -66,13 +367,26 @@ def framing_bounds(
     lo, hi : ndarray of shape (3,)
         Opposite corners of the framing box, margin included.
     """
-    points = view.coords.reshape(-1, 3)
+    return _swept_box(
+        view.coords.reshape(-1, 3), view.up_index, view.floor_height,
+        rotating)
+
+
+def _swept_box(
+    points: npt.NDArray[np.float64],
+    up: int,
+    floor_height: float | None,
+    rotating: bool,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """:func:`framing_bounds` over plain points, ``(P, 3)``.
+
+    *floor_height* ``None`` leaves the ground plane out of the box."""
     lo = points.min(axis=0)
     hi = points.max(axis=0)
 
-    up = view.up_index
-    lo[up] = min(lo[up], view.floor_height)
-    hi[up] = max(hi[up], view.floor_height)
+    if floor_height is not None:
+        lo[up] = min(lo[up], floor_height)
+        hi[up] = max(hi[up], floor_height)
 
     if rotating:
         ground = [i for i in range(3) if i != up]

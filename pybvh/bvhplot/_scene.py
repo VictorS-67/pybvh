@@ -21,8 +21,62 @@ _SIGNED_AXES = ('+x', '-x', '+y', '-y', '+z', '-z')
 # Scene container
 # ---------------------------------------------------------------------------
 
+class GroundFrame:
+    """What follows from a signed up axis and a floor height.
+
+    Mixed into the two values that hold an ``up`` string and a
+    ``floor_height``, :class:`SkeletonView` and
+    :class:`~._viewport.Viewport`, so both read the up axis the same
+    way.
+    """
+
+    up: str
+    floor_height: float
+
+    @property
+    def up_axis(self) -> str:
+        """The up axis letter, ``'x'``, ``'y'`` or ``'z'``, sign dropped."""
+        return self.up[1]
+
+    @property
+    def up_index(self) -> int:
+        """The up coordinate's column in a ``(..., 3)`` position array."""
+        return UP_AXIS_INDEX[self.up_axis]
+
+    @property
+    def up_sign(self) -> float:
+        """``+1.0`` for ``'+y'``, ``-1.0`` for ``'-y'``."""
+        return -1.0 if self.up[0] == '-' else 1.0
+
+    @property
+    def up_vector(self) -> npt.NDArray[np.float64]:
+        """The unit vector pointing up, sign included, shape ``(3,)``.
+
+        A fresh array on every access."""
+        vector = np.zeros(3, dtype=np.float64)
+        vector[self.up_index] = self.up_sign
+        return vector
+
+    @property
+    def ground_axes(self) -> tuple[int, int]:
+        """The columns of the two ground coordinates, in ``x, y, z``
+        order with the up axis removed (``(0, 2)`` for a y-up rig)."""
+        first, second = (i for i in range(3) if i != self.up_index)
+        return first, second
+
+    def below_floor(self, distance: float) -> float:
+        """The coordinate *distance* visually below the floor plane.
+
+        "Below" follows the signed up axis: for a '-y'-up rig the
+        ground sits at the coordinate MAXIMUM, so below means +y.
+        Backends use this for z-fighting nudges and shadow offsets so
+        negative-up rigs get their floor under the feet, not overhead.
+        """
+        return self.floor_height - self.up_sign * distance
+
+
 @dataclass(frozen=True)
-class SkeletonView:
+class SkeletonView(GroundFrame):
     """Everything a backend needs to draw one skeleton in its own panel.
 
     A dumb data container — no plotting imports, no behavior beyond
@@ -199,41 +253,6 @@ class SkeletonView:
         # running __post_init__, and NumPy hands them writable arrays.
         self.__dict__.update(state)
         self._protect_arrays()
-
-    @property
-    def up_axis(self) -> str:
-        """The up axis letter, ``'x'``, ``'y'`` or ``'z'``, sign dropped."""
-        return self.up[1]
-
-    @property
-    def up_index(self) -> int:
-        """The up coordinate's column in a ``(..., 3)`` position array."""
-        return UP_AXIS_INDEX[self.up_axis]
-
-    @property
-    def up_sign(self) -> float:
-        """``+1.0`` for ``'+y'``, ``-1.0`` for ``'-y'``."""
-        return -1.0 if self.up[0] == '-' else 1.0
-
-    @property
-    def up_vector(self) -> npt.NDArray[np.float64]:
-        """The unit vector pointing up, sign included, shape ``(3,)``.
-
-        A fresh array on every access."""
-        vector = np.zeros(3, dtype=np.float64)
-        vector[self.up_index] = self.up_sign
-        return vector
-
-    def below_floor(self, distance: float) -> float:
-        """The coordinate *distance* visually below the floor plane.
-
-        "Below" follows the signed up axis: for a '-y'-up rig the
-        ground sits at the coordinate MAXIMUM, so below means +y.
-        Backends use this for z-fighting nudges and shadow offsets so
-        negative-up rigs get their floor under the feet, not overhead.
-        """
-        return self.floor_height - self.up_sign * distance
-
 
 @dataclass(frozen=True)
 class Scene:

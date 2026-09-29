@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import ast
+import copy
 import dataclasses
 import pathlib
+import pickle
 
 import numpy as np
 import pytest
@@ -41,7 +43,8 @@ class TestMakeScene:
         assert scene.num_skeletons == 1
         assert scene.num_frames == coords.shape[0]
         view = scene.views[0]
-        assert view.coords is coords
+        np.testing.assert_array_equal(view.coords, coords)
+        assert np.shares_memory(view.coords, coords)  # borrowed, not copied
         assert view.label is None
 
     def test_view_fields_match_helpers(self, bvh, coords):
@@ -274,7 +277,8 @@ class TestSceneMethods:
         assert view.floor_height == original.floor_height
         assert view.label == "lbl"
         assert view.azimuth == original.azimuth
-        assert scene.views[0].coords is coords  # original untouched
+        assert np.shares_memory(scene.views[0].coords, coords)
+        np.testing.assert_array_equal(scene.views[0].coords, coords)  # original untouched
 
     def test_subsampled_rejects_step_below_one(self, bvh, coords):
         scene = make_scene([bvh], [coords], "front", None)
@@ -437,6 +441,71 @@ class TestViewIsCheckedAtConstruction:
         extra = np.concatenate([coords, coords[:, :2]], axis=1)
         with pytest.raises(ValueError, match="node_names has"):
             make_scene([bvh], [extra], "front", None)
+
+
+class TestViewArraysAreReadOnly:
+    """A view's arrays cannot be written through the view. Storage is
+    shared between a Scene and the ones derived from it, so a write
+    would change several Scenes at once."""
+
+    ARRAYS = ["coords", "center", "rest_coords", "lr_pairs", "root_heading"]
+
+    @pytest.mark.parametrize("name", ARRAYS)
+    def test_writing_into_a_views_array_raises(self, name):
+        array = getattr(make_array_view(), name)
+        with pytest.raises(ValueError, match="read-only"):
+            array[...] = 0
+
+    @pytest.mark.parametrize("name", ARRAYS)
+    def test_a_bvh_built_view_is_read_only_too(self, bvh, coords, name):
+        view = make_scene(
+            [bvh], [coords], "front", None, clip_frames=slice(None)).views[0]
+        assert not getattr(view, name).flags.writeable
+
+    @pytest.mark.parametrize("name", ARRAYS)
+    def test_the_callers_array_keeps_its_flags_and_is_not_copied(self, name):
+        source = make_array_view()
+        mine = np.array(getattr(source, name))    # a writable copy
+        view = dataclasses.replace(source, **{name: mine})
+        assert mine.flags.writeable
+        assert not getattr(view, name).flags.writeable
+        assert np.shares_memory(getattr(view, name), mine)
+
+    @pytest.mark.parametrize("rebuild", [
+        copy.copy,
+        copy.deepcopy,
+        lambda view: pickle.loads(pickle.dumps(view)),
+        lambda view: pickle.loads(pickle.dumps(view, protocol=5)),
+    ])
+    def test_a_copied_or_unpickled_view_is_read_only_too(self, rebuild):
+        original = make_array_view()
+        rebuilt = rebuild(original)
+        for name in self.ARRAYS:
+            assert not getattr(rebuilt, name).flags.writeable
+            np.testing.assert_array_equal(
+                getattr(rebuilt, name), getattr(original, name))
+        assert rebuilt.up == original.up
+
+    @pytest.mark.parametrize("operation", [
+        lambda scene: scene.subsampled(2),
+        lambda scene: scene.spread(1.5),
+        lambda scene: scene.offset([np.ones(3), np.ones(3)]),
+    ])
+    def test_operations_return_read_only_views(self, operation):
+        scene = operation(make_array_scene(n_frames=12, n_skeletons=2))
+        for view in scene.views:
+            for name in self.ARRAYS:
+                assert not getattr(view, name).flags.writeable
+
+    def test_a_missing_heading_stays_none(self):
+        view = dataclasses.replace(make_array_view(), root_heading=None)
+        assert view.root_heading is None
+
+    def test_array_likes_are_accepted(self):
+        view = dataclasses.replace(
+            make_array_view(), center=[0.0, 1.0, 0.0], lr_pairs=[[3, 5]])
+        assert view.center.shape == (3,)
+        assert view.lr_pairs.shape == (1, 2)
 
 
 class TestSceneIsCheckedAtConstruction:

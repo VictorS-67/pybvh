@@ -16,7 +16,14 @@ import numpy.typing as npt
 from ._style import PALETTE_RGB, Style, effective_color_mode
 from ._viewport import Viewport, make_viewport
 from ._scene import Scene
-from ._colors import node_colors_255
+from ._colors import floor_palette, node_colors_255
+
+# The floor is drawn this far below the scene ground, in half-spans, so
+# the root trail, which lies exactly on the ground, has a fixed order
+# with it. A z-fighting epsilon and nothing more (ADR 0002).
+FLOOR_EPSILON = 0.004
+# Lines per ground direction of a "grid" floor.
+FLOOR_GRID_LINES = 21
 
 
 
@@ -47,6 +54,7 @@ class _Plot(NamedTuple):
     skeletons: list[tuple[Any, Any]]             # (k3d Lines, k3d Points)
     trails: list[Any]                            # k3d Line per skeleton
     trail_paths: list[npt.NDArray[np.float32]]   # per skeleton, (F, 3)
+    floor: Any | None                # k3d Mesh or Lines, None without a floor
 
 
 def _build_plot(
@@ -154,6 +162,10 @@ def _build_plot(
             plot += trail
             trail_objects.append(trail)
 
+    floor = _build_floor(viewport, style)
+    if floor is not None:
+        plot += floor
+
     # The grid covers the full motion extent, from the ground up.
     grid_min, grid_max = viewport.grounded_box()
     plot.grid = [
@@ -170,7 +182,56 @@ def _build_plot(
     plot.camera = [float(value) for value in (*eye, *target, *up)]
 
     return _Plot(plot, viewport, coords_f32, skeleton_objects,
-                 trail_objects, trail_full_paths)
+                 trail_objects, trail_full_paths, floor)
+
+
+def _build_floor(viewport: Viewport, style: Style) -> Any | None:
+    """The viewport's ground plane as a k3d object, or ``None`` when
+    the style draws no floor.
+
+    ``"solid"`` is a quad; ``"grid"`` is lines, and so is
+    ``"checker"``, which this backend does not draw (the vedo viewer
+    falls back the same way). The plane sits ``FLOOR_EPSILON``
+    half-spans below the ground, under the trail.
+    """
+    if style.floor is None:
+        return None
+    import k3d
+    from matplotlib.colors import to_rgb
+
+    def packed(color: object) -> int:
+        r, g, b = (int(c * 255) for c in to_rgb(color))  # type: ignore[arg-type]
+        return (r << 16) | (g << 8) | b
+
+    corners = viewport.floor_quad()
+    corners[:, viewport.up_index] = viewport.below_floor(
+        FLOOR_EPSILON * viewport.half_span)
+    palette = floor_palette(style)
+
+    if style.floor == "solid":
+        return k3d.mesh(
+            corners.astype(np.float32),
+            np.array([[0, 1, 2], [0, 2, 3]], dtype=np.uint32),
+            color=packed(palette["face"]), opacity=style.floor_alpha,
+            side='double', flat_shading=True, name="Floor")
+
+    # Lines across the quad in both ground directions: from one edge
+    # to the opposite one, at equal steps.
+    steps = np.linspace(0.0, 1.0, FLOOR_GRID_LINES)[:, np.newaxis]
+    along_first = (corners[0] + steps * (corners[1] - corners[0]),
+                   corners[3] + steps * (corners[2] - corners[3]))
+    along_second = (corners[0] + steps * (corners[3] - corners[0]),
+                    corners[1] + steps * (corners[2] - corners[1]))
+    starts = np.concatenate([along_first[0], along_second[0]])
+    ends = np.concatenate([along_first[1], along_second[1]])
+    vertices = np.concatenate([starts, ends]).astype(np.float32)
+    count = len(starts)
+    indices = np.stack(
+        [np.arange(count), np.arange(count) + count], axis=1)
+    return k3d.lines(
+        vertices, indices.astype(np.uint32), indices_type='segment',
+        color=packed(palette["grid"]), width=0.004 * viewport.half_span,
+        opacity=0.8, name="Floor")
 
 
 def play_k3d(
@@ -184,9 +245,12 @@ def play_k3d(
     the first view) and one viewport over the — possibly laterally
     spread — views.
 
-    Style application (look fields): background, bone width, and chain
-    colors for single-skeleton sessions (per-vertex colors — segments
-    blend at chain boundaries, a k3d rendering artifact).
+    Style application (look fields): background, bone width, the
+    floor (``"checker"`` draws as a grid), and chain colors for
+    single-skeleton sessions (per-vertex colors — segments blend at
+    chain boundaries, a k3d rendering artifact). k3d's own grid box is
+    kept as the toolkit's frame, with its bottom face just under the
+    ground.
 
     Parameters
     ----------

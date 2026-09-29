@@ -184,6 +184,52 @@ class TestK3d:
         # "under the feet" of a -y-up rig is the coordinate maximum
         assert np.all(built.trail_paths[0][:, 1] >= flipped[..., 1].max() - 1e-6)
 
+    def test_the_floor_is_the_viewports_plane(self, pair):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import FLOOR_EPSILON, _build_plot
+        built = _build_plot(pair.spread("auto"), Style("paper"))
+        viewport = built.viewport
+        up = viewport.up_index
+        corners = np.asarray(built.floor.vertices).reshape(-1, 3)
+        expected = viewport.floor_quad()
+        ground = list(viewport.ground_axes)
+        np.testing.assert_allclose(
+            corners[:, ground], expected[:, ground], rtol=1e-6)
+        # a hair below the ground, and so below the trail
+        below = viewport.floor_height - FLOOR_EPSILON * viewport.half_span
+        np.testing.assert_allclose(corners[:, up], below, rtol=1e-6)
+        assert np.all(built.trail_paths[0][:, up] > corners[:, up].max())
+        assert built.floor.opacity == pytest.approx(Style("paper").floor_alpha)
+
+    @pytest.mark.parametrize("kind", ["grid", "checker"])
+    def test_a_grid_floor_spans_the_same_plane(self, pair, kind):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import FLOOR_GRID_LINES, _build_plot
+        built = _build_plot(
+            pair.spread("auto"), Style("paper", floor=kind))
+        viewport = built.viewport
+        vertices = np.asarray(built.floor.vertices).reshape(-1, 3)
+        # k3d keeps indices in a float32 trait
+        indices = np.asarray(built.floor.indices).reshape(-1, 2).astype(int)
+        assert len(indices) == 2 * FLOOR_GRID_LINES
+        expected = viewport.floor_quad()
+        for axis in viewport.ground_axes:
+            assert vertices[:, axis].min() == pytest.approx(
+                expected[:, axis].min(), rel=1e-6)
+            assert vertices[:, axis].max() == pytest.approx(
+                expected[:, axis].max(), rel=1e-6)
+        # every line runs from one edge of the plane to the opposite one
+        lengths = np.linalg.norm(
+            vertices[indices[:, 1]] - vertices[indices[:, 0]], axis=1)
+        np.testing.assert_allclose(
+            lengths, 2 * viewport.floor_reach, rtol=1e-5)
+
+    def test_a_style_without_a_floor_draws_none(self, pair):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+        built = _build_plot(pair.spread("auto"), Style("debug"))
+        assert built.floor is None
+
     def test_one_skeleton_and_one_trail_per_view(self, pair):
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import _build_plot

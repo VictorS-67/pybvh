@@ -68,7 +68,7 @@ Delete the branch after merging. The repository is set to do this automatically.
 
 ## Issues and milestones
 
-Planned work is tracked as GitHub issues, one per change, and grouped into a milestone per version (`v0.10.0`, ...). The milestone page is the release's scope: what is done, what is left. Bug reports from outside the lab are issues too; see `docs/agents/issue-tracker.md` for the conventions the maintainer's tooling follows.
+Planned work is tracked as GitHub issues, one per change, and grouped into a milestone per version (`v0.10.0`, ...). The milestone page is the release's scope: what is done, what is left. Bug reports from outside the lab are issues too. When a change is too large for one agent session, the maintainer's tooling splits it into local tickets that all commit to the change's branch; the issue and the PR stay one per change. See `docs/agents/issue-tracker.md` for those conventions.
 
 ## Releases
 

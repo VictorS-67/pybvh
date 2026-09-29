@@ -97,7 +97,7 @@ Two records with different audiences, kept deliberately different:
 
 ### Issue tracker
 
-Issues are tracked as GitHub Issues on `VictorS-67/pybvh` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Parent issues (one per PR-sized change) are GitHub Issues on `VictorS-67/pybvh` via the `gh` CLI. Tickets (one per fresh agent context) and wayfinder maps are local files under `.scratch/`. See `docs/agents/issue-tracker.md` before writing either.
 
 ### Triage labels
 

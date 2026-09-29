@@ -20,7 +20,7 @@ import numpy.typing as npt
 
 from typing import Callable, TypedDict
 
-from ._common import PALETTE_RGB, Style, effective_color_mode
+from ._style import PALETTE_RGB, Style, effective_color_mode
 from ._viewport import build_view_matrix
 from ._scene import Scene, UP_AXIS_INDEX
 from ._colors import bone_colors_255, floor_palette, rgb255

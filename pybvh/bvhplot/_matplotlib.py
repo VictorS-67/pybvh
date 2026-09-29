@@ -21,7 +21,7 @@ from mpl_toolkits.mplot3d import proj3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from mpl_toolkits.mplot3d.axes3d import Axes3D
 
-from ._common import (
+from ._style import (
     GHOST_WIDTH_FACTOR,
     PALETTE_MPL,
     Style,

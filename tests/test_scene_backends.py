@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 import synthetic_scene
-from pybvh.bvhplot._common import Style
+from pybvh.bvhplot._style import Style
 from synthetic_scene import make_array_scene
 
 

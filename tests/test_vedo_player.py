@@ -13,7 +13,8 @@ import pytest
 vedo = pytest.importorskip("vedo")
 
 from pybvh import read_bvh_file
-from pybvh.bvhplot._common import Style, make_scene
+from pybvh.bvhplot._common import make_scene
+from pybvh.bvhplot._style import Style
 from pybvh.bvhplot import _vedo
 
 BVH_PATH = "bvh_data/cmu_12_01_walk.bvh"

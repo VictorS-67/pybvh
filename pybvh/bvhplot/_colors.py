@@ -1,6 +1,6 @@
 """Color resolution shared by every backend.
 
-_common.py stays free of plotting imports (enforced by test); this
+_style.py stays free of plotting imports (enforced by test); this
 module owns the pieces that need matplotlib's color parser: the
 light/dark background split, the floor palette, and the conversion of
 per-bone/per-node style colors to 0-255 RGB. Backends do only their
@@ -13,7 +13,7 @@ import numpy.typing as npt
 
 from typing import TYPE_CHECKING
 
-from ._common import Style, bone_colors_for_view
+from ._style import Style, bone_colors_for_view
 
 if TYPE_CHECKING:
     from ._scene import SkeletonView

@@ -319,9 +319,9 @@ _CORE_MODULES = {"bvh", "bvhnode", "tools", "analysis", "transforms",
 _BACKENDS = ["_matplotlib", "_opencv", "_k3d", "_vedo", "_vedo_offscreen",
              "_vedo_capsules", "_colors", "_playback"]
 # Pure data: no plotting library may be imported here.
-_PURE_DATA = ["_common", "_scene", "_viewport"]
+_PURE_DATA = ["_common", "_scene", "_viewport", "_style"]
 # Modules that take nothing from the core at runtime.
-_CORE_FREE = _BACKENDS + ["_scene"]
+_CORE_FREE = _BACKENDS + ["_scene", "_style"]
 # The Bvh -> Scene adapter functions in _common.
 _COMMON_ADAPTERS = {"make_scene", "get_camera_angles",
                     "_camera_angles_and_forward", "get_skeleton_lines",

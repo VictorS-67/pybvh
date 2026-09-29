@@ -98,6 +98,23 @@ class TestVedo:
                           10.0, resolution=(200, 200))
         assert out.exists() and out.stat().st_size > 0
 
+    def test_the_viewers_trails_lie_on_the_scene_ground(
+            self, pair, monkeypatch):
+        pytest.importorskip("vedo")
+        from pybvh.bvhplot import _vedo
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        scene = pair.spread("auto")
+        player = _vedo._VedoPlayer(scene, Style("paper"), 30.0,
+                                   quality="high")
+        try:
+            up = player.viewport.up_index
+            assert len(player._trail_full) == 2
+            for path in player._trail_full:
+                np.testing.assert_array_equal(
+                    path[:, up], player.viewport.floor_height)
+        finally:
+            player.plt.close()
+
     def test_viewer_shell_builds_from_the_pair(self, pair, monkeypatch):
         pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo

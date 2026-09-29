@@ -439,15 +439,14 @@ class _VedoPlayer:
         # --- Root trajectory trail (toggle with T key) ---
         # Pre-compute full root path; pre-allocate Lines with collapsed
         # segments.  Each frame, expand segments up to the current frame
-        # (fast vertex update).  The trail sits at the lowest joint level
-        # across all skeletons and frames, in both quality modes.
+        # (fast vertex update).  The trail lies on the scene ground, in
+        # both quality modes; the floor plane is drawn a hair below it.
         self._trail_actors: list = []
         self._trail_full: list[npt.NDArray] = []       # pre-computed root paths
         self._trail_collapsed: list[npt.NDArray] = []  # pre-allocated collapsed buffers
-        trail_floor = min(c[:, :, up_idx].min() for c in self._coords_full)
         for s in range(n_skeletons):
-            root_all = self._coords_full[s][:, 0, :].copy()  # (F, 3)
-            root_all[:, up_idx] = trail_floor
+            root_all = self.viewport.ground_path(
+                self._coords_full[s][:, 0, :])  # (F, 3)
             self._trail_full.append(root_all)
             # Pre-allocate collapsed buffer (reused every frame via .copy())
             collapsed = np.tile(root_all[0], (2 * (len(root_all) - 1), 1))

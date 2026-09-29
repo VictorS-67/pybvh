@@ -62,7 +62,7 @@ class TestMatplotlib:
     def test_render_with_ghosts_trace_and_follow(self, scene, tmp_path):
         from pybvh.bvhplot._matplotlib import render_mpl
         out = render_mpl(scene, Style("paper"), tmp_path / "walk.gif", 10.0,
-                         follow=True, ghost=2, trajectory=True,
+                         motion="follow", ghost=2, trajectory=True,
                          resolution=(320, 240))
         assert out.exists() and out.stat().st_size > 0
 

@@ -30,7 +30,7 @@ from ._style import (
     bone_colors_for_view,
     ghost_schedule,
 )
-from ._viewport import floor_trace_points, framing_bounds
+from ._viewport import Viewport, floor_trace_points, panel_viewports
 from ._scene import Scene, SkeletonView
 from ._colors import floor_palette
 
@@ -587,11 +587,11 @@ def frame_mpl(
 def _setup_animated_panel(
     ax: matplotlib.axes.Axes,
     view: SkeletonView,
+    viewport: Viewport,
     style: Style,
     bones: npt.NDArray[np.intp],
     view_index: int,
     n_skeletons: int,
-    rotating: bool = False,
 ) -> tuple[Line3DCollection, object | None]:
     """Shared per-panel setup for animated matplotlib output.
 
@@ -599,15 +599,13 @@ def _setup_animated_panel(
     frame-0 joint scatter; applies limits, camera, and axes style.
     Returns the artists that get updated every frame.
 
-    The panel is framed to the clip's own extents (see
-    :func:`~._viewport.framing_bounds`) rather than to a cube, and the
-    floor is clipped to that box; *rotating* squares off the ground
-    axes for orbiting cameras. Stills keep the cubic box: they frame a
-    single pose, whose extents are already tight.
+    The panel is fitted to *viewport*'s framing box: the clip's own
+    extents rather than a cube, with the ground squared off when the
+    camera rotates. Stills keep the cubic box: they frame a single
+    pose, whose extents are already tight.
     """
     _apply_axes_style(ax, style)
 
-    lo, hi = framing_bounds(view, rotating=rotating)
     if style.floor is not None:
         # Full-extent floor, not one clipped to the framing box: the box
         # hugs the motion, so a clipped plane would end just past the
@@ -636,8 +634,9 @@ def _setup_animated_panel(
     # which scales one screen direction against the others and stretches the
     # skeleton. Invisible on a z-up rig, where the roll is the identity.
     ax.view_init(  # type: ignore[attr-defined]
-        elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis)
-    _set_span_limits(ax, lo, hi)
+        elev=viewport.elevation, azim=viewport.azimuth,
+        vertical_axis=viewport.up_axis)
+    _set_span_limits(ax, viewport.lo, viewport.hi)
 
     if style.axes == "full":
         ax.set_xlabel('x')
@@ -729,8 +728,7 @@ def render_mpl(
     filepath: Path,
     fps: float,
     *,
-    follow: bool = False,
-    turntable: bool = False,
+    motion: str = "fixed",
     resolution: tuple[int, int] = (1920, 1080),
     ghost: int = 0,
     trajectory: bool = False,
@@ -740,9 +738,9 @@ def render_mpl(
     Each subplot uses its own bounding box and camera orientation so
     that mixed-up-axis side-by-side comparisons render correctly.
 
-    When ``follow`` is True, the camera orientation is recomputed every
-    frame using each skeleton's current facing direction, so the view
-    orbits with the character.
+    *motion* is handed to the viewport untouched: it decides how each
+    panel's camera moves, and a panel whose camera rotates is re-aimed
+    every frame.
 
     Returns
     -------
@@ -765,14 +763,17 @@ def render_mpl(
 
     fig.patch.set_facecolor(style.background)
 
+    viewports = panel_viewports(
+        scene.views, framing="clip", motion=motion,
+        projection=style.projection)
     coords_list = [v.coords for v in scene.views]
     bones_arrays = [np.asarray(v.bones, dtype=int) for v in scene.views]
     bone_collections: list[Line3DCollection] = []
     joint_scatters: list = []
-    for i, (view, bones, ax) in enumerate(
-            zip(scene.views, bones_arrays, axs_flat)):
+    for i, (view, viewport, bones, ax) in enumerate(
+            zip(scene.views, viewports, bones_arrays, axs_flat)):
         collection, joint_scatter = _setup_animated_panel(
-            ax, view, style, bones, i, n, rotating=follow or turntable)
+            ax, view, viewport, style, bones, i, n)
         bone_collections.append(collection)
         joint_scatters.append(joint_scatter)
 
@@ -789,20 +790,10 @@ def render_mpl(
         # writer (jshtml/HTML) uses bbox_inches='tight' for its frames.
         _extend_fig_tightbbox_with_3d_labels(fig, axs_flat)
 
-    if follow or turntable:
-        from ._viewport import compute_follow_azimuths, turntable_azimuths
-
-        if follow:
-            per_frame_azimuths = [
-                compute_follow_azimuths(v, v.azimuth)
-                for v in scene.views]
-        else:
-            per_frame_azimuths = [
-                turntable_azimuths(v.azimuth, num_frames)
-                for v in scene.views]
+    if any(viewport.rotating for viewport in viewports):
         update = _make_orbit_update_fn(
             scene, bones_arrays, bone_collections, joint_scatters,
-            axs_flat, per_frame_azimuths)
+            axs_flat, viewports)
     else:
         update = _make_update_fn(
             coords_list, bones_arrays, bone_collections, joint_scatters)
@@ -837,25 +828,20 @@ def _make_orbit_update_fn(
     bone_collections,
     joint_scatters,
     axs_flat,
-    per_frame_azimuths: list[npt.NDArray[np.float64]],
+    viewports: list[Viewport],
 ):
-    """Build an animation update fn that also recomputes view_init per frame.
-
-    Used by both follow mode (azimuths from
-    :func:`~._viewport.compute_follow_azimuths` — continuous rotation
-    tracking around ``world_up``) and turntable mode (a constant-rate
-    ramp from :func:`~._viewport.turntable_azimuths`).
-    """
+    """Build an animation update fn that also re-aims each panel's
+    camera every frame, at the azimuth its viewport schedules."""
     base_update = _make_update_fn(
         [v.coords for v in scene.views], bones_arrays, bone_collections,
         joint_scatters)
 
     def update(frame):
         artists = base_update(frame)
-        for az_per_frame, view, ax in zip(
-                per_frame_azimuths, scene.views, axs_flat):
-            ax.view_init(elev=view.elevation, azim=az_per_frame[frame],
-                         vertical_axis=view.up_axis)
+        for viewport, ax in zip(viewports, axs_flat):
+            ax.view_init(elev=viewport.elevation,
+                         azim=viewport.azimuth_at(frame),
+                         vertical_axis=viewport.up_axis)
         return artists
 
     return update
@@ -890,14 +876,16 @@ def play_mpl(
 
     fig.patch.set_facecolor(style.background)
 
+    viewports = panel_viewports(
+        scene.views, framing="clip", projection=style.projection)
     coords_list = [v.coords for v in scene.views]
     bones_arrays = [np.asarray(v.bones, dtype=int) for v in scene.views]
     bone_collections: list[Line3DCollection] = []
     joint_scatters: list = []
-    for i, (view, bones, ax) in enumerate(
-            zip(scene.views, bones_arrays, axs_flat)):
+    for i, (view, viewport, bones, ax) in enumerate(
+            zip(scene.views, viewports, bones_arrays, axs_flat)):
         collection, joint_scatter = _setup_animated_panel(
-            ax, view, style, bones, i, n)
+            ax, view, viewport, style, bones, i, n)
         bone_collections.append(collection)
         joint_scatters.append(joint_scatter)
 

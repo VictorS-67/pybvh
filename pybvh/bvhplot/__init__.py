@@ -752,6 +752,9 @@ def render(
     # Turntable overrides follow — both prescribe the azimuth.
     effective_follow = (follow and not turntable
                         and not isinstance(camera, tuple))
+    # The one value the backends hand to the viewport.
+    motion = ("turntable" if turntable
+              else "follow" if effective_follow else "fixed")
 
     actual_fps = _resolve_fps(fps, scene.frame_time)
 
@@ -769,7 +772,7 @@ def render(
                 "vedo backend requires vedo. "
                 "Install with: pip install pybvh[viewer]")
         unsupported = []
-        if effective_follow or turntable:
+        if motion != "fixed":
             unsupported.append("follow/turntable cameras")
         if ghost:
             unsupported.append("ghost trails")
@@ -806,7 +809,7 @@ def render(
         from ._matplotlib import render_mpl
         return render_mpl(
             scene, style_obj, filepath, actual_fps,
-            follow=effective_follow, turntable=turntable,
+            motion=motion,
             resolution=resolution,
             ghost=ghost, trajectory=trajectory)
 

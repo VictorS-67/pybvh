@@ -15,7 +15,7 @@ import numpy.typing as npt
 
 from ._style import PALETTE_RGB, Style, effective_color_mode
 from ._viewport import Viewport, make_viewport
-from ._scene import Scene, UP_AXIS_INDEX
+from ._scene import Scene
 from ._colors import node_colors_255
 
 
@@ -63,8 +63,7 @@ def _build_plot(
 
     # k3d draws in perspective whatever the style asks.
     viewport = make_viewport(scene.views, projection="persp")
-    center, half_span = viewport.center, viewport.half_span
-    up_axis = viewport.up_axis
+    half_span = viewport.half_span
     labels = scene.labels
     skeleton_lines_list = [v.bones for v in scene.views]
 
@@ -128,19 +127,15 @@ def _build_plot(
         # --- Root trajectory projected on the floor ---
         # Animated trail: vertices [0:current_frame] show the actual past
         # path, the remaining vertices collapse to the current frame so the
-        # trail "grows" as the animation plays.
-        # Snap the trail to the grid bottom (center - half_span on the up axis)
-        # rather than to the lowest joint, because the k3d bbox is cubic and
-        # extends below the lowest joint. Otherwise the trail floats above the
-        # visible grid floor and parallax makes it appear offset from its true
-        # XY position when viewed from an oblique angle.
-        up_idx = UP_AXIS_INDEX.get(up_axis, 2)
-        floor_level = float(center[up_idx] - half_span)
+        # trail "grows" as the animation plays. It lies on the scene
+        # ground, and the grid's bottom face is put just under the
+        # ground (below), so it is seen on that face rather than
+        # floating inside the box.
         trail_objects: list[Any] = []
         trail_full_paths: list[npt.NDArray[np.float32]] = []
-        for s, coords in enumerate(coords_f32):
-            root_path = coords[:, 0, :].copy()  # (F, 3)
-            root_path[:, up_idx] = floor_level
+        for s, view in enumerate(scene.views):
+            root_path = viewport.ground_path(
+                view.coords[:, 0, :]).astype(np.float32)  # (F, 3)
             trail_full_paths.append(root_path)
 
             # Initial trail: all vertices collapsed at frame 0
@@ -159,9 +154,8 @@ def _build_plot(
             plot += trail
             trail_objects.append(trail)
 
-    # Set grid to cover the full motion extent
-    grid_min = center - half_span
-    grid_max = center + half_span
+    # The grid covers the full motion extent, from the ground up.
+    grid_min, grid_max = viewport.grounded_box()
     plot.grid = [
         float(grid_min[0]), float(grid_min[1]), float(grid_min[2]),
         float(grid_max[0]), float(grid_max[1]), float(grid_max[2]),

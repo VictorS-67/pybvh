@@ -353,6 +353,56 @@ class TestFloor:
         assert not np.shares_memory(path, root)
 
 
+class TestGroundedBox:
+    """The cube with its bottom face at the ground, for k3d's grid."""
+
+    def _cube(self, viewport):
+        return (viewport.center - viewport.half_span,
+                viewport.center + viewport.half_span)
+
+    def test_a_floor_inside_the_cube_cuts_the_box_there(self, view):
+        viewport = make_viewport([view])
+        lo, hi = viewport.grounded_box()
+        cube_lo, cube_hi = self._cube(viewport)
+        assert cube_lo[1] < view.floor_height         # the premise
+        assert lo[1] == pytest.approx(
+            view.floor_height - FLOOR_INSET * viewport.half_span)
+        np.testing.assert_array_equal(hi, cube_hi)
+        np.testing.assert_array_equal(lo[[0, 2]], cube_lo[[0, 2]])
+
+    def test_a_floor_below_the_cube_extends_the_box_to_it(self, view):
+        low = dataclasses.replace(view, floor_height=-5.0)
+        viewport = make_viewport([low])
+        lo, _ = viewport.grounded_box()
+        assert lo[1] == pytest.approx(
+            -5.0 - FLOOR_INSET * viewport.half_span)
+
+    def test_a_negative_up_axis_grounds_the_other_face(self, view):
+        negative = _negative_up(view)
+        viewport = make_viewport([negative])
+        lo, hi = viewport.grounded_box()
+        cube_lo, _ = self._cube(viewport)
+        assert hi[1] == pytest.approx(
+            negative.floor_height + FLOOR_INSET * viewport.half_span)
+        np.testing.assert_array_equal(lo, cube_lo)
+
+    def test_a_ground_beyond_the_far_face_still_gives_a_box(self, view):
+        high = dataclasses.replace(view, floor_height=5.0)
+        viewport = make_viewport([high])
+        lo, hi = viewport.grounded_box()
+        assert np.all(lo <= hi)
+        assert hi[1] == pytest.approx(
+            5.0 - FLOOR_INSET * viewport.half_span)
+        assert lo[1] == pytest.approx(
+            viewport.center[1] + viewport.half_span)
+
+    def test_what_lies_on_the_ground_is_inside_the_box(self, view):
+        viewport = make_viewport([view])
+        lo, hi = viewport.grounded_box()
+        path = viewport.ground_path(view.coords[:, 0])
+        assert np.all(path >= lo) and np.all(path <= hi)
+
+
 class TestEnclosingCube:
     def test_the_smallest_cube_around_the_framing_box(self, view):
         viewport = make_viewport([view], framing="clip")

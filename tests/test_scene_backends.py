@@ -131,6 +131,42 @@ class TestK3d:
             built.plot.camera, [*eye, *target, *up], rtol=1e-6)
         assert built.plot.camera_auto_fit is False
 
+    def test_the_trails_lie_on_the_scene_ground(self, pair):
+        """... and the grid's bottom face is put just under it, so the
+        trail is seen on that face, not floating inside the box."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+        from pybvh.bvhplot._viewport import FLOOR_INSET
+        built = _build_plot(pair.spread("auto"), Style("paper"))
+        viewport = built.viewport
+        up = viewport.up_index
+        for path, view in zip(built.trail_paths, pair.spread("auto").views):
+            np.testing.assert_allclose(path[:, up], viewport.floor_height)
+            ground = list(viewport.ground_axes)
+            np.testing.assert_allclose(
+                path[:, ground], view.coords[:, 0][:, ground], rtol=1e-6)
+        grid = np.asarray(built.plot.grid).reshape(2, 3)
+        assert grid[0, up] == pytest.approx(
+            viewport.floor_height - FLOOR_INSET * viewport.half_span)
+        assert grid[1, up] == pytest.approx(
+            viewport.center[up] + viewport.half_span)
+        assert built.plot.grid_auto_fit is False
+
+    def test_a_negative_up_axis_keeps_the_trail_under_the_feet(self):
+        pytest.importorskip("k3d")
+        import dataclasses
+        from pybvh.bvhplot._k3d import _build_plot
+        from pybvh.bvhplot._scene import Scene
+        view = synthetic_scene.make_array_view(n_frames=12)
+        flipped = view.coords * np.array([1.0, -1.0, 1.0])
+        negative = dataclasses.replace(
+            view, coords=flipped, up="-y",
+            rest_coords=view.rest_coords * np.array([1.0, -1.0, 1.0]),
+            floor_height=float(flipped[..., 1].max()))
+        built = _build_plot(Scene(views=[negative]), Style("paper"))
+        # "under the feet" of a -y-up rig is the coordinate maximum
+        assert np.all(built.trail_paths[0][:, 1] >= flipped[..., 1].max() - 1e-6)
+
     def test_one_skeleton_and_one_trail_per_view(self, pair):
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import _build_plot

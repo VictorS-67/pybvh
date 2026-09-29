@@ -143,6 +143,33 @@ class Viewport(GroundFrame):
         half = float((self.hi - self.lo).max()) / 2
         return middle - half, middle + half
 
+    def grounded_box(
+        self,
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        """The cube with its ground-side face moved to just under the
+        ground, as ``(lo, hi)``.
+
+        For a toolkit that draws the box itself, as k3d draws its grid.
+        The face under the skeleton sits ``FLOOR_INSET`` half-spans
+        below the ground plane, so whatever lies on the ground (the
+        floor, the root trail) is seen lying on the box's bottom face.
+        Left at the cube's own bottom, that face can be far below the
+        ground (a clip that travels has a cube much taller than the
+        body), and a trail drawn at the ground then floats inside the
+        box and reads as displaced sideways from an oblique angle.
+        Only the extent along up changes, so the box is no longer a
+        cube. A ground that lies beyond the cube's far face (above the
+        head, for a positive up axis) still gives a valid box, from
+        that far face to the ground."""
+        lo = self.center - self.half_span
+        hi = self.center + self.half_span
+        face = self.below_floor(FLOOR_INSET * self.half_span)
+        if self.up_sign > 0:
+            lo[self.up_index] = face
+        else:
+            hi[self.up_index] = face
+        return np.minimum(lo, hi), np.maximum(lo, hi)
+
     @property
     def floor_reach(self) -> float:
         """How far the ground plane reaches from its centre in each

@@ -362,12 +362,22 @@ def _typing_guard_names(tree: ast.Module) -> set[str]:
     """Which of ``TYPE_CHECKING`` and ``typing`` a module binds exactly
     once, by ``from typing import TYPE_CHECKING`` or ``import typing``.
 
-    Any other binding of either name (assignment, parameter, def, alias)
-    disqualifies it, so a shadowed guard is treated as a runtime
-    condition. Conservative on purpose: ``import typing as t`` is not
-    recognised and its block counts as runtime."""
+    Any other binding of either name (assignment, parameter, def, alias,
+    except clause) disqualifies it, so a shadowed guard is treated as a
+    runtime condition. A star import or a write to an attribute named
+    ``TYPE_CHECKING`` anywhere in the module disqualifies both, since
+    either can change what the guard evaluates to. Conservative on
+    purpose: ``import typing as t`` is not recognised and its block
+    counts as runtime."""
     bindings: dict[str, list[bool]] = {"TYPE_CHECKING": [], "typing": []}
     for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and any(
+                alias.name == "*" for alias in node.names):
+            return set()  # a star import may rebind either name unseen
+        if (isinstance(node, ast.Attribute)
+                and node.attr == "TYPE_CHECKING"
+                and not isinstance(node.ctx, ast.Load)):
+            return set()  # typing.TYPE_CHECKING = ... changes its value
         if isinstance(node, ast.ImportFrom):
             for alias in node.names:
                 bound = alias.asname or alias.name
@@ -391,6 +401,8 @@ def _typing_guard_names(tree: ast.Module) -> set[str]:
                 bindings[node.name].append(False)
         elif isinstance(node, ast.arg) and node.arg in bindings:
             bindings[node.arg].append(False)
+        elif isinstance(node, ast.ExceptHandler) and node.name in bindings:
+            bindings[node.name].append(False)
     return {name for name, seen in bindings.items()
             if len(seen) == 1 and seen[0]}
 
@@ -457,7 +469,8 @@ def _sibling_imports_in_source(source: str, sibling: str) -> list[int]:
                    for alias in node.names):
                 found.append(node.lineno)
         elif isinstance(node, ast.ImportFrom):
-            parts = [p for p in (node.module or "").split(".") if p]
+            parts = [p for p in (node.module or "").split(".")
+                     if p and p != "__init__"]
             if node.level == 0 and parts[:2] == ["pybvh", "bvhplot"]:
                 parts = parts[2:]
             elif node.level == 2 and parts[:1] == ["bvhplot"]:
@@ -468,6 +481,54 @@ def _sibling_imports_in_source(source: str, sibling: str) -> list[int]:
                     not parts
                     and any(alias.name == sibling for alias in node.names)):
                 found.append(node.lineno)
+    return found
+
+
+def _router_imports_in_source(
+    source: str, modules: set[str],
+) -> list[tuple[int, list[str]]]:
+    """Every import statement in ``source`` that reaches the router (the
+    bvhplot package root): (line, names).
+
+    The router re-exports what it imports, the Bvh readers included, so
+    a module behind the boundary must not take a *name* from it
+    (``from . import make_scene``), nor the router itself (``import
+    pybvh.bvhplot``, ``from pybvh import bvhplot``), whose attributes
+    are those same names. Taking a sibling *module* is fine (``from .
+    import _colors``). An explicit ``__init__`` component is the root
+    spelled out. A dotted ``import pybvh.bvhplot._scene`` with no
+    ``as`` binds the top package, the router with it, and is flagged;
+    with ``as`` it binds the sibling alone and passes. ``modules`` are
+    the package's module names."""
+    found: list[tuple[int, list[str]]] = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            names = []
+            for alias in node.names:
+                parts = [p for p in alias.name.split(".") if p != "__init__"]
+                if parts[:2] == ["pybvh", "bvhplot"] and (
+                        len(parts) == 2 or alias.asname is None):
+                    names.append(alias.name)
+            if names:
+                found.append((node.lineno, names))
+        elif isinstance(node, ast.ImportFrom):
+            parts = [p for p in (node.module or "").split(".")
+                     if p and p != "__init__"]
+            at_root = ((node.level == 1 and not parts)
+                       or (node.level == 0 and parts == ["pybvh", "bvhplot"])
+                       or (node.level == 2 and parts == ["bvhplot"]))
+            above_root = ((node.level == 0 and parts == ["pybvh"])
+                          or (node.level == 2 and not parts))
+            if at_root:
+                names = [alias.name for alias in node.names
+                         if alias.name not in modules]
+            elif above_root:
+                names = [alias.name for alias in node.names
+                         if alias.name == "bvhplot"]
+            else:
+                names = []
+            if names:
+                found.append((node.lineno, names))
     return found
 
 
@@ -496,6 +557,29 @@ class TestCoreImportGuard:
     def test_flags_every_spelling_of_a_core_import(self, line):
         found = _core_imports_in_source(line)
         assert [(lineno, func) for lineno, func, _ in found] == [(1, None)]
+
+    @pytest.mark.parametrize("prelude", [
+        "import typing\ntyping.TYPE_CHECKING = True\n"
+        "if typing.TYPE_CHECKING:\n",
+        "from typing import TYPE_CHECKING\nfrom flags import *\n"
+        "if TYPE_CHECKING:\n",
+    ])
+    def test_a_guard_that_may_have_been_overwritten_is_runtime(
+            self, prelude):
+        found = _core_imports_in_source(prelude + "    import pybvh.tools\n")
+        assert [names for _, _, names in found] == [["pybvh.tools"]]
+
+    def test_a_guard_name_rebound_by_an_except_clause_is_runtime(self):
+        source = (
+            "from typing import TYPE_CHECKING\n"
+            "try:\n"
+            "    pass\n"
+            "except ValueError as TYPE_CHECKING:\n"
+            "    if TYPE_CHECKING:\n"
+            "        import pybvh.tools\n"
+        )
+        assert [lineno for lineno, _, _ in
+                _core_imports_in_source(source)] == [6]
 
     @pytest.mark.parametrize("line", [
         "from ._scene import Scene",
@@ -598,12 +682,61 @@ class TestSiblingImportGuard:
     def test_passes_other_imports(self, line):
         assert _sibling_imports_in_source(line, "_from_bvh") == []
 
+    @pytest.mark.parametrize("line", [
+        "from . import make_scene",
+        "from . import _colors, make_scene",
+        "from pybvh.bvhplot import make_scene",
+        "from ..bvhplot import Style",
+        "from . import *",
+        "from .__init__ import make_scene",
+        "from pybvh.bvhplot.__init__ import make_scene as reader",
+        "from ..bvhplot.__init__ import normalize_input",
+    ])
+    def test_flags_names_taken_from_the_router(self, line):
+        found = _router_imports_in_source(line, {"_colors", "_scene"})
+        assert [lineno for lineno, _ in found] == [1]
+
+    @pytest.mark.parametrize("line", [
+        "import pybvh.bvhplot",
+        "import pybvh.bvhplot as router",
+        "import pybvh.bvhplot.__init__ as router",
+        "import pybvh.bvhplot._scene",
+        "from pybvh import bvhplot",
+        "from pybvh import bvhplot as router",
+        "from .. import bvhplot",
+        "from ..__init__ import bvhplot",
+    ])
+    def test_flags_the_router_taken_whole(self, line):
+        found = _router_imports_in_source(line, {"_colors", "_scene"})
+        assert [lineno for lineno, _ in found] == [1]
+
+    @pytest.mark.parametrize("line", [
+        "from . import _colors",
+        "from . import _colors, _scene",
+        "from ._scene import Scene",
+        "from pybvh.bvhplot._style import Style",
+        "import pybvh.bvhplot._scene as scene",
+        "from .. import tools",
+        "import numpy as np",
+    ])
+    def test_passes_sibling_modules_and_other_packages(self, line):
+        assert _router_imports_in_source(
+            line, {"_colors", "_scene"}) == []
+
+    @pytest.mark.parametrize("line", [
+        "from .__init__ import _from_bvh",
+        "from pybvh.bvhplot.__init__ import _from_bvh",
+    ])
+    def test_flags_the_reader_taken_through_an_explicit_init(self, line):
+        assert len(_sibling_imports_in_source(line, "_from_bvh")) == 1
+
 
 class TestSceneIsPureData:
     @pytest.mark.parametrize("module_name", _PURE_DATA)
     def test_no_plotting_imports_in_pure_data_modules(self, module_name):
         """The Scene, the viewport, the Style and the Bvh reader must
-        never import a plotting library."""
+        never import a plotting library, by any of its top-level
+        package names."""
         tree = ast.parse(_module_source(module_name))
         imported: set[str] = set()
         for node in ast.walk(tree):
@@ -613,7 +746,8 @@ class TestSceneIsPureData:
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imported.add(node.module.split(".")[0])
 
-        forbidden = {"matplotlib", "cv2", "k3d", "vedo", "PIL", "vtk"}
+        forbidden = {"matplotlib", "mpl_toolkits", "cv2", "k3d", "vedo",
+                     "PIL", "vtk", "vtkmodules"}
         assert not (imported & forbidden), (
             f"{module_name} must stay plotting-free but imports "
             f"{sorted(imported & forbidden)}")
@@ -652,6 +786,18 @@ class TestSceneIsPureData:
         offenders = _core_imports_in_source(_module_source(module_name))
         assert offenders == [], (
             f"{module_name} imports core modules at runtime: {offenders}")
+
+    @pytest.mark.parametrize("module_name", _BEHIND_THE_BOUNDARY)
+    def test_never_reaches_the_router(self, module_name):
+        """The router re-exports what it imports, the Bvh readers
+        included. A module behind the boundary takes sibling modules
+        from the package; it takes neither a name from the router nor
+        the router itself."""
+        offenders = _router_imports_in_source(
+            _module_source(module_name), set(_bvhplot_modules()))
+        assert offenders == [], (
+            f"{module_name} imports the router or names from it: "
+            f"{offenders}")
 
     @pytest.mark.parametrize("module_name", _BEHIND_THE_BOUNDARY)
     def test_only_the_router_imports_the_bvh_reader(self, module_name):

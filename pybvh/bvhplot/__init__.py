@@ -796,7 +796,7 @@ def render(
         from ._opencv import render_opencv
         return render_opencv(
             scene, style_obj, filepath, actual_fps, resolution,
-            follow=effective_follow, turntable=turntable,
+            motion=motion,
             frame_counter=frame_counter,
             ghost=ghost, trajectory=trajectory, codec=codec)
 

@@ -78,7 +78,7 @@ class TestOpenCV:
         pytest.importorskip("cv2")
         from pybvh.bvhplot._opencv import render_opencv
         out = render_opencv(scene, Style("paper"), tmp_path / "walk.mp4",
-                            10.0, (320, 240), follow=True, ghost=1,
+                            10.0, (320, 240), motion="follow", ghost=1,
                             trajectory=True, frame_counter=True)
         assert out.exists() and out.stat().st_size > 0
 

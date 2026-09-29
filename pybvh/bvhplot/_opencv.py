@@ -12,7 +12,7 @@ import numpy as np
 import numpy.typing as npt
 
 from pathlib import Path
-from typing import NamedTuple, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from ._style import (
     GHOST_WIDTH_FACTOR,
@@ -22,15 +22,7 @@ from ._style import (
     ghost_schedule,
     PALETTE_RGB,
 )
-from ._viewport import (
-    box_corners,
-    build_view_matrix,
-    compute_follow_azimuths,
-    floor_trace_points,
-    framing_bounds,
-    ortho_project,
-    turntable_azimuths,
-)
+from ._viewport import Viewport, floor_trace_points, panel_viewports
 from ._scene import Scene, SkeletonView
 from ._colors import bone_colors_255, floor_palette, node_colors_255
 
@@ -63,12 +55,12 @@ def _draw_floor_opencv(
     img: npt.NDArray[np.uint8],
     view: SkeletonView,
     style: Style,
-    view_matrix: npt.NDArray[np.float64],
+    viewport: Viewport,
+    frame_idx: int,
     panel_w: int,
     h: int,
     x_offset: int,
     bg_bgr: tuple[int, int, int],
-    framing: "_PanelFraming",
     px_scale: float = 1.0,
 ) -> None:
     """Project and draw the ground plane into one panel.
@@ -85,9 +77,7 @@ def _draw_floor_opencv(
     palette = floor_palette(style)
 
     def project(world_pts: npt.NDArray[np.float64]) -> npt.NDArray[np.int32]:
-        pts = ortho_project(
-            world_pts, view_matrix, framing.center, view.half_span,
-            (panel_w, h), fixed_view_half=framing.view_half)
+        pts = viewport.project(world_pts, (panel_w, h), frame_idx)
         pts[:, 0] += x_offset
         return pts
 
@@ -145,56 +135,6 @@ _OPENCV_EXTENSIONS = {'.mp4', '.mov', '.avi', '.gif'}
 VIDEO_CODECS = {"auto", "h264", "mpeg4"}
 
 
-class _PanelFraming(NamedTuple):
-    """Where one panel's projection is centred and how far it reaches.
-
-    ``center`` is the world point that lands at the middle of the
-    panel; ``view_half`` is the half-extent of the framing box on
-    screen, in view units, which sets the projection scale.
-    """
-
-    center: npt.NDArray[np.float64]
-    view_half: tuple[float, float]
-
-
-def _panel_framings(
-    scene: Scene,
-    base_view_matrices: list[npt.NDArray[np.float64]],
-    follow_azimuths: list[npt.NDArray[np.float64]] | None,
-) -> list[_PanelFraming]:
-    """Frame each panel to its clip's motion rather than to a cube.
-
-    The box comes from :func:`~._viewport.framing_bounds`, the same rule
-    the matplotlib backend fits its axes to, so one call rendered
-    through either backend frames the same volume.
-
-    Under a rotating camera (follow or turntable) the box's projection
-    still changes with azimuth — a box is widest off-axis — so the
-    halves are the MAX over every frame's view matrix. Taking them per
-    frame instead would rescale the drawing continuously and read as
-    the character zooming in and out while the camera orbits.
-    """
-    framings: list[_PanelFraming] = []
-    for index, view in enumerate(scene.views):
-        lo, hi = framing_bounds(view, rotating=follow_azimuths is not None)
-        center = (lo + hi) / 2.0
-        corners = box_corners(lo, hi) - center
-
-        if follow_azimuths is None:
-            matrices = [base_view_matrices[index]]
-        else:
-            matrices = [build_view_matrix(az, view.elevation, view.up_axis)
-                        for az in follow_azimuths[index]]
-
-        half_u = half_v = 0.0
-        for matrix in matrices:
-            projected = corners @ matrix.T
-            half_u = max(half_u, float(np.abs(projected[:, 0]).max()))
-            half_v = max(half_v, float(np.abs(projected[:, 1]).max()))
-        framings.append(_PanelFraming(center, (half_u, half_v)))
-    return framings
-
-
 class _ViewDrawContext:
     """Frame-invariant drawing data for one view, computed once per
     render instead of once per frame (chain classification triggers
@@ -237,29 +177,27 @@ def _draw_skeletons_on_frame(
     frame_idx: int,
     scene: Scene,
     style: Style,
-    view_matrices: list[npt.NDArray[np.float64]],
+    viewports: list[Viewport],
     contexts: list[_ViewDrawContext],
     panel_w: int,
     h: int,
     bg_bgr: tuple[int, int, int],
-    framings: list["_PanelFraming"],
     px_scale: float = 1.0,
     ghost: int = 0,
     trajectory: bool = False,
 ) -> None:
     """Draw all skeletons for one frame onto *img* (mutates in place).
 
-    Each skeleton is projected with its own view matrix, so skeletons
+    Each skeleton is projected through its own viewport, so skeletons
     with different forward/up axes all render correctly side by side.
     In multi-panel mode every view draws into its own panel-sized
     buffer that is then blitted into place — cv2 primitives have no
     clip rectangle, and an unclipped floor quad (1.8x half_span, wider
     than a panel) would otherwise paint over the neighboring panel.
 
-    Each panel's ``_PanelFraming`` supplies the projection origin and
-    the fixed view-space half extents, so the drawing is framed to the
-    clip's motion and holds a constant scale across frames even when
-    the camera rotates (see :func:`_panel_framings`).
+    The viewport frames the drawing to the clip's motion and holds one
+    scale across frames even when the camera rotates (see
+    :meth:`~._viewport.Viewport.project`).
 
     Joint dots are always drawn in this backend — at raster resolution
     they are load-bearing for line joins (matplotlib omits them when
@@ -283,8 +221,8 @@ def _draw_skeletons_on_frame(
     for s, view in enumerate(scene.views):
         ctx = contexts[s]
         frame_data = view.coords[frame_idx]
-        view_matrix = view_matrices[s]
-        framing = framings[s]
+        viewport = viewports[s]
+        view_matrix = viewport.view_matrix(frame_idx)
 
         if n_skeletons > 1:
             # Contiguous per-panel canvas: clips every primitive to the
@@ -296,13 +234,11 @@ def _draw_skeletons_on_frame(
 
         if style.floor is not None:
             _draw_floor_opencv(
-                canvas, view, style, view_matrix, panel_w, h, 0,
-                bg_bgr, framing, px_scale=px_scale)
+                canvas, view, style, viewport, frame_idx, panel_w, h, 0,
+                bg_bgr, px_scale=px_scale)
 
         def project(world_pts):
-            return ortho_project(
-                world_pts, view_matrix, framing.center, view.half_span,
-                (panel_w, h), fixed_view_half=framing.view_half)
+            return viewport.project(world_pts, (panel_w, h), frame_idx)
 
         if trajectory and frame_idx >= 1:
             path = ctx.trace_path[:frame_idx + 1]
@@ -376,8 +312,7 @@ def _generate_frames(
     style: Style,
     resolution: tuple[int, int],
     *,
-    follow: bool = False,
-    turntable: bool = False,
+    motion: str = "fixed",
     frame_counter: bool = False,
     ghost: int = 0,
     trajectory: bool = False,
@@ -390,18 +325,16 @@ def _generate_frames(
     Parameters
     ----------
     scene : Scene
-        Prepared visualization (per-view bounding boxes and cameras).
+        Prepared visualization (per-view cameras; each panel is framed
+        by its own viewport).
     style : Style
         Visual styling; ``style.axes == "full"`` draws the per-panel
         axis indicator (the pre-0.9.0 ``show_axis``).
     resolution : (int, int)
         ``(width, height)`` in pixels.
-    follow : bool, optional
-        If ``True``, per-frame view matrices track each skeleton's
-        rotation (continuous azimuth tracking around ``world_up``).
-    turntable : bool, optional
-        If ``True``, the camera orbits 360 degrees over the clip
-        (a constant-rate azimuth ramp — the trivial case of follow).
+    motion : str, optional
+        How each panel's camera moves, handed to the viewport
+        untouched (:func:`~._viewport.make_viewport`).
     frame_counter : bool, optional
         Draw a ``Frame f/F`` counter in the bottom-right corner.
         Default ``False`` (opt-in — publication output never stamps
@@ -424,24 +357,12 @@ def _generate_frames(
     n_skeletons = scene.num_skeletons
     panel_w = draw_w // n_skeletons if n_skeletons > 1 else draw_w
 
-    base_view_matrices = [
-        build_view_matrix(v.azimuth, v.elevation, v.up_axis)
-        for v in scene.views]
-
-    # Follow mode: per-frame azimuths precomputed once per skeleton,
-    # plus the MAX view-space half extents across every frame so the
-    # projection scale stays constant and the character doesn't zoom
-    # in and out as the camera orbits.
-    follow_azimuths: list[npt.NDArray[np.float64]] | None = None
-    if follow:
-        follow_azimuths = [
-            compute_follow_azimuths(v, v.azimuth)
-            for v in scene.views]
-    elif turntable:
-        follow_azimuths = [
-            turntable_azimuths(v.azimuth, num_frames)
-            for v in scene.views]
-    framings = _panel_framings(scene, base_view_matrices, follow_azimuths)
+    # One viewport per panel: the box the clip sweeps, the camera's
+    # schedule, and one projection scale for the whole clip.
+    # Orthographic whatever the style asks: this backend has no
+    # perspective projection, and says so to the viewport.
+    viewports = panel_viewports(
+        scene.views, framing="clip", motion=motion, projection="ortho")
 
     contexts = [
         _ViewDrawContext(v, style, s, n_skeletons, bg_bgr, ghost,
@@ -449,21 +370,13 @@ def _generate_frames(
         for s, v in enumerate(scene.views)]
 
     for f in range(num_frames):
-        if follow_azimuths is not None:
-            view_matrices = [
-                build_view_matrix(az_per_frame[f], v.elevation, v.up_axis)
-                for az_per_frame, v
-                in zip(follow_azimuths, scene.views)]
-        else:
-            view_matrices = base_view_matrices
-
         img = np.empty((draw_h, draw_w, 3), dtype=np.uint8)
         img[:] = bg_bgr
 
         _draw_skeletons_on_frame(
-            img, f, scene, style, view_matrices, contexts, panel_w,
+            img, f, scene, style, viewports, contexts, panel_w,
             draw_h, bg_bgr,
-            px_scale=px_scale, framings=framings,
+            px_scale=px_scale,
             ghost=ghost, trajectory=trajectory)
 
         if ss > 1:
@@ -481,9 +394,9 @@ def _generate_frames(
                 cv2.LINE_AA)
 
         if style.axes == "full":
-            for s, v in enumerate(scene.views):
+            for s, viewport in enumerate(viewports):
                 _draw_axis_indicator(
-                    img, view_matrices[s], v.up_axis,
+                    img, viewport.view_matrix(f), viewport.up_axis,
                     panel_w // ss, h, panel_idx=s)
 
         yield img
@@ -496,8 +409,7 @@ def render_opencv(
     fps: float,
     resolution: tuple[int, int],
     *,
-    follow: bool = False,
-    turntable: bool = False,
+    motion: str = "fixed",
     frame_counter: bool = False,
     ghost: int = 0,
     trajectory: bool = False,
@@ -506,9 +418,8 @@ def render_opencv(
     """Render skeleton animation to a video or GIF file using OpenCV.
 
     Each panel uses its own bounding box and camera so that mixed-up-axis
-    side-by-side comparisons render correctly. If ``follow`` is True, the
-    per-panel view matrices are recomputed every frame so each camera
-    tracks its skeleton's current facing direction.
+    side-by-side comparisons render correctly. *motion* decides how
+    each panel's camera moves.
 
     Frame generation is shared with the GIF path via
     :func:`_generate_frames`; this function only picks the sink.
@@ -516,7 +427,8 @@ def render_opencv(
     Parameters
     ----------
     scene : Scene
-        Prepared visualization (per-view bounding boxes and cameras).
+        Prepared visualization (per-view cameras; each panel is framed
+        by its own viewport).
     style : Style
         Visual styling (colors, floor, background; ``axes="full"``
         draws the per-panel axis indicator).
@@ -527,9 +439,9 @@ def render_opencv(
         Frames per second.
     resolution : (int, int)
         ``(width, height)`` in pixels.
-    follow : bool, optional
-        If ``True``, recompute view matrices each frame so the camera
-        follows the character's orientation. Default ``False``.
+    motion : str, optional
+        ``"fixed"`` (default), ``"turntable"`` or ``"follow"``, handed
+        to the viewport untouched.
 
     Returns
     -------
@@ -550,7 +462,7 @@ def render_opencv(
             f"Use backend='matplotlib' for other formats.")
 
     frames = _generate_frames(
-        scene, style, resolution, follow=follow, turntable=turntable,
+        scene, style, resolution, motion=motion,
         frame_counter=frame_counter, ghost=ghost, trajectory=trajectory)
 
     # Pillow sink for GIF output (cv2.VideoWriter doesn't support GIF).

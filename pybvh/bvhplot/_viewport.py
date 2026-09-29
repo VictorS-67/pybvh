@@ -143,12 +143,18 @@ class Viewport(GroundFrame):
         half = float((self.hi - self.lo).max()) / 2
         return middle - half, middle + half
 
+    @property
+    def floor_reach(self) -> float:
+        """How far the ground plane reaches from its centre in each
+        ground direction: ``FLOOR_EXTENT`` half-spans."""
+        return self.half_span * FLOOR_EXTENT
+
     def floor_quad(
         self, clip_to_box: bool = False,
     ) -> npt.NDArray[np.float64]:
         """The four corners of the ground plane, shape ``(4, 3)``.
 
-        A square of half side ``FLOOR_EXTENT * half_span`` around the
+        A square of half side :attr:`floor_reach` around the
         cube's centre (which is also the framing box's centre on the
         ground), at ``floor_height``. With *clip_to_box* the rectangle
         of the framing box on the ground instead: a wide orthographic
@@ -162,7 +168,7 @@ class Viewport(GroundFrame):
             a_lo, a_hi = float(self.lo[first]), float(self.hi[first])
             b_lo, b_hi = float(self.lo[second]), float(self.hi[second])
         else:
-            reach = self.half_span * FLOOR_EXTENT
+            reach = self.floor_reach
             a_lo = float(self.center[first]) - reach
             a_hi = float(self.center[first]) + reach
             b_lo = float(self.center[second]) - reach

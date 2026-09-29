@@ -164,29 +164,6 @@ def _apply_axes_style(
         ax.patch.set_facecolor(style.background)
 
 
-def _floor_limits(
-    view: SkeletonView,
-    style: Style,
-) -> tuple[npt.NDArray[np.float64], float]:
-    """The view's cubic box, shifted so the floor sits just inside it.
-
-    Without the shift a floor below the box bottom would be invisible;
-    with it, the plane sits ~2% of the half-span above the bottom edge.
-    """
-    center = view.center.copy()
-    half_span = view.half_span
-    up = view.up_index
-    sign = view.up_sign
-    # The box edge visually below the skeleton is center - sign*half:
-    # for a negative up axis the ground sits at the coordinate MAXIMUM.
-    bottom = center[up] - sign * half_span
-    target = view.below_floor(0.02 * half_span)
-    delta = target - bottom
-    if sign * delta < 0:
-        center[up] += delta
-    return center, half_span
-
-
 def _apply_projection(
     ax: matplotlib.axes.Axes,
     viewport: Viewport,
@@ -205,36 +182,30 @@ def _apply_projection(
 
 def _draw_floor_mpl(
     ax: matplotlib.axes.Axes,
-    view: SkeletonView,
+    viewport: Viewport,
     style: Style,
-    bounds: tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]] | None = None,
+    clip_to_box: bool = False,
 ) -> None:
-    """Draw the ground plane for one view (solid, grid, or checker).
+    """Draw the viewport's ground plane (solid, grid, or checker).
 
-    The plane is horizontal in the view's two ground axes at
-    ``view.floor_height``. Without *bounds* it extends 1.8 x half_span
-    around the box center (fills the frame at typical camera
-    elevations); with ``bounds=(mins, maxs)`` it is clipped to that
-    box — the sequence figure needs this, where a full-extent plane
-    reads as a backdrop wall.
+    The plane is where the viewport puts it: exactly at the scene
+    ground, reaching :attr:`~._viewport.Viewport.floor_reach` around
+    the centre (fills the frame at typical camera elevations). With
+    *clip_to_box* it is clipped to the framing box — the sequence
+    figure needs this, where a full-extent plane reads as a backdrop
+    wall. No nudge below the ground: draw order here is by explicit
+    zorder, so nothing can z-fight with the plane.
     """
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-    up = view.up_index
-    ground = [i for i in range(3) if i != up]
-    y = view.below_floor(0.001 * view.half_span)
+    up = viewport.up_index
+    ground = list(viewport.ground_axes)
+    y = viewport.floor_height
     palette = floor_palette(style)
 
-    if bounds is None:
-        center, half_span = _floor_limits(view, style)
-        g0_lo = float(center[ground[0]]) - half_span * 1.8
-        g0_hi = float(center[ground[0]]) + half_span * 1.8
-        g1_lo = float(center[ground[1]]) - half_span * 1.8
-        g1_hi = float(center[ground[1]]) + half_span * 1.8
-    else:
-        mins, maxs = bounds
-        g0_lo, g0_hi = float(mins[ground[0]]), float(maxs[ground[0]])
-        g1_lo, g1_hi = float(mins[ground[1]]), float(maxs[ground[1]])
+    corners = viewport.floor_quad(clip_to_box=clip_to_box)
+    g0_lo, g0_hi = float(corners[0, ground[0]]), float(corners[2, ground[0]])
+    g1_lo, g1_hi = float(corners[0, ground[1]]), float(corners[2, ground[1]])
 
     def quad(a_lo: float, a_hi: float, b_lo: float, b_hi: float):
         pts = []
@@ -444,8 +415,7 @@ def sequence_mpl(
     # wall in wide orthographic views), honoring the style's floor kind
     # via the one shared floor renderer.
     if style.floor is not None:
-        _draw_floor_mpl(ax, poses_view, style,
-                        bounds=(viewport.lo, viewport.hi))
+        _draw_floor_mpl(ax, viewport, style, clip_to_box=True)
 
     if trajectory and layout == "offset":
         # Trace only the sampled range — a frames= restriction must not
@@ -541,7 +511,7 @@ def frame_mpl(
             projection=style.projection)
         _apply_projection(ax_i, viewport)
         if style.floor is not None:
-            _draw_floor_mpl(ax_i, view, style)
+            _draw_floor_mpl(ax_i, viewport, style)
 
         colors = bone_colors_for_view(view, style, i, n)
         _draw_pose(ax_i, frame_data, view, style, colors)
@@ -619,7 +589,7 @@ def _setup_animated_panel(
         # feet and read as a platform the character stands on rather
         # than as ground. (sequence() clips its floor for the opposite
         # reason — a wide ortho still turns a full plane into a wall.)
-        _draw_floor_mpl(ax, view, style)
+        _draw_floor_mpl(ax, viewport, style)
 
     colors = bone_colors_for_view(view, style, view_index, n_skeletons)
     collection = _make_bone_collection(

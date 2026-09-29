@@ -30,7 +30,12 @@ from ._style import (
     bone_colors_for_view,
     ghost_schedule,
 )
-from ._viewport import Viewport, floor_trace_points, panel_viewports
+from ._viewport import (
+    Viewport,
+    floor_trace_points,
+    make_viewport,
+    panel_viewports,
+)
 from ._scene import Scene, SkeletonView
 from ._colors import floor_palette
 
@@ -136,15 +141,13 @@ def _apply_axes_style(
     ax: matplotlib.axes.Axes,
     style: Style,
 ) -> None:
-    """Apply the axes/projection/background part of a Style to a 3D axes.
+    """Apply the axes/background part of a Style to a 3D axes.
 
     ``axes="full"`` (the debug look) keeps default panes, ticks, and
     labels; the caller adds the x/y/z labels itself. ``axes="off"``
     hides everything and takes manual control of draw order so the
     floor can be painted behind the skeleton.
     """
-    if style.projection == "ortho":
-        ax.set_proj_type("ortho")  # type: ignore[attr-defined]
     if style.axes == "off":
         ax.set_axis_off()
     if _manual_zorder(style):
@@ -182,6 +185,22 @@ def _floor_limits(
     if sign * delta < 0:
         center[up] += delta
     return center, half_span
+
+
+def _apply_projection(
+    ax: matplotlib.axes.Axes,
+    viewport: Viewport,
+) -> None:
+    """Draw the axes with the projection the viewport states.
+
+    Applied to axes the caller supplies (``ax=``) as to the ones
+    bvhplot creates: the style decides the projection, as it decides
+    the background and whether the axes show. The alternative, leaving
+    supplied axes as they came, would let the picture differ from
+    what its viewport records. mplot3d sets the focal length with the
+    projection, so a perspective focal length set on supplied axes
+    beforehand goes back to the default."""
+    ax.set_proj_type(viewport.projection)  # type: ignore[attr-defined]
 
 
 def _draw_floor_mpl(
@@ -361,7 +380,8 @@ def sequence_mpl(
     spreads them naturally), orthographic, equal-scale but NON-cubic
     bounds so wide travel fills the frame instead of shrinking into a
     cube. ``layout="overlay"``: poses superimposed with per-pose
-    horizontal root-centering, cubic bounds, perspective.
+    horizontal root-centering, cubic bounds, in the style's projection
+    (perspective unless the style asks otherwise).
 
     Poses draw back-to-front (oldest first) under manual z-order — the
     correct painter's-algorithm order for the fade encoding.
@@ -390,58 +410,42 @@ def sequence_mpl(
     fig.patch.set_facecolor(style.background)
     _apply_axes_style(ax, style)
     ax.computed_zorder = False  # type: ignore[attr-defined]
-    if layout == "offset":
-        # The offset figure is orthographic by design (D4): perspective
-        # would shrink distant poses and break the left-to-right read.
-        ax.set_proj_type("ortho")  # type: ignore[attr-defined]
 
     ax.view_init(  # type: ignore[attr-defined]
         elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis)
 
-    up = view.up_index
-    sign = view.up_sign
-    flat = stack.reshape(-1, 3)
-    mins = flat.min(axis=0)
-    maxs = flat.max(axis=0)
+    # The figure shows the sampled poses, not the clip: frame those.
     # Overlay layouts re-center heights, so the world floor does not
     # apply — use the poses' own lowest point (sign-aware: for a
     # negative up axis the ground is at the coordinate maximum).
     if layout == "offset":
         floor_y = view.floor_height
     else:
-        floor_y = float(flat[:, up].min() if sign > 0
-                        else flat[:, up].max())
-    if style.floor is not None:
-        if sign > 0:
-            mins[up] = min(mins[up], floor_y)
-        else:
-            maxs[up] = max(maxs[up], floor_y)
-    pad = 0.04 * float((maxs - mins).max())
-    mins, maxs = mins - pad, maxs + pad
-    spans = maxs - mins
+        heights = stack[..., view.up_index]
+        floor_y = float(heights.min() if view.up_sign > 0
+                        else heights.max())
+    poses_view = dataclasses.replace(
+        view, coords=stack, floor_height=floor_y, root_heading=None)
+    # The offset figure is orthographic by design (D4): perspective
+    # would shrink distant poses and break the left-to-right read.
+    viewport = make_viewport(
+        [poses_view], framing="clip", include_floor=style.floor is not None,
+        projection="ortho" if layout == "offset" else style.projection)
+    _apply_projection(ax, viewport)
 
     if layout == "offset":
         # Equal-scale, non-cubic: box aspect follows the data spans.
-        # zoom compensates for mplot3d's generous default margins.
-        ax.set_xlim(mins[0], maxs[0])
-        ax.set_ylim(mins[1], maxs[1])
-        ax.set_zlim(mins[2], maxs[2])
-        ax.set_box_aspect(  # type: ignore[attr-defined]
-            tuple(spans / spans.max()), zoom=BOX_ZOOM)
+        _set_span_limits(ax, viewport.lo, viewport.hi)
     else:
-        center = (mins + maxs) / 2
-        half = float(spans.max()) / 2
-        _set_axis_limits(ax, center, half)
+        _set_axis_limits(ax, *viewport.enclosing_cube())
         ax.set_box_aspect((1, 1, 1))  # type: ignore[attr-defined]
 
     # Floor clipped to the box (a full-extent plane reads as a backdrop
     # wall in wide orthographic views), honoring the style's floor kind
-    # via the one shared floor renderer. Overlay layouts re-center
-    # heights, so the floor is re-anchored to the poses' lowest point.
+    # via the one shared floor renderer.
     if style.floor is not None:
-        floor_view = view if layout == "offset" else dataclasses.replace(
-            view, floor_height=floor_y)
-        _draw_floor_mpl(ax, floor_view, style, bounds=(mins, maxs))
+        _draw_floor_mpl(ax, poses_view, style,
+                        bounds=(viewport.lo, viewport.hi))
 
     if trajectory and layout == "offset":
         # Trace only the sampled range — a frames= restriction must not
@@ -480,8 +484,9 @@ def frame_mpl(
     ----------
     scene : Scene
         Prepared visualization. Only the first frame of each view's
-        coords is plotted; each view supplies its own bounding box and
-        camera so mixed-axis side-by-side comparisons render correctly.
+        coords is plotted; each view supplies its own camera angles
+        and is framed by its own viewport, so mixed-axis side-by-side
+        comparisons render correctly.
     style : Style
         Visual styling (colors, floor, axes, background, projection).
     figsize : (float, float) or None
@@ -531,16 +536,17 @@ def frame_mpl(
 
         _apply_axes_style(ax_i, style)
 
+        viewport = make_viewport(
+            [view], framing="still", include_floor=style.floor is not None,
+            projection=style.projection)
+        _apply_projection(ax_i, viewport)
         if style.floor is not None:
             _draw_floor_mpl(ax_i, view, style)
-            center, half_span = _floor_limits(view, style)
-        else:
-            center, half_span = view.center, view.half_span
 
         colors = bone_colors_for_view(view, style, i, n)
         _draw_pose(ax_i, frame_data, view, style, colors)
 
-        _set_axis_limits(ax_i, center, half_span)
+        _set_axis_limits(ax_i, viewport.lo, viewport.hi)
         ax_i.view_init(  # type: ignore[attr-defined]
             elev=view.elevation, azim=view.azimuth,
             vertical_axis=view.up_axis)
@@ -605,6 +611,7 @@ def _setup_animated_panel(
     pose, whose extents are already tight.
     """
     _apply_axes_style(ax, style)
+    _apply_projection(ax, viewport)
 
     if style.floor is not None:
         # Full-extent floor, not one clipped to the framing box: the box
@@ -1214,13 +1221,13 @@ def _extend_fig_tightbbox_with_3d_labels(
 
 def _set_axis_limits(
     ax: matplotlib.axes.Axes,
-    center: npt.NDArray[np.float64],
-    half_span: float,
+    lo: npt.NDArray[np.float64],
+    hi: npt.NDArray[np.float64],
 ) -> None:
-    """Set equal axis limits on a 3D axes from center and half_span."""
-    ax.set_xlim(center[0] - half_span, center[0] + half_span)
-    ax.set_ylim(center[1] - half_span, center[1] + half_span)
-    ax.set_zlim(center[2] - half_span, center[2] + half_span)  # type: ignore[attr-defined]
+    """Set a 3D axes' limits to a box, leaving its box aspect alone."""
+    ax.set_xlim(lo[0], hi[0])
+    ax.set_ylim(lo[1], hi[1])
+    ax.set_zlim(lo[2], hi[2])  # type: ignore[attr-defined]
 
 
 def _set_span_limits(

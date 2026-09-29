@@ -559,7 +559,8 @@ def sequence(
         locomotion spreads them left to right; drawn orthographic from
         the side with equal-scale non-cubic bounds so the travel fills
         the frame. ``"overlay"``: poses superimposed (per-pose
-        horizontal root-centering), perspective from the front — the
+        horizontal root-centering), seen from the front in the style's
+        projection (perspective unless the style asks otherwise) — the
         right mode for in-place motion; on locomotion the legs tangle.
     style : Style or str, optional
         Visual styling preset or instance. Default ``"paper"``.

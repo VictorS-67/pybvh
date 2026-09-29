@@ -133,6 +133,16 @@ class Viewport(GroundFrame):
         eye = self.center + matrix[2] * (EYE_DISTANCE * self.half_span)
         return Camera(eye=eye, target=self.center.copy(), up=matrix[1].copy())
 
+    def enclosing_cube(
+        self,
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        """The smallest cube around the framing box, centred on it, as
+        ``(lo, hi)``. For axes that must stay cubic around a box that
+        is not: the overlaid sequence figure."""
+        middle = (self.lo + self.hi) / 2
+        half = float((self.hi - self.lo).max()) / 2
+        return middle - half, middle + half
+
     def floor_quad(
         self, clip_to_box: bool = False,
     ) -> npt.NDArray[np.float64]:

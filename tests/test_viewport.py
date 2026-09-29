@@ -353,6 +353,26 @@ class TestFloor:
         assert not np.shares_memory(path, root)
 
 
+class TestEnclosingCube:
+    def test_the_smallest_cube_around_the_framing_box(self, view):
+        viewport = make_viewport([view], framing="clip")
+        lo, hi = viewport.enclosing_cube()
+        sides = hi - lo
+        np.testing.assert_allclose(sides, sides[0])
+        assert sides[0] == pytest.approx(
+            float((viewport.hi - viewport.lo).max()))
+        np.testing.assert_allclose(
+            (lo + hi) / 2, (viewport.lo + viewport.hi) / 2)
+        assert np.all(lo <= viewport.lo + 1e-12)
+        assert np.all(hi >= viewport.hi - 1e-12)
+
+    def test_a_still_is_its_own_enclosing_cube(self, view):
+        viewport = make_viewport([view], framing="still")
+        lo, hi = viewport.enclosing_cube()
+        np.testing.assert_allclose(lo, viewport.lo)
+        np.testing.assert_allclose(hi, viewport.hi)
+
+
 class TestProjection:
     RESOLUTION = (640, 480)
 

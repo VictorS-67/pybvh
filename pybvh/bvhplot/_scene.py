@@ -14,6 +14,7 @@ import numpy as np
 import numpy.typing as npt
 
 UP_AXIS_INDEX = {'x': 0, 'y': 1, 'z': 2}
+_SIGNED_AXES = ('+x', '-x', '+y', '-y', '+z', '-z')
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +36,20 @@ class SkeletonView:
     with no :class:`Bvh` behind it draws exactly like one made by
     :func:`make_scene`. Frame-indexed fields (``coords``,
     ``root_heading``) always share their first axis.
+
+    A view is checked when it is built: the shapes and lengths of its
+    fields must agree with each other, every bone and L/R index must be
+    an integer that names a node, and the two axes must be signed axis
+    strings. An inconsistent view raises ``ValueError`` here, at
+    construction, rather than drawing something wrong later. Only
+    consistency is checked, never plausibility: a floor above the head
+    or a rest pose unrelated to the coords is the builder's business.
+
+    ``frame_time`` follows :attr:`Bvh.frame_time`: seconds per frame,
+    with ``0`` meaning "unset", which a rest pose or a still of a
+    Bvh built in memory legitimately carries. The static entry points
+    never read it; the animated ones divide by it and need a positive
+    value. Only a negative or non-finite value is rejected here.
 
     Conventions the fields follow:
 
@@ -89,6 +104,70 @@ class SkeletonView:
     bone_chains: list[str]                 # chain name per bone, parallel to ``bones``
     root_heading: npt.NDArray[np.float64] | None  # (F, 2) [sin, cos] or None
 
+    def __post_init__(self) -> None:
+        coords = np.asarray(self.coords)
+        if coords.ndim != 3 or coords.shape[2] != 3 or 0 in coords.shape:
+            raise ValueError(
+                f"coords must have shape (F, N, 3) with at least one frame "
+                f"and one node, got {coords.shape}.")
+        num_frames, num_nodes = coords.shape[:2]
+
+        for name in ("up", "forward_axis"):
+            value = getattr(self, name)
+            if value not in _SIGNED_AXES:
+                raise ValueError(
+                    f"{name} must be one of {', '.join(_SIGNED_AXES)}, "
+                    f"got {value!r}.")
+        if self.forward_axis[1] == self.up[1]:
+            raise ValueError(
+                f"forward_axis {self.forward_axis!r} lies along the up "
+                f"axis {self.up!r}; forward is a ground direction.")
+
+        if np.shape(self.center) != (3,):
+            raise ValueError(
+                f"center must have shape (3,), got {np.shape(self.center)}.")
+        if len(self.node_names) != num_nodes:
+            raise ValueError(
+                f"node_names has {len(self.node_names)} entries but coords "
+                f"has {num_nodes} nodes.")
+        if np.shape(self.rest_coords) != (num_nodes, 3):
+            raise ValueError(
+                f"rest_coords must have shape ({num_nodes}, 3) to match "
+                f"coords, got {np.shape(self.rest_coords)}.")
+        if len(self.bone_chains) != len(self.bones):
+            raise ValueError(
+                f"bone_chains has {len(self.bone_chains)} entries but there "
+                f"are {len(self.bones)} bones.")
+
+        for name in ("bones", "lr_pairs"):
+            pairs = np.asarray(getattr(self, name))
+            if pairs.shape == (0,):
+                continue  # an empty list: no pairs
+            if pairs.ndim != 2 or pairs.shape[1] != 2:
+                raise ValueError(
+                    f"{name} must be (first, second) node index pairs, "
+                    f"shape (P, 2), got {pairs.shape}.")
+            if pairs.size and not np.issubdtype(pairs.dtype, np.integer):
+                raise ValueError(
+                    f"{name} must hold integer node indices, got dtype "
+                    f"{pairs.dtype}.")
+            outside = np.unique(pairs[(pairs < 0) | (pairs >= num_nodes)])
+            if outside.size:
+                raise ValueError(
+                    f"{name} names nodes {outside.tolist()} but coords has "
+                    f"nodes 0 to {num_nodes - 1}.")
+
+        if (self.root_heading is not None
+                and np.shape(self.root_heading) != (num_frames, 2)):
+            raise ValueError(
+                f"root_heading must have shape ({num_frames}, 2) to match "
+                f"the {num_frames} frames of coords, got "
+                f"{np.shape(self.root_heading)}.")
+        if not (np.isfinite(self.frame_time) and self.frame_time >= 0):
+            raise ValueError(
+                f"frame_time must be a number of seconds, zero (unset) or "
+                f"positive, got {self.frame_time!r}.")
+
     @property
     def up_axis(self) -> str:
         """The up axis letter, ``'x'``, ``'y'`` or ``'z'``, sign dropped."""
@@ -131,9 +210,24 @@ class Scene:
     Multi-panel backends (matplotlib, OpenCV) iterate :attr:`views`;
     single-scene backends (k3d, vedo) call :meth:`unified_box` for the
     one shared bounding box and take the camera from ``views[0]``.
+
+    A Scene has at least one view, and all its views hold the same
+    number of frames: backends step every view with one frame counter,
+    the first view's. Building a Scene that breaks either raises
+    ``ValueError``; align the clips first (:func:`align_frame_counts`).
+    Frame *times* may differ between views, see :attr:`frame_time`.
     """
 
     views: list[SkeletonView]
+
+    def __post_init__(self) -> None:
+        if not self.views:
+            raise ValueError("A Scene needs at least one view.")
+        counts = [int(v.coords.shape[0]) for v in self.views]
+        if len(set(counts)) > 1:
+            raise ValueError(
+                f"All views of a Scene must hold the same number of "
+                f"frames, got {counts}.")
 
     @property
     def num_frames(self) -> int:

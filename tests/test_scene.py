@@ -19,7 +19,7 @@ from pybvh.bvhplot._from_bvh import (
 from pybvh.bvhplot._scene import Scene, SkeletonView, compute_unified_limits
 from pybvh.tools import _resolve_lr_pairs
 from synthetic_bvh import make_nameless_lr_bvh
-from synthetic_scene import make_array_view
+from synthetic_scene import make_array_scene, make_array_view
 
 BVH_PATH = "bvh_data/cmu_12_01_walk.bvh"
 
@@ -349,6 +349,117 @@ class TestSceneMethods:
         scene = make_scene([bvh], [coords], "front", None)
         with pytest.raises(Exception):
             scene.views[0].half_span = 1.0  # type: ignore[misc]
+
+
+class TestViewIsCheckedAtConstruction:
+    """An inconsistent view raises where it is built, naming the field,
+    instead of drawing something wrong in a backend later."""
+
+    def test_a_consistent_view_builds(self):
+        view = make_array_view(n_frames=5)
+        assert view.coords.shape[0] == 5
+
+    @pytest.mark.parametrize("changes, message", [
+        (dict(coords=np.zeros((9, 3))), "coords must have shape"),
+        (dict(coords=np.zeros((4, 9, 2))), "coords must have shape"),
+        (dict(coords=np.zeros((0, 9, 3)), root_heading=None),
+         "at least one frame"),
+        (dict(coords=np.zeros((4, 0, 3)), node_names=[],
+              rest_coords=np.zeros((0, 3))), "at least one frame"),
+        (dict(up="y"), "up must be one of"),
+        (dict(up="+Y"), "up must be one of"),
+        (dict(up="up"), "up must be one of"),
+        (dict(forward_axis="z"), "forward_axis must be one of"),
+        (dict(forward_axis="-y"), "lies along the up axis"),
+        (dict(center=np.zeros(2)), "center must have shape"),
+        (dict(node_names=["only"]), "node_names has 1 entries"),
+        (dict(rest_coords=np.zeros((4, 3))), "rest_coords must have shape"),
+        (dict(bone_chains=["spine"]), "bone_chains has 1 entries"),
+        (dict(bones=[(0, 9)], bone_chains=["spine"]),
+         r"bones names nodes \[9\]"),
+        (dict(bones=[(-1, 2)], bone_chains=["spine"]),
+         r"bones names nodes \[-1\]"),
+        (dict(lr_pairs=np.array([[3, 12]])), r"lr_pairs names nodes \[12\]"),
+        (dict(lr_pairs=np.array([3, 5])), "lr_pairs must be"),
+        (dict(lr_pairs=np.empty((3, 0), dtype=np.intp)), "lr_pairs must be"),
+        (dict(lr_pairs=np.array([[0.0, 1.5]])),
+         "lr_pairs must hold integer node indices"),
+        (dict(lr_pairs=np.array([[0.0, np.nan]])),
+         "lr_pairs must hold integer node indices"),
+        (dict(bones=[(0, 1.5)], bone_chains=["spine"]),
+         "bones must hold integer node indices"),
+        (dict(bones=[(0, 1, 2)], bone_chains=["spine"]), "bones must be"),
+        (dict(root_heading=np.zeros((3, 2))), "root_heading must have shape"),
+        (dict(root_heading=np.zeros((12, 3))), "root_heading must have shape"),
+        (dict(frame_time=-0.01), "frame_time must be a number of seconds"),
+        (dict(frame_time=float("nan")),
+         "frame_time must be a number of seconds"),
+        (dict(frame_time=float("inf")),
+         "frame_time must be a number of seconds"),
+    ])
+    def test_an_inconsistent_view_raises(self, changes, message):
+        view = make_array_view(n_frames=12)
+        with pytest.raises(ValueError, match=message):
+            dataclasses.replace(view, **changes)
+
+    def test_a_view_without_pairs_or_heading_builds(self):
+        view = dataclasses.replace(
+            make_array_view(), root_heading=None,
+            lr_pairs=np.empty((0, 2), dtype=np.intp))
+        assert view.root_heading is None
+        assert view.lr_pairs.shape == (0, 2)
+
+    def test_a_view_with_one_node_and_no_bones_builds(self):
+        view = dataclasses.replace(
+            make_array_view(n_frames=3),
+            coords=np.zeros((3, 1, 3)), rest_coords=np.zeros((1, 3)),
+            node_names=["Hips"], bones=[], bone_chains=[],
+            lr_pairs=np.empty((0, 2), dtype=np.intp))
+        assert view.bones == []
+
+    def test_an_unset_frame_time_is_accepted(self, bvh, coords):
+        """Bvh.frame_time is 0 when unset, which a Bvh built in memory
+        carries. Its rest pose and its stills must still draw: they
+        never read the frame time."""
+        unset = bvh.copy()
+        unset.frame_time = 0
+        for frames, clip_frames in [(coords[:1], 0), (coords, slice(None)),
+                                    (coords[:1], None)]:
+            view = make_scene([unset], [frames], "front", None,
+                              clip_frames=clip_frames).views[0]
+            assert view.frame_time == 0.0
+
+    def test_a_bvh_built_view_is_checked_too(self, bvh, coords):
+        """make_scene goes through the same checks: coords with more
+        nodes than the Bvh match neither its names nor its rest pose.
+        (Coords with fewer nodes already fail inside the core, which
+        indexes them by the Bvh's joints.)"""
+        extra = np.concatenate([coords, coords[:, :2]], axis=1)
+        with pytest.raises(ValueError, match="node_names has"):
+            make_scene([bvh], [extra], "front", None)
+
+
+class TestSceneIsCheckedAtConstruction:
+    def test_a_scene_needs_a_view(self):
+        with pytest.raises(ValueError, match="at least one view"):
+            Scene(views=[])
+
+    def test_views_must_share_their_frame_count(self):
+        views = [make_array_view(n_frames=12), make_array_view(n_frames=8)]
+        with pytest.raises(ValueError, match=r"\[12, 8\]"):
+            Scene(views=views)
+
+    def test_views_may_differ_in_frame_time(self):
+        """The router only warns on a rate mismatch unless asked to
+        resample, so a Scene must accept it."""
+        views = [make_array_view(frame_time=1 / 30),
+                 make_array_view(frame_time=1 / 60)]
+        assert Scene(views=views).frame_time == 1 / 30
+
+    def test_operations_keep_a_scene_valid(self):
+        scene = make_array_scene(n_frames=12, n_skeletons=2)
+        assert scene.subsampled(5).num_frames == 3
+        assert scene.spread("auto").num_frames == 12
 
 
 # The pybvh modules that know what a Bvh is. bvhplot keeps them behind a

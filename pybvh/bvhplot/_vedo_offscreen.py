@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ._style import Style
-from ._viewport import build_view_matrix
+from ._viewport import build_view_matrix, make_viewport
 from ._scene import Scene
 from ._colors import bone_colors_255, floor_palette, rgb255
 from ._vedo_capsules import CapsuleSkeleton
@@ -94,7 +94,9 @@ def _build_offscreen(
     """
     from vedo import Plane, Plotter  # type: ignore[import-untyped]
 
-    center, half_span = scene.unified_box()
+    # vedo draws in perspective whatever the style asks.
+    viewport = make_viewport(scene.views, projection="persp")
+    center, half_span = viewport.center, viewport.half_span
     view0 = scene.views[0]
     up_idx = view0.up_index
     agg = min if view0.up_sign > 0 else max

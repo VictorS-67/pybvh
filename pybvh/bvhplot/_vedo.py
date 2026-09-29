@@ -333,16 +333,16 @@ class _VedoPlayer:
             else:
                 # "grid" — and "checker", which falls back to grid in
                 # this viewer (no cheap checker primitive in vedo).
-                floor = Grid(
-                    pos=tuple(floor_pos),
-                    s=[side, side],
-                    res=(30, 30),
-                )
+                # Built at the origin, turned to face up, then moved:
+                # vedo rotates about the world origin, so a grid that
+                # is placed first swings away from where it was put.
+                floor = Grid(s=[side, side], res=(30, 30))
                 if self.up_axis == 'y':
                     floor.rotate_x(90)
                 elif self.up_axis == 'x':
                     floor.rotate_y(90)
                 # up_axis='z': Grid defaults to XY plane, no rotation
+                floor.pos(*floor_pos)
                 floor.lw(1).alpha(0.6)
                 floor.c(palette["grid"]).lighting('off')
             self.plt += floor

@@ -161,3 +161,56 @@ class TestPlayerDarkStyle:
             assert out.exists()
         finally:
             p.plt.close()
+
+
+class TestGridFloor:
+    """The grid floor ("grid", and "checker" which falls back to it) is
+    built flat in vedo's XY plane and turned to face up. vedo turns
+    about the world origin, so the grid must be turned first and moved
+    after: placed first, it swung away from under the skeleton on any
+    clip not centred on the origin."""
+
+    @staticmethod
+    def _scene_with_up(up):
+        import dataclasses
+        from pybvh.bvhplot._scene import Scene
+        from synthetic_scene import make_array_view
+        view = make_array_view(n_frames=12)
+        if up == "+y":
+            return Scene(views=[view])
+        order = {"+z": [0, 2, 1], "+x": [1, 0, 2]}[up]
+        forward = {"+z": "+y", "+x": "+z"}[up]
+        heights = view.coords[..., order][..., "xyz".index(up[1])]
+        return Scene(views=[dataclasses.replace(
+            view, coords=view.coords[..., order],
+            rest_coords=view.rest_coords[..., order], up=up,
+            forward_axis=forward, root_heading=None,
+            floor_height=float(heights.min()))])
+
+    @pytest.mark.parametrize("up", ["+y", "+z", "+x"])
+    @pytest.mark.parametrize("kind", ["grid", "checker"])
+    def test_the_grid_lies_where_the_plane_goes(self, up, kind, monkeypatch):
+        from pybvh.bvhplot._vedo_capsules import FLOOR_EPSILON
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        p = _vedo._VedoPlayer(self._scene_with_up(up),
+                              Style("paper", floor=kind), 30.0,
+                              quality="high")
+        try:
+            grids = [o for o in p.plt.objects if type(o).__name__ == "Grid"]
+            assert len(grids) == 1
+            vertices = np.asarray(grids[0].vertices)
+            viewport = p.viewport
+            # the scene is not centred on the origin, or this proves nothing
+            assert np.abs(viewport.center).max() > 0.2
+            expected = viewport.floor_quad()
+            for axis in viewport.ground_axes:
+                assert vertices[:, axis].min() == pytest.approx(
+                    expected[:, axis].min(), rel=1e-5)
+                assert vertices[:, axis].max() == pytest.approx(
+                    expected[:, axis].max(), rel=1e-5)
+            np.testing.assert_allclose(
+                vertices[:, viewport.up_index],
+                viewport.below_floor(FLOOR_EPSILON * viewport.half_span),
+                rtol=1e-5, atol=1e-6)
+        finally:
+            p.plt.close()

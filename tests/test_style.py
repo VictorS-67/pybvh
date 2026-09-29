@@ -10,12 +10,11 @@ import numpy as np
 import pytest
 
 from pybvh import read_bvh_file, bvhplot
-from pybvh.bvhplot._common import (
+from pybvh.bvhplot._common import get_bone_chains, get_skeleton_lines
+from pybvh.bvhplot._style import (
     CHAIN_COLORS,
     Style,
     effective_color_mode,
-    get_bone_chains,
-    get_skeleton_lines,
     resolve_style,
 )
 
@@ -416,7 +415,7 @@ class TestFraming:
         """
         from mpl_toolkits.mplot3d import proj3d
         from pybvh.bvhplot import _prepare
-        from pybvh.bvhplot._common import resolve_style
+        from pybvh.bvhplot._style import resolve_style
         from pybvh.bvhplot._matplotlib import _setup_animated_panel
 
         view = _prepare(read_bvh_file(clip), None, "world", "side").views[0]

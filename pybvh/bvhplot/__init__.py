@@ -43,12 +43,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ._common import (
-    Style,
     get_skeleton_lines,   # noqa: F401 — re-export (public since 0.5.0)
     make_scene,
     normalize_input,
-    resolve_style,
 )
+from ._style import Style, resolve_style
 from ._scene import Scene, align_frame_counts, UP_AXIS_INDEX
 
 __all__ = [

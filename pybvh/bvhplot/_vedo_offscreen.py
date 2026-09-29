@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ._common import Style
+from ._style import Style
 from ._viewport import build_view_matrix
 from ._scene import Scene
 from ._colors import bone_colors_255, floor_palette, rgb255

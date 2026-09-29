@@ -119,3 +119,23 @@ class TestK3d:
         # the Scene.
         play_k3d(pair.spread("auto"), Style("paper"), 30.0)
         capsys.readouterr()
+
+    def test_the_camera_is_the_viewports(self, pair):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+        from pybvh.bvhplot._viewport import make_viewport
+        scene = pair.spread("auto")
+        built = _build_plot(scene, Style("paper"))
+        eye, target, up = make_viewport(scene.views).camera()
+        np.testing.assert_allclose(
+            built.plot.camera, [*eye, *target, *up], rtol=1e-6)
+        assert built.plot.camera_auto_fit is False
+
+    def test_one_skeleton_and_one_trail_per_view(self, pair):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+        built = _build_plot(pair.spread("auto"), Style("paper"))
+        assert len(built.skeletons) == 2
+        assert len(built.trails) == 2
+        for path, view in zip(built.trail_paths, pair.spread("auto").views):
+            assert path.shape == (view.coords.shape[0], 3)

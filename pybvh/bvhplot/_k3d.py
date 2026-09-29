@@ -8,12 +8,13 @@ Requires ``k3d >= 2.14`` and ``ipywidgets``.
 from __future__ import annotations
 
 import warnings
+from typing import Any, NamedTuple
+
 import numpy as np
 import numpy.typing as npt
 
-
 from ._style import PALETTE_RGB, Style, effective_color_mode
-from ._viewport import make_viewport
+from ._viewport import Viewport, make_viewport
 from ._scene import Scene, UP_AXIS_INDEX
 from ._colors import node_colors_255
 
@@ -37,38 +38,27 @@ def _node_colors_uint32(
     return (rgb[:, 0] << 16) | (rgb[:, 1] << 8) | rgb[:, 2]
 
 
-def play_k3d(
+class _Plot(NamedTuple):
+    """A built k3d plot and the handles its frame callback updates."""
+
+    plot: Any                        # k3d.plot.Plot
+    viewport: Viewport
+    coords: list[npt.NDArray[np.float32]]        # per skeleton, (F, N, 3)
+    skeletons: list[tuple[Any, Any]]             # (k3d Lines, k3d Points)
+    trails: list[Any]                            # k3d Line per skeleton
+    trail_paths: list[npt.NDArray[np.float32]]   # per skeleton, (F, 3)
+
+
+def _build_plot(
     scene: Scene,
     style: Style,
-    fps: float,
-) -> None:
-    """Interactive skeleton playback in a Jupyter notebook via k3d.
+) -> _Plot:
+    """Build the k3d plot for *scene*, posed to frame 0.
 
-    A single-scene backend: all skeletons share one camera (taken from
-    the first view) and one viewport over the — possibly laterally
-    spread — views.
-
-    Style application (look fields): background, bone width, and chain
-    colors for single-skeleton sessions (per-vertex colors — segments
-    blend at chain boundaries, a k3d rendering artifact).
-
-    Parameters
-    ----------
-    scene : Scene
-        Prepared visualization.
-    style : Style
-        Visual styling (look fields).
-    fps : float
-        Frames per second.
-
-    Returns
-    -------
-    None
-        The plot and its controls are displayed as a side effect.
+    Everything :func:`play_k3d` shows except the playback widgets, so
+    that what is drawn, and where, can be read back without a notebook.
     """
     import k3d
-    from IPython.display import display  # type: ignore[import-untyped]
-    from ipywidgets import Play, IntSlider, jslink, HBox, VBox, Label  # type: ignore[import-untyped]
     from matplotlib.colors import to_rgb
 
     # k3d draws in perspective whatever the style asks.
@@ -86,8 +76,6 @@ def play_k3d(
     coords_f32 = [v.coords.astype(np.float32) for v in scene.views]
 
     num_frames = coords_f32[0].shape[0]
-    n_skeletons = scene.num_skeletons
-
     # k3d passes uint32 indices to a trait that traittypes validates as
     # float32; the coercion is harmless but noisy. Scoped to object
     # construction (the only place the warning fires) so the filter
@@ -101,7 +89,7 @@ def play_k3d(
                         background_color=background_color)
 
         # Build k3d objects for each skeleton
-        skeleton_objects: list[tuple[k3d.objects.Lines, k3d.objects.Points]] = []
+        skeleton_objects: list[tuple[Any, Any]] = []
 
         for s, (coords, bones) in enumerate(
                 zip(coords_f32, skeleton_lines_list)):
@@ -148,7 +136,7 @@ def play_k3d(
         # XY position when viewed from an oblique angle.
         up_idx = UP_AXIS_INDEX.get(up_axis, 2)
         floor_level = float(center[up_idx] - half_span)
-        trail_objects: list[k3d.objects.Line] = []
+        trail_objects: list[Any] = []
         trail_full_paths: list[npt.NDArray[np.float32]] = []
         for s, coords in enumerate(coords_f32):
             root_path = coords[:, 0, :].copy()  # (F, 3)
@@ -186,6 +174,50 @@ def play_k3d(
     # [eye_x, eye_y, eye_z, target_x, target_y, target_z, up_x, up_y, up_z]
     eye, target, up = viewport.camera()
     plot.camera = [float(value) for value in (*eye, *target, *up)]
+
+    return _Plot(plot, viewport, coords_f32, skeleton_objects,
+                 trail_objects, trail_full_paths)
+
+
+def play_k3d(
+    scene: Scene,
+    style: Style,
+    fps: float,
+) -> None:
+    """Interactive skeleton playback in a Jupyter notebook via k3d.
+
+    A single-scene backend: all skeletons share one camera (taken from
+    the first view) and one viewport over the — possibly laterally
+    spread — views.
+
+    Style application (look fields): background, bone width, and chain
+    colors for single-skeleton sessions (per-vertex colors — segments
+    blend at chain boundaries, a k3d rendering artifact).
+
+    Parameters
+    ----------
+    scene : Scene
+        Prepared visualization.
+    style : Style
+        Visual styling (look fields).
+    fps : float
+        Frames per second.
+
+    Returns
+    -------
+    None
+        The plot and its controls are displayed as a side effect.
+    """
+    from IPython.display import display  # type: ignore[import-untyped]
+    from ipywidgets import Play, IntSlider, jslink, HBox, VBox, Label  # type: ignore[import-untyped]
+
+    built = _build_plot(scene, style)
+    plot = built.plot
+    coords_f32 = built.coords
+    skeleton_objects = built.skeletons
+    trail_objects = built.trails
+    trail_full_paths = built.trail_paths
+    num_frames = coords_f32[0].shape[0]
 
     # Animation controls
     play_widget = Play(

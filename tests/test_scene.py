@@ -19,6 +19,7 @@ from pybvh.bvhplot._from_bvh import (
 from pybvh.bvhplot._scene import Scene, SkeletonView, compute_unified_limits
 from pybvh.tools import _resolve_lr_pairs
 from synthetic_bvh import make_nameless_lr_bvh
+from synthetic_scene import make_array_view
 
 BVH_PATH = "bvh_data/cmu_12_01_walk.bvh"
 
@@ -86,8 +87,48 @@ class TestViewCarriesSkeletonFacts:
 
     def test_orientation_facts(self, bvh, coords):
         view = make_scene([bvh], [coords], "front", None).views[0]
-        np.testing.assert_allclose(view.up_vector, bvh.up_axis.vector)
+        assert view.up == bvh.world_up
+        assert view.up_index == bvh.up_axis.index
+        assert view.up_sign == bvh.up_axis.sign
+        np.testing.assert_array_equal(view.up_vector, bvh.up_axis.vector)
         assert view.forward_axis == bvh.forward_at(0)
+
+    def test_a_view_states_its_up_axis_once(self):
+        """One signed string is the field; the letter, column, sign and
+        vector are read from it, so no view can hold two up axes."""
+        names = {f.name for f in dataclasses.fields(SkeletonView)}
+        assert "up" in names
+        assert not names & {"up_axis", "up_index", "up_sign", "up_vector"}
+
+    @pytest.mark.parametrize("up, letter, index, sign, vector", [
+        ("+x", "x", 0, 1.0, [1.0, 0.0, 0.0]),
+        ("-x", "x", 0, -1.0, [-1.0, 0.0, 0.0]),
+        ("+y", "y", 1, 1.0, [0.0, 1.0, 0.0]),
+        ("-y", "y", 1, -1.0, [0.0, -1.0, 0.0]),
+        ("+z", "z", 2, 1.0, [0.0, 0.0, 1.0]),
+        ("-z", "z", 2, -1.0, [0.0, 0.0, -1.0]),
+    ])
+    def test_up_forms_are_derived_from_the_signed_string(
+            self, up, letter, index, sign, vector):
+        forward = "+x" if letter != "x" else "+y"
+        view = dataclasses.replace(
+            make_array_view(), up=up, forward_axis=forward)
+        assert view.up_axis == letter
+        assert view.up_index == index
+        assert view.up_sign == sign
+        assert view.up_vector.dtype == np.float64
+        np.testing.assert_array_equal(view.up_vector, vector)
+
+    def test_up_vector_is_a_fresh_array(self):
+        view = make_array_view()
+        view.up_vector[:] = 7.0
+        np.testing.assert_array_equal(view.up_vector, [0.0, 1.0, 0.0])
+
+    def test_below_floor_follows_the_sign_of_up(self):
+        view = dataclasses.replace(make_array_view(), floor_height=2.0)
+        assert view.below_floor(0.5) == 1.5
+        flipped = dataclasses.replace(view, up="-y")
+        assert flipped.below_floor(0.5) == 2.5
 
     def test_lr_pairs_are_the_facing_geometrys_joint_pairs(self, bvh, coords):
         """The pairs the follow camera averages: joints only, resolved the

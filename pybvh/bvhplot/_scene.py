@@ -53,14 +53,17 @@ class SkeletonView:
       ``"front"`` camera preset is derived from. Follow-camera math
       never reads it; it reads ``coords``, ``lr_pairs`` and
       ``up_vector`` directly.
+    - ``up`` is the one statement of which way is up: a signed axis
+      string (``'+y'``, ``'-z'``), the form :attr:`Bvh.world_up` and
+      ``forward_axis`` use. The letter (``up_axis``), the column
+      (``up_index``), the sign (``up_sign``) and the unit vector
+      (``up_vector``) are derived from it, so they cannot disagree.
+      The alternative, storing the vector, would admit an off-axis or
+      unnormalised up that no backend can draw: matplotlib's vertical
+      axis and the floor plane are axis-aligned.
     - ``lr_pairs`` are joint pairs only, in node index space, the pairs
       the facing geometry averages; end-site pairs are deliberately
       excluded so follow azimuths match the Bvh path bit for bit.
-    - ``up_axis``, ``up_vector`` and ``up_sign`` describe one signed
-      axis three ways and must agree: geometry reads ``up_vector``,
-      floor and shadow offsets read ``up_axis`` and ``up_sign``. A view
-      built from arrays is responsible for their consistency; nothing
-      checks it yet.
     - Arrays are borrowed, not owned: a Scene operation may share array
       storage with its source (``subsampled`` shares ``coords`` and
       ``root_heading``; ``offset`` allocates new coords and shares the
@@ -76,21 +79,39 @@ class SkeletonView:
     half_span: float                       # cubic-box half side
     azimuth: float                         # degrees
     elevation: float                       # degrees
-    up_axis: str                           # 'x' | 'y' | 'z'
-    floor_height: float                    # scene ground along up_axis
+    up: str                                # signed world-up axis, e.g. '+y', '-z'
+    floor_height: float                    # scene ground along the up axis
     frame_time: float                      # seconds per frame
     node_names: list[str]                  # parallel to the N axis
     rest_coords: npt.NDArray[np.float64]   # (N, 3) rest pose, root at origin
     lr_pairs: npt.NDArray[np.intp]         # (P, 2) joint L/R pairs in node index space, the facing geometry's; (0, 2) if none
-    up_vector: npt.NDArray[np.float64]     # (3,) signed world-up unit vector
     forward_axis: str                      # snapped facing of coords row 0, e.g. '+y'
     bone_chains: list[str]                 # chain name per bone, parallel to ``bones``
     root_heading: npt.NDArray[np.float64] | None  # (F, 2) [sin, cos] or None
-    up_sign: float = 1.0                   # +1 for '+y' etc., -1 for '-y'
+
+    @property
+    def up_axis(self) -> str:
+        """The up axis letter, ``'x'``, ``'y'`` or ``'z'``, sign dropped."""
+        return self.up[1]
 
     @property
     def up_index(self) -> int:
-        return UP_AXIS_INDEX.get(self.up_axis, 2)
+        """The up coordinate's column in a ``(..., 3)`` position array."""
+        return UP_AXIS_INDEX[self.up_axis]
+
+    @property
+    def up_sign(self) -> float:
+        """``+1.0`` for ``'+y'``, ``-1.0`` for ``'-y'``."""
+        return -1.0 if self.up[0] == '-' else 1.0
+
+    @property
+    def up_vector(self) -> npt.NDArray[np.float64]:
+        """The unit vector pointing up, sign included, shape ``(3,)``.
+
+        A fresh array on every access."""
+        vector = np.zeros(3, dtype=np.float64)
+        vector[self.up_index] = self.up_sign
+        return vector
 
     def below_floor(self, distance: float) -> float:
         """The coordinate *distance* visually below the floor plane.

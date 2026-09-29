@@ -68,17 +68,15 @@ def make_array_view(
         half_span=half_span,
         azimuth=-20.0,
         elevation=20.0,
-        up_axis="y",
+        up="+y",
         floor_height=float(coords[..., 1].min()),
         frame_time=frame_time,
         node_names=list(NODE_NAMES),
         rest_coords=REST_COORDS.copy(),
         lr_pairs=LR_PAIRS.copy(),
-        up_vector=np.array([0.0, 1.0, 0.0]),
         forward_axis="+z",
         bone_chains=list(BONE_CHAINS),
         root_heading=root_heading,
-        up_sign=1.0,
     )
 
 

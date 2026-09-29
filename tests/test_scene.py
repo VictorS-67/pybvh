@@ -122,13 +122,15 @@ class TestViewCarriesSkeletonFacts:
                 assert view.bone_chains[i] == "spine"
 
     def test_root_heading_is_root_trajectory_heading(self, bvh, coords):
-        view = make_scene([bvh], [coords], "front", None).views[0]
+        view = make_scene([bvh], [coords], "front", None,
+                          clip_frames=slice(None)).views[0]
         np.testing.assert_allclose(
             view.root_heading, root_trajectory(bvh)[:, 2:4])
 
     def test_root_heading_follows_truncated_coords(self, bvh, coords):
         short = coords[:40]
-        view = make_scene([bvh], [short], "front", None).views[0]
+        view = make_scene([bvh], [short], "front", None,
+                          clip_frames=slice(None)).views[0]
         assert view.root_heading.shape == (40, 2)
         np.testing.assert_allclose(
             view.root_heading, root_trajectory(bvh)[:40, 2:4])
@@ -137,7 +139,8 @@ class TestViewCarriesSkeletonFacts:
         extra = 7
         padded = np.concatenate(
             [coords, np.repeat(coords[-1:], extra, axis=0)], axis=0)
-        view = make_scene([bvh], [padded], "front", None).views[0]
+        view = make_scene([bvh], [padded], "front", None,
+                          clip_frames=slice(None)).views[0]
         heading = root_trajectory(bvh)[:, 2:4]
         assert view.root_heading.shape == (coords.shape[0] + extra, 2)
         np.testing.assert_allclose(view.root_heading[:-extra], heading)
@@ -147,15 +150,57 @@ class TestViewCarriesSkeletonFacts:
     def test_root_heading_for_a_single_frame(self, bvh, coords):
         one = coords[-1:]
         view = make_scene([bvh], [one], "front", None,
-                          frame_index=-1).views[0]
+                          clip_frames=-1).views[0]
         assert view.root_heading.shape == (1, 2)
         np.testing.assert_allclose(
             view.root_heading[0], root_trajectory(bvh)[-1, 2:4])
 
-    def test_root_heading_none_for_caller_supplied_coords(self, bvh, coords):
-        view = make_scene([bvh], [coords], "front", None,
-                          coords_from_clip=False).views[0]
+    def test_root_heading_follows_a_slice_of_the_clip(self, bvh, coords):
+        view = make_scene([bvh], [coords[10:50:2]], "front", None,
+                          clip_frames=slice(10, 50, 2)).views[0]
+        np.testing.assert_allclose(
+            view.root_heading, root_trajectory(bvh)[10:50:2, 2:4])
+
+    def test_one_clip_frame_needs_one_row_coords(self, bvh, coords):
+        with pytest.raises(ValueError, match="names one clip frame"):
+            make_scene([bvh], [coords], "front", None, clip_frames=3)
+
+    def test_root_heading_none_unless_the_coords_are_the_clips(
+            self, bvh, coords):
+        """The default attaches no clip fact: the caller must say which
+        clip frames the coords are before a heading is aligned to them."""
+        view = make_scene([bvh], [coords], "front", None).views[0]
         assert view.root_heading is None
+
+    def test_router_says_which_clip_frames_the_coords_are(self, bvh, coords):
+        from pybvh.bvhplot import _prepare
+        heading = root_trajectory(bvh)[:, 2:4]
+
+        whole = _prepare(bvh, None, "world", "front").views[0]
+        np.testing.assert_allclose(whole.root_heading, heading)
+
+        one = _prepare(bvh, 7, "world", "front").views[0]
+        np.testing.assert_allclose(one.root_heading, heading[7:8])
+
+        supplied = _prepare(bvh, coords[:5], "world", "front").views[0]
+        assert supplied.root_heading is None
+
+    def test_rest_pose_scene_carries_no_clip_heading(self, bvh, monkeypatch):
+        """A rest pose is not a clip frame: attaching frame 0's heading
+        to it would describe a different pose than the coords do."""
+        import pybvh.bvhplot as bvhplot
+        import pybvh.bvhplot._matplotlib as mpl_backend
+        captured = []
+
+        def fake_frame_mpl(scene, style, **kwargs):
+            captured.append(scene)
+            return None, None
+
+        monkeypatch.setattr(mpl_backend, "frame_mpl", fake_frame_mpl)
+        bvhplot.rest_pose(bvh, show=False)
+        view = captured[0].views[0]
+        assert view.root_heading is None
+        np.testing.assert_allclose(view.coords[0], bvh.rest_pose_positions())
 
     def test_scene_frame_time_is_the_first_views(self, bvh, coords):
         scene = make_scene([bvh, bvh], [coords, coords], "front", None)
@@ -173,7 +218,8 @@ class TestSceneMethods:
         assert half_span == expected_half
 
     def test_subsampled_slices_every_frame_indexed_field(self, bvh, coords):
-        scene = make_scene([bvh], [coords], "front", ["lbl"])
+        scene = make_scene([bvh], [coords], "front", ["lbl"],
+                           clip_frames=slice(None))
         step = 4
         sub = scene.subsampled(step)
         view, original = sub.views[0], scene.views[0]

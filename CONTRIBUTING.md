@@ -21,7 +21,7 @@ Every change goes through a pull request into `main`. `main` is the next release
 - **One branch per change.** A branch holds one logical change: one feature, one fix, one refactor. Name it by intent, for example `fix/world-up-warn-flag`, `deepen/scene`, `docs/tutorial-4`.
 - **Branch from `main`, merge into `main`.** There is no long-lived development or release branch. Releases are marked by tags.
 - **Sequence dependent work, do not stack it.** If change B builds on change A, merge A first and branch B from the new `main`. Stacked branches are a fallback for the rare case where the two must overlap.
-- **Open the PR as a draft on the first push.** CI then runs on every push, and the PR description is where the notes live while the work is in progress. Mark it ready for review when the checklist below is done.
+- **Open the PR as a draft on the first push.** CI then runs on every push, and the PR description is where the notes live while the work is in progress. Mark it ready for review when the checklist below is done. A branch first pushed with the checklist already done, which is how the maintainer's tooling works, skips the draft and opens ready for review.
 - **Link the issue.** The PR body says `Closes #N` for the issue it resolves, so merging closes the issue.
 
 Before marking a PR ready:

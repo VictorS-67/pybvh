@@ -179,7 +179,7 @@ class TestOrthoProject:
         coords = np.array([[0, 0, 0], [1, 1, 1], [2, 0, 0]], dtype=np.float64)
         view = build_view_matrix(0, 0, 'y')
         center = np.array([1.0, 0.5, 0.5])
-        pixels = ortho_project(coords, view, center, 2.0, (640, 480))
+        pixels = ortho_project(coords, view, center, (2.0, 2.0), (640, 480))
         assert pixels.shape == (3, 2)
         assert pixels.dtype == np.int32
 
@@ -187,7 +187,7 @@ class TestOrthoProject:
         center = np.array([5.0, 5.0, 5.0])
         coords = center.reshape(1, 3)
         view = build_view_matrix(0, 0, 'y')
-        pixels = ortho_project(coords, view, center, 2.0, (640, 480))
+        pixels = ortho_project(coords, view, center, (2.0, 2.0), (640, 480))
         assert abs(pixels[0, 0] - 320) <= 1
         assert abs(pixels[0, 1] - 240) <= 1
 
@@ -195,11 +195,29 @@ class TestOrthoProject:
         coords = np.zeros((1, 3), dtype=np.float64)
         view = build_view_matrix(0, 0, 'y')
         center = np.zeros(3)
-        p1 = ortho_project(coords, view, center, 1.0, (100, 100))
-        p2 = ortho_project(coords, view, center, 1.0, (200, 200))
+        p1 = ortho_project(coords, view, center, (1.0, 1.0), (100, 100))
+        p2 = ortho_project(coords, view, center, (1.0, 1.0), (200, 200))
         # Center point should be at the center of each resolution
         assert abs(p1[0, 0] - 50) <= 1
         assert abs(p2[0, 0] - 100) <= 1
+
+    def test_one_scale_set_by_the_tighter_direction(self):
+        """A world unit covers the same pixels across and up; the half
+        extents fit 90% of the panel in whichever direction is tighter."""
+        view = np.eye(3)
+        points = np.array([[2.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+        pixels = ortho_project(points, view, np.zeros(3), (2.0, 1.0), (400, 400))
+        # width is the tight one: 2 units fill 0.9 * 200 px
+        assert pixels[0].tolist() == [380, 200]
+        assert pixels[1].tolist() == [200, 110]
+
+    def test_a_direction_without_extent_sets_no_constraint(self):
+        view = np.eye(3)
+        points = np.array([[0.0, 1.0, 0.0]])
+        pixels = ortho_project(points, view, np.zeros(3), (0.0, 1.0), (400, 200))
+        assert pixels[0].tolist() == [200, 10]
+        flat = ortho_project(points, view, np.zeros(3), (0.0, 0.0), (400, 200))
+        assert flat[0].tolist() == [200, 99]
 
 
 class TestBuildViewMatrix:

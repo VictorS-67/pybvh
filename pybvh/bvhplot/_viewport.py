@@ -190,7 +190,7 @@ class Viewport(GroundFrame):
         and out."""
         return ortho_project(
             points, self.view_matrix(frame), (self.lo + self.hi) / 2.0,
-            self.half_span, resolution, fixed_view_half=self.view_half)
+            self.view_half, resolution)
 
     @cached_property
     def view_half(self) -> tuple[float, float]:
@@ -506,7 +506,7 @@ def compute_follow_azimuths(
 
 
 # ---------------------------------------------------------------------------
-# Orthographic projection (used by OpenCV backend)
+# View matrix and orthographic projection
 # ---------------------------------------------------------------------------
 
 def build_view_matrix(
@@ -565,69 +565,47 @@ def build_view_matrix(
 
 
 def ortho_project(
-    coords_3d: npt.NDArray[np.float64],
+    points: npt.NDArray[np.float64],
     view_matrix: npt.NDArray[np.float64],
     center: npt.NDArray[np.float64],
-    half_span: float,
+    view_half: tuple[float, float],
     resolution: tuple[int, int],
-    fixed_view_half: tuple[float, float] | None = None,
 ) -> npt.NDArray[np.int32]:
     """Orthographic projection from 3D world to 2D pixel coordinates.
 
+    The kernel under :meth:`Viewport.project`, which supplies the
+    centre and the half extents. One scale serves both screen
+    directions, so a world unit covers the same number of pixels
+    across and up: the scale is the smaller of the two that would fit
+    ``view_half`` into ``FIT_FRACTION`` of the panel's width and of
+    its height.
+
     Parameters
     ----------
-    coords_3d : ndarray of shape (N, 3)
-        World-space joint positions for one frame.
+    points : ndarray of shape (N, 3)
+        World-space positions.
     view_matrix : ndarray of shape (3, 3)
         From :func:`build_view_matrix`.
     center : ndarray of shape (3,)
-        World-space center of the bounding box.
-    half_span : float
-        Half the side length of the cubic bounding box.
+        The world point that lands in the middle of the panel.
+    view_half : (float, float)
+        Half extents, across and up the screen in view units, of what
+        must fit. A direction with no extent (below ``1e-8``) sets no
+        constraint; with none in either the scale is 1 pixel per unit.
     resolution : (width, height)
-        Output image dimensions in pixels.
-    fixed_view_half : (float, float), optional
-        Pre-computed ``(view_half_u, view_half_v)`` to use for the scale
-        calculation instead of computing it from the current view matrix.
-        Useful for follow-mode rendering where the view rotates every
-        frame: pass the max over all frames once to get a stable
-        (angle-invariant) scale so the character doesn't appear to
-        zoom in and out as the camera orbits. When ``None`` (default),
-        the view-space extents are computed from the bounding box
-        corners under the current view matrix (the default behavior,
-        which gives a tighter fit per frame but oscillates under
-        rotation).
+        Panel size in pixels.
 
     Returns
     -------
     pixels : ndarray of shape (N, 2)
-        Integer pixel coordinates ``(x, y)`` for each joint.
+        Integer pixel coordinates ``(x, y)``, y growing downward.
     """
     w, h = resolution
-    viewed = (coords_3d - center) @ view_matrix.T  # (N, 3)
+    viewed = (points - center) @ view_matrix.T  # (N, 3)
 
-    if fixed_view_half is not None:
-        view_half_u, view_half_v = fixed_view_half
-    else:
-        # Compute the view-space half_span by projecting the bounding box
-        # corners through the rotation. A world-space cube becomes a larger
-        # rotated box in view space.
-        corners = np.array([[sx, sy, sz]
-                            for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)],
-                           dtype=np.float64) * half_span
-        corners_view = corners @ view_matrix.T
-        view_half_u = float(np.abs(corners_view[:, 0]).max())
-        view_half_v = float(np.abs(corners_view[:, 1]).max())
-
-    # Scale to fit within 90% of each dimension independently
-    if view_half_u > 1e-8 and view_half_v > 1e-8:
-        scale_u = (w * 0.9) / (2.0 * view_half_u)
-        scale_v = (h * 0.9) / (2.0 * view_half_v)
-        scale = min(scale_u, scale_v)
-    elif half_span > 1e-8:
-        scale = min(w, h) * 0.9 / (2.0 * half_span)
-    else:
-        scale = 1.0
+    scales = [(extent * FIT_FRACTION) / (2.0 * half)
+              for extent, half in zip((w, h), view_half) if half > 1e-8]
+    scale = min(scales) if scales else 1.0
 
     px = viewed[:, 0] * scale + w / 2.0
     py = h / 2.0 - viewed[:, 1] * scale  # flip y for image coords

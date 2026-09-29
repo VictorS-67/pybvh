@@ -13,7 +13,7 @@ import numpy.typing as npt
 
 
 from ._style import PALETTE_RGB, Style, effective_color_mode
-from ._viewport import build_view_matrix, make_viewport
+from ._viewport import make_viewport
 from ._scene import Scene, UP_AXIS_INDEX
 from ._colors import node_colors_255
 
@@ -74,9 +74,7 @@ def play_k3d(
     # k3d draws in perspective whatever the style asks.
     viewport = make_viewport(scene.views, projection="persp")
     center, half_span = viewport.center, viewport.half_span
-    azimuth = scene.views[0].azimuth
-    elevation = scene.views[0].elevation
-    up_axis = scene.views[0].up_axis
+    up_axis = viewport.up_axis
     labels = scene.labels
     skeleton_lines_list = [v.bones for v in scene.views]
 
@@ -183,21 +181,11 @@ def play_k3d(
     plot.grid_auto_fit = False
     plot.camera_auto_fit = False
 
-    # Set camera explicitly using the same convention as matplotlib /
-    # opencv / vedo backends so all backends produce identical views
-    # for the same (azimuth, elevation, up_axis) parameters.
-    # k3d's camera is a 9-element list:
+    # The viewport's camera, the one every backend aims from the same
+    # (azimuth, elevation, up) angles. k3d's camera is a 9-element list:
     # [eye_x, eye_y, eye_z, target_x, target_y, target_z, up_x, up_y, up_z]
-    view_mat = build_view_matrix(azimuth, elevation, up_axis)
-    eye_dir = view_mat[2]  # toward viewer
-    cam_up = view_mat[1]
-    cam_dist = half_span * 4.0
-    cam_pos = center + eye_dir * cam_dist
-    plot.camera = [
-        float(cam_pos[0]), float(cam_pos[1]), float(cam_pos[2]),
-        float(center[0]), float(center[1]), float(center[2]),
-        float(cam_up[0]), float(cam_up[1]), float(cam_up[2]),
-    ]
+    eye, target, up = viewport.camera()
+    plot.camera = [float(value) for value in (*eye, *target, *up)]
 
     # Animation controls
     play_widget = Play(

@@ -328,35 +328,204 @@ _COMMON_ADAPTERS = {"make_scene", "get_camera_angles",
 _COMMON_KERNELS = {"_leftward_units_from_pairs"}
 
 
-def _core_imports(module_name):
-    """Every runtime import of a core module: (line, enclosing function,
-    imported names). Imports under ``if TYPE_CHECKING:`` are skipped."""
-    module = importlib.import_module(f"pybvh.bvhplot.{module_name}")
-    tree = ast.parse(open(module.__file__).read())
-    found = []
+def _is_core_module(dotted: str, level: int) -> bool:
+    """Is the module ``from <dots><dotted> import`` / ``import <dotted>``
+    names a core module, or the package root (which exports only core
+    names such as ``Bvh``)? Level 1 is a bvhplot sibling: never core.
+    An explicit ``__init__`` component is the package root spelled out."""
+    parts = [p for p in dotted.split(".") if p and p != "__init__"]
+    if level == 0:
+        return (len(parts) >= 1 and parts[0] == "pybvh"
+                and (len(parts) == 1 or parts[1] in _CORE_MODULES))
+    if level == 2:
+        return not parts or parts[0] in _CORE_MODULES
+    return False
 
-    def visit(node, func, type_checking):
-        for child in ast.iter_child_nodes(node):
-            f, tc = func, type_checking
-            if isinstance(child, ast.FunctionDef):
-                f = child.name
-            if (isinstance(child, ast.If) and isinstance(child.test, ast.Name)
-                    and child.test.id == "TYPE_CHECKING"):
-                tc = True
-            if isinstance(child, ast.ImportFrom) and not tc:
-                module = child.module or ""
-                top = (module.split(".")[0] if child.level == 0
-                       else module.split(".")[0])
-                is_core = ((child.level >= 2 and top in _CORE_MODULES)
-                           or module.startswith("pybvh.")
-                           and module.split(".")[1] in _CORE_MODULES)
-                if is_core:
-                    found.append((child.lineno, f,
-                                  [a.name for a in child.names]))
-            visit(child, f, tc)
 
-    visit(tree, None, False)
+def _typing_guard_names(tree: ast.Module) -> set[str]:
+    """Which of ``TYPE_CHECKING`` and ``typing`` a module binds exactly
+    once, by ``from typing import TYPE_CHECKING`` or ``import typing``.
+
+    Any other binding of either name (assignment, parameter, def, alias)
+    disqualifies it, so a shadowed guard is treated as a runtime
+    condition. Conservative on purpose: ``import typing as t`` is not
+    recognised and its block counts as runtime."""
+    bindings: dict[str, list[bool]] = {"TYPE_CHECKING": [], "typing": []}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                bound = alias.asname or alias.name
+                if bound in bindings:
+                    bindings[bound].append(
+                        node.level == 0 and node.module == "typing"
+                        and alias.name == "TYPE_CHECKING"
+                        and alias.asname is None)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                bound = alias.asname or alias.name.split(".")[0]
+                if bound in bindings:
+                    bindings[bound].append(
+                        alias.name == "typing" and alias.asname is None)
+        elif isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            if node.id in bindings:
+                bindings[node.id].append(False)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                               ast.ClassDef)):
+            if node.name in bindings:
+                bindings[node.name].append(False)
+        elif isinstance(node, ast.arg) and node.arg in bindings:
+            bindings[node.arg].append(False)
+    return {name for name, seen in bindings.items()
+            if len(seen) == 1 and seen[0]}
+
+
+def _is_type_checking_test(test: ast.expr, guard_names: set[str]) -> bool:
+    """``if TYPE_CHECKING:`` or ``if typing.TYPE_CHECKING:``, with the
+    name bound by the typing import alone (:func:`_typing_guard_names`);
+    anything else, including ``x.TYPE_CHECKING`` or a shadowed name, is
+    an ordinary runtime condition."""
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING" and "TYPE_CHECKING" in guard_names
+    return (isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+            and isinstance(test.value, ast.Name) and test.value.id == "typing"
+            and "typing" in guard_names)
+
+
+def _core_imports_in_source(source: str) -> list[tuple[int, str | None, list[str]]]:
+    """Every runtime import of a core module in ``source``: (line,
+    innermost enclosing function or None, imported names).
+
+    Sees both statement forms (``import pybvh.tools``, ``from ..tools
+    import x``) and package-root imports (``from pybvh import Bvh``,
+    ``from .. import tools``). Only the body of an ``if TYPE_CHECKING:``
+    block is type-only; its ``else`` branch runs and is inspected."""
+    tree = ast.parse(source)
+    guard_names = _typing_guard_names(tree)
+    found: list[tuple[int, str | None, list[str]]] = []
+
+    def visit(nodes, func, type_only):
+        for node in nodes:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                visit(node.body, node.name, type_only)
+            elif (isinstance(node, ast.If)
+                    and _is_type_checking_test(node.test, guard_names)):
+                visit(node.body, func, True)
+                visit(node.orelse, func, type_only)
+            elif type_only:
+                continue
+            elif isinstance(node, ast.ImportFrom):
+                if _is_core_module(node.module or "", node.level):
+                    found.append((node.lineno, func,
+                                  [a.name for a in node.names]))
+            elif isinstance(node, ast.Import):
+                names = [a.name for a in node.names
+                         if _is_core_module(a.name, 0)]
+                if names:
+                    found.append((node.lineno, func, names))
+            else:
+                visit(ast.iter_child_nodes(node), func, type_only)
+
+    visit(tree.body, None, False)
     return found
+
+
+def _core_imports(module_name):
+    """:func:`_core_imports_in_source` over a bvhplot module's file."""
+    module = importlib.import_module(f"pybvh.bvhplot.{module_name}")
+    with open(module.__file__) as f:
+        return _core_imports_in_source(f.read())
+
+
+class TestCoreImportGuard:
+    """The guard itself, against small sources: a checker that misses a
+    spelling proves nothing about the modules it passes."""
+
+    @pytest.mark.parametrize("line", [
+        "from ..bvh import Bvh",
+        "from ..tools import _compute_forward_at",
+        "from .. import tools",
+        "from .. import Bvh, analysis",
+        "from pybvh.tools import extract_sign",
+        "from pybvh import Bvh",
+        "import pybvh.tools",
+        "import pybvh.analysis as analysis",
+        "import pybvh",
+        "from pybvh.__init__ import Bvh",
+        "from ..__init__ import Bvh",
+    ])
+    def test_flags_every_spelling_of_a_core_import(self, line):
+        found = _core_imports_in_source(line)
+        assert [(lineno, func) for lineno, func, _ in found] == [(1, None)]
+
+    @pytest.mark.parametrize("line", [
+        "from ._common import Scene",
+        "from . import _colors",
+        "from ..bvhplot._common import Scene",
+        "import numpy as np",
+        "import matplotlib.pyplot as plt",
+        "from typing import TYPE_CHECKING",
+    ])
+    def test_passes_non_core_imports(self, line):
+        assert _core_imports_in_source(line) == []
+
+    def test_type_checking_body_is_type_only_but_its_else_is_not(self):
+        source = (
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    from ..bvh import Bvh\n"
+            "else:\n"
+            "    from ..tools import extract_sign\n"
+        )
+        assert _core_imports_in_source(source) == [
+            (5, None, ["extract_sign"])]
+
+    def test_qualified_type_checking_guard_is_recognised(self):
+        source = (
+            "import typing\n"
+            "if typing.TYPE_CHECKING:\n"
+            "    from ..bvh import Bvh\n"
+        )
+        assert _core_imports_in_source(source) == []
+
+    def test_only_typings_type_checking_is_type_only(self):
+        source = (
+            "from types import SimpleNamespace\n"
+            "flags = SimpleNamespace(TYPE_CHECKING=True)\n"
+            "if flags.TYPE_CHECKING:\n"
+            "    import pybvh.tools\n"
+        )
+        assert _core_imports_in_source(source) == [(4, None, ["pybvh.tools"])]
+
+    @pytest.mark.parametrize("source", [
+        # bare guard with no typing import behind it
+        "if TYPE_CHECKING:\n    import pybvh.tools\n",
+        # rebound after the import
+        "from typing import TYPE_CHECKING\nTYPE_CHECKING = True\n"
+        "if TYPE_CHECKING:\n    import pybvh.tools\n",
+        # `typing` is not the typing module
+        "from types import SimpleNamespace\n"
+        "typing = SimpleNamespace(TYPE_CHECKING=True)\n"
+        "if typing.TYPE_CHECKING:\n    import pybvh.tools\n",
+        # shadowed by a parameter
+        "from typing import TYPE_CHECKING\n"
+        "def f(TYPE_CHECKING):\n"
+        "    if TYPE_CHECKING:\n        import pybvh.tools\n",
+        # aliased import is not recognised, so its block is runtime
+        "import typing as t\nif t.TYPE_CHECKING:\n    import pybvh.tools\n",
+    ])
+    def test_a_shadowed_or_unbound_guard_is_a_runtime_condition(self, source):
+        found = _core_imports_in_source(source)
+        assert [names for _, _, names in found] == [["pybvh.tools"]]
+
+    def test_reports_the_innermost_enclosing_function(self):
+        source = (
+            "def outer():\n"
+            "    def inner():\n"
+            "        import pybvh.tools\n"
+            "    from .. import analysis\n"
+        )
+        assert _core_imports_in_source(source) == [
+            (3, "inner", ["pybvh.tools"]), (4, "outer", ["analysis"])]
 
 
 class TestSceneIsPureData:
@@ -391,9 +560,13 @@ class TestSceneIsPureData:
         assert offenders == [], (
             f"{backend} imports core modules at runtime: {offenders}")
 
-    def test_common_reads_bvh_only_in_its_adapter_functions(self):
+    def test_common_imports_the_core_only_in_its_adapter_functions(self):
         """Inside _common, only the Bvh -> Scene adapters may import core
-        modules; a helper called at draw time may take array kernels only."""
+        modules; a helper called at draw time may take array kernels only.
+
+        This is an import guard, not proof that only the adapters consume
+        a Bvh: a function handed a Bvh (``normalize_input``) reads it
+        without importing anything, and the guard cannot see that."""
         offenders = [
             (line, func, names)
             for line, func, names in _core_imports("_common")

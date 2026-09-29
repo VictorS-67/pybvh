@@ -13,7 +13,7 @@ import numpy.typing as npt
 
 
 from ._style import PALETTE_RGB, Style, effective_color_mode
-from ._viewport import build_view_matrix
+from ._viewport import build_view_matrix, make_viewport
 from ._scene import Scene, UP_AXIS_INDEX
 from ._colors import node_colors_255
 
@@ -45,8 +45,8 @@ def play_k3d(
     """Interactive skeleton playback in a Jupyter notebook via k3d.
 
     A single-scene backend: all skeletons share one camera (taken from
-    the first view) and one unified bounding box (``scene.unified_box()``
-    over the — possibly laterally spread — view coords).
+    the first view) and one viewport over the — possibly laterally
+    spread — views.
 
     Style application (look fields): background, bone width, and chain
     colors for single-skeleton sessions (per-vertex colors — segments
@@ -71,7 +71,9 @@ def play_k3d(
     from ipywidgets import Play, IntSlider, jslink, HBox, VBox, Label  # type: ignore[import-untyped]
     from matplotlib.colors import to_rgb
 
-    center, half_span = scene.unified_box()
+    # k3d draws in perspective whatever the style asks.
+    viewport = make_viewport(scene.views, projection="persp")
+    center, half_span = viewport.center, viewport.half_span
     azimuth = scene.views[0].azimuth
     elevation = scene.views[0].elevation
     up_axis = scene.views[0].up_axis

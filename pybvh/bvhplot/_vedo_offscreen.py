@@ -25,7 +25,7 @@ from ._style import Style
 from ._viewport import build_view_matrix, make_viewport
 from ._scene import Scene
 from ._colors import bone_colors_255, floor_palette, rgb255
-from ._vedo_capsules import CapsuleSkeleton
+from ._vedo_capsules import CapsuleSkeleton, floor_placement, shadow_height
 
 if TYPE_CHECKING:
     pass
@@ -88,9 +88,8 @@ def _build_offscreen(
     """Build the shadowed offscreen scene posed to frame 0.
 
     Returns ``(plotter, capsules, camera_dict)``. All skeletons share
-    one scene (single-scene backend, like the viewer): unified bounding
-    box, camera from the first view, one floor at the lowest per-view
-    floor height.
+    one scene (single-scene backend, like the viewer): one viewport of
+    all the views, which supplies the cube, the camera and the floor.
     """
     from vedo import Plane, Plotter  # type: ignore[import-untyped]
 
@@ -98,17 +97,10 @@ def _build_offscreen(
     viewport = make_viewport(scene.views, projection="persp")
     center, half_span = viewport.center, viewport.half_span
     view0 = scene.views[0]
-    up_idx = view0.up_index
-    agg = min if view0.up_sign > 0 else max
-    floor_height = agg(v.floor_height for v in scene.views)
 
     plt = Plotter(offscreen=True, size=resolution, bg=style.background)
 
     r_base = CapsuleSkeleton.base_radius(half_span, style.bone_width)
-    up_sign = view0.up_sign
-    # "Below the floor" flips direction with the sign of the up axis.
-    plane_height = floor_height - up_sign * 0.004 * half_span
-    shadow_height = floor_height - up_sign * 0.002 * half_span
 
     capsules: list[CapsuleSkeleton] = []
     for s, view in enumerate(scene.views):
@@ -123,19 +115,16 @@ def _build_offscreen(
             # vedo registers a mesh's shadow sub-objects at add time.
             if style.shadow and style.floor is not None:
                 _attach_projected_shadow(
-                    mesh, view0.up_axis, shadow_height)
+                    mesh, viewport.up_axis, shadow_height(viewport))
             plt += mesh
         capsules.append(capsule)
 
     if style.floor is not None:
         # Flat-shaded solid plane: under real lights the plane picks up
         # a tint in this stack, and a flat floor is the paper look.
-        normal = [0.0, 0.0, 0.0]
-        normal[up_idx] = 1.0
-        floor_pos = center.copy()
-        floor_pos[up_idx] = plane_height
-        floor = Plane(pos=tuple(floor_pos), normal=tuple(normal),
-                      s=(half_span * 4, half_span * 4))
+        position, normal, side = floor_placement(viewport)
+        floor = Plane(pos=tuple(position), normal=tuple(normal),
+                      s=(side, side))
         floor.c(floor_palette(style)["face"]).lighting('off')
         plt += floor
 

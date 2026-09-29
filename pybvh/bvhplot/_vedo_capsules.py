@@ -15,6 +15,18 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ._scene import SkeletonView
+    from ._viewport import Viewport
+
+# VTK has a depth buffer, so surfaces that share a plane flicker. The
+# viewport puts the ground plane exactly at the scene ground; this
+# toolkit draws it a hair below, and the projected shadows between the
+# plane and the ground, so plane, shadow and whatever lies on the
+# ground (the root trail) have a fixed order. Fractions of the
+# half-span. These are z-fighting epsilons and nothing more: sinking
+# the plane by the capsule radius was considered and rejected (ADR
+# 0002).
+FLOOR_EPSILON = 0.004
+SHADOW_EPSILON = 0.002
 
 
 LENGTH_BOOST = (1.0, 1.5)   # long bones get plumper; short ones never thinner
@@ -33,6 +45,29 @@ MIN_OVERLAP = 0.25          # side-by-side run, as a fraction of the shorter bon
 CHAIN_TAPER = 0.85
 STUB_CAP_FACTOR = 2.0       # a stub is at most 2x the thinnest bone it joins
 MIN_RADIUS_FRACTION = 0.10  # visibility floor
+
+
+def floor_placement(
+    viewport: Viewport,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], float]:
+    """Where a vedo ``Plane`` or ``Grid`` for the viewport's ground
+    plane goes: ``(position, normal, side)``.
+
+    The position is the plane's centre, ``FLOOR_EPSILON`` half-spans
+    below the scene ground; the side is the full side length vedo's
+    ``s=`` takes, twice the viewport's floor reach."""
+    up = viewport.up_index
+    position = viewport.center.copy()
+    position[up] = viewport.below_floor(FLOOR_EPSILON * viewport.half_span)
+    normal = np.zeros(3)
+    normal[up] = 1.0
+    return position, normal, 2.0 * viewport.floor_reach
+
+
+def shadow_height(viewport: Viewport) -> float:
+    """The height projected shadows are flattened to: between the
+    ground plane as drawn and the scene ground."""
+    return viewport.below_floor(SHADOW_EPSILON * viewport.half_span)
 
 
 def _segment_frames(pose, bone_array):

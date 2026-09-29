@@ -238,3 +238,319 @@ class TestK3d:
         assert len(built.trails) == 2
         for path, view in zip(built.trail_paths, pair.spread("auto").views):
             assert path.shape == (view.coords.shape[0], 3)
+
+
+# ---------------------------------------------------------------------------
+# Every backend draws the viewport
+# ---------------------------------------------------------------------------
+# One thin check per backend that the adapter puts things where the
+# viewport says. The viewport's own numbers are tested in
+# tests/test_viewport.py; what is tested here is the translation into
+# each toolkit, which is where the backends used to drift apart.
+
+def _viewer(scene, monkeypatch):
+    from pybvh.bvhplot import _vedo
+    monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+    return _vedo._VedoPlayer(scene, Style("paper"), 30.0, quality="high")
+
+
+def _vedo_plane(plotter):
+    planes = [o for o in plotter.objects if type(o).__name__ == "Plane"]
+    assert len(planes) == 1, f"expected one floor plane, got {len(planes)}"
+    return np.asarray(planes[0].vertices)
+
+
+def _floor_corners(backend, scene, monkeypatch):
+    """World-space corners of the floor *backend* draws for *scene*."""
+    if backend == "matplotlib":
+        from mpl_toolkits.mplot3d import art3d
+        from pybvh.bvhplot._matplotlib import frame_mpl
+
+        # matplotlib keeps a 3-D collection's world-space vertices only
+        # in private attributes, renamed between releases (`_vec` in
+        # 3.9, gone in 3.11). Record the vertices the backend hands it
+        # instead: those are the floor the backend computed.
+        class RecordingPoly3DCollection(art3d.Poly3DCollection):
+            def __init__(self, verts, *args, **kwargs):
+                self.world_verts = np.asarray(verts, dtype=np.float64)
+                super().__init__(verts, *args, **kwargs)
+
+        monkeypatch.setattr(art3d, "Poly3DCollection", RecordingPoly3DCollection)
+        fig, ax = frame_mpl(scene, Style("paper"), show=False)
+        floors = [c for c in ax.collections if c.get_zorder() == 0.5]
+        assert len(floors) == 1
+        corners = floors[0].world_verts.reshape(-1, 3)
+        plt.close(fig)
+        return corners
+    if backend == "vedo offscreen":
+        pytest.importorskip("vedo")
+        from pybvh.bvhplot._vedo_offscreen import _build_offscreen
+        plotter, _, _ = _build_offscreen(scene, Style("paper"), (200, 200))
+        corners = _vedo_plane(plotter)
+        plotter.close()
+        return corners
+    if backend == "vedo viewer":
+        pytest.importorskip("vedo")
+        player = _viewer(scene, monkeypatch)
+        corners = _vedo_plane(player.plt)
+        player.plt.close()
+        return corners
+    assert backend == "k3d"
+    pytest.importorskip("k3d")
+    from pybvh.bvhplot._k3d import _build_plot
+    built = _build_plot(scene, Style("paper"))
+    return np.asarray(built.floor.vertices, dtype=np.float64).reshape(-1, 3)
+
+
+# The z-fighting epsilon each toolkit declares, in half-spans: how far
+# below the scene ground it draws the plane.
+def _declared_epsilon(backend):
+    if backend == "matplotlib":
+        return 0.0
+    if backend == "k3d":
+        from pybvh.bvhplot._k3d import FLOOR_EPSILON
+        return FLOOR_EPSILON
+    from pybvh.bvhplot._vedo_capsules import FLOOR_EPSILON
+    return FLOOR_EPSILON
+
+
+_FLOOR_BACKENDS = ["matplotlib", "vedo offscreen", "vedo viewer", "k3d"]
+
+
+class TestEveryBackendDrawsTheViewportsFloor:
+    @pytest.mark.parametrize("backend", _FLOOR_BACKENDS)
+    def test_the_plane_is_where_the_viewport_puts_it(
+            self, backend, scene, monkeypatch):
+        from pybvh.bvhplot._viewport import make_viewport
+        viewport = make_viewport(scene.views, framing="still")
+        corners = _floor_corners(backend, scene, monkeypatch)
+        expected = viewport.floor_quad()
+        up = viewport.up_index
+
+        for axis in viewport.ground_axes:
+            assert corners[:, axis].min() == pytest.approx(
+                expected[:, axis].min(), rel=1e-5), backend
+            assert corners[:, axis].max() == pytest.approx(
+                expected[:, axis].max(), rel=1e-5), backend
+        below = viewport.below_floor(
+            _declared_epsilon(backend) * viewport.half_span)
+        np.testing.assert_allclose(
+            corners[:, up], below, rtol=1e-5, atol=1e-7, err_msg=backend)
+
+    @pytest.mark.parametrize("backend", _FLOOR_BACKENDS)
+    def test_moving_the_scene_ground_moves_the_plane(
+            self, backend, scene, monkeypatch):
+        """The property a floor re-derived inside a backend breaks."""
+        import dataclasses
+        from pybvh.bvhplot._scene import Scene
+        view = scene.views[0]
+        moved = Scene(views=[dataclasses.replace(
+            view, floor_height=view.floor_height - 0.75)])
+        before = _floor_corners(backend, scene, monkeypatch)
+        after = _floor_corners(backend, moved, monkeypatch)
+        up = view.up_index
+        assert before[:, up].mean() - after[:, up].mean() == pytest.approx(
+            0.75, abs=1e-5), backend
+
+    def test_opencv_projects_the_viewports_plane(self, scene, monkeypatch):
+        cv2 = pytest.importorskip("cv2")
+        from pybvh.bvhplot import _opencv
+        from pybvh.bvhplot._viewport import make_viewport
+        drawn = []
+        real = cv2.fillPoly
+
+        def capture(img, polygons, *args, **kwargs):
+            drawn.append(np.asarray(polygons[0]).copy())
+            return real(img, polygons, *args, **kwargs)
+
+        monkeypatch.setattr(cv2, "fillPoly", capture)
+        style = Style("paper", supersample=1)
+        next(_opencv._generate_frames(scene, style, (320, 240)))
+
+        viewport = make_viewport(scene.views, framing="clip")
+        expected = viewport.project(viewport.floor_quad(), (320, 240), 0)
+        assert len(drawn) == 1
+        np.testing.assert_array_equal(drawn[0], expected)
+
+
+class TestEveryBackendFramesTheViewportsBox:
+    @pytest.mark.parametrize("floor", ["solid", None])
+    def test_a_matplotlib_still_is_fitted_to_the_still_box(self, scene, floor):
+        from pybvh.bvhplot._matplotlib import frame_mpl
+        from pybvh.bvhplot._viewport import make_viewport
+        fig, ax = frame_mpl(scene, Style("paper", floor=floor), show=False)
+        viewport = make_viewport(
+            scene.views, framing="still", include_floor=floor is not None)
+        limits = np.array([ax.get_xlim(), ax.get_ylim(), ax.get_zlim()])
+        np.testing.assert_array_equal(limits[:, 0], viewport.lo)
+        np.testing.assert_array_equal(limits[:, 1], viewport.hi)
+        plt.close(fig)
+
+    @pytest.mark.parametrize("motion", ["fixed", "turntable"])
+    def test_a_matplotlib_clip_is_fitted_to_the_clip_box(self, scene, motion):
+        from pybvh.bvhplot._matplotlib import _setup_animated_panel
+        from pybvh.bvhplot._viewport import make_viewport
+        view = scene.views[0]
+        viewport = make_viewport([view], framing="clip", motion=motion)
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="3d")
+        _setup_animated_panel(ax, view, viewport, Style("paper"),
+                              np.asarray(view.bones, dtype=int), 0, 1)
+        limits = np.array([ax.get_xlim(), ax.get_ylim(), ax.get_zlim()])
+        np.testing.assert_array_equal(limits[:, 0], viewport.lo)
+        np.testing.assert_array_equal(limits[:, 1], viewport.hi)
+        plt.close(fig)
+
+
+def _drawn_projection(ax):
+    """What a 3D axes is drawn with. mplot3d has no getter; its focal
+    length is infinite for an orthographic projection (private, like
+    ``_vec`` above: a rename fails these tests loudly)."""
+    return "ortho" if np.isinf(ax._focal_length) else "persp"
+
+
+class TestEveryBackendStatesItsProjection:
+    """``viewport.projection`` describes the picture: the adapter that
+    draws says what it draws with."""
+
+    @pytest.mark.parametrize("asked", ["persp", "ortho"])
+    def test_matplotlib_draws_what_the_style_asks(self, scene, asked):
+        from pybvh.bvhplot._matplotlib import frame_mpl, sequence_mpl
+        style = Style("paper", projection=asked)
+        fig, ax = frame_mpl(scene, style, show=False)
+        assert _drawn_projection(ax) == asked
+        plt.close(fig)
+        samples = np.array([0, 5, 11], dtype=np.intp)
+        fig, ax = sequence_mpl(scene, style, samples, "overlay")
+        assert _drawn_projection(ax) == asked
+        plt.close(fig)
+
+    @pytest.mark.parametrize("asked", ["persp", "ortho"])
+    def test_the_offset_sequence_is_always_orthographic(self, scene, asked):
+        from pybvh.bvhplot._matplotlib import sequence_mpl
+        samples = np.array([0, 5, 11], dtype=np.intp)
+        fig, ax = sequence_mpl(
+            scene, Style("paper", projection=asked), samples, "offset")
+        assert _drawn_projection(ax) == "ortho"
+        plt.close(fig)
+
+    @pytest.mark.parametrize("asked", ["persp", "ortho"])
+    def test_a_matplotlib_clip_draws_its_viewports_projection(
+            self, scene, asked):
+        from pybvh.bvhplot._matplotlib import _setup_animated_panel
+        from pybvh.bvhplot._viewport import make_viewport
+        view = scene.views[0]
+        viewport = make_viewport([view], framing="clip", projection=asked)
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="3d")
+        # the style asks for the opposite: the viewport is what is drawn
+        other = "ortho" if asked == "persp" else "persp"
+        _setup_animated_panel(ax, view, viewport,
+                              Style("paper", projection=other),
+                              np.asarray(view.bones, dtype=int), 0, 1)
+        assert _drawn_projection(ax) == asked
+        plt.close(fig)
+
+    @pytest.mark.parametrize("make_axes, asked", [
+        (dict(proj_type="ortho"), "persp"),
+        (dict(proj_type="persp"), "ortho"),
+        (dict(), "ortho"),
+    ])
+    def test_supplied_axes_are_drawn_with_the_styles_projection(
+            self, scene, make_axes, asked):
+        """``ax=`` hands over axes that already have a projection; the
+        style still decides, so the viewport describes the picture."""
+        from pybvh.bvhplot._matplotlib import frame_mpl, sequence_mpl
+        style = Style("paper", projection=asked)
+        samples = np.array([0, 5, 11], dtype=np.intp)
+        for draw in (lambda ax: frame_mpl(scene, style, show=False, ax=ax),
+                     lambda ax: sequence_mpl(
+                         scene, style, samples, "overlay", ax=ax)):
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection="3d", **make_axes)
+            draw(ax)
+            assert _drawn_projection(ax) == asked
+            plt.close(fig)
+
+    def test_axes_reused_after_an_orthographic_figure_follow_the_style(
+            self, scene):
+        from pybvh.bvhplot._matplotlib import frame_mpl
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="3d")
+        frame_mpl(scene, Style("paper", projection="ortho"), show=False, ax=ax)
+        assert _drawn_projection(ax) == "ortho"
+        ax.clear()
+        frame_mpl(scene, Style("paper"), show=False, ax=ax)
+        assert _drawn_projection(ax) == "persp"
+        plt.close(fig)
+
+    @pytest.mark.parametrize("backend, library, expected", [
+        ("_opencv", "cv2", "ortho"),
+        ("_k3d", "k3d", "persp"),
+        ("_vedo_offscreen", "vedo", "persp"),
+        ("_vedo", "vedo", "persp"),
+    ])
+    def test_the_other_backends_say_what_they_draw_with(
+            self, scene, monkeypatch, backend, library, expected):
+        """OpenCV is orthographic, k3d and vedo perspective, whatever
+        the style asks for."""
+        pytest.importorskip(library)
+        import importlib
+        from pybvh.bvhplot import _viewport
+        module = importlib.import_module(f"pybvh.bvhplot.{backend}")
+        stated = []
+        real = _viewport.make_viewport
+
+        def record(views, **options):
+            viewport = real(views, **options)
+            stated.append(viewport.projection)
+            return viewport
+
+        monkeypatch.setattr(_viewport, "make_viewport", record)
+        if hasattr(module, "make_viewport"):
+            monkeypatch.setattr(module, "make_viewport", record)
+        style = Style("paper", projection="ortho", supersample=1)
+        if backend == "_opencv":
+            next(module._generate_frames(scene, style, (160, 120)))
+        elif backend == "_k3d":
+            module._build_plot(scene, style)
+        elif backend == "_vedo_offscreen":
+            module._build_offscreen(scene, style, (120, 120))[0].close()
+        else:
+            monkeypatch.setattr(module, "_FORCE_OFFSCREEN", True)
+            module._VedoPlayer(scene, style, 30.0, quality="high").plt.close()
+        assert stated and set(stated) == {expected}
+
+
+class TestEveryPerspectiveBackendUsesTheViewportsCamera:
+    def test_vedo_offscreen_renders_from_it(self, scene, monkeypatch):
+        """Checked on the camera VTK ends up with when a still is
+        rendered, not on the numbers handed to it."""
+        vedo = pytest.importorskip("vedo")
+        from pybvh.bvhplot import _vedo_offscreen
+        from pybvh.bvhplot._viewport import EYE_DISTANCE, make_viewport
+        seen = {}
+        real_screenshot = vedo.Plotter.screenshot
+
+        def capture(plotter, *args, **kwargs):
+            camera = plotter.camera
+            seen.update(
+                position=np.array(camera.GetPosition()),
+                focal_point=np.array(camera.GetFocalPoint()),
+                viewup=np.array(camera.GetViewUp()),
+                distance=camera.GetDistance())
+            return real_screenshot(plotter, *args, **kwargs)
+
+        monkeypatch.setattr(vedo.Plotter, "screenshot", capture)
+        _vedo_offscreen.frame_vedo(scene, Style("paper"), resolution=(200, 200))
+
+        viewport = make_viewport(scene.views)
+        eye, target, up = viewport.camera()
+        np.testing.assert_allclose(seen["position"], eye)
+        np.testing.assert_allclose(seen["focal_point"], target)
+        np.testing.assert_allclose(seen["viewup"], up, atol=1e-12)
+        assert seen["distance"] == pytest.approx(
+            EYE_DISTANCE * viewport.half_span)
+
+    # The vedo viewer's camera is tested in tests/test_vedo_player.py,
+    # and k3d's in TestK3d above, each with the change that made it.

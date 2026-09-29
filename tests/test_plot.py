@@ -1,6 +1,8 @@
 """Tests for the pybvh.bvhplot visualization module."""
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pytest
 from pathlib import Path
@@ -1044,6 +1046,16 @@ def _view(bvh, coords):
 class TestComputeFollowAzimuths:
     """Vectorized follow-camera azimuth tracking (shared by all backends)."""
 
+    PINNED = {
+        0: -20.0,
+        50: -7.614185304051565,
+        100: -28.527208890651654,
+        200: -3.4412318759617193,
+        300: -30.822573480565033,
+        400: -25.65914814654527,
+        523: -4.049526760718898,
+    }
+
     def test_frame0_equals_base(self, bvh_example):
         from pybvh.bvhplot._viewport import compute_follow_azimuths
         coords = bvh_example.node_positions()
@@ -1092,6 +1104,35 @@ class TestComputeFollowAzimuths:
         az = compute_follow_azimuths(_view(bvh, coords), 45.0)
         assert np.allclose(az, 45.0)
 
+    def test_the_whole_schedule_matches_the_pin(self):
+        """Every frame of the CMU walk, against the frozen array
+        (``tests/fixtures/follow_azimuths_pinned.npz``): the follow
+        camera must not move on any of them. The seven values written
+        out in the next test tie the fixture to what was captured
+        before the facing geometry was consolidated."""
+        from pybvh.bvhplot._viewport import compute_follow_azimuths
+        pinned = np.load(
+            Path(__file__).parent / "fixtures" / "follow_azimuths_pinned.npz")
+        bvh = read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")
+        coords = bvh.node_positions()
+        az = compute_follow_azimuths(_view(bvh, coords), -20.0)
+        np.testing.assert_allclose(az, pinned["azimuths"], rtol=0, atol=1e-12)
+        for frame_idx, value in self.PINNED.items():
+            assert pinned["azimuths"][frame_idx] == pytest.approx(
+                value, abs=1e-12), "the fixture was re-baselined"
+
+    def test_the_viewport_schedules_the_pinned_azimuths(self):
+        from pybvh.bvhplot._viewport import make_viewport
+        pinned = np.load(
+            Path(__file__).parent / "fixtures" / "follow_azimuths_pinned.npz")
+        bvh = read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")
+        view = _view(bvh, bvh.node_positions())
+        viewport = make_viewport(
+            [dataclasses.replace(view, azimuth=-20.0)],
+            framing="clip", motion="follow")
+        np.testing.assert_allclose(
+            viewport.azimuths, pinned["azimuths"], rtol=0, atol=1e-12)
+
     def test_pinned_values_on_real_turning_walk(self):
         """Hard-pinned outputs on cmu_12_01_walk, captured BEFORE the
         leftward geometry was consolidated into pybvh.tools (the
@@ -1101,16 +1142,7 @@ class TestComputeFollowAzimuths:
         coords = bvh.node_positions()
         az = compute_follow_azimuths(_view(bvh, coords), -20.0)
         assert az.shape == (524,)
-        expected = {
-            0: -20.0,
-            50: -7.614185304051565,
-            100: -28.527208890651654,
-            200: -3.4412318759617193,
-            300: -30.822573480565033,
-            400: -25.65914814654527,
-            523: -4.049526760718898,
-        }
-        for frame_idx, value in expected.items():
+        for frame_idx, value in self.PINNED.items():
             assert az[frame_idx] == pytest.approx(value, abs=1e-12), \
                 f"azimuth moved at frame {frame_idx}"
 

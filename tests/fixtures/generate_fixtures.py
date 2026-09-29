@@ -14,6 +14,10 @@ References used:
 One fixture is different in kind: `foot_contacts_pinned.npz` is a BEHAVIOR PIN of pybvh's own `foot_contacts` (no external reference). It is excluded from the default run above and regenerates only via an explicit flag, in the `pybvh` env — see `gen_foot_contacts` for the re-baselining warning:
 
     conda run -n pybvh python tests/fixtures/generate_fixtures.py --foot-contacts-pin
+
+`follow_azimuths_pinned.npz` is a second behavior pin of the same kind, of the follow camera's azimuth schedule (`gen_follow_azimuths`):
+
+    conda run -n pybvh python tests/fixtures/generate_fixtures.py --follow-azimuths-pin
 """
 from __future__ import annotations
 import json
@@ -336,10 +340,48 @@ def gen_foot_contacts() -> None:
           **arrays)
 
 
+FOLLOW_AZIMUTH_BASE = -20.0
+
+
+def gen_follow_azimuths() -> None:
+    # ------------------------------------------------------------------
+    # !! BEHAVIOR PIN — regenerating RE-BASELINES it !!
+    #
+    # Same kind as gen_foot_contacts: no external reference, it freezes
+    # the follow camera's per-frame azimuths on the CMU walk so that a
+    # refactor of the facing geometry or of the viewport can be proven
+    # not to move the camera. Seven of its values are also written out
+    # in tests/test_plot.py, captured before the facing geometry was
+    # consolidated; a regenerated fixture that disagrees with them fails
+    # there. Regenerate only to deliberately re-baseline.
+    # ------------------------------------------------------------------
+    repo_root = os.path.dirname(os.path.dirname(HERE))
+    sys.path.insert(0, repo_root)
+    from pybvh import read_bvh_file
+    from pybvh.bvhplot._from_bvh import make_scene
+    from pybvh.bvhplot._viewport import compute_follow_azimuths
+
+    bvh = read_bvh_file(os.path.join(repo_root, "bvh_data",
+                                     "cmu_12_01_walk.bvh"))
+    view = make_scene([bvh], [bvh.node_positions()], "front", None).views[0]
+    _save("follow_azimuths_pinned",
+          {"ref": "pybvh itself — BEHAVIOR PIN, no external reference",
+           "source": "bvh_data/cmu_12_01_walk.bvh",
+           "quantity": "compute_follow_azimuths(view, base_azim), degrees, "
+                       "one per frame",
+           "base_azim": FOLLOW_AZIMUTH_BASE,
+           "env": "pybvh (numpy-only), NOT pybvh_test",
+           "warning": "regenerating re-baselines the pin"},
+          azimuths=compute_follow_azimuths(view, FOLLOW_AZIMUTH_BASE))
+
+
 if __name__ == "__main__":
     if "--foot-contacts-pin" in sys.argv:
         print("RE-BASELINING the foot_contacts behavior pin in", HERE)
         gen_foot_contacts()
+    elif "--follow-azimuths-pin" in sys.argv:
+        print("RE-BASELINING the follow azimuths behavior pin in", HERE)
+        gen_follow_azimuths()
     else:
         print("Generating golden fixtures into", HERE)
         gen_rotations()

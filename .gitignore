@@ -53,6 +53,8 @@ improve_visualization.md
 pybvh.egg-info/
 tutorials/output/
 docs/internal_logs
+# Agent tickets and wayfinder maps: working notes, see docs/agents/issue-tracker.md
+.scratch/
 output/
 features_papers/
 temp.py

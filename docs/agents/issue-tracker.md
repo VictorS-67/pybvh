@@ -1,60 +1,65 @@
-# Issue tracker: GitHub
+# Issue tracker: GitHub parent issues, local tickets
 
-Issues and specs for this repo live as GitHub issues (`VictorS-67/pybvh`). Use the `gh` CLI for all operations.
+| Unit | Sized for | Lives in |
+| --- | --- | --- |
+| **Parent issue** | one reviewable change: one branch, one PR | GitHub issues on `VictorS-67/pybvh`, through `gh` |
+| **Ticket** | one fresh agent context | a gitignored file under `.scratch/` |
 
-## Two channels, and which is which
+GitHub text is public and permanent, so it holds the decision and not the discussion behind it. The development history in `docs/internal_logs/<version>/`, and anything the maintainer has marked private, stays in local files whatever a rule below says. Requests between the pybvh-family projects go to the private message hub at `/home/victor/projects/lab-messages/` (protocol in its `README.md`).
 
-**This file describes the channel for reports from outside the lab.** Traffic *between* the pybvh-family projects — emo_mocap, pybvh, pybvh-ml, pybvh-qualities, pybvh_blender — does not go through GitHub issues. It goes to the message hub:
+## Parent issues
 
+Issues #6 and #9 are the house style (`gh issue view 6`); copy their shape in place of the publishing skill's body template. The title reads `area: what changes`. Each issue takes one category label (`bug`, `enhancement`, `refactor`, `documentation`) and the version milestone. Show the maintainer the full text before creating it.
+
+Triage state labels are for **outside reports**: issues whose author is not `VictorS-67`. `/triage` lists only those, unless the maintainer names an issue. Where a skill says to put a state label on an issue it publishes (`/to-spec` and `ready-for-agent`), leave it off.
+
+## Tickets
+
+A ticket fits **one fresh context**: well under 150k tokens from reading it to its last commit, which in practice is one behaviour, one test seam and a handful of files to read. One ticket per session. A compaction during a ticket means the tickets are too big: split the remaining ones smaller. A parent that already fits one context is its own ticket and gets no file.
+
+Tickets live at `.scratch/<parent-number>-<slug>/issues/<NN>-<slug>.md`, numbered from `01` in dependency order, and all of them commit to the parent's branch:
+
+```markdown
+# <NN> — <Ticket title>
+
+**Parent:** #<N>
+
+**What to build:** the behaviour this ticket makes work, seen from the caller of the library.
+
+**Blocked by:** the numbers of the tickets that gate this one, or "None".
+
+**Status:** ready-for-agent
+
+- [ ] Acceptance criterion
 ```
-/home/victor/projects/lab-messages/to-pybvh/     <- addressed to this project
-/home/victor/projects/lab-messages/           <- other inboxes, and the protocol
-```
 
-Markdown files, one per item, with a stable ID and a `status:` field. No `gh`, no auth, no network. The hub is a private repo, so in-house feedback stays private however the visibility of any project changes — and it is version-controlled, so the queue survives the machine.
+A ticket is **done** when every criterion is checked and committed: set `**Status:** done`. It is unblocked when every ticket it lists is done. Notes go under a `## Comments` heading at the bottom.
 
-Rationale, in short: the traffic is a mesh rather than a chain, so it needs one central place rather than an outbox in whichever project happens to be writing; and a public issue tracker is for people with no stake in our internal plumbing. See the hub's `README.md`.
-
-**So:** an external bug report → a GitHub issue here, as described below. Something one of our own projects needs from this one → a file in the hub.
-
-## Conventions
-
-- **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
-- **Read an issue**: `gh issue view <number> --comments`, filtering comments by `jq` and also fetching labels.
-- **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
-- **Comment on an issue**: `gh issue comment <number> --body "..."`
-- **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
-- **Close**: `gh issue close <number> --comment "..."`
-
-Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
-
-## Pull requests as a triage surface
-
-**PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_
-
-When set to `yes`, PRs run through the same labels and states as issues, using the `gh pr` equivalents:
-
-- **Read a PR**: `gh pr view <number> --comments` and `gh pr diff <number>` for the diff.
-- **List external PRs for triage**: `gh pr list --state open --json number,title,body,labels,author,authorAssociation,comments` then keep only `authorAssociation` of `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, or `NONE` (drop `OWNER`/`MEMBER`/`COLLABORATOR`).
-- **Comment / label / close**: `gh pr comment`, `gh pr edit --add-label`/`--remove-label`, `gh pr close`.
-
-GitHub shares one number space across issues and PRs, so a bare `#42` may be either — resolve with `gh pr view 42` and fall back to `gh issue view 42`.
+A **private parent** is `.scratch/<slug>/spec.md`, written in the house style; its tickets say `**Parent:** spec.md`.
 
 ## When a skill says "publish to the issue tracker"
 
-Create a GitHub issue.
+- **A spec, or a single change** (`/to-spec`, a defect found during work): a parent issue.
+- **Tickets** (`/to-tickets`): files in the parent's directory, after creating the parent if there is none.
+- **A wayfinder map**: local files, see below.
 
 ## When a skill says "fetch the relevant ticket"
 
-Run `gh issue view <number> --comments`.
+- **`#N`**: `gh issue view <N> --comments`.
+- **A ticket path**: read the file, then the parent its `**Parent:**` line names, if any.
+
+## Pull requests as a triage surface
+
+**PRs as a request surface: no.** _(`/triage` reads this flag.)_
 
 ## Wayfinding operations
 
-Used by `/wayfinder`. The **map** is a single issue with **child** issues as tickets.
+Used by `/wayfinder`. The **map** is a file with one **child** file per ticket.
 
-- **Map**: a single issue labelled `wayfinder:map`, holding the Notes / Decisions-so-far / Fog body. `gh issue create --label wayfinder:map`.
-- **Child ticket**: an issue linked to the map as a GitHub sub-issue (`gh api` on the sub-issues endpoint). Where sub-issues aren't enabled, add the child to a task list in the map body and put `Part of #<map>` at the top of the child body. Labels: `wayfinder:<type>` (`research`/`prototype`/`grilling`/`task`). Once claimed, the ticket is assigned to the driving dev.
-- **Blocking**: GitHub's **native issue dependencies** — the canonical, UI-visible representation. Add an edge with `gh api --method POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`, where `<blocker-db-id>` is the blocker's numeric **database id** (`gh api repos/<owner>/<repo>/issues/<n> --jq .id`, _not_ the `#number` or `node_id`). GitHub reports `issue_dependencies_summary.blocked_by` (open blockers only — the live gate). Where dependencies aren't available, fall back to a `Blocked by: #<n>, #<n>` line at the top of the child body. A ticket is unblocked when every blocker is closed.
-- **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
-- **Claim**: `gh issue edit <n> --add-assignee @me` — the session's first write.
-- **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+- **Map**: `.scratch/<effort>/map.md` — the Notes / Decisions-so-far / Fog body.
+- **Child ticket**: `.scratch/<effort>/issues/NN-<slug>.md`, numbered from `01`, with the question in the body. A `Type:` line records the ticket type (`research`/`prototype`/`grilling`/`task`); a `Status:` line records `claimed`/`resolved`.
+- **Blocking**: a `Blocked by: NN, NN` line near the top. A ticket is unblocked when every file it lists is `resolved`.
+- **Frontier**: scan `.scratch/<effort>/issues/` for files that are open, unblocked, and unclaimed; first by number wins.
+- **Claim**: set `Status: claimed` and save before any work.
+- **Resolve**: append the answer under an `## Answer` heading, set `Status: resolved`, then append a context pointer (gist + link) to the map's Decisions-so-far in `map.md`.
+- **Rule out of scope** (where the skill says to close a ticket without resolving it): set `Status: out-of-scope`, which unblocks the tickets it blocks as `resolved` does, then append one line (gist + why + link) to the map's Out of scope section in `map.md`, not to Decisions-so-far.

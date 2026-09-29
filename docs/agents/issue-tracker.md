@@ -46,8 +46,7 @@ A **private parent** is `.scratch/<slug>/spec.md`, written in the house style; i
 ## When a skill says "fetch the relevant ticket"
 
 - **`#N`**: `gh issue view <N> --comments`.
-- **A ticket path**: read the file, then the parent its `**Parent:**` line names.
-- **A `map.md` path, or a ticket in the `issues/` directory next to one**: a wayfinder effort, see below.
+- **A ticket path**: read the file, then the parent its `**Parent:**` line names, if any.
 
 ## Pull requests as a triage surface
 
@@ -55,11 +54,11 @@ A **private parent** is `.scratch/<slug>/spec.md`, written in the house style; i
 
 ## Wayfinding operations
 
-All local. The map is `.scratch/<effort>/map.md`. Its tickets are `.scratch/<effort>/issues/<NN>-<slug>.md`, each with a `Type:` line (`research`/`prototype`/`grilling`/`task`), a `Blocked by: NN, NN` line, and a `Status:` of `open`, `claimed`, `resolved` or `out-of-scope`.
+Used by `/wayfinder`. The **map** is a file with one **child** file per ticket.
 
-- **Invoke** with the path to `map.md` where the skill expects a map URL or number.
-- **Frontier**: `open` tickets whose blockers are all `resolved` or `out-of-scope`; lowest number first.
-- **Claim**: set `claimed` and save before any work.
-- **Resolve**: add the answer under `## Answer`, set `resolved`, and add a one-line gist with a link to the map's Decisions so far.
-- **Rule out of scope** (where the skill says to close a ticket unresolved): set `out-of-scope` and add one line to the map's Out of scope section.
-- **Destination reached**: the decisions move to `docs/internal_logs/<version>/` or an ADR, and the work they describe becomes parent issues.
+- **Map**: `.scratch/<effort>/map.md` — the Notes / Decisions-so-far / Fog body.
+- **Child ticket**: `.scratch/<effort>/issues/NN-<slug>.md`, numbered from `01`, with the question in the body. A `Type:` line records the ticket type (`research`/`prototype`/`grilling`/`task`); a `Status:` line records `claimed`/`resolved`.
+- **Blocking**: a `Blocked by: NN, NN` line near the top. A ticket is unblocked when every file it lists is `resolved`.
+- **Frontier**: scan `.scratch/<effort>/issues/` for files that are open, unblocked, and unclaimed; first by number wins.
+- **Claim**: set `Status: claimed` and save before any work.
+- **Resolve**: append the answer under an `## Answer` heading, set `Status: resolved`, then append a context pointer (gist + link) to the map's Decisions-so-far in `map.md`.

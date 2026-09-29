@@ -21,7 +21,7 @@ import numpy.typing as npt
 from typing import Callable, TypedDict
 
 from ._style import PALETTE_RGB, Style, effective_color_mode
-from ._viewport import build_view_matrix, make_viewport
+from ._viewport import make_viewport
 from ._scene import Scene, UP_AXIS_INDEX
 from ._colors import bone_colors_255, floor_palette, rgb255
 from ._playback import PlaybackClock
@@ -203,9 +203,7 @@ class _VedoPlayer:
         self.skeleton_lines_list = [v.bones for v in scene.views]
         self.center = center
         self.half_span = half_span
-        self.up_axis = scene.views[0].up_axis
-        self.azimuth = scene.views[0].azimuth
-        self.elevation = scene.views[0].elevation
+        self.up_axis = self.viewport.up_axis
         self.use_high = quality == "high"
 
         self.n_skeletons = scene.num_skeletons
@@ -266,7 +264,10 @@ class _VedoPlayer:
         return self.clock.num_frames
 
     def show(self) -> None:
-        self.plt.show()
+        # resetcam=False: the camera is the viewport's. vedo's default
+        # would hand its distance and target back to VTK, which refits
+        # them to everything in the scene, floor plane included.
+        self.plt.show(resetcam=False)
 
     # =================================================================
     # GEOMETRY
@@ -407,13 +408,7 @@ class _VedoPlayer:
                 )
                 self.plt += label
 
-        # --- Camera setup (same convention as matplotlib / opencv backends) ---
-        view_mat = build_view_matrix(self.azimuth, self.elevation, self.up_axis)
-        # view_mat rows: [right, up, eye_direction (toward viewer)]
-        eye_dir = view_mat[2]
-        cam_dist = half_span * 4.0
-        self._cam_pos = self.center + eye_dir * cam_dist
-        self._cam_up = view_mat[1]
+        # --- Camera: the viewport's, the one the offscreen renderer uses ---
         self._set_camera()
 
         # --- Joint name labels (toggle with J key) ---
@@ -473,11 +468,17 @@ class _VedoPlayer:
         self._points_actors[s].vertices = frame_data
 
     def _set_camera(self) -> None:
-        """Apply the initial camera position."""
-        self.plt.camera.SetPosition(*self._cam_pos)
-        self.plt.camera.SetFocalPoint(*self.center)
-        self.plt.camera.SetViewUp(*self._cam_up)
-        self.plt.reset_camera()
+        """Put the camera where the viewport says, exactly.
+
+        Only the clipping planes are left to VTK: they decide what is
+        cut off in depth, not what is framed. VTK fits them to what is
+        in the scene at the moment, so :meth:`_update_frame` refits
+        them whenever the skeletons move."""
+        eye, target, up = self.viewport.camera()
+        self.plt.camera.SetPosition(*eye)
+        self.plt.camera.SetFocalPoint(*target)
+        self.plt.camera.SetViewUp(*up)
+        self.plt.renderer.ResetCameraClippingRange()
 
     # =================================================================
     # UI
@@ -721,6 +722,10 @@ class _VedoPlayer:
                         root_pts[:full_f], root_pts[1:full_f + 1])
                     verts[:len(visible)] = visible
                 self._trail_actors[s].vertices = verts
+        # The clipping planes were fitted to the previous pose; a
+        # skeleton that walked toward or away from the camera since
+        # would be cut off in depth.
+        self.plt.renderer.ResetCameraClippingRange()
 
         # Hide screenshot feedback after timeout
         hide_at = self.state.get('_screenshot_hide_at')

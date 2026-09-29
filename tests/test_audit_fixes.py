@@ -391,12 +391,12 @@ class TestBuildViewMatrix:
     """
 
     def test_top_camera_no_nan(self):
-        from pybvh.bvhplot._common import build_view_matrix
+        from pybvh.bvhplot._viewport import build_view_matrix
         vm = build_view_matrix(0, 90, "y")
         assert not np.any(np.isnan(vm)), f"NaN in view matrix:\n{vm}"
 
     def test_top_camera_z_up(self):
-        from pybvh.bvhplot._common import build_view_matrix
+        from pybvh.bvhplot._viewport import build_view_matrix
         vm = build_view_matrix(0, 90, "z")
         assert not np.any(np.isnan(vm))
 

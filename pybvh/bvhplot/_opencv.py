@@ -19,15 +19,17 @@ from ._common import (
     Style,
     TRACE_BLEND,
     TRACE_COLOR,
+    ghost_schedule,
+    PALETTE_RGB,
+)
+from ._viewport import (
     box_corners,
     build_view_matrix,
     compute_follow_azimuths,
     floor_trace_points,
     framing_bounds,
-    ghost_schedule,
     ortho_project,
     turntable_azimuths,
-    PALETTE_RGB,
 )
 from ._scene import Scene, SkeletonView
 from ._colors import bone_colors_255, floor_palette, node_colors_255
@@ -162,7 +164,7 @@ def _panel_framings(
 ) -> list[_PanelFraming]:
     """Frame each panel to its clip's motion rather than to a cube.
 
-    The box comes from :func:`~._common.framing_bounds`, the same rule
+    The box comes from :func:`~._viewport.framing_bounds`, the same rule
     the matplotlib backend fits its axes to, so one call rendered
     through either backend frames the same volume.
 

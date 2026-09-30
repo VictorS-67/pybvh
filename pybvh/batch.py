@@ -71,6 +71,7 @@ def read_bvh_directory(
     parallel: bool = False,
     max_workers: int | None = None,
     world_up: str = "auto",
+    warn_on_world_up_disagreement: bool = True,
     lr_mapping: dict[str, str] | None = None,
     skip_errors: bool = False,
 ) -> list[Bvh]:
@@ -105,6 +106,10 @@ def read_bvh_directory(
         World vertical axis applied to every loaded file.
         ``"auto"`` (default) auto-detects per file.  Pass e.g.
         ``"+y"`` to override all files uniformly.
+    warn_on_world_up_disagreement : bool, optional
+        Passed to :func:`read_bvh_file` for every file: ``False``
+        silences the rest-pose / first-frame disagreement warning on
+        each clip, for its lifetime (see there).
     lr_mapping : dict or None, optional
         Explicit left/right joint pair mapping applied to every loaded
         file. Useful when a whole dataset shares an unusual naming
@@ -144,7 +149,10 @@ def read_bvh_directory(
         return []
 
     from functools import partial
-    reader = partial(read_bvh_file, world_up=world_up, lr_mapping=lr_mapping)
+    reader = partial(
+        read_bvh_file, world_up=world_up,
+        warn_on_world_up_disagreement=warn_on_world_up_disagreement,
+        lr_mapping=lr_mapping)
 
     if skip_errors:
         def safe_reader(path: Path) -> Bvh | None:

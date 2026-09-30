@@ -144,8 +144,8 @@ class SkeletonView(GroundFrame):
       shared: no array is copied at construction, and a Scene operation
       may share storage with its source (``subsampled`` shares
       ``coords`` and ``root_heading``; ``offset`` allocates new coords
-      and shares the heading), so a write through one Scene would
-      change another. The alternative,
+      and shares the heading; ``looped`` copies both), so a write
+      through one Scene would change another. The alternative,
       copying, would double the memory of every clip drawn. The array
       the caller passed in keeps its own flags; writing into *it*
       afterwards still changes what the view shows, which is the
@@ -266,9 +266,16 @@ class Scene:
     the first view's. Building a Scene that breaks either raises
     ``ValueError``; align the clips first (:func:`align_frame_counts`).
     Frame *times* may differ between views, see :attr:`frame_time`.
+
+    ``loop_length`` is ``None`` for a Scene that plays its clips once.
+    A Scene made by :meth:`looped` plays them again from the first
+    frame every ``loop_length`` frames; each such run is a *pass*
+    (:meth:`pass_start`), and what trails the live pose (ghosts, the
+    root trace, the frame counter) belongs to its pass.
     """
 
     views: list[SkeletonView]
+    loop_length: int | None = None
 
     def __post_init__(self) -> None:
         if not self.views:
@@ -278,6 +285,11 @@ class Scene:
             raise ValueError(
                 f"All views of a Scene must hold the same number of "
                 f"frames, got {counts}.")
+        if self.loop_length is not None and not (
+                1 <= self.loop_length <= counts[0]):
+            raise ValueError(
+                f"loop_length must be a number of frames from 1 to the "
+                f"Scene's {counts[0]}, got {self.loop_length}.")
 
     @property
     def num_frames(self) -> int:
@@ -305,6 +317,49 @@ class Scene:
         """
         return self.views[0].frame_time
 
+    @property
+    def pass_length(self) -> int:
+        """Frames in one pass of the clip: ``loop_length`` for a looped
+        Scene, every frame otherwise."""
+        if self.loop_length is None:
+            return self.num_frames
+        return self.loop_length
+
+    def pass_start(self, frame: int) -> int:
+        """The first frame of the pass that shows *frame*.
+
+        ``0`` for every frame of a Scene that is not looped. Backends
+        draw a frame's ghosts and root trace from this frame on, and
+        count frames from it, so every pass is drawn as the first was.
+        """
+        return frame - frame % self.pass_length
+
+    def looped(self, num_frames: int) -> Scene:
+        """The clip played again from its first frame until the Scene
+        holds ``num_frames`` frames, as a new Scene.
+
+        Every frame-indexed field is repeated (a copy, not a view: the
+        passes are laid end to end), the last pass is cut short where
+        ``num_frames`` ends, and nothing is blended at the seam: the
+        pose jumps from the clip's last frame back to its first, as a
+        looping video does. Timing, floor and camera angles are kept.
+        A Scene that is already looped plays its original pass again,
+        so looping twice is looping once to the longer length.
+        """
+        if num_frames < self.num_frames:
+            raise ValueError(
+                f"looped() plays the clip again and cannot shorten it: "
+                f"num_frames must be at least {self.num_frames}, got "
+                f"{num_frames}.")
+        shown = np.arange(num_frames) % self.pass_length
+        views = []
+        for v in self.views:
+            heading = (None if v.root_heading is None
+                       else v.root_heading[shown])
+            views.append(dataclasses.replace(
+                v, coords=v.coords[shown], root_heading=heading))
+        return Scene(views=views, loop_length=self.pass_length)
+
     def subsampled(self, step: int) -> Scene:
         """Every ``step``-th frame of every view, as a new Scene.
 
@@ -320,9 +375,17 @@ class Scene:
         clip's ground was is the honest one for a preview of it. The
         alternative, recomputing from the kept frames, would move the
         ground between the full and the subsampled view of one clip.
+
+        A looped Scene cannot be subsampled: its every ``step``-th
+        frame is not one clip played again, since its passes would no
+        longer share a length. Subsample first, then loop.
         """
         if step < 1:
             raise ValueError(f"step must be >= 1, got {step}.")
+        if self.loop_length is not None:
+            raise ValueError(
+                "A looped Scene cannot be subsampled: subsample the clip "
+                "first, then loop it.")
         views = []
         for v in self.views:
             heading = (None if v.root_heading is None
@@ -337,7 +400,7 @@ class Scene:
 
         Moves ``coords``, and ``floor_height`` by the
         offset's component along the view's up axis, so the plane stays
-        under the feet. Orientation, heading and timing are
+        under the feet. Orientation, heading, timing and the loop are
         translation-invariant and are kept.
         """
         if len(offsets) != len(self.views):
@@ -350,7 +413,7 @@ class Scene:
                 v,
                 coords=v.coords + off,
                 floor_height=v.floor_height + float(off[v.up_index])))
-        return Scene(views=views)
+        return dataclasses.replace(self, views=views)
 
     def spread(self, spacing: float | str) -> Scene:
         """Offset the views laterally so skeletons sharing one 3-D scene

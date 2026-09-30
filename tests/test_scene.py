@@ -389,6 +389,70 @@ class TestSceneMethods:
             np.broadcast_to([1.2 * width, 0.0, 0.0], first.coords.shape))
 
 
+class TestLoopedScene:
+    """A looped Scene plays its clip again from the first frame, and
+    says where each pass starts, so that what trails the live pose
+    (ghosts, the root trace, the frame counter) restarts with it."""
+
+    def test_looped_plays_the_clip_again_from_its_first_frame(self):
+        scene = make_array_scene(n_frames=5, n_skeletons=2, labels=["a", "b"])
+        looped = scene.looped(12)
+        assert looped.num_frames == 12
+        shown = [0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 1]
+        for view, original in zip(looped.views, scene.views):
+            np.testing.assert_array_equal(view.coords, original.coords[shown])
+            np.testing.assert_array_equal(
+                view.root_heading, original.root_heading[shown])
+            assert view.frame_time == original.frame_time
+            assert view.floor_height == original.floor_height
+            assert view.label == original.label
+
+    def test_each_pass_starts_where_the_clip_starts_again(self):
+        looped = make_array_scene(n_frames=5).looped(12)
+        assert looped.pass_length == 5
+        starts = [looped.pass_start(f) for f in range(12)]
+        assert starts == [0] * 5 + [5] * 5 + [10] * 2
+
+    def test_a_scene_that_is_not_looped_is_one_pass(self):
+        scene = make_array_scene(n_frames=5)
+        assert scene.pass_length == 5
+        assert [scene.pass_start(f) for f in range(5)] == [0] * 5
+
+    def test_looping_to_the_clips_own_length_is_one_pass(self):
+        scene = make_array_scene(n_frames=5)
+        looped = scene.looped(5)
+        np.testing.assert_array_equal(
+            looped.views[0].coords, scene.views[0].coords)
+        assert looped.pass_length == 5
+
+    def test_looping_again_keeps_the_clips_pass(self):
+        scene = make_array_scene(n_frames=5)
+        twice = scene.looped(7).looped(12)
+        assert twice.pass_length == 5
+        np.testing.assert_array_equal(
+            twice.views[0].coords, scene.looped(12).views[0].coords)
+
+    def test_looped_cannot_shorten_the_scene(self):
+        with pytest.raises(ValueError, match="num_frames"):
+            make_array_scene(n_frames=5).looped(4)
+
+    def test_moving_a_looped_scene_keeps_its_passes(self):
+        looped = make_array_scene(n_frames=5, n_skeletons=2).looped(12)
+        assert looped.offset([np.ones(3), np.ones(3)]).pass_length == 5
+        assert looped.spread(1.5).pass_length == 5
+
+    def test_subsampling_a_looped_scene_raises(self):
+        """Every step-th frame of a looped Scene is not a clip played
+        again: its passes would no longer have one length."""
+        with pytest.raises(ValueError, match="loop"):
+            make_array_scene(n_frames=5).looped(12).subsampled(2)
+
+    def test_a_loop_longer_than_the_scene_is_rejected(self):
+        views = make_array_scene(n_frames=5).views
+        with pytest.raises(ValueError, match="loop_length"):
+            Scene(views=views, loop_length=6)
+
+
 class TestViewIsCheckedAtConstruction:
     """An inconsistent view raises where it is built, naming the field,
     instead of drawing something wrong in a backend later."""
@@ -523,6 +587,7 @@ class TestViewArraysAreReadOnly:
         lambda scene: scene.subsampled(2),
         lambda scene: scene.spread(1.5),
         lambda scene: scene.offset([np.ones(3), np.ones(3)]),
+        lambda scene: scene.looped(30),
     ])
     def test_operations_return_read_only_views(self, operation):
         scene = operation(make_array_scene(n_frames=12, n_skeletons=2))

@@ -43,6 +43,19 @@ def _validate_bvh_path(filepath: str | Path) -> Path:
         raise FileNotFoundError(f'could not find the file {filepath}')
     return filepath
 
+
+def _validate_frame_time(value: float) -> None:
+    """Raise ``ValueError`` unless ``value`` is a valid frame time.
+
+    A frame time is ``0`` (unset) or a positive finite number of seconds.
+    This is the one rule for every place a frame time enters pybvh: the
+    :attr:`Bvh.frame_time` setter and the ``Frame Time`` line of a file.
+    """
+    if not (np.isfinite(value) and value >= 0):
+        raise ValueError(
+            f"frame_time must be 0 (unset) or a positive finite number of "
+            f"seconds, got {value}")
+
 #--------------------------------------------------------------------------------------------
 
 # Axis detection utilities

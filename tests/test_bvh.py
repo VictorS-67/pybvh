@@ -101,6 +101,20 @@ class TestReadBvhFile:
             with pytest.raises(ValueError):
                 b.fps = bad
 
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+    def test_frame_time_setter_rejects_non_finite(self, bvh_example, bad):
+        b = bvh_example.copy()
+        with pytest.raises(ValueError, match="frame_time"):
+            b.frame_time = bad
+        assert b.frame_time == bvh_example.frame_time
+
+    @pytest.mark.parametrize("good", [0, 0.0, 1 / 120, 2.5])
+    def test_frame_time_setter_accepts_zero_and_positive_finite(
+            self, bvh_example, good):
+        b = bvh_example.copy()
+        b.frame_time = good
+        assert b.frame_time == good
+
 
     def test_nodes_count(self, bvh_example):
         """Verify expected number of nodes (joints + end sites)."""

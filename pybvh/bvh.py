@@ -31,6 +31,7 @@ from .tools import (
     _resolve_node_lr_pairs,
     _rest_upward,
     _validate_axis_string,
+    _validate_frame_time,
 )
 
 
@@ -198,13 +199,13 @@ class Bvh:
         A value of ``0`` means "unset" and is the default for newly
         constructed empty :class:`Bvh` objects. Writing to a file
         requires a positive value — :func:`~pybvh.io.write_bvh_file`
-        raises ``ValueError`` otherwise.
+        raises ``ValueError`` otherwise. Assigning a negative number,
+        NaN or infinity raises ``ValueError``.
         """
         return self._frame_time
     @frame_time.setter
     def frame_time(self, value: float) -> None:
-        if value < 0:
-            raise ValueError(f"frame_time must be >= 0, got {value}")
+        _validate_frame_time(value)
         self._frame_time = value
 
     @property

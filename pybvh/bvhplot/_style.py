@@ -161,6 +161,19 @@ class Style:
     ``supersample`` (OpenCV export), ``shadow`` (vedo offscreen
     renders).
 
+    ``background`` also colors the grid box of ``play(backend="k3d")``:
+    its lines and labels are the background stepped toward black on a
+    light background and toward white on a dark one (luminance below
+    one half, the split that picks the floor colors), the lines about
+    10% of the way, the labels about 73%. Those fractions put white
+    exactly on k3d's own defaults, ``#E6E6E6`` lines and ``#444444``
+    labels, so a white background looks as it always did; on
+    ``"dark"`` (``#16181D``) they give ``#2D2F33`` lines and
+    ``#C1C1C3`` labels. The alternative, one fixed pair for all light
+    and one for all dark backgrounds, differs as soon as the
+    background is not white: fixed lines can vanish into an off-white
+    background, and the fixed dark pair ignores how dark it is.
+
     ``color_mode``: ``"auto"`` uses per-chain colors for a single
     skeleton and flat per-skeleton palette colors for multi-skeleton
     comparisons (the GT-vs-generated convention); ``"chains"`` forces

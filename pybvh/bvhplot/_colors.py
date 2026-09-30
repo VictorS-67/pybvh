@@ -2,8 +2,9 @@
 
 _style.py stays free of plotting imports (enforced by test); this
 module owns the pieces that need matplotlib's color parser: the
-light/dark background split, the floor palette, and the conversion of
-per-bone/per-node style colors to 0-255 RGB. Backends do only their
+light/dark background split, the floor palette, the grid box colors
+derived from the background, and the conversion of per-bone/per-node
+style colors to 0-255 RGB. Backends do only their
 own format packing at their border (BGR flip, uint32 shift).
 """
 from __future__ import annotations
@@ -50,6 +51,38 @@ FLOOR_DARK = {
 def floor_palette(style: Style) -> dict:
     """The floor color set matching the style's background luminance."""
     return FLOOR_DARK if is_dark_background(style.background) else FLOOR_LIGHT
+
+
+# How far the grid box's lines and labels step from the background
+# toward black (light background) or white (dark one), as a fraction
+# of the way. Chosen so that on white they land on k3d's own defaults,
+# 0xE6E6E6 and 0x444444.
+GRID_BOX_LINE_STEP = (0xFF - 0xE6) / 0xFF
+GRID_BOX_LABEL_STEP = (0xFF - 0x44) / 0xFF
+
+
+def grid_box_colors(
+    style: Style,
+) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    """The (line, label) 0-255 RGB colors of a grid box on the style's
+    background.
+
+    Both are the background moved toward black on a light background
+    and toward white on a dark one (the floor palette's luminance
+    split), the lines a short step so they frame the scene without
+    competing with the skeleton, the labels most of the way so they
+    read clearly.
+    """
+    background = np.array(rgb255(style.background))
+    pole = 255 if is_dark_background(style.background) else 0
+
+    def step_toward_pole(fraction: float) -> tuple[int, int, int]:
+        r, g, b = (int(v) for v in np.rint(
+            background + fraction * (pole - background)))
+        return (r, g, b)
+
+    return (step_toward_pole(GRID_BOX_LINE_STEP),
+            step_toward_pole(GRID_BOX_LABEL_STEP))
 
 
 def rgb255(color: object) -> tuple[int, int, int]:

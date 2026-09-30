@@ -16,7 +16,8 @@ import numpy.typing as npt
 from ._style import PALETTE_RGB, Style, effective_color_mode
 from ._viewport import Viewport, make_viewport
 from ._scene import Scene
-from ._colors import floor_palette, node_colors_255
+from ._colors import (
+    floor_palette, grid_box_colors, node_colors_255, rgb255)
 
 # The floor is drawn this far below the scene ground, in half-spans, so
 # the root trail, which lies exactly on the ground, has a fixed order
@@ -25,6 +26,11 @@ FLOOR_EPSILON = 0.004
 # Lines per ground direction of a "grid" floor.
 FLOOR_GRID_LINES = 21
 
+
+def _packed(rgb: tuple[int, int, int]) -> int:
+    """0-255 RGB as the 0xRRGGBB int k3d takes for a color."""
+    r, g, b = rgb
+    return (r << 16) | (g << 8) | b
 
 
 def _node_colors_uint32(
@@ -67,7 +73,6 @@ def _build_plot(
     that what is drawn, and where, can be read back without a notebook.
     """
     import k3d
-    from matplotlib.colors import to_rgb
 
     # k3d draws in perspective whatever the style asks.
     viewport = make_viewport(scene.views, projection="persp")
@@ -75,8 +80,7 @@ def _build_plot(
     labels = scene.labels
     skeleton_lines_list = [v.bones for v in scene.views]
 
-    bg_r, bg_g, bg_b = (int(c * 255) for c in to_rgb(style.background))
-    background_color = (bg_r << 16) | (bg_g << 8) | bg_b
+    grid_line_rgb, grid_label_rgb = grid_box_colors(style)
     width_factor = style.bone_width / 3.0
 
     # Pre-convert all coordinates to float32 once (k3d requires float32)
@@ -93,7 +97,9 @@ def _build_plot(
             module="traittypes")
 
         plot = k3d.plot(name='pybvh skeleton viewer',
-                        background_color=background_color)
+                        background_color=_packed(rgb255(style.background)),
+                        grid_color=_packed(grid_line_rgb),
+                        label_color=_packed(grid_label_rgb))
 
         # Build k3d objects for each skeleton
         skeleton_objects: list[tuple[Any, Any]] = []
@@ -197,11 +203,6 @@ def _build_floor(viewport: Viewport, style: Style) -> Any | None:
     if style.floor is None:
         return None
     import k3d
-    from matplotlib.colors import to_rgb
-
-    def packed(color: object) -> int:
-        r, g, b = (int(c * 255) for c in to_rgb(color))  # type: ignore[arg-type]
-        return (r << 16) | (g << 8) | b
 
     corners = viewport.floor_quad()
     corners[:, viewport.up_index] = viewport.below_floor(
@@ -212,7 +213,7 @@ def _build_floor(viewport: Viewport, style: Style) -> Any | None:
         return k3d.mesh(
             corners.astype(np.float32),
             np.array([[0, 1, 2], [0, 2, 3]], dtype=np.uint32),
-            color=packed(palette["face"]), opacity=style.floor_alpha,
+            color=_packed(rgb255(palette["face"])), opacity=style.floor_alpha,
             side='double', flat_shading=True, name="Floor")
 
     # Lines across the quad in both ground directions: from one edge
@@ -230,8 +231,8 @@ def _build_floor(viewport: Viewport, style: Style) -> Any | None:
         [np.arange(count), np.arange(count) + count], axis=1)
     return k3d.lines(
         vertices, indices.astype(np.uint32), indices_type='segment',
-        color=packed(palette["grid"]), width=0.004 * viewport.half_span,
-        opacity=0.8, name="Floor")
+        color=_packed(rgb255(palette["grid"])),
+        width=0.004 * viewport.half_span, opacity=0.8, name="Floor")
 
 
 def play_k3d(
@@ -250,7 +251,8 @@ def play_k3d(
     single-skeleton sessions (per-vertex colors — segments blend at
     chain boundaries, a k3d rendering artifact). k3d's own grid box is
     kept as the toolkit's frame, with its bottom face just under the
-    ground.
+    ground and its lines and labels colored from the background (see
+    :class:`~pybvh.bvhplot.Style`).
 
     Parameters
     ----------

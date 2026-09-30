@@ -124,8 +124,8 @@ class SkeletonView(GroundFrame):
       row 0 (not necessarily clip frame 0) computed from the L/R joint
       geometry and snapped to the dominant signed axis, the value the
       ``"front"`` camera preset is derived from. Follow-camera math
-      never reads it; it reads ``coords``, ``lr_pairs`` and
-      ``up_vector`` directly.
+      never reads it; it reads ``coords``, ``lr_pairs``, ``up_vector``
+      and ``frame_time`` directly.
     - ``up`` is the one statement of which way is up: a signed axis
       string (``'+y'``, ``'-z'``), the form :attr:`Bvh.world_up` and
       ``forward_axis`` use. The letter (``up_axis``), the column

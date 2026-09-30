@@ -814,8 +814,8 @@ def facing_frame(
     The fallback rows still carry the usable constant basis rather
     than ``nan``, so rendering-style consumers can ignore ``valid``;
     anything *measuring* facing should mask by it. The bvhplot follow
-    camera applies the same policy — it holds its orientation on such
-    frames rather than inventing a rotation.
+    camera does: it takes no heading from such frames, and interpolates
+    across them from the measured frames around them.
 
     Parameters
     ----------

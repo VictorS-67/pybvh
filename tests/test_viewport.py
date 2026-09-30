@@ -211,6 +211,107 @@ class TestSchedule:
         np.testing.assert_array_equal(followed.hi, fixed.hi)
 
 
+class TestFollowSchedule:
+    """The follow camera turns with the heading, smoothed over about a
+    second (#22). The clips here are 30 fps, so the window reaches
+    FOLLOW_TRUNCATE * FOLLOW_SIGMA = 1.5 s, 45 frames, each way."""
+
+    def test_a_turn_in_place_is_followed(self, view):
+        """Three quarters of a turn on the spot, between 2 s and 4 s of
+        a 6 s clip: no travel to follow, and more than half a turn."""
+        turn = _start_stop_turn(num_frames=180, start=60, stop=120,
+                                degrees=270.0)
+        turning = _turned_in_place(view, turn)
+        azimuths = compute_follow_azimuths(turning, -20.0)
+
+        np.testing.assert_allclose(azimuths[:15], -20.0, atol=1e-9)
+        assert azimuths[90] == pytest.approx(-20.0 + 135.0, abs=1e-9)
+        np.testing.assert_allclose(azimuths[-15:], -20.0 + 270.0, atol=1e-9)
+
+    def test_a_steady_turn_is_followed_exactly(self, view):
+        turn = np.linspace(0.0, 90.0, 120)
+        turning = _turned_in_place(view, turn)
+        np.testing.assert_allclose(
+            compute_follow_azimuths(turning, -20.0), -20.0 + turn,
+            atol=1e-9)
+
+    @pytest.mark.parametrize("num_frames", [1, 2, 5, 60])
+    def test_a_clip_shorter_than_the_window_is_followed(
+            self, view, num_frames):
+        turn = np.linspace(0.0, 30.0, num_frames)
+        turning = _turned_in_place(view, turn)
+        np.testing.assert_allclose(
+            compute_follow_azimuths(turning, -20.0), -20.0 + turn,
+            atol=1e-9)
+
+    def test_an_unset_frame_time_is_timed_at_the_playback_rate(self, view):
+        """A clip whose frame_time is 0 plays at the fps it is drawn
+        at, and its window is one of those seconds."""
+        turn = _start_stop_turn(num_frames=180, start=60, stop=120,
+                                degrees=90.0)
+        timed = _turned_in_place(view, turn)
+        unset = dataclasses.replace(timed, frame_time=0.0)
+        np.testing.assert_array_equal(
+            compute_follow_azimuths(unset, -20.0, fps=30.0),
+            compute_follow_azimuths(timed, -20.0))
+        np.testing.assert_array_equal(
+            make_viewport([unset], motion="follow", fps=30.0).azimuths,
+            compute_follow_azimuths(timed, -20.0))
+
+    def test_an_unset_frame_time_without_fps_raises(self, view):
+        unset = dataclasses.replace(
+            _turned_in_place(view, np.linspace(0.0, 90.0, 24)),
+            frame_time=0.0)
+        with pytest.raises(ValueError, match="frame_time"):
+            compute_follow_azimuths(unset, -20.0)
+
+    def test_fps_does_not_retime_a_clip_that_has_a_rate(self, view):
+        """The window is seconds of clip time: playing faster or slower
+        takes the camera along the same path."""
+        turn = _start_stop_turn(num_frames=180, start=60, stop=120,
+                                degrees=90.0)
+        timed = _turned_in_place(view, turn)
+        np.testing.assert_array_equal(
+            compute_follow_azimuths(timed, -20.0, fps=10.0),
+            compute_follow_azimuths(timed, -20.0))
+
+    def test_an_unmeasured_frame_is_filled_from_its_neighbours(self, view):
+        """Where the left and right joints coincide there is no
+        left-to-right axis to measure. On a steady turn those frames
+        are followed as the frames around them are, not sent back to
+        the base azimuth."""
+        turn = np.linspace(0.0, 90.0, 120)
+        turning = _turned_in_place(view, turn)
+        coords = turning.coords.copy()
+        left, right = view.lr_pairs[:, 0], view.lr_pairs[:, 1]
+        coords[50:60, right] = coords[50:60, left]
+        unmeasured = dataclasses.replace(turning, coords=coords)
+        np.testing.assert_allclose(
+            compute_follow_azimuths(unmeasured, -20.0), -20.0 + turn,
+            atol=1e-9)
+
+
+def _start_stop_turn(num_frames, start, stop, degrees):
+    """A heading in degrees per frame: still, then a smoothstep turn of
+    *degrees* from frame *start* to frame *stop*, then still."""
+    progress = np.clip(
+        (np.arange(num_frames) - start) / (stop - start), 0.0, 1.0)
+    return degrees * progress * progress * (3.0 - 2.0 * progress)
+
+
+def _turned_in_place(view, degrees):
+    """The rest pose standing on the spot, turned about +y by *degrees*
+    (one value per frame); left is +x at 0 degrees."""
+    angles = np.radians(degrees)
+    cos, sin = np.cos(angles)[:, None], np.sin(angles)[:, None]
+    rest = view.rest_coords
+    coords = np.empty((len(angles),) + rest.shape)
+    coords[..., 0] = cos * rest[:, 0] + sin * rest[:, 2]
+    coords[..., 1] = rest[:, 1]
+    coords[..., 2] = -sin * rest[:, 0] + cos * rest[:, 2]
+    return dataclasses.replace(view, coords=coords, root_heading=None)
+
+
 def _turning_view(view):
     """The walker, turning a quarter turn about the up axis as it goes."""
     num_frames = view.coords.shape[0]

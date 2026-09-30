@@ -315,6 +315,7 @@ def _generate_frames(
     resolution: tuple[int, int],
     *,
     motion: str = "fixed",
+    fps: float | None = None,
     frame_counter: bool = False,
     ghost: int = 0,
     trajectory: bool = False,
@@ -337,6 +338,9 @@ def _generate_frames(
     motion : str, optional
         How each panel's camera moves, handed to the viewport
         untouched (:func:`~._viewport.make_viewport`).
+    fps : float, optional
+        The rate the video plays at, handed to the viewport, which
+        times a follow camera by it on a clip whose rate is unset.
     frame_counter : bool, optional
         Draw a ``Frame f/F`` counter in the bottom-right corner.
         Default ``False`` (opt-in — publication output never stamps
@@ -364,7 +368,8 @@ def _generate_frames(
     # Orthographic whatever the style asks: this backend has no
     # perspective projection, and says so to the viewport.
     viewports = panel_viewports(
-        scene.views, framing="clip", motion=motion, projection="ortho")
+        scene.views, framing="clip", motion=motion, projection="ortho",
+        fps=fps)
 
     contexts = [
         _ViewDrawContext(v, viewports[s], style, s, n_skeletons, bg_bgr,
@@ -464,7 +469,7 @@ def render_opencv(
             f"Use backend='matplotlib' for other formats.")
 
     frames = _generate_frames(
-        scene, style, resolution, motion=motion,
+        scene, style, resolution, motion=motion, fps=fps,
         frame_counter=frame_counter, ghost=ghost, trajectory=trajectory)
 
     # Pillow sink for GIF output (cv2.VideoWriter doesn't support GIF).

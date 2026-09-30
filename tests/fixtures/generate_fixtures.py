@@ -351,9 +351,9 @@ def gen_follow_azimuths() -> None:
     # the follow camera's per-frame azimuths on the CMU walk so that a
     # refactor of the facing geometry or of the viewport can be proven
     # not to move the camera. Seven of its values are also written out
-    # in tests/test_plot.py, captured before the facing geometry was
-    # consolidated; a regenerated fixture that disagrees with them fails
-    # there. Regenerate only to deliberately re-baseline.
+    # in tests/test_plot.py; a regenerated fixture that disagrees with
+    # them fails there. Regenerate only to deliberately re-baseline, as
+    # when the schedule began smoothing out the stride's sway (#22).
     # ------------------------------------------------------------------
     repo_root = os.path.dirname(os.path.dirname(HERE))
     sys.path.insert(0, repo_root)

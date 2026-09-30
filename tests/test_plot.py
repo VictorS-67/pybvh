@@ -152,6 +152,10 @@ class TestEmptyClipList:
         with pytest.raises(ValueError, match="At least one Bvh object"):
             bvhplot.render([], tmp_path / "out.gif")
 
+    def test_play(self, played):
+        with pytest.raises(ValueError, match="At least one Bvh object"):
+            bvhplot.play([], backend="matplotlib")
+
 
 class TestComputeUnifiedLimits:
     def test_returns_center_and_span(self, bvh_example):

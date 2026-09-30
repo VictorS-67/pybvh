@@ -1026,6 +1026,8 @@ def play(
     """
     import math
 
+    clips = as_clip_list(bvh)
+
     valid_backends = {"auto", "k3d", "vedo", "opencv", "matplotlib"}
     if backend not in valid_backends:
         raise ValueError(
@@ -1065,15 +1067,10 @@ def play(
     style_obj = resolve_style(style)
 
     # Handle frame-rate mismatch before computing FK coordinates
-    if not isinstance(bvh, list):
-        bvh_input = [bvh]
-    else:
-        bvh_input = bvh
-    _require_frame_rates(bvh_input, "play", fps, match_fps=match_fps)
-    bvh_input = _match_frame_rates(bvh_input, match_fps)
-    bvh = bvh_input if len(bvh_input) > 1 else bvh_input[0]
+    _require_frame_rates(clips, "play", fps, match_fps=match_fps)
+    clips = _match_frame_rates(clips, match_fps)
 
-    scene = _prepare(bvh, None, centered, camera, labels, pad=pad)
+    scene = _prepare(clips, None, centered, camera, labels, pad=pad)
 
     actual_fps = _resolve_fps(fps, scene.frame_time)
 
@@ -1109,7 +1106,7 @@ def play(
         actual_fps = 1.0 / scene.frame_time
 
     # --- world_up consistency check (all backends) ---
-    _warn_world_up_mismatch(bvh_input)
+    _warn_world_up_mismatch(clips)
 
     # --- Dispatch ---
     # For single-scene backends (vedo, k3d) there can only be ONE camera

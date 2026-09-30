@@ -1373,6 +1373,20 @@ class TestMatchFps:
         assert abs(fps0 - fps1) < 0.5
         assert abs(fps0 - 120.0) < 0.5
 
+    def test_resampling_never_drops_a_clip(self, bvh_30fps, bvh_120fps):
+        """Every clip comes back, resampled or not, or the call raises: a
+        clip whose rate cannot be compared (NaN, which the frame_time
+        setter accepts today) must not vanish from the comparison."""
+        from pybvh.bvhplot import _match_frame_rates
+        odd = bvh_30fps[0:5]
+        try:
+            odd.frame_time = float("nan")
+            result = _match_frame_rates(
+                [bvh_30fps, bvh_120fps, odd], "lowest")
+        except ValueError:
+            return
+        assert len(result) == 3
+
     def test_invalid_match_fps_raises(self, bvh_30fps, bvh_120fps):
         from pybvh.bvhplot import _match_frame_rates
         with pytest.raises(ValueError, match="match_fps"):

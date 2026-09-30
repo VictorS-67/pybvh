@@ -162,6 +162,63 @@ class TestVedo:
         finally:
             player.plt.close()
 
+    @pytest.fixture
+    def open_viewer(self, monkeypatch):
+        """Open a headless viewer on a scene; closed after the test."""
+        pytest.importorskip("vedo")
+        players = []
+
+        def open_(scene, quality="high"):
+            players.append(_viewer(scene, monkeypatch, quality))
+            return players[-1]
+
+        yield open_
+        for player in players:
+            player.plt.close()
+
+    @staticmethod
+    def _scrub_to(player, frame):
+        """Move the frame slider as a user's drag does: set its value,
+        then fire the event its callback listens to."""
+        player.slider.value = frame
+        player.slider.InvokeEvent("InteractionEvent")
+
+    @staticmethod
+    def _drawn_joints(player, s):
+        """Skeleton *s*'s joint positions as the viewer drew them."""
+        if player.use_high:
+            # one sphere per joint, merged; a sphere's bounding-box
+            # midpoint is its center
+            n_nodes = len(player.scene.views[s].node_names)
+            spheres = np.asarray(
+                player._capsules[s].joints_mesh.vertices).reshape(
+                    n_nodes, -1, 3)
+            return (spheres.min(axis=1) + spheres.max(axis=1)) / 2
+        return np.asarray(player._points_actors[s].vertices)
+
+    @pytest.mark.parametrize("quality", ["high", "fast"])
+    def test_the_frame_slider_poses_each_skeleton_at_its_frame(
+            self, pair, quality, open_viewer):
+        scene = pair.spread("auto")
+        player = open_viewer(scene, quality)
+        self._scrub_to(player, 7)
+        assert player.clock.frame == 7
+        for s, view in enumerate(scene.views):
+            # VTK keeps float32 vertices
+            np.testing.assert_allclose(
+                self._drawn_joints(player, s), view.coords[7], atol=1e-5)
+
+    def test_at_half_the_clip_rate_the_slider_steps_two_clip_frames(
+            self, scene, open_viewer):
+        """The 30 fps clip played at the 15 fps preset: slider position
+        5 is clip frame 10."""
+        player = open_viewer(scene, "fast")
+        player._set_fps(player.clock.fps_presets.index(15))
+        self._scrub_to(player, 5)
+        np.testing.assert_allclose(
+            self._drawn_joints(player, 0), scene.views[0].coords[10],
+            atol=1e-5)
+
 
 class TestK3d:
     def test_play_builds_the_plot(self, pair, capsys):
@@ -322,10 +379,10 @@ class TestK3d:
 # tests/test_viewport.py; what is tested here is the translation into
 # each toolkit, which is where the backends used to drift apart.
 
-def _viewer(scene, monkeypatch):
+def _viewer(scene, monkeypatch, quality="high"):
     from pybvh.bvhplot import _vedo
     monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
-    return _vedo._VedoPlayer(scene, Style("paper"), 30.0, quality="high")
+    return _vedo._VedoPlayer(scene, Style("paper"), 30.0, quality=quality)
 
 
 def _vedo_plane(plotter):

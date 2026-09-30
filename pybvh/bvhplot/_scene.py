@@ -25,6 +25,16 @@ BodySizeMeasure = Literal["rest height", "rest extent", "clip extent", "default"
 DEFAULT_BODY_SIZE = 1.0
 
 
+def _axis_vector(signed_axis: str) -> npt.NDArray[np.float64]:
+    """The unit vector of a signed axis string, ``'-z'`` -> ``[0, 0, -1]``.
+
+    A fresh array on every call."""
+    sign = -1.0 if signed_axis[0] == '-' else 1.0
+    vector = np.zeros(3, dtype=np.float64)
+    vector[UP_AXIS_INDEX[signed_axis[1]]] = sign
+    return vector
+
+
 # ---------------------------------------------------------------------------
 # Scene container
 # ---------------------------------------------------------------------------
@@ -61,9 +71,7 @@ class GroundFrame:
         """The unit vector pointing up, sign included, shape ``(3,)``.
 
         A fresh array on every access."""
-        vector = np.zeros(3, dtype=np.float64)
-        vector[self.up_index] = self.up_sign
-        return vector
+        return _axis_vector(self.up)
 
     @property
     def ground_axes(self) -> tuple[int, int]:
@@ -251,6 +259,13 @@ class SkeletonView(GroundFrame):
                 f"positive, got {self.frame_time!r}.")
 
         self._protect_arrays()
+
+    @property
+    def forward_vector(self) -> npt.NDArray[np.float64]:
+        """The unit vector of ``forward_axis``, shape ``(3,)``.
+
+        A fresh array on every access."""
+        return _axis_vector(self.forward_axis)
 
     @property
     def body_size(self) -> float:
@@ -602,14 +617,11 @@ class Scene:
         if len(self.views) <= 1:
             return self
         first = self.views[0]
-        forward = np.zeros(3)
-        forward[UP_AXIS_INDEX[first.forward_axis[1]]] = (
-            -1.0 if first.forward_axis[0] == '-' else 1.0)
-        leftward = np.cross(first.up_vector, forward)
+        leftward = np.cross(first.up_vector, first.forward_vector)
 
         if spacing == "auto":
-            lateral = first.coords @ leftward
-            width = float(lateral.max() - lateral.min())
+            along_leftward = first.coords @ leftward
+            width = float(along_leftward.max() - along_leftward.min())
             effective = max(width, 0.1) * 1.2
         else:
             effective = float(spacing)

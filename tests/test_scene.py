@@ -603,6 +603,56 @@ class TestSizeMatched:
         assert matched.labels == ["a", "b"]
 
     @staticmethod
+    def _float32_round_trip(clip):
+        """*clip* with its motion passed through float32 and back: the
+        same skeleton, posed a few ulps away."""
+        noisy = clip.copy()
+        noisy.root_pos = noisy.root_pos.astype(np.float32).astype(np.float64)
+        noisy.joint_angles = (
+            noisy.joint_angles.astype(np.float32).astype(np.float64))
+        return noisy
+
+    @pytest.mark.parametrize("other_clip", ["slice", "float32"])
+    def test_two_clips_of_one_skeleton_are_left_as_they_are(
+            self, bvh, other_clip):
+        """Two clips of one skeleton are one size: each measuring its
+        unit off its own first frame, the CMU walk and walk[10:] read
+        body sizes of 24.17987 and 24.179869999999998, and the second
+        was drawn at 1.0000000000000002 of its size and labelled ×1.
+        Their coords are posed from the rest pose, so they share its
+        unit, and nothing is measured."""
+        other = bvh[10:] if other_clip == "slice" else self._float32_round_trip(bvh)
+        n_frames = other.frame_count
+        pair = make_scene(
+            [bvh, other],
+            [bvh.node_positions()[:n_frames], other.node_positions()],
+            "front", ["a", "b"], clip_frames=slice(None))
+        first, second = pair.views
+        assert second.coords_per_rest_unit == 1.0
+        assert second.body_size == first.body_size
+        matched = pair.size_matched()
+        assert matched.views[1] is second
+        assert matched.labels == ["a", "b"]
+
+    def test_caller_supplied_coords_are_matched_in_their_own_unit(self, bvh):
+        """Coords a caller supplies state no unit, so it is measured:
+        the walk handed over at 0.0254 of the file's unit (inches to
+        metres) is drawn back at the file's size, and labelled with
+        the factor, 1 / 0.0254."""
+        in_file_unit = make_scene([bvh], [bvh.node_positions()[:1]], "front",
+                                  ["file"], clip_frames=slice(0, 1)).views[0]
+        supplied = make_scene([bvh], [bvh.node_positions()[:1] * 0.0254],
+                              "front", ["metres"],
+                              canonical_floor=False).views[0]
+        assert supplied.coords_per_rest_unit == pytest.approx(0.0254)
+        matched = Scene(views=[in_file_unit, supplied]).size_matched()
+        first, second = matched.views
+        assert second.body_size == pytest.approx(first.body_size)
+        assert _height_at_frame_0(second) == pytest.approx(
+            _height_at_frame_0(first))
+        assert second.label == "metres ×39"
+
+    @staticmethod
     def _bodiless_view(moving: bool) -> SkeletonView:
         """One node and no bone: no body to measure. It sweeps a clip
         extent when it moves, and is measured by the default when not."""

@@ -148,7 +148,11 @@ def make_scene(
     corresponds to them; ``root_heading`` is then ``None`` rather than
     a number that would be wrong. The default is the safe one on
     purpose: a caller has to vouch for the coords' provenance to get
-    frame-indexed clip facts attached to them.
+    frame-indexed clip facts attached to them. Coords vouched for as
+    the clip's frames were posed from the skeleton's rest pose, so the
+    view also states that they share its unit
+    (:attr:`~._scene.SkeletonView.coords_in_rest_unit`); for the
+    default the unit ratio is measured from the coords.
 
     Floor convention: with ``canonical_floor=True`` the floor is the
     cached :attr:`Bvh.floor_height` — the robust 2nd percentile over all
@@ -217,6 +221,7 @@ def make_scene(
             forward_axis=forward_axis,
             bone_chains=_chain_per_bone(get_bone_chains(b), len(bones)),
             root_heading=root_heading,
+            coords_in_rest_unit=clip_frames is not None,
         ))
     return Scene(views=views)
 

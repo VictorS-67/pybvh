@@ -1136,8 +1136,8 @@ def play(
         would otherwise differ in size by an order of magnitude. Default
         ``False``. Each skeleton is scaled about the point on its floor
         under its root at the first frame, before the lateral spacing,
-        and its label shows the factor (``"test2 ×0.14"``, or
-        ``"×0.14"`` alone for a skeleton with no label). Only the
+        and its label shows the factor (``"test2 ×0.13"``, or
+        ``"×0.13"`` alone for a skeleton with no label). Only the
         drawing changes: the clips are not touched. The height matched
         is the rest pose's, along the rest pose's own up axis
         (:attr:`Bvh.rest_up`); the alternative, the median over the

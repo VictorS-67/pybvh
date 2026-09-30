@@ -20,6 +20,9 @@ _SIGNED_AXES = ('+x', '-x', '+y', '-y', '+z', '-z')
 
 # Which measure a view's body size took (SkeletonView.body_size_measure).
 BodySizeMeasure = Literal["rest height", "rest extent", "clip extent", "default"]
+# The measures taken from the skeleton's rest pose, a size of the body
+# itself; the others stand in where it has none (see body_size).
+REST_POSE_MEASURES: tuple[BodySizeMeasure, ...] = ("rest height", "rest extent")
 # The body size of a view whose every coordinate is at one point, in the
 # unit of its coords: nothing to measure, a stand-in so that nothing
 # drawn on it has size zero.
@@ -158,6 +161,13 @@ class SkeletonView(GroundFrame):
       :attr:`body_size` needs the rest pose's. An unknown rest axis is
       not replaced by ``up``, which on such a file would name the rest
       pose's depth; :attr:`body_size` measures without it instead.
+    - ``coords_in_rest_unit`` states that ``coords`` were posed from
+      ``rest_coords`` by forward kinematics, so they share its unit and
+      :attr:`coords_per_rest_unit` is exactly 1. :func:`make_scene`
+      states it for the clip's own frames. It defaults to ``False``,
+      the safe side: the ratio is then measured, which is right for
+      coordinates a caller supplies in any unit and a few ulps off for
+      posed ones.
     - ``lr_pairs`` are joint pairs only, in node index space, the pairs
       the facing geometry averages; end-site pairs are deliberately
       excluded so follow azimuths match the Bvh path bit for bit.
@@ -194,6 +204,7 @@ class SkeletonView(GroundFrame):
     forward_axis: str                      # snapped facing of coords row 0, e.g. '+y'
     bone_chains: list[str]                 # chain name per bone, parallel to ``bones``
     root_heading: npt.NDArray[np.float64] | None  # (F, 2) [sin, cos] or None
+    coords_in_rest_unit: bool = False      # coords posed from this rest pose: unit ratio exactly 1
 
     def __post_init__(self) -> None:
         coords = np.asarray(self.coords)
@@ -362,12 +373,18 @@ class SkeletonView(GroundFrame):
         the factor that puts a rest-pose length in the unit of what is
         drawn, or ``None`` when there is no ratio to measure.
 
-        It is the median, over the bones of positive rest length, of
-        each bone's length in coordinate row 0 over its rest length.
-        Bone lengths do not change under forward kinematics, so the
-        factor is 1 for coords posed from the skeleton, and differs
-        only for coordinates a caller supplies in another unit (metres
-        against the file's centimetres). Any bone would do; the median
+        For a view whose ``coords_in_rest_unit`` is set (coords posed
+        from the rest pose, as the clip's frames are) it is exactly 1,
+        stated rather than measured. Measured, it comes out a few ulps
+        from 1, differently for each clip, since each reads it off its
+        own first frame; two clips of one skeleton would then have two
+        body sizes, and be drawn at two sizes when they are matched.
+
+        Otherwise it is measured: the median, over the bones of
+        positive rest length, of each bone's length in coordinate row
+        0 over its rest length. It differs from 1 for coordinates a
+        caller supplies in another unit (metres against the file's
+        centimetres). Any bone would do; the median
         keeps one odd bone from deciding it, and bones of zero rest
         length (end sites or helper joints placed on their parent) are
         left out because they have no ratio. Taken over every bone
@@ -384,6 +401,8 @@ class SkeletonView(GroundFrame):
         when a caller's coordinates are in centimetres against a rest
         pose in metres, or the reverse.
         """
+        if self.coords_in_rest_unit:
+            return 1.0
         if not self.bones:
             return None
         parents, children = np.asarray(self.bones).T
@@ -678,28 +697,38 @@ class Scene:
           way a ``UserWarning`` names the view. The alternative, taking
           the factor from the stand-in, would draw a skeleton at a size
           nobody measured and label it as matched.
+        - A view whose factor is exactly 1 is left as it is, with no
+          factor on its label. Two clips of one skeleton get exactly 1
+          when their coords state their unit
+          (``coords_in_rest_unit``, as :func:`make_scene` states for a
+          clip's frames): both body sizes are then the one rest pose's
+          height. No tolerance is applied to the factor: a factor a few
+          ulps from 1 comes from coords whose unit was measured, and is
+          shown as ``×1``.
         """
-        measured = ("rest height", "rest extent")
+        # stacklevel 3: past this method and the entry point that calls
+        # it, to the user's call.
         reference = self.views[0]
-        if reference.body_size_measure not in measured:
+        if reference.body_size_measure not in REST_POSE_MEASURES:
             warnings.warn(
-                f"Sizes not matched: the first view's body size is a "
-                f"{reference.body_size_measure}, not a measure of its "
-                f"rest pose, so there is no height to match; every "
-                f"skeleton is drawn at its own size.",
-                UserWarning, stacklevel=2)
+                f"Sizes not matched: the first view's body size is not "
+                f"measured from its rest pose (body_size_measure "
+                f"{reference.body_size_measure!r}), so there is no height "
+                f"to match; every skeleton is drawn at its own size.",
+                UserWarning, stacklevel=3)
             return self
         factors = []
         for index, v in enumerate(self.views):
-            if v.body_size_measure in measured:
-                factors.append(reference.body_size / v.body_size)
+            if v.body_size_measure not in REST_POSE_MEASURES:
+                warnings.warn(
+                    f"Size not matched: view {index}'s body size is not "
+                    f"measured from its rest pose (body_size_measure "
+                    f"{v.body_size_measure!r}); it is drawn at its own "
+                    f"size.",
+                    UserWarning, stacklevel=3)
+                factors.append(1.0)
                 continue
-            warnings.warn(
-                f"Size not matched: view {index}'s body size is a "
-                f"{v.body_size_measure}, not a measure of its rest pose; "
-                f"it is drawn at its own size.",
-                UserWarning, stacklevel=2)
-            factors.append(1.0)
+            factors.append(reference.body_size / v.body_size)
         return self.scaled(factors)
 
     def spread(self, spacing: float | str) -> Scene:

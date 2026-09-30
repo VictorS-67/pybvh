@@ -782,11 +782,11 @@ class TestEveryPerspectiveBackendUsesTheViewportsCamera:
 # ---------------------------------------------------------------------------
 # Every backend sizes a body from that body
 # ---------------------------------------------------------------------------
-# What is drawn on a body (a capsule's radius) is a fraction of the
-# body's size, never of the viewport's cube: the cube grows with the
-# distance a clip travels, the body does not.
+# What is drawn on a body (a capsule's radius, k3d's line widths) is a
+# fraction of the body's size, never of the viewport's cube: the cube
+# grows with the distance a clip travels, the body does not.
 
-_BODY_SIZED_BACKENDS = ["vedo offscreen", "vedo viewer"]
+_BODY_SIZED_BACKENDS = ["vedo offscreen", "vedo viewer", "k3d"]
 
 
 def _travelling_view(body_lengths=5.0, n_frames=24):
@@ -813,7 +813,15 @@ def _scaled(view, factor, lateral_shift):
 def _body_sizes(backend, scene, monkeypatch):
     """What *backend* draws on each skeleton of *scene* with a size in
     the scene, one array per skeleton: the base capsule radius for the
-    vedo backends."""
+    vedo backends; the bones' line width, the joints' point size and
+    the root trail's width for k3d."""
+    if backend == "k3d":
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+        built = _build_plot(scene, Style("paper"))
+        return [
+            np.array([lines.width, points.point_size, trail.width])
+            for (lines, points), trail in zip(built.skeletons, built.trails)]
     return [np.array([capsule.base_radius])
             for capsule in _capsules(backend, scene, monkeypatch)]
 
@@ -872,7 +880,18 @@ def _draws_the_body(backend, scene, monkeypatch):
     """Whether *backend* draws the one skeleton of *scene*: the
     offscreen still, with no floor to fill it, is not one flat color;
     the viewer's picture changes when the skeleton's capsules are taken
-    out of it."""
+    out of it. k3d draws in the browser, so what is checked is that it
+    builds its plot with the default style and with a grid floor (a
+    grid of width 0 raises ``TraitError``), the skeleton's lines and
+    points at positive sizes."""
+    if backend == "k3d":
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+        for style in (Style("paper"), Style("paper", floor="grid")):
+            [(lines, points)] = _build_plot(scene, style).skeletons
+            if not (lines.width > 0.0 and points.point_size > 0.0):
+                return False
+        return True
     pytest.importorskip("vedo")
     if backend == "vedo offscreen":
         from pybvh.bvhplot._vedo_offscreen import frame_vedo

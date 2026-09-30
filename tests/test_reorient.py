@@ -201,6 +201,12 @@ class TestWorldUpWarningPreference:
             _ = (loud + silenced).world_up
             assert _disagreement_warnings(w) == 1
 
+    def test_clip_rebuilt_from_its_data_starts_from_the_default(self, silenced):
+        pd = pytest.importorskip("pandas")
+        frame = pd.DataFrame(silenced.to_df_dict())
+        with pytest.warns(UserWarning, match="Rest pose suggests world up"):
+            Bvh.from_df(silenced.nodes, frame)
+
     def test_read_bvh_directory_loads_silently(self):
         from pybvh import read_bvh_directory
         with warnings.catch_warnings(record=True) as w:

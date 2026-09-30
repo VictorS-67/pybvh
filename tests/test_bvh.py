@@ -147,7 +147,7 @@ class TestReadBvhFile:
     def test_fps_setter_accepts_any_real_number_type(self, bvh_example, rate):
         b = bvh_example.copy()
         b.fps = rate
-        assert b.frame_time == pytest.approx(1.0 / float(rate))
+        assert b.frame_time == pytest.approx(1.0 / float(rate), abs=0)
 
     def test_fps_setter_rejects_rate_whose_frame_time_overflows(
             self, bvh_example):
@@ -5833,7 +5833,7 @@ class TestResampleValidation:
     def test_extreme_finite_target_fps_on_one_frame_clip(
             self, bvh_example, rate):
         resampled = bvh_example[:1].resample(rate)
-        assert resampled.frame_time == pytest.approx(1.0 / float(rate))
+        assert resampled.frame_time == pytest.approx(1.0 / float(rate), abs=0)
 
     def test_short_clip_adopts_new_frame_time(self, bvh_example):
         single = bvh_example[0:1]

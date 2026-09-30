@@ -92,13 +92,10 @@ def _build_offscreen(
 
     # vedo draws in perspective whatever the style asks.
     viewport = make_viewport(scene.views, projection="persp")
-    center, half_span = viewport.center, viewport.half_span
     view0 = scene.views[0]
 
     plt = Plotter(offscreen=True, size=resolution,
                   bg=vedo_color(style.background))
-
-    r_base = CapsuleSkeleton.base_radius(half_span, style.bone_width)
 
     capsules: list[CapsuleSkeleton] = []
     for s, view in enumerate(scene.views):
@@ -106,7 +103,8 @@ def _build_offscreen(
         joint_rgb = node_colors_255(
             view, style, s, scene.num_skeletons, bone_rgb)
         capsule = CapsuleSkeleton(
-            view, r_base, bone_rgb, joint_rgb, flat_lighting=False)
+            view, style.bone_width, bone_rgb, joint_rgb,
+            flat_lighting=False)
         capsule.update(view.coords[0])
         for mesh in capsule.actors:
             # Shadows must exist BEFORE the mesh joins the plotter —

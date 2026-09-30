@@ -292,11 +292,6 @@ class _VedoPlayer:
         half_span = self.half_span
         up_idx = UP_AXIS_INDEX.get(self.up_axis, 2)
 
-        # Base radius from the shared sizing formula, then adapted
-        # per-bone by length inside CapsuleSkeleton.
-        r_bone_base = CapsuleSkeleton.base_radius(
-            half_span, self.style.bone_width)
-
         # --- Floor (high quality only; kind from the style) ---
         if self.use_high and self.style.floor is not None:
             from vedo import Plane  # type: ignore[import-untyped]
@@ -353,7 +348,7 @@ class _VedoPlayer:
 
             if self.use_high:
                 capsule = CapsuleSkeleton(
-                    view, r_bone_base, bone_rgb, joint_rgb,
+                    view, self.style.bone_width, bone_rgb, joint_rgb,
                     flat_lighting=True)
                 self._capsules.append(capsule)
                 for actor_mesh in capsule.actors:

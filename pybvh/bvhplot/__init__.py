@@ -569,8 +569,10 @@ def frame(
     coords : ndarray, optional
         Pre-computed spatial coordinates to plot instead of computing
         forward kinematics from *bvh*: ``(N, 3)`` for one frame, or
-        ``(F, N, 3)`` of which the first frame is drawn. Only valid
-        when *bvh* is a single Bvh object.
+        ``(F, N, 3)`` of which only the first frame is used, drawn and
+        framed exactly as ``coords[0]`` would be. *frame* does not
+        pick a row of *coords*; to draw another row, pass
+        ``coords[i]``. Only valid when *bvh* is a single Bvh object.
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
         Ignored when *coords* is given.

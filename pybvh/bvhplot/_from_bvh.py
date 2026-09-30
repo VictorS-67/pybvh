@@ -58,7 +58,8 @@ def normalize_input(
           from the end).
         - 2-D array ``(N, 3)``: single frame of spatial coordinates
           (only valid when *bvh* is a single Bvh).
-        - 3-D array ``(F, N, 3)``: pre-computed spatial coordinates
+        - 3-D array ``(F, N, 3)``: pre-computed spatial coordinates,
+          of which one frame is kept, the first, as an int keeps one
           (only valid when *bvh* is a single Bvh).
     centered : str
         Centering mode passed to ``bvh.node_positions()``.
@@ -99,7 +100,9 @@ def normalize_input(
         elif arr.ndim != 3:
             raise ValueError(
                 f"Expected frames array with 2 or 3 dimensions, got {arr.ndim}.")
-        coords_list.append(arr)
+        # An array becomes one still frame, its first: the other frames
+        # must not size the picture or place the floor.
+        coords_list.append(arr[:1])
 
     else:
         raise TypeError(

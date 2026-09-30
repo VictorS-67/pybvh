@@ -6,11 +6,12 @@ import copy
 import dataclasses
 import pathlib
 import pickle
+import warnings
 
 import numpy as np
 import pytest
 
-from pybvh import bvhplot, read_bvh_file
+from pybvh import bvhplot, parse_axis, read_bvh_file
 from pybvh.analysis import root_trajectory
 from pybvh.bvhplot._from_bvh import (
     make_scene,
@@ -246,6 +247,28 @@ class TestViewCarriesSkeletonFacts:
         assert scene.frame_time == bvh.frame_time
 
 
+def _turned_view(
+    rotation: np.ndarray, up: str, forward: str
+) -> SkeletonView:
+    """make_array_view's figure (+y up, facing +z) turned by the proper
+    *rotation*, which must carry +y to *up* and +z to *forward*."""
+    axis_vectors = {f"{sign}{letter}": float(f"{sign}1") * np.eye(3)[i]
+                    for sign in "+-" for i, letter in enumerate("xyz")}
+    assert np.isclose(np.linalg.det(rotation), 1.0)
+    np.testing.assert_array_equal(rotation @ axis_vectors["+y"],
+                                  axis_vectors[up])
+    np.testing.assert_array_equal(rotation @ axis_vectors["+z"],
+                                  axis_vectors[forward])
+    view = make_array_view()
+    coords = view.coords @ rotation.T
+    up_sign = axis_vectors[up].sum()
+    lowest_height = (coords @ axis_vectors[up]).min()
+    floor = float(up_sign * lowest_height)  # a coordinate along the up axis
+    return dataclasses.replace(
+        view, coords=coords, rest_coords=view.rest_coords @ rotation.T,
+        up=up, rest_up=up, forward_axis=forward, floor_height=floor)
+
+
 class TestSceneMethods:
     def test_a_view_holds_no_box(self):
         """What a picture frames is computed when the picture is made,
@@ -338,6 +361,77 @@ class TestSceneMethods:
         scene = make_scene([bvh, bvh], [coords, coords], "front", None)
         assert scene.spread(0.0) is scene
 
+    @pytest.mark.parametrize("up, forward, rotation", [
+        ("+y", "+z", np.eye(3)),
+        ("+y", "-z", np.diag([-1.0, 1.0, -1.0])),
+        ("-y", "+z", np.diag([-1.0, -1.0, 1.0])),
+        ("+z", "+y", np.array([[-1.0, 0.0, 0.0],
+                               [0.0, 0.0, 1.0],
+                               [0.0, 1.0, 0.0]])),
+    ], ids=["+y up facing +z", "+y up facing -z", "-y up facing +z",
+            "+z up facing +y"])
+    def test_spread_puts_the_next_view_on_the_first_ones_left(
+            self, up, forward, rotation):
+        """Whatever the rig's up and the character's facing, the next
+        skeleton lands on the first one's own left, read from its
+        left/right joint pairs, not from a world axis."""
+        first = _turned_view(rotation, up, forward)
+        spread = Scene(views=[first, first]).spread(3.0)
+
+        pose = first.coords[0]
+        leftward = (pose[first.lr_pairs[:, 0]]
+                    - pose[first.lr_pairs[:, 1]]).mean(axis=0)
+        leftward /= np.linalg.norm(leftward)
+        shift = spread.views[1].coords - first.coords
+        np.testing.assert_allclose(
+            shift, np.broadcast_to(3.0 * leftward, shift.shape), atol=1e-12)
+
+    @pytest.mark.parametrize("turn_degrees", [0.0, 180.0],
+                             ids=["facing +z", "facing -z"])
+    def test_spread_puts_the_mirrored_walk_on_the_walks_left(
+            self, bvh, turn_degrees):
+        """The issue's reproduction: the walk and its mirror, facing +z
+        and turned to face -z, keep the mirror on the walk's left as
+        :meth:`Bvh.left_at` reads it."""
+        walk = bvh.rotate_vertical(turn_degrees, degrees=True)
+        mirrored = walk.mirror()
+        scene = make_scene(
+            [walk, mirrored],
+            [walk.node_positions(centered="first"),
+             mirrored.node_positions(centered="first")],
+            "front", None)
+        spread = scene.spread(3.0)
+
+        shift = spread.views[1].coords[0, 0] - scene.views[1].coords[0, 0]
+        np.testing.assert_allclose(
+            shift, 3.0 * parse_axis(walk.left_at(0)).vector)
+
+    @pytest.mark.parametrize("pairs", [True, False],
+                             ids=["facing measured", "facing unmeasurable"])
+    def test_spread_puts_the_next_view_on_the_front_cameras_right(
+            self, bvh, pairs):
+        """Seen from the "front" camera the next skeleton is on the
+        viewer's right, also when the facing cannot be measured and
+        both the camera and the spread take the fallback forward (here
+        the walk faces -z, the fallback for +y up is +z)."""
+        from pybvh.bvhplot._viewport import make_viewport
+        walk = bvh.rotate_vertical(180.0, degrees=True)
+        if not pairs:
+            walk.lr_mapping = None
+        coords = walk.node_positions(centered="first")
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore", message="No usable left/right geometry")
+            scene = make_scene([walk, walk], [coords, coords], "front", None)
+        if not pairs:
+            assert scene.views[0].forward_axis == "+z"  # not the walk's -z
+        spread = scene.spread(3.0)
+
+        camera = make_viewport([scene.views[0]]).camera()
+        screen_right = np.cross(camera.target - camera.eye, camera.up)
+        shift = spread.views[1].coords[0, 0] - coords[0, 0]
+        assert shift @ screen_right > 0
+
     def test_views_are_frozen(self, bvh, coords):
         scene = make_scene([bvh], [coords], "front", None)
         with pytest.raises(Exception):
@@ -369,16 +463,16 @@ class TestSceneMethods:
         assert moved.floor_height == pytest.approx(view.floor_height + 2.0)
         assert moved.floor_height == pytest.approx(moved.coords[..., 1].max())
 
-    def test_spread_on_negative_up_views_moves_along_positive_x(self):
-        """With '-y' up and '+z' forward the lateral axis is x, and later
-        views move toward +x, which on this rig is the character's
-        right: the direction is the axis's, not the character's."""
+    def test_spread_on_negative_up_views_moves_toward_negative_x(self):
+        """With '-y' up and '+z' forward the character's left is -x
+        (up x forward), so later views move toward -x, not toward +x
+        as they would on the same figure with '+y' up."""
         first = make_array_view(up="-y")
         second = make_array_view(up="-y")
         spread = Scene(views=[first, second]).spread(3.0)
         np.testing.assert_array_equal(spread.views[0].coords, first.coords)
         np.testing.assert_allclose(
-            spread.views[1].coords, second.coords + [3.0, 0.0, 0.0])
+            spread.views[1].coords, second.coords + [-3.0, 0.0, 0.0])
         assert spread.views[1].floor_height == second.floor_height
 
     def test_spread_auto_on_negative_up_views_uses_the_x_extent(self):
@@ -387,7 +481,7 @@ class TestSceneMethods:
         spread = Scene(views=[first, make_array_view(up="-y")]).spread("auto")
         np.testing.assert_allclose(
             spread.views[1].coords - first.coords,
-            np.broadcast_to([1.2 * width, 0.0, 0.0], first.coords.shape))
+            np.broadcast_to([-1.2 * width, 0.0, 0.0], first.coords.shape))
 
 
 class TestLoopedScene:

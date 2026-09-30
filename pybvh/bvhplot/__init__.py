@@ -1117,7 +1117,11 @@ def play(
         ``"first"`` or ``"skeleton"``; no spacing is applied when
         ``centered="world"`` (raw world coordinates are honoured). Pass a
         float (in scene units) to override. Ignored by multi-panel backends
-        (matplotlib, OpenCV).
+        (matplotlib, OpenCV). Skeleton ``k`` sits ``k × spacing`` to
+        the first skeleton's own left (up × forward at its first
+        frame), the viewer's right from the ``"front"`` camera, so the
+        skeletons read left to right in the order given whatever the
+        rig's up axis or the character's facing.
 
     Returns
     -------

@@ -53,6 +53,12 @@ def read_bvh_file(
         A Bvh object containing the skeleton hierarchy, root positions,
         joint angles, and frame time.
 
+    Raises
+    ------
+    ValueError
+        If the file is malformed, for example if its ``Frame Time`` is
+        missing, zero, negative, NaN or infinite.
+
     Notes
     -----
     BVH files store joint angles in degrees; pybvh holds them in radians
@@ -200,6 +206,8 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
                 frame_count = int(line[1])
 
             elif token == 'Frame' and len(line) > 2 and line[1] == 'Time:':
+                # Checked here, although the Bvh setter applies the same
+                # rule, so that the error names the file and the line.
                 try:
                     file_frame_time = float(line[2])
                     _validate_frame_time(file_frame_time)

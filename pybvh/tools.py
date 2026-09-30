@@ -48,8 +48,8 @@ def _validate_frame_time(value: float) -> None:
     """Raise ``ValueError`` unless ``value`` is a valid frame time.
 
     A frame time is ``0`` (unset) or a positive finite number of seconds.
-    This is the one rule for every place a frame time enters pybvh: the
-    :attr:`Bvh.frame_time` setter and the ``Frame Time`` line of a file.
+    Shared by the :attr:`Bvh.frame_time` setter and the reader's check of
+    a file's ``Frame Time`` line, so the two cannot drift apart.
     """
     if not (np.isfinite(value) and value >= 0):
         raise ValueError(

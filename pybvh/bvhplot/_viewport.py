@@ -576,16 +576,22 @@ def compute_follow_azimuths(
     - **Valid frames only.** A frame whose left-to-right axis is
       degenerate (parallel to up) is not measured: its heading change
       is linearly interpolated between the valid frames around it, or
-      held at the last valid frame's after it.
+      held at the last valid frame's after it. The alternative, holding
+      the last measurement across a gap too, agrees on a character that
+      is not turning; on one that turns through the gap it freezes the
+      camera and then makes it catch up in a step when measurement
+      resumes, where interpolation turns it steadily through the gap.
+      When frame 0 itself is not measured the camera stays fixed (see
+      Returns).
     - **The ends are held**: the heading change is extended past each
       end of the clip by point reflection about the end frame (the
       ``padtype="odd"`` extension of ``scipy.signal.filtfilt``), so the
       first and last frames keep their heading (the last frame's
       measured one, or the last valid frame's when it cannot be
       measured), the net turn over the clip is kept exactly, and a
-      steady turn is followed to the last frame. The alternative, averaging only the frames that
-      exist, would move both ends toward the middle of the clip and
-      flatten a turn at the ends. Near an end, the smoothing therefore
+      steady turn is followed to the last frame. The alternative,
+      averaging only the frames that exist, would move both ends
+      toward the middle of the clip and flatten a turn at the ends. Near an end, the smoothing therefore
       weakens: on the walk, the last frame is caught mid-stride, and the
       camera turns about 13 degrees toward it over the last half
       second.

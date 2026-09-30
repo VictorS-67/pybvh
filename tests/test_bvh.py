@@ -12,6 +12,7 @@ import tempfile
 import os
 import copy
 import warnings
+from fractions import Fraction
 from pathlib import Path
 
 import sys
@@ -122,6 +123,33 @@ class TestReadBvhFile:
         b = bvh_example.copy()
         b.frame_time = good
         assert b.frame_time == good
+
+    # Fractions, ints beyond int64 and NumPy scalars, which the old
+    # ``value < 0`` check accepted, still work.
+    _NUMERIC_FRAME_TIMES = [
+        Fraction(1, 30), 10**20, np.float32(0.5), np.float64(1 / 30), 5e-324]
+
+    @pytest.mark.parametrize("good", _NUMERIC_FRAME_TIMES, ids=repr)
+    def test_frame_time_accepts_any_real_number_type(self, bvh_example, good):
+        assert Bvh(frame_time=good).frame_time == good
+        b = bvh_example.copy()
+        b.frame_time = good
+        assert b.frame_time == good
+
+    @pytest.mark.parametrize(
+        "rate", [Fraction(30, 1), 10**20, np.float32(30), np.float64(30), 1e-300],
+        ids=repr)
+    def test_fps_setter_accepts_any_real_number_type(self, bvh_example, rate):
+        b = bvh_example.copy()
+        b.fps = rate
+        assert b.frame_time == pytest.approx(1.0 / float(rate))
+
+    def test_fps_setter_rejects_rate_whose_frame_time_overflows(
+            self, bvh_example):
+        # 1 / 1e-320 overflows to inf, which is not a frame time.
+        b = bvh_example.copy()
+        with pytest.raises(ValueError, match="frame_time"):
+            b.fps = 1e-320
 
 
     def test_nodes_count(self, bvh_example):
@@ -5766,6 +5794,18 @@ class TestResampleValidation:
     def test_non_finite_target_fps_raises(self, bvh_example, bad, n_frames):
         with pytest.raises(ValueError, match="target_fps"):
             bvh_example[:n_frames].resample(bad)
+
+    @pytest.mark.parametrize(
+        "rate", [Fraction(15, 1), np.float32(15), np.float64(15)], ids=repr)
+    def test_target_fps_accepts_any_real_number_type(self, bvh_example, rate):
+        resampled = bvh_example.resample(rate)
+        assert resampled.frame_time == pytest.approx(1 / 15)
+
+    @pytest.mark.parametrize("rate", [10**20, 1e-300], ids=repr)
+    def test_extreme_finite_target_fps_on_one_frame_clip(
+            self, bvh_example, rate):
+        resampled = bvh_example[:1].resample(rate)
+        assert resampled.frame_time == pytest.approx(1.0 / float(rate))
 
     def test_short_clip_adopts_new_frame_time(self, bvh_example):
         single = bvh_example[0:1]

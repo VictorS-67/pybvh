@@ -247,14 +247,18 @@ class Viewport(GroundFrame):
         - **The whole cube stays in front of the eye**: the eye stands
           at least as far as the cube's corner nearest it, so every
           coordinate, inside the cube by its margin, is in front of the
-          eye. This binds only on a figure flat across the fitted
+          eye. This binds on a figure flat across the fitted
           direction, whose coordinates land near the middle of the
           picture however close the eye comes (a line of joints seen
           end on, or a figure lying in the plane of the viewing
           direction and the screen's horizontal, fitted vertically
           alone): the fit alone would bring the eye onto, or past, the
-          nearest of them. None then reaches the fraction. The
-          alternative, a small fixed gap in front of the nearest
+          nearest of them. It also binds, fitted vertically alone, on a
+          scene much wider than it is tall, whose cube its width sets
+          (skeletons side by side in k3d): the fit alone would bring the
+          eye inside the cube, and the scene further past the sides of
+          a picture whose width is not fitted. None then reaches the
+          fraction. The alternative, a small fixed gap in front of the nearest
           coordinate, would need a length of its own and leave the eye
           among the joints.
 

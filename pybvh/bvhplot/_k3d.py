@@ -189,10 +189,11 @@ def _build_plot(
     plot.grid_auto_fit = False
     plot.camera_auto_fit = False
 
-    # The viewport's camera, the one every backend aims from the same
-    # (azimuth, elevation, up) angles. k3d's camera is a 9-element list:
+    # The viewport's camera, fitted to the height alone (see
+    # play_k3d). The view angle is read from the plot, not written
+    # down, so the fit follows k3d's. k3d's camera is a 9-element list:
     # [eye_x, eye_y, eye_z, target_x, target_y, target_z, up_x, up_y, up_z]
-    eye, target, up = viewport.camera()
+    eye, target, up = viewport.camera(view_angle=plot.camera_fov)
     plot.camera = [float(value) for value in (*eye, *target, *up)]
 
     return _Plot(plot, viewport, coords_f32, skeleton_objects,
@@ -253,6 +254,24 @@ def play_k3d(
     A single-scene backend: all skeletons share one camera (taken from
     the first view) and one viewport over the — possibly laterally
     spread — views.
+
+    Camera. The viewport's camera (:meth:`~._viewport.Viewport.camera`)
+    at the distance fitted to k3d's vertical view angle, read from the
+    plot's ``camera_fov`` (60 degrees by default): every joint and end
+    site of every frame lands inside ``FIT_FRACTION`` of the widget's
+    height. The width is not fitted (``aspect=None``): the notebook
+    sets the widget's width, which k3d does not report to Python. The
+    alternative, fitting an assumed aspect ratio as the vedo renderer
+    fits its resolution's, would stand the camera further back for a
+    scene wider than that ratio and waste the height of a wider
+    widget; the two agree whenever the scene is tighter vertically at
+    the widget's width, as a single bundled clip is at any width
+    beyond about 0.7 of the height. Several skeletons spread side by
+    side fill less of the height, since the eye stands no nearer than
+    the corner of the viewport's cube, which their spread widens (see
+    :meth:`~._viewport.Viewport.eye_distance`), and can reach past the
+    sides of a narrow widget (two standing figures need about 1.5
+    times its height); the mouse wheel zooms out.
 
     Style application (look fields): background, bone width, the
     floor (``"checker"`` draws as a grid), and chain colors for

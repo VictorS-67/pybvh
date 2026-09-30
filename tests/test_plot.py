@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+import re
 
 import numpy as np
 import pytest
@@ -36,6 +37,20 @@ def bvh_test1():
 @pytest.fixture
 def bvh_test2():
     return read_bvh_file(BVH_DIR / "bvh_test2.bvh")
+
+
+@pytest.fixture
+def played(monkeypatch):
+    """The (scene, fps) of each play() call that reached the matplotlib
+    backend, which is stubbed out."""
+    import pybvh.bvhplot._matplotlib as mpl_backend
+    calls = []
+
+    def fake_play_mpl(scene, style, fps, **kwargs):
+        calls.append((scene, fps))
+
+    monkeypatch.setattr(mpl_backend, "play_mpl", fake_play_mpl)
+    return calls
 
 
 # ===================================================================
@@ -1036,6 +1051,19 @@ class TestFpsResolution:
         assert path.exists()
         assert path.stat().st_size > 0
 
+    def test_play_caps_the_clip_rate_at_30_fps(self, bvh_test2, played):
+        """bvh_test2 is 61 frames at 120 fps: every 4th frame at 30 fps."""
+        bvhplot.play(bvh_test2, backend="matplotlib")
+        (scene, fps), = played
+        assert fps == pytest.approx(30.0)
+        assert scene.views[0].coords.shape[0] == 16
+
+    def test_play_keeps_every_frame_at_an_explicit_fps(
+            self, bvh_test2, played):
+        bvhplot.play(bvh_test2, backend="matplotlib", fps=120)
+        (scene, fps), = played
+        assert fps == 120
+        assert scene.views[0].coords.shape[0] == 61
 
 
 class TestUnsetFrameTime:
@@ -1121,6 +1149,73 @@ class TestUnsetFrameTime:
             bvhplot.render(clips, tmp_path / "x.gif", backend="matplotlib",
                            fps=10, match_fps="lowest")
         assert "index 1" in str(info.value)
+
+    def test_render_ghost_without_fps_names_only_the_working_fix(
+            self, unset, tmp_path):
+        """fps= alone cannot satisfy ghost=, so it is not offered alone."""
+        with pytest.raises(ValueError, match="ghost") as info:
+            bvhplot.render(unset, tmp_path / "x.gif", backend="matplotlib",
+                           ghost=2)
+        message = str(info.value)
+        assert "bvh.frame_time" in message
+        assert "drop ghost=" in message
+        assert "or pass fps=" not in message
+
+    def test_play_match_fps_without_fps_names_only_the_working_fix(
+            self, bvh_test1, unset, played):
+        """fps= alone cannot satisfy match_fps=, so it is not offered alone."""
+        with pytest.raises(ValueError, match="match_fps") as info:
+            bvhplot.play([bvh_test1[0:5], unset], backend="matplotlib",
+                         match_fps="lowest")
+        message = str(info.value)
+        assert "index 1" in message
+        assert "bvh.frame_time" in message
+        assert "drop match_fps=" in message
+        assert "or pass fps=" not in message
+        assert played == []
+
+    def test_match_fps_raises_on_an_unset_clip_beside_a_slow_one(
+            self, bvh_test1, unset, tmp_path):
+        """An unset rate is not 0 fps: beside a 0.25 fps clip it must not
+        pass as close enough to need no resampling."""
+        slow = bvh_test1[0:5]
+        slow.frame_time = 4.0
+        with pytest.raises(ValueError, match="match_fps"):
+            bvhplot.render([slow, unset], tmp_path / "x.gif",
+                           backend="matplotlib", fps=10, match_fps="lowest")
+
+    @pytest.mark.parametrize("match_fps", ["lowest", "highest"])
+    def test_match_fps_raises_when_every_clip_is_unset(
+            self, unset, match_fps, tmp_path):
+        with pytest.raises(ValueError, match="match_fps") as info:
+            bvhplot.render([unset, unset.copy()], tmp_path / "x.gif",
+                           backend="matplotlib", fps=10, match_fps=match_fps)
+        assert "indices 0, 1" in str(info.value)
+
+    def test_rate_warning_names_the_unset_clip(
+            self, bvh_test1, unset, played):
+        with pytest.warns(UserWarning, match="Frame rates differ") as record:
+            bvhplot.play([bvh_test1[0:5], unset], backend="matplotlib",
+                         fps=10)
+        message = " ".join(str(w.message) for w in record)
+        assert "index 1" in message
+        assert "30.0 fps" in message
+        assert not re.search(r"(?<![\d.])0\.0 fps", message)
+        assert "match_fps='lowest'" not in message
+
+    def test_play_mixed_list_without_fps_raises(
+            self, bvh_test1, unset, played):
+        with pytest.raises(ValueError, match="index 1") as info:
+            bvhplot.play([bvh_test1[0:5], unset], backend="matplotlib")
+        assert "fps=" in str(info.value)
+        assert played == []
+
+    @pytest.mark.filterwarnings("ignore:Frame rates differ")
+    def test_play_mixed_list_with_fps_plays(self, bvh_test1, unset, played):
+        bvhplot.play([bvh_test1[0:5], unset], backend="matplotlib", fps=10)
+        (scene, fps), = played
+        assert len(scene.views) == 2
+        assert fps == 10
 
 
 def _view(bvh, coords):

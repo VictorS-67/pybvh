@@ -23,7 +23,8 @@ BONE_CHAINS = ["spine", "spine", "l_arm", "l_arm", "r_arm", "r_arm",
 # Joint L/R pairs in node index space, the facing geometry's pairs.
 LR_PAIRS = np.array([[3, 5], [4, 6], [7, 8]], dtype=np.intp)
 
-# Rest pose: y up, facing +z, root at the origin. With up = +y and
+# Rest pose: y up, facing +z, feet on the ground y = 0 and the root
+# (Hips) one unit above the origin, at [0, 1, 0]. With up = +y and
 # forward = +z the character's left is up x forward = +x.
 REST_COORDS = np.array([
     [0.00, 1.0, 0.0],   # Hips
@@ -44,8 +45,17 @@ def make_array_view(
     label: str | None = None,
     walk_speed: float = 0.05,
     lateral_shift: float = 0.0,
+    up: str = "+y",
 ) -> SkeletonView:
-    """One walking stick person as a complete SkeletonView."""
+    """One walking stick person as a complete SkeletonView.
+
+    ``up="-y"`` turns the figure half a turn about its forward axis
+    (+z), a proper rotation and not a mirror: the feet sit at the y
+    maximum, which is then the floor, and the character's left is -x.
+    The forward axis and the heading, both along +z, are unchanged.
+    """
+    if up not in ("+y", "-y"):
+        raise ValueError(f"up must be '+y' or '-y', got {up!r}")
     t = np.arange(n_frames, dtype=np.float64)
     coords = np.repeat(REST_COORDS[np.newaxis], n_frames, axis=0)
     coords[:, :, 2] += (walk_speed * t)[:, np.newaxis]        # walk along +z
@@ -53,10 +63,17 @@ def make_array_view(
     swing = 0.1 * np.sin(0.8 * t)
     coords[:, 4, 2] += swing                                   # hands swing
     coords[:, 6, 2] -= swing
+    rest_coords = REST_COORDS.copy()
+    if up == "-y":
+        half_turn = np.array([-1.0, -1.0, 1.0])
+        coords *= half_turn
+        rest_coords *= half_turn
     coords[:, :, 0] += lateral_shift
+    floor = coords[..., 1].max() if up == "-y" else coords[..., 1].min()
 
     # root_trajectory's [sin, cos] heading for a character facing +z
-    # with y up: the ground basis is (x, z), cos along x, sin along z.
+    # with y up or down: the ground basis is (x, z) either way, cos
+    # along x, sin along z.
     root_heading = np.tile([1.0, 0.0], (n_frames, 1))
 
     return SkeletonView(
@@ -65,11 +82,11 @@ def make_array_view(
         label=label,
         azimuth=-20.0,
         elevation=20.0,
-        up="+y",
-        floor_height=float(coords[..., 1].min()),
+        up=up,
+        floor_height=float(floor),
         frame_time=frame_time,
         node_names=list(NODE_NAMES),
-        rest_coords=REST_COORDS.copy(),
+        rest_coords=rest_coords,
         lr_pairs=LR_PAIRS.copy(),
         forward_axis="+z",
         bone_chains=list(BONE_CHAINS),

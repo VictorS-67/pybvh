@@ -72,6 +72,42 @@ class TestMatplotlib:
         assert len(ax.lines) >= 2
         plt.close(fig)
 
+    def test_each_facing_arrow_points_where_the_heading_says(self):
+        """A y-up view is drawn on the (x, z) plane, and its heading is
+        [sin, cos] with cos along x and sin along z. Over four frames
+        the heading turns a quarter turn each frame, independently of
+        the walk, so an arrow drawn from any other frame's heading, or
+        with sin and cos swapped, points the wrong way."""
+        import dataclasses
+        from matplotlib.quiver import Quiver
+        from pybvh.bvhplot._matplotlib import trajectory_mpl
+        from pybvh.bvhplot._scene import Scene
+        view = synthetic_scene.make_array_view(n_frames=4)
+        quarter_turns = np.array([[1.0, 0.0],    # faces +z
+                                  [0.0, -1.0],   # faces -x
+                                  [-1.0, 0.0],   # faces -z
+                                  [0.0, 1.0]])   # faces +x
+        plot_directions = np.array([[0.0, 1.0],  # (x, z) on the plot
+                                    [-1.0, 0.0],
+                                    [0.0, -1.0],
+                                    [1.0, 0.0]])
+        turning = dataclasses.replace(view, root_heading=quarter_turns)
+        fig, ax = trajectory_mpl(
+            Scene(views=[turning]), Style("paper"), facing_arrows=True)
+        try:
+            (arrows,) = [c for c in ax.collections if isinstance(c, Quiver)]
+            roots = view.coords[:, 0][:, [0, 2]]
+            directions = np.stack([arrows.U, arrows.V], axis=1)
+            directions /= np.linalg.norm(directions, axis=1, keepdims=True)
+            assert len(directions) > 1
+            for start, direction in zip(arrows.get_offsets(), directions):
+                (drawn_at,) = np.flatnonzero(
+                    np.all(np.isclose(roots, start), axis=1))
+                np.testing.assert_allclose(
+                    direction, plot_directions[drawn_at], atol=1e-12)
+        finally:
+            plt.close(fig)
+
 
 class TestOpenCV:
     def test_render_with_every_option(self, scene, tmp_path):
@@ -125,6 +161,63 @@ class TestVedo:
             assert player.scene.num_skeletons == 2
         finally:
             player.plt.close()
+
+    @pytest.fixture
+    def open_viewer(self, monkeypatch):
+        """Open a headless viewer on a scene; closed after the test."""
+        pytest.importorskip("vedo")
+        players = []
+
+        def open_(scene, quality="high"):
+            players.append(_viewer(scene, monkeypatch, quality))
+            return players[-1]
+
+        yield open_
+        for player in players:
+            player.plt.close()
+
+    @staticmethod
+    def _scrub_to(player, frame):
+        """Move the frame slider as a user's drag does: set its value,
+        then fire the event its callback listens to."""
+        player.slider.value = frame
+        player.slider.InvokeEvent("InteractionEvent")
+
+    @staticmethod
+    def _drawn_joints(player, s):
+        """Skeleton *s*'s joint positions as the viewer drew them."""
+        if player.use_high:
+            # one sphere per joint, merged; a sphere's bounding-box
+            # midpoint is its center
+            n_nodes = len(player.scene.views[s].node_names)
+            spheres = np.asarray(
+                player._capsules[s].joints_mesh.vertices).reshape(
+                    n_nodes, -1, 3)
+            return (spheres.min(axis=1) + spheres.max(axis=1)) / 2
+        return np.asarray(player._points_actors[s].vertices)
+
+    @pytest.mark.parametrize("quality", ["high", "fast"])
+    def test_the_frame_slider_poses_each_skeleton_at_its_frame(
+            self, pair, quality, open_viewer):
+        scene = pair.spread("auto")
+        player = open_viewer(scene, quality)
+        self._scrub_to(player, 7)
+        assert player.clock.frame == 7
+        for s, view in enumerate(scene.views):
+            # VTK keeps float32 vertices
+            np.testing.assert_allclose(
+                self._drawn_joints(player, s), view.coords[7], atol=1e-5)
+
+    def test_at_half_the_clip_rate_the_slider_steps_two_clip_frames(
+            self, scene, open_viewer):
+        """The 30 fps clip played at the 15 fps preset: slider position
+        5 is clip frame 10."""
+        player = open_viewer(scene, "fast")
+        player._set_fps(player.clock.fps_presets.index(15))
+        self._scrub_to(player, 5)
+        np.testing.assert_allclose(
+            self._drawn_joints(player, 0), scene.views[0].coords[10],
+            atol=1e-5)
 
 
 class TestK3d:
@@ -253,6 +346,76 @@ class TestK3d:
         for path, view in zip(built.trail_paths, pair.spread("auto").views):
             assert path.shape == (view.coords.shape[0], 3)
 
+    @staticmethod
+    def _play_and_grab_slider(scene, monkeypatch):
+        """Play *scene* with k3d outside a notebook: the plot as built
+        and the frame slider of the widget that would be displayed."""
+        pytest.importorskip("k3d")
+        import IPython.display
+        from pybvh.bvhplot import _k3d
+        build_plot = _k3d._build_plot
+        shown, built = [], []
+
+        def build_and_keep(*args):
+            built.append(build_plot(*args))
+            return built[-1]
+
+        monkeypatch.setattr(_k3d, "_build_plot", build_and_keep)
+        monkeypatch.setattr(IPython.display, "display", shown.append)
+        _k3d.play_k3d(scene, Style("paper"), 30.0)
+        (widget,) = shown
+        _plot, controls = widget.children
+        (slider,) = [w for w in controls.children
+                     if type(w).__name__ == "IntSlider"]
+        return built[0], slider
+
+    def test_the_frame_slider_poses_each_skeleton_at_its_frame(
+            self, pair, monkeypatch):
+        scene = pair.spread("auto")
+        built, slider = self._play_and_grab_slider(scene, monkeypatch)
+        slider.value = 7
+        for (lines, points), view in zip(built.skeletons, scene.views):
+            expected = view.coords[7].astype(np.float32)
+            np.testing.assert_array_equal(lines.vertices, expected)
+            np.testing.assert_array_equal(points.positions, expected)
+
+    def test_the_frame_slider_grows_each_trail_to_its_frame(
+            self, pair, monkeypatch):
+        """The trail is the root's ground path up to the frame, and its
+        later vertices wait at the frame's point."""
+        scene = pair.spread("auto")
+        built, slider = self._play_and_grab_slider(scene, monkeypatch)
+        slider.value = 7
+        for trail, path in zip(built.trails, built.trail_paths):
+            drawn = np.asarray(trail.vertices)
+            np.testing.assert_array_equal(drawn[:8], path[:8])
+            np.testing.assert_array_equal(
+                drawn[8:], np.broadcast_to(path[7], drawn[8:].shape))
+
+    @pytest.mark.parametrize("preset, spine", [
+        ("paper", 0x3A3F4A),
+        ("dark", 0xC8CCD6),    # lightened to read on the dark ground
+    ])
+    def test_one_skeleton_colors_each_node_by_its_chain(
+            self, scene, preset, spine):
+        """A node takes its parent bone's chain color, the root the
+        spine's: left warm, right cool (Okabe-Ito)."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+        l_arm, r_arm, l_leg, r_leg = 0xE69F00, 0x56B4E9, 0xD55E00, 0x0072B2
+        expected = [
+            spine,           # Hips, the root
+            spine, spine,    # Spine, Head
+            l_arm, l_arm,    # LeftArm, LeftHand
+            r_arm, r_arm,    # RightArm, RightHand
+            l_leg, r_leg,    # LeftFoot, RightFoot
+        ]
+        built = _build_plot(scene, Style(preset))
+        (lines, points), = built.skeletons
+        for drawn in (lines.colors, points.colors):
+            assert [f"{c:06X}" for c in drawn] == [
+                f"{c:06X}" for c in expected]
+
 
 # ---------------------------------------------------------------------------
 # Every backend draws the viewport
@@ -262,10 +425,10 @@ class TestK3d:
 # tests/test_viewport.py; what is tested here is the translation into
 # each toolkit, which is where the backends used to drift apart.
 
-def _viewer(scene, monkeypatch):
+def _viewer(scene, monkeypatch, quality="high"):
     from pybvh.bvhplot import _vedo
     monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
-    return _vedo._VedoPlayer(scene, Style("paper"), 30.0, quality="high")
+    return _vedo._VedoPlayer(scene, Style("paper"), 30.0, quality=quality)
 
 
 def _vedo_plane(plotter):

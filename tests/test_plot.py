@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+import inspect
 import re
 
 import numpy as np
@@ -9,6 +10,8 @@ import pytest
 from pathlib import Path
 
 from pybvh import read_bvh_file, bvhplot
+from pybvh.analysis import root_trajectory
+from pybvh.bvhplot import _k3d, _opencv, _vedo
 from pybvh.bvhplot._from_bvh import (
     get_skeleton_lines,
     normalize_input,
@@ -51,6 +54,28 @@ def played(monkeypatch):
 
     monkeypatch.setattr(mpl_backend, "play_mpl", fake_play_mpl)
     return calls
+
+
+@pytest.fixture
+def drawn(monkeypatch):
+    """The scene of each frame() call that reached the matplotlib
+    backend, which is stubbed out."""
+    import pybvh.bvhplot._matplotlib as mpl_backend
+    scenes = []
+
+    def fake_frame_mpl(scene, style, **kwargs):
+        scenes.append(scene)
+        return None, None
+
+    monkeypatch.setattr(mpl_backend, "frame_mpl", fake_frame_mpl)
+    return scenes
+
+
+def assert_view_shows(view, clip, frames):
+    """*view* holds *clip*'s poses and root heading at *frames*."""
+    np.testing.assert_allclose(view.coords, clip.node_positions()[frames])
+    np.testing.assert_allclose(
+        view.root_heading, root_trajectory(clip)[frames, 2:4])
 
 
 # ===================================================================
@@ -536,6 +561,62 @@ class TestFrame:
         axis_name = {0: 'x', 1: 'y', 2: 'z'}
         assert axis_name[axs[0]._vertical_axis] == up1
         assert axis_name[axs[1]._vertical_axis] == up2
+
+    def test_a_negative_frame_counts_from_each_clips_end(
+            self, bvh_example, drawn):
+        """frame=-3 is each clip's third frame from its own end, for the
+        pose and for the heading taken from the clip."""
+        long, short = bvh_example, bvh_example[0:50]
+        bvhplot.frame([long, short], -3)
+        (scene,) = drawn
+        for view, clip in zip(scene.views, (long, short)):
+            third_from_end = len(clip) - 3
+            assert_view_shows(
+                view, clip, slice(third_from_end, third_from_end + 1))
+
+    def test_one_frame_of_coords_is_drawn_as_given(self, bvh_example, drawn):
+        """An (N, 3) array is one pose: the frame index is ignored, no
+        clip heading is attached, and the floor is the pose's lowest
+        point rather than the clip's."""
+        pose = bvh_example.node_positions(frame=40)
+        pose[:, 2] += 5.0  # lift it off the clip's floor
+        bvhplot.frame(bvh_example, 10, coords=pose)
+        (scene,) = drawn
+        view = scene.views[0]
+        np.testing.assert_array_equal(view.coords, pose[np.newaxis])
+        assert view.root_heading is None
+        assert view.floor_height == pose[:, 2].min()
+
+    def test_a_clip_of_coords_reaches_the_scene_without_a_heading(
+            self, bvh_example, drawn):
+        """An (F, N, 3) array is accepted: the Scene starts at the
+        array's own first frame, and no clip heading is attached."""
+        coords = bvh_example.node_positions()[30:40]
+        bvhplot.frame(bvh_example, coords=coords)
+        (scene,) = drawn
+        view = scene.views[0]
+        np.testing.assert_array_equal(view.coords[0], coords[0])
+        assert view.root_heading is None
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="#38: "
+               "frame(coords=(F, N, 3)) frames and floors the still on all "
+               "F frames though it draws only the first")
+    def test_a_clip_of_coords_frames_the_still_like_its_first_frame(
+            self, bvh_example):
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        coords = bvh_example.node_positions()
+        try:
+            _, from_clip = bvhplot.frame(bvh_example, coords=coords)
+            _, from_pose = bvhplot.frame(bvh_example, coords=coords[0])
+            for limits in ("get_xlim", "get_ylim", "get_zlim"):
+                np.testing.assert_allclose(
+                    getattr(from_clip, limits)(), getattr(from_pose, limits)())
+        finally:
+            plt.close("all")
 
 
 class TestRestPose:
@@ -1064,6 +1145,91 @@ class TestFpsResolution:
         (scene, fps), = played
         assert fps == 120
         assert scene.views[0].coords.shape[0] == 61
+
+    @pytest.mark.parametrize("rate, step, played_fps", [
+        (100.0, 4, 25.0),
+        (31.0, 2, 15.5),
+        (30.0, 1, 30.0),
+    ])
+    def test_play_cap_keeps_every_step_th_frame_at_its_moment(
+            self, bvh_test2, played, rate, step, played_fps):
+        """The step is the smallest whole number that brings the clip
+        rate to 30 fps or below. The kept frames keep their moments, so
+        the frame time grows by the step and the rate played is the one
+        the subsampled Scene states: the clip rate over the step, which
+        is 30 only when the clip rate is exactly 30 times the step."""
+        bvh_test2.frame_time = 1.0 / rate
+        bvhplot.play(bvh_test2, backend="matplotlib")
+        (scene, fps), = played
+        assert_view_shows(scene.views[0], bvh_test2, slice(None, None, step))
+        assert scene.frame_time == pytest.approx(step / rate)
+        assert fps == pytest.approx(played_fps)
+
+    @pytest.mark.parametrize("backend, library, module, player, step, "
+                             "played_fps", [
+        pytest.param("k3d", "k3d", _k3d, "play_k3d", 4, 30.0, id="k3d"),
+        pytest.param("vedo", "vedo", _vedo, "play_vedo", 1, 120.0,
+                     id="vedo"),
+        # the notebook inline video
+        pytest.param("opencv", "cv2", _opencv, "render_opencv", 1, 120.0,
+                     id="opencv"),
+    ])
+    def test_play_caps_the_rate_only_where_the_player_needs_it(
+            self, bvh_test2, monkeypatch, backend, library, module, player,
+            step, played_fps):
+        """k3d widgets cannot keep up with 120 fps; vedo's timer and a
+        notebook video player can."""
+        pytest.importorskip(library)
+        signature = inspect.signature(getattr(module, player))
+        calls = []
+
+        def record(*args, **kwargs):
+            given = signature.bind(*args, **kwargs).arguments
+            calls.append((given["scene"], given["fps"]))
+
+        monkeypatch.setattr(module, player, record)
+        if backend == "opencv":
+            ipython_display = pytest.importorskip("IPython.display")
+            monkeypatch.setattr(bvhplot, "_detect_notebook", lambda: True)
+            # the video file is never written: show nothing
+            monkeypatch.setattr(ipython_display, "Video",
+                                lambda *args, **kwargs: None)
+            monkeypatch.setattr(ipython_display, "display",
+                                lambda *args, **kwargs: None)
+        bvhplot.play(bvh_test2, backend=backend)
+        (scene, fps), = calls
+        assert scene.num_frames == len(range(0, len(bvh_test2), step))
+        assert fps == pytest.approx(played_fps)
+
+
+class TestPlaySync:
+    """Clips of unequal length share one frame counter: sync= says
+    whether the longer clip is cut or the shorter one held."""
+
+    @pytest.fixture
+    def clips(self, bvh_example):
+        """75 and 40 frames, both at 30 fps, so play() keeps every frame."""
+        return bvh_example, bvh_example[20:60]
+
+    def test_truncate_cuts_every_clip_to_the_shortest(self, clips, played):
+        long, short = clips
+        bvhplot.play([long, short], backend="matplotlib", sync="truncate")
+        (scene, _), = played
+        long_view, short_view = scene.views
+        assert scene.num_frames == len(short)
+        assert_view_shows(long_view, long, slice(len(short)))
+        assert_view_shows(short_view, short, slice(None))
+
+    def test_pad_holds_the_shorter_clip_on_its_last_frame(self, clips, played):
+        long, short = clips
+        bvhplot.play([long, short], backend="matplotlib", sync="pad")
+        (scene, _), = played
+        long_view, short_view = scene.views
+        assert scene.num_frames == len(long)
+        assert_view_shows(long_view, long, slice(None))
+        last = len(short) - 1
+        held = [*range(len(short)), *[last] * (len(long) - len(short))]
+        assert_view_shows(short_view, short, held)
 
 
 class TestUnsetFrameTime:

@@ -342,6 +342,52 @@ class TestSceneMethods:
         with pytest.raises(Exception):
             scene.views[0].frame_time = 1.0  # type: ignore[misc]
 
+    def test_subsampled_keeps_a_missing_heading_missing(self):
+        view = dataclasses.replace(make_array_view(12), root_heading=None)
+        sub = Scene(views=[view]).subsampled(3).views[0]
+        assert sub.root_heading is None
+        np.testing.assert_array_equal(sub.coords, view.coords[[0, 3, 6, 9]])
+        assert sub.frame_time == pytest.approx(3 / 30)
+
+    def test_subsampled_keeps_the_only_frame_of_a_one_frame_view(self):
+        """The one frame is kept at any step; its frame time still grows
+        by the step, as for every other view."""
+        view = make_array_view(1)
+        sub = Scene(views=[view]).subsampled(4).views[0]
+        np.testing.assert_array_equal(sub.coords, view.coords)
+        np.testing.assert_array_equal(sub.root_heading, view.root_heading)
+        assert sub.frame_time == pytest.approx(4 / 30)
+
+    def test_offset_on_a_negative_up_view_moves_the_floor_with_the_feet(self):
+        """floor_height is a coordinate along the up axis, not a signed
+        height: moving a '-y' view by +2 in y moves its floor to +2
+        more, where the feet (the coordinate maximum) went."""
+        view = make_array_view(up="-y")
+        moved = Scene(views=[view]).offset([np.array([0.0, 2.0, 0.0])]).views[0]
+        np.testing.assert_allclose(moved.coords, view.coords + [0.0, 2.0, 0.0])
+        assert moved.floor_height == pytest.approx(view.floor_height + 2.0)
+        assert moved.floor_height == pytest.approx(moved.coords[..., 1].max())
+
+    def test_spread_on_negative_up_views_moves_along_positive_x(self):
+        """With '-y' up and '+z' forward the lateral axis is x, and later
+        views move toward +x, which on this rig is the character's
+        right: the direction is the axis's, not the character's."""
+        first = make_array_view(up="-y")
+        second = make_array_view(up="-y")
+        spread = Scene(views=[first, second]).spread(3.0)
+        np.testing.assert_array_equal(spread.views[0].coords, first.coords)
+        np.testing.assert_allclose(
+            spread.views[1].coords, second.coords + [3.0, 0.0, 0.0])
+        assert spread.views[1].floor_height == second.floor_height
+
+    def test_spread_auto_on_negative_up_views_uses_the_x_extent(self):
+        first = make_array_view(up="-y")
+        width = float(np.ptp(first.coords[..., 0]))
+        spread = Scene(views=[first, make_array_view(up="-y")]).spread("auto")
+        np.testing.assert_allclose(
+            spread.views[1].coords - first.coords,
+            np.broadcast_to([1.2 * width, 0.0, 0.0], first.coords.shape))
+
 
 class TestViewIsCheckedAtConstruction:
     """An inconsistent view raises where it is built, naming the field,

@@ -289,6 +289,30 @@ class TestK3d:
         for path, view in zip(built.trail_paths, pair.spread("auto").views):
             assert path.shape == (view.coords.shape[0], 3)
 
+    @pytest.mark.parametrize("preset, spine", [
+        ("paper", 0x3A3F4A),
+        ("dark", 0xC8CCD6),    # lightened to read on the dark ground
+    ])
+    def test_one_skeleton_colors_each_node_by_its_chain(
+            self, scene, preset, spine):
+        """A node takes its parent bone's chain color, the root the
+        spine's: left warm, right cool (Okabe-Ito)."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+        l_arm, r_arm, l_leg, r_leg = 0xE69F00, 0x56B4E9, 0xD55E00, 0x0072B2
+        expected = [
+            spine,           # Hips, the root
+            spine, spine,    # Spine, Head
+            l_arm, l_arm,    # LeftArm, LeftHand
+            r_arm, r_arm,    # RightArm, RightHand
+            l_leg, r_leg,    # LeftFoot, RightFoot
+        ]
+        built = _build_plot(scene, Style(preset))
+        (lines, points), = built.skeletons
+        for drawn in (lines.colors, points.colors):
+            assert [f"{c:06X}" for c in drawn] == [
+                f"{c:06X}" for c in expected]
+
 
 # ---------------------------------------------------------------------------
 # Every backend draws the viewport

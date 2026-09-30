@@ -359,8 +359,8 @@ def _match_frame_rates(
 
     target_fps = min(rates) if match_fps == "lowest" else max(rates)
     result = []
-    for b, r in zip(bvh_list, rates):
-        if abs(r - target_fps) < 0.5:
+    for b in bvh_list:
+        if abs(1.0 / b.frame_time - target_fps) < 0.5:
             result.append(b)
         else:
             result.append(b.resample(target_fps))

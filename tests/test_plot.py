@@ -1376,7 +1376,8 @@ class TestMatchFps:
     def test_resampling_never_drops_a_clip(self, bvh_30fps, bvh_120fps):
         """Every clip comes back, resampled or not, or the call raises: a
         clip whose rate cannot be compared (NaN, which the frame_time
-        setter accepts today) must not vanish from the comparison."""
+        setter now rejects at the assignment) must not vanish from the
+        comparison."""
         from pybvh.bvhplot import _match_frame_rates
         odd = bvh_30fps[0:5]
         try:

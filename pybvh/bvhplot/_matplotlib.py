@@ -30,7 +30,7 @@ from ._style import (
     bone_colors_for_view,
     ghost_schedule,
 )
-from ._viewport import Viewport, make_viewport, panel_viewports
+from ._viewport import Turntable, Viewport, make_viewport, panel_viewports
 from ._scene import Scene, SkeletonView
 from ._colors import floor_palette
 
@@ -710,7 +710,7 @@ def render_mpl(
     filepath: Path,
     fps: float,
     *,
-    motion: str = "fixed",
+    motion: str | Turntable = "fixed",
     resolution: tuple[int, int] = (1920, 1080),
     ghost: int = 0,
     trajectory: bool = False,

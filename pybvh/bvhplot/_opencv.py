@@ -22,7 +22,7 @@ from ._style import (
     ghost_schedule,
     PALETTE_RGB,
 )
-from ._viewport import Viewport, panel_viewports
+from ._viewport import Turntable, Viewport, panel_viewports
 from ._scene import Scene, SkeletonView
 from ._colors import bone_colors_255, floor_palette, node_colors_255
 
@@ -318,7 +318,7 @@ def _generate_frames(
     style: Style,
     resolution: tuple[int, int],
     *,
-    motion: str = "fixed",
+    motion: str | Turntable = "fixed",
     fps: float | None = None,
     frame_counter: bool = False,
     ghost: int = 0,
@@ -339,7 +339,7 @@ def _generate_frames(
         axis indicator (the pre-0.9.0 ``show_axis``).
     resolution : (int, int)
         ``(width, height)`` in pixels.
-    motion : str, optional
+    motion : str or Turntable, optional
         How each panel's camera moves, handed to the viewport
         untouched (:func:`~._viewport.make_viewport`).
     fps : float, optional
@@ -421,7 +421,7 @@ def render_opencv(
     fps: float,
     resolution: tuple[int, int],
     *,
-    motion: str = "fixed",
+    motion: str | Turntable = "fixed",
     frame_counter: bool = False,
     ghost: int = 0,
     trajectory: bool = False,
@@ -451,9 +451,10 @@ def render_opencv(
         Frames per second.
     resolution : (int, int)
         ``(width, height)`` in pixels.
-    motion : str, optional
-        ``"fixed"`` (default), ``"turntable"`` or ``"follow"``, handed
-        to the viewport untouched.
+    motion : str or Turntable, optional
+        ``"fixed"`` (default), ``"turntable"``, ``"follow"`` or a
+        :class:`~._viewport.Turntable`, handed to the viewport
+        untouched.
 
     Returns
     -------

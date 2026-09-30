@@ -17,6 +17,7 @@ from pybvh.bvhplot._viewport import (
     FLOOR_EXTENT,
     FLOOR_INSET,
     FRAMING_MARGIN,
+    Turntable,
     Viewport,
     build_view_matrix,
     compute_follow_azimuths,
@@ -24,7 +25,6 @@ from pybvh.bvhplot._viewport import (
     framing_bounds,
     make_viewport,
     panel_viewports,
-    turntable_azimuths,
 )
 from synthetic_scene import make_array_scene, make_array_view
 
@@ -164,10 +164,34 @@ class TestSchedule:
 
     def test_turntable_orbits_once(self, view):
         viewport = make_viewport([view], motion="turntable")
+        # v0.9.0's ramp, to the bit: the default speed is unchanged.
         np.testing.assert_array_equal(
-            viewport.azimuths, turntable_azimuths(view.azimuth, 24))
+            viewport.azimuths,
+            view.azimuth + np.linspace(0.0, 360.0, 24, endpoint=False))
         assert viewport.rotating
         assert viewport.azimuth_at(6) == pytest.approx(view.azimuth + 90.0)
+
+    def test_a_turntable_turns_once_every_period(self, view):
+        """The period is a speed, not a share of the clip: 12 frames
+        per revolution over 24 frames is two orbits, 30 degrees a frame."""
+        viewport = make_viewport([view], motion=Turntable(period=12))
+        np.testing.assert_allclose(
+            viewport.azimuths, view.azimuth + 30.0 * np.arange(24))
+        assert viewport.azimuth_at(15) == pytest.approx(view.azimuth + 450.0)
+
+    def test_a_period_longer_than_the_frames_turns_part_way(self, view):
+        viewport = make_viewport([view], motion=Turntable(period=48))
+        assert viewport.azimuth_at(23) == pytest.approx(view.azimuth + 172.5)
+
+    def test_a_period_of_the_frames_is_the_one_orbit_turntable(self, view):
+        once = make_viewport([view], motion="turntable")
+        timed = make_viewport([view], motion=Turntable(period=24))
+        np.testing.assert_array_equal(timed.azimuths, once.azimuths)
+
+    def test_a_turntable_period_is_a_positive_number_of_frames(self):
+        for period in (0.0, -3.0, float("nan"), float("inf")):
+            with pytest.raises(ValueError, match="period"):
+                Turntable(period=period)
 
     def test_follow_tracks_the_facing(self, view):
         turning = _turning_view(view)

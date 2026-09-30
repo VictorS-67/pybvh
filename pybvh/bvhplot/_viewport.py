@@ -60,6 +60,27 @@ class Camera(NamedTuple):
 
 
 @dataclass(frozen=True)
+class Turntable:
+    """A turntable camera that turns at a set speed: one revolution
+    every ``period`` frames, whatever the number of frames.
+
+    The ``motion`` a backend hands to :func:`make_viewport` when the
+    caller chose the speed; the plain ``"turntable"`` is the one orbit
+    over the frames, ``Turntable(period=num_frames)``. The period is a
+    number of frames of the picture, not necessarily whole, positive
+    and finite; a period shorter than the frames makes several orbits.
+    """
+
+    period: float
+
+    def __post_init__(self) -> None:
+        if not (np.isfinite(self.period) and self.period > 0):
+            raise ValueError(
+                f"A turntable's period must be a positive number of "
+                f"frames, got {self.period!r}.")
+
+
+@dataclass(frozen=True)
 class Viewport(GroundFrame):
     """The geometry of one picture, in world coordinates.
 
@@ -259,7 +280,7 @@ def make_viewport(
     views: Sequence[SkeletonView],
     *,
     framing: str = "still",
-    motion: str = "fixed",
+    motion: str | Turntable = "fixed",
     include_floor: bool = True,
     projection: str = "persp",
     fps: float | None = None,
@@ -277,9 +298,10 @@ def make_viewport(
         ``"clip"`` frames the box the motion sweeps
         (:func:`framing_bounds`), so a clip that travels far sideways
         does not shrink the character to fit a cube.
-    motion : {"fixed", "turntable", "follow"}
+    motion : {"fixed", "turntable", "follow"} or Turntable
         How the camera moves. ``"turntable"`` orbits once over the
-        clip (:func:`turntable_azimuths`); ``"follow"`` tracks the
+        clip, a :class:`Turntable` once every ``period`` frames
+        (:func:`turntable_azimuths`); ``"follow"`` tracks the
         character's rotation (:func:`compute_follow_azimuths`).
     include_floor : bool
         Whether the framing box must contain the ground plane. A still
@@ -311,19 +333,23 @@ def make_viewport(
     if framing not in _FRAMINGS:
         raise ValueError(
             f"Unknown framing {framing!r}. Choose from: {list(_FRAMINGS)}")
-    if motion not in _MOTIONS:
+    if not isinstance(motion, Turntable) and motion not in _MOTIONS:
         raise ValueError(
             f"Unknown motion {motion!r}. Choose from: {list(_MOTIONS)}")
 
     first = views[0]
+    num_frames = first.coords.shape[0]
+    if motion == "turntable":
+        motion = Turntable(period=num_frames)
     center, half_span = compute_unified_limits([v.coords for v in views])
     ground_side = min if first.up_sign > 0 else max
     floor_height = float(ground_side(v.floor_height for v in views))
 
     if motion == "follow":
         azimuths = compute_follow_azimuths(first, first.azimuth, fps=fps)
-    elif motion == "turntable":
-        azimuths = turntable_azimuths(first.azimuth, first.coords.shape[0])
+    elif isinstance(motion, Turntable):
+        azimuths = turntable_azimuths(
+            first.azimuth, num_frames, motion.period)
     else:
         azimuths = None
     if azimuths is not None and np.all(azimuths == azimuths[0]):
@@ -510,14 +536,20 @@ def box_corners(
 def turntable_azimuths(
     base_azim: float,
     num_frames: int,
+    period: float | None = None,
 ) -> npt.NDArray[np.float64]:
-    """Per-frame azimuths for a full 360-degree orbit over the clip.
+    """Per-frame azimuths of a camera turning one revolution every
+    *period* frames, by default one orbit over the *num_frames*.
 
     The trivial case of follow: a constant-rate azimuth ramp starting
-    at the base camera angle (endpoint excluded so looped playback
-    doesn't hold the identical view for two frames).
+    at the base camera angle, in degrees, not wrapped (a period
+    shorter than the frames climbs past 360). Frame ``num_frames``
+    would be the first view again after one default orbit, so a looped
+    playback does not hold the identical view for two frames.
     """
-    return base_azim + np.linspace(0.0, 360.0, num_frames, endpoint=False)
+    if period is None:
+        period = num_frames
+    return base_azim + np.arange(num_frames) * (360.0 / period)
 
 
 # The follow camera's smoothing window: a Gaussian of this standard

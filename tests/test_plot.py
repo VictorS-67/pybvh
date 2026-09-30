@@ -160,6 +160,18 @@ class TestEmptyClipList:
         with pytest.raises(ValueError, match="At least one Bvh object"):
             bvhplot.rest_pose([])
 
+    def test_frame(self):
+        with pytest.raises(ValueError, match="At least one Bvh object"):
+            bvhplot.frame([], 0)
+
+    def test_frame_checks_the_clips_before_the_backend(self):
+        with pytest.raises(ValueError, match="At least one Bvh object"):
+            bvhplot.frame([], 0, backend="no-such-backend")
+
+    def test_trajectory(self):
+        with pytest.raises(ValueError, match="At least one Bvh object"):
+            bvhplot.trajectory([])
+
 
 class TestComputeUnifiedLimits:
     def test_returns_center_and_span(self, bvh_example):

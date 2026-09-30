@@ -588,6 +588,7 @@ def frame(
         With ``backend="vedo"``: an ``(H, W, 3)`` uint8 RGB image
         array instead.
     """
+    clips = as_clip_list(bvh)
     _VALID_FRAME_BACKENDS = {"matplotlib", "vedo"}
     if backend not in _VALID_FRAME_BACKENDS:
         raise ValueError(
@@ -595,7 +596,7 @@ def frame(
             f"Choose from: {sorted(_VALID_FRAME_BACKENDS)}")
 
     frame_spec = coords if coords is not None else frame
-    scene = _prepare(bvh, frame_spec, centered, camera, labels)
+    scene = _prepare(clips, frame_spec, centered, camera, labels)
 
     if backend == "vedo":
         if not _module_importable("vedo"):
@@ -1206,7 +1207,8 @@ def trajectory(
     fig : matplotlib.figure.Figure
     ax : matplotlib.axes.Axes
     """
-    scene = _prepare(bvh, None, centered, "front", labels)
+    clips = as_clip_list(bvh)
+    scene = _prepare(clips, None, centered, "front", labels)
 
     # trajectory_mpl() computes its own per-skeleton horizontal axes
     # internally (drop each skeleton's own up axis).

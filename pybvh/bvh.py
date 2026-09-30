@@ -216,8 +216,8 @@ class Bvh:
         Returns ``0.0`` when ``frame_time == 0`` (the "unset" sentinel)
         rather than raising, mirroring the behaviour of :meth:`__str__`.
         Assigning sets ``frame_time`` to ``1 / fps``; the rate must be a
-        positive finite number, so ``0``, NaN and infinity raise
-        ``ValueError`` rather than mark the rate as unset.
+        positive finite number, so ``0``, a negative rate, NaN and
+        infinity raise ``ValueError`` rather than mark the rate as unset.
 
         Example
         -------

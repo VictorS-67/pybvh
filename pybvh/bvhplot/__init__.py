@@ -34,6 +34,7 @@ Install optional backends::
 """
 from __future__ import annotations
 
+import math
 import warnings
 
 import numpy as np
@@ -92,6 +93,7 @@ if TYPE_CHECKING:
     import matplotlib.figure
     import matplotlib.axes
     from ..bvh import Bvh
+    from ._viewport import Turntable
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +153,21 @@ def _resolve_render_backend(requested: str, ext: str) -> str:
     if ext in _MPL_ONLY_EXTENSIONS:
         return "matplotlib"
     return "opencv" if _module_importable("cv2") else "matplotlib"
+
+
+def _written_fps(backend_name: str, suffix: str, fps: float) -> float:
+    """The rate *backend_name* writes a ``suffix`` file at, given the
+    resolved *fps*: matplotlib rounds it (:func:`._matplotlib.written_fps`),
+    OpenCV and vedo write it as given."""
+    if backend_name == "matplotlib":
+        from ._matplotlib import written_fps
+        return written_fps(fps, suffix)
+    return fps
+
+
+# A turntable turning 180 degrees or more a frame looks frozen or turning
+# backwards: its period must be longer than this many frames.
+_MIN_TURNTABLE_FRAMES = 2
 
 
 def _resolve_fps(fps: float | None, frame_time: float) -> float:
@@ -707,6 +724,7 @@ def render(
     fps: float | None = None,
     backend: str = "auto",
     camera: str | tuple[float, float] = "front",
+    turntable_period: float | None = None,
     resolution: tuple[int, int] = (1920, 1080),
     sync: str = "truncate",
     follow: bool = False,
@@ -747,9 +765,54 @@ def render(
         ``.webp``, ``.apng``, ``.html``) always use matplotlib.
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``), the
-        special ``"turntable"`` (a full 360-degree orbit over the clip
-        duration, starting from the front view), or an
+        special ``"turntable"`` (an orbit starting from the front view,
+        by default one full 360-degree orbit over the clip duration;
+        see ``turntable_period``), or an
         ``(azimuth_deg, elevation_deg)`` tuple. Default ``"front"``.
+        The vedo backend has no turntable.
+    turntable_period : float, optional
+        Seconds per revolution of ``camera="turntable"``; any other
+        camera raises ``ValueError``. ``None`` (default) makes one
+        orbit over the clip, so the speed follows the clip's length
+        (82 degrees per second on the 4.4 s bundled walk). A period
+        sets the speed instead. Shorter than the clip, the camera
+        makes several orbits, the last one possibly partial, while the
+        clip plays once. Longer, the clip loops: it is played again
+        from its first frame until the orbit completes, so the video
+        lasts one period, rounded to the nearest frame, and the last
+        pass of the clip may be cut short. Rounding up instead would
+        always complete the orbit, but a period a hair over a whole
+        number of frames (as a rate read back from a frame time often
+        gives) would then end on a frame showing nearly the first view
+        again, which a looping GIF shows twice in a row.
+        The seconds are seconds of the video at the rate it is written
+        at: ``fps``, or the clip's own rate by default, except that the
+        matplotlib backend writes whole frames per second (``fps=29.5``
+        is written at 30) and an ``.html`` page whole milliseconds per
+        frame. GIF frame durations are further quantized to 10 ms by
+        the format, so a GIF may play slightly faster than written.
+        They are not seconds of the clip: the two differ when ``fps``
+        plays the clip faster or slower than recorded, and the period
+        is the speed the viewer sees. A clip whose ``frame_time`` is 0
+        (unset) is therefore timed by the ``fps`` it needs anyway. This
+        differs from ``ghost`` spacing and ``follow`` smoothing, which
+        are seconds of clip time because they describe the motion.
+        A period of 2 frames of the video or less raises
+        ``ValueError``: at 180 degrees a frame or more the camera looks
+        frozen or turning backwards. The default orbit is not checked,
+        so a clip of one or two frames still renders.
+        At each loop seam the pose jumps from the clip's last frame
+        back to its first, with no blending, while the camera turns on
+        without a break. Ghosts, the root trace and the frame counter
+        restart with the clip, so each pass is drawn as the first was
+        and only the camera differs; carrying them across the seam
+        would draw ghosts of the previous pass where the character no
+        longer is and a trace segment from the clip's end back to its
+        start. The clips of a comparison loop together, after
+        ``sync`` has given them one length. ``follow`` is ignored, as
+        under any turntable. A number of turns over the clip was the
+        rejected alternative: it cannot slow a short clip down without
+        cutting the orbit short.
     resolution : (int, int), optional
         Output resolution ``(width, height)`` in pixels.
         Default ``(1920, 1080)``. The OpenCV backend draws at
@@ -800,7 +863,9 @@ def render(
         (default ``False``).
     frame_counter : bool, optional
         Stamp a ``Frame f/F`` counter in the corner (OpenCV backend
-        only). Default ``False`` — publication output never stamps
+        only), counting frames of the clip: a looped turntable
+        (``turntable_period``) counts from 0 again on each pass.
+        Default ``False`` — publication output never stamps
         text; pass ``True`` to restore the pre-0.9.0 counter.
     match_fps : str or None, optional
         How to handle clips with different frame rates in side-by-side
@@ -851,6 +916,15 @@ def render(
     # "turntable" is a camera *motion*, not an angle: orbit from the
     # front view. It overrides follow (both prescribe the azimuth).
     turntable = camera == "turntable"
+    if turntable_period is not None:
+        if not turntable:
+            raise ValueError(
+                f"turntable_period= sets the speed of camera='turntable', "
+                f"not of camera={camera!r}.")
+        if not (math.isfinite(turntable_period) and turntable_period > 0):
+            raise ValueError(
+                f"turntable_period must be a positive number of seconds, "
+                f"got {turntable_period!r}.")
     if turntable:
         camera = "front"
 
@@ -862,16 +936,39 @@ def render(
 
     scene = _prepare(clips, None, centered, camera, labels, pad=pad)
 
-    # A custom (azim, elev) tuple means the camera is fixed; follow is
-    # a no-op in that case because there's no orientation to track.
-    # Turntable overrides follow — both prescribe the azimuth.
-    effective_follow = (follow and not turntable
-                        and not isinstance(camera, tuple))
-    # The one value the backends hand to the viewport.
-    motion = ("turntable" if turntable
-              else "follow" if effective_follow else "fixed")
-
     actual_fps = _resolve_fps(fps, scene.frame_time)
+
+    # The one value the backends hand to the viewport. Turntable
+    # overrides follow — both prescribe the azimuth. A custom (azim,
+    # elev) tuple means the camera is fixed; follow is a no-op in that
+    # case because there's no orientation to track.
+    motion: str | Turntable
+    if turntable:
+        from ._viewport import Turntable
+        if turntable_period is None:
+            period = float(scene.num_frames)
+        else:
+            video_fps = _written_fps(
+                backend_name, filepath.suffix, actual_fps)
+            period = turntable_period * video_fps
+            if period <= _MIN_TURNTABLE_FRAMES:
+                shortest = _MIN_TURNTABLE_FRAMES / video_fps
+                raise ValueError(
+                    f"turntable_period must be longer than {shortest:g} s "
+                    f"at {video_fps:g} fps, the rate the video is written "
+                    f"at ({_MIN_TURNTABLE_FRAMES} frames), got "
+                    f"{turntable_period!r}: a camera turning 180 degrees "
+                    f"or more a frame looks frozen or turning backwards.")
+        # Rounded, not ceiled: a period of 360.0000001 frames (a rate
+        # read back from a frame time) must not add a 361st frame.
+        video_frames = round(period)
+        if video_frames > scene.num_frames:
+            scene = scene.looped(video_frames)
+        motion = Turntable(period=period)
+    elif follow and not isinstance(camera, tuple):
+        motion = "follow"
+    else:
+        motion = "fixed"
 
     if (backend == "auto" and backend_name == "matplotlib"
             and filepath.suffix.lower() not in _MPL_ONLY_EXTENSIONS):
@@ -1025,8 +1122,6 @@ def play(
     None
         All backends display or open their viewer as a side effect.
     """
-    import math
-
     clips = as_clip_list(bvh)
 
     valid_backends = {"auto", "k3d", "vedo", "opencv", "matplotlib"}

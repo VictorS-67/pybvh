@@ -22,7 +22,7 @@ from ._style import (
     ghost_schedule,
     PALETTE_RGB,
 )
-from ._viewport import Viewport, panel_viewports
+from ._viewport import Turntable, Viewport, panel_viewports
 from ._scene import Scene, SkeletonView
 from ._colors import bone_colors_255, floor_palette, node_colors_255
 
@@ -209,11 +209,15 @@ def _draw_skeletons_on_frame(
 
     ``ghost`` faded trailing poses draw behind the live skeleton
     (oldest first); ``trajectory`` draws the root trace on the floor up
-    to the current frame (solid thin line — cv2 has no dashes).
+    to the current frame (solid thin line — cv2 has no dashes). Both
+    reach back only to the start of the frame's pass
+    (:meth:`~._scene.Scene.pass_start`), so a looped Scene draws every
+    pass as the first.
     """
     import cv2
 
     n_skeletons = scene.num_skeletons
+    pass_start = scene.pass_start(frame_idx)
     # Primitive sizes scale with the drawing resolution (1080p is the
     # 1:1 anchor: bone_width 3.0 -> 3 px there, twice that at 4K, and
     # supersampled drawing surfaces scale up with them).
@@ -242,8 +246,8 @@ def _draw_skeletons_on_frame(
         def project(world_pts):
             return viewport.project(world_pts, (panel_w, h), frame_idx)
 
-        if trajectory and frame_idx >= 1:
-            path = ctx.trace_path[:frame_idx + 1]
+        if trajectory and frame_idx > pass_start:
+            path = ctx.trace_path[pass_start:frame_idx + 1]
             cv2.polylines(canvas, [project(path)], False, ctx.trace_bgr,
                           thin, cv2.LINE_AA)
 
@@ -263,7 +267,7 @@ def _draw_skeletons_on_frame(
                        * px_scale + 0.5))
             for j in reversed(range(ghost)):     # oldest first
                 gf = frame_idx - (j + 1) * ctx.ghost_lag
-                if gf < 0:
+                if gf < pass_start:
                     continue
                 gpts = project(view.coords[gf])
                 for b in painter_order(view.coords[gf]):
@@ -314,7 +318,7 @@ def _generate_frames(
     style: Style,
     resolution: tuple[int, int],
     *,
-    motion: str = "fixed",
+    motion: str | Turntable = "fixed",
     fps: float | None = None,
     frame_counter: bool = False,
     ghost: int = 0,
@@ -335,7 +339,7 @@ def _generate_frames(
         axis indicator (the pre-0.9.0 ``show_axis``).
     resolution : (int, int)
         ``(width, height)`` in pixels.
-    motion : str, optional
+    motion : str or Turntable, optional
         How each panel's camera moves, handed to the viewport
         untouched (:func:`~._viewport.make_viewport`).
     fps : float, optional
@@ -392,7 +396,8 @@ def _generate_frames(
         # Text and the axis indicator stamp AFTER the downsample so
         # they stay crisp at the output resolution.
         if frame_counter:
-            fc_text = f"Frame {f}/{num_frames - 1}"
+            clip_frame = f - scene.pass_start(f)
+            fc_text = f"Frame {clip_frame}/{scene.pass_length - 1}"
             fc_x = max(5, w - 200)
             cv2.putText(
                 img, fc_text,
@@ -416,7 +421,7 @@ def render_opencv(
     fps: float,
     resolution: tuple[int, int],
     *,
-    motion: str = "fixed",
+    motion: str | Turntable = "fixed",
     frame_counter: bool = False,
     ghost: int = 0,
     trajectory: bool = False,
@@ -446,9 +451,10 @@ def render_opencv(
         Frames per second.
     resolution : (int, int)
         ``(width, height)`` in pixels.
-    motion : str, optional
-        ``"fixed"`` (default), ``"turntable"`` or ``"follow"``, handed
-        to the viewport untouched.
+    motion : str or Turntable, optional
+        ``"fixed"`` (default), ``"turntable"``, ``"follow"`` or a
+        :class:`~._viewport.Turntable`, handed to the viewport
+        untouched.
 
     Returns
     -------

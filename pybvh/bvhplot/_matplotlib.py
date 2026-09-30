@@ -30,7 +30,7 @@ from ._style import (
     bone_colors_for_view,
     ghost_schedule,
 )
-from ._viewport import Viewport, make_viewport, panel_viewports
+from ._viewport import Turntable, Viewport, make_viewport, panel_viewports
 from ._scene import Scene, SkeletonView
 from ._colors import floor_palette
 
@@ -674,28 +674,59 @@ def _wrap_update_with_extras(
     ghost_slots,
     trace_lines,
 ):
-    """Extend an animation update fn with ghost and trace updates."""
+    """Extend an animation update fn with ghost and trace updates.
+
+    Ghosts and the trace reach back only to the start of the frame's
+    pass (:meth:`~._scene.Scene.pass_start`), so a looped Scene draws
+    every pass as the first.
+    """
     trace_paths = [viewport.ground_path(view.coords[:, 0])
                    for view, viewport in zip(scene.views, viewports)]
     empty = np.empty((0, 2, 3))
 
     def update(f: int):
         artists = base_update(f)
+        pass_start = scene.pass_start(f)
         for view, bones, slots, trace, path in zip(
                 scene.views, bones_arrays, ghost_slots, trace_lines,
                 trace_paths):
             for collection, lag in slots:
                 gf = f - lag
                 collection.set_segments(
-                    view.coords[gf][bones] if gf >= 0 else empty)
+                    view.coords[gf][bones] if gf >= pass_start else empty)
                 artists.append(collection)
             if trace is not None:
-                upto = path[:f + 1]
+                upto = path[pass_start:f + 1]
                 trace.set_data_3d(upto[:, 0], upto[:, 1], upto[:, 2])
                 artists.append(trace)
         return artists
 
     return update
+
+
+def written_fps(fps: float, suffix: str) -> float:
+    """The rate :func:`render_mpl` writes a file at, given *fps*.
+
+    The movie writers (ffmpeg for video, Pillow for ``.gif``,
+    ``.webp`` and ``.apng``) are handed whole frames per second
+    (:func:`_movie_writer_fps`), the type matplotlib documents for
+    them, so *fps* is rounded to the nearest: ``fps=29.5`` is written
+    at 30. An ``.html`` page is handed *fps* unchanged and embeds a
+    whole number of milliseconds per frame, which matplotlib's HTML
+    writer computes as ``1000 // fps`` (floored, in matplotlib 3.9 and
+    3.11 alike): 33 ms at 30 fps, so the page plays at about 30.3.
+    Pillow then stores GIF frame durations in centiseconds, a limit of
+    the format not counted here.
+    """
+    if suffix.lower() == ".html":
+        return 1000.0 / (1000 // fps)
+    return _movie_writer_fps(fps)
+
+
+def _movie_writer_fps(fps: float) -> int:
+    """The whole frames per second matplotlib's movie writers are
+    handed."""
+    return round(fps)
 
 
 def render_mpl(
@@ -704,7 +735,7 @@ def render_mpl(
     filepath: Path,
     fps: float,
     *,
-    motion: str = "fixed",
+    motion: str | Turntable = "fixed",
     resolution: tuple[int, int] = (1920, 1080),
     ghost: int = 0,
     trajectory: bool = False,
@@ -786,14 +817,19 @@ def render_mpl(
         fig, update, frames=num_frames, interval=interval)
 
     if writer_name == "jshtml":
-        html_content = anim.to_jshtml()
+        # Hand the rate explicitly: to_jshtml would otherwise derive it
+        # from the whole-millisecond interval, and the HTML writer's
+        # floor division would then drop another millisecond (1000 //
+        # (1000 / 33) is 32).
+        html_content = anim.to_jshtml(fps=fps)
         with open(filepath, 'w') as f:
             f.write(html_content)
     else:
         # Pass fps explicitly: the writer's rate would otherwise be
         # derived from the integer-millisecond interval, quantizing e.g.
         # 24 fps (41.67 ms) to 1000/41 ≈ 24.4 fps.
-        anim.save(filepath, writer=writer_name, fps=round(fps))
+        anim.save(filepath, writer=writer_name,
+                  fps=_movie_writer_fps(fps))
 
     plt.close(fig)
     return filepath

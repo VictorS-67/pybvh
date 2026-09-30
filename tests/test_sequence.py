@@ -118,6 +118,182 @@ class TestGhostAndTrajectory:
             bvhplot.render(bvh, tmp_path / "x.mp4", ghost=-1)
 
 
+def _gif_frames(path):
+    from PIL import Image, ImageSequence
+    with Image.open(path) as gif:
+        return [np.asarray(frame.convert("RGB"))
+                for frame in ImageSequence.Iterator(gif)]
+
+
+def _still(bvh, num_frames):
+    """The clip's first pose held for *num_frames* frames: two frames of
+    a turntable over it look alike exactly when the camera does."""
+    still = bvh[0:num_frames].copy()
+    still.root_pos = np.repeat(bvh.root_pos[:1], num_frames, axis=0)
+    still.joint_angles = np.repeat(bvh.joint_angles[:1], num_frames, axis=0)
+    return still
+
+
+class TestTurntablePeriod:
+    """``turntable_period`` is seconds of the video per revolution,
+    at the rate the render plays (``fps``, 10 here)."""
+
+    def _render(self, clip, tmp_path, fps=10, **options):
+        pytest.importorskip("cv2")
+        path = bvhplot.render(
+            clip, tmp_path / "tt.gif", backend="opencv", fps=fps,
+            camera="turntable", resolution=(160, 120), **options)
+        return _gif_frames(path)
+
+    def test_a_period_shorter_than_the_clip_makes_several_orbits(
+            self, bvh, tmp_path):
+        # 0.4 s at 10 fps: a revolution every 4 frames, two over 8.
+        frames = self._render(_still(bvh, 8), tmp_path, turntable_period=0.4)
+        assert len(frames) == 8
+        for f in range(4):
+            np.testing.assert_array_equal(frames[f], frames[f + 4])
+        assert not np.array_equal(frames[0], frames[2])
+
+    def test_a_period_longer_than_the_clip_loops_it_until_the_orbit_ends(
+            self, bvh, tmp_path):
+        # 1.2 s at 10 fps: 12 frames, the 4-frame clip three times over,
+        # while the camera keeps turning across the seams.
+        frames = self._render(_still(bvh, 4), tmp_path, turntable_period=1.2)
+        assert len(frames) == 12
+        assert not np.array_equal(frames[0], frames[4])
+
+    def test_the_loop_ends_on_the_frame_nearest_the_period(
+            self, bvh, tmp_path):
+        frames = self._render(bvh[0:4], tmp_path, turntable_period=1.26)
+        assert len(frames) == 13
+
+    def test_a_period_of_the_clips_length_is_the_default_orbit(
+            self, bvh, tmp_path):
+        clip = bvh[0:6]
+        default = self._render(clip, tmp_path)
+        timed = self._render(clip, tmp_path, turntable_period=0.6)
+        assert len(timed) == len(default) == 6
+        for mine, theirs in zip(timed, default):
+            np.testing.assert_array_equal(mine, theirs)
+
+    def test_a_clip_without_a_rate_is_timed_by_fps(self, bvh, tmp_path):
+        clip = bvh[0:4].copy()
+        clip.frame_time = 0
+        frames = self._render(clip, tmp_path, turntable_period=1.2)
+        assert len(frames) == 12
+
+    @pytest.mark.parametrize("sync", ["truncate", "pad"])
+    def test_the_clips_of_a_comparison_loop_together(
+            self, bvh, tmp_path, sync):
+        pytest.importorskip("cv2")
+        path = bvhplot.render(
+            [bvh[0:4], bvh[0:6]], tmp_path / "tt.gif", backend="opencv",
+            fps=10, camera="turntable", turntable_period=1.2, sync=sync,
+            resolution=(160, 120))
+        assert len(_gif_frames(path)) == 12
+
+    def test_the_period_is_timed_at_the_rate_the_file_is_written_at(
+            self, bvh, tmp_path):
+        """matplotlib writes whole frames per second: fps=9.5 is
+        written at 10 fps, so a 1.2 s period is 12 frames of 100 ms,
+        not the 11 frames 1.2 * 9.5 would give."""
+        from PIL import Image
+        path = bvhplot.render(
+            bvh[0:4], tmp_path / "tt.gif", backend="matplotlib", fps=9.5,
+            camera="turntable", turntable_period=1.2, resolution=(160, 120))
+        with Image.open(path) as gif:
+            duration_ms = gif.info["duration"]
+        assert len(_gif_frames(path)) == 12
+        assert duration_ms == 100
+
+    def test_an_html_page_plays_the_period_it_was_scheduled_for(
+            self, bvh, tmp_path):
+        """The page embeds whole milliseconds per frame (33 at 30 fps):
+        the frames it holds, played at that interval, last the period to
+        the nearest frame."""
+        import re
+        path = bvhplot.render(
+            bvh[0:4], tmp_path / "tt.html", backend="matplotlib", fps=30,
+            camera="turntable", turntable_period=1.2, resolution=(160, 120))
+        page = path.read_text()
+        num_frames = int(re.search(r"new Array\((\d+)\)", page).group(1))
+        interval_ms = float(re.search(
+            r"new Animation\(frames, img_id, slider_id, ([0-9.]+)",
+            page).group(1))
+        assert interval_ms == 33
+        assert abs(num_frames * interval_ms - 1200) <= interval_ms / 2
+
+    def test_opencv_writes_at_the_rate_it_is_given(self, bvh, tmp_path):
+        frames = self._render(bvh[0:4], tmp_path, fps=9.5,
+                              turntable_period=1.2)
+        assert len(frames) == round(1.2 * 9.5)
+
+    def test_follow_is_ignored_under_a_timed_turntable(self, bvh, tmp_path):
+        clip = bvh[0:6]
+        plain = self._render(clip, tmp_path, turntable_period=1.2)
+        following = self._render(clip, tmp_path, turntable_period=1.2,
+                                 follow=True)
+        assert len(following) == len(plain) == 12
+        for mine, theirs in zip(following, plain):
+            np.testing.assert_array_equal(mine, theirs)
+
+    def test_a_period_of_two_frames_or_less_is_rejected(self, bvh, tmp_path):
+        """At 180 degrees a frame or more the camera looks frozen or
+        turning backwards; the error names the minimum in seconds."""
+        with pytest.raises(ValueError, match=r"0\.2 s at 10 fps"):
+            self._render(bvh[0:4], tmp_path, turntable_period=0.2)
+
+    def test_a_period_just_over_two_frames_is_accepted(self, bvh, tmp_path):
+        frames = self._render(bvh[0:4], tmp_path, turntable_period=0.25)
+        assert len(frames) == 4
+
+    def test_the_default_orbit_still_turns_a_two_frame_clip(
+            self, bvh, tmp_path):
+        frames = self._render(bvh[0:2], tmp_path)
+        assert len(frames) == 2
+
+    def test_the_matplotlib_backend_loops_too(self, bvh, tmp_path):
+        path = bvhplot.render(
+            bvh[0:4], tmp_path / "tt.gif", backend="matplotlib", fps=10,
+            camera="turntable", turntable_period=0.8, resolution=(160, 120))
+        assert len(_gif_frames(path)) == 8
+
+    @pytest.mark.parametrize("period", [0, -1.0, float("nan"), float("inf")])
+    def test_the_period_is_a_positive_number_of_seconds(
+            self, bvh, tmp_path, period):
+        with pytest.raises(ValueError, match="turntable_period"):
+            bvhplot.render(bvh[0:4], tmp_path / "x.gif", camera="turntable",
+                           turntable_period=period)
+
+    def test_the_period_needs_the_turntable_camera(self, bvh, tmp_path):
+        with pytest.raises(ValueError, match="turntable_period"):
+            bvhplot.render(bvh[0:4], tmp_path / "x.gif", camera="side",
+                           turntable_period=2.0)
+
+    def test_the_vedo_backend_has_no_turntable(self, bvh, tmp_path):
+        pytest.importorskip("vedo")
+        with pytest.raises(ValueError, match="turntable"):
+            bvhplot.render(bvh[0:4], tmp_path / "x.gif", backend="vedo",
+                           camera="turntable", turntable_period=2.0)
+
+
+class TestHtmlTiming:
+    @pytest.mark.parametrize("fps, interval_ms", [
+        (0.5, 2000), (1.25, 800), (30, 33)])
+    def test_an_html_page_embeds_the_interval_of_the_rate_asked(
+            self, bvh, tmp_path, fps, interval_ms):
+        """Without a turntable too: the page is handed the caller's
+        rate, not a rounded one, and embeds ``1000 // fps`` ms."""
+        import re
+        path = bvhplot.render(bvh[0:2], tmp_path / "x.html",
+                              backend="matplotlib", fps=fps,
+                              resolution=(160, 120))
+        embedded = float(re.search(
+            r"new Animation\(frames, img_id, slider_id, ([0-9.]+)",
+            path.read_text()).group(1))
+        assert embedded == interval_ms
+
+
 class TestPhase3Export:
     def test_turntable_opencv(self, bvh, tmp_path):
         pytest.importorskip("cv2")

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+import inspect
 import re
 
 import numpy as np
@@ -10,6 +11,7 @@ from pathlib import Path
 
 from pybvh import read_bvh_file, bvhplot
 from pybvh.analysis import root_trajectory
+from pybvh.bvhplot import _k3d, _opencv, _vedo
 from pybvh.bvhplot._from_bvh import (
     get_skeleton_lines,
     normalize_input,
@@ -1143,6 +1145,61 @@ class TestFpsResolution:
         (scene, fps), = played
         assert fps == 120
         assert scene.views[0].coords.shape[0] == 61
+
+    @pytest.mark.parametrize("rate, step, played_fps", [
+        (100.0, 4, 25.0),
+        (31.0, 2, 15.5),
+        (30.0, 1, 30.0),
+    ])
+    def test_play_cap_keeps_every_step_th_frame_at_its_moment(
+            self, bvh_test2, played, rate, step, played_fps):
+        """The step is the smallest whole number that brings the clip
+        rate to 30 fps or below. The kept frames keep their moments, so
+        the frame time grows by the step and the rate played is the one
+        the subsampled Scene states: the clip rate over the step, which
+        is 30 only when the clip rate is exactly 30 times the step."""
+        bvh_test2.frame_time = 1.0 / rate
+        bvhplot.play(bvh_test2, backend="matplotlib")
+        (scene, fps), = played
+        assert_view_shows(scene.views[0], bvh_test2, slice(None, None, step))
+        assert scene.frame_time == pytest.approx(step / rate)
+        assert fps == pytest.approx(played_fps)
+
+    @pytest.mark.parametrize("backend, library, module, player, step, "
+                             "played_fps", [
+        pytest.param("k3d", "k3d", _k3d, "play_k3d", 4, 30.0, id="k3d"),
+        pytest.param("vedo", "vedo", _vedo, "play_vedo", 1, 120.0,
+                     id="vedo"),
+        # the notebook inline video
+        pytest.param("opencv", "cv2", _opencv, "render_opencv", 1, 120.0,
+                     id="opencv"),
+    ])
+    def test_play_caps_the_rate_only_where_the_player_needs_it(
+            self, bvh_test2, monkeypatch, backend, library, module, player,
+            step, played_fps):
+        """k3d widgets cannot keep up with 120 fps; vedo's timer and a
+        notebook video player can."""
+        pytest.importorskip(library)
+        signature = inspect.signature(getattr(module, player))
+        calls = []
+
+        def record(*args, **kwargs):
+            given = signature.bind(*args, **kwargs).arguments
+            calls.append((given["scene"], given["fps"]))
+
+        monkeypatch.setattr(module, player, record)
+        if backend == "opencv":
+            ipython_display = pytest.importorskip("IPython.display")
+            monkeypatch.setattr(bvhplot, "_detect_notebook", lambda: True)
+            # the video file is never written: show nothing
+            monkeypatch.setattr(ipython_display, "Video",
+                                lambda *args, **kwargs: None)
+            monkeypatch.setattr(ipython_display, "display",
+                                lambda *args, **kwargs: None)
+        bvhplot.play(bvh_test2, backend=backend)
+        (scene, fps), = calls
+        assert scene.num_frames == len(range(0, len(bvh_test2), step))
+        assert fps == pytest.approx(played_fps)
 
 
 class TestPlaySync:

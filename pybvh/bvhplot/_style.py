@@ -305,6 +305,39 @@ def effective_color_mode(style: Style, n_skeletons: int) -> str:
     return style.color_mode
 
 
+def spine_color(style: Style) -> str:
+    """The style's spine color: the color of every bone no limb chain
+    claims, and of the root joint, under chain colors.
+
+    A ``chain_colors`` without a ``"spine"`` entry falls back to the
+    paper preset's.
+    """
+    return style.chain_colors.get("spine", CHAIN_COLORS["spine"])
+
+
+def skeleton_color(
+    style: Style,
+    view_index: int,
+    n_skeletons: int,
+) -> tuple[float, float, float] | str:
+    """The one color that stands for a whole skeleton, in
+    matplotlib-friendly form.
+
+    Under the flat color modes it is the color all its bones share:
+    the view's palette color (``"skeleton"``) or ``style.bone_color``
+    (``"single"``). Under ``"chains"`` no bone color stands for the
+    whole skeleton, so it is :func:`spine_color`, the color the root
+    joint takes, rather than the first bone's color, which would
+    depend on the order the file lists the root's children in.
+    """
+    mode = effective_color_mode(style, n_skeletons)
+    if mode == "skeleton":
+        return PALETTE_MPL[view_index % len(PALETTE_MPL)]
+    if mode == "single":
+        return style.bone_color
+    return spine_color(style)
+
+
 def bone_colors_for_view(
     view: SkeletonView,
     style: Style,
@@ -315,17 +348,15 @@ def bone_colors_for_view(
 
     Each entry is a hex string or an RGB float tuple, parallel to
     ``view.bones``. The OpenCV backend converts these at its border.
+    Under the flat color modes every bone takes :func:`skeleton_color`.
     """
-    n_bones = len(view.bones)
-    mode = effective_color_mode(style, n_skeletons)
-    if mode == "skeleton":
-        return [PALETTE_MPL[view_index % len(PALETTE_MPL)]] * n_bones
-    if mode == "single":
-        return [style.bone_color] * n_bones
-    # chains — a skeleton with no L/R pairs is all-"spine" in
-    # view.bone_chains, i.e. a single dark color (the documented fallback).
-    spine_color = style.chain_colors.get("spine", "#3A3F4A")
-    return [style.chain_colors.get(chain_name, spine_color)
+    if effective_color_mode(style, n_skeletons) != "chains":
+        flat = skeleton_color(style, view_index, n_skeletons)
+        return [flat] * len(view.bones)
+    # A skeleton with no L/R pairs is all-"spine" in view.bone_chains,
+    # i.e. a single dark color (the documented fallback).
+    spine = spine_color(style)
+    return [style.chain_colors.get(chain_name, spine)
             for chain_name in view.bone_chains]
 
 

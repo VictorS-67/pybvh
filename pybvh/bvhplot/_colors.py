@@ -15,7 +15,7 @@ import numpy.typing as npt
 from typing import TYPE_CHECKING
 
 from ._style import (
-    PALETTE_MPL, Style, bone_colors_for_view, effective_color_mode,
+    Style, bone_colors_for_view, skeleton_color, spine_color,
 )
 
 if TYPE_CHECKING:
@@ -111,22 +111,9 @@ def skeleton_color_255(
     view_index: int,
     n_skeletons: int,
 ) -> tuple[int, int, int]:
-    """The one color that stands for a whole skeleton, as 0-255 RGB.
-
-    What a skeleton's label and root trail are drawn in. Under the
-    flat color modes it is the color all its bones share: the view's
-    palette color (``"skeleton"``) or ``style.bone_color``
-    (``"single"``). Under ``"chains"`` no bone color stands for the
-    whole skeleton, so it is the spine color, the one the root joint
-    takes in :func:`node_colors_255` (the first bone's color would
-    depend on the order the file lists the root's children in).
-    """
-    mode = effective_color_mode(style, n_skeletons)
-    if mode == "skeleton":
-        return rgb255(PALETTE_MPL[view_index % len(PALETTE_MPL)])
-    if mode == "single":
-        return rgb255(style.bone_color)
-    return rgb255(style.chain_colors.get("spine", "#3A3F4A"))
+    """:func:`~._style.skeleton_color` as 0-255 RGB: what a skeleton's
+    label and root trail are drawn in."""
+    return rgb255(skeleton_color(style, view_index, n_skeletons))
 
 
 def node_colors_255(
@@ -145,7 +132,7 @@ def node_colors_255(
     """
     if bone_rgb is None:
         bone_rgb = bone_colors_255(view, style, view_index, n_skeletons)
-    spine = rgb255(style.chain_colors.get("spine", "#3A3F4A"))
+    spine = rgb255(spine_color(style))
     n_nodes = view.coords.shape[1]
     out = np.empty((n_nodes, 3), dtype=np.uint8)
     out[:] = spine

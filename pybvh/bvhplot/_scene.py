@@ -15,6 +15,8 @@ from typing import Literal
 import numpy as np
 import numpy.typing as npt
 
+from .._warnings import user_stacklevel
+
 UP_AXIS_INDEX = {'x': 0, 'y': 1, 'z': 2}
 _SIGNED_AXES = ('+x', '-x', '+y', '-y', '+z', '-z')
 
@@ -716,8 +718,6 @@ class Scene:
           ulps from 1 comes from coords whose unit was measured, and is
           shown as ``×1``.
         """
-        # stacklevel 3: past this method and the entry point that calls
-        # it, to the user's call.
         reference = self.views[0]
         if reference.body_size_measure not in REST_POSE_MEASURES:
             warnings.warn(
@@ -725,7 +725,7 @@ class Scene:
                 f"measured from its rest pose (body_size_measure "
                 f"{reference.body_size_measure!r}), so there is no height "
                 f"to match; every skeleton is drawn at its own size.",
-                UserWarning, stacklevel=3)
+                UserWarning, stacklevel=user_stacklevel())
             return self
         factors = []
         for index, v in enumerate(self.views):
@@ -735,7 +735,7 @@ class Scene:
                     f"measured from its rest pose (body_size_measure "
                     f"{v.body_size_measure!r}); it is drawn at its own "
                     f"size.",
-                    UserWarning, stacklevel=3)
+                    UserWarning, stacklevel=user_stacklevel())
                 factors.append(1.0)
                 continue
             factors.append(reference.body_size / v.body_size)

@@ -674,8 +674,10 @@ class TestSizeMatched:
         bodiless = self._bodiless_view(moving)
         big = _grown(make_array_view(), 7.0, label="big")
         scene = Scene(views=[make_array_view(), bodiless, big])
-        with pytest.warns(UserWarning, match="view 1"):
+        with pytest.warns(UserWarning, match="view 1") as record:
             matched = scene.size_matched()
+        # called directly, the warning names this line
+        assert record[0].filename == __file__
         assert matched.views[1] == bodiless
         assert matched.views[2].label == "big ×0.14"
 

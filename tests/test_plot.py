@@ -1992,6 +1992,18 @@ class TestMatchSize:
             np.testing.assert_array_equal(
                 matched_view.rest_coords, plain_view.rest_coords)
 
+    # A skeleton with every offset zero has no left/right geometry
+    # either, and says so when its facing is read; not what is tested.
+    NO_FACING = "ignore:No usable left/right geometry:UserWarning"
+
+    @staticmethod
+    def _sizeless(clip):
+        """*clip* with every rest-pose offset zero: no height to match."""
+        for node in clip.nodes:
+            node.offset = np.zeros(3)
+        return clip
+
+    @pytest.mark.filterwarnings(NO_FACING)
     @pytest.mark.parametrize(
         "entry_point, backend, module, function", SINGLE_SCENE)
     def test_a_skeleton_with_no_size_warns_at_the_users_call(
@@ -2003,10 +2015,29 @@ class TestMatchSize:
         pytest.importorskip(backend)
         reached(importlib.import_module(f"pybvh.bvhplot.{module}"), function)
         walk, test2 = clips
-        for node in test2.nodes:
-            node.offset = np.zeros(3)
         with pytest.warns(UserWarning, match="view 1") as record:
-            self._draw(entry_point, backend, [walk, test2], tmp_path,
-                       match_size=True)
+            self._draw(entry_point, backend, [walk, self._sizeless(test2)],
+                       tmp_path, match_size=True)
         (warning,) = [w for w in record if "view 1" in str(w.message)]
+        assert warning.filename == __file__
+
+    @pytest.mark.filterwarnings(NO_FACING)
+    @pytest.mark.parametrize("method, module, function", [
+        ("play", "_vedo", "play_vedo"),
+        ("plot_frame", "_vedo_offscreen", "frame_vedo"),
+        ("render", "_vedo_offscreen", "render_vedo"),
+    ])
+    def test_through_a_bvh_method_the_warning_names_the_users_call(
+            self, bvh_test2, reached, tmp_path, method, module, function):
+        """Bvh.play, plot_frame and render wrap the bvhplot functions:
+        the warning still names the user's line, not the wrapper's."""
+        pytest.importorskip("vedo")
+        reached(importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        sizeless = self._sizeless(bvh_test2)
+        args = (tmp_path / "clip.mp4",) if method == "render" else ()
+        kwargs = {} if method == "plot_frame" else {"fps": 30}
+        with pytest.warns(UserWarning, match="first view") as record:
+            getattr(sizeless, method)(*args, backend="vedo", match_size=True,
+                                      **kwargs)
+        (warning,) = [w for w in record if "first view" in str(w.message)]
         assert warning.filename == __file__

@@ -23,7 +23,8 @@ BONE_CHAINS = ["spine", "spine", "l_arm", "l_arm", "r_arm", "r_arm",
 # Joint L/R pairs in node index space, the facing geometry's pairs.
 LR_PAIRS = np.array([[3, 5], [4, 6], [7, 8]], dtype=np.intp)
 
-# Rest pose: y up, facing +z, root at the origin. With up = +y and
+# Rest pose: y up, facing +z, feet on the ground y = 0 and the root
+# (Hips) one unit above the origin, at [0, 1, 0]. With up = +y and
 # forward = +z the character's left is up x forward = +x.
 REST_COORDS = np.array([
     [0.00, 1.0, 0.0],   # Hips

@@ -1493,6 +1493,33 @@ class TestReadWriteReadEquality:
         bvh = read_bvh_file(PARSER_FIXTURES_DIR / "full_precision_frame_time.bvh")
         assert bvh.frame_time == float("0.0417083750417")
 
+    @pytest.mark.parametrize("literal", ["nan", "inf", "-inf"])
+    def test_non_finite_frame_time_raises_naming_value_and_file(
+            self, tmp_path, literal):
+        content = (
+            "HIERARCHY\n"
+            "ROOT Hips\n"
+            "{\n"
+            "  OFFSET 0.0 0.0 0.0\n"
+            "  CHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation\n"
+            "  End Site\n"
+            "  {\n"
+            "    OFFSET 0.0 10.0 0.0\n"
+            "  }\n"
+            "}\n"
+            "MOTION\n"
+            "Frames: 1\n"
+            f"Frame Time: {literal}\n"
+            "0 0 0 0 0 0\n"
+        )
+        p = tmp_path / "non_finite_frame_time.bvh"
+        p.write_text(content)
+        with pytest.raises(ValueError) as excinfo:
+            read_bvh_file(p)
+        message = str(excinfo.value)
+        assert f"got {literal}" in message
+        assert str(p) in message
+
     def test_six_channel_non_root_joint_raises(self, tmp_path):
         """Layouts pybvh doesn't model get a clear error instead of silent corruption."""
         content = (

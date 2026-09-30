@@ -492,17 +492,17 @@ def rest_pose(
     ax : Axes or list[Axes]
         Single axes when one skeleton, list when multiple.
     """
-    bvh_list = as_clip_list(bvh)
+    clips = as_clip_list(bvh)
 
     # Build rest-pose coords as (1, N, 3) arrays and go through the
     # same pipeline as frame(), bypassing spatial_coords.
     from ._matplotlib import frame_mpl
 
     coords_list = [b.rest_pose_positions()[np.newaxis]
-                   for b in bvh_list]
+                   for b in clips]
     # Rest-pose coords put the root at the origin, so the canonical
     # world floor does not apply — the floor is the pose's lowest point.
-    scene = make_scene(bvh_list, coords_list, camera, labels,
+    scene = make_scene(clips, coords_list, camera, labels,
                        canonical_floor=False)
 
     return frame_mpl(scene, resolve_style(style),

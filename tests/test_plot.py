@@ -166,9 +166,20 @@ class TestEmptyClipList:
         with pytest.raises(ValueError, match=self.MESSAGE):
             bvhplot.frame([], 0)
 
-    def test_frame_checks_the_clips_before_the_backend(self):
+    @pytest.mark.parametrize("entry, args, invalid", [
+        ("rest_pose", (), {"style": "no-such-style"}),
+        ("frame", (0,), {"backend": "no-such-backend"}),
+        ("trajectory", (), {"centered": "no-such-mode"}),
+        ("render", ("out.gif",), {"sync": "no-such-sync"}),
+        ("play", (), {"backend": "no-such-backend"}),
+    ])
+    def test_checks_the_clips_before_other_arguments(
+            self, bvh_example, entry, args, invalid):
+        entry_point = getattr(bvhplot, entry)
+        with pytest.raises(ValueError, match="^Unknown"):
+            entry_point(bvh_example, *args, **invalid)
         with pytest.raises(ValueError, match=self.MESSAGE):
-            bvhplot.frame([], 0, backend="no-such-backend")
+            entry_point([], *args, **invalid)
 
     def test_trajectory(self):
         with pytest.raises(ValueError, match=self.MESSAGE):

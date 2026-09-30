@@ -72,6 +72,42 @@ class TestMatplotlib:
         assert len(ax.lines) >= 2
         plt.close(fig)
 
+    def test_each_facing_arrow_points_where_the_heading_says(self):
+        """A y-up view is drawn on the (x, z) plane, and its heading is
+        [sin, cos] with cos along x and sin along z. Over four frames
+        the heading turns a quarter turn each frame, independently of
+        the walk, so an arrow drawn from any other frame's heading, or
+        with sin and cos swapped, points the wrong way."""
+        import dataclasses
+        from matplotlib.quiver import Quiver
+        from pybvh.bvhplot._matplotlib import trajectory_mpl
+        from pybvh.bvhplot._scene import Scene
+        view = synthetic_scene.make_array_view(n_frames=4)
+        quarter_turns = np.array([[1.0, 0.0],    # faces +z
+                                  [0.0, -1.0],   # faces -x
+                                  [-1.0, 0.0],   # faces -z
+                                  [0.0, 1.0]])   # faces +x
+        plot_directions = np.array([[0.0, 1.0],  # (x, z) on the plot
+                                    [-1.0, 0.0],
+                                    [0.0, -1.0],
+                                    [1.0, 0.0]])
+        turning = dataclasses.replace(view, root_heading=quarter_turns)
+        fig, ax = trajectory_mpl(
+            Scene(views=[turning]), Style("paper"), facing_arrows=True)
+        try:
+            (arrows,) = [c for c in ax.collections if isinstance(c, Quiver)]
+            roots = view.coords[:, 0][:, [0, 2]]
+            directions = np.stack([arrows.U, arrows.V], axis=1)
+            directions /= np.linalg.norm(directions, axis=1, keepdims=True)
+            assert len(directions) > 1
+            for start, direction in zip(arrows.get_offsets(), directions):
+                (drawn_at,) = np.flatnonzero(
+                    np.all(np.isclose(roots, start), axis=1))
+                np.testing.assert_allclose(
+                    direction, plot_directions[drawn_at], atol=1e-12)
+        finally:
+            plt.close(fig)
+
 
 class TestOpenCV:
     def test_render_with_every_option(self, scene, tmp_path):

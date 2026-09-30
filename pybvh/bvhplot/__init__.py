@@ -51,7 +51,6 @@ from ._from_bvh import (
 )
 from ._style import Style, resolve_style
 from ._scene import Scene, align_frame_counts
-from ._viewport import Turntable
 
 __all__ = [
     "Style", "rest_pose", "frame", "sequence", "render", "play",
@@ -94,6 +93,7 @@ if TYPE_CHECKING:
     import matplotlib.figure
     import matplotlib.axes
     from ..bvh import Bvh
+    from ._viewport import Turntable
 
 
 # ---------------------------------------------------------------------------
@@ -765,7 +765,11 @@ def render(
         clip plays once. Longer, the clip loops: it is played again
         from its first frame until the orbit completes, so the video
         lasts one period, rounded to the nearest frame, and the last
-        pass of the clip may be cut short. The seconds are seconds of
+        pass of the clip may be cut short. Rounding up instead would
+        always complete the orbit, but a period a hair over a whole
+        number of frames (as a rate read back from a frame time often
+        gives) would then end on a frame showing nearly the first view
+        again, which a looping GIF shows twice in a row. The seconds are seconds of
         the video, at the rate it plays (``fps``, or the clip's own
         rate by default), not of the clip: the two differ when ``fps``
         plays the clip faster or slower than recorded, and the period
@@ -915,11 +919,16 @@ def render(
     # case because there's no orientation to track.
     motion: str | Turntable
     if turntable:
+        from ._viewport import Turntable
         if turntable_period is None:
             period = float(scene.num_frames)
         else:
             period = turntable_period * actual_fps
-        scene = scene.looped(max(scene.num_frames, round(period)))
+        # Rounded, not ceiled: a period of 360.0000001 frames (a rate
+        # read back from a frame time) must not add a 361st frame.
+        video_frames = round(period)
+        if video_frames > scene.num_frames:
+            scene = scene.looped(video_frames)
         motion = Turntable(period=period)
     elif follow and not isinstance(camera, tuple):
         motion = "follow"

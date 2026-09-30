@@ -182,6 +182,16 @@ class TestTurntablePeriod:
         frames = self._render(clip, tmp_path, turntable_period=1.2)
         assert len(frames) == 12
 
+    @pytest.mark.parametrize("sync", ["truncate", "pad"])
+    def test_the_clips_of_a_comparison_loop_together(
+            self, bvh, tmp_path, sync):
+        pytest.importorskip("cv2")
+        path = bvhplot.render(
+            [bvh[0:4], bvh[0:6]], tmp_path / "tt.gif", backend="opencv",
+            fps=10, camera="turntable", turntable_period=1.2, sync=sync,
+            resolution=(160, 120))
+        assert len(_gif_frames(path)) == 12
+
     def test_the_matplotlib_backend_loops_too(self, bvh, tmp_path):
         path = bvhplot.render(
             bvh[0:4], tmp_path / "tt.gif", backend="matplotlib", fps=10,

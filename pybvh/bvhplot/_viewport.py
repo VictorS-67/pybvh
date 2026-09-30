@@ -9,7 +9,7 @@ runs.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, NamedTuple, Sequence
 
@@ -46,13 +46,14 @@ FLOOR_EXTENT = 1.8
 # above the cube's bottom edge; without the shift a floor below the
 # lowest joint would fall outside the axes.
 FLOOR_INSET = 0.02
-# A perspective camera stands this many half-spans from the cube's
-# centre. A constant, not derived from the toolkit's view angle.
-# TODO: derive the distance from the framing box and the vertical view
-# angle, so the box provably fits whatever the toolkit's default is.
+# A perspective camera that is not told its toolkit's view angle stands
+# this many half-spans from the cube's centre (the vedo viewer and k3d).
+# TODO: move them to the fitted distance, Viewport.eye_distance, and
+# delete this.
 EYE_DISTANCE = 4.0
-# The orthographic projection fits the framing box into this fraction
-# of the panel, in whichever direction is tighter.
+# The orthographic projection fits the framing box, and the perspective
+# camera the coordinates shown, into this fraction of the picture, in
+# whichever direction is tighter.
 FIT_FRACTION = 0.9
 
 _FRAMINGS = ("still", "clip")
@@ -102,12 +103,12 @@ class Viewport(GroundFrame):
 
     - ``center`` and ``half_span`` are the cube around every coordinate
       shown, 5% margin included. It is the scale of the picture: the
-      floor's extent and the camera distance are multiples of
-      ``half_span``, and perspective cameras look at ``center``. It is
-      not the scale of what is drawn on a body, since it grows with the
-      distance a clip travels: the vedo capsules and k3d's lines and
-      joints are sized from each skeleton's
-      :attr:`~._scene.SkeletonView.body_size`.
+      floor's extent is a multiple of ``half_span``, and perspective
+      cameras look at ``center`` (from a distance fitted to the
+      coordinates shown, :meth:`eye_distance`). It is not the scale of
+      what is drawn on a body, since it grows with the distance a clip
+      travels: the vedo capsules and k3d's lines and joints are sized
+      from each skeleton's :attr:`~._scene.SkeletonView.body_size`.
     - ``lo`` and ``hi`` are the *framing box*, what the axes or the
       orthographic projection are fitted to. For ``framing="still"`` it
       is that same cube (shifted along up when a floor must sit inside
@@ -139,6 +140,9 @@ class Viewport(GroundFrame):
     elevation: float                       # degrees
     azimuths: npt.NDArray[np.float64] | None  # (F,) degrees, or None
     projection: str                        # 'persp' | 'ortho', as drawn
+    # One (F, N, 3) array per view, the views' own read-only arrays:
+    # what the perspective camera fits.
+    shown_coords: tuple[npt.NDArray[np.float64], ...] = field(repr=False)
 
     @property
     def rotating(self) -> bool:
@@ -157,14 +161,117 @@ class Viewport(GroundFrame):
             return self._view_matrices[0]
         return self._view_matrices[frame]
 
-    def camera(self, frame: int = 0) -> Camera:
+    def camera(
+        self,
+        frame: int = 0,
+        *,
+        view_angle: float | None = None,
+        aspect: float | None = None,
+    ) -> Camera:
         """Where a perspective camera stands at *frame*.
 
-        The eye is ``EYE_DISTANCE`` half-spans from the cube's centre
-        along the viewing direction, looking at the centre."""
+        The camera looks at the cube's centre along the viewing
+        direction, from :meth:`eye_distance` for the toolkit's vertical
+        *view_angle* (degrees) and the picture's *aspect* ratio (width
+        over height; ``None`` fits the vertical direction alone). A
+        camera not told its view angle stands ``EYE_DISTANCE``
+        half-spans back, which fits one view angle only."""
         matrix = self.view_matrix(frame)
-        eye = self.center + matrix[2] * (EYE_DISTANCE * self.half_span)
+        if view_angle is None:
+            distance = EYE_DISTANCE * self.half_span
+        else:
+            distance = self.eye_distance(view_angle, aspect)
+        eye = self.center + matrix[2] * distance
         return Camera(eye=eye, target=self.center.copy(), up=matrix[1].copy())
+
+    def eye_distance(
+        self,
+        view_angle: float,
+        aspect: float | None = None,
+    ) -> float:
+        """How far the perspective camera stands from the cube's centre.
+
+        The smallest distance at which every coordinate shown projects
+        inside ``FIT_FRACTION`` of the picture, in whichever direction
+        is tighter, as the orthographic projection fits its box. Solved
+        exactly: a
+        coordinate at ``x`` across, ``y`` up and ``z`` towards the eye
+        from the target (view units) needs the eye at least
+        ``z + max(|y| / (f t), |x| / (f t aspect))`` away, where ``t``
+        is the tangent of half the view angle and ``f`` the fraction,
+        and the distance is the largest of these.
+
+        Conventions, and the alternatives they were chosen over:
+
+        - **Only the distance is fitted.** The camera keeps its target,
+          the cube's centre, and its viewing direction. The alternative,
+          aiming at the middle of the coordinates as they project,
+          would let the eye come closer wherever the figure sits off
+          the cube's centre on screen (a still whose floor shifts it,
+          seen from above), but the target would then depend on the
+          view angle, and every backend aims at the same point today.
+        - **The coordinates shown are fitted**, every node of every view
+          on every frame, not the corners of the framing cube. The
+          cube's depth is mostly empty, and fitting its corners stands
+          the camera much further back (about 6.6 half-spans at a 30
+          degree view angle, where a standing figure's coordinates need
+          4.1) and shrinks every picture. What is drawn around a node, a
+          capsule's radius or a joint's sphere, is not fitted, and the
+          floor plane is not either.
+        - **Fitted to the view angle.** The alternative, a fixed
+          multiple of the half-span (``EYE_DISTANCE``), fits one view
+          angle only: at 4 half-spans a still fills the height of VTK's
+          30 degree picture and about half of k3d's 60 degree one.
+        - **One distance for a moving camera**, the largest over the
+          schedule (each frame's coordinates seen from that frame's
+          direction), so the figure does not zoom in and out as a
+          turntable or follow camera turns.
+        - **The whole cube stays in front of the eye**: the eye stands
+          at least as far as the cube's corner nearest it, so every
+          coordinate, inside the cube by its margin, is in front of the
+          eye. This binds only on a figure flat across the fitted
+          direction, whose coordinates land near the middle of the
+          picture however close the eye comes (a line of joints seen
+          end on, or a figure lying in the plane of the viewing
+          direction and the screen's horizontal, fitted vertically
+          alone): the fit alone would bring the eye onto, or past, the
+          nearest of them. None then reaches the fraction. The
+          alternative, a small fixed gap in front of the nearest
+          coordinate, would need a length of its own and leave the eye
+          among the joints.
+
+        Parameters
+        ----------
+        view_angle : float
+            The toolkit's vertical view angle, in degrees: 30 for VTK,
+            60 for k3d.
+        aspect : float, optional
+            The picture's width over its height. ``None`` fits the
+            vertical direction alone, for a toolkit that does not know
+            its picture's width.
+
+        Returns
+        -------
+        float
+            The distance from the cube's centre to the eye.
+        """
+        matrices = self._view_matrices
+        # A picture's half height at unit depth, times the fraction.
+        reach = np.tan(np.radians(view_angle) / 2.0) * FIT_FRACTION
+        distances = []
+        for coords in self.shown_coords:
+            viewed = (coords - self.center) @ np.swapaxes(matrices, 1, 2)
+            needed = np.abs(viewed[..., 1]) / reach
+            if aspect is not None:
+                needed = np.maximum(
+                    needed, np.abs(viewed[..., 0]) / (reach * aspect))
+            distances.append(float((viewed[..., 2] + needed).max()))
+        # The cube's corner nearest the eye stands half_span * sum|w_k|
+        # from its centre along the unit direction w towards the eye.
+        towards_eye = matrices[:, 2]
+        cube_corner_per_frame = (
+            self.half_span * np.abs(towards_eye).sum(axis=1))
+        return max(*distances, float(cube_corner_per_frame.max()))
 
     def enclosing_cube(
         self,
@@ -390,7 +497,8 @@ def make_viewport(
         lo=lo, hi=hi, center=center, half_span=half_span, up=first.up,
         floor_height=floor_height, azimuth=float(first.azimuth),
         elevation=float(first.elevation), azimuths=azimuths,
-        projection=projection)
+        projection=projection,
+        shown_coords=tuple(v.coords for v in views))
 
 
 def panel_viewports(

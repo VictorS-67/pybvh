@@ -149,8 +149,9 @@ class Style:
     ``bone_width``, ``bone_color``, ``color_mode``, ``chain_colors``,
     ``joint_markers``, ``joint_size``, ``joint_color``, ``floor``,
     ``floor_alpha``, ``background``, ``axes``, ``projection``,
-    ``ghost_spacing`` (seconds between the faded trailing poses that
-    ``render(ghost=...)`` draws). The two *interactive viewers* apply
+    ``ghost_spacing`` (seconds of clip time, not playback time,
+    between the faded trailing poses that ``render(ghost=...)`` draws;
+    see there). The two *interactive viewers* apply
     the subset that has meaning in a live window: background, bone
     width, and single-skeleton chain colors in both; floor kind in the
     vedo viewer, where ``"checker"`` falls back to ``"grid"``. Fields
@@ -329,6 +330,8 @@ def ghost_schedule(
 
     Ghost slot ``j`` trails the live pose by ``(j+1) * lag`` frames;
     weights fade from 0.32 (nearest, darkest) to 0.15 (oldest).
+    ``frame_time`` must be positive: the router refuses ghosts on a
+    clip whose rate is unset.
     """
     lag = max(1, round(style.ghost_spacing / frame_time))
     weights = np.linspace(0.32, 0.15, n_ghosts)

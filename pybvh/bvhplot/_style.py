@@ -151,12 +151,11 @@ class Style:
     ``floor_alpha``, ``background``, ``axes``, ``projection``,
     ``ghost_spacing`` (seconds of clip time, not playback time,
     between the faded trailing poses that ``render(ghost=...)`` draws;
-    see there). The two *interactive viewers* apply
-    the subset that has meaning in a live window: background, bone
-    width, and single-skeleton chain colors in both; in the vedo
-    viewer, ``color_mode`` and ``bone_color`` in full, in both
-    qualities, and floor kind, where ``"checker"`` falls back to
-    ``"grid"``. Fields
+    see there). The two *interactive viewers* apply the subset that
+    has meaning in a live window: background, bone width, and
+    single-skeleton chain colors in both; in the vedo viewer,
+    ``color_mode`` and ``bone_color`` in full, in both qualities, and
+    floor kind, where ``"checker"`` falls back to ``"grid"``. Fields
     outside that subset (``axes``, ``projection``, ``joint_markers``,
     ...) do not alter the viewers. **Output** fields apply only where
     raster output is produced: ``dpi`` (matplotlib figures),

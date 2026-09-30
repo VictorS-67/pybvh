@@ -206,6 +206,23 @@ class TestTurntablePeriod:
         assert len(_gif_frames(path)) == 12
         assert duration_ms == 100
 
+    def test_an_html_page_plays_the_period_it_was_scheduled_for(
+            self, bvh, tmp_path):
+        """The page embeds whole milliseconds per frame (33 at 30 fps):
+        the frames it holds, played at that interval, last the period to
+        the nearest frame."""
+        import re
+        path = bvhplot.render(
+            bvh[0:4], tmp_path / "tt.html", backend="matplotlib", fps=30,
+            camera="turntable", turntable_period=1.2, resolution=(160, 120))
+        page = path.read_text()
+        num_frames = int(re.search(r"new Array\((\d+)\)", page).group(1))
+        interval_ms = float(re.search(
+            r"new Animation\(frames, img_id, slider_id, ([0-9.]+)",
+            page).group(1))
+        assert interval_ms == 33
+        assert abs(num_frames * interval_ms - 1200) <= interval_ms / 2
+
     def test_opencv_writes_at_the_rate_it_is_given(self, bvh, tmp_path):
         frames = self._render(bvh[0:4], tmp_path, fps=9.5,
                               turntable_period=1.2)

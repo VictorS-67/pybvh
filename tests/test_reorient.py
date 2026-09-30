@@ -225,6 +225,19 @@ class TestWorldUpWarningPreference:
             _ = bvh.world_up
             assert _disagreement_warnings(w) == 3
 
+    def test_each_inference_site_keeps_its_own_warning_location(self):
+        # Under the "default" filter Python shows a warning once per
+        # location, so warnings attributed to one shared line would
+        # collapse into the first; each inference site must be its own.
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("default")
+            bvh = read_bvh_file(TEST3)
+            _ = bvh[0:10].world_up
+            _ = bvh.world_up_inferred
+        locations = {(x.filename, x.lineno) for x in w
+                     if "rest pose suggests world up" in str(x.message).lower()}
+        assert len(locations) == 3
+
 
 # ========================================================================
 #  Helper: _axis_aligned_rotation

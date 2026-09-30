@@ -1145,6 +1145,36 @@ class TestFpsResolution:
         assert scene.views[0].coords.shape[0] == 61
 
 
+class TestPlaySync:
+    """Clips of unequal length share one frame counter: sync= says
+    whether the longer clip is cut or the shorter one held."""
+
+    @pytest.fixture
+    def clips(self, bvh_example):
+        """75 and 40 frames, both at 30 fps, so play() keeps every frame."""
+        return bvh_example, bvh_example[20:60]
+
+    def test_truncate_cuts_every_clip_to_the_shortest(self, clips, played):
+        long, short = clips
+        bvhplot.play([long, short], backend="matplotlib", sync="truncate")
+        (scene, _), = played
+        long_view, short_view = scene.views
+        assert scene.num_frames == len(short)
+        assert_view_shows(long_view, long, slice(len(short)))
+        assert_view_shows(short_view, short, slice(None))
+
+    def test_pad_holds_the_shorter_clip_on_its_last_frame(self, clips, played):
+        long, short = clips
+        bvhplot.play([long, short], backend="matplotlib", sync="pad")
+        (scene, _), = played
+        long_view, short_view = scene.views
+        assert scene.num_frames == len(long)
+        assert_view_shows(long_view, long, slice(None))
+        last = len(short) - 1
+        held = [*range(len(short)), *[last] * (len(long) - len(short))]
+        assert_view_shows(short_view, short, held)
+
+
 class TestUnsetFrameTime:
     """A clip whose frame_time is 0, the "unset" value a Bvh built in
     memory carries until a rate is assigned."""

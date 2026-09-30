@@ -704,6 +704,27 @@ def _wrap_update_with_extras(
     return update
 
 
+def written_fps(fps: float, suffix: str) -> float:
+    """The rate :func:`render_mpl` writes a file at, given *fps*.
+
+    The movie writers (ffmpeg for video, Pillow for ``.gif``,
+    ``.webp`` and ``.apng``) are handed whole frames per second, the
+    type matplotlib documents for them, so *fps* is rounded to the
+    nearest: ``fps=29.5`` is written at 30. An ``.html`` page plays one
+    frame every whole number of milliseconds, so it runs at
+    ``1000 / int(1000 / fps)``. Pillow then stores GIF frame durations
+    in centiseconds, a limit of the format not counted here.
+    """
+    if suffix.lower() == ".html":
+        return 1000.0 / _frame_interval_ms(fps)
+    return round(fps)
+
+
+def _frame_interval_ms(fps: float) -> int:
+    """The whole milliseconds between frames of an animation at *fps*."""
+    return int(1000.0 / fps)
+
+
 def render_mpl(
     scene: Scene,
     style: Style,
@@ -787,7 +808,7 @@ def render_mpl(
             update, scene, viewports, bones_arrays, ghost_slots,
             trace_lines)
 
-    interval = int(1000.0 / fps)
+    interval = _frame_interval_ms(fps)
     anim = animation.FuncAnimation(
         fig, update, frames=num_frames, interval=interval)
 
@@ -799,7 +820,8 @@ def render_mpl(
         # Pass fps explicitly: the writer's rate would otherwise be
         # derived from the integer-millisecond interval, quantizing e.g.
         # 24 fps (41.67 ms) to 1000/41 ≈ 24.4 fps.
-        anim.save(filepath, writer=writer_name, fps=round(fps))
+        anim.save(filepath, writer=writer_name,
+                  fps=written_fps(fps, filepath.suffix))
 
     plt.close(fig)
     return filepath

@@ -138,10 +138,10 @@ class TestTurntablePeriod:
     """``turntable_period`` is seconds of the video per revolution,
     at the rate the render plays (``fps``, 10 here)."""
 
-    def _render(self, clip, tmp_path, **options):
+    def _render(self, clip, tmp_path, fps=10, **options):
         pytest.importorskip("cv2")
         path = bvhplot.render(
-            clip, tmp_path / "tt.gif", backend="opencv", fps=10,
+            clip, tmp_path / "tt.gif", backend="opencv", fps=fps,
             camera="turntable", resolution=(160, 120), **options)
         return _gif_frames(path)
 
@@ -191,6 +191,25 @@ class TestTurntablePeriod:
             fps=10, camera="turntable", turntable_period=1.2, sync=sync,
             resolution=(160, 120))
         assert len(_gif_frames(path)) == 12
+
+    def test_the_period_is_timed_at_the_rate_the_file_is_written_at(
+            self, bvh, tmp_path):
+        """matplotlib writes whole frames per second: fps=9.5 is
+        written at 10 fps, so a 1.2 s period is 12 frames of 100 ms,
+        not the 11 frames 1.2 * 9.5 would give."""
+        from PIL import Image
+        path = bvhplot.render(
+            bvh[0:4], tmp_path / "tt.gif", backend="matplotlib", fps=9.5,
+            camera="turntable", turntable_period=1.2, resolution=(160, 120))
+        with Image.open(path) as gif:
+            duration_ms = gif.info["duration"]
+        assert len(_gif_frames(path)) == 12
+        assert duration_ms == 100
+
+    def test_opencv_writes_at_the_rate_it_is_given(self, bvh, tmp_path):
+        frames = self._render(bvh[0:4], tmp_path, fps=9.5,
+                              turntable_period=1.2)
+        assert len(frames) == round(1.2 * 9.5)
 
     def test_the_matplotlib_backend_loops_too(self, bvh, tmp_path):
         path = bvhplot.render(

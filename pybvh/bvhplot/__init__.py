@@ -155,6 +155,16 @@ def _resolve_render_backend(requested: str, ext: str) -> str:
     return "opencv" if _module_importable("cv2") else "matplotlib"
 
 
+def _written_fps(backend_name: str, suffix: str, fps: float) -> float:
+    """The rate *backend_name* writes a ``suffix`` file at, given the
+    resolved *fps*: matplotlib rounds it (:func:`._matplotlib.written_fps`),
+    OpenCV and vedo write it as given."""
+    if backend_name == "matplotlib":
+        from ._matplotlib import written_fps
+        return written_fps(fps, suffix)
+    return fps
+
+
 def _resolve_fps(fps: float | None, frame_time: float) -> float:
     """Resolve the shared ``fps`` parameter of ``play()`` and ``render()``.
 
@@ -769,9 +779,14 @@ def render(
         always complete the orbit, but a period a hair over a whole
         number of frames (as a rate read back from a frame time often
         gives) would then end on a frame showing nearly the first view
-        again, which a looping GIF shows twice in a row. The seconds are seconds of
-        the video, at the rate it plays (``fps``, or the clip's own
-        rate by default), not of the clip: the two differ when ``fps``
+        again, which a looping GIF shows twice in a row.
+        The seconds are seconds of the video at the rate it is written
+        at: ``fps``, or the clip's own rate by default, except that the
+        matplotlib backend writes whole frames per second (``fps=29.5``
+        is written at 30) and an ``.html`` page whole milliseconds per
+        frame. GIF frame durations are further quantized to 10 ms by
+        the format, so a GIF may play slightly faster than written.
+        They are not seconds of the clip: the two differ when ``fps``
         plays the clip faster or slower than recorded, and the period
         is the speed the viewer sees. A clip whose ``frame_time`` is 0
         (unset) is therefore timed by the ``fps`` it needs anyway. This
@@ -785,9 +800,9 @@ def render(
         would draw ghosts of the previous pass where the character no
         longer is and a trace segment from the clip's end back to its
         start. The clips of a comparison loop together, after
-        ``sync`` has given them one length. A number of turns over the
-        clip was the rejected alternative: it cannot slow a short clip
-        down without cutting the orbit short.
+        ``sync`` has given them one length. A number of turns over the clip was the
+        rejected alternative: it cannot slow a short clip down without
+        cutting the orbit short.
     resolution : (int, int), optional
         Output resolution ``(width, height)`` in pixels.
         Default ``(1920, 1080)``. The OpenCV backend draws at
@@ -923,7 +938,9 @@ def render(
         if turntable_period is None:
             period = float(scene.num_frames)
         else:
-            period = turntable_period * actual_fps
+            video_fps = _written_fps(
+                backend_name, filepath.suffix, actual_fps)
+            period = turntable_period * video_fps
         # Rounded, not ceiled: a period of 360.0000001 frames (a rate
         # read back from a frame time) must not add a 361st frame.
         video_frames = round(period)

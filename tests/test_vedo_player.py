@@ -304,6 +304,89 @@ class TestColors:
             p.plt.close()
 
 
+def _rows(colors):
+    """The distinct RGB rows of a vedo color array (alpha dropped)."""
+    return {tuple(int(c) for c in row[:3]) for row in colors}
+
+
+class TestColorModes:
+    """Each color mode reaches the viewer's actors, read off their
+    per-cell and per-point color arrays."""
+
+    BLUE, RED = TestColors.BLUE, TestColors.RED
+
+    @staticmethod
+    def _player(scene, style, quality, monkeypatch):
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        return _vedo._VedoPlayer(scene, style, 30.0, quality=quality)
+
+    @staticmethod
+    def _chain_rgb(style, view):
+        from pybvh.bvhplot._colors import rgb255
+        return [rgb255(style.chain_colors[chain])
+                for chain in view.bone_chains]
+
+    def test_fast_quality_draws_chains_for_one_skeleton(self, scene,
+                                                        monkeypatch):
+        """Fast quality drew one flat color, black, before."""
+        style = Style("paper")
+        p = self._player(scene, style, "fast", monkeypatch)
+        try:
+            bones = p._lines_actors[0].cellcolors[:, :3]
+            expected = self._chain_rgb(style, scene.views[0])
+            np.testing.assert_array_equal(bones, expected)
+            assert len(set(map(tuple, expected))) == 5
+        finally:
+            p.plt.close()
+
+    def test_forced_chains_color_every_skeleton_of_a_pair(self,
+                                                          monkeypatch):
+        pair = TestColors._pair(None)
+        style = Style("paper", color_mode="chains")
+        p = self._player(pair, style, "high", monkeypatch)
+        try:
+            for capsule, view in zip(p._capsules, pair.views):
+                assert _rows(capsule.bones_mesh.pointcolors) == set(
+                    self._chain_rgb(style, view))
+        finally:
+            p.plt.close()
+
+    def test_explicit_skeleton_mode_draws_one_skeleton_in_the_palette(
+            self, scene, monkeypatch):
+        p = self._player(scene, Style("paper", color_mode="skeleton"),
+                         "high", monkeypatch)
+        try:
+            capsule = p._capsules[0]
+            assert _rows(capsule.bones_mesh.pointcolors) == {self.BLUE}
+            # The root joint is nobody's child and takes the spine
+            # color in every mode (node_colors_255).
+            assert _rows(capsule.joints_mesh.pointcolors) == {
+                self.BLUE, (58, 63, 74)}
+        finally:
+            p.plt.close()
+
+    def test_under_chains_label_and_trail_take_the_spine_color(
+            self, monkeypatch):
+        """Not the first bone's color, which depends on the order the
+        file lists the root's children in."""
+        import vedo
+        from pybvh.bvhplot._colors import rgb255
+        walk = read_bvh_file(BVH_PATH)
+        scene = make_scene([walk], [walk.node_positions()[:10]], "front",
+                           ["walk"])
+        style = Style("paper")
+        p = self._player(scene, style, "high", monkeypatch)
+        try:
+            spine = np.asarray(rgb255(style.chain_colors["spine"])) / 255
+            label = next(o for o in p.plt.objects
+                         if isinstance(o, vedo.Text2D) and o.text() == "walk")
+            np.testing.assert_allclose(label.properties.GetColor(), spine)
+            np.testing.assert_allclose(
+                p._trail_actors[0].properties.GetColor(), spine)
+        finally:
+            p.plt.close()
+
+
 class TestStyleColorsReachVedoParsed:
     """Every color a Style supplies is read by matplotlib's parser, as
     in the other backends, and reaches vedo as floats. vedo's own

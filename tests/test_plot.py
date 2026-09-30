@@ -1037,6 +1037,92 @@ class TestFpsResolution:
         assert path.stat().st_size > 0
 
 
+
+class TestUnsetFrameTime:
+    """A clip whose frame_time is 0, the "unset" value a Bvh built in
+    memory carries until a rate is assigned."""
+
+    @pytest.fixture
+    def unset(self, bvh_test1):
+        clip = bvh_test1[0:5]
+        clip.frame_time = 0
+        return clip
+
+    def test_static_entry_points_draw_the_clip(self, unset):
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        try:
+            bvhplot.rest_pose(unset)
+            bvhplot.frame(unset, 0)
+            bvhplot.sequence(unset, n_poses=3)
+        finally:
+            plt.close("all")
+
+    def test_render_raises_naming_both_ways_out(self, unset, tmp_path):
+        with pytest.raises(ValueError, match="frame_time") as info:
+            bvhplot.render(unset, tmp_path / "x.gif", backend="matplotlib")
+        assert "bvh.fps" in str(info.value)
+        assert "fps=" in str(info.value)
+        assert not (tmp_path / "x.gif").exists()
+
+    def test_play_raises_naming_both_ways_out(self, unset):
+        with pytest.raises(ValueError, match="frame_time") as info:
+            bvhplot.play(unset, backend="matplotlib")
+        assert "bvh.fps" in str(info.value)
+        assert "fps=" in str(info.value)
+
+    def test_render_with_fps_draws_the_clip(self, unset, tmp_path):
+        import matplotlib
+        matplotlib.use('Agg')
+        path = bvhplot.render(
+            unset, tmp_path / "x.gif", backend="matplotlib", fps=10)
+        assert path.stat().st_size > 0
+
+    def test_render_with_fps_draws_the_trajectory(self, unset, tmp_path):
+        import matplotlib
+        matplotlib.use('Agg')
+        path = bvhplot.render(
+            unset, tmp_path / "x.gif", backend="matplotlib", fps=10,
+            trajectory=True)
+        assert path.stat().st_size > 0
+
+    @pytest.mark.filterwarnings(
+        "ignore:FigureCanvasAgg is non-interactive",
+        "ignore:Animation was deleted without rendering")
+    def test_play_with_fps_plays_the_clip(self, unset):
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        try:
+            bvhplot.play(unset, backend="matplotlib", fps=10)
+        finally:
+            plt.close("all")
+
+    def test_render_ghost_needs_the_clip_rate_despite_fps(
+            self, unset, tmp_path):
+        with pytest.raises(ValueError, match="ghost") as info:
+            bvhplot.render(unset, tmp_path / "x.gif", backend="matplotlib",
+                           fps=10, ghost=2)
+        assert "frame_time" in str(info.value)
+
+    def test_a_later_unset_clip_is_caught(self, bvh_test1, unset, tmp_path):
+        clips = [bvh_test1[0:5], unset]
+        with pytest.raises(ValueError, match="index 1"):
+            bvhplot.render(clips, tmp_path / "x.gif", backend="matplotlib")
+        with pytest.raises(ValueError, match="ghost"):
+            bvhplot.render(clips, tmp_path / "x.gif", backend="matplotlib",
+                           fps=10, ghost=2)
+
+    def test_match_fps_does_not_resample_to_zero(
+            self, bvh_test1, unset, tmp_path):
+        clips = [bvh_test1[0:5], unset]
+        with pytest.raises(ValueError, match="match_fps") as info:
+            bvhplot.render(clips, tmp_path / "x.gif", backend="matplotlib",
+                           fps=10, match_fps="lowest")
+        assert "index 1" in str(info.value)
+
+
 def _view(bvh, coords):
     """The SkeletonView compute_follow_azimuths reads (no Bvh at draw time)."""
     from pybvh.bvhplot._from_bvh import make_scene

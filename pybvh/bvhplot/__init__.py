@@ -155,8 +155,9 @@ def _resolve_render_backend(requested: str, ext: str) -> str:
 def _resolve_fps(fps: float | None, frame_time: float) -> float:
     """Resolve the shared ``fps`` parameter of ``play()`` and ``render()``.
 
-    ``None`` means "use the BVH frame rate"; anything else must be a
-    positive number (fractional rates like 119.88 are fine).
+    ``None`` means "use the BVH frame rate", which the caller must have
+    checked is set (:func:`_require_frame_rates`); anything else must be
+    a positive number (fractional rates like 119.88 are fine).
     """
     if fps is None:
         return 1.0 / frame_time
@@ -164,6 +165,52 @@ def _resolve_fps(fps: float | None, frame_time: float) -> float:
     if not fps > 0:
         raise ValueError(f"fps must be positive, got {fps}")
     return fps
+
+
+def _unset_rate_subject(clips: list[Bvh]) -> str | None:
+    """Name the clips whose ``frame_time`` is 0 (unset), for an error
+    message ("the clip at index 1 has"), or ``None`` when all have one.
+    """
+    unset = [i for i, clip in enumerate(clips) if clip.frame_time == 0]
+    if not unset:
+        return None
+    indices = ", ".join(str(i) for i in unset)
+    if len(clips) == 1:
+        return "the clip has"
+    if len(unset) == 1:
+        return f"the clip at index {indices} has"
+    return f"the clips at indices {indices} have"
+
+
+def _require_frame_rates(
+    clips: list[Bvh],
+    entry: str,
+    fps: float | None,
+    ghost: int = 0,
+) -> None:
+    """Raise when an animated entry point needs a rate a clip lacks.
+
+    ``frame_time == 0`` is the "unset" value of a Bvh built in memory.
+    Timing the animation needs a rate unless the caller gives ``fps``;
+    a ghost trail needs every clip's own rate regardless, because its
+    spacing is in seconds of clip time. Every clip is checked, not only
+    the first that drives playback.
+    """
+    subject = _unset_rate_subject(clips)
+    if subject is None:
+        return
+    if fps is None:
+        raise ValueError(
+            f"{entry}() needs a frame rate to time the animation, but "
+            f"{subject} frame_time 0 (unset). Set bvh.frame_time (or "
+            f"bvh.fps), or pass fps= to {entry}().")
+    if ghost:
+        raise ValueError(
+            f"{entry}(ghost=...) spaces its trailing poses "
+            f"style.ghost_spacing seconds apart in each clip's own time, "
+            f"so it needs the clip's frame rate even when fps= is given, "
+            f"but {subject} frame_time 0 (unset). Set bvh.frame_time (or "
+            f"bvh.fps), or drop ghost=.")
 
 
 def _resolve_play_backend(requested: str) -> tuple[str, int]:
@@ -268,6 +315,13 @@ def _match_frame_rates(
     valid = {"lowest", "highest"}
     if match_fps not in valid:
         raise ValueError(f"match_fps must be None, 'lowest', or 'highest', got {match_fps!r}")
+    unset_subject = _unset_rate_subject(bvh_list)
+    if unset_subject is not None:
+        raise ValueError(
+            f"match_fps={match_fps!r} resamples the clips to a common "
+            f"frame rate, which needs each clip's own rate, but "
+            f"{unset_subject} frame_time 0 (unset). Set bvh.frame_time "
+            f"(or bvh.fps), or drop match_fps=.")
 
     target_fps = min(rates) if match_fps == "lowest" else max(rates)
     result = []
@@ -648,7 +702,9 @@ def render(
         Labels for each skeleton when comparing.
     fps : float, optional
         Frames per second (fractional rates like 119.88 are fine).
-        ``None`` (default) uses the BVH frame rate.
+        ``None`` (default) uses the BVH frame rate, which then must be
+        set: a clip whose ``frame_time`` is 0 (unset, as on a Bvh built
+        in memory) raises ``ValueError`` unless ``fps`` is given.
     backend : str, optional
         ``"auto"`` (default), ``"opencv"``, or ``"matplotlib"``.
         Under ``"auto"``, formats OpenCV cannot write (``.gif``,
@@ -679,7 +735,12 @@ def render(
     ghost : int, optional
         Number of faded trailing poses drawn behind the live skeleton
         (default 0 — none). Spacing between ghosts is
-        ``style.ghost_spacing`` seconds; older ghosts fade further
+        ``style.ghost_spacing`` seconds of clip time, taken from each
+        clip's own ``frame_time``, not playback time from ``fps``; the
+        two differ when ``fps`` plays the clip faster or slower than
+        recorded, and clip time keeps the trail the same poses at any
+        playback speed. Ghosts therefore need every clip's frame rate
+        set, even when ``fps`` is given. Older ghosts fade further
         toward the background.
     trajectory : bool, optional
         Draw the root trace on the floor, growing with playback
@@ -693,7 +754,8 @@ def render(
         rendering.  ``None`` (default) emits a warning but does not
         resample.  ``"lowest"`` resamples all clips to the lowest frame
         rate.  ``"highest"`` resamples all clips to the highest frame rate
-        (using SLERP interpolation for added frames).
+        (using SLERP interpolation for added frames). Resampling needs
+        every clip's frame rate set.
     codec : str, optional
         Video codec for ``.mp4``/``.mov``/``.avi`` output (invalid for
         other formats). ``"auto"`` (default) writes H.264 through the
@@ -742,6 +804,7 @@ def render(
         bvh_input = [bvh]
     else:
         bvh_input = bvh
+    _require_frame_rates(bvh_input, "render", fps, ghost)
     bvh_input = _match_frame_rates(bvh_input, match_fps)
     bvh = bvh_input if len(bvh_input) > 1 else bvh_input[0]
 
@@ -861,7 +924,9 @@ def play(
         ``None`` (default) uses the BVH frame rate, capped at 30 for
         the k3d and matplotlib backends (via frame subsampling) —
         notebook widgets and matplotlib windows can't keep up with
-        high frame rates.
+        high frame rates. That rate then must be set: a clip whose
+        ``frame_time`` is 0 (unset, as on a Bvh built in memory)
+        raises ``ValueError`` unless ``fps`` is given.
     backend : str, optional
         ``"auto"`` (default), ``"k3d"``, ``"vedo"``, ``"opencv"``
         (the notebook inline-video fallback — nameable so a backend
@@ -890,7 +955,8 @@ def play(
     match_fps : str or None, optional
         How to handle clips with different frame rates.  ``None``
         (default) emits a warning.  ``"lowest"`` or ``"highest"``
-        resamples all clips to match.
+        resamples all clips to match, which needs every clip's frame
+        rate set.
     spacing : float or "auto", optional
         Lateral separation between skeletons in single-scene backends (k3d,
         vedo). ``"auto"`` (default) spaces skeletons by 1.2 × the lateral
@@ -950,12 +1016,12 @@ def play(
         bvh_input = [bvh]
     else:
         bvh_input = bvh
+    _require_frame_rates(bvh_input, "play", fps)
     bvh_input = _match_frame_rates(bvh_input, match_fps)
     bvh = bvh_input if len(bvh_input) > 1 else bvh_input[0]
 
     scene = _prepare(bvh, None, centered, camera, labels, pad=pad)
 
-    bvh_fps = 1.0 / scene.frame_time
     actual_fps = _resolve_fps(fps, scene.frame_time)
 
     backend_name, tier = _resolve_play_backend(backend)
@@ -984,8 +1050,8 @@ def play(
     _PLAY_MAX_FPS = 30.0
     if (fps is None
             and backend_name not in ("opencv_notebook", "vedo")
-            and bvh_fps > _PLAY_MAX_FPS):
-        subsample_step = math.ceil(bvh_fps / _PLAY_MAX_FPS)
+            and actual_fps > _PLAY_MAX_FPS):
+        subsample_step = math.ceil(actual_fps / _PLAY_MAX_FPS)
         scene = scene.subsampled(subsample_step)
         actual_fps = 1.0 / scene.frame_time
 

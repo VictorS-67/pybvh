@@ -105,8 +105,9 @@ class SkeletonView(GroundFrame):
     ``frame_time`` follows :attr:`Bvh.frame_time`: seconds per frame,
     with ``0`` meaning "unset", which a rest pose or a still of a
     Bvh built in memory legitimately carries. The static entry points
-    never read it; the animated ones divide by it and need a positive
-    value. Only a negative or non-finite value is rejected here.
+    never read it; the animated ones check it before drawing and
+    raise when they need a rate that is unset. Only a negative or
+    non-finite value is rejected here.
 
     Conventions the fields follow:
 

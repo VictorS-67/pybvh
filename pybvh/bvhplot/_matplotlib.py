@@ -642,20 +642,21 @@ def _setup_render_extras(
 
     for i, (view, viewport, ax) in enumerate(
             zip(scene.views, viewports, axs_flat)):
-        colors = bone_colors_for_view(view, style, i, n)
-        lag, weights = ghost_schedule(style, view.frame_time, ghost)
         slots = []
-        for j in range(ghost):
-            faded = [_fade_toward_background(c, float(weights[j]), style)
-                     for c in colors]
-            # zorder 1.5: ghosts sit behind the live skeleton (bones at
-            # the default 2) regardless of artist creation order.
-            collection = _make_bone_collection(
-                np.empty((0, 2, 3)), style, colors=faded,
-                linewidths=style.bone_width * GHOST_WIDTH_FACTOR,
-                zorder=1.5)
-            _add_collection(ax, collection)
-            slots.append((collection, (j + 1) * lag))
+        if ghost > 0:
+            colors = bone_colors_for_view(view, style, i, n)
+            lag, weights = ghost_schedule(style, view.frame_time, ghost)
+            for j in range(ghost):
+                faded = [_fade_toward_background(c, float(weights[j]), style)
+                         for c in colors]
+                # zorder 1.5: ghosts sit behind the live skeleton (bones
+                # at the default 2) regardless of artist creation order.
+                collection = _make_bone_collection(
+                    np.empty((0, 2, 3)), style, colors=faded,
+                    linewidths=style.bone_width * GHOST_WIDTH_FACTOR,
+                    zorder=1.5)
+                _add_collection(ax, collection)
+                slots.append((collection, (j + 1) * lag))
         ghost_slots.append(slots)
         trace_lines.append(
             _draw_floor_trace(

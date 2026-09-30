@@ -101,6 +101,14 @@ class TestReadBvhFile:
             with pytest.raises(ValueError):
                 b.fps = bad
 
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+    def test_fps_setter_rejects_non_finite(self, bvh_example, bad):
+        # 1 / inf is 0, which would silently mark the rate as unset.
+        b = bvh_example.copy()
+        with pytest.raises(ValueError, match="fps"):
+            b.fps = bad
+        assert b.frame_time == bvh_example.frame_time
+
     @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
     def test_frame_time_setter_rejects_non_finite(self, bvh_example, bad):
         b = bvh_example.copy()
@@ -5746,6 +5754,12 @@ class TestResampleValidation:
             bvh_example.resample(0)
         with pytest.raises(ValueError, match="target_fps"):
             bvh_example.resample(-30)
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+    @pytest.mark.parametrize("n_frames", [1, 75])
+    def test_non_finite_target_fps_raises(self, bvh_example, bad, n_frames):
+        with pytest.raises(ValueError, match="target_fps"):
+            bvh_example[:n_frames].resample(bad)
 
     def test_short_clip_adopts_new_frame_time(self, bvh_example):
         single = bvh_example[0:1]

@@ -31,6 +31,7 @@ from .tools import (
     _resolve_node_lr_pairs,
     _rest_upward,
     _validate_axis_string,
+    _validate_fps,
     _validate_frame_time,
 )
 
@@ -214,6 +215,9 @@ class Bvh:
 
         Returns ``0.0`` when ``frame_time == 0`` (the "unset" sentinel)
         rather than raising, mirroring the behaviour of :meth:`__str__`.
+        Assigning sets ``frame_time`` to ``1 / fps``; the rate must be a
+        positive finite number, so ``0``, NaN and infinity raise
+        ``ValueError`` rather than mark the rate as unset.
 
         Example
         -------
@@ -223,8 +227,7 @@ class Bvh:
         return 1.0 / self._frame_time if self._frame_time > 0 else 0.0
     @fps.setter
     def fps(self, value: float) -> None:
-        if value <= 0:
-            raise ValueError(f"fps must be > 0, got {value}")
+        _validate_fps(value)
         self.frame_time = 1.0 / value
 
     @property
@@ -2271,10 +2274,9 @@ class Bvh:
         Raises
         ------
         ValueError
-            If ``target_fps`` is not positive.
+            If ``target_fps`` is not a positive finite number.
         """
-        if target_fps <= 0:
-            raise ValueError(f"target_fps must be > 0, got {target_fps}")
+        _validate_fps(target_fps, name="target_fps")
 
         new_freq = 1.0 / target_fps
         if self.frame_count < 2:

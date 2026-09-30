@@ -46,11 +46,6 @@ FLOOR_EXTENT = 1.8
 # above the cube's bottom edge; without the shift a floor below the
 # lowest joint would fall outside the axes.
 FLOOR_INSET = 0.02
-# A perspective camera that is not told its toolkit's view angle stands
-# this many half-spans from the cube's centre (k3d).
-# TODO: move k3d to the fitted distance, Viewport.eye_distance, and
-# delete this.
-EYE_DISTANCE = 4.0
 # The orthographic projection fits the framing box, and the perspective
 # camera the coordinates shown, into this fraction of the picture, in
 # whichever direction is tighter.
@@ -165,7 +160,7 @@ class Viewport(GroundFrame):
         self,
         frame: int = 0,
         *,
-        view_angle: float | None = None,
+        view_angle: float,
         aspect: float | None = None,
         band: tuple[float, float] = (0.0, 1.0),
     ) -> Camera:
@@ -175,14 +170,9 @@ class Viewport(GroundFrame):
         direction, from :meth:`eye_distance` for the toolkit's vertical
         *view_angle* (degrees), the picture's *aspect* ratio (width
         over height; ``None`` fits the vertical direction alone) and
-        the *band* of its height the figure may take. A camera not told
-        its view angle stands ``EYE_DISTANCE`` half-spans back, which
-        fits one view angle only."""
+        the *band* of its height the figure may take."""
         matrix = self.view_matrix(frame)
-        if view_angle is None:
-            distance = EYE_DISTANCE * self.half_span
-        else:
-            distance = self.eye_distance(view_angle, aspect, band)
+        distance = self.eye_distance(view_angle, aspect, band)
         eye = self.center + matrix[2] * distance
         return Camera(eye=eye, target=self.center.copy(), up=matrix[1].copy())
 
@@ -237,7 +227,7 @@ class Viewport(GroundFrame):
           capsule's radius or a joint's sphere, is not fitted, and the
           floor plane is not either.
         - **Fitted to the view angle.** The alternative, a fixed
-          multiple of the half-span (``EYE_DISTANCE``), fits one view
+          multiple of the half-span (4 until v0.10.0), fits one view
           angle only: at 4 half-spans a still fills the height of VTK's
           30 degree picture and about half of k3d's 60 degree one.
         - **One distance for a moving camera**, the largest over the

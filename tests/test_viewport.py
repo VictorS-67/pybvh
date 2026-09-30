@@ -12,7 +12,6 @@ import numpy as np
 import pytest
 
 from pybvh.bvhplot._viewport import (
-    EYE_DISTANCE,
     FIT_FRACTION,
     FLOOR_EXTENT,
     FLOOR_INSET,
@@ -410,32 +409,33 @@ class TestCamera:
 
     def test_the_eye_stands_back_from_the_cubes_centre(self, view):
         viewport = make_viewport([view])
-        camera = viewport.camera()
+        camera = viewport.camera(view_angle=30.0)
         np.testing.assert_array_equal(camera.target, viewport.center)
         offset = camera.eye - camera.target
         assert np.linalg.norm(offset) == pytest.approx(
-            EYE_DISTANCE * viewport.half_span)
+            viewport.eye_distance(30.0))
         matrix = viewport.view_matrix()
         np.testing.assert_allclose(
             offset / np.linalg.norm(offset), matrix[2], atol=1e-12)
         np.testing.assert_array_equal(camera.up, matrix[1])
 
     def test_the_camera_does_not_depend_on_the_framing(self, view):
-        still = make_viewport([view], framing="still").camera()
-        clip = make_viewport([view], framing="clip").camera()
+        still = make_viewport([view], framing="still").camera(view_angle=30.0)
+        clip = make_viewport([view], framing="clip").camera(view_angle=30.0)
         np.testing.assert_array_equal(still.eye, clip.eye)
         np.testing.assert_array_equal(still.target, clip.target)
 
     def test_the_camera_orbits_with_the_schedule(self, view):
         viewport = make_viewport([view], motion="turntable")
-        start, quarter = viewport.camera(0), viewport.camera(6)
+        start, quarter = (viewport.camera(frame, view_angle=30.0)
+                          for frame in (0, 6))
         assert not np.allclose(start.eye, quarter.eye)
         np.testing.assert_array_equal(start.target, quarter.target)
 
     def test_camera_arrays_are_the_callers_to_change(self, view):
         viewport = make_viewport([view])
-        viewport.camera().target[:] = 99.0
-        viewport.camera().up[:] = 99.0
+        viewport.camera(view_angle=30.0).target[:] = 99.0
+        viewport.camera(view_angle=30.0).up[:] = 99.0
         assert not np.any(viewport.center == 99.0)
         assert not np.any(viewport.view_matrix() == 99.0)
 

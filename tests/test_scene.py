@@ -451,7 +451,8 @@ class TestSceneMethods:
         assert (scene.views[0].up, scene.views[0].forward_axis) == (up, forward)
         spread = scene.spread(3.0)
 
-        camera = make_viewport([scene.views[0]]).camera()
+        # Any view angle: the fit moves the eye along the view, never sideways.
+        camera = make_viewport([scene.views[0]]).camera(view_angle=30.0)
         screen_right = np.cross(camera.target - camera.eye, camera.up)
         shift = spread.views[1].coords[0, 0] - coords[0, 0]
         assert shift @ screen_right > 0

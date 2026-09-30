@@ -23,6 +23,24 @@ if TYPE_CHECKING:
 # Input normalization
 # ---------------------------------------------------------------------------
 
+def as_clip_list(bvh: Bvh | list[Bvh]) -> list[Bvh]:
+    """The clips an entry point was given, as a non-empty list.
+
+    Every bvhplot entry point that accepts one ``Bvh`` or a list calls
+    this first, so an empty list is rejected with one message before
+    any other work.
+
+    Raises
+    ------
+    ValueError
+        If *bvh* is an empty list.
+    """
+    bvh_list = bvh if isinstance(bvh, list) else [bvh]
+    if len(bvh_list) == 0:
+        raise ValueError("At least one Bvh object is required.")
+    return bvh_list
+
+
 def normalize_input(
     bvh: Bvh | list[Bvh],
     frames: int | npt.NDArray[np.floating] | None,
@@ -52,14 +70,7 @@ def normalize_input(
     coords_list : list[ndarray]
         Parallel list of spatial coordinates, each ``(F, N, 3)``.
     """
-    # Wrap single Bvh
-    if not isinstance(bvh, list):
-        bvh_list = [bvh]
-    else:
-        bvh_list = bvh
-
-    if len(bvh_list) == 0:
-        raise ValueError("At least one Bvh object is required.")
+    bvh_list = as_clip_list(bvh)
 
     coords_list: list[npt.NDArray[np.float64]] = []
 

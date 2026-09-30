@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ._from_bvh import (
+    as_clip_list,
     get_skeleton_lines,   # noqa: F401 — re-export (public since 0.5.0)
     make_scene,
     normalize_input,
@@ -829,6 +830,7 @@ def render(
     Path
         The path to the written file.
     """
+    clips = as_clip_list(bvh)
     filepath = Path(filepath)
     _validate_sync(sync)
     pad = sync == "pad"
@@ -854,15 +856,10 @@ def render(
     backend_name = _resolve_render_backend(backend, filepath.suffix.lower())
 
     # Handle frame-rate mismatch before computing FK coordinates
-    if not isinstance(bvh, list):
-        bvh_input = [bvh]
-    else:
-        bvh_input = bvh
-    _require_frame_rates(bvh_input, "render", fps, ghost, match_fps)
-    bvh_input = _match_frame_rates(bvh_input, match_fps)
-    bvh = bvh_input if len(bvh_input) > 1 else bvh_input[0]
+    _require_frame_rates(clips, "render", fps, ghost, match_fps)
+    clips = _match_frame_rates(clips, match_fps)
 
-    scene = _prepare(bvh, None, centered, camera, labels, pad=pad)
+    scene = _prepare(clips, None, centered, camera, labels, pad=pad)
 
     # A custom (azim, elev) tuple means the camera is fixed; follow is
     # a no-op in that case because there's no orientation to track.

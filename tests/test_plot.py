@@ -144,6 +144,15 @@ class TestNormalizeInput:
             normalize_input([], None, "world")
 
 
+class TestEmptyClipList:
+    """Every entry point that takes a list of clips rejects an empty one
+    with the same message, before any other work."""
+
+    def test_render(self, tmp_path):
+        with pytest.raises(ValueError, match="At least one Bvh object"):
+            bvhplot.render([], tmp_path / "out.gif")
+
+
 class TestComputeUnifiedLimits:
     def test_returns_center_and_span(self, bvh_example):
         coords = bvh_example.node_positions()

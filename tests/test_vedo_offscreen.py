@@ -263,7 +263,7 @@ class TestCapsuleSizing:
 
 
 class TestLabels:
-    def test_each_label_is_drawn_in_its_skeletons_colour(self, bvh):
+    def test_each_label_is_drawn_in_its_skeletons_color(self, bvh):
         """The labels were handed to vedo as "rgb(r,g,b)" strings,
         which vedo reads as black."""
         img = bvhplot.frame([bvh, bvh.mirror()], 0, backend="vedo",

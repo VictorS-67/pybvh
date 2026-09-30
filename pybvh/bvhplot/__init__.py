@@ -492,7 +492,7 @@ def rest_pose(
     ax : Axes or list[Axes]
         Single axes when one skeleton, list when multiple.
     """
-    bvh_list = bvh if isinstance(bvh, list) else [bvh]
+    bvh_list = as_clip_list(bvh)
 
     # Build rest-pose coords as (1, N, 3) arrays and go through the
     # same pipeline as frame(), bypassing spatial_coords.

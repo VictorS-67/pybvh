@@ -281,14 +281,54 @@ class TestFollowSchedule:
         are followed as the frames around them are, not sent back to
         the base azimuth."""
         turn = np.linspace(0.0, 90.0, 120)
-        turning = _turned_in_place(view, turn)
-        coords = turning.coords.copy()
-        left, right = view.lr_pairs[:, 0], view.lr_pairs[:, 1]
-        coords[50:60, right] = coords[50:60, left]
-        unmeasured = dataclasses.replace(turning, coords=coords)
+        unmeasured = _unmeasured(_turned_in_place(view, turn), slice(50, 60))
         np.testing.assert_allclose(
             compute_follow_azimuths(unmeasured, -20.0), -20.0 + turn,
             atol=1e-9)
+
+    def test_an_unmeasured_gap_across_half_a_turn_is_unwrapped(self, view):
+        """The gap's neighbours read about +163 and -160 degrees from
+        frame 0: 37 degrees apart the short way round, which is the
+        way the character turned."""
+        turn = np.linspace(0.0, 360.0, 120)
+        unmeasured = _unmeasured(_turned_in_place(view, turn), slice(55, 66))
+        np.testing.assert_allclose(
+            compute_follow_azimuths(unmeasured, -20.0), -20.0 + turn,
+            atol=1e-9)
+
+    def test_an_unmeasured_first_frame_leaves_the_camera_fixed(self, view):
+        """Frame 0 is the reference every turn is measured from; without
+        it the later, measured frames have nothing to be relative to."""
+        turn = np.linspace(0.0, 90.0, 120)
+        unmeasured = _unmeasured(_turned_in_place(view, turn), slice(0, 5))
+        np.testing.assert_array_equal(
+            compute_follow_azimuths(unmeasured, -20.0), -20.0)
+        assert make_viewport([unmeasured], motion="follow").azimuths is None
+
+    def test_an_unmeasured_tail_holds_the_last_measured_heading(self, view):
+        """Frames 60 on cannot be measured: they take frame 59's heading,
+        and past the window's reach (45 frames) the camera rests there."""
+        turn = np.linspace(0.0, 90.0, 120)
+        unmeasured = _unmeasured(_turned_in_place(view, turn), slice(60, None))
+        azimuths = compute_follow_azimuths(unmeasured, -20.0)
+        np.testing.assert_allclose(azimuths[105:], -20.0 + turn[59],
+                                   atol=1e-9)
+
+    def test_only_the_first_frame_measured_is_a_fixed_camera(self, view):
+        turn = np.linspace(0.0, 90.0, 120)
+        unmeasured = _unmeasured(_turned_in_place(view, turn), slice(1, None))
+        np.testing.assert_array_equal(
+            compute_follow_azimuths(unmeasured, -20.0), -20.0)
+        assert make_viewport([unmeasured], motion="follow").azimuths is None
+
+
+def _unmeasured(view, frames):
+    """*view* with its left and right joints made to coincide on
+    *frames*, where the left-to-right axis then cannot be measured."""
+    coords = view.coords.copy()
+    left, right = view.lr_pairs[:, 0], view.lr_pairs[:, 1]
+    coords[frames, right] = coords[frames, left]
+    return dataclasses.replace(view, coords=coords)
 
 
 def _start_stop_turn(num_frames, start, stop, degrees):

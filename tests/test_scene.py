@@ -21,7 +21,11 @@ from pybvh.bvhplot._from_bvh import (
 )
 from pybvh.bvhplot._scene import Scene, SkeletonView
 from pybvh.tools import _resolve_lr_pairs
-from synthetic_bvh import make_nameless_lr_bvh
+from synthetic_bvh import (
+    make_nameless_lr_bvh,
+    make_neg_y_up_bvh,
+    make_pos_z_up_bvh,
+)
 from synthetic_scene import make_array_scene, make_array_view, make_bare_view
 
 BVH_PATH = "bvh_data/cmu_12_01_walk.bvh"
@@ -267,6 +271,13 @@ def _turned_view(
         up=up, rest_up=up, forward_axis=forward, floor_height=floor)
 
 
+def _without_lr_pairs(clip):
+    """*clip* with its left/right pairing removed, so its facing cannot
+    be measured."""
+    clip.lr_mapping = None
+    return clip
+
+
 class TestSceneMethods:
     def test_a_view_holds_no_box(self):
         """What a picture frames is computed when the picture is made,
@@ -366,8 +377,15 @@ class TestSceneMethods:
         ("+z", "+y", np.array([[-1.0, 0.0, 0.0],
                                [0.0, 0.0, 1.0],
                                [0.0, 1.0, 0.0]])),
+        ("+y", "+x", np.array([[0.0, 0.0, 1.0],
+                               [0.0, 1.0, 0.0],
+                               [-1.0, 0.0, 0.0]])),
+        ("+z", "+x", np.array([[0.0, 0.0, 1.0],
+                               [1.0, 0.0, 0.0],
+                               [0.0, 1.0, 0.0]])),
     ], ids=["+y up facing +z", "+y up facing -z", "-y up facing +z",
-            "+z up facing +y"])
+            "+z up facing +y", "+y up facing +x (left along z)",
+            "+z up facing +x (left along y)"])
     def test_spread_puts_the_next_view_on_the_first_ones_left(
             self, up, forward, rotation):
         """Whatever the rig's up and the character's facing, the next
@@ -404,27 +422,33 @@ class TestSceneMethods:
         np.testing.assert_allclose(
             shift, 3.0 * parse_axis(walk.left_at(0)).vector)
 
-    @pytest.mark.parametrize("pairs", [True, False],
-                             ids=["facing measured", "facing unmeasurable"])
+    @pytest.mark.parametrize("make_clip, up, forward, warns", [
+        (lambda walk: walk.rotate_vertical(180.0, degrees=True),
+         "+y", "-z", False),
+        (lambda walk: walk.rotate_vertical(90.0, degrees=True),
+         "+y", "+x", False),
+        (lambda walk: make_neg_y_up_bvh(), "-y", "+z", False),
+        (lambda walk: make_pos_z_up_bvh(), "+z", "+y", False),
+        # the walk faces -z; the fallback for +y up is +z
+        (lambda walk: _without_lr_pairs(
+            walk.rotate_vertical(180.0, degrees=True)), "+y", "+z", True),
+    ], ids=["+y up facing -z", "+y up facing +x", "-y up facing +z",
+            "+z up facing +y", "facing unmeasurable"])
     def test_spread_puts_the_next_view_on_the_front_cameras_right(
-            self, bvh, pairs):
+            self, bvh, make_clip, up, forward, warns):
         """Seen from the "front" camera the next skeleton is on the
-        viewer's right, also when the facing cannot be measured and
-        both the camera and the spread take the fallback forward (here
-        the walk faces -z, the fallback for +y up is +z)."""
+        viewer's right on every rig, also when the facing cannot be
+        measured and both the camera and the spread take the fallback
+        forward."""
         from pybvh.bvhplot._viewport import make_viewport
-        walk = bvh.rotate_vertical(180.0, degrees=True)
-        if not pairs:
-            walk.lr_mapping = None
-        coords = walk.node_positions(centered="first")
+        clip = make_clip(bvh)
+        coords = clip.node_positions(centered="first")
         fallback_warning = (
-            contextlib.nullcontext() if pairs
-            else pytest.warns(UserWarning,
-                              match="No usable left/right geometry"))
+            pytest.warns(UserWarning, match="No usable left/right geometry")
+            if warns else contextlib.nullcontext())
         with fallback_warning:
-            scene = make_scene([walk, walk], [coords, coords], "front", None)
-        if not pairs:
-            assert scene.views[0].forward_axis == "+z"  # not the walk's -z
+            scene = make_scene([clip, clip], [coords, coords], "front", None)
+        assert (scene.views[0].up, scene.views[0].forward_axis) == (up, forward)
         spread = scene.spread(3.0)
 
         camera = make_viewport([scene.views[0]]).camera()

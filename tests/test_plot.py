@@ -1850,3 +1850,44 @@ class TestSceneSpacing:
         with pytest.raises(ValueError, match="spacing"):
             play([bvh, bvh], spacing="bad", backend="matplotlib")
 
+
+
+class TestPlayMatchSize:
+    """play(match_size=True) draws every skeleton of a single-scene
+    backend as tall as the first; the clips are not touched."""
+
+    @pytest.fixture
+    def clips(self, bvh_test2):
+        """The CMU walk and bvh_test2, which stands 7.5 times as tall."""
+        return read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh"), bvh_test2
+
+    @pytest.fixture
+    def played_k3d(self, monkeypatch):
+        """The Scene of each play() call that reached k3d, stubbed out."""
+        pytest.importorskip("k3d")
+        scenes = []
+        monkeypatch.setattr(
+            _k3d, "play_k3d", lambda scene, style, fps: scenes.append(scene))
+        return scenes
+
+    def test_k3d_draws_the_second_clip_as_tall_as_the_first(
+            self, clips, played_k3d):
+        walk, test2 = clips
+        rest_pose, positions = test2.rest_pose_positions(), test2.node_positions()
+        bvhplot.play([walk, test2], backend="k3d", labels=["walk", "test2"],
+                     match_size=True)
+        (scene,) = played_k3d
+        first, second = scene.views
+        assert second.body_size == pytest.approx(first.body_size)
+        assert scene.labels == ["walk", "test2 ×0.13"]
+        # the clips themselves are untouched
+        np.testing.assert_array_equal(test2.rest_pose_positions(), rest_pose)
+        np.testing.assert_array_equal(test2.node_positions(), positions)
+
+    def test_off_by_default(self, clips, played_k3d):
+        walk, test2 = clips
+        bvhplot.play([walk, test2], backend="k3d", labels=["walk", "test2"])
+        (scene,) = played_k3d
+        first, second = scene.views
+        assert second.body_size == pytest.approx(182.346225)
+        assert scene.labels == ["walk", "test2"]

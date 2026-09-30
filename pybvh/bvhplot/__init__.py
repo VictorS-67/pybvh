@@ -1043,6 +1043,7 @@ def play(
     frame_counter: bool = False,
     match_fps: str | None = None,
     spacing: float | str = "auto",
+    match_size: bool = False,
 ) -> None:
     """Play back motion data.
 
@@ -1129,6 +1130,25 @@ def play(
         ``"front"`` camera also faces, so the skeletons still read
         left to right from that camera, whichever side of the body
         that is.
+    match_size : bool, optional
+        Draw every skeleton as tall as the first, in the single-scene
+        backends (k3d, vedo), where clips from files in different units
+        would otherwise differ in size by an order of magnitude. Default
+        ``False``. Each skeleton is scaled about the point on its floor
+        under its root at the first frame, before the lateral spacing,
+        and its label shows the factor (``"test2 ×0.14"``, or
+        ``"×0.14"`` alone for a skeleton with no label). Only the
+        drawing changes: the clips are not touched. The height matched
+        is the rest pose's, along the rest pose's own up axis
+        (:attr:`Bvh.rest_up`); the alternative, the median over the
+        clip's frames of the pose's height, differs for a clip that does
+        not stand as its rest pose does (crouched, seated or lying),
+        which it would blow up to the first skeleton's standing height.
+        A skeleton whose rest pose has no size to measure is drawn at
+        its own size, with a warning. See
+        :meth:`~._scene.Scene.size_matched`. Ignored by multi-panel
+        backends (matplotlib, OpenCV), which frame each skeleton in its
+        own panel.
 
     Returns
     -------
@@ -1220,7 +1240,12 @@ def play(
     # --- Dispatch ---
     # For single-scene backends (vedo, k3d) there can only be ONE camera
     # and ONE bounding box. We apply lateral spacing so skeletons don't
-    # overlap; the backends make one viewport of the spread scene.
+    # overlap; the backends make one viewport of the spread scene. The
+    # sizes are matched first, so the spacing is that of the skeletons
+    # as drawn.
+    if match_size and backend_name in ("k3d", "vedo"):
+        scene = scene.size_matched()
+
     if backend_name == "k3d":
         try:
             import k3d  # noqa: F401

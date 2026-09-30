@@ -438,6 +438,29 @@ class TestK3d:
             np.testing.assert_array_equal(
                 drawn[8:], np.broadcast_to(path[7], drawn[8:].shape))
 
+    @pytest.mark.parametrize("label, name", [("b", "b ×0.14"), (None, "×0.14")])
+    def test_size_matched_skeletons_are_drawn_at_one_height(self, label, name):
+        """A skeleton seven times the first's size is drawn as tall as
+        the first, with bones and joints as wide, and its name says
+        by what factor it was drawn."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+        from pybvh.bvhplot._scene import Scene
+        small = synthetic_scene.make_array_view(label="a")
+        big = synthetic_scene.make_array_view(label=label)
+        big = dataclasses.replace(
+            big, coords=big.coords * 7.0, rest_coords=big.rest_coords * 7.0,
+            floor_height=big.floor_height * 7.0)
+        scene = Scene(views=[small, big]).size_matched().spread("auto")
+        built = _build_plot(scene, Style("paper"))
+        (small_lines, small_points), (big_lines, big_points) = built.skeletons
+        heights = [np.ptp(np.asarray(lines.vertices)[:, 1])
+                   for lines in (small_lines, big_lines)]
+        assert heights[1] == pytest.approx(heights[0], rel=0.01)
+        assert big_lines.width == pytest.approx(small_lines.width)
+        assert big_points.point_size == pytest.approx(small_points.point_size)
+        assert (small_lines.name, big_lines.name) == ("a", name)
+
     @pytest.mark.parametrize("preset, spine", [
         ("paper", 0x3A3F4A),
         ("dark", 0xC8CCD6),    # lightened to read on the dark ground

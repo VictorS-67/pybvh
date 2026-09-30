@@ -346,6 +346,52 @@ class TestK3d:
         for path, view in zip(built.trail_paths, pair.spread("auto").views):
             assert path.shape == (view.coords.shape[0], 3)
 
+    @staticmethod
+    def _play_and_grab_slider(scene, monkeypatch):
+        """Play *scene* with k3d outside a notebook: the plot as built
+        and the frame slider of the widget that would be displayed."""
+        pytest.importorskip("k3d")
+        import IPython.display
+        from pybvh.bvhplot import _k3d
+        build_plot = _k3d._build_plot
+        shown, built = [], []
+
+        def build_and_keep(*args):
+            built.append(build_plot(*args))
+            return built[-1]
+
+        monkeypatch.setattr(_k3d, "_build_plot", build_and_keep)
+        monkeypatch.setattr(IPython.display, "display", shown.append)
+        _k3d.play_k3d(scene, Style("paper"), 30.0)
+        (widget,) = shown
+        _plot, controls = widget.children
+        (slider,) = [w for w in controls.children
+                     if type(w).__name__ == "IntSlider"]
+        return built[0], slider
+
+    def test_the_frame_slider_poses_each_skeleton_at_its_frame(
+            self, pair, monkeypatch):
+        scene = pair.spread("auto")
+        built, slider = self._play_and_grab_slider(scene, monkeypatch)
+        slider.value = 7
+        for (lines, points), view in zip(built.skeletons, scene.views):
+            expected = view.coords[7].astype(np.float32)
+            np.testing.assert_array_equal(lines.vertices, expected)
+            np.testing.assert_array_equal(points.positions, expected)
+
+    def test_the_frame_slider_grows_each_trail_to_its_frame(
+            self, pair, monkeypatch):
+        """The trail is the root's ground path up to the frame, and its
+        later vertices wait at the frame's point."""
+        scene = pair.spread("auto")
+        built, slider = self._play_and_grab_slider(scene, monkeypatch)
+        slider.value = 7
+        for trail, path in zip(built.trails, built.trail_paths):
+            drawn = np.asarray(trail.vertices)
+            np.testing.assert_array_equal(drawn[:8], path[:8])
+            np.testing.assert_array_equal(
+                drawn[8:], np.broadcast_to(path[7], drawn[8:].shape))
+
     @pytest.mark.parametrize("preset, spine", [
         ("paper", 0x3A3F4A),
         ("dark", 0xC8CCD6),    # lightened to read on the dark ground

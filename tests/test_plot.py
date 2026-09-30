@@ -144,6 +144,48 @@ class TestNormalizeInput:
             normalize_input([], None, "world")
 
 
+class TestEmptyClipList:
+    """Every entry point that takes a list of clips rejects an empty one
+    with the same message, before any other work."""
+
+    MESSAGE = "^" + re.escape("At least one Bvh object is required.") + "$"
+
+    def test_render(self, tmp_path):
+        with pytest.raises(ValueError, match=self.MESSAGE):
+            bvhplot.render([], tmp_path / "out.gif")
+
+    def test_play(self, played):
+        with pytest.raises(ValueError, match=self.MESSAGE):
+            bvhplot.play([], backend="matplotlib")
+
+    def test_rest_pose(self):
+        with pytest.raises(ValueError, match=self.MESSAGE):
+            bvhplot.rest_pose([])
+
+    def test_frame(self):
+        with pytest.raises(ValueError, match=self.MESSAGE):
+            bvhplot.frame([], 0)
+
+    @pytest.mark.parametrize("entry, args, invalid", [
+        ("rest_pose", (), {"style": "no-such-style"}),
+        ("frame", (0,), {"backend": "no-such-backend"}),
+        ("trajectory", (), {"centered": "no-such-mode"}),
+        ("render", ("out.gif",), {"sync": "no-such-sync"}),
+        ("play", (), {"backend": "no-such-backend"}),
+    ])
+    def test_checks_the_clips_before_other_arguments(
+            self, bvh_example, entry, args, invalid):
+        entry_point = getattr(bvhplot, entry)
+        with pytest.raises(ValueError, match="^Unknown"):
+            entry_point(bvh_example, *args, **invalid)
+        with pytest.raises(ValueError, match=self.MESSAGE):
+            entry_point([], *args, **invalid)
+
+    def test_trajectory(self):
+        with pytest.raises(ValueError, match=self.MESSAGE):
+            bvhplot.trajectory([])
+
+
 class TestComputeUnifiedLimits:
     def test_returns_center_and_span(self, bvh_example):
         coords = bvh_example.node_positions()

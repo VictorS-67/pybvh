@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ._from_bvh import (
+    as_clip_list,
     get_skeleton_lines,   # noqa: F401 — re-export (public since 0.5.0)
     make_scene,
     normalize_input,
@@ -491,17 +492,17 @@ def rest_pose(
     ax : Axes or list[Axes]
         Single axes when one skeleton, list when multiple.
     """
-    bvh_list = bvh if isinstance(bvh, list) else [bvh]
+    clips = as_clip_list(bvh)
 
     # Build rest-pose coords as (1, N, 3) arrays and go through the
     # same pipeline as frame(), bypassing spatial_coords.
     from ._matplotlib import frame_mpl
 
     coords_list = [b.rest_pose_positions()[np.newaxis]
-                   for b in bvh_list]
+                   for b in clips]
     # Rest-pose coords put the root at the origin, so the canonical
     # world floor does not apply — the floor is the pose's lowest point.
-    scene = make_scene(bvh_list, coords_list, camera, labels,
+    scene = make_scene(clips, coords_list, camera, labels,
                        canonical_floor=False)
 
     return frame_mpl(scene, resolve_style(style),
@@ -587,6 +588,7 @@ def frame(
         With ``backend="vedo"``: an ``(H, W, 3)`` uint8 RGB image
         array instead.
     """
+    clips = as_clip_list(bvh)
     _VALID_FRAME_BACKENDS = {"matplotlib", "vedo"}
     if backend not in _VALID_FRAME_BACKENDS:
         raise ValueError(
@@ -594,7 +596,7 @@ def frame(
             f"Choose from: {sorted(_VALID_FRAME_BACKENDS)}")
 
     frame_spec = coords if coords is not None else frame
-    scene = _prepare(bvh, frame_spec, centered, camera, labels)
+    scene = _prepare(clips, frame_spec, centered, camera, labels)
 
     if backend == "vedo":
         if not _module_importable("vedo"):
@@ -829,6 +831,7 @@ def render(
     Path
         The path to the written file.
     """
+    clips = as_clip_list(bvh)
     filepath = Path(filepath)
     _validate_sync(sync)
     pad = sync == "pad"
@@ -854,15 +857,10 @@ def render(
     backend_name = _resolve_render_backend(backend, filepath.suffix.lower())
 
     # Handle frame-rate mismatch before computing FK coordinates
-    if not isinstance(bvh, list):
-        bvh_input = [bvh]
-    else:
-        bvh_input = bvh
-    _require_frame_rates(bvh_input, "render", fps, ghost, match_fps)
-    bvh_input = _match_frame_rates(bvh_input, match_fps)
-    bvh = bvh_input if len(bvh_input) > 1 else bvh_input[0]
+    _require_frame_rates(clips, "render", fps, ghost, match_fps)
+    clips = _match_frame_rates(clips, match_fps)
 
-    scene = _prepare(bvh, None, centered, camera, labels, pad=pad)
+    scene = _prepare(clips, None, centered, camera, labels, pad=pad)
 
     # A custom (azim, elev) tuple means the camera is fixed; follow is
     # a no-op in that case because there's no orientation to track.
@@ -1029,6 +1027,8 @@ def play(
     """
     import math
 
+    clips = as_clip_list(bvh)
+
     valid_backends = {"auto", "k3d", "vedo", "opencv", "matplotlib"}
     if backend not in valid_backends:
         raise ValueError(
@@ -1068,15 +1068,10 @@ def play(
     style_obj = resolve_style(style)
 
     # Handle frame-rate mismatch before computing FK coordinates
-    if not isinstance(bvh, list):
-        bvh_input = [bvh]
-    else:
-        bvh_input = bvh
-    _require_frame_rates(bvh_input, "play", fps, match_fps=match_fps)
-    bvh_input = _match_frame_rates(bvh_input, match_fps)
-    bvh = bvh_input if len(bvh_input) > 1 else bvh_input[0]
+    _require_frame_rates(clips, "play", fps, match_fps=match_fps)
+    clips = _match_frame_rates(clips, match_fps)
 
-    scene = _prepare(bvh, None, centered, camera, labels, pad=pad)
+    scene = _prepare(clips, None, centered, camera, labels, pad=pad)
 
     actual_fps = _resolve_fps(fps, scene.frame_time)
 
@@ -1112,7 +1107,7 @@ def play(
         actual_fps = 1.0 / scene.frame_time
 
     # --- world_up consistency check (all backends) ---
-    _warn_world_up_mismatch(bvh_input)
+    _warn_world_up_mismatch(clips)
 
     # --- Dispatch ---
     # For single-scene backends (vedo, k3d) there can only be ONE camera
@@ -1212,7 +1207,8 @@ def trajectory(
     fig : matplotlib.figure.Figure
     ax : matplotlib.axes.Axes
     """
-    scene = _prepare(bvh, None, centered, "front", labels)
+    clips = as_clip_list(bvh)
+    scene = _prepare(clips, None, centered, "front", labels)
 
     # trajectory_mpl() computes its own per-skeleton horizontal axes
     # internally (drop each skeleton's own up axis).

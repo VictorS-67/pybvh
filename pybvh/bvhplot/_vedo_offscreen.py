@@ -1,7 +1,7 @@
 """Offscreen vedo renderer: shadowed capsule-skeleton stills and videos.
 
-The publication tier: real diffuse lighting (unlike the viewer's flat
-ambient) and **projected** per-mesh shadows via ``mesh.add_shadow()``,
+The publication tier: the viewer's shaded capsules plus **projected**
+per-mesh shadows via ``mesh.add_shadow()``,
 wrapped in :func:`_attach_projected_shadow`. The renderer-level VTK
 shadow-map pass (``Plotter.add_shadows()``) is deliberately not used —
 it casts nothing offscreen and tints the floor in the supported vedo
@@ -103,8 +103,7 @@ def _build_offscreen(
         joint_rgb = node_colors_255(
             view, style, s, scene.num_skeletons, bone_rgb)
         capsule = CapsuleSkeleton(
-            view, style.bone_width, bone_rgb, joint_rgb,
-            flat_lighting=False)
+            view, style.bone_width, bone_rgb, joint_rgb)
         capsule.update(view.coords[0])
         for mesh in capsule.actors:
             # Shadows must exist BEFORE the mesh joins the plotter —

@@ -151,6 +151,39 @@ class TestPlayerShell:
         assert player.clock.frame == 0
 
 
+class TestShading:
+    """The viewer lights its capsules as the offscreen renderer does,
+    under one headlight that stays at the camera."""
+
+    def test_capsules_take_diffuse_light(self, player):
+        for actor in player._capsules[0].actors:
+            prop = actor.actor.GetProperty()
+            assert prop.GetAmbient() == pytest.approx(0.2)
+            assert prop.GetDiffuse() == pytest.approx(0.8)
+            assert prop.GetSpecular() == pytest.approx(0.1)
+
+    def test_one_headlight_stays_at_the_camera(self, player):
+        """Wherever the camera goes, by the mouse or by the reset key,
+        the side of a capsule facing it is the lit one."""
+        def lights():
+            collection = player.plt.renderer.GetLights()
+            return [collection.GetItemAsObject(i)
+                    for i in range(collection.GetNumberOfItems())]
+
+        camera = player.plt.camera
+        for move in (lambda: camera.Azimuth(90),
+                     lambda: camera.Elevation(40),
+                     player._on_reset_camera):
+            move()
+            player._update_frame(0)
+            [light] = lights()
+            assert light.LightTypeIsHeadlight() and light.GetSwitch()
+            np.testing.assert_allclose(
+                light.GetPosition(), camera.GetPosition())
+            np.testing.assert_allclose(
+                light.GetFocalPoint(), camera.GetFocalPoint())
+
+
 class TestPlayerDarkStyle:
     def test_dark_background(self, scene, monkeypatch, tmp_path):
         monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
@@ -224,9 +257,24 @@ def _rendered(player, tmp_path):
 
 
 def _pixels_of(image, rgb, tol=3):
-    """How many pixels of *image* are *rgb*, within *tol* per channel."""
-    distance = np.abs(image.astype(int) - np.asarray(rgb)).max(axis=-1)
-    return int((distance <= tol).sum())
+    """How many pixels of *image* are *rgb* as the capsules shade it.
+
+    Ambient and diffuse light scale a capsule's color, from the ambient
+    0.2 in shadow to 1 lit head on (a flat-lit line is always 1), and
+    the specular highlight adds gray: a pixel is ``shade * rgb + gray``
+    with ``shade`` in [0.2, 1] and ``gray >= 0``, within *tol* per
+    channel. That is *rgb*'s hue, but not every color of that hue: a
+    fully saturated one (a scalar map's) needs negative gray. Black,
+    the background and the floor have no shade of it."""
+    color = np.asarray(rgb, dtype=float)
+    pixels = image.reshape(-1, 3).astype(float)
+    chroma = pixels.max(axis=-1) - pixels.min(axis=-1)
+    shade = chroma / (color.max() - color.min())
+    gray = pixels.min(axis=-1) - shade * color.min()
+    model = shade[:, None] * color + gray[:, None]
+    fits = np.abs(pixels - model).max(axis=-1) <= tol
+    lit = (shade >= 0.2) & (shade <= 1 + tol / 255) & (gray >= -tol)
+    return int((fits & lit).sum())
 
 
 class TestColors:

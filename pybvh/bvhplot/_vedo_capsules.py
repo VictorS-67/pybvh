@@ -33,7 +33,7 @@ FLOOR_EPSILON = 0.004
 SHADOW_EPSILON = 0.002
 
 
-# The offscreen capsules' specular highlight color (#AAAAAA).
+# The capsules' specular highlight color (#AAAAAA).
 _HIGHLIGHT_GRAY = (170 / 255, 170 / 255, 170 / 255)
 
 LENGTH_BOOST = (1.0, 1.5)   # long bones get plumper; short ones never thinner
@@ -323,6 +323,10 @@ def _neighbour_indices(parent_bone):
 class CapsuleSkeleton:
     """Merged tube+sphere actors for one skeleton, posable per frame.
 
+    The capsules are shaded (ambient 0.2, diffuse 0.8, specular 0.1)
+    in the viewer and the offscreen renderer alike, under whatever
+    lights the plotter holds.
+
     Parameters
     ----------
     view : SkeletonView
@@ -343,10 +347,6 @@ class CapsuleSkeleton:
         Both are baked as per-point colors, so the coloring survives
         the merge into one actor and no mesh is left to VTK's default
         scalar map (a tube carries its radius as point data).
-    flat_lighting : bool
-        ``True`` (viewer): ambient-only so colors stay stable across
-        frames. ``False`` (offscreen renders): default VTK diffuse
-        shading — capsules read as 3D.
     """
 
     def __init__(
@@ -355,8 +355,6 @@ class CapsuleSkeleton:
         bone_width: float,
         bone_rgb: Sequence[tuple[int, int, int]],
         joint_rgb: npt.NDArray[np.uint8],
-        *,
-        flat_lighting: bool = True,
     ) -> None:
         from vedo import Tube, Sphere, merge  # type: ignore[import-untyped]
 
@@ -410,24 +408,16 @@ class CapsuleSkeleton:
         for mesh in (self.bones_mesh, self.joints_mesh):
             if mesh is None:
                 continue
+            # Near-full diffuse so the tubes shade on both sides and
+            # read as round 3D capsules, with just enough ambient that
+            # shadow-side faces keep their hue instead of going
+            # near-black. The point colors replace the ambient and
+            # diffuse colors only, so the highlight's color is set here.
             prop = mesh.actor.GetProperty()
-            if flat_lighting:
-                # Viewer: ambient-only so colors stay stable across
-                # frames as bones rotate.
-                prop.SetAmbient(1.0)
-                prop.SetDiffuse(0.0)
-                prop.SetSpecular(0.0)
-            else:
-                # Offscreen renders: near-full diffuse so the tubes
-                # shade on both sides and read as round 3D capsules,
-                # with just enough ambient that shadow-side faces keep
-                # their hue instead of going near-black. The point
-                # colors replace the ambient and diffuse colors only,
-                # so the highlight's color is set here.
-                prop.SetAmbient(0.2)
-                prop.SetDiffuse(0.8)
-                prop.SetSpecular(0.1)
-                prop.SetSpecularColor(_HIGHLIGHT_GRAY)
+            prop.SetAmbient(0.2)
+            prop.SetDiffuse(0.8)
+            prop.SetSpecular(0.1)
+            prop.SetSpecularColor(_HIGHLIGHT_GRAY)
 
     @property
     def actors(self) -> list:

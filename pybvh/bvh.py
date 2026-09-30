@@ -110,7 +110,10 @@ class Bvh:
         # The warn preference lives on the instance, not only in this
         # call, because ``_world_up_cached`` is dropped on every motion
         # edit and is not carried to derived clips: each re-inference
-        # must still see what the caller asked for at load.
+        # must still see what the caller asked for at load. Each inference
+        # site calls ``_infer_world_up`` itself rather than through a
+        # shared wrapper, so its warnings keep pointing at that site and
+        # are not collapsed into one location by the "default" filter.
         self._warn_on_world_up_disagreement = warn_on_disagreement
         self._floor_height_cached: float | None = None
         self._node_positions_cached: npt.NDArray[np.float64] | None = None
@@ -170,7 +173,8 @@ class Bvh:
         if world_up != "auto":
             self._world_up_override = _validate_axis_string(world_up)
         elif self.frame_count > 0 and len(self.nodes) > 1:
-            self._world_up_cached = self._infer_world_up()
+            self._world_up_cached = _infer_world_up(
+                self, warn=self._warn_on_world_up_disagreement)
 
         # L/R pair mapping — cached. Depends on names + topology only, so
         # no runtime invalidation hooks are needed (no pybvh operation
@@ -680,7 +684,8 @@ class Bvh:
         if self._world_up_override is not None:
             return self._world_up_override
         if self._world_up_cached is None:
-            self._world_up_cached = self._infer_world_up()
+            self._world_up_cached = _infer_world_up(
+                self, warn=self._warn_on_world_up_disagreement)
         return self._world_up_cached
 
     @world_up.setter
@@ -707,10 +712,6 @@ class Bvh:
             >>> bvh.world_up_inferred  # '+y'  (auto's guess)
             >>> bvh.world_up           # '+z'  (user override)
         """
-        return self._infer_world_up()
-
-    def _infer_world_up(self) -> str:
-        """Run the world-up heuristic, honouring the clip's warn preference."""
         return _infer_world_up(self, warn=self._warn_on_world_up_disagreement)
 
     @property

@@ -229,10 +229,10 @@ def _pixels_of(image, rgb, tol=3):
     return int((distance <= tol).sum())
 
 
-class TestColours:
-    """The viewer draws the colours the style resolves to, the ones the
+class TestColors:
+    """The viewer draws the colors the style resolves to, the ones the
     offscreen renderer draws. vedo read the "rgb(r,g,b)" strings the
-    viewer used to pass as black, and without per-vertex colours the
+    viewer used to pass as black, and without per-vertex colors the
     capsules fell back to a scalar map over the tube radius."""
 
     BLUE, RED = (50, 120, 255), (220, 50, 50)   # the palette's first two
@@ -246,7 +246,7 @@ class TestColours:
                           ["walk", "mirror"]).spread(40)
 
     @pytest.mark.parametrize("quality", ["high", "fast"])
-    def test_each_skeleton_of_a_pair_has_its_palette_colour(
+    def test_each_skeleton_of_a_pair_has_its_palette_color(
             self, pair, quality, monkeypatch, tmp_path):
         monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
         p = _vedo._VedoPlayer(pair, Style("paper", floor=None), 30.0,
@@ -275,7 +275,7 @@ class TestColours:
             p.plt.close()
         assert _pixels_of(image, debug_blue) > 1000
 
-    def test_labels_and_trails_carry_their_skeletons_colour(
+    def test_labels_and_trails_carry_their_skeletons_color(
             self, pair, monkeypatch):
         import vedo
         monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)

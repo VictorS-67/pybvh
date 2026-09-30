@@ -34,6 +34,7 @@ Install optional backends::
 """
 from __future__ import annotations
 
+import math
 import warnings
 
 import numpy as np
@@ -50,6 +51,7 @@ from ._from_bvh import (
 )
 from ._style import Style, resolve_style
 from ._scene import Scene, align_frame_counts
+from ._viewport import Turntable
 
 __all__ = [
     "Style", "rest_pose", "frame", "sequence", "render", "play",
@@ -707,6 +709,7 @@ def render(
     fps: float | None = None,
     backend: str = "auto",
     camera: str | tuple[float, float] = "front",
+    turntable_period: float | None = None,
     resolution: tuple[int, int] = (1920, 1080),
     sync: str = "truncate",
     follow: bool = False,
@@ -747,9 +750,40 @@ def render(
         ``.webp``, ``.apng``, ``.html``) always use matplotlib.
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``), the
-        special ``"turntable"`` (a full 360-degree orbit over the clip
-        duration, starting from the front view), or an
+        special ``"turntable"`` (an orbit starting from the front view,
+        by default one full 360-degree orbit over the clip duration;
+        see ``turntable_period``), or an
         ``(azimuth_deg, elevation_deg)`` tuple. Default ``"front"``.
+        The vedo backend has no turntable.
+    turntable_period : float, optional
+        Seconds per revolution of ``camera="turntable"``; any other
+        camera raises ``ValueError``. ``None`` (default) makes one
+        orbit over the clip, so the speed follows the clip's length
+        (82 degrees per second on the 4.4 s bundled walk). A period
+        sets the speed instead. Shorter than the clip, the camera
+        makes several orbits, the last one possibly partial, while the
+        clip plays once. Longer, the clip loops: it is played again
+        from its first frame until the orbit completes, so the video
+        lasts one period, rounded to the nearest frame, and the last
+        pass of the clip may be cut short. The seconds are seconds of
+        the video, at the rate it plays (``fps``, or the clip's own
+        rate by default), not of the clip: the two differ when ``fps``
+        plays the clip faster or slower than recorded, and the period
+        is the speed the viewer sees. A clip whose ``frame_time`` is 0
+        (unset) is therefore timed by the ``fps`` it needs anyway. This
+        differs from ``ghost`` spacing and ``follow`` smoothing, which
+        are seconds of clip time because they describe the motion.
+        At each loop seam the pose jumps from the clip's last frame
+        back to its first, with no blending, while the camera turns on
+        without a break. Ghosts, the root trace and the frame counter
+        restart with the clip, so each pass is drawn as the first was
+        and only the camera differs; carrying them across the seam
+        would draw ghosts of the previous pass where the character no
+        longer is and a trace segment from the clip's end back to its
+        start. The clips of a comparison loop together, after
+        ``sync`` has given them one length. A number of turns over the
+        clip was the rejected alternative: it cannot slow a short clip
+        down without cutting the orbit short.
     resolution : (int, int), optional
         Output resolution ``(width, height)`` in pixels.
         Default ``(1920, 1080)``. The OpenCV backend draws at
@@ -800,7 +834,9 @@ def render(
         (default ``False``).
     frame_counter : bool, optional
         Stamp a ``Frame f/F`` counter in the corner (OpenCV backend
-        only). Default ``False`` — publication output never stamps
+        only), counting frames of the clip: a looped turntable
+        (``turntable_period``) counts from 0 again on each pass.
+        Default ``False`` — publication output never stamps
         text; pass ``True`` to restore the pre-0.9.0 counter.
     match_fps : str or None, optional
         How to handle clips with different frame rates in side-by-side
@@ -851,6 +887,15 @@ def render(
     # "turntable" is a camera *motion*, not an angle: orbit from the
     # front view. It overrides follow (both prescribe the azimuth).
     turntable = camera == "turntable"
+    if turntable_period is not None:
+        if not turntable:
+            raise ValueError(
+                f"turntable_period= sets the speed of camera='turntable', "
+                f"not of camera={camera!r}.")
+        if not (math.isfinite(turntable_period) and turntable_period > 0):
+            raise ValueError(
+                f"turntable_period must be a positive number of seconds, "
+                f"got {turntable_period!r}.")
     if turntable:
         camera = "front"
 
@@ -862,16 +907,24 @@ def render(
 
     scene = _prepare(clips, None, centered, camera, labels, pad=pad)
 
-    # A custom (azim, elev) tuple means the camera is fixed; follow is
-    # a no-op in that case because there's no orientation to track.
-    # Turntable overrides follow — both prescribe the azimuth.
-    effective_follow = (follow and not turntable
-                        and not isinstance(camera, tuple))
-    # The one value the backends hand to the viewport.
-    motion = ("turntable" if turntable
-              else "follow" if effective_follow else "fixed")
-
     actual_fps = _resolve_fps(fps, scene.frame_time)
+
+    # The one value the backends hand to the viewport. Turntable
+    # overrides follow — both prescribe the azimuth. A custom (azim,
+    # elev) tuple means the camera is fixed; follow is a no-op in that
+    # case because there's no orientation to track.
+    motion: str | Turntable
+    if turntable:
+        if turntable_period is None:
+            period = float(scene.num_frames)
+        else:
+            period = turntable_period * actual_fps
+        scene = scene.looped(max(scene.num_frames, round(period)))
+        motion = Turntable(period=period)
+    elif follow and not isinstance(camera, tuple):
+        motion = "follow"
+    else:
+        motion = "fixed"
 
     if (backend == "auto" and backend_name == "matplotlib"
             and filepath.suffix.lower() not in _MPL_ONLY_EXTENSIONS):
@@ -1025,8 +1078,6 @@ def play(
     None
         All backends display or open their viewer as a side effect.
     """
-    import math
-
     clips = as_clip_list(bvh)
 
     valid_backends = {"auto", "k3d", "vedo", "opencv", "matplotlib"}

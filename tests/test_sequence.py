@@ -118,6 +118,95 @@ class TestGhostAndTrajectory:
             bvhplot.render(bvh, tmp_path / "x.mp4", ghost=-1)
 
 
+def _gif_frames(path):
+    from PIL import Image, ImageSequence
+    with Image.open(path) as gif:
+        return [np.asarray(frame.convert("RGB"))
+                for frame in ImageSequence.Iterator(gif)]
+
+
+def _still(bvh, num_frames):
+    """The clip's first pose held for *num_frames* frames: two frames of
+    a turntable over it look alike exactly when the camera does."""
+    still = bvh[0:num_frames].copy()
+    still.root_pos = np.repeat(bvh.root_pos[:1], num_frames, axis=0)
+    still.joint_angles = np.repeat(bvh.joint_angles[:1], num_frames, axis=0)
+    return still
+
+
+class TestTurntablePeriod:
+    """``turntable_period`` is seconds of the video per revolution,
+    at the rate the render plays (``fps``, 10 here)."""
+
+    def _render(self, clip, tmp_path, **options):
+        pytest.importorskip("cv2")
+        path = bvhplot.render(
+            clip, tmp_path / "tt.gif", backend="opencv", fps=10,
+            camera="turntable", resolution=(160, 120), **options)
+        return _gif_frames(path)
+
+    def test_a_period_shorter_than_the_clip_makes_several_orbits(
+            self, bvh, tmp_path):
+        # 0.4 s at 10 fps: a revolution every 4 frames, two over 8.
+        frames = self._render(_still(bvh, 8), tmp_path, turntable_period=0.4)
+        assert len(frames) == 8
+        for f in range(4):
+            np.testing.assert_array_equal(frames[f], frames[f + 4])
+        assert not np.array_equal(frames[0], frames[2])
+
+    def test_a_period_longer_than_the_clip_loops_it_until_the_orbit_ends(
+            self, bvh, tmp_path):
+        # 1.2 s at 10 fps: 12 frames, the 4-frame clip three times over,
+        # while the camera keeps turning across the seams.
+        frames = self._render(_still(bvh, 4), tmp_path, turntable_period=1.2)
+        assert len(frames) == 12
+        assert not np.array_equal(frames[0], frames[4])
+
+    def test_the_loop_ends_on_the_frame_nearest_the_period(
+            self, bvh, tmp_path):
+        frames = self._render(bvh[0:4], tmp_path, turntable_period=1.26)
+        assert len(frames) == 13
+
+    def test_a_period_of_the_clips_length_is_the_default_orbit(
+            self, bvh, tmp_path):
+        clip = bvh[0:6]
+        default = self._render(clip, tmp_path)
+        timed = self._render(clip, tmp_path, turntable_period=0.6)
+        assert len(timed) == len(default) == 6
+        for mine, theirs in zip(timed, default):
+            np.testing.assert_array_equal(mine, theirs)
+
+    def test_a_clip_without_a_rate_is_timed_by_fps(self, bvh, tmp_path):
+        clip = bvh[0:4].copy()
+        clip.frame_time = 0
+        frames = self._render(clip, tmp_path, turntable_period=1.2)
+        assert len(frames) == 12
+
+    def test_the_matplotlib_backend_loops_too(self, bvh, tmp_path):
+        path = bvhplot.render(
+            bvh[0:4], tmp_path / "tt.gif", backend="matplotlib", fps=10,
+            camera="turntable", turntable_period=0.8, resolution=(160, 120))
+        assert len(_gif_frames(path)) == 8
+
+    @pytest.mark.parametrize("period", [0, -1.0, float("nan"), float("inf")])
+    def test_the_period_is_a_positive_number_of_seconds(
+            self, bvh, tmp_path, period):
+        with pytest.raises(ValueError, match="turntable_period"):
+            bvhplot.render(bvh[0:4], tmp_path / "x.gif", camera="turntable",
+                           turntable_period=period)
+
+    def test_the_period_needs_the_turntable_camera(self, bvh, tmp_path):
+        with pytest.raises(ValueError, match="turntable_period"):
+            bvhplot.render(bvh[0:4], tmp_path / "x.gif", camera="side",
+                           turntable_period=2.0)
+
+    def test_the_vedo_backend_has_no_turntable(self, bvh, tmp_path):
+        pytest.importorskip("vedo")
+        with pytest.raises(ValueError, match="turntable"):
+            bvhplot.render(bvh[0:4], tmp_path / "x.gif", backend="vedo",
+                           camera="turntable", turntable_period=2.0)
+
+
 class TestPhase3Export:
     def test_turntable_opencv(self, bvh, tmp_path):
         pytest.importorskip("cv2")

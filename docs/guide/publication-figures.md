@@ -66,6 +66,12 @@ bvh.render("orbit.mp4", camera="turntable", centered="skeleton")
 
 `centered="skeleton"` pins the root so the orbit is the only motion in frame; without it a travelling character also walks across the shot while the camera comes round.
 
+One orbit over a 4.4 s clip is 82° per second, too fast to look at anything. `turntable_period` sets the speed instead, in seconds of the video per revolution; a clip shorter than the period loops until the orbit completes, and one longer than it gets several orbits:
+
+```python
+bvh.render("orbit.mp4", camera="turntable", centered="skeleton", turntable_period=12)
+```
+
 Anti-aliasing is on by default: the OpenCV backend draws at `Style.supersample` (2) times the output resolution and downsamples, and primitive sizes scale with the drawing surface, so a 4K export gets proportionally thicker lines rather than hairlines. `.gif` output always goes through matplotlib, which is what to use when a venue wants an animated figure rather than a video file.
 
 ## The capsule look

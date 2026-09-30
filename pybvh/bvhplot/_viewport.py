@@ -167,20 +167,22 @@ class Viewport(GroundFrame):
         *,
         view_angle: float | None = None,
         aspect: float | None = None,
+        band: tuple[float, float] = (0.0, 1.0),
     ) -> Camera:
         """Where a perspective camera stands at *frame*.
 
         The camera looks at the cube's centre along the viewing
         direction, from :meth:`eye_distance` for the toolkit's vertical
-        *view_angle* (degrees) and the picture's *aspect* ratio (width
-        over height; ``None`` fits the vertical direction alone). A
-        camera not told its view angle stands ``EYE_DISTANCE``
-        half-spans back, which fits one view angle only."""
+        *view_angle* (degrees), the picture's *aspect* ratio (width
+        over height; ``None`` fits the vertical direction alone) and
+        the *band* of its height the figure may take. A camera not told
+        its view angle stands ``EYE_DISTANCE`` half-spans back, which
+        fits one view angle only."""
         matrix = self.view_matrix(frame)
         if view_angle is None:
             distance = EYE_DISTANCE * self.half_span
         else:
-            distance = self.eye_distance(view_angle, aspect)
+            distance = self.eye_distance(view_angle, aspect, band)
         eye = self.center + matrix[2] * distance
         return Camera(eye=eye, target=self.center.copy(), up=matrix[1].copy())
 
@@ -188,18 +190,23 @@ class Viewport(GroundFrame):
         self,
         view_angle: float,
         aspect: float | None = None,
+        band: tuple[float, float] = (0.0, 1.0),
     ) -> float:
         """How far the perspective camera stands from the cube's centre.
 
         The smallest distance at which every coordinate shown projects
         inside ``FIT_FRACTION`` of the picture, in whichever direction
-        is tighter, as the orthographic projection fits its box. Solved
-        exactly: a
-        coordinate at ``x`` across, ``y`` up and ``z`` towards the eye
-        from the target (view units) needs the eye at least
-        ``z + max(|y| / (f t), |x| / (f t aspect))`` away, where ``t``
-        is the tangent of half the view angle and ``f`` the fraction,
-        and the distance is the largest of these.
+        is tighter, as the orthographic projection fits its box; where
+        only a *band* of the picture's height is free for the figure,
+        inside ``FIT_FRACTION`` of that band, about its middle. Solved
+        exactly: a coordinate at ``x`` across, ``y`` up and ``z``
+        towards the eye from the target (view units) needs the eye at
+        least ``z + max(y / (t b), |x| / (f t aspect))`` away, where
+        ``t`` is the tangent of half the view angle, ``f`` the
+        fraction, and ``b`` how far the fitted band reaches from the
+        picture's middle on the coordinate's side (up for ``y > 0``,
+        down, negative, for ``y < 0``; ``f`` either way for the whole
+        height). The distance is the largest of these.
 
         Conventions, and the alternatives they were chosen over:
 
@@ -210,6 +217,17 @@ class Viewport(GroundFrame):
           the cube's centre on screen (a still whose floor shifts it,
           seen from above), but the target would then depend on the
           view angle, and every backend aims at the same point today.
+        - **The target stays at the picture's middle, whatever the
+          band.** Around a band whose middle is off the picture's, the
+          figure reaches the band's nearer edge first and leaves room
+          unused at the farther one. The alternative, shifting the
+          projection so that the band's middle is the picture's middle
+          (VTK's window centre), would use that room, but a camera
+          would then need that shift besides its eye, target and up,
+          and every toolkit a way to apply it. The two differ by as
+          much as the band's middle is off the picture's: the vedo
+          viewer's band is nearly centred, and its figure is about 1.5%
+          smaller than the shifted projection would draw it.
         - **The coordinates shown are fitted**, every node of every view
           on every frame, not the corners of the framing cube. The
           cube's depth is mostly empty, and fitting its corners stands
@@ -249,22 +267,52 @@ class Viewport(GroundFrame):
             The picture's width over its height. ``None`` fits the
             vertical direction alone, for a toolkit that does not know
             its picture's width.
+        band : tuple of float, optional
+            The part of the picture's height the figure may take, as
+            ``(bottom, top)`` fractions of the height from its bottom
+            edge: what a toolkit's controls leave free. The default is
+            the whole height.
 
         Returns
         -------
         float
             The distance from the cube's centre to the eye.
+
+        Raises
+        ------
+        ValueError
+            If *band* is not inside the picture's height, or the part of
+            it the coordinates are fitted into does not hold the
+            picture's middle, where the camera aims.
         """
+        bottom, top = band
+        if not 0.0 <= bottom < top <= 1.0:
+            raise ValueError(
+                f"band must be (bottom, top) with 0 <= bottom < top <= 1, "
+                f"got {band}")
+        # The fitted part of the band, in half heights from the
+        # picture's middle (up positive).
+        band_middle = bottom + top - 1.0
+        fitted_half = FIT_FRACTION * (top - bottom)
+        fitted_down = band_middle - fitted_half
+        fitted_up = band_middle + fitted_half
+        if not fitted_down < 0.0 < fitted_up:
+            raise ValueError(
+                f"band {band} must hold the picture's middle, where the "
+                f"camera aims, inside FIT_FRACTION of it")
+        tangent = np.tan(np.radians(view_angle) / 2.0)
         matrices = self._view_matrices
-        # A picture's half height at unit depth, times the fraction.
-        reach = np.tan(np.radians(view_angle) / 2.0) * FIT_FRACTION
         distances = []
         for coords in self.shown_coords:
             viewed = (coords - self.center) @ np.swapaxes(matrices, 1, 2)
-            needed = np.abs(viewed[..., 1]) / reach
+            height = viewed[..., 1]
+            needed = np.where(height >= 0.0,
+                              height / (tangent * fitted_up),
+                              height / (tangent * fitted_down))
             if aspect is not None:
+                reach_across = tangent * FIT_FRACTION * aspect
                 needed = np.maximum(
-                    needed, np.abs(viewed[..., 0]) / (reach * aspect))
+                    needed, np.abs(viewed[..., 0]) / reach_across)
             distances.append(float((viewed[..., 2] + needed).max()))
         # The cube's corner nearest the eye stands half_span * sum|w_k|
         # from its centre along the unit direction w towards the eye.

@@ -461,6 +461,23 @@ def _pinhole_fill(camera, points, view_angle, aspect):
     return fill, depth
 
 
+def _pinhole_position(camera, points, view_angle, aspect):
+    """Where each of *points* lands in the picture, seen through a
+    pinhole at *camera*: its height as a fraction of the picture's
+    height from the bottom edge, and how far across it is from the
+    middle over the half width (signed)."""
+    forward = camera.target - camera.eye
+    forward /= np.linalg.norm(forward)
+    right = np.cross(forward, camera.up)
+    right /= np.linalg.norm(right)
+    up = np.cross(right, forward)
+    relative = points - camera.eye
+    half_height = np.tan(np.radians(view_angle) / 2) * (relative @ forward)
+    height = 0.5 + 0.5 * (relative @ up) / half_height
+    across = (relative @ right) / (half_height * aspect)
+    return height, across
+
+
 class TestPerspectiveFit:
     """The perspective camera stands at the smallest distance at which
     every coordinate shown lands inside FIT_FRACTION of the picture."""
@@ -522,6 +539,47 @@ class TestPerspectiveFit:
             for camera in (viewport.camera(frame, view_angle=30.0, aspect=1.5)
                            for frame in range(24))]
         np.testing.assert_allclose(distances, distances[0], rtol=1e-12)
+
+    @pytest.mark.parametrize("band", [(0.12, 0.89), (0.3, 0.95), (0.02, 0.6)],
+                             ids=["nearly centred", "high", "low"])
+    @pytest.mark.parametrize("motion", ["fixed", "turntable"])
+    @pytest.mark.parametrize("aspect", [16 / 9, 9 / 16])
+    def test_every_coordinate_fits_the_band_and_one_reaches_it(
+            self, band, motion, aspect):
+        """A band of the picture's height, as the vedo viewer leaves
+        free between its transport bar and its top row of controls.
+        The coordinates fill FIT_FRACTION of the band, about its middle,
+        while the camera still aims at the picture's middle; across,
+        FIT_FRACTION of the width as without a band."""
+        scene = make_array_scene(n_frames=24)
+        view = scene.views[0]
+        viewport = make_viewport(scene.views, motion=motion)
+        bottom, top = band
+        margin = (1 - FIT_FRACTION) / 2 * (top - bottom)
+        lowest, highest = bottom + margin, top - margin
+        heights, fills = [], []
+        for frame in range(24):
+            camera = viewport.camera(
+                frame, view_angle=30.0, aspect=aspect, band=band)
+            height, across = _pinhole_position(
+                camera, view.coords[frame], 30.0, aspect)
+            heights.append(height)
+            fills.append(np.abs(across) / FIT_FRACTION)
+        heights = np.concatenate(heights)
+        assert heights.min() >= lowest - 1e-9
+        assert heights.max() <= highest + 1e-9
+        fills = np.concatenate(fills)
+        reached = max(fills.max(),
+                      (heights.max() - 0.5) / (highest - 0.5),
+                      (0.5 - heights.min()) / (0.5 - lowest))
+        assert reached == pytest.approx(1.0, rel=1e-9)
+
+    def test_a_band_that_leaves_out_the_middle_is_refused(self, view):
+        """The camera aims at the picture's middle, so a band that does
+        not contain it cannot hold the figure around its target."""
+        viewport = make_viewport([view])
+        with pytest.raises(ValueError, match="middle"):
+            viewport.eye_distance(30.0, band=(0.55, 0.95))
 
     @pytest.mark.parametrize("figure", ["end on", "flat"])
     def test_the_whole_cube_stays_in_front_of_the_eye(self, figure):

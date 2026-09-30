@@ -818,10 +818,12 @@ class TestEveryBackendStatesItsProjection:
 class TestEveryPerspectiveBackendUsesTheViewportsCamera:
     def test_vedo_offscreen_renders_from_it(self, scene, monkeypatch):
         """Checked on the camera VTK ends up with when a still is
-        rendered, not on the numbers handed to it."""
+        rendered, not on the numbers handed to it: the viewport's
+        camera fitted to VTK's 30 degree view angle and the picture's
+        aspect ratio."""
         vedo = pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo_offscreen
-        from pybvh.bvhplot._viewport import EYE_DISTANCE, make_viewport
+        from pybvh.bvhplot._viewport import make_viewport
         seen = {}
         real_screenshot = vedo.Plotter.screenshot
 
@@ -831,19 +833,18 @@ class TestEveryPerspectiveBackendUsesTheViewportsCamera:
                 position=np.array(camera.GetPosition()),
                 focal_point=np.array(camera.GetFocalPoint()),
                 viewup=np.array(camera.GetViewUp()),
-                distance=camera.GetDistance())
+                view_angle=camera.GetViewAngle())
             return real_screenshot(plotter, *args, **kwargs)
 
         monkeypatch.setattr(vedo.Plotter, "screenshot", capture)
-        _vedo_offscreen.frame_vedo(scene, Style("paper"), resolution=(200, 200))
+        _vedo_offscreen.frame_vedo(scene, Style("paper"), resolution=(240, 160))
 
-        viewport = make_viewport(scene.views)
-        eye, target, up = viewport.camera()
+        assert seen["view_angle"] == 30.0
+        eye, target, up = make_viewport(scene.views).camera(
+            view_angle=30.0, aspect=240 / 160)
         np.testing.assert_allclose(seen["position"], eye)
         np.testing.assert_allclose(seen["focal_point"], target)
         np.testing.assert_allclose(seen["viewup"], up, atol=1e-12)
-        assert seen["distance"] == pytest.approx(
-            EYE_DISTANCE * viewport.half_span)
 
     # The vedo viewer's camera is tested in tests/test_vedo_player.py,
     # and k3d's in TestK3d above, each with the change that made it.

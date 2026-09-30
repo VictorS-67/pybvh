@@ -134,7 +134,11 @@ def _build_offscreen(
                 view.label, pos=(0.03, 0.95 - s * 0.05),
                 c=vedo_rgb(color), s=1.2, font='Calco')
 
-    eye, target, up = viewport.camera()
+    # The view angle is read from VTK, not written down here, so the fit
+    # follows whatever vedo sets it to.
+    width, height = resolution
+    eye, target, up = viewport.camera(
+        view_angle=plt.camera.GetViewAngle(), aspect=width / height)
     camera = dict(
         position=eye.tolist(),
         focal_point=target.tolist(),

@@ -674,23 +674,29 @@ def _wrap_update_with_extras(
     ghost_slots,
     trace_lines,
 ):
-    """Extend an animation update fn with ghost and trace updates."""
+    """Extend an animation update fn with ghost and trace updates.
+
+    Ghosts and the trace reach back only to the start of the frame's
+    pass (:meth:`~._scene.Scene.pass_start`), so a looped Scene draws
+    every pass as the first.
+    """
     trace_paths = [viewport.ground_path(view.coords[:, 0])
                    for view, viewport in zip(scene.views, viewports)]
     empty = np.empty((0, 2, 3))
 
     def update(f: int):
         artists = base_update(f)
+        pass_start = scene.pass_start(f)
         for view, bones, slots, trace, path in zip(
                 scene.views, bones_arrays, ghost_slots, trace_lines,
                 trace_paths):
             for collection, lag in slots:
                 gf = f - lag
                 collection.set_segments(
-                    view.coords[gf][bones] if gf >= 0 else empty)
+                    view.coords[gf][bones] if gf >= pass_start else empty)
                 artists.append(collection)
             if trace is not None:
-                upto = path[:f + 1]
+                upto = path[pass_start:f + 1]
                 trace.set_data_3d(upto[:, 0], upto[:, 1], upto[:, 2])
                 artists.append(trace)
         return artists

@@ -119,6 +119,51 @@ class TestOpenCV:
         assert out.exists() and out.stat().st_size > 0
 
 
+def _gif_frames(path):
+    from PIL import Image, ImageSequence
+    with Image.open(path) as gif:
+        return [np.asarray(frame.convert("RGB"))
+                for frame in ImageSequence.Iterator(gif)]
+
+
+class TestEveryPassIsDrawnAsTheFirst:
+    """A looped Scene replays its clip: under a fixed camera, a frame
+    of a later pass shows exactly what the same frame of the first pass
+    showed, so no ghost, root-trace segment or frame count reaches back
+    across the seam to the end of the previous pass."""
+
+    CLIP = 12
+    LOOPED = 30  # two whole passes and a partial third
+    # 0.1 s at 30 fps: ghosts trail by 3 and 6 frames, so the first
+    # frames of a pass would show the previous pass's end.
+    STYLE = Style("paper", ghost_spacing=0.1, supersample=1)
+
+    @pytest.fixture
+    def looped(self):
+        return make_array_scene(n_frames=self.CLIP).looped(self.LOOPED)
+
+    def test_opencv(self, looped):
+        pytest.importorskip("cv2")
+        from pybvh.bvhplot._opencv import _generate_frames
+        frames = list(_generate_frames(
+            looped, self.STYLE, (160, 120), ghost=2, trajectory=True,
+            frame_counter=True))
+        assert len(frames) == self.LOOPED
+        for f in range(self.CLIP, self.LOOPED):
+            np.testing.assert_array_equal(
+                frames[f], frames[f % self.CLIP], err_msg=f"frame {f}")
+
+    def test_matplotlib(self, looped, tmp_path):
+        from pybvh.bvhplot._matplotlib import render_mpl
+        out = render_mpl(looped, self.STYLE, tmp_path / "loop.gif", 10.0,
+                         ghost=2, trajectory=True, resolution=(160, 120))
+        frames = _gif_frames(out)
+        assert len(frames) == self.LOOPED
+        for f in range(self.CLIP, self.LOOPED):
+            np.testing.assert_array_equal(
+                frames[f], frames[f % self.CLIP], err_msg=f"frame {f}")
+
+
 class TestVedo:
     def test_offscreen_frame(self, scene):
         pytest.importorskip("vedo")

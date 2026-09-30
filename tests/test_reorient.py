@@ -201,6 +201,17 @@ class TestWorldUpWarningPreference:
             _ = (loud + silenced).world_up
             assert _disagreement_warnings(w) == 1
 
+    def test_read_bvh_directory_loads_silently(self):
+        from pybvh import read_bvh_directory
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            clips = read_bvh_directory(
+                BVH_DIR, warn_on_world_up_disagreement=False)
+            assert any(c.source_path == TEST3 for c in clips)
+            for clip in clips:
+                _ = clip[0:10].world_up
+        assert _disagreement_warnings(w) == 0
+
     def test_default_warns_once_per_inference(self):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")

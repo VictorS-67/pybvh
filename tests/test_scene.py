@@ -447,6 +447,20 @@ class TestLoopedScene:
         with pytest.raises(ValueError, match="loop"):
             make_array_scene(n_frames=5).looped(12).subsampled(2)
 
+    @pytest.mark.parametrize("loop_length", [2.5, 3.0, True])
+    def test_a_loop_is_a_whole_number_of_frames(self, loop_length):
+        views = make_array_scene(n_frames=5).views
+        with pytest.raises(ValueError, match="loop_length"):
+            Scene(views=views, loop_length=loop_length)
+
+    def test_looping_takes_a_whole_number_of_frames(self):
+        with pytest.raises(ValueError, match="num_frames"):
+            make_array_scene(n_frames=5).looped(7.5)
+
+    def test_a_loop_length_may_be_a_numpy_integer(self):
+        views = make_array_scene(n_frames=5).views
+        assert Scene(views=views, loop_length=np.int64(5)).pass_length == 5
+
     def test_a_loop_longer_than_the_scene_is_rejected(self):
         views = make_array_scene(n_frames=5).views
         with pytest.raises(ValueError, match="loop_length"):

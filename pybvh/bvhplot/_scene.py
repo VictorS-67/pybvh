@@ -286,10 +286,11 @@ class Scene:
                 f"All views of a Scene must hold the same number of "
                 f"frames, got {counts}.")
         if self.loop_length is not None and not (
-                1 <= self.loop_length <= counts[0]):
+                _is_whole_number(self.loop_length)
+                and 1 <= self.loop_length <= counts[0]):
             raise ValueError(
-                f"loop_length must be a number of frames from 1 to the "
-                f"Scene's {counts[0]}, got {self.loop_length}.")
+                f"loop_length must be a whole number of frames from 1 to "
+                f"the Scene's {counts[0]}, got {self.loop_length!r}.")
 
     @property
     def num_frames(self) -> int:
@@ -346,6 +347,10 @@ class Scene:
         A Scene that is already looped plays its original pass again,
         so looping twice is looping once to the longer length.
         """
+        if not _is_whole_number(num_frames):
+            raise ValueError(
+                f"num_frames must be a whole number of frames, got "
+                f"{num_frames!r}.")
         if num_frames < self.num_frames:
             raise ValueError(
                 f"looped() plays the clip again and cannot shorten it: "
@@ -449,6 +454,13 @@ class Scene:
         unit[lat_idx] = 1.0  # always the positive lateral direction
         return self.offset(
             [unit * k * effective for k in range(len(self.views))])
+
+
+def _is_whole_number(value: object) -> bool:
+    """Whether *value* is an integer type (Python or NumPy), bool
+    excluded: a frame count, not a float that happens to be whole."""
+    return (isinstance(value, (int, np.integer))
+            and not isinstance(value, bool))
 
 
 # ---------------------------------------------------------------------------

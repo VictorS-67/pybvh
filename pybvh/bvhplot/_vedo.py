@@ -20,17 +20,15 @@ import numpy.typing as npt
 
 from typing import Callable, TypedDict
 
-from ._style import PALETTE_RGB, Style, effective_color_mode
+from ._style import Style
 from ._viewport import make_viewport
 from ._scene import Scene, UP_AXIS_INDEX
-from ._colors import bone_colors_255, floor_palette, node_colors_255
+from ._colors import (
+    bone_colors_255, floor_palette, node_colors_255, skeleton_color_255,
+)
 from ._playback import PlaybackClock
-from ._vedo_capsules import CapsuleSkeleton, floor_placement
+from ._vedo_capsules import CapsuleSkeleton, floor_placement, vedo_rgb
 
-
-# Rich gold for single-skeleton "high" mode (aitviewer-inspired);
-# used when the style's color mode resolves to "skeleton"/"single".
-_WARM_AMBER = (230, 175, 50)
 
 # Test seam: forces the player's Plotter offscreen so construction,
 # geometry, and the screenshot path can run without a display.
@@ -275,14 +273,10 @@ class _VedoPlayer:
     # GEOMETRY
     # =================================================================
 
-    def _color_rgb(self, s: int) -> tuple[int, int, int]:
-        if self.n_skeletons == 1 and self.use_high:
-            return _WARM_AMBER
-        return PALETTE_RGB[s % len(PALETTE_RGB)]
-
-    def _color(self, s: int) -> str:
-        r, g, b = self._color_rgb(s)
-        return f"rgb({r},{g},{b})"
+    def _skeleton_color(self, s: int) -> tuple[float, float, float]:
+        """Skeleton *s*'s label and trail color, in vedo's form."""
+        return vedo_rgb(
+            skeleton_color_255(self.style, s, self.n_skeletons))
 
     def _build_geometry(self) -> None:
         """Create the floor, skeleton actors, labels, camera, and trails."""
@@ -391,7 +385,7 @@ class _VedoPlayer:
                 label = Text2D(
                     self.labels[s],
                     pos=(0.02 + s * 0.15, 0.95),
-                    c=self._color(s), s=1.4, font='Calco',
+                    c=self._skeleton_color(s), s=1.4, font='Calco',
                 )
                 self.plt += label
 
@@ -439,7 +433,7 @@ class _VedoPlayer:
             collapsed = np.tile(root_all[0], (2 * (len(root_all) - 1), 1))
             self._trail_collapsed.append(collapsed)
             trail = Lines(collapsed[::2], collapsed[1::2],
-                          lw=2, c=self._color(s), alpha=0.6)
+                          lw=2, c=self._skeleton_color(s), alpha=0.6)
             trail.lighting('off')
             trail.actor.SetVisibility(0)
             self._trail_actors.append(trail)

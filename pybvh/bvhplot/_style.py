@@ -181,7 +181,11 @@ class Style:
     comparisons (the GT-vs-generated convention); ``"chains"`` forces
     chain colors everywhere; ``"skeleton"`` forces the flat palette;
     ``"single"`` draws one skeleton in ``bone_color`` (multi-skeleton
-    still uses the palette — the pre-0.9.0 behavior).
+    still uses the palette — the pre-0.9.0 behavior). The vedo
+    backends draw a skeleton's label, and the vedo viewer its root
+    trail, in that flat color; under chain colors, which give a
+    skeleton no single color, in the spine color rather than the
+    color of whichever bone the file lists first.
 
     ``axes`` and ``floor`` are independent, so ``Style("paper",
     axes="full")`` keeps the ground plane — and on the matplotlib

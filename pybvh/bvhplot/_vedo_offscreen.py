@@ -24,8 +24,12 @@ from typing import TYPE_CHECKING
 from ._style import Style
 from ._viewport import make_viewport
 from ._scene import Scene
-from ._colors import bone_colors_255, floor_palette, node_colors_255
-from ._vedo_capsules import CapsuleSkeleton, floor_placement, shadow_height
+from ._colors import (
+    bone_colors_255, floor_palette, node_colors_255, skeleton_color_255,
+)
+from ._vedo_capsules import (
+    CapsuleSkeleton, floor_placement, shadow_height, vedo_rgb,
+)
 
 if TYPE_CHECKING:
     pass
@@ -127,11 +131,10 @@ def _build_offscreen(
         for s, view in enumerate(scene.views):
             if view.label is None:
                 continue
-            r, g, b = bone_colors_255(
-                view, style, s, scene.num_skeletons)[0]
+            color = skeleton_color_255(style, s, scene.num_skeletons)
             plt += Text2D(
                 view.label, pos=(0.03, 0.95 - s * 0.05),
-                c=f"rgb({r},{g},{b})", s=1.2, font='Calco')
+                c=vedo_rgb(color), s=1.2, font='Calco')
 
     eye, target, up = viewport.camera()
     camera = dict(

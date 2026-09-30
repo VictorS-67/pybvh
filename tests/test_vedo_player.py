@@ -183,7 +183,7 @@ class TestGridFloor:
         heights = view.coords[..., order][..., "xyz".index(up[1])]
         return Scene(views=[dataclasses.replace(
             view, coords=view.coords[..., order],
-            rest_coords=view.rest_coords[..., order], up=up,
+            rest_coords=view.rest_coords[..., order], rest_up=up, up=up,
             forward_axis=forward, root_heading=None,
             floor_height=float(heights.min()))])
 

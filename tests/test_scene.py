@@ -21,7 +21,7 @@ from pybvh.bvhplot._from_bvh import (
 from pybvh.bvhplot._scene import Scene, SkeletonView
 from pybvh.tools import _resolve_lr_pairs
 from synthetic_bvh import make_nameless_lr_bvh
-from synthetic_scene import make_array_scene, make_array_view
+from synthetic_scene import make_array_scene, make_array_view, make_bare_view
 
 BVH_PATH = "bvh_data/cmu_12_01_walk.bvh"
 
@@ -83,6 +83,7 @@ class TestViewCarriesSkeletonFacts:
         assert view.node_names == [n.name for n in bvh.nodes]
         np.testing.assert_allclose(view.rest_coords, bvh.rest_pose_positions())
         assert view.rest_coords.shape == (len(bvh.nodes), 3)
+        assert view.rest_up == bvh.rest_up
 
     def test_orientation_facts(self, bvh, coords):
         view = make_scene([bvh], [coords], "front", None).views[0]
@@ -467,6 +468,139 @@ class TestLoopedScene:
             Scene(views=views, loop_length=6)
 
 
+class TestBodySize:
+    """A view's body size is the length what is drawn on the body is
+    sized from: the rest pose's height, whatever the clip does."""
+
+    def test_is_the_rest_pose_height(self):
+        """The stick person stands 1.8 tall in its rest pose."""
+        assert make_array_view().body_size == pytest.approx(1.8)
+
+    def test_does_not_grow_with_the_distance_travelled(self):
+        far = make_array_view(n_frames=24, walk_speed=2.0)
+        assert far.body_size == pytest.approx(1.8)
+
+    def test_is_measured_along_the_rest_poses_own_up_axis(self):
+        """A file can author its rest pose in one convention and animate
+        in another: the stick person's rest pose stands along y while
+        the clip is z up. Its z extent is its depth (zero here), not
+        its height."""
+        view = dataclasses.replace(
+            make_array_view(), up="+z", forward_axis="+x", rest_up="+y")
+        assert view.body_size == pytest.approx(1.8)
+
+    def test_is_in_the_unit_of_the_coords(self):
+        """Coordinates a caller supplies can be in another unit than
+        the skeleton's rest pose, here centimetres against metres. What
+        is drawn on them is drawn in their unit."""
+        view = make_array_view()
+        in_cm = dataclasses.replace(view, coords=view.coords * 100.0)
+        assert in_cm.body_size == pytest.approx(180.0)
+
+    def test_a_rest_pose_authored_in_another_convention(self):
+        """bvh_test3's rest pose is y up, its animation z up. The body
+        size is the height it stands at in the animation, within the
+        few percent a pose differs from the rest pose."""
+        rig = read_bvh_file("bvh_data/bvh_test3.bvh")
+        frame0 = rig.node_positions()[:1]
+        view = make_scene([rig], [frame0], "front", None).views[0]
+        assert view.rest_up == "+y"
+        assert view.up == "+z"
+        standing_height = float(np.ptp(frame0[0, :, 2]))
+        assert view.body_size == pytest.approx(standing_height, rel=0.05)
+
+    def test_zero_length_bones_do_not_hide_the_coords_unit(self):
+        """A rig can carry zero-length bones (end sites or helper joints
+        placed on their parent). Most of this one's bones have no rest
+        length; its coords, in centimetres against a rest pose in
+        metres, still draw a body 100 times the rest height."""
+        rest = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
+                         [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
+        bones = [(0, 1), (1, 2), (1, 3)]
+        view = make_bare_view(100.0 * rest[np.newaxis], rest, bones)
+        assert view.body_size == pytest.approx(100.0)
+
+    def test_a_rest_pose_without_a_measurable_bone_is_not_used(self):
+        """With no bone of positive rest length there is no ratio to
+        put the rest pose in the coords' unit, so the rest pose is not
+        measured: here the coords are in centimetres against a rest
+        pose in metres, and the body is the 180 its clip spans, not
+        the rest pose's 1.8."""
+        from synthetic_scene import REST_COORDS
+        view = make_bare_view(100.0 * REST_COORDS[np.newaxis],
+                              REST_COORDS, [])
+        assert view.body_size == pytest.approx(180.0)
+        assert view.body_size_measure == "clip extent"
+
+    def test_coords_that_collapse_the_bones_give_no_unit_ratio(self):
+        """A first frame with every node at one point has no bone
+        length to compare with the rest pose's: no ratio, rather than a
+        ratio of 0 that reads as a measurement."""
+        from synthetic_scene import REST_COORDS, BONES
+        coords = np.zeros((2, len(REST_COORDS), 3))
+        coords[1, :, 2] = 5.0
+        view = make_bare_view(coords, REST_COORDS, BONES)
+        assert view.coords_per_rest_unit is None
+        assert view.body_size_measure == "clip extent"
+
+    def test_is_measured_as_a_rest_height(self):
+        assert make_array_view().body_size_measure == "rest height"
+
+    def test_a_single_node_is_sized_by_the_clip_it_sweeps(self):
+        """A one-node skeleton has no rest pose to measure: its size is
+        the widest extent of the box its coords sweep, here a walk of
+        10 units."""
+        coords = np.zeros((12, 1, 3))
+        coords[:, 0, 2] = np.linspace(0.0, 10.0, 12)
+        view = make_bare_view(coords, np.zeros((1, 3)), [])
+        assert view.body_size == pytest.approx(10.0)
+        assert view.body_size_measure == "clip extent"
+
+    def test_coincident_nodes_are_sized_by_the_clip_they_sweep(self):
+        """Three nodes at one point, bones of no length, carried 4
+        units up and 3 across: the widest extent swept is 4."""
+        coords = np.zeros((12, 3, 3))
+        coords[..., 1] = np.linspace(0.0, 4.0, 12)[:, np.newaxis]
+        coords[..., 0] = np.linspace(0.0, 3.0, 12)[:, np.newaxis]
+        view = make_bare_view(coords, np.zeros((3, 3)), [(0, 1), (1, 2)])
+        assert view.body_size == pytest.approx(4.0)
+        assert view.body_size_measure == "clip extent"
+
+    def test_a_clip_at_one_point_gets_the_stated_default(self):
+        """Nothing to measure: one unit of the coords, and the measure
+        says it was not measured."""
+        view = make_bare_view(np.zeros((5, 3, 3)), np.zeros((3, 3)),
+                              [(0, 1), (1, 2)])
+        assert view.body_size == 1.0
+        assert view.body_size_measure == "default"
+
+    def test_an_unknown_rest_up_measures_the_widest_rest_extent(self):
+        """When the rest pose's up axis is unknown its height cannot be
+        told from its depth: the widest extent is taken, the stick
+        person's 1.8 height over its 1.2 hand span."""
+        view = dataclasses.replace(make_array_view(), rest_up=None)
+        assert view.body_size == pytest.approx(1.8)
+        assert view.body_size_measure == "rest extent"
+
+    def test_a_rest_up_too_small_to_infer_is_not_taken_for_up(self):
+        """Bvh.rest_up is None for a rest pose below its inference
+        tolerance: bvh_test3 (rest y up, animation z up) scaled by
+        1e-9. With its original coords the body is its rest pose's
+        widest extent in their unit, 71.4 across the arms, not its
+        depth along the animation's up (10.7)."""
+        rig = read_bvh_file("bvh_data/bvh_test3.bvh")
+        frame0 = rig.node_positions()[:1]
+        tiny = rig.scale(1e-9)
+        tiny.world_up = "+z"
+        assert tiny.rest_up is None
+        view = make_scene([tiny], [frame0], "front", None).views[0]
+        assert view.rest_up is None
+        assert view.body_size_measure == "rest extent"
+        widest = float(np.ptp(rig.rest_pose_positions(), axis=0).max())
+        assert view.body_size == pytest.approx(widest)
+        assert view.body_size == pytest.approx(71.42, abs=0.01)
+
+
 class TestViewIsCheckedAtConstruction:
     """An inconsistent view raises where it is built, naming the field,
     instead of drawing something wrong in a backend later."""
@@ -485,6 +619,7 @@ class TestViewIsCheckedAtConstruction:
         (dict(up="y"), "up must be one of"),
         (dict(up="+Y"), "up must be one of"),
         (dict(up="up"), "up must be one of"),
+        (dict(rest_up="y"), "rest_up must be one of"),
         (dict(forward_axis="z"), "forward_axis must be one of"),
         (dict(forward_axis="-y"), "lies along the up axis"),
         (dict(node_names=["only"]), "node_names has 1 entries"),

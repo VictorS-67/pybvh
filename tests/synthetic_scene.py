@@ -87,6 +87,7 @@ def make_array_view(
         frame_time=frame_time,
         node_names=list(NODE_NAMES),
         rest_coords=rest_coords,
+        rest_up=up,
         lr_pairs=LR_PAIRS.copy(),
         forward_axis="+z",
         bone_chains=list(BONE_CHAINS),
@@ -107,3 +108,34 @@ def make_array_scene(
             lateral_shift=1.5 * i)
         for i in range(n_skeletons)]
     return Scene(views=views)
+
+
+def make_bare_view(
+    coords: np.ndarray,
+    rest_coords: np.ndarray,
+    bones: list[tuple[int, int]],
+    rest_up: str | None = "+y",
+) -> SkeletonView:
+    """A view of any skeleton, y up and facing +z, with nothing but
+    its coords, rest pose and bones: for skeletons the stick person
+    cannot stand in for (one node, coincident nodes, zero-length
+    bones)."""
+    coords = np.asarray(coords, dtype=np.float64)
+    n_frames, n_nodes = coords.shape[:2]
+    return SkeletonView(
+        coords=coords,
+        bones=list(bones),
+        label=None,
+        azimuth=-20.0,
+        elevation=20.0,
+        up="+y",
+        floor_height=float(coords[..., 1].min()),
+        frame_time=1 / 30,
+        node_names=[f"node{i}" for i in range(n_nodes)],
+        rest_coords=np.asarray(rest_coords, dtype=np.float64),
+        rest_up=rest_up,
+        lr_pairs=np.zeros((0, 2), dtype=np.intp),
+        forward_axis="+z",
+        bone_chains=["spine"] * len(bones),
+        root_heading=np.tile([1.0, 0.0], (n_frames, 1)),
+    )

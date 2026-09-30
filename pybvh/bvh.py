@@ -107,6 +107,11 @@ class Bvh:
         # invalidated by the motion setters.
         self._world_up_override: str | None = None
         self._world_up_cached: str | None = None
+        # The warn preference lives on the instance, not only in this
+        # call, because ``_world_up_cached`` is dropped on every motion
+        # edit and is not carried to derived clips: each re-inference
+        # must still see what the caller asked for at load.
+        self._warn_on_world_up_disagreement = warn_on_disagreement
         self._floor_height_cached: float | None = None
         self._node_positions_cached: npt.NDArray[np.float64] | None = None
         self._lr_mapping: dict[str, str] | None = None
@@ -165,9 +170,7 @@ class Bvh:
         if world_up != "auto":
             self._world_up_override = _validate_axis_string(world_up)
         elif self.frame_count > 0 and len(self.nodes) > 1:
-            # warn_on_disagreement=False silences only the rest-pose vs
-            # first-frame disagreement warning of this eager inference.
-            self._world_up_cached = _infer_world_up(self, warn=warn_on_disagreement)
+            self._world_up_cached = self._infer_world_up()
 
         # L/R pair mapping — cached. Depends on names + topology only, so
         # no runtime invalidation hooks are needed (no pybvh operation
@@ -623,6 +626,7 @@ class Bvh:
             nodes=copy.deepcopy(self.nodes),
             frame_time=self.frame_time,
             source_path=self.source_path,
+            warn_on_disagreement=self._warn_on_world_up_disagreement,
         )
         new_bvh._world_up_override = self._world_up_override
         new_bvh._lr_mapping = copy.deepcopy(self._lr_mapping)
@@ -640,7 +644,9 @@ class Bvh:
         Returned as a signed axis string (``'+y'``, ``'-z'``, etc.).
         Constant per file. Auto-detected from the first animation frame's
         head-above-hips direction, with rest-pose topology as fallback.
-        Issues a ``UserWarning`` if the first frame and rest pose disagree.
+        Issues a ``UserWarning`` if the first frame and rest pose disagree,
+        unless the clip (or the clip it derives from) was loaded with
+        ``warn_on_world_up_disagreement=False``.
 
         The detection specifics, since they decide which answer you get:
         "head" is the first **exact** lowercase name match among
@@ -674,7 +680,7 @@ class Bvh:
         if self._world_up_override is not None:
             return self._world_up_override
         if self._world_up_cached is None:
-            self._world_up_cached = _infer_world_up(self)
+            self._world_up_cached = self._infer_world_up()
         return self._world_up_cached
 
     @world_up.setter
@@ -691,7 +697,9 @@ class Bvh:
         Useful for auditing whether a manual ``bvh.world_up = '+x'``
         override was necessary, or for diagnosing skeletons whose
         animation and rest-pose conventions disagree. Always runs the
-        inference fresh; doesn't consult or write the cache.
+        inference fresh; doesn't consult or write the cache. Warns on a
+        disagreement as :attr:`world_up` does, and is silenced the same
+        way (``warn_on_world_up_disagreement=False`` at load).
 
         Compare against :attr:`world_up` to see whether an override is
         in effect:
@@ -699,7 +707,11 @@ class Bvh:
             >>> bvh.world_up_inferred  # '+y'  (auto's guess)
             >>> bvh.world_up           # '+z'  (user override)
         """
-        return _infer_world_up(self)
+        return self._infer_world_up()
+
+    def _infer_world_up(self) -> str:
+        """Run the world-up heuristic, honouring the clip's warn preference."""
+        return _infer_world_up(self, warn=self._warn_on_world_up_disagreement)
 
     @property
     def up_axis(self) -> Axis:
@@ -2472,7 +2484,8 @@ class Bvh:
             root_pos=self.root_pos.copy(),
             joint_angles=new_joint_angles.copy(),
             frame_time=self.frame_time,
-            source_path=self.source_path)
+            source_path=self.source_path,
+            warn_on_disagreement=self._warn_on_world_up_disagreement)
         new_bvh._world_up_override = self._world_up_override
         # A user-set L/R mapping survives, filtered to pairs whose joints
         # are both kept. Name-detected mappings are re-derived by the

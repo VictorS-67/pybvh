@@ -124,6 +124,98 @@ class TestWorldUpParameter:
 
 
 # ========================================================================
+#  The load-time warning preference outlives the load
+# ========================================================================
+
+def _disagreement_warnings(caught: list[warnings.WarningMessage]) -> int:
+    return sum(1 for x in caught
+               if "rest pose suggests world up" in str(x.message).lower())
+
+
+class TestWorldUpWarningPreference:
+    """``warn_on_world_up_disagreement`` holds for the clip's lifetime.
+
+    bvh_test3's rest pose and first frame disagree on world up, so every
+    fresh inference on it (or on anything derived from it) is a chance
+    to warn.
+    """
+
+    @pytest.fixture
+    def silenced(self):
+        return read_bvh_file(TEST3, warn_on_world_up_disagreement=False)
+
+    def test_slice_stays_silent(self, silenced):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _ = silenced[0:10].world_up
+        assert _disagreement_warnings(w) == 0
+
+    def test_copy_stays_silent(self, silenced):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            clone = silenced.copy()
+            clone.joint_angles = clone.joint_angles.copy()  # drops the cache
+            _ = clone.world_up
+        assert _disagreement_warnings(w) == 0
+
+    def test_scale_stays_silent(self, silenced):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _ = silenced.scale(2.0).world_up
+        assert _disagreement_warnings(w) == 0
+
+    def test_mirror_stays_silent(self, silenced):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _ = silenced.mirror().world_up
+        assert _disagreement_warnings(w) == 0
+
+    def test_inplace_transform_stays_silent(self, silenced):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            silenced.translate_root(np.array([1.0, 0.0, 0.0]), inplace=True)
+            _ = silenced.world_up
+        assert _disagreement_warnings(w) == 0
+
+    def test_extract_joints_stays_silent(self, silenced):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            spine = silenced.extract_joints(
+                ["Hips", "Spine", "Spine1", "Spine2", "Spine3", "Neck", "Head"])
+            _ = spine.world_up
+        assert _disagreement_warnings(w) == 0
+
+    def test_world_up_inferred_stays_silent(self, silenced):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            assert silenced.world_up_inferred == "+z"
+        assert _disagreement_warnings(w) == 0
+
+    def test_concatenation_follows_the_left_clip(self, silenced):
+        with pytest.warns(UserWarning, match="Rest pose suggests world up"):
+            loud = read_bvh_file(TEST3)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _ = (silenced + loud).world_up
+            assert _disagreement_warnings(w) == 0
+            _ = (loud + silenced).world_up
+            assert _disagreement_warnings(w) == 1
+
+    def test_default_warns_once_per_inference(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            bvh = read_bvh_file(TEST3)
+            _ = bvh.world_up  # cached at load: no second inference
+            assert _disagreement_warnings(w) == 1
+            _ = bvh[0:10].world_up
+            assert _disagreement_warnings(w) == 2
+            bvh.translate_root(np.array([1.0, 0.0, 0.0]), inplace=True)
+            _ = bvh.world_up
+            _ = bvh.world_up
+            assert _disagreement_warnings(w) == 3
+
+
+# ========================================================================
 #  Helper: _axis_aligned_rotation
 # ========================================================================
 

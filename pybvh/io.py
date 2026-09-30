@@ -15,7 +15,7 @@ import numpy.typing as npt
 
 from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
 from .bvh import Bvh
-from .tools import _validate_bvh_path
+from .tools import _validate_bvh_path, _validate_frame_time
 
 
 # ----------------------------------------------------------------
@@ -198,8 +198,15 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
                 frame_count = int(line[1])
 
             elif token == 'Frame' and len(line) > 2 and line[1] == 'Time:':
+                try:
+                    file_frame_time = float(line[2])
+                    _validate_frame_time(file_frame_time)
+                except ValueError as e:
+                    raise ValueError(
+                        f"Could not read the frame time at line {line_number} "
+                        f"in file {filepath}: {e}") from e
                 # Snap 6-digit-truncated exact 1/N rates (see _snap_frame_time).
-                frame_time = _snap_frame_time(float(line[2]))
+                frame_time = _snap_frame_time(file_frame_time)
                 # --- we close the loop related to reading the hierarchy ---
                 break
             # Other tokens ('HIERARCHY', 'MOTION') carry no data — skipped.

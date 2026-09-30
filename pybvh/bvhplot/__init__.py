@@ -774,10 +774,13 @@ def render(
         before the character does. The rotation is unwrapped, so a
         turn past half a turn is followed all the way round, and a
         frame whose left-to-right axis cannot be measured takes its
-        heading from the measured frames around it. The first and last
-        frames keep their heading, so the net turn is exact, and the
-        smoothing weakens toward them. Only affects preset cameras
-        (``"front"``, ``"side"``, ``"top"``); custom
+        heading from the measured frames around it (interpolated, not
+        held at the last one, so the camera does not step when
+        measurement resumes); if the first frame cannot be measured,
+        there is no reference and the camera stays fixed. The first
+        and last frames keep their heading, so the net turn is exact,
+        and the smoothing weakens toward them. Only affects preset
+        cameras (``"front"``, ``"side"``, ``"top"``); custom
         ``(azimuth, elevation)`` tuples are fixed and ignore
         ``follow``. Default ``False`` (stable camera).
     ghost : int, optional

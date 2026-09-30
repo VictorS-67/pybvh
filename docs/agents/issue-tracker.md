@@ -15,7 +15,7 @@ Triage state labels are for **outside reports**: issues whose author is not `Vic
 
 ## Tickets
 
-A ticket fits **one fresh context**: well under 150k tokens from reading it to its last commit, which in practice is one behaviour, one test seam and a handful of files to read. One ticket per session. A compaction during a ticket means the tickets are too big: split the remaining ones smaller. A parent that already fits one context is its own ticket and gets no file.
+A ticket fits **one fresh context**: well under 150k tokens from reading it to its last commit, which in practice is one behaviour, one test seam and a handful of files to read. One ticket per session. A compaction during a ticket means the tickets are too big: split the remaining ones smaller. A parent that already fits one context still gets one file, `01`, carrying the issue's text and the decisions taken since it was filed.
 
 Tickets live at `.scratch/<parent-number>-<slug>/issues/<NN>-<slug>.md`, numbered from `01` in dependency order, and all of them commit to the parent's branch:
 
@@ -45,7 +45,7 @@ A **private parent** is `.scratch/<slug>/spec.md`, written in the house style; i
 
 ## When a skill says "fetch the relevant ticket"
 
-- **`#N`**: `gh issue view <N> --comments`.
+- **`#N`**: `gh issue view <N> --comments`, then its tickets under `.scratch/<N>-<slug>/issues/`.
 - **A ticket path**: read the file, then the parent its `**Parent:**` line names, if any.
 
 ## Pull requests as a triage surface

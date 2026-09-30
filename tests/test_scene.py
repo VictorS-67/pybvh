@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import ast
+import contextlib
 import copy
 import dataclasses
 import pathlib
 import pickle
-import warnings
 
 import numpy as np
 import pytest
@@ -252,18 +252,16 @@ def _turned_view(
 ) -> SkeletonView:
     """make_array_view's figure (+y up, facing +z) turned by the proper
     *rotation*, which must carry +y to *up* and +z to *forward*."""
-    axis_vectors = {f"{sign}{letter}": float(f"{sign}1") * np.eye(3)[i]
-                    for sign in "+-" for i, letter in enumerate("xyz")}
+    up_axis = parse_axis(up)
     assert np.isclose(np.linalg.det(rotation), 1.0)
-    np.testing.assert_array_equal(rotation @ axis_vectors["+y"],
-                                  axis_vectors[up])
-    np.testing.assert_array_equal(rotation @ axis_vectors["+z"],
-                                  axis_vectors[forward])
+    np.testing.assert_array_equal(rotation @ parse_axis("+y").vector,
+                                  up_axis.vector)
+    np.testing.assert_array_equal(rotation @ parse_axis("+z").vector,
+                                  parse_axis(forward).vector)
     view = make_array_view()
     coords = view.coords @ rotation.T
-    up_sign = axis_vectors[up].sum()
-    lowest_height = (coords @ axis_vectors[up]).min()
-    floor = float(up_sign * lowest_height)  # a coordinate along the up axis
+    lowest_height = (coords @ up_axis.vector).min()
+    floor = up_axis.sign * float(lowest_height)  # a coordinate along up
     return dataclasses.replace(
         view, coords=coords, rest_coords=view.rest_coords @ rotation.T,
         up=up, rest_up=up, forward_axis=forward, floor_height=floor)
@@ -419,9 +417,11 @@ class TestSceneMethods:
         if not pairs:
             walk.lr_mapping = None
         coords = walk.node_positions(centered="first")
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore", message="No usable left/right geometry")
+        fallback_warning = (
+            contextlib.nullcontext() if pairs
+            else pytest.warns(UserWarning,
+                              match="No usable left/right geometry"))
+        with fallback_warning:
             scene = make_scene([walk, walk], [coords, coords], "front", None)
         if not pairs:
             assert scene.views[0].forward_axis == "+z"  # not the walk's -z

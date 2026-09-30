@@ -214,3 +214,63 @@ class TestGridFloor:
                 rtol=1e-5, atol=1e-6)
         finally:
             p.plt.close()
+
+
+def _rendered(player, tmp_path):
+    """The viewer's current frame as an (H, W, 3) uint8 image."""
+    from PIL import Image
+    path = player.screenshot(str(tmp_path / "shot.png"), scale=1)
+    return np.asarray(Image.open(path).convert("RGB"))
+
+
+def _pixels_of(image, rgb, tol=3):
+    """How many pixels of *image* are *rgb*, within *tol* per channel."""
+    distance = np.abs(image.astype(int) - np.asarray(rgb)).max(axis=-1)
+    return int((distance <= tol).sum())
+
+
+class TestColours:
+    """The viewer draws the colours the style resolves to, the ones the
+    offscreen renderer draws. vedo read the "rgb(r,g,b)" strings the
+    viewer used to pass as black, and without per-vertex colours the
+    capsules fell back to a scalar map over the tube radius."""
+
+    BLUE, RED = (50, 120, 255), (220, 50, 50)   # the palette's first two
+
+    @pytest.fixture(scope="class")
+    def pair(self):
+        walk = read_bvh_file(BVH_PATH)
+        mirror = walk.mirror()
+        coords = [b.node_positions()[:10] for b in (walk, mirror)]
+        return make_scene([walk, mirror], coords, "front",
+                          ["walk", "mirror"]).spread(40)
+
+    @pytest.mark.parametrize("quality", ["high", "fast"])
+    def test_each_skeleton_of_a_pair_has_its_palette_colour(
+            self, pair, quality, monkeypatch, tmp_path):
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        p = _vedo._VedoPlayer(pair, Style("paper", floor=None), 30.0,
+                              quality=quality)
+        try:
+            image = _rendered(p, tmp_path)
+        finally:
+            p.plt.close()
+        # fast mode draws one-pixel lines: a few dozen pixels is a skeleton
+        assert _pixels_of(image, self.BLUE) > 50
+        assert _pixels_of(image, self.RED) > 50
+
+    def test_the_debug_style_draws_its_bone_color(self, monkeypatch,
+                                                  tmp_path):
+        """A single skeleton used to be drawn in a fixed amber whatever
+        the style said; render(backend="vedo") draws bone_color."""
+        walk = read_bvh_file(BVH_PATH)
+        scene = make_scene([walk], [walk.node_positions()[:10]], "front",
+                           None)
+        debug_blue = (25, 51, 204)   # bone_color (0.1, 0.2, 0.8)
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        p = _vedo._VedoPlayer(scene, Style("debug"), 30.0, quality="high")
+        try:
+            image = _rendered(p, tmp_path)
+        finally:
+            p.plt.close()
+        assert _pixels_of(image, debug_blue) > 1000

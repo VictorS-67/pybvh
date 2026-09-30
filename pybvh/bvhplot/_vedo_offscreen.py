@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 from ._style import Style
 from ._viewport import make_viewport
 from ._scene import Scene
-from ._colors import bone_colors_255, floor_palette, rgb255
+from ._colors import bone_colors_255, floor_palette, node_colors_255
 from ._vedo_capsules import CapsuleSkeleton, floor_placement, shadow_height
 
 if TYPE_CHECKING:
@@ -73,13 +73,6 @@ def _attach_projected_shadow(
         up_axis, shadow_height, c=_SHADOW_GRAY, alpha=1)
 
 
-def _chain_rgb_for_view(scene: Scene, style: Style, s: int):
-    """Per-bone (0-255) RGB for CapsuleSkeleton, honoring color modes."""
-    rgb = bone_colors_255(scene.views[s], style, s, scene.num_skeletons)
-    spine = rgb255(style.chain_colors.get("spine", "#3A3F4A"))
-    return rgb, spine
-
-
 def _build_offscreen(
     scene: Scene,
     style: Style,
@@ -104,11 +97,11 @@ def _build_offscreen(
 
     capsules: list[CapsuleSkeleton] = []
     for s, view in enumerate(scene.views):
-        chain_rgb, spine_rgb = _chain_rgb_for_view(scene, style, s)
+        bone_rgb = bone_colors_255(view, style, s, scene.num_skeletons)
+        joint_rgb = node_colors_255(
+            view, style, s, scene.num_skeletons, bone_rgb)
         capsule = CapsuleSkeleton(
-            view, r_base, "#AAAAAA",
-            chain_rgb=chain_rgb, spine_rgb=spine_rgb,
-            flat_lighting=False)
+            view, r_base, bone_rgb, joint_rgb, flat_lighting=False)
         capsule.update(view.coords[0])
         for mesh in capsule.actors:
             # Shadows must exist BEFORE the mesh joins the plotter —
@@ -134,7 +127,8 @@ def _build_offscreen(
         for s, view in enumerate(scene.views):
             if view.label is None:
                 continue
-            r, g, b = _chain_rgb_for_view(scene, style, s)[0][0]
+            r, g, b = bone_colors_255(
+                view, style, s, scene.num_skeletons)[0]
             plt += Text2D(
                 view.label, pos=(0.03, 0.95 - s * 0.05),
                 c=f"rgb({r},{g},{b})", s=1.2, font='Calco')

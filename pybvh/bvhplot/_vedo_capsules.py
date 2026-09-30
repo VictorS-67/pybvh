@@ -14,6 +14,7 @@ import numpy.typing as npt
 from typing import TYPE_CHECKING, Sequence
 
 from ._colors import rgb255
+from ._viewport import STANDING_STILL_HALF_SPAN
 
 if TYPE_CHECKING:
     from ._scene import SkeletonView
@@ -52,10 +53,9 @@ STUB_CAP_FACTOR = 2.0       # a stub is at most 2x the thinnest bone it joins
 MIN_RADIUS_FRACTION = 0.10  # visibility floor
 
 # Base capsule radius as a fraction of the body size, at the paper
-# style's bone width. The v0.9.0 radius of a standing still: 2.6% of a
-# half-span that is 0.525 of the pose's height (half of it, plus the
-# cube's 5% margin).
-BASE_RADIUS_FRACTION = 0.026 * 0.525
+# style's bone width: the v0.9.0 radius of a standing still, 2.6% of
+# its half-span.
+BASE_RADIUS_FRACTION = 0.026 * STANDING_STILL_HALF_SPAN
 
 
 def vedo_rgb(rgb: tuple[int, int, int]) -> tuple[float, float, float]:
@@ -360,8 +360,8 @@ class CapsuleSkeleton:
 
         frame0 = view.coords[0]
         bones = view.bones
-        self.base_radius = base_radius(view.body_size, bone_width)
-        r_base = self.base_radius
+        r_base = base_radius(view.body_size, bone_width)
+        self.base_radius = r_base
         self.bone_parent_idx = np.array([b[0] for b in bones], dtype=int)
         self.bone_child_idx = np.array([b[1] for b in bones], dtype=int)
 

@@ -29,6 +29,15 @@ if TYPE_CHECKING:
 # Every distance below is a fraction or a multiple of the half-span, the
 # half side of the cube around everything the picture shows.
 
+# The cube's half side is half the widest extent it must hold, times
+# this margin, so the skeleton does not touch the edge.
+CUBE_MARGIN = 1.05
+# The half-span of a still of a pose whose widest extent is its height,
+# in heights. Sizes that were fractions of the half-span until v0.10.0
+# and are now fractions of the body size keep their standing-still
+# value by being multiplied by this.
+STANDING_STILL_HALF_SPAN = CUBE_MARGIN / 2
+
 # The ground plane reaches this many half-spans from its centre in each
 # ground direction: wide enough to fill the frame at the usual camera
 # elevations, small enough that its far edge stays in the picture.
@@ -441,8 +450,7 @@ def compute_unified_limits(
     trajectory_half_span = float(
         np.maximum(global_max - center, center - global_min).max())
     half_span = max(max_body_span / 2.0, trajectory_half_span)
-    # Add a small margin (5%) so skeleton doesn't touch the edge
-    half_span *= 1.05
+    half_span *= CUBE_MARGIN
     return center, half_span
 
 

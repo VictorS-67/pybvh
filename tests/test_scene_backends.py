@@ -8,6 +8,7 @@ that knows what a Bvh is.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import pathlib
 
 import matplotlib
@@ -796,14 +797,12 @@ def _travelling_view(body_lengths=5.0, n_frames=24):
 
 
 def _still_of(view):
-    import dataclasses
     return dataclasses.replace(
         view, coords=view.coords[:1], root_heading=view.root_heading[:1])
 
 
 def _scaled(view, factor, lateral_shift):
     """*view* grown by *factor*, rest pose included, moved aside."""
-    import dataclasses
     coords = view.coords * factor
     coords[..., 0] += lateral_shift
     return dataclasses.replace(
@@ -960,9 +959,7 @@ def _viewer_sizes(scene, monkeypatch, quality):
     high quality), the joint labels' font size (pixels) and their lift
     above the joint (scene units)."""
     pytest.importorskip("vedo")
-    from pybvh.bvhplot import _vedo
-    monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
-    player = _vedo._VedoPlayer(scene, Style("paper"), 30.0, quality=quality)
+    player = _viewer(scene, monkeypatch, quality)
     try:
         sizes = []
         for s, view in enumerate(scene.views):

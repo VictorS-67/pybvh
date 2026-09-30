@@ -21,7 +21,7 @@ import numpy.typing as npt
 from typing import Callable, TypedDict
 
 from ._style import JOINT_DISC_MARGIN_PX, Style, bone_width_px
-from ._viewport import make_viewport
+from ._viewport import STANDING_STILL_HALF_SPAN, make_viewport
 from ._scene import Scene, UP_AXIS_INDEX
 from ._colors import (
     bone_colors_255, floor_palette, node_colors_255, skeleton_color_255,
@@ -37,9 +37,8 @@ from ._vedo_capsules import (
 _FORCE_OFFSCREEN = False
 
 # Joint-name labels float this fraction of the body size above their
-# joint: the v0.9.0 lift of a standing still, 2% of a half-span that is
-# 0.525 of the pose's height.
-LABEL_LIFT_FRACTION = 0.02 * 0.525
+# joint: the v0.9.0 lift of a standing still, 2% of its half-span.
+LABEL_LIFT_FRACTION = 0.02 * STANDING_STILL_HALF_SPAN
 # Joint-name labels' font size, in pixels.
 LABEL_FONT_SIZE = 14
 

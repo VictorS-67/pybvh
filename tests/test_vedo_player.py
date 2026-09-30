@@ -274,3 +274,21 @@ class TestColours:
         finally:
             p.plt.close()
         assert _pixels_of(image, debug_blue) > 1000
+
+    def test_labels_and_trails_carry_their_skeletons_colour(
+            self, pair, monkeypatch):
+        import vedo
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        p = _vedo._VedoPlayer(pair, Style("paper"), 30.0, quality="high")
+        try:
+            labels = {o.text(): o for o in p.plt.objects
+                      if isinstance(o, vedo.Text2D)}
+            for name, trail, rgb in zip(["walk", "mirror"], p._trail_actors,
+                                        [self.BLUE, self.RED]):
+                expected = np.asarray(rgb) / 255
+                np.testing.assert_allclose(
+                    labels[name].properties.GetColor(), expected)
+                np.testing.assert_allclose(
+                    trail.properties.GetColor(), expected)
+        finally:
+            p.plt.close()

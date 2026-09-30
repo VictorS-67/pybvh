@@ -260,3 +260,16 @@ class TestCapsuleSizing:
         assert radii == {} and joints.shape == (3,)
         radii, _ = adaptive_radii(pose, [(0, 1), (1, 2)], r_base=1.0)
         assert all(np.isfinite(r) and r > 0 for r in radii.values())
+
+
+class TestLabels:
+    def test_each_label_is_drawn_in_its_skeletons_colour(self, bvh):
+        """The labels were handed to vedo as "rgb(r,g,b)" strings,
+        which vedo reads as black."""
+        img = bvhplot.frame([bvh, bvh.mirror()], 0, backend="vedo",
+                            labels=["walk", "mirror"],
+                            resolution=(400, 360))
+        header = img[:60].astype(int)   # the labels sit at the top left
+        for rgb in [(50, 120, 255), (220, 50, 50)]:   # the palette's first two
+            close = np.abs(header - rgb).max(axis=-1) <= 3
+            assert close.sum() > 10

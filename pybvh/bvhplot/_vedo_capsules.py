@@ -50,6 +50,18 @@ STUB_CAP_FACTOR = 2.0       # a stub is at most 2x the thinnest bone it joins
 MIN_RADIUS_FRACTION = 0.10  # visibility floor
 
 
+def vedo_rgb(rgb: tuple[int, int, int]) -> tuple[float, float, float]:
+    """A 0-255 RGB color in the form vedo reads unambiguously: floats
+    in [0, 1].
+
+    vedo reads a CSS ``"rgb(r,g,b)"`` string as black, and scales an
+    integer triple by 1/255 only when a component exceeds 1, so a
+    0-255 ``(0, 0, 1)`` would come out full blue.
+    """
+    r, g, b = rgb
+    return (r / 255, g / 255, b / 255)
+
+
 def floor_placement(
     viewport: Viewport,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], float]:

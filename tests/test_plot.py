@@ -1107,6 +1107,21 @@ class TestUnsetFrameTime:
             unset, tmp_path / "x.gif", backend="matplotlib", fps=10)
         assert path.stat().st_size > 0
 
+    @pytest.mark.parametrize("backend", ["matplotlib", "opencv"])
+    def test_render_with_fps_follows_the_clip(
+            self, unset, tmp_path, backend):
+        """The follow camera smooths over a second, which on this clip
+        is a second of playback at the fps given."""
+        if backend == "opencv":
+            pytest.importorskip("cv2")
+        else:
+            import matplotlib
+            matplotlib.use('Agg')
+        path = bvhplot.render(
+            unset, tmp_path / "x.gif", backend=backend, fps=10,
+            follow=True)
+        assert path.stat().st_size > 0
+
     def test_render_with_fps_draws_the_trajectory(self, unset, tmp_path):
         import matplotlib
         matplotlib.use('Agg')
@@ -1227,15 +1242,36 @@ def _view(bvh, coords):
 class TestComputeFollowAzimuths:
     """Vectorized follow-camera azimuth tracking (shared by all backends)."""
 
+    # Captured when the schedule began smoothing out the stride's sway
+    # (#22). Frames 0 and 523 are the clip's ends, which the smoothing
+    # holds at their measured heading: v0.9.0 had the same two values.
     PINNED = {
         0: -20.0,
-        50: -7.614185304051565,
-        100: -28.527208890651654,
-        200: -3.4412318759617193,
-        300: -30.822573480565033,
-        400: -25.65914814654527,
+        50: -18.875147461847853,
+        100: -20.27533914489359,
+        200: -18.67794831511157,
+        300: -18.983727690956485,
+        400: -19.146641370627364,
         523: -4.049526760718898,
     }
+
+    def test_the_walk_is_followed_without_its_stride_sway(self):
+        """#22: on the CMU walk the camera swayed about 30 degrees peak
+        to peak with every stride. Sway is measured around the
+        schedule's own one-second trend, a centred 121-frame moving
+        average taken where it fits whole. The net turn, last frame
+        minus first, is the unsmoothed schedule's (v0.9.0's -20 to
+        -4.0495 degrees) and must be kept."""
+        from pybvh.bvhplot._viewport import compute_follow_azimuths
+        bvh = read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")
+        az = compute_follow_azimuths(_view(bvh, bvh.node_positions()), -20.0)
+
+        window = 121
+        trend = np.convolve(az, np.ones(window) / window, mode="valid")
+        half = window // 2
+        sway = az[half:len(az) - half] - trend
+        assert np.ptp(sway) < 3.0
+        assert az[-1] - az[0] == pytest.approx(15.950473239281102, abs=1.0)
 
     def test_frame0_equals_base(self, bvh_example):
         from pybvh.bvhplot._viewport import compute_follow_azimuths
@@ -1245,9 +1281,14 @@ class TestComputeFollowAzimuths:
         assert az[0] == pytest.approx(-20.0)
 
     def test_matches_per_frame_reference(self, bvh_example):
-        """compute_follow_azimuths must be numerically identical to the
-        per-frame tools helpers it vectorizes."""
-        from pybvh.bvhplot._viewport import compute_follow_azimuths
+        """The schedule is the per-frame heading change of the tools
+        helpers it vectorizes, unwrapped, then averaged frame by frame
+        under a Gaussian of FOLLOW_SIGMA seconds reaching
+        FOLLOW_TRUNCATE standard deviations, over the clip extended by
+        point reflection about its end frames."""
+        import math
+        from pybvh.bvhplot._viewport import (
+            FOLLOW_SIGMA, FOLLOW_TRUNCATE, compute_follow_azimuths)
         from pybvh.tools import (
             _axis_to_vector,
             _signed_rotation_delta_around_axis,
@@ -1262,14 +1303,32 @@ class TestComputeFollowAzimuths:
         left_0 = _world_leftward_unit_at_frame(
             bvh_example, coords[0], bvh_example.world_up)
         assert left_0 is not None
+        changes = []
         for f in range(coords.shape[0]):
             left_f = _world_leftward_unit_at_frame(
                 bvh_example, coords[f], bvh_example.world_up)
-            if left_f is None:
-                expected = base_azim
-            else:
-                expected = base_azim + _signed_rotation_delta_around_axis(
-                    left_0, left_f, up_vec)
+            assert left_f is not None
+            changes.append(
+                _signed_rotation_delta_around_axis(left_0, left_f, up_vec))
+        change = np.unwrap(changes, period=360.0)
+
+        last = len(change) - 1
+        sigma = FOLLOW_SIGMA / bvh_example.frame_time
+        reach = min(math.ceil(FOLLOW_TRUNCATE * sigma), last)
+        for f in range(len(change)):
+            total = weight_sum = 0.0
+            for k in range(-reach, reach + 1):
+                i = f + k
+                if i < 0:
+                    value = 2 * change[0] - change[-i]
+                elif i > last:
+                    value = 2 * change[last] - change[2 * last - i]
+                else:
+                    value = change[i]
+                weight = math.exp(-0.5 * (k / sigma) ** 2)
+                total += weight * value
+                weight_sum += weight
+            expected = base_azim + total / weight_sum
             assert vec[f] == pytest.approx(expected, abs=1e-9)
 
     def test_no_lr_pairs_falls_back_to_base(self, bvh_example):
@@ -1289,8 +1348,8 @@ class TestComputeFollowAzimuths:
         """Every frame of the CMU walk, against the frozen array
         (``tests/fixtures/follow_azimuths_pinned.npz``): the follow
         camera must not move on any of them. The seven values written
-        out in the next test tie the fixture to what was captured
-        before the facing geometry was consolidated."""
+        out in the next test tie the fixture to what was captured when
+        the schedule began smoothing (#22)."""
         from pybvh.bvhplot._viewport import compute_follow_azimuths
         pinned = np.load(
             Path(__file__).parent / "fixtures" / "follow_azimuths_pinned.npz")
@@ -1315,9 +1374,9 @@ class TestComputeFollowAzimuths:
             viewport.azimuths, pinned["azimuths"], rtol=0, atol=1e-12)
 
     def test_pinned_values_on_real_turning_walk(self):
-        """Hard-pinned outputs on cmu_12_01_walk, captured BEFORE the
-        leftward geometry was consolidated into pybvh.tools (the
-        facing_frame refactor): the follow camera must not move."""
+        """Hard-pinned outputs on cmu_12_01_walk, captured when the
+        schedule began smoothing (#22): the follow camera must not
+        move."""
         from pybvh.bvhplot._viewport import compute_follow_azimuths
         bvh = read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")
         coords = bvh.node_positions()

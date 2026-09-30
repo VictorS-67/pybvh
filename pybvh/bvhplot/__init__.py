@@ -760,12 +760,26 @@ def render(
         ``"pad"`` continues to the longest clip (shorter clips freeze
         on their last frame).
     follow : bool, optional
-        If ``True``, the camera orientation is recomputed every frame
-        using each skeleton's current facing direction (via
-        :meth:`~pybvh.bvh.Bvh.forward_at`), so the view orbits with the
-        character. Only affects preset cameras (``"front"``, ``"side"``,
-        ``"top"``); custom ``(azimuth, elevation)`` tuples are fixed and
-        ignore ``follow``. Default ``False`` (stable camera).
+        If ``True``, the camera turns with each skeleton's heading, so
+        the view orbits with the character: the first frame is seen
+        from the preset, later frames turned by the rotation of the
+        body's left-to-right axis about the up axis since then. That
+        axis also sways with every stride, so its rotation is smoothed
+        with a centred Gaussian window of 0.5 s standard deviation
+        (reaching ±1.5 s) of clip time, from the clip's own
+        ``frame_time``, or from ``fps`` when that is 0 (unset). The
+        camera follows a turn in place, which the direction of travel
+        would not, and follows a turn without the lag a window over
+        past frames only would have, at the cost of starting a little
+        before the character does. The rotation is unwrapped, so a
+        turn past half a turn is followed all the way round, and a
+        frame whose left-to-right axis cannot be measured takes its
+        heading from the measured frames around it. The first and last
+        frames keep their heading, so the net turn is exact, and the
+        smoothing weakens toward them. Only affects preset cameras
+        (``"front"``, ``"side"``, ``"top"``); custom
+        ``(azimuth, elevation)`` tuples are fixed and ignore
+        ``follow``. Default ``False`` (stable camera).
     ghost : int, optional
         Number of faded trailing poses drawn behind the live skeleton
         (default 0 — none). Spacing between ghosts is

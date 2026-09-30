@@ -262,6 +262,7 @@ def make_viewport(
     motion: str = "fixed",
     include_floor: bool = True,
     projection: str = "persp",
+    fps: float | None = None,
 ) -> Viewport:
     """Compute the :class:`Viewport` of a picture of *views*.
 
@@ -296,6 +297,10 @@ def make_viewport(
         OpenCV always ``"ortho"``, k3d and vedo always ``"persp"``.
         The viewport does not choose it; it records it, so that
         ``viewport.projection`` describes the picture.
+    fps : float, optional
+        The rate the picture plays at. Read only by ``"follow"``, to
+        time a view whose ``frame_time`` is 0 (unset); see
+        :func:`compute_follow_azimuths`.
 
     Returns
     -------
@@ -316,7 +321,7 @@ def make_viewport(
     floor_height = float(ground_side(v.floor_height for v in views))
 
     if motion == "follow":
-        azimuths = compute_follow_azimuths(first, first.azimuth)
+        azimuths = compute_follow_azimuths(first, first.azimuth, fps=fps)
     elif motion == "turntable":
         azimuths = turntable_azimuths(first.azimuth, first.coords.shape[0])
     else:
@@ -515,63 +520,171 @@ def turntable_azimuths(
     return base_azim + np.linspace(0.0, 360.0, num_frames, endpoint=False)
 
 
+# The follow camera's smoothing window: a Gaussian of this standard
+# deviation, in seconds of clip time, cut off at FOLLOW_TRUNCATE standard
+# deviations. See compute_follow_azimuths for the choice and its
+# alternatives.
+FOLLOW_SIGMA = 0.5
+FOLLOW_TRUNCATE = 3.0
+
+
 def compute_follow_azimuths(
     view: SkeletonView,
     base_azim: float,
+    *,
+    fps: float | None = None,
 ) -> npt.NDArray[np.float64]:
-    """Per-frame camera azimuths that track the character's rotation.
+    """Per-frame camera azimuths that follow the character's heading.
 
-    Follow mode uses CONTINUOUS rotation tracking: the base camera azimuth
-    corresponds to frame 0, and every frame adds the signed rotation delta
-    between frame 0's lateral (left-to-right) axis and the current frame's,
-    measured around ``world_up``. This gives a smooth orbit that tracks the
-    character's actual rotation — not a snap-every-90°-to-a-signed-axis.
+    The camera turns with the character's body: frame 0 is seen from
+    ``base_azim``, and every later frame from ``base_azim`` plus the
+    heading change since frame 0, measured around ``up_vector`` from
+    the rotation of the body's left-to-right axis (the mean of the
+    view's L/R joint pairs, projected onto the ground).
 
-    A pure function of the view: it reads ``coords``, ``lr_pairs`` and
-    ``up_vector``, so it can be recomputed after any operation that
-    changes the coords and never goes stale.
+    That axis also swings with the gait: pelvis, shoulders, knees, feet
+    and hands turn back and forth with every stride, by about 30
+    degrees peak to peak on the bundled CMU walk. The camera follows the
+    heading, not that sway, so the per-frame heading change is smoothed
+    before it is used. The conventions of that smoothing:
+
+    - **Heading, not direction of travel.** The body's axis is what is
+      smoothed. The alternative, the direction the root travels, sways
+      less with the gait, but it has no direction on a clip that turns
+      in place and points sideways on a side step.
+    - **A centred Gaussian window**, of standard deviation
+      ``FOLLOW_SIGMA`` = 0.5 s, so that ±1 standard deviation spans one
+      second, about one stride of a walk, cut off at
+      ``FOLLOW_TRUNCATE`` = 3 standard deviations (±1.5 s). Centred, it
+      follows a steady turn exactly and a real turn without delay, and
+      the camera starts to turn a little before the character does.
+      The alternative, a causal window over past frames only, never
+      looks ahead but lags behind every turn.
+    - **Seconds of clip time**, from the view's ``frame_time``, so the
+      camera takes the same path at any playback rate. A view whose
+      ``frame_time`` is 0 (unset) has no clip time; its window is then
+      sized from ``fps``, the rate the picture plays at, which is the
+      rate such a clip is drawn at. On such a clip, and only there, the
+      camera's path depends on ``fps``. The alternative, refusing the
+      clip as ghost spacing does, would take the follow camera away
+      from a clip ``render(fps=...)`` otherwise draws, for a window
+      whose exact width matters far less than a ghost's spacing.
+    - **Unwrapped**: each frame's change is taken within ±180 degrees
+      of the previous valid frame's, so a character that turns more
+      than half a turn is followed all the way round rather than
+      snapped back by a full turn.
+    - **Valid frames only.** A frame whose left-to-right axis is
+      degenerate (parallel to up) is not measured: its heading change
+      is linearly interpolated between the valid frames around it, or
+      held at the last valid frame's after it.
+    - **The ends are held**: the heading change is extended past each
+      end of the clip by point reflection about the end frame (the
+      ``padtype="odd"`` extension of ``scipy.signal.filtfilt``), so the
+      first and last frames keep their heading (the last frame's
+      measured one, or the last valid frame's when it cannot be
+      measured), the net turn over the clip is kept exactly, and a
+      steady turn is followed to the last frame. The alternative, averaging only the frames that
+      exist, would move both ends toward the middle of the clip and
+      flatten a turn at the ends. Near an end, the smoothing therefore
+      weakens: on the walk, the last frame is caught mid-stride, and the
+      camera turns about 13 degrees toward it over the last half
+      second.
+
+    A clip shorter than the window is smoothed with the window cut to
+    the clip's length on each side.
 
     Parameters
     ----------
     view : SkeletonView
-        The skeleton's coords for the whole clip plus its L/R pairs and
-        signed up vector.
+        The skeleton's coords for the whole clip plus its L/R pairs,
+        signed up vector and ``frame_time``.
     base_azim : float
         The frame-0 azimuth in degrees (from :func:`get_camera_angles`).
+    fps : float, optional
+        The rate the picture plays at. Read only when the view's
+        ``frame_time`` is 0 (unset), to size the window.
 
     Returns
     -------
     azimuths : ndarray of shape (F,)
-        Azimuth in degrees for every frame. Frames where the lateral
-        direction is degenerate (parallel to world up, or no L/R pairs)
-        fall back to ``base_azim``. Frame 0 is the reference every delta
-        is measured from, so when frame 0 itself is degenerate there is
-        no reference and the whole sequence stays at ``base_azim``,
-        later valid frames included: a fixed camera, not a partial
-        follow.
+        Azimuth in degrees for every frame, unwrapped, so it may leave
+        ``[-180, 180)``. Frame 0 is the reference every change is
+        measured from, so when frame 0 is degenerate, or the rig has no
+        L/R pairs, there is no reference and the whole sequence stays at
+        ``base_azim``, later valid frames included: a fixed camera, not
+        a partial follow.
+
+    Raises
+    ------
+    ValueError
+        If the view's ``frame_time`` is 0 and no ``fps`` is given,
+        unless frame 0's left-to-right axis cannot be measured (the
+        camera is then fixed, and needs no rate).
     """
     from ..tools import _leftward_units_from_pairs
 
     num_frames = view.coords.shape[0]
-    azimuths = np.full(num_frames, float(base_azim))
-
-    # World-space leftward unit vector per frame — the shared facing
-    # geometry kernel in pybvh.tools. All-invalid when no L/R pairs exist.
     leftward, valid = _leftward_units_from_pairs(
         view.coords, view.lr_pairs, view.up_vector)
-    if num_frames == 0 or not valid[0]:
-        return azimuths  # no frame-0 reference — camera stays fixed
+    if not valid[0]:
+        return np.full(num_frames, float(base_azim))
 
-    up_vec = view.up_vector
+    heading_change = _heading_change(leftward, valid, view.up_vector)
+    if view.frame_time > 0:
+        frames_per_second = 1.0 / view.frame_time
+    elif fps is not None:
+        frames_per_second = float(fps)
+    else:
+        raise ValueError(
+            "The follow camera smooths the heading over seconds of clip "
+            "time, and this view's frame_time is 0 (unset): pass fps, "
+            "the rate the picture plays at.")
+    smoothed = _gaussian_smooth_held_ends(
+        heading_change, FOLLOW_SIGMA * frames_per_second, FOLLOW_TRUNCATE)
+    return base_azim + smoothed
 
-    # Signed angle rotating frame 0's leftward onto each frame's,
-    # around world_up (vectorized _signed_rotation_delta_around_axis).
+
+def _heading_change(
+    leftward: npt.NDArray[np.float64],
+    valid: npt.NDArray[np.bool_],
+    up_vector: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    """Unwrapped heading change since frame 0, in degrees, per frame.
+
+    The signed angle rotating frame 0's leftward unit onto each frame's
+    around *up_vector*, unwrapped over the valid frames and linearly
+    interpolated across the others. Frame 0 must be valid.
+    """
     left_0 = leftward[0]
     cos_a = np.clip(leftward @ left_0, -1.0, 1.0)
-    sin_a = np.cross(np.broadcast_to(left_0, leftward.shape), leftward) @ up_vec
-    deltas = np.degrees(np.arctan2(sin_a, cos_a))
-    azimuths[valid] = base_azim + deltas[valid]
-    return azimuths
+    sin_a = np.cross(left_0, leftward) @ up_vector
+    change = np.degrees(np.arctan2(sin_a, cos_a))
+
+    valid_frames = np.flatnonzero(valid)
+    unwrapped = np.unwrap(change[valid_frames], period=360.0)
+    return np.interp(np.arange(len(change)), valid_frames, unwrapped)
+
+
+def _gaussian_smooth_held_ends(
+    signal: npt.NDArray[np.float64],
+    sigma_frames: float,
+    truncate: float,
+) -> npt.NDArray[np.float64]:
+    """Centred Gaussian smoothing of *signal*, its end values held.
+
+    The signal is extended past each end by point reflection about the
+    end sample, which keeps both end values and any straight line
+    exactly. The window is cut at *truncate* standard deviations, and
+    at the signal's length on each side.
+    """
+    reach = min(int(np.ceil(truncate * sigma_frames)), len(signal) - 1)
+    if reach < 1:
+        return signal.copy()
+    offsets = np.arange(-reach, reach + 1)
+    weights = np.exp(-0.5 * (offsets / sigma_frames) ** 2)
+    weights /= weights.sum()
+    extended = np.pad(signal, reach, mode="reflect", reflect_type="odd")
+    return np.convolve(extended, weights, mode="valid")
 
 
 # ---------------------------------------------------------------------------

@@ -741,7 +741,7 @@ def render_mpl(
 
     viewports = panel_viewports(
         scene.views, framing="clip", motion=motion,
-        projection=style.projection)
+        projection=style.projection, fps=fps)
     coords_list = [v.coords for v in scene.views]
     bones_arrays = [np.asarray(v.bones, dtype=int) for v in scene.views]
     bone_collections: list[Line3DCollection] = []

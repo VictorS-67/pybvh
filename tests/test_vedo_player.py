@@ -237,13 +237,22 @@ class TestColors:
 
     BLUE, RED = (50, 120, 255), (220, 50, 50)   # the palette's first two
 
-    @pytest.fixture(scope="class")
-    def pair(self):
+    @staticmethod
+    def _pair(labels):
         walk = read_bvh_file(BVH_PATH)
         mirror = walk.mirror()
         coords = [b.node_positions()[:10] for b in (walk, mirror)]
         return make_scene([walk, mirror], coords, "front",
-                          ["walk", "mirror"]).spread(40)
+                          labels).spread(40)
+
+    @pytest.fixture(scope="class")
+    def pair(self):
+        """Unlabelled, so that only the skeletons draw palette colors."""
+        return self._pair(None)
+
+    @pytest.fixture(scope="class")
+    def labelled_pair(self):
+        return self._pair(["walk", "mirror"])
 
     @pytest.mark.parametrize("quality", ["high", "fast"])
     def test_each_skeleton_of_a_pair_has_its_palette_color(
@@ -276,10 +285,11 @@ class TestColors:
         assert _pixels_of(image, debug_blue) > 1000
 
     def test_labels_and_trails_carry_their_skeletons_color(
-            self, pair, monkeypatch):
+            self, labelled_pair, monkeypatch):
         import vedo
         monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
-        p = _vedo._VedoPlayer(pair, Style("paper"), 30.0, quality="high")
+        p = _vedo._VedoPlayer(labelled_pair, Style("paper"), 30.0,
+                              quality="high")
         try:
             labels = {o.text(): o for o in p.plt.objects
                       if isinstance(o, vedo.Text2D)}

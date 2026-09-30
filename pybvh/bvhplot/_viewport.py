@@ -105,9 +105,9 @@ class Viewport(GroundFrame):
       floor's extent and the camera distance are multiples of
       ``half_span``, and perspective cameras look at ``center``. It is
       not the scale of what is drawn on a body, since it grows with the
-      distance a clip travels: the vedo capsules are sized from each
-      skeleton's :attr:`~._scene.SkeletonView.body_size` (k3d's line
-      widths and joint sizes are still multiples of ``half_span``).
+      distance a clip travels: the vedo capsules and k3d's lines and
+      joints are sized from each skeleton's
+      :attr:`~._scene.SkeletonView.body_size`.
     - ``lo`` and ``hi`` are the *framing box*, what the axes or the
       orthographic projection are fitted to. For ``framing="still"`` it
       is that same cube (shifted along up when a floor must sit inside

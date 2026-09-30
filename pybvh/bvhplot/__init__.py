@@ -1154,9 +1154,11 @@ def play(
         Draw every skeleton as tall as the first, in the single-scene
         backends (k3d, vedo), where clips from files in different units
         would otherwise differ in size by an order of magnitude. Default
-        ``False``. Each skeleton is scaled about the point on its floor
-        under its root at the first frame, before the lateral spacing,
-        and its label shows the factor (``"test2 ×0.13"``, or
+        ``False``. The first skeleton is drawn as it is, so the order of
+        the clips chooses the scale (rather than the tallest skeleton's
+        or a fixed height). Each other skeleton is scaled about the
+        point on its floor under its root at the first frame, before
+        the lateral spacing, and its label shows the factor (``"test2 ×0.13"``, or
         ``"×0.13"`` alone for a skeleton with no label). Only the
         drawing changes: the clips are not touched. The height matched
         is the rest pose's, along the rest pose's own up axis

@@ -668,6 +668,16 @@ class Scene:
 
         Conventions:
 
+        - The reference is the first view, the one the caller put
+          first, which is drawn as it is. The alternatives are the
+          tallest view, the median view, or a fixed height such as
+          1.8 m. They differ when the first view is not the tallest (or
+          the median): the tallest would enlarge every other skeleton,
+          the first included, and the median would move with every view
+          added. A fixed height would need each file's unit, which a
+          BVH file does not state. With the first as reference, the
+          caller chooses the scale by the order of the clips, and the
+          first view's label never carries a factor.
         - The height matched is :attr:`~SkeletonView.body_size`: the
           rest pose's extent along the rest pose's own up axis
           (``rest_up``, :attr:`Bvh.rest_up`), in the unit of

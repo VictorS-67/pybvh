@@ -56,6 +56,18 @@ def _validate_frame_time(value: float) -> None:
             f"frame_time must be 0 (unset) or a positive finite number of "
             f"seconds, got {value}")
 
+
+def _validate_fps(value: float, name: str = "fps") -> None:
+    """Raise ``ValueError`` unless ``value`` is a positive finite frame rate.
+
+    Unlike a frame time, a rate has no "unset" value: ``1 / inf`` is ``0``,
+    so an infinite rate would silently become an unset frame time.
+    """
+    if not (np.isfinite(value) and value > 0):
+        raise ValueError(
+            f"{name} must be a positive finite number of frames per second, "
+            f"got {value}")
+
 #--------------------------------------------------------------------------------------------
 
 # Axis detection utilities

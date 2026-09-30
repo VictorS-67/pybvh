@@ -165,6 +165,11 @@ def _written_fps(backend_name: str, suffix: str, fps: float) -> float:
     return fps
 
 
+# A turntable turning 180 degrees or more a frame looks frozen or turning
+# backwards: its period must be longer than this many frames.
+_MIN_TURNTABLE_FRAMES = 2
+
+
 def _resolve_fps(fps: float | None, frame_time: float) -> float:
     """Resolve the shared ``fps`` parameter of ``play()`` and ``render()``.
 
@@ -792,6 +797,10 @@ def render(
         (unset) is therefore timed by the ``fps`` it needs anyway. This
         differs from ``ghost`` spacing and ``follow`` smoothing, which
         are seconds of clip time because they describe the motion.
+        A period of 2 frames of the video or less raises
+        ``ValueError``: at 180 degrees a frame or more the camera looks
+        frozen or turning backwards. The default orbit is not checked,
+        so a clip of one or two frames still renders.
         At each loop seam the pose jumps from the clip's last frame
         back to its first, with no blending, while the camera turns on
         without a break. Ghosts, the root trace and the frame counter
@@ -941,6 +950,14 @@ def render(
             video_fps = _written_fps(
                 backend_name, filepath.suffix, actual_fps)
             period = turntable_period * video_fps
+            if period <= _MIN_TURNTABLE_FRAMES:
+                shortest = _MIN_TURNTABLE_FRAMES / video_fps
+                raise ValueError(
+                    f"turntable_period must be longer than {shortest:g} s "
+                    f"at {video_fps:g} fps, the rate the video is written "
+                    f"at ({_MIN_TURNTABLE_FRAMES} frames), got "
+                    f"{turntable_period!r}: a camera turning 180 degrees "
+                    f"or more a frame looks frozen or turning backwards.")
         # Rounded, not ceiled: a period of 360.0000001 frames (a rate
         # read back from a frame time) must not add a 361st frame.
         video_frames = round(period)

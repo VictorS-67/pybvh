@@ -211,6 +211,21 @@ class TestTurntablePeriod:
                               turntable_period=1.2)
         assert len(frames) == round(1.2 * 9.5)
 
+    def test_a_period_of_two_frames_or_less_is_rejected(self, bvh, tmp_path):
+        """At 180 degrees a frame or more the camera looks frozen or
+        turning backwards; the error names the minimum in seconds."""
+        with pytest.raises(ValueError, match=r"0\.2 s at 10 fps"):
+            self._render(bvh[0:4], tmp_path, turntable_period=0.2)
+
+    def test_a_period_just_over_two_frames_is_accepted(self, bvh, tmp_path):
+        frames = self._render(bvh[0:4], tmp_path, turntable_period=0.25)
+        assert len(frames) == 4
+
+    def test_the_default_orbit_still_turns_a_two_frame_clip(
+            self, bvh, tmp_path):
+        frames = self._render(bvh[0:2], tmp_path)
+        assert len(frames) == 2
+
     def test_the_matplotlib_backend_loops_too(self, bvh, tmp_path):
         path = bvhplot.render(
             bvh[0:4], tmp_path / "tt.gif", backend="matplotlib", fps=10,

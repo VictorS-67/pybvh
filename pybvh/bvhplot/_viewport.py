@@ -536,19 +536,18 @@ def box_corners(
 def turntable_azimuths(
     base_azim: float,
     num_frames: int,
-    period: float | None = None,
+    period: float,
 ) -> npt.NDArray[np.float64]:
     """Per-frame azimuths of a camera turning one revolution every
-    *period* frames, by default one orbit over the *num_frames*.
+    *period* frames, for *num_frames* frames.
 
     The trivial case of follow: a constant-rate azimuth ramp starting
     at the base camera angle, in degrees, not wrapped (a period
-    shorter than the frames climbs past 360). Frame ``num_frames``
-    would be the first view again after one default orbit, so a looped
-    playback does not hold the identical view for two frames.
+    shorter than the frames climbs past 360). With a period of
+    *num_frames*, frame ``num_frames`` would be the first view again,
+    so a looped playback does not hold the identical view for two
+    frames.
     """
-    if period is None:
-        period = num_frames
     return base_azim + np.arange(num_frames) * (360.0 / period)
 
 

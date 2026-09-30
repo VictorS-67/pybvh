@@ -953,3 +953,81 @@ class TestEveryBackendSizesTheBodyFromTheBody:
         assert _draws_the_body(
             backend, Scene(views=[make_view()]), monkeypatch)
 
+
+def _viewer_sizes(scene, monkeypatch, quality):
+    """What the vedo viewer draws on each skeleton of *scene*, in
+    *quality*: the fast mode's line width and point size (pixels, 0 in
+    high quality), the joint labels' font size (pixels) and their lift
+    above the joint (scene units)."""
+    pytest.importorskip("vedo")
+    from pybvh.bvhplot import _vedo
+    monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+    player = _vedo._VedoPlayer(scene, Style("paper"), 30.0, quality=quality)
+    try:
+        sizes = []
+        for s, view in enumerate(scene.views):
+            label = player._label_actors[s][0]
+            lift = np.asarray(label.GetPosition()) - view.coords[0, 0]
+            if quality == "fast":
+                line_width = player._lines_actors[s].properties.GetLineWidth()
+                point_size = player._points_actors[s].properties.GetPointSize()
+            else:
+                line_width = point_size = 0.0
+            sizes.append(dict(
+                line_width=line_width, point_size=point_size,
+                font_size=label.GetTextProperty().GetFontSize(),
+                lift=float(np.linalg.norm(lift))))
+        return sizes
+    finally:
+        player.plt.close()
+
+
+class TestTheViewersOtherSizesIgnoreTheDistanceTravelled:
+    @pytest.mark.parametrize("quality", ["fast", "high"])
+    def test_a_still_and_the_whole_clip(self, quality, monkeypatch):
+        from pybvh.bvhplot._scene import Scene
+        clip = _travelling_view()
+        [still] = _viewer_sizes(
+            Scene(views=[_still_of(clip)]), monkeypatch, quality)
+        [whole] = _viewer_sizes(Scene(views=[clip]), monkeypatch, quality)
+        assert whole == pytest.approx(still)
+
+    def test_pixel_sizes_do_not_follow_the_files_unit(self, monkeypatch):
+        """Line width, point size and font size are pixels: the same
+        body in centimetres draws them as in metres."""
+        from pybvh.bvhplot._scene import Scene
+        clip = _travelling_view()
+        [metres] = _viewer_sizes(Scene(views=[clip]), monkeypatch, "fast")
+        [centimetres] = _viewer_sizes(
+            Scene(views=[_scaled(clip, 100.0, lateral_shift=0.0)]),
+            monkeypatch, "fast")
+        for pixels in ("line_width", "point_size", "font_size"):
+            assert centimetres[pixels] == metres[pixels], pixels
+        assert centimetres["lift"] == pytest.approx(100.0 * metres["lift"])
+
+    def test_each_label_is_lifted_by_its_own_body(self, monkeypatch):
+        from pybvh.bvhplot._scene import Scene
+        small = _travelling_view()
+        big = _scaled(small, 3.0, lateral_shift=4.0)
+        small_sizes, big_sizes = _viewer_sizes(
+            Scene(views=[small, big]), monkeypatch, "fast")
+        assert big_sizes["lift"] == pytest.approx(3.0 * small_sizes["lift"])
+
+    def test_fast_mode_draws_bones_as_wide_as_opencv_at_1080p(
+            self, monkeypatch):
+        """At the debug style's 2.5, OpenCV draws 3-pixel bones and
+        joint discs 2 pixels wider in radius, 10 pixels across; the
+        viewer's fast mode draws the same, not 2 pixels from rounding
+        half to even."""
+        pytest.importorskip("vedo")
+        from pybvh.bvhplot import _vedo
+        from pybvh.bvhplot._scene import Scene
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        player = _vedo._VedoPlayer(
+            Scene(views=[_travelling_view()]), Style("debug"), 30.0,
+            quality="fast")
+        try:
+            assert player._lines_actors[0].properties.GetLineWidth() == 3
+            assert player._points_actors[0].properties.GetPointSize() == 10
+        finally:
+            player.plt.close()

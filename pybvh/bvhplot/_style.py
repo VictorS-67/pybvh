@@ -360,6 +360,23 @@ def bone_colors_for_view(
 
 
 # ---------------------------------------------------------------------------
+# Bone and joint sizes in pixels (OpenCV, the vedo viewer's fast mode)
+# ---------------------------------------------------------------------------
+
+# A joint marker's disc is this many pixels wider in radius than the
+# bones are wide.
+JOINT_DISC_MARGIN_PX = 2
+
+
+def bone_width_px(bone_width: float, px_scale: float = 1.0) -> int:
+    """A style's *bone_width* in whole pixels: ``bone_width`` pixels at
+    the 1080p anchor (*px_scale* 1), scaled by *px_scale*, rounded half
+    up as the OpenCV backend has always rounded it (2.5 draws 3 pixels,
+    where Python's ``round``, half to even, gives 2) and at least 1."""
+    return max(1, int(bone_width * px_scale + 0.5))
+
+
+# ---------------------------------------------------------------------------
 # Ghost trails and trajectory traces (shared backend conventions)
 # ---------------------------------------------------------------------------
 

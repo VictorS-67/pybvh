@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING
 
 from ._style import (
     GHOST_WIDTH_FACTOR,
+    JOINT_DISC_MARGIN_PX,
+    bone_width_px,
     Style,
     TRACE_BLEND,
     TRACE_COLOR,
@@ -221,7 +223,7 @@ def _draw_skeletons_on_frame(
     # Primitive sizes scale with the drawing resolution (1080p is the
     # 1:1 anchor: bone_width 3.0 -> 3 px there, twice that at 4K, and
     # supersampled drawing surfaces scale up with them).
-    thickness = max(1, int(style.bone_width * px_scale + 0.5))
+    thickness = bone_width_px(style.bone_width, px_scale)
     thin = max(1, int(px_scale + 0.5))
 
     for s, view in enumerate(scene.views):
@@ -288,7 +290,8 @@ def _draw_skeletons_on_frame(
         if style.joint_markers:
             for pt in pts_2d:
                 cv2.circle(canvas, (int(pt[0]), int(pt[1])),
-                           thickness + 2, ctx.joint_bgr, -1, cv2.LINE_AA)
+                           thickness + JOINT_DISC_MARGIN_PX, ctx.joint_bgr,
+                           -1, cv2.LINE_AA)
         else:
             for j, pt in enumerate(pts_2d):
                 cv2.circle(canvas, (int(pt[0]), int(pt[1])),

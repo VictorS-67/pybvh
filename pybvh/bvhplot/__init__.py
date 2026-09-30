@@ -541,6 +541,7 @@ def frame(
     resolution: tuple[int, int] = (1100, 1000),
     filepath: str | Path | None = None,
     ax: matplotlib.axes.Axes | None = None,
+    match_size: bool = False,
 ) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes | list[matplotlib.axes.Axes]] | npt.NDArray[np.uint8]:
     """Plot a static 3D skeleton snapshot.
 
@@ -598,6 +599,13 @@ def frame(
         to the provided axes — the default paper style hides its
         ticks and panes; pass ``style="debug"`` to draw into an axes
         whose full axis machinery you want to keep.
+    match_size : bool, optional
+        Draw every skeleton as tall as the first, with the factor on
+        its label, as :func:`play` does (see there for the height
+        matched and its alternative). Default ``False``. Only the vedo
+        backend, which draws every skeleton in one space, is changed;
+        matplotlib draws the same figure either way, since it frames
+        each skeleton in its own panel.
 
     Returns
     -------
@@ -622,6 +630,8 @@ def frame(
             raise ImportError(
                 "vedo backend requires vedo. "
                 "Install with: pip install pybvh[viewer]")
+        if match_size:
+            scene = scene.size_matched()
         from ._vedo_offscreen import frame_vedo
         return frame_vedo(scene, resolve_style(style),
                           resolution=resolution, filepath=filepath)
@@ -735,6 +745,7 @@ def render(
     frame_counter: bool = False,
     match_fps: str | None = None,
     codec: str = "auto",
+    match_size: bool = False,
 ) -> Path:
     """Render animation to a video, GIF, or HTML file.
 
@@ -892,6 +903,13 @@ def render(
         is found) or ``"mpeg4"`` to force the OpenCV writer. The
         matplotlib backend always writes H.264 (its mp4 writer *is*
         ffmpeg), so ``"mpeg4"`` is rejected there.
+    match_size : bool, optional
+        Draw every skeleton as tall as the first, with the factor on
+        its label, as :func:`play` does (see there for the height
+        matched and its alternative). Default ``False``. Only the vedo
+        backend, which draws every skeleton in one space, is changed;
+        OpenCV and matplotlib write the same video either way, since
+        they frame each skeleton in its own panel.
 
     Returns
     -------
@@ -997,6 +1015,8 @@ def render(
                 f"The vedo render backend does not support "
                 f"{', '.join(unsupported)}. Use backend='opencv' or "
                 f"'matplotlib' for those.")
+        if match_size:
+            scene = scene.size_matched()
         from ._vedo_offscreen import render_vedo
         return render_vedo(
             scene, style_obj, filepath, actual_fps, resolution,

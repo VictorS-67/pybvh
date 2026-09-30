@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+import importlib
 import inspect
 import re
 
@@ -1852,31 +1853,73 @@ class TestSceneSpacing:
 
 
 
-class TestPlayMatchSize:
-    """play(match_size=True) draws every skeleton of a single-scene
-    backend as tall as the first; the clips are not touched."""
+class TestMatchSize:
+    """match_size=True draws every skeleton of a single-scene backend
+    as tall as the first; the clips are not touched, and the backends
+    that draw each skeleton in its own panel draw the same thing."""
 
     @pytest.fixture
     def clips(self, bvh_test2):
         """The CMU walk and bvh_test2, which stands 7.5 times as tall."""
-        return read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh"), bvh_test2
+        return [read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh"), bvh_test2]
 
     @pytest.fixture
-    def played_k3d(self, monkeypatch):
-        """The Scene of each play() call that reached k3d, stubbed out."""
-        pytest.importorskip("k3d")
+    def reached(self, monkeypatch):
+        """Stub the backend function *name* of *module*; returns the
+        Scene of each call that reached it."""
         scenes = []
-        monkeypatch.setattr(
-            _k3d, "play_k3d", lambda scene, style, fps: scenes.append(scene))
-        return scenes
 
-    def test_k3d_draws_the_second_clip_as_tall_as_the_first(
-            self, clips, played_k3d):
-        walk, test2 = clips
+        def backend(scene, *args, **kwargs):
+            scenes.append(scene)
+            return None, None  # frame() unpacks matplotlib's (fig, ax)
+
+        def stub(module, name):
+            monkeypatch.setattr(module, name, backend)
+            return scenes
+
+        return stub
+
+    @staticmethod
+    def _draw(entry_point, backend, clips, tmp_path, **kwargs):
+        """Draw *clips* through *entry_point*, labelled "walk" and
+        "test2" unless *labels* says otherwise."""
+        kwargs.setdefault("labels", ["walk", "test2"])
+        kwargs["backend"] = backend
+        if entry_point == "play":
+            bvhplot.play(clips, **kwargs)
+        elif entry_point == "frame":
+            bvhplot.frame(clips, **kwargs)
+        else:
+            suffix = ".gif" if backend == "matplotlib" else ".mp4"
+            bvhplot.render(clips, tmp_path / f"pair{suffix}", fps=30,
+                           **kwargs)
+
+    # (entry point, backend, backend module, its stubbed function)
+    SINGLE_SCENE = [
+        ("play", "k3d", "_k3d", "play_k3d"),
+        ("play", "vedo", "_vedo", "play_vedo"),
+        ("frame", "vedo", "_vedo_offscreen", "frame_vedo"),
+        ("render", "vedo", "_vedo_offscreen", "render_vedo"),
+    ]
+    PANELS = [
+        ("play", "matplotlib", "_matplotlib", "play_mpl"),
+        ("frame", "matplotlib", "_matplotlib", "frame_mpl"),
+        ("render", "matplotlib", "_matplotlib", "render_mpl"),
+        ("render", "opencv", "_opencv", "render_opencv"),
+    ]
+
+    @pytest.mark.parametrize(
+        "entry_point, backend, module, function", SINGLE_SCENE)
+    def test_a_single_scene_draws_the_second_clip_as_tall_as_the_first(
+            self, clips, reached, tmp_path,
+            entry_point, backend, module, function):
+        pytest.importorskip(backend)
+        scenes = reached(
+            importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        test2 = clips[1]
         rest_pose, positions = test2.rest_pose_positions(), test2.node_positions()
-        bvhplot.play([walk, test2], backend="k3d", labels=["walk", "test2"],
-                     match_size=True)
-        (scene,) = played_k3d
+        self._draw(entry_point, backend, clips, tmp_path, match_size=True)
+        (scene,) = scenes
         first, second = scene.views
         assert second.body_size == pytest.approx(first.body_size)
         assert scene.labels == ["walk", "test2 ×0.13"]
@@ -1884,10 +1927,86 @@ class TestPlayMatchSize:
         np.testing.assert_array_equal(test2.rest_pose_positions(), rest_pose)
         np.testing.assert_array_equal(test2.node_positions(), positions)
 
-    def test_off_by_default(self, clips, played_k3d):
-        walk, test2 = clips
-        bvhplot.play([walk, test2], backend="k3d", labels=["walk", "test2"])
-        (scene,) = played_k3d
+    @pytest.mark.parametrize(
+        "entry_point, backend, module, function", SINGLE_SCENE)
+    def test_off_by_default(self, clips, reached, tmp_path,
+                            entry_point, backend, module, function):
+        pytest.importorskip(backend)
+        scenes = reached(
+            importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        self._draw(entry_point, backend, clips, tmp_path)
+        (scene,) = scenes
         first, second = scene.views
         assert second.body_size == pytest.approx(182.346225)
         assert scene.labels == ["walk", "test2"]
+
+    @pytest.mark.parametrize(
+        "entry_point, backend, module, function", SINGLE_SCENE)
+    def test_unlabelled_skeletons_show_the_factor_alone(
+            self, clips, reached, tmp_path,
+            entry_point, backend, module, function):
+        pytest.importorskip(backend)
+        scenes = reached(
+            importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        self._draw(entry_point, backend, clips, tmp_path, labels=None,
+                   match_size=True)
+        (scene,) = scenes
+        assert scene.labels == [None, "×0.13"]
+
+    @pytest.mark.parametrize(
+        "entry_point, backend, module, function", SINGLE_SCENE)
+    def test_a_clip_in_another_unit_is_drawn_at_the_first_ones_size(
+            self, clips, reached, tmp_path,
+            entry_point, backend, module, function):
+        """The walk scaled from its file's unit to a hundred times it
+        (inches to hundredths of an inch, say) is the same body in
+        another unit: it is drawn back at the walk's size, by exactly
+        the factor that separates the two."""
+        pytest.importorskip(backend)
+        scenes = reached(
+            importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        walk = clips[0]
+        self._draw(entry_point, backend, [walk, walk.scale(100.0)], tmp_path,
+                   labels=["walk", "walk in hundredths"], match_size=True)
+        (scene,) = scenes
+        first, second = scene.views
+        assert second.body_size == pytest.approx(first.body_size, rel=1e-12)
+        assert scene.labels == ["walk", "walk in hundredths ×0.01"]
+
+    @pytest.mark.parametrize("entry_point, backend, module, function", PANELS)
+    def test_the_panel_backends_draw_the_same_scene(
+            self, clips, reached, tmp_path,
+            entry_point, backend, module, function):
+        """Each panel is framed on its own skeleton: there is no size
+        to match, and the label gets no factor."""
+        if backend == "opencv":
+            pytest.importorskip("cv2")
+        scenes = reached(
+            importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        self._draw(entry_point, backend, clips, tmp_path)
+        self._draw(entry_point, backend, clips, tmp_path, match_size=True)
+        plain, matched = scenes
+        assert matched.labels == plain.labels == ["walk", "test2"]
+        for plain_view, matched_view in zip(plain.views, matched.views):
+            np.testing.assert_array_equal(matched_view.coords, plain_view.coords)
+            np.testing.assert_array_equal(
+                matched_view.rest_coords, plain_view.rest_coords)
+
+    @pytest.mark.parametrize(
+        "entry_point, backend, module, function", SINGLE_SCENE)
+    def test_a_skeleton_with_no_size_warns_at_the_users_call(
+            self, clips, reached, tmp_path,
+            entry_point, backend, module, function):
+        """A skeleton whose rest pose has every node at one point has no
+        height to match: it keeps its size, and the warning names the
+        line that asked for the match."""
+        pytest.importorskip(backend)
+        reached(importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        walk, test2 = clips
+        for node in test2.nodes:
+            node.offset = np.zeros(3)
+        with pytest.warns(UserWarning, match="view 1") as record:
+            self._draw(entry_point, backend, [walk, test2], tmp_path,
+                       match_size=True)
+        (warning,) = [w for w in record if "view 1" in str(w.message)]
+        assert warning.filename == __file__

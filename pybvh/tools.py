@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 import warnings
 from collections import namedtuple
@@ -51,7 +52,9 @@ def _validate_frame_time(value: float) -> None:
     Shared by the :attr:`Bvh.frame_time` setter and the reader's check of
     a file's ``Frame Time`` line, so the two cannot drift apart.
     """
-    if not (np.isfinite(value) and value >= 0):
+    # math.isfinite, not np.isfinite: it accepts Fraction, ints beyond
+    # int64 and NumPy scalars, where np.isfinite raises TypeError.
+    if not (math.isfinite(value) and value >= 0):
         raise ValueError(
             f"frame_time must be 0 (unset) or a positive finite number of "
             f"seconds, got {value}")
@@ -63,7 +66,7 @@ def _validate_fps(value: float, name: str = "fps") -> None:
     Unlike a frame time, a rate has no "unset" value: ``1 / inf`` is ``0``,
     so an infinite rate would silently become an unset frame time.
     """
-    if not (np.isfinite(value) and value > 0):
+    if not (math.isfinite(value) and value > 0):
         raise ValueError(
             f"{name} must be a positive finite number of frames per second, "
             f"got {value}")

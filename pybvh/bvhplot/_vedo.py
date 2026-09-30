@@ -20,8 +20,8 @@ import numpy.typing as npt
 
 from typing import Callable, TypedDict
 
-from ._style import Style
-from ._viewport import make_viewport
+from ._style import JOINT_DISC_MARGIN_PX, Style, bone_width_px
+from ._viewport import STANDING_STILL_HALF_SPAN, make_viewport
 from ._scene import Scene, UP_AXIS_INDEX
 from ._colors import (
     bone_colors_255, floor_palette, node_colors_255, skeleton_color_255,
@@ -35,6 +35,12 @@ from ._vedo_capsules import (
 # Test seam: forces the player's Plotter offscreen so construction,
 # geometry, and the screenshot path can run without a display.
 _FORCE_OFFSCREEN = False
+
+# Joint-name labels float this fraction of the body size above their
+# joint: the v0.9.0 lift of a standing still, 2% of its half-span.
+LABEL_LIFT_FRACTION = 0.02 * STANDING_STILL_HALF_SPAN
+# Joint-name labels' font size, in pixels.
+LABEL_FONT_SIZE = 14
 
 
 class _UiState(TypedDict, total=False):
@@ -141,6 +147,24 @@ def play_vedo(
     (:func:`~._colors.bone_colors_255`). Joint spheres are structural
     in this viewer and always drawn.
 
+    Sizes. What has a size in the scene is sized from each skeleton's
+    own body (:attr:`~._scene.SkeletonView.body_size`), never from the
+    viewport, whose cube grows with the distance a clip travels: the
+    capsules (:func:`~._vedo_capsules.base_radius`) and the joint
+    labels' lift above their joint (``LABEL_LIFT_FRACTION`` of the
+    body size). What VTK draws in pixels is sized in pixels, from the
+    style alone, so it changes neither with the file's unit nor with
+    the distance travelled: the fast mode's bones are ``bone_width``
+    pixels wide (rounded half up, as OpenCV's are, at least 1:
+    :func:`~._style.bone_width_px`), the width the OpenCV backend
+    draws at its 1080p anchor, and its joints are points as wide as
+    OpenCV's joint discs, of radius that width plus
+    ``JOINT_DISC_MARGIN_PX``; the joint labels are ``LABEL_FONT_SIZE`` pixels.
+    Pixel sizes do not follow the zoom: a body seen from farther away
+    keeps its line widths, as matplotlib's and OpenCV's do. The
+    alternative, pixels proportional to the body's size on screen,
+    would thin the lines of a walk that moves the camera back.
+
     Parameters
     ----------
     scene : Scene
@@ -197,14 +221,11 @@ class _VedoPlayer:
 
         # vedo draws in perspective whatever the style asks.
         self.viewport = make_viewport(scene.views, projection="persp")
-        center, half_span = self.viewport.center, self.viewport.half_span
         self.scene = scene
         self.style = style
         self.coords_list = [v.coords for v in scene.views]
         self.labels = scene.labels
         self.skeleton_lines_list = [v.bones for v in scene.views]
-        self.center = center
-        self.half_span = half_span
         self.up_axis = self.viewport.up_axis
         self.use_high = quality == "high"
 
@@ -289,13 +310,9 @@ class _VedoPlayer:
 
         coords_list = self.coords_list
         n_skeletons = self.n_skeletons
-        half_span = self.half_span
         up_idx = UP_AXIS_INDEX.get(self.up_axis, 2)
-
-        # Base radius from the shared sizing formula, then adapted
-        # per-bone by length inside CapsuleSkeleton.
-        r_bone_base = CapsuleSkeleton.base_radius(
-            half_span, self.style.bone_width)
+        line_width_px = bone_width_px(self.style.bone_width)
+        point_size_px = 2 * (line_width_px + JOINT_DISC_MARGIN_PX)
 
         # --- Floor (high quality only; kind from the style) ---
         if self.use_high and self.style.floor is not None:
@@ -353,7 +370,7 @@ class _VedoPlayer:
 
             if self.use_high:
                 capsule = CapsuleSkeleton(
-                    view, r_bone_base, bone_rgb, joint_rgb,
+                    view, self.style.bone_width, bone_rgb, joint_rgb,
                     flat_lighting=True)
                 self._capsules.append(capsule)
                 for actor_mesh in capsule.actors:
@@ -364,15 +381,13 @@ class _VedoPlayer:
             else:
                 self._capsules.append(None)
                 frame0 = coords_list[s][0]
-                _lw = max(1, int(half_span * 0.04))
-                _pr = max(1, int(half_span * 0.05))
                 lines = Lines(
                     frame0[self._bone_parent_idx[s]],
                     frame0[self._bone_child_idx[s]],
-                    lw=_lw)
+                    lw=line_width_px)
                 lines.cellcolors = np.asarray(bone_rgb, dtype=np.uint8)
                 lines.lighting('off')
-                points = Points(frame0, r=_pr, alpha=0.9)
+                points = Points(frame0, r=point_size_px, alpha=0.9)
                 points.pointcolors = joint_rgb
                 self._lines_actors.append(lines)
                 self._points_actors.append(points)
@@ -398,18 +413,19 @@ class _VedoPlayer:
         # Use vtkBillboardTextActor3D so labels always face the camera.
         # _label_actors[s][j] = vtkBillboardTextActor3D
         self._label_actors: list[list] = []
-        self._label_offset = np.zeros(3)
-        self._label_offset[up_idx] = half_span * 0.02
-        label_fontsize = max(12, int(half_span * 0.4))
+        self._label_offsets: list[npt.NDArray[np.float64]] = []
         for s in range(n_skeletons):
+            view = self.scene.views[s]
+            label_offset = np.zeros(3)
+            label_offset[up_idx] = LABEL_LIFT_FRACTION * view.body_size
+            self._label_offsets.append(label_offset)
             lbl_list: list = []
-            joint_names = self.scene.views[s].node_names
-            for j, name in enumerate(joint_names):
-                pos0 = coords_list[s][0][j] + self._label_offset
+            for j, name in enumerate(view.node_names):
+                pos0 = coords_list[s][0][j] + label_offset
                 actor = vtk.vtkBillboardTextActor3D()
                 actor.SetInput(name)
                 actor.SetPosition(*pos0)
-                actor.GetTextProperty().SetFontSize(label_fontsize)
+                actor.GetTextProperty().SetFontSize(LABEL_FONT_SIZE)
                 actor.GetTextProperty().SetColor(1.0, 1.0, 1.0)
                 actor.GetTextProperty().SetBackgroundColor(0.1, 0.1, 0.3)
                 actor.GetTextProperty().SetBackgroundOpacity(0.7)
@@ -693,7 +709,7 @@ class _VedoPlayer:
             if self.state['show_labels']:
                 for j in range(len(frame_data)):
                     self._label_actors[s][j].SetPosition(
-                        *(frame_data[j] + self._label_offset))
+                        *(frame_data[j] + self._label_offsets[s]))
             # Show trail [0:current_frame], collapse the rest
             if self.state['show_trail']:
                 root_pts = self._trail_full[s]
@@ -912,7 +928,7 @@ class _VedoPlayer:
                     self._label_actors[s][j].SetVisibility(vis)
                     if vis:
                         self._label_actors[s][j].SetPosition(
-                            *(frame_data[j] + self._label_offset))
+                            *(frame_data[j] + self._label_offsets[s]))
             self.plt.render()
 
         elif key == 's':

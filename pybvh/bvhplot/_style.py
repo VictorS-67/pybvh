@@ -62,6 +62,20 @@ CHAIN_COLORS_DARK = {
 # Style
 # ---------------------------------------------------------------------------
 
+# The bone width at which the backends that size bones in scene units
+# (the vedo capsules, k3d's lines) draw them at their base fraction of
+# the body: the paper default. Backends that size bones in pixels or
+# points (matplotlib, OpenCV, the vedo viewer's fast mode) take
+# bone_width as it is.
+ANCHOR_BONE_WIDTH = 3.0
+
+
+def bone_width_scale(bone_width: float) -> float:
+    """The factor a style's *bone_width* scales bones drawn in scene
+    units by: 1 at ``ANCHOR_BONE_WIDTH``, the paper default."""
+    return bone_width / ANCHOR_BONE_WIDTH
+
+
 # Preset field values. "paper" is the publication-grade default;
 # "debug" reproduces the pre-0.9.0 output exactly (single blue, full
 # axes, no floor); "dark" is the paper look on a near-black ground.
@@ -357,6 +371,23 @@ def bone_colors_for_view(
     spine = spine_color(style)
     return [style.chain_colors.get(chain_name, spine)
             for chain_name in view.bone_chains]
+
+
+# ---------------------------------------------------------------------------
+# Bone and joint sizes in pixels (OpenCV, the vedo viewer's fast mode)
+# ---------------------------------------------------------------------------
+
+# A joint marker's disc is this many pixels wider in radius than the
+# bones are wide.
+JOINT_DISC_MARGIN_PX = 2
+
+
+def bone_width_px(bone_width: float, px_scale: float = 1.0) -> int:
+    """A style's *bone_width* in whole pixels: ``bone_width`` pixels at
+    the 1080p anchor (*px_scale* 1), scaled by *px_scale*, rounded half
+    up as the OpenCV backend has always rounded it (2.5 draws 3 pixels,
+    where Python's ``round``, half to even, gives 2) and at least 1."""
+    return max(1, int(bone_width * px_scale + 0.5))
 
 
 # ---------------------------------------------------------------------------

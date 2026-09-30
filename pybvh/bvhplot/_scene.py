@@ -9,12 +9,20 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
 
 UP_AXIS_INDEX = {'x': 0, 'y': 1, 'z': 2}
 _SIGNED_AXES = ('+x', '-x', '+y', '-y', '+z', '-z')
+
+# Which measure a view's body size took (SkeletonView.body_size_measure).
+BodySizeMeasure = Literal["rest height", "rest extent", "clip extent", "default"]
+# The body size of a view whose every coordinate is at one point, in the
+# unit of its coords: nothing to measure, a stand-in so that nothing
+# drawn on it has size zero.
+DEFAULT_BODY_SIZE = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +142,13 @@ class SkeletonView(GroundFrame):
       The alternative, storing the vector, would admit an off-axis or
       unnormalised up that no backend can draw: matplotlib's vertical
       axis and the floor plane are axis-aligned.
+    - ``rest_up`` is the up axis of ``rest_coords`` (:attr:`Bvh.rest_up`),
+      in the same signed form, or ``None`` when it is not known. It
+      usually equals ``up``; a file that authors its rest pose in one
+      convention and animates it in another has two, and
+      :attr:`body_size` needs the rest pose's. An unknown rest axis is
+      not replaced by ``up``, which on such a file would name the rest
+      pose's depth; :attr:`body_size` measures without it instead.
     - ``lr_pairs`` are joint pairs only, in node index space, the pairs
       the facing geometry averages; end-site pairs are deliberately
       excluded so follow azimuths match the Bvh path bit for bit.
@@ -165,6 +180,7 @@ class SkeletonView(GroundFrame):
     frame_time: float                      # seconds per frame
     node_names: list[str]                  # parallel to the N axis
     rest_coords: npt.NDArray[np.float64]   # (N, 3) rest pose, root at origin
+    rest_up: str | None                    # signed up axis of rest_coords, e.g. '+y'; None if unknown
     lr_pairs: npt.NDArray[np.intp]         # (P, 2) joint L/R pairs in node index space, the facing geometry's; (0, 2) if none
     forward_axis: str                      # snapped facing of coords row 0, e.g. '+y'
     bone_chains: list[str]                 # chain name per bone, parallel to ``bones``
@@ -178,8 +194,11 @@ class SkeletonView(GroundFrame):
                 f"and one node, got {coords.shape}.")
         num_frames, num_nodes = coords.shape[:2]
 
-        for name in ("up", "forward_axis"):
-            value = getattr(self, name)
+        # rest_up may also be None, unknown; body_size measures without it.
+        signed_axes = {"up": self.up, "forward_axis": self.forward_axis}
+        if self.rest_up is not None:
+            signed_axes["rest_up"] = self.rest_up
+        for name, value in signed_axes.items():
             if value not in _SIGNED_AXES:
                 raise ValueError(
                     f"{name} must be one of {', '.join(_SIGNED_AXES)}, "
@@ -232,6 +251,137 @@ class SkeletonView(GroundFrame):
                 f"positive, got {self.frame_time!r}.")
 
         self._protect_arrays()
+
+    @property
+    def body_size(self) -> float:
+        """The body's height, the length what is drawn on it is sized from.
+
+        The rest pose's extent along the rest pose's own up axis
+        (``rest_up``), in the unit of ``coords``. It is a property of
+        the skeleton, not of the motion: it does not change with the
+        distance the clip travels, with the frames shown, or with the
+        other skeletons of a Scene, so a still and the whole clip draw
+        a body at the same proportions, and each skeleton of a Scene
+        gets its own. It is always positive: a body that has no height
+        to measure is measured another way, and
+        :attr:`body_size_measure` says which of these it got, first
+        that applies:
+
+        - ``"rest height"``: the rest pose's extent along ``rest_up``.
+        - ``"rest extent"``: the rest pose's widest extent along any
+          axis, when ``rest_up`` is ``None`` (the rest pose's up axis
+          could not be inferred) or the rest pose has no extent along
+          it. For a standing rest pose it is the height, or the arm
+          span of a T-pose whose arms reach wider than it stands tall
+          (bvh_test3: 71.4 across the arms, 62.6 tall). The
+          alternative, the extent along the animation's ``up``, is
+          wrong exactly where the two axes differ: there it measures
+          the rest pose's depth (bvh_test3: 10.7).
+        - ``"clip extent"``: the widest extent of the box ``coords``
+          sweeps over the clip, when the rest pose has no extent at
+          all (one node, or nodes that all coincide) or no ratio to
+          put it in the unit of ``coords`` (below). There is no body
+          to measure, so it grows with the
+          distance the clip travels.
+        - ``"default"``: ``DEFAULT_BODY_SIZE``, one unit of ``coords``,
+          when every coordinate of the clip is at one point. Nothing
+          was measured; the size is a stand-in so that nothing drawn
+          on the body has size zero.
+
+        Conventions:
+
+        - The alternative to the rest height is the median over the
+          clip's frames of the pose's extent along ``up``. It follows
+          what the clip does, and the two differ when the clip does
+          not stand: a crouched, seated or lying clip reads smaller
+          than its rest pose, and a rest pose with raised arms reads
+          taller than the character stands. (Taken as the pose's
+          widest extent rather than along ``up``, the alternative also
+          differs for a T-pose whose arm span exceeds its height.) The
+          rest pose is used because what is drawn on a body should not
+          thin when the body crouches, and because it needs no pass
+          over the motion.
+        - The extent is taken along ``rest_up``, not along ``up``. The
+          two agree on most files; they differ when a file authors its
+          rest pose in one convention and animates it in another
+          (``Bvh.rest_up`` against ``Bvh.world_up``), and there the
+          rest pose's extent along ``up`` is its depth, not its height.
+        - The unit is the coords': the rest pose's measures are scaled
+          by :attr:`coords_per_rest_unit`. A view without that ratio
+          does not use its rest pose (see there).
+        """
+        return self._measured_body_size()[0]
+
+    @property
+    def body_size_measure(self) -> BodySizeMeasure:
+        """Which measure :attr:`body_size` took: ``"rest height"``,
+        ``"rest extent"``, ``"clip extent"`` or ``"default"`` (see
+        there). Only ``"default"`` is not measured from the view."""
+        return self._measured_body_size()[1]
+
+    def _measured_body_size(self) -> tuple[float, BodySizeMeasure]:
+        """:attr:`body_size` and :attr:`body_size_measure`, the first
+        measure of the chain that is positive."""
+        coords_per_rest_unit = self.coords_per_rest_unit
+        if coords_per_rest_unit is not None:
+            rest_extents = (
+                np.ptp(self.rest_coords, axis=0) * coords_per_rest_unit)
+            if self.rest_up is not None:
+                rest_height = float(
+                    rest_extents[UP_AXIS_INDEX[self.rest_up[1]]])
+                if rest_height > 0.0:
+                    return rest_height, "rest height"
+            widest_rest_extent = float(rest_extents.max())
+            if widest_rest_extent > 0.0:
+                return widest_rest_extent, "rest extent"
+        swept_extents = np.ptp(self.coords.reshape(-1, 3), axis=0)
+        widest_swept_extent = float(swept_extents.max())
+        if widest_swept_extent > 0.0:
+            return widest_swept_extent, "clip extent"
+        return DEFAULT_BODY_SIZE, "default"
+
+    @property
+    def coords_per_rest_unit(self) -> float | None:
+        """How many units of ``coords`` one unit of ``rest_coords`` is:
+        the factor that puts a rest-pose length in the unit of what is
+        drawn, or ``None`` when there is no ratio to measure.
+
+        It is the median, over the bones of positive rest length, of
+        each bone's length in coordinate row 0 over its rest length.
+        Bone lengths do not change under forward kinematics, so the
+        factor is 1 for coords posed from the skeleton, and differs
+        only for coordinates a caller supplies in another unit (metres
+        against the file's centimetres). Any bone would do; the median
+        keeps one odd bone from deciding it, and bones of zero rest
+        length (end sites or helper joints placed on their parent) are
+        left out because they have no ratio. Taken over every bone
+        instead, as a ratio of median lengths, it is 0 over 0 on a rig
+        where most bones have zero length.
+
+        ``None`` for a view with no bone of positive rest length, and
+        for one whose coordinate row 0 collapses most of those bones to
+        zero length (a median ratio of 0 is no unit). Its rest pose is
+        then not converted at all, and what would measure it measures
+        ``coords`` instead (as :attr:`body_size` does): the
+        alternative, taking the rest pose to share the unit of
+        ``coords``, draws a body a hundred times too thin or too thick
+        when a caller's coordinates are in centimetres against a rest
+        pose in metres, or the reverse.
+        """
+        if not self.bones:
+            return None
+        parents, children = np.asarray(self.bones).T
+        rest_lengths = np.linalg.norm(
+            self.rest_coords[children] - self.rest_coords[parents], axis=1)
+        measurable = rest_lengths > 0.0
+        if not measurable.any():
+            return None
+        pose = self.coords[0]
+        pose_lengths = np.linalg.norm(
+            pose[children] - pose[parents], axis=1)
+        ratios = pose_lengths[measurable] / rest_lengths[measurable]
+        median_ratio = float(np.median(ratios))
+        return median_ratio if median_ratio > 0.0 else None
 
     _ARRAY_FIELDS = ("coords", "rest_coords", "lr_pairs", "root_heading")
 

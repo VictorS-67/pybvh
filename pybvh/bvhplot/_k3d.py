@@ -13,8 +13,9 @@ from typing import Any, NamedTuple
 import numpy as np
 import numpy.typing as npt
 
-from ._style import PALETTE_RGB, Style, effective_color_mode
-from ._viewport import Viewport, make_viewport
+from ._style import (
+    PALETTE_RGB, Style, bone_width_scale, effective_color_mode)
+from ._viewport import STANDING_STILL_HALF_SPAN, Viewport, make_viewport
 from ._scene import Scene
 from ._colors import (
     floor_palette, grid_box_colors, node_colors_255, rgb255)
@@ -25,6 +26,14 @@ from ._colors import (
 FLOOR_EPSILON = 0.004
 # Lines per ground direction of a "grid" floor.
 FLOOR_GRID_LINES = 21
+
+# What is drawn on a body is sized from it, in these fractions of its
+# body size: the v0.9.0 sizes of a standing still, which were 2%, 3%
+# and 1.5% of its half-span. The bones' width is at the paper style's
+# bone width.
+BONE_WIDTH_FRACTION = 0.02 * STANDING_STILL_HALF_SPAN
+JOINT_SIZE_FRACTION = 0.03 * STANDING_STILL_HALF_SPAN
+TRAIL_WIDTH_FRACTION = 0.015 * STANDING_STILL_HALF_SPAN
 
 
 def _packed(rgb: tuple[int, int, int]) -> int:
@@ -76,12 +85,10 @@ def _build_plot(
 
     # k3d draws in perspective whatever the style asks.
     viewport = make_viewport(scene.views, projection="persp")
-    half_span = viewport.half_span
     labels = scene.labels
-    skeleton_lines_list = [v.bones for v in scene.views]
 
     grid_line_rgb, grid_label_rgb = grid_box_colors(style)
-    width_factor = style.bone_width / 3.0
+    width_factor = bone_width_scale(style.bone_width)
 
     # Pre-convert all coordinates to float32 once (k3d requires float32)
     coords_f32 = [v.coords.astype(np.float32) for v in scene.views]
@@ -104,12 +111,11 @@ def _build_plot(
         # Build k3d objects for each skeleton
         skeleton_objects: list[tuple[Any, Any]] = []
 
-        for s, (coords, bones) in enumerate(
-                zip(coords_f32, skeleton_lines_list)):
+        for s, (view, coords) in enumerate(zip(scene.views, coords_f32)):
             frame0 = coords[0]
 
             # Build indices array for k3d.lines: pairs of [start, end]
-            indices = np.array(bones, dtype=np.uint32)  # (num_bones, 2)
+            indices = np.array(view.bones, dtype=np.uint32)  # (num_bones, 2)
 
             # Color as hex int (0xRRGGBB); chain coloring (when it
             # applies) rides as per-vertex colors instead.
@@ -122,7 +128,8 @@ def _build_plot(
                 indices_type='segment',
                 color=color,
                 colors=node_colors if node_colors is not None else [],
-                width=0.02 * half_span * width_factor,
+                width=BONE_WIDTH_FRACTION * view.body_size * width_factor,
+                shader='thick',
                 name=(labels[s] if labels and labels[s] is not None
                       else f"Skeleton {s}"),
             )
@@ -130,7 +137,8 @@ def _build_plot(
                 frame0,
                 color=color,
                 colors=node_colors if node_colors is not None else [],
-                point_size=0.03 * half_span,
+                point_size=JOINT_SIZE_FRACTION * view.body_size,
+                shader='3dSpecular',
                 name=f"Joints {s}",
             )
 
@@ -160,7 +168,7 @@ def _build_plot(
             trail = k3d.line(
                 initial,
                 color=color,
-                width=0.015 * half_span,
+                width=TRAIL_WIDTH_FRACTION * view.body_size,
                 opacity=0.6,
                 shader='thick',
                 name=f"Trajectory {s}",
@@ -253,6 +261,29 @@ def play_k3d(
     kept as the toolkit's frame, with its bottom face just under the
     ground and its lines and labels colored from the background (see
     :class:`~pybvh.bvhplot.Style`).
+
+    Sizes. What is drawn on a skeleton is sized from that skeleton's
+    own body (:attr:`~._scene.SkeletonView.body_size`), never from the
+    viewport, whose cube grows with the distance a clip travels: the
+    bones' line width is ``BONE_WIDTH_FRACTION`` of the body size,
+    scaled by ``bone_width`` (:func:`~._style.bone_width_scale`: the
+    paper default is the 1:1 anchor), the joints' point size
+    ``JOINT_SIZE_FRACTION`` and the root trail's width
+    ``TRAIL_WIDTH_FRACTION``, the v0.9.0 sizes of a standing still. A
+    still and the whole clip draw a body at the same proportions, and
+    each skeleton of a scene gets its own. The sizes are scene lengths
+    because that is what k3d takes here, with the shaders this backend
+    asks for: its ``thick`` line shader draws
+    ``width`` in scene units to within a few percent (``1.8 *
+    tan(fov / 2)`` times it, 1.04 at k3d's default 60-degree field of
+    view) and never thinner than about one pixel, and its
+    ``3dSpecular`` points take ``point_size`` as a ball's diameter in
+    the scene. They therefore follow the zoom, as the body does. The
+    alternative, fixed pixel widths as the vedo viewer's fast mode and
+    OpenCV draw, would keep a body's lines as wide when the camera is
+    far from it as when it is close; the two agree only at one camera
+    distance. The floor's grid lines belong to the floor and stay a
+    fraction of the viewport's half-span.
 
     Parameters
     ----------

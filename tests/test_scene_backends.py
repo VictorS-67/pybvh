@@ -8,6 +8,7 @@ that knows what a Bvh is.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import pathlib
 
 import matplotlib
@@ -776,3 +777,273 @@ class TestEveryPerspectiveBackendUsesTheViewportsCamera:
 
     # The vedo viewer's camera is tested in tests/test_vedo_player.py,
     # and k3d's in TestK3d above, each with the change that made it.
+
+
+# ---------------------------------------------------------------------------
+# Every backend sizes a body from that body
+# ---------------------------------------------------------------------------
+# What is drawn on a body (a capsule's radius, k3d's line widths) is a
+# fraction of the body's size, never of the viewport's cube: the cube
+# grows with the distance a clip travels, the body does not.
+
+_BODY_SIZED_BACKENDS = ["vedo offscreen", "vedo viewer", "k3d"]
+
+
+def _travelling_view(body_lengths=5.0, n_frames=24):
+    """The stick person (1.8 tall) walking *body_lengths* of its height."""
+    from synthetic_scene import make_array_view
+    return make_array_view(
+        n_frames, walk_speed=body_lengths * 1.8 / (n_frames - 1))
+
+
+def _still_of(view):
+    return dataclasses.replace(
+        view, coords=view.coords[:1], root_heading=view.root_heading[:1])
+
+
+def _scaled(view, factor, lateral_shift):
+    """*view* grown by *factor*, rest pose included, moved aside."""
+    coords = view.coords * factor
+    coords[..., 0] += lateral_shift
+    return dataclasses.replace(
+        view, coords=coords, rest_coords=view.rest_coords * factor,
+        floor_height=float(coords[..., 1].min()))
+
+
+def _body_sizes(backend, scene, monkeypatch):
+    """What *backend* draws on each skeleton of *scene* with a size in
+    the scene, one array per skeleton: the base capsule radius for the
+    vedo backends; the bones' line width, the joints' point size and
+    the root trail's width for k3d."""
+    if backend == "k3d":
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+        built = _build_plot(scene, Style("paper"))
+        return [
+            np.array([lines.width, points.point_size, trail.width])
+            for (lines, points), trail in zip(built.skeletons, built.trails)]
+    return [np.array([capsule.base_radius])
+            for capsule in _capsules(backend, scene, monkeypatch)]
+
+
+def _capsules(backend, scene, monkeypatch):
+    """The capsule skeletons a vedo *backend* builds for *scene*."""
+    pytest.importorskip("vedo")
+    if backend == "vedo offscreen":
+        from pybvh.bvhplot._vedo_offscreen import _build_offscreen
+        plotter, capsules, _ = _build_offscreen(
+            scene, Style("paper"), (120, 120))
+    else:
+        assert backend == "vedo viewer"
+        player = _viewer(scene, monkeypatch)
+        plotter, capsules = player.plt, player._capsules
+    plotter.close()
+    return capsules
+
+
+def _drawn_capsule_radii(backend, scene, monkeypatch):
+    """The radius of every tube and sphere a vedo *backend* draws for
+    the one skeleton of *scene*, read off the capsules' geometry: the
+    tubes are built along z from their parent end, where they are
+    widest, and the spheres at the origin."""
+    [capsule] = _capsules(backend, scene, monkeypatch)
+    tube_radii = np.linalg.norm(
+        capsule.canonical_bone_verts[..., :2], axis=-1).max(axis=1)
+    sphere_radii = np.linalg.norm(
+        capsule.canonical_joint_verts, axis=-1).max(axis=1)
+    return np.concatenate([tube_radii, sphere_radii])
+
+
+def _one_node_walking(distance=10.0, n_frames=12):
+    """A skeleton of one node carried *distance* along z."""
+    from synthetic_scene import make_bare_view
+    coords = np.zeros((n_frames, 1, 3))
+    coords[:, 0, 2] = np.linspace(0.0, distance, n_frames)
+    return make_bare_view(coords, np.zeros((1, 3)), [])
+
+
+def _coincident_nodes(distance=10.0, n_frames=12):
+    """Three nodes at one point, rest pose included, carried
+    *distance* along z."""
+    from synthetic_scene import make_bare_view
+    coords = np.zeros((n_frames, 3, 3))
+    coords[..., 2] = np.linspace(0.0, distance, n_frames)[:, np.newaxis]
+    return make_bare_view(coords, np.zeros((3, 3)), [(0, 1), (1, 2)])
+
+
+def _screenshot(plotter):
+    plotter.render()
+    return np.asarray(plotter.screenshot(asarray=True)).copy()
+
+
+def _draws_the_body(backend, scene, monkeypatch):
+    """Whether *backend* draws the one skeleton of *scene*: the
+    offscreen still, with no floor to fill it, is not one flat color;
+    the viewer's picture changes when the skeleton's capsules are taken
+    out of it. k3d draws in the browser, so what is checked is that it
+    builds its plot with the default style and with a grid floor (a
+    grid of width 0 raises ``TraitError``), the skeleton's lines and
+    points at positive sizes."""
+    if backend == "k3d":
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+        for style in (Style("paper"), Style("paper", floor="grid")):
+            [(lines, points)] = _build_plot(scene, style).skeletons
+            if not (lines.width > 0.0 and points.point_size > 0.0):
+                return False
+        return True
+    pytest.importorskip("vedo")
+    if backend == "vedo offscreen":
+        from pybvh.bvhplot._vedo_offscreen import frame_vedo
+        image = frame_vedo(
+            scene, Style("paper", floor=None), resolution=(200, 160))
+        return len(np.unique(image.reshape(-1, 3), axis=0)) > 1
+    assert backend == "vedo viewer"
+    player = _viewer(scene, monkeypatch)
+    try:
+        with_body = _screenshot(player.plt)
+        for capsule in player._capsules:
+            player.plt.remove(*capsule.actors)
+        return bool((_screenshot(player.plt) != with_body).any())
+    finally:
+        player.plt.close()
+
+
+class TestEveryBackendSizesTheBodyFromTheBody:
+    @pytest.mark.parametrize("backend", _BODY_SIZED_BACKENDS)
+    def test_a_still_and_the_whole_clip_draw_the_same_body(
+            self, backend, monkeypatch):
+        from pybvh.bvhplot._scene import Scene
+        clip = _travelling_view()
+        [still] = _body_sizes(
+            backend, Scene(views=[_still_of(clip)]), monkeypatch)
+        [whole] = _body_sizes(backend, Scene(views=[clip]), monkeypatch)
+        assert whole == pytest.approx(still)
+
+    @pytest.mark.parametrize("backend", _BODY_SIZED_BACKENDS)
+    def test_each_skeleton_is_sized_from_its_own_body(
+            self, backend, monkeypatch):
+        from pybvh.bvhplot._scene import Scene
+        small = _travelling_view()
+        big = _scaled(small, 3.0, lateral_shift=4.0)
+        small_sizes, big_sizes = _body_sizes(
+            backend, Scene(views=[small, big]), monkeypatch)
+        assert big_sizes == pytest.approx(3.0 * small_sizes)
+
+    @pytest.mark.parametrize("backend", ["vedo offscreen", "vedo viewer"])
+    def test_capsules_follow_the_coords_unit_past_zero_length_bones(
+            self, backend, monkeypatch):
+        """Coordinates a caller hands in centimetres against a rest pose
+        in metres draw every tube and sphere 100 times as wide, crowded
+        ones included, although most of the bones have zero length (the
+        median rest length is 0)."""
+        from synthetic_scene import make_bare_view
+        from pybvh.bvhplot._scene import Scene
+        # Two parallel unit bones 0.01 apart (0-1 and 2-3), linked at
+        # their base (0-2), with zero-length helpers on their tips.
+        rest = np.array([
+            [0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
+            [0.01, 0.0, 0.0], [0.01, 1.0, 0.0],
+            [0.0, 1.0, 0.0], [0.0, 1.0, 0.0],
+            [0.01, 1.0, 0.0], [0.01, 1.0, 0.0]])
+        bones = [(0, 1), (0, 2), (2, 3), (1, 4), (1, 5), (3, 6), (3, 7)]
+        coords = np.repeat(rest[np.newaxis], 2, axis=0)
+        in_metres = _drawn_capsule_radii(
+            backend, Scene(views=[make_bare_view(coords, rest, bones)]),
+            monkeypatch)
+        in_centimetres = _drawn_capsule_radii(
+            backend,
+            Scene(views=[make_bare_view(100.0 * coords, rest, bones)]),
+            monkeypatch)
+        # The parallel bones are held to 60% of their 0.01 gap.
+        assert in_metres[[0, 2]] == pytest.approx([0.006, 0.006], rel=1e-3)
+        assert in_centimetres == pytest.approx(100.0 * in_metres, rel=1e-3)
+
+    @pytest.mark.parametrize("make_view", [
+        _one_node_walking, _coincident_nodes])
+    @pytest.mark.parametrize("backend", _BODY_SIZED_BACKENDS)
+    def test_a_body_with_no_rest_extent_is_still_drawn(
+            self, backend, make_view, monkeypatch):
+        """A rest pose with no extent has no height to size from; a
+        clip that moves it is still drawn (see SkeletonView.body_size
+        for the measure it falls back to)."""
+        from pybvh.bvhplot._scene import Scene
+        assert _draws_the_body(
+            backend, Scene(views=[make_view()]), monkeypatch)
+
+
+def _viewer_sizes(scene, monkeypatch, quality):
+    """What the vedo viewer draws on each skeleton of *scene*, in
+    *quality*: the fast mode's line width and point size (pixels, 0 in
+    high quality), the joint labels' font size (pixels) and their lift
+    above the joint (scene units)."""
+    pytest.importorskip("vedo")
+    player = _viewer(scene, monkeypatch, quality)
+    try:
+        sizes = []
+        for s, view in enumerate(scene.views):
+            label = player._label_actors[s][0]
+            lift = np.asarray(label.GetPosition()) - view.coords[0, 0]
+            if quality == "fast":
+                line_width = player._lines_actors[s].properties.GetLineWidth()
+                point_size = player._points_actors[s].properties.GetPointSize()
+            else:
+                line_width = point_size = 0.0
+            sizes.append(dict(
+                line_width=line_width, point_size=point_size,
+                font_size=label.GetTextProperty().GetFontSize(),
+                lift=float(np.linalg.norm(lift))))
+        return sizes
+    finally:
+        player.plt.close()
+
+
+class TestTheViewersOtherSizesIgnoreTheDistanceTravelled:
+    @pytest.mark.parametrize("quality", ["fast", "high"])
+    def test_a_still_and_the_whole_clip(self, quality, monkeypatch):
+        from pybvh.bvhplot._scene import Scene
+        clip = _travelling_view()
+        [still] = _viewer_sizes(
+            Scene(views=[_still_of(clip)]), monkeypatch, quality)
+        [whole] = _viewer_sizes(Scene(views=[clip]), monkeypatch, quality)
+        assert whole == pytest.approx(still)
+
+    def test_pixel_sizes_do_not_follow_the_files_unit(self, monkeypatch):
+        """Line width, point size and font size are pixels: the same
+        body in centimetres draws them as in metres."""
+        from pybvh.bvhplot._scene import Scene
+        clip = _travelling_view()
+        [metres] = _viewer_sizes(Scene(views=[clip]), monkeypatch, "fast")
+        [centimetres] = _viewer_sizes(
+            Scene(views=[_scaled(clip, 100.0, lateral_shift=0.0)]),
+            monkeypatch, "fast")
+        for pixels in ("line_width", "point_size", "font_size"):
+            assert centimetres[pixels] == metres[pixels], pixels
+        assert centimetres["lift"] == pytest.approx(100.0 * metres["lift"])
+
+    def test_each_label_is_lifted_by_its_own_body(self, monkeypatch):
+        from pybvh.bvhplot._scene import Scene
+        small = _travelling_view()
+        big = _scaled(small, 3.0, lateral_shift=4.0)
+        small_sizes, big_sizes = _viewer_sizes(
+            Scene(views=[small, big]), monkeypatch, "fast")
+        assert big_sizes["lift"] == pytest.approx(3.0 * small_sizes["lift"])
+
+    def test_fast_mode_draws_bones_as_wide_as_opencv_at_1080p(
+            self, monkeypatch):
+        """At the debug style's 2.5, OpenCV draws 3-pixel bones and
+        joint discs 2 pixels wider in radius, 10 pixels across; the
+        viewer's fast mode draws the same, not 2 pixels from rounding
+        half to even."""
+        pytest.importorskip("vedo")
+        from pybvh.bvhplot import _vedo
+        from pybvh.bvhplot._scene import Scene
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        player = _vedo._VedoPlayer(
+            Scene(views=[_travelling_view()]), Style("debug"), 30.0,
+            quality="fast")
+        try:
+            assert player._lines_actors[0].properties.GetLineWidth() == 3
+            assert player._points_actors[0].properties.GetPointSize() == 10
+        finally:
+            player.plt.close()

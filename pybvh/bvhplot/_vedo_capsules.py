@@ -14,6 +14,8 @@ import numpy.typing as npt
 from typing import TYPE_CHECKING, Sequence
 
 from ._colors import rgb255
+from ._style import bone_width_scale
+from ._viewport import STANDING_STILL_HALF_SPAN
 
 if TYPE_CHECKING:
     from ._scene import SkeletonView
@@ -50,6 +52,11 @@ MIN_OVERLAP = 0.25          # side-by-side run, as a fraction of the shorter bon
 CHAIN_TAPER = 0.85
 STUB_CAP_FACTOR = 2.0       # a stub is at most 2x the thinnest bone it joins
 MIN_RADIUS_FRACTION = 0.10  # visibility floor
+
+# Base capsule radius as a fraction of the body size, at the paper
+# style's bone width: the v0.9.0 radius of a standing still, 2.6% of
+# its half-span.
+BASE_RADIUS_FRACTION = 0.026 * STANDING_STILL_HALF_SPAN
 
 
 def vedo_rgb(rgb: tuple[int, int, int]) -> tuple[float, float, float]:
@@ -98,6 +105,23 @@ def shadow_height(viewport: Viewport) -> float:
     """The height projected shadows are flattened to: between the
     ground plane as drawn and the scene ground."""
     return viewport.below_floor(SHADOW_EPSILON * viewport.half_span)
+
+
+def base_radius(body_size: float, bone_width: float) -> float:
+    """Base bone radius in scene units, the single sizing formula of
+    the viewer and the offscreen renderer.
+
+    ``BASE_RADIUS_FRACTION`` of the body size
+    (:attr:`~._scene.SkeletonView.body_size`, the rest pose's height),
+    scaled by the style's bone width
+    (:func:`~._style.bone_width_scale`: the paper default is the 1:1
+    anchor). Taken from the body and not from the viewport's
+    half-span, which grows with the distance the clip travels: a still
+    and the whole clip draw a body at the same proportions, and each
+    skeleton of a scene is sized from its own. Hand bones draw at half
+    this base (see :func:`adaptive_radii`).
+    """
+    return BASE_RADIUS_FRACTION * body_size * bone_width_scale(bone_width)
 
 
 def _segment_frames(pose, bone_array):
@@ -203,9 +227,14 @@ def adaptive_radii(
     bones are exempt, or a wrist joining five thin metacarpals would be
     dragged down to finger width.
 
-    Radii are derived from *rest_pose* (structure, not a transient
-    pose) but expressed in *frame0*'s scale, so caller-supplied
-    coordinates in another unit still render correctly. A joint's
+    Crowding is measured on *rest_pose* (structure, not a transient
+    pose), which must be in *frame0*'s unit: the caller converts it
+    (:class:`CapsuleSkeleton` scales the view's rest pose by
+    :attr:`~._scene.SkeletonView.coords_per_rest_unit`), so the one
+    unit conversion of a view is the one its body size uses. Without
+    a rest pose in that unit (``None``), crowding is measured on
+    *frame0*: the alternative, skipping the crowding rule, would draw
+    side-by-side bones at full radius, fused into one. A joint's
     radius is the **minimum** of the bones it joins, never the mean:
     at a hub where one thick bone meets several thin ones, the mean
     bulges a sphere out past the thin tubes.
@@ -223,12 +252,7 @@ def adaptive_radii(
 
     if rest_pose is None:
         rest_pose = frame0
-    _, _, rest_lengths, _ = _segment_frames(rest_pose, bone_array)
-    rest_median = float(np.median(rest_lengths)) if len(rest_lengths) else 1.0
-    # Bone lengths are FK-invariant, so this differs from 1 only when the
-    # caller passed coordinates in a different unit than the skeleton.
-    scale = median_length / rest_median if rest_median > 0 else 1.0
-    cap = CROWD_FRACTION * crowding_clearance(rest_pose, bones) * scale
+    cap = CROWD_FRACTION * crowding_clearance(rest_pose, bones)
 
     parent_bone = _parent_bone_indices(bones)
     for index in _root_first_order(parent_bone):
@@ -302,9 +326,15 @@ class CapsuleSkeleton:
     Parameters
     ----------
     view : SkeletonView
-        Supplies frame-0 coords (for adaptive radii) and the bone list.
-    r_base : float
-        Base bone radius in scene units.
+        Supplies frame-0 coords (for adaptive radii), the bone list,
+        the rest pose the crowding is measured on (in the coords' unit,
+        by :attr:`~._scene.SkeletonView.coords_per_rest_unit`; frame 0
+        stands in for it when the view has no such ratio) and the body
+        size the radii are fractions of.
+    bone_width : float
+        The style's bone width; the base radius is
+        :func:`base_radius` of the view's body size and this width,
+        and is kept as :attr:`base_radius`.
     bone_rgb : sequence of (int, int, int)
         Per-bone RGB (0-255), parallel to ``view.bones``
         (:func:`~._colors.bone_colors_255`).
@@ -322,7 +352,7 @@ class CapsuleSkeleton:
     def __init__(
         self,
         view: SkeletonView,
-        r_base: float,
+        bone_width: float,
         bone_rgb: Sequence[tuple[int, int, int]],
         joint_rgb: npt.NDArray[np.uint8],
         *,
@@ -332,11 +362,16 @@ class CapsuleSkeleton:
 
         frame0 = view.coords[0]
         bones = view.bones
+        r_base = base_radius(view.body_size, bone_width)
+        self.base_radius = r_base
         self.bone_parent_idx = np.array([b[0] for b in bones], dtype=int)
         self.bone_child_idx = np.array([b[1] for b in bones], dtype=int)
 
+        coords_per_rest_unit = view.coords_per_rest_unit
+        rest_pose = (None if coords_per_rest_unit is None
+                     else view.rest_coords * coords_per_rest_unit)
         bone_radii, joint_radii = adaptive_radii(
-            frame0, bones, r_base, view.rest_coords)
+            frame0, bones, r_base, rest_pose)
 
         # --- canonical bone tubes ---
         bone_meshes = []
@@ -389,15 +424,6 @@ class CapsuleSkeleton:
                 prop.SetDiffuse(0.8)
                 prop.SetSpecular(0.1)
                 prop.SetSpecularColor(_HIGHLIGHT_GRAY)
-
-    @staticmethod
-    def base_radius(half_span: float, bone_width: float) -> float:
-        """Base bone radius in scene units: 2.6% of the half-span,
-        scaled by the style's bone width (3.0, the paper default, is
-        the 1:1 anchor). The single sizing formula for both the viewer
-        and the offscreen renderer; hand bones draw at half this base
-        (see :func:`adaptive_radii`)."""
-        return half_span * 0.026 * (bone_width / 3.0)
 
     @property
     def actors(self) -> list:

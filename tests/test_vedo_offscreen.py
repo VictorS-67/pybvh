@@ -203,12 +203,12 @@ class TestCapsuleSizing:
         """Regression: the forearm is a hub joining one thick bone to
         five thin metacarpals. Sizing it from the thinnest neighbour
         collapsed it to finger width."""
-        from pybvh.bvhplot._vedo_capsules import adaptive_radii, CapsuleSkeleton
+        from pybvh.bvhplot._vedo_capsules import adaptive_radii, base_radius
         from pybvh.bvhplot import get_skeleton_lines
         bones = get_skeleton_lines(bvh_hands)
         rest = bvh_hands.rest_pose_positions()
-        r_base = CapsuleSkeleton.base_radius(
-            float(np.linalg.norm(rest.max(0) - rest.min(0))) / 2, 3.0)
+        # The body size: this rest pose stands along y.
+        r_base = base_radius(float(np.ptp(rest[:, 1])), 3.0)
         radii, _ = adaptive_radii(rest, bones, r_base, rest)
         idx = bvh_hands.node_index
         forearm = radii[(idx["RightForeArm"], idx["RightHand"])]
@@ -216,12 +216,12 @@ class TestCapsuleSizing:
         assert forearm == pytest.approx(upper, rel=0.25)
 
     def test_fingers_are_thinned_without_naming_them(self, bvh_hands):
-        from pybvh.bvhplot._vedo_capsules import adaptive_radii, CapsuleSkeleton
+        from pybvh.bvhplot._vedo_capsules import adaptive_radii, base_radius
         from pybvh.bvhplot import get_skeleton_lines
         bones = get_skeleton_lines(bvh_hands)
         rest = bvh_hands.rest_pose_positions()
-        r_base = CapsuleSkeleton.base_radius(
-            float(np.linalg.norm(rest.max(0) - rest.min(0))) / 2, 3.0)
+        # The body size: this rest pose stands along y.
+        r_base = base_radius(float(np.ptp(rest[:, 1])), 3.0)
         radii, _ = adaptive_radii(rest, bones, r_base, rest)
         idx = bvh_hands.node_index
         upper = radii[(idx["RightArm"], idx["RightForeArm"])]

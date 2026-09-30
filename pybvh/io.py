@@ -95,7 +95,9 @@ def _snap_frame_time(frame_time: float) -> float:
 
     Foreign BVH files commonly store ``Frame Time`` truncated to 6 digits (e.g. ``0.033333`` for 30 fps), which makes resample-and-back round-trips drift. When the nearest exact ``1/N`` is within 0.01% of the literal value, return ``1/N``; otherwise return the input unchanged — non-integer rates like 23.976 fps are NOT snapped, since ``1/24 != 1/23.976``. This is a read-side salvage for truncated files; pybvh itself writes frame times at full precision.
     """
-    if frame_time <= 0:
+    # Only a positive finite value has a rate to snap to; anything else is
+    # returned unchanged for the frame_time rule to reject or accept.
+    if not (np.isfinite(frame_time) and frame_time > 0):
         return frame_time
     rate = round(1.0 / frame_time)
     if rate == 0:

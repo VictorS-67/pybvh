@@ -466,6 +466,12 @@ class TestDataFrameConversion:
                    joint_angles=rng.normal(scale=0.5, size=(frames, 2, 3)),
                    frame_time=1.0 / 30.0)
 
+    def test_df_to_bvh_nan_time_raises_frame_time_error(self, bvh_example):
+        df = pd.DataFrame(bvh_example.to_df_dict(mode='euler', centered='world'))
+        df.loc[df.index[-1], 'time'] = float("nan")
+        with pytest.raises(ValueError, match="frame_time .* got nan"):
+            df_to_bvh(bvh_example.nodes, df)
+
     def test_df_to_bvh_list_underscored_joint_names(self):
         """Underscored joint names must survive the name_ax_pos/rot column convention (rsplit from the right)."""
         bvh = self._make_underscored_bvh()

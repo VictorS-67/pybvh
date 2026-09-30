@@ -230,6 +230,20 @@ class TestK3d:
         built = _build_plot(pair.spread("auto"), Style("debug"))
         assert built.floor is None
 
+    @pytest.mark.parametrize("preset, grid, label", [
+        # k3d's own defaults, which the paper look has always shown
+        ("paper", 0xE6E6E6, 0x444444),
+        # the same steps away from #16181D, toward white
+        ("dark", 0x2D2F33, 0xC1C1C3),
+    ])
+    def test_the_grid_box_takes_its_colors_from_the_style(
+            self, pair, preset, grid, label):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+        built = _build_plot(pair.spread("auto"), Style(preset))
+        assert f"{built.plot.grid_color:06X}" == f"{grid:06X}"
+        assert f"{built.plot.label_color:06X}" == f"{label:06X}"
+
     def test_one_skeleton_and_one_trail_per_view(self, pair):
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import _build_plot

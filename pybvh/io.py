@@ -40,7 +40,17 @@ def read_bvh_file(
         auto-detection and suppress the disagreement warning.
     warn_on_world_up_disagreement : bool, optional
         If True (default) and ``world_up="auto"``, emit a ``UserWarning``
-        when rest-pose and first-frame inferences disagree.
+        when rest-pose and first-frame inferences disagree. The setting
+        is kept on the returned clip for its lifetime, not spent at
+        load: ``world_up`` is re-inferred whenever the motion changes
+        (an in-place transform, a ``root_pos`` / ``joint_angles``
+        assignment) and on every derived clip (slices, ``copy()``,
+        transformed copies, ``extract_joints``), and each of those
+        re-inferences, like :attr:`Bvh.world_up_inferred`, follows it.
+        A concatenation ``a + b`` follows ``a``, as it does for
+        ``frame_time``. The alternative, a one-shot suppression of the
+        load-time inference only, would re-warn on the first slice or
+        edit of a clip you already asked to keep quiet.
     lr_mapping : dict or None, optional
         Explicit left/right joint pair mapping
         (``{"arm.L": "arm.R", ...}``). If provided, skips the name-based

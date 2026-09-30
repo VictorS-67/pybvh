@@ -277,6 +277,23 @@ class TestTurntablePeriod:
                            camera="turntable", turntable_period=2.0)
 
 
+class TestHtmlTiming:
+    @pytest.mark.parametrize("fps, interval_ms", [
+        (0.5, 2000), (1.25, 800), (30, 33)])
+    def test_an_html_page_embeds_the_interval_of_the_rate_asked(
+            self, bvh, tmp_path, fps, interval_ms):
+        """Without a turntable too: the page is handed the caller's
+        rate, not a rounded one, and embeds ``1000 // fps`` ms."""
+        import re
+        path = bvhplot.render(bvh[0:2], tmp_path / "x.html",
+                              backend="matplotlib", fps=fps,
+                              resolution=(160, 120))
+        embedded = float(re.search(
+            r"new Animation\(frames, img_id, slider_id, ([0-9.]+)",
+            path.read_text()).group(1))
+        assert embedded == interval_ms
+
+
 class TestPhase3Export:
     def test_turntable_opencv(self, bvh, tmp_path):
         pytest.importorskip("cv2")

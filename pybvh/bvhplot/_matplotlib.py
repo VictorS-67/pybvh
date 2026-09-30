@@ -707,25 +707,25 @@ def _wrap_update_with_extras(
 def written_fps(fps: float, suffix: str) -> float:
     """The rate :func:`render_mpl` writes a file at, given *fps*.
 
-    Every writer is handed whole frames per second
-    (:func:`_writer_fps`), the type matplotlib documents for them, so
-    *fps* is rounded to the nearest: ``fps=29.5`` is handed 30. The
-    movie writers (ffmpeg for video, Pillow for ``.gif``, ``.webp``
-    and ``.apng``) write that rate. An ``.html`` page embeds a whole
-    number of milliseconds per frame, which matplotlib's HTML writer
-    computes as ``1000 // fps`` (floored, in matplotlib 3.9 and 3.11
-    alike), so a page handed 30 fps plays at 1000 / 33, about 30.3.
+    The movie writers (ffmpeg for video, Pillow for ``.gif``,
+    ``.webp`` and ``.apng``) are handed whole frames per second
+    (:func:`_movie_writer_fps`), the type matplotlib documents for
+    them, so *fps* is rounded to the nearest: ``fps=29.5`` is written
+    at 30. An ``.html`` page is handed *fps* unchanged and embeds a
+    whole number of milliseconds per frame, which matplotlib's HTML
+    writer computes as ``1000 // fps`` (floored, in matplotlib 3.9 and
+    3.11 alike): 33 ms at 30 fps, so the page plays at about 30.3.
     Pillow then stores GIF frame durations in centiseconds, a limit of
     the format not counted here.
     """
-    handed = _writer_fps(fps)
     if suffix.lower() == ".html":
-        return 1000.0 / (1000 // handed)
-    return handed
+        return 1000.0 / (1000 // fps)
+    return _movie_writer_fps(fps)
 
 
-def _writer_fps(fps: float) -> int:
-    """The whole frames per second matplotlib's writers are handed."""
+def _movie_writer_fps(fps: float) -> int:
+    """The whole frames per second matplotlib's movie writers are
+    handed."""
     return round(fps)
 
 
@@ -821,7 +821,7 @@ def render_mpl(
         # from the whole-millisecond interval, and the HTML writer's
         # floor division would then drop another millisecond (1000 //
         # (1000 / 33) is 32).
-        html_content = anim.to_jshtml(fps=_writer_fps(fps))
+        html_content = anim.to_jshtml(fps=fps)
         with open(filepath, 'w') as f:
             f.write(html_content)
     else:
@@ -829,7 +829,7 @@ def render_mpl(
         # derived from the integer-millisecond interval, quantizing e.g.
         # 24 fps (41.67 ms) to 1000/41 ≈ 24.4 fps.
         anim.save(filepath, writer=writer_name,
-                  fps=_writer_fps(fps))
+                  fps=_movie_writer_fps(fps))
 
     plt.close(fig)
     return filepath

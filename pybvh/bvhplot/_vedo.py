@@ -23,7 +23,7 @@ from typing import Callable, TypedDict
 from ._style import PALETTE_RGB, Style, effective_color_mode
 from ._viewport import make_viewport
 from ._scene import Scene, UP_AXIS_INDEX
-from ._colors import bone_colors_255, floor_palette, rgb255
+from ._colors import bone_colors_255, floor_palette, node_colors_255
 from ._playback import PlaybackClock
 from ._vedo_capsules import CapsuleSkeleton, floor_placement
 
@@ -136,8 +136,10 @@ def play_vedo(
 
     Style application (look fields): background, floor kind
     (``"checker"`` falls back to ``"grid"`` here), bone width, and
-    chain colors for single-skeleton sessions in high quality mode.
-    Joint spheres are structural in this viewer and always drawn.
+    the bone colors ``color_mode`` resolves to, in both quality modes
+    and from the same rule as the offscreen renderer
+    (:func:`~._colors.bone_colors_255`). Joint spheres are structural
+    in this viewer and always drawn.
 
     Parameters
     ----------
@@ -282,22 +284,6 @@ class _VedoPlayer:
         r, g, b = self._color_rgb(s)
         return f"rgb({r},{g},{b})"
 
-    def _bone_colors_255(self, s: int) -> list[tuple[int, int, int]] | None:
-        """Per-bone RGB (0-255) when chain coloring applies, else None.
-
-        Chain colors apply in high quality mode when the style's color
-        mode resolves to "chains" (single-skeleton sessions under the
-        default "auto"); multi-skeleton sessions keep flat per-skeleton
-        colors so the number-key visibility toggles stay color-coded.
-        """
-        if not self.use_high:
-            return None
-        mode = effective_color_mode(self.style, self.n_skeletons)
-        if mode != "chains":
-            return None
-        return bone_colors_255(
-            self.scene.views[s], self.style, s, self.n_skeletons)
-
     def _build_geometry(self) -> None:
         """Create the floor, skeleton actors, labels, camera, and trails."""
         from vedo import (  # type: ignore[import-untyped]
@@ -361,18 +347,17 @@ class _VedoPlayer:
 
         # --- Create actors once and position to frame 0 ---
         for s in range(n_skeletons):
-            color = self._color(s)
+            view = self.scene.views[s]
+            bone_rgb = bone_colors_255(view, self.style, s, n_skeletons)
+            joint_rgb = node_colors_255(
+                view, self.style, s, n_skeletons, bone_rgb)
             bones = self.skeleton_lines_list[s]
             self._bone_parent_idx.append(np.array([b[0] for b in bones]))
             self._bone_child_idx.append(np.array([b[1] for b in bones]))
 
             if self.use_high:
-                chain_rgb = self._bone_colors_255(s)
-                spine_rgb = rgb255(
-                    self.style.chain_colors.get("spine", "#3A3F4A"))
                 capsule = CapsuleSkeleton(
-                    self.scene.views[s], r_bone_base, color,
-                    chain_rgb=chain_rgb, spine_rgb=spine_rgb,
+                    view, r_bone_base, bone_rgb, joint_rgb,
                     flat_lighting=True)
                 self._capsules.append(capsule)
                 for actor_mesh in capsule.actors:
@@ -388,9 +373,11 @@ class _VedoPlayer:
                 lines = Lines(
                     frame0[self._bone_parent_idx[s]],
                     frame0[self._bone_child_idx[s]],
-                    lw=_lw, c=color)
+                    lw=_lw)
+                lines.cellcolors = np.asarray(bone_rgb, dtype=np.uint8)
                 lines.lighting('off')
-                points = Points(frame0, r=_pr, c=color, alpha=0.9)
+                points = Points(frame0, r=_pr, alpha=0.9)
+                points.pointcolors = joint_rgb
                 self._lines_actors.append(lines)
                 self._points_actors.append(points)
                 self.plt += lines

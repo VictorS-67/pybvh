@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence
 
 if TYPE_CHECKING:
     from ._scene import SkeletonView
@@ -28,6 +28,9 @@ if TYPE_CHECKING:
 FLOOR_EPSILON = 0.004
 SHADOW_EPSILON = 0.002
 
+
+# The offscreen capsules' specular highlight color (#AAAAAA).
+_HIGHLIGHT_GRAY = (170 / 255, 170 / 255, 170 / 255)
 
 LENGTH_BOOST = (1.0, 1.5)   # long bones get plumper; short ones never thinner
 # Share of the gap to its nearest crowder that a bone may take. Two facing
@@ -275,15 +278,14 @@ class CapsuleSkeleton:
         Supplies frame-0 coords (for adaptive radii) and the bone list.
     r_base : float
         Base bone radius in scene units.
-    color : object
-        Uniform actor color (any vedo-parseable form).
-    chain_rgb : list[(int, int, int)] or None
-        Optional per-bone RGB (0-255). Baked as per-point colors so the
-        coloring survives the merge into one actor; joints take the
-        color of the bone whose child they are (``spine_rgb`` for the
-        root).
-    spine_rgb : (int, int, int)
-        Fallback joint color under chain coloring.
+    bone_rgb : sequence of (int, int, int)
+        Per-bone RGB (0-255), parallel to ``view.bones``
+        (:func:`~._colors.bone_colors_255`).
+    joint_rgb : (N, 3) uint8 array
+        Per-node RGB (0-255) (:func:`~._colors.node_colors_255`).
+        Both are baked as per-point colors, so the coloring survives
+        the merge into one actor and no mesh is left to VTK's default
+        scalar map (a tube carries its radius as point data).
     flat_lighting : bool
         ``True`` (viewer): ambient-only so colors stay stable across
         frames. ``False`` (offscreen renders): default VTK diffuse
@@ -294,10 +296,9 @@ class CapsuleSkeleton:
         self,
         view: SkeletonView,
         r_base: float,
-        color: object,
+        bone_rgb: Sequence[tuple[int, int, int]],
+        joint_rgb: npt.NDArray[np.uint8],
         *,
-        chain_rgb: list[tuple[int, int, int]] | None = None,
-        spine_rgb: tuple[int, int, int] = (58, 63, 74),
         flat_lighting: bool = True,
     ) -> None:
         from vedo import Tube, Sphere, merge  # type: ignore[import-untyped]
@@ -315,12 +316,9 @@ class CapsuleSkeleton:
         bone_verts = []
         for k, (p_i, c_i) in enumerate(bones):
             r = bone_radii.get((p_i, c_i), r_base)
-            tube = Tube([[0, 0, 0], [0, 0, 1]], r=[r, r / 2],
-                        res=12, c=color)
-            if chain_rgb is not None:
-                tube.pointcolors = np.tile(
-                    np.array(chain_rgb[k], dtype=np.uint8),
-                    (tube.npoints, 1))
+            tube = Tube([[0, 0, 0], [0, 0, 1]], r=[r, r / 2], res=12)
+            tube.pointcolors = np.tile(
+                np.array(bone_rgb[k], dtype=np.uint8), (tube.npoints, 1))
             bone_verts.append(tube.vertices.copy())
             bone_meshes.append(tube)
 
@@ -332,19 +330,12 @@ class CapsuleSkeleton:
             self.canonical_bone_verts = np.empty((0, 0, 3))
 
         # --- canonical joint spheres ---
-        joint_rgb_by_node: dict[int, tuple[int, int, int]] = {}
-        if chain_rgb is not None:
-            for k, (_p, c_i) in enumerate(bones):
-                joint_rgb_by_node[c_i] = chain_rgb[k]
         joint_meshes = []
         joint_verts = []
         for j in range(frame0.shape[0]):
-            sph = Sphere(pos=(0, 0, 0), r=joint_radii[j], res=12, c=color)
-            if chain_rgb is not None:
-                sph.pointcolors = np.tile(
-                    np.array(joint_rgb_by_node.get(j, spine_rgb),
-                             dtype=np.uint8),
-                    (sph.npoints, 1))
+            sph = Sphere(pos=(0, 0, 0), r=joint_radii[j], res=12)
+            sph.pointcolors = np.tile(
+                np.asarray(joint_rgb[j], dtype=np.uint8), (sph.npoints, 1))
             joint_verts.append(sph.vertices.copy())
             joint_meshes.append(sph)
         self.joints_mesh = merge(joint_meshes)
@@ -364,10 +355,13 @@ class CapsuleSkeleton:
                 # Offscreen renders: near-full diffuse so the tubes
                 # shade on both sides and read as round 3D capsules,
                 # with just enough ambient that shadow-side faces keep
-                # their hue instead of going near-black.
+                # their hue instead of going near-black. The point
+                # colors replace the ambient and diffuse colors only,
+                # so the highlight's color is set here.
                 prop.SetAmbient(0.2)
                 prop.SetDiffuse(0.8)
                 prop.SetSpecular(0.1)
+                prop.SetSpecularColor(_HIGHLIGHT_GRAY)
 
     @staticmethod
     def base_radius(half_span: float, bone_width: float) -> float:

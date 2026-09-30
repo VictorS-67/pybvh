@@ -273,3 +273,20 @@ class TestLabels:
         for rgb in [(50, 120, 255), (220, 50, 50)]:   # the palette's first two
             close = np.abs(header - rgb).max(axis=-1) <= 3
             assert close.sum() > 10
+
+
+class TestStyleColorsReachVedoParsed:
+    """The background is read by matplotlib's parser, as in the other
+    backends: vedo's own crashed on short hex ("#fff") and read
+    matplotlib-only names such as "C0" as gray."""
+
+    @pytest.mark.parametrize("background, expected", [
+        ("#fff", (255, 255, 255)),
+        ("C0", (31, 119, 180)),   # matplotlib's first cycle color
+    ])
+    def test_background(self, bvh, background, expected):
+        img = bvhplot.frame(bvh, 0, backend="vedo",
+                            style=Style("paper", background=background,
+                                        floor=None),
+                            resolution=(200, 180))
+        np.testing.assert_allclose(img[0, 0], expected, atol=1)

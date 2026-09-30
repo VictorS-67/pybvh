@@ -27,7 +27,9 @@ from ._colors import (
     bone_colors_255, floor_palette, node_colors_255, skeleton_color_255,
 )
 from ._playback import PlaybackClock
-from ._vedo_capsules import CapsuleSkeleton, floor_placement, vedo_rgb
+from ._vedo_capsules import (
+    CapsuleSkeleton, floor_placement, vedo_color, vedo_rgb,
+)
 
 
 # Test seam: forces the player's Plotter offscreen so construction,
@@ -229,7 +231,7 @@ class _VedoPlayer:
         self.plt = Plotter(
             title="pybvh viewer",
             size=(1400, 900),
-            bg=style.background,
+            bg=vedo_color(style.background),
             offscreen=_FORCE_OFFSCREEN,
         )
 
@@ -309,7 +311,7 @@ class _VedoPlayer:
                     pos=tuple(floor_pos), normal=tuple(normal),
                     s=(side, side))
                 floor.alpha(self.style.floor_alpha)
-                floor.c(palette["face"]).lighting('off')
+                floor.c(vedo_color(palette["face"])).lighting('off')
             else:
                 # "grid" — and "checker", which falls back to grid in
                 # this viewer (no cheap checker primitive in vedo).
@@ -324,7 +326,7 @@ class _VedoPlayer:
                 # up_axis='z': Grid defaults to XY plane, no rotation
                 floor.pos(*floor_pos)
                 floor.lw(1).alpha(0.6)
-                floor.c(palette["grid"]).lighting('off')
+                floor.c(vedo_color(palette["grid"])).lighting('off')
             self.plt += floor
 
         # --- Build persistent skeleton geometry (created once, updated in-place) ---

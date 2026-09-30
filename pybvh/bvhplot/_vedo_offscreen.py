@@ -28,7 +28,7 @@ from ._colors import (
     bone_colors_255, floor_palette, node_colors_255, skeleton_color_255,
 )
 from ._vedo_capsules import (
-    CapsuleSkeleton, floor_placement, shadow_height, vedo_rgb,
+    CapsuleSkeleton, floor_placement, shadow_height, vedo_color, vedo_rgb,
 )
 
 if TYPE_CHECKING:
@@ -95,7 +95,8 @@ def _build_offscreen(
     center, half_span = viewport.center, viewport.half_span
     view0 = scene.views[0]
 
-    plt = Plotter(offscreen=True, size=resolution, bg=style.background)
+    plt = Plotter(offscreen=True, size=resolution,
+                  bg=vedo_color(style.background))
 
     r_base = CapsuleSkeleton.base_radius(half_span, style.bone_width)
 
@@ -122,7 +123,7 @@ def _build_offscreen(
         position, normal, side = floor_placement(viewport)
         floor = Plane(pos=tuple(position), normal=tuple(normal),
                       s=(side, side))
-        floor.c(floor_palette(style)["face"]).lighting('off')
+        floor.c(vedo_color(floor_palette(style)["face"])).lighting('off')
         plt += floor
 
     if scene.labels is not None:

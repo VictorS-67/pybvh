@@ -13,6 +13,8 @@ import numpy.typing as npt
 
 from typing import TYPE_CHECKING, Sequence
 
+from ._colors import rgb255
+
 if TYPE_CHECKING:
     from ._scene import SkeletonView
     from ._viewport import Viewport
@@ -60,6 +62,19 @@ def vedo_rgb(rgb: tuple[int, int, int]) -> tuple[float, float, float]:
     """
     r, g, b = rgb
     return (r / 255, g / 255, b / 255)
+
+
+def vedo_color(color: object) -> tuple[float, float, float]:
+    """A style color (any form matplotlib parses) in vedo's form.
+
+    Style colors are read by matplotlib's parser in every backend.
+    vedo's own parser differs: it rejects short hex such as
+    ``"#fff"`` and reads matplotlib-only names such as ``"C0"`` as
+    gray. The color goes through :func:`~._colors.rgb255`, the 0-255
+    conversion every other bvhplot color takes, then
+    :func:`vedo_rgb`.
+    """
+    return vedo_rgb(rgb255(color))
 
 
 def floor_placement(

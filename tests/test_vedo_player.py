@@ -302,3 +302,42 @@ class TestColors:
                     trail.properties.GetColor(), expected)
         finally:
             p.plt.close()
+
+
+class TestStyleColorsReachVedoParsed:
+    """Every color a Style supplies is read by matplotlib's parser, as
+    in the other backends, and reaches vedo as floats. vedo's own
+    parser crashed on short hex ("#fff") and read matplotlib-only
+    names such as "C0" as gray."""
+
+    @pytest.mark.parametrize("background, expected", [
+        ("#fff", (255, 255, 255)),
+        ("C0", (31, 119, 180)),   # matplotlib's first cycle color
+    ])
+    @pytest.mark.parametrize("quality", ["high", "fast"])
+    def test_background(self, scene, background, expected, quality,
+                        monkeypatch):
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        p = _vedo._VedoPlayer(scene, Style("paper", background=background),
+                              30.0, quality=quality)
+        try:
+            np.testing.assert_allclose(
+                p.plt.renderer.GetBackground(), np.asarray(expected) / 255)
+        finally:
+            p.plt.close()
+
+    @pytest.mark.parametrize("floor, key", [("solid", "face"),
+                                            ("grid", "grid")])
+    def test_floor(self, scene, floor, key, monkeypatch):
+        from pybvh.bvhplot._colors import floor_palette, rgb255
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        style = Style("paper", floor=floor)
+        p = _vedo._VedoPlayer(scene, style, 30.0, quality="high")
+        try:
+            plane = next(o for o in p.plt.objects
+                         if isinstance(o, (vedo.Plane, vedo.Grid)))
+            np.testing.assert_allclose(
+                plane.properties.GetColor(),
+                np.asarray(rgb255(floor_palette(style)[key])) / 255)
+        finally:
+            p.plt.close()

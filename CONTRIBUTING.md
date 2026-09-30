@@ -62,7 +62,7 @@ Rebasing keeps the branch a straight line of your own commits; merging `main` in
 Choose the merge method per PR:
 
 - **Squash** when the PR is small or its intermediate commits are not worth keeping. The squash commit's message is written like any other commit.
-- **Merge commit** (or rebase-and-merge) when the branch's commits are atomic steps worth preserving for `git bisect` and `git blame`, which is the usual case for a multi-step refactor.
+- **Merge commit** when the branch carries several atomic commits worth preserving for `git bisect` and `git blame`: the PR stays one unit on `main` (`git log --first-parent` shows one line per PR, one `git revert -m 1` undoes it) and the reviewed commits keep their hashes. Rebase-and-merge only suits a PR of one to a few commits.
 
 Delete the branch after merging. The repository is set to do this automatically.
 

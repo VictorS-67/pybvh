@@ -62,6 +62,20 @@ CHAIN_COLORS_DARK = {
 # Style
 # ---------------------------------------------------------------------------
 
+# The bone width at which the backends that size bones in scene units
+# (the vedo capsules, k3d's lines) draw them at their base fraction of
+# the body: the paper default. Backends that size bones in pixels or
+# points (matplotlib, OpenCV, the vedo viewer's fast mode) take
+# bone_width as it is.
+ANCHOR_BONE_WIDTH = 3.0
+
+
+def bone_width_scale(bone_width: float) -> float:
+    """The factor a style's *bone_width* scales bones drawn in scene
+    units by: 1 at ``ANCHOR_BONE_WIDTH``, the paper default."""
+    return bone_width / ANCHOR_BONE_WIDTH
+
+
 # Preset field values. "paper" is the publication-grade default;
 # "debug" reproduces the pre-0.9.0 output exactly (single blue, full
 # axes, no floor); "dark" is the paper look on a near-black ground.

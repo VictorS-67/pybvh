@@ -13,7 +13,8 @@ from typing import Any, NamedTuple
 import numpy as np
 import numpy.typing as npt
 
-from ._style import PALETTE_RGB, Style, effective_color_mode
+from ._style import (
+    PALETTE_RGB, Style, bone_width_scale, effective_color_mode)
 from ._viewport import STANDING_STILL_HALF_SPAN, Viewport, make_viewport
 from ._scene import Scene
 from ._colors import (
@@ -87,7 +88,7 @@ def _build_plot(
     labels = scene.labels
 
     grid_line_rgb, grid_label_rgb = grid_box_colors(style)
-    width_factor = style.bone_width / 3.0
+    width_factor = bone_width_scale(style.bone_width)
 
     # Pre-convert all coordinates to float32 once (k3d requires float32)
     coords_f32 = [v.coords.astype(np.float32) for v in scene.views]
@@ -265,13 +266,14 @@ def play_k3d(
     own body (:attr:`~._scene.SkeletonView.body_size`), never from the
     viewport, whose cube grows with the distance a clip travels: the
     bones' line width is ``BONE_WIDTH_FRACTION`` of the body size,
-    scaled by ``bone_width`` (3.0, the paper default, is the 1:1
-    anchor), the joints' point size ``JOINT_SIZE_FRACTION`` and the
-    root trail's width ``TRAIL_WIDTH_FRACTION``, the v0.9.0 sizes of a
-    standing still. A still and the whole clip draw a body at the same
-    proportions, and each skeleton of a scene gets its own. The sizes
-    are scene lengths because that is what k3d takes here, with the
-    shaders this backend asks for: its ``thick`` line shader draws
+    scaled by ``bone_width`` (:func:`~._style.bone_width_scale`: the
+    paper default is the 1:1 anchor), the joints' point size
+    ``JOINT_SIZE_FRACTION`` and the root trail's width
+    ``TRAIL_WIDTH_FRACTION``, the v0.9.0 sizes of a standing still. A
+    still and the whole clip draw a body at the same proportions, and
+    each skeleton of a scene gets its own. The sizes are scene lengths
+    because that is what k3d takes here, with the shaders this backend
+    asks for: its ``thick`` line shader draws
     ``width`` in scene units to within a few percent (``1.8 *
     tan(fov / 2)`` times it, 1.04 at k3d's default 60-degree field of
     view) and never thinner than about one pixel, and its

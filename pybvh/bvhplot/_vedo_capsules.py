@@ -14,6 +14,7 @@ import numpy.typing as npt
 from typing import TYPE_CHECKING, Sequence
 
 from ._colors import rgb255
+from ._style import bone_width_scale
 from ._viewport import STANDING_STILL_HALF_SPAN
 
 if TYPE_CHECKING:
@@ -112,14 +113,15 @@ def base_radius(body_size: float, bone_width: float) -> float:
 
     ``BASE_RADIUS_FRACTION`` of the body size
     (:attr:`~._scene.SkeletonView.body_size`, the rest pose's height),
-    scaled by the style's bone width (3.0, the paper default, is the
-    1:1 anchor). Taken from the body and not from the viewport's
+    scaled by the style's bone width
+    (:func:`~._style.bone_width_scale`: the paper default is the 1:1
+    anchor). Taken from the body and not from the viewport's
     half-span, which grows with the distance the clip travels: a still
     and the whole clip draw a body at the same proportions, and each
     skeleton of a scene is sized from its own. Hand bones draw at half
     this base (see :func:`adaptive_radii`).
     """
-    return BASE_RADIUS_FRACTION * body_size * (bone_width / 3.0)
+    return BASE_RADIUS_FRACTION * body_size * bone_width_scale(bone_width)
 
 
 def _segment_frames(pose, bone_array):

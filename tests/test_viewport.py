@@ -179,6 +179,11 @@ class TestSchedule:
             viewport.azimuths, view.azimuth + 30.0 * np.arange(24))
         assert viewport.azimuth_at(15) == pytest.approx(view.azimuth + 450.0)
 
+    def test_a_fractional_period_keeps_its_exact_speed(self, view):
+        viewport = make_viewport([view], motion=Turntable(period=7.5))
+        np.testing.assert_allclose(
+            viewport.azimuths, view.azimuth + 48.0 * np.arange(24))
+
     def test_a_period_longer_than_the_frames_turns_part_way(self, view):
         viewport = make_viewport([view], motion=Turntable(period=48))
         assert viewport.azimuth_at(23) == pytest.approx(view.azimuth + 172.5)

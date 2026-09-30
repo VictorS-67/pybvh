@@ -809,7 +809,8 @@ def render(
         would draw ghosts of the previous pass where the character no
         longer is and a trace segment from the clip's end back to its
         start. The clips of a comparison loop together, after
-        ``sync`` has given them one length. A number of turns over the clip was the
+        ``sync`` has given them one length. ``follow`` is ignored, as
+        under any turntable. A number of turns over the clip was the
         rejected alternative: it cannot slow a short clip down without
         cutting the orbit short.
     resolution : (int, int), optional

@@ -211,6 +211,15 @@ class TestTurntablePeriod:
                               turntable_period=1.2)
         assert len(frames) == round(1.2 * 9.5)
 
+    def test_follow_is_ignored_under_a_timed_turntable(self, bvh, tmp_path):
+        clip = bvh[0:6]
+        plain = self._render(clip, tmp_path, turntable_period=1.2)
+        following = self._render(clip, tmp_path, turntable_period=1.2,
+                                 follow=True)
+        assert len(following) == len(plain) == 12
+        for mine, theirs in zip(following, plain):
+            np.testing.assert_array_equal(mine, theirs)
+
     def test_a_period_of_two_frames_or_less_is_rejected(self, bvh, tmp_path):
         """At 180 degrees a frame or more the camera looks frozen or
         turning backwards; the error names the minimum in seconds."""

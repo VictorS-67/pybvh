@@ -103,6 +103,14 @@ _BTN_H = 0.07
 _TEXT_RAISE = 0.03
 _TOP_ROW_TEXT_Y = _TOP_ROW_Y0 + _TEXT_RAISE
 
+# The band of the window's height the camera fits the figure into: from
+# the slider's line to the bottom of the top row. The side panels'
+# lower rows are left out, being beside a figure centred across the
+# window, not above it. The fit keeps a margin inside the band
+# (FIT_FRACTION), which clears the slider's knob and the top row's text,
+# hanging a little below its hit boxes.
+_FIGURE_BAND = (_SL_Y, _TOP_ROW_Y0)
+
 # Transport button labels — ASCII words (symbols don't render well in Calco).
 # All 9 chars padded for consistent background widths.
 _L_FIRST = "  Start  "
@@ -415,7 +423,7 @@ class _VedoPlayer:
                 )
                 self.plt += label
 
-        # --- Camera: the viewport's, the one the offscreen renderer uses ---
+        # --- Camera: the viewport's, fitted to the window ---
         self._set_camera()
 
         # --- Joint name labels (toggle with J key) ---
@@ -477,11 +485,18 @@ class _VedoPlayer:
     def _set_camera(self) -> None:
         """Put the camera where the viewport says, exactly.
 
-        Only the clipping planes are left to VTK: they decide what is
-        cut off in depth, not what is framed. VTK fits them to what is
-        in the scene at the moment, so :meth:`_update_frame` refits
-        them whenever the skeletons move."""
-        eye, target, up = self.viewport.camera()
+        Fitted to VTK's view angle (read from its camera, as the
+        offscreen renderer reads it), the window's shape as it is now (a
+        reset after resizing the window refits to its new shape) and
+        the band the controls leave free, ``_FIGURE_BAND``. Only the
+        clipping planes are left to VTK: they decide what is cut off in
+        depth, not what is framed. VTK fits them to what is in the
+        scene at the moment, so :meth:`_update_frame` refits them
+        whenever the skeletons move."""
+        width, height = self.plt.window.GetSize()
+        eye, target, up = self.viewport.camera(
+            view_angle=self.plt.camera.GetViewAngle(),
+            aspect=width / height, band=_FIGURE_BAND)
         self.plt.camera.SetPosition(*eye)
         self.plt.camera.SetFocalPoint(*target)
         self.plt.camera.SetViewUp(*up)

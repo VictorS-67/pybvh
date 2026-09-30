@@ -47,8 +47,8 @@ FLOOR_EXTENT = 1.8
 # lowest joint would fall outside the axes.
 FLOOR_INSET = 0.02
 # A perspective camera that is not told its toolkit's view angle stands
-# this many half-spans from the cube's centre (the vedo viewer and k3d).
-# TODO: move them to the fitted distance, Viewport.eye_distance, and
+# this many half-spans from the cube's centre (k3d).
+# TODO: move k3d to the fitted distance, Viewport.eye_distance, and
 # delete this.
 EYE_DISTANCE = 4.0
 # The orthographic projection fits the framing box, and the perspective

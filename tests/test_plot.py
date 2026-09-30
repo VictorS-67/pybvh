@@ -9,6 +9,7 @@ import pytest
 from pathlib import Path
 
 from pybvh import read_bvh_file, bvhplot
+from pybvh.analysis import root_trajectory
 from pybvh.bvhplot._from_bvh import (
     get_skeleton_lines,
     normalize_input,
@@ -51,6 +52,28 @@ def played(monkeypatch):
 
     monkeypatch.setattr(mpl_backend, "play_mpl", fake_play_mpl)
     return calls
+
+
+@pytest.fixture
+def drawn(monkeypatch):
+    """The scene of each frame() call that reached the matplotlib
+    backend, which is stubbed out."""
+    import pybvh.bvhplot._matplotlib as mpl_backend
+    scenes = []
+
+    def fake_frame_mpl(scene, style, **kwargs):
+        scenes.append(scene)
+        return None, None
+
+    monkeypatch.setattr(mpl_backend, "frame_mpl", fake_frame_mpl)
+    return scenes
+
+
+def assert_view_shows(view, clip, frames):
+    """*view* holds *clip*'s poses and root heading at *frames*."""
+    np.testing.assert_allclose(view.coords, clip.node_positions()[frames])
+    np.testing.assert_allclose(
+        view.root_heading, root_trajectory(clip)[frames, 2:4])
 
 
 # ===================================================================
@@ -536,6 +559,62 @@ class TestFrame:
         axis_name = {0: 'x', 1: 'y', 2: 'z'}
         assert axis_name[axs[0]._vertical_axis] == up1
         assert axis_name[axs[1]._vertical_axis] == up2
+
+    def test_a_negative_frame_counts_from_each_clips_end(
+            self, bvh_example, drawn):
+        """frame=-3 is each clip's third frame from its own end, for the
+        pose and for the heading taken from the clip."""
+        long, short = bvh_example, bvh_example[0:50]
+        bvhplot.frame([long, short], -3)
+        (scene,) = drawn
+        for view, clip in zip(scene.views, (long, short)):
+            third_from_end = len(clip) - 3
+            assert_view_shows(
+                view, clip, slice(third_from_end, third_from_end + 1))
+
+    def test_one_frame_of_coords_is_drawn_as_given(self, bvh_example, drawn):
+        """An (N, 3) array is one pose: the frame index is ignored, no
+        clip heading is attached, and the floor is the pose's lowest
+        point rather than the clip's."""
+        pose = bvh_example.node_positions(frame=40)
+        pose[:, 2] += 5.0  # lift it off the clip's floor
+        bvhplot.frame(bvh_example, 10, coords=pose)
+        (scene,) = drawn
+        view = scene.views[0]
+        np.testing.assert_array_equal(view.coords, pose[np.newaxis])
+        assert view.root_heading is None
+        assert view.floor_height == pose[:, 2].min()
+
+    def test_a_clip_of_coords_reaches_the_scene_without_a_heading(
+            self, bvh_example, drawn):
+        """An (F, N, 3) array is accepted: the Scene starts at the
+        array's own first frame, and no clip heading is attached."""
+        coords = bvh_example.node_positions()[30:40]
+        bvhplot.frame(bvh_example, coords=coords)
+        (scene,) = drawn
+        view = scene.views[0]
+        np.testing.assert_array_equal(view.coords[0], coords[0])
+        assert view.root_heading is None
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="#38: "
+               "frame(coords=(F, N, 3)) frames and floors the still on all "
+               "F frames though it draws only the first")
+    def test_a_clip_of_coords_frames_the_still_like_its_first_frame(
+            self, bvh_example):
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        coords = bvh_example.node_positions()
+        try:
+            _, from_clip = bvhplot.frame(bvh_example, coords=coords)
+            _, from_pose = bvhplot.frame(bvh_example, coords=coords[0])
+            for limits in ("get_xlim", "get_ylim", "get_zlim"):
+                np.testing.assert_allclose(
+                    getattr(from_clip, limits)(), getattr(from_pose, limits)())
+        finally:
+            plt.close("all")
 
 
 class TestRestPose:

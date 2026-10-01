@@ -12,14 +12,15 @@ import dataclasses
 import pathlib
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
-
 import synthetic_scene
-from pybvh.bvhplot._style import Style
 from synthetic_scene import make_array_scene
+
+from pybvh.bvhplot._style import Style
 
 
 def test_factory_knows_nothing_about_bvh():
@@ -80,7 +81,9 @@ class TestMatplotlib:
         the walk, so an arrow drawn from any other frame's heading, or
         with sin and cos swapped, points the wrong way."""
         import dataclasses
+
         from matplotlib.quiver import Quiver
+
         from pybvh.bvhplot._matplotlib import trajectory_mpl
         from pybvh.bvhplot._scene import Scene
         view = synthetic_scene.make_array_view(n_frames=4)
@@ -415,6 +418,7 @@ class TestK3d:
     def test_a_negative_up_axis_keeps_the_trail_under_the_feet(self):
         pytest.importorskip("k3d")
         import dataclasses
+
         from pybvh.bvhplot._k3d import _build_plot
         from pybvh.bvhplot._scene import Scene
         view = synthetic_scene.make_array_view(n_frames=12)
@@ -502,6 +506,7 @@ class TestK3d:
         and the frame slider of the widget that would be displayed."""
         pytest.importorskip("k3d")
         import IPython.display
+
         from pybvh.bvhplot import _k3d
         build_plot = _k3d._build_plot
         shown, built = [], []
@@ -608,6 +613,7 @@ def _floor_corners(backend, scene, monkeypatch):
     """World-space corners of the floor *backend* draws for *scene*."""
     if backend == "matplotlib":
         from mpl_toolkits.mplot3d import art3d
+
         from pybvh.bvhplot._matplotlib import frame_mpl
 
         # matplotlib keeps a 3-D collection's world-space vertices only
@@ -686,6 +692,7 @@ class TestEveryBackendDrawsTheViewportsFloor:
             self, backend, scene, monkeypatch):
         """The property a floor re-derived inside a backend breaks."""
         import dataclasses
+
         from pybvh.bvhplot._scene import Scene
         view = scene.views[0]
         moved = Scene(views=[dataclasses.replace(
@@ -840,6 +847,7 @@ class TestEveryBackendStatesItsProjection:
         the style asks for."""
         pytest.importorskip(library)
         import importlib
+
         from pybvh.bvhplot import _viewport
         module = importlib.import_module(f"pybvh.bvhplot.{backend}")
         stated = []
@@ -1060,6 +1068,7 @@ class TestEveryBackendSizesTheBodyFromTheBody:
         ones included, although most of the bones have zero length (the
         median rest length is 0)."""
         from synthetic_scene import make_bare_view
+
         from pybvh.bvhplot._scene import Scene
         # Two parallel unit bones 0.01 apart (0-1 and 2-3), linked at
         # their base (0-2), with zero-length helpers on their tips.

@@ -14,11 +14,10 @@ from typing import Any, NamedTuple, TextIO
 import numpy as np
 import numpy.typing as npt
 
+from .bvh import Bvh
 from .bvhnode import BvhNode
 from .node_tree import nodes_from_table
-from .bvh import Bvh
 from .tools import _validate_bvh_path, _validate_frame_time
-
 
 # ----------------------------------------------------------------
 #  Reading

@@ -11,12 +11,12 @@ figures set their own angle (baked into the function — edit here to change the
 """
 from __future__ import annotations
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib import animation
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-from pybvh import geometry, analysis, rotations, tools, signal
+from pybvh import analysis, geometry, rotations, signal, tools
 from pybvh.bvhplot import get_skeleton_lines
 
 # Clips are committed to the repo and served to the docs page, where they

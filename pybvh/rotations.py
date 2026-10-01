@@ -30,7 +30,6 @@ from typing import Union
 import numpy as np
 import numpy.typing as npt
 
-
 # Channel count per per-joint rotation representation. Handy for
 # allocating output arrays or sizing model layers without hard-coding
 # the numbers at each call site.

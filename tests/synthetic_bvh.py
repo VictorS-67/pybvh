@@ -18,8 +18,7 @@ from __future__ import annotations
 import numpy as np
 
 from pybvh.bvh import Bvh
-from pybvh.bvhnode import BvhRoot, BvhJoint, BvhNode, BvhEndSite
-
+from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhNode, BvhRoot
 
 # ---------------------------------------------------------------------------
 #  Internal helpers

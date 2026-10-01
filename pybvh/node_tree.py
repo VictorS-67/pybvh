@@ -8,12 +8,12 @@ the one place a node tree is built, for the parser, ``df_to_bvh`` and
 """
 from __future__ import annotations
 
-from typing import Any
 from collections.abc import Iterator, Mapping, Sequence
+from typing import Any
 
 import numpy as np
 
-from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
+from .bvhnode import BvhEndSite, BvhJoint, BvhNode, BvhRoot
 
 
 def _walk_depth_first(root: BvhNode) -> Iterator[tuple[BvhNode, BvhNode | None]]:

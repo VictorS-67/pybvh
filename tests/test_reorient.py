@@ -13,14 +13,19 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 from synthetic_bvh import (
-    make_pos_y_up_bvh, make_pos_z_up_bvh, make_neg_z_up_bvh,
-    make_pos_y_up_rotating_bvh, make_disagreement_bvh,
+    make_disagreement_bvh,
+    make_neg_z_up_bvh,
+    make_pos_y_up_bvh,
+    make_pos_y_up_rotating_bvh,
+    make_pos_z_up_bvh,
 )
 
-from pybvh import read_bvh_file, Bvh, transforms
+from pybvh import Bvh, read_bvh_file, transforms
 from pybvh.tools import (
-    _axis_aligned_rotation, _axis_to_vector,
-    _rest_upward, _compute_forward_at,
+    _axis_aligned_rotation,
+    _axis_to_vector,
+    _compute_forward_at,
+    _rest_upward,
 )
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"

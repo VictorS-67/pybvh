@@ -8,32 +8,31 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import warnings
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import matplotlib.animation as animation
+import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-
-from pathlib import Path
-from typing import Any, TYPE_CHECKING
-
 from matplotlib.collections import LineCollection
 from mpl_toolkits.mplot3d import proj3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from mpl_toolkits.mplot3d.axes3d import Axes3D
 
 from .._warnings import user_stacklevel
+from ._colors import floor_palette
+from ._scene import Scene, SkeletonView
 from ._style import (
     GHOST_WIDTH_FACTOR,
     PALETTE_MPL,
-    Style,
     TRACE_BLEND,
     TRACE_COLOR,
+    Style,
     bone_colors_for_view,
     ghost_schedule,
 )
 from ._viewport import Turntable, Viewport, make_viewport, panel_viewports
-from ._scene import Scene, SkeletonView
-from ._colors import floor_palette
 
 # mplot3d sizes its default margins for a cube free to rotate to any
 # angle; span-fitted boxes are much tighter, so they can be zoomed in
@@ -56,8 +55,8 @@ def _add_collection(ax: matplotlib.axes.Axes, collection: Any) -> None:
     ax.add_collection3d(collection, **_NO_AUTOSCALE)
 
 if TYPE_CHECKING:
-    import matplotlib.figure
     import matplotlib.axes
+    import matplotlib.figure
 
 
 # ---------------------------------------------------------------------------
@@ -914,7 +913,7 @@ def play_mpl(
 
     if in_notebook:
         # Render as inline HTML with play/pause/scrub controls
-        from IPython.display import display, HTML  # type: ignore[import-untyped]
+        from IPython.display import HTML, display  # type: ignore[import-untyped]
         display(HTML(anim.to_jshtml()))
         plt.close(fig)
     else:

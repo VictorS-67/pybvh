@@ -15,7 +15,11 @@ import numpy as np
 import pytest
 
 from pybvh import (
-    Bvh, FkTopology, nodes_from_table, nodes_to_table, read_bvh_file,
+    Bvh,
+    FkTopology,
+    nodes_from_table,
+    nodes_to_table,
+    read_bvh_file,
 )
 from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhRoot
 

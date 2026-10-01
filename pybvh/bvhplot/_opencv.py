@@ -8,25 +8,25 @@ Requires ``opencv-python >= 4.5``.
 """
 from __future__ import annotations
 
-import numpy as np
-import numpy.typing as npt
-
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
+import numpy.typing as npt
+
+from ._colors import bone_colors_255, floor_palette, node_colors_255
+from ._scene import Scene, SkeletonView
 from ._style import (
     GHOST_WIDTH_FACTOR,
     JOINT_DISC_MARGIN_PX,
-    bone_width_px,
-    Style,
+    PALETTE_RGB,
     TRACE_BLEND,
     TRACE_COLOR,
+    Style,
+    bone_width_px,
     ghost_schedule,
-    PALETTE_RGB,
 )
 from ._viewport import Turntable, Viewport, panel_viewports
-from ._scene import Scene, SkeletonView
-from ._colors import bone_colors_255, floor_palette, node_colors_255
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

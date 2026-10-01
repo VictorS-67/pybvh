@@ -14,22 +14,29 @@ Headless-safe: no display or interactor is needed.
 """
 from __future__ import annotations
 
-import numpy as np
-import numpy.typing as npt
-
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ._style import Style
-from ._viewport import make_viewport
-from ._scene import Scene
+import numpy as np
+import numpy.typing as npt
+
 from ._colors import (
-    bone_colors_255, floor_palette, node_colors_255, skeleton_color_255,
+    bone_colors_255,
+    floor_palette,
+    node_colors_255,
+    skeleton_color_255,
 )
+from ._scene import Scene
+from ._style import Style
 from ._vedo_capsules import (
-    CapsuleSkeleton, floor_placement, shadow_height, vedo_color, vedo_rgb,
+    CapsuleSkeleton,
+    floor_placement,
+    shadow_height,
+    vedo_color,
+    vedo_rgb,
 )
+from ._viewport import make_viewport
 
 if TYPE_CHECKING:
     pass

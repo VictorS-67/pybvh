@@ -8,15 +8,15 @@ with ``scipy.spatial.transform.Rotation`` (scipy 1.14) and hardcoded here so
 that pybvh never depends on scipy at runtime or test-time.
 """
 
-import pytest
-import numpy as np
+import sys
 from pathlib import Path
 
-import sys
+import numpy as np
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from pybvh import rotations, read_bvh_file
-
+from pybvh import read_bvh_file, rotations
 
 # =============================================================================
 # Fixtures

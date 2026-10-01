@@ -3,19 +3,19 @@ from __future__ import annotations
 
 import re
 import warnings
+from collections.abc import Iterator
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, overload
-from collections.abc import Iterator
 
 import numpy as np
 import numpy.typing as npt
 
 from ._warnings import user_stacklevel
-from .io import _ParsedBvh, _bvh_from_parsed, _extract_bvh_file_info
 from .bvh import Bvh
 from .features import to_feature_array
+from .io import _bvh_from_parsed, _extract_bvh_file_info, _ParsedBvh
 
 
 @dataclass

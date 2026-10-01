@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import numpy as np
-from typing import Any, TYPE_CHECKING, cast
 from collections.abc import Hashable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, cast
+
+import numpy as np
 
 from .bvh import Bvh, _motion_column_names
 from .bvhnode import BvhNode
-from .node_tree import nodes_from_table, nodes_to_table
 from .io import _snap_frame_time
+from .node_tree import nodes_from_table, nodes_to_table
 
 if TYPE_CHECKING:
     import pandas as pd

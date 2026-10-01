@@ -5,25 +5,25 @@ import dataclasses
 import importlib
 import inspect
 import re
+from pathlib import Path
 
 import numpy as np
 import pytest
-from pathlib import Path
 
-from pybvh import read_bvh_file, bvhplot
+from pybvh import bvhplot, read_bvh_file
 from pybvh.analysis import root_trajectory
 from pybvh.bvhplot import _k3d, _opencv, _vedo
 from pybvh.bvhplot._from_bvh import (
+    get_camera_angles,
     get_skeleton_lines,
     normalize_input,
-    get_camera_angles,
 )
+from pybvh.bvhplot._scene import align_frame_counts
 from pybvh.bvhplot._viewport import (
     build_view_matrix,
     compute_unified_limits,
     ortho_project,
 )
-from pybvh.bvhplot._scene import align_frame_counts
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
 
@@ -1490,8 +1490,8 @@ class TestComputeFollowAzimuths:
         FOLLOW_TRUNCATE standard deviations, over the clip extended by
         point reflection about its end frames."""
         import math
-        from pybvh.bvhplot._viewport import (
-            FOLLOW_SIGMA, FOLLOW_TRUNCATE, compute_follow_azimuths)
+
+        from pybvh.bvhplot._viewport import FOLLOW_SIGMA, FOLLOW_TRUNCATE, compute_follow_azimuths
         from pybvh.tools import (
             _axis_to_vector,
             _signed_rotation_delta_around_axis,
@@ -1611,6 +1611,7 @@ class TestMatchFps:
 
     def test_no_warning_when_same_fps(self, bvh_30fps):
         import warnings
+
         from pybvh.bvhplot import _match_frame_rates
         bvh2 = bvh_30fps.copy()
         with warnings.catch_warnings(record=True) as w:
@@ -1657,6 +1658,7 @@ class TestMatchFps:
 
     def test_single_clip_no_warning(self, bvh_30fps):
         import warnings
+
         from pybvh.bvhplot import _match_frame_rates
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
@@ -1763,8 +1765,9 @@ class TestSceneSpacing:
     # ------------------------------------------------------------------
 
     def test_world_up_mismatch_warning(self, two_bvhs):
-        from pybvh.bvhplot import _warn_world_up_mismatch
         import sys
+
+        from pybvh.bvhplot import _warn_world_up_mismatch
         sys.path.insert(0, str(Path(__file__).parent))
         from synthetic_bvh import make_pos_y_up_bvh
         b_yup = make_pos_y_up_bvh()
@@ -1774,6 +1777,7 @@ class TestSceneSpacing:
 
     def test_no_warning_same_world_up(self, two_bvhs):
         import warnings
+
         from pybvh.bvhplot import _warn_world_up_mismatch
         b1, b2 = two_bvhs
         with warnings.catch_warnings(record=True) as w:
@@ -1786,6 +1790,7 @@ class TestSceneSpacing:
         import sys
         sys.path.insert(0, str(Path(__file__).parent))
         from synthetic_bvh import make_pos_y_up_bvh
+
         from pybvh.bvhplot import _warn_world_up_mismatch
         b_yup = make_pos_y_up_bvh()
         b_zup, _ = two_bvhs

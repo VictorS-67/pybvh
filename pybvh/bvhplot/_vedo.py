@@ -14,23 +14,27 @@ Requires ``vedo >= 2024.5``.
 from __future__ import annotations
 
 import time
+from typing import Callable, TypedDict
 
 import numpy as np
 import numpy.typing as npt
 
-from typing import Callable, TypedDict
-
-from ._style import JOINT_DISC_MARGIN_PX, Style, bone_width_px
-from ._viewport import STANDING_STILL_HALF_SPAN, make_viewport
-from ._scene import Scene, UP_AXIS_INDEX
 from ._colors import (
-    bone_colors_255, floor_palette, node_colors_255, skeleton_color_255,
+    bone_colors_255,
+    floor_palette,
+    node_colors_255,
+    skeleton_color_255,
 )
 from ._playback import PlaybackClock
+from ._scene import UP_AXIS_INDEX, Scene
+from ._style import JOINT_DISC_MARGIN_PX, Style, bone_width_px
 from ._vedo_capsules import (
-    CapsuleSkeleton, floor_placement, vedo_color, vedo_rgb,
+    CapsuleSkeleton,
+    floor_placement,
+    vedo_color,
+    vedo_rgb,
 )
-
+from ._viewport import STANDING_STILL_HALF_SPAN, make_viewport
 
 # Test seam: forces the player's Plotter offscreen so construction,
 # geometry, and the screenshot path can run without a display.
@@ -347,10 +351,13 @@ class _VedoPlayer:
 
     def _build_geometry(self) -> None:
         """Create the floor, skeleton actors, labels, camera, and trails."""
-        from vedo import (  # type: ignore[import-untyped]
-            Lines, Points, Grid, Text2D,
-        )
         import vtk  # type: ignore[import-untyped]
+        from vedo import (  # type: ignore[import-untyped]
+            Grid,
+            Lines,
+            Points,
+            Text2D,
+        )
 
         coords_list = self.coords_list
         n_skeletons = self.n_skeletons

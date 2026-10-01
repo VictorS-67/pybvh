@@ -5,32 +5,47 @@ Uses bvh_data/bvh_example.bvh as the test fixture.
 Run with: pytest tests/test_bvh.py -v
 """
 
-import pytest
-import numpy as np
-import pandas as pd
-import tempfile
 import copy
 import re
+import sys
+import tempfile
 import warnings
 from fractions import Fraction
 from pathlib import Path
 
-import sys
+import numpy as np
+import pandas as pd
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from pybvh import (read_bvh_file, df_to_bvh, Bvh, frames_to_node_positions,
-                    read_bvh_directory, batch_to_numpy, Axis, parse_axis)
-from pybvh.bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
+from pybvh import (
+    Axis,
+    Bvh,
+    batch_to_numpy,
+    df_to_bvh,
+    frames_to_node_positions,
+    parse_axis,
+    read_bvh_directory,
+    read_bvh_file,
+)
+from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhNode, BvhRoot
 from pybvh.rotations import euler_to_rotmat
 
 sys.path.insert(0, str(Path(__file__).parent))  # for synthetic_bvh
 from synthetic_bvh import (
-    make_dot_lr_bvh, make_underscore_lr_bvh, make_namespace_lr_bvh,
-    make_numbered_lr_bvh, make_bare_substring_lr_bvh, make_nameless_lr_bvh,
-    make_singleton_lr_bvh, make_pos_y_up_bvh, make_neg_y_up_bvh,
-    make_pos_z_up_bvh, make_neg_z_up_bvh,
+    make_bare_substring_lr_bvh,
+    make_dot_lr_bvh,
+    make_nameless_lr_bvh,
+    make_namespace_lr_bvh,
+    make_neg_y_up_bvh,
+    make_neg_z_up_bvh,
+    make_numbered_lr_bvh,
+    make_pos_y_up_bvh,
+    make_pos_z_up_bvh,
+    make_singleton_lr_bvh,
+    make_underscore_lr_bvh,
 )
-
 
 # =============================================================================
 # Fixtures
@@ -3448,7 +3463,7 @@ class TestHarmonizeReport:
         assert isinstance(out, list)
 
     def test_return_report_true_returns_tuple(self, bvh_example):
-        from pybvh.batch import harmonize, HarmonizeReport
+        from pybvh.batch import HarmonizeReport, harmonize
         out, report = harmonize([bvh_example.copy()], return_report=True)
         assert isinstance(out, list)
         assert isinstance(report, HarmonizeReport)
@@ -3601,8 +3616,9 @@ class TestHarmonizeSummaryFormat:
         assert "topology mismatch" in report.drop_reasons[0]
 
     def test_report_is_json_serializable(self, bvh_example, bvh_test2):
-        import json
         import dataclasses
+        import json
+
         from pybvh.batch import harmonize
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
@@ -4378,7 +4394,7 @@ class TestJointNoise:
 
     def test_chaining_reproduces_the_old_combined_call(self, bvh_example):
         """The documented migration: same rng, rotation first, then position."""
-        from pybvh.transforms import add_rotation_noise, add_position_noise
+        from pybvh.transforms import add_position_noise, add_rotation_noise
         rng = np.random.default_rng(7)
         chained = add_position_noise(
             add_rotation_noise(bvh_example, sigma=0.1, rng=rng),
@@ -4849,8 +4865,8 @@ class TestMirror:
 
     def test_spatial_coords_reflected(self, bvh_example):
         """Gold-standard test: FK positions should be reflected."""
-        from pybvh.transforms import mirror
         from pybvh.tools import _rest_leftward
+        from pybvh.transforms import mirror
 
         lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_leftward(bvh_example)[1]]
 
@@ -4881,8 +4897,8 @@ class TestMirror:
                     err_msg=f"Center joint {node.name} lateral coord not negated")
 
     def test_root_pos_lateral_negated(self, bvh_example):
-        from pybvh.transforms import mirror
         from pybvh.tools import _rest_leftward
+        from pybvh.transforms import mirror
         lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_leftward(bvh_example)[1]]
         result = mirror(bvh_example)
         np.testing.assert_allclose(
@@ -4996,8 +5012,8 @@ class TestMirrorAngles:
 
     def _get_mirror_metadata(self, bvh):
         """Extract metadata needed for mirror_angles from a Bvh."""
-        from pybvh.tools import _rest_leftward, _iter_unique_lr_pairs
         from pybvh.bvhnode import BvhJoint
+        from pybvh.tools import _iter_unique_lr_pairs, _rest_leftward
 
         lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_leftward(bvh)[1]]
 
@@ -5043,7 +5059,7 @@ class TestMirrorAngles:
 
     def test_matches_bvh_level_angles(self, bvh_example):
         """NumPy-level angles should match Bvh-level mirror's angles."""
-        from pybvh.transforms import mirror_angles, mirror
+        from pybvh.transforms import mirror, mirror_angles
         lr_pairs, lat_idx, rot_ch = self._get_mirror_metadata(bvh_example)
         m_angles, m_pos = mirror_angles(
             bvh_example.joint_angles, bvh_example.root_pos,
@@ -5168,8 +5184,8 @@ class TestAutoDetectLRPairs:
 
     def test_works_with_mirror_angles(self, bvh_example):
         """Index pairs should be directly usable with mirror_angles."""
-        from pybvh.transforms import auto_detect_lr_pairs, mirror_angles
         from pybvh.tools import _rest_leftward
+        from pybvh.transforms import auto_detect_lr_pairs, mirror_angles
         pairs = auto_detect_lr_pairs(bvh_example)
         lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_leftward(bvh_example)[1]]
         rot_ch = [

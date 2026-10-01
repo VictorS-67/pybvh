@@ -10,12 +10,15 @@ import re
 
 import numpy as np
 import pytest
+from synthetic_bvh import (
+    make_clip_bvh,
+    make_neg_y_up_bvh,
+    make_pos_y_up_bvh,
+    make_pos_y_up_rotating_bvh,
+)
 
 from pybvh import analysis
 from pybvh.bvh import Bvh
-from synthetic_bvh import (make_clip_bvh, make_pos_y_up_bvh,
-                           make_neg_y_up_bvh, make_pos_y_up_rotating_bvh)
-
 
 # ----------------------------------------------------------------
 #  Jerk

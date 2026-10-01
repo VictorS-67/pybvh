@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import copy
 import warnings
-from pathlib import Path
-from typing import Any, Literal, TYPE_CHECKING, Union, overload
 from collections.abc import Sequence
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal, Union, overload
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -14,18 +14,20 @@ if TYPE_CHECKING:
 import numpy as np
 import numpy.typing as npt
 
+from . import rotations
 from ._warnings import user_stacklevel
-from .bvhnode import BvhNode, BvhJoint, BvhRoot
+
 # Re-exported: pybvh.bvh has long served every node class, end sites included.
 from .bvhnode import BvhEndSite as BvhEndSite
+from .bvhnode import BvhJoint, BvhNode, BvhRoot
 from .node_tree import _check_node_tree, nodes_from_table, nodes_to_table
 from .spatial_coord import (
-    FkTopology, frames_to_node_positions, _ground_plane_offset,
+    FkTopology,
+    _ground_plane_offset,
+    frames_to_node_positions,
 )
-from . import rotations
 from .tools import (
     Axis,
-    parse_axis,
     _axis_to_vector,
     _compute_forward_at,
     _compute_left_at,
@@ -38,6 +40,7 @@ from .tools import (
     _validate_axis_string,
     _validate_fps,
     _validate_frame_time,
+    parse_axis,
 )
 
 

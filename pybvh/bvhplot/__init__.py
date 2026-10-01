@@ -36,22 +36,21 @@ from __future__ import annotations
 
 import math
 import warnings
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
 
-from pathlib import Path
-from typing import TYPE_CHECKING
-
 from .._warnings import user_stacklevel
 from ._from_bvh import (
     as_clip_list,
-    get_skeleton_lines,   # noqa: F401 — re-export (public since 0.5.0)
+    get_skeleton_lines,  # noqa: F401 — re-export (public since 0.5.0)
     make_scene,
     normalize_input,
 )
-from ._style import Style, resolve_style
 from ._scene import Scene, align_frame_counts
+from ._style import Style, resolve_style
 
 __all__ = [
     "Style", "rest_pose", "frame", "sequence", "render", "play",
@@ -91,8 +90,9 @@ def _resolve_sample_frames(
                      .astype(np.intp))
 
 if TYPE_CHECKING:
-    import matplotlib.figure
     import matplotlib.axes
+    import matplotlib.figure
+
     from ..bvh import Bvh
     from ._viewport import Turntable
 
@@ -1387,8 +1387,10 @@ def play(
 
     elif backend_name == "opencv_notebook":
         import tempfile
+
+        from IPython.display import Video, display  # type: ignore[import-untyped]
+
         from ._opencv import render_opencv
-        from IPython.display import display, Video  # type: ignore[import-untyped]
 
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp_path = Path(tmp.name)

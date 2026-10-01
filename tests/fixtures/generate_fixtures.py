@@ -20,6 +20,7 @@ One fixture is different in kind: `foot_contacts_pinned.npz` is a BEHAVIOR PIN o
     conda run -n pybvh python tests/fixtures/generate_fixtures.py --follow-azimuths-pin
 """
 from __future__ import annotations
+
 import json
 import os
 import sys

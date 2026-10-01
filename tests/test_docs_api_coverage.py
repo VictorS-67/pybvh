@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from pybvh.bvh import Bvh
 from pybvh import analysis, rotations
+from pybvh.bvh import Bvh
 
 DOCS_API = Path(__file__).resolve().parent.parent / "docs" / "api"
 

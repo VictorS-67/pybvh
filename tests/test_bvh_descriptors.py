@@ -8,9 +8,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
-from pybvh import geometry, analysis, read_bvh_file
 from synthetic_bvh import make_pos_y_up_bvh, make_pos_y_up_rotating_bvh
+
+from pybvh import analysis, geometry, read_bvh_file
 from pybvh.tools import _axis_to_vector
 
 

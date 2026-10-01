@@ -9,13 +9,16 @@ own format packing at their border (BGR flip, uint32 shift).
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import numpy.typing as npt
 
-from typing import TYPE_CHECKING
-
 from ._style import (
-    Style, bone_colors_for_view, skeleton_color, spine_color,
+    Style,
+    bone_colors_for_view,
+    skeleton_color,
+    spine_color,
 )
 
 if TYPE_CHECKING:

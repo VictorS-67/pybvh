@@ -8,12 +8,12 @@ imports this module; nothing else in the package does.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import numpy.typing as npt
 
-from typing import TYPE_CHECKING
-
-from ._scene import Scene, SkeletonView, UP_AXIS_INDEX
+from ._scene import UP_AXIS_INDEX, Scene, SkeletonView
 
 if TYPE_CHECKING:
     from ..bvh import Bvh

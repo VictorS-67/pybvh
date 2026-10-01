@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING, NamedTuple, Union
 import numpy as np
 import numpy.typing as npt
 
+from .bvhnode import BvhNode
 from .rotations import euler_to_rotmat
 from .tools import _validate_axis_string
-from .bvhnode import BvhNode
 
 if TYPE_CHECKING:
     from .bvh import Bvh

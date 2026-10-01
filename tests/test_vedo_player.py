@@ -13,9 +13,9 @@ import pytest
 vedo = pytest.importorskip("vedo")
 
 from pybvh import read_bvh_file
+from pybvh.bvhplot import _vedo
 from pybvh.bvhplot._from_bvh import make_scene
 from pybvh.bvhplot._style import Style
-from pybvh.bvhplot import _vedo
 
 BVH_PATH = "bvh_data/cmu_12_01_walk.bvh"
 
@@ -41,8 +41,10 @@ class TestCamera:
     @staticmethod
     def _walk_toward_the_camera():
         import dataclasses
-        from pybvh.bvhplot._scene import Scene
+
         from synthetic_scene import make_array_view
+
+        from pybvh.bvhplot._scene import Scene
         view = make_array_view(n_frames=24)
         # twenty times the stride: the walk covers several body lengths
         far = view.coords.copy()
@@ -268,8 +270,10 @@ class TestGridFloor:
     @staticmethod
     def _scene_with_up(up):
         import dataclasses
-        from pybvh.bvhplot._scene import Scene
+
         from synthetic_scene import make_array_view
+
+        from pybvh.bvhplot._scene import Scene
         view = make_array_view(n_frames=12)
         if up == "+y":
             return Scene(views=[view])
@@ -480,6 +484,7 @@ class TestColorModes:
         """Not the first bone's color, which depends on the order the
         file lists the root's children in."""
         import vedo
+
         from pybvh.bvhplot._colors import rgb255
         walk = read_bvh_file(BVH_PATH)
         scene = make_scene([walk], [walk.node_positions()[:10]], "front",

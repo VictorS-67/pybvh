@@ -19,12 +19,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt          # noqa: E402
-import numpy as np                       # noqa: E402
 
-import pybvh                             # noqa: E402
-from pybvh import bvhplot                # noqa: E402
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
+
+import pybvh  # noqa: E402
+from pybvh import bvhplot  # noqa: E402
 from pybvh.bvhplot._from_bvh import get_camera_angles  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent

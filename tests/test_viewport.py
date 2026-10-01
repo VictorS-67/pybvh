@@ -10,6 +10,7 @@ import dataclasses
 
 import numpy as np
 import pytest
+from synthetic_scene import make_array_scene, make_array_view
 
 from pybvh.bvhplot._viewport import (
     FIT_FRACTION,
@@ -25,7 +26,6 @@ from pybvh.bvhplot._viewport import (
     make_viewport,
     panel_viewports,
 )
-from synthetic_scene import make_array_scene, make_array_view
 
 
 @pytest.fixture
@@ -590,8 +590,9 @@ class TestPerspectiveFit:
         screen's horizontal, fitted vertically alone, which sets no
         limit at all. The eye stops where the whole cube, and so every
         coordinate, is in front of it."""
-        from pybvh.bvhplot._viewport import box_corners
         from synthetic_scene import make_bare_view
+
+        from pybvh.bvhplot._viewport import box_corners
         right, _, towards_eye = build_view_matrix(-20.0, 20.0, "y")
         steps = np.linspace(-1.0, 1.0, 5)[:, np.newaxis]
         if figure == "end on":

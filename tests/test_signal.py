@@ -1,10 +1,9 @@
 """Tests for the pybvh.signal utilities + the analysis scale functions."""
 import numpy as np
 import pytest
-
-from pybvh import signal, analysis
 from synthetic_bvh import make_pos_y_up_bvh
 
+from pybvh import analysis, signal
 
 # ----------------------------------------------------------------
 #  temporal_stats

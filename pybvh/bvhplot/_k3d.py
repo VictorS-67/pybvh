@@ -13,12 +13,10 @@ from typing import Any, NamedTuple
 import numpy as np
 import numpy.typing as npt
 
-from ._style import (
-    PALETTE_RGB, Style, bone_width_scale, effective_color_mode)
-from ._viewport import STANDING_STILL_HALF_SPAN, Viewport, make_viewport
+from ._colors import floor_palette, grid_box_colors, node_colors_255, rgb255
 from ._scene import Scene
-from ._colors import (
-    floor_palette, grid_box_colors, node_colors_255, rgb255)
+from ._style import PALETTE_RGB, Style, bone_width_scale, effective_color_mode
+from ._viewport import STANDING_STILL_HALF_SPAN, Viewport, make_viewport
 
 # The floor is drawn this far below the scene ground, in half-spans, so
 # the root trail, which lies exactly on the ground, has a fixed order
@@ -319,7 +317,14 @@ def play_k3d(
         The plot and its controls are displayed as a side effect.
     """
     from IPython.display import display  # type: ignore[import-untyped]
-    from ipywidgets import Play, IntSlider, jslink, HBox, VBox, Label  # type: ignore[import-untyped]
+    from ipywidgets import (  # type: ignore[import-untyped]
+        HBox,
+        IntSlider,
+        Label,
+        Play,
+        VBox,
+        jslink,
+    )
 
     built = _build_plot(scene, style)
     plot = built.plot

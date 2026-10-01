@@ -14,14 +14,15 @@ convention in :mod:`~pybvh.rotations`.
 """
 from __future__ import annotations
 
-from typing import Literal, TYPE_CHECKING, overload
+from typing import TYPE_CHECKING, Literal, overload
 
 import numpy as np
 import numpy.typing as npt
 
-from .bvhnode import BvhJoint
 from . import rotations
+from .bvhnode import BvhJoint
 from .tools import (
+    _AXIS_CHAR_TO_IDX,
     _axis_aligned_rotation,
     _axis_index_sign,
     _compute_forward_at,
@@ -30,7 +31,6 @@ from .tools import (
     _rest_leftward,
     _rest_upward,
     _validate_axis_string,
-    _AXIS_CHAR_TO_IDX,
 )
 
 if TYPE_CHECKING:

@@ -8,11 +8,11 @@ by the interactive viewer (`_vedo.py`) and the offscreen renderer
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
+
 import numpy as np
 import numpy.typing as npt
-
-from typing import TYPE_CHECKING
-from collections.abc import Sequence
 
 from ._colors import rgb255
 from ._style import bone_width_scale
@@ -357,7 +357,7 @@ class CapsuleSkeleton:
         bone_rgb: Sequence[tuple[int, int, int]],
         joint_rgb: npt.NDArray[np.uint8],
     ) -> None:
-        from vedo import Tube, Sphere, merge  # type: ignore[import-untyped]
+        from vedo import Sphere, Tube, merge  # type: ignore[import-untyped]
 
         frame0 = view.coords[0]
         bones = view.bones

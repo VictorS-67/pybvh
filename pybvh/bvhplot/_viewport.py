@@ -9,15 +9,15 @@ runs.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, NamedTuple
-from collections.abc import Sequence
 
 import numpy as np
 import numpy.typing as npt
 
-from ._scene import GroundFrame, UP_AXIS_INDEX
+from ._scene import UP_AXIS_INDEX, GroundFrame
 
 if TYPE_CHECKING:
     from ._scene import SkeletonView

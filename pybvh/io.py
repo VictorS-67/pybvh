@@ -7,6 +7,7 @@ Public functions:
 """
 from __future__ import annotations
 
+from itertools import chain
 from pathlib import Path
 from typing import Any, NamedTuple, TextIO
 
@@ -280,7 +281,18 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
         non_end_site_nodes = [n for n in node_list if not n.is_end_site()]
         num_channels = 3 + 3 * len(non_end_site_nodes)
 
-        frame_array = np.loadtxt(f, ndmin=2)
+        # loadtxt warns, rather than raises, on input with no data row; the
+        # first one is found here so that the parse never warns (it runs on
+        # read_bvh_directory's worker threads, see _bvh_from_parsed). A data
+        # row is what loadtxt reads as one: text left after a '#' comment is
+        # cut off. The rest of the file is streamed to loadtxt behind it.
+        first_row = next(
+            (row for row in f if row.split("#", 1)[0].strip()), None)
+        if first_row is None:
+            raise ValueError(
+                f"BVH declares {frame_count} frames but file contains "
+                f"0 data lines")
+        frame_array = np.loadtxt(chain([first_row], f), ndmin=2)
         if frame_array.shape[0] != frame_count:
             raise ValueError(
                 f"BVH declares {frame_count} frames but file contains "

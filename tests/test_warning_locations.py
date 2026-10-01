@@ -549,3 +549,30 @@ class TestBvhplot:
             draw(walk, tmp_path / "clip.mp4")
         assert _files_named(caught, "FFmpeg not found") == {__file__}
         assert (tmp_path / "clip.gif").exists()
+
+
+class TestParsingNeverWarns:
+    """The parse runs on read_bvh_directory's worker threads, where no
+    warning can name the caller's line: it raises, it does not warn."""
+
+    @pytest.fixture
+    def path(self, tmp_path):
+        """A file that declares one frame and holds no motion row."""
+        text = NO_FACING_BVH[:NO_FACING_BVH.index("Frames:")]
+        path = tmp_path / "no_rows.bvh"
+        path.write_text(text + "Frames: 1\nFrame Time: 0.033333\n")
+        return path
+
+    def test_a_file_without_motion_rows_raises_without_warning(self, path):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with pytest.raises(ValueError,
+                               match="declares 1 frames but file contains 0"):
+                read_bvh_file(path)
+        assert [str(w.message) for w in caught] == []
+
+    def test_a_directory_skips_it_with_its_own_warning_only(self, path):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            read_bvh_directory(path.parent, parallel=True, skip_errors=True)
+        assert [w.filename for w in caught] == [__file__]

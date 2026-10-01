@@ -382,7 +382,7 @@ class TestReviewFixes:
     def test_opencv_panels_do_not_overdraw(self, bvh):
         """A panel's floor must not bleed into its neighbor: the left
         panel of a 2-up render equals the same view rendered alone."""
-        cv2 = pytest.importorskip("cv2")
+        pytest.importorskip("cv2")
         from pybvh.bvhplot import Style
         from pybvh.bvhplot._from_bvh import make_scene
         from pybvh.bvhplot._opencv import _generate_frames

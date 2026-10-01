@@ -99,7 +99,6 @@ def _build_offscreen(
 
     # vedo draws in perspective whatever the style asks.
     viewport = make_viewport(scene.views, projection="persp")
-    view0 = scene.views[0]
 
     plt = Plotter(offscreen=True, size=resolution,
                   bg=vedo_color(style.background))

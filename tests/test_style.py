@@ -486,7 +486,7 @@ class TestStyledRenderSmoke:
         plt.close(fig)
 
     def test_render_opencv_paper(self, bvh, tmp_path):
-        cv2 = pytest.importorskip("cv2")
+        pytest.importorskip("cv2")
         short = bvh[0:10]
         path = bvhplot.render(
             short, tmp_path / "paper.mp4", backend="opencv",

@@ -378,7 +378,6 @@ class TestRadiansContract:
         # Pick the first joint's first axis
         # Hips_X_rot — but root order varies; just verify magnitude consistency.
         sample_deg = abs(d[rot_keys[0]]).max()
-        sample_rad = abs(np.deg2rad(d[rot_keys[0]])).max()
         # sample_deg should be the same order of magnitude as the max joint angle in degrees
         max_ja_deg = np.rad2deg(abs(bvh_example.joint_angles)).max()
         # Loose check: the max of *any* column shouldn't exceed the max of all angles
@@ -3097,13 +3096,10 @@ class TestBatchProcessing:
 
     def test_read_bvh_directory_sorted(self, bvh_dir):
         """Results should be sorted alphabetically by default."""
-        result = read_bvh_directory(bvh_dir)
-        names = [str(Path("bvh_data")) for f in result]
-        # Check by examining node counts (a proxy — sorted files have distinct sizes)
-        result_sorted = read_bvh_directory(bvh_dir, sort=True)
-        result_unsorted = read_bvh_directory(bvh_dir, sort=False)
-        # Sorted should be deterministic; verify at least it returns same count
-        assert len(result_sorted) == len(result_unsorted)
+        names = [Path(b.source_path).name for b in read_bvh_directory(bvh_dir)]
+        assert names == sorted(names)
+        unsorted = read_bvh_directory(bvh_dir, sort=False)
+        assert sorted(Path(b.source_path).name for b in unsorted) == names
 
     def test_read_bvh_directory_parallel(self, bvh_dir):
         """Parallel loading should give same results as sequential."""
@@ -5599,7 +5595,6 @@ class TestBvhSetItemErrors:
             bvh[10:20] = donor
 
     def test_skeleton_mismatch_raises(self, bvh_example, bvh_test2):
-        bvh = bvh_example.copy()
         # bvh_test2 has different joint count → first check trips
         donor = bvh_test2[0:10]
         # Length might not match either, but skeleton check happens first in impl:

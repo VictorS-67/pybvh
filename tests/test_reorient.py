@@ -93,7 +93,7 @@ class TestWorldUpParameter:
         """Loading bvh_test3 with explicit world_up should not warn."""
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            bvh = read_bvh_file(TEST3, world_up="+z")
+            read_bvh_file(TEST3, world_up="+z")
             user_warns = [x for x in w if issubclass(x.category, UserWarning)
                           and "world up" in str(x.message).lower()]
             assert len(user_warns) == 0
@@ -102,7 +102,7 @@ class TestWorldUpParameter:
         """Loading bvh_test3 without override should warn."""
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            bvh = read_bvh_file(TEST3)
+            read_bvh_file(TEST3)
             user_warns = [x for x in w if issubclass(x.category, UserWarning)
                           and "world up" in str(x.message).lower()]
             assert len(user_warns) > 0
@@ -111,7 +111,7 @@ class TestWorldUpParameter:
         """warn_on_world_up_disagreement=False suppresses the warning."""
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            bvh = read_bvh_file(TEST3, warn_on_world_up_disagreement=False)
+            read_bvh_file(TEST3, warn_on_world_up_disagreement=False)
             user_warns = [x for x in w if issubclass(x.category, UserWarning)
                           and "world up" in str(x.message).lower()]
             assert len(user_warns) == 0

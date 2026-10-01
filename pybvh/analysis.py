@@ -2008,7 +2008,6 @@ def _contact_confidence(
     velocity and height masks concur. ``confidence = sqrt(margin*agreement)``
     for combined, ``margin`` otherwise. Zero when a foot never contacts.
     """
-    nf = mask.shape[1]
     margins = []
     if vel_mask is not None:
         margins.append(np.clip((vel_threshold - speed) / vel_threshold, 0.0, 1.0))

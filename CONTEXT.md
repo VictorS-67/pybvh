@@ -82,6 +82,7 @@ __version__ = "0.9.0"
 from .bvh import Bvh
 from .io import read_bvh_file, write_bvh_file
 from .df_to_bvh import df_to_bvh
+from .node_tree import nodes_from_table, nodes_to_table
 from .spatial_coord import FkTopology, frames_to_node_positions
 from .batch import (read_bvh_directory, batch_to_numpy, harmonize,
                     HarmonizeReport)
@@ -125,9 +126,7 @@ BvhNode  (end sites)
 
 **Freeze mechanism**: After a `Bvh` object is constructed, `_frozen = True` is set on all joints. Direct assignment to `rot_channels` raises `AttributeError` — users must use `Bvh.change_euler_order()`. Internal code uses `_set_rot_channels_internal()` to bypass the freeze.
 
-The skeleton is a **tree**. Traverse from `root` via `.children`, or walk up via `.parent`. The `Bvh.nodes` list is a **flat depth-first list** of all nodes (joints + end sites). See source docstrings for method signatures.
-
-v0.10.0 added **`nodes_to_table(nodes)`** and **`nodes_from_table(table)`**, the node table and its builder. The first exports a tree as a node table — one plain `dict` per node in `nodes` order with `name`, `parent` (the index of the parent's entry, `None` on the root), `offset` (a copy), `pos_channels` (root) and `rot_channels` (root and joints; an entry without it is an end site), and no `children` key — and the second builds fresh `BvhRoot` / `BvhJoint` / `BvhEndSite` objects back from it with `parent` and `children` wired from the indices. `nodes_from_table` is the one place a node tree is built (the parser, `df_to_bvh` and `extract_joints` all call it) and validated: single root at entry 0, parents before children, end sites as leaves, depth-first order (required, not repaired, since reordering would move `joint_angles` columns away from their joints), well-formed offsets and channel lists, `pos_channels` on the root only, no key the format does not define. `_check_node_tree(nodes)` applies the same depth-first, wired-both-ways test to a finished tree and is what `Bvh.__init__` runs. Both builder functions are exported from `pybvh`; `Bvh.to_node_table()` wraps the first.
+The skeleton is a **tree**. Traverse from `root` via `.children`, or walk up via `.parent`. The `Bvh.nodes` list is a **flat depth-first list** of all nodes (joints + end sites). What makes such a list a valid tree, and its flat form as a node table, is in `node_tree.py` (§4.16). See source docstrings for method signatures.
 
 ### 4.4 `pybvh/bvh.py` — The `Bvh` Class (Central Container)
 
@@ -200,6 +199,10 @@ The position half of pybvh's geometry surface — the companion to `rotations.py
 
 Array-pure 1-D/N-D signal helpers shared by the analysis and geometry layers, public since v0.8.0 (moved out of `tools.py` so they are documented and discoverable): `finite_difference` (the single stencil/pad derivative convention used by the velocity→acceleration→jerk ladder and the geometry derivative kernels), `temporal_stats` (mean/std/min/max/skew/kurtosis, manual moments — no scipy), `box_filter_smooth` (cumsum moving average), `fft_magnitude` / `dominant_frequency`, and `ramer_douglas_peucker` (polyline simplification, explicit-stack). See source docstrings for signatures.
 
+### 4.16 `pybvh/node_tree.py` — The Node Tree as a Whole
+
+What makes a list of nodes a valid skeleton, and its flat form. Added in v0.10.0 beside `bvhnode.py`, which keeps the node classes and their per-node validation; this module imports only from it. **`nodes_to_table(nodes)`** and **`nodes_from_table(table)`** are the node table and its builder. The first exports a tree as a node table — one plain `dict` per node in `nodes` order with `name`, `parent` (the index of the parent's entry, `None` on the root), `offset` (a copy), `pos_channels` (root) and `rot_channels` (root and joints; an entry without it is an end site), and no `children` key — and the second builds fresh `BvhRoot` / `BvhJoint` / `BvhEndSite` objects back from it with `parent` and `children` wired from the indices. `nodes_from_table` is the one place a node tree is built (the parser, `df_to_bvh` and `extract_joints` all call it) and validated: single root at entry 0, parents before children, end sites as leaves, depth-first order (required, not repaired, since reordering would move `joint_angles` columns away from their joints), well-formed offsets and channel lists, `pos_channels` on the root only, no key the format does not define. `_check_node_tree(nodes)` applies the same depth-first, wired-both-ways test to a finished tree and is what `Bvh.__init__` runs. Both builder functions are exported from `pybvh`; `Bvh.to_node_table()` wraps the first. `_walk_depth_first` is the walk both checks share.
+
 ---
 
 ## 5. Data Representation Details
@@ -216,7 +219,7 @@ Example for `bvh_example.bvh`: `root_pos.shape = (56, 3)`, `joint_angles.shape =
 - Order matches `Bvh.nodes` list order (depth-first).
 - `node_index` maps `"JointName"` → integer index into the N-axis (use for `node_positions()` output).
 - `joint_index` maps `"JointName"` → integer index into the J-axis (use for `joint_angles`, which excludes end sites).
-- **Node table** — the skeleton as plain data: one `dict` per node in `nodes` order, the parent referenced by index (`None` on the root), the named twin of `FkTopology`, the same positions with names (`Bvh.to_node_table()`; `nodes_to_table` / `nodes_from_table` in `bvhnode.py`).
+- **Node table** — the skeleton as plain data: one `dict` per node in `nodes` order, the parent referenced by index (`None` on the root), the named twin of `FkTopology`, the same positions with names (`Bvh.to_node_table()`; `nodes_to_table` / `nodes_from_table` in `node_tree.py`).
 
 ---
 

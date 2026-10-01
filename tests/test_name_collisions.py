@@ -371,13 +371,26 @@ class TestRoundTrips:
             df_to_bvh([], df)
 
     def test_repeated_literal_labels_get_the_suffix_rule(self, duplicate_joint_rig):
-        """A DataFrame labelling both 'Arm' joints 'Arm_X_rot', as a
-        v0.9.0 export or a hand-built frame would, is refused with the
-        missing labels and the rule that makes the second one 'Arm.1'."""
+        """A hand-built DataFrame labelling both 'Arm' joints 'Arm_X_rot'
+        is refused with the missing labels and the rule that makes the
+        second one 'Arm.1'."""
         rig = duplicate_joint_rig
         df = pd.DataFrame(rig.to_df_dict(mode='euler'))
         df.columns = [c.replace('Arm.1_', 'Arm_') for c in df.columns]
         assert list(df.columns).count('Arm_X_rot') == 2
+
+        with pytest.raises(ValueError, match=r"missing.*'Arm\.1_Z_rot'") as excinfo:
+            df_to_bvh(rig.nodes, df)
+        assert "X, X.1, X.2" in str(excinfo.value)
+
+    def test_a_v0_9_0_export_is_refused_with_the_suffix_rule(self, duplicate_joint_rig):
+        """v0.9.0 keyed columns by name, so its export of two joints named
+        'Arm' carries one set of 'Arm_*' columns. It lacks the 'Arm.1_*'
+        columns the hierarchy expects, and the message says why."""
+        rig = duplicate_joint_rig
+        df = pd.DataFrame(rig.to_df_dict(mode='euler'))
+        df = df.drop(columns=[c for c in df.columns if c.startswith('Arm.1_')])
+        assert not df.columns.has_duplicates
 
         with pytest.raises(ValueError, match=r"missing.*'Arm\.1_Z_rot'") as excinfo:
             df_to_bvh(rig.nodes, df)

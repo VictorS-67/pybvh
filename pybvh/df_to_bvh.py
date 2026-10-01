@@ -38,27 +38,33 @@ def _motion_columns(nodes: Sequence[BvhNode], df: pd.DataFrame) -> pd.DataFrame:
     columns outside the set, ``time`` among them, are left out. A
     missing label raises ``ValueError`` listing every missing one, and
     a label listed twice raises as well, since each label must name one
-    column; both messages state the suffix rule when *df* has repeated
-    labels, the usual cause.
+    column. Both messages state the suffix rule when it can be the
+    cause: when *nodes* repeats a joint name, so that a frame labelled
+    without the rule lacks the ``.1`` columns, or when *df* repeats a
+    label.
     """
     expected = _motion_column_names(nodes, 'euler')
     present = set(df.columns)
     repeated = df.columns[df.columns.duplicated()].unique().tolist()
     missing = [name for name in expected if name not in present]
     ambiguous = [name for name in expected if name in repeated]
-    if missing or ambiguous:
-        problems = []
-        if missing:
-            problems.append(
-                f"df is missing columns the hierarchy expects: {missing}")
-        if ambiguous:
-            problems.append(
-                f"df lists expected columns more than once: {ambiguous}")
-        if repeated:
-            problems.append(
-                f"df has repeated column labels {repeated}: {_SUFFIX_RULE}")
-        raise ValueError(". ".join(problems))
-    return df[expected]
+    if not missing and not ambiguous:
+        return df[expected]
+
+    joint_names = [node.name for node in nodes if not node.is_end_site()]
+    hierarchy_repeats_a_name = len(set(joint_names)) < len(joint_names)
+    problems = []
+    if missing:
+        problems.append(
+            f"df is missing columns the hierarchy expects: {missing}")
+    if ambiguous:
+        problems.append(
+            f"df lists expected columns more than once: {ambiguous}")
+    if repeated:
+        problems.append(f"df has repeated column labels {repeated}")
+    if repeated or hierarchy_repeats_a_name:
+        problems.append(_SUFFIX_RULE)
+    raise ValueError(". ".join(problems))
 
 
 def _nodes_from_hier(
@@ -131,7 +137,8 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]],
     df : pandas.DataFrame
         Motion data in the form :meth:`Bvh.to_df_dict` gives with
         ``mode='euler'``: a ``time`` column, matched without regard to
-        case, and the hierarchy's flat layout, ``<root>_<axis>_pos`` per
+        case (the first such column when several differ only by case),
+        and the hierarchy's flat layout, ``<root>_<axis>_pos`` per
         position channel of the root then ``<joint>_<axis>_rot`` per
         rotation channel of each joint in node order, a repeated node
         name labelled ``.1``, ``.2``, ... as ``to_df_dict`` labels it.
@@ -164,6 +171,23 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]],
     Notes
     -----
     The DataFrame's ``_rot`` columns are in **degrees** — the human-readable convention used by :meth:`Bvh.to_df_dict` output. ``df_to_bvh`` converts them to the radians held on :attr:`Bvh.joint_angles`; feed this function degrees even though the rest of the pybvh API works in radians.
+
+    Columns bind by label, not by position. The alternative, reading
+    the motion columns in the order they come, would accept a frame
+    whose columns are in the file's order under any labels, and would
+    read a reordered or mislabelled one wrong without an error; by-label
+    binding reads a reordered frame right and refuses a mislabelled
+    one. The labels are those of :meth:`Bvh.to_df_dict`, which labels a
+    repeated node name ``.1``, ``.2``, ... in node order, the first
+    keeping its name, the way ``pandas.read_csv`` labels repeated
+    headers; raising on a repeated name instead would refuse every
+    hand whose two fingertips are end sites in coordinates mode. The
+    suffix is counted over the nodes a mode exports, the joints here,
+    so a joint that is ``X.1`` in a coordinates export because an
+    earlier end site shares its name is plain ``X`` in the euler frame
+    this function reads. A coordinates export is one-way: positions do
+    not determine the joint angles, and this function reads euler-mode
+    frames only.
     """
 
     nodes = _nodes_from_hier(hier)

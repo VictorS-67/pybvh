@@ -45,6 +45,8 @@ docs(changelog): record the publication-figures guide
 
 Types in use: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `release`. The body, when there is one, explains *why*: the constraint, the bug's mechanism, the alternative that was rejected. The diff already says what.
 
+A commit that only reformats code is listed in `.git-blame-ignore-revs`, so that `git blame` attributes each line to the change that wrote it. GitHub's blame view reads that file on its own; point your clone at it once with `git config blame.ignoreRevsFile .git-blame-ignore-revs`. The listed hash must be the one that lands on `main`, so a PR carrying such a commit is merged with a merge commit.
+
 ## Keeping a branch current
 
 When `main` moves while your branch is open, rebase rather than merging `main` into the branch:

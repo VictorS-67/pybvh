@@ -3,14 +3,16 @@ from __future__ import annotations
 
 import re
 import warnings
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, overload
+from typing import Iterator, Literal, overload
 
 import numpy as np
 import numpy.typing as npt
 
-from .io import read_bvh_file
+from ._warnings import user_stacklevel
+from .io import _ParsedBvh, _bvh_from_parsed, _extract_bvh_file_info
 from .bvh import Bvh
 from .features import to_feature_array
 
@@ -95,10 +97,13 @@ def read_bvh_directory(
         lists. ``False`` keeps the filesystem's glob order
         (non-deterministic across platforms).
     parallel : bool, optional
-        If True, load files in parallel using threads. Parsing is
-        CPU-bound and GIL-limited, so this mainly helps on slow storage
-        (network filesystems, cold disks); expect little speedup on a
-        warm local disk.
+        If True, read and parse the files in parallel using threads.
+        Parsing is CPU-bound and GIL-limited, so this mainly helps on
+        slow storage (network filesystems, cold disks); expect little
+        speedup on a warm local disk. Each clip is then built on the
+        calling thread, so its warnings (such as the world-up
+        disagreement) name the line that called this function, as they
+        do without ``parallel``.
     max_workers : int or None, optional
         Maximum number of threads when ``parallel=True``.
         None defers to the ``ThreadPoolExecutor`` default.
@@ -148,36 +153,57 @@ def read_bvh_directory(
     if not files:
         return []
 
-    from functools import partial
-    reader = partial(
-        read_bvh_file, world_up=world_up,
-        warn_on_world_up_disagreement=warn_on_world_up_disagreement,
-        lr_mapping=lr_mapping)
-
-    if skip_errors:
-        def safe_reader(path: Path) -> Bvh | None:
-            try:
-                return reader(path)
-            except Exception as e:
-                warnings.warn(
-                    f"read_bvh_directory: skipping {path} "
-                    f"({type(e).__name__}: {e})",
-                    stacklevel=2)
-                return None
-
+    # Only the parse runs on worker threads. Building the Bvh infers its
+    # world up axis, which can warn, and a warning raised on a worker
+    # thread cannot name the caller's line: that thread's stack holds none
+    # of the caller's frames. Built here, on the caller's thread, every
+    # warning of every file names the call to this function. The parses
+    # are taken one at a time, in file order, and each is dropped once its
+    # clip is built, so a large directory never holds every parse at once
+    # and the first failing file is the one raised or skipped first.
+    with ExitStack() as stack:
         if parallel:
             from concurrent.futures import ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                maybe_results = list(pool.map(safe_reader, files))
+            pool = stack.enter_context(
+                ThreadPoolExecutor(max_workers=max_workers))
+            parsed_files: Iterator[_ParsedBvh | Exception] = pool.map(
+                _parse_or_error, files)
+            # Closing the map's generator (typeshed types it as a plain
+            # Iterator) cancels the parses no worker has started. Registered
+            # after the pool, it runs before the pool's shutdown, which would
+            # otherwise wait for every queued parse before a failure reaches
+            # the caller.
+            stack.callback(parsed_files.close)  # type: ignore[attr-defined]
         else:
-            maybe_results = [safe_reader(f) for f in files]
-        return [r for r in maybe_results if r is not None]
+            parsed_files = map(_parse_or_error, files)
 
-    if parallel:
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            return list(pool.map(reader, files))
-    return [reader(f) for f in files]
+        clips = []
+        for path, parsed in zip(files, parsed_files):
+            try:
+                if isinstance(parsed, Exception):
+                    raise parsed
+                clips.append(_bvh_from_parsed(
+                    parsed, path, world_up=world_up,
+                    warn_on_world_up_disagreement=warn_on_world_up_disagreement,
+                    lr_mapping=lr_mapping))
+            except Exception as error:
+                if not skip_errors:
+                    raise
+                warnings.warn(
+                    f"read_bvh_directory: skipping {path} "
+                    f"({type(error).__name__}: {error})",
+                    stacklevel=user_stacklevel())
+    return clips
+
+
+def _parse_or_error(path: Path) -> _ParsedBvh | Exception:
+    """The parsed contents of the BVH file *path*, or the exception
+    parsing it raised, handed back to the caller's thread to raise or
+    skip."""
+    try:
+        return _extract_bvh_file_info(path)
+    except Exception as error:
+        return error
 
 
 @overload
@@ -363,7 +389,8 @@ def harmonize(
         out.append(b)
 
     if verbose and report.dropped_indices:
-        warnings.warn(_harmonize_summary(report, len(clips)), stacklevel=2)
+        warnings.warn(_harmonize_summary(report, len(clips)),
+                      stacklevel=user_stacklevel())
 
     if return_report:
         return out, report

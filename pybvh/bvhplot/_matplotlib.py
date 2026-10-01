@@ -21,6 +21,7 @@ from mpl_toolkits.mplot3d import proj3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from mpl_toolkits.mplot3d.axes3d import Axes3D
 
+from .._warnings import user_stacklevel
 from ._style import (
     GHOST_WIDTH_FACTOR,
     PALETTE_MPL,
@@ -1276,7 +1277,8 @@ def _resolve_writer(filepath: Path) -> tuple[Path, str]:
         warnings.warn(
             f"FFmpeg not found — cannot save as {ext}. "
             f"Falling back to GIF: '{filepath}'. "
-            f".webp and .html are also available.")
+            f".webp and .html are also available.",
+            stacklevel=user_stacklevel())
         return filepath, 'pillow'
 
     if ext in ('.gif', '.webp', '.apng'):

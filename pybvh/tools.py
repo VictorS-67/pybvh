@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpy.typing as npt
 
+from ._warnings import user_stacklevel
 from .rotations import _elementary_rotmat
 
 if TYPE_CHECKING:
@@ -721,7 +722,7 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
             "default — anything derived from up (floor_height, "
             "foot_contacts, facing, ground-plane projections) rests on a "
             "guess here. Set `bvh.world_up = '<axis>'` to fix it.",
-            UserWarning, stacklevel=3)
+            UserWarning, stacklevel=user_stacklevel())
         return '+y'
 
     # Need animation frames to do first-frame inference
@@ -767,7 +768,7 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
             f"If this is wrong for your file, set it explicitly via "
             f"`bvh.world_up = '<axis>'`.",
             UserWarning,
-            stacklevel=2,
+            stacklevel=user_stacklevel(),
         )
 
     return frame_up
@@ -958,7 +959,8 @@ def _fallback_forward_vector(
     # The returned axis is a house default, not a measurement, and the
     # return type cannot say so — mirroring `_infer_world_up`, which warns
     # on the same class of silent substitution. Python's default filter
-    # shows this once per call site, so per-frame consumers stay quiet.
+    # shows this once per line of the user's code, so a loop over frames
+    # stays quiet.
     warnings.warn(
         f"No usable left/right geometry on this skeleton, so its facing "
         f"direction cannot be measured; falling back to {fallback!r}, the "
@@ -967,7 +969,7 @@ def _fallback_forward_vector(
         f"forward_at, left_at, facing_frame) is a default here, not a "
         f"property of this file. Set `bvh.lr_mapping = {{...}}` to fix it, "
         f"or check `bvh.has_lr_geometry` to detect it.",
-        UserWarning, stacklevel=2)
+        UserWarning, stacklevel=user_stacklevel())
     return _axis_to_vector(fallback)
 
 

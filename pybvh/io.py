@@ -7,8 +7,9 @@ Public functions:
 """
 from __future__ import annotations
 
+from itertools import chain
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, NamedTuple, TextIO
 
 import numpy as np
 import numpy.typing as npt
@@ -99,7 +100,36 @@ def read_bvh_file(
     nowhere to live in the BVH format and are lost on write; re-apply
     them after reading.
     """
-    node_list, frame_array, frame_time = _extract_bvh_file_info(filepath)
+    return _bvh_from_parsed(
+        _extract_bvh_file_info(filepath), filepath, world_up=world_up,
+        warn_on_world_up_disagreement=warn_on_world_up_disagreement,
+        lr_mapping=lr_mapping)
+
+
+class _ParsedBvh(NamedTuple):
+    """What :func:`_extract_bvh_file_info` reads from a BVH file."""
+
+    nodes: list[BvhNode]
+    frames: npt.NDArray[np.float64]  # root position first; angles in degrees
+    frame_time: float
+
+
+def _bvh_from_parsed(
+    parsed: _ParsedBvh,
+    filepath: str | Path,
+    world_up: str = "auto",
+    warn_on_world_up_disagreement: bool = True,
+    lr_mapping: dict[str, str] | None = None,
+) -> Bvh:
+    """The :class:`Bvh` of a parsed file: :func:`read_bvh_file`'s second
+    step, after :func:`_extract_bvh_file_info`.
+
+    Kept apart because this step can warn (the world up axis is inferred
+    here) and the parse cannot: :func:`~pybvh.batch.read_bvh_directory`
+    parses on worker threads and runs this step on the caller's, the
+    only thread whose stack holds the caller's line for the warning.
+    """
+    node_list, frame_array, frame_time = parsed
     num_joints = len([n for n in node_list if not n.is_end_site()])
     root_pos = frame_array[:, :3].astype(np.float64)
     # BVH stores angles in degrees; pybvh holds them in radians.
@@ -129,7 +159,7 @@ def _snap_frame_time(frame_time: float) -> float:
     return frame_time
 
 
-def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDArray[np.float64], float]:
+def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
     """Extract node hierarchy, frame data, and frame time from a BVH file.
 
     The hierarchy is read token by token into node-table rows (see :func:`~pybvh.nodes_to_table`), one per ROOT, JOINT or End Site in file order, and the tree is built once by :func:`~pybvh.nodes_from_table`, which wires ``parent`` and ``children`` and checks the tree. Syntax errors (a second ROOT, a JOINT or End Site outside the ROOT block, an unmatched ``}``, an unreadable block) are raised here, with the line and the file.
@@ -251,7 +281,18 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
         non_end_site_nodes = [n for n in node_list if not n.is_end_site()]
         num_channels = 3 + 3 * len(non_end_site_nodes)
 
-        frame_array = np.loadtxt(f, ndmin=2)
+        # loadtxt warns, rather than raises, on input with no data row; the
+        # first one is found here so that the parse never warns (it runs on
+        # read_bvh_directory's worker threads, see _bvh_from_parsed). A data
+        # row is what loadtxt reads as one: text left after a '#' comment is
+        # cut off. The rest of the file is streamed to loadtxt behind it.
+        first_row = next(
+            (row for row in f if row.split("#", 1)[0].strip()), None)
+        if first_row is None:
+            raise ValueError(
+                f"BVH declares {frame_count} frames but file contains "
+                f"0 data lines")
+        frame_array = np.loadtxt(chain([first_row], f), ndmin=2)
         if frame_array.shape[0] != frame_count:
             raise ValueError(
                 f"BVH declares {frame_count} frames but file contains "
@@ -267,7 +308,7 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
     if canonical_root_cols != [0, 1, 2, 3, 4, 5]:
         frame_array = frame_array[:, canonical_root_cols + list(range(6, num_channels))]
 
-    return (node_list, frame_array, frame_time)
+    return _ParsedBvh(node_list, frame_array, frame_time)
 
 
 def _parse_channels_line(parts: list[str]) -> list[tuple[str, str]]:

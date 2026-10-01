@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 import numpy as np
 import numpy.typing as npt
 
+from ._warnings import user_stacklevel
 from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
 from .node_tree import _check_node_tree, nodes_from_table, nodes_to_table
 from .spatial_coord import (
@@ -607,7 +608,8 @@ class Bvh:
         if self.frame_time != other.frame_time:
             warnings.warn(
                 f"Frame time mismatch: {self.frame_time} vs "
-                f"{other.frame_time}. Using self's frame time.")
+                f"{other.frame_time}. Using self's frame time.",
+                stacklevel=user_stacklevel())
         self.root_pos = np.concatenate(
             [self.root_pos, other.root_pos], axis=0)
         self.joint_angles = np.concatenate(
@@ -2331,7 +2333,8 @@ class Bvh:
         if self.frame_time != other.frame_time:
             warnings.warn(
                 f"Frame time mismatch: {self.frame_time} vs "
-                f"{other.frame_time}. Using self's frame time.")
+                f"{other.frame_time}. Using self's frame time.",
+                stacklevel=user_stacklevel())
 
         new_bvh = self._copy_skeleton()
         new_bvh.root_pos = np.concatenate(

@@ -128,7 +128,7 @@ class TestNodesToTable:
         assert len(table) == len(bvh_example.nodes)
         assert table[0]['parent'] is None
         assert 'pos_channels' in table[0]
-        for i, (entry, node) in enumerate(zip(table[1:], bvh_example.nodes[1:]), 1):
+        for entry, node in zip(table[1:], bvh_example.nodes[1:]):
             assert entry['parent'] == bvh_example.nodes.index(node.parent)
             assert 'pos_channels' not in entry
             assert ('rot_channels' in entry) == (not node.is_end_site())

@@ -2932,7 +2932,7 @@ class TestJointIndex:
         # Build the DFS node-name list and count cumulative end sites.
         end_sites_before = 0
         found_any_gap = False
-        for i, node in enumerate(bvh_example.nodes):
+        for node in bvh_example.nodes:
             if node.is_end_site():
                 end_sites_before += 1
             else:

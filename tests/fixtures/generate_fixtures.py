@@ -324,7 +324,7 @@ def gen_foot_contacts() -> None:
 
     bvh_path = os.path.join(repo_root, "bvh_data", "cmu_12_01_walk.bvh")
     arrays: dict[str, np.ndarray] = {}
-    for i, (name, build) in enumerate(FOOT_CONTACT_RUNS, start=1):
+    for i, (_name, build) in enumerate(FOOT_CONTACT_RUNS, start=1):
         # Fresh Bvh per run: no floor-cache state carries over between runs.
         bvh = read_bvh_file(bvh_path)
         contacts, info = bvh.foot_contacts(return_info=True, **build(bvh))

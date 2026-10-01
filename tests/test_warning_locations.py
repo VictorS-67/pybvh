@@ -11,14 +11,16 @@ from __future__ import annotations
 import ast
 import inspect
 import shutil
+import threading
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 import pybvh
-from pybvh import analysis, bvhplot, read_bvh_directory, read_bvh_file
+from pybvh import analysis, batch, bvhplot, read_bvh_directory, read_bvh_file
 from pybvh.bvhplot import _matplotlib
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
@@ -203,6 +205,50 @@ class TestReadingADirectory:
             self, tmp_path, parallel):
         (tmp_path / "a_broken.bvh").write_text("not a BVH file")
         shutil.copy(BVH_DIR / "bvh_test1.bvh", tmp_path / "b_good.bvh")
+        with pytest.raises(ValueError, match="a_broken"):
+            read_bvh_directory(tmp_path, parallel=parallel)
+
+    def test_a_parallel_failure_does_not_wait_for_the_rest(
+            self, tmp_path, monkeypatch):
+        """Once the first file fails, the files no worker has started
+        are cancelled rather than parsed. The one worker, if it reaches
+        the second file, is held there until the pool shuts down: by
+        then the caller has had its chance to cancel the rest, so what
+        the worker finds next does not depend on thread scheduling."""
+        real_parse = batch._extract_bvh_file_info
+        real_shutdown = ThreadPoolExecutor.shutdown
+        pool_shut_down = threading.Event()
+        parsed = []
+        deadlocked = []
+
+        def parse(path):
+            parsed.append(path.name)
+            if path.name == "a_broken.bvh":
+                raise ValueError("a_broken")
+            # The timeout only guards against a hang; reaching it fails
+            # the test below.
+            if path.name == "b_good.bvh" and not pool_shut_down.wait(10):
+                deadlocked.append(path.name)
+            return real_parse(path)
+
+        def shutdown(pool, *args, **kwargs):
+            pool_shut_down.set()
+            return real_shutdown(pool, *args, **kwargs)
+
+        monkeypatch.setattr(batch, "_extract_bvh_file_info", parse)
+        monkeypatch.setattr(ThreadPoolExecutor, "shutdown", shutdown)
+        (tmp_path / "a_broken.bvh").write_text("not a BVH file")
+        for name in ["b_good", "c_good", "d_good", "e_good"]:
+            shutil.copy(BVH_DIR / "bvh_test1.bvh", tmp_path / f"{name}.bvh")
+        with pytest.raises(ValueError, match="a_broken"):
+            read_bvh_directory(tmp_path, parallel=True, max_workers=1)
+        assert deadlocked == []
+        assert parsed in (["a_broken.bvh"], ["a_broken.bvh", "b_good.bvh"])
+
+    @pytest.mark.parametrize("parallel", [False, True])
+    def test_of_two_failures_the_first_file_wins(self, tmp_path, parallel):
+        (tmp_path / "a_broken.bvh").write_text("not a BVH file")
+        (tmp_path / "b_broken.bvh").write_text("HIERARCHY\n")
         with pytest.raises(ValueError, match="a_broken"):
             read_bvh_directory(tmp_path, parallel=parallel)
 

@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import re
 import warnings
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Literal, overload
+from typing import Iterator, Literal, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -156,31 +157,42 @@ def read_bvh_directory(
     # world up axis, which can warn, and a warning raised on a worker
     # thread cannot name the caller's line: that thread's stack holds none
     # of the caller's frames. Built here, on the caller's thread, every
-    # warning of every file names the call to this function.
-    if parallel:
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            parsed_files: Iterable[_ParsedBvh | Exception] = list(
-                pool.map(_parse_or_error, files))
-    else:
-        parsed_files = (_parse_or_error(path) for path in files)
+    # warning of every file names the call to this function. The parses
+    # are taken one at a time, in file order, and each is dropped once its
+    # clip is built, so a large directory never holds every parse at once
+    # and the first failing file is the one raised or skipped first.
+    with ExitStack() as stack:
+        if parallel:
+            from concurrent.futures import ThreadPoolExecutor
+            pool = stack.enter_context(
+                ThreadPoolExecutor(max_workers=max_workers))
+            parsed_files: Iterator[_ParsedBvh | Exception] = pool.map(
+                _parse_or_error, files)
+            # Closing the map's generator (typeshed types it as a plain
+            # Iterator) cancels the parses no worker has started. Registered
+            # after the pool, it runs before the pool's shutdown, which would
+            # otherwise wait for every queued parse before a failure reaches
+            # the caller.
+            stack.callback(parsed_files.close)  # type: ignore[attr-defined]
+        else:
+            parsed_files = map(_parse_or_error, files)
 
-    clips = []
-    for path, parsed in zip(files, parsed_files):
-        try:
-            if isinstance(parsed, Exception):
-                raise parsed
-            clips.append(_bvh_from_parsed(
-                parsed, path, world_up=world_up,
-                warn_on_world_up_disagreement=warn_on_world_up_disagreement,
-                lr_mapping=lr_mapping))
-        except Exception as error:
-            if not skip_errors:
-                raise
-            warnings.warn(
-                f"read_bvh_directory: skipping {path} "
-                f"({type(error).__name__}: {error})",
-                stacklevel=user_stacklevel())
+        clips = []
+        for path, parsed in zip(files, parsed_files):
+            try:
+                if isinstance(parsed, Exception):
+                    raise parsed
+                clips.append(_bvh_from_parsed(
+                    parsed, path, world_up=world_up,
+                    warn_on_world_up_disagreement=warn_on_world_up_disagreement,
+                    lr_mapping=lr_mapping))
+            except Exception as error:
+                if not skip_errors:
+                    raise
+                warnings.warn(
+                    f"read_bvh_directory: skipping {path} "
+                    f"({type(error).__name__}: {error})",
+                    stacklevel=user_stacklevel())
     return clips
 
 

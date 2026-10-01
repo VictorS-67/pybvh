@@ -342,3 +342,31 @@ class TestFootDetectionFallback:
             analysis.auto_detect_foot_joints(clip)
         warning = _the_warning(caught, TIPLESS)
         assert (warning.filename, warning.lineno) == (__file__, line)
+
+
+class TestConcatenatingClipsOfTwoRates:
+
+    @pytest.fixture
+    def clips(self):
+        first = read_bvh_file(BVH_DIR / "bvh_test1.bvh")
+        second = first.copy()
+        second.frame_time = first.frame_time * 2
+        return first, second
+
+    def test_adding_names_the_line_of_the_sum(self, clips):
+        first, second = clips
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            line = _line_after_this_one()
+            first + second
+        warning = _the_warning(caught, "Frame time mismatch")
+        assert (warning.filename, warning.lineno) == (__file__, line)
+
+    def test_adding_in_place_names_the_line_of_the_sum(self, clips):
+        first, second = clips
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            line = _line_after_this_one()
+            first += second
+        warning = _the_warning(caught, "Frame time mismatch")
+        assert (warning.filename, warning.lineno) == (__file__, line)

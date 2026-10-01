@@ -1297,8 +1297,9 @@ def _contacts_core(
     # ---- Signals (F, num_joints), threshold resolution ----
     speed = None
     clearance = None
-    vel_thr_used = None
-    height_thr_used = None
+    # The thresholds in use: the caller's, or a per-foot (nf,) array resolved here.
+    vel_thr_used: Union[float, npt.NDArray[np.float64], None] = None
+    height_thr_used: Union[float, npt.NDArray[np.float64], None] = None
     floor_raw = None
     vel_adaptive_used = None
     height_adaptive_used = None
@@ -1321,14 +1322,15 @@ def _contacts_core(
                 disp = box_filter_smooth(disp, vel_smooth_frames, axis=0)
             sp = np.linalg.norm(disp, axis=-1) / bvh.frame_time  # (F-1, nj), u/s
             speed = np.concatenate([sp[0:1], sp], axis=0)  # frame-0 propagated
-        if vel_threshold is None:
+        if vel_threshold is not None:
+            vel_thr_used = vel_threshold
+        else:
             assert scale is not None
             base = 0.12 * scale  # 12% of root-to-foot rest distance per second
             if adaptive and F >= 2:
-                vel_threshold, vel_adaptive_used = _resolve_adaptive(speed, base)
+                vel_thr_used, vel_adaptive_used = _resolve_adaptive(speed, base)
             else:
-                vel_threshold = base
-        vel_thr_used = vel_threshold
+                vel_thr_used = base
 
     if needs_height:
         heights_signed = joint_coords[:, :, up_idx] * up_sign  # up-positive
@@ -1345,26 +1347,28 @@ def _contacts_core(
             floor_raw = float(floor)
         floor_signed = floor_raw * up_sign
         clearance = heights_signed - floor_signed
-        if height_threshold is None:
+        if height_threshold is not None:
+            height_thr_used = height_threshold
+        else:
             assert scale is not None
             base = 0.013 * scale  # ~1.3% of root-to-foot rest distance above floor
-            if method == "combined" and height_reference == "velocity":
+            # A speed signal exists exactly when method is "combined" here.
+            if speed is not None and height_reference == "velocity":
                 # Calibrate the height threshold per foot to its own stance
                 # level (handles retargeting hover); reduces to `base` on rigs
                 # where the foot reaches the floor.
-                height_threshold = _velocity_informed_height(clearance, speed, vel_threshold, base)
+                height_thr_used = _velocity_informed_height(clearance, speed, vel_thr_used, base)
             elif adaptive:
-                height_threshold, height_adaptive_used = _resolve_adaptive(clearance, base)
+                height_thr_used, height_adaptive_used = _resolve_adaptive(clearance, base)
             else:
-                height_threshold = base
-        height_thr_used = height_threshold
+                height_thr_used = base
 
     mask, confidence = _detect_contacts(
         speed,
         clearance,
         method=method,
-        vel_threshold=vel_threshold,
-        height_threshold=height_threshold,
+        vel_threshold=vel_thr_used,
+        height_threshold=height_thr_used,
         hysteresis=hysteresis,
     )
 

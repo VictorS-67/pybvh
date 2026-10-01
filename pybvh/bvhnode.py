@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterator, Mapping, Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -260,6 +260,21 @@ class BvhRoot(BvhJoint):
 # The node tree as a whole
 #---------------------------------------------------------------------------------------------
 
+def _walk_depth_first(root: BvhNode) -> Iterator[tuple[BvhNode, BvhNode | None]]:
+    """Yield ``(node, reached_from)`` along the depth-first walk of ``children``.
+
+    Unbounded on a tree that lists a node twice or loops; the callers
+    stop at ``len(nodes)`` visits.
+    """
+    stack: list[tuple[BvhNode, BvhNode | None]] = [(root, None)]
+    while stack:
+        node, reached_from = stack.pop()
+        yield node, reached_from
+        if not node.is_end_site():
+            stack.extend(
+                (child, node) for child in reversed(node.children))  # type: ignore[attr-defined]
+
+
 def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
     """Raise unless ``nodes`` is one tree in depth-first order, wired both ways.
 
@@ -267,8 +282,8 @@ def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
     exactly ``nodes``, in order, by identity, and every node reached must
     have the node it was reached from as its ``parent``. This is what
     :func:`~pybvh.io.write_bvh_file` (which walks ``children``) and
-    ``joint_angles`` (whose columns follow ``nodes``) both rely on, and it
-    is checked once, when a :class:`~pybvh.Bvh` is built. O(N), no FK.
+    ``joint_angles`` (whose columns follow ``nodes``) both rely on;
+    :class:`~pybvh.Bvh` checks it when built. O(N), no FK.
     """
     if len(nodes) == 0:
         raise ValueError("nodes must hold at least one node, the root.")
@@ -282,10 +297,8 @@ def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
             return f"nodes[{position[id(node)]}] ({node.name!r})"
         return f"{node.name!r}, which is not in nodes"
 
-    stack: list[tuple[BvhNode, BvhNode | None]] = [(nodes[0], None)]
     visited = 0
-    while stack:
-        reached, reached_from = stack.pop()
+    for reached, reached_from in _walk_depth_first(nodes[0]):
         if visited == total:
             raise ValueError(
                 f"The depth-first walk of children from nodes[0] reaches "
@@ -314,9 +327,6 @@ def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
                 f"{describe(reached_from)}, but its parent is "
                 f"{describe(reached.parent)}; parent and children must agree.")
         visited += 1
-        if not reached.is_end_site():
-            stack.extend(
-                (child, reached) for child in reversed(reached.children))  # type: ignore[attr-defined]
 
     if visited != total:
         unreached = nodes[visited]
@@ -328,10 +338,10 @@ def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
 
 
 #---------------------------------------------------------------------------------------------
-# The node table: a skeleton as plain data, and the one builder of node trees
+# The node table: a skeleton as plain data, and the builder of node trees from it
 #---------------------------------------------------------------------------------------------
 
-_TABLE_KEYS = ('name', 'parent', 'offset', 'rot_channels', 'pos_channels')
+_TABLE_KEYS = ('name', 'parent', 'offset', 'pos_channels', 'rot_channels')
 
 
 def nodes_to_table(nodes: Sequence[BvhNode]) -> list[dict[str, Any]]:
@@ -359,14 +369,15 @@ def nodes_to_table(nodes: Sequence[BvhNode]) -> list[dict[str, Any]]:
         The rest offset from the parent, an ``ndarray`` of shape ``(3,)``
         and a copy, as ``node.offset`` is everywhere in pybvh; a caller
         writing JSON calls ``.tolist()``.
+    ``pos_channels``
+        The position channel order, on the root only: ``['X', 'Y', 'Z']``
+        for every root a :class:`~pybvh.Bvh` accepts. It precedes
+        ``rot_channels`` as a file's ``CHANNELS`` line lists them.
     ``rot_channels``
         The Euler order, e.g. ``['Z', 'Y', 'X']``, on the root and on
         joints only. **An entry without it is an end site**; there is no
         kind flag. Channel orders are never inferred, so the rule is
         unambiguous.
-    ``pos_channels``
-        The position channel order, on the root only: ``['X', 'Y', 'Z']``
-        for every root a :class:`~pybvh.Bvh` accepts.
 
     There is no ``children`` key: children are derived from ``parent``,
     in table order, so the two cannot disagree. Entries are fresh objects,
@@ -460,7 +471,7 @@ def nodes_from_table(table: Sequence[Mapping[str, Any]]) -> list[BvhNode]:
     hand. It returns fresh :class:`BvhRoot`, :class:`BvhJoint` and
     :class:`BvhEndSite` objects, one per entry in table order, with
     ``parent`` and ``children`` wired from the indices, so the two cannot
-    disagree, and it checks the tree once, here (see *Raises*).
+    disagree, and it validates the table as it builds (see *Raises*).
 
     The format is the one :func:`nodes_to_table` writes, one ``dict``
     per node with ``name``, ``parent`` (the index of the parent's entry,
@@ -546,16 +557,16 @@ def nodes_from_table(table: Sequence[Mapping[str, Any]]) -> list[BvhNode]:
             raise ValueError(
                 f"Node table entry {i} is a {type(entry).__name__}, not a "
                 f"dict with the keys {', '.join(_TABLE_KEYS)}.")
-        label = _entry_label(i, entry)
         unknown_keys = sorted(set(entry) - set(_TABLE_KEYS))
         if unknown_keys:
             raise ValueError(
-                f"Node table {label} has key(s) {unknown_keys} the format "
+                f"Node table {_entry_label(i, entry)} has key(s) "
+                f"{unknown_keys} the format "
                 f"does not define; the keys are {', '.join(_TABLE_KEYS)}. "
                 f"(An entry without rot_channels is an end site, so a "
                 f"misspelt key would silently change the node's kind.)")
-        parent = _table_parent(entry, i, nodes, label)
-        node = _node_from_entry(entry, i, parent, label)
+        parent = _table_parent(entry, i, nodes)
+        node = _node_from_entry(entry, i, parent)
         if parent is not None:
             parent.children.append(node)
         nodes.append(node)
@@ -571,10 +582,11 @@ def _entry_label(index: int, entry: Mapping[str, Any]) -> str:
     return f"entry {index}"
 
 
-def _table_parent(entry: Mapping[str, Any], index: int, built: list[BvhNode],
-                  label: str) -> BvhJoint | None:
+def _table_parent(entry: Mapping[str, Any], index: int,
+                  built: list[BvhNode]) -> BvhJoint | None:
     """Resolve an entry's ``parent`` index to the node built for it."""
     parent_index = entry.get('parent')
+    label = _entry_label(index, entry)
     if index == 0:
         if parent_index is not None:
             raise ValueError(
@@ -604,8 +616,9 @@ def _table_parent(entry: Mapping[str, Any], index: int, built: list[BvhNode],
 
 
 def _node_from_entry(entry: Mapping[str, Any], index: int,
-                     parent: BvhJoint | None, label: str) -> BvhNode:
+                     parent: BvhJoint | None) -> BvhNode:
     """Build the node an entry describes; its kind follows from its keys."""
+    label = _entry_label(index, entry)
     is_end_site = 'rot_channels' not in entry
     if index == 0 and is_end_site:
         raise ValueError(
@@ -666,10 +679,7 @@ def _check_table_order(nodes: list[BvhNode]) -> None:
     order can be wrong.
     """
     position = {id(node): i for i, node in enumerate(nodes)}
-    stack = [nodes[0]]
-    visited = 0
-    while stack:
-        reached = stack.pop()
+    for visited, (reached, _) in enumerate(_walk_depth_first(nodes[0])):
         expected = nodes[visited]
         if reached is not expected:
             raise ValueError(
@@ -679,6 +689,3 @@ def _check_table_order(nodes: list[BvhNode]) -> None:
                 f"{visited}. A node table lists the tree as a .bvh file "
                 f"writes it, each joint followed by its whole subtree, "
                 f"because joint_angles columns follow that order.")
-        visited += 1
-        if not reached.is_end_site():
-            stack.extend(reversed(reached.children))  # type: ignore[attr-defined]

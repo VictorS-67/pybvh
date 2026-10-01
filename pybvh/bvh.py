@@ -2404,16 +2404,17 @@ class Bvh:
             raise ValueError(
                 f"Root joint '{self.root.name}' must be in joint_names.")
 
-        # A joint survives when it is kept; an end site when its parent
-        # is. A kept joint ends childless in the new tree when nothing
-        # below it survives: its end site then goes right after it,
-        # which is its depth-first place. Walking the list backwards
-        # settles each node's flag before its parent reads it, since
-        # parents precede their children in ``nodes``.
-        survives = [
-            node.parent is not None and node.parent.name in keep_set
-            if node.is_end_site() else node.name in keep_set
-            for node in self.nodes]
+        def survives_extraction(node: BvhNode) -> bool:
+            if node.is_end_site():
+                return node.parent is not None and node.parent.name in keep_set
+            return node.name in keep_set
+
+        # A kept joint ends childless in the new tree when nothing below
+        # it survives: its end site then goes right after it, which is
+        # its depth-first place. Walking the list backwards settles each
+        # node's flag before its parent reads it, since parents precede
+        # their children in ``nodes``.
+        survives = [survives_extraction(node) for node in self.nodes]
         position = {id(node): i for i, node in enumerate(self.nodes)}
         survivor_below = [False] * len(self.nodes)
         for i in range(len(self.nodes) - 1, 0, -1):

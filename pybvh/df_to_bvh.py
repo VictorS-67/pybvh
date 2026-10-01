@@ -6,9 +6,8 @@ import numpy as np
 from typing import TYPE_CHECKING
 
 from .bvh import Bvh
-from .bvhnode import (
-    BvhNode, BvhJoint, BvhRoot, BvhEndSite, nodes_from_table, nodes_to_table,
-)
+from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
+from .node_tree import nodes_from_table, nodes_to_table
 from .io import _snap_frame_time
 
 if TYPE_CHECKING:

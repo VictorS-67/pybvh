@@ -13,9 +13,8 @@ if TYPE_CHECKING:
 import numpy as np
 import numpy.typing as npt
 
-from .bvhnode import (
-    BvhNode, BvhJoint, BvhRoot, BvhEndSite, _check_node_tree, nodes_from_table,
-)
+from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
+from .node_tree import _check_node_tree, nodes_from_table
 from .spatial_coord import (
     FkTopology, frames_to_node_positions, _ground_plane_offset,
 )

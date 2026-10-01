@@ -827,9 +827,15 @@ def render(
         set: a clip whose ``frame_time`` is 0 (unset, as on a Bvh built
         in memory) raises ``ValueError`` unless ``fps`` is given.
     backend : str, optional
-        ``"auto"`` (default), ``"opencv"``, or ``"matplotlib"``.
-        Under ``"auto"``, formats OpenCV cannot write (``.gif``,
-        ``.webp``, ``.apng``, ``.html``) always use matplotlib.
+        ``"auto"`` (default), ``"opencv"``, ``"matplotlib"`` or
+        ``"vedo"``. Under ``"auto"``, formats OpenCV cannot write
+        (``.gif``, ``.webp``, ``.apng``, ``.html``) always use
+        matplotlib. ``"vedo"`` draws shadowed 3D capsule skeletons
+        offscreen (headless-safe, requires ``pybvh[viewer]``, and
+        ``pybvh[opencv]`` for a video container) to ``.mp4``, ``.mov``,
+        ``.avi`` or ``.gif``, every skeleton in one scene (see
+        *spacing*); it is never chosen by ``"auto"``, and has no
+        ``follow``, turntable, ``ghost`` or ``trajectory``.
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``), the
         special ``"turntable"`` (an orbit starting from the front view,

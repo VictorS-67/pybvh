@@ -1,0 +1,24 @@
+name: Build docs
+description: >-
+  Build the docs site strictly, the one definition shared by the pull-request
+  check and the deploy so a green check means the deploy builds too.
+  Expects the repository to be checked out already.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - run: pip install -e ".[docs]"
+      shell: bash
+
+    # The gallery docs page is generated from the committed notebook
+    # outputs (no execution) — see scripts/export_gallery.py.
+    - run: python scripts/export_gallery.py
+      shell: bash
+
+    # --strict fails the build on any broken internal link or cross-reference.
+    - run: mkdocs build --strict
+      shell: bash

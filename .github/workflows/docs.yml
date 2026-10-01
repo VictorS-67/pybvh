@@ -1,29 +1,37 @@
-name: Deploy docs
+name: Docs
 
+# No `paths:` filter: `docs-build` is meant to be a required check, and a required
+# check whose workflow a path filter skips stays pending and blocks the merge.
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
+# Both jobs build through .github/actions/build-docs, so the pull-request
+# check and the deploy cannot drift apart.
 jobs:
-  deploy:
+  # The pull-request check. Push events skip it because `deploy` runs the same
+  # strict build before publishing.
+  docs-build:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+      - uses: ./.github/actions/build-docs
 
-      - run: pip install -e ".[docs]"
+  deploy:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
 
-      # The gallery docs page is generated from the committed notebook
-      # outputs (no execution) — see scripts/export_gallery.py.
-      - run: python scripts/export_gallery.py
-
-      # --strict fails the deploy on any broken internal link or cross-reference.
-      - run: mkdocs build --strict
+      - uses: ./.github/actions/build-docs
 
       - run: mkdocs gh-deploy --force

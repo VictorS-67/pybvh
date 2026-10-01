@@ -20,6 +20,11 @@ from pybvh import (
 from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhRoot
 
 BVH_DATA = Path(__file__).parent.parent / "bvh_data"
+FIXTURES = Path(__file__).parent / "fixtures"
+BUNDLED_FILES = sorted(BVH_DATA.glob("*.bvh")) + [
+    FIXTURES / "rotation_first_root.bvh",
+    FIXTURES / "full_precision_frame_time.bvh",
+]
 
 
 @pytest.fixture
@@ -144,13 +149,16 @@ class TestRoundTrip:
     def rig(self, request):
         return _as_bvh(request.param())
 
-    def test_bvh_example(self, bvh_example):
-        rebuilt = nodes_from_table(nodes_to_table(bvh_example.nodes))
-        rebuilt_bvh = Bvh(rebuilt, bvh_example.root_pos, bvh_example.joint_angles,
-                          bvh_example.frame_time)
-        assert rebuilt_bvh.matches_hierarchy(bvh_example)
-        assert rebuilt_bvh.matches_channels(bvh_example)
-        _assert_same_topology(FkTopology.from_nodes(rebuilt), bvh_example.fk_topology)
+    @pytest.mark.parametrize("path", BUNDLED_FILES, ids=lambda p: p.name)
+    def test_every_bundled_file(self, path):
+        """What the reader builds, the table carries and the builder rebuilds."""
+        bvh = read_bvh_file(path)
+        rebuilt = nodes_from_table(nodes_to_table(bvh.nodes))
+        rebuilt_bvh = Bvh(rebuilt, bvh.root_pos, bvh.joint_angles, bvh.frame_time)
+        assert [n.name for n in rebuilt] == [n.name for n in bvh.nodes]
+        assert rebuilt_bvh.matches_hierarchy(bvh, atol=0)
+        assert rebuilt_bvh.matches_channels(bvh)
+        _assert_same_topology(FkTopology.from_nodes(rebuilt), bvh.fk_topology)
 
     def test_rigs_with_repeated_names(self, rig):
         rebuilt = nodes_from_table(nodes_to_table(rig.nodes))

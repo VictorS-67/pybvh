@@ -11,6 +11,7 @@ import pandas as pd
 import tempfile
 import os
 import copy
+import re
 import warnings
 from fractions import Fraction
 from pathlib import Path
@@ -214,6 +215,114 @@ class TestReadBvhFile:
         txt_file.write_text("not a bvh file")
         with pytest.raises(ValueError):
             read_bvh_file(txt_file)
+
+
+class TestReaderSyntaxErrors:
+    """Every syntax error the reader raises names the line and the file.
+
+    The hierarchy is parsed token by token, so a declaration in the
+    wrong place is caught where it occurs, with the line it sits on;
+    nothing is inferred or repaired. The expected messages are pinned
+    verbatim, line numbers included, so a change in the parser's
+    wording or in where it reports a fault is a visible change.
+    """
+
+    MOTION = [
+        "MOTION",
+        "Frames: 1",
+        "Frame Time: 0.033333",
+        "0 0 0 0 0 0 0 0 0",
+    ]
+
+    @staticmethod
+    def _spine_block(indent="  "):
+        return [
+            f"{indent}JOINT Spine",
+            f"{indent}{{",
+            f"{indent}  OFFSET 0 1 0",
+            f"{indent}  CHANNELS 3 Zrotation Yrotation Xrotation",
+            f"{indent}  End Site",
+            f"{indent}  {{",
+            f"{indent}    OFFSET 0 1 0",
+            f"{indent}  }}",
+            f"{indent}}}",
+        ]
+
+    @classmethod
+    def _hips_block(cls):
+        return [
+            "ROOT Hips",
+            "{",
+            "  OFFSET 0 0 0",
+            "  CHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation",
+            *cls._spine_block(),
+            "}",
+        ]
+
+    @classmethod
+    def _write(cls, tmp_path, hierarchy_lines):
+        path = tmp_path / "broken.bvh"
+        path.write_text("\n".join(["HIERARCHY", *hierarchy_lines, *cls.MOTION]) + "\n")
+        return path
+
+    def test_well_formed_control(self, tmp_path):
+        """The template the broken variants are cut from reads as expected."""
+        bvh = read_bvh_file(self._write(tmp_path, self._hips_block()))
+        assert [n.name for n in bvh.nodes] == ['Hips', 'Spine', 'EndSiteSpine']
+
+    def test_second_root(self, tmp_path):
+        path = self._write(tmp_path, [*self._hips_block(), "ROOT Other", "{",
+                                       "  OFFSET 0 0 0",
+                                       "  CHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation",
+                                       "}"])
+        with pytest.raises(ValueError, match=re.escape(
+                f"Second ROOT 'Other' at line 16 in file {path}: "
+                f"pybvh models single-root skeletons only")):
+            read_bvh_file(path)
+
+    def test_joint_outside_root(self, tmp_path):
+        path = self._write(tmp_path, [*self._spine_block(indent=""), *self._hips_block()])
+        with pytest.raises(ValueError, match=re.escape(
+                f"JOINT 'Spine' outside any ROOT block at line 2 in file {path}")):
+            read_bvh_file(path)
+
+    def test_end_site_outside_root(self, tmp_path):
+        path = self._write(tmp_path, ["End Site", "{", "  OFFSET 0 1 0", "}",
+                                       *self._hips_block()])
+        with pytest.raises(ValueError, match=re.escape(
+                f"End Site outside any ROOT block at line 2 in file {path}")):
+            read_bvh_file(path)
+
+    def test_unmatched_closing_brace(self, tmp_path):
+        path = self._write(tmp_path, [*self._hips_block(), "}"])
+        with pytest.raises(ValueError, match=re.escape(
+                f"Unmatched '}}' at line 16 in file {path}")):
+            read_bvh_file(path)
+
+    def test_joint_block_without_channels(self, tmp_path):
+        """The error names the joint and the line its declaration sits on."""
+        spine = self._spine_block()
+        del spine[3]  # the CHANNELS line
+        path = self._write(tmp_path, [*self._hips_block()[:4], *spine, "}"])
+        with pytest.raises(ValueError, match=re.escape(
+                f"Could not read the offset or channels of the joint Spine, "
+                f"at line 6 in file {path}: unexpected token 'End' in joint block")):
+            read_bvh_file(path)
+
+    def test_end_site_block_with_channels(self, tmp_path):
+        spine = self._spine_block()
+        spine.insert(7, "    CHANNELS 3 Zrotation Yrotation Xrotation")
+        path = self._write(tmp_path, [*self._hips_block()[:4], *spine, "}"])
+        with pytest.raises(ValueError, match=re.escape(
+                f"Could not read the offset of the End Site at line 10 in file "
+                f"{path}: end site must not declare CHANNELS")):
+            read_bvh_file(path)
+
+    def test_no_root(self, tmp_path):
+        path = self._write(tmp_path, [])
+        with pytest.raises(ValueError, match=re.escape(
+                f"No ROOT declaration found in {path}")):
+            read_bvh_file(path)
 
 
 class TestRadiansContract:

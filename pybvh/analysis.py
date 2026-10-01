@@ -12,7 +12,7 @@ from __future__ import annotations
 import warnings
 from collections import namedtuple
 from collections.abc import Mapping, Sequence
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -2256,17 +2256,23 @@ def _validate_speed_profile(speed: npt.NDArray[np.float64]) -> None:
         )
 
 
+_ScalarT = TypeVar("_ScalarT", bound=np.generic)
+_PyScalarT = TypeVar("_PyScalarT", int, float)
+
+
 def _reduce_like(
     speed: npt.NDArray[np.float64],
-    result: npt.NDArray[np.float64],
-    cast: Callable[[object], object] = float,
-) -> object:
+    result: npt.NDArray[_ScalarT],
+    to_scalar: Callable[[npt.NDArray[_ScalarT]], _PyScalarT],
+) -> Union[_PyScalarT, npt.NDArray[_ScalarT]]:
     """Shape a reduced result to match its input: scalar out for ``(T,)``.
 
     The single implementation of the ``(T,) -> scalar`` /
     ``(T, K) -> (K,)`` contract every kernel in this section shares.
+    ``to_scalar`` turns the 0-d result of a ``(T,)`` input into the
+    Python scalar the kernel returns (``float``, or ``int`` for a count).
     """
-    return cast(result) if speed.ndim == 1 else result
+    return to_scalar(result) if speed.ndim == 1 else result
 
 
 def _sparc_from_spectrum(
@@ -2505,7 +2511,7 @@ def dimensionless_jerk(
         dlj = -scale * np.sum(jerk**2, axis=0) * dt
     # zero extent: the normalization is undefined
     dlj = np.where(extent == 0, np.nan, dlj)
-    return _reduce_like(speed, dlj)
+    return _reduce_like(speed, dlj, float)
 
 
 def log_dimensionless_jerk(
@@ -2553,7 +2559,7 @@ def log_dimensionless_jerk(
             np.inf,  # zero jerk -> perfectly smooth
             -np.log(np.abs(dlj)),
         )
-    return _reduce_like(speed, ldlj)
+    return _reduce_like(speed, ldlj, float)
 
 
 def number_of_peaks(
@@ -2624,7 +2630,7 @@ def number_of_peaks(
     if min_height is not None:
         is_peak &= interior >= min_height
     peaks = np.sum(is_peak, axis=0)
-    return _reduce_like(speed, peaks, cast=int)
+    return _reduce_like(speed, peaks, int)
 
 
 def speed_metric(
@@ -2669,7 +2675,7 @@ def speed_metric(
     peak = magnitude.max(axis=0)
     with np.errstate(divide="ignore", invalid="ignore"):
         ratio = np.where(peak > 0, magnitude.mean(axis=0) / peak, np.nan)
-    return _reduce_like(speed, ratio)
+    return _reduce_like(speed, ratio, float)
 
 
 def integrated_squared_jerk(
@@ -2686,7 +2692,7 @@ def integrated_squared_jerk(
     dt = 1.0 / fs
     jerk = np.diff(speed, 2, axis=0) / dt**2
     isj = np.sum(jerk**2, axis=0) * dt
-    return _reduce_like(speed, isj)
+    return _reduce_like(speed, isj, float)
 
 
 def mean_squared_jerk(
@@ -2703,7 +2709,7 @@ def mean_squared_jerk(
     dt = 1.0 / fs
     jerk = np.diff(speed, 2, axis=0) / dt**2
     msj = np.mean(jerk**2, axis=0)
-    return _reduce_like(speed, msj)
+    return _reduce_like(speed, msj, float)
 
 
 def rms_squared_jerk(
@@ -2717,7 +2723,7 @@ def rms_squared_jerk(
     """
     speed = np.asarray(speed, dtype=np.float64)
     rms = np.sqrt(mean_squared_jerk(speed, fs))
-    return _reduce_like(speed, rms)
+    return _reduce_like(speed, rms, float)
 
 
 _SMOOTHNESS_FS_METRICS: dict[str, Callable[..., float]] = {
@@ -2954,7 +2960,7 @@ def active_duration(
     speed = np.asarray(speed, dtype=np.float64)
     _validate_speed_profile(speed)  # the input, not the derived boolean mask
     duration = np.count_nonzero(active_segments(speed, threshold), axis=0) / fs
-    return _reduce_like(speed, duration)
+    return _reduce_like(speed, duration, float)
 
 
 # ----------------------------------------------------------------

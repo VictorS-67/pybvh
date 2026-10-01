@@ -388,7 +388,7 @@ class Bvh:
         """
         return _motion_column_names(self.nodes, 'euler')
 
-            
+
     def __str__(self) -> str:
         source = ""
         if self.source_path is not None:
@@ -1407,7 +1407,7 @@ class Bvh:
         # node axis with `keep` — works for both shapes.
         return np_arr[..., keep, :]
 
-        
+
 
     def rest_pose_positions(self) -> npt.NDArray[np.float64]:
         """Rest-pose node positions (all angles zero, root at origin) — ``(N, 3)``.
@@ -1491,11 +1491,11 @@ class Bvh:
             return self._get_df_constructor_euler_angles()
         elif mode == 'coordinates':
             return self._get_df_constructor_spatial_coord(centered=centered)
-        else : 
+        else :
             raise ValueError(f'The value {mode} is not recognized for the mode argument.\
                              Currently recognized keywords are {correct_modes}')
-        
-    
+
+
     def _get_df_constructor_euler_angles(self) -> dict[str, npt.NDArray[np.float64]]:
         """Return column-name → array dict for Euler-angle DataFrame.
 
@@ -1530,7 +1530,7 @@ class Bvh:
 
 
 
-    
+
     def to_node_table(self) -> list[dict[str, Any]]:
         """Export the skeleton as a node table: one plain ``dict`` per node.
 

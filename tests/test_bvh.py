@@ -197,7 +197,7 @@ class TestReadBvhFile:
     def test_node_names(self, bvh_example):
         """Verify expected node names."""
         expected_names = [
-            'Hips', 'Spine', 'Spine1', 'Spine2', 'Spine3', 'Neck', 'Neck1', 
+            'Hips', 'Spine', 'Spine1', 'Spine2', 'Spine3', 'Neck', 'Neck1',
             'Head', 'EndSiteHead', 'RightShoulder', 'RightArm', 'RightForeArm',
             'RightHand', 'EndSiteRightHand', 'LeftShoulder', 'LeftArm',
             'LeftForeArm', 'LeftHand', 'EndSiteLeftHand', 'RightUpLeg',
@@ -539,10 +539,10 @@ class TestSpatialCoordinates:
     def test_single_frame_world_centered(self, bvh_example):
         """Verify spatial coordinates for single frame, world centered."""
         spatial = bvh_example.node_positions(frame=0, centered="world")
-        
+
         # Shape: 29 nodes x 3 coordinates
         assert spatial.shape == (29, 3)
-        
+
         # First 4 nodes (root + first 3 joints)
         expected_first_4 = np.array([
             [-0.8231, -10.8992, 36.4219],
@@ -612,9 +612,9 @@ class TestDataFrameConversion:
         """Verify to_df_dict output for euler mode."""
         df_data = bvh_example.to_df_dict(mode='euler', centered='world')
         df = pd.DataFrame(df_data)
-        
+
         assert df.shape == (75, 76)  # 75 frames, 75 channels + 1 time column
-        
+
         # Check expected columns
         expected_first_10 = [
             'time', 'Hips_X_pos', 'Hips_Y_pos', 'Hips_Z_pos',
@@ -779,19 +779,19 @@ class TestFileRoundTrip:
         """Writing and re-reading a BVH file should preserve data."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpfile = Path(tmpdir) / "test_output.bvh"
-            
+
             bvh_example.write(tmpfile, verbose=False)
             bvh_reread = read_bvh_file(tmpfile)
-            
+
             # Basic properties should match
             assert bvh_reread.frame_count == bvh_example.frame_count
             assert len(bvh_reread.nodes) == len(bvh_example.nodes)
             assert bvh_reread.root.name == bvh_example.root.name
-            
+
             # Frames should be close (allowing for float formatting precision)
             np.testing.assert_allclose(
-                bvh_reread.root_pos, 
-                bvh_example.root_pos, 
+                bvh_reread.root_pos,
+                bvh_example.root_pos,
                 atol=1e-5
             )
             np.testing.assert_allclose(

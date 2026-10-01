@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 import pybvh
-from pybvh import bvhplot, read_bvh_directory, read_bvh_file
+from pybvh import analysis, bvhplot, read_bvh_directory, read_bvh_file
 from pybvh.bvhplot import _matplotlib
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
@@ -265,3 +265,80 @@ class TestFacingFallback:
             warnings.simplefilter("always")
             draw(clip, tmp_path / "clip.gif")
         assert _files_named(caught, NO_FACING) == {__file__}
+
+
+# A foot joint whose only child is another joint, neither an end site nor
+# a toe: the foot detector finds no candidate with a tip.
+TIPLESS_FOOT_BVH = """HIERARCHY
+ROOT Hips
+{
+  OFFSET 0 0 0
+  CHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation
+  JOINT Head
+  {
+    OFFSET 0 10 0
+    CHANNELS 3 Zrotation Yrotation Xrotation
+    End Site
+    {
+      OFFSET 0 5 0
+    }
+  }
+  JOINT LeftFoot
+  {
+    OFFSET 2 -10 0
+    CHANNELS 3 Zrotation Yrotation Xrotation
+    JOINT LeftHeel
+    {
+      OFFSET 0 -1 -1
+      CHANNELS 3 Zrotation Yrotation Xrotation
+      End Site
+      {
+        OFFSET 0 0 -1
+      }
+    }
+  }
+}
+MOTION
+Frames: 3
+Frame Time: 0.033333
+0 11 0 0 0 0 0 0 0 0 0 0 0 0 0
+0 11 1 0 0 0 0 0 0 0 0 0 0 0 0
+0 11 2 0 0 0 0 0 0 0 0 0 0 0 0
+"""
+TIPLESS = "no candidates have tip descendants"
+
+
+class TestFootDetectionFallback:
+
+    @pytest.fixture
+    def clip(self, tmp_path):
+        path = tmp_path / "tipless_foot.bvh"
+        path.write_text(TIPLESS_FOOT_BVH)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return read_bvh_file(path)
+
+    @pytest.mark.parametrize("call", [
+        lambda clip: analysis.auto_detect_foot_joints(clip),
+        lambda clip: clip.auto_detect_foot_joints(),
+        lambda clip: analysis.foot_contacts(clip),
+        lambda clip: clip.foot_contacts(),
+        lambda clip: analysis.skeleton_size(clip),
+    ], ids=["analysis.auto_detect_foot_joints", "Bvh.auto_detect_foot_joints",
+            "analysis.foot_contacts", "Bvh.foot_contacts",
+            "analysis.skeleton_size"])
+    def test_each_detection_names_its_caller(self, clip, call):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            call(clip)
+        assert _files_named(caught, TIPLESS) == {__file__}
+
+    def test_called_directly_names_the_line_of_the_call(self, clip):
+        """A fixed level right for foot_contacts overshoots a direct
+        call, past the user's line to the one that called it."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            line = _line_after_this_one()
+            analysis.auto_detect_foot_joints(clip)
+        warning = _the_warning(caught, TIPLESS)
+        assert (warning.filename, warning.lineno) == (__file__, line)

@@ -16,6 +16,7 @@ from typing import Any, Callable
 import numpy as np
 import numpy.typing as npt
 
+from ._warnings import user_stacklevel
 from .bvh import Bvh
 from .bvhnode import BvhNode
 from .tools import _axis_to_vector, _compute_forward_at, _facing_basis
@@ -1474,7 +1475,7 @@ def auto_detect_foot_joints(
             "falling back to all substring matches. Pass foot joints "
             "explicitly if auto-detection looks wrong.",
             UserWarning,
-            stacklevel=3,
+            stacklevel=user_stacklevel(),
         )
         with_tip = matched
 

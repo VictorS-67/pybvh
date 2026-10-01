@@ -16,7 +16,9 @@ class BvhNode:
     name : str
         Name of the node.
     offset : np.ndarray
-        3-element array of positional offset values.
+        3-element array of positional offset values, every component
+        finite: the setter rejects NaN and infinity, and a ``None``
+        component, which NumPy would convert to NaN.
     parent : BvhNode or None
         Parent node in the hierarchy, or None if this is a root.
     """
@@ -44,11 +46,19 @@ class BvhNode:
         try:
             offset_arr = np.array(value, dtype=np.float64)
         except (TypeError, ValueError) as e:
-            raise ValueError("offset should be a list or numpy array of 3 numbers") from e
+            raise ValueError(
+                f"offset should be a list or numpy array of 3 finite "
+                f"numbers, got {value!r}") from e
         if offset_arr.shape != (3,):
             raise ValueError(
-                f"offset should be a list or numpy array of 3 numbers, "
-                f"got shape {offset_arr.shape}")
+                f"offset should be a list or numpy array of 3 finite "
+                f"numbers, got shape {offset_arr.shape}")
+        # np.array([None, 0, 0], dtype=float64) is [nan, 0, 0]: a None
+        # component (a JSON null) would otherwise pass silently.
+        if not np.all(np.isfinite(offset_arr)):
+            raise ValueError(
+                f"offset should be a list or numpy array of 3 finite "
+                f"numbers, got {value!r}")
         self._offset: npt.NDArray[np.float64] = offset_arr
 
     @property

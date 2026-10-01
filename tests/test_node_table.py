@@ -253,8 +253,10 @@ class TestNodesFromTableRejects:
         with pytest.raises(ValueError, match=r"entry 2 \('Leg'\).*depth-first.*entry 3 \('EndSiteArm'\)"):
             nodes_from_table(table)
 
-    @pytest.mark.parametrize("bad_offset", [[1.0, 2.0], "abc", None])
+    @pytest.mark.parametrize("bad_offset", [
+        [1.0, 2.0], "abc", None, [None, 0.0, 0.0], [np.nan, 0.0, 0.0]])
     def test_malformed_offset(self, bad_offset):
+        """A JSON null component is a None that NumPy would turn into nan."""
         table = _two_end_sites_table()
         table[1]['offset'] = bad_offset
         with pytest.raises(ValueError, match=r"entry 1 \('Hand'\).*offset"):

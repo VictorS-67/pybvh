@@ -475,6 +475,20 @@ class TestNodeHierarchy:
         assert joint.rot_channels == list(good)
         assert joint.rot_channels is not good
 
+    @pytest.mark.parametrize("bad", [
+        [None, 0, 0], [np.nan, 0, 0], [0, np.inf, 0], np.array([0, 0, -np.inf])])
+    def test_offset_components_must_be_finite(self, bad):
+        """NumPy turns a None component (a JSON null) into nan silently."""
+        with pytest.raises(ValueError, match="3 finite numbers, got"):
+            BvhJoint('a', offset=bad)
+
+    @pytest.mark.parametrize("given, expected", [
+        ([1, 2, 3], [1.0, 2.0, 3.0]), (['1', '2.5', '-3'], [1.0, 2.5, -3.0])])
+    def test_offset_still_converts_ints_and_numeric_strings(self, given, expected):
+        offset = BvhJoint('a', offset=given).offset
+        assert offset.dtype == np.float64
+        np.testing.assert_array_equal(offset, expected)
+
 
 # =============================================================================
 # Test: node_positions / joint_positions

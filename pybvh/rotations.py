@@ -1057,12 +1057,16 @@ def _extract_euler(R: npt.NDArray[np.float64], i: int, j: int, k: int) -> npt.ND
     Parameters
     ----------
     R : ndarray, shape (N, 3, 3)
+        Rotation matrices, the batch flattened to one axis by
+        :func:`_rotmat_to_euler_rad`.
     i, j, k : int
         Axis indices (0=X, 1=Y, 2=Z).
 
     Returns
     -------
     angles : ndarray, shape (N, 3)
+        Radians, in the order ``(i, j, k)``, on the branch and with the
+        gimbal-lock split :func:`rotmat_to_euler` documents.
     """
     N = R.shape[0]
     angles = np.empty((N, 3), dtype=np.float64)

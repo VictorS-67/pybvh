@@ -1117,9 +1117,15 @@ def play(
         interactive backends (k3d, vedo) and matplotlib.
     quality : str, optional
         Visual quality for the vedo desktop backend:
-        ``"high"`` (default) uses 3D tubes and spheres with lighting;
-        ``"fast"`` uses flat lines and points for maximum performance.
-        Ignored by other backends.
+        ``"high"`` (default) draws shaded capsules, 3D tubes and
+        spheres lit as ``render(backend="vedo")`` lights them but
+        without their shadows; ``"fast"`` uses flat lines and points
+        for maximum performance. Ignored by other backends. The light
+        is a single headlight, at the camera wherever you orbit, so
+        the side of a capsule facing you is the lit one and its edges
+        fall off into shade. The alternative is VTK's light kit (a
+        key, a fill and a back light, also tied to the camera), which
+        lights more evenly but reads less sharply at the edges.
     frame_counter : bool, optional
         Stamp a ``Frame f/F`` counter on the OpenCV notebook preview
         (default ``False``; pass ``True`` to restore the pre-0.9.0

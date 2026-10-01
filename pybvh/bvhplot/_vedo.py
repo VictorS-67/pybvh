@@ -5,8 +5,8 @@ playback controls, and frame scrubbing in a desktop window.
 
 Two quality modes:
 
-- ``"high"`` (default): 3D tapered tubes for bones, spheres for joints,
-  floor grid, flat ambient lighting.
+- ``"high"`` (default): shaded 3D tapered tubes for bones, spheres for
+  joints, floor, one headlight.
 - ``"fast"``: Flat lines and points. Maximum performance for large files.
 
 Requires ``vedo >= 2024.5``.
@@ -174,7 +174,8 @@ def play_vedo(
     fps : float
         Frames per second.
     quality : str
-        ``"high"`` for 3D geometry, ``"fast"`` for flat wireframe.
+        ``"high"`` for shaded 3D geometry, ``"fast"`` for flat
+        wireframe (see :func:`pybvh.bvhplot.play`).
     """
     import vedo  # type: ignore[import-untyped]
 
@@ -255,6 +256,12 @@ class _VedoPlayer:
             bg=vedo_color(style.background),
             offscreen=_FORCE_OFFSCREEN,
         )
+        # The capsules are lit by VTK's default headlight. vedo turns
+        # off the renderer's light-follows-camera, which leaves the
+        # light where the first render put it: the mouse's orbit moves
+        # it along, but a camera set from code (the reset key) would
+        # not, and would light the capsules from the side.
+        self.plt.renderer.LightFollowCameraOn()
 
         # Button registry: (x0, y0, w, h, callback) per clickable region.
         self._buttons: list[
@@ -370,8 +377,7 @@ class _VedoPlayer:
 
             if self.use_high:
                 capsule = CapsuleSkeleton(
-                    view, self.style.bone_width, bone_rgb, joint_rgb,
-                    flat_lighting=True)
+                    view, self.style.bone_width, bone_rgb, joint_rgb)
                 self._capsules.append(capsule)
                 for actor_mesh in capsule.actors:
                     self.plt += actor_mesh

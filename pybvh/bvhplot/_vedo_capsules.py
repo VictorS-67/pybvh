@@ -33,7 +33,7 @@ FLOOR_EPSILON = 0.004
 SHADOW_EPSILON = 0.002
 
 
-# The offscreen capsules' specular highlight color (#AAAAAA).
+# The capsules' specular highlight color (#AAAAAA).
 _HIGHLIGHT_GRAY = (170 / 255, 170 / 255, 170 / 255)
 
 LENGTH_BOOST = (1.0, 1.5)   # long bones get plumper; short ones never thinner
@@ -323,6 +323,10 @@ def _neighbour_indices(parent_bone):
 class CapsuleSkeleton:
     """Merged tube+sphere actors for one skeleton, posable per frame.
 
+    The capsules are shaded (ambient 0.2, diffuse 0.8, specular 0.1)
+    in the viewer and the offscreen renderer alike, under whatever
+    lights the plotter holds.
+
     Parameters
     ----------
     view : SkeletonView
@@ -343,10 +347,6 @@ class CapsuleSkeleton:
         Both are baked as per-point colors, so the coloring survives
         the merge into one actor and no mesh is left to VTK's default
         scalar map (a tube carries its radius as point data).
-    flat_lighting : bool
-        ``True`` (viewer): ambient-only so colors stay stable across
-        frames. ``False`` (offscreen renders): default VTK diffuse
-        shading — capsules read as 3D.
     """
 
     def __init__(
@@ -355,8 +355,6 @@ class CapsuleSkeleton:
         bone_width: float,
         bone_rgb: Sequence[tuple[int, int, int]],
         joint_rgb: npt.NDArray[np.uint8],
-        *,
-        flat_lighting: bool = True,
     ) -> None:
         from vedo import Tube, Sphere, merge  # type: ignore[import-untyped]
 
@@ -376,20 +374,24 @@ class CapsuleSkeleton:
         # --- canonical bone tubes ---
         bone_meshes = []
         bone_verts = []
+        bone_normals = []
         for k, (p_i, c_i) in enumerate(bones):
             r = bone_radii.get((p_i, c_i), r_base)
             tube = Tube([[0, 0, 0], [0, 0, 1]], r=[r, r / 2], res=12)
             tube.pointcolors = np.tile(
                 np.array(bone_rgb[k], dtype=np.uint8), (tube.npoints, 1))
             bone_verts.append(tube.vertices.copy())
+            bone_normals.append(tube.vertex_normals.copy())
             bone_meshes.append(tube)
 
         if bone_meshes:
             self.bones_mesh = merge(bone_meshes)
             self.canonical_bone_verts = np.array(bone_verts)
+            self.canonical_bone_normals = np.array(bone_normals)
         else:
             self.bones_mesh = None
             self.canonical_bone_verts = np.empty((0, 0, 3))
+            self.canonical_bone_normals = np.empty((0, 0, 3))
 
         # --- canonical joint spheres ---
         joint_meshes = []
@@ -406,24 +408,16 @@ class CapsuleSkeleton:
         for mesh in (self.bones_mesh, self.joints_mesh):
             if mesh is None:
                 continue
+            # Near-full diffuse so the tubes shade on both sides and
+            # read as round 3D capsules, with just enough ambient that
+            # shadow-side faces keep their hue instead of going
+            # near-black. The point colors replace the ambient and
+            # diffuse colors only, so the highlight's color is set here.
             prop = mesh.actor.GetProperty()
-            if flat_lighting:
-                # Viewer: ambient-only so colors stay stable across
-                # frames as bones rotate.
-                prop.SetAmbient(1.0)
-                prop.SetDiffuse(0.0)
-                prop.SetSpecular(0.0)
-            else:
-                # Offscreen renders: near-full diffuse so the tubes
-                # shade on both sides and read as round 3D capsules,
-                # with just enough ambient that shadow-side faces keep
-                # their hue instead of going near-black. The point
-                # colors replace the ambient and diffuse colors only,
-                # so the highlight's color is set here.
-                prop.SetAmbient(0.2)
-                prop.SetDiffuse(0.8)
-                prop.SetSpecular(0.1)
-                prop.SetSpecularColor(_HIGHLIGHT_GRAY)
+            prop.SetAmbient(0.2)
+            prop.SetDiffuse(0.8)
+            prop.SetSpecular(0.1)
+            prop.SetSpecularColor(_HIGHLIGHT_GRAY)
 
     @property
     def actors(self) -> list:
@@ -431,7 +425,14 @@ class CapsuleSkeleton:
                 if m is not None]
 
     def update(self, frame_data: npt.NDArray[np.float64]) -> None:
-        """Pose both merged meshes to *frame_data* via vectorized numpy."""
+        """Pose both merged meshes to *frame_data* via vectorized numpy.
+
+        Each bone's vertices and normals turn with the same rotation,
+        so VTK shades a bone from the way it points in this pose. The
+        joint spheres only translate, so their normals never change.
+        """
+        from vtkmodules.util.numpy_support import vtk_to_numpy
+
         p_idx = self.bone_parent_idx
         c_idx = self.bone_child_idx
 
@@ -450,9 +451,11 @@ class CapsuleSkeleton:
             x_ax /= np.linalg.norm(x_ax, axis=1, keepdims=True).clip(1e-10)
             y_ax = np.cross(z_ax, x_ax)
 
-            # (n_bones, 3, 3): columns are [x, y, z*length]
-            rotscale = np.stack(
-                [x_ax, y_ax, z_ax * lengths[:, np.newaxis]], axis=2)
+            # (n_bones, 3, 3): columns are [x, y, z]. The vertices
+            # also stretch the canonical unit length to the bone's.
+            rotation = np.stack([x_ax, y_ax, z_ax], axis=2)
+            rotscale = rotation.copy()
+            rotscale[:, :, 2] *= lengths[:, np.newaxis]
 
             # Single einsum: R @ v for all bones at once
             transformed = (
@@ -461,12 +464,23 @@ class CapsuleSkeleton:
                 + starts[:, np.newaxis, :])
 
             # Collapse zero-length bones (degenerate triangles)
-            zero = np.where(lengths < 1e-8)[0]
-            if len(zero):
-                for zi in zero:
-                    transformed[zi] = starts[zi]
+            zero = lengths < 1e-8
+            transformed[zero] = starts[zero][:, np.newaxis, :]
 
             self.bones_mesh.vertices = transformed.reshape(-1, 3)
+
+            # The stretch along the bone leaves the normals as they
+            # are: each canonical normal lies either across the tube
+            # (its wall: vtkTubeFilter's normals are radial even on a
+            # tapered tube) or along it (its end caps), and a scale
+            # along the axis maps both directions onto themselves.
+            normals = np.einsum('bij,bvj->bvi', rotation,
+                                self.canonical_bone_normals)
+            # Written into VTK's own array, which stays the mesh's
+            # active normals (vedo has no setter for them).
+            vtk_normals = self.bones_mesh.dataset.GetPointData().GetNormals()
+            vtk_to_numpy(vtk_normals)[:] = normals.reshape(-1, 3)
+            vtk_normals.Modified()
 
         # Joints: vectorized translation (single operation)
         self.joints_mesh.vertices = (

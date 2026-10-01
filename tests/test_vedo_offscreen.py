@@ -272,6 +272,102 @@ class TestCapsuleSizing:
         assert all(np.isfinite(r) and r > 0 for r in radii.values())
 
 
+class TestCapsuleShading:
+    """VTK shades a capsule from the normals it reads off the mesh, so
+    those must follow each bone to its pose."""
+
+    def test_bone_normals_point_out_of_each_posed_bone(self):
+        """A bone along x, one along y and one along z (the canonical
+        tube's own axis, the one case the unrotated normals got right),
+        plus one pointing back along -x. Every normal is of unit length;
+        on the tube's wall it is orthogonal to the bone and points away
+        from its axis, on the end caps it points along the bone, out of
+        the tube."""
+        from synthetic_scene import make_bare_view
+        from vtk.util.numpy_support import vtk_to_numpy
+        from pybvh.bvhplot._vedo_capsules import CapsuleSkeleton
+
+        pose = np.array([[0.0, 0.0, 0.0],
+                         [1.0, 0.0, 0.0],
+                         [0.0, 1.0, 0.0],
+                         [0.0, 0.0, 1.0],
+                         [-0.7, 0.0, 0.0]])
+        bones = [(0, 1), (0, 2), (0, 3), (0, 4)]
+        view = make_bare_view(pose[np.newaxis], pose, bones)
+        capsule = CapsuleSkeleton(
+            view, 1.0, [(200, 100, 50)] * len(bones),
+            np.full((len(pose), 3), 128, dtype=np.uint8))
+        capsule.update(pose)
+
+        mesh = capsule.bones_mesh.dataset
+        normals = vtk_to_numpy(mesh.GetPointData().GetNormals())
+        normals = normals.reshape(len(bones), -1, 3)
+        vertices = capsule.bones_mesh.vertices.reshape(len(bones), -1, 3)
+        for k, (parent, child) in enumerate(bones):
+            start, end = pose[parent], pose[child]
+            length = np.linalg.norm(end - start)
+            direction = (end - start) / length
+            along = (vertices[k] - start) @ direction
+            radial = (vertices[k] - start) - along[:, None] * direction
+            n = normals[k]
+            np.testing.assert_allclose(
+                np.linalg.norm(n, axis=1), 1.0, atol=1e-5)
+
+            cosine = n @ direction
+            on_wall = np.abs(cosine) < 1e-5
+            on_cap = np.abs(np.abs(cosine) - 1.0) < 1e-5
+            assert (on_wall | on_cap).all(), f"bone {k}"
+            assert on_wall.any() and on_cap.any(), f"bone {k}"
+            outward = radial[on_wall] / np.linalg.norm(
+                radial[on_wall], axis=1, keepdims=True)
+            np.testing.assert_allclose(n[on_wall], outward, atol=1e-5)
+            at_end = along[on_cap] > length / 2
+            np.testing.assert_array_equal(cosine[on_cap] > 0, at_end)
+
+    def test_a_second_pose_is_shaded_like_a_fresh_one(self):
+        """Playback updates a skeleton whose first pose VTK has already
+        drawn: the new normals must reach the renderer, not only the
+        mesh. Two bones upright, then turned sideways, must render as
+        a skeleton built sideways, whose first pose that is."""
+        from synthetic_scene import make_bare_view
+        from pybvh.bvhplot._scene import Scene
+        from pybvh.bvhplot._vedo_offscreen import (
+            _build_offscreen, _vtk_backend)
+
+        upright = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
+                            [0.3, 0.0, 0.0], [0.3, 1.0, 0.0]])
+        # Same bone lengths, since frame 0 sizes the capsules.
+        sideways = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
+                             [0.3, 0.0, 0.0], [0.3, 0.0, 1.0]])
+
+        def render(first_pose, then=None):
+            """The skeleton rendered in its first pose, and again after
+            an update to *then*. Both clips hold the same two poses,
+            so the camera, framed on the whole clip, is the same."""
+            second_pose = sideways if first_pose is upright else upright
+            view = make_bare_view(np.stack([first_pose, second_pose]),
+                                  upright, [(0, 1), (2, 3)])
+            with _vtk_backend():
+                plt, [capsule], camera = _build_offscreen(
+                    Scene(views=[view]), Style("paper", floor=None),
+                    (240, 240))
+                try:
+                    plt.show(camera=camera, interactive=False)
+                    images = [plt.screenshot(asarray=True)]
+                    if then is not None:
+                        capsule.update(then)
+                        plt.render()
+                        images.append(plt.screenshot(asarray=True))
+                finally:
+                    plt.close()
+            return [np.asarray(image).astype(int) for image in images]
+
+        first, then_sideways = render(upright, then=sideways)
+        [built_sideways] = render(sideways)
+        assert np.abs(first - built_sideways).max() > 50
+        np.testing.assert_allclose(then_sideways, built_sideways, atol=2)
+
+
 class TestLabels:
     def test_each_label_is_drawn_in_its_skeletons_color(self, bvh):
         """The labels were handed to vedo as "rgb(r,g,b)" strings,

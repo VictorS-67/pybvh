@@ -271,6 +271,15 @@ class TestNodesFromTableRejects:
         with pytest.raises(ValueError, match=r"entry 0 \('Hips'\).*channels"):
             nodes_from_table(table)
 
+    @pytest.mark.parametrize("key, index, name", [
+        ("rot_channels", 1, "Hand"), ("pos_channels", 0, "Hips")])
+    def test_channels_none_is_not_a_default(self, key, index, name):
+        """A JSON null must not fall back to the node constructors' ZYX / XYZ."""
+        table = _two_end_sites_table()
+        table[index][key] = None
+        with pytest.raises(ValueError, match=rf"entry {index} \('{name}'\).*{key} None"):
+            nodes_from_table(table)
+
     def test_pos_channels_on_a_joint(self):
         table = _two_end_sites_table()
         table[1]['pos_channels'] = ['X', 'Y', 'Z']

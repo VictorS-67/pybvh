@@ -487,7 +487,8 @@ def nodes_from_table(table: Sequence[Mapping[str, Any]]) -> list[BvhNode]:
     Two leniencies, so a table can be written by hand: a root entry
     without ``pos_channels`` gets ``['X', 'Y', 'Z']``, and an end-site
     entry without ``name`` gets ``'EndSite' + parent name``, the
-    parser's own rule. Nothing else is inferred.
+    parser's own rule. The root entry may also omit ``parent``, whose
+    only value is ``None``. Nothing else is inferred.
 
     Parameters
     ----------
@@ -512,7 +513,8 @@ def nodes_from_table(table: Sequence[Mapping[str, Any]]) -> list[BvhNode]:
         - the depth-first walk of the tree from entry 0 does not visit
           the entries as ``0, 1, ..., N-1``;
         - ``offset`` is missing or not three numbers, or a channel list
-          is not a permutation of ``'XYZ'``;
+          is not a permutation of ``'XYZ'`` (``None`` included: the node
+          constructors would default it, this function infers nothing);
         - ``pos_channels`` sits on an entry other than the root;
         - an entry has a key the format does not define (a misspelt
           ``rot_channels`` would otherwise silently turn a joint into an
@@ -620,6 +622,18 @@ def _node_from_entry(entry: Mapping[str, Any], index: int,
         raise ValueError(
             f"Node table {label} has no offset; offset is the rest offset "
             f"from the parent, three numbers.")
+    # The node constructors turn a None channel order into their default
+    # (ZYX, XYZ); here nothing is inferred, so None is rejected.
+    for key in ('rot_channels', 'pos_channels'):
+        if key in entry and entry[key] is None:
+            how_to_omit = ("omit the key instead: an entry without "
+                           "rot_channels is an end site"
+                           if key == 'rot_channels' else
+                           "omit the key instead: the root then gets XYZ")
+            raise ValueError(
+                f"Node table {label} has {key} None; a channel order is a "
+                f"permutation of 'XYZ', and nothing is inferred, so "
+                f"{how_to_omit}.")
 
     name = entry.get('name')
     if name is None:

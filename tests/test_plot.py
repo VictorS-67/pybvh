@@ -1826,6 +1826,19 @@ PANELS = [
 ]
 
 
+def draw_through(entry_point, backend, clips, tmp_path, **kwargs):
+    """Draw *clips* through the bvhplot function *entry_point* on
+    *backend*; render writes at 30 fps into *tmp_path*."""
+    kwargs["backend"] = backend
+    if entry_point == "play":
+        bvhplot.play(clips, **kwargs)
+    elif entry_point == "frame":
+        bvhplot.frame(clips, **kwargs)
+    else:
+        suffix = ".gif" if backend == "matplotlib" else ".mp4"
+        bvhplot.render(clips, tmp_path / f"pair{suffix}", fps=30, **kwargs)
+
+
 class TestMatchSize:
     """match_size=True draws every skeleton of a single-scene backend
     as tall as the first; the clips are not touched, and the backends
@@ -1841,15 +1854,7 @@ class TestMatchSize:
         """Draw *clips* through *entry_point*, labelled "walk" and
         "test2" unless *labels* says otherwise."""
         kwargs.setdefault("labels", ["walk", "test2"])
-        kwargs["backend"] = backend
-        if entry_point == "play":
-            bvhplot.play(clips, **kwargs)
-        elif entry_point == "frame":
-            bvhplot.frame(clips, **kwargs)
-        else:
-            suffix = ".gif" if backend == "matplotlib" else ".mp4"
-            bvhplot.render(clips, tmp_path / f"pair{suffix}", fps=30,
-                           **kwargs)
+        draw_through(entry_point, backend, clips, tmp_path, **kwargs)
 
     @pytest.mark.parametrize(
         "entry_point, backend, module, function", SINGLE_SCENE)
@@ -2005,17 +2010,6 @@ class TestSpreadInOneScene:
         from synthetic_bvh import make_pos_z_up_bvh
         return [make_pos_z_up_bvh(), make_pos_z_up_bvh()]
 
-    @staticmethod
-    def _draw(entry_point, backend, clips, tmp_path, **kwargs):
-        kwargs["backend"] = backend
-        if entry_point == "play":
-            bvhplot.play(clips, **kwargs)
-        elif entry_point == "frame":
-            bvhplot.frame(clips, **kwargs)
-        else:
-            suffix = ".gif" if backend == "matplotlib" else ".mp4"
-            bvhplot.render(clips, tmp_path / f"pair{suffix}", **kwargs)
-
     @pytest.mark.parametrize(
         "entry_point, backend, module, function", SINGLE_SCENE)
     @pytest.mark.parametrize("centered", ["first", "skeleton"])
@@ -2025,7 +2019,7 @@ class TestSpreadInOneScene:
         pytest.importorskip(backend)
         scenes = reached(
             importlib.import_module(f"pybvh.bvhplot.{module}"), function)
-        self._draw(entry_point, backend, twins, tmp_path,
+        draw_through(entry_point, backend, twins, tmp_path,
                    centered=centered, spacing=2.0)
         (scene,) = scenes
         first, second = scene.views
@@ -2045,7 +2039,7 @@ class TestSpreadInOneScene:
         pytest.importorskip(backend)
         scenes = reached(
             importlib.import_module(f"pybvh.bvhplot.{module}"), function)
-        self._draw(entry_point, backend, twins, tmp_path, centered=centered)
+        draw_through(entry_point, backend, twins, tmp_path, centered=centered)
         (scene,) = scenes
         first, second = scene.views
         first_left_edge = (first.coords @ self.LEFT).max(axis=1)
@@ -2057,11 +2051,11 @@ class TestSpreadInOneScene:
             self, twins, reached, tmp_path, centered):
         pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo, _vedo_offscreen
-        viewer = reached(_vedo, "play_vedo")
-        self._draw("play", "vedo", twins, tmp_path, centered=centered)
-        video = reached(_vedo_offscreen, "render_vedo")
-        self._draw("render", "vedo", twins, tmp_path, centered=centered)
-        played, rendered = viewer
+        scenes = reached(_vedo, "play_vedo")
+        reached(_vedo_offscreen, "render_vedo")
+        draw_through("play", "vedo", twins, tmp_path, centered=centered)
+        draw_through("render", "vedo", twins, tmp_path, centered=centered)
+        played, rendered = scenes
         for played_view, rendered_view in zip(played.views, rendered.views):
             np.testing.assert_array_equal(
                 rendered_view.coords, played_view.coords)
@@ -2076,7 +2070,7 @@ class TestSpreadInOneScene:
         pytest.importorskip(backend)
         scenes = reached(
             importlib.import_module(f"pybvh.bvhplot.{module}"), function)
-        self._draw(entry_point, backend, twins, tmp_path, centered="world")
+        draw_through(entry_point, backend, twins, tmp_path, centered="world")
         (scene,) = scenes
         first, second = scene.views
         np.testing.assert_array_equal(second.coords, first.coords)
@@ -2093,8 +2087,8 @@ class TestSpreadInOneScene:
             pytest.importorskip("cv2")
         scenes = reached(
             importlib.import_module(f"pybvh.bvhplot.{module}"), function)
-        self._draw(entry_point, backend, twins, tmp_path, centered="first")
-        self._draw(entry_point, backend, twins, tmp_path, centered="first",
+        draw_through(entry_point, backend, twins, tmp_path, centered="first")
+        draw_through(entry_point, backend, twins, tmp_path, centered="first",
                    spacing=2.0)
         plain, spaced = scenes
         for plain_view, spaced_view in zip(plain.views, spaced.views):
@@ -2108,5 +2102,5 @@ class TestSpreadInOneScene:
     def test_an_invalid_spacing_raises_on_every_backend(
             self, twins, tmp_path, entry_point, spacing, message):
         with pytest.raises(ValueError, match=message):
-            self._draw(entry_point, "matplotlib", twins, tmp_path,
+            draw_through(entry_point, "matplotlib", twins, tmp_path,
                        spacing=spacing)

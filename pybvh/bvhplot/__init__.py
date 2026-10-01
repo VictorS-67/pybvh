@@ -1204,7 +1204,7 @@ def play(
     spacing : float or "auto", optional
         Lateral separation between skeletons in single-scene backends (k3d,
         vedo). ``"auto"`` (default) spaces skeletons by 1.2 × the lateral
-        bounding-box width of the first skeleton when ``centered`` is
+        width of the first skeleton over the clip when ``centered`` is
         ``"first"`` or ``"skeleton"``; no spacing is applied when
         ``centered="world"`` (raw world coordinates are honoured). Pass a
         float (in scene units) to override. Ignored by multi-panel backends

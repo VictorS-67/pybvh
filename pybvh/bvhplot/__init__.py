@@ -643,7 +643,12 @@ def frame(
         clip, and the point *match_size* scales each skeleton about on
         its clip's first frame, both read in the still's coordinates.
         Under ``centered="world"`` the still therefore draws every
-        skeleton where the viewer and the video draw it at that frame.
+        skeleton where the viewer and the video draw it at that frame,
+        for a frame index every clip has and clips played at their own
+        rate (the still draws index *frame* of each clip, so ``-1`` is
+        each one's own last frame, where the viewer stops at the
+        shortest, or holds it under ``sync="pad"``, and resamples under
+        ``match_fps``).
         The other modes differ by centering alone: under ``"first"``
         the still is centred on the frame it draws, so each skeleton
         stands back from the viewer's place by its clip's travel on the

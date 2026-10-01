@@ -450,8 +450,8 @@ def nodes_to_table(nodes: Sequence[BvhNode]) -> list[dict[str, Any]]:
     nodes_from_table : The inverse, and the validation of the format.
     FkTopology.from_nodes : The same positions, as arrays for FK.
 
-    Example
-    -------
+    Examples
+    --------
     The rig of one joint carrying two end sites, which no name-keyed
     export can hold:
 
@@ -561,8 +561,8 @@ def nodes_from_table(table: Sequence[Mapping[str, Any]]) -> list[BvhNode]:
     nodes_to_table : The inverse, and the format in full.
     FkTopology : The same positions as arrays, without names.
 
-    Example
-    -------
+    Examples
+    --------
     >>> nodes = nodes_from_table([
     ...     {'name': 'Hips', 'parent': None, 'offset': [0, 0, 0],
     ...      'rot_channels': 'ZYX'},

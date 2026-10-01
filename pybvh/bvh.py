@@ -238,8 +238,8 @@ class Bvh:
         positive finite number, so ``0``, a negative rate, NaN and
         infinity raise ``ValueError`` rather than mark the rate as unset.
 
-        Example
-        -------
+        Examples
+        --------
         >>> if bvh.fps != 30:
         ...     bvh = bvh.resample(30)
         """
@@ -953,8 +953,8 @@ class Bvh:
         animated L/R separation they can still measure while this
         reports ``False``.
 
-        Example
-        -------
+        Examples
+        --------
             >>> if bvh.has_lr_geometry:
             ...     assert bvh.rest_forward == dataset_convention
             ... else:

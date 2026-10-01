@@ -31,6 +31,18 @@ Before marking a PR ready:
 - docstrings name any convention the change chose (see the "Code & API quality" rules in `CLAUDE.md`)
 - the branch is rebased on the current `main`
 
+## The pull request body
+
+The body follows `.github/PULL_REQUEST_TEMPLATE.md`, which GitHub prefills on a new PR. It is written for the reviewer, who decides from its first lines how much attention the PR needs, and it shows the shape of the change rather than describing it.
+
+- **Why**: one sentence.
+- **Review depth**: two lines that each open with a label, and one short list. The first label is the kind of change, which is also the PR's first label: `breaking` (a user of the previous release must change something, under the 0.x policy in `CLAUDE.md`; it has its CHANGELOG rows and a Migration section), `behaviour-change` (valid input gives a different result, with no API change), `internal` (nothing a user can see) or `documentation`. The second is the blast radius, the PR's second label: `localized` (one module, and callers are unaffected) or `extensive` (several modules, or a consumer such as pybvh-ml must change). "Needs your eyes on" lists the one to three decisions taken while building that the reviewer should weigh, or says "None."
+- **Change outline**: the shape of the change as the smallest views that show it, each next to one short sentence: an API diff-sketch, a data shape, pseudocode of an algorithm, a call tree, a shallow file tree, a Mermaid diagram. Not prose, not a file-by-file list.
+- **Evidence**: before and after. For a fix, the issue's reproduction with its output on `main` and on the branch; for a feature, the test that failed and now passes; for bvhplot, an image or a link to the showcase. Then the full-suite line.
+- **Migration**: breaking changes only.
+
+Test inventories, review rounds and per-commit detail belong in the commits and the issue, not in the body.
+
 ## Commits
 
 Commits are **atomic**: each one is a single logical step that leaves the test suite green, so any commit can be reverted, bisected or cherry-picked on its own. A refactor that touches five backends is five commits, not one; a fix and its test are one commit, not two.

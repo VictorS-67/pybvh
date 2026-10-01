@@ -534,3 +534,131 @@ class TestStyleColorsReachVedoParsed:
                 np.asarray(rgb255(floor_palette(style)[key])) / 255)
         finally:
             p.plt.close()
+
+
+def _text_box(text2d, renderer, dpi):
+    """The pixel box VTK draws a Text2D's text and background in.
+
+    The text renderer's own bounding box of the string, around the
+    position the actor computes for this window: the quad VTK textures
+    the text onto, padding and background included."""
+    import vtk
+    corners = [0, 0, 0, 0]
+    vtk.vtkTextRenderer.GetInstance().GetBoundingBox(
+        text2d.mapper.GetTextProperty(), text2d.mapper.GetInput(),
+        corners, dpi)
+    x, y = text2d.GetPositionCoordinate().GetComputedDisplayValue(renderer)
+    return (x + corners[0], x + corners[1], y + corners[2], y + corners[3])
+
+
+def _slider_box(slider, renderer):
+    """The pixel box of the frame slider's drawn geometry.
+
+    An offscreen plotter has no interactor to enable the widget, so its
+    representation is built here, for this renderer, as a window
+    would."""
+    import vtk
+    representation = slider.GetRepresentation()
+    representation.SetRenderer(renderer)
+    representation.BuildRepresentation()
+    actors = vtk.vtkPropCollection()
+    representation.GetActors2D(actors)
+    boxes = []
+    for i in range(actors.GetNumberOfItems()):
+        mapper = actors.GetItemAsObject(i).GetMapper()
+        if isinstance(mapper, vtk.vtkPolyDataMapper2D):
+            mapper.GetInputAlgorithm().Update()
+            # Cell by cell: the parts share one point array, some of
+            # whose points no part of the slider uses or sets.
+            drawn = mapper.GetInput()
+            for cell in range(drawn.GetNumberOfCells()):
+                x0, x1, y0, y1, _, _ = drawn.GetCell(cell).GetBounds()
+                boxes.append((x0, x1, y0, y1))
+    assert boxes, "the slider drew nothing"
+    x0s, x1s, y0s, y1s = zip(*boxes)
+    return (min(x0s), max(x1s), min(y0s), max(y1s))
+
+
+def _overlap(a, b):
+    """Whether two (x0, x1, y0, y1) boxes share any area."""
+    return (min(a[1], b[1]) > max(a[0], b[0])
+            and min(a[3], b[3]) > max(a[2], b[2]))
+
+
+class TestSkeletonLabels:
+    """Each skeleton's label is readable whatever its length: drawn
+    clear of the other labels and of every control. Labels used to sit
+    0.15 of the window's width apart on one line, which holds about 13
+    characters."""
+
+    LABELS = ["cmu_12_01_walk (original)",
+              "cmu_12_01_walk (mirrored)",
+              "cmu_12_01_walk third clip"]
+
+    @staticmethod
+    def _scene(labels):
+        walk = read_bvh_file(BVH_PATH)
+        clips = [walk, walk.mirror(), walk, walk.mirror()][:len(labels)]
+        coords = [b.node_positions()[:10] for b in clips]
+        return make_scene(clips, coords, "front", labels).spread("auto")
+
+    @staticmethod
+    def _drawn(scene, window_size, monkeypatch):
+        """The pixel boxes of the labels (by text), of Reset Cam's text,
+        and of every control, in the viewer rendered at *window_size*."""
+        from pybvh.bvhplot._vedo_offscreen import _vtk_backend
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        with _vtk_backend():
+            p = _vedo._VedoPlayer(scene, Style("paper"), 30.0,
+                                  quality="high")
+            try:
+                p.plt.window.SetSize(*window_size)
+                p.show()
+                renderer = p.plt.renderer
+                dpi = p.plt.window.GetDPI()
+                width, height = p.plt.window.GetSize()
+                assert (width, height) == window_size
+                labels = {o.text(): _text_box(o, renderer, dpi)
+                          for o in p.plt.objects
+                          if isinstance(o, vedo.Text2D)
+                          and o.text() in scene.labels}
+                reset = _text_box(p.reset_btn, renderer, dpi)
+                controls = [_text_box(t, renderer, dpi)
+                            for t in p._ui_actors if t.text()]
+                controls += [(x0 * width, (x0 + w) * width,
+                              y0 * height, (y0 + h) * height)
+                             for x0, y0, w, h, _ in p._buttons]
+                controls.append(_slider_box(p.slider, renderer))
+            finally:
+                p.plt.close()
+        return labels, reset, controls
+
+    @pytest.mark.parametrize("window_size", [(1400, 900), (1400, 650)])
+    def test_long_labels_clear_each_other_and_the_controls(
+            self, window_size, monkeypatch):
+        """At the default window and at one short enough that the left
+        panel's rows are about to meet, 39 pixels apart for its buttons'
+        38-pixel boxes."""
+        assert {len(label) for label in self.LABELS} == {25}
+        drawn, _, controls = self._drawn(
+            self._scene(self.LABELS), window_size, monkeypatch)
+        labels = [drawn[label] for label in self.LABELS]
+        for i, label in enumerate(labels):
+            for other in labels[i + 1:]:
+                assert not _overlap(label, other), (label, other)
+            for control in controls:
+                assert not _overlap(label, control), (label, control)
+
+    def test_unlabelled_skeletons_leave_no_empty_rows(self, monkeypatch):
+        """Shown labels stack from the panel down, each within one line
+        of the one above, Reset Cam's text first: a skeleton without a
+        label used to keep its empty row."""
+        drawn, reset, _ = self._drawn(
+            self._scene([None, "second", None, "fourth"]), (1400, 900),
+            monkeypatch)
+        above = reset
+        for name in ["second", "fourth"]:
+            box = drawn[name]
+            line = box[3] - box[2]
+            assert 0 < above[2] - box[3] < line, (name, above, box)
+            above = box

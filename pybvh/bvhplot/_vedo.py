@@ -83,6 +83,8 @@ _PANEL_X = 0.01     # left-panel x
 _PANEL_S = 1.4      # left-panel text scale
 _RPANEL_X = 0.85    # right (help) panel x
 _TOP_ROW_Y0 = 0.89  # top row's bottom (speed buttons, help, notices)
+_PANEL_ROW_H = 0.06  # left panel's row pitch, and its lower rows' height
+_N_PANEL_ROWS = 4    # Spd, FPS, Loop, Reset Cam
 
 # Bottom transport bar: _SL_X0/_SL_X1 drive both the slider and the
 # button layout.  Change them and everything stays aligned automatically.
@@ -102,6 +104,17 @@ _BTN_H = 0.07
 # Vertical offset from a button's hit-box bottom edge to its Text2D baseline.
 _TEXT_RAISE = 0.03
 _TOP_ROW_TEXT_Y = _TOP_ROW_Y0 + _TEXT_RAISE
+
+
+def _panel_row_y0(row: int) -> float:
+    """The bottom of the left panel's row *row*, 0 being the top row.
+
+    The skeleton labels continue the panel's rows below its last,
+    from row ``_N_PANEL_ROWS``, their text placed in the row as a
+    button's is: a label's box is 34 pixels high and a button's 38, so
+    the labels keep apart for as long as the panel's own rows do."""
+    return _TOP_ROW_Y0 - row * _PANEL_ROW_H
+
 
 # The band of the window's height the camera fits the figure into: from
 # the slider's line to the bottom of the top row. The side panels'
@@ -175,6 +188,16 @@ def play_vedo(
     keeps its line widths, as matplotlib's and OpenCV's do. The
     alternative, pixels proportional to the body's size on screen,
     would thin the lines of a walk that moves the camera back.
+
+    Skeleton labels are listed one per line, in each skeleton's color,
+    in the left column, continuing the control panel's rows below it
+    (a skeleton without a label takes no row), and run on to the right
+    over the scene as far as they need: no control sits there short of
+    the help panel, at 0.85 of the width when shown. This was chosen
+    over laying them out side by side by their measured width, wrapping
+    to a new line when a row is full, which needs the text measured. In
+    the default 1400 × 900 window nine labels fit above the frame
+    slider; a tenth reaches it.
 
     Parameters
     ----------
@@ -413,13 +436,17 @@ class _VedoPlayer:
 
         # --- Labels ---
         if self.labels:
-            for s in range(min(len(self.labels), n_skeletons)):
-                if self.labels[s] is None:
-                    continue
+            # A skeleton without a label takes no row: the color ties
+            # each label to its skeleton.
+            shown = [(s, text)
+                     for s, text in enumerate(self.labels[:n_skeletons])
+                     if text is not None]
+            for row, (s, text) in enumerate(shown):
+                text_y = _panel_row_y0(_N_PANEL_ROWS + row) + _TEXT_RAISE
                 label = Text2D(
-                    self.labels[s],
-                    pos=(0.02 + s * 0.15, 0.95),
-                    c=self._skeleton_color(s), s=1.4, font='Calco',
+                    text,
+                    pos=(_PANEL_X, text_y),
+                    c=self._skeleton_color(s), s=_PANEL_S, font='Calco',
                 )
                 self.plt += label
 
@@ -565,26 +592,30 @@ class _VedoPlayer:
             " > ", 0.12, _TOP_ROW_Y0, 0.04, 0.07, self._on_speed_up)
 
         # --- FPS selector ---
+        fps_y0 = _panel_row_y0(1)
         self.fps_label = Text2D(
-            "FPS", pos=(_PANEL_X, 0.86), s=_PANEL_S,
+            "FPS", pos=(_PANEL_X, fps_y0 + _TEXT_RAISE), s=_PANEL_S,
             c='#2c3e50', font='Calco',
         )
         self.plt += self.fps_label
         self._ui_actors.append(self.fps_label)
-        self._add_button(" < ", 0.05, 0.83, 0.03, 0.06, self._on_fps_down)
+        self._add_button(
+            " < ", 0.05, fps_y0, 0.03, _PANEL_ROW_H, self._on_fps_down)
         self.fps_text = Text2D(
-            f" {self.clock.target_fps} ", pos=(0.08, 0.86),
+            f" {self.clock.target_fps} ", pos=(0.08, fps_y0 + _TEXT_RAISE),
             s=_PANEL_S, c='#2c3e50', bg='#c8c8d4', font='Calco',
         )
         self.plt += self.fps_text
         self._ui_actors.append(self.fps_text)
-        self._add_button(" > ", 0.12, 0.83, 0.04, 0.06, self._on_fps_up)
+        self._add_button(
+            " > ", 0.12, fps_y0, 0.04, _PANEL_ROW_H, self._on_fps_up)
 
         self.loop_btn = self._add_button(
-            " Loop ", _PANEL_X, 0.77, 0.19, 0.06, self._on_cycle_loop,
-            bg='green4')
+            " Loop ", _PANEL_X, _panel_row_y0(2), 0.19, _PANEL_ROW_H,
+            self._on_cycle_loop, bg='green4')
         self.reset_btn = self._add_button(
-            " Reset Cam ", _PANEL_X, 0.71, 0.19, 0.06, self._on_reset_camera)
+            " Reset Cam ", _PANEL_X, _panel_row_y0(3), 0.19, _PANEL_ROW_H,
+            self._on_reset_camera)
 
         # --- Bottom: transport bar ---
         self.btn_first = self._add_button(

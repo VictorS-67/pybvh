@@ -2104,3 +2104,48 @@ class TestSpreadInOneScene:
         with pytest.raises(ValueError, match=message):
             draw_through(entry_point, "matplotlib", twins, tmp_path,
                        spacing=spacing)
+
+    @pytest.fixture(params=["sideways", "walk"])
+    def pair_in_motion(self, request):
+        """Two clips whose first skeleton is wider over the clip than at
+        frame 6: the synthetic clip drifting 30 units to its left, or
+        the CMU walk (a T-pose at frame 0, then walking) and its
+        mirror."""
+        if request.param == "walk":
+            walk = read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")
+            return [walk, walk.mirror()]
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from synthetic_bvh import make_pos_z_up_bvh
+        drifting, still = make_pos_z_up_bvh(), make_pos_z_up_bvh()
+        root_pos = drifting.root_pos.copy()
+        root_pos[:, 0] -= np.linspace(0.0, 30.0, len(root_pos))
+        drifting.root_pos = root_pos
+        return [drifting, still]
+
+    @pytest.mark.parametrize("centered", ["world", "first", "skeleton"])
+    def test_a_still_moves_the_skeletons_as_the_viewer_does(
+            self, pair_in_motion, reached, tmp_path, centered):
+        """The still at frame f moves each skeleton by the offset the
+        viewer moves it by: "auto" spaces by the first skeleton's width
+        over the clip, in its facing at the clip's start, not by the
+        pose drawn. (Each is compared with itself at spacing 0, since a
+        still under centered="first" is centred on the frame it draws.)"""
+        pytest.importorskip("vedo")
+        from pybvh.bvhplot import _vedo, _vedo_offscreen
+        scenes = reached(_vedo, "play_vedo")
+        reached(_vedo_offscreen, "frame_vedo")
+        f = 6
+        for spacing in ("auto", 0.0):
+            draw_through("play", "vedo", pair_in_motion, tmp_path,
+                         centered=centered, spacing=spacing)
+            draw_through("frame", "vedo", pair_in_motion, tmp_path,
+                         centered=centered, frame=f, spacing=spacing)
+        played, still, played_in_place, still_in_place = scenes
+        for k in range(2):
+            played_offset = (played.views[k].coords[f]
+                             - played_in_place.views[k].coords[f])
+            still_offset = (still.views[k].coords[0]
+                            - still_in_place.views[k].coords[0])
+            np.testing.assert_allclose(still_offset, played_offset,
+                                       atol=1e-9)

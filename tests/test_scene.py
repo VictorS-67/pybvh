@@ -370,6 +370,30 @@ class TestSceneMethods:
         scene = make_scene([bvh, bvh], [coords, coords], "front", None)
         assert scene.spread(0.0) is scene
 
+    def test_spread_measured_on_another_scene_takes_its_extent(
+            self, bvh, coords):
+        """A still of one frame spread as its clip is: the "auto"
+        extent is the clip's, not the frame's."""
+        clip = make_scene([bvh, bvh], [coords, coords], "front", None)
+        last = coords[-1:]
+        still = make_scene([bvh, bvh], [last, last], "front", None)
+
+        def moved(scene, **kwargs):
+            return (scene.spread("auto", **kwargs).views[1].coords[-1]
+                    - scene.views[1].coords[-1])
+
+        np.testing.assert_allclose(moved(still, measured_on=clip),
+                                   moved(clip))
+        # measured on its own frame, the still would be spread otherwise
+        assert not np.allclose(moved(still), moved(clip))
+
+    def test_spread_measured_on_a_scene_of_other_views_raises(
+            self, bvh, coords):
+        pair = make_scene([bvh, bvh], [coords, coords], "front", None)
+        single = make_scene([bvh], [coords], "front", None)
+        with pytest.raises(ValueError, match="measured_on has 1 views"):
+            pair.spread("auto", measured_on=single)
+
     @pytest.mark.parametrize("up, forward, rotation", [
         ("+y", "+z", np.eye(3)),
         ("+y", "-z", np.diag([-1.0, 1.0, -1.0])),

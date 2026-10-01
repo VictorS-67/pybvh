@@ -741,7 +741,8 @@ class Scene:
             factors.append(reference.body_size / v.body_size)
         return self.scaled(factors)
 
-    def spread(self, spacing: float | str) -> Scene:
+    def spread(self, spacing: float | str, *,
+               measured_on: Scene | None = None) -> Scene:
         """Offset the views laterally so skeletons sharing one 3-D scene
         do not overlap.
 
@@ -769,10 +770,25 @@ class Scene:
         directly, in scene units. Whether to spread at all is the
         caller's policy (``play`` respects raw world coordinates under
         ``"auto"``).
+
+        The direction and the ``"auto"`` extent are read from
+        *measured_on*, this Scene by default, which must hold as many
+        views. A still of one frame passes the Scene of its whole clip,
+        so it is spread exactly as the clip is at that frame: by the
+        extent over the clip, toward the left the first skeleton faces
+        at the clip's first frame. Measured on the still itself, the
+        two would differ whenever the first skeleton sweeps wider over
+        the clip than in the pose drawn, or has turned by then.
         """
+        if measured_on is None:
+            measured_on = self
+        if len(measured_on.views) != len(self.views):
+            raise ValueError(
+                f"measured_on has {len(measured_on.views)} views; this "
+                f"Scene has {len(self.views)}.")
         if len(self.views) <= 1:
             return self
-        first = self.views[0]
+        first = measured_on.views[0]
         leftward = np.cross(first.up_vector, first.forward_vector)
 
         if spacing == "auto":

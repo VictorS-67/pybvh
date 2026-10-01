@@ -407,6 +407,7 @@ def _arranged_in_one_scene(
     spacing: float | str,
     centered: str,
     match_size: bool,
+    clip: Scene | None = None,
 ) -> Scene:
     """Router policy for the backends that draw every skeleton in one
     scene (k3d, vedo viewer, vedo offscreen), shared by ``play``,
@@ -416,13 +417,15 @@ def _arranged_in_one_scene(
     the skeletons as drawn. ``"auto"`` spacing respects raw world
     coordinates: two clips drawn under ``centered="world"`` are left
     exactly where their files put them. Every other combination spreads
-    the views laterally so they do not overlap in the one shared scene.
+    the views laterally so they do not overlap in the one shared scene,
+    measured on *clip* when *scene* is a still taken from it (see
+    :meth:`Scene.spread`).
     """
     if match_size:
         scene = scene.size_matched()
     if spacing == "auto" and centered == "world":
         return scene
-    return scene.spread(spacing)
+    return scene.spread(spacing, measured_on=clip)
 
 
 def _warn_world_up_mismatch(
@@ -633,13 +636,15 @@ def frame(
         width when ``centered`` is ``"first"`` or ``"skeleton"``, and
         leaves them where their files put them under
         ``centered="world"``; a float, in scene units, always spaces
-        them. The width ``"auto"`` measures is that of the frame drawn,
-        where :func:`play` and :func:`render` measure it over the whole
-        clip: a still is spaced by the pose it shows, and the two differ
-        when the first skeleton sweeps wider over the clip (walking
-        sideways, say) than at that frame. Pass a float for the same
-        arrangement in all three. Ignored by matplotlib, which draws
-        each skeleton in its own panel.
+        them. The direction and the ``"auto"`` width are measured on
+        the whole clips, as :func:`play` and :func:`render` measure
+        them, not on the frame drawn, so the still moves each skeleton
+        by the offset the viewer and the video move it by at that
+        frame. Measured on the frame, the two would differ when the
+        first skeleton sweeps wider over the clip (walking sideways,
+        say) than at that frame, or has turned by then. *coords* draws
+        a single skeleton, which is never spread. Ignored by
+        matplotlib, which draws each skeleton in its own panel.
     match_size : bool, optional
         Draw every skeleton as tall as the first, with the factor on
         its label, as :func:`play` does (see there for the height
@@ -673,8 +678,14 @@ def frame(
                 "vedo backend requires vedo. "
                 "Install with: pip install pybvh[viewer]")
         from ._vedo_offscreen import frame_vedo
+        # The spread is measured on the whole clip, as the viewer and
+        # the video measure it. Caller-supplied coords draw a single
+        # skeleton, which is never spread.
+        clip_scene = (_prepare(clips, None, centered, camera, labels)
+                      if coords is None else None)
         scene = _arranged_in_one_scene(
-            scene, spacing=spacing, centered=centered, match_size=match_size)
+            scene, spacing=spacing, centered=centered, match_size=match_size,
+            clip=clip_scene)
         return frame_vedo(scene, resolve_style(style),
                           resolution=resolution, filepath=filepath)
 

@@ -371,6 +371,9 @@ def df_to_bvh(hier: list[BvhNode] | dict[str, dict], df: pd.DataFrame) -> Bvh:
     ------
     TypeError
         If *hier* is neither a list nor a dict.
+    ValueError
+        If a node list is not one tree in depth-first order, or a node's
+        parent is not in the list (see :func:`~pybvh.nodes_from_table`).
     Exception
         If *df* columns do not satisfy naming or ordering requirements (see
         ``_check_df_columns``), or if *df* and *hier* are inconsistent (see
@@ -384,7 +387,6 @@ def df_to_bvh(hier: list[BvhNode] | dict[str, dict], df: pd.DataFrame) -> Bvh:
     df = _check_df_columns(df) # this creates a copy of the df
 
     if isinstance(hier, list):
-        #arrange the df correctly to fit with list of nodes info if possible
         hier_list, df = _check_df_match_with_hier(hier, df)
         # Fresh nodes, wired and checked by the builder; the caller's list
         # is read, never shared with the result.

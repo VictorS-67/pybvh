@@ -2019,6 +2019,94 @@ class TestConstructorValidation:
         assert bvh.frame_count == bvh_example.frame_count
 
 
+class TestConstructorTreeCheck:
+    """Bvh() refuses a node tree whose `parent` and `children` disagree.
+
+    The depth-first walk of `children` from `nodes[0]` must visit exactly
+    `nodes`, in order, by identity, and each node's `parent` must be the
+    node it was reached from. `write_bvh_file` walks `children` and
+    `joint_angles` follows `nodes`, so a tree wired on one side only would
+    write a file that disagrees with the motion it carries.
+    """
+
+    @staticmethod
+    def _joint(name, offset, parent):
+        return BvhJoint(name, offset=offset, rot_channels=['Z', 'Y', 'X'],
+                        parent=parent)
+
+    @staticmethod
+    def _bvh(nodes):
+        joint_count = sum(1 for n in nodes if not n.is_end_site())
+        return Bvh(nodes=nodes, root_pos=np.zeros((1, 3)),
+                   joint_angles=np.zeros((1, joint_count, 3)), frame_time=1 / 30)
+
+    def test_child_missing_from_its_parents_children(self):
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        arm = self._joint("Arm", [1, 0, 0], hips)
+        leg = self._joint("Leg", [0, -1, 0], hips)
+        hips.children = [arm]  # leg says hips is its parent; hips disagrees
+        with pytest.raises(ValueError, match=r"nodes\[2\] \('Leg'\) is not reached.*nodes\[0\] \('Hips'\)"):
+            self._bvh([hips, arm, leg])
+
+    def test_child_listed_twice(self):
+        """The #16 symptom: one end-site object in `children` twice."""
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        hand = self._joint("Hand", [1, 0, 0], hips)
+        tip = BvhEndSite("EndSiteHand", offset=[1, 0, 0], parent=hand)
+        hips.children = [hand]
+        hand.children = [tip, tip]
+        with pytest.raises(ValueError, match=r"reaches nodes\[2\] \('EndSiteHand'\).*after all 3 nodes"):
+            self._bvh([hips, hand, tip])
+
+    def test_parent_set_to_another_joint(self):
+        """The end site sits in Leg's children but claims Arm as its parent."""
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        arm = self._joint("Arm", [1, 0, 0], hips)
+        leg = self._joint("Leg", [0, -1, 0], hips)
+        tip = BvhEndSite("EndSiteLeg", offset=[0, -1, 0], parent=arm)
+        hips.children = [arm, leg]
+        leg.children = [tip]
+        with pytest.raises(ValueError, match=r"nodes\[3\] \('EndSiteLeg'\) is in the children of nodes\[2\] \('Leg'\), but its parent is nodes\[1\] \('Arm'\)"):
+            self._bvh([hips, arm, leg, tip])
+
+    def test_breadth_first_nodes(self):
+        """Wired both ways, but listed level by level."""
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        arm = self._joint("Arm", [1, 0, 0], hips)
+        leg = self._joint("Leg", [0, -1, 0], hips)
+        arm_tip = BvhEndSite("EndSiteArm", offset=[1, 0, 0], parent=arm)
+        leg_tip = BvhEndSite("EndSiteLeg", offset=[0, -1, 0], parent=leg)
+        hips.children = [arm, leg]
+        arm.children = [arm_tip]
+        leg.children = [leg_tip]
+        with pytest.raises(ValueError, match=r"reaches nodes\[3\] \('EndSiteArm'\).*where nodes\[2\] \('Leg'\) is listed.*depth-first"):
+            self._bvh([hips, arm, leg, arm_tip, leg_tip])
+        assert self._bvh([hips, arm, arm_tip, leg, leg_tip]).joint_count == 3
+
+    def test_root_with_a_parent(self):
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        arm = self._joint("Arm", [1, 0, 0], hips)
+        hips.children = [arm]
+        hips.parent = arm
+        with pytest.raises(ValueError, match=r"nodes\[0\] \('Hips'\) is the root.*parent must be None"):
+            self._bvh([hips, arm])
+
+    def test_child_that_is_not_in_nodes(self):
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        arm = self._joint("Arm", [1, 0, 0], hips)
+        hips.children = [arm]
+        with pytest.raises(ValueError, match=r"'Arm', which is not in nodes"):
+            Bvh(nodes=[hips], root_pos=np.zeros((1, 3)),
+                joint_angles=np.zeros((1, 1, 3)), frame_time=1 / 30)
+
+    def test_empty_nodes(self):
+        with pytest.raises(ValueError, match="at least one node"):
+            Bvh(nodes=[])
+
+    def test_a_lone_root_is_a_tree(self):
+        assert Bvh().joint_count == 1
+
+
 # =============================================================================
 # Test: __eq__ covers the full hierarchy
 # =============================================================================
@@ -3382,10 +3470,11 @@ class TestNodeVelocities:
         root_pos = np.zeros((F, 3))
         root_pos[:, 0] = np.arange(F) * 5.0  # 5 units/frame along X
         joint_angles = np.zeros((F, 1, 3))
-        bvh = Bvh(nodes=[root, BvhEndSite("End Site", offset=np.array([0, 1, 0]), parent=root)],
+        tip = BvhEndSite("End Site", offset=np.array([0, 1, 0]), parent=root)
+        root.children = [tip]
+        bvh = Bvh(nodes=[root, tip],
                    root_pos=root_pos, joint_angles=joint_angles,
                    frame_time=1/30)
-        root.children = [bvh.nodes[1]]
         vel = bvh.node_velocities(in_frames=True, stencil="forward", pad="none")
         # Root velocity should be [5, 0, 0] for all frames
         np.testing.assert_allclose(vel[:, 0, 0], 5.0, atol=1e-10)
@@ -3454,10 +3543,11 @@ class TestNodeAccelerations:
         root_pos = np.zeros((F, 3))
         root_pos[:, 0] = np.arange(F) * 5.0
         joint_angles = np.zeros((F, 1, 3))
-        bvh = Bvh(nodes=[root, BvhEndSite("End Site", offset=np.array([0, 1, 0]), parent=root)],
+        tip = BvhEndSite("End Site", offset=np.array([0, 1, 0]), parent=root)
+        root.children = [tip]
+        bvh = Bvh(nodes=[root, tip],
                    root_pos=root_pos, joint_angles=joint_angles,
                    frame_time=1/30)
-        root.children = [bvh.nodes[1]]
         acc = bvh.node_accelerations(in_frames=True, stencil="forward", pad="none")
         np.testing.assert_allclose(acc, 0.0, atol=1e-10)
 

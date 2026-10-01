@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 import numpy as np
 import numpy.typing as npt
 
-from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
+from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite, _check_node_tree
 from .spatial_coord import (
     FkTopology, frames_to_node_positions, _ground_plane_offset,
 )
@@ -52,7 +52,12 @@ class Bvh:
     Attributes
     ----------
     nodes : list of BvhNode
-        Skeleton hierarchy in topological order.
+        Skeleton hierarchy in depth-first order, as a file lists it.
+        The constructor checks that the tree is wired both ways: the
+        depth-first walk of ``children`` from ``nodes[0]`` must visit
+        exactly ``nodes``, in order, and each node's ``parent`` must be
+        the node it was reached from; ``ValueError`` otherwise. To build
+        a tree from plain data, :func:`~pybvh.nodes_from_table` wires it.
     root : BvhRoot
         The root node (``nodes[0]``).
     root_pos : ndarray, shape (F, 3)
@@ -123,6 +128,7 @@ class Bvh:
         if nodes is None:
             nodes = [BvhRoot()]
         self.nodes = nodes
+        _check_node_tree(self.nodes)
         self.frame_time = frame_time
         self.source_path = source_path
         self.root = self.nodes[0]  # type: ignore[assignment]

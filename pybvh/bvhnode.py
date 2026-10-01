@@ -257,6 +257,77 @@ class BvhRoot(BvhJoint):
 
 
 #---------------------------------------------------------------------------------------------
+# The node tree as a whole
+#---------------------------------------------------------------------------------------------
+
+def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
+    """Raise unless ``nodes`` is one tree in depth-first order, wired both ways.
+
+    The depth-first walk of ``children`` from ``nodes[0]`` must visit
+    exactly ``nodes``, in order, by identity, and every node reached must
+    have the node it was reached from as its ``parent``. This is what
+    :func:`~pybvh.io.write_bvh_file` (which walks ``children``) and
+    ``joint_angles`` (whose columns follow ``nodes``) both rely on, and it
+    is checked once, when a :class:`~pybvh.Bvh` is built. O(N), no FK.
+    """
+    if len(nodes) == 0:
+        raise ValueError("nodes must hold at least one node, the root.")
+    total = len(nodes)
+    position = {id(node): i for i, node in enumerate(nodes)}
+
+    def describe(node: BvhNode | None) -> str:
+        if node is None:
+            return "None"
+        if id(node) in position:
+            return f"nodes[{position[id(node)]}] ({node.name!r})"
+        return f"{node.name!r}, which is not in nodes"
+
+    stack: list[tuple[BvhNode, BvhNode | None]] = [(nodes[0], None)]
+    visited = 0
+    while stack:
+        reached, reached_from = stack.pop()
+        if visited == total:
+            raise ValueError(
+                f"The depth-first walk of children from nodes[0] reaches "
+                f"{describe(reached)}, a child of {describe(reached_from)}, "
+                f"after all {total} nodes were visited: a node is listed "
+                f"more than once in the children lists, or a child is not "
+                f"in nodes.")
+        expected = nodes[visited]
+        if reached is not expected:
+            raise ValueError(
+                f"The depth-first walk of children from nodes[0] reaches "
+                f"{describe(reached)}, a child of {describe(reached_from)}, "
+                f"where {describe(expected)} is listed. nodes must list the "
+                f"tree in depth-first order (each joint followed by its whole "
+                f"subtree, as a .bvh file writes it), with every node listed "
+                f"exactly once in its parent's children.")
+        if reached_from is None:
+            if reached.parent is not None:
+                raise ValueError(
+                    f"nodes[0] ({reached.name!r}) is the root, but its parent "
+                    f"is {describe(reached.parent)}; the root's parent must "
+                    f"be None.")
+        elif reached.parent is not reached_from:
+            raise ValueError(
+                f"{describe(reached)} is in the children of "
+                f"{describe(reached_from)}, but its parent is "
+                f"{describe(reached.parent)}; parent and children must agree.")
+        visited += 1
+        if not reached.is_end_site():
+            stack.extend(
+                (child, reached) for child in reversed(reached.children))  # type: ignore[attr-defined]
+
+    if visited != total:
+        unreached = nodes[visited]
+        raise ValueError(
+            f"{describe(unreached)} is not reached by the depth-first walk "
+            f"of children from nodes[0]; its parent is "
+            f"{describe(unreached.parent)}. Every node must be listed in "
+            f"its parent's children.")
+
+
+#---------------------------------------------------------------------------------------------
 # The node table: a skeleton as plain data, and the one builder of node trees
 #---------------------------------------------------------------------------------------------
 

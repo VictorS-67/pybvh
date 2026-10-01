@@ -8,6 +8,7 @@ attributed to this file, the caller's, rather than to a pybvh module.
 """
 from __future__ import annotations
 
+import ast
 import inspect
 import shutil
 import warnings
@@ -103,6 +104,29 @@ def test_these_tests_import_the_pybvh_they_test():
     locations below are only meaningful against this tree's package."""
     tree = Path(__file__).resolve().parent.parent
     assert Path(pybvh.__file__).resolve().parent == tree / "pybvh"
+
+
+def test_every_warning_in_pybvh_takes_its_level_from_the_stack():
+    """A fixed ``stacklevel`` is right from one depth only, and a new
+    path to the warning (a wrapper, a direct call) silently breaks it.
+    Every ``warnings.warn`` in the package takes ``user_stacklevel()``,
+    so the tests above cover the paths that exist today and this one
+    covers the warnings added tomorrow."""
+    package = Path(pybvh.__file__).parent
+    fixed = []
+    for path in sorted(package.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "warn"):
+                continue
+            levels = [k.value for k in node.keywords if k.arg == "stacklevel"]
+            takes_it_from_the_stack = (
+                len(levels) == 1 and isinstance(levels[0], ast.Call)
+                and getattr(levels[0].func, "id", None) == "user_stacklevel")
+            if not takes_it_from_the_stack:
+                fixed.append(f"{path.relative_to(package)}:{node.lineno}")
+    assert fixed == []
 
 
 class TestWorldUpDisagreement:

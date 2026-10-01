@@ -11,6 +11,7 @@ import pandas as pd
 import tempfile
 import os
 import copy
+import re
 import warnings
 from fractions import Fraction
 from pathlib import Path
@@ -216,6 +217,114 @@ class TestReadBvhFile:
             read_bvh_file(txt_file)
 
 
+class TestReaderSyntaxErrors:
+    """Every syntax error the reader raises names the line and the file.
+
+    The hierarchy is parsed token by token, so a declaration in the
+    wrong place is caught where it occurs, with the line it sits on;
+    nothing is inferred or repaired. The expected messages are pinned
+    verbatim, line numbers included, so a change in the parser's
+    wording or in where it reports a fault is a visible change.
+    """
+
+    MOTION = [
+        "MOTION",
+        "Frames: 1",
+        "Frame Time: 0.033333",
+        "0 0 0 0 0 0 0 0 0",
+    ]
+
+    @staticmethod
+    def _spine_block(indent="  "):
+        return [
+            f"{indent}JOINT Spine",
+            f"{indent}{{",
+            f"{indent}  OFFSET 0 1 0",
+            f"{indent}  CHANNELS 3 Zrotation Yrotation Xrotation",
+            f"{indent}  End Site",
+            f"{indent}  {{",
+            f"{indent}    OFFSET 0 1 0",
+            f"{indent}  }}",
+            f"{indent}}}",
+        ]
+
+    @classmethod
+    def _hips_block(cls):
+        return [
+            "ROOT Hips",
+            "{",
+            "  OFFSET 0 0 0",
+            "  CHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation",
+            *cls._spine_block(),
+            "}",
+        ]
+
+    @classmethod
+    def _write(cls, tmp_path, hierarchy_lines):
+        path = tmp_path / "broken.bvh"
+        path.write_text("\n".join(["HIERARCHY", *hierarchy_lines, *cls.MOTION]) + "\n")
+        return path
+
+    def test_well_formed_control(self, tmp_path):
+        """The template the broken variants are cut from reads as expected."""
+        bvh = read_bvh_file(self._write(tmp_path, self._hips_block()))
+        assert [n.name for n in bvh.nodes] == ['Hips', 'Spine', 'EndSiteSpine']
+
+    def test_second_root(self, tmp_path):
+        path = self._write(tmp_path, [*self._hips_block(), "ROOT Other", "{",
+                                       "  OFFSET 0 0 0",
+                                       "  CHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation",
+                                       "}"])
+        with pytest.raises(ValueError, match=re.escape(
+                f"Second ROOT 'Other' at line 16 in file {path}: "
+                f"pybvh models single-root skeletons only")):
+            read_bvh_file(path)
+
+    def test_joint_outside_root(self, tmp_path):
+        path = self._write(tmp_path, [*self._spine_block(indent=""), *self._hips_block()])
+        with pytest.raises(ValueError, match=re.escape(
+                f"JOINT 'Spine' outside any ROOT block at line 2 in file {path}")):
+            read_bvh_file(path)
+
+    def test_end_site_outside_root(self, tmp_path):
+        path = self._write(tmp_path, ["End Site", "{", "  OFFSET 0 1 0", "}",
+                                       *self._hips_block()])
+        with pytest.raises(ValueError, match=re.escape(
+                f"End Site outside any ROOT block at line 2 in file {path}")):
+            read_bvh_file(path)
+
+    def test_unmatched_closing_brace(self, tmp_path):
+        path = self._write(tmp_path, [*self._hips_block(), "}"])
+        with pytest.raises(ValueError, match=re.escape(
+                f"Unmatched '}}' at line 16 in file {path}")):
+            read_bvh_file(path)
+
+    def test_joint_block_without_channels(self, tmp_path):
+        """The error names the joint and the line its declaration sits on."""
+        spine = self._spine_block()
+        del spine[3]  # the CHANNELS line
+        path = self._write(tmp_path, [*self._hips_block()[:4], *spine, "}"])
+        with pytest.raises(ValueError, match=re.escape(
+                f"Could not read the offset or channels of the joint Spine, "
+                f"at line 6 in file {path}: unexpected token 'End' in joint block")):
+            read_bvh_file(path)
+
+    def test_end_site_block_with_channels(self, tmp_path):
+        spine = self._spine_block()
+        spine.insert(7, "    CHANNELS 3 Zrotation Yrotation Xrotation")
+        path = self._write(tmp_path, [*self._hips_block()[:4], *spine, "}"])
+        with pytest.raises(ValueError, match=re.escape(
+                f"Could not read the offset of the End Site at line 10 in file "
+                f"{path}: end site must not declare CHANNELS")):
+            read_bvh_file(path)
+
+    def test_no_root(self, tmp_path):
+        path = self._write(tmp_path, [])
+        with pytest.raises(ValueError, match=re.escape(
+                f"No ROOT declaration found in {path}")):
+            read_bvh_file(path)
+
+
 class TestRadiansContract:
     """joint_angles is in radians; deg↔rad lives only at the I/O boundary."""
 
@@ -350,6 +459,36 @@ class TestNodeHierarchy:
         """Root should have no parent."""
         assert bvh_example.root.parent is None
 
+    @pytest.mark.parametrize("bad", [
+        ['XY', 'Z'], ['XYZ'], ['X', 'Y', 'Z', ''], ['X', 'Y', 1], ['X', 'Y', 'Y']])
+    def test_channel_list_must_be_three_single_axes(self, bad):
+        """`['XY', 'Z']` joins to 'XYZ' but is not an axis order: written,
+        it gives a CHANNELS line of five tokens that the reader rejects."""
+        with pytest.raises(ValueError, match="one of each from 'X' 'Y' 'Z'"):
+            BvhJoint('a', rot_channels=bad)
+        with pytest.raises(ValueError, match="one of each from 'X' 'Y' 'Z'"):
+            BvhRoot('a', pos_channels=bad)
+
+    @pytest.mark.parametrize("good", [['X', 'Y', 'Z'], 'ZYX'])
+    def test_channel_list_and_string_forms(self, good):
+        joint = BvhJoint('a', rot_channels=good)
+        assert joint.rot_channels == list(good)
+        assert joint.rot_channels is not good
+
+    @pytest.mark.parametrize("bad", [
+        [None, 0, 0], [np.nan, 0, 0], [0, np.inf, 0], np.array([0, 0, -np.inf])])
+    def test_offset_components_must_be_finite(self, bad):
+        """NumPy turns a None component (a JSON null) into nan silently."""
+        with pytest.raises(ValueError, match="3 finite numbers, got"):
+            BvhJoint('a', offset=bad)
+
+    @pytest.mark.parametrize("given, expected", [
+        ([1, 2, 3], [1.0, 2.0, 3.0]), (['1', '2.5', '-3'], [1.0, 2.5, -3.0])])
+    def test_offset_still_converts_ints_and_numeric_strings(self, given, expected):
+        offset = BvhJoint('a', offset=given).offset
+        assert offset.dtype == np.float64
+        np.testing.assert_array_equal(offset, expected)
+
 
 # =============================================================================
 # Test: node_positions / joint_positions
@@ -481,6 +620,21 @@ class TestDataFrameConversion:
         assert len(bvh2.nodes) == len(bvh_example.nodes)
         np.testing.assert_allclose(bvh2.root_pos, bvh_example.root_pos, atol=1e-10)
         np.testing.assert_allclose(bvh2.joint_angles, bvh_example.joint_angles, atol=1e-10)
+
+    def test_df_to_bvh_list_shares_no_node_with_the_input(self, bvh_example):
+        """The node list is rebuilt through the node table: the result holds
+        fresh nodes and the input list is left as it was."""
+        df = pd.DataFrame(bvh_example.to_df_dict(mode='euler', centered='world'))
+        children_before = [list(n.children) for n in bvh_example.nodes
+                           if not n.is_end_site()]
+
+        bvh2 = df_to_bvh(bvh_example.nodes, df)
+
+        originals = {id(node) for node in bvh_example.nodes}
+        assert not any(id(node) in originals for node in bvh2.nodes)
+        assert bvh2.matches_hierarchy(bvh_example, atol=0)
+        assert [list(n.children) for n in bvh_example.nodes
+                if not n.is_end_site()] == children_before
 
     @staticmethod
     def _make_underscored_bvh():
@@ -1394,6 +1548,51 @@ class TestJointSubsetting:
         assert not np.may_share_memory(result._root_pos, bvh_example._root_pos)
         assert not np.may_share_memory(result._joint_angles, bvh_example._joint_angles)
 
+    def test_surviving_end_site_keeps_its_own_name(self):
+        """An end site read from a file or built by hand keeps the name it
+        has; only the end sites extract_joints synthesizes are named
+        'EndSite' + joint."""
+        tip = BvhEndSite("tip", offset=[0.0, 2.0, 0.0])
+        hip = BvhJoint("Left_Hip", offset=[1.0, -3.0, 0.0],
+                       rot_channels=['X', 'Y', 'Z'], children=[tip])
+        tip.parent = hip
+        root = BvhRoot("Hip", offset=[0.0, 0.0, 0.0],
+                       rot_channels=['Z', 'Y', 'X'], children=[hip])
+        hip.parent = root
+        bvh = Bvh(nodes=[root, hip, tip], root_pos=np.zeros((2, 3)),
+                  joint_angles=np.zeros((2, 2, 3)), frame_time=1 / 30)
+
+        result = bvh.extract_joints(['Hip', 'Left_Hip'])
+
+        assert [n.name for n in result.nodes] == ['Hip', 'Left_Hip', 'tip']
+        assert [n.name for n in bvh.extract_joints(['Hip']).nodes] == [
+            'Hip', 'EndSiteHip']
+
+    def test_synthesized_end_sites_sit_after_their_joint(self, bvh_example, tmp_path):
+        """The result is in depth-first order, so a write-read round trip keeps it.
+
+        A kept joint left with nothing below it gets an end site; its place
+        is right after the joint, as a file would list it, not at the end of
+        `nodes`, where the reader would put it elsewhere and move the rows
+        of `node_positions()`.
+        """
+        sub = bvh_example.extract_joints(['Hips', 'Spine', 'RightArm', 'LeftArm'])
+        assert [n.name for n in sub.nodes] == [
+            'Hips', 'Spine', 'RightArm', 'EndSiteRightArm',
+            'LeftArm', 'EndSiteLeftArm']
+        sub.write(tmp_path / "sub.bvh")
+        back = read_bvh_file(tmp_path / "sub.bvh")
+        assert sub.matches_hierarchy(back)
+        np.testing.assert_allclose(
+            back.node_positions(), sub.node_positions(), atol=1e-3)
+
+    def test_linear_chain_round_trips(self, bvh_example, tmp_path):
+        """A chain's synthesized end site is last either way."""
+        sub = bvh_example.extract_joints(['Hips', 'Spine', 'Neck'])
+        assert [n.name for n in sub.nodes] == ['Hips', 'Spine', 'Neck', 'EndSiteNeck']
+        sub.write(tmp_path / "chain.bvh")
+        assert sub.matches_hierarchy(read_bvh_file(tmp_path / "chain.bvh"))
+
 
 # =============================================================================
 # Test: File round-trip for all BVH files
@@ -1992,6 +2191,120 @@ class TestConstructorValidation:
                   joint_angles=bvh_example.joint_angles.copy(),
                   frame_time=bvh_example.frame_time)
         assert bvh.frame_count == bvh_example.frame_count
+
+
+class TestConstructorTreeCheck:
+    """Bvh() refuses a node tree whose `parent` and `children` disagree.
+
+    The depth-first walk of `children` from `nodes[0]` must visit exactly
+    `nodes`, in order, by identity, and each node's `parent` must be the
+    node it was reached from. `write_bvh_file` walks `children` and
+    `joint_angles` follows `nodes`, so a tree wired on one side only would
+    write a file that disagrees with the motion it carries.
+    """
+
+    @staticmethod
+    def _joint(name, offset, parent):
+        return BvhJoint(name, offset=offset, rot_channels=['Z', 'Y', 'X'],
+                        parent=parent)
+
+    @staticmethod
+    def _bvh(nodes):
+        joint_count = sum(1 for n in nodes if not n.is_end_site())
+        return Bvh(nodes=nodes, root_pos=np.zeros((1, 3)),
+                   joint_angles=np.zeros((1, joint_count, 3)), frame_time=1 / 30)
+
+    def test_child_missing_from_its_parents_children(self):
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        arm = self._joint("Arm", [1, 0, 0], hips)
+        leg = self._joint("Leg", [0, -1, 0], hips)
+        hips.children = [arm]  # leg says hips is its parent; hips disagrees
+        with pytest.raises(ValueError, match=r"nodes\[2\] \('Leg'\) is not reached.*nodes\[0\] \('Hips'\)"):
+            self._bvh([hips, arm, leg])
+
+    def test_child_listed_twice(self):
+        """The #16 symptom: one end-site object in `children` twice."""
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        hand = self._joint("Hand", [1, 0, 0], hips)
+        tip = BvhEndSite("EndSiteHand", offset=[1, 0, 0], parent=hand)
+        hips.children = [hand]
+        hand.children = [tip, tip]
+        with pytest.raises(ValueError, match=r"reaches nodes\[2\] \('EndSiteHand'\).*after all 3 nodes"):
+            self._bvh([hips, hand, tip])
+
+    def test_node_listed_twice_in_nodes(self):
+        """One joint object at two positions, and twice in its parent's
+        children: every identity comparison of the walk passes, so the
+        repeat has to be caught on `nodes` itself."""
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        arm = self._joint("Arm", [1, 0, 0], hips)
+        hips.children = [arm, arm]
+        with pytest.raises(ValueError, match=r"nodes\[2\] is the same object as nodes\[1\] \('Arm'\)"):
+            self._bvh([hips, arm, arm])
+
+    def test_two_nodes_sharing_a_name_are_two_nodes(self):
+        """Names repeat in real files; only identities may not."""
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        left = self._joint("Arm", [1, 0, 0], hips)
+        right = self._joint("Arm", [-1, 0, 0], hips)
+        hips.children = [left, right]
+        assert self._bvh([hips, left, right]).joint_count == 3
+
+    def test_parent_set_to_another_joint(self):
+        """The end site sits in Leg's children but claims Arm as its parent."""
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        arm = self._joint("Arm", [1, 0, 0], hips)
+        leg = self._joint("Leg", [0, -1, 0], hips)
+        tip = BvhEndSite("EndSiteLeg", offset=[0, -1, 0], parent=arm)
+        hips.children = [arm, leg]
+        leg.children = [tip]
+        with pytest.raises(ValueError, match=r"nodes\[3\] \('EndSiteLeg'\) is in the children of nodes\[2\] \('Leg'\), but its parent is nodes\[1\] \('Arm'\)"):
+            self._bvh([hips, arm, leg, tip])
+
+    def test_breadth_first_nodes(self):
+        """Wired both ways, but listed level by level."""
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        arm = self._joint("Arm", [1, 0, 0], hips)
+        leg = self._joint("Leg", [0, -1, 0], hips)
+        arm_tip = BvhEndSite("EndSiteArm", offset=[1, 0, 0], parent=arm)
+        leg_tip = BvhEndSite("EndSiteLeg", offset=[0, -1, 0], parent=leg)
+        hips.children = [arm, leg]
+        arm.children = [arm_tip]
+        leg.children = [leg_tip]
+        with pytest.raises(ValueError, match=r"reaches nodes\[3\] \('EndSiteArm'\).*where nodes\[2\] \('Leg'\) is listed.*depth-first"):
+            self._bvh([hips, arm, leg, arm_tip, leg_tip])
+        assert self._bvh([hips, arm, arm_tip, leg, leg_tip]).joint_count == 3
+
+    def test_root_with_a_parent(self):
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        arm = self._joint("Arm", [1, 0, 0], hips)
+        hips.children = [arm]
+        hips.parent = arm
+        with pytest.raises(ValueError, match=r"nodes\[0\] \('Hips'\) is the root.*parent must be None"):
+            self._bvh([hips, arm])
+
+    def test_child_that_is_not_in_nodes(self):
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        arm = self._joint("Arm", [1, 0, 0], hips)
+        hips.children = [arm]
+        with pytest.raises(ValueError, match=r"'Arm', which is not in nodes"):
+            Bvh(nodes=[hips], root_pos=np.zeros((1, 3)),
+                joint_angles=np.zeros((1, 1, 3)), frame_time=1 / 30)
+
+    def test_empty_nodes(self):
+        with pytest.raises(ValueError, match="at least one node"):
+            Bvh(nodes=[])
+
+    @pytest.mark.parametrize("node_class", [BvhNode, BvhJoint])
+    def test_root_that_is_not_a_bvhroot(self, node_class):
+        """The root's type is checked before the walk reads the tree, so
+        a bare BvhNode, which cannot answer `is_end_site`, gets the same
+        ValueError as a BvhJoint rather than a NotImplementedError."""
+        with pytest.raises(ValueError, match="BvhRoot"):
+            Bvh(nodes=[node_class("bad")])
+
+    def test_a_lone_root_is_a_tree(self):
+        assert Bvh().joint_count == 1
 
 
 # =============================================================================
@@ -3357,10 +3670,11 @@ class TestNodeVelocities:
         root_pos = np.zeros((F, 3))
         root_pos[:, 0] = np.arange(F) * 5.0  # 5 units/frame along X
         joint_angles = np.zeros((F, 1, 3))
-        bvh = Bvh(nodes=[root, BvhEndSite("End Site", offset=np.array([0, 1, 0]), parent=root)],
+        tip = BvhEndSite("End Site", offset=np.array([0, 1, 0]), parent=root)
+        root.children = [tip]
+        bvh = Bvh(nodes=[root, tip],
                    root_pos=root_pos, joint_angles=joint_angles,
                    frame_time=1/30)
-        root.children = [bvh.nodes[1]]
         vel = bvh.node_velocities(in_frames=True, stencil="forward", pad="none")
         # Root velocity should be [5, 0, 0] for all frames
         np.testing.assert_allclose(vel[:, 0, 0], 5.0, atol=1e-10)
@@ -3429,10 +3743,11 @@ class TestNodeAccelerations:
         root_pos = np.zeros((F, 3))
         root_pos[:, 0] = np.arange(F) * 5.0
         joint_angles = np.zeros((F, 1, 3))
-        bvh = Bvh(nodes=[root, BvhEndSite("End Site", offset=np.array([0, 1, 0]), parent=root)],
+        tip = BvhEndSite("End Site", offset=np.array([0, 1, 0]), parent=root)
+        root.children = [tip]
+        bvh = Bvh(nodes=[root, tip],
                    root_pos=root_pos, joint_angles=joint_angles,
                    frame_time=1/30)
-        root.children = [bvh.nodes[1]]
         acc = bvh.node_accelerations(in_frames=True, stencil="forward", pad="none")
         np.testing.assert_allclose(acc, 0.0, atol=1e-10)
 

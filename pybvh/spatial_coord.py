@@ -87,8 +87,8 @@ class FkTopology(_FkTopologyFields):
     from_nodes : Derive one from a bare node list.
     frames_to_node_positions : The FK entry point that consumes it.
 
-    Example
-    -------
+    Examples
+    --------
     >>> topology = bvh.fk_topology            # at preprocessing time
     >>> np.savez(path, offsets=topology.offsets, parent_idx=topology.parent_idx,
     ...          joint_idx=topology.joint_idx, euler_orders=topology.euler_orders)

@@ -14,9 +14,10 @@ derives topology.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 
-from pybvh import Bvh
+from pybvh import Bvh, df_to_bvh, read_bvh_file, write_bvh_file
 from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhRoot
 from pybvh.bvhplot._from_bvh import get_skeleton_lines
 
@@ -69,6 +70,22 @@ def duplicate_joint_rig():
     nodes = [root, first, grandchild, grandchild.children[0],
              second, second.children[0]]
     return Bvh(nodes, np.zeros((3, 3)), np.zeros((3, 4, 3)), 1 / 30)
+
+
+@pytest.fixture
+def one_joint_two_end_sites_rig():
+    """One joint carrying two end sites, which share their display name.
+
+    Node order::
+
+        0 Hips  1 Hand  2 EndSiteHand  3 EndSiteHand
+    """
+    root = BvhRoot('Hips', [0, 0, 0], 'XYZ', 'ZYX', [])
+    hand = _attach(root, BvhJoint('Hand', [0, 1, 0], 'ZYX', []))
+    _attach(hand, BvhEndSite('EndSiteHand', [1, 0, 0]))
+    _attach(hand, BvhEndSite('EndSiteHand', [0, 0, 2]))
+    nodes = [root, hand, hand.children[0], hand.children[1]]
+    return Bvh(nodes, np.zeros((3, 3)), np.zeros((3, 2, 3)), 1 / 30)
 
 
 def _expected_node_edges(bvh):
@@ -165,6 +182,71 @@ class TestOtherTopologyConsumers:
         assert reduced.node_edges == _expected_node_edges(reduced)
         assert [n.name for n in reduced.nodes if not n.is_end_site()] == [
             'Hips', 'EndSiteHips']
+
+    def test_extract_joints_wires_parents_by_identity(self):
+        """A joint nested under a joint of the same name: 'Hand' hangs from
+        the outer 'Arm', its real ancestor, not from the inner one that a
+        name lookup would return as the latest 'Arm' built."""
+        root = BvhRoot('Hips', [0, 0, 0], 'XYZ', 'ZYX', [])
+        outer = _attach(root, BvhJoint('Arm', [1, 0, 0], 'ZYX', []))
+        inner = _attach(outer, BvhJoint('Arm', [0, 1, 0], 'ZYX', []))
+        _attach(inner, BvhEndSite('EndSiteArm', [0, 1, 0]))
+        hand = _attach(outer, BvhJoint('Hand', [0, 0, 1], 'ZYX', []))
+        _attach(hand, BvhEndSite('EndSiteHand', [0, 0, 1]))
+        nodes = [root, outer, inner, inner.children[0], hand, hand.children[0]]
+        bvh = Bvh(nodes, np.zeros((2, 3)), np.zeros((2, 4, 3)), 1 / 30)
+
+        reduced = bvh.extract_joints(['Hips', 'Arm', 'Hand'])
+
+        assert [n.name for n in reduced.nodes] == [
+            'Hips', 'Arm', 'Arm', 'EndSiteArm', 'Hand', 'EndSiteHand']
+        assert reduced.node_edges == [(1, 0), (2, 1), (3, 2), (4, 1), (5, 4)]
+
+    def test_extract_joints_selects_columns_by_position(self, duplicate_joint_rig):
+        """Two kept joints named 'Arm' each keep their own joint_angles column."""
+        rig = duplicate_joint_rig
+        angles = np.zeros((3, 4, 3))
+        angles[:, 1, 0] = 10.0   # the first Arm, column 1
+        angles[:, 3, 0] = 30.0   # the second Arm, column 3
+        rig = Bvh(rig.nodes, rig.root_pos, angles, rig.frame_time)
+
+        reduced = rig.extract_joints(['Hips', 'Arm'])
+
+        assert reduced.joint_names == ['Hips', 'Arm', 'Arm']
+        np.testing.assert_array_equal(reduced.joint_angles[:, 1, 0], 10.0)
+        np.testing.assert_array_equal(reduced.joint_angles[:, 2, 0], 30.0)
+
+
+# =============================================================================
+# Round trips through a file and a DataFrame
+# =============================================================================
+
+class TestRoundTrips:
+    """Written and read back, or rebuilt from a DataFrame, a rig keeps its
+    topology: the writer walks `children`, the reader and `df_to_bvh`
+    build by position, and none of them keys on a name."""
+
+    @pytest.fixture(params=[
+        "collision_rig", "duplicate_joint_rig", "one_joint_two_end_sites_rig"])
+    def rig(self, request):
+        return request.getfixturevalue(request.param)
+
+    def test_file_round_trip(self, rig, tmp_path):
+        path = tmp_path / "rig.bvh"
+        write_bvh_file(rig, path)
+        back = read_bvh_file(path)
+        assert back.matches_hierarchy(rig)
+        assert back.matches_channels(rig)
+        np.testing.assert_array_equal(back.node_positions(), rig.node_positions())
+
+    def test_dataframe_round_trip_keeps_both_end_sites(
+            self, one_joint_two_end_sites_rig):
+        # Two joints sharing a name are not covered: their DataFrame
+        # columns collide today, which #16 fixes.
+        rig = one_joint_two_end_sites_rig
+        rebuilt = df_to_bvh(rig.nodes, pd.DataFrame(rig.to_df_dict(mode='euler')))
+        assert rebuilt.matches_hierarchy(rig)
+        assert rebuilt == rig
 
 
 # =============================================================================

@@ -57,6 +57,8 @@ The fastest route from "I want to…" to the exact call. Everything visual is al
         - harmonize
         - HarmonizeReport
         - df_to_bvh
+        - nodes_to_table
+        - nodes_from_table
         - frames_to_node_positions
         - FkTopology
         - relative_scale_factor

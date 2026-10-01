@@ -14,6 +14,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
+from .node_tree import _check_node_tree, nodes_from_table
 from .spatial_coord import (
     FkTopology, frames_to_node_positions, _ground_plane_offset,
 )
@@ -52,7 +53,12 @@ class Bvh:
     Attributes
     ----------
     nodes : list of BvhNode
-        Skeleton hierarchy in topological order.
+        Skeleton hierarchy in depth-first order, as a file lists it.
+        The constructor checks that the tree is wired both ways: the
+        depth-first walk of ``children`` from ``nodes[0]`` must visit
+        exactly ``nodes``, in order, and each node's ``parent`` must be
+        the node it was reached from; ``ValueError`` otherwise. To build
+        a tree from plain data, :func:`~pybvh.nodes_from_table` wires it.
     root : BvhRoot
         The root node (``nodes[0]``).
     root_pos : ndarray, shape (F, 3)
@@ -123,9 +129,12 @@ class Bvh:
         if nodes is None:
             nodes = [BvhRoot()]
         self.nodes = nodes
+        # The root's type is checked before the walk, which asks every
+        # node its kind; a bare BvhNode cannot answer that.
+        self.root = self.nodes[0]  # type: ignore[assignment]
+        _check_node_tree(self.nodes)
         self.frame_time = frame_time
         self.source_path = source_path
-        self.root = self.nodes[0]  # type: ignore[assignment]
 
         # Validate that root position channels are standard XYZ
         if self.root.pos_channels != ['X', 'Y', 'Z']:
@@ -198,7 +207,9 @@ class Bvh:
     def nodes(self, value: list[BvhNode]) -> None:
         if (not isinstance(value, list)) or any([not isinstance(x, BvhNode) for x in value]):
             raise ValueError("nodes should be a list of BvhNode class/subclasse objects")
-        self._nodes = value 
+        if len(value) == 0:
+            raise ValueError("nodes must hold at least one node, the root.")
+        self._nodes = value
 
     @property
     def frame_time(self) -> float:
@@ -226,8 +237,8 @@ class Bvh:
         positive finite number, so ``0``, a negative rate, NaN and
         infinity raise ``ValueError`` rather than mark the rate as unset.
 
-        Example
-        -------
+        Examples
+        --------
         >>> if bvh.fps != 30:
         ...     bvh = bvh.resample(30)
         """
@@ -941,8 +952,8 @@ class Bvh:
         animated L/R separation they can still measure while this
         reports ``False``.
 
-        Example
-        -------
+        Examples
+        --------
             >>> if bvh.has_lr_geometry:
             ...     assert bvh.rest_forward == dataset_convention
             ... else:
@@ -2359,6 +2370,14 @@ class Bvh:
         descendant via vector addition (valid at rest pose).  Their
         rotation contribution during animation is lost.
 
+        The result lists its nodes in depth-first order, as a file
+        would, so writing it and reading it back keeps
+        :meth:`matches_hierarchy`. A kept joint left with nothing below
+        it (no kept descendant, no end site of its own) gets an end site
+        named ``'EndSite' + name``, placed right after it, at the offset
+        of its nearest original end-site descendant (zero when it has
+        none).
+
         ``source_path``, a manual ``world_up`` override, and a user-set
         ``lr_mapping`` (filtered to pairs whose joints are both kept) are
         preserved on the result.
@@ -2368,7 +2387,10 @@ class Bvh:
         joint_names : list of str
             Names of joints to keep.  The root must be included.
             End sites are handled automatically (kept if their parent
-            is kept, otherwise removed).
+            is kept, otherwise removed). Selection is by name, so two
+            joints sharing a name are kept or dropped together; their
+            parents and ``joint_angles`` columns are still resolved by
+            position, never by name.
 
         Returns
         -------
@@ -2387,95 +2409,71 @@ class Bvh:
             raise ValueError(
                 f"Root joint '{self.root.name}' must be in joint_names.")
 
-        # --- Build old joint index for each non-end-site node ---
-        old_j_idx = {}
-        j = 0
-        for node in self.nodes:
-            if not node.is_end_site():
-                old_j_idx[node.name] = j
-                j += 1
-
-        # --- For each kept joint, find nearest kept ancestor and
-        #     accumulated offset (sum of intermediate offsets) ---
-        # Also collect which old joint indices to keep.
-        new_nodes = []
-        kept_old_j_indices = []
-        # Map old node name → new node object (for parent/children wiring)
-        new_node_map: dict[str, BvhNode] = {}
-        # Map id(new node) → the original node it was built from
-        original_of: dict[int, BvhNode] = {}
-
-        for node in self.nodes:
+        def survives_extraction(node: BvhNode) -> bool:
             if node.is_end_site():
-                # Keep end site only if its parent is kept
-                if node.parent is not None and node.parent.name in keep_set:
-                    # Walk up from this end site accumulating offset
-                    # (in case there were removed intermediates — though
-                    # end sites are always direct children, just be safe)
-                    acc_offset = node.offset.copy()
-                    new_end = BvhEndSite(
-                        node.name, offset=acc_offset,
-                        parent=new_node_map[node.parent.name])
-                    new_nodes.append(new_end)
-                    new_node_map[node.name] = new_end
+                return node.parent is not None and node.parent.name in keep_set
+            return node.name in keep_set
+
+        # A kept joint ends childless in the new tree when nothing below
+        # it survives: its end site then goes right after it, which is
+        # its depth-first place. Walking the list backwards settles each
+        # node's flag before its parent reads it, since parents precede
+        # their children in ``nodes``.
+        survives = [survives_extraction(node) for node in self.nodes]
+        position = {id(node): i for i, node in enumerate(self.nodes)}
+        survivor_below = [False] * len(self.nodes)
+        for i in range(len(self.nodes) - 1, 0, -1):
+            parent_position = position[id(self.nodes[i].parent)]
+            if survives[i] or survivor_below[i]:
+                survivor_below[parent_position] = True
+
+        rows: list[dict[str, Any]] = []
+        kept_old_j_indices: list[int] = []
+        # Original joint (by identity: names repeat) -> its row index
+        row_of: dict[int, int] = {}
+
+        joint_column = 0
+        for i, node in enumerate(self.nodes):
+            if node.is_end_site():
+                if survives[i]:
+                    rows.append({'name': node.name,
+                                 'parent': row_of[id(node.parent)],
+                                 'offset': node.offset})
                 continue
 
-            if node.name not in keep_set:
+            column = joint_column
+            joint_column += 1
+            if not survives[i]:
                 continue
 
-            # This is a kept joint. Find its nearest kept ancestor.
-            acc_offset = node.offset.copy()
-            walker = node.parent
-            while walker is not None and walker.name not in keep_set:
-                acc_offset = walker.offset + acc_offset
-                walker = walker.parent
-
-            if walker is None:
-                # This is the root (no parent)
-                if isinstance(node, BvhRoot):
-                    new_node = BvhRoot(
-                        node.name, offset=acc_offset,
-                        pos_channels=list(node.pos_channels),
-                        rot_channels=list(node.rot_channels),
-                        children=[])
-                else:
-                    raise ValueError(
-                        f"Joint '{node.name}' has no kept ancestor and "
-                        f"is not the root.")
+            row: dict[str, Any] = {'name': node.name}
+            if node is self.root:
+                row['parent'] = None
+                row['offset'] = node.offset
+                row['pos_channels'] = node.pos_channels  # type: ignore[attr-defined]
             else:
-                new_parent = new_node_map[walker.name]
-                new_node = BvhJoint(  # type: ignore[assignment]
-                    node.name, offset=acc_offset,
-                    rot_channels=list(node.rot_channels),  # type: ignore[attr-defined]
-                    children=[], parent=new_parent)
-                new_parent.children = new_parent.children + [new_node]  # type: ignore[attr-defined]
+                # Removed ancestors collapse into this joint's offset,
+                # summed up to the nearest kept one (the root at the latest).
+                acc_offset = node.offset.copy()
+                walker = node.parent
+                while walker is not None and walker.name not in keep_set:
+                    acc_offset = walker.offset + acc_offset
+                    walker = walker.parent
+                row['parent'] = row_of[id(walker)]
+                row['offset'] = acc_offset
+            row['rot_channels'] = node.rot_channels  # type: ignore[attr-defined]
 
-            new_nodes.append(new_node)
-            new_node_map[node.name] = new_node
-            # Remember which original each new joint came from, so the
-            # end-site synthesis below reaches back by identity rather
-            # than re-looking-up a name through node_index (where an end
-            # site sharing the name would shadow the joint).
-            original_of[id(new_node)] = node
-            kept_old_j_indices.append(old_j_idx[node.name])
+            row_of[id(node)] = len(rows)
+            rows.append(row)
+            kept_old_j_indices.append(column)
 
-        # Wire end-site children into their parents
-        for node in new_nodes:
-            if node.is_end_site() and node.parent is not None:
-                parent = node.parent
-                if node not in parent.children:  # type: ignore[attr-defined]
-                    parent.children = parent.children + [node]  # type: ignore[attr-defined]
+            if not survivor_below[i]:
+                # No name: the builder names it 'EndSite' + the joint's
+                # name, as the parser would.
+                rows.append({'parent': row_of[id(node)],
+                             'offset': self._find_end_site_offset(node)})
 
-        # If a kept joint has no children at all, create an end site
-        # using the offset to its nearest original end-site descendant.
-        for node in new_nodes:
-            if not node.is_end_site() and not node.children:  # type: ignore[attr-defined]
-                end_offset = self._find_end_site_offset(original_of[id(node)])
-                # 'EndSite<name>' is display-only; end-site identity is the class.
-                end_site = BvhEndSite(
-                    f'EndSite{node.name}', offset=end_offset, parent=node)
-                node.children = [end_site]  # type: ignore[attr-defined]
-                new_nodes.append(end_site)
+        new_nodes = nodes_from_table(rows)
 
         # --- Build new joint_angles by selecting kept columns ---
         new_joint_angles = self.joint_angles[:, kept_old_j_indices, :]

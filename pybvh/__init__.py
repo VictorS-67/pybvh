@@ -3,6 +3,7 @@ from __future__ import annotations
 __version__ = "0.9.0"
 
 from .bvh import Bvh
+from .node_tree import nodes_from_table, nodes_to_table
 from .tools import Axis, parse_axis
 from .io import read_bvh_file, write_bvh_file
 from .df_to_bvh import df_to_bvh

@@ -8,12 +8,13 @@ Public functions:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO
 
 import numpy as np
 import numpy.typing as npt
 
-from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
+from .bvhnode import BvhNode
+from .node_tree import nodes_from_table
 from .bvh import Bvh
 from .tools import _validate_bvh_path, _validate_frame_time
 
@@ -131,13 +132,15 @@ def _snap_frame_time(frame_time: float) -> float:
 def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDArray[np.float64], float]:
     """Extract node hierarchy, frame data, and frame time from a BVH file.
 
+    The hierarchy is read token by token into node-table rows (see :func:`~pybvh.nodes_to_table`), one per ROOT, JOINT or End Site in file order, and the tree is built once by :func:`~pybvh.nodes_from_table`, which wires ``parent`` and ``children`` and checks the tree. Syntax errors (a second ROOT, a JOINT or End Site outside the ROOT block, an unmatched ``}``, an unreadable block) are raised here, with the line and the file.
+
     The returned frame array is normalized to pybvh's internal column layout: the root's 3 position columns first, then all rotation columns (root's, then each joint's in hierarchy order). Files whose root declares rotation channels before position channels are reordered on read; :func:`write_bvh_file` always writes position-first.
     """
-    node_list: list[BvhNode] = []
-    # Brace stack of currently-open node blocks: a node is pushed when its
-    # block opens and popped on the matching '}', so the parent of a new
-    # node is always the innermost open node (stack top).
-    open_nodes: list[BvhNode] = []
+    table: list[dict[str, Any]] = []
+    # Brace stack of the open ROOT/JOINT blocks, as row indices: a row is
+    # pushed when its block opens and popped on the matching '}', so the
+    # parent of a new node is always the innermost open block (stack top).
+    open_rows: list[int] = []
     # line number if we need to report a problem in the file
     line_number: int = 0
     frame_count: int = 0
@@ -161,11 +164,11 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
 
             if token in ('ROOT', 'JOINT'):
                 name = line[1]
-                if token == 'ROOT' and node_list:
+                if token == 'ROOT' and table:
                     raise ValueError(
                         f"Second ROOT '{name}' at line {line_number} in file "
                         f"{filepath}: pybvh models single-root skeletons only")
-                if token == 'JOINT' and not open_nodes:
+                if token == 'JOINT' and not open_rows:
                     raise ValueError(
                         f"JOINT '{name}' outside any ROOT block at line "
                         f"{line_number} in file {filepath}")
@@ -177,44 +180,41 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
                         f"Could not read the offset or channels of the {node_type} "
                         f"{name}, at line {line_number} in file {filepath}: {e}") from e
 
-                rot_channels = [ax for kind, ax in channels if kind == 'rot']
+                row: dict[str, Any] = {
+                    'name': name,
+                    'parent': open_rows[-1] if token == 'JOINT' else None,
+                    'offset': offset,
+                }
                 if token == 'ROOT':
-                    pos_channels = [ax for kind, ax in channels if kind == 'pos']
+                    row['pos_channels'] = [ax for kind, ax in channels if kind == 'pos']
                     root_pos_cols = [i for i, (kind, _) in enumerate(channels) if kind == 'pos']
                     root_rot_cols = [i for i, (kind, _) in enumerate(channels) if kind == 'rot']
-                    node: BvhNode = BvhRoot(name, offset, pos_channels, rot_channels, [], None)
-                else:
-                    parent_node = open_nodes[-1]
-                    node = BvhJoint(name, offset, rot_channels, [], parent_node)
-                    parent_node.children = parent_node.children + [node]  # type: ignore[attr-defined]
-                node_list.append(node)
-                open_nodes.append(node)
+                row['rot_channels'] = [ax for kind, ax in channels if kind == 'rot']
+                open_rows.append(len(table))
+                table.append(row)
 
             elif token == 'End':
-                if not open_nodes:
+                if not open_rows:
                     raise ValueError(
                         f"End Site outside any ROOT block at line {line_number} "
                         f"in file {filepath}")
-                parent_node = open_nodes[-1]
                 try:
                     offset, channels, line_number = _read_node_block('end_site', f, line_number)
                 except Exception as e:
                     raise ValueError(
                         f"Could not read the offset of the End Site "
                         f"at line {line_number} in file {filepath}: {e}") from e
-                # The generated name is display-only; end-site identity is
-                # carried by the BvhEndSite class.
-                node = BvhEndSite('EndSite' + parent_node.name, offset, parent_node)
-                parent_node.children = parent_node.children + [node]  # type: ignore[attr-defined]
-                node_list.append(node)
-                # End-site blocks are fully consumed by _read_node_block
-                # (including their closing '}'), so they never go on the stack.
+                # No name: the builder gives an end site its display name,
+                # 'EndSite' + the parent's name. End-site blocks are fully
+                # consumed by _read_node_block (including their closing
+                # '}'), so they never go on the stack.
+                table.append({'parent': open_rows[-1], 'offset': offset})
 
             elif token == '}':
-                if not open_nodes:
+                if not open_rows:
                     raise ValueError(
                         f"Unmatched '}}' at line {line_number} in file {filepath}")
-                open_nodes.pop()
+                open_rows.pop()
 
             elif token == 'Frames:':
                 frame_count = int(line[1])
@@ -236,12 +236,14 @@ def _extract_bvh_file_info(filepath: str | Path) -> tuple[list[BvhNode], npt.NDA
             # Other tokens ('HIERARCHY', 'MOTION') carry no data — skipped.
 
         #small test to see if we reach the end of the hierarchy with no trouble.
-        if not node_list:
+        if not table:
             raise ValueError(f"No ROOT declaration found in {filepath}")
         if frame_count == 0 or frame_time == 0.0:
             raise ValueError(
                 f"Frame count ({frame_count}) or frame time ({frame_time}) "
                 f"is missing or zero in {filepath}")
+
+        node_list = nodes_from_table(table)
 
         #----------  End of the Hierarchy part. After the hierarchy comes the frames data.
 

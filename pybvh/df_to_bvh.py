@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from .bvh import Bvh
 from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
+from .node_tree import nodes_from_table, nodes_to_table
 from .io import _snap_frame_time
 
 if TYPE_CHECKING:
@@ -339,7 +340,12 @@ def df_to_bvh(hier: list[BvhNode] | dict[str, dict], df: pd.DataFrame) -> Bvh:
         Skeletal hierarchy, supplied as either:
 
         * A **list** of ``BvhRoot``, ``BvhJoint``, and ``BvhEndSite`` objects
-          with parent/children already set.
+          in depth-first order, such as :attr:`Bvh.nodes`. It is read
+          through :func:`~pybvh.nodes_to_table`, so only each node's
+          ``parent`` is consulted, and the result holds fresh nodes built
+          by :func:`~pybvh.nodes_from_table`: nothing is shared with the
+          list given, and a list that is not one tree in depth-first
+          order raises ``ValueError``.
         * A **dict** keyed by joint name, where each value contains at least
           ``'offset'`` (list of 3 floats), ``'parent'`` (str or None), and
           ``'children'`` (list of str).  Optional keys ``'rot_channels'``
@@ -364,6 +370,9 @@ def df_to_bvh(hier: list[BvhNode] | dict[str, dict], df: pd.DataFrame) -> Bvh:
     ------
     TypeError
         If *hier* is neither a list nor a dict.
+    ValueError
+        If a node list is not one tree in depth-first order, or a node's
+        parent is not in the list (see :func:`~pybvh.nodes_from_table`).
     Exception
         If *df* columns do not satisfy naming or ordering requirements (see
         ``_check_df_columns``), or if *df* and *hier* are inconsistent (see
@@ -376,12 +385,17 @@ def df_to_bvh(hier: list[BvhNode] | dict[str, dict], df: pd.DataFrame) -> Bvh:
 
     df = _check_df_columns(df) # this creates a copy of the df
 
-    hier = copy.deepcopy(hier)
-
     if isinstance(hier, list):
-        #arrange the df correctly to fit with list of nodes info if possible
-        hier_list, df = _check_df_match_with_hier(hier, df) #arrange the df correctly to fit with list of nodes info if possible
+        hier_list, df = _check_df_match_with_hier(hier, df)
+        # Fresh nodes, wired and checked by the builder; the caller's list
+        # is read, never shared with the result.
+        hier_list = nodes_from_table(nodes_to_table(hier_list))
     elif isinstance(hier, dict):
+        # The name-keyed dict is replaced by the node table in #16. Until
+        # then it is built here, name-keyed both ways; a dict listing one
+        # end-site name twice wires that node into children twice, which
+        # the Bvh constructor's tree check now rejects with a ValueError.
+        hier = copy.deepcopy(hier)
         hier = _complete_hier_dict(hier, df) # check the info in the dict and fill them from df if possible
         hier_list = _hier_dict_to_list(hier) # create the hier list of nodes
         hier_list, df = _check_df_match_with_hier(hier_list, df)

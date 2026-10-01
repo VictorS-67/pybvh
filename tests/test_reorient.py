@@ -13,10 +13,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 from synthetic_bvh import (
-    make_pos_y_up_bvh, make_neg_y_up_bvh,
-    make_pos_z_up_bvh, make_neg_z_up_bvh,
-    make_pos_y_up_rotating_bvh, make_simple_bvh,
-    make_disagreement_bvh,
+    make_pos_y_up_bvh, make_pos_z_up_bvh, make_neg_z_up_bvh,
+    make_pos_y_up_rotating_bvh, make_disagreement_bvh,
 )
 
 from pybvh import read_bvh_file, Bvh, transforms

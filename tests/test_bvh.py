@@ -9,7 +9,6 @@ import pytest
 import numpy as np
 import pandas as pd
 import tempfile
-import os
 import copy
 import re
 import warnings

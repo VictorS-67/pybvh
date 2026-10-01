@@ -527,7 +527,7 @@ class TestReviewFixes:
     def test_floor_gray_unified_across_backends(self):
         """The vedo offscreen floor had drifted to #EDEDF1; all solid
         floors now read one palette."""
-        from pybvh.bvhplot import _colors, _vedo_offscreen, _matplotlib
+        from pybvh.bvhplot import _colors, _vedo_offscreen
         import inspect
         assert "#EDEDF1" not in inspect.getsource(_vedo_offscreen)
         assert _colors.FLOOR_LIGHT["face"] == "#E8E8EC"

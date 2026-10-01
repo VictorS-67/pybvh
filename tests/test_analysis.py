@@ -6,7 +6,6 @@ remediation phase; tests should fail against the pre-v3 implementation
 and turn green as the phases land.
 """
 
-import warnings
 from pathlib import Path
 import sys
 

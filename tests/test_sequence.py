@@ -348,7 +348,7 @@ class TestReviewFixes:
 
     def test_sequence_honors_floor_kind(self, bvh):
         from mpl_toolkits.mplot3d.art3d import (
-            Line3DCollection, Poly3DCollection)
+            Line3DCollection)
         from pybvh.bvhplot import Style
         fig, ax = bvhplot.sequence(
             bvh, n_poses=3, style=Style("paper", floor="grid"))

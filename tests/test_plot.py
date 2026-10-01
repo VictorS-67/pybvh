@@ -832,7 +832,6 @@ class TestTrajectory:
         which is notably narrower than the full skeleton extent."""
         import matplotlib
         matplotlib.use('Agg')
-        import numpy as np
         fig, ax_tight = bvhplot.trajectory(bvh_example, tight=True, show=False)
         fig2, ax_wide = bvhplot.trajectory(bvh_example, tight=False, show=False)
         tight_span = (ax_tight.get_xlim()[1] - ax_tight.get_xlim()[0])

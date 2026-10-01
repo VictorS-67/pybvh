@@ -10,7 +10,6 @@ Groups follow the plan at:
 from __future__ import annotations
 
 import sys
-import warnings
 from pathlib import Path
 
 import numpy as np
@@ -30,7 +29,6 @@ from synthetic_bvh import (
 )
 
 from pybvh import read_bvh_file, Bvh, rotations, transforms
-from pybvh.bvhnode import BvhRoot, BvhJoint, BvhNode
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
 EXAMPLE = str(BVH_DIR / "bvh_example.bvh")

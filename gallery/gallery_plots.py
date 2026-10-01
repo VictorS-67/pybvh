@@ -16,7 +16,6 @@ import matplotlib.pyplot as plt
 from matplotlib import animation
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-import pybvh
 from pybvh import geometry, analysis, rotations, tools, signal
 from pybvh.bvhplot import get_skeleton_lines
 

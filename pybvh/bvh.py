@@ -15,7 +15,9 @@ import numpy as np
 import numpy.typing as npt
 
 from ._warnings import user_stacklevel
-from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
+from .bvhnode import BvhNode, BvhJoint, BvhRoot
+# Re-exported: pybvh.bvh has long served every node class, end sites included.
+from .bvhnode import BvhEndSite as BvhEndSite
 from .node_tree import _check_node_tree, nodes_from_table, nodes_to_table
 from .spatial_coord import (
     FkTopology, frames_to_node_positions, _ground_plane_offset,

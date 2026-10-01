@@ -591,6 +591,21 @@ class TestDataFrameConversion:
         np.testing.assert_allclose(bvh2.root_pos, bvh_example.root_pos, atol=1e-10)
         np.testing.assert_allclose(bvh2.joint_angles, bvh_example.joint_angles, atol=1e-10)
 
+    def test_df_to_bvh_list_shares_no_node_with_the_input(self, bvh_example):
+        """The node list is rebuilt through the node table: the result holds
+        fresh nodes and the input list is left as it was."""
+        df = pd.DataFrame(bvh_example.to_df_dict(mode='euler', centered='world'))
+        children_before = [list(n.children) for n in bvh_example.nodes
+                           if not n.is_end_site()]
+
+        bvh2 = df_to_bvh(bvh_example.nodes, df)
+
+        originals = {id(node) for node in bvh_example.nodes}
+        assert not any(id(node) in originals for node in bvh2.nodes)
+        assert bvh2.matches_hierarchy(bvh_example, atol=0)
+        assert [list(n.children) for n in bvh_example.nodes
+                if not n.is_end_site()] == children_before
+
     @staticmethod
     def _make_underscored_bvh():
         """Skeleton exercising two column-parsing traps: an underscored joint name ('Left_Hip') and a root name ('Hip') that is a substring of it."""

@@ -377,7 +377,8 @@ def harmonize(
         out.append(b)
 
     if verbose and report.dropped_indices:
-        warnings.warn(_harmonize_summary(report, len(clips)), stacklevel=2)
+        warnings.warn(_harmonize_summary(report, len(clips)),
+                      stacklevel=user_stacklevel())
 
     if return_report:
         return out, report

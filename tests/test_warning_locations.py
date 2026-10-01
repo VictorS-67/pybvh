@@ -370,3 +370,16 @@ class TestConcatenatingClipsOfTwoRates:
             first += second
         warning = _the_warning(caught, "Frame time mismatch")
         assert (warning.filename, warning.lineno) == (__file__, line)
+
+
+def test_harmonize_names_the_line_of_its_call():
+    from pybvh.batch import harmonize
+    reference = read_bvh_file(BVH_DIR / "bvh_example.bvh")
+    other_skeleton = read_bvh_file(BVH_DIR / "bvh_test2.bvh")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        line = _line_after_this_one()
+        harmonize([reference, other_skeleton], reference=reference,
+                  verbose=True)
+    warning = _the_warning(caught, "harmonize:")
+    assert (warning.filename, warning.lineno) == (__file__, line)

@@ -166,6 +166,39 @@ class TestOtherTopologyConsumers:
         assert [n.name for n in reduced.nodes if not n.is_end_site()] == [
             'Hips', 'EndSiteHips']
 
+    def test_extract_joints_wires_parents_by_identity(self):
+        """A joint nested under a joint of the same name: 'Hand' hangs from
+        the outer 'Arm', its real ancestor, not from the inner one that a
+        name lookup would return as the latest 'Arm' built."""
+        root = BvhRoot('Hips', [0, 0, 0], 'XYZ', 'ZYX', [])
+        outer = _attach(root, BvhJoint('Arm', [1, 0, 0], 'ZYX', []))
+        inner = _attach(outer, BvhJoint('Arm', [0, 1, 0], 'ZYX', []))
+        _attach(inner, BvhEndSite('EndSiteArm', [0, 1, 0]))
+        hand = _attach(outer, BvhJoint('Hand', [0, 0, 1], 'ZYX', []))
+        _attach(hand, BvhEndSite('EndSiteHand', [0, 0, 1]))
+        nodes = [root, outer, inner, inner.children[0], hand, hand.children[0]]
+        bvh = Bvh(nodes, np.zeros((2, 3)), np.zeros((2, 4, 3)), 1 / 30)
+
+        reduced = bvh.extract_joints(['Hips', 'Arm', 'Hand'])
+
+        assert [n.name for n in reduced.nodes] == [
+            'Hips', 'Arm', 'Arm', 'EndSiteArm', 'Hand', 'EndSiteHand']
+        assert reduced.node_edges == [(1, 0), (2, 1), (3, 2), (4, 1), (5, 4)]
+
+    def test_extract_joints_selects_columns_by_position(self, duplicate_joint_rig):
+        """Two kept joints named 'Arm' each keep their own joint_angles column."""
+        rig = duplicate_joint_rig
+        angles = np.zeros((3, 4, 3))
+        angles[:, 1, 0] = 10.0   # the first Arm, column 1
+        angles[:, 3, 0] = 30.0   # the second Arm, column 3
+        rig = Bvh(rig.nodes, rig.root_pos, angles, rig.frame_time)
+
+        reduced = rig.extract_joints(['Hips', 'Arm'])
+
+        assert reduced.joint_names == ['Hips', 'Arm', 'Arm']
+        np.testing.assert_array_equal(reduced.joint_angles[:, 1, 0], 10.0)
+        np.testing.assert_array_equal(reduced.joint_angles[:, 2, 0], 30.0)
+
 
 # =============================================================================
 # Mirroring

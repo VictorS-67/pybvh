@@ -1394,6 +1394,31 @@ class TestJointSubsetting:
         assert not np.may_share_memory(result._root_pos, bvh_example._root_pos)
         assert not np.may_share_memory(result._joint_angles, bvh_example._joint_angles)
 
+    def test_synthesized_end_sites_sit_after_their_joint(self, bvh_example, tmp_path):
+        """The result is in depth-first order, so a write-read round trip keeps it.
+
+        A kept joint left with nothing below it gets an end site; its place
+        is right after the joint, as a file would list it, not at the end of
+        `nodes`, where the reader would put it elsewhere and move the rows
+        of `node_positions()`.
+        """
+        sub = bvh_example.extract_joints(['Hips', 'Spine', 'RightArm', 'LeftArm'])
+        assert [n.name for n in sub.nodes] == [
+            'Hips', 'Spine', 'RightArm', 'EndSiteRightArm',
+            'LeftArm', 'EndSiteLeftArm']
+        sub.write(tmp_path / "sub.bvh")
+        back = read_bvh_file(tmp_path / "sub.bvh")
+        assert sub.matches_hierarchy(back)
+        np.testing.assert_allclose(
+            back.node_positions(), sub.node_positions(), atol=1e-3)
+
+    def test_linear_chain_round_trips(self, bvh_example, tmp_path):
+        """A chain's synthesized end site is last either way."""
+        sub = bvh_example.extract_joints(['Hips', 'Spine', 'Neck'])
+        assert [n.name for n in sub.nodes] == ['Hips', 'Spine', 'Neck', 'EndSiteNeck']
+        sub.write(tmp_path / "chain.bvh")
+        assert sub.matches_hierarchy(read_bvh_file(tmp_path / "chain.bvh"))
+
 
 # =============================================================================
 # Test: File round-trip for all BVH files

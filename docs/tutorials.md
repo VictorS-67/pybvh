@@ -47,6 +47,17 @@ Then edit either side:
   ```
   Jupytext picks the newer file by mtime and updates the other side. Outputs on unchanged cells are preserved; outputs on modified cells are cleared (re-run the notebook to regenerate).
 
+CI checks that the code cells are formatted: `ruff format --check .` reads each `.ipynb`, and skips the `.py` twin so that every cell is checked once. Do not let ruff write a notebook itself: it would leave the twin behind, and its JSON writer rounds some floats of the saved widget state in their last digit. Once the pair is in sync, let ruff format a copy and bring back only the sources, through the twin:
+
+```bash
+for nb in tutorials/*.ipynb gallery/feature_gallery.ipynb; do
+  ruff format --stdin-filename "$nb" < "$nb" > formatted.ipynb
+  jupytext --to py:percent -o "${nb%.ipynb}.py" formatted.ipynb
+  jupytext --to ipynb --update "${nb%.ipynb}.py"
+done
+rm formatted.ipynb
+```
+
 ### Re-executing a tutorial
 
 The `.ipynb` is the artifact GitHub renders, straight from its committed outputs — nothing re-executes it at view time, so a notebook committed without its figures teaches nothing. After changing code cells, regenerate the outputs:

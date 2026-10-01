@@ -31,7 +31,7 @@ from ._warnings import user_stacklevel
 
 # Re-exported: pybvh.bvh has long served every node class, end sites included.
 from .bvhnode import BvhEndSite as BvhEndSite
-from .bvhnode import BvhJoint, BvhNode, BvhRoot
+from .bvhnode import BvhJoint, BvhNode, BvhRoot, _is_joint
 from .node_tree import _check_node_tree, nodes_from_table, nodes_to_table
 from .spatial_coord import (
     FkTopology,
@@ -2427,12 +2427,12 @@ class Bvh:
         for n1, n2 in zip(self.nodes, other.nodes):
             if n1.name != n2.name:
                 raise ValueError(f"Node name mismatch: '{n1.name}' vs '{n2.name}'")
-            if not n1.is_end_site() and not n2.is_end_site():
-                if n1.rot_channels != n2.rot_channels:  # type: ignore[attr-defined]
+            if _is_joint(n1) and _is_joint(n2):
+                if n1.rot_channels != n2.rot_channels:
                     raise ValueError(
                         f"Rotation order mismatch for '{n1.name}': "
                         f"{n1.rot_channels} vs {n2.rot_channels}"
-                    )  # type: ignore[attr-defined]
+                    )
 
     def _concat(self, other: Bvh) -> Bvh:
         """Implementation of ``self + other`` (see :meth:`__add__`).

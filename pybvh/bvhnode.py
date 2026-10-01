@@ -10,8 +10,13 @@ holds the nodes. Trees are usually built by the reader or by
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from typing_extensions import TypeGuard
 
 
 class BvhNode:
@@ -312,6 +317,18 @@ class BvhJoint(BvhNode):
         bool
         """
         return False
+
+
+def _is_joint(node: BvhNode) -> TypeGuard[BvhJoint]:
+    """Whether ``node`` is not an end site, narrowed for the type checker to a joint.
+
+    The test is :meth:`BvhNode.is_end_site`, the node-kind check pybvh
+    uses everywhere, so a node class of the caller's own that answers
+    ``False`` counts as a joint, as it does at run time, and is expected
+    to carry ``rot_channels`` and ``children``. ``isinstance(node,
+    BvhJoint)`` is the stricter alternative: it would skip such a node.
+    """
+    return not node.is_end_site()
 
 
 # ---------------------------------------------------------------------------------------------

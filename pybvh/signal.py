@@ -6,6 +6,7 @@ Numeric helpers that operate on plain NumPy arrays sampled along an axis — no 
 from __future__ import annotations
 
 from collections import namedtuple
+from typing import Union
 
 import numpy as np
 import numpy.typing as npt
@@ -254,7 +255,7 @@ def fft_magnitude(
         magnitude *= 2.0 / n
         # DC (and Nyquist, when it exists as its own bin) appear once in
         # the full spectrum, so folding to one side must not double them.
-        edge = [slice(None)] * magnitude.ndim
+        edge: list[Union[int, slice]] = [slice(None)] * magnitude.ndim
         edge[axis] = 0
         magnitude[tuple(edge)] /= 2.0
         if n % 2 == 0:

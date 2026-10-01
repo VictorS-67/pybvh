@@ -2506,7 +2506,7 @@ def _dlj_scale(
                 "amplitude=<float or (K,) array>."
             )
         extent = np.asarray(amplitude, dtype=np.float64)
-        valid_shapes = {()} if speed.ndim == 1 else {(), (speed.shape[1],)}
+        valid_shapes: set[tuple[int, ...]] = {()} if speed.ndim == 1 else {(), (speed.shape[1],)}
         wanted = "a scalar" if speed.ndim == 1 else f"a scalar or shape ({speed.shape[1]},)"
         if extent.shape not in valid_shapes:
             raise ValueError(

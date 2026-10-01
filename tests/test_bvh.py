@@ -2202,6 +2202,24 @@ class TestConstructorTreeCheck:
         with pytest.raises(ValueError, match=r"reaches nodes\[2\] \('EndSiteHand'\).*after all 3 nodes"):
             self._bvh([hips, hand, tip])
 
+    def test_node_listed_twice_in_nodes(self):
+        """One joint object at two positions, and twice in its parent's
+        children: every identity comparison of the walk passes, so the
+        repeat has to be caught on `nodes` itself."""
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        arm = self._joint("Arm", [1, 0, 0], hips)
+        hips.children = [arm, arm]
+        with pytest.raises(ValueError, match=r"nodes\[2\] is the same object as nodes\[1\] \('Arm'\)"):
+            self._bvh([hips, arm, arm])
+
+    def test_two_nodes_sharing_a_name_are_two_nodes(self):
+        """Names repeat in real files; only identities may not."""
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])
+        left = self._joint("Arm", [1, 0, 0], hips)
+        right = self._joint("Arm", [-1, 0, 0], hips)
+        hips.children = [left, right]
+        assert self._bvh([hips, left, right]).joint_count == 3
+
     def test_parent_set_to_another_joint(self):
         """The end site sits in Leg's children but claims Arm as its parent."""
         hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels=['Z', 'Y', 'X'])

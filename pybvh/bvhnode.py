@@ -279,8 +279,9 @@ def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
     """Raise unless ``nodes`` is one tree in depth-first order, wired both ways.
 
     The depth-first walk of ``children`` from ``nodes[0]`` must visit
-    exactly ``nodes``, in order, by identity, and every node reached must
-    have the node it was reached from as its ``parent``. This is what
+    exactly ``nodes``, in order, by identity, each node listed once, and
+    every node reached must have the node it was reached from as its
+    ``parent``. This is what
     :func:`~pybvh.io.write_bvh_file` (which walks ``children``) and
     ``joint_angles`` (whose columns follow ``nodes``) both rely on;
     :class:`~pybvh.Bvh` checks it when built. O(N), no FK.
@@ -289,6 +290,19 @@ def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
         raise ValueError("nodes must hold at least one node, the root.")
     total = len(nodes)
     position = {id(node): i for i, node in enumerate(nodes)}
+    # The walk compares by identity, so one object listed twice in nodes
+    # and twice in its parent's children passes every comparison below;
+    # the repeat shows only in the identity map.
+    if len(position) != total:
+        first_seen: dict[int, int] = {}
+        for i, node in enumerate(nodes):
+            if id(node) in first_seen:
+                raise ValueError(
+                    f"nodes[{i}] is the same object as "
+                    f"nodes[{first_seen[id(node)]}] ({node.name!r}); every "
+                    f"node must be listed exactly once in nodes. Two nodes "
+                    f"sharing a name are two objects.")
+            first_seen[id(node)] = i
 
     def describe(node: BvhNode | None) -> str:
         if node is None:

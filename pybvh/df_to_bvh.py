@@ -19,32 +19,29 @@ _SUFFIX_RULE = (
 
 
 def _time_label(df: pd.DataFrame) -> Hashable:
-    """The label of *df*'s ``time`` column: the first spelling ``time`` in any case."""
+    """The label of *df*'s ``time`` column.
+
+    The first label spelling ``time`` in any case is taken.
+    """
     for label in df.columns:
         if str(label).lower() == 'time':
             return label
     raise ValueError("No 'time' column found in the DataFrame")
 
 
-def _motion_columns(nodes: Sequence[BvhNode], df: pd.DataFrame,
-                    time_label: Hashable) -> pd.DataFrame:
+def _motion_columns(nodes: Sequence[BvhNode], df: pd.DataFrame) -> pd.DataFrame:
     """*df*'s motion columns in the flat layout order of *nodes*.
 
     The labels expected are those ``Bvh.to_df_dict(mode='euler')`` gives
-    *nodes*, unique by construction. When the columns of *df* besides
-    ``time`` are exactly those, in order, *df* is bound as it is;
-    otherwise the expected labels are selected from it in order, so
-    columns bind by name whatever their order and columns outside the
-    set are ignored. A missing label raises ``ValueError`` listing every
-    missing one, and a label listed twice raises as well, since each
-    label must name one column; both messages state the suffix rule when
-    *df* has repeated labels, the usual cause.
+    *nodes*, unique by construction, and they are selected from *df* by
+    name in that order: the columns of *df* may come in any order, and
+    columns outside the set, ``time`` among them, are left out. A
+    missing label raises ``ValueError`` listing every missing one, and
+    a label listed twice raises as well, since each label must name one
+    column; both messages state the suffix rule when *df* has repeated
+    labels, the usual cause.
     """
     expected = _motion_column_names(nodes, 'euler')
-    motion = df.drop(columns=[time_label])
-    if list(motion.columns) == expected:
-        return motion
-
     present = set(df.columns)
     repeated = df.columns[df.columns.duplicated()].unique().tolist()
     missing = [name for name in expected if name not in present]
@@ -170,10 +167,9 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]],
     """
 
     nodes = _nodes_from_hier(hier)
-    time_label = _time_label(df)
-    frames = _motion_columns(nodes, df, time_label).to_numpy()
+    time_values = df[_time_label(df)].to_numpy()
+    frames = _motion_columns(nodes, df).to_numpy()
 
-    time_values = df[time_label].to_numpy()
     if len(time_values) < 2:
         raise ValueError(
             f"df must contain at least 2 rows to derive the frame time "

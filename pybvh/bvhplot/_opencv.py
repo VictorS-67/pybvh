@@ -176,6 +176,25 @@ class _ViewDrawContext:
                 _to_bgr(TRACE_COLOR), bg_bgr, TRACE_BLEND)
 
 
+def _painter_order(
+    pose: npt.NDArray[np.floating],
+    bones: npt.NDArray[np.integer],
+    view_matrix: npt.NDArray[np.floating],
+) -> npt.NDArray[np.intp]:
+    """Bone indices of *pose* ordered far-to-near from the camera.
+
+    *pose* is ``(N, 3)`` world coordinates, *bones* ``(B, 2)`` parent
+    and child node indices, *view_matrix* the ``(3, 3)`` world-to-view
+    rotation; the result is ``(B,)`` indices into *bones*.
+
+    cv2 has no depth buffer, so bones are drawn in painter's order:
+    sorted by their midpoint's depth along row 2 of *view_matrix*,
+    which points toward the viewer. The caller passes the frame's own
+    view matrix, since under follow/turntable it changes every frame.
+    """
+    return np.argsort(pose[bones].mean(axis=1) @ view_matrix[2])
+
+
 def _draw_skeletons_on_frame(
     img: npt.NDArray[np.uint8],
     frame_idx: int,
@@ -225,6 +244,7 @@ def _draw_skeletons_on_frame(
     # supersampled drawing surfaces scale up with them).
     thickness = bone_width_px(style.bone_width, px_scale)
     thin = max(1, int(px_scale + 0.5))
+    panel_size = (panel_w, h)
 
     for s, view in enumerate(scene.views):
         ctx = contexts[s]
@@ -245,23 +265,13 @@ def _draw_skeletons_on_frame(
                 canvas, style, viewport, frame_idx, panel_w, h, 0,
                 bg_bgr, px_scale=px_scale)
 
-        def project(world_pts):
-            return viewport.project(world_pts, (panel_w, h), frame_idx)
-
         if trajectory and frame_idx > pass_start:
             path = ctx.trace_path[pass_start:frame_idx + 1]
-            cv2.polylines(canvas, [project(path)], False, ctx.trace_bgr,
+            path_2d = viewport.project(path, panel_size, frame_idx)
+            cv2.polylines(canvas, [path_2d], False, ctx.trace_bgr,
                           thin, cv2.LINE_AA)
 
-        # Painter's order: cv2 has no depth buffer, so bones draw
-        # far-to-near along the camera direction (view_matrix row 2
-        # points toward the viewer). Recomputed per frame — under
-        # follow/turntable the view matrix changes every frame.
         bones_arr = np.asarray(view.bones, dtype=int)
-
-        def painter_order(pose):
-            return np.argsort(pose[bones_arr].mean(axis=1)
-                              @ view_matrix[2])
 
         if ghost > 0:
             ghost_thickness = max(
@@ -271,16 +281,18 @@ def _draw_skeletons_on_frame(
                 gf = frame_idx - (j + 1) * ctx.ghost_lag
                 if gf < pass_start:
                     continue
-                gpts = project(view.coords[gf])
-                for b in painter_order(view.coords[gf]):
+                gpts = viewport.project(view.coords[gf], panel_size,
+                                        frame_idx)
+                for b in _painter_order(view.coords[gf], bones_arr,
+                                        view_matrix):
                     p_idx, c_idx = view.bones[b]
                     cv2.line(canvas, tuple(gpts[p_idx]),
                              tuple(gpts[c_idx]), ctx.ghost_bgr[j][b],
                              ghost_thickness, cv2.LINE_AA)
 
-        pts_2d = project(frame_data)
+        pts_2d = viewport.project(frame_data, panel_size, frame_idx)
 
-        for b in painter_order(frame_data):
+        for b in _painter_order(frame_data, bones_arr, view_matrix):
             p_idx, c_idx = view.bones[b]
             pt1 = (int(pts_2d[p_idx, 0]), int(pts_2d[p_idx, 1]))
             pt2 = (int(pts_2d[c_idx, 0]), int(pts_2d[c_idx, 1]))

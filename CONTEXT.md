@@ -114,15 +114,16 @@ v0.8.0 added **SE(3) rigid-transform math** (the orientation companion to `geome
 
 ### 4.3 `pybvh/bvhnode.py` — Node Class Hierarchy
 
-Three classes forming an inheritance chain:
+Four classes: a base and the three node kinds built from it.
 
 ```
-BvhNode  (end sites)
+BvhNode  (base: name, offset, parent)
+  ├── BvhEndSite  (end sites)
   └── BvhJoint  (interior joints)
         └── BvhRoot  (root joint — exactly one per skeleton)
 ```
 
-`BvhNode` represents end sites (leaf bones, no channels). `BvhJoint` adds `rot_channels` (list of 3 chars, e.g. `['Z', 'Y', 'X']`) and `children`. `BvhRoot` adds `pos_channels`.
+`BvhNode` carries only the data every node kind shares (`name`, `offset`, `parent`); a tree is built from its subclasses, and a bare `BvhNode` cannot answer `is_end_site()`. `BvhEndSite` is a leaf bone with no channels. `BvhJoint` adds `rot_channels` (list of 3 chars, e.g. `['Z', 'Y', 'X']`) and `children`. `BvhRoot` adds `pos_channels`. Node kind is read through `is_end_site()` / `is_root()`, never from the name.
 
 **Freeze mechanism**: After a `Bvh` object is constructed, `_frozen = True` is set on all joints. Direct assignment to `rot_channels` raises `AttributeError` — users must use `Bvh.change_euler_order()`. Internal code uses `_set_rot_channels_internal()` to bypass the freeze.
 

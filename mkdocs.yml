@@ -60,6 +60,9 @@ plugins:
             members_order: source
             merge_init_into_class: true
             show_signature_annotations: true
+            # The overloads only spell out, for the type checker, which return
+            # type each literal argument selects; the docstring says it for the reader.
+            show_overloads: false
 
 nav:
   - Home: index.md

@@ -12,7 +12,7 @@ from __future__ import annotations
 import warnings
 from collections import namedtuple
 from collections.abc import Mapping, Sequence
-from typing import Any, Callable, TypeVar, Union
+from typing import Any, Callable, Literal, Optional, TypeVar, Union, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -863,6 +863,60 @@ def facing_frame(
 # ----------------------------------------------------------------
 
 
+@overload
+def foot_contacts(
+    bvh: Bvh,
+    foot_joints: Optional[list[str]] = ...,
+    method: str = ...,
+    coords: Optional[npt.NDArray[np.float64]] = ...,
+    *,
+    vel_threshold: Optional[float] = ...,
+    vel_smooth_duration: float = ...,
+    height_threshold: Optional[float] = ...,
+    floor: Union[float, str] = ...,
+    min_contact_duration: float = ...,
+    min_gap_duration: float = ...,
+    hysteresis: float = ...,
+    adaptive: bool = ...,
+    height_reference: str = ...,
+    return_info: Literal[False] = ...,
+) -> npt.NDArray[np.float64]: ...
+@overload
+def foot_contacts(
+    bvh: Bvh,
+    foot_joints: Optional[list[str]] = ...,
+    method: str = ...,
+    coords: Optional[npt.NDArray[np.float64]] = ...,
+    *,
+    vel_threshold: Optional[float] = ...,
+    vel_smooth_duration: float = ...,
+    height_threshold: Optional[float] = ...,
+    floor: Union[float, str] = ...,
+    min_contact_duration: float = ...,
+    min_gap_duration: float = ...,
+    hysteresis: float = ...,
+    adaptive: bool = ...,
+    height_reference: str = ...,
+    return_info: Literal[True],
+) -> tuple[npt.NDArray[np.float64], dict]: ...
+@overload
+def foot_contacts(
+    bvh: Bvh,
+    foot_joints: Optional[list[str]] = ...,
+    method: str = ...,
+    coords: Optional[npt.NDArray[np.float64]] = ...,
+    *,
+    vel_threshold: Optional[float] = ...,
+    vel_smooth_duration: float = ...,
+    height_threshold: Optional[float] = ...,
+    floor: Union[float, str] = ...,
+    min_contact_duration: float = ...,
+    min_gap_duration: float = ...,
+    hysteresis: float = ...,
+    adaptive: bool = ...,
+    height_reference: str = ...,
+    return_info: bool,
+) -> Union[npt.NDArray[np.float64], tuple[npt.NDArray[np.float64], dict]]: ...
 def foot_contacts(
     bvh: Bvh,
     foot_joints: list[str] | None = None,
@@ -1080,6 +1134,60 @@ def foot_contacts(
     )
 
 
+@overload
+def ground_contacts(
+    bvh: Bvh,
+    joints: Sequence[Union[str, int]],
+    method: str = ...,
+    coords: Optional[npt.NDArray[np.float64]] = ...,
+    *,
+    vel_threshold: Optional[float] = ...,
+    vel_smooth_duration: float = ...,
+    height_threshold: Optional[float] = ...,
+    floor: Union[float, str] = ...,
+    min_contact_duration: float = ...,
+    min_gap_duration: float = ...,
+    hysteresis: float = ...,
+    adaptive: bool = ...,
+    height_reference: str = ...,
+    return_info: Literal[False] = ...,
+) -> npt.NDArray[np.float64]: ...
+@overload
+def ground_contacts(
+    bvh: Bvh,
+    joints: Sequence[Union[str, int]],
+    method: str = ...,
+    coords: Optional[npt.NDArray[np.float64]] = ...,
+    *,
+    vel_threshold: Optional[float] = ...,
+    vel_smooth_duration: float = ...,
+    height_threshold: Optional[float] = ...,
+    floor: Union[float, str] = ...,
+    min_contact_duration: float = ...,
+    min_gap_duration: float = ...,
+    hysteresis: float = ...,
+    adaptive: bool = ...,
+    height_reference: str = ...,
+    return_info: Literal[True],
+) -> tuple[npt.NDArray[np.float64], dict]: ...
+@overload
+def ground_contacts(
+    bvh: Bvh,
+    joints: Sequence[Union[str, int]],
+    method: str = ...,
+    coords: Optional[npt.NDArray[np.float64]] = ...,
+    *,
+    vel_threshold: Optional[float] = ...,
+    vel_smooth_duration: float = ...,
+    height_threshold: Optional[float] = ...,
+    floor: Union[float, str] = ...,
+    min_contact_duration: float = ...,
+    min_gap_duration: float = ...,
+    hysteresis: float = ...,
+    adaptive: bool = ...,
+    height_reference: str = ...,
+    return_info: bool,
+) -> Union[npt.NDArray[np.float64], tuple[npt.NDArray[np.float64], dict]]: ...
 def ground_contacts(
     bvh: Bvh,
     joints: Sequence[str | int],

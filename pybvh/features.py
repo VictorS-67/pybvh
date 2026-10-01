@@ -233,7 +233,6 @@ def to_feature_array(
         contacts = foot_contacts(
             bvh, foot_joints=foot_joints, coords=coords if centered != "skeleton" else None
         )
-        assert isinstance(contacts, np.ndarray)
         parts.append(contacts)
 
     # Align frames: trim F-shaped blocks (root_pos, rot, contacts) to match

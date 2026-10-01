@@ -1667,9 +1667,9 @@ class TestMatchFps:
 
 
 class TestSceneSpacing:
-    """Scene.spread() (lateral spacing for the single-scene backends), the
-    router policy around it (_spread_for_single_scene()), and
-    _warn_world_up_mismatch().
+    """Scene.spread() (lateral spacing for the single-scene backends) and
+    _warn_world_up_mismatch(). The router's policy around the spread is
+    tested through play, frame and render in TestSpreadInOneScene.
 
     No k3d or vedo installation required — the Scene is exercised directly.
     """
@@ -1705,42 +1705,6 @@ class TestSceneSpacing:
         b1, _ = two_bvhs
         scene = self._scene([b1], [two_coords[0]])
         assert scene.spread("auto") is scene
-
-    # ------------------------------------------------------------------
-    # Router policy: centered='world' + auto → no offset
-    # ------------------------------------------------------------------
-
-    def test_auto_world_no_offset(self, two_bvhs, two_coords):
-        from pybvh.bvhplot import _spread_for_single_scene
-        scene = self._scene(two_bvhs, two_coords)
-        result = _spread_for_single_scene(scene, "auto", "world")
-        np.testing.assert_array_equal(result.views[0].coords, two_coords[0])
-        np.testing.assert_array_equal(result.views[1].coords, two_coords[1])
-
-    # ------------------------------------------------------------------
-    # centered='first' + auto → skeleton 1 shifted laterally
-    # ------------------------------------------------------------------
-
-    def test_auto_first_applies_offset(self, two_bvhs, two_coords):
-        from pybvh.bvhplot import _spread_for_single_scene
-        scene = self._scene(two_bvhs, two_coords)
-        result = _spread_for_single_scene(scene, "auto", "first")
-        # Skeleton 0 unchanged
-        np.testing.assert_array_equal(result.views[0].coords, two_coords[0])
-        # Skeleton 1 shifted (at least one coordinate differs)
-        assert not np.allclose(result.views[1].coords, two_coords[1])
-        # Skeleton 1 differs only along the lateral axis (not up axis Z=2)
-        diff = result.views[1].coords - two_coords[1]
-        assert np.allclose(diff[:, :, 2], 0.0), "Up axis (Z) must not shift"
-
-    def test_auto_skeleton_applies_offset(self, two_bvhs):
-        from pybvh.bvhplot import _spread_for_single_scene
-        b1, b2 = two_bvhs
-        c1 = b1.node_positions(centered="skeleton")
-        c2 = b2.node_positions(centered="skeleton")
-        scene = self._scene([b1, b2], [c1, c2])
-        result = _spread_for_single_scene(scene, "auto", "skeleton")
-        assert not np.allclose(result.views[1].coords, c2)
 
     # ------------------------------------------------------------------
     # Explicit float spacing
@@ -1829,28 +1793,37 @@ class TestSceneSpacing:
         with pytest.warns(UserWarning, match="reorient_world_up"):
             _warn_world_up_mismatch([b_zup, b_yup])
 
-    # ------------------------------------------------------------------
-    # Invalid spacing raises ValueError
-    # ------------------------------------------------------------------
 
-    def test_negative_spacing_raises(self):
-        from pybvh.bvhplot import play
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent))
-        from synthetic_bvh import make_pos_z_up_bvh
-        bvh = make_pos_z_up_bvh()
-        with pytest.raises(ValueError, match="non-negative"):
-            play([bvh, bvh], spacing=-1.0, backend="matplotlib")
+@pytest.fixture
+def reached(monkeypatch):
+    """Stub the backend function *name* of *module*; returns the Scene
+    of each call that reached it."""
+    scenes = []
 
-    def test_invalid_string_spacing_raises(self):
-        from pybvh.bvhplot import play
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent))
-        from synthetic_bvh import make_pos_z_up_bvh
-        bvh = make_pos_z_up_bvh()
-        with pytest.raises(ValueError, match="spacing"):
-            play([bvh, bvh], spacing="bad", backend="matplotlib")
+    def backend(scene, *args, **kwargs):
+        scenes.append(scene)
+        return None, None  # frame() unpacks matplotlib's (fig, ax)
 
+    def stub(module, name):
+        monkeypatch.setattr(module, name, backend)
+        return scenes
+
+    return stub
+
+
+# (entry point, backend, backend module, its stubbed function)
+SINGLE_SCENE = [
+    ("play", "k3d", "_k3d", "play_k3d"),
+    ("play", "vedo", "_vedo", "play_vedo"),
+    ("frame", "vedo", "_vedo_offscreen", "frame_vedo"),
+    ("render", "vedo", "_vedo_offscreen", "render_vedo"),
+]
+PANELS = [
+    ("play", "matplotlib", "_matplotlib", "play_mpl"),
+    ("frame", "matplotlib", "_matplotlib", "frame_mpl"),
+    ("render", "matplotlib", "_matplotlib", "render_mpl"),
+    ("render", "opencv", "_opencv", "render_opencv"),
+]
 
 
 class TestMatchSize:
@@ -1862,22 +1835,6 @@ class TestMatchSize:
     def clips(self, bvh_test2):
         """The CMU walk and bvh_test2, which stands 7.5 times as tall."""
         return [read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh"), bvh_test2]
-
-    @pytest.fixture
-    def reached(self, monkeypatch):
-        """Stub the backend function *name* of *module*; returns the
-        Scene of each call that reached it."""
-        scenes = []
-
-        def backend(scene, *args, **kwargs):
-            scenes.append(scene)
-            return None, None  # frame() unpacks matplotlib's (fig, ax)
-
-        def stub(module, name):
-            monkeypatch.setattr(module, name, backend)
-            return scenes
-
-        return stub
 
     @staticmethod
     def _draw(entry_point, backend, clips, tmp_path, **kwargs):
@@ -1893,20 +1850,6 @@ class TestMatchSize:
             suffix = ".gif" if backend == "matplotlib" else ".mp4"
             bvhplot.render(clips, tmp_path / f"pair{suffix}", fps=30,
                            **kwargs)
-
-    # (entry point, backend, backend module, its stubbed function)
-    SINGLE_SCENE = [
-        ("play", "k3d", "_k3d", "play_k3d"),
-        ("play", "vedo", "_vedo", "play_vedo"),
-        ("frame", "vedo", "_vedo_offscreen", "frame_vedo"),
-        ("render", "vedo", "_vedo_offscreen", "render_vedo"),
-    ]
-    PANELS = [
-        ("play", "matplotlib", "_matplotlib", "play_mpl"),
-        ("frame", "matplotlib", "_matplotlib", "frame_mpl"),
-        ("render", "matplotlib", "_matplotlib", "render_mpl"),
-        ("render", "opencv", "_opencv", "render_opencv"),
-    ]
 
     @pytest.mark.parametrize(
         "entry_point, backend, module, function", SINGLE_SCENE)
@@ -2041,3 +1984,129 @@ class TestMatchSize:
                                       **kwargs)
         (warning,) = [w for w in record if "first view" in str(w.message)]
         assert warning.filename == __file__
+
+
+class TestSpreadInOneScene:
+    """play, frame and render arrange a comparison in one scene the same
+    way: skeleton k moves k × spacing to the first skeleton's own left,
+    except that spacing="auto" under centered="world" keeps the files'
+    positions. The panel backends accept spacing and ignore it."""
+
+    # The synthetic skeleton is +z up and faces +y: its left is
+    # up × forward = -x, where its LeftLeg hangs.
+    LEFT = np.array([-1.0, 0.0, 0.0])
+
+    @pytest.fixture
+    def twins(self):
+        """Two copies of one +z-up clip, so they stand at the same place
+        under any centering."""
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from synthetic_bvh import make_pos_z_up_bvh
+        return [make_pos_z_up_bvh(), make_pos_z_up_bvh()]
+
+    @staticmethod
+    def _draw(entry_point, backend, clips, tmp_path, **kwargs):
+        kwargs["backend"] = backend
+        if entry_point == "play":
+            bvhplot.play(clips, **kwargs)
+        elif entry_point == "frame":
+            bvhplot.frame(clips, **kwargs)
+        else:
+            suffix = ".gif" if backend == "matplotlib" else ".mp4"
+            bvhplot.render(clips, tmp_path / f"pair{suffix}", **kwargs)
+
+    @pytest.mark.parametrize(
+        "entry_point, backend, module, function", SINGLE_SCENE)
+    @pytest.mark.parametrize("centered", ["first", "skeleton"])
+    def test_a_spacing_puts_the_second_skeleton_on_the_first_ones_left(
+            self, twins, reached, tmp_path, centered,
+            entry_point, backend, module, function):
+        pytest.importorskip(backend)
+        scenes = reached(
+            importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        self._draw(entry_point, backend, twins, tmp_path,
+                   centered=centered, spacing=2.0)
+        (scene,) = scenes
+        first, second = scene.views
+        np.testing.assert_allclose(
+            second.coords - first.coords,
+            np.broadcast_to(2.0 * self.LEFT, first.coords.shape),
+            atol=1e-12)
+
+    @pytest.mark.parametrize(
+        "entry_point, backend, module, function", SINGLE_SCENE)
+    @pytest.mark.parametrize("centered", ["first", "skeleton"])
+    def test_auto_spacing_keeps_the_skeletons_apart(
+            self, twins, reached, tmp_path, centered,
+            entry_point, backend, module, function):
+        """The default spacing moves the second skeleton to the first
+        one's left, clear of it on every frame drawn."""
+        pytest.importorskip(backend)
+        scenes = reached(
+            importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        self._draw(entry_point, backend, twins, tmp_path, centered=centered)
+        (scene,) = scenes
+        first, second = scene.views
+        first_left_edge = (first.coords @ self.LEFT).max(axis=1)
+        second_right_edge = (second.coords @ self.LEFT).min(axis=1)
+        assert np.all(second_right_edge > first_left_edge)
+
+    @pytest.mark.parametrize("centered", ["first", "skeleton"])
+    def test_a_video_arranges_the_skeletons_as_the_viewer_does(
+            self, twins, reached, tmp_path, centered):
+        pytest.importorskip("vedo")
+        from pybvh.bvhplot import _vedo, _vedo_offscreen
+        viewer = reached(_vedo, "play_vedo")
+        self._draw("play", "vedo", twins, tmp_path, centered=centered)
+        video = reached(_vedo_offscreen, "render_vedo")
+        self._draw("render", "vedo", twins, tmp_path, centered=centered)
+        played, rendered = viewer
+        for played_view, rendered_view in zip(played.views, rendered.views):
+            np.testing.assert_array_equal(
+                rendered_view.coords, played_view.coords)
+
+    @pytest.mark.parametrize(
+        "entry_point, backend, module, function", SINGLE_SCENE)
+    def test_auto_spacing_keeps_world_positions(
+            self, twins, reached, tmp_path,
+            entry_point, backend, module, function):
+        """Under centered="world" the default spacing leaves each
+        skeleton where its file puts it: the twins coincide."""
+        pytest.importorskip(backend)
+        scenes = reached(
+            importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        self._draw(entry_point, backend, twins, tmp_path, centered="world")
+        (scene,) = scenes
+        first, second = scene.views
+        np.testing.assert_array_equal(second.coords, first.coords)
+        drawn_frames = len(first.coords)  # a still draws frame 0 alone
+        np.testing.assert_array_equal(
+            first.coords, twins[0].node_positions()[:drawn_frames])
+
+    @pytest.mark.parametrize("entry_point, backend, module, function", PANELS)
+    def test_the_panel_backends_ignore_the_spacing(
+            self, twins, reached, tmp_path,
+            entry_point, backend, module, function):
+        """Each panel is framed on its own skeleton: nothing to spread."""
+        if backend == "opencv":
+            pytest.importorskip("cv2")
+        scenes = reached(
+            importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        self._draw(entry_point, backend, twins, tmp_path, centered="first")
+        self._draw(entry_point, backend, twins, tmp_path, centered="first",
+                   spacing=2.0)
+        plain, spaced = scenes
+        for plain_view, spaced_view in zip(plain.views, spaced.views):
+            np.testing.assert_array_equal(spaced_view.coords, plain_view.coords)
+
+    @pytest.mark.parametrize("entry_point", ["play", "frame", "render"])
+    @pytest.mark.parametrize("spacing, message", [
+        (-1.0, "non-negative"),
+        ("bad", "'auto' or a non-negative number"),
+    ])
+    def test_an_invalid_spacing_raises_on_every_backend(
+            self, twins, tmp_path, entry_point, spacing, message):
+        with pytest.raises(ValueError, match=message):
+            self._draw(entry_point, "matplotlib", twins, tmp_path,
+                       spacing=spacing)

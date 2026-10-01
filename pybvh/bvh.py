@@ -3,7 +3,8 @@ from __future__ import annotations
 import copy
 import warnings
 from pathlib import Path
-from typing import Any, Literal, Sequence, TYPE_CHECKING, Union, overload
+from typing import Any, Literal, TYPE_CHECKING, Union, overload
+from collections.abc import Sequence
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -2901,7 +2902,7 @@ class Bvh:
             self._positions_or(coords)[:, self._descriptor_index(joint), :]))
 
     def ground_path(self, joint: str, *,
-                    coords: npt.NDArray[np.float64] | None = None) -> "geometry.GroundPath":
+                    coords: npt.NDArray[np.float64] | None = None) -> geometry.GroundPath:
         """Ground-plane path of ``joint`` (uses ``world_up``). See :func:`pybvh.geometry.ground_path`."""
         from . import geometry
         traj = self._positions_or(coords)[:, self._descriptor_index(joint), :]
@@ -2954,19 +2955,19 @@ class Bvh:
             seg, _axis_to_vector(self.world_up), degrees=degrees)
 
     def bounding_box(self, *,
-                     coords: npt.NDArray[np.float64] | None = None) -> "geometry.BoundingBox":
+                     coords: npt.NDArray[np.float64] | None = None) -> geometry.BoundingBox:
         """Per-frame axis-aligned bounding box of all nodes. See :func:`pybvh.geometry.bounding_box`."""
         from . import geometry
         return geometry.bounding_box(self._positions_or(coords))
 
     def bounding_sphere(self, *,
-                        coords: npt.NDArray[np.float64] | None = None) -> "geometry.BoundingSphere":
+                        coords: npt.NDArray[np.float64] | None = None) -> geometry.BoundingSphere:
         """Per-frame approximate enclosing sphere of all nodes. See :func:`pybvh.geometry.bounding_sphere`."""
         from . import geometry
         return geometry.bounding_sphere(self._positions_or(coords))
 
     def bounding_ellipsoid(self, *,
-                           coords: npt.NDArray[np.float64] | None = None) -> "geometry.BoundingEllipsoid":
+                           coords: npt.NDArray[np.float64] | None = None) -> geometry.BoundingEllipsoid:
         """Per-frame PCA-aligned bounding ellipsoid of all nodes. See :func:`pybvh.geometry.bounding_ellipsoid`."""
         from . import geometry
         return geometry.bounding_ellipsoid(self._positions_or(coords))

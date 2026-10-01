@@ -8,7 +8,8 @@ the one place a node tree is built, for the parser, ``df_to_bvh`` and
 """
 from __future__ import annotations
 
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Any
+from collections.abc import Iterator, Mapping, Sequence
 
 import numpy as np
 

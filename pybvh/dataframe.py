@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import numpy as np
-from typing import Any, Hashable, Mapping, Sequence, TYPE_CHECKING, cast
+from typing import Any, TYPE_CHECKING, cast
+from collections.abc import Hashable, Mapping, Sequence
 
 from .bvh import Bvh, _motion_column_names
 from .bvhnode import BvhNode

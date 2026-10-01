@@ -11,7 +11,8 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING
+from collections.abc import Sequence
 
 from ._colors import rgb255
 from ._style import bone_width_scale

@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import cached_property
-from typing import TYPE_CHECKING, NamedTuple, Sequence
+from typing import TYPE_CHECKING, NamedTuple
+from collections.abc import Sequence
 
 import numpy as np
 import numpy.typing as npt

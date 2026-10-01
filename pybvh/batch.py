@@ -6,7 +6,8 @@ import warnings
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator, Literal, overload
+from typing import Literal, overload
+from collections.abc import Iterator
 
 import numpy as np
 import numpy.typing as npt

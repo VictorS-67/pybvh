@@ -73,6 +73,10 @@ select = ["E", "F", "I", "W", "B", "UP", "D1", "D417"]
 # The formatter owns line length (#57).
 ignore = ["E501"]
 
+[tool.ruff.lint.pyupgrade]
+# Keep Union and Optional: typing.get_type_hints evaluates X | Y, which fails on Python 3.9.
+keep-runtime-typing = true
+
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
 

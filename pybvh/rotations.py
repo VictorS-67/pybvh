@@ -24,7 +24,8 @@ Convention note:
 
 from __future__ import annotations
 
-from typing import Sequence, Union
+from collections.abc import Sequence
+from typing import Union
 
 import numpy as np
 import numpy.typing as npt

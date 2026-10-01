@@ -98,10 +98,13 @@ _BTN_W = (_SL_X1 - _SL_X0 - (_N_BTNS - 1) * _BTN_GAP) / _N_BTNS
 _BTN_X = [_SL_X0 + i * (_BTN_W + _BTN_GAP) for i in range(_N_BTNS)]
 # Transport hit band: generous lower bound (0.01) accounts for the ~0.018
 # systematic offset between viewport y and GetEventPosition() y observed
-# in practice.  The top (0.08) stays safely below the slider baseline at 0.10.
+# in practice.  The top (0.08) stays safely below the slider's line, _SL_Y.
 _BTN_Y0 = 0.01
 _BTN_H = 0.07
-# Vertical offset from a button's hit-box bottom edge to its Text2D baseline.
+# Vertical offset from a button's hit-box bottom edge to its Text2D's
+# position. Left-aligned text hangs from that point (vedo's default top
+# justification); the centered transport labels stand on it
+# (justify='bottom-center').
 _TEXT_RAISE = 0.03
 _TOP_ROW_TEXT_Y = _TOP_ROW_Y0 + _TEXT_RAISE
 
@@ -550,9 +553,10 @@ class _VedoPlayer:
         """Place a clickable Text2D and register its hit-box.
 
         The registry entry and the Text2D placement are derived from the
-        same ``(x0, y0, w, h)`` rectangle: the text baseline sits
+        same ``(x0, y0, w, h)`` rectangle: the text is placed
         ``_TEXT_RAISE`` above the hit-box bottom, left-aligned at ``x0``
-        (or centered in the cell for transport buttons).
+        and hanging from that point, or centered in the cell and
+        standing on it for transport buttons.
         """
         from vedo import Text2D  # type: ignore[import-untyped]
 

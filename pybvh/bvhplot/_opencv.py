@@ -32,16 +32,18 @@ from ._viewport import Turntable, Viewport, panel_viewports
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from matplotlib.typing import ColorType
+
 # RGB is canonical in _style; the channel flip for OpenCV's BGR
 # drawing API happens here, at this backend's border.
 PALETTE_BGR = [(b, g, r) for (r, g, b) in PALETTE_RGB]
 
 
-def _to_bgr(color: object) -> tuple[int, int, int]:
+def _to_bgr(color: ColorType) -> tuple[int, int, int]:
     """Any matplotlib-parseable color -> OpenCV BGR uint8 tuple."""
     from matplotlib.colors import to_rgb
 
-    r, g, b = to_rgb(color)  # type: ignore[arg-type]
+    r, g, b = to_rgb(color)
     return (int(b * 255), int(g * 255), int(r * 255))
 
 

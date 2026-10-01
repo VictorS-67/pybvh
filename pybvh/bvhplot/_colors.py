@@ -23,10 +23,12 @@ from ._style import (
 )
 
 if TYPE_CHECKING:
+    from matplotlib.typing import ColorType
+
     from ._scene import SkeletonView
 
 
-def is_dark_background(background: object) -> bool:
+def is_dark_background(background: ColorType) -> bool:
     """Whether a background color needs the dark floor/accent palette.
 
     Decided by relative luminance (< 0.5), not string matching, so
@@ -34,7 +36,7 @@ def is_dark_background(background: object) -> bool:
     """
     from matplotlib.colors import to_rgb
 
-    r, g, b = to_rgb(background)  # type: ignore[arg-type]
+    r, g, b = to_rgb(background)
     return (0.2126 * r + 0.7152 * g + 0.0722 * b) < 0.5
 
 
@@ -89,11 +91,11 @@ def grid_box_colors(
     return (step_toward_pole(GRID_BOX_LINE_STEP), step_toward_pole(GRID_BOX_LABEL_STEP))
 
 
-def rgb255(color: object) -> tuple[int, int, int]:
+def rgb255(color: ColorType) -> tuple[int, int, int]:
     """Any matplotlib-parseable color -> (r, g, b) 0-255 ints."""
     from matplotlib.colors import to_rgb
 
-    r, g, b = to_rgb(color)  # type: ignore[arg-type]
+    r, g, b = to_rgb(color)
     return (int(r * 255), int(g * 255), int(b * 255))
 
 

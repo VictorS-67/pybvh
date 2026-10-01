@@ -20,6 +20,8 @@ from ._style import bone_width_scale
 from ._viewport import STANDING_STILL_HALF_SPAN
 
 if TYPE_CHECKING:
+    from matplotlib.typing import ColorType
+
     from ._scene import SkeletonView
     from ._viewport import Viewport
 
@@ -73,7 +75,7 @@ def vedo_rgb(rgb: tuple[int, int, int]) -> tuple[float, float, float]:
     return (r / 255, g / 255, b / 255)
 
 
-def vedo_color(color: object) -> tuple[float, float, float]:
+def vedo_color(color: ColorType) -> tuple[float, float, float]:
     """A style color (any form matplotlib parses) in vedo's form.
 
     Style colors are read by matplotlib's parser in every backend.

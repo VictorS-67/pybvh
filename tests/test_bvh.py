@@ -675,6 +675,58 @@ class TestDataFrameConversion:
         with pytest.raises(ValueError, match="at least 2"):
             df_to_bvh(bvh.nodes, df)
 
+    def test_df_to_bvh_binds_columns_by_name_in_any_order(self, bvh_example):
+        """The hierarchy decides the layout: a DataFrame that lists the
+        root's six columns last, after every joint's, binds to the same clip."""
+        df = pd.DataFrame(bvh_example.to_df_dict(mode='euler'))
+        root_columns = [c for c in df.columns if c.rsplit('_', 2)[0] == 'Hips']
+        other_columns = [c for c in df.columns if c not in root_columns]
+        reordered = df[other_columns + root_columns]
+
+        rebuilt = df_to_bvh(bvh_example.nodes, reordered)
+
+        assert rebuilt.matches_hierarchy(bvh_example)
+        np.testing.assert_allclose(rebuilt.root_pos, bvh_example.root_pos, atol=1e-10)
+        np.testing.assert_allclose(rebuilt.joint_angles, bvh_example.joint_angles, atol=1e-10)
+
+    def test_df_to_bvh_ignores_columns_outside_the_hierarchy(self, bvh_example):
+        df = pd.DataFrame(bvh_example.to_df_dict(mode='euler'))
+        df['frame_index'] = np.arange(len(df))
+        df['Extra_X_rot'] = 7.0
+
+        rebuilt = df_to_bvh(bvh_example.nodes, df)
+
+        assert rebuilt.matches_hierarchy(bvh_example)
+        np.testing.assert_allclose(rebuilt.joint_angles, bvh_example.joint_angles, atol=1e-10)
+
+    def test_df_to_bvh_names_every_missing_column(self, bvh_example):
+        df = pd.DataFrame(bvh_example.to_df_dict(mode='euler'))
+        df = df.drop(columns=['Spine_X_rot', 'Hips_Y_pos'])
+        with pytest.raises(ValueError, match=r"missing.*'Hips_Y_pos', 'Spine_X_rot'"):
+            df_to_bvh(bvh_example.nodes, df)
+
+    def test_df_to_bvh_refuses_an_expected_column_listed_twice(self, bvh_example):
+        """Two columns labelled 'Spine_X_rot' cannot both be the one the
+        hierarchy expects; the error names the label."""
+        df = pd.DataFrame(bvh_example.to_df_dict(mode='euler'))
+        df = pd.concat([df, df[['Spine_X_rot']]], axis=1)
+        with pytest.raises(ValueError, match=r"more than once.*'Spine_X_rot'"):
+            df_to_bvh(bvh_example.nodes, df)
+
+    def test_df_to_bvh_requires_a_time_column(self, bvh_example):
+        df = pd.DataFrame(bvh_example.to_df_dict(mode='euler')).drop(columns=['time'])
+        with pytest.raises(ValueError, match="'time'"):
+            df_to_bvh(bvh_example.nodes, df)
+
+    def test_df_to_bvh_finds_time_in_any_case(self, bvh_example):
+        df = pd.DataFrame(bvh_example.to_df_dict(mode='euler'))
+        df = df.rename(columns={'time': 'Time'})
+
+        rebuilt = df_to_bvh(bvh_example.nodes, df)
+
+        assert rebuilt.frame_count == bvh_example.frame_count
+        assert np.isclose(rebuilt.frame_time, bvh_example.frame_time)
+
 
 # =============================================================================
 # Test: File write/read round-trip

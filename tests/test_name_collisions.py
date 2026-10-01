@@ -69,7 +69,11 @@ def duplicate_joint_rig():
     _attach(second, BvhEndSite('EndSiteArm', [0, 1, 0]))
     nodes = [root, first, grandchild, grandchild.children[0],
              second, second.children[0]]
-    return Bvh(nodes, np.zeros((3, 3)), np.zeros((3, 4, 3)), 1 / 30)
+    # Every joint gets its own angles, so a column swap between the two
+    # 'Arm' joints shows. Powers of two survive the degrees round trip of
+    # the DataFrame bit-exactly, which `==` on a Bvh requires.
+    joint_angles = (2.0 ** -np.arange(36, dtype=float)).reshape(3, 4, 3)
+    return Bvh(nodes, np.zeros((3, 3)), joint_angles, 1 / 30)
 
 
 @pytest.fixture
@@ -281,12 +285,14 @@ class TestRoundTrips:
         back = read_bvh_file(path)
         assert back.matches_hierarchy(rig)
         assert back.matches_channels(rig)
-        np.testing.assert_array_equal(back.node_positions(), rig.node_positions())
+        # The file carries six decimals, so the posed skeleton is equal to
+        # that precision; a limb attached elsewhere is off by a bone length.
+        np.testing.assert_allclose(
+            back.node_positions(), rig.node_positions(), atol=1e-6)
 
-    @pytest.fixture(params=["collision_rig", "one_joint_two_end_sites_rig"])
+    @pytest.fixture(params=[
+        "collision_rig", "duplicate_joint_rig", "one_joint_two_end_sites_rig"])
     def dataframe_rig(self, request):
-        # duplicate_joint_rig joins once its 'Arm' columns stop colliding,
-        # which the column suffix of #16 fixes.
         return request.getfixturevalue(request.param)
 
     @pytest.fixture
@@ -334,6 +340,19 @@ class TestRoundTrips:
         df = pd.DataFrame(one_joint_two_end_sites_rig.to_df_dict(mode='euler'))
         with pytest.raises(ValueError, match="to_node_table"):
             df_to_bvh([], df)
+
+    def test_repeated_literal_labels_get_the_suffix_rule(self, duplicate_joint_rig):
+        """A DataFrame labelling both 'Arm' joints 'Arm_X_rot', as a
+        v0.9.0 export or a hand-built frame would, is refused with the
+        missing labels and the rule that makes the second one 'Arm.1'."""
+        rig = duplicate_joint_rig
+        df = pd.DataFrame(rig.to_df_dict(mode='euler'))
+        df.columns = [c.replace('Arm.1_', 'Arm_') for c in df.columns]
+        assert list(df.columns).count('Arm_X_rot') == 2
+
+        with pytest.raises(ValueError, match=r"missing.*'Arm\.1_Z_rot'") as excinfo:
+            df_to_bvh(rig.nodes, df)
+        assert "X, X.1, X.2" in str(excinfo.value)
 
 
 # =============================================================================

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import re
-import copy
 import numpy as np
 from collections.abc import Mapping
 from typing import Any, Sequence, TYPE_CHECKING
 
 from .bvh import Bvh
-from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
+from .bvhnode import BvhNode, BvhJoint, BvhRoot
 from .node_tree import nodes_from_table, nodes_to_table
 from .io import _snap_frame_time
 
@@ -144,188 +143,6 @@ def _check_df_match_with_hier(hier: list[BvhNode], df: pd.DataFrame) -> tuple[li
 
     return hier, df
 
-def _is_end_site_entry(info_dict: dict) -> bool:
-    """Whether a hierarchy-dict entry describes an end site.
-
-    Detection is structural — an end site is a leaf marker carrying only ``'offset'`` and ``'parent'``, so an entry with neither ``'children'`` nor ``'rot_channels'`` is an end site. The entry's key/name (e.g. ``'EndSiteHips'``) is display-only and carries no semantics.
-    """
-    return 'children' not in info_dict and 'rot_channels' not in info_dict
-
-
-def _complete_hier_dict(hier: dict[str, dict], df: pd.DataFrame) -> dict[str, dict]:
-    """Fill missing rotation/position channel info in a hierarchy dictionary.
-
-    Parameters
-    ----------
-    hier : dict
-        Hierarchy dictionary keyed by joint name. Each value is a dict with
-        required keys ``'offset'`` and ``'parent'``, and optional keys
-        ``'children'``, ``'rot_channels'``, and ``'pos_channels'``.
-        Missing channel information is inferred from *df* column order.
-    df : pandas.DataFrame
-        Validated DataFrame whose columns follow the ``name_ax_pos/rot``
-        convention.
-
-    Returns
-    -------
-    hier : dict
-        The same dictionary, updated in-place with ``'rot_channels'`` (and
-        ``'pos_channels'`` for the root) filled from *df* where absent.
-
-    Raises
-    ------
-    Exception
-        If any node is missing ``'offset'``, ``'parent'``, or ``'children'``
-        entries, or if a referenced parent/child is not present in the dict.
-    """
-    df_cols = df.columns
-    root: str = ""
-    root_has_pos: bool = False
-
-    for name, info_dict in hier.items():
-        #all elt should have offset and parent component
-        try:
-            offset = info_dict['offset']
-        except KeyError as e:
-            raise ValueError(f"no 'offset' field in hierarchy entry for node '{name}'") from e
-        try:
-            parent = info_dict['parent']
-        except KeyError as e:
-            raise ValueError(f"no 'parent' field in hierarchy entry for node '{name}'") from e
-
-        if (parent is None) or (parent == 'None'):
-            root = name
-            # if it's the root, check whether it has pos_channels
-            try:
-                pos_channels = info_dict['pos_channels']
-                root_has_pos = True
-            except KeyError:
-                root_has_pos = False
-        else:
-            if parent not in hier:
-                raise ValueError(
-                    f"parent '{parent}' of node '{name}' is not a key in the hierarchy dict")
-            parent_info = hier[parent]
-
-        #for end site, that's all there is to it
-        if _is_end_site_entry(info_dict):
-            continue
-
-        try:
-            children = info_dict['children']
-        except KeyError as e:
-            raise ValueError(f"no 'children' field in hierarchy entry for node '{name}'") from e
-
-        for child in children:
-            if child not in hier:
-                raise ValueError(
-                    f"child '{child}' of node '{name}' is not a key in the hierarchy dict")
-            child_info = hier[child]
-
-        # we finished checking that the necesseray info are here
-        # now we will check if rot and pos channels are present.
-        # In case they are not, we will add them from the df
-        try:
-            rot_channels = info_dict['rot_channels']
-        except KeyError:
-            rot_channels = []
-            # exact match on the joint-name part (rsplit from the right, so
-            # underscored joint names work) — a substring match would let
-            # e.g. 'Hip' pick up 'LHip' columns. df.columns[0] is 'time'.
-            for col_name in df.columns[1:]:
-                col_joint_name, ax, rotpos = col_name.rsplit('_', 2)
-                if col_joint_name != name or rotpos != 'rot':
-                    continue
-                rot_channels.append(ax)
-
-        hier[name]['rot_channels'] = rot_channels
-
-
-    #finally we add the root pos if needed
-    if not root_has_pos:
-        pos_channels = []
-        for pos_col in df_cols[1:4]:
-            pos_channels.append(pos_col.rsplit('_', 2)[1])
-        hier[root]['pos_channels'] = pos_channels
-
-    return hier
-
-
-def _hier_dict_to_list(hier: dict[str, dict]) -> list[BvhNode]:
-    """Convert a complete hierarchy dictionary to an ordered list of nodes.
-
-    Parameters
-    ----------
-    hier : dict
-        Complete hierarchy dictionary (as returned by
-        ``_complete_hier_dict``), keyed by joint name with ``'offset'``,
-        ``'parent'``, ``'children'``, ``'rot_channels'``, and optionally
-        ``'pos_channels'`` for each entry.
-
-    Returns
-    -------
-    list_nodes : list of BvhNode
-        Depth-first ordered list of ``BvhRoot``, ``BvhJoint``, and
-        ``BvhEndSite`` objects with parent/children references set.
-    """
-    #first we create the list, without filling children or parent yet
-    #we will use a recursive function for that going through the children of the nodes
-    def create_list_rec(node_name: str, is_start: bool = False) -> list[BvhNode]:
-        info_dict = hier[node_name]
-        if _is_end_site_entry(info_dict):
-            node = BvhEndSite(node_name, offset=info_dict['offset'])
-            return [node]
-        else:
-            #We want only the node at the very beginning to be BvhRoot, the rest BvhJoint (end sites are handled above as BvhEndSite)
-            if is_start :
-                node = BvhRoot(node_name, offset=info_dict['offset'],
-                               rot_channels=info_dict['rot_channels'], pos_channels=info_dict['pos_channels'])
-            else :
-                node = BvhJoint(node_name, offset=info_dict['offset'], rot_channels=info_dict['rot_channels'])
-            list_node = [node]
-            for child in info_dict['children']:
-                list_node += create_list_rec(child)  # type: ignore[arg-type]
-            return list_node  # type: ignore[return-value]
-
-    #let's find the root and call our rec fun on it
-    root_name: str = ""
-    for name, info_dict in hier.items():
-        parent = info_dict['parent']
-        if (parent == None) or (parent == 'None'):
-            root_name = name
-            break
-
-    list_nodes = create_list_rec(root_name, is_start=True) #we send the is_start to make sure the first elt is a BvhRoot
-
-    # we now have the list in the correct order. We want to fill the
-    # parent and children of each node with a ref pointer to the correct object in the list
-
-    #first pass, we will list the index of each node in the list
-    name_to_index = {}
-    for i, node in enumerate(list_nodes):
-        name_to_index[node.name] = i
-
-    #then we use that to rapidly fill the info
-    for node in list_nodes:
-        parent_name = hier[node.name]['parent']
-        if (parent_name == None) or (parent_name == 'None'):
-            #the node is the root, we don't fill the parent but we do fill the missng pos info
-            node.pos_channels = hier[node.name]['pos_channels']  # type: ignore[attr-defined]
-        else:
-            node.parent = list_nodes[name_to_index[parent_name]]
-
-        if node.is_end_site():
-            continue
-
-        children_name_list = hier[node.name]['children']
-        children_list = []
-        for child_name in children_name_list:
-            children_list.append(list_nodes[name_to_index[child_name]])
-        node.children = children_list  # type: ignore[attr-defined]
-
-    return list_nodes
-
-
 def _nodes_from_hier(
         hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]]) -> list[BvhNode]:
     """Build fresh nodes from *hier*, a node table or a node list.
@@ -335,6 +152,12 @@ def _nodes_from_hier(
     means a node table. Both go through ``nodes_from_table``, which
     validates the tree and is the one place a node tree is built.
     """
+    if isinstance(hier, Mapping):
+        raise TypeError(
+            "hier is a dict: the name-keyed hierarchy dict was removed in "
+            "v0.10.0. Pass bvh.to_node_table(), a list with one entry per "
+            "node in depth-first order and parent as the parent's index, or "
+            "bvh.nodes. See the CHANGELOG for the migration.")
     if len(hier) == 0:
         raise ValueError(
             "hier is empty: pass bvh.to_node_table() or bvh.nodes, a node "
@@ -377,19 +200,14 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]],
           ``parent`` is consulted, and nothing is shared with the list
           given.
 
-        * A **dict** keyed by joint name, where each value contains at least
-          ``'offset'`` (list of 3 floats), ``'parent'`` (str or None), and
-          ``'children'`` (list of str).  Optional keys ``'rot_channels'``
-          and ``'pos_channels'`` (each a list such as ``['X', 'Y', 'Z']``)
-          will be inferred from *df* if absent.  End-site entries carry only
-          ``'offset'`` and ``'parent'`` — an entry with neither
-          ``'children'`` nor ``'rot_channels'`` is treated as an end site.
-
         A table and a list are told apart by the type of the first
         element, and both build their nodes through
         :func:`~pybvh.nodes_from_table`, which returns fresh nodes and
         raises ``ValueError`` for a table or a list that is not one tree
-        in depth-first order.
+        in depth-first order. Channel orders come from the skeleton and
+        are never inferred from *df*: a table entry states its
+        ``rot_channels`` or it is an end site. The name-keyed hierarchy
+        dict of earlier releases is refused with ``TypeError``.
     df : pandas.DataFrame
         Motion data.  Must include a ``time`` column and motion columns
         named ``<joint>_<axis>_pos`` or ``<joint>_<axis>_rot`` (e.g.
@@ -406,7 +224,8 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]],
     Raises
     ------
     TypeError
-        If *hier* is neither a node table, a node list nor a dict.
+        If *hier* is the name-keyed hierarchy dict of earlier releases, or
+        neither a node table nor a node list.
     ValueError
         If *hier* is empty, or is not one tree in depth-first order (see
         :func:`~pybvh.nodes_from_table`).
@@ -421,18 +240,8 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]],
     """
 
     df = _check_df_columns(df) # this creates a copy of the df
-
-    if isinstance(hier, dict):
-        # The name-keyed dict is replaced by the node table in #16. Until
-        # then it is built here, name-keyed both ways; a dict listing one
-        # end-site name twice wires that node into children twice, which
-        # the Bvh constructor's tree check now rejects with a ValueError.
-        hier = copy.deepcopy(hier)
-        hier = _complete_hier_dict(hier, df) # check the info in the dict and fill them from df if possible
-        hier_list = _hier_dict_to_list(hier) # create the hier list of nodes
-    else:
-        hier_list = _nodes_from_hier(hier)
-    hier_list, df = _check_df_match_with_hier(hier_list, df)
+    nodes = _nodes_from_hier(hier)
+    nodes, df = _check_df_match_with_hier(nodes, df)
 
     time_series = df['time']
     frames = df.drop(['time'], axis=1)
@@ -446,11 +255,11 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]],
     frame_time = float((time_values[-1] - time_values[0]) / (len(time_values) - 1))
     frame_time = _snap_frame_time(frame_time)
 
-    num_joints = len([n for n in hier_list if not n.is_end_site()])
+    num_joints = len([n for n in nodes if not n.is_end_site()])
     root_pos = frames[:, :3].astype(np.float64)
     # DataFrame angles are in degrees (human-readable); pybvh holds radians.
     joint_angles_deg = frames[:, 3:].reshape(frames.shape[0], num_joints, 3).astype(np.float64)
     joint_angles = np.deg2rad(joint_angles_deg)
 
-    return Bvh(nodes=hier_list, root_pos=root_pos, joint_angles=joint_angles,
+    return Bvh(nodes=nodes, root_pos=root_pos, joint_angles=joint_angles,
                frame_time=frame_time)

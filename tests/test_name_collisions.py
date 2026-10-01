@@ -269,6 +269,23 @@ class TestRoundTrips:
         assert rebuilt.matches_hierarchy(dataframe_rig)
         assert rebuilt == dataframe_rig
 
+    def test_name_keyed_dict_is_refused(self, one_joint_two_end_sites_rig):
+        """The hierarchy dict of v0.9.0, which held one end site of two,
+        names the migration instead of rebuilding a wrong clip."""
+        rig = one_joint_two_end_sites_rig
+        hier = {
+            'Hips': {'offset': [0, 0, 0], 'parent': None, 'children': ['Hand'],
+                     'pos_channels': ['X', 'Y', 'Z'], 'rot_channels': ['Z', 'Y', 'X']},
+            'Hand': {'offset': [0, 1, 0], 'parent': 'Hips',
+                     'children': ['EndSiteHand'], 'rot_channels': ['Z', 'Y', 'X']},
+            'EndSiteHand': {'offset': [0, 0, 2], 'parent': 'Hand'},
+        }
+        df = pd.DataFrame(rig.to_df_dict(mode='euler'))
+        with pytest.raises(TypeError, match="to_node_table"):
+            df_to_bvh(hier, df)
+        with pytest.raises(TypeError, match="to_node_table"):
+            Bvh.from_df(hier, df)
+
     def test_empty_hierarchy_is_refused(self, one_joint_two_end_sites_rig):
         df = pd.DataFrame(one_joint_two_end_sites_rig.to_df_dict(mode='euler'))
         with pytest.raises(ValueError, match="to_node_table"):

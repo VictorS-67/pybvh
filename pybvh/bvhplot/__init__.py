@@ -640,18 +640,19 @@ def frame(
         the shortest, as :func:`play` and :func:`render` cut them under
         their default ``sync="truncate"``), not on the frame drawn: the
         direction and the ``"auto"`` width on the first skeleton's
-        clip, and *match_size* scales each skeleton about its root at
-        its clip's first frame. Under ``centered="world"`` the still
-        therefore draws every skeleton where the viewer and the video
-        draw it at that frame. The other modes differ by centering
-        alone: under ``"first"`` the still is centred on the frame it
-        draws, so each skeleton stands back from the viewer's place by
-        its clip's travel on the ground since the first frame (times
-        its *match_size* factor); under ``"skeleton"`` its floor is the
-        pose's, not the clip's, and a matched skeleton is scaled about
-        that floor. Measured on the frame, the spread would also differ
-        when the first skeleton sweeps wider over the clip (walking
-        sideways, say) than at that frame, or has turned by then.
+        clip, and the point *match_size* scales each skeleton about on
+        its clip's first frame, both read in the still's coordinates.
+        Under ``centered="world"`` the still therefore draws every
+        skeleton where the viewer and the video draw it at that frame.
+        The other modes differ by centering alone: under ``"first"``
+        the still is centred on the frame it draws, so each skeleton
+        stands back from the viewer's place by its clip's travel on the
+        ground since the first frame (times its *match_size* factor);
+        under ``"skeleton"`` its floor is the pose's, not the clip's,
+        and a matched skeleton is scaled about that floor. Measured on
+        the frame, the spread would also differ when the first skeleton
+        sweeps wider over the clip (walking sideways, say) than at that
+        frame, or has turned by then.
         *coords* draws a single skeleton, which is never spread.
         Ignored by matplotlib, which draws each skeleton in its own
         panel.

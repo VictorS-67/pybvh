@@ -612,7 +612,8 @@ class Scene:
         """Draw each view at its own factor times its size, as a new Scene.
 
         A view is scaled about its **ground point**: the root's position
-        at coordinate row 0, moved along the up axis onto the view's
+        at coordinate row 0 of the matching view of *measured_on* (this
+        Scene by default), moved along the up axis onto this view's
         ``floor_height``. That point stays where it is, so the skeleton
         keeps its place on the ground, its floor stays where it was and
         its feet stay on it, whichever way up points (for a ``'-y'`` rig
@@ -622,14 +623,17 @@ class Scene:
         rises or sinks with it; about the root, the feet leave the
         floor.
 
-        The ground point's place along the ground is read from
-        *measured_on*, this Scene by default, which must hold as many
-        views; its height is always this view's own floor. A still of
-        one frame passes the Scene of its whole clip, so each skeleton
-        is scaled about its root at the clip's first frame, as the clip
-        is, and stands where the clip's frame puts it; scaled about its
-        root at the frame drawn, it would stand off by that root's
-        travel since the first frame times one minus the factor.
+        *measured_on* must hold as many views, in this Scene's
+        coordinates. A still of one frame passes the Scene of its whole
+        clip, so each skeleton is scaled about its root at the clip's
+        first frame, as the clip is; where the two share coordinates
+        (no centering), the still then stands where the clip's frame
+        puts it, and scaled about its root at the frame drawn, it would
+        stand off by that root's travel since the first frame times one
+        minus the factor. The height is always this view's own floor,
+        not *measured_on*'s, so the scaled skeleton stays on the floor
+        it is drawn on: the two differ for a still whose floor is its
+        pose's rather than the clip's.
 
         ``coords`` and ``rest_coords`` are scaled together, so the view
         stays one skeleton in one unit: its
@@ -648,9 +652,9 @@ class Scene:
         if len(factors) != len(self.views):
             raise ValueError(
                 f"Expected {len(self.views)} factors, got {len(factors)}.")
-        measured_on = self._measured_on(measured_on)
+        measured_on = self._measurement_scene(measured_on)
         views = []
-        for v, reference, factor in zip(
+        for v, pivot_view, factor in zip(
                 self.views, measured_on.views, factors):
             factor = float(factor)
             if not (np.isfinite(factor) and factor > 0.0):
@@ -660,7 +664,7 @@ class Scene:
             if factor == 1.0:
                 views.append(v)
                 continue
-            ground_point = np.array(reference.coords[0, 0], dtype=np.float64)
+            ground_point = np.array(pivot_view.coords[0, 0], dtype=np.float64)
             ground_point[v.up_index] = v.floor_height
             views.append(dataclasses.replace(
                 v,
@@ -754,7 +758,7 @@ class Scene:
             factors.append(reference.body_size / v.body_size)
         return self.scaled(factors, measured_on=measured_on)
 
-    def _measured_on(self, measured_on: Scene | None) -> Scene:
+    def _measurement_scene(self, measured_on: Scene | None) -> Scene:
         """The Scene a spread or a scaling is measured on: *measured_on*,
         or this Scene when it is ``None``; it must hold as many views."""
         if measured_on is None:
@@ -797,14 +801,15 @@ class Scene:
 
         The direction and the ``"auto"`` extent are read from
         *measured_on*, this Scene by default, which must hold as many
-        views. A still of one frame passes the Scene of its whole clip,
-        so it is spread exactly as the clip is at that frame: by the
-        extent over the clip, toward the left the first skeleton faces
-        at the clip's first frame. Measured on the still itself, the
-        two would differ whenever the first skeleton sweeps wider over
-        the clip than in the pose drawn, or has turned by then.
+        views, in this Scene's coordinates. A still of one frame passes
+        the Scene of its whole clip, so it is spread exactly as the clip
+        is at that frame: by the extent over the clip, toward the left
+        the first skeleton faces at the clip's first frame. Measured on
+        the still itself, the two would differ whenever the first
+        skeleton sweeps wider over the clip than in the pose drawn, or
+        has turned by then.
         """
-        measured_on = self._measured_on(measured_on)
+        measured_on = self._measurement_scene(measured_on)
         if len(self.views) <= 1:
             return self
         first = measured_on.views[0]

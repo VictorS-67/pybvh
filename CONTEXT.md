@@ -240,16 +240,10 @@ where the order comes from the joint's `rot_channels`.
 
 ## 7. Coding Conventions & Patterns
 
-1. **Property validation**: All core attributes use `@property` with setters that type-check inputs.
-2. **Full type annotations**: All source files use `from __future__ import annotations`, `npt.NDArray`, `@overload` for inplace methods. `mypy pybvh/` is **not** clean and is not run in CI: it reports 39 errors as of 0.8.2. All are annotation-accuracy or narrowing issues — none is a runtime bug, and each was checked. Two thirds trace to three causes: `analysis._reduce_like` is typed `cast: Callable[[object], object]`, so every smoothness/reduction kernel routed through it degrades its return type to `object` (~15 errors, one fix); `foot_contacts`' `vel_threshold` / `height_threshold` are declared `float | None` but hold a per-foot `ndarray` once adaptive thresholding runs (4); and the `mask = vel_mask & height_mask` branch is only reachable when `method == "combined"`, where both are non-None by construction, but nothing in the types says so (1). The rest are one-line annotations (`list[slice]` that also holds an `int`, `list[BvhEndSite]` inferred from a first append where `list[BvhNode]` was meant) plus three matplotlib-stub false positives (`Axes` has no `add_collection3d`; the object is an `Axes3D`). Cleaning this up is a worthwhile standalone change — see the note in `docs/internal_logs/v0.8.2/00-overview.md` — but it touches signatures in `analysis.py` and so is not patch-release material.
-3. **NumPy throughout**: All numerical data as NumPy arrays. No ML framework dependencies.
-4. **Deep copy safety**: `Bvh.copy()` uses `copy.deepcopy()`. `to_node_table()` returns copies (safe to mutate).
-5. **Channel freeze**: After `Bvh.__init__`, `rot_channels` and `pos_channels` are frozen. Mutation must go through Bvh methods.
-6. **Uniform `inplace` convention**: All mutation methods default to `inplace=False` (returns copy). `inplace=True` modifies self, returns `None`.
-7. **No pandas dependency**: pybvh never imports pandas. `to_df_dict()` returns a dict-of-arrays that users can wrap in `pd.DataFrame(...)` themselves.
-8. **No ML framework dependencies**: Output is always NumPy. Users convert to PyTorch/TensorFlow themselves.
-9. **Naming**: `_private` prefix for internal methods. `snake_case` everywhere.
-10. **Errors**: Mix of `ValueError`, `Exception`, and `AttributeError`.
+The conventions a change is held to (property validation, type annotations, the `inplace` convention, copies, the channel freeze, identity-resolved nodes, radians inside and degrees at the boundary, naming) are the reviewer's rules and live in `CODING_STANDARDS.md`. Two facts about the code's state that the standards do not cover:
+
+- **Type checking**: `mypy pybvh/` is **not** clean and is not run in CI: it reports 39 errors as of 0.8.2. All are annotation-accuracy or narrowing issues — none is a runtime bug, and each was checked. Two thirds trace to three causes: `analysis._reduce_like` is typed `cast: Callable[[object], object]`, so every smoothness/reduction kernel routed through it degrades its return type to `object` (~15 errors, one fix); `foot_contacts`' `vel_threshold` / `height_threshold` are declared `float | None` but hold a per-foot `ndarray` once adaptive thresholding runs (4); and the `mask = vel_mask & height_mask` branch is only reachable when `method == "combined"`, where both are non-None by construction, but nothing in the types says so (1). The rest are one-line annotations (`list[slice]` that also holds an `int`, `list[BvhEndSite]` inferred from a first append where `list[BvhNode]` was meant) plus three matplotlib-stub false positives (`Axes` has no `add_collection3d`; the object is an `Axes3D`). Cleaning this up is a worthwhile standalone change — see the note in `docs/internal_logs/v0.8.2/00-overview.md` — but it touches signatures in `analysis.py` and so is not patch-release material.
+- **Errors**: Mix of `ValueError`, `Exception`, and `AttributeError`.
 
 ---
 

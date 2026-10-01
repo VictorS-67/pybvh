@@ -220,7 +220,7 @@ def play_vedo(
         ``"high"`` for shaded 3D geometry, ``"fast"`` for flat
         wireframe (see :func:`pybvh.bvhplot.play`).
     """
-    import vedo  # type: ignore[import-untyped]
+    import vedo
 
     if scene.num_frames < 1:
         return
@@ -263,7 +263,7 @@ class _VedoPlayer:
         *,
         quality: str,
     ) -> None:
-        from vedo import Plotter  # type: ignore[import-untyped]
+        from vedo import Plotter
 
         # vedo draws in perspective whatever the style asks.
         self.viewport = make_viewport(scene.views, projection="persp")
@@ -354,8 +354,8 @@ class _VedoPlayer:
 
     def _build_geometry(self) -> None:
         """Create the floor, skeleton actors, labels, camera, and trails."""
-        import vtk  # type: ignore[import-untyped]
-        from vedo import (  # type: ignore[import-untyped]
+        import vtk
+        from vedo import (
             Grid,
             Lines,
             Points,
@@ -370,7 +370,7 @@ class _VedoPlayer:
 
         # --- Floor (high quality only; kind from the style) ---
         if self.use_high and self.style.floor is not None:
-            from vedo import Plane  # type: ignore[import-untyped]
+            from vedo import Plane
 
             # One floor for the whole scene, the viewport's: the same
             # plane the offscreen renderer draws, so viewer and render
@@ -566,7 +566,7 @@ class _VedoPlayer:
         and hanging from that point, or centered in the cell and
         standing on it for transport buttons.
         """
-        from vedo import Text2D  # type: ignore[import-untyped]
+        from vedo import Text2D
 
         if centered:
             t2d = Text2D(
@@ -587,7 +587,7 @@ class _VedoPlayer:
 
     def _build_ui(self) -> None:
         """Create the control panels, help overlay, and frame slider."""
-        from vedo import Text2D  # type: ignore[import-untyped]
+        from vedo import Text2D
 
         # Frame info is shown in the window title bar (not a 2D overlay)
 

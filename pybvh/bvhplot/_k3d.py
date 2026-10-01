@@ -333,8 +333,8 @@ def play_k3d(
     None
         The plot and its controls are displayed as a side effect.
     """
-    from IPython.display import display  # type: ignore[import-untyped]
-    from ipywidgets import (  # type: ignore[import-untyped]
+    from IPython.display import display
+    from ipywidgets import (
         HBox,
         IntSlider,
         Label,

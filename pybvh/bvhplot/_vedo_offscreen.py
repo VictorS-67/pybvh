@@ -60,7 +60,7 @@ def _vtk_backend():
     the plain backend is forced for the duration of the render and the
     user's setting is restored afterwards.
     """
-    import vedo  # type: ignore[import-untyped]
+    import vedo
 
     saved = vedo.settings.default_backend
     vedo.settings.default_backend = "vtk"
@@ -97,7 +97,7 @@ def _build_offscreen(
     one scene (single-scene backend, like the viewer): one viewport of
     all the views, which supplies the cube, the camera and the floor.
     """
-    from vedo import Plane, Plotter  # type: ignore[import-untyped]
+    from vedo import Plane, Plotter
 
     # vedo draws in perspective whatever the style asks.
     viewport = make_viewport(scene.views, projection="persp")
@@ -127,7 +127,7 @@ def _build_offscreen(
         plt += floor
 
     if scene.labels is not None:
-        from vedo import Text2D  # type: ignore[import-untyped]
+        from vedo import Text2D
 
         for s, view in enumerate(scene.views):
             if view.label is None:

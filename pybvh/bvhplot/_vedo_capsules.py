@@ -353,7 +353,7 @@ class CapsuleSkeleton:
         bone_rgb: Sequence[tuple[int, int, int]],
         joint_rgb: npt.NDArray[np.uint8],
     ) -> None:
-        from vedo import Sphere, Tube, merge  # type: ignore[import-untyped]
+        from vedo import Sphere, Tube, merge
 
         frame0 = view.coords[0]
         bones = view.bones

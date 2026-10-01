@@ -966,7 +966,7 @@ def play_mpl(
 
     if in_notebook:
         # Render as inline HTML with play/pause/scrub controls
-        from IPython.display import HTML, display  # type: ignore[import-untyped]
+        from IPython.display import HTML, display
 
         display(HTML(anim.to_jshtml()))
         plt.close(fig)

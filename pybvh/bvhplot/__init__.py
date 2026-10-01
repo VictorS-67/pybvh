@@ -109,7 +109,7 @@ if TYPE_CHECKING:
 def _detect_notebook() -> bool:
     """Check if running inside a Jupyter notebook."""
     try:
-        from IPython import get_ipython  # type: ignore[import-untyped]
+        from IPython import get_ipython
 
         shell = get_ipython().__class__.__name__
         return shell == "ZMQInteractiveShell"
@@ -1436,7 +1436,7 @@ def play(
     elif backend_name == "opencv_notebook":
         import tempfile
 
-        from IPython.display import Video, display  # type: ignore[import-untyped]
+        from IPython.display import Video, display
 
         from ._opencv import render_opencv
 

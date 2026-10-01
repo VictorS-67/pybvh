@@ -668,22 +668,6 @@ class TestDataFrameConversion:
         np.testing.assert_allclose(bvh2.root_pos, bvh.root_pos, atol=1e-10)
         np.testing.assert_allclose(bvh2.joint_angles, bvh.joint_angles, atol=1e-10)
 
-    def test_df_to_bvh_dict_exact_channel_inference(self):
-        """Channel inference from the df must exact-match joint names ('Hip' must not pick up 'Left_Hip' columns) and detect end sites structurally (no 'EndSite' name prefix here)."""
-        bvh = self._make_underscored_bvh()
-        df = pd.DataFrame(bvh.to_df_dict(mode='euler'))
-        hier = bvh.to_hierarchy_dict()
-        # Drop channel info so the df-based inference path runs
-        for info in hier.values():
-            info.pop('rot_channels', None)
-            info.pop('pos_channels', None)
-        bvh2 = df_to_bvh(hier, df)
-        assert bvh2.root.rot_channels == ['Z', 'Y', 'X']
-        assert bvh2.nodes[1].rot_channels == ['X', 'Y', 'Z']
-        assert bvh2.nodes[2].is_end_site()
-        np.testing.assert_allclose(bvh2.root_pos, bvh.root_pos, atol=1e-10)
-        np.testing.assert_allclose(bvh2.joint_angles, bvh.joint_angles, atol=1e-10)
-
     def test_df_to_bvh_single_row_raises(self):
         """Frame time needs >= 2 time samples — a clear error, not ZeroDivisionError."""
         bvh = self._make_underscored_bvh()
@@ -810,14 +794,25 @@ class TestBvhMethods:
         assert joint_angles_rest.shape == bvh_example.joint_angles[0].shape
         np.testing.assert_allclose(joint_angles_rest, np.zeros_like(joint_angles_rest))
 
-    def test_to_hierarchy_dict(self, bvh_example):
-        """to_hierarchy_dict should return valid dict."""
-        hier = bvh_example.to_hierarchy_dict()
-        
-        assert isinstance(hier, dict)
-        assert "Hips" in hier
-        assert hier["Hips"]["parent"] is None
-        assert "Spine" in hier["Hips"]["children"]
+    def test_to_node_table(self, bvh_example):
+        """to_node_table lists one entry per node, parents by index."""
+        table = bvh_example.to_node_table()
+
+        assert isinstance(table, list)
+        assert [entry['name'] for entry in table] == [
+            node.name for node in bvh_example.nodes]
+        hips, spine = table[0], table[1]
+        assert hips['parent'] is None
+        assert hips['pos_channels'] == ['X', 'Y', 'Z']
+        assert hips['rot_channels'] == ['X', 'Z', 'Y']
+        assert spine['name'] == 'Spine'
+        assert spine['parent'] == 0
+        assert 'pos_channels' not in spine
+        head_tip = table[bvh_example.node_index['EndSiteHead']]
+        assert head_tip['parent'] == bvh_example.node_index['Head']
+        assert 'rot_channels' not in head_tip
+        assert [i for i, entry in enumerate(table) if 'rot_channels' not in entry] == [
+            i for i, node in enumerate(bvh_example.nodes) if node.is_end_site()]
 
 
 # =============================================================================
@@ -6103,25 +6098,27 @@ class TestFromFileFromDf:
         assert bvh == bvh_example
         assert bvh.source_path == str(bvh_example_path)
 
-    def test_from_df_round_trips_hierarchy_dict(self, bvh_example):
-        hier = bvh_example.to_hierarchy_dict()
+    def test_from_df_round_trips_node_table(self, bvh_example):
+        table = bvh_example.to_node_table()
         df = pd.DataFrame(bvh_example.to_df_dict(mode='euler'))
-        rebuilt = Bvh.from_df(hier, df)
-        assert rebuilt.joint_names == bvh_example.joint_names
+        rebuilt = Bvh.from_df(table, df)
+        assert rebuilt.matches_hierarchy(bvh_example)
+        assert rebuilt.matches_channels(bvh_example)
         np.testing.assert_allclose(rebuilt.root_pos, bvh_example.root_pos, atol=1e-9)
         np.testing.assert_allclose(
             rebuilt.joint_angles, bvh_example.joint_angles, atol=1e-9)
 
 
-class TestToHierarchyDictCopies:
+class TestToNodeTableCopies:
 
     def test_mutating_result_does_not_touch_bvh(self, bvh_example):
-        hier = bvh_example.to_hierarchy_dict()
-        root_name = bvh_example.root.name
-        hier[root_name]['offset'][0] = 999.0
-        hier[root_name]['rot_channels'][0] = 'Q'
+        table = bvh_example.to_node_table()
+        table[0]['offset'][0] = 999.0
+        table[0]['rot_channels'][0] = 'Q'
+        table[0]['pos_channels'][0] = 'Q'
         assert bvh_example.root.offset[0] != 999.0
         assert bvh_example.root.rot_channels[0] != 'Q'
+        assert bvh_example.root.pos_channels[0] != 'Q'
 
 
 class TestResampleValidation:

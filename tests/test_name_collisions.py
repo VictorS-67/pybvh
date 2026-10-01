@@ -239,14 +239,40 @@ class TestRoundTrips:
         assert back.matches_channels(rig)
         np.testing.assert_array_equal(back.node_positions(), rig.node_positions())
 
-    def test_dataframe_round_trip_keeps_both_end_sites(
-            self, one_joint_two_end_sites_rig):
-        # Two joints sharing a name are not covered: their DataFrame
-        # columns collide today, which #16 fixes.
-        rig = one_joint_two_end_sites_rig
-        rebuilt = df_to_bvh(rig.nodes, pd.DataFrame(rig.to_df_dict(mode='euler')))
-        assert rebuilt.matches_hierarchy(rig)
-        assert rebuilt == rig
+    @pytest.fixture(params=["collision_rig", "one_joint_two_end_sites_rig"])
+    def dataframe_rig(self, request):
+        # duplicate_joint_rig joins once its 'Arm' columns stop colliding
+        # (the column suffix, ticket 02 of #16).
+        return request.getfixturevalue(request.param)
+
+    @pytest.fixture
+    def df(self, dataframe_rig):
+        return pd.DataFrame(dataframe_rig.to_df_dict(mode='euler'))
+
+    def test_dataframe_round_trip_through_the_node_list(self, dataframe_rig, df):
+        rebuilt = df_to_bvh(dataframe_rig.nodes, df)
+        assert rebuilt.matches_hierarchy(dataframe_rig)
+        assert rebuilt == dataframe_rig
+
+    def test_dataframe_round_trip_through_the_node_table(self, dataframe_rig, df):
+        rebuilt = df_to_bvh(dataframe_rig.to_node_table(), df)
+        assert rebuilt.matches_hierarchy(dataframe_rig)
+        assert rebuilt == dataframe_rig
+
+    def test_from_df_takes_the_node_list(self, dataframe_rig, df):
+        rebuilt = Bvh.from_df(dataframe_rig.nodes, df)
+        assert rebuilt.matches_hierarchy(dataframe_rig)
+        assert rebuilt == dataframe_rig
+
+    def test_from_df_takes_the_node_table(self, dataframe_rig, df):
+        rebuilt = Bvh.from_df(dataframe_rig.to_node_table(), df)
+        assert rebuilt.matches_hierarchy(dataframe_rig)
+        assert rebuilt == dataframe_rig
+
+    def test_empty_hierarchy_is_refused(self, one_joint_two_end_sites_rig):
+        df = pd.DataFrame(one_joint_two_end_sites_rig.to_df_dict(mode='euler'))
+        with pytest.raises(ValueError, match="to_node_table"):
+            df_to_bvh([], df)
 
 
 # =============================================================================

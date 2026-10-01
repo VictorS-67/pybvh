@@ -3,7 +3,8 @@ from __future__ import annotations
 import re
 import copy
 import numpy as np
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import Any, Sequence, TYPE_CHECKING
 
 from .bvh import Bvh
 from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
@@ -325,27 +326,57 @@ def _hier_dict_to_list(hier: dict[str, dict]) -> list[BvhNode]:
     return list_nodes
 
 
-def df_to_bvh(hier: list[BvhNode] | dict[str, dict], df: pd.DataFrame) -> Bvh:
-    """Create a Bvh object from a hierarchy description and a motion DataFrame.
+def _nodes_from_hier(
+        hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]]) -> list[BvhNode]:
+    """Build fresh nodes from *hier*, a node table or a node list.
 
-    Build a complete BVH representation by combining skeletal hierarchy
-    information with per-frame motion data stored in a pandas DataFrame.
-    Column order in the DataFrame determines joint ordering in the resulting
-    ``Bvh`` object unless a hierarchy list is provided (in which case the
-    hierarchy order takes priority).
+    The form is decided by the type of the first element: a ``BvhNode``
+    means a node list, read through ``nodes_to_table``; a ``Mapping``
+    means a node table. Both go through ``nodes_from_table``, which
+    validates the tree and is the one place a node tree is built.
+    """
+    if len(hier) == 0:
+        raise ValueError(
+            "hier is empty: pass bvh.to_node_table() or bvh.nodes, a node "
+            "table or a node list with the root first.")
+    first = hier[0]
+    if isinstance(first, BvhNode):
+        return nodes_from_table(nodes_to_table(hier))  # type: ignore[arg-type]
+    if isinstance(first, Mapping):
+        return nodes_from_table(hier)  # type: ignore[arg-type]
+    raise TypeError(
+        f"hier[0] is a {type(first).__name__}; hier must be a node table "
+        f"(bvh.to_node_table(), one dict per node) or a node list "
+        f"(bvh.nodes).")
+
+
+def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]],
+              df: pd.DataFrame) -> Bvh:
+    """Create a Bvh object from a skeleton and a motion DataFrame.
+
+    Build a complete BVH representation by combining a skeleton with
+    per-frame motion data stored in a pandas DataFrame. The skeleton
+    decides the node order of the resulting ``Bvh``; the DataFrame's
+    motion columns are matched to it by name.
 
     Parameters
     ----------
-    hier : list of BvhNode or dict
-        Skeletal hierarchy, supplied as either:
+    hier : list of dict or list of BvhNode
+        The skeleton, supplied as either:
 
-        * A **list** of ``BvhRoot``, ``BvhJoint``, and ``BvhEndSite`` objects
-          in depth-first order, such as :attr:`Bvh.nodes`. It is read
-          through :func:`~pybvh.nodes_to_table`, so only each node's
-          ``parent`` is consulted, and the result holds fresh nodes built
-          by :func:`~pybvh.nodes_from_table`: nothing is shared with the
-          list given, and a list that is not one tree in depth-first
-          order raises ``ValueError``.
+        * A **node table**, as :meth:`Bvh.to_node_table` returns: one
+          ``dict`` per node in depth-first order with ``name``,
+          ``parent`` (the index of the parent's entry, ``None`` on the
+          root), ``offset``, ``rot_channels`` on the root and joints and
+          ``pos_channels`` on the root; an entry without ``rot_channels``
+          is an end site. :func:`~pybvh.nodes_from_table` defines the
+          format, its two leniencies and what it rejects.
+        * A **node list** of ``BvhRoot``, ``BvhJoint`` and ``BvhEndSite``
+          objects in depth-first order, such as :attr:`Bvh.nodes`. It is
+          read through :func:`~pybvh.nodes_to_table`, so only each node's
+          ``parent`` is consulted, and nothing is shared with the list
+          given.
+
         * A **dict** keyed by joint name, where each value contains at least
           ``'offset'`` (list of 3 floats), ``'parent'`` (str or None), and
           ``'children'`` (list of str).  Optional keys ``'rot_channels'``
@@ -353,6 +384,12 @@ def df_to_bvh(hier: list[BvhNode] | dict[str, dict], df: pd.DataFrame) -> Bvh:
           will be inferred from *df* if absent.  End-site entries carry only
           ``'offset'`` and ``'parent'`` — an entry with neither
           ``'children'`` nor ``'rot_channels'`` is treated as an end site.
+
+        A table and a list are told apart by the type of the first
+        element, and both build their nodes through
+        :func:`~pybvh.nodes_from_table`, which returns fresh nodes and
+        raises ``ValueError`` for a table or a list that is not one tree
+        in depth-first order.
     df : pandas.DataFrame
         Motion data.  Must include a ``time`` column and motion columns
         named ``<joint>_<axis>_pos`` or ``<joint>_<axis>_rot`` (e.g.
@@ -369,10 +406,10 @@ def df_to_bvh(hier: list[BvhNode] | dict[str, dict], df: pd.DataFrame) -> Bvh:
     Raises
     ------
     TypeError
-        If *hier* is neither a list nor a dict.
+        If *hier* is neither a node table, a node list nor a dict.
     ValueError
-        If a node list is not one tree in depth-first order, or a node's
-        parent is not in the list (see :func:`~pybvh.nodes_from_table`).
+        If *hier* is empty, or is not one tree in depth-first order (see
+        :func:`~pybvh.nodes_from_table`).
     Exception
         If *df* columns do not satisfy naming or ordering requirements (see
         ``_check_df_columns``), or if *df* and *hier* are inconsistent (see
@@ -385,12 +422,7 @@ def df_to_bvh(hier: list[BvhNode] | dict[str, dict], df: pd.DataFrame) -> Bvh:
 
     df = _check_df_columns(df) # this creates a copy of the df
 
-    if isinstance(hier, list):
-        hier_list, df = _check_df_match_with_hier(hier, df)
-        # Fresh nodes, wired and checked by the builder; the caller's list
-        # is read, never shared with the result.
-        hier_list = nodes_from_table(nodes_to_table(hier_list))
-    elif isinstance(hier, dict):
+    if isinstance(hier, dict):
         # The name-keyed dict is replaced by the node table in #16. Until
         # then it is built here, name-keyed both ways; a dict listing one
         # end-site name twice wires that node into children twice, which
@@ -398,9 +430,9 @@ def df_to_bvh(hier: list[BvhNode] | dict[str, dict], df: pd.DataFrame) -> Bvh:
         hier = copy.deepcopy(hier)
         hier = _complete_hier_dict(hier, df) # check the info in the dict and fill them from df if possible
         hier_list = _hier_dict_to_list(hier) # create the hier list of nodes
-        hier_list, df = _check_df_match_with_hier(hier_list, df)
     else:
-        raise TypeError('variable hier should be either a list of nodes or a dictionary')
+        hier_list = _nodes_from_hier(hier)
+    hier_list, df = _check_df_match_with_hier(hier_list, df)
 
     time_series = df['time']
     frames = df.drop(['time'], axis=1)

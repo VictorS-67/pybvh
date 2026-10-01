@@ -123,8 +123,8 @@ def nodes_to_table(nodes: Sequence[BvhNode]) -> list[dict[str, Any]]:
     Position is identity. Names play no part in it, because BVH names
     are not unique: two end sites under one joint share their generated
     display name, and duplicate joint names occur in real files, so a
-    name-keyed export (the ``{name: ...}`` dict of
-    :meth:`Bvh.to_hierarchy_dict`) loses nodes that this table keeps.
+    name-keyed export (the ``{name: ...}`` hierarchy dict of earlier
+    releases) loses nodes that this table keeps.
 
     Each entry has these keys, in this order:
 

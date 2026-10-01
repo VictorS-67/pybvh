@@ -14,7 +14,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
-from .node_tree import _check_node_tree, nodes_from_table
+from .node_tree import _check_node_tree, nodes_from_table, nodes_to_table
 from .spatial_coord import (
     FkTopology, frames_to_node_positions, _ground_plane_offset,
 )
@@ -1232,12 +1232,15 @@ class Bvh:
             lr_mapping=lr_mapping)
 
     @classmethod
-    def from_df(cls, hier: list[BvhNode] | dict[str, dict], df) -> Bvh:
-        """Build a Bvh from a hierarchy description and a motion DataFrame.
+    def from_df(cls, hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]],
+                df) -> Bvh:
+        """Build a Bvh from a skeleton and a motion DataFrame.
 
-        The constructor counterpart of :meth:`to_df_dict` /
-        :meth:`to_hierarchy_dict`. Delegates to :func:`pybvh.df_to_bvh`;
-        see it for the expected column naming and hierarchy formats.
+        The constructor counterpart of :meth:`to_node_table` and
+        :meth:`to_df_dict`: ``hier`` is a node table, or a node list such
+        as :attr:`nodes`, and ``df`` holds euler-mode frames. Delegates
+        to :func:`pybvh.df_to_bvh`; see it for the two forms of ``hier``,
+        the expected column naming and what raises.
         """
         from .df_to_bvh import df_to_bvh
         return df_to_bvh(hier, df)
@@ -1453,31 +1456,33 @@ class Bvh:
 
 
     
-    def to_hierarchy_dict(self) -> dict:
-        """Return the skeleton hierarchy as a plain dictionary.
+    def to_node_table(self) -> list[dict[str, Any]]:
+        """Export the skeleton as a node table: one plain ``dict`` per node.
 
-        The inverse-direction counterpart of :meth:`from_df`'s ``hier``
-        argument.
+        The skeleton as plain data, the counterpart of :meth:`from_df`'s
+        ``hier`` argument as :meth:`to_df_dict` is of its ``df``. One
+        entry per node in :attr:`nodes` order, each with ``name``,
+        ``parent`` (the index of the parent's entry, ``None`` on the
+        root), ``offset``, ``rot_channels`` on the root and joints and
+        ``pos_channels`` on the root; an entry without ``rot_channels``
+        is an end site. Position is identity, so two end sites under one
+        joint and joints sharing a name are carried as they are, which
+        no name-keyed export can do. :func:`~pybvh.nodes_to_table`
+        defines the format and names its conventions;
+        :func:`~pybvh.nodes_from_table` builds a tree back from it.
+
+        The table is the named twin of :attr:`fk_topology`: ``parent``
+        with ``None`` read as ``-1`` is its ``parent_idx``, the stacked
+        ``offset`` values are its ``offsets``, and the entries with
+        ``rot_channels`` are its joint columns, in order.
 
         Returns
         -------
-        dict
-            ``{name: {'offset': [...], 'parent': str|None,
-            'rot_channels': [...], 'children': [...]}, ...}``.
-            Root entries also include ``'pos_channels'``.
-            All values are copies (safe to mutate).
+        list of dict
+            One entry per node, in :attr:`nodes` order. Entries are
+            fresh objects and each ``offset`` is a copy, safe to mutate.
         """
-        hier_dict: dict[str, dict[str, object]] = {}
-        for node in self.nodes:
-            entry: dict[str, object] = {'offset': node.offset.copy()}
-            if isinstance(node, BvhRoot):
-                entry['pos_channels'] = list(node.pos_channels)
-            if isinstance(node, BvhJoint):
-                entry['rot_channels'] = list(node.rot_channels)
-                entry['children'] = [child.name for child in node.children]
-            entry['parent'] = None if node.parent is None else node.parent.name
-            hier_dict[node.name] = entry
-        return hier_dict
+        return nodes_to_table(self.nodes)
 
 
     def _create_node_index(self) -> None:

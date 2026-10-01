@@ -383,3 +383,99 @@ def test_harmonize_names_the_line_of_its_call():
                   verbose=True)
     warning = _the_warning(caught, "harmonize:")
     assert (warning.filename, warning.lineno) == (__file__, line)
+
+
+class TestBvhplot:
+    """bvhplot's warnings, reached through its functions and through
+    the Bvh methods that wrap them. The backends that would draw are
+    stubbed out: only the warnings before them are under test."""
+
+    @pytest.fixture
+    def walk(self):
+        return read_bvh_file(BVH_DIR / "bvh_test1.bvh")[0:5]
+
+    @pytest.fixture
+    def stubbed(self, monkeypatch):
+        monkeypatch.setattr(_matplotlib, "render_mpl",
+                            lambda *args, **kwargs: None)
+        monkeypatch.setattr(_matplotlib, "play_mpl",
+                            lambda *args, **kwargs: None)
+
+    @pytest.fixture
+    def without(self, monkeypatch):
+        """Make the packages named importable no more."""
+        def remove(*names):
+            monkeypatch.setattr(
+                bvhplot, "_module_importable",
+                lambda name: name not in names)
+        return remove
+
+    @pytest.mark.parametrize("draw", [
+        lambda clips, path: bvhplot.render(clips, path, backend="matplotlib"),
+        lambda clips, path: bvhplot.play(clips, backend="matplotlib"),
+    ], ids=["render", "play"])
+    def test_clips_of_two_rates_name_the_draw_call(
+            self, walk, stubbed, tmp_path, draw):
+        faster = walk.resample(60)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            draw([walk, faster], tmp_path / "clip.gif")
+        assert _files_named(caught, "Frame rates differ") == {__file__}
+
+    def test_a_clip_without_a_rate_names_the_play_call(self, walk, stubbed):
+        unset = walk.copy()
+        unset.frame_time = 0
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            bvhplot.play([walk, unset], backend="matplotlib", fps=10)
+        assert _files_named(caught, "frame_time 0 (unset)") == {__file__}
+
+    def test_clips_of_two_up_axes_name_the_play_call(self, walk, stubbed):
+        turned = walk.copy()
+        turned.world_up = "+y" if walk.world_up != "+y" else "+z"
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            bvhplot.play([walk, turned], backend="matplotlib")
+        assert _files_named(caught, "different world_up") == {__file__}
+
+    @pytest.mark.parametrize("draw", [
+        lambda clip, path: bvhplot.render(clip, path),
+        lambda clip, path: clip.render(path),
+    ], ids=["bvhplot.render", "Bvh.render"])
+    def test_a_render_without_opencv_names_the_render_call(
+            self, walk, stubbed, without, tmp_path, draw):
+        without("cv2")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            draw(walk, tmp_path / "clip.mp4")
+        assert _files_named(caught, "OpenCV not found") == {__file__}
+
+    @pytest.mark.parametrize("play", [
+        lambda clip: bvhplot.play(clip),
+        lambda clip: clip.play(),
+    ], ids=["bvhplot.play", "Bvh.play"])
+    def test_a_slow_fallback_names_the_play_call(
+            self, walk, stubbed, without, monkeypatch, play):
+        without("vedo")
+        monkeypatch.setattr(bvhplot, "_resolve_play_backend",
+                            lambda requested: ("matplotlib", 3))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            play(walk)
+        assert _files_named(caught, "No interactive backend") == {__file__}
+        assert _files_named(caught, "OpenCV not found") == {__file__}
+
+    @pytest.mark.parametrize("draw", [
+        lambda clip, path: bvhplot.render(clip, path, backend="matplotlib"),
+        lambda clip, path: clip.render(path, backend="matplotlib"),
+    ], ids=["bvhplot.render", "Bvh.render"])
+    def test_a_video_without_ffmpeg_names_the_render_call(
+            self, walk, monkeypatch, tmp_path, draw):
+        from matplotlib import animation
+        monkeypatch.setattr(animation.writers, "is_available",
+                            lambda name: False)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            draw(walk, tmp_path / "clip.mp4")
+        assert _files_named(caught, "FFmpeg not found") == {__file__}
+        assert (tmp_path / "clip.gif").exists()

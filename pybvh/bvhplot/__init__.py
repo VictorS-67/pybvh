@@ -43,6 +43,7 @@ import numpy.typing as npt
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .._warnings import user_stacklevel
 from ._from_bvh import (
     as_clip_list,
     get_skeleton_lines,   # noqa: F401 — re-export (public since 0.5.0)
@@ -357,7 +358,7 @@ def _match_frame_rates(
                 f"Use match_fps='lowest' or match_fps='highest' to resample \n"
                 f"automatically, or call bvh.resample(target_fps) manually.",
                 UserWarning,
-                stacklevel=3,
+                stacklevel=user_stacklevel(),
             )
         else:
             warnings.warn(
@@ -367,7 +368,7 @@ def _match_frame_rates(
                 f"Set bvh.frame_time (or bvh.fps) on every clip to compare "
                 f"them in real time.",
                 UserWarning,
-                stacklevel=3,
+                stacklevel=user_stacklevel(),
             )
         return bvh_list
 
@@ -440,7 +441,7 @@ def _warn_world_up_mismatch(
             f"Clips have different world_up values ({', '.join(world_ups)}). \n"
             "Use pybvh.reorient_world_up() to normalize before comparing.",
             UserWarning,
-            stacklevel=3,
+            stacklevel=user_stacklevel(),
         )
 
 
@@ -1085,7 +1086,7 @@ def render(
             "OpenCV not found for fast rendering. "
             "Install with: pip install pybvh[opencv]. "
             "Falling back to matplotlib (slower).",
-            stacklevel=2)
+            stacklevel=user_stacklevel())
 
     if backend_name == "vedo":
         if not _module_importable("vedo"):
@@ -1328,13 +1329,13 @@ def play(
         warnings.warn(
             "No interactive backend (k3d, vedo) found. "
             "Install with: pip install pybvh[interactive]",
-            stacklevel=2)
+            stacklevel=user_stacklevel())
     if tier >= 3:
         warnings.warn(
             "OpenCV not found for fast rendering. "
             "Install with: pip install pybvh[opencv]. "
             "Falling back to matplotlib (slow for long clips).",
-            stacklevel=2)
+            stacklevel=user_stacklevel())
 
     # --- Subsample to 30fps when fps is auto ---
     # Notebooks (k3d, jshtml) and matplotlib windows can't keep up with

@@ -689,10 +689,11 @@ def frame(
                 "vedo backend requires vedo. "
                 "Install with: pip install pybvh[viewer]")
         from ._vedo_offscreen import frame_vedo
-        # The still is not cut from the clip's Scene: under "skeleton"
-        # its floor would become the clip's, not its own pose's.
+        # Only a comparison is arranged, so only it needs its clips'
+        # every frame. The still is not cut from that Scene: under
+        # "skeleton" its floor would become the clip's, not its pose's.
         whole_clip = (_prepare(clips, None, centered, camera, labels)
-                      if coords is None else None)
+                      if len(clips) > 1 else None)
         scene = _arranged_in_one_scene(
             scene, spacing=spacing, centered=centered, match_size=match_size,
             measured_on=whole_clip)

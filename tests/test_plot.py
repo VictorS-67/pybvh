@@ -2201,3 +2201,38 @@ class TestSpreadInOneScene:
             np.testing.assert_allclose(
                 still_view.coords[0],
                 played_view.coords[f] - factor * travel, atol=1e-9)
+
+    @pytest.fixture
+    def whole_clip_scenes(self, monkeypatch):
+        """Count the Scenes prepared from every frame of the clips,
+        which a still builds only to measure an arrangement on."""
+        prepared = bvhplot._prepare
+        calls = []
+
+        def spy(clips, frames, *args, **kwargs):
+            if frames is None:
+                calls.append(list(clips))
+            return prepared(clips, frames, *args, **kwargs)
+
+        monkeypatch.setattr(bvhplot, "_prepare", spy)
+        return calls
+
+    def test_a_still_of_one_clip_prepares_only_its_frame(
+            self, twins, reached, tmp_path, whole_clip_scenes):
+        """One skeleton has nothing to be arranged with, so its still
+        never prepares the whole clip."""
+        pytest.importorskip("vedo")
+        from pybvh.bvhplot import _vedo_offscreen
+        reached(_vedo_offscreen, "frame_vedo")
+        bvhplot.frame(twins[0], 3, backend="vedo", centered="first",
+                      match_size=True)
+        assert whole_clip_scenes == []
+
+    def test_a_still_of_a_comparison_prepares_the_whole_clips(
+            self, twins, reached, tmp_path, whole_clip_scenes):
+        pytest.importorskip("vedo")
+        from pybvh.bvhplot import _vedo_offscreen
+        reached(_vedo_offscreen, "frame_vedo")
+        bvhplot.frame(twins, 3, backend="vedo", centered="first")
+        assert len(whole_clip_scenes) == 1
+        assert all(a is b for a, b in zip(whole_clip_scenes[0], twins))

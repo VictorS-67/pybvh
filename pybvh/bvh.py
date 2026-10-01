@@ -41,18 +41,23 @@ def _unique_labels(names: Sequence[str]) -> list[str]:
     """Make *names* unique in order, the way pandas labels repeated headers.
 
     The first occurrence keeps its name; a later one gets ``.1``, ``.2``,
-    ... appended, counted up until the label is one no earlier entry
-    took. ``['Arm', 'Arm', 'Arm']`` gives ``['Arm', 'Arm.1', 'Arm.2']``.
+    ... appended, counted up until the label is neither a name in
+    *names* nor a label already given, so an entry whose own name looks
+    like a suffixed label keeps it. ``['Arm', 'Arm', 'Arm']`` gives
+    ``['Arm', 'Arm.1', 'Arm.2']`` and ``['Arm', 'Arm', 'Arm.1']`` gives
+    ``['Arm', 'Arm.2', 'Arm.1']``, as ``pandas.read_csv`` reads those
+    headers.
     """
+    reserved = set(names)
+    given: set[str] = set()
     labels: list[str] = []
-    taken: set[str] = set()
     for name in names:
         label = name
-        bump = 0
-        while label in taken:
-            bump += 1
-            label = f'{name}.{bump}'
-        taken.add(label)
+        suffix = 0
+        while label in given or (label != name and label in reserved):
+            suffix += 1
+            label = f'{name}.{suffix}'
+        given.add(label)
         labels.append(label)
     return labels
 
@@ -1464,8 +1469,9 @@ class Bvh:
         repeated headers: the first node of a name keeps it, each later
         one gets ``.1``, ``.2``, ... before the axis and kind
         (``Arm_Z_rot``, ``Arm.1_Z_rot``; ``EndSiteHand_X``,
-        ``EndSiteHand.1_X``), counted up until the label is free.
-        Blender's BVH importer does the same with ``.001``. The suffix
+        ``EndSiteHand.1_X``), counted up until the label is neither
+        another node's name nor a label already given. Blender's BVH
+        importer does the same with ``.001``. The suffix
         is a column label only: the node keeps its name, which
         :meth:`to_node_table` and :attr:`nodes` carry and
         :func:`~pybvh.df_to_bvh` reads the labels back from. The

@@ -264,6 +264,23 @@ class TestDataFrameColumns:
             'EndSiteHips_Z_rot', 'EndSiteHips_Y_rot', 'EndSiteHips_X_rot',
             'Child_Z_rot', 'Child_Y_rot', 'Child_X_rot']
 
+    def test_a_node_named_like_a_suffixed_label_keeps_its_name(self):
+        """Joints 'Arm', 'Arm', 'Arm.1': the second 'Arm' skips the label
+        the third joint owns, as pandas reads the header `Arm,Arm,Arm.1`
+        as `Arm, Arm.2, Arm.1`."""
+        root = BvhRoot('Hips', [0, 0, 0], 'XYZ', 'ZYX', [])
+        for name, offset in [('Arm', [1, 0, 0]), ('Arm', [-1, 0, 0]), ('Arm.1', [0, 1, 0])]:
+            joint = _attach(root, BvhJoint(name, offset, 'ZYX', []))
+            _attach(joint, BvhEndSite('EndSite' + name, [0, 1, 0]))
+        nodes = [root]
+        for joint in root.children:
+            nodes.extend([joint, joint.children[0]])
+        bvh = Bvh(nodes, np.zeros((2, 3)), np.zeros((2, 4, 3)), 1 / 30)
+
+        rotation_columns = [c for c in bvh.to_df_dict(mode='euler') if c.endswith('_Z_rot')]
+
+        assert rotation_columns == ['Hips_Z_rot', 'Arm_Z_rot', 'Arm.2_Z_rot', 'Arm.1_Z_rot']
+
 
 # =============================================================================
 # Round trips through a file and a DataFrame

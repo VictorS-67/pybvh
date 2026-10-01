@@ -330,15 +330,66 @@ class TestK3d:
         capsys.readouterr()
 
     def test_the_camera_is_the_viewports(self, pair):
+        """The viewport's camera fitted to k3d's 60 degree view angle,
+        vertically alone."""
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import _build_plot
         from pybvh.bvhplot._viewport import make_viewport
         scene = pair.spread("auto")
         built = _build_plot(scene, Style("paper"))
-        eye, target, up = make_viewport(scene.views).camera()
+        assert built.plot.camera_fov == 60.0
+        eye, target, up = make_viewport(scene.views).camera(view_angle=60.0)
         np.testing.assert_allclose(
             built.plot.camera, [*eye, *target, *up], rtol=1e-6)
         assert built.plot.camera_auto_fit is False
+
+    @staticmethod
+    def _heights_on_screen(built, scene):
+        """How far up or down each coordinate of every frame lands,
+        seen through a pinhole at k3d's camera with its view angle, over
+        the picture's half height (1 is the edge)."""
+        camera = np.asarray(built.plot.camera, dtype=float)
+        eye, target, up = camera[:3], camera[3:6], camera[6:]
+        forward = (target - eye) / np.linalg.norm(target - eye)
+        right = np.cross(forward, up)
+        right /= np.linalg.norm(right)
+        screen_up = np.cross(right, forward)
+        tangent = np.tan(np.radians(built.plot.camera_fov) / 2)
+        points = np.concatenate([view.coords.reshape(-1, 3)
+                                 for view in scene.views]) - eye
+        depth = points @ forward
+        assert np.all(depth > 0)
+        return np.abs(points @ screen_up) / (tangent * depth)
+
+    @pytest.mark.parametrize("fov", [60.0, 45.0], ids=["default", "narrow"])
+    def test_the_figure_fills_the_widgets_height(self, scene, fov,
+                                                 monkeypatch):
+        """Every coordinate of every frame lands inside FIT_FRACTION of
+        the picture's height, and one reaches it, at the view angle the
+        plot has (a plot made with another one is fitted to it). The
+        width is the notebook's, so it is not fitted."""
+        k3d = pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+        from pybvh.bvhplot._viewport import FIT_FRACTION
+        make_plot = k3d.plot
+        monkeypatch.setattr(
+            k3d, "plot",
+            lambda *args, **kwargs: make_plot(*args, camera_fov=fov,
+                                              **kwargs))
+        built = _build_plot(scene, Style("paper"))
+        assert built.plot.camera_fov == fov
+        height = self._heights_on_screen(built, scene)
+        assert height.max() == pytest.approx(FIT_FRACTION, rel=1e-6)
+
+    def test_skeletons_side_by_side_stay_inside_the_height(self, pair):
+        """... without reaching it: their spread widens the cube, and
+        the eye stands no nearer than its corner."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+        from pybvh.bvhplot._viewport import FIT_FRACTION
+        scene = pair.spread("auto")
+        built = _build_plot(scene, Style("paper"))
+        assert self._heights_on_screen(built, scene).max() <= FIT_FRACTION
 
     def test_the_trails_lie_on_the_scene_ground(self, pair):
         """... and the grid's bottom face is put just under it, so the
@@ -818,10 +869,12 @@ class TestEveryBackendStatesItsProjection:
 class TestEveryPerspectiveBackendUsesTheViewportsCamera:
     def test_vedo_offscreen_renders_from_it(self, scene, monkeypatch):
         """Checked on the camera VTK ends up with when a still is
-        rendered, not on the numbers handed to it."""
+        rendered, not on the numbers handed to it: the viewport's
+        camera fitted to VTK's 30 degree view angle and the picture's
+        aspect ratio."""
         vedo = pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo_offscreen
-        from pybvh.bvhplot._viewport import EYE_DISTANCE, make_viewport
+        from pybvh.bvhplot._viewport import make_viewport
         seen = {}
         real_screenshot = vedo.Plotter.screenshot
 
@@ -831,19 +884,18 @@ class TestEveryPerspectiveBackendUsesTheViewportsCamera:
                 position=np.array(camera.GetPosition()),
                 focal_point=np.array(camera.GetFocalPoint()),
                 viewup=np.array(camera.GetViewUp()),
-                distance=camera.GetDistance())
+                view_angle=camera.GetViewAngle())
             return real_screenshot(plotter, *args, **kwargs)
 
         monkeypatch.setattr(vedo.Plotter, "screenshot", capture)
-        _vedo_offscreen.frame_vedo(scene, Style("paper"), resolution=(200, 200))
+        _vedo_offscreen.frame_vedo(scene, Style("paper"), resolution=(240, 160))
 
-        viewport = make_viewport(scene.views)
-        eye, target, up = viewport.camera()
+        assert seen["view_angle"] == 30.0
+        eye, target, up = make_viewport(scene.views).camera(
+            view_angle=30.0, aspect=240 / 160)
         np.testing.assert_allclose(seen["position"], eye)
         np.testing.assert_allclose(seen["focal_point"], target)
         np.testing.assert_allclose(seen["viewup"], up, atol=1e-12)
-        assert seen["distance"] == pytest.approx(
-            EYE_DISTANCE * viewport.half_span)
 
     # The vedo viewer's camera is tested in tests/test_vedo_player.py,
     # and k3d's in TestK3d above, each with the change that made it.

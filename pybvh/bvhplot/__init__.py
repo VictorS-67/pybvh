@@ -1106,6 +1106,14 @@ def play(
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``) or
         ``(azimuth_deg, elevation_deg)`` tuple. Default ``"front"``.
+        The interactive viewers open with every joint and end site of
+        every frame inside 90% of the picture: the vedo window, between
+        its controls; the k3d widget's height alone, since its width is
+        the notebook's and k3d does not report it. Fitting an assumed
+        width instead would stand k3d's camera further back for a
+        scene wider than that width, whatever the notebook's; as it
+        is, several skeletons spread side by side can reach past the
+        sides of a narrow widget, and the mouse wheel zooms out.
     sync : str, optional
         How to handle different frame counts in side-by-side comparison:
         ``"truncate"`` (default) stops at the shortest clip;

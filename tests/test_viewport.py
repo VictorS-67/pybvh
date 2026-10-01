@@ -12,7 +12,6 @@ import numpy as np
 import pytest
 
 from pybvh.bvhplot._viewport import (
-    EYE_DISTANCE,
     FIT_FRACTION,
     FLOOR_EXTENT,
     FLOOR_INSET,
@@ -410,34 +409,206 @@ class TestCamera:
 
     def test_the_eye_stands_back_from_the_cubes_centre(self, view):
         viewport = make_viewport([view])
-        camera = viewport.camera()
+        camera = viewport.camera(view_angle=30.0)
         np.testing.assert_array_equal(camera.target, viewport.center)
         offset = camera.eye - camera.target
         assert np.linalg.norm(offset) == pytest.approx(
-            EYE_DISTANCE * viewport.half_span)
+            viewport.eye_distance(30.0))
         matrix = viewport.view_matrix()
         np.testing.assert_allclose(
             offset / np.linalg.norm(offset), matrix[2], atol=1e-12)
         np.testing.assert_array_equal(camera.up, matrix[1])
 
     def test_the_camera_does_not_depend_on_the_framing(self, view):
-        still = make_viewport([view], framing="still").camera()
-        clip = make_viewport([view], framing="clip").camera()
+        still = make_viewport([view], framing="still").camera(view_angle=30.0)
+        clip = make_viewport([view], framing="clip").camera(view_angle=30.0)
         np.testing.assert_array_equal(still.eye, clip.eye)
         np.testing.assert_array_equal(still.target, clip.target)
 
     def test_the_camera_orbits_with_the_schedule(self, view):
         viewport = make_viewport([view], motion="turntable")
-        start, quarter = viewport.camera(0), viewport.camera(6)
+        start, quarter = (viewport.camera(frame, view_angle=30.0)
+                          for frame in (0, 6))
         assert not np.allclose(start.eye, quarter.eye)
         np.testing.assert_array_equal(start.target, quarter.target)
 
     def test_camera_arrays_are_the_callers_to_change(self, view):
         viewport = make_viewport([view])
-        viewport.camera().target[:] = 99.0
-        viewport.camera().up[:] = 99.0
+        viewport.camera(view_angle=30.0).target[:] = 99.0
+        viewport.camera(view_angle=30.0).up[:] = 99.0
         assert not np.any(viewport.center == 99.0)
         assert not np.any(viewport.view_matrix() == 99.0)
+
+
+def _pinhole_fill(camera, points, view_angle, aspect):
+    """How far out in the picture each of *points* lands, seen through a
+    pinhole at *camera* with the vertical *view_angle*: the larger of
+    its distance from the picture's middle over the half height and
+    over the half width, so 1 is the picture's edge. *aspect* None
+    measures the vertical direction alone. Also the points' depths in
+    front of the eye."""
+    forward = camera.target - camera.eye
+    forward /= np.linalg.norm(forward)
+    right = np.cross(forward, camera.up)
+    right /= np.linalg.norm(right)
+    up = np.cross(right, forward)
+    relative = points - camera.eye
+    depth = relative @ forward
+    half_height = np.tan(np.radians(view_angle) / 2) * depth
+    fill = np.abs(relative @ up) / half_height
+    if aspect is not None:
+        fill = np.maximum(fill, np.abs(relative @ right) / (half_height * aspect))
+    return fill, depth
+
+
+def _pinhole_position(camera, points, view_angle, aspect):
+    """Where each of *points* lands in the picture, seen through a
+    pinhole at *camera*: its height as a fraction of the picture's
+    height from the bottom edge, and how far across it is from the
+    middle over the half width (signed)."""
+    forward = camera.target - camera.eye
+    forward /= np.linalg.norm(forward)
+    right = np.cross(forward, camera.up)
+    right /= np.linalg.norm(right)
+    up = np.cross(right, forward)
+    relative = points - camera.eye
+    half_height = np.tan(np.radians(view_angle) / 2) * (relative @ forward)
+    height = 0.5 + 0.5 * (relative @ up) / half_height
+    across = (relative @ right) / (half_height * aspect)
+    return height, across
+
+
+class TestPerspectiveFit:
+    """The perspective camera stands at the smallest distance at which
+    every coordinate shown lands inside FIT_FRACTION of the picture."""
+
+    @pytest.mark.parametrize("still", [True, False], ids=["still", "clip"])
+    @pytest.mark.parametrize("motion", ["fixed", "turntable"])
+    @pytest.mark.parametrize("view_angle", [30.0, 60.0])
+    @pytest.mark.parametrize("aspect", [16 / 9, 9 / 16, None],
+                             ids=["landscape", "portrait", "vertical"])
+    def test_every_coordinate_fits_and_one_reaches_the_edge(
+            self, still, motion, view_angle, aspect):
+        """A still under a turntable is one pose held for the orbit, as
+        a render of a one-frame clip loops it."""
+        from pybvh.bvhplot._scene import Scene
+        if still:
+            scene = Scene(views=[make_array_view(n_frames=1)]).looped(24)
+        else:
+            scene = make_array_scene(n_frames=24)
+        view = scene.views[0]
+        viewport = make_viewport(scene.views, motion=motion)
+        assert viewport.rotating == (motion == "turntable")
+        fills = []
+        for frame in range(24):
+            camera = viewport.camera(
+                frame, view_angle=view_angle, aspect=aspect)
+            fill, depth = _pinhole_fill(
+                camera, view.coords[frame], view_angle, aspect)
+            assert np.all(depth > 0)
+            fills.append(fill)
+        fills = np.concatenate(fills)
+        assert fills.max() == pytest.approx(FIT_FRACTION, rel=1e-9)
+
+    @pytest.mark.parametrize("view_angle", [30.0, 60.0])
+    @pytest.mark.parametrize("aspect", [16 / 9, 9 / 16, None],
+                             ids=["landscape", "portrait", "vertical"])
+    def test_every_coordinate_fits_under_a_follow_camera(
+            self, view, view_angle, aspect):
+        """A clip whose heading turns a quarter turn, followed: each
+        frame is seen from that frame's direction."""
+        turning = _turning_view(view)
+        viewport = make_viewport([turning], motion="follow")
+        assert viewport.rotating
+        fills = []
+        for frame in range(turning.coords.shape[0]):
+            camera = viewport.camera(
+                frame, view_angle=view_angle, aspect=aspect)
+            fill, depth = _pinhole_fill(
+                camera, turning.coords[frame], view_angle, aspect)
+            assert np.all(depth > 0)
+            fills.append(fill)
+        fills = np.concatenate(fills)
+        assert fills.max() == pytest.approx(FIT_FRACTION, rel=1e-9)
+
+    def test_a_turning_camera_keeps_one_distance(self, view):
+        viewport = make_viewport([_turning_view(view)], motion="follow")
+        assert viewport.rotating
+        distances = [
+            np.linalg.norm(camera.eye - camera.target)
+            for camera in (viewport.camera(frame, view_angle=30.0, aspect=1.5)
+                           for frame in range(24))]
+        np.testing.assert_allclose(distances, distances[0], rtol=1e-12)
+
+    @pytest.mark.parametrize("band", [(0.12, 0.89), (0.3, 0.95), (0.02, 0.6)],
+                             ids=["nearly centred", "high", "low"])
+    @pytest.mark.parametrize("motion", ["fixed", "turntable"])
+    @pytest.mark.parametrize("aspect", [16 / 9, 9 / 16])
+    def test_every_coordinate_fits_the_band_and_one_reaches_it(
+            self, band, motion, aspect):
+        """A band of the picture's height, as the vedo viewer leaves
+        free between its transport bar and its top row of controls.
+        The coordinates fill FIT_FRACTION of the band, about its middle,
+        while the camera still aims at the picture's middle; across,
+        FIT_FRACTION of the width as without a band."""
+        scene = make_array_scene(n_frames=24)
+        view = scene.views[0]
+        viewport = make_viewport(scene.views, motion=motion)
+        bottom, top = band
+        margin = (1 - FIT_FRACTION) / 2 * (top - bottom)
+        lowest, highest = bottom + margin, top - margin
+        heights, fills = [], []
+        for frame in range(24):
+            camera = viewport.camera(
+                frame, view_angle=30.0, aspect=aspect, band=band)
+            height, across = _pinhole_position(
+                camera, view.coords[frame], 30.0, aspect)
+            heights.append(height)
+            fills.append(np.abs(across) / FIT_FRACTION)
+        heights = np.concatenate(heights)
+        assert heights.min() >= lowest - 1e-9
+        assert heights.max() <= highest + 1e-9
+        fills = np.concatenate(fills)
+        reached = max(fills.max(),
+                      (heights.max() - 0.5) / (highest - 0.5),
+                      (0.5 - heights.min()) / (0.5 - lowest))
+        assert reached == pytest.approx(1.0, rel=1e-9)
+
+    def test_a_band_that_leaves_out_the_middle_is_refused(self, view):
+        """The camera aims at the picture's middle, so a band that does
+        not contain it cannot hold the figure around its target."""
+        viewport = make_viewport([view])
+        with pytest.raises(ValueError, match="middle"):
+            viewport.eye_distance(30.0, band=(0.55, 0.95))
+
+    @pytest.mark.parametrize("figure", ["end on", "flat"])
+    def test_the_whole_cube_stays_in_front_of_the_eye(self, figure):
+        """Two figures the fit alone would bring the eye onto or past:
+        a line along the viewing direction, whose coordinates all land
+        in the picture's middle however close the eye comes, and a
+        figure flat in the plane of the viewing direction and the
+        screen's horizontal, fitted vertically alone, which sets no
+        limit at all. The eye stops where the whole cube, and so every
+        coordinate, is in front of it."""
+        from pybvh.bvhplot._viewport import box_corners
+        from synthetic_scene import make_bare_view
+        right, _, towards_eye = build_view_matrix(-20.0, 20.0, "y")
+        steps = np.linspace(-1.0, 1.0, 5)[:, np.newaxis]
+        if figure == "end on":
+            points, aspect = steps * towards_eye, 1.0
+        else:
+            points = np.concatenate([steps * towards_eye, steps * right])
+            aspect = None
+        view = make_bare_view(
+            points[np.newaxis], points, [(0, 1)], rest_up=None)
+        viewport = make_viewport([view])
+        camera = viewport.camera(view_angle=60.0, aspect=aspect)
+        cube = box_corners(viewport.center - viewport.half_span,
+                           viewport.center + viewport.half_span)
+        _, cube_depth = _pinhole_fill(camera, cube, 60.0, aspect)
+        assert cube_depth.min() == pytest.approx(0.0, abs=1e-12)
+        _, depth = _pinhole_fill(camera, points, 60.0, aspect)
+        assert depth.min() > 0.01 * viewport.half_span
 
 
 class TestFloor:

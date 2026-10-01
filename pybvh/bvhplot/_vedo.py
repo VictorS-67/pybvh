@@ -82,10 +82,12 @@ def _interleave(
 _PANEL_X = 0.01     # left-panel x
 _PANEL_S = 1.4      # left-panel text scale
 _RPANEL_X = 0.85    # right (help) panel x
+_TOP_ROW_Y0 = 0.89  # top row's bottom (speed buttons, help, notices)
 
 # Bottom transport bar: _SL_X0/_SL_X1 drive both the slider and the
 # button layout.  Change them and everything stays aligned automatically.
 _SL_X0, _SL_X1 = 0.15, 0.85   # slider / button-row x extents
+_SL_Y = 0.12                  # the slider's line, the bar's top
 _BTN_S = 1.8                  # large, comfortable button text
 _BTN_GAP = 0.010              # normalized gap between adjacent buttons
 _N_BTNS = 5
@@ -99,6 +101,15 @@ _BTN_Y0 = 0.01
 _BTN_H = 0.07
 # Vertical offset from a button's hit-box bottom edge to its Text2D baseline.
 _TEXT_RAISE = 0.03
+_TOP_ROW_TEXT_Y = _TOP_ROW_Y0 + _TEXT_RAISE
+
+# The band of the window's height the camera fits the figure into: from
+# the slider's line to the bottom of the top row. The side panels'
+# lower rows are left out, being beside a figure centred across the
+# window, not above it. The fit keeps a margin inside the band
+# (FIT_FRACTION), which clears the slider's knob and the top row's text,
+# hanging a little below its hit boxes.
+_FIGURE_BAND = (_SL_Y, _TOP_ROW_Y0)
 
 # Transport button labels — ASCII words (symbols don't render well in Calco).
 # All 9 chars padded for consistent background widths.
@@ -412,7 +423,7 @@ class _VedoPlayer:
                 )
                 self.plt += label
 
-        # --- Camera: the viewport's, the one the offscreen renderer uses ---
+        # --- Camera: the viewport's, fitted to the window ---
         self._set_camera()
 
         # --- Joint name labels (toggle with J key) ---
@@ -474,11 +485,18 @@ class _VedoPlayer:
     def _set_camera(self) -> None:
         """Put the camera where the viewport says, exactly.
 
-        Only the clipping planes are left to VTK: they decide what is
-        cut off in depth, not what is framed. VTK fits them to what is
-        in the scene at the moment, so :meth:`_update_frame` refits
-        them whenever the skeletons move."""
-        eye, target, up = self.viewport.camera()
+        Fitted to VTK's view angle (read from its camera, as the
+        offscreen renderer reads it), the window's shape as it is now (a
+        reset after resizing the window refits to its new shape) and
+        the band the controls leave free, ``_FIGURE_BAND``. Only the
+        clipping planes are left to VTK: they decide what is cut off in
+        depth, not what is framed. VTK fits them to what is in the
+        scene at the moment, so :meth:`_update_frame` refits them
+        whenever the skeletons move."""
+        width, height = self.plt.window.GetSize()
+        eye, target, up = self.viewport.camera(
+            view_angle=self.plt.camera.GetViewAngle(),
+            aspect=width / height, band=_FIGURE_BAND)
         self.plt.camera.SetPosition(*eye)
         self.plt.camera.SetFocalPoint(*target)
         self.plt.camera.SetViewUp(*up)
@@ -530,19 +548,21 @@ class _VedoPlayer:
 
         # --- Left panel (compact: label + < value > on same line) ---
         self.speed_label = Text2D(
-            "Spd", pos=(_PANEL_X, 0.92), s=_PANEL_S,
+            "Spd", pos=(_PANEL_X, _TOP_ROW_TEXT_Y), s=_PANEL_S,
             c='#2c3e50', font='Calco',
         )
         self.plt += self.speed_label
         self._ui_actors.append(self.speed_label)
-        self._add_button(" < ", 0.05, 0.89, 0.03, 0.07, self._on_speed_down)
+        self._add_button(
+            " < ", 0.05, _TOP_ROW_Y0, 0.03, 0.07, self._on_speed_down)
         self.speed_text = Text2D(
-            " 1x ", pos=(0.08, 0.92), s=_PANEL_S,
+            " 1x ", pos=(0.08, _TOP_ROW_TEXT_Y), s=_PANEL_S,
             c='#2c3e50', bg='#c8c8d4', font='Calco',
         )
         self.plt += self.speed_text
         self._ui_actors.append(self.speed_text)
-        self._add_button(" > ", 0.12, 0.89, 0.04, 0.07, self._on_speed_up)
+        self._add_button(
+            " > ", 0.12, _TOP_ROW_Y0, 0.04, 0.07, self._on_speed_up)
 
         # --- FPS selector ---
         self.fps_label = Text2D(
@@ -585,7 +605,7 @@ class _VedoPlayer:
 
         # --- Right panel: help (toggled with H key) ---
         self._help_header = Text2D(
-            " Help (H) ", pos=(_RPANEL_X, 0.92), s=_PANEL_S,
+            " Help (H) ", pos=(_RPANEL_X, _TOP_ROW_TEXT_Y), s=_PANEL_S,
             c='white', bg='#2c3e50', font='Calco',
         )
         self.plt += self._help_header
@@ -602,7 +622,7 @@ class _VedoPlayer:
 
         # --- Screenshot feedback overlay (center-top, hidden by default) ---
         self._screenshot_text = Text2D(
-            "", pos=(0.35, 0.92), s=1.2,
+            "", pos=(0.35, _TOP_ROW_TEXT_Y), s=1.2,
             c='white', bg='green4', font='Calco',
         )
         self._screenshot_text.actor.SetVisibility(0)
@@ -614,7 +634,7 @@ class _VedoPlayer:
             self._on_slider,
             xmin=0, xmax=self.num_frames - 1,
             value=0,
-            pos=[(_SL_X0, 0.12), (_SL_X1, 0.12)],   # matches button row extents
+            pos=[(_SL_X0, _SL_Y), (_SL_X1, _SL_Y)],  # the button row's extents
             title='',
             show_value=False,
         )

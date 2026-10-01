@@ -50,15 +50,20 @@ class TestCamera:
         return Scene(views=[dataclasses.replace(view, coords=far)])
 
     def test_kept_through_show_and_reset(self, scene, monkeypatch):
-        """VTK used to refit the distance and the target to everything
-        in the scene, floor plane included."""
+        """The viewport's camera, fitted to VTK's 30 degree view angle,
+        the window's aspect ratio and the band the controls leave free.
+        VTK used to refit the distance and the target to everything in
+        the scene, floor plane included."""
         from pybvh.bvhplot._vedo_offscreen import _vtk_backend
-        from pybvh.bvhplot._viewport import EYE_DISTANCE
         monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
         with _vtk_backend():
             p = _vedo._VedoPlayer(scene, Style("paper"), 30.0, quality="high")
             try:
-                eye, target, up = p.viewport.camera()
+                assert p.plt.camera.GetViewAngle() == 30.0
+                assert tuple(p.plt.window.GetSize()) == (1400, 900)
+                eye, target, up = p.viewport.camera(
+                    view_angle=30.0, aspect=1400 / 900,
+                    band=_vedo._FIGURE_BAND)
 
                 def check():
                     camera = p.plt.camera
@@ -66,8 +71,6 @@ class TestCamera:
                     np.testing.assert_allclose(camera.GetFocalPoint(), target)
                     np.testing.assert_allclose(
                         camera.GetViewUp(), up, atol=1e-12)
-                    assert camera.GetDistance() == pytest.approx(
-                        EYE_DISTANCE * p.viewport.half_span)
 
                 check()
                 p.show()
@@ -77,6 +80,65 @@ class TestCamera:
                 check()
             finally:
                 p.plt.close()
+
+    def test_reset_refits_to_a_resized_window(self, scene, monkeypatch):
+        """A window resized after opening, reset: the camera is the
+        viewport's fit at the window's new aspect ratio, not the one it
+        opened with."""
+        from pybvh.bvhplot._vedo_offscreen import _vtk_backend
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        with _vtk_backend():
+            p = _vedo._VedoPlayer(scene, Style("paper"), 30.0, quality="high")
+            try:
+                p.show()
+                opened = p.plt.camera.GetPosition()
+                p.plt.window.SetSize(600, 1000)
+                assert tuple(p.plt.window.GetSize()) == (600, 1000)
+                p._on_reset_camera()
+                eye, target, up = p.viewport.camera(
+                    view_angle=30.0, aspect=600 / 1000,
+                    band=_vedo._FIGURE_BAND)
+                camera = p.plt.camera
+                assert not np.allclose(opened, eye)
+                np.testing.assert_allclose(camera.GetPosition(), eye)
+                np.testing.assert_allclose(camera.GetFocalPoint(), target)
+                np.testing.assert_allclose(
+                    camera.GetViewUp(), up, atol=1e-12)
+            finally:
+                p.plt.close()
+
+    def test_a_clip_in_place_opens_between_the_controls(self, monkeypatch):
+        """Every coordinate, projected by VTK's own camera, lands above
+        the frame slider (the top of the transport bar) and below the
+        top row of buttons: the feet used to reach behind the bar."""
+        from pybvh.bvhplot._vedo_offscreen import _vtk_backend
+        bvh = read_bvh_file("bvh_data/bvh_example.bvh")
+        coords = bvh.node_positions()
+        in_place = make_scene([bvh], [coords], "front", None)
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        with _vtk_backend():
+            p = _vedo._VedoPlayer(in_place, Style("paper"), 30.0,
+                                  quality="high")
+            try:
+                p.show()
+                width, height = p.plt.window.GetSize()
+                camera = p.plt.camera
+                to_picture = camera.GetCompositeProjectionTransformMatrix(
+                    width / height, -1.0, 1.0)
+                matrix = np.array([[to_picture.GetElement(i, j)
+                                    for j in range(4)] for i in range(4)])
+                slider = p.slider.GetRepresentation()
+                slider_line = slider.GetPoint1Coordinate().GetValue()[1]
+                top_row = max(y0 for _, y0, _, _, _ in p._buttons)
+            finally:
+                p.plt.close()
+        points = coords.reshape(-1, 3)
+        clip = np.c_[points, np.ones(len(points))] @ matrix.T
+        across = clip[:, 0] / clip[:, 3]
+        heights = 0.5 + 0.5 * clip[:, 1] / clip[:, 3]
+        assert heights.min() > slider_line
+        assert heights.max() < top_row
+        assert np.abs(across).max() < 1.0
 
     @pytest.mark.parametrize("style", ["paper", "debug"])
     def test_the_skeleton_is_never_clipped_in_depth(self, monkeypatch, style):

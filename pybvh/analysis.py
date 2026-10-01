@@ -2079,16 +2079,17 @@ def _detect_contacts(
             return _release_open_runs(mask, sig < thr)
         return sig < thr
 
-    vel_mask = thresholded(speed, vel_threshold) if method in ("velocity", "combined") else None
-    height_mask = (
-        thresholded(clearance, height_threshold) if method in ("height", "combined") else None
-    )
-
     if method == "velocity":
+        vel_mask = thresholded(speed, vel_threshold)
+        height_mask = None
         mask = vel_mask
     elif method == "height":
+        vel_mask = None
+        height_mask = thresholded(clearance, height_threshold)
         mask = height_mask
     else:
+        vel_mask = thresholded(speed, vel_threshold)
+        height_mask = thresholded(clearance, height_threshold)
         mask = vel_mask & height_mask
 
     confidence = _contact_confidence(

@@ -45,7 +45,10 @@ dt = bvh.frame_time
 t = np.arange(F) * dt
 FRAME = F // 2                              # a representative pose
 P = pos[FRAME]
-idx = lambda name: bvh.index(name, space="node")
+
+def idx(name):
+    return bvh.index(name, space="node")
+
 print(bvh)
 
 # %% [markdown]

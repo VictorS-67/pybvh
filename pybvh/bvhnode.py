@@ -65,7 +65,7 @@ class BvhNode:
     @parent.setter
     def parent(self, value: BvhNode | None) -> None:
         #parent needs to be either None or an instance of BvhNode
-        if value != None and not isinstance(value, BvhNode):
+        if value is not None and not isinstance(value, BvhNode):
             raise ValueError("parent should either be None or a BvhNode class/subclasse object")
         self._parent = value
 

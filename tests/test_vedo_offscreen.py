@@ -4,10 +4,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-vedo = pytest.importorskip("vedo")
-
 from pybvh import bvhplot, read_bvh_file
 from pybvh.bvhplot import Style
+
+vedo = pytest.importorskip("vedo")
 
 BVH_PATH = "bvh_data/cmu_12_01_walk.bvh"
 

@@ -769,8 +769,8 @@ def axisangle_to_rotmat(aa: npt.ArrayLike) -> npt.NDArray[np.float64]:
     sin_a = np.sin(angle)[:, np.newaxis, np.newaxis]
     cos_a = np.cos(angle)[:, np.newaxis, np.newaxis]
 
-    I = np.eye(3, dtype=np.float64)[np.newaxis, :, :]  # (1, 3, 3)
-    R = I + sin_a * K + (1.0 - cos_a) * (K @ K)
+    identity = np.eye(3, dtype=np.float64)[np.newaxis, :, :]  # (1, 3, 3)
+    R = identity + sin_a * K + (1.0 - cos_a) * (K @ K)
 
     R = R.reshape(batch_shape + (3, 3))
     if single:

@@ -442,8 +442,8 @@ def get_bone_chains(bvh: Bvh) -> dict[str, list[int]]:
     if pairs is None:
         return {"spine": list(range(len(bones)))}
 
-    left_nodes = {l for l, _ in pairs}
-    right_nodes = {r for _, r in pairs}
+    left_nodes = {left for left, _ in pairs}
+    right_nodes = {right for _, right in pairs}
 
     parent_of = {child: parent for child, parent in bvh.node_edges}
     children_of: dict[int, list[int]] = {}

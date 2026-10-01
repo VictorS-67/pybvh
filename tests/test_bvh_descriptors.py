@@ -61,13 +61,14 @@ def test_inter_joint_distance_by_name_matches_kernel():
 def test_joint_angle_and_triangle_area_by_name():
     bvh = _bvh()
     pos = bvh.node_positions()
-    i = lambda n: bvh.index(n, space="node")
+    left_foot, hips, right_foot = (pos[:, bvh.index(name, space="node")]
+                                   for name in ("LeftFoot", "Hips", "RightFoot"))
     np.testing.assert_allclose(
         bvh.joint_angle("LeftFoot", "Hips", "RightFoot"),
-        geometry.joint_angle(pos[:, i("LeftFoot")], pos[:, i("Hips")], pos[:, i("RightFoot")]))
+        geometry.joint_angle(left_foot, hips, right_foot))
     np.testing.assert_allclose(
         bvh.triangle_area("LeftFoot", "Hips", "RightFoot"),
-        geometry.triangle_area(pos[:, i("LeftFoot")], pos[:, i("Hips")], pos[:, i("RightFoot")]))
+        geometry.triangle_area(left_foot, hips, right_foot))
 
 
 def test_segment_axis_angle_matches_kernel():

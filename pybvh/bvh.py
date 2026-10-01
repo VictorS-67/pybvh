@@ -1502,8 +1502,10 @@ class Bvh:
         radians-valued :attr:`joint_angles`.
         """
         joint_angles_deg = np.rad2deg(self.joint_angles)
+        # The width is spelled out: NumPy cannot infer -1 from no frames.
         flat = np.concatenate(
-            [self.root_pos, joint_angles_deg.reshape(self.frame_count, -1)],
+            [self.root_pos,
+             joint_angles_deg.reshape(self.frame_count, 3 * self.joint_count)],
             axis=1)
         return self._timed_columns(
             _motion_column_names(self.nodes, 'euler'), flat)
@@ -1511,7 +1513,8 @@ class Bvh:
     def _get_df_constructor_spatial_coord(self, centered: str) -> dict[str, npt.NDArray[np.float64]]:
         """Return column-name → array dict for spatial-coordinate DataFrame."""
         spatial_array = self.node_positions(centered=centered)  # (F, N, 3)
-        flat = spatial_array.reshape(self.frame_count, -1)
+        # The width is spelled out: NumPy cannot infer -1 from no frames.
+        flat = spatial_array.reshape(self.frame_count, 3 * len(self.nodes))
         return self._timed_columns(
             _motion_column_names(self.nodes, 'coordinates'), flat)
 

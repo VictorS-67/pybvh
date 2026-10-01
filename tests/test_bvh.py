@@ -62,6 +62,20 @@ def standard_skeleton():
     return read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "standard_skeleton.bvh")
 
 
+@pytest.fixture
+def zero_frame_clip():
+    """A root, a joint and an end site with no motion, the way `Bvh()` and
+    `_copy_skeleton()` hold a skeleton: every frame array has length 0."""
+    end = BvhEndSite("EndSiteHand", offset=[0.0, 1.0, 0.0])
+    hand = BvhJoint("Hand", offset=[0.0, 1.0, 0.0], rot_channels=['X', 'Y', 'Z'],
+                    children=[end])
+    end.parent = hand
+    root = BvhRoot("Hips", offset=[0.0, 0.0, 0.0], rot_channels=['Z', 'Y', 'X'],
+                   children=[hand])
+    hand.parent = root
+    return Bvh([root, hand, end], np.empty((0, 3)), np.empty((0, 2, 3)), 1 / 30)
+
+
 # =============================================================================
 # Test: read_bvh_file
 # =============================================================================
@@ -726,6 +740,32 @@ class TestDataFrameConversion:
 
         assert rebuilt.frame_count == bvh_example.frame_count
         assert np.isclose(rebuilt.frame_time, bvh_example.frame_time)
+
+    def test_to_df_dict_euler_exports_a_zero_frame_clip(self, zero_frame_clip):
+        """A skeleton-only clip exports every column label over an empty array."""
+        columns = zero_frame_clip.to_df_dict(mode='euler')
+        assert list(columns) == [
+            'time',
+            'Hips_X_pos', 'Hips_Y_pos', 'Hips_Z_pos',
+            'Hips_Z_rot', 'Hips_Y_rot', 'Hips_X_rot',
+            'Hand_X_rot', 'Hand_Y_rot', 'Hand_Z_rot']
+        assert all(values.shape == (0,) for values in columns.values())
+
+    def test_to_df_dict_coordinates_exports_a_zero_frame_clip(self, zero_frame_clip):
+        columns = zero_frame_clip.to_df_dict(mode='coordinates')
+        assert list(columns) == [
+            'time',
+            'Hips_X', 'Hips_Y', 'Hips_Z',
+            'Hand_X', 'Hand_Y', 'Hand_Z',
+            'EndSiteHand_X', 'EndSiteHand_Y', 'EndSiteHand_Z']
+        assert all(values.shape == (0,) for values in columns.values())
+
+    def test_df_to_bvh_zero_rows_raises(self, zero_frame_clip):
+        """A zero-frame export is not read back: the frame time needs two rows."""
+        df = pd.DataFrame(zero_frame_clip.to_df_dict(mode='euler'))
+        assert len(df) == 0
+        with pytest.raises(ValueError, match="at least 2"):
+            df_to_bvh(zero_frame_clip.nodes, df)
 
 
 # =============================================================================

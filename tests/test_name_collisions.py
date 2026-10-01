@@ -232,28 +232,43 @@ class TestDataFrameColumns:
 
     def test_two_end_sites_each_get_their_columns(self, one_joint_two_end_sites_rig):
         columns = list(one_joint_two_end_sites_rig.to_df_dict(mode='coordinates'))
-        assert len(columns) == 13
-        assert 'EndSiteHand_X' in columns
-        assert 'EndSiteHand.1_X' in columns
+        assert columns == [
+            'time',
+            'Hips_X', 'Hips_Y', 'Hips_Z',
+            'Hand_X', 'Hand_Y', 'Hand_Z',
+            'EndSiteHand_X', 'EndSiteHand_Y', 'EndSiteHand_Z',
+            'EndSiteHand.1_X', 'EndSiteHand.1_Y', 'EndSiteHand.1_Z']
 
     def test_two_end_sites_leave_euler_mode_unsuffixed(self, one_joint_two_end_sites_rig):
         """End sites have no euler columns, so nothing repeats there."""
         columns = list(one_joint_two_end_sites_rig.to_df_dict(mode='euler'))
-        assert len(columns) == 10
-        assert not any('.' in c for c in columns)
+        assert columns == [
+            'time',
+            'Hips_X_pos', 'Hips_Y_pos', 'Hips_Z_pos',
+            'Hips_Z_rot', 'Hips_Y_rot', 'Hips_X_rot',
+            'Hand_Z_rot', 'Hand_Y_rot', 'Hand_X_rot']
 
     def test_two_joints_sharing_a_name_each_get_their_columns(self, duplicate_joint_rig):
+        """The second 'Arm' (node 4) is 'Arm.1', after the first one's child."""
         columns = list(duplicate_joint_rig.to_df_dict(mode='euler'))
-        rotation_columns = [c for c in columns if c.endswith('_rot')]
-        assert len(rotation_columns) == 12
-        assert 'Arm_Z_rot' in columns
-        assert 'Arm.1_Z_rot' in columns
+        assert columns == [
+            'time',
+            'Hips_X_pos', 'Hips_Y_pos', 'Hips_Z_pos',
+            'Hips_Z_rot', 'Hips_Y_rot', 'Hips_X_rot',
+            'Arm_Z_rot', 'Arm_Y_rot', 'Arm_X_rot',
+            'ArmChild_Z_rot', 'ArmChild_Y_rot', 'ArmChild_X_rot',
+            'Arm.1_Z_rot', 'Arm.1_Y_rot', 'Arm.1_X_rot']
 
     def test_two_joints_sharing_a_name_in_coordinates_mode(self, duplicate_joint_rig):
         columns = list(duplicate_joint_rig.to_df_dict(mode='coordinates'))
-        assert len(columns) == 19
-        assert 'Arm_X' in columns
-        assert 'Arm.1_X' in columns
+        assert columns == [
+            'time',
+            'Hips_X', 'Hips_Y', 'Hips_Z',
+            'Arm_X', 'Arm_Y', 'Arm_Z',
+            'ArmChild_X', 'ArmChild_Y', 'ArmChild_Z',
+            'EndSiteArmChild_X', 'EndSiteArmChild_Y', 'EndSiteArmChild_Z',
+            'Arm.1_X', 'Arm.1_Y', 'Arm.1_Z',
+            'EndSiteArm_X', 'EndSiteArm_Y', 'EndSiteArm_Z']
 
     def test_suffix_follows_the_nodes_the_mode_exports(self, collision_rig):
         """The joint 'EndSiteHips' (node 1) precedes the end site of that

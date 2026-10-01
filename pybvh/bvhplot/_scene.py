@@ -607,7 +607,8 @@ class Scene:
                 floor_height=v.floor_height + float(off[v.up_index])))
         return dataclasses.replace(self, views=views)
 
-    def scaled(self, factors: list[float]) -> Scene:
+    def scaled(self, factors: list[float], *,
+               measured_on: Scene | None = None) -> Scene:
         """Draw each view at its own factor times its size, as a new Scene.
 
         A view is scaled about its **ground point**: the root's position
@@ -620,6 +621,15 @@ class Scene:
         a skeleton standing away from it slides along the ground and
         rises or sinks with it; about the root, the feet leave the
         floor.
+
+        The ground point's place along the ground is read from
+        *measured_on*, this Scene by default, which must hold as many
+        views; its height is always this view's own floor. A still of
+        one frame passes the Scene of its whole clip, so each skeleton
+        is scaled about its root at the clip's first frame, as the clip
+        is, and stands where the clip's frame puts it; scaled about its
+        root at the frame drawn, it would stand off by that root's
+        travel since the first frame times one minus the factor.
 
         ``coords`` and ``rest_coords`` are scaled together, so the view
         stays one skeleton in one unit: its
@@ -638,8 +648,10 @@ class Scene:
         if len(factors) != len(self.views):
             raise ValueError(
                 f"Expected {len(self.views)} factors, got {len(factors)}.")
+        measured_on = self._measured_on(measured_on)
         views = []
-        for v, factor in zip(self.views, factors):
+        for v, reference, factor in zip(
+                self.views, measured_on.views, factors):
             factor = float(factor)
             if not (np.isfinite(factor) and factor > 0.0):
                 raise ValueError(
@@ -648,7 +660,7 @@ class Scene:
             if factor == 1.0:
                 views.append(v)
                 continue
-            ground_point = np.array(v.coords[0, 0], dtype=np.float64)
+            ground_point = np.array(reference.coords[0, 0], dtype=np.float64)
             ground_point[v.up_index] = v.floor_height
             views.append(dataclasses.replace(
                 v,
@@ -657,7 +669,7 @@ class Scene:
                 label=_label_with_factor(v.label, factor)))
         return dataclasses.replace(self, views=views)
 
-    def size_matched(self) -> Scene:
+    def size_matched(self, *, measured_on: Scene | None = None) -> Scene:
         """Draw every view as tall as the first one, as a new Scene.
 
         For the backends that draw several skeletons in one space (k3d,
@@ -666,7 +678,8 @@ class Scene:
         magnitude. Each view is :meth:`scaled` by the first view's
         :attr:`~SkeletonView.body_size` over its own, about its own
         ground point, and its label shows the factor. The clips are
-        not touched; only what is drawn changes.
+        not touched; only what is drawn changes. *measured_on* places
+        each view's ground point, as in :meth:`scaled`.
 
         Conventions:
 
@@ -739,7 +752,18 @@ class Scene:
                 factors.append(1.0)
                 continue
             factors.append(reference.body_size / v.body_size)
-        return self.scaled(factors)
+        return self.scaled(factors, measured_on=measured_on)
+
+    def _measured_on(self, measured_on: Scene | None) -> Scene:
+        """The Scene a spread or a scaling is measured on: *measured_on*,
+        or this Scene when it is ``None``; it must hold as many views."""
+        if measured_on is None:
+            return self
+        if len(measured_on.views) != len(self.views):
+            raise ValueError(
+                f"measured_on has {len(measured_on.views)} views; this "
+                f"Scene has {len(self.views)}.")
+        return measured_on
 
     def spread(self, spacing: float | str, *,
                measured_on: Scene | None = None) -> Scene:
@@ -780,12 +804,7 @@ class Scene:
         two would differ whenever the first skeleton sweeps wider over
         the clip than in the pose drawn, or has turned by then.
         """
-        if measured_on is None:
-            measured_on = self
-        if len(measured_on.views) != len(self.views):
-            raise ValueError(
-                f"measured_on has {len(measured_on.views)} views; this "
-                f"Scene has {len(self.views)}.")
+        measured_on = self._measured_on(measured_on)
         if len(self.views) <= 1:
             return self
         first = measured_on.views[0]

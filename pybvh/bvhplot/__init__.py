@@ -417,12 +417,12 @@ def _arranged_in_one_scene(
     the skeletons as drawn. ``"auto"`` spacing respects raw world
     coordinates: two clips drawn under ``centered="world"`` are left
     exactly where their files put them. Every other combination spreads
-    the views laterally so they do not overlap in the one shared scene,
-    measured on *measured_on* when *scene* is a still of that clip (see
-    :meth:`Scene.spread`).
+    the views laterally so they do not overlap in the one shared scene.
+    Both are measured on *measured_on* when *scene* is a still of that
+    clip (see :meth:`Scene.scaled` and :meth:`Scene.spread`).
     """
     if match_size:
-        scene = scene.size_matched()
+        scene = scene.size_matched(measured_on=measured_on)
     if spacing == "auto" and centered == "world":
         return scene
     return scene.spread(spacing, measured_on=measured_on)
@@ -636,15 +636,23 @@ def frame(
         width when ``centered`` is ``"first"`` or ``"skeleton"``, and
         leaves them where their files put them under
         ``centered="world"``; a float, in scene units, always spaces
-        them. The direction and the ``"auto"`` width are measured on
-        the first skeleton's whole clip (cut to the shortest clip, as
-        :func:`play` and :func:`render` cut it under their default
-        ``sync="truncate"``), not on the frame drawn, so the still
-        moves each skeleton by the offset the viewer and the video
-        move it by at that frame. Measured on the frame, the two would
-        differ when the first skeleton sweeps wider over the clip
-        (walking sideways, say) than at that frame, or has turned by
-        then. *coords* draws a single skeleton, which is never spread.
+        them. The arrangement is measured on the whole clips (cut to
+        the shortest, as :func:`play` and :func:`render` cut them under
+        their default ``sync="truncate"``), not on the frame drawn: the
+        direction and the ``"auto"`` width on the first skeleton's
+        clip, and *match_size* scales each skeleton about its root at
+        its clip's first frame. Under ``centered="world"`` the still
+        therefore draws every skeleton where the viewer and the video
+        draw it at that frame. The other modes differ by centering
+        alone: under ``"first"`` the still is centred on the frame it
+        draws, so each skeleton stands back from the viewer's place by
+        its clip's travel on the ground since the first frame (times
+        its *match_size* factor); under ``"skeleton"`` its floor is the
+        pose's, not the clip's, and a matched skeleton is scaled about
+        that floor. Measured on the frame, the spread would also differ
+        when the first skeleton sweeps wider over the clip (walking
+        sideways, say) than at that frame, or has turned by then.
+        *coords* draws a single skeleton, which is never spread.
         Ignored by matplotlib, which draws each skeleton in its own
         panel.
     match_size : bool, optional

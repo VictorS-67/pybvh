@@ -2149,3 +2149,55 @@ class TestSpreadInOneScene:
                             - still_in_place.views[k].coords[0])
             np.testing.assert_allclose(still_offset, played_offset,
                                        atol=1e-9)
+
+    @pytest.fixture
+    def walk_and_hundredfold(self):
+        """The CMU walk and the same walk in a unit a hundred times
+        smaller: matched in size, the second is drawn at ×0.01."""
+        walk = read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")
+        return [walk, walk.scale(100.0)]
+
+    @staticmethod
+    def _matched_pair(clips, reached, tmp_path, centered, f):
+        """The viewer's Scene and the still's at frame *f*, sizes
+        matched."""
+        from pybvh.bvhplot import _vedo, _vedo_offscreen
+        scenes = reached(_vedo, "play_vedo")
+        reached(_vedo_offscreen, "frame_vedo")
+        draw_through("play", "vedo", clips, tmp_path,
+                     centered=centered, match_size=True)
+        draw_through("frame", "vedo", clips, tmp_path,
+                     centered=centered, frame=f, match_size=True)
+        return scenes
+
+    def test_a_matched_still_in_world_coordinates_is_the_viewers_frame(
+            self, walk_and_hundredfold, reached, tmp_path):
+        """Under centered="world" the still at frame f is the viewer at
+        frame f: each skeleton is scaled about its ground point at the
+        clip's first frame, as the viewer scales it, not at frame f."""
+        pytest.importorskip("vedo")
+        f = 60
+        played, still = self._matched_pair(
+            walk_and_hundredfold, reached, tmp_path, "world", f)
+        assert still.labels == played.labels == [None, "×0.01"]
+        for played_view, still_view in zip(played.views, still.views):
+            np.testing.assert_allclose(
+                still_view.coords[0], played_view.coords[f], atol=1e-9)
+
+    def test_a_matched_still_centred_first_is_the_viewers_frame_recentred(
+            self, walk_and_hundredfold, reached, tmp_path):
+        """Under centered="first" a still is centred on the frame it
+        draws, so each skeleton sits where the viewer draws it at that
+        frame, less the clip's own travel on the ground since its first
+        frame, drawn at the skeleton's factor."""
+        pytest.importorskip("vedo")
+        f = 60
+        played, still = self._matched_pair(
+            walk_and_hundredfold, reached, tmp_path, "first", f)
+        for clip, factor, played_view, still_view in zip(
+                walk_and_hundredfold, [1.0, 0.01], played.views, still.views):
+            travel = clip.root_pos[f] - clip.root_pos[0]
+            travel[played_view.up_index] = 0.0
+            np.testing.assert_allclose(
+                still_view.coords[0],
+                played_view.coords[f] - factor * travel, atol=1e-9)

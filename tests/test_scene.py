@@ -608,6 +608,27 @@ class TestSizeMatched:
         on_the_floor = feet.max() if up == "-y" else feet.min()
         assert on_the_floor == pytest.approx(second.floor_height)
 
+    def test_a_still_is_scaled_about_its_clips_first_ground_point(self):
+        """A still of the clip's last frame, scaled with the clip as
+        measured_on, is the scaled clip's last frame: the ground point is
+        the root's at the clip's first frame, not at the frame drawn."""
+        small = make_array_view()
+        big = _grown(make_array_view(), 7.0)
+        clip = Scene(views=[small, big])
+
+        def last_frame(view):
+            return dataclasses.replace(view, coords=view.coords[-1:],
+                                       root_heading=view.root_heading[-1:])
+
+        still = Scene(views=[last_frame(small), last_frame(big)])
+        as_the_clip = clip.size_matched().views[1].coords[-1]
+        np.testing.assert_allclose(
+            still.size_matched(measured_on=clip).views[1].coords[0],
+            as_the_clip)
+        # about its own root, the walking still would stand elsewhere
+        assert not np.allclose(
+            still.size_matched().views[1].coords[0], as_the_clip)
+
     @pytest.mark.parametrize("label, shown", [
         ("test2", "test2 ×0.14"),
         (None, "×0.14"),

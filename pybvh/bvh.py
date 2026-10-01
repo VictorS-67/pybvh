@@ -1,3 +1,14 @@
+"""The :class:`Bvh` container: one clip's skeleton and motion.
+
+A :class:`Bvh` holds the node hierarchy, the root translation
+``root_pos`` (shape ``(F, 3)``, in the file's length unit) and the joint
+rotations ``joint_angles`` (shape ``(F, J, 3)``, Euler angles in
+radians), and exposes every high-level operation as a method. Most
+methods are thin wrappers over the array-level modules
+(:mod:`pybvh.analysis`, :mod:`pybvh.transforms`, :mod:`pybvh.geometry`,
+:mod:`pybvh.features`, :mod:`pybvh.bvhplot`), which document the
+computation itself.
+"""
 from __future__ import annotations
 
 import copy
@@ -265,6 +276,26 @@ class Bvh:
 
     @property
     def nodes(self) -> list[BvhNode]:
+        """Skeleton hierarchy, one node per joint and end site.
+
+        In depth-first order as the file lists it: ``nodes[0]`` is the
+        :class:`~pybvh.bvhnode.BvhRoot`, and end sites
+        (:class:`~pybvh.bvhnode.BvhEndSite`) are included. ``len(nodes)``
+        is therefore the node count *N* that indexes
+        :meth:`node_positions` (shape ``(F, N, 3)``), not the joint count
+        *J* that indexes :attr:`joint_angles`; :attr:`node_index` and
+        :attr:`joint_index` map names to each.
+
+        Returns the live list, not a copy. Change the skeleton through
+        the methods that edit it (:meth:`scale`, :meth:`retarget`,
+        :meth:`extract_joints`, :meth:`change_euler_order`) rather than
+        by editing its nodes in place. Assigning replaces the list; the
+        setter only checks that the value is a non-empty list of
+        ``BvhNode`` (``ValueError`` otherwise). The tree wiring is
+        checked when a ``Bvh`` is constructed, not on assignment, so a
+        new skeleton goes to the constructor, built with
+        :func:`~pybvh.nodes_from_table` if it starts as plain data.
+        """
         return self._nodes
     @nodes.setter
     def nodes(self, value: list[BvhNode]) -> None:
@@ -377,6 +408,13 @@ class Bvh:
 
     @property
     def root(self) -> BvhRoot:
+        """The root joint, ``nodes[0]``.
+
+        The one node with position channels: its translation per frame is
+        :attr:`root_pos`, and its rotation is joint 0 of
+        :attr:`joint_angles`. Assigning anything but a
+        :class:`~pybvh.bvhnode.BvhRoot` raises ``ValueError``.
+        """
         return self._root
     @root.setter
     def root(self, value: BvhRoot) -> None:
@@ -455,6 +493,8 @@ class Bvh:
         Parameters
         ----------
         other : Bvh
+            The clip to compare against. Anything that is not a ``Bvh``
+            returns ``False`` rather than raising.
         match_offsets : bool, optional
             If True (default), require rest-pose offsets to agree within
             ``atol``. If False, ignore offsets and check only the
@@ -502,6 +542,8 @@ class Bvh:
         Parameters
         ----------
         other : Bvh
+            The clip to compare against. Anything that is not a ``Bvh``
+            returns ``False`` rather than raising.
 
         Returns
         -------
@@ -536,6 +578,8 @@ class Bvh:
         Parameters
         ----------
         other : Bvh
+            The clip to compare against. Anything that is not a ``Bvh``
+            returns ``False`` rather than raising.
 
         Returns
         -------
@@ -682,6 +726,17 @@ class Bvh:
         self._invalidate_motion_caches()
 
     def copy(self) -> Bvh:
+        """Return an independent deep copy.
+
+        Everything is copied: the node hierarchy, ``root_pos`` and
+        ``joint_angles``, ``frame_time``, ``source_path``, a manual
+        ``world_up`` and the L/R mapping. Editing either clip afterwards,
+        its arrays or its nodes, never affects the other.
+
+        Returns
+        -------
+        Bvh
+        """
         return copy.deepcopy(self)
 
     def _copy_skeleton(self) -> Bvh:

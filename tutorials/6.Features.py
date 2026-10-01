@@ -148,7 +148,7 @@ plt.figure(figsize=(10, 3))
 plt.plot(t, ang_speed)
 plt.xlabel('Time (s)')
 plt.ylabel('|ω| (rad/s)')
-plt.title(f'RightFoot angular-velocity magnitude over time')
+plt.title('RightFoot angular-velocity magnitude over time')
 plt.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.show()
@@ -174,7 +174,7 @@ plt.show()
 trajectory = bvh.root_trajectory()
 
 print(f'Root trajectory shape: {trajectory.shape}  (F, 4)')
-print(f'\nFirst 5 frames:')
+print('\nFirst 5 frames:')
 print(trajectory[:5])
 
 # %% [markdown]

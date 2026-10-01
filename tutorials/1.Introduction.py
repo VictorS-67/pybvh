@@ -141,7 +141,7 @@ print(f"joint_angles shape: {bvh.joint_angles.shape} — {bvh.frame_count} frame
 print("Root position (first 5 frames):")
 print(bvh.root_pos[:5])
 
-print(f"\nEuler angles for the Hips joint (first 5 frames):")
+print("\nEuler angles for the Hips joint (first 5 frames):")
 print(bvh.joint_angles[:5, 0])
 
 # %% [markdown]

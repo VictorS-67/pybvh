@@ -171,9 +171,9 @@ for node in bvh.nodes[9:12]:
 # %%
 print(f"root_pos shape:     {bvh.root_pos.shape}")
 print(f"joint_angles shape: {bvh.joint_angles.shape}")
-print(f"\nFirst frame, first 3 joints (Euler angles in radians):")
+print("\nFirst frame, first 3 joints (Euler angles in radians):")
 print(bvh.joint_angles[0, :3])
-print(f"\nSame values in degrees (for display):")
+print("\nSame values in degrees (for display):")
 print(np.rad2deg(bvh.joint_angles[0, :3]))
 
 # %% [markdown]

@@ -3084,7 +3084,7 @@ class TestBatchProcessing:
     def test_read_bvh_directory_sorted(self, bvh_dir):
         """Results should be sorted alphabetically by default."""
         result = read_bvh_directory(bvh_dir)
-        names = [str(Path(f"bvh_data")) for f in result]
+        names = [str(Path("bvh_data")) for f in result]
         # Check by examining node counts (a proxy — sorted files have distinct sizes)
         result_sorted = read_bvh_directory(bvh_dir, sort=True)
         result_unsorted = read_bvh_directory(bvh_dir, sort=False)

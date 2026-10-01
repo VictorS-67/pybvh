@@ -266,7 +266,8 @@ class TestNodesFromTableRejects:
         with pytest.raises(ValueError, match=r"entry 1 \('Hand'\).*offset"):
             nodes_from_table(table)
 
-    @pytest.mark.parametrize("bad_channels", ['ZYQ', ['Z', 'Y'], 'XXYZ', 3])
+    @pytest.mark.parametrize("bad_channels", [
+        'ZYQ', ['Z', 'Y'], 'XXYZ', 3, ['XY', 'Z'], ['XYZ']])
     def test_malformed_rot_channels(self, bad_channels):
         table = _two_end_sites_table()
         table[1]['rot_channels'] = bad_channels

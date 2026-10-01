@@ -459,6 +459,22 @@ class TestNodeHierarchy:
         """Root should have no parent."""
         assert bvh_example.root.parent is None
 
+    @pytest.mark.parametrize("bad", [
+        ['XY', 'Z'], ['XYZ'], ['X', 'Y', 'Z', ''], ['X', 'Y', 1], ['X', 'Y', 'Y']])
+    def test_channel_list_must_be_three_single_axes(self, bad):
+        """`['XY', 'Z']` joins to 'XYZ' but is not an axis order: written,
+        it gives a CHANNELS line of five tokens that the reader rejects."""
+        with pytest.raises(ValueError, match="one of each from 'X' 'Y' 'Z'"):
+            BvhJoint('a', rot_channels=bad)
+        with pytest.raises(ValueError, match="one of each from 'X' 'Y' 'Z'"):
+            BvhRoot('a', pos_channels=bad)
+
+    @pytest.mark.parametrize("good", [['X', 'Y', 'Z'], 'ZYX'])
+    def test_channel_list_and_string_forms(self, good):
+        joint = BvhJoint('a', rot_channels=good)
+        assert joint.rot_channels == list(good)
+        assert joint.rot_channels is not good
+
 
 # =============================================================================
 # Test: node_positions / joint_positions

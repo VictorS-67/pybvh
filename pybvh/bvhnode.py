@@ -174,26 +174,27 @@ class BvhJoint(BvhNode):
 
 
     def _check_channels(self, value: list[str] | str) -> list[str]:
-        # we will check if the channels are either a list of 3 elements,
-        # or a string of 3 elements, belonging to a permutation of 'XYZ'
-        # we return the result as a new list of 3 characters (never the
-        # caller's own list — channel lists are frozen after Bvh
-        # construction and must not be mutable from the outside)
-        er = ValueError("the channels should be a list or a string of 3 elements, one of each from 'X' 'Y' 'Z'")
+        # A string of 3 characters or a list of 3 one-character strings,
+        # a permutation of 'XYZ' either way. A list is checked element by
+        # element, not joined: ['XY', 'Z'] joins to 'XYZ' but would write
+        # a CHANNELS line of five tokens (XYrotation) the reader rejects.
+        # The result is a new list, never the caller's own: channel lists
+        # are frozen after Bvh construction and must not be mutable from
+        # the outside.
+        error = ValueError(
+            "the channels should be a string of 3 characters or a list of "
+            "3 one-character strings, one of each from 'X' 'Y' 'Z'")
         if isinstance(value, str):
-            if sorted(value) != ['X', 'Y', 'Z']:
-                raise er
-            return list(value)
+            axes = list(value)
         elif isinstance(value, list):
-            try:
-                str_conv = ''.join(value)
-            except:
-                raise er
-            if sorted(str_conv) != ['X', 'Y', 'Z']:
-                raise er
-            return list(value)
+            if not all(isinstance(axis, str) and len(axis) == 1 for axis in value):
+                raise error
+            axes = list(value)
         else:
-            raise er
+            raise error
+        if sorted(axes) != ['X', 'Y', 'Z']:
+            raise error
+        return axes
 
     def is_end_site(self) -> bool:
         return False

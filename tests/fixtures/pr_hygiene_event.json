@@ -1,0 +1,41 @@
+{
+  "action": "labeled",
+  "number": 54,
+  "label": {
+    "id": 12494558773,
+    "name": "localized",
+    "description": "One module; callers unaffected",
+    "color": "0e8a16"
+  },
+  "pull_request": {
+    "number": 54,
+    "url": "https://api.github.com/repos/VictorS-67/pybvh/pulls/54",
+    "title": "docs: add the pull request body template and its labels",
+    "state": "open",
+    "body": "## Why\n\nEvery PR cost the reviewer the same attention whatever its risk, because its body was 400 to 700 words of prose; this template lets the reviewer decide the depth of the review from the first lines and shows the change's shape instead of describing it.\n\n## Review depth\n\n**documentation.** Nothing in the package changes. GitHub prefills the template on every new PR, and the repo gained five labels.\n\n**localized.** `.github/PULL_REQUEST_TEMPLATE.md` (new) and one section of `CONTRIBUTING.md`.\n\n**Needs your eyes on:**\n- The kind-of-change set reuses the existing `documentation` label rather than adding `docs`, so it is `breaking`, `behaviour-change`, `internal`, `documentation`.\n- The blast radius has two words, `localized` and `extensive`. Whether users see the change is already said by the first label, so a third word was not needed.\n\n## Change outline\n\n```diff\n .github/\n+├── PULL_REQUEST_TEMPLATE.md   # Why / Review depth / Change outline / Evidence / Migration\n CONTRIBUTING.md\n ├── Branches and pull requests\n+├── The pull request body       # what each section is for; the two label sets in pybvh's terms\n ├── Commits\n```\n\nThe body's first two lines mirror the PR's two labels:\n\n```text\nlabel 1   breaking | behaviour-change | internal | documentation    the kind of change\nlabel 2   localized | extensive                                     the blast radius\n```\n\n## Evidence\n\nThis PR's body was written from the template, and it carries the labels `documentation` and `localized`. No tests were run: no package file changes.\n",
+    "labels": [
+      {
+        "id": 7859275168,
+        "name": "documentation",
+        "description": "Improvements or additions to documentation",
+        "color": "0075ca"
+      },
+      {
+        "id": 12494558773,
+        "name": "localized",
+        "description": "One module; callers unaffected",
+        "color": "0e8a16"
+      }
+    ],
+    "base": {
+      "label": "VictorS-67:main",
+      "ref": "main",
+      "sha": "c93e5a804fad606bb0f614cfe22c24ba6f976afd"
+    },
+    "head": {
+      "label": "VictorS-67:docs/pr-body-template",
+      "ref": "docs/pr-body-template",
+      "sha": "78eafed3dffd1251c88beba3e00e2ae5ce01b6d4"
+    }
+  }
+}

@@ -830,13 +830,11 @@ class TestFileRoundTrip:
         assert reloaded.frame_time == pytest.approx(bvh_example.frame_time, rel=1e-9)
 
     def test_write_to_invalid_extension_raises(self, bvh_example, tmp_path):
-        """Writing to non-.bvh file should raise Exception."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError, match=r"output\.txt is not a \.bvh file"):
             bvh_example.write(tmp_path / "output.txt")
 
     def test_write_to_nonexistent_dir_raises(self, bvh_example):
-        """Writing to non-existent directory should raise Exception."""
-        with pytest.raises(Exception):
+        with pytest.raises(FileNotFoundError, match="directory does not exist"):
             bvh_example.write("/nonexistent/dir/output.bvh")
 
     def test_write_overwrites_by_default(self, bvh_example, tmp_path):
@@ -3662,8 +3660,8 @@ class TestReadDirectorySkipErrors:
         return tmp_path
 
     def test_default_propagates(self, mixed_dir):
-        """Without skip_errors, a bad file raises."""
-        with pytest.raises(Exception):
+        """Without skip_errors, a bad file raises its parse error."""
+        with pytest.raises(ValueError, match=r"No ROOT declaration found in .*broken\.bvh"):
             read_bvh_directory(mixed_dir)
 
     def test_skip_errors_returns_successes(self, mixed_dir):

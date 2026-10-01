@@ -1,6 +1,7 @@
 """Tests for the Style system and bone-chain classification (Phase 1)."""
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import matplotlib
@@ -81,7 +82,7 @@ class TestStyleConstruction:
 
     def test_frozen(self):
         s = Style()
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError, match="floor"):
             s.floor = None  # type: ignore[misc]
 
     def test_replace(self):

@@ -483,7 +483,7 @@ class TestSceneMethods:
 
     def test_views_are_frozen(self, bvh, coords):
         scene = make_scene([bvh], [coords], "front", None)
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError, match="frame_time"):
             scene.views[0].frame_time = 1.0  # type: ignore[misc]
 
     def test_subsampled_keeps_a_missing_heading_missing(self):

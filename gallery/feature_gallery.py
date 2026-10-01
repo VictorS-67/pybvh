@@ -27,12 +27,14 @@
 # *If your viewer fails to render any figure or clip, [the notebook on nbviewer](https://nbviewer.org/github/VictorS-67/pybvh/blob/main/gallery/feature_gallery.ipynb) renders everything.*
 
 # %%
-from pathlib import Path
-import numpy as np
 # %matplotlib inline
+from pathlib import Path
+
+import numpy as np
 
 import pybvh
-from pybvh import geometry, analysis, rotations, signal
+from pybvh import analysis, geometry, rotations, signal
+
 import gallery_plots as gp
 
 REPO = Path.cwd().parent if Path.cwd().name in ("tutorials", "gallery") else Path.cwd()
@@ -163,6 +165,7 @@ pybvh.bvhplot.frame([bvh_yup, bvh_yup.reorient_world_up("+z")], frame=0,
 
 # %%
 import warnings
+
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")   # test3's rest/animation mismatch warns on load — that mismatch is the point
     bvh_mixed = pybvh.read_bvh_file(REPO / "bvh_data" / "bvh_test3.bvh")

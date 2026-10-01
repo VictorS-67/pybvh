@@ -36,13 +36,15 @@
 # All conversions go through the **rotation matrix** as the central hub.
 
 # %%
+# %matplotlib inline
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
-np.set_printoptions(precision=4, suppress=True)
 
 import pybvh
-# %matplotlib inline
-import matplotlib.pyplot as plt
-from pathlib import Path
+
+np.set_printoptions(precision=4, suppress=True)
 
 REPO_ROOT = Path.cwd().parent if Path.cwd().name == "tutorials" else Path.cwd()
 bvh_folder = REPO_ROOT / "bvh_data"

@@ -27,14 +27,16 @@
 # This tutorial is a standalone deep-dive: it assumes only Tutorial 1 (plus the foot-contact idea from Tutorial 6 for the gait section).
 
 # %%
-import numpy as np
-np.set_printoptions(precision=4, suppress=True)
 # %matplotlib inline
-import matplotlib.pyplot as plt
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+import numpy as np
+
 import pybvh
-from pybvh import geometry, analysis, rotations
+from pybvh import analysis, geometry, rotations
+
+np.set_printoptions(precision=4, suppress=True)
 
 REPO_ROOT = Path.cwd().parent if Path.cwd().name == "tutorials" else Path.cwd()
 bvh = pybvh.read_bvh_file(REPO_ROOT / "bvh_data" / "bvh_test1.bvh")

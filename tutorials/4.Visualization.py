@@ -22,14 +22,16 @@
 # This tutorial covers all of `bvhplot`'s capabilities — feature by feature. If you are here to produce a figure for a paper rather than to learn the module, the [Publication Figures](https://victors-67.github.io/pybvh/guide/publication-figures/) guide is the short path: vector export, the sequence still, supplementary video, and the capsule look. **Static plots** (`rest_pose`, `frame`, `sequence`, `trajectory`) always use matplotlib, which is always available. **Video rendering** (`render`) and **interactive playback** (`play`) automatically select the fastest backend available — matplotlib is the universal fallback, but when OpenCV, vedo, or k3d are installed, pybvh uses them transparently. Every function takes a `style=` parameter (covered in its own section below) that controls the whole look — the default is a publication-grade style with a ground plane and per-chain bone colors. The last section of the tutorial details the optional backends and how to install them.
 
 # %%
+# %matplotlib inline
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
-np.set_printoptions(precision=4, suppress=True)
 
 import pybvh
 from pybvh import bvhplot
-# %matplotlib inline
-import matplotlib.pyplot as plt
-from pathlib import Path
+
+np.set_printoptions(precision=4, suppress=True)
 
 REPO_ROOT = Path.cwd().parent if Path.cwd().name == "tutorials" else Path.cwd()
 bvh_folder = REPO_ROOT / "bvh_data"

@@ -370,6 +370,30 @@ class TestSceneMethods:
         scene = make_scene([bvh, bvh], [coords, coords], "front", None)
         assert scene.spread(0.0) is scene
 
+    def test_spread_measured_on_another_scene_takes_its_extent(
+            self, bvh, coords):
+        """A still of one frame spread as its clip is: the "auto"
+        extent is the clip's, not the frame's."""
+        clip = make_scene([bvh, bvh], [coords, coords], "front", None)
+        last = coords[-1:]
+        still = make_scene([bvh, bvh], [last, last], "front", None)
+
+        def moved(scene, **kwargs):
+            return (scene.spread("auto", **kwargs).views[1].coords[-1]
+                    - scene.views[1].coords[-1])
+
+        np.testing.assert_allclose(moved(still, measured_on=clip),
+                                   moved(clip))
+        # measured on its own frame, the still would be spread otherwise
+        assert not np.allclose(moved(still), moved(clip))
+
+    def test_spread_measured_on_a_scene_of_other_views_raises(
+            self, bvh, coords):
+        pair = make_scene([bvh, bvh], [coords, coords], "front", None)
+        single = make_scene([bvh], [coords], "front", None)
+        with pytest.raises(ValueError, match="measured_on has 1 views"):
+            pair.spread("auto", measured_on=single)
+
     @pytest.mark.parametrize("up, forward, rotation", [
         ("+y", "+z", np.eye(3)),
         ("+y", "-z", np.diag([-1.0, 1.0, -1.0])),
@@ -583,6 +607,27 @@ class TestSizeMatched:
         feet = second.coords[:, [7, 8], second.up_index]
         on_the_floor = feet.max() if up == "-y" else feet.min()
         assert on_the_floor == pytest.approx(second.floor_height)
+
+    def test_a_still_is_scaled_about_its_clips_first_ground_point(self):
+        """A still of the clip's last frame, scaled with the clip as
+        measured_on, is the scaled clip's last frame: the ground point is
+        the root's at the clip's first frame, not at the frame drawn."""
+        small = make_array_view()
+        big = _grown(make_array_view(), 7.0)
+        clip = Scene(views=[small, big])
+
+        def last_frame(view):
+            return dataclasses.replace(view, coords=view.coords[-1:],
+                                       root_heading=view.root_heading[-1:])
+
+        still = Scene(views=[last_frame(small), last_frame(big)])
+        as_the_clip = clip.size_matched().views[1].coords[-1]
+        np.testing.assert_allclose(
+            still.size_matched(measured_on=clip).views[1].coords[0],
+            as_the_clip)
+        # about its own root, the walking still would stand elsewhere
+        assert not np.allclose(
+            still.size_matched().views[1].coords[0], as_the_clip)
 
     @pytest.mark.parametrize("label, shown", [
         ("test2", "test2 ×0.14"),

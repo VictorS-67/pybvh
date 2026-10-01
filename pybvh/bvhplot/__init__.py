@@ -385,21 +385,47 @@ def _match_frame_rates(
     return result
 
 
-def _spread_for_single_scene(
+def _validated_spacing(spacing: float | str) -> float | str:
+    """*spacing* as the router hands it to :meth:`Scene.spread`:
+    ``"auto"``, or a non-negative float."""
+    if spacing == "auto":
+        return spacing
+    try:
+        spacing_val = float(spacing)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"spacing must be 'auto' or a non-negative number, got {spacing!r}")
+    if spacing_val < 0:
+        raise ValueError(
+            f"spacing must be non-negative, got {spacing_val}")
+    return spacing_val
+
+
+def _arranged_in_one_scene(
     scene: Scene,
+    *,
     spacing: float | str,
     centered: str,
+    match_size: bool,
+    measured_on: Scene | None = None,
 ) -> Scene:
-    """Router policy around :meth:`Scene.spread` for k3d and vedo.
+    """Router policy for the backends that draw every skeleton in one
+    scene (k3d, vedo viewer, vedo offscreen), shared by ``play``,
+    ``frame`` and ``render`` so the three arrange a comparison alike.
 
-    ``"auto"`` spacing respects raw world coordinates: two clips drawn
-    under ``centered="world"`` are left exactly where their files put
-    them. Every other combination spreads the views laterally so they
-    do not overlap in the one shared scene.
+    The sizes are matched first (when asked), so the spread is that of
+    the skeletons as drawn. ``"auto"`` spacing respects raw world
+    coordinates: two clips drawn under ``centered="world"`` are left
+    exactly where their files put them. Every other combination spreads
+    the views laterally so they do not overlap in the one shared scene.
+    Both are measured on *measured_on* when *scene* is a still of that
+    clip (see :meth:`Scene.scaled` and :meth:`Scene.spread`).
     """
+    if match_size:
+        scene = scene.size_matched(measured_on=measured_on)
     if spacing == "auto" and centered == "world":
         return scene
-    return scene.spread(spacing)
+    return scene.spread(spacing, measured_on=measured_on)
 
 
 def _warn_world_up_mismatch(
@@ -541,6 +567,7 @@ def frame(
     resolution: tuple[int, int] = (1100, 1000),
     filepath: str | Path | None = None,
     ax: matplotlib.axes.Axes | None = None,
+    spacing: float | str = "auto",
     match_size: bool = False,
 ) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes | list[matplotlib.axes.Axes]] | npt.NDArray[np.uint8]:
     """Plot a static 3D skeleton snapshot.
@@ -566,7 +593,8 @@ def frame(
         uint8 RGB image instead — display it with ``plt.imshow`` or
         save it via *filepath*. Shadows are hard-edged projections
         (``Style.shadow``); ``figsize``/``ax`` do not apply, and all
-        skeletons share one scene rather than side-by-side panels.
+        skeletons share one scene rather than side-by-side panels,
+        spread side by side by *spacing*.
     coords : ndarray, optional
         Pre-computed spatial coordinates to plot instead of computing
         forward kinematics from *bvh*: ``(N, 3)`` for one frame, or
@@ -599,6 +627,40 @@ def frame(
         to the provided axes — the default paper style hides its
         ticks and panes; pass ``style="debug"`` to draw into an axes
         whose full axis machinery you want to keep.
+    spacing : float or "auto", optional
+        Lateral separation between skeletons on the vedo backend, which
+        draws every skeleton in one scene, by the rule :func:`play`
+        uses (see there for the direction): skeleton ``k`` sits
+        ``k × spacing`` to the first skeleton's own left. ``"auto"``
+        (default) spaces them by 1.2 × the first skeleton's lateral
+        width when ``centered`` is ``"first"`` or ``"skeleton"``, and
+        leaves them where their files put them under
+        ``centered="world"``; a float, in scene units, always spaces
+        them. The arrangement is measured on the whole clips (cut to
+        the shortest, as :func:`play` and :func:`render` cut them under
+        their default ``sync="truncate"``), not on the frame drawn: the
+        direction and the ``"auto"`` width on the first skeleton's
+        clip, and the point *match_size* scales each skeleton about on
+        its clip's first frame, both read in the still's coordinates.
+        Under ``centered="world"`` the still therefore draws every
+        skeleton where the viewer and the video draw it at that frame,
+        for a frame index every clip has and clips played at their own
+        rate (the still draws index *frame* of each clip, so ``-1`` is
+        each one's own last frame, where the viewer stops at the
+        shortest, or holds it under ``sync="pad"``, and resamples under
+        ``match_fps``).
+        The other modes differ by centering alone: under ``"first"``
+        the still is centred on the frame it draws, so each skeleton
+        stands back from the viewer's place by its clip's travel on the
+        ground since the first frame (times its *match_size* factor);
+        under ``"skeleton"`` its floor is the pose's, not the clip's,
+        and a matched skeleton is scaled about that floor. Measured on
+        the frame, the spread would also differ when the first skeleton
+        sweeps wider over the clip (walking sideways, say) than at that
+        frame, or has turned by then.
+        *coords* draws a single skeleton, which is never spread.
+        Ignored by matplotlib, which draws each skeleton in its own
+        panel.
     match_size : bool, optional
         Draw every skeleton as tall as the first, with the factor on
         its label, as :func:`play` does (see there for the height
@@ -621,6 +683,7 @@ def frame(
         raise ValueError(
             f"Unknown backend {backend!r}. "
             f"Choose from: {sorted(_VALID_FRAME_BACKENDS)}")
+    spacing = _validated_spacing(spacing)
 
     frame_spec = coords if coords is not None else frame
     scene = _prepare(clips, frame_spec, centered, camera, labels)
@@ -630,9 +693,15 @@ def frame(
             raise ImportError(
                 "vedo backend requires vedo. "
                 "Install with: pip install pybvh[viewer]")
-        if match_size:
-            scene = scene.size_matched()
         from ._vedo_offscreen import frame_vedo
+        # Only a comparison is arranged, so only it needs its clips'
+        # every frame. The still is not cut from that Scene: under
+        # "skeleton" its floor would become the clip's, not its pose's.
+        whole_clip = (_prepare(clips, None, centered, camera, labels)
+                      if len(clips) > 1 else None)
+        scene = _arranged_in_one_scene(
+            scene, spacing=spacing, centered=centered, match_size=match_size,
+            measured_on=whole_clip)
         return frame_vedo(scene, resolve_style(style),
                           resolution=resolution, filepath=filepath)
 
@@ -745,6 +814,7 @@ def render(
     frame_counter: bool = False,
     match_fps: str | None = None,
     codec: str = "auto",
+    spacing: float | str = "auto",
     match_size: bool = False,
 ) -> Path:
     """Render animation to a video, GIF, or HTML file.
@@ -773,9 +843,15 @@ def render(
         set: a clip whose ``frame_time`` is 0 (unset, as on a Bvh built
         in memory) raises ``ValueError`` unless ``fps`` is given.
     backend : str, optional
-        ``"auto"`` (default), ``"opencv"``, or ``"matplotlib"``.
-        Under ``"auto"``, formats OpenCV cannot write (``.gif``,
-        ``.webp``, ``.apng``, ``.html``) always use matplotlib.
+        ``"auto"`` (default), ``"opencv"``, ``"matplotlib"`` or
+        ``"vedo"``. Under ``"auto"``, formats OpenCV cannot write
+        (``.gif``, ``.webp``, ``.apng``, ``.html``) always use
+        matplotlib. ``"vedo"`` draws shadowed 3D capsule skeletons
+        offscreen (headless-safe, requires ``pybvh[viewer]``, and
+        ``pybvh[opencv]`` for a video container) to ``.mp4``, ``.mov``,
+        ``.avi`` or ``.gif``, every skeleton in one scene (see
+        *spacing*); it is never chosen by ``"auto"``, and has no
+        ``follow``, turntable, ``ghost`` or ``trajectory``.
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``), the
         special ``"turntable"`` (an orbit starting from the front view,
@@ -903,6 +979,18 @@ def render(
         is found) or ``"mpeg4"`` to force the OpenCV writer. The
         matplotlib backend always writes H.264 (its mp4 writer *is*
         ffmpeg), so ``"mpeg4"`` is rejected there.
+    spacing : float or "auto", optional
+        Lateral separation between skeletons on the vedo backend, which
+        draws every skeleton in one scene, exactly as :func:`play`
+        spaces them (see there for the direction), so a video shows the
+        arrangement the viewer does: skeleton ``k`` sits
+        ``k × spacing`` to the first skeleton's own left. ``"auto"``
+        (default) spaces them by 1.2 × the first skeleton's lateral
+        width over the clip when ``centered`` is ``"first"`` or
+        ``"skeleton"``, and leaves them where their files put them under
+        ``centered="world"``; a float, in scene units, always spaces
+        them. Ignored by OpenCV and matplotlib, which draw each skeleton
+        in its own panel.
     match_size : bool, optional
         Draw every skeleton as tall as the first, with the factor on
         its label, as :func:`play` does (see there for the height
@@ -918,6 +1006,7 @@ def render(
     """
     clips = as_clip_list(bvh)
     filepath = Path(filepath)
+    spacing = _validated_spacing(spacing)
     _validate_sync(sync)
     pad = sync == "pad"
     style_obj = resolve_style(style)
@@ -1015,9 +1104,9 @@ def render(
                 f"The vedo render backend does not support "
                 f"{', '.join(unsupported)}. Use backend='opencv' or "
                 f"'matplotlib' for those.")
-        if match_size:
-            scene = scene.size_matched()
         from ._vedo_offscreen import render_vedo
+        scene = _arranged_in_one_scene(
+            scene, spacing=spacing, centered=centered, match_size=match_size)
         return render_vedo(
             scene, style_obj, filepath, actual_fps, resolution,
             codec=codec)
@@ -1148,7 +1237,7 @@ def play(
     spacing : float or "auto", optional
         Lateral separation between skeletons in single-scene backends (k3d,
         vedo). ``"auto"`` (default) spaces skeletons by 1.2 × the lateral
-        bounding-box width of the first skeleton when ``centered`` is
+        width of the first skeleton over the clip when ``centered`` is
         ``"first"`` or ``"skeleton"``; no spacing is applied when
         ``centered="world"`` (raw world coordinates are honoured). Pass a
         float (in scene units) to override. Ignored by multi-panel backends
@@ -1216,17 +1305,7 @@ def play(
             f"Unknown quality {quality!r}. "
             f"Choose from: {sorted(_VALID_QUALITY)}")
 
-    if spacing != "auto":
-        try:
-            spacing_val = float(spacing)
-        except (TypeError, ValueError):
-            raise ValueError(
-                f"spacing must be 'auto' or a non-negative number, got {spacing!r}")
-        if spacing_val < 0:
-            raise ValueError(
-                f"spacing must be non-negative, got {spacing_val}")
-        spacing = spacing_val
-
+    spacing = _validated_spacing(spacing)
     _validate_sync(sync)
     pad = sync == "pad"
     style_obj = resolve_style(style)
@@ -1275,13 +1354,8 @@ def play(
 
     # --- Dispatch ---
     # For single-scene backends (vedo, k3d) there can only be ONE camera
-    # and ONE bounding box. We apply lateral spacing so skeletons don't
-    # overlap; the backends make one viewport of the spread scene. The
-    # sizes are matched first, so the spacing is that of the skeletons
-    # as drawn.
-    if match_size and backend_name in ("k3d", "vedo"):
-        scene = scene.size_matched()
-
+    # and ONE bounding box: the backends make one viewport of the scene
+    # as _arranged_in_one_scene lays it out.
     if backend_name == "k3d":
         try:
             import k3d  # noqa: F401
@@ -1290,7 +1364,9 @@ def play(
                 "k3d backend requires k3d and ipywidgets. "
                 "Install with: pip install pybvh[interactive]")
         from ._k3d import play_k3d
-        play_k3d(_spread_for_single_scene(scene, spacing, centered),
+        play_k3d(_arranged_in_one_scene(scene, spacing=spacing,
+                                        centered=centered,
+                                        match_size=match_size),
                  style_obj, actual_fps)
         return None
 
@@ -1302,7 +1378,9 @@ def play(
                 "vedo backend requires vedo. "
                 "Install with: pip install pybvh[viewer]")
         from ._vedo import play_vedo
-        play_vedo(_spread_for_single_scene(scene, spacing, centered),
+        play_vedo(_arranged_in_one_scene(scene, spacing=spacing,
+                                         centered=centered,
+                                         match_size=match_size),
                   style_obj, actual_fps, quality=quality)
         return None
 

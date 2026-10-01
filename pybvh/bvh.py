@@ -37,6 +37,57 @@ from .tools import (
 )
 
 
+def _unique_labels(names: Sequence[str]) -> list[str]:
+    """Make *names* unique in order, the way pandas labels repeated headers.
+
+    The first occurrence keeps its name; a later one gets ``.1``, ``.2``,
+    ... appended, counted up until the label is one no earlier entry
+    took. ``['Arm', 'Arm', 'Arm']`` gives ``['Arm', 'Arm.1', 'Arm.2']``.
+    """
+    labels: list[str] = []
+    taken: set[str] = set()
+    for name in names:
+        label = name
+        bump = 0
+        while label in taken:
+            bump += 1
+            label = f'{name}.{bump}'
+        taken.add(label)
+        labels.append(label)
+    return labels
+
+
+def _motion_column_names(nodes: Sequence[BvhNode], mode: str) -> list[str]:
+    """Column names of the motion *nodes* carry, for ``to_df_dict`` and ``df_to_bvh``.
+
+    ``'euler'`` names the flat layout of ``root_pos`` and ``joint_angles``:
+    ``<root>_<axis>_pos`` per position channel, then ``<joint>_<axis>_rot``
+    per rotation channel for each joint in node order, end sites having
+    none. ``'coordinates'`` names ``<node>_<axis>`` for X, Y and Z per
+    node, end sites included. ``time`` is not a motion column and is not
+    listed. Node names are made unique with :func:`_unique_labels` over
+    the nodes the mode lists, before the axis and kind are appended, so
+    the same joint can be ``Arm`` in one mode and ``Arm.1`` in the other
+    when an earlier end site shares its name.
+    """
+    if mode == 'euler':
+        joints = [node for node in nodes if isinstance(node, BvhJoint)]
+        root = joints[0]
+        if not isinstance(root, BvhRoot):
+            raise ValueError(
+                f"nodes[0] must be the BvhRoot, got {type(root).__name__}")
+        labels = _unique_labels([joint.name for joint in joints])
+        names = [f'{labels[0]}_{ax}_pos' for ax in root.pos_channels]
+        for label, joint in zip(labels, joints):
+            names.extend(f'{label}_{ax}_rot' for ax in joint.rot_channels)
+        return names
+    if mode == 'coordinates':
+        labels = _unique_labels([node.name for node in nodes])
+        return [f'{label}_{ax}' for label in labels for ax in ('X', 'Y', 'Z')]
+    raise ValueError(
+        f"mode must be 'euler' or 'coordinates', got {mode!r}")
+
+
 class Bvh:
     """Container for BVH motion-capture data.
 
@@ -325,19 +376,11 @@ class Bvh:
     def _euler_column_names(self) -> list[str]:
         """Column names describing root_pos + joint_angles in flat layout order.
 
-        Useful for building DataFrames or inspecting the channel mapping.
-        Generated on the fly from the node hierarchy.
+        The motion columns of :meth:`to_df_dict` in euler mode, without
+        ``time``: useful for inspecting the channel mapping. Generated on
+        the fly from the node hierarchy by :func:`_motion_column_names`.
         """
-        names = []
-        root = self.root
-        for ax in root.pos_channels:
-            names.append(f'{root.name}_{ax}_pos')
-        for node in self.nodes:
-            if node.is_end_site():
-                continue
-            for ax in node.rot_channels:  # type: ignore[attr-defined]
-                names.append(f'{node.name}_{ax}_rot')
-        return names
+        return _motion_column_names(self.nodes, 'euler')
 
             
     def __str__(self) -> str:
@@ -1385,14 +1428,24 @@ class Bvh:
         """Return a dict of arrays for ``pd.DataFrame(result)``.
 
         Each key is a column name, each value a 1-D NumPy array of
-        length ``frame_count``.
+        length ``frame_count``. The first column is ``time``, each
+        frame's time in seconds (its index times :attr:`frame_time`).
 
         Parameters
         ----------
         mode : str, optional
-            ``'euler'`` — columns are ``'JointName_X_rot'`` etc. (default).
-            ``'coordinates'`` — columns are ``'JointName_X'`` etc.,
-            including end sites.
+            ``'euler'`` (default): the motion as a file carries it, in
+            degrees: ``<root>_<axis>_pos`` per position channel of the
+            root, then ``<joint>_<axis>_rot`` per rotation channel of
+            each joint in :attr:`nodes` order, so the columns after
+            ``time`` are the flat layout of :attr:`root_pos` and
+            :attr:`joint_angles`. :func:`~pybvh.df_to_bvh` and
+            :meth:`from_df` read this form back.
+            ``'coordinates'``: the posed positions of
+            :meth:`node_positions`, ``<node>_X``, ``<node>_Y`` and
+            ``<node>_Z`` per node in :attr:`nodes` order, end sites
+            included. This export is one-way: positions do not determine
+            the joint angles, and ``df_to_bvh`` reads euler-mode frames.
         centered : str, optional
             ``"world"`` (default), ``"skeleton"``, or ``"first"`` — see
             :meth:`node_positions` for their semantics. Only used when
@@ -1402,6 +1455,27 @@ class Bvh:
         -------
         dict
             Column-name → 1-D array mapping, ready for ``pd.DataFrame()``.
+
+        Notes
+        -----
+        Node names are not unique in a BVH file: the two end sites of one
+        joint share their generated display name, and joints may repeat
+        a name. Columns are labelled the way ``pandas.read_csv`` labels
+        repeated headers: the first node of a name keeps it, each later
+        one gets ``.1``, ``.2``, ... before the axis and kind
+        (``Arm_Z_rot``, ``Arm.1_Z_rot``; ``EndSiteHand_X``,
+        ``EndSiteHand.1_X``), counted up until the label is free.
+        Blender's BVH importer does the same with ``.001``. The suffix
+        is a column label only: the node keeps its name, which
+        :meth:`to_node_table` and :attr:`nodes` carry and
+        :func:`~pybvh.df_to_bvh` reads the labels back from. The
+        alternative, raising on a repeated name, would refuse every hand
+        whose thumb tip and finger tip are both end sites in coordinates
+        mode; before v0.10.0 the later node's values silently replaced
+        the earlier one's under the earlier one's column. The suffix is
+        assigned over the nodes the mode exports, so a joint can be
+        ``X`` in euler mode and ``X.1`` in coordinates mode when an
+        earlier end site shares its name.
         """
         correct_modes = ['euler', 'coordinates']
 
@@ -1421,36 +1495,26 @@ class Bvh:
         ``_rot`` columns are the rad→deg-converted view of the internal
         radians-valued :attr:`joint_angles`.
         """
-        result = {}
-        result['time'] = np.arange(self.frame_count) * self.frame_time
-
-        root = self.root
-        for i, ax in enumerate(root.pos_channels):
-            result[f'{root.name}_{ax}_pos'] = self.root_pos[:, i]
-
-        # Convert radians → degrees once for the whole array, then slice.
+        columns = _motion_column_names(self.nodes, 'euler')
         joint_angles_deg = np.rad2deg(self.joint_angles)
-        j_idx = 0
-        for node in self.nodes:
-            if node.is_end_site():
-                continue
-            for i, ax in enumerate(node.rot_channels):  # type: ignore[attr-defined]
-                result[f'{node.name}_{ax}_rot'] = joint_angles_deg[:, j_idx, i]
-            j_idx += 1
+        flat = np.concatenate(
+            [self.root_pos, joint_angles_deg.reshape(self.frame_count, -1)],
+            axis=1)
 
+        result: dict[str, npt.NDArray[np.float64]] = {
+            'time': np.arange(self.frame_count) * self.frame_time}
+        result.update(zip(columns, flat.T))
         return result
 
     def _get_df_constructor_spatial_coord(self, centered: str) -> dict[str, npt.NDArray[np.float64]]:
         """Return column-name → array dict for spatial-coordinate DataFrame."""
         spatial_array = self.node_positions(centered=centered)  # (F, N, 3)
+        columns = _motion_column_names(self.nodes, 'coordinates')
+        flat = spatial_array.reshape(self.frame_count, -1)
 
-        result = {}
-        result['time'] = np.arange(self.frame_count) * self.frame_time
-
-        for n_idx, node in enumerate(self.nodes):
-            for i, ax in enumerate(['X', 'Y', 'Z']):
-                result[f'{node.name}_{ax}'] = spatial_array[:, n_idx, i]
-
+        result: dict[str, npt.NDArray[np.float64]] = {
+            'time': np.arange(self.frame_count) * self.frame_time}
+        result.update(zip(columns, flat.T))
         return result
 
 

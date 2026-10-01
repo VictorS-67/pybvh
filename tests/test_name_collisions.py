@@ -218,6 +218,50 @@ class TestOtherTopologyConsumers:
 
 
 # =============================================================================
+# DataFrame column labels
+# =============================================================================
+
+class TestDataFrameColumns:
+    """`to_df_dict` exports one column per channel of every node, however
+    the nodes are named: a repeated name is labelled `X`, `X.1`, `X.2` in
+    node order, pandas' rule for repeated CSV headers."""
+
+    def test_two_end_sites_each_get_their_columns(self, one_joint_two_end_sites_rig):
+        columns = list(one_joint_two_end_sites_rig.to_df_dict(mode='coordinates'))
+        assert len(columns) == 13
+        assert 'EndSiteHand_X' in columns
+        assert 'EndSiteHand.1_X' in columns
+
+    def test_two_joints_sharing_a_name_each_get_their_columns(self, duplicate_joint_rig):
+        columns = list(duplicate_joint_rig.to_df_dict(mode='euler'))
+        rotation_columns = [c for c in columns if c.endswith('_rot')]
+        assert len(rotation_columns) == 12
+        assert 'Arm_Z_rot' in columns
+        assert 'Arm.1_Z_rot' in columns
+
+    def test_suffix_follows_the_nodes_the_mode_exports(self, collision_rig):
+        """The joint 'EndSiteHips' (node 1) precedes the end site of that
+        name (node 4): coordinates mode suffixes the end site, and euler
+        mode, where end sites have no columns, suffixes nothing."""
+        coordinates = list(collision_rig.to_df_dict(mode='coordinates'))
+        assert coordinates == [
+            'time',
+            'Hips_X', 'Hips_Y', 'Hips_Z',
+            'EndSiteHips_X', 'EndSiteHips_Y', 'EndSiteHips_Z',
+            'Child_X', 'Child_Y', 'Child_Z',
+            'EndSiteChild_X', 'EndSiteChild_Y', 'EndSiteChild_Z',
+            'EndSiteHips.1_X', 'EndSiteHips.1_Y', 'EndSiteHips.1_Z']
+
+        euler = list(collision_rig.to_df_dict(mode='euler'))
+        assert euler == [
+            'time',
+            'Hips_X_pos', 'Hips_Y_pos', 'Hips_Z_pos',
+            'Hips_Z_rot', 'Hips_Y_rot', 'Hips_X_rot',
+            'EndSiteHips_Z_rot', 'EndSiteHips_Y_rot', 'EndSiteHips_X_rot',
+            'Child_Z_rot', 'Child_Y_rot', 'Child_X_rot']
+
+
+# =============================================================================
 # Round trips through a file and a DataFrame
 # =============================================================================
 

@@ -101,6 +101,49 @@ def _files_named(caught, text):
     return {w.filename for w in caught if text in str(w.message)}
 
 
+def _unruly_warnings(source):
+    """Lines of *source* that warn otherwise than as
+    ``warnings.warn(..., stacklevel=user_stacklevel())``.
+
+    One spelling is allowed so that one rule can check it: the attribute
+    on the module name ``warnings``, called directly. Importing ``warn``
+    or aliasing the module or the function is flagged, so no warning can
+    hide from the check under another name; a call such as
+    ``logger.warn`` is not a ``warnings.warn`` and is not checked."""
+    unruly = []
+    called = set()
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "warnings":
+            if any(alias.name == "warn" for alias in node.names):
+                unruly.append(node.lineno)
+        elif isinstance(node, ast.Import):
+            if any(alias.name == "warnings" and alias.asname
+                   for alias in node.names):
+                unruly.append(node.lineno)
+        elif isinstance(node, ast.Call) and _is_warnings_warn(node.func):
+            called.add(node.func)
+            if not _takes_user_stacklevel(node):
+                unruly.append(node.lineno)
+    for node in ast.walk(tree):
+        if _is_warnings_warn(node) and node not in called:
+            unruly.append(node.lineno)
+    return sorted(unruly)
+
+
+def _is_warnings_warn(node):
+    return (isinstance(node, ast.Attribute) and node.attr == "warn"
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "warnings")
+
+
+def _takes_user_stacklevel(call):
+    levels = [k.value for k in call.keywords if k.arg == "stacklevel"]
+    return (len(levels) == 1
+            and isinstance(levels[0], ast.Call)
+            and getattr(levels[0].func, "id", None) == "user_stacklevel")
+
+
 def test_these_tests_import_the_pybvh_they_test():
     """The editable install may point at another checkout: the
     locations below are only meaningful against this tree's package."""
@@ -112,23 +155,39 @@ def test_every_warning_in_pybvh_takes_its_level_from_the_stack():
     """A fixed ``stacklevel`` is right from one depth only, and a new
     path to the warning (a wrapper, a direct call) silently breaks it.
     Every ``warnings.warn`` in the package takes ``user_stacklevel()``,
-    so the tests above cover the paths that exist today and this one
+    so the tests below cover the paths that exist today and this one
     covers the warnings added tomorrow."""
     package = Path(pybvh.__file__).parent
-    fixed = []
-    for path in sorted(package.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text())):
-            if not (isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Attribute)
-                    and node.func.attr == "warn"):
-                continue
-            levels = [k.value for k in node.keywords if k.arg == "stacklevel"]
-            takes_it_from_the_stack = (
-                len(levels) == 1 and isinstance(levels[0], ast.Call)
-                and getattr(levels[0].func, "id", None) == "user_stacklevel")
-            if not takes_it_from_the_stack:
-                fixed.append(f"{path.relative_to(package)}:{node.lineno}")
-    assert fixed == []
+    unruly = [f"{path.relative_to(package)}:{line}"
+              for path in sorted(package.rglob("*.py"))
+              for line in _unruly_warnings(path.read_text())]
+    assert unruly == []
+
+
+class TestWarnGuard:
+    """The guard itself, against small sources: a checker that misses a
+    spelling proves nothing about the package it passes."""
+
+    @pytest.mark.parametrize("source", [
+        "import warnings\nwarnings.warn('m', stacklevel=user_stacklevel())",
+        "import warnings\nlogger.warn('m')",
+        "import warnings\nwarnings.filterwarnings('ignore')",
+    ])
+    def test_passes_a_level_from_the_stack_and_other_calls(self, source):
+        assert _unruly_warnings(source) == []
+
+    @pytest.mark.parametrize("source", [
+        "import warnings\nwarnings.warn('m')",
+        "import warnings\nwarnings.warn('m', stacklevel=2)",
+        "import warnings\nwarnings.warn('m', UserWarning, 2)",
+        "from warnings import warn",
+        "from warnings import filterwarnings, warn as emit",
+        "import warnings as w",
+        "import warnings\nemit = warnings.warn",
+        "import warnings\nf(warnings.warn)",
+    ])
+    def test_flags_a_fixed_level_and_every_other_spelling(self, source):
+        assert _unruly_warnings(source) == [source.count("\n") + 1]
 
 
 class TestWorldUpDisagreement:

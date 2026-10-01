@@ -81,7 +81,7 @@ __version__ = "0.9.0"
 
 from .bvh import Bvh
 from .io import read_bvh_file, write_bvh_file
-from .df_to_bvh import df_to_bvh
+from .dataframe import df_to_bvh
 from .node_tree import nodes_from_table, nodes_to_table
 from .spatial_coord import FkTopology, frames_to_node_positions
 from .batch import (read_bvh_directory, batch_to_numpy, harmonize,
@@ -165,9 +165,9 @@ Provides `read_bvh_file(filepath)` and `write_bvh_file(bvh, filepath)`. The read
 
 v0.8.2 added **`FkTopology`** — the skeleton as plain arrays (`offsets (N, 3)`, `parent_idx (N,)`, `joint_idx (N,)`, `euler_orders` length J) — as a third accepted value for the first parameter (renamed `nodes_container` → `skeleton` at the same time), so FK runs from arrays with no node objects. `_resolve_topology` is the single point where all three input forms converge; the FK loop reads nothing but the resulting topology. `FkTopology.from_nodes` / `Bvh.fk_topology` derive one, and the constructor validates every invariant the loop relies on (parents precede children, exactly one root, the root is a joint, no node parented to an end site, joint columns are a complete `0..J-1` range) — the last two would otherwise produce silently wrong geometry rather than an error, via `-1`-as-negative-index and an uninitialized rotation read respectively. It is an FK *input bundle*, deliberately not a skeleton descriptor: no names, no orientation axes. `euler_orders` is indexed by joint column, not by node. See source docstrings for signatures.
 
-### 4.8 `pybvh/df_to_bvh.py` — DataFrame to Bvh Conversion
+### 4.8 `pybvh/dataframe.py` — DataFrame to Bvh Conversion
 
-`df_to_bvh(hier, df)` converts a pandas DataFrame back to a `Bvh` object. `hier` is a node table (`Bvh.to_node_table()`) or a node list (`bvh.nodes`), told apart by the type of the first element; both build fresh nodes through `nodes_from_table`, and the name-keyed hierarchy dict of earlier releases raises `TypeError`. The columns `df` must carry are derived from the skeleton by the same function `to_df_dict` labels with (`_motion_column_names`, a repeated node name suffixed `.1`, `.2`) and bound by label: the columns may come in any order, columns outside the set are ignored, and a missing label raises `ValueError`. Channel orders come from the skeleton, never from the DataFrame. See source docstrings for method signatures.
+`df_to_bvh(hier, df)` converts a pandas DataFrame back to a `Bvh` object. `hier` is a node table (`Bvh.to_node_table()`) or a node list (`bvh.nodes`), told apart by the type of the first element; both build fresh nodes through `nodes_from_table`, and the name-keyed hierarchy dict of earlier releases raises `TypeError`. The columns `df` must carry are derived from the skeleton by the same function `to_df_dict` labels with (`_motion_column_names`, a repeated node name suffixed `.1`, `.2`) and bound by label: the columns may come in any order, columns outside the set are ignored, and a missing label raises `ValueError`. Channel orders come from the skeleton, never from the DataFrame. The module was `df_to_bvh.py` until v0.10.0: sharing the function's name, `pybvh.df_to_bvh` was the module to static tools such as griffe and the function at runtime, so the API reference rendered neither. See source docstrings for method signatures.
 
 ### 4.9 `pybvh/tools.py` — Private Helpers
 

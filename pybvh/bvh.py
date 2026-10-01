@@ -1290,7 +1290,7 @@ class Bvh:
         to :func:`pybvh.df_to_bvh`; see it for the two forms of ``hier``,
         the expected column naming and what raises.
         """
-        from .df_to_bvh import df_to_bvh
+        from .dataframe import df_to_bvh
         return df_to_bvh(hier, df)
 
 

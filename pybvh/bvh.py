@@ -130,10 +130,12 @@ class Bvh:
         if nodes is None:
             nodes = [BvhRoot()]
         self.nodes = nodes
+        # The root's type is checked before the walk, which asks every
+        # node its kind; a bare BvhNode cannot answer that.
+        self.root = self.nodes[0]  # type: ignore[assignment]
         _check_node_tree(self.nodes)
         self.frame_time = frame_time
         self.source_path = source_path
-        self.root = self.nodes[0]  # type: ignore[assignment]
 
         # Validate that root position channels are standard XYZ
         if self.root.pos_channels != ['X', 'Y', 'Z']:
@@ -206,7 +208,9 @@ class Bvh:
     def nodes(self, value: list[BvhNode]) -> None:
         if (not isinstance(value, list)) or any([not isinstance(x, BvhNode) for x in value]):
             raise ValueError("nodes should be a list of BvhNode class/subclasse objects")
-        self._nodes = value 
+        if len(value) == 0:
+            raise ValueError("nodes must hold at least one node, the root.")
+        self._nodes = value
 
     @property
     def frame_time(self) -> float:

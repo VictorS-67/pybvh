@@ -2247,6 +2247,14 @@ class TestConstructorTreeCheck:
         with pytest.raises(ValueError, match="at least one node"):
             Bvh(nodes=[])
 
+    @pytest.mark.parametrize("node_class", [BvhNode, BvhJoint])
+    def test_root_that_is_not_a_bvhroot(self, node_class):
+        """The root's type is checked before the walk reads the tree, so
+        a bare BvhNode, which cannot answer `is_end_site`, gets the same
+        ValueError as a BvhJoint rather than a NotImplementedError."""
+        with pytest.raises(ValueError, match="BvhRoot"):
+            Bvh(nodes=[node_class("bad")])
+
     def test_a_lone_root_is_a_tree(self):
         assert Bvh().joint_count == 1
 

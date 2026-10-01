@@ -16,7 +16,7 @@ import copy
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Union, overload
+from typing import TYPE_CHECKING, Any, Literal, Union, cast, overload
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -3272,7 +3272,9 @@ class Bvh:
 
         vel = self.node_velocities(coords=coords)
         speed = np.linalg.norm(vel[:, self._descriptor_index(joint), :], axis=-1)
-        return analysis.smoothness(speed, 1.0 / self.frame_time, metric=metric, **kwargs)
+        value = analysis.smoothness(speed, 1.0 / self.frame_time, metric=metric, **kwargs)
+        # One joint's (T,) speed reduces to a scalar; an array's rank is not in its type.
+        return cast(float, value)
 
     def velocity_reductions(self, joint: str, *, coords: npt.NDArray[np.float64] | None = None):
         """Scalar reductions of ``joint``'s speed profile (peak, mean, …).

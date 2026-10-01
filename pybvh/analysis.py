@@ -2726,7 +2726,11 @@ def rms_squared_jerk(
     return _reduce_like(speed, rms, float)
 
 
-_SMOOTHNESS_FS_METRICS: dict[str, Callable[..., float]] = {
+# A smoothness metric's value: a scalar for a (T,) profile, one value per
+# column for (T, K); number_of_peaks counts, so its array holds integers.
+_SmoothnessValue = Union[float, npt.NDArray[np.float64], npt.NDArray[np.int_]]
+
+_SMOOTHNESS_FS_METRICS: dict[str, Callable[..., _SmoothnessValue]] = {
     "sparc": sparc,
     "dimensionless_jerk": dimensionless_jerk,
     "log_dimensionless_jerk": log_dimensionless_jerk,
@@ -2734,7 +2738,7 @@ _SMOOTHNESS_FS_METRICS: dict[str, Callable[..., float]] = {
     "mean_squared_jerk": mean_squared_jerk,
     "rms_squared_jerk": rms_squared_jerk,
 }
-_SMOOTHNESS_PLAIN_METRICS: dict[str, Callable[..., float]] = {
+_SMOOTHNESS_PLAIN_METRICS: dict[str, Callable[..., _SmoothnessValue]] = {
     "number_of_peaks": number_of_peaks,
     "speed_metric": speed_metric,
 }
@@ -2745,7 +2749,7 @@ def smoothness(
     fs: float,
     metric: str = "sparc",
     **kwargs: Any,
-) -> float | npt.NDArray[np.float64]:
+) -> Union[float, npt.NDArray[np.float64], npt.NDArray[np.int_]]:
     """Dispatch to a named smoothness metric on a speed profile.
 
     Parameters
@@ -2769,9 +2773,10 @@ def smoothness(
 
     Returns
     -------
-    float or ndarray
+    float, int or ndarray
         The selected smoothness value — a scalar for ``(T,)`` input, a
-        ``(K,)`` array for ``(T, K)``.
+        ``(K,)`` array for ``(T, K)``. ``"number_of_peaks"`` counts, so
+        it gives an ``int`` or an integer array.
 
     Raises
     ------

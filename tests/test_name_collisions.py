@@ -236,12 +236,24 @@ class TestDataFrameColumns:
         assert 'EndSiteHand_X' in columns
         assert 'EndSiteHand.1_X' in columns
 
+    def test_two_end_sites_leave_euler_mode_unsuffixed(self, one_joint_two_end_sites_rig):
+        """End sites have no euler columns, so nothing repeats there."""
+        columns = list(one_joint_two_end_sites_rig.to_df_dict(mode='euler'))
+        assert len(columns) == 10
+        assert not any('.' in c for c in columns)
+
     def test_two_joints_sharing_a_name_each_get_their_columns(self, duplicate_joint_rig):
         columns = list(duplicate_joint_rig.to_df_dict(mode='euler'))
         rotation_columns = [c for c in columns if c.endswith('_rot')]
         assert len(rotation_columns) == 12
         assert 'Arm_Z_rot' in columns
         assert 'Arm.1_Z_rot' in columns
+
+    def test_two_joints_sharing_a_name_in_coordinates_mode(self, duplicate_joint_rig):
+        columns = list(duplicate_joint_rig.to_df_dict(mode='coordinates'))
+        assert len(columns) == 19
+        assert 'Arm_X' in columns
+        assert 'Arm.1_X' in columns
 
     def test_suffix_follows_the_nodes_the_mode_exports(self, collision_rig):
         """The joint 'EndSiteHips' (node 1) precedes the end site of that

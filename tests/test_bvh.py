@@ -6479,7 +6479,7 @@ class TestHasLrGeometry:
         bvh = bvh_example.copy()
         bvh.lr_mapping = None
         with pytest.warns(UserWarning, match="cannot be measured"):
-            bvh.rest_forward
+            _ = bvh.rest_forward
         with pytest.warns(UserWarning, match="has_lr_geometry"):
             bvh.left_at(0)
 
@@ -6555,7 +6555,7 @@ class TestHasLrGeometry:
         assert bvh_example.has_lr_geometry is True
         with warnings.catch_warnings():
             warnings.simplefilter("error", UserWarning)
-            bvh_example.rest_forward
+            _ = bvh_example.rest_forward
 
 
 def _tips_bvh(nodes, n_frames=2):

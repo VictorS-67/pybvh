@@ -866,7 +866,7 @@ class TestFootContactsFloorEstimation:
         _, info_auto = bvh.foot_contacts(return_info=True)
         assert info_min["floor"] <= info_auto["floor"] + 1e-12
 
-        bvh.floor_height                             # fill the scene ground
+        _ = bvh.floor_height                         # fill the scene ground
         _, info_min2 = bvh.foot_contacts(floor="min", return_info=True)
         assert info_min2["floor"] == pytest.approx(info_min["floor"])
 
@@ -1283,7 +1283,7 @@ class TestContactReferenceIsIndependentOfTheSceneGround:
         cold = cmu_walk.foot_contacts()
 
         warm = read_bvh_file(CMU_WALK_PATH)
-        warm.floor_height                            # fill the scene ground
+        _ = warm.floor_height                        # fill the scene ground
         np.testing.assert_array_equal(warm.foot_contacts(), cold)
 
         sentinel = read_bvh_file(CMU_WALK_PATH)

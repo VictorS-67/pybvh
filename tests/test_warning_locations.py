@@ -209,7 +209,7 @@ class TestWorldUpDisagreement:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             line = _line_after_this_one()
-            clip[0:10].world_up
+            _ = clip[0:10].world_up
         warning = _the_warning(caught, DISAGREEMENT)
         assert (warning.filename, warning.lineno) == (__file__, line)
 
@@ -219,7 +219,7 @@ class TestWorldUpDisagreement:
             clip = read_bvh_file(TEST3)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            clip.world_up_inferred
+            _ = clip.world_up_inferred
         assert _the_warning(caught, DISAGREEMENT).filename == __file__
 
     def test_an_edited_clip_names_the_line_that_reads_its_up_axis(self):
@@ -229,7 +229,7 @@ class TestWorldUpDisagreement:
         clip.translate_root(np.array([1.0, 0.0, 0.0]), inplace=True)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            clip.world_up
+            _ = clip.world_up
         assert _the_warning(caught, DISAGREEMENT).filename == __file__
 
     @pytest.mark.parametrize("parallel", [False, True])
@@ -337,7 +337,7 @@ class TestWorldUpFallback:
         clip.root_pos = clip.root_pos + 1.0
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            clip.world_up
+            _ = clip.world_up
         assert _the_warning(caught, NO_UP).filename == __file__
 
     def test_world_up_inferred_names_its_caller(self, path):
@@ -346,7 +346,7 @@ class TestWorldUpFallback:
             clip = read_bvh_file(path)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            clip.world_up_inferred
+            _ = clip.world_up_inferred
         assert _the_warning(caught, NO_UP).filename == __file__
 
 

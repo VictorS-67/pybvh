@@ -24,13 +24,17 @@ from __future__ import annotations
 import json
 import os
 import sys
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 # The reference libraries (scipy, pytransform3d) are imported inside the
 # gen_* functions that need them, not here: the behavior-pin generator and
 # the pin tests (tests/test_analysis.py) import this module in the
-# numpy-only `pybvh` env, where those libraries do not exist.
+# numpy-only `pybvh` env, where those libraries do not exist. The import
+# below is for annotations only and never runs.
+if TYPE_CHECKING:
+    from scipy.spatial.transform import Rotation as SR
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SEED = 0xB7  # fixed: fixtures must be reproducible

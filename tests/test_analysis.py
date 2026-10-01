@@ -13,11 +13,11 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from pybvh import Bvh, analysis, features, read_bvh_file  # noqa: E402  # noqa: E402
-from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhRoot  # noqa: E402
+from pybvh import Bvh, analysis, features, read_bvh_file
+from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhRoot
 
 sys.path.insert(0, str(Path(__file__).parent))
-from synthetic_bvh import (  # noqa: E402
+from synthetic_bvh import (
     make_clip_bvh,
     make_neg_y_up_bvh,
     make_neg_z_up_bvh,
@@ -31,7 +31,7 @@ from synthetic_bvh import (  # noqa: E402
 # the committed fixture (importing it regenerates nothing — the reference
 # libraries only load inside the gen_* functions that need them).
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
-from generate_fixtures import FOOT_CONTACT_RUNS, flatten_info  # noqa: E402
+from generate_fixtures import FOOT_CONTACT_RUNS, flatten_info
 
 # ============================================================================
 # Fixtures

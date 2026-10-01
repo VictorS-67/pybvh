@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import re
 import numpy as np
-from collections.abc import Mapping
-from typing import Any, Sequence, TYPE_CHECKING
+from typing import Any, Mapping, Sequence, TYPE_CHECKING, cast
 
 from .bvh import Bvh
 from .bvhnode import BvhNode, BvhJoint, BvhRoot
@@ -162,11 +161,13 @@ def _nodes_from_hier(
         raise ValueError(
             "hier is empty: pass bvh.to_node_table() or bvh.nodes, a node "
             "table or a node list with the root first.")
+    # The first element decides the form; the casts state that choice,
+    # which narrowing a union of sequences by one element cannot.
     first = hier[0]
     if isinstance(first, BvhNode):
-        return nodes_from_table(nodes_to_table(hier))  # type: ignore[arg-type]
+        return nodes_from_table(nodes_to_table(cast(Sequence[BvhNode], hier)))
     if isinstance(first, Mapping):
-        return nodes_from_table(hier)  # type: ignore[arg-type]
+        return nodes_from_table(cast(Sequence[Mapping[str, Any]], hier))
     raise TypeError(
         f"hier[0] is a {type(first).__name__}; hier must be a node table "
         f"(bvh.to_node_table(), one dict per node) or a node list "

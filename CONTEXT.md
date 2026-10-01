@@ -81,7 +81,8 @@ __version__ = "0.9.0"
 
 from .bvh import Bvh
 from .io import read_bvh_file, write_bvh_file
-from .df_to_bvh import df_to_bvh
+from .dataframe import df_to_bvh
+from .node_tree import nodes_from_table, nodes_to_table
 from .spatial_coord import FkTopology, frames_to_node_positions
 from .batch import (read_bvh_directory, batch_to_numpy, harmonize,
                     HarmonizeReport)
@@ -113,23 +114,24 @@ v0.8.0 added **SE(3) rigid-transform math** (the orientation companion to `geome
 
 ### 4.3 `pybvh/bvhnode.py` — Node Class Hierarchy
 
-Three classes forming an inheritance chain:
+Four classes: a base and the three node kinds built from it.
 
 ```
-BvhNode  (end sites)
+BvhNode  (base: name, offset, parent)
+  ├── BvhEndSite  (end sites)
   └── BvhJoint  (interior joints)
         └── BvhRoot  (root joint — exactly one per skeleton)
 ```
 
-`BvhNode` represents end sites (leaf bones, no channels). `BvhJoint` adds `rot_channels` (list of 3 chars, e.g. `['Z', 'Y', 'X']`) and `children`. `BvhRoot` adds `pos_channels`.
+`BvhNode` carries only the data every node kind shares (`name`, `offset`, `parent`); a tree is built from its subclasses, and a bare `BvhNode` cannot answer `is_end_site()`. `BvhEndSite` is a leaf bone with no channels. `BvhJoint` adds `rot_channels` (list of 3 chars, e.g. `['Z', 'Y', 'X']`) and `children`. `BvhRoot` adds `pos_channels`. Node kind is read through `is_end_site()` / `is_root()`, never from the name.
 
 **Freeze mechanism**: After a `Bvh` object is constructed, `_frozen = True` is set on all joints. Direct assignment to `rot_channels` raises `AttributeError` — users must use `Bvh.change_euler_order()`. Internal code uses `_set_rot_channels_internal()` to bypass the freeze.
 
-The skeleton is a **tree**. Traverse from `root` via `.children`, or walk up via `.parent`. The `Bvh.nodes` list is a **flat depth-first list** of all nodes (joints + end sites). See source docstrings for method signatures.
+The skeleton is a **tree**. Traverse from `root` via `.children`, or walk up via `.parent`. The `Bvh.nodes` list is a **flat depth-first list** of all nodes (joints + end sites). What makes such a list a valid tree, and its flat form as a node table, is in `node_tree.py` (§4.16). See source docstrings for method signatures.
 
 ### 4.4 `pybvh/bvh.py` — The `Bvh` Class (Central Container)
 
-The central container holding skeleton + motion data. Constructor: `Bvh(nodes, root_pos, joint_angles, frame_time)`. Validates `root.pos_channels == ['X', 'Y', 'Z']`, freezes channel attributes after construction, and eagerly computes `_world_up_cached` via `_infer_world_up()`.
+The central container holding skeleton + motion data. Constructor: `Bvh(nodes, root_pos, joint_angles, frame_time)`. Checks the node tree with `_check_node_tree` (the depth-first walk of `children` from `nodes[0]` must visit exactly `nodes`, in order, by identity, with each node's `parent` the node it was reached from; O(N), no FK), so a tree wired on one side only raises at construction rather than surfacing later as a wrong file from `write_bvh_file`; validates `root.pos_channels == ['X', 'Y', 'Z']`, freezes channel attributes after construction, and eagerly computes `_world_up_cached` via `_infer_world_up()`.
 
 **Note**: the parameter was renamed from `frame_frequency` (misnamed — stored frame *time*, not frequency) to `frame_time` in v0.6.0. The old name was removed outright, no deprecation shim.
 
@@ -142,7 +144,7 @@ The central container holding skeleton + motion data. Constructor: `Bvh(nodes, r
 
 There is **no flat `.frames` property** — code should use `root_pos` and `joint_angles` directly.
 
-The class provides methods for I/O (`write`, `from_file`, `from_df`, `node_positions`, `rest_pose_positions`, `rest_pose_angles`, `to_df_dict`, `to_hierarchy_dict`, `copy`), skeleton ops (`retarget`, `scale`, `change_euler_order`, `extract_joints`), topology checks (`matches_topology`, `matches_hierarchy`, `matches_channels`), rotation conversions (`to_rotmat`, `to_6d`, `to_quat`, `to_axisangle`, `from_rotmat`, `from_6d`, `from_quat`, `from_axisangle`), frame ops (`bvh[a:b:c]` slicing, `a + b` concatenation, `resample`), features (`joint_velocities`, `joint_accelerations`, `node_velocities`, `node_accelerations`, `angular_velocities`, `root_trajectory`, `foot_contacts`, `ground_contacts`, `to_feature_array`, `feature_array_layout`, `auto_detect_foot_joints`), transforms (`translate_root`, `random_translate_root`, `add_rotation_noise`, `add_position_noise`, `perturb_speed`, `random_perturb_speed`, `drop_frames`, `rotate_vertical`, `random_rotate_vertical`, `mirror`), reorientation (`reorient_world_up`, `reorient_rest_up`, `reorient_rest_forward`), orientation (`forward_at`, `left_at`, `facing_frame`), motion descriptors added in v0.8.0 (`curvature`, `torsion`, `path_length`, `directness`, `ground_path`, `inter_joint_distance`, `joint_angle`, `triangle_area`, `segment_axis_angle`, `bounding_box`, `bounding_sphere`, `bounding_ellipsoid`, `movement_phase`, `center_of_mass`, `com_displacement`, `verticality`, `node_jerk`, `joint_jerk`, `node_speed_derivative`, `joint_speed_derivative`, `smoothness`, `kinetic_energy`, `velocity_reductions`, `cadence`, `stride_length`, `walking_pace`, `gait_parameters`, `range_of_motion`, `skeleton_size` — relational/trajectory ones resolve in node space so end sites are first-class; `range_of_motion` resolves in joint space; joint arguments are names only, and every descriptor method accepts pre-computed positions via `coords=`), and visualization wrappers (`plot_rest_pose`, `plot_frame`, `plot_sequence`, `plot_trajectory`, `render`, `play`). The `joint_index` and `lr_mapping` properties complement `node_index` for joint-axis lookups and L/R joint pairing respectively. The `source_path` attribute (populated by `read_bvh_file`) carries the on-disk origin for diagnostics. Many methods were renamed in v0.6.0 — old names were removed outright (no deprecation wrappers); see `pybvh/API_RENAME.md` for the complete old → new mapping. See source docstrings for method signatures.
+The class provides methods for I/O (`write`, `from_file`, `from_df`, `node_positions`, `rest_pose_positions`, `rest_pose_angles`, `to_df_dict`, `to_node_table`, `copy`), skeleton ops (`retarget`, `scale`, `change_euler_order`, `extract_joints`), topology checks (`matches_topology`, `matches_hierarchy`, `matches_channels`), rotation conversions (`to_rotmat`, `to_6d`, `to_quat`, `to_axisangle`, `from_rotmat`, `from_6d`, `from_quat`, `from_axisangle`), frame ops (`bvh[a:b:c]` slicing, `a + b` concatenation, `resample`), features (`joint_velocities`, `joint_accelerations`, `node_velocities`, `node_accelerations`, `angular_velocities`, `root_trajectory`, `foot_contacts`, `ground_contacts`, `to_feature_array`, `feature_array_layout`, `auto_detect_foot_joints`), transforms (`translate_root`, `random_translate_root`, `add_rotation_noise`, `add_position_noise`, `perturb_speed`, `random_perturb_speed`, `drop_frames`, `rotate_vertical`, `random_rotate_vertical`, `mirror`), reorientation (`reorient_world_up`, `reorient_rest_up`, `reorient_rest_forward`), orientation (`forward_at`, `left_at`, `facing_frame`), motion descriptors added in v0.8.0 (`curvature`, `torsion`, `path_length`, `directness`, `ground_path`, `inter_joint_distance`, `joint_angle`, `triangle_area`, `segment_axis_angle`, `bounding_box`, `bounding_sphere`, `bounding_ellipsoid`, `movement_phase`, `center_of_mass`, `com_displacement`, `verticality`, `node_jerk`, `joint_jerk`, `node_speed_derivative`, `joint_speed_derivative`, `smoothness`, `kinetic_energy`, `velocity_reductions`, `cadence`, `stride_length`, `walking_pace`, `gait_parameters`, `range_of_motion`, `skeleton_size` — relational/trajectory ones resolve in node space so end sites are first-class; `range_of_motion` resolves in joint space; joint arguments are names only, and every descriptor method accepts pre-computed positions via `coords=`), and visualization wrappers (`plot_rest_pose`, `plot_frame`, `plot_sequence`, `plot_trajectory`, `render`, `play`). The `joint_index` and `lr_mapping` properties complement `node_index` for joint-axis lookups and L/R joint pairing respectively. The `source_path` attribute (populated by `read_bvh_file`) carries the on-disk origin for diagnostics. Many methods were renamed in v0.6.0 — old names were removed outright (no deprecation wrappers); see `pybvh/API_RENAME.md` for the complete old → new mapping. See source docstrings for method signatures.
 
 #### The `centered` Parameter (appears throughout the codebase)
 Three modes controlling how root position is handled:
@@ -164,9 +166,9 @@ Provides `read_bvh_file(filepath)` and `write_bvh_file(bvh, filepath)`. The read
 
 v0.8.2 added **`FkTopology`** — the skeleton as plain arrays (`offsets (N, 3)`, `parent_idx (N,)`, `joint_idx (N,)`, `euler_orders` length J) — as a third accepted value for the first parameter (renamed `nodes_container` → `skeleton` at the same time), so FK runs from arrays with no node objects. `_resolve_topology` is the single point where all three input forms converge; the FK loop reads nothing but the resulting topology. `FkTopology.from_nodes` / `Bvh.fk_topology` derive one, and the constructor validates every invariant the loop relies on (parents precede children, exactly one root, the root is a joint, no node parented to an end site, joint columns are a complete `0..J-1` range) — the last two would otherwise produce silently wrong geometry rather than an error, via `-1`-as-negative-index and an uninitialized rotation read respectively. It is an FK *input bundle*, deliberately not a skeleton descriptor: no names, no orientation axes. `euler_orders` is indexed by joint column, not by node. See source docstrings for signatures.
 
-### 4.8 `pybvh/df_to_bvh.py` — DataFrame to Bvh Conversion
+### 4.8 `pybvh/dataframe.py` — DataFrame to Bvh Conversion
 
-`df_to_bvh(hier, df)` converts a pandas DataFrame back to a `Bvh` object. `hier` can be a list of BvhNode objects or a dict describing the hierarchy. See source docstrings for method signatures.
+`df_to_bvh(hier, df)` converts a pandas DataFrame back to a `Bvh` object. `hier` is a node table (`Bvh.to_node_table()`) or a node list (`bvh.nodes`), told apart by the type of the first element; both build fresh nodes through `nodes_from_table`, and the name-keyed hierarchy dict of earlier releases raises `TypeError`. The columns `df` must carry are derived from the skeleton by the same function `to_df_dict` labels with (`_motion_column_names`, a repeated node name suffixed `.1`, `.2`) and bound by label: the columns may come in any order, columns outside the set are ignored, and a missing label raises `ValueError`. Channel orders come from the skeleton, never from the DataFrame. The module was `df_to_bvh.py` until v0.10.0: sharing the function's name, `pybvh.df_to_bvh` was the module to static tools such as griffe and the function at runtime, so the API reference rendered neither. See source docstrings for method signatures.
 
 ### 4.9 `pybvh/tools.py` — Private Helpers
 
@@ -198,6 +200,10 @@ The position half of pybvh's geometry surface — the companion to `rotations.py
 
 Array-pure 1-D/N-D signal helpers shared by the analysis and geometry layers, public since v0.8.0 (moved out of `tools.py` so they are documented and discoverable): `finite_difference` (the single stencil/pad derivative convention used by the velocity→acceleration→jerk ladder and the geometry derivative kernels), `temporal_stats` (mean/std/min/max/skew/kurtosis, manual moments — no scipy), `box_filter_smooth` (cumsum moving average), `fft_magnitude` / `dominant_frequency`, and `ramer_douglas_peucker` (polyline simplification, explicit-stack). See source docstrings for signatures.
 
+### 4.16 `pybvh/node_tree.py` — The Node Tree as a Whole
+
+What makes a list of nodes a valid skeleton, and its flat form. Added in v0.10.0 beside `bvhnode.py`, which keeps the node classes and their per-node validation; this module imports only from it. **`nodes_to_table(nodes)`** and **`nodes_from_table(table)`** are the node table and its builder. The first exports a tree as a node table — one plain `dict` per node in `nodes` order with `name`, `parent` (the index of the parent's entry, `None` on the root), `offset` (a copy), `pos_channels` (root) and `rot_channels` (root and joints; an entry without it is an end site), and no `children` key — and the second builds fresh `BvhRoot` / `BvhJoint` / `BvhEndSite` objects back from it with `parent` and `children` wired from the indices. `nodes_from_table` is the one place a node tree is built (the parser, `df_to_bvh` and `extract_joints` all call it) and validated: single root at entry 0, parents before children, end sites as leaves, depth-first order (required, not repaired, since reordering would move `joint_angles` columns away from their joints), well-formed offsets and channel lists, `pos_channels` on the root only, no key the format does not define. `_check_node_tree(nodes)` applies the same depth-first, wired-both-ways test to a finished tree and is what `Bvh.__init__` runs. Both builder functions are exported from `pybvh`; `Bvh.to_node_table()` wraps the first. `_walk_depth_first` is the walk both checks share.
+
 ---
 
 ## 5. Data Representation Details
@@ -214,6 +220,7 @@ Example for `bvh_example.bvh`: `root_pos.shape = (56, 3)`, `joint_angles.shape =
 - Order matches `Bvh.nodes` list order (depth-first).
 - `node_index` maps `"JointName"` → integer index into the N-axis (use for `node_positions()` output).
 - `joint_index` maps `"JointName"` → integer index into the J-axis (use for `joint_angles`, which excludes end sites).
+- **Node table** — the skeleton as plain data: one `dict` per node in `nodes` order, the parent referenced by index (`None` on the root), the named twin of `FkTopology`, the same positions with names (`Bvh.to_node_table()`; `nodes_to_table` / `nodes_from_table` in `node_tree.py`).
 
 ---
 
@@ -236,7 +243,7 @@ where the order comes from the joint's `rot_channels`.
 1. **Property validation**: All core attributes use `@property` with setters that type-check inputs.
 2. **Full type annotations**: All source files use `from __future__ import annotations`, `npt.NDArray`, `@overload` for inplace methods. `mypy pybvh/` is **not** clean and is not run in CI: it reports 39 errors as of 0.8.2. All are annotation-accuracy or narrowing issues — none is a runtime bug, and each was checked. Two thirds trace to three causes: `analysis._reduce_like` is typed `cast: Callable[[object], object]`, so every smoothness/reduction kernel routed through it degrades its return type to `object` (~15 errors, one fix); `foot_contacts`' `vel_threshold` / `height_threshold` are declared `float | None` but hold a per-foot `ndarray` once adaptive thresholding runs (4); and the `mask = vel_mask & height_mask` branch is only reachable when `method == "combined"`, where both are non-None by construction, but nothing in the types says so (1). The rest are one-line annotations (`list[slice]` that also holds an `int`, `list[BvhEndSite]` inferred from a first append where `list[BvhNode]` was meant) plus three matplotlib-stub false positives (`Axes` has no `add_collection3d`; the object is an `Axes3D`). Cleaning this up is a worthwhile standalone change — see the note in `docs/internal_logs/v0.8.2/00-overview.md` — but it touches signatures in `analysis.py` and so is not patch-release material.
 3. **NumPy throughout**: All numerical data as NumPy arrays. No ML framework dependencies.
-4. **Deep copy safety**: `Bvh.copy()` uses `copy.deepcopy()`. `to_hierarchy_dict()` returns copies (safe to mutate).
+4. **Deep copy safety**: `Bvh.copy()` uses `copy.deepcopy()`. `to_node_table()` returns copies (safe to mutate).
 5. **Channel freeze**: After `Bvh.__init__`, `rot_channels` and `pos_channels` are frozen. Mutation must go through Bvh methods.
 6. **Uniform `inplace` convention**: All mutation methods default to `inplace=False` (returns copy). `inplace=True` modifies self, returns `None`.
 7. **No pandas dependency**: pybvh never imports pandas. `to_df_dict()` returns a dict-of-arrays that users can wrap in `pd.DataFrame(...)` themselves.

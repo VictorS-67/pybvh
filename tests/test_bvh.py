@@ -62,6 +62,20 @@ def standard_skeleton():
     return read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "standard_skeleton.bvh")
 
 
+@pytest.fixture
+def zero_frame_clip():
+    """A root, a joint and an end site with no motion, the way `Bvh()` and
+    `_copy_skeleton()` hold a skeleton: every frame array has length 0."""
+    end = BvhEndSite("EndSiteHand", offset=[0.0, 1.0, 0.0])
+    hand = BvhJoint("Hand", offset=[0.0, 1.0, 0.0], rot_channels=['X', 'Y', 'Z'],
+                    children=[end])
+    end.parent = hand
+    root = BvhRoot("Hips", offset=[0.0, 0.0, 0.0], rot_channels=['Z', 'Y', 'X'],
+                   children=[hand])
+    hand.parent = root
+    return Bvh([root, hand, end], np.empty((0, 3)), np.empty((0, 2, 3)), 1 / 30)
+
+
 # =============================================================================
 # Test: read_bvh_file
 # =============================================================================
@@ -668,28 +682,90 @@ class TestDataFrameConversion:
         np.testing.assert_allclose(bvh2.root_pos, bvh.root_pos, atol=1e-10)
         np.testing.assert_allclose(bvh2.joint_angles, bvh.joint_angles, atol=1e-10)
 
-    def test_df_to_bvh_dict_exact_channel_inference(self):
-        """Channel inference from the df must exact-match joint names ('Hip' must not pick up 'Left_Hip' columns) and detect end sites structurally (no 'EndSite' name prefix here)."""
-        bvh = self._make_underscored_bvh()
-        df = pd.DataFrame(bvh.to_df_dict(mode='euler'))
-        hier = bvh.to_hierarchy_dict()
-        # Drop channel info so the df-based inference path runs
-        for info in hier.values():
-            info.pop('rot_channels', None)
-            info.pop('pos_channels', None)
-        bvh2 = df_to_bvh(hier, df)
-        assert bvh2.root.rot_channels == ['Z', 'Y', 'X']
-        assert bvh2.nodes[1].rot_channels == ['X', 'Y', 'Z']
-        assert bvh2.nodes[2].is_end_site()
-        np.testing.assert_allclose(bvh2.root_pos, bvh.root_pos, atol=1e-10)
-        np.testing.assert_allclose(bvh2.joint_angles, bvh.joint_angles, atol=1e-10)
-
     def test_df_to_bvh_single_row_raises(self):
         """Frame time needs >= 2 time samples — a clear error, not ZeroDivisionError."""
         bvh = self._make_underscored_bvh()
         df = pd.DataFrame(bvh.to_df_dict(mode='euler')).iloc[:1]
         with pytest.raises(ValueError, match="at least 2"):
             df_to_bvh(bvh.nodes, df)
+
+    def test_df_to_bvh_binds_columns_by_name_in_any_order(self, bvh_example):
+        """The hierarchy decides the layout: a DataFrame that lists the
+        root's six columns last, after every joint's, binds to the same clip."""
+        df = pd.DataFrame(bvh_example.to_df_dict(mode='euler'))
+        root_columns = [c for c in df.columns if c.rsplit('_', 2)[0] == 'Hips']
+        other_columns = [c for c in df.columns if c not in root_columns]
+        reordered = df[other_columns + root_columns]
+
+        rebuilt = df_to_bvh(bvh_example.nodes, reordered)
+
+        assert rebuilt.matches_hierarchy(bvh_example)
+        np.testing.assert_allclose(rebuilt.root_pos, bvh_example.root_pos, atol=1e-10)
+        np.testing.assert_allclose(rebuilt.joint_angles, bvh_example.joint_angles, atol=1e-10)
+
+    def test_df_to_bvh_ignores_columns_outside_the_hierarchy(self, bvh_example):
+        df = pd.DataFrame(bvh_example.to_df_dict(mode='euler'))
+        df['frame_index'] = np.arange(len(df))
+        df['Extra_X_rot'] = 7.0
+
+        rebuilt = df_to_bvh(bvh_example.nodes, df)
+
+        assert rebuilt.matches_hierarchy(bvh_example)
+        np.testing.assert_allclose(rebuilt.joint_angles, bvh_example.joint_angles, atol=1e-10)
+
+    def test_df_to_bvh_names_every_missing_column(self, bvh_example):
+        df = pd.DataFrame(bvh_example.to_df_dict(mode='euler'))
+        df = df.drop(columns=['Spine_X_rot', 'Hips_Y_pos'])
+        with pytest.raises(ValueError, match=r"missing.*'Hips_Y_pos', 'Spine_X_rot'"):
+            df_to_bvh(bvh_example.nodes, df)
+
+    def test_df_to_bvh_refuses_an_expected_column_listed_twice(self, bvh_example):
+        """Two columns labelled 'Spine_X_rot' cannot both be the one the
+        hierarchy expects; the error names the label."""
+        df = pd.DataFrame(bvh_example.to_df_dict(mode='euler'))
+        df = pd.concat([df, df[['Spine_X_rot']]], axis=1)
+        with pytest.raises(ValueError, match=r"more than once.*'Spine_X_rot'"):
+            df_to_bvh(bvh_example.nodes, df)
+
+    def test_df_to_bvh_requires_a_time_column(self, bvh_example):
+        df = pd.DataFrame(bvh_example.to_df_dict(mode='euler')).drop(columns=['time'])
+        with pytest.raises(ValueError, match="'time'"):
+            df_to_bvh(bvh_example.nodes, df)
+
+    def test_df_to_bvh_finds_time_in_any_case(self, bvh_example):
+        df = pd.DataFrame(bvh_example.to_df_dict(mode='euler'))
+        df = df.rename(columns={'time': 'Time'})
+
+        rebuilt = df_to_bvh(bvh_example.nodes, df)
+
+        assert rebuilt.frame_count == bvh_example.frame_count
+        assert np.isclose(rebuilt.frame_time, bvh_example.frame_time)
+
+    def test_to_df_dict_euler_exports_a_zero_frame_clip(self, zero_frame_clip):
+        """A skeleton-only clip exports every column label over an empty array."""
+        columns = zero_frame_clip.to_df_dict(mode='euler')
+        assert list(columns) == [
+            'time',
+            'Hips_X_pos', 'Hips_Y_pos', 'Hips_Z_pos',
+            'Hips_Z_rot', 'Hips_Y_rot', 'Hips_X_rot',
+            'Hand_X_rot', 'Hand_Y_rot', 'Hand_Z_rot']
+        assert all(values.shape == (0,) for values in columns.values())
+
+    def test_to_df_dict_coordinates_exports_a_zero_frame_clip(self, zero_frame_clip):
+        columns = zero_frame_clip.to_df_dict(mode='coordinates')
+        assert list(columns) == [
+            'time',
+            'Hips_X', 'Hips_Y', 'Hips_Z',
+            'Hand_X', 'Hand_Y', 'Hand_Z',
+            'EndSiteHand_X', 'EndSiteHand_Y', 'EndSiteHand_Z']
+        assert all(values.shape == (0,) for values in columns.values())
+
+    def test_df_to_bvh_zero_rows_raises(self, zero_frame_clip):
+        """A zero-frame export is not read back: the frame time needs two rows."""
+        df = pd.DataFrame(zero_frame_clip.to_df_dict(mode='euler'))
+        assert len(df) == 0
+        with pytest.raises(ValueError, match="at least 2"):
+            df_to_bvh(zero_frame_clip.nodes, df)
 
 
 # =============================================================================
@@ -810,14 +886,25 @@ class TestBvhMethods:
         assert joint_angles_rest.shape == bvh_example.joint_angles[0].shape
         np.testing.assert_allclose(joint_angles_rest, np.zeros_like(joint_angles_rest))
 
-    def test_to_hierarchy_dict(self, bvh_example):
-        """to_hierarchy_dict should return valid dict."""
-        hier = bvh_example.to_hierarchy_dict()
-        
-        assert isinstance(hier, dict)
-        assert "Hips" in hier
-        assert hier["Hips"]["parent"] is None
-        assert "Spine" in hier["Hips"]["children"]
+    def test_to_node_table(self, bvh_example):
+        """to_node_table lists one entry per node, parents by index."""
+        table = bvh_example.to_node_table()
+
+        assert isinstance(table, list)
+        assert [entry['name'] for entry in table] == [
+            node.name for node in bvh_example.nodes]
+        hips, spine = table[0], table[1]
+        assert hips['parent'] is None
+        assert hips['pos_channels'] == ['X', 'Y', 'Z']
+        assert hips['rot_channels'] == ['X', 'Z', 'Y']
+        assert spine['name'] == 'Spine'
+        assert spine['parent'] == 0
+        assert 'pos_channels' not in spine
+        head_tip = table[bvh_example.node_index['EndSiteHead']]
+        assert head_tip['parent'] == bvh_example.node_index['Head']
+        assert 'rot_channels' not in head_tip
+        assert [i for i, entry in enumerate(table) if 'rot_channels' not in entry] == [
+            i for i, node in enumerate(bvh_example.nodes) if node.is_end_site()]
 
 
 # =============================================================================
@@ -6103,25 +6190,27 @@ class TestFromFileFromDf:
         assert bvh == bvh_example
         assert bvh.source_path == str(bvh_example_path)
 
-    def test_from_df_round_trips_hierarchy_dict(self, bvh_example):
-        hier = bvh_example.to_hierarchy_dict()
+    def test_from_df_round_trips_node_table(self, bvh_example):
+        table = bvh_example.to_node_table()
         df = pd.DataFrame(bvh_example.to_df_dict(mode='euler'))
-        rebuilt = Bvh.from_df(hier, df)
-        assert rebuilt.joint_names == bvh_example.joint_names
+        rebuilt = Bvh.from_df(table, df)
+        assert rebuilt.matches_hierarchy(bvh_example)
+        assert rebuilt.matches_channels(bvh_example)
         np.testing.assert_allclose(rebuilt.root_pos, bvh_example.root_pos, atol=1e-9)
         np.testing.assert_allclose(
             rebuilt.joint_angles, bvh_example.joint_angles, atol=1e-9)
 
 
-class TestToHierarchyDictCopies:
+class TestToNodeTableCopies:
 
     def test_mutating_result_does_not_touch_bvh(self, bvh_example):
-        hier = bvh_example.to_hierarchy_dict()
-        root_name = bvh_example.root.name
-        hier[root_name]['offset'][0] = 999.0
-        hier[root_name]['rot_channels'][0] = 'Q'
+        table = bvh_example.to_node_table()
+        table[0]['offset'][0] = 999.0
+        table[0]['rot_channels'][0] = 'Q'
+        table[0]['pos_channels'][0] = 'Q'
         assert bvh_example.root.offset[0] != 999.0
         assert bvh_example.root.rot_channels[0] != 'Q'
+        assert bvh_example.root.pos_channels[0] != 'Q'
 
 
 class TestResampleValidation:

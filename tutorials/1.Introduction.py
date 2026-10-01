@@ -179,7 +179,7 @@ df = pd.DataFrame(bvh.to_df_dict())
 df.head()
 
 # %% [markdown]
-# You can also export spatial coordinates instead of Euler angles with `to_df_dict(mode='coordinates')` (see Tutorial 2). To reconstruct a `Bvh` object from a DataFrame, see `Bvh.from_df()` (or the module-level `df_to_bvh()`) in the API documentation.
+# You can also export spatial coordinates instead of Euler angles with `to_df_dict(mode='coordinates')` (see Tutorial 2). To reconstruct a `Bvh` object from a DataFrame, pair it with the skeleton half, `to_node_table()`: `Bvh.from_df(bvh.to_node_table(), df)` rebuilds the clip (the module-level `df_to_bvh()` is the same function); see the API documentation.
 
 # %% [markdown]
 # # Skeleton hierarchy

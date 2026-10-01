@@ -69,7 +69,11 @@ def duplicate_joint_rig():
     _attach(second, BvhEndSite('EndSiteArm', [0, 1, 0]))
     nodes = [root, first, grandchild, grandchild.children[0],
              second, second.children[0]]
-    return Bvh(nodes, np.zeros((3, 3)), np.zeros((3, 4, 3)), 1 / 30)
+    # Every joint gets its own angles, so a column swap between the two
+    # 'Arm' joints shows. Powers of two survive the degrees round trip of
+    # the DataFrame bit-exactly, which `==` on a Bvh requires.
+    joint_angles = (2.0 ** -np.arange(36, dtype=float)).reshape(3, 4, 3)
+    return Bvh(nodes, np.zeros((3, 3)), joint_angles, 1 / 30)
 
 
 @pytest.fixture
@@ -218,6 +222,94 @@ class TestOtherTopologyConsumers:
 
 
 # =============================================================================
+# DataFrame column labels
+# =============================================================================
+
+class TestDataFrameColumns:
+    """`to_df_dict` exports one column per channel of every node, however
+    the nodes are named: a repeated name is labelled `X`, `X.1`, `X.2` in
+    node order, pandas' rule for repeated CSV headers."""
+
+    def test_two_end_sites_each_get_their_columns(self, one_joint_two_end_sites_rig):
+        columns = list(one_joint_two_end_sites_rig.to_df_dict(mode='coordinates'))
+        assert columns == [
+            'time',
+            'Hips_X', 'Hips_Y', 'Hips_Z',
+            'Hand_X', 'Hand_Y', 'Hand_Z',
+            'EndSiteHand_X', 'EndSiteHand_Y', 'EndSiteHand_Z',
+            'EndSiteHand.1_X', 'EndSiteHand.1_Y', 'EndSiteHand.1_Z']
+
+    def test_two_end_sites_leave_euler_mode_unsuffixed(self, one_joint_two_end_sites_rig):
+        """End sites have no euler columns, so nothing repeats there."""
+        columns = list(one_joint_two_end_sites_rig.to_df_dict(mode='euler'))
+        assert columns == [
+            'time',
+            'Hips_X_pos', 'Hips_Y_pos', 'Hips_Z_pos',
+            'Hips_Z_rot', 'Hips_Y_rot', 'Hips_X_rot',
+            'Hand_Z_rot', 'Hand_Y_rot', 'Hand_X_rot']
+
+    def test_two_joints_sharing_a_name_each_get_their_columns(self, duplicate_joint_rig):
+        """The second 'Arm' (node 4) is 'Arm.1', after the first one's child."""
+        columns = list(duplicate_joint_rig.to_df_dict(mode='euler'))
+        assert columns == [
+            'time',
+            'Hips_X_pos', 'Hips_Y_pos', 'Hips_Z_pos',
+            'Hips_Z_rot', 'Hips_Y_rot', 'Hips_X_rot',
+            'Arm_Z_rot', 'Arm_Y_rot', 'Arm_X_rot',
+            'ArmChild_Z_rot', 'ArmChild_Y_rot', 'ArmChild_X_rot',
+            'Arm.1_Z_rot', 'Arm.1_Y_rot', 'Arm.1_X_rot']
+
+    def test_two_joints_sharing_a_name_in_coordinates_mode(self, duplicate_joint_rig):
+        columns = list(duplicate_joint_rig.to_df_dict(mode='coordinates'))
+        assert columns == [
+            'time',
+            'Hips_X', 'Hips_Y', 'Hips_Z',
+            'Arm_X', 'Arm_Y', 'Arm_Z',
+            'ArmChild_X', 'ArmChild_Y', 'ArmChild_Z',
+            'EndSiteArmChild_X', 'EndSiteArmChild_Y', 'EndSiteArmChild_Z',
+            'Arm.1_X', 'Arm.1_Y', 'Arm.1_Z',
+            'EndSiteArm_X', 'EndSiteArm_Y', 'EndSiteArm_Z']
+
+    def test_suffix_follows_the_nodes_the_mode_exports(self, collision_rig):
+        """The joint 'EndSiteHips' (node 1) precedes the end site of that
+        name (node 4): coordinates mode suffixes the end site, and euler
+        mode, where end sites have no columns, suffixes nothing."""
+        coordinates = list(collision_rig.to_df_dict(mode='coordinates'))
+        assert coordinates == [
+            'time',
+            'Hips_X', 'Hips_Y', 'Hips_Z',
+            'EndSiteHips_X', 'EndSiteHips_Y', 'EndSiteHips_Z',
+            'Child_X', 'Child_Y', 'Child_Z',
+            'EndSiteChild_X', 'EndSiteChild_Y', 'EndSiteChild_Z',
+            'EndSiteHips.1_X', 'EndSiteHips.1_Y', 'EndSiteHips.1_Z']
+
+        euler = list(collision_rig.to_df_dict(mode='euler'))
+        assert euler == [
+            'time',
+            'Hips_X_pos', 'Hips_Y_pos', 'Hips_Z_pos',
+            'Hips_Z_rot', 'Hips_Y_rot', 'Hips_X_rot',
+            'EndSiteHips_Z_rot', 'EndSiteHips_Y_rot', 'EndSiteHips_X_rot',
+            'Child_Z_rot', 'Child_Y_rot', 'Child_X_rot']
+
+    def test_a_node_named_like_a_suffixed_label_keeps_its_name(self):
+        """Joints 'Arm', 'Arm', 'Arm.1': the second 'Arm' skips the label
+        the third joint owns, as pandas reads the header `Arm,Arm,Arm.1`
+        as `Arm, Arm.2, Arm.1`."""
+        root = BvhRoot('Hips', [0, 0, 0], 'XYZ', 'ZYX', [])
+        for name, offset in [('Arm', [1, 0, 0]), ('Arm', [-1, 0, 0]), ('Arm.1', [0, 1, 0])]:
+            joint = _attach(root, BvhJoint(name, offset, 'ZYX', []))
+            _attach(joint, BvhEndSite('EndSite' + name, [0, 1, 0]))
+        nodes = [root]
+        for joint in root.children:
+            nodes.extend([joint, joint.children[0]])
+        bvh = Bvh(nodes, np.zeros((2, 3)), np.zeros((2, 4, 3)), 1 / 30)
+
+        rotation_columns = [c for c in bvh.to_df_dict(mode='euler') if c.endswith('_Z_rot')]
+
+        assert rotation_columns == ['Hips_Z_rot', 'Arm_Z_rot', 'Arm.2_Z_rot', 'Arm.1_Z_rot']
+
+
+# =============================================================================
 # Round trips through a file and a DataFrame
 # =============================================================================
 
@@ -237,16 +329,87 @@ class TestRoundTrips:
         back = read_bvh_file(path)
         assert back.matches_hierarchy(rig)
         assert back.matches_channels(rig)
-        np.testing.assert_array_equal(back.node_positions(), rig.node_positions())
+        # The file carries six decimals, so the posed skeleton is equal to
+        # that precision; a limb attached elsewhere is off by a bone length.
+        np.testing.assert_allclose(
+            back.node_positions(), rig.node_positions(), atol=1e-6)
 
-    def test_dataframe_round_trip_keeps_both_end_sites(
-            self, one_joint_two_end_sites_rig):
-        # Two joints sharing a name are not covered: their DataFrame
-        # columns collide today, which #16 fixes.
+    @pytest.fixture(params=[
+        "collision_rig", "duplicate_joint_rig", "one_joint_two_end_sites_rig"])
+    def dataframe_rig(self, request):
+        return request.getfixturevalue(request.param)
+
+    @pytest.fixture
+    def df(self, dataframe_rig):
+        return pd.DataFrame(dataframe_rig.to_df_dict(mode='euler'))
+
+    def test_dataframe_round_trip_through_the_node_list(self, dataframe_rig, df):
+        rebuilt = df_to_bvh(dataframe_rig.nodes, df)
+        assert rebuilt.matches_hierarchy(dataframe_rig)
+        assert rebuilt == dataframe_rig
+
+    def test_dataframe_round_trip_through_the_node_table(self, dataframe_rig, df):
+        rebuilt = df_to_bvh(dataframe_rig.to_node_table(), df)
+        assert rebuilt.matches_hierarchy(dataframe_rig)
+        assert rebuilt == dataframe_rig
+
+    def test_from_df_takes_the_node_list(self, dataframe_rig, df):
+        rebuilt = Bvh.from_df(dataframe_rig.nodes, df)
+        assert rebuilt.matches_hierarchy(dataframe_rig)
+        assert rebuilt == dataframe_rig
+
+    def test_from_df_takes_the_node_table(self, dataframe_rig, df):
+        rebuilt = Bvh.from_df(dataframe_rig.to_node_table(), df)
+        assert rebuilt.matches_hierarchy(dataframe_rig)
+        assert rebuilt == dataframe_rig
+
+    def test_name_keyed_dict_is_refused(self, one_joint_two_end_sites_rig):
+        """The hierarchy dict of v0.9.0, which held one end site of two,
+        names the migration instead of rebuilding a wrong clip."""
         rig = one_joint_two_end_sites_rig
-        rebuilt = df_to_bvh(rig.nodes, pd.DataFrame(rig.to_df_dict(mode='euler')))
-        assert rebuilt.matches_hierarchy(rig)
-        assert rebuilt == rig
+        hier = {
+            'Hips': {'offset': [0, 0, 0], 'parent': None, 'children': ['Hand'],
+                     'pos_channels': ['X', 'Y', 'Z'], 'rot_channels': ['Z', 'Y', 'X']},
+            'Hand': {'offset': [0, 1, 0], 'parent': 'Hips',
+                     'children': ['EndSiteHand'], 'rot_channels': ['Z', 'Y', 'X']},
+            'EndSiteHand': {'offset': [0, 0, 2], 'parent': 'Hand'},
+        }
+        df = pd.DataFrame(rig.to_df_dict(mode='euler'))
+        with pytest.raises(TypeError, match="to_node_table"):
+            df_to_bvh(hier, df)
+        with pytest.raises(TypeError, match="to_node_table"):
+            Bvh.from_df(hier, df)
+
+    def test_empty_hierarchy_is_refused(self, one_joint_two_end_sites_rig):
+        df = pd.DataFrame(one_joint_two_end_sites_rig.to_df_dict(mode='euler'))
+        with pytest.raises(ValueError, match="to_node_table"):
+            df_to_bvh([], df)
+
+    def test_repeated_literal_labels_get_the_suffix_rule(self, duplicate_joint_rig):
+        """A hand-built DataFrame labelling both 'Arm' joints 'Arm_X_rot'
+        is refused with the missing labels and the rule that makes the
+        second one 'Arm.1'."""
+        rig = duplicate_joint_rig
+        df = pd.DataFrame(rig.to_df_dict(mode='euler'))
+        df.columns = [c.replace('Arm.1_', 'Arm_') for c in df.columns]
+        assert list(df.columns).count('Arm_X_rot') == 2
+
+        with pytest.raises(ValueError, match=r"missing.*'Arm\.1_Z_rot'") as excinfo:
+            df_to_bvh(rig.nodes, df)
+        assert "X, X.1, X.2" in str(excinfo.value)
+
+    def test_a_v0_9_0_export_is_refused_with_the_suffix_rule(self, duplicate_joint_rig):
+        """v0.9.0 keyed columns by name, so its export of two joints named
+        'Arm' carries one set of 'Arm_*' columns. It lacks the 'Arm.1_*'
+        columns the hierarchy expects, and the message says why."""
+        rig = duplicate_joint_rig
+        df = pd.DataFrame(rig.to_df_dict(mode='euler'))
+        df = df.drop(columns=[c for c in df.columns if c.startswith('Arm.1_')])
+        assert not df.columns.has_duplicates
+
+        with pytest.raises(ValueError, match=r"missing.*'Arm\.1_Z_rot'") as excinfo:
+            df_to_bvh(rig.nodes, df)
+        assert "X, X.1, X.2" in str(excinfo.value)
 
 
 # =============================================================================

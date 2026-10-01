@@ -25,6 +25,16 @@ BodySizeMeasure = Literal["rest height", "rest extent", "clip extent", "default"
 DEFAULT_BODY_SIZE = 1.0
 
 
+def _axis_vector(signed_axis: str) -> npt.NDArray[np.float64]:
+    """The unit vector of a signed axis string, ``'-z'`` -> ``[0, 0, -1]``.
+
+    A fresh array on every call."""
+    sign = -1.0 if signed_axis[0] == '-' else 1.0
+    vector = np.zeros(3, dtype=np.float64)
+    vector[UP_AXIS_INDEX[signed_axis[1]]] = sign
+    return vector
+
+
 # ---------------------------------------------------------------------------
 # Scene container
 # ---------------------------------------------------------------------------
@@ -61,9 +71,7 @@ class GroundFrame:
         """The unit vector pointing up, sign included, shape ``(3,)``.
 
         A fresh array on every access."""
-        vector = np.zeros(3, dtype=np.float64)
-        vector[self.up_index] = self.up_sign
-        return vector
+        return _axis_vector(self.up)
 
     @property
     def ground_axes(self) -> tuple[int, int]:
@@ -251,6 +259,13 @@ class SkeletonView(GroundFrame):
                 f"positive, got {self.frame_time!r}.")
 
         self._protect_arrays()
+
+    @property
+    def forward_vector(self) -> npt.NDArray[np.float64]:
+        """The unit vector of ``forward_axis``, shape ``(3,)``.
+
+        A fresh array on every access."""
+        return _axis_vector(self.forward_axis)
 
     @property
     def body_size(self) -> float:
@@ -575,35 +590,46 @@ class Scene:
         do not overlap.
 
         For the single-scene backends (k3d, vedo); multi-panel backends
-        draw each view in its own axes and never need it. The lateral
-        axis is the one that is neither the first view's up axis nor its
-        forward axis at frame 0. ``"auto"`` spaces by 1.2 × the first
-        view's lateral extent (at least 0.1 scene units); a float is
-        used directly, in scene units. View ``k`` moves by
-        ``k × spacing`` in the positive lateral direction. Whether to
-        spread at all is the caller's policy (``play`` respects raw
-        world coordinates under ``"auto"``).
+        draw each view in its own axes and never need it. View ``k``
+        moves by ``k × spacing`` toward the first skeleton's own left:
+        ``up × forward`` of the first view, with ``forward`` its
+        ``forward_axis`` (the facing of its first frame, snapped to an
+        axis). Seen from the ``"front"`` camera that is the viewer's
+        right, so the skeletons read left to right in the order given,
+        on every rig. The alternative it replaces, a fixed world axis
+        (the positive axis that is neither up nor forward), flips with
+        the rig: ``+x`` is the left of a ``+y``-up character facing
+        ``+z``, but the right of the same character facing ``-z`` or
+        turned ``-y``-up. In a Scene made from a Bvh, a facing that
+        cannot be measured on the first frame (no left/right joint
+        pairs, or pairs lying along up) leaves ``forward_axis`` at the
+        fallback the ``"front"`` camera also faces (the rest pose's
+        facing, then a fixed default per up axis, with a warning), so
+        the next skeleton still lands on the front camera's right,
+        whichever side of the body that is.
+
+        ``"auto"`` spaces by 1.2 × the first view's extent along that
+        direction (at least 0.1 scene units); a float is used
+        directly, in scene units. Whether to spread at all is the
+        caller's policy (``play`` respects raw world coordinates under
+        ``"auto"``).
         """
         if len(self.views) <= 1:
             return self
         first = self.views[0]
-        up_idx = first.up_index
-        fwd_idx = UP_AXIS_INDEX.get(first.forward_axis[1], 0)
-        lat_idx = next(i for i in range(3) if i != up_idx and i != fwd_idx)
+        leftward = np.cross(first.up_vector, first.forward_vector)
 
         if spacing == "auto":
-            lateral = first.coords[..., lat_idx]
-            width = float(lateral.max() - lateral.min())
+            along_leftward = first.coords @ leftward
+            width = float(along_leftward.max() - along_leftward.min())
             effective = max(width, 0.1) * 1.2
         else:
             effective = float(spacing)
         if effective == 0.0:
             return self
 
-        unit = np.zeros(3)
-        unit[lat_idx] = 1.0  # always the positive lateral direction
         return self.offset(
-            [unit * k * effective for k in range(len(self.views))])
+            [leftward * k * effective for k in range(len(self.views))])
 
 
 def _is_whole_number(value: object) -> bool:

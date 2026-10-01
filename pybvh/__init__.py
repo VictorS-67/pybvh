@@ -1,3 +1,14 @@
+"""Read, write and analyze BVH motion capture data as NumPy arrays.
+
+A ``Bvh`` holds one clip: its skeleton, the root translation, shape
+``(F, 3)`` in the file's length unit, and the joint rotations, shape
+``(F, J, 3)``, as Euler angles in radians (files store degrees; the
+conversion happens on reading and writing). ``read_bvh_file`` loads one
+file and ``read_bvh_directory`` a folder of them. The package
+namespace re-exports the main entry points; everything else lives in its
+submodule, for example ``rotations``, ``transforms``, ``analysis``,
+``features`` or ``bvhplot``.
+"""
 from __future__ import annotations
 
 __version__ = "0.9.0"

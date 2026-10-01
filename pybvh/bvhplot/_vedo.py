@@ -401,7 +401,7 @@ class _VedoPlayer:
         # --- Build persistent skeleton geometry (created once, updated in-place) ---
 
         # High mode: one CapsuleSkeleton (2 merged actors) per skeleton
-        self._capsules: list[CapsuleSkeleton | None] = []
+        self._capsules: list[CapsuleSkeleton] = []
 
         # Fast mode: Lines + Points per skeleton
         self._lines_actors: list = []
@@ -428,7 +428,6 @@ class _VedoPlayer:
                 # Position to frame 0
                 capsule.update(coords_list[s][0])
             else:
-                self._capsules.append(None)
                 frame0 = coords_list[s][0]
                 lines = Lines(
                     frame0[self._bone_parent_idx[s]],
@@ -1051,9 +1050,7 @@ class _VedoPlayer:
                 vis_list[idx] = not vis_list[idx]
                 v = 1 if vis_list[idx] else 0
                 if self.use_high:
-                    capsule = self._capsules[idx]
-                    assert capsule is not None
-                    for mesh in capsule.actors:
+                    for mesh in self._capsules[idx].actors:
                         mesh.actor.SetVisibility(v)
                 else:
                     self._lines_actors[idx].actor.SetVisibility(v)

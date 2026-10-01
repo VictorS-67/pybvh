@@ -70,8 +70,12 @@ extend-exclude = ["tutorials/*.py", "gallery/feature_gallery.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B", "UP", "D1", "D417"]
-# The formatter owns line length (#57).
-ignore = ["E501"]
+# The formatter owns line length (#57). D105: the dunders left without a
+# docstring are __str__ and __repr__, whose contract is Python's data model
+# and whose body already shows the text it builds. Dunders with behaviour of
+# their own (__eq__, __getitem__, __add__, ...) should carry one, but the rule
+# cannot tell the two kinds apart.
+ignore = ["E501", "D105"]
 
 [tool.ruff.lint.isort]
 # The gallery notebook's helper module sits beside it, not on any import path

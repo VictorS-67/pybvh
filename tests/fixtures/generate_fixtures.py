@@ -162,7 +162,9 @@ def _load_smoothness_reference():
     """Fetch the Balasubramanian SPARC reference (ISC license, siva82kb/SPARC),
     pinned to a commit, and import it. Its code is NOT committed — only the
     numbers it produces are. Needs network at regeneration time (rare)."""
-    import importlib.util, tempfile, urllib.request
+    import importlib.util
+    import tempfile
+    import urllib.request
     sha = "7deff21add7e3b6403869c8932dff31bceacb472"
     url = f"https://raw.githubusercontent.com/siva82kb/SPARC/{sha}/scripts/smoothness.py"
     code = urllib.request.urlopen(url, timeout=30).read()

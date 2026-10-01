@@ -205,11 +205,11 @@ def render_vedo(
         # in the writer with a raw ModuleNotFoundError.
         try:
             import cv2  # noqa: F401
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 f"Writing {ext} via the vedo backend requires "
                 f"opencv-python. Install with: pip install "
-                f"pybvh[opencv], or render to .gif instead.")
+                f"pybvh[opencv], or render to .gif instead.") from err
 
     with _vtk_backend():
         return _render_vedo_frames(scene, style, filepath, fps, resolution,

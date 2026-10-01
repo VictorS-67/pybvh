@@ -395,7 +395,8 @@ def _validated_spacing(spacing: float | str) -> float | str:
         spacing_val = float(spacing)
     except (TypeError, ValueError):
         raise ValueError(
-            f"spacing must be 'auto' or a non-negative number, got {spacing!r}")
+            f"spacing must be 'auto' or a non-negative number, got {spacing!r}"
+        ) from None
     if spacing_val < 0:
         raise ValueError(
             f"spacing must be non-negative, got {spacing_val}")
@@ -1360,10 +1361,10 @@ def play(
     if backend_name == "k3d":
         try:
             import k3d  # noqa: F401
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "k3d backend requires k3d and ipywidgets. "
-                "Install with: pip install pybvh[interactive]")
+                "Install with: pip install pybvh[interactive]") from err
         from ._k3d import play_k3d
         play_k3d(_arranged_in_one_scene(scene, spacing=spacing,
                                         centered=centered,
@@ -1374,10 +1375,10 @@ def play(
     elif backend_name == "vedo":
         try:
             import vedo  # noqa: F401
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "vedo backend requires vedo. "
-                "Install with: pip install pybvh[viewer]")
+                "Install with: pip install pybvh[viewer]") from err
         from ._vedo import play_vedo
         play_vedo(_arranged_in_one_scene(scene, spacing=spacing,
                                          centered=centered,

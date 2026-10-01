@@ -1509,6 +1509,13 @@ class TestSkeletonRetargeting:
         with pytest.raises(ValueError, match="not found"):
             bvh_example.retarget(ref, strict=True)
 
+    def test_retarget_rejects_a_node_list(self, bvh_example):
+        """A clip's nodes, passed where the clip belongs, are rejected
+        with pybvh's message alone, not the AttributeError behind it."""
+        with pytest.raises(ValueError, match="new_skeleton must be a Bvh object") as excinfo:
+            bvh_example.retarget(bvh_example.nodes)
+        assert excinfo.value.__suppress_context__
+
     def test_retarget_preserves_motion(self, bvh_example):
         """retarget should not modify root_pos or joint_angles."""
         ref = bvh_example.copy()

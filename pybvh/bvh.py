@@ -1843,7 +1843,7 @@ class Bvh:
         try:
             new_skel_nodes = new_skeleton.nodes
         except AttributeError:
-            raise ValueError('new_skeleton must be a Bvh object')
+            raise ValueError('new_skeleton must be a Bvh object') from None
 
         # Build name → index lookup for the reference skeleton
         newnodes2idx = {n.name: i for i, n in enumerate(new_skel_nodes)}

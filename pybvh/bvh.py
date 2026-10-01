@@ -13,7 +13,9 @@ if TYPE_CHECKING:
 import numpy as np
 import numpy.typing as npt
 
-from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite, _check_node_tree
+from .bvhnode import (
+    BvhNode, BvhJoint, BvhRoot, BvhEndSite, _check_node_tree, nodes_from_table,
+)
 from .spatial_coord import (
     FkTopology, frames_to_node_positions, _ground_plane_offset,
 )
@@ -2422,20 +2424,18 @@ class Bvh:
             if survives[i] or survivor_below[i]:
                 survivor_below[parent_position] = True
 
-        new_nodes: list[BvhNode] = []
+        rows: list[dict[str, Any]] = []
         kept_old_j_indices: list[int] = []
-        # Original node (by identity: names repeat) -> its new node
-        new_node_of: dict[int, BvhJoint] = {}
+        # Original joint (by identity: names repeat) -> its row index
+        row_of: dict[int, int] = {}
 
         joint_column = 0
         for i, node in enumerate(self.nodes):
             if node.is_end_site():
                 if survives[i]:
-                    new_parent = new_node_of[id(node.parent)]
-                    new_end = BvhEndSite(
-                        node.name, offset=node.offset.copy(), parent=new_parent)
-                    new_parent.children = new_parent.children + [new_end]
-                    new_nodes.append(new_end)
+                    rows.append({'name': node.name,
+                                 'parent': row_of[id(node.parent)],
+                                 'offset': node.offset})
                 continue
 
             column = joint_column
@@ -2443,13 +2443,11 @@ class Bvh:
             if not survives[i]:
                 continue
 
-            new_node: BvhJoint
+            row: dict[str, Any] = {'name': node.name}
             if node is self.root:
-                new_node = BvhRoot(
-                    node.name, offset=node.offset.copy(),
-                    pos_channels=list(node.pos_channels),  # type: ignore[attr-defined]
-                    rot_channels=list(node.rot_channels),  # type: ignore[attr-defined]
-                    children=[])
+                row['parent'] = None
+                row['offset'] = node.offset
+                row['pos_channels'] = node.pos_channels  # type: ignore[attr-defined]
             else:
                 # Removed ancestors collapse into this joint's offset,
                 # summed up to the nearest kept one (the root at the latest).
@@ -2458,24 +2456,21 @@ class Bvh:
                 while walker is not None and walker.name not in keep_set:
                     acc_offset = walker.offset + acc_offset
                     walker = walker.parent
-                new_parent = new_node_of[id(walker)]
-                new_node = BvhJoint(
-                    node.name, offset=acc_offset,
-                    rot_channels=list(node.rot_channels),  # type: ignore[attr-defined]
-                    children=[], parent=new_parent)
-                new_parent.children = new_parent.children + [new_node]
+                row['parent'] = row_of[id(walker)]
+                row['offset'] = acc_offset
+            row['rot_channels'] = node.rot_channels  # type: ignore[attr-defined]
 
-            new_nodes.append(new_node)
-            new_node_of[id(node)] = new_node
+            row_of[id(node)] = len(rows)
+            rows.append(row)
             kept_old_j_indices.append(column)
 
             if not survivor_below[i]:
-                # 'EndSite<name>' is display-only; end-site identity is the class.
-                end_site = BvhEndSite(
-                    f'EndSite{node.name}',
-                    offset=self._find_end_site_offset(node), parent=new_node)
-                new_node.children = [end_site]
-                new_nodes.append(end_site)
+                # No name: the builder names it 'EndSite' + the joint's
+                # name, as the parser would.
+                rows.append({'parent': row_of[id(node)],
+                             'offset': self._find_end_site_offset(node)})
+
+        new_nodes = nodes_from_table(rows)
 
         # --- Build new joint_angles by selecting kept columns ---
         new_joint_angles = self.joint_angles[:, kept_old_j_indices, :]

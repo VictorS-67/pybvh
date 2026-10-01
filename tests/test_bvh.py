@@ -1503,6 +1503,26 @@ class TestJointSubsetting:
         assert not np.may_share_memory(result._root_pos, bvh_example._root_pos)
         assert not np.may_share_memory(result._joint_angles, bvh_example._joint_angles)
 
+    def test_surviving_end_site_keeps_its_own_name(self):
+        """An end site read from a file or built by hand keeps the name it
+        has; only the end sites extract_joints synthesizes are named
+        'EndSite' + joint."""
+        tip = BvhEndSite("tip", offset=[0.0, 2.0, 0.0])
+        hip = BvhJoint("Left_Hip", offset=[1.0, -3.0, 0.0],
+                       rot_channels=['X', 'Y', 'Z'], children=[tip])
+        tip.parent = hip
+        root = BvhRoot("Hip", offset=[0.0, 0.0, 0.0],
+                       rot_channels=['Z', 'Y', 'X'], children=[hip])
+        hip.parent = root
+        bvh = Bvh(nodes=[root, hip, tip], root_pos=np.zeros((2, 3)),
+                  joint_angles=np.zeros((2, 2, 3)), frame_time=1 / 30)
+
+        result = bvh.extract_joints(['Hip', 'Left_Hip'])
+
+        assert [n.name for n in result.nodes] == ['Hip', 'Left_Hip', 'tip']
+        assert [n.name for n in bvh.extract_joints(['Hip']).nodes] == [
+            'Hip', 'EndSiteHip']
+
     def test_synthesized_end_sites_sit_after_their_joint(self, bvh_example, tmp_path):
         """The result is in depth-first order, so a write-read round trip keeps it.
 

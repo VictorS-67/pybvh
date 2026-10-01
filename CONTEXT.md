@@ -127,7 +127,7 @@ BvhNode  (end sites)
 
 The skeleton is a **tree**. Traverse from `root` via `.children`, or walk up via `.parent`. The `Bvh.nodes` list is a **flat depth-first list** of all nodes (joints + end sites). See source docstrings for method signatures.
 
-**Node table and tree builder** (v0.10.0): `nodes_to_table(nodes)` exports a tree as a node table — one plain `dict` per node in `nodes` order with `name`, `parent` (the index of the parent's entry, `None` on the root), `offset` (a copy), `pos_channels` (root) and `rot_channels` (root and joints; an entry without it is an end site), and no `children` key — and `nodes_from_table(table)` builds fresh `BvhRoot` / `BvhJoint` / `BvhEndSite` objects back from it with `parent` and `children` wired from the indices. It is the one place a node tree is built (the parser, `df_to_bvh` and `extract_joints` all call it) and validated: single root at entry 0, parents before children, end sites as leaves, depth-first order (required, not repaired, since reordering would move `joint_angles` columns away from their joints), well-formed offsets and channel lists, `pos_channels` on the root only, no key the format does not define. `_check_node_tree(nodes)` applies the same depth-first, wired-both-ways test to a finished tree and is what `Bvh.__init__` runs. Both builder functions are exported from `pybvh`; `Bvh.to_node_table()` wraps the first.
+v0.10.0 added **`nodes_to_table(nodes)`** and **`nodes_from_table(table)`**, the node table and its builder. The first exports a tree as a node table — one plain `dict` per node in `nodes` order with `name`, `parent` (the index of the parent's entry, `None` on the root), `offset` (a copy), `pos_channels` (root) and `rot_channels` (root and joints; an entry without it is an end site), and no `children` key — and the second builds fresh `BvhRoot` / `BvhJoint` / `BvhEndSite` objects back from it with `parent` and `children` wired from the indices. `nodes_from_table` is the one place a node tree is built (the parser, `df_to_bvh` and `extract_joints` all call it) and validated: single root at entry 0, parents before children, end sites as leaves, depth-first order (required, not repaired, since reordering would move `joint_angles` columns away from their joints), well-formed offsets and channel lists, `pos_channels` on the root only, no key the format does not define. `_check_node_tree(nodes)` applies the same depth-first, wired-both-ways test to a finished tree and is what `Bvh.__init__` runs. Both builder functions are exported from `pybvh`; `Bvh.to_node_table()` wraps the first.
 
 ### 4.4 `pybvh/bvh.py` — The `Bvh` Class (Central Container)
 
@@ -168,7 +168,7 @@ v0.8.2 added **`FkTopology`** — the skeleton as plain arrays (`offsets (N, 3)`
 
 ### 4.8 `pybvh/df_to_bvh.py` — DataFrame to Bvh Conversion
 
-`df_to_bvh(hier, df)` converts a pandas DataFrame back to a `Bvh` object. `hier` is a node table (`Bvh.to_node_table()`) or a node list (`bvh.nodes`), told apart by the type of the first element; both build fresh nodes through `nodes_from_table`, and the name-keyed hierarchy dict of v0.9.0 raises `TypeError`. The columns `df` must carry are derived from the skeleton by the same function `to_df_dict` labels with (`_motion_column_names`, a repeated node name suffixed `.1`, `.2`) and bound by label: the columns may come in any order, columns outside the set are ignored, and a missing label raises `ValueError`. Channel orders come from the skeleton, never from the DataFrame. See source docstrings for method signatures.
+`df_to_bvh(hier, df)` converts a pandas DataFrame back to a `Bvh` object. `hier` is a node table (`Bvh.to_node_table()`) or a node list (`bvh.nodes`), told apart by the type of the first element; both build fresh nodes through `nodes_from_table`, and the name-keyed hierarchy dict of earlier releases raises `TypeError`. The columns `df` must carry are derived from the skeleton by the same function `to_df_dict` labels with (`_motion_column_names`, a repeated node name suffixed `.1`, `.2`) and bound by label: the columns may come in any order, columns outside the set are ignored, and a missing label raises `ValueError`. Channel orders come from the skeleton, never from the DataFrame. See source docstrings for method signatures.
 
 ### 4.9 `pybvh/tools.py` — Private Helpers
 
@@ -216,7 +216,7 @@ Example for `bvh_example.bvh`: `root_pos.shape = (56, 3)`, `joint_angles.shape =
 - Order matches `Bvh.nodes` list order (depth-first).
 - `node_index` maps `"JointName"` → integer index into the N-axis (use for `node_positions()` output).
 - `joint_index` maps `"JointName"` → integer index into the J-axis (use for `joint_angles`, which excludes end sites).
-- **Node table** — the skeleton as plain data: one `dict` per node in `nodes` order, the parent referenced by index (`None` on the root), the positional twin of `FkTopology` (`Bvh.to_node_table()`; `nodes_to_table` / `nodes_from_table` in `bvhnode.py`).
+- **Node table** — the skeleton as plain data: one `dict` per node in `nodes` order, the parent referenced by index (`None` on the root), the named twin of `FkTopology`, the same positions with names (`Bvh.to_node_table()`; `nodes_to_table` / `nodes_from_table` in `bvhnode.py`).
 
 ---
 

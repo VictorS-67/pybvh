@@ -95,7 +95,7 @@ Default five-label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, 
 
 ### Domain docs
 
-Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+Single-context: root `GLOSSARY.md` (the terms) + `CONTEXT.md` (the architecture) + `docs/adr/`. See `docs/agents/domain.md`.
 
 ### In-house messages from the other projects
 

@@ -129,10 +129,10 @@ class TestNormalizeInput:
         _, coords_list = normalize_input(bvh_example, coords, "world")
         assert coords_list[0].shape == (1, len(bvh_example.nodes), 3)
 
-    def test_precomputed_array_3d(self, bvh_example):
+    def test_precomputed_array_3d_keeps_its_first_frame(self, bvh_example):
         coords = bvh_example.node_positions()
         _, coords_list = normalize_input(bvh_example, coords, "world")
-        assert coords_list[0].shape == coords.shape
+        np.testing.assert_array_equal(coords_list[0], coords[:1])
 
     def test_precomputed_array_with_list_raises(self, bvh_example):
         coords = bvh_example.node_positions()
@@ -631,20 +631,15 @@ class TestFrame:
 
     def test_a_clip_of_coords_reaches_the_scene_without_a_heading(
             self, bvh_example, drawn):
-        """An (F, N, 3) array is accepted: the Scene starts at the
+        """An (F, N, 3) array is accepted: the Scene holds only the
         array's own first frame, and no clip heading is attached."""
         coords = bvh_example.node_positions()[30:40]
         bvhplot.frame(bvh_example, coords=coords)
         (scene,) = drawn
         view = scene.views[0]
-        np.testing.assert_array_equal(view.coords[0], coords[0])
+        np.testing.assert_array_equal(view.coords, coords[:1])
         assert view.root_heading is None
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="#38: "
-               "frame(coords=(F, N, 3)) frames and floors the still on all "
-               "F frames though it draws only the first")
     def test_a_clip_of_coords_frames_the_still_like_its_first_frame(
             self, bvh_example):
         import matplotlib

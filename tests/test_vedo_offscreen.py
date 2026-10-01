@@ -51,6 +51,16 @@ class TestFrameVedo:
         # shadowed image is darker overall (gray casts on a light floor)
         assert with_shadow.mean() < without.mean()
 
+    def test_a_clip_of_coords_renders_like_its_first_frame(self, bvh):
+        """frame() draws only the first row of an (F, N, 3) array, so
+        the other rows must not reach the camera or the floor."""
+        coords = bvh.node_positions()
+        from_clip = bvhplot.frame(bvh, coords=coords, backend="vedo",
+                                  resolution=(300, 280))
+        from_pose = bvhplot.frame(bvh, coords=coords[0], backend="vedo",
+                                  resolution=(300, 280))
+        assert np.array_equal(from_clip, from_pose)
+
     def test_unknown_backend_raises(self, bvh):
         with pytest.raises(ValueError, match="backend"):
             bvhplot.frame(bvh, backend="opencv")

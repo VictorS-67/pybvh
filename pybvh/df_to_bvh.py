@@ -177,12 +177,12 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]],
     does not matter and uneven intervals are averaged rather than
     refused, and it is snapped to an exact ``1 / N`` when within 0.01%
     of one, as :func:`read_bvh_file` snaps a truncated ``Frame Time``:
-    a ``time`` column written at six decimals gives ``1 / 30`` exactly,
-    and a non-integer rate such as 23.976 fps is kept as measured. A
-    clip that goes out through :meth:`Bvh.to_df_dict` and back
-    therefore keeps its skeleton exactly and its motion within float
-    precision, the degrees conversion being the one step applied to
-    the angles.
+    any integer rate comes back exact, so a ``time`` column written at
+    six decimals for a 30 fps clip gives ``1 / 30`` exactly, and a
+    non-integer rate such as 23.976 fps is kept as measured. A clip
+    that goes out through :meth:`Bvh.to_df_dict` and back therefore
+    keeps its skeleton exactly and its motion within float precision,
+    the degrees conversion being the one step applied to the angles.
 
     Columns bind by label, not by position. The alternative, reading
     the motion columns in the order they come, would accept a frame

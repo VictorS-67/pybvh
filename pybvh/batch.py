@@ -5,12 +5,13 @@ import re
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, overload
+from typing import Iterable, Literal, overload
 
 import numpy as np
 import numpy.typing as npt
 
-from .io import read_bvh_file
+from ._warnings import user_stacklevel
+from .io import _ParsedBvh, _bvh_from_parsed, _extract_bvh_file_info
 from .bvh import Bvh
 from .features import to_feature_array
 
@@ -95,10 +96,13 @@ def read_bvh_directory(
         lists. ``False`` keeps the filesystem's glob order
         (non-deterministic across platforms).
     parallel : bool, optional
-        If True, load files in parallel using threads. Parsing is
-        CPU-bound and GIL-limited, so this mainly helps on slow storage
-        (network filesystems, cold disks); expect little speedup on a
-        warm local disk.
+        If True, read and parse the files in parallel using threads.
+        Parsing is CPU-bound and GIL-limited, so this mainly helps on
+        slow storage (network filesystems, cold disks); expect little
+        speedup on a warm local disk. Each clip is then built on the
+        calling thread, so its warnings (such as the world-up
+        disagreement) name the line that called this function, as they
+        do without ``parallel``.
     max_workers : int or None, optional
         Maximum number of threads when ``parallel=True``.
         None defers to the ``ThreadPoolExecutor`` default.
@@ -148,36 +152,46 @@ def read_bvh_directory(
     if not files:
         return []
 
-    from functools import partial
-    reader = partial(
-        read_bvh_file, world_up=world_up,
-        warn_on_world_up_disagreement=warn_on_world_up_disagreement,
-        lr_mapping=lr_mapping)
-
-    if skip_errors:
-        def safe_reader(path: Path) -> Bvh | None:
-            try:
-                return reader(path)
-            except Exception as e:
-                warnings.warn(
-                    f"read_bvh_directory: skipping {path} "
-                    f"({type(e).__name__}: {e})",
-                    stacklevel=2)
-                return None
-
-        if parallel:
-            from concurrent.futures import ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                maybe_results = list(pool.map(safe_reader, files))
-        else:
-            maybe_results = [safe_reader(f) for f in files]
-        return [r for r in maybe_results if r is not None]
-
+    # Only the parse runs on worker threads. Building the Bvh infers its
+    # world up axis, which can warn, and a warning raised on a worker
+    # thread cannot name the caller's line: that thread's stack holds none
+    # of the caller's frames. Built here, on the caller's thread, every
+    # warning of every file names the call to this function.
     if parallel:
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            return list(pool.map(reader, files))
-    return [reader(f) for f in files]
+            parsed_files: Iterable[_ParsedBvh | Exception] = list(
+                pool.map(_parse_or_error, files))
+    else:
+        parsed_files = (_parse_or_error(path) for path in files)
+
+    clips = []
+    for path, parsed in zip(files, parsed_files):
+        try:
+            if isinstance(parsed, Exception):
+                raise parsed
+            clips.append(_bvh_from_parsed(
+                parsed, path, world_up=world_up,
+                warn_on_world_up_disagreement=warn_on_world_up_disagreement,
+                lr_mapping=lr_mapping))
+        except Exception as error:
+            if not skip_errors:
+                raise
+            warnings.warn(
+                f"read_bvh_directory: skipping {path} "
+                f"({type(error).__name__}: {error})",
+                stacklevel=user_stacklevel())
+    return clips
+
+
+def _parse_or_error(path: Path) -> _ParsedBvh | Exception:
+    """The parsed contents of the BVH file *path*, or the exception
+    parsing it raised, handed back to the caller's thread to raise or
+    skip."""
+    try:
+        return _extract_bvh_file_info(path)
+    except Exception as error:
+        return error
 
 
 @overload

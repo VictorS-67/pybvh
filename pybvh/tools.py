@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpy.typing as npt
 
+from ._warnings import user_stacklevel
 from .rotations import _elementary_rotmat
 
 if TYPE_CHECKING:
@@ -767,7 +768,7 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
             f"If this is wrong for your file, set it explicitly via "
             f"`bvh.world_up = '<axis>'`.",
             UserWarning,
-            stacklevel=2,
+            stacklevel=user_stacklevel(),
         )
 
     return frame_up

@@ -10,7 +10,10 @@ Create the development environment and run the test suite before you start:
 conda create -n pybvh python=3.12
 conda run -n pybvh pip install -e ".[dev,all-viz]"
 conda run -n pybvh pytest tests/ -v
+conda run -n pybvh pre-commit install
 ```
+
+The last line installs the git hooks once per clone: on every commit, ruff and ruff format run on the staged files and the message is checked against the rules under "Commits", the same checks CI runs on a pull request.
 
 The optional visualization backends (`pybvh[opencv]`, `pybvh[interactive]`, `pybvh[viewer]`) each unlock further tests; tests that need a backend you do not have are skipped, not failed.
 
@@ -35,7 +38,7 @@ Before marking a PR ready:
 
 Commits are **atomic**: each one is a single logical step that leaves the test suite green, so any commit can be reverted, bisected or cherry-picked on its own. A refactor that touches five backends is five commits, not one; a fix and its test are one commit, not two.
 
-Messages follow the pattern already in the history, `type(scope): subject`, with the subject in the imperative and under about 70 characters:
+Messages follow the pattern already in the history, `type(scope): subject`, with the subject in the imperative and at most 72 characters:
 
 ```
 fix(bvhplot): set the camera before the box aspect, not after
@@ -44,6 +47,8 @@ docs(changelog): record the publication-figures guide
 ```
 
 Types in use: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `release`. The body, when there is one, explains *why*: the constraint, the bug's mechanism, the alternative that was rejected. The diff already says what.
+
+A blank line separates the subject from the body, and a body paragraph is one line, not wrapped by hand; list items and indented blocks may follow one another. Commits carry no trailers such as `Co-Authored-By:`, and a `fixup!` or `squash!` commit is squashed before review. `scripts/check_commit_msg.py` holds these rules, as the commit-msg hook and in CI over every commit a pull request adds.
 
 A commit that only reformats code is listed in `.git-blame-ignore-revs`, so that `git blame` attributes each line to the change that wrote it. GitHub's blame view reads that file on its own; point your clone at it once with `git config blame.ignoreRevsFile .git-blame-ignore-revs`. The listed hash must be the one that lands on `main`, so a PR carrying such a commit is merged with a merge commit.
 

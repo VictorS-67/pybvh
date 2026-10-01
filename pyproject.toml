@@ -33,6 +33,7 @@ viewer = ["vedo>=2024.5"]
 all-viz = ["opencv-python>=4.5", "k3d>=2.14", "vedo>=2024.5"]
 dev = [
     "pytest>=8", "pandas>=1.5", "mypy>=1.0", "jupytext>=1.16", "nbmake>=1.5",
+    "pre-commit>=3.2",
     # Exact pin: CI installs this same version, so a ruff release adding a rule
     # cannot turn the lint job red on its own. Bump it deliberately.
     "ruff==0.16.9",

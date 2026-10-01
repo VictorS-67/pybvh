@@ -42,31 +42,43 @@ class TestEulerToRotmat:
     def test_90deg_x_rotation(self):
         """90° about X should rotate Y→Z and Z→-Y."""
         R = rotations.euler_to_rotmat([90, 0, 0], 'XYZ', degrees=True)
+        # fmt: off
+        # A grid with aligned columns: the docstring's claim is read down the
+        # columns, column j being the image of axis j.
         expected = np.array([
             [1, 0,  0],
             [0, 0, -1],
             [0, 1,  0]
         ], dtype=float)
+        # fmt: on
         np.testing.assert_allclose(R, expected, atol=1e-12)
 
     def test_90deg_y_rotation(self):
         """90° about Y should rotate Z→X and X→-Z."""
         R = rotations.euler_to_rotmat([0, 90, 0], 'XYZ', degrees=True)
+        # fmt: off
+        # A grid with aligned columns: the docstring's claim is read down the
+        # columns, column j being the image of axis j.
         expected = np.array([
             [ 0, 0, 1],
             [ 0, 1, 0],
             [-1, 0, 0]
         ], dtype=float)
+        # fmt: on
         np.testing.assert_allclose(R, expected, atol=1e-12)
 
     def test_90deg_z_rotation(self):
         """90° about Z should rotate X→Y and Y→-X."""
         R = rotations.euler_to_rotmat([0, 0, 90], 'XYZ', degrees=True)
+        # fmt: off
+        # A grid with aligned columns: the docstring's claim is read down the
+        # columns, column j being the image of axis j.
         expected = np.array([
             [0, -1, 0],
             [1,  0, 0],
             [0,  0, 1]
         ], dtype=float)
+        # fmt: on
         np.testing.assert_allclose(R, expected, atol=1e-12)
 
     def test_batch_euler_to_rotmat(self):

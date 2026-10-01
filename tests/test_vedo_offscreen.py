@@ -292,7 +292,7 @@ class TestCapsuleShading:
                          [1.0, 0.0, 0.0],
                          [0.0, 1.0, 0.0],
                          [0.0, 0.0, 1.0],
-                         [-0.7, 0.0, 0.0]])
+                         [-0.7, 0.0, 0.0],])
         bones = [(0, 1), (0, 2), (0, 3), (0, 4)]
         view = make_bare_view(pose[np.newaxis], pose, bones)
         capsule = CapsuleSkeleton(

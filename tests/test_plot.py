@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+import importlib
 import inspect
 import re
 
@@ -1850,3 +1851,193 @@ class TestSceneSpacing:
         with pytest.raises(ValueError, match="spacing"):
             play([bvh, bvh], spacing="bad", backend="matplotlib")
 
+
+
+class TestMatchSize:
+    """match_size=True draws every skeleton of a single-scene backend
+    as tall as the first; the clips are not touched, and the backends
+    that draw each skeleton in its own panel draw the same thing."""
+
+    @pytest.fixture
+    def clips(self, bvh_test2):
+        """The CMU walk and bvh_test2, which stands 7.5 times as tall."""
+        return [read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh"), bvh_test2]
+
+    @pytest.fixture
+    def reached(self, monkeypatch):
+        """Stub the backend function *name* of *module*; returns the
+        Scene of each call that reached it."""
+        scenes = []
+
+        def backend(scene, *args, **kwargs):
+            scenes.append(scene)
+            return None, None  # frame() unpacks matplotlib's (fig, ax)
+
+        def stub(module, name):
+            monkeypatch.setattr(module, name, backend)
+            return scenes
+
+        return stub
+
+    @staticmethod
+    def _draw(entry_point, backend, clips, tmp_path, **kwargs):
+        """Draw *clips* through *entry_point*, labelled "walk" and
+        "test2" unless *labels* says otherwise."""
+        kwargs.setdefault("labels", ["walk", "test2"])
+        kwargs["backend"] = backend
+        if entry_point == "play":
+            bvhplot.play(clips, **kwargs)
+        elif entry_point == "frame":
+            bvhplot.frame(clips, **kwargs)
+        else:
+            suffix = ".gif" if backend == "matplotlib" else ".mp4"
+            bvhplot.render(clips, tmp_path / f"pair{suffix}", fps=30,
+                           **kwargs)
+
+    # (entry point, backend, backend module, its stubbed function)
+    SINGLE_SCENE = [
+        ("play", "k3d", "_k3d", "play_k3d"),
+        ("play", "vedo", "_vedo", "play_vedo"),
+        ("frame", "vedo", "_vedo_offscreen", "frame_vedo"),
+        ("render", "vedo", "_vedo_offscreen", "render_vedo"),
+    ]
+    PANELS = [
+        ("play", "matplotlib", "_matplotlib", "play_mpl"),
+        ("frame", "matplotlib", "_matplotlib", "frame_mpl"),
+        ("render", "matplotlib", "_matplotlib", "render_mpl"),
+        ("render", "opencv", "_opencv", "render_opencv"),
+    ]
+
+    @pytest.mark.parametrize(
+        "entry_point, backend, module, function", SINGLE_SCENE)
+    def test_a_single_scene_draws_the_second_clip_as_tall_as_the_first(
+            self, clips, reached, tmp_path,
+            entry_point, backend, module, function):
+        pytest.importorskip(backend)
+        scenes = reached(
+            importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        test2 = clips[1]
+        rest_pose, positions = test2.rest_pose_positions(), test2.node_positions()
+        self._draw(entry_point, backend, clips, tmp_path, match_size=True)
+        (scene,) = scenes
+        first, second = scene.views
+        assert second.body_size == pytest.approx(first.body_size)
+        assert scene.labels == ["walk", "test2 ×0.13"]
+        # the clips themselves are untouched
+        np.testing.assert_array_equal(test2.rest_pose_positions(), rest_pose)
+        np.testing.assert_array_equal(test2.node_positions(), positions)
+
+    @pytest.mark.parametrize(
+        "entry_point, backend, module, function", SINGLE_SCENE)
+    def test_off_by_default(self, clips, reached, tmp_path,
+                            entry_point, backend, module, function):
+        pytest.importorskip(backend)
+        scenes = reached(
+            importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        self._draw(entry_point, backend, clips, tmp_path)
+        (scene,) = scenes
+        first, second = scene.views
+        assert second.body_size == pytest.approx(182.346225)
+        assert scene.labels == ["walk", "test2"]
+
+    @pytest.mark.parametrize(
+        "entry_point, backend, module, function", SINGLE_SCENE)
+    def test_unlabelled_skeletons_show_the_factor_alone(
+            self, clips, reached, tmp_path,
+            entry_point, backend, module, function):
+        pytest.importorskip(backend)
+        scenes = reached(
+            importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        self._draw(entry_point, backend, clips, tmp_path, labels=None,
+                   match_size=True)
+        (scene,) = scenes
+        assert scene.labels == [None, "×0.13"]
+
+    @pytest.mark.parametrize(
+        "entry_point, backend, module, function", SINGLE_SCENE)
+    def test_a_clip_in_another_unit_is_drawn_at_the_first_ones_size(
+            self, clips, reached, tmp_path,
+            entry_point, backend, module, function):
+        """The walk scaled from its file's unit to a hundred times it
+        (inches to hundredths of an inch, say) is the same body in
+        another unit: it is drawn back at the walk's size, by exactly
+        the factor that separates the two."""
+        pytest.importorskip(backend)
+        scenes = reached(
+            importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        walk = clips[0]
+        self._draw(entry_point, backend, [walk, walk.scale(100.0)], tmp_path,
+                   labels=["walk", "walk in hundredths"], match_size=True)
+        (scene,) = scenes
+        first, second = scene.views
+        assert second.body_size == pytest.approx(first.body_size, rel=1e-12)
+        assert scene.labels == ["walk", "walk in hundredths ×0.01"]
+
+    @pytest.mark.parametrize("entry_point, backend, module, function", PANELS)
+    def test_the_panel_backends_draw_the_same_scene(
+            self, clips, reached, tmp_path,
+            entry_point, backend, module, function):
+        """Each panel is framed on its own skeleton: there is no size
+        to match, and the label gets no factor."""
+        if backend == "opencv":
+            pytest.importorskip("cv2")
+        scenes = reached(
+            importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        self._draw(entry_point, backend, clips, tmp_path)
+        self._draw(entry_point, backend, clips, tmp_path, match_size=True)
+        plain, matched = scenes
+        assert matched.labels == plain.labels == ["walk", "test2"]
+        for plain_view, matched_view in zip(plain.views, matched.views):
+            np.testing.assert_array_equal(matched_view.coords, plain_view.coords)
+            np.testing.assert_array_equal(
+                matched_view.rest_coords, plain_view.rest_coords)
+
+    # A skeleton with every offset zero has no left/right geometry
+    # either, and says so when its facing is read; not what is tested.
+    NO_FACING = "ignore:No usable left/right geometry:UserWarning"
+
+    @staticmethod
+    def _sizeless(clip):
+        """*clip* with every rest-pose offset zero: no height to match."""
+        for node in clip.nodes:
+            node.offset = np.zeros(3)
+        return clip
+
+    @pytest.mark.filterwarnings(NO_FACING)
+    @pytest.mark.parametrize(
+        "entry_point, backend, module, function", SINGLE_SCENE)
+    def test_a_skeleton_with_no_size_warns_at_the_users_call(
+            self, clips, reached, tmp_path,
+            entry_point, backend, module, function):
+        """A skeleton whose rest pose has every node at one point has no
+        height to match: it keeps its size, and the warning names the
+        line that asked for the match."""
+        pytest.importorskip(backend)
+        reached(importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        walk, test2 = clips
+        with pytest.warns(UserWarning, match="view 1") as record:
+            self._draw(entry_point, backend, [walk, self._sizeless(test2)],
+                       tmp_path, match_size=True)
+        (warning,) = [w for w in record if "view 1" in str(w.message)]
+        assert warning.filename == __file__
+
+    @pytest.mark.filterwarnings(NO_FACING)
+    @pytest.mark.parametrize("method, module, function", [
+        ("play", "_vedo", "play_vedo"),
+        ("plot_frame", "_vedo_offscreen", "frame_vedo"),
+        ("render", "_vedo_offscreen", "render_vedo"),
+    ])
+    def test_through_a_bvh_method_the_warning_names_the_users_call(
+            self, bvh_test2, reached, tmp_path, method, module, function):
+        """Bvh.play, plot_frame and render wrap the bvhplot functions:
+        the warning still names the user's line, not the wrapper's."""
+        pytest.importorskip("vedo")
+        reached(importlib.import_module(f"pybvh.bvhplot.{module}"), function)
+        sizeless = self._sizeless(bvh_test2)
+        args = (tmp_path / "clip.mp4",) if method == "render" else ()
+        kwargs = {} if method == "plot_frame" else {"fps": 30}
+        with pytest.warns(UserWarning, match="first view") as record:
+            getattr(sizeless, method)(*args, backend="vedo", match_size=True,
+                                      **kwargs)
+        (warning,) = [w for w in record if "first view" in str(w.message)]
+        assert warning.filename == __file__

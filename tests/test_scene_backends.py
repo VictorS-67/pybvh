@@ -165,6 +165,18 @@ class TestEveryPassIsDrawnAsTheFirst:
                 frames[f], frames[f % self.CLIP], err_msg=f"frame {f}")
 
 
+def _one_seven_times_the_other(label):
+    """Two skeletons, the second seven times the first's size: "a",
+    then *label*."""
+    from pybvh.bvhplot._scene import Scene
+    small = synthetic_scene.make_array_view(label="a")
+    big = synthetic_scene.make_array_view(label=label)
+    big = dataclasses.replace(
+        big, coords=big.coords * 7.0, rest_coords=big.rest_coords * 7.0,
+        floor_height=big.floor_height * 7.0)
+    return Scene(views=[small, big])
+
+
 class TestVedo:
     def test_offscreen_frame(self, scene):
         pytest.importorskip("vedo")
@@ -241,6 +253,47 @@ class TestVedo:
                     n_nodes, -1, 3)
             return (spheres.min(axis=1) + spheres.max(axis=1)) / 2
         return np.asarray(player._points_actors[s].vertices)
+
+    @staticmethod
+    def _texts(plotter):
+        """The text of every 2-D text *plotter* draws, the viewer's
+        controls included."""
+        import vedo
+        return [o.text() for o in plotter.objects
+                if isinstance(o, vedo.Text2D)]
+
+    @pytest.mark.parametrize("quality", ["high", "fast"])
+    def test_the_viewer_draws_size_matched_skeletons_at_one_height(
+            self, quality, open_viewer):
+        """A skeleton seven times the first's size is drawn as tall as
+        the first, with joints as wide, and its label says by what
+        factor it was drawn."""
+        scene = _one_seven_times_the_other("b").size_matched().spread("auto")
+        player = open_viewer(scene, quality)
+        if player.use_high:
+            drawn = [np.asarray(capsule.joints_mesh.vertices)
+                     for capsule in player._capsules]
+        else:
+            drawn = [np.asarray(points.vertices)
+                     for points in player._points_actors]
+        heights = [np.ptp(vertices[:, 1]) for vertices in drawn]
+        assert heights[1] == pytest.approx(heights[0], rel=0.01)
+        assert {"a", "b ×0.14"} <= set(self._texts(player.plt))
+
+    def test_the_renderer_draws_size_matched_skeletons_at_one_height(self):
+        pytest.importorskip("vedo")
+        from pybvh.bvhplot._vedo_offscreen import _build_offscreen
+        scene = _one_seven_times_the_other("b").size_matched()
+        plotter, capsules, _ = _build_offscreen(
+            scene, Style("paper"), (200, 200))
+        try:
+            heights = [np.ptp(np.asarray(capsule.joints_mesh.vertices)[:, 1])
+                       for capsule in capsules]
+            texts = self._texts(plotter)
+        finally:
+            plotter.close()
+        assert heights[1] == pytest.approx(heights[0], rel=0.01)
+        assert texts == ["a", "b ×0.14"]
 
     @pytest.mark.parametrize("quality", ["high", "fast"])
     def test_the_frame_slider_poses_each_skeleton_at_its_frame(
@@ -437,6 +490,23 @@ class TestK3d:
             np.testing.assert_array_equal(drawn[:8], path[:8])
             np.testing.assert_array_equal(
                 drawn[8:], np.broadcast_to(path[7], drawn[8:].shape))
+
+    @pytest.mark.parametrize("label, name", [("b", "b ×0.14"), (None, "×0.14")])
+    def test_size_matched_skeletons_are_drawn_at_one_height(self, label, name):
+        """A skeleton seven times the first's size is drawn as tall as
+        the first, with bones and joints as wide, and its name says
+        by what factor it was drawn."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+        scene = _one_seven_times_the_other(label).size_matched().spread("auto")
+        built = _build_plot(scene, Style("paper"))
+        (small_lines, small_points), (big_lines, big_points) = built.skeletons
+        heights = [np.ptp(np.asarray(lines.vertices)[:, 1])
+                   for lines in (small_lines, big_lines)]
+        assert heights[1] == pytest.approx(heights[0], rel=0.01)
+        assert big_lines.width == pytest.approx(small_lines.width)
+        assert big_points.point_size == pytest.approx(small_points.point_size)
+        assert (small_lines.name, big_lines.name) == ("a", name)
 
     @pytest.mark.parametrize("preset, spine", [
         ("paper", 0x3A3F4A),

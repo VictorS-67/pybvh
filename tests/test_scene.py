@@ -508,6 +508,196 @@ class TestSceneMethods:
             np.broadcast_to([-1.2 * width, 0.0, 0.0], first.coords.shape))
 
 
+def _grown(view: SkeletonView, factor: float,
+           label: str | None = None) -> SkeletonView:
+    """*view* as a skeleton *factor* times its size: coords, rest pose
+    and floor scaled about the origin, as a file in another unit is."""
+    return dataclasses.replace(
+        view, coords=view.coords * factor,
+        rest_coords=view.rest_coords * factor,
+        floor_height=view.floor_height * factor, label=label)
+
+
+def _height_at_frame_0(view: SkeletonView) -> float:
+    """How tall the pose at coordinate row 0 stands along the view's up."""
+    return float(np.ptp(view.coords[0, :, view.up_index]))
+
+
+class TestSizeMatched:
+    """Every skeleton drawn at the first one's size, for the backends
+    that draw several skeletons in one space."""
+
+    def test_every_view_stands_as_tall_as_the_first(self):
+        small = make_array_view(label="small")
+        big = _grown(make_array_view(), 7.0, label="big")
+        matched = Scene(views=[small, big]).size_matched()
+        first, second = matched.views
+        assert _height_at_frame_0(second) == pytest.approx(
+            _height_at_frame_0(small), rel=1e-9)
+        assert second.body_size == pytest.approx(small.body_size)
+        np.testing.assert_array_equal(first.coords, small.coords)
+
+    def test_the_rest_pose_is_rescaled_with_the_coords(self):
+        """So the view stays one skeleton in one unit: its rest pose
+        is as tall as its pose, and what is sized from the body is
+        sized from the body drawn."""
+        big = _grown(make_array_view(), 7.0)
+        second = Scene(views=[make_array_view(), big]).size_matched().views[1]
+        np.testing.assert_allclose(second.rest_coords, big.rest_coords / 7.0)
+        assert second.coords_per_rest_unit == pytest.approx(1.0)
+        assert second.body_size_measure == "rest height"
+
+    @staticmethod
+    def _standing_up(up: str, lateral_shift: float = 0.0) -> SkeletonView:
+        """The stick person with *up* as its up axis. A '+z' rig is the
+        '+y' one turned a quarter turn about x, (x, y, z) to
+        (x, -z, y): it then faces -y, and its floor is along z."""
+        if up != "+z":
+            return make_array_view(up=up, lateral_shift=lateral_shift)
+        view = make_array_view(lateral_shift=lateral_shift)
+
+        def turned(points):
+            return np.stack(
+                [points[..., 0], -points[..., 2], points[..., 1]], axis=-1)
+
+        return dataclasses.replace(
+            view, coords=turned(view.coords),
+            rest_coords=turned(view.rest_coords),
+            up="+z", rest_up="+z", forward_axis="-y")
+
+    @pytest.mark.parametrize("up", ["+y", "-y", "+z"])
+    def test_each_view_is_scaled_about_its_ground_point_under_the_root(
+            self, up):
+        """The point on the floor under the root at frame 0 stays where
+        it is, so the skeleton keeps its place and its feet stay on its
+        floor. For a '-y' rig the floor is the coordinate maximum."""
+        big = _grown(self._standing_up(up, lateral_shift=3.0), 7.0)
+        second = Scene(
+            views=[self._standing_up(up), big]).size_matched().views[1]
+        ground_point = big.coords[0, 0].copy()
+        ground_point[big.up_index] = big.floor_height
+        np.testing.assert_allclose(
+            second.coords, ground_point + (big.coords - ground_point) / 7.0)
+        assert second.floor_height == big.floor_height
+        feet = second.coords[:, [7, 8], second.up_index]
+        on_the_floor = feet.max() if up == "-y" else feet.min()
+        assert on_the_floor == pytest.approx(second.floor_height)
+
+    @pytest.mark.parametrize("label, shown", [
+        ("test2", "test2 ×0.14"),
+        (None, "×0.14"),
+    ])
+    def test_a_rescaled_views_label_shows_its_factor(self, label, shown):
+        """Whoever looks at the picture can tell the skeleton is not
+        drawn at its own size: 1/7 to two significant digits."""
+        big = _grown(make_array_view(), 7.0, label=label)
+        first, second = Scene(
+            views=[make_array_view(label="walk"), big]).size_matched().views
+        assert first.label == "walk"
+        assert second.label == shown
+
+    def test_skeletons_of_one_size_are_left_as_they_are(self):
+        pair = make_array_scene(n_skeletons=2, labels=["a", "b"])
+        matched = pair.size_matched()
+        assert matched.views == pair.views
+        assert matched.labels == ["a", "b"]
+
+    @staticmethod
+    def _float32_round_trip(clip):
+        """*clip* with its motion passed through float32 and back: the
+        same skeleton, posed a few ulps away."""
+        noisy = clip.copy()
+        noisy.root_pos = noisy.root_pos.astype(np.float32).astype(np.float64)
+        noisy.joint_angles = (
+            noisy.joint_angles.astype(np.float32).astype(np.float64))
+        return noisy
+
+    @pytest.mark.parametrize("other_clip", ["slice", "float32"])
+    def test_two_clips_of_one_skeleton_are_left_as_they_are(
+            self, bvh, other_clip):
+        """Two clips of one skeleton are one size: each measuring its
+        unit off its own first frame, the CMU walk and walk[10:] read
+        body sizes of 24.17987 and 24.179869999999998, and the second
+        was drawn at 1.0000000000000002 of its size and labelled ×1.
+        Their coords are posed from the rest pose, so they share its
+        unit, and nothing is measured."""
+        other = bvh[10:] if other_clip == "slice" else self._float32_round_trip(bvh)
+        n_frames = other.frame_count
+        pair = make_scene(
+            [bvh, other],
+            [bvh.node_positions()[:n_frames], other.node_positions()],
+            "front", ["a", "b"], clip_frames=slice(None))
+        first, second = pair.views
+        assert second.coords_per_rest_unit == 1.0
+        assert second.body_size == first.body_size
+        matched = pair.size_matched()
+        assert matched.views[1] is second
+        assert matched.labels == ["a", "b"]
+
+    def test_caller_supplied_coords_are_matched_in_their_own_unit(self, bvh):
+        """Coords a caller supplies state no unit, so it is measured:
+        the walk handed over at 0.0254 of the file's unit (inches to
+        metres) is drawn back at the file's size, and labelled with
+        the factor, 1 / 0.0254."""
+        in_file_unit = make_scene([bvh], [bvh.node_positions()[:1]], "front",
+                                  ["file"], clip_frames=slice(0, 1)).views[0]
+        supplied = make_scene([bvh], [bvh.node_positions()[:1] * 0.0254],
+                              "front", ["metres"],
+                              canonical_floor=False).views[0]
+        assert supplied.coords_per_rest_unit == pytest.approx(0.0254)
+        matched = Scene(views=[in_file_unit, supplied]).size_matched()
+        first, second = matched.views
+        assert second.body_size == pytest.approx(first.body_size)
+        assert _height_at_frame_0(second) == pytest.approx(
+            _height_at_frame_0(first))
+        assert second.label == "metres ×39"
+
+    @staticmethod
+    def _bodiless_view(moving: bool) -> SkeletonView:
+        """One node and no bone: no body to measure. It sweeps a clip
+        extent when it moves, and is measured by the default when not."""
+        coords = np.zeros((12, 1, 3))
+        if moving:
+            coords[:, 0, 2] = np.arange(12.0)
+        view = make_bare_view(coords, np.zeros((1, 3)), [])
+        assert view.body_size_measure == (
+            "clip extent" if moving else "default")
+        return view
+
+    @pytest.mark.parametrize("moving", [True, False])
+    def test_a_view_with_no_body_measure_keeps_its_size_and_warns(
+            self, moving):
+        """A clip extent or a default is not a body's size: matching
+        the first body to it would draw the skeleton at a size nobody
+        measured. The view is drawn at its own size and its label
+        shows no factor, so the picture does not claim a match."""
+        bodiless = self._bodiless_view(moving)
+        big = _grown(make_array_view(), 7.0, label="big")
+        scene = Scene(views=[make_array_view(), bodiless, big])
+        with pytest.warns(UserWarning, match="view 1") as record:
+            matched = scene.size_matched()
+        # called directly, the warning names this line
+        assert record[0].filename == __file__
+        assert matched.views[1] == bodiless
+        assert matched.views[2].label == "big ×0.14"
+
+    @pytest.mark.parametrize("factors, message", [
+        ([1.0], "factors"),
+        ([1.0, 0.0], "positive"),
+        ([1.0, float("nan")], "positive"),
+    ])
+    def test_scaled_takes_one_positive_factor_per_view(self, factors, message):
+        with pytest.raises(ValueError, match=message):
+            make_array_scene(n_skeletons=2).scaled(factors)
+
+    def test_a_first_view_with_no_body_measure_matches_nothing(self):
+        big = _grown(make_array_view(), 7.0, label="big")
+        scene = Scene(views=[self._bodiless_view(moving=True), big])
+        with pytest.warns(UserWarning, match="first view"):
+            matched = scene.size_matched()
+        assert matched.views == scene.views
+
+
 class TestLoopedScene:
     """A looped Scene plays its clip again from the first frame, and
     says where each pass starts, so that what trails the live pose

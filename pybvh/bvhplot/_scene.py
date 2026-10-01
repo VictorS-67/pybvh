@@ -8,17 +8,23 @@ imports and no imports from the pybvh core; a Scene is built from a
 from __future__ import annotations
 
 import dataclasses
+import warnings
 from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
 
+from .._warnings import user_stacklevel
+
 UP_AXIS_INDEX = {'x': 0, 'y': 1, 'z': 2}
 _SIGNED_AXES = ('+x', '-x', '+y', '-y', '+z', '-z')
 
 # Which measure a view's body size took (SkeletonView.body_size_measure).
 BodySizeMeasure = Literal["rest height", "rest extent", "clip extent", "default"]
+# The measures taken from the skeleton's rest pose, a size of the body
+# itself; the others stand in where it has none (see body_size).
+REST_POSE_MEASURES: tuple[BodySizeMeasure, ...] = ("rest height", "rest extent")
 # The body size of a view whose every coordinate is at one point, in the
 # unit of its coords: nothing to measure, a stand-in so that nothing
 # drawn on it has size zero.
@@ -157,6 +163,13 @@ class SkeletonView(GroundFrame):
       :attr:`body_size` needs the rest pose's. An unknown rest axis is
       not replaced by ``up``, which on such a file would name the rest
       pose's depth; :attr:`body_size` measures without it instead.
+    - ``coords_in_rest_unit`` states that ``coords`` were posed from
+      ``rest_coords`` by forward kinematics, so they share its unit and
+      :attr:`coords_per_rest_unit` is exactly 1. :func:`make_scene`
+      states it for the clip's own frames. It defaults to ``False``,
+      the safe side: the ratio is then measured, which is right for
+      coordinates a caller supplies in any unit and a few ulps off for
+      posed ones.
     - ``lr_pairs`` are joint pairs only, in node index space, the pairs
       the facing geometry averages; end-site pairs are deliberately
       excluded so follow azimuths match the Bvh path bit for bit.
@@ -193,6 +206,7 @@ class SkeletonView(GroundFrame):
     forward_axis: str                      # snapped facing of coords row 0, e.g. '+y'
     bone_chains: list[str]                 # chain name per bone, parallel to ``bones``
     root_heading: npt.NDArray[np.float64] | None  # (F, 2) [sin, cos] or None
+    coords_in_rest_unit: bool = False      # coords posed from this rest pose: unit ratio exactly 1
 
     def __post_init__(self) -> None:
         coords = np.asarray(self.coords)
@@ -361,12 +375,18 @@ class SkeletonView(GroundFrame):
         the factor that puts a rest-pose length in the unit of what is
         drawn, or ``None`` when there is no ratio to measure.
 
-        It is the median, over the bones of positive rest length, of
-        each bone's length in coordinate row 0 over its rest length.
-        Bone lengths do not change under forward kinematics, so the
-        factor is 1 for coords posed from the skeleton, and differs
-        only for coordinates a caller supplies in another unit (metres
-        against the file's centimetres). Any bone would do; the median
+        For a view whose ``coords_in_rest_unit`` is set (coords posed
+        from the rest pose, as the clip's frames are) it is exactly 1,
+        stated rather than measured. Measured, it comes out a few ulps
+        from 1, differently for each clip, since each reads it off its
+        own first frame; two clips of one skeleton would then have two
+        body sizes, and be drawn at two sizes when they are matched.
+
+        Otherwise it is measured: the median, over the bones of
+        positive rest length, of each bone's length in coordinate row
+        0 over its rest length. It differs from 1 for coordinates a
+        caller supplies in another unit (metres against the file's
+        centimetres). Any bone would do; the median
         keeps one odd bone from deciding it, and bones of zero rest
         length (end sites or helper joints placed on their parent) are
         left out because they have no ratio. Taken over every bone
@@ -383,6 +403,8 @@ class SkeletonView(GroundFrame):
         when a caller's coordinates are in centimetres against a rest
         pose in metres, or the reverse.
         """
+        if self.coords_in_rest_unit:
+            return 1.0
         if not self.bones:
             return None
         parents, children = np.asarray(self.bones).T
@@ -585,6 +607,140 @@ class Scene:
                 floor_height=v.floor_height + float(off[v.up_index])))
         return dataclasses.replace(self, views=views)
 
+    def scaled(self, factors: list[float]) -> Scene:
+        """Draw each view at its own factor times its size, as a new Scene.
+
+        A view is scaled about its **ground point**: the root's position
+        at coordinate row 0, moved along the up axis onto the view's
+        ``floor_height``. That point stays where it is, so the skeleton
+        keeps its place on the ground, its floor stays where it was and
+        its feet stay on it, whichever way up points (for a ``'-y'`` rig
+        the floor is the coordinate maximum, and the point is there).
+        The alternatives move the body off its floor: about the origin,
+        a skeleton standing away from it slides along the ground and
+        rises or sinks with it; about the root, the feet leave the
+        floor.
+
+        ``coords`` and ``rest_coords`` are scaled together, so the view
+        stays one skeleton in one unit: its
+        :attr:`~SkeletonView.coords_per_rest_unit` is kept, and its
+        :attr:`~SkeletonView.body_size`, with everything drawn from it,
+        follows the factor.
+        What else is drawn from ``coords`` (the root trail, the
+        picture's framing) is computed when the picture is made, and
+        the heading, orientation, timing and loop are scale-invariant.
+
+        A view drawn at another size says so: its label is followed by
+        the factor to two significant digits, ``"test2 ×0.14"``, or is
+        the factor alone, ``"×0.14"``, for a view with no label. A view
+        whose factor is exactly 1 is kept as it is, label included.
+        """
+        if len(factors) != len(self.views):
+            raise ValueError(
+                f"Expected {len(self.views)} factors, got {len(factors)}.")
+        views = []
+        for v, factor in zip(self.views, factors):
+            factor = float(factor)
+            if not (np.isfinite(factor) and factor > 0.0):
+                raise ValueError(
+                    f"A scale factor must be a positive number, got "
+                    f"{factor!r}.")
+            if factor == 1.0:
+                views.append(v)
+                continue
+            ground_point = np.array(v.coords[0, 0], dtype=np.float64)
+            ground_point[v.up_index] = v.floor_height
+            views.append(dataclasses.replace(
+                v,
+                coords=ground_point + factor * (v.coords - ground_point),
+                rest_coords=factor * v.rest_coords,
+                label=_label_with_factor(v.label, factor)))
+        return dataclasses.replace(self, views=views)
+
+    def size_matched(self) -> Scene:
+        """Draw every view as tall as the first one, as a new Scene.
+
+        For the backends that draw several skeletons in one space (k3d,
+        vedo), where clips from files in different units (centimetres,
+        inches, metres) would otherwise differ in size by an order of
+        magnitude. Each view is :meth:`scaled` by the first view's
+        :attr:`~SkeletonView.body_size` over its own, about its own
+        ground point, and its label shows the factor. The clips are
+        not touched; only what is drawn changes.
+
+        Conventions:
+
+        - The reference is the first view, the one the caller put
+          first, which is drawn as it is. The alternatives are the
+          tallest view, the median view, or a fixed height such as
+          1.8 m. They differ when the first view is not the tallest (or
+          the median): the tallest would enlarge every other skeleton,
+          the first included, and the median would move with every view
+          added. A fixed height would need each file's unit, which a
+          BVH file does not state. With the first as reference, the
+          caller chooses the scale by the order of the clips, and the
+          first view's label never carries a factor.
+        - The height matched is :attr:`~SkeletonView.body_size`: the
+          rest pose's extent along the rest pose's own up axis
+          (``rest_up``, :attr:`Bvh.rest_up`), in the unit of
+          ``coords``. The alternative is the median over the clip's
+          frames of the pose's extent along ``up``. The two differ
+          when the clip does not stand as its rest pose does. Matched
+          on the median, a crouched, seated or lying clip would be
+          blown up until it crouches as tall as the first skeleton
+          stands; matched on the rest pose, it would stand as tall as
+          the first and crouches below it. The other way round, a rest
+          pose that raises its arms is matched on its hands, where the
+          median would match the head. The rest pose is used because
+          it is the skeleton's, whatever the clip does, and it is the
+          length every size drawn on the body is taken from, so matched
+          bodies are drawn with matching bones.
+        - Where ``rest_up`` is unknown the body size is the rest pose's
+          widest extent (``body_size_measure == "rest extent"``), and
+          it is matched as it is: for a T-pose whose arms span wider
+          than it stands tall, that skeleton is drawn shorter than the
+          first, by its height over its arm span.
+        - A body size that is not measured from the rest pose
+          (``body_size_measure`` ``"clip extent"``, which grows with the
+          distance the clip travels, or ``"default"``, nothing measured)
+          is not a body's size, and no factor is taken from it: such a
+          view is drawn at its own size and its label shows no factor,
+          and when the first view has one, no view is matched. Either
+          way a ``UserWarning`` names the view. The alternative, taking
+          the factor from the stand-in, would draw a skeleton at a size
+          nobody measured and label it as matched.
+        - A view whose factor is exactly 1 is left as it is, with no
+          factor on its label. Two clips of one skeleton get exactly 1
+          when their coords state their unit
+          (``coords_in_rest_unit``, as :func:`make_scene` states for a
+          clip's frames): both body sizes are then the one rest pose's
+          height. No tolerance is applied to the factor: a factor a few
+          ulps from 1 comes from coords whose unit was measured, and is
+          shown as ``×1``.
+        """
+        reference = self.views[0]
+        if reference.body_size_measure not in REST_POSE_MEASURES:
+            warnings.warn(
+                f"Sizes not matched: the first view's body size is not "
+                f"measured from its rest pose (body_size_measure "
+                f"{reference.body_size_measure!r}), so there is no height "
+                f"to match; every skeleton is drawn at its own size.",
+                UserWarning, stacklevel=user_stacklevel())
+            return self
+        factors = []
+        for index, v in enumerate(self.views):
+            if v.body_size_measure not in REST_POSE_MEASURES:
+                warnings.warn(
+                    f"Size not matched: view {index}'s body size is not "
+                    f"measured from its rest pose (body_size_measure "
+                    f"{v.body_size_measure!r}); it is drawn at its own "
+                    f"size.",
+                    UserWarning, stacklevel=user_stacklevel())
+                factors.append(1.0)
+                continue
+            factors.append(reference.body_size / v.body_size)
+        return self.scaled(factors)
+
     def spread(self, spacing: float | str) -> Scene:
         """Offset the views laterally so skeletons sharing one 3-D scene
         do not overlap.
@@ -630,6 +786,15 @@ class Scene:
 
         return self.offset(
             [leftward * k * effective for k in range(len(self.views))])
+
+
+def _label_with_factor(label: str | None, factor: float) -> str:
+    """*label* followed by the scale factor, ``"test2 ×0.14"``, or the
+    factor alone for a view with no label. Two significant digits,
+    never in exponent notation."""
+    shown = np.format_float_positional(
+        factor, precision=2, unique=False, fractional=False, trim='-')
+    return f"×{shown}" if label is None else f"{label} ×{shown}"
 
 
 def _is_whole_number(value: object) -> bool:

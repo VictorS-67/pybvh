@@ -541,6 +541,7 @@ def frame(
     resolution: tuple[int, int] = (1100, 1000),
     filepath: str | Path | None = None,
     ax: matplotlib.axes.Axes | None = None,
+    match_size: bool = False,
 ) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes | list[matplotlib.axes.Axes]] | npt.NDArray[np.uint8]:
     """Plot a static 3D skeleton snapshot.
 
@@ -598,6 +599,13 @@ def frame(
         to the provided axes — the default paper style hides its
         ticks and panes; pass ``style="debug"`` to draw into an axes
         whose full axis machinery you want to keep.
+    match_size : bool, optional
+        Draw every skeleton as tall as the first, with the factor on
+        its label, as :func:`play` does (see there for the height
+        matched and its alternative). Default ``False``. Only the vedo
+        backend, which draws every skeleton in one space, is changed;
+        matplotlib draws the same figure either way, since it frames
+        each skeleton in its own panel.
 
     Returns
     -------
@@ -622,6 +630,8 @@ def frame(
             raise ImportError(
                 "vedo backend requires vedo. "
                 "Install with: pip install pybvh[viewer]")
+        if match_size:
+            scene = scene.size_matched()
         from ._vedo_offscreen import frame_vedo
         return frame_vedo(scene, resolve_style(style),
                           resolution=resolution, filepath=filepath)
@@ -735,6 +745,7 @@ def render(
     frame_counter: bool = False,
     match_fps: str | None = None,
     codec: str = "auto",
+    match_size: bool = False,
 ) -> Path:
     """Render animation to a video, GIF, or HTML file.
 
@@ -892,6 +903,13 @@ def render(
         is found) or ``"mpeg4"`` to force the OpenCV writer. The
         matplotlib backend always writes H.264 (its mp4 writer *is*
         ffmpeg), so ``"mpeg4"`` is rejected there.
+    match_size : bool, optional
+        Draw every skeleton as tall as the first, with the factor on
+        its label, as :func:`play` does (see there for the height
+        matched and its alternative). Default ``False``. Only the vedo
+        backend, which draws every skeleton in one space, is changed;
+        OpenCV and matplotlib write the same video either way, since
+        they frame each skeleton in its own panel.
 
     Returns
     -------
@@ -997,6 +1015,8 @@ def render(
                 f"The vedo render backend does not support "
                 f"{', '.join(unsupported)}. Use backend='opencv' or "
                 f"'matplotlib' for those.")
+        if match_size:
+            scene = scene.size_matched()
         from ._vedo_offscreen import render_vedo
         return render_vedo(
             scene, style_obj, filepath, actual_fps, resolution,
@@ -1043,6 +1063,7 @@ def play(
     frame_counter: bool = False,
     match_fps: str | None = None,
     spacing: float | str = "auto",
+    match_size: bool = False,
 ) -> None:
     """Play back motion data.
 
@@ -1129,6 +1150,27 @@ def play(
         ``"front"`` camera also faces, so the skeletons still read
         left to right from that camera, whichever side of the body
         that is.
+    match_size : bool, optional
+        Draw every skeleton as tall as the first, in the single-scene
+        backends (k3d, vedo), where clips from files in different units
+        would otherwise differ in size by an order of magnitude. Default
+        ``False``. The first skeleton is drawn as it is, so the order of
+        the clips chooses the scale (rather than the tallest skeleton's
+        or a fixed height). Each other skeleton is scaled about the
+        point on its floor under its root at the first frame, before
+        the lateral spacing, and its label shows the factor (``"test2 ×0.13"``, or
+        ``"×0.13"`` alone for a skeleton with no label). Only the
+        drawing changes: the clips are not touched. The height matched
+        is the rest pose's, along the rest pose's own up axis
+        (:attr:`Bvh.rest_up`); the alternative, the median over the
+        clip's frames of the pose's height, differs for a clip that does
+        not stand as its rest pose does (crouched, seated or lying),
+        which it would blow up to the first skeleton's standing height.
+        A skeleton whose rest pose has no size to measure is drawn at
+        its own size, with a warning. See
+        :meth:`~._scene.Scene.size_matched`. Ignored by multi-panel
+        backends (matplotlib, OpenCV), which frame each skeleton in its
+        own panel.
 
     Returns
     -------
@@ -1220,7 +1262,12 @@ def play(
     # --- Dispatch ---
     # For single-scene backends (vedo, k3d) there can only be ONE camera
     # and ONE bounding box. We apply lateral spacing so skeletons don't
-    # overlap; the backends make one viewport of the spread scene.
+    # overlap; the backends make one viewport of the spread scene. The
+    # sizes are matched first, so the spacing is that of the skeletons
+    # as drawn.
+    if match_size and backend_name in ("k3d", "vedo"):
+        scene = scene.size_matched()
+
     if backend_name == "k3d":
         try:
             import k3d  # noqa: F401

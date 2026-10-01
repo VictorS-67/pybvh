@@ -882,7 +882,7 @@ def render_mpl(
         # from the whole-millisecond interval, and the HTML writer's
         # floor division would then drop another millisecond (1000 //
         # (1000 / 33) is 32).
-        html_content = anim.to_jshtml(fps=fps)
+        html_content = anim.to_jshtml(fps=fps)  # type: ignore[arg-type]  # stub says int; its own default fps is a float
         with open(filepath, "w") as f:
             f.write(html_content)
     else:

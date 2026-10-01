@@ -1,3 +1,13 @@
+"""Build a :class:`~pybvh.bvh.Bvh` from a pandas DataFrame of motion.
+
+The inverse of :meth:`Bvh.to_df_dict <pybvh.bvh.Bvh.to_df_dict>` in
+``'euler'`` mode: :func:`df_to_bvh` pairs a skeleton with a DataFrame
+holding a ``time`` column in seconds and one column per channel, root
+positions in the skeleton's length unit and joint rotations in
+**degrees**, the unit of a file and of ``to_df_dict``, converted here to
+the radians of ``joint_angles``. pandas is never imported at run time:
+this module only reads the DataFrame it is given.
+"""
 from __future__ import annotations
 
 from collections.abc import Hashable, Mapping, Sequence

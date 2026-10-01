@@ -8,6 +8,7 @@ The skeleton is a :class:`~pybvh.bvh.Bvh`, a node list or an
 :class:`FkTopology`, the array-only form a caller holding no node objects
 can build.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, NamedTuple, Union
@@ -146,8 +147,8 @@ class FkTopology(_FkTopologyFields):
         unknown = set(changes) - set(merged)
         if unknown:
             raise ValueError(
-                f"FkTopology has no field(s) {sorted(unknown)}; "
-                f"expected any of {list(merged)}")
+                f"FkTopology has no field(s) {sorted(unknown)}; expected any of {list(merged)}"
+            )
         merged.update(changes)
         return type(self)(**merged)  # type: ignore[arg-type]
 
@@ -192,14 +193,14 @@ class FkTopology(_FkTopologyFields):
                     parent_idx[i] = node_position[id(node.parent)]
                 except KeyError:
                     raise ValueError(
-                        f"Node {node.name!r} (index {i}) has a parent that is "
-                        f"not in the node list.") from None
+                        f"Node {node.name!r} (index {i}) has a parent that is not in the node list."
+                    ) from None
 
             if node.is_end_site():
                 joint_idx[i] = -1
             else:
                 joint_idx[i] = joint_counter
-                euler_orders.append(''.join(node.rot_channels))  # type: ignore[attr-defined]
+                euler_orders.append("".join(node.rot_channels))  # type: ignore[attr-defined]
                 joint_counter += 1
 
         return cls(offsets, parent_idx, joint_idx, euler_orders)
@@ -213,19 +214,18 @@ def _validate_fk_topology(
 ) -> None:
     """Check every invariant the FK loop relies on. See :class:`FkTopology`."""
     if offsets.ndim != 2 or offsets.shape[1] != 3:
-        raise ValueError(
-            f"offsets must have shape (N, 3), got {offsets.shape}")
+        raise ValueError(f"offsets must have shape (N, 3), got {offsets.shape}")
     num_nodes = offsets.shape[0]
     if num_nodes == 0:
         raise ValueError("FkTopology must describe at least one node")
     if parent_idx.shape != (num_nodes,):
         raise ValueError(
-            f"parent_idx must have shape ({num_nodes},) to match offsets, "
-            f"got {parent_idx.shape}")
+            f"parent_idx must have shape ({num_nodes},) to match offsets, got {parent_idx.shape}"
+        )
     if joint_idx.shape != (num_nodes,):
         raise ValueError(
-            f"joint_idx must have shape ({num_nodes},) to match offsets, "
-            f"got {joint_idx.shape}")
+            f"joint_idx must have shape ({num_nodes},) to match offsets, got {joint_idx.shape}"
+        )
 
     # Parents precede children. This also forces parent_idx[0] < 0, so the
     # root is necessarily node 0 and the "exactly one -1" check below pins
@@ -237,17 +237,17 @@ def _validate_fk_topology(
             f"parent_idx[{i}] = {int(parent_idx[i])} does not precede its "
             f"child at index {i}: FkTopology requires parents to come first "
             f"in node order, since forward kinematics fills each node from "
-            f"its parent's already-computed frame.")
+            f"its parent's already-computed frame."
+        )
     if np.any(parent_idx < -1):
         bad = int(np.flatnonzero(parent_idx < -1)[0])
         raise ValueError(
             f"parent_idx[{bad}] = {int(parent_idx[bad])}; the only legal "
-            f"negative value is -1 (the root).")
+            f"negative value is -1 (the root)."
+        )
     root_count = int(np.count_nonzero(parent_idx == -1))
     if root_count != 1:
-        raise ValueError(
-            f"parent_idx must contain exactly one -1 (the root), got "
-            f"{root_count}.")
+        raise ValueError(f"parent_idx must contain exactly one -1 (the root), got {root_count}.")
 
     # The root's rotation is read as local_rotmats[:, joint_idx[0]]. A -1
     # there is a legal negative index, so it would silently apply the last
@@ -255,7 +255,8 @@ def _validate_fk_topology(
     if joint_idx[0] < 0:
         raise ValueError(
             "joint_idx[0] = -1 marks the root as an end site, but the root "
-            "carries the skeleton's base rotation. End sites are leaves.")
+            "carries the skeleton's base rotation. End sites are leaves."
+        )
 
     # End sites accumulate no rotation, so acc_rotmats is never written for
     # them; a child of one would read an uninitialized array.
@@ -267,29 +268,30 @@ def _validate_fk_topology(
         raise ValueError(
             f"Node {child} is parented to node {int(parent_idx[child])}, "
             f"which joint_idx marks as an end site. End sites are leaves: "
-            f"they carry no rotation for a child to inherit.")
+            f"they carry no rotation for a child to inherit."
+        )
 
     if np.any(joint_idx < -1):
         bad = int(np.flatnonzero(joint_idx < -1)[0])
         raise ValueError(
             f"joint_idx[{bad}] = {int(joint_idx[bad])}; the only legal "
-            f"negative value is -1 (an end site).")
+            f"negative value is -1 (an end site)."
+        )
     joint_columns = np.sort(joint_idx[joint_idx >= 0])
     num_joints = joint_columns.size
     if not np.array_equal(joint_columns, np.arange(num_joints)):
         raise ValueError(
             f"The non-negative joint_idx values must be exactly 0..J-1, each "
             f"once (they index joint_angles axis 1); got {num_joints} joint "
-            f"nodes whose sorted indices are {joint_columns.tolist()}.")
+            f"nodes whose sorted indices are {joint_columns.tolist()}."
+        )
     if len(euler_orders) != num_joints:
         raise ValueError(
-            f"euler_orders has {len(euler_orders)} entries but joint_idx "
-            f"marks {num_joints} joints.")
+            f"euler_orders has {len(euler_orders)} entries but joint_idx marks {num_joints} joints."
+        )
     for j, order in enumerate(euler_orders):
-        if sorted(order) != ['X', 'Y', 'Z']:
-            raise ValueError(
-                f"euler_orders[{j}] = {order!r} is not a permutation of "
-                f"'XYZ'.")
+        if sorted(order) != ["X", "Y", "Z"]:
+            raise ValueError(f"euler_orders[{j}] = {order!r} is not a permutation of 'XYZ'.")
 
 
 def frames_to_node_positions(
@@ -365,8 +367,8 @@ def frames_to_node_positions(
     if root_pos is None or joint_angles is None:
         if source_bvh is None:
             raise ValueError(
-                "root_pos and joint_angles must be provided when skeleton is "
-                "not a Bvh object.")
+                "root_pos and joint_angles must be provided when skeleton is not a Bvh object."
+            )
         root_pos = source_bvh.root_pos
         joint_angles = source_bvh.joint_angles
 
@@ -385,12 +387,14 @@ def frames_to_node_positions(
         raise ValueError(
             f"root_pos and joint_angles disagree on frame count: "
             f"root_pos has {root_pos_arr.shape[0]} frames, joint_angles "
-            f"has {joint_angles_arr.shape[0]}.")
+            f"has {joint_angles_arr.shape[0]}."
+        )
     num_joints = len(topology.euler_orders)
     if joint_angles_arr.shape[1] != num_joints:
         raise ValueError(
             f"joint_angles has {joint_angles_arr.shape[1]} joints on axis 1, "
-            f"but the skeleton declares {num_joints}.")
+            f"but the skeleton declares {num_joints}."
+        )
 
     if centered == "first":
         if up is None:
@@ -400,13 +404,14 @@ def frames_to_node_positions(
                     "coordinate to leave untouched, and a skeleton passed as "
                     "a node list or an FkTopology carries no gravity "
                     "direction. Pass `up=` explicitly (e.g. up='+z'), or "
-                    "pass the Bvh itself so its `world_up` is used.")
+                    "pass the Bvh itself so its `world_up` is used."
+                )
             up = source_bvh.world_up
         up = _validate_axis_string(up)
 
     positions = _run_forward_kinematics(
-        topology, root_pos_arr, joint_angles_arr,
-        skel_centered=(centered == "skeleton"))
+        topology, root_pos_arr, joint_angles_arr, skel_centered=(centered == "skeleton")
+    )
 
     # "first" centering: subtract the first frame's root position in the
     # two non-up axes only — the up coordinate stays in world units.
@@ -461,11 +466,15 @@ def _run_forward_kinematics(
             # End site: no own rotation
             offset = offsets[i]  # (3,)
             # parent_rot @ offset + parent_pos for all frames
-            positions[:, i] = np.einsum('fij,j->fi', acc_rotmats[:, p_idx], offset) + positions[:, p_idx]
+            positions[:, i] = (
+                np.einsum("fij,j->fi", acc_rotmats[:, p_idx], offset) + positions[:, p_idx]
+            )
         else:
             # Joint node
             offset = offsets[i]  # (3,)
-            positions[:, i] = np.einsum('fij,j->fi', acc_rotmats[:, p_idx], offset) + positions[:, p_idx]
+            positions[:, i] = (
+                np.einsum("fij,j->fi", acc_rotmats[:, p_idx], offset) + positions[:, p_idx]
+            )
             # Accumulate rotation: parent_rot @ this_node_rot
             acc_rotmats[:, i] = acc_rotmats[:, p_idx] @ local_rotmats[:, j_idx]
 
@@ -487,7 +496,7 @@ def _ground_plane_offset(
     ``centered="first"`` convention shared by
     :func:`frames_to_node_positions` and :meth:`Bvh.node_positions`.
     """
-    up_idx = {'x': 0, 'y': 1, 'z': 2}[up[-1].lower()]
+    up_idx = {"x": 0, "y": 1, "z": 2}[up[-1].lower()]
     offset = np.array(root_position, dtype=np.float64)
     offset[up_idx] = 0.0
     return offset
@@ -509,14 +518,13 @@ def _resolve_topology(
         also supply motion data and a ``world_up``.
     """
     from .bvh import Bvh  # lazy: bvh.py imports this module at top level
+
     if isinstance(skeleton, FkTopology):
         return skeleton, None
     if isinstance(skeleton, Bvh):
         return FkTopology.from_nodes(skeleton.nodes), skeleton
     if isinstance(skeleton, list):
         if not all(isinstance(n, BvhNode) for n in skeleton):
-            raise ValueError('The list must contain BvhNode objects.')
+            raise ValueError("The list must contain BvhNode objects.")
         return FkTopology.from_nodes(skeleton), None
-    raise ValueError(
-        'skeleton must be a Bvh object, a list of BvhNode objects, or an '
-        'FkTopology.')
+    raise ValueError("skeleton must be a Bvh object, a list of BvhNode objects, or an FkTopology.")

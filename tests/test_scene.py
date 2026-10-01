@@ -1,4 +1,5 @@
 """Tests for the Scene/SkeletonView container (bvhplot Phase 0)."""
+
 from __future__ import annotations
 
 import ast
@@ -105,19 +106,20 @@ class TestViewCarriesSkeletonFacts:
         assert "up" in names
         assert not names & {"up_axis", "up_index", "up_sign", "up_vector"}
 
-    @pytest.mark.parametrize("up, letter, index, sign, vector", [
-        ("+x", "x", 0, 1.0, [1.0, 0.0, 0.0]),
-        ("-x", "x", 0, -1.0, [-1.0, 0.0, 0.0]),
-        ("+y", "y", 1, 1.0, [0.0, 1.0, 0.0]),
-        ("-y", "y", 1, -1.0, [0.0, -1.0, 0.0]),
-        ("+z", "z", 2, 1.0, [0.0, 0.0, 1.0]),
-        ("-z", "z", 2, -1.0, [0.0, 0.0, -1.0]),
-    ])
-    def test_up_forms_are_derived_from_the_signed_string(
-            self, up, letter, index, sign, vector):
+    @pytest.mark.parametrize(
+        "up, letter, index, sign, vector",
+        [
+            ("+x", "x", 0, 1.0, [1.0, 0.0, 0.0]),
+            ("-x", "x", 0, -1.0, [-1.0, 0.0, 0.0]),
+            ("+y", "y", 1, 1.0, [0.0, 1.0, 0.0]),
+            ("-y", "y", 1, -1.0, [0.0, -1.0, 0.0]),
+            ("+z", "z", 2, 1.0, [0.0, 0.0, 1.0]),
+            ("-z", "z", 2, -1.0, [0.0, 0.0, -1.0]),
+        ],
+    )
+    def test_up_forms_are_derived_from_the_signed_string(self, up, letter, index, sign, vector):
         forward = "+x" if letter != "x" else "+y"
-        view = dataclasses.replace(
-            make_array_view(), up=up, forward_axis=forward)
+        view = dataclasses.replace(make_array_view(), up=up, forward_axis=forward)
         assert view.up_axis == letter
         assert view.up_index == index
         assert view.up_sign == sign
@@ -166,51 +168,43 @@ class TestViewCarriesSkeletonFacts:
                 assert view.bone_chains[i] == "spine"
 
     def test_root_heading_is_root_trajectory_heading(self, bvh, coords):
-        view = make_scene([bvh], [coords], "front", None,
-                          clip_frames=slice(None)).views[0]
-        np.testing.assert_allclose(
-            view.root_heading, root_trajectory(bvh)[:, 2:4])
+        view = make_scene([bvh], [coords], "front", None, clip_frames=slice(None)).views[0]
+        np.testing.assert_allclose(view.root_heading, root_trajectory(bvh)[:, 2:4])
 
     def test_root_heading_follows_truncated_coords(self, bvh, coords):
         short = coords[:40]
-        view = make_scene([bvh], [short], "front", None,
-                          clip_frames=slice(None)).views[0]
+        view = make_scene([bvh], [short], "front", None, clip_frames=slice(None)).views[0]
         assert view.root_heading.shape == (40, 2)
-        np.testing.assert_allclose(
-            view.root_heading, root_trajectory(bvh)[:40, 2:4])
+        np.testing.assert_allclose(view.root_heading, root_trajectory(bvh)[:40, 2:4])
 
     def test_root_heading_follows_padded_coords(self, bvh, coords):
         extra = 7
-        padded = np.concatenate(
-            [coords, np.repeat(coords[-1:], extra, axis=0)], axis=0)
-        view = make_scene([bvh], [padded], "front", None,
-                          clip_frames=slice(None)).views[0]
+        padded = np.concatenate([coords, np.repeat(coords[-1:], extra, axis=0)], axis=0)
+        view = make_scene([bvh], [padded], "front", None, clip_frames=slice(None)).views[0]
         heading = root_trajectory(bvh)[:, 2:4]
         assert view.root_heading.shape == (coords.shape[0] + extra, 2)
         np.testing.assert_allclose(view.root_heading[:-extra], heading)
         np.testing.assert_allclose(
-            view.root_heading[-extra:], np.repeat(heading[-1:], extra, axis=0))
+            view.root_heading[-extra:], np.repeat(heading[-1:], extra, axis=0)
+        )
 
     def test_root_heading_for_a_single_frame(self, bvh, coords):
         one = coords[-1:]
-        view = make_scene([bvh], [one], "front", None,
-                          clip_frames=-1).views[0]
+        view = make_scene([bvh], [one], "front", None, clip_frames=-1).views[0]
         assert view.root_heading.shape == (1, 2)
-        np.testing.assert_allclose(
-            view.root_heading[0], root_trajectory(bvh)[-1, 2:4])
+        np.testing.assert_allclose(view.root_heading[0], root_trajectory(bvh)[-1, 2:4])
 
     def test_root_heading_follows_a_slice_of_the_clip(self, bvh, coords):
-        view = make_scene([bvh], [coords[10:50:2]], "front", None,
-                          clip_frames=slice(10, 50, 2)).views[0]
-        np.testing.assert_allclose(
-            view.root_heading, root_trajectory(bvh)[10:50:2, 2:4])
+        view = make_scene(
+            [bvh], [coords[10:50:2]], "front", None, clip_frames=slice(10, 50, 2)
+        ).views[0]
+        np.testing.assert_allclose(view.root_heading, root_trajectory(bvh)[10:50:2, 2:4])
 
     def test_one_clip_frame_needs_one_row_coords(self, bvh, coords):
         with pytest.raises(ValueError, match="names one clip frame"):
             make_scene([bvh], [coords], "front", None, clip_frames=3)
 
-    def test_root_heading_none_unless_the_coords_are_the_clips(
-            self, bvh, coords):
+    def test_root_heading_none_unless_the_coords_are_the_clips(self, bvh, coords):
         """The default attaches no clip fact: the caller must say which
         clip frames the coords are before a heading is aligned to them."""
         view = make_scene([bvh], [coords], "front", None).views[0]
@@ -218,6 +212,7 @@ class TestViewCarriesSkeletonFacts:
 
     def test_router_says_which_clip_frames_the_coords_are(self, bvh, coords):
         from pybvh.bvhplot import _prepare
+
         heading = root_trajectory(bvh)[:, 2:4]
 
         whole = _prepare(bvh, None, "world", "front").views[0]
@@ -234,6 +229,7 @@ class TestViewCarriesSkeletonFacts:
         to it would describe a different pose than the coords do."""
         import pybvh.bvhplot as bvhplot
         import pybvh.bvhplot._matplotlib as mpl_backend
+
         captured = []
 
         def fake_frame_mpl(scene, style, **kwargs):
@@ -251,24 +247,26 @@ class TestViewCarriesSkeletonFacts:
         assert scene.frame_time == bvh.frame_time
 
 
-def _turned_view(
-    rotation: np.ndarray, up: str, forward: str
-) -> SkeletonView:
+def _turned_view(rotation: np.ndarray, up: str, forward: str) -> SkeletonView:
     """make_array_view's figure (+y up, facing +z) turned by the proper
     *rotation*, which must carry +y to *up* and +z to *forward*."""
     up_axis = parse_axis(up)
     assert np.isclose(np.linalg.det(rotation), 1.0)
-    np.testing.assert_array_equal(rotation @ parse_axis("+y").vector,
-                                  up_axis.vector)
-    np.testing.assert_array_equal(rotation @ parse_axis("+z").vector,
-                                  parse_axis(forward).vector)
+    np.testing.assert_array_equal(rotation @ parse_axis("+y").vector, up_axis.vector)
+    np.testing.assert_array_equal(rotation @ parse_axis("+z").vector, parse_axis(forward).vector)
     view = make_array_view()
     coords = view.coords @ rotation.T
     lowest_height = (coords @ up_axis.vector).min()
     floor = up_axis.sign * float(lowest_height)  # a coordinate along up
     return dataclasses.replace(
-        view, coords=coords, rest_coords=view.rest_coords @ rotation.T,
-        up=up, rest_up=up, forward_axis=forward, floor_height=floor)
+        view,
+        coords=coords,
+        rest_coords=view.rest_coords @ rotation.T,
+        up=up,
+        rest_up=up,
+        forward_axis=forward,
+        floor_height=floor,
+    )
 
 
 def _without_lr_pairs(clip):
@@ -287,14 +285,12 @@ class TestSceneMethods:
         assert not hasattr(Scene, "unified_box")
 
     def test_subsampled_slices_every_frame_indexed_field(self, bvh, coords):
-        scene = make_scene([bvh], [coords], "front", ["lbl"],
-                           clip_frames=slice(None))
+        scene = make_scene([bvh], [coords], "front", ["lbl"], clip_frames=slice(None))
         step = 4
         sub = scene.subsampled(step)
         view, original = sub.views[0], scene.views[0]
         np.testing.assert_array_equal(view.coords, coords[::step])
-        np.testing.assert_array_equal(
-            view.root_heading, original.root_heading[::step])
+        np.testing.assert_array_equal(view.root_heading, original.root_heading[::step])
         assert view.frame_time == pytest.approx(original.frame_time * step)
         assert sub.frame_time == view.frame_time
         # untouched by subsampling
@@ -343,8 +339,7 @@ class TestSceneMethods:
         scene = make_scene([bvh, bvh], [coords, coords], "front", None)
         first = scene.views[0]
         fwd_idx = {"x": 0, "y": 1, "z": 2}[first.forward_axis[1]]
-        lat_idx = next(i for i in range(3)
-                       if i != first.up_index and i != fwd_idx)
+        lat_idx = next(i for i in range(3) if i != first.up_index and i != fwd_idx)
         spread = scene.spread(3.0)
         np.testing.assert_array_equal(spread.views[0].coords, coords)
         diff = spread.views[1].coords - coords
@@ -359,8 +354,7 @@ class TestSceneMethods:
         scene = make_scene([bvh, bvh], [coords, coords], "front", None)
         first = scene.views[0]
         fwd_idx = {"x": 0, "y": 1, "z": 2}[first.forward_axis[1]]
-        lat_idx = next(i for i in range(3)
-                       if i != first.up_index and i != fwd_idx)
+        lat_idx = next(i for i in range(3) if i != first.up_index and i != fwd_idx)
         width = float(np.ptp(coords[..., lat_idx]))
         spread = scene.spread("auto")
         diff = spread.views[1].coords - coords
@@ -370,8 +364,7 @@ class TestSceneMethods:
         scene = make_scene([bvh, bvh], [coords, coords], "front", None)
         assert scene.spread(0.0) is scene
 
-    def test_spread_measured_on_another_scene_takes_its_extent(
-            self, bvh, coords):
+    def test_spread_measured_on_another_scene_takes_its_extent(self, bvh, coords):
         """A still of one frame spread as its clip is: the "auto"
         extent is the clip's, not the frame's."""
         clip = make_scene([bvh, bvh], [coords, coords], "front", None)
@@ -379,39 +372,68 @@ class TestSceneMethods:
         still = make_scene([bvh, bvh], [last, last], "front", None)
 
         def moved(scene, **kwargs):
-            return (scene.spread("auto", **kwargs).views[1].coords[-1]
-                    - scene.views[1].coords[-1])
+            return scene.spread("auto", **kwargs).views[1].coords[-1] - scene.views[1].coords[-1]
 
-        np.testing.assert_allclose(moved(still, measured_on=clip),
-                                   moved(clip))
+        np.testing.assert_allclose(moved(still, measured_on=clip), moved(clip))
         # measured on its own frame, the still would be spread otherwise
         assert not np.allclose(moved(still), moved(clip))
 
-    def test_spread_measured_on_a_scene_of_other_views_raises(
-            self, bvh, coords):
+    def test_spread_measured_on_a_scene_of_other_views_raises(self, bvh, coords):
         pair = make_scene([bvh, bvh], [coords, coords], "front", None)
         single = make_scene([bvh], [coords], "front", None)
         with pytest.raises(ValueError, match="measured_on has 1 views"):
             pair.spread("auto", measured_on=single)
 
-    @pytest.mark.parametrize("up, forward, rotation", [
-        ("+y", "+z", np.eye(3)),
-        ("+y", "-z", np.diag([-1.0, 1.0, -1.0])),
-        ("-y", "+z", np.diag([-1.0, -1.0, 1.0])),
-        ("+z", "+y", np.array([[-1.0, 0.0, 0.0],
-                               [0.0, 0.0, 1.0],
-                               [0.0, 1.0, 0.0],])),
-        ("+y", "+x", np.array([[0.0, 0.0, 1.0],
-                               [0.0, 1.0, 0.0],
-                               [-1.0, 0.0, 0.0],])),
-        ("+z", "+x", np.array([[0.0, 0.0, 1.0],
-                               [1.0, 0.0, 0.0],
-                               [0.0, 1.0, 0.0],])),
-    ], ids=["+y up facing +z", "+y up facing -z", "-y up facing +z",
-            "+z up facing +y", "+y up facing +x (left along z)",
-            "+z up facing +x (left along y)"])
-    def test_spread_puts_the_next_view_on_the_first_ones_left(
-            self, up, forward, rotation):
+    @pytest.mark.parametrize(
+        "up, forward, rotation",
+        [
+            ("+y", "+z", np.eye(3)),
+            ("+y", "-z", np.diag([-1.0, 1.0, -1.0])),
+            ("-y", "+z", np.diag([-1.0, -1.0, 1.0])),
+            (
+                "+z",
+                "+y",
+                np.array(
+                    [
+                        [-1.0, 0.0, 0.0],
+                        [0.0, 0.0, 1.0],
+                        [0.0, 1.0, 0.0],
+                    ]
+                ),
+            ),
+            (
+                "+y",
+                "+x",
+                np.array(
+                    [
+                        [0.0, 0.0, 1.0],
+                        [0.0, 1.0, 0.0],
+                        [-1.0, 0.0, 0.0],
+                    ]
+                ),
+            ),
+            (
+                "+z",
+                "+x",
+                np.array(
+                    [
+                        [0.0, 0.0, 1.0],
+                        [1.0, 0.0, 0.0],
+                        [0.0, 1.0, 0.0],
+                    ]
+                ),
+            ),
+        ],
+        ids=[
+            "+y up facing +z",
+            "+y up facing -z",
+            "-y up facing +z",
+            "+z up facing +y",
+            "+y up facing +x (left along z)",
+            "+z up facing +x (left along y)",
+        ],
+    )
+    def test_spread_puts_the_next_view_on_the_first_ones_left(self, up, forward, rotation):
         """Whatever the rig's up and the character's facing, the next
         skeleton lands on the first one's own left, read from its
         left/right joint pairs, not from a world axis."""
@@ -419,17 +441,13 @@ class TestSceneMethods:
         spread = Scene(views=[first, first]).spread(3.0)
 
         pose = first.coords[0]
-        leftward = (pose[first.lr_pairs[:, 0]]
-                    - pose[first.lr_pairs[:, 1]]).mean(axis=0)
+        leftward = (pose[first.lr_pairs[:, 0]] - pose[first.lr_pairs[:, 1]]).mean(axis=0)
         leftward /= np.linalg.norm(leftward)
         shift = spread.views[1].coords - first.coords
-        np.testing.assert_allclose(
-            shift, np.broadcast_to(3.0 * leftward, shift.shape), atol=1e-12)
+        np.testing.assert_allclose(shift, np.broadcast_to(3.0 * leftward, shift.shape), atol=1e-12)
 
-    @pytest.mark.parametrize("turn_degrees", [0.0, 180.0],
-                             ids=["facing +z", "facing -z"])
-    def test_spread_puts_the_mirrored_walk_on_the_walks_left(
-            self, bvh, turn_degrees):
+    @pytest.mark.parametrize("turn_degrees", [0.0, 180.0], ids=["facing +z", "facing -z"])
+    def test_spread_puts_the_mirrored_walk_on_the_walks_left(self, bvh, turn_degrees):
         """The issue's reproduction: the walk and its mirror, facing +z
         and turned to face -z, keep the mirror on the walk's left as
         :meth:`Bvh.left_at` reads it."""
@@ -437,39 +455,54 @@ class TestSceneMethods:
         mirrored = walk.mirror()
         scene = make_scene(
             [walk, mirrored],
-            [walk.node_positions(centered="first"),
-             mirrored.node_positions(centered="first")],
-            "front", None)
+            [walk.node_positions(centered="first"), mirrored.node_positions(centered="first")],
+            "front",
+            None,
+        )
         spread = scene.spread(3.0)
 
         shift = spread.views[1].coords[0, 0] - scene.views[1].coords[0, 0]
-        np.testing.assert_allclose(
-            shift, 3.0 * parse_axis(walk.left_at(0)).vector)
+        np.testing.assert_allclose(shift, 3.0 * parse_axis(walk.left_at(0)).vector)
 
-    @pytest.mark.parametrize("make_clip, up, forward, warns", [
-        (lambda walk: walk.rotate_vertical(180.0, degrees=True),
-         "+y", "-z", False),
-        (lambda walk: walk.rotate_vertical(90.0, degrees=True),
-         "+y", "+x", False),
-        (lambda walk: make_neg_y_up_bvh(), "-y", "+z", False),
-        (lambda walk: make_pos_z_up_bvh(), "+z", "+y", False),
-        # the walk faces -z; the fallback for +y up is +z
-        (lambda walk: _without_lr_pairs(
-            walk.rotate_vertical(180.0, degrees=True)), "+y", "+z", True),
-    ], ids=["+y up facing -z", "+y up facing +x", "-y up facing +z",
-            "+z up facing +y", "facing unmeasurable"])
+    @pytest.mark.parametrize(
+        "make_clip, up, forward, warns",
+        [
+            (lambda walk: walk.rotate_vertical(180.0, degrees=True), "+y", "-z", False),
+            (lambda walk: walk.rotate_vertical(90.0, degrees=True), "+y", "+x", False),
+            (lambda walk: make_neg_y_up_bvh(), "-y", "+z", False),
+            (lambda walk: make_pos_z_up_bvh(), "+z", "+y", False),
+            # the walk faces -z; the fallback for +y up is +z
+            (
+                lambda walk: _without_lr_pairs(walk.rotate_vertical(180.0, degrees=True)),
+                "+y",
+                "+z",
+                True,
+            ),
+        ],
+        ids=[
+            "+y up facing -z",
+            "+y up facing +x",
+            "-y up facing +z",
+            "+z up facing +y",
+            "facing unmeasurable",
+        ],
+    )
     def test_spread_puts_the_next_view_on_the_front_cameras_right(
-            self, bvh, make_clip, up, forward, warns):
+        self, bvh, make_clip, up, forward, warns
+    ):
         """Seen from the "front" camera the next skeleton is on the
         viewer's right on every rig, also when the facing cannot be
         measured and both the camera and the spread take the fallback
         forward."""
         from pybvh.bvhplot._viewport import make_viewport
+
         clip = make_clip(bvh)
         coords = clip.node_positions(centered="first")
         fallback_warning = (
             pytest.warns(UserWarning, match="No usable left/right geometry")
-            if warns else contextlib.nullcontext())
+            if warns
+            else contextlib.nullcontext()
+        )
         with fallback_warning:
             scene = make_scene([clip, clip], [coords, coords], "front", None)
         assert (scene.views[0].up, scene.views[0].forward_axis) == (up, forward)
@@ -520,8 +553,7 @@ class TestSceneMethods:
         second = make_array_view(up="-y")
         spread = Scene(views=[first, second]).spread(3.0)
         np.testing.assert_array_equal(spread.views[0].coords, first.coords)
-        np.testing.assert_allclose(
-            spread.views[1].coords, second.coords + [-3.0, 0.0, 0.0])
+        np.testing.assert_allclose(spread.views[1].coords, second.coords + [-3.0, 0.0, 0.0])
         assert spread.views[1].floor_height == second.floor_height
 
     def test_spread_auto_on_negative_up_views_uses_the_x_extent(self):
@@ -530,17 +562,20 @@ class TestSceneMethods:
         spread = Scene(views=[first, make_array_view(up="-y")]).spread("auto")
         np.testing.assert_allclose(
             spread.views[1].coords - first.coords,
-            np.broadcast_to([-1.2 * width, 0.0, 0.0], first.coords.shape))
+            np.broadcast_to([-1.2 * width, 0.0, 0.0], first.coords.shape),
+        )
 
 
-def _grown(view: SkeletonView, factor: float,
-           label: str | None = None) -> SkeletonView:
+def _grown(view: SkeletonView, factor: float, label: str | None = None) -> SkeletonView:
     """*view* as a skeleton *factor* times its size: coords, rest pose
     and floor scaled about the origin, as a file in another unit is."""
     return dataclasses.replace(
-        view, coords=view.coords * factor,
+        view,
+        coords=view.coords * factor,
         rest_coords=view.rest_coords * factor,
-        floor_height=view.floor_height * factor, label=label)
+        floor_height=view.floor_height * factor,
+        label=label,
+    )
 
 
 def _height_at_frame_0(view: SkeletonView) -> float:
@@ -557,8 +592,7 @@ class TestSizeMatched:
         big = _grown(make_array_view(), 7.0, label="big")
         matched = Scene(views=[small, big]).size_matched()
         first, second = matched.views
-        assert _height_at_frame_0(second) == pytest.approx(
-            _height_at_frame_0(small), rel=1e-9)
+        assert _height_at_frame_0(second) == pytest.approx(_height_at_frame_0(small), rel=1e-9)
         assert second.body_size == pytest.approx(small.body_size)
         np.testing.assert_array_equal(first.coords, small.coords)
 
@@ -582,27 +616,27 @@ class TestSizeMatched:
         view = make_array_view(lateral_shift=lateral_shift)
 
         def turned(points):
-            return np.stack(
-                [points[..., 0], -points[..., 2], points[..., 1]], axis=-1)
+            return np.stack([points[..., 0], -points[..., 2], points[..., 1]], axis=-1)
 
         return dataclasses.replace(
-            view, coords=turned(view.coords),
+            view,
+            coords=turned(view.coords),
             rest_coords=turned(view.rest_coords),
-            up="+z", rest_up="+z", forward_axis="-y")
+            up="+z",
+            rest_up="+z",
+            forward_axis="-y",
+        )
 
     @pytest.mark.parametrize("up", ["+y", "-y", "+z"])
-    def test_each_view_is_scaled_about_its_ground_point_under_the_root(
-            self, up):
+    def test_each_view_is_scaled_about_its_ground_point_under_the_root(self, up):
         """The point on the floor under the root at frame 0 stays where
         it is, so the skeleton keeps its place and its feet stay on its
         floor. For a '-y' rig the floor is the coordinate maximum."""
         big = _grown(self._standing_up(up, lateral_shift=3.0), 7.0)
-        second = Scene(
-            views=[self._standing_up(up), big]).size_matched().views[1]
+        second = Scene(views=[self._standing_up(up), big]).size_matched().views[1]
         ground_point = big.coords[0, 0].copy()
         ground_point[big.up_index] = big.floor_height
-        np.testing.assert_allclose(
-            second.coords, ground_point + (big.coords - ground_point) / 7.0)
+        np.testing.assert_allclose(second.coords, ground_point + (big.coords - ground_point) / 7.0)
         assert second.floor_height == big.floor_height
         feet = second.coords[:, [7, 8], second.up_index]
         on_the_floor = feet.max() if up == "-y" else feet.min()
@@ -617,28 +651,30 @@ class TestSizeMatched:
         clip = Scene(views=[small, big])
 
         def last_frame(view):
-            return dataclasses.replace(view, coords=view.coords[-1:],
-                                       root_heading=view.root_heading[-1:])
+            return dataclasses.replace(
+                view, coords=view.coords[-1:], root_heading=view.root_heading[-1:]
+            )
 
         still = Scene(views=[last_frame(small), last_frame(big)])
         as_the_clip = clip.size_matched().views[1].coords[-1]
         np.testing.assert_allclose(
-            still.size_matched(measured_on=clip).views[1].coords[0],
-            as_the_clip)
+            still.size_matched(measured_on=clip).views[1].coords[0], as_the_clip
+        )
         # about its own root, the walking still would stand elsewhere
-        assert not np.allclose(
-            still.size_matched().views[1].coords[0], as_the_clip)
+        assert not np.allclose(still.size_matched().views[1].coords[0], as_the_clip)
 
-    @pytest.mark.parametrize("label, shown", [
-        ("test2", "test2 ×0.14"),
-        (None, "×0.14"),
-    ])
+    @pytest.mark.parametrize(
+        "label, shown",
+        [
+            ("test2", "test2 ×0.14"),
+            (None, "×0.14"),
+        ],
+    )
     def test_a_rescaled_views_label_shows_its_factor(self, label, shown):
         """Whoever looks at the picture can tell the skeleton is not
         drawn at its own size: 1/7 to two significant digits."""
         big = _grown(make_array_view(), 7.0, label=label)
-        first, second = Scene(
-            views=[make_array_view(label="walk"), big]).size_matched().views
+        first, second = Scene(views=[make_array_view(label="walk"), big]).size_matched().views
         assert first.label == "walk"
         assert second.label == shown
 
@@ -654,13 +690,11 @@ class TestSizeMatched:
         same skeleton, posed a few ulps away."""
         noisy = clip.copy()
         noisy.root_pos = noisy.root_pos.astype(np.float32).astype(np.float64)
-        noisy.joint_angles = (
-            noisy.joint_angles.astype(np.float32).astype(np.float64))
+        noisy.joint_angles = noisy.joint_angles.astype(np.float32).astype(np.float64)
         return noisy
 
     @pytest.mark.parametrize("other_clip", ["slice", "float32"])
-    def test_two_clips_of_one_skeleton_are_left_as_they_are(
-            self, bvh, other_clip):
+    def test_two_clips_of_one_skeleton_are_left_as_they_are(self, bvh, other_clip):
         """Two clips of one skeleton are one size: each measuring its
         unit off its own first frame, the CMU walk and walk[10:] read
         body sizes of 24.17987 and 24.179869999999998, and the second
@@ -672,7 +706,10 @@ class TestSizeMatched:
         pair = make_scene(
             [bvh, other],
             [bvh.node_positions()[:n_frames], other.node_positions()],
-            "front", ["a", "b"], clip_frames=slice(None))
+            "front",
+            ["a", "b"],
+            clip_frames=slice(None),
+        )
         first, second = pair.views
         assert second.coords_per_rest_unit == 1.0
         assert second.body_size == first.body_size
@@ -685,17 +722,17 @@ class TestSizeMatched:
         the walk handed over at 0.0254 of the file's unit (inches to
         metres) is drawn back at the file's size, and labelled with
         the factor, 1 / 0.0254."""
-        in_file_unit = make_scene([bvh], [bvh.node_positions()[:1]], "front",
-                                  ["file"], clip_frames=slice(0, 1)).views[0]
-        supplied = make_scene([bvh], [bvh.node_positions()[:1] * 0.0254],
-                              "front", ["metres"],
-                              canonical_floor=False).views[0]
+        in_file_unit = make_scene(
+            [bvh], [bvh.node_positions()[:1]], "front", ["file"], clip_frames=slice(0, 1)
+        ).views[0]
+        supplied = make_scene(
+            [bvh], [bvh.node_positions()[:1] * 0.0254], "front", ["metres"], canonical_floor=False
+        ).views[0]
         assert supplied.coords_per_rest_unit == pytest.approx(0.0254)
         matched = Scene(views=[in_file_unit, supplied]).size_matched()
         first, second = matched.views
         assert second.body_size == pytest.approx(first.body_size)
-        assert _height_at_frame_0(second) == pytest.approx(
-            _height_at_frame_0(first))
+        assert _height_at_frame_0(second) == pytest.approx(_height_at_frame_0(first))
         assert second.label == "metres ×39"
 
     @staticmethod
@@ -706,13 +743,11 @@ class TestSizeMatched:
         if moving:
             coords[:, 0, 2] = np.arange(12.0)
         view = make_bare_view(coords, np.zeros((1, 3)), [])
-        assert view.body_size_measure == (
-            "clip extent" if moving else "default")
+        assert view.body_size_measure == ("clip extent" if moving else "default")
         return view
 
     @pytest.mark.parametrize("moving", [True, False])
-    def test_a_view_with_no_body_measure_keeps_its_size_and_warns(
-            self, moving):
+    def test_a_view_with_no_body_measure_keeps_its_size_and_warns(self, moving):
         """A clip extent or a default is not a body's size: matching
         the first body to it would draw the skeleton at a size nobody
         measured. The view is drawn at its own size and its label
@@ -727,11 +762,14 @@ class TestSizeMatched:
         assert matched.views[1] == bodiless
         assert matched.views[2].label == "big ×0.14"
 
-    @pytest.mark.parametrize("factors, message", [
-        ([1.0], "factors"),
-        ([1.0, 0.0], "positive"),
-        ([1.0, float("nan")], "positive"),
-    ])
+    @pytest.mark.parametrize(
+        "factors, message",
+        [
+            ([1.0], "factors"),
+            ([1.0, 0.0], "positive"),
+            ([1.0, float("nan")], "positive"),
+        ],
+    )
     def test_scaled_takes_one_positive_factor_per_view(self, factors, message):
         with pytest.raises(ValueError, match=message):
             make_array_scene(n_skeletons=2).scaled(factors)
@@ -756,8 +794,7 @@ class TestLoopedScene:
         shown = [0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 1]
         for view, original in zip(looped.views, scene.views):
             np.testing.assert_array_equal(view.coords, original.coords[shown])
-            np.testing.assert_array_equal(
-                view.root_heading, original.root_heading[shown])
+            np.testing.assert_array_equal(view.root_heading, original.root_heading[shown])
             assert view.frame_time == original.frame_time
             assert view.floor_height == original.floor_height
             assert view.label == original.label
@@ -776,16 +813,14 @@ class TestLoopedScene:
     def test_looping_to_the_clips_own_length_is_one_pass(self):
         scene = make_array_scene(n_frames=5)
         looped = scene.looped(5)
-        np.testing.assert_array_equal(
-            looped.views[0].coords, scene.views[0].coords)
+        np.testing.assert_array_equal(looped.views[0].coords, scene.views[0].coords)
         assert looped.pass_length == 5
 
     def test_looping_again_keeps_the_clips_pass(self):
         scene = make_array_scene(n_frames=5)
         twice = scene.looped(7).looped(12)
         assert twice.pass_length == 5
-        np.testing.assert_array_equal(
-            twice.views[0].coords, scene.looped(12).views[0].coords)
+        np.testing.assert_array_equal(twice.views[0].coords, scene.looped(12).views[0].coords)
 
     def test_looped_cannot_shorten_the_scene(self):
         with pytest.raises(ValueError, match="num_frames"):
@@ -839,8 +874,7 @@ class TestBodySize:
         in another: the stick person's rest pose stands along y while
         the clip is z up. Its z extent is its depth (zero here), not
         its height."""
-        view = dataclasses.replace(
-            make_array_view(), up="+z", forward_axis="+x", rest_up="+y")
+        view = dataclasses.replace(make_array_view(), up="+z", forward_axis="+x", rest_up="+y")
         assert view.body_size == pytest.approx(1.8)
 
     def test_is_in_the_unit_of_the_coords(self):
@@ -868,8 +902,7 @@ class TestBodySize:
         placed on their parent). Most of this one's bones have no rest
         length; its coords, in centimetres against a rest pose in
         metres, still draw a body 100 times the rest height."""
-        rest = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
-                         [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
+        rest = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
         bones = [(0, 1), (1, 2), (1, 3)]
         view = make_bare_view(100.0 * rest[np.newaxis], rest, bones)
         assert view.body_size == pytest.approx(100.0)
@@ -881,8 +914,8 @@ class TestBodySize:
         pose in metres, and the body is the 180 its clip spans, not
         the rest pose's 1.8."""
         from synthetic_scene import REST_COORDS
-        view = make_bare_view(100.0 * REST_COORDS[np.newaxis],
-                              REST_COORDS, [])
+
+        view = make_bare_view(100.0 * REST_COORDS[np.newaxis], REST_COORDS, [])
         assert view.body_size == pytest.approx(180.0)
         assert view.body_size_measure == "clip extent"
 
@@ -891,6 +924,7 @@ class TestBodySize:
         length to compare with the rest pose's: no ratio, rather than a
         ratio of 0 that reads as a measurement."""
         from synthetic_scene import BONES, REST_COORDS
+
         coords = np.zeros((2, len(REST_COORDS), 3))
         coords[1, :, 2] = 5.0
         view = make_bare_view(coords, REST_COORDS, BONES)
@@ -923,8 +957,7 @@ class TestBodySize:
     def test_a_clip_at_one_point_gets_the_stated_default(self):
         """Nothing to measure: one unit of the coords, and the measure
         says it was not measured."""
-        view = make_bare_view(np.zeros((5, 3, 3)), np.zeros((3, 3)),
-                              [(0, 1), (1, 2)])
+        view = make_bare_view(np.zeros((5, 3, 3)), np.zeros((3, 3)), [(0, 1), (1, 2)])
         assert view.body_size == 1.0
         assert view.body_size_measure == "default"
 
@@ -963,44 +996,41 @@ class TestViewIsCheckedAtConstruction:
         view = make_array_view(n_frames=5)
         assert view.coords.shape[0] == 5
 
-    @pytest.mark.parametrize("changes, message", [
-        (dict(coords=np.zeros((9, 3))), "coords must have shape"),
-        (dict(coords=np.zeros((4, 9, 2))), "coords must have shape"),
-        (dict(coords=np.zeros((0, 9, 3)), root_heading=None),
-         "at least one frame"),
-        (dict(coords=np.zeros((4, 0, 3)), node_names=[],
-              rest_coords=np.zeros((0, 3))), "at least one frame"),
-        (dict(up="y"), "up must be one of"),
-        (dict(up="+Y"), "up must be one of"),
-        (dict(up="up"), "up must be one of"),
-        (dict(rest_up="y"), "rest_up must be one of"),
-        (dict(forward_axis="z"), "forward_axis must be one of"),
-        (dict(forward_axis="-y"), "lies along the up axis"),
-        (dict(node_names=["only"]), "node_names has 1 entries"),
-        (dict(rest_coords=np.zeros((4, 3))), "rest_coords must have shape"),
-        (dict(bone_chains=["spine"]), "bone_chains has 1 entries"),
-        (dict(bones=[(0, 9)], bone_chains=["spine"]),
-         r"bones names nodes \[9\]"),
-        (dict(bones=[(-1, 2)], bone_chains=["spine"]),
-         r"bones names nodes \[-1\]"),
-        (dict(lr_pairs=np.array([[3, 12]])), r"lr_pairs names nodes \[12\]"),
-        (dict(lr_pairs=np.array([3, 5])), "lr_pairs must be"),
-        (dict(lr_pairs=np.empty((3, 0), dtype=np.intp)), "lr_pairs must be"),
-        (dict(lr_pairs=np.array([[0.0, 1.5]])),
-         "lr_pairs must hold integer node indices"),
-        (dict(lr_pairs=np.array([[0.0, np.nan]])),
-         "lr_pairs must hold integer node indices"),
-        (dict(bones=[(0, 1.5)], bone_chains=["spine"]),
-         "bones must hold integer node indices"),
-        (dict(bones=[(0, 1, 2)], bone_chains=["spine"]), "bones must be"),
-        (dict(root_heading=np.zeros((3, 2))), "root_heading must have shape"),
-        (dict(root_heading=np.zeros((12, 3))), "root_heading must have shape"),
-        (dict(frame_time=-0.01), "frame_time must be a number of seconds"),
-        (dict(frame_time=float("nan")),
-         "frame_time must be a number of seconds"),
-        (dict(frame_time=float("inf")),
-         "frame_time must be a number of seconds"),
-    ])
+    @pytest.mark.parametrize(
+        "changes, message",
+        [
+            (dict(coords=np.zeros((9, 3))), "coords must have shape"),
+            (dict(coords=np.zeros((4, 9, 2))), "coords must have shape"),
+            (dict(coords=np.zeros((0, 9, 3)), root_heading=None), "at least one frame"),
+            (
+                dict(coords=np.zeros((4, 0, 3)), node_names=[], rest_coords=np.zeros((0, 3))),
+                "at least one frame",
+            ),
+            (dict(up="y"), "up must be one of"),
+            (dict(up="+Y"), "up must be one of"),
+            (dict(up="up"), "up must be one of"),
+            (dict(rest_up="y"), "rest_up must be one of"),
+            (dict(forward_axis="z"), "forward_axis must be one of"),
+            (dict(forward_axis="-y"), "lies along the up axis"),
+            (dict(node_names=["only"]), "node_names has 1 entries"),
+            (dict(rest_coords=np.zeros((4, 3))), "rest_coords must have shape"),
+            (dict(bone_chains=["spine"]), "bone_chains has 1 entries"),
+            (dict(bones=[(0, 9)], bone_chains=["spine"]), r"bones names nodes \[9\]"),
+            (dict(bones=[(-1, 2)], bone_chains=["spine"]), r"bones names nodes \[-1\]"),
+            (dict(lr_pairs=np.array([[3, 12]])), r"lr_pairs names nodes \[12\]"),
+            (dict(lr_pairs=np.array([3, 5])), "lr_pairs must be"),
+            (dict(lr_pairs=np.empty((3, 0), dtype=np.intp)), "lr_pairs must be"),
+            (dict(lr_pairs=np.array([[0.0, 1.5]])), "lr_pairs must hold integer node indices"),
+            (dict(lr_pairs=np.array([[0.0, np.nan]])), "lr_pairs must hold integer node indices"),
+            (dict(bones=[(0, 1.5)], bone_chains=["spine"]), "bones must hold integer node indices"),
+            (dict(bones=[(0, 1, 2)], bone_chains=["spine"]), "bones must be"),
+            (dict(root_heading=np.zeros((3, 2))), "root_heading must have shape"),
+            (dict(root_heading=np.zeros((12, 3))), "root_heading must have shape"),
+            (dict(frame_time=-0.01), "frame_time must be a number of seconds"),
+            (dict(frame_time=float("nan")), "frame_time must be a number of seconds"),
+            (dict(frame_time=float("inf")), "frame_time must be a number of seconds"),
+        ],
+    )
     def test_an_inconsistent_view_raises(self, changes, message):
         view = make_array_view(n_frames=12)
         with pytest.raises(ValueError, match=message):
@@ -1008,17 +1038,21 @@ class TestViewIsCheckedAtConstruction:
 
     def test_a_view_without_pairs_or_heading_builds(self):
         view = dataclasses.replace(
-            make_array_view(), root_heading=None,
-            lr_pairs=np.empty((0, 2), dtype=np.intp))
+            make_array_view(), root_heading=None, lr_pairs=np.empty((0, 2), dtype=np.intp)
+        )
         assert view.root_heading is None
         assert view.lr_pairs.shape == (0, 2)
 
     def test_a_view_with_one_node_and_no_bones_builds(self):
         view = dataclasses.replace(
             make_array_view(n_frames=3),
-            coords=np.zeros((3, 1, 3)), rest_coords=np.zeros((1, 3)),
-            node_names=["Hips"], bones=[], bone_chains=[],
-            lr_pairs=np.empty((0, 2), dtype=np.intp))
+            coords=np.zeros((3, 1, 3)),
+            rest_coords=np.zeros((1, 3)),
+            node_names=["Hips"],
+            bones=[],
+            bone_chains=[],
+            lr_pairs=np.empty((0, 2), dtype=np.intp),
+        )
         assert view.bones == []
 
     def test_an_unset_frame_time_is_accepted(self, bvh, coords):
@@ -1027,10 +1061,8 @@ class TestViewIsCheckedAtConstruction:
         never read the frame time."""
         unset = bvh.copy()
         unset.frame_time = 0
-        for frames, clip_frames in [(coords[:1], 0), (coords, slice(None)),
-                                    (coords[:1], None)]:
-            view = make_scene([unset], [frames], "front", None,
-                              clip_frames=clip_frames).views[0]
+        for frames, clip_frames in [(coords[:1], 0), (coords, slice(None)), (coords[:1], None)]:
+            view = make_scene([unset], [frames], "front", None, clip_frames=clip_frames).views[0]
             assert view.frame_time == 0.0
 
     def test_a_bvh_built_view_is_checked_too(self, bvh, coords):
@@ -1058,40 +1090,44 @@ class TestViewArraysAreReadOnly:
 
     @pytest.mark.parametrize("name", ARRAYS)
     def test_a_bvh_built_view_is_read_only_too(self, bvh, coords, name):
-        view = make_scene(
-            [bvh], [coords], "front", None, clip_frames=slice(None)).views[0]
+        view = make_scene([bvh], [coords], "front", None, clip_frames=slice(None)).views[0]
         assert not getattr(view, name).flags.writeable
 
     @pytest.mark.parametrize("name", ARRAYS)
     def test_the_callers_array_keeps_its_flags_and_is_not_copied(self, name):
         source = make_array_view()
-        mine = np.array(getattr(source, name))    # a writable copy
+        mine = np.array(getattr(source, name))  # a writable copy
         view = dataclasses.replace(source, **{name: mine})
         assert mine.flags.writeable
         assert not getattr(view, name).flags.writeable
         assert np.shares_memory(getattr(view, name), mine)
 
-    @pytest.mark.parametrize("rebuild", [
-        copy.copy,
-        copy.deepcopy,
-        lambda view: pickle.loads(pickle.dumps(view)),
-        lambda view: pickle.loads(pickle.dumps(view, protocol=5)),
-    ])
+    @pytest.mark.parametrize(
+        "rebuild",
+        [
+            copy.copy,
+            copy.deepcopy,
+            lambda view: pickle.loads(pickle.dumps(view)),
+            lambda view: pickle.loads(pickle.dumps(view, protocol=5)),
+        ],
+    )
     def test_a_copied_or_unpickled_view_is_read_only_too(self, rebuild):
         original = make_array_view()
         rebuilt = rebuild(original)
         for name in self.ARRAYS:
             assert not getattr(rebuilt, name).flags.writeable
-            np.testing.assert_array_equal(
-                getattr(rebuilt, name), getattr(original, name))
+            np.testing.assert_array_equal(getattr(rebuilt, name), getattr(original, name))
         assert rebuilt.up == original.up
 
-    @pytest.mark.parametrize("operation", [
-        lambda scene: scene.subsampled(2),
-        lambda scene: scene.spread(1.5),
-        lambda scene: scene.offset([np.ones(3), np.ones(3)]),
-        lambda scene: scene.looped(30),
-    ])
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            lambda scene: scene.subsampled(2),
+            lambda scene: scene.spread(1.5),
+            lambda scene: scene.offset([np.ones(3), np.ones(3)]),
+            lambda scene: scene.looped(30),
+        ],
+    )
     def test_operations_return_read_only_views(self, operation):
         scene = operation(make_array_scene(n_frames=12, n_skeletons=2))
         for view in scene.views:
@@ -1104,8 +1140,8 @@ class TestViewArraysAreReadOnly:
 
     def test_array_likes_are_accepted(self):
         view = dataclasses.replace(
-            make_array_view(), rest_coords=make_array_view().rest_coords.tolist(),
-            lr_pairs=[[3, 5]])
+            make_array_view(), rest_coords=make_array_view().rest_coords.tolist(), lr_pairs=[[3, 5]]
+        )
         assert view.rest_coords.shape == (9, 3)
         assert view.lr_pairs.shape == (1, 2)
 
@@ -1123,8 +1159,7 @@ class TestSceneIsCheckedAtConstruction:
     def test_views_may_differ_in_frame_time(self):
         """The router only warns on a rate mismatch unless asked to
         resample, so a Scene must accept it."""
-        views = [make_array_view(frame_time=1 / 30),
-                 make_array_view(frame_time=1 / 60)]
+        views = [make_array_view(frame_time=1 / 30), make_array_view(frame_time=1 / 60)]
         assert Scene(views=views).frame_time == 1 / 30
 
     def test_operations_keep_a_scene_valid(self):
@@ -1138,8 +1173,18 @@ class TestSceneIsCheckedAtConstruction:
 # only the router imports _from_bvh; every other module draws or computes
 # from the Scene and takes nothing from the core at runtime, except the
 # viewport, which may take array kernels.
-_CORE_MODULES = {"bvh", "bvhnode", "tools", "analysis", "transforms",
-                 "spatial_coord", "batch", "features", "io", "df_to_bvh"}
+_CORE_MODULES = {
+    "bvh",
+    "bvhnode",
+    "tools",
+    "analysis",
+    "transforms",
+    "spatial_coord",
+    "batch",
+    "features",
+    "io",
+    "df_to_bvh",
+}
 _ROUTER = "__init__"
 _BVH_READER = "_from_bvh"
 # Pure data: no plotting library may be imported here.
@@ -1161,8 +1206,7 @@ def _bvhplot_modules() -> list[str]:
 
 
 # Everything except the router and the Bvh reader.
-_BEHIND_THE_BOUNDARY = [name for name in _bvhplot_modules()
-                        if name not in (_ROUTER, _BVH_READER)]
+_BEHIND_THE_BOUNDARY = [name for name in _bvhplot_modules() if name not in (_ROUTER, _BVH_READER)]
 # ... of which the viewport alone may take array kernels from the core.
 _CORE_FREE = [name for name in _BEHIND_THE_BOUNDARY if name != "_viewport"]
 
@@ -1174,8 +1218,11 @@ def _is_core_module(dotted: str, level: int) -> bool:
     An explicit ``__init__`` component is the package root spelled out."""
     parts = [p for p in dotted.split(".") if p and p != "__init__"]
     if level == 0:
-        return (len(parts) >= 1 and parts[0] == "pybvh"
-                and (len(parts) == 1 or parts[1] in _CORE_MODULES))
+        return (
+            len(parts) >= 1
+            and parts[0] == "pybvh"
+            and (len(parts) == 1 or parts[1] in _CORE_MODULES)
+        )
     if level == 2:
         return not parts or parts[0] in _CORE_MODULES
     return False
@@ -1194,40 +1241,40 @@ def _typing_guard_names(tree: ast.Module) -> set[str]:
     counts as runtime."""
     bindings: dict[str, list[bool]] = {"TYPE_CHECKING": [], "typing": []}
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and any(
-                alias.name == "*" for alias in node.names):
+        if isinstance(node, ast.ImportFrom) and any(alias.name == "*" for alias in node.names):
             return set()  # a star import may rebind either name unseen
-        if (isinstance(node, ast.Attribute)
-                and node.attr == "TYPE_CHECKING"
-                and not isinstance(node.ctx, ast.Load)):
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr == "TYPE_CHECKING"
+            and not isinstance(node.ctx, ast.Load)
+        ):
             return set()  # typing.TYPE_CHECKING = ... changes its value
         if isinstance(node, ast.ImportFrom):
             for alias in node.names:
                 bound = alias.asname or alias.name
                 if bound in bindings:
                     bindings[bound].append(
-                        node.level == 0 and node.module == "typing"
+                        node.level == 0
+                        and node.module == "typing"
                         and alias.name == "TYPE_CHECKING"
-                        and alias.asname is None)
+                        and alias.asname is None
+                    )
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 bound = alias.asname or alias.name.split(".")[0]
                 if bound in bindings:
-                    bindings[bound].append(
-                        alias.name == "typing" and alias.asname is None)
+                    bindings[bound].append(alias.name == "typing" and alias.asname is None)
         elif isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
             if node.id in bindings:
                 bindings[node.id].append(False)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
-                               ast.ClassDef)):
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             if node.name in bindings:
                 bindings[node.name].append(False)
         elif isinstance(node, ast.arg) and node.arg in bindings:
             bindings[node.arg].append(False)
         elif isinstance(node, ast.ExceptHandler) and node.name in bindings:
             bindings[node.name].append(False)
-    return {name for name, seen in bindings.items()
-            if len(seen) == 1 and seen[0]}
+    return {name for name, seen in bindings.items() if len(seen) == 1 and seen[0]}
 
 
 def _is_type_checking_test(test: ast.expr, guard_names: set[str]) -> bool:
@@ -1237,9 +1284,13 @@ def _is_type_checking_test(test: ast.expr, guard_names: set[str]) -> bool:
     an ordinary runtime condition."""
     if isinstance(test, ast.Name):
         return test.id == "TYPE_CHECKING" and "TYPE_CHECKING" in guard_names
-    return (isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
-            and isinstance(test.value, ast.Name) and test.value.id == "typing"
-            and "typing" in guard_names)
+    return (
+        isinstance(test, ast.Attribute)
+        and test.attr == "TYPE_CHECKING"
+        and isinstance(test.value, ast.Name)
+        and test.value.id == "typing"
+        and "typing" in guard_names
+    )
 
 
 def _core_imports_in_source(source: str) -> list[tuple[int, str | None, list[str]]]:
@@ -1258,19 +1309,16 @@ def _core_imports_in_source(source: str) -> list[tuple[int, str | None, list[str
         for node in nodes:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 visit(node.body, node.name, type_only)
-            elif (isinstance(node, ast.If)
-                    and _is_type_checking_test(node.test, guard_names)):
+            elif isinstance(node, ast.If) and _is_type_checking_test(node.test, guard_names):
                 visit(node.body, func, True)
                 visit(node.orelse, func, type_only)
             elif type_only:
                 continue
             elif isinstance(node, ast.ImportFrom):
                 if _is_core_module(node.module or "", node.level):
-                    found.append((node.lineno, func,
-                                  [a.name for a in node.names]))
+                    found.append((node.lineno, func, [a.name for a in node.names]))
             elif isinstance(node, ast.Import):
-                names = [a.name for a in node.names
-                         if _is_core_module(a.name, 0)]
+                names = [a.name for a in node.names if _is_core_module(a.name, 0)]
                 if names:
                     found.append((node.lineno, func, names))
             else:
@@ -1288,12 +1336,12 @@ def _sibling_imports_in_source(source: str, sibling: str) -> list[int]:
     found: list[int] = []
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
-            if any(alias.name.split(".")[:3] == ["pybvh", "bvhplot", sibling]
-                   for alias in node.names):
+            if any(
+                alias.name.split(".")[:3] == ["pybvh", "bvhplot", sibling] for alias in node.names
+            ):
                 found.append(node.lineno)
         elif isinstance(node, ast.ImportFrom):
-            parts = [p for p in (node.module or "").split(".")
-                     if p and p != "__init__"]
+            parts = [p for p in (node.module or "").split(".") if p and p != "__init__"]
             if node.level == 0 and parts[:2] == ["pybvh", "bvhplot"]:
                 parts = parts[2:]
             elif node.level == 2 and parts[:1] == ["bvhplot"]:
@@ -1301,14 +1349,15 @@ def _sibling_imports_in_source(source: str, sibling: str) -> list[int]:
             elif node.level != 1:
                 continue
             if parts[:1] == [sibling] or (
-                    not parts
-                    and any(alias.name == sibling for alias in node.names)):
+                not parts and any(alias.name == sibling for alias in node.names)
+            ):
                 found.append(node.lineno)
     return found
 
 
 def _router_imports_in_source(
-    source: str, modules: set[str],
+    source: str,
+    modules: set[str],
 ) -> list[tuple[int, list[str]]]:
     """Every import statement in ``source`` that reaches the router (the
     bvhplot package root): (line, names).
@@ -1329,25 +1378,22 @@ def _router_imports_in_source(
             names = []
             for alias in node.names:
                 parts = [p for p in alias.name.split(".") if p != "__init__"]
-                if parts[:2] == ["pybvh", "bvhplot"] and (
-                        len(parts) == 2 or alias.asname is None):
+                if parts[:2] == ["pybvh", "bvhplot"] and (len(parts) == 2 or alias.asname is None):
                     names.append(alias.name)
             if names:
                 found.append((node.lineno, names))
         elif isinstance(node, ast.ImportFrom):
-            parts = [p for p in (node.module or "").split(".")
-                     if p and p != "__init__"]
-            at_root = ((node.level == 1 and not parts)
-                       or (node.level == 0 and parts == ["pybvh", "bvhplot"])
-                       or (node.level == 2 and parts == ["bvhplot"]))
-            above_root = ((node.level == 0 and parts == ["pybvh"])
-                          or (node.level == 2 and not parts))
+            parts = [p for p in (node.module or "").split(".") if p and p != "__init__"]
+            at_root = (
+                (node.level == 1 and not parts)
+                or (node.level == 0 and parts == ["pybvh", "bvhplot"])
+                or (node.level == 2 and parts == ["bvhplot"])
+            )
+            above_root = (node.level == 0 and parts == ["pybvh"]) or (node.level == 2 and not parts)
             if at_root:
-                names = [alias.name for alias in node.names
-                         if alias.name not in modules]
+                names = [alias.name for alias in node.names if alias.name not in modules]
             elif above_root:
-                names = [alias.name for alias in node.names
-                         if alias.name == "bvhplot"]
+                names = [alias.name for alias in node.names if alias.name == "bvhplot"]
             else:
                 names = []
             if names:
@@ -1364,31 +1410,34 @@ class TestCoreImportGuard:
     """The guard itself, against small sources: a checker that misses a
     spelling proves nothing about the modules it passes."""
 
-    @pytest.mark.parametrize("line", [
-        "from ..bvh import Bvh",
-        "from ..tools import _compute_forward_at",
-        "from .. import tools",
-        "from .. import Bvh, analysis",
-        "from pybvh.tools import extract_sign",
-        "from pybvh import Bvh",
-        "import pybvh.tools",
-        "import pybvh.analysis as analysis",
-        "import pybvh",
-        "from pybvh.__init__ import Bvh",
-        "from ..__init__ import Bvh",
-    ])
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "from ..bvh import Bvh",
+            "from ..tools import _compute_forward_at",
+            "from .. import tools",
+            "from .. import Bvh, analysis",
+            "from pybvh.tools import extract_sign",
+            "from pybvh import Bvh",
+            "import pybvh.tools",
+            "import pybvh.analysis as analysis",
+            "import pybvh",
+            "from pybvh.__init__ import Bvh",
+            "from ..__init__ import Bvh",
+        ],
+    )
     def test_flags_every_spelling_of_a_core_import(self, line):
         found = _core_imports_in_source(line)
         assert [(lineno, func) for lineno, func, _ in found] == [(1, None)]
 
-    @pytest.mark.parametrize("prelude", [
-        "import typing\ntyping.TYPE_CHECKING = True\n"
-        "if typing.TYPE_CHECKING:\n",
-        "from typing import TYPE_CHECKING\nfrom flags import *\n"
-        "if TYPE_CHECKING:\n",
-    ])
-    def test_a_guard_that_may_have_been_overwritten_is_runtime(
-            self, prelude):
+    @pytest.mark.parametrize(
+        "prelude",
+        [
+            "import typing\ntyping.TYPE_CHECKING = True\nif typing.TYPE_CHECKING:\n",
+            "from typing import TYPE_CHECKING\nfrom flags import *\nif TYPE_CHECKING:\n",
+        ],
+    )
+    def test_a_guard_that_may_have_been_overwritten_is_runtime(self, prelude):
         found = _core_imports_in_source(prelude + "    import pybvh.tools\n")
         assert [names for _, _, names in found] == [["pybvh.tools"]]
 
@@ -1401,17 +1450,19 @@ class TestCoreImportGuard:
             "    if TYPE_CHECKING:\n"
             "        import pybvh.tools\n"
         )
-        assert [lineno for lineno, _, _ in
-                _core_imports_in_source(source)] == [6]
+        assert [lineno for lineno, _, _ in _core_imports_in_source(source)] == [6]
 
-    @pytest.mark.parametrize("line", [
-        "from ._scene import Scene",
-        "from . import _colors",
-        "from ..bvhplot._scene import Scene",
-        "import numpy as np",
-        "import matplotlib.pyplot as plt",
-        "from typing import TYPE_CHECKING",
-    ])
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "from ._scene import Scene",
+            "from . import _colors",
+            "from ..bvhplot._scene import Scene",
+            "import numpy as np",
+            "import matplotlib.pyplot as plt",
+            "from typing import TYPE_CHECKING",
+        ],
+    )
     def test_passes_non_core_imports(self, line):
         assert _core_imports_in_source(line) == []
 
@@ -1423,15 +1474,10 @@ class TestCoreImportGuard:
             "else:\n"
             "    from ..tools import extract_sign\n"
         )
-        assert _core_imports_in_source(source) == [
-            (5, None, ["extract_sign"])]
+        assert _core_imports_in_source(source) == [(5, None, ["extract_sign"])]
 
     def test_qualified_type_checking_guard_is_recognised(self):
-        source = (
-            "import typing\n"
-            "if typing.TYPE_CHECKING:\n"
-            "    from ..bvh import Bvh\n"
-        )
+        source = "import typing\nif typing.TYPE_CHECKING:\n    from ..bvh import Bvh\n"
         assert _core_imports_in_source(source) == []
 
     def test_only_typings_type_checking_is_type_only(self):
@@ -1443,23 +1489,26 @@ class TestCoreImportGuard:
         )
         assert _core_imports_in_source(source) == [(4, None, ["pybvh.tools"])]
 
-    @pytest.mark.parametrize("source", [
-        # bare guard with no typing import behind it
-        "if TYPE_CHECKING:\n    import pybvh.tools\n",
-        # rebound after the import
-        "from typing import TYPE_CHECKING\nTYPE_CHECKING = True\n"
-        "if TYPE_CHECKING:\n    import pybvh.tools\n",
-        # `typing` is not the typing module
-        "from types import SimpleNamespace\n"
-        "typing = SimpleNamespace(TYPE_CHECKING=True)\n"
-        "if typing.TYPE_CHECKING:\n    import pybvh.tools\n",
-        # shadowed by a parameter
-        "from typing import TYPE_CHECKING\n"
-        "def f(TYPE_CHECKING):\n"
-        "    if TYPE_CHECKING:\n        import pybvh.tools\n",
-        # aliased import is not recognised, so its block is runtime
-        "import typing as t\nif t.TYPE_CHECKING:\n    import pybvh.tools\n",
-    ])
+    @pytest.mark.parametrize(
+        "source",
+        [
+            # bare guard with no typing import behind it
+            "if TYPE_CHECKING:\n    import pybvh.tools\n",
+            # rebound after the import
+            "from typing import TYPE_CHECKING\nTYPE_CHECKING = True\n"
+            "if TYPE_CHECKING:\n    import pybvh.tools\n",
+            # `typing` is not the typing module
+            "from types import SimpleNamespace\n"
+            "typing = SimpleNamespace(TYPE_CHECKING=True)\n"
+            "if typing.TYPE_CHECKING:\n    import pybvh.tools\n",
+            # shadowed by a parameter
+            "from typing import TYPE_CHECKING\n"
+            "def f(TYPE_CHECKING):\n"
+            "    if TYPE_CHECKING:\n        import pybvh.tools\n",
+            # aliased import is not recognised, so its block is runtime
+            "import typing as t\nif t.TYPE_CHECKING:\n    import pybvh.tools\n",
+        ],
+    )
     def test_a_shadowed_or_unbound_guard_is_a_runtime_condition(self, source):
         found = _core_imports_in_source(source)
         assert [names for _, _, names in found] == [["pybvh.tools"]]
@@ -1472,84 +1521,103 @@ class TestCoreImportGuard:
             "    from .. import analysis\n"
         )
         assert _core_imports_in_source(source) == [
-            (3, "inner", ["pybvh.tools"]), (4, "outer", ["analysis"])]
+            (3, "inner", ["pybvh.tools"]),
+            (4, "outer", ["analysis"]),
+        ]
 
 
 class TestSiblingImportGuard:
     """The second guard, against small sources."""
 
-    @pytest.mark.parametrize("line", [
-        "from ._from_bvh import make_scene",
-        "from . import _from_bvh",
-        "from . import _colors, _from_bvh",
-        "from pybvh.bvhplot._from_bvh import make_scene",
-        "from pybvh.bvhplot import _from_bvh",
-        "from ..bvhplot._from_bvh import make_scene",
-        "from ..bvhplot import _from_bvh",
-        "import pybvh.bvhplot._from_bvh",
-        "import pybvh.bvhplot._from_bvh as reader",
-        "if TYPE_CHECKING:\n    from ._from_bvh import make_scene",
-        "def f():\n    from ._from_bvh import make_scene",
-    ])
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "from ._from_bvh import make_scene",
+            "from . import _from_bvh",
+            "from . import _colors, _from_bvh",
+            "from pybvh.bvhplot._from_bvh import make_scene",
+            "from pybvh.bvhplot import _from_bvh",
+            "from ..bvhplot._from_bvh import make_scene",
+            "from ..bvhplot import _from_bvh",
+            "import pybvh.bvhplot._from_bvh",
+            "import pybvh.bvhplot._from_bvh as reader",
+            "if TYPE_CHECKING:\n    from ._from_bvh import make_scene",
+            "def f():\n    from ._from_bvh import make_scene",
+        ],
+    )
     def test_flags_every_spelling(self, line):
         assert len(_sibling_imports_in_source(line, "_from_bvh")) == 1
 
-    @pytest.mark.parametrize("line", [
-        "from ._scene import Scene",
-        "from . import _colors",
-        "from ._from_bvh_notes import x",
-        "from pybvh.bvhplot import Style",
-        "import pybvh.bvhplot",
-        "from .. import tools",
-    ])
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "from ._scene import Scene",
+            "from . import _colors",
+            "from ._from_bvh_notes import x",
+            "from pybvh.bvhplot import Style",
+            "import pybvh.bvhplot",
+            "from .. import tools",
+        ],
+    )
     def test_passes_other_imports(self, line):
         assert _sibling_imports_in_source(line, "_from_bvh") == []
 
-    @pytest.mark.parametrize("line", [
-        "from . import make_scene",
-        "from . import _colors, make_scene",
-        "from pybvh.bvhplot import make_scene",
-        "from ..bvhplot import Style",
-        "from . import *",
-        "from .__init__ import make_scene",
-        "from pybvh.bvhplot.__init__ import make_scene as reader",
-        "from ..bvhplot.__init__ import normalize_input",
-    ])
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "from . import make_scene",
+            "from . import _colors, make_scene",
+            "from pybvh.bvhplot import make_scene",
+            "from ..bvhplot import Style",
+            "from . import *",
+            "from .__init__ import make_scene",
+            "from pybvh.bvhplot.__init__ import make_scene as reader",
+            "from ..bvhplot.__init__ import normalize_input",
+        ],
+    )
     def test_flags_names_taken_from_the_router(self, line):
         found = _router_imports_in_source(line, {"_colors", "_scene"})
         assert [lineno for lineno, _ in found] == [1]
 
-    @pytest.mark.parametrize("line", [
-        "import pybvh.bvhplot",
-        "import pybvh.bvhplot as router",
-        "import pybvh.bvhplot.__init__ as router",
-        "import pybvh.bvhplot._scene",
-        "from pybvh import bvhplot",
-        "from pybvh import bvhplot as router",
-        "from .. import bvhplot",
-        "from ..__init__ import bvhplot",
-    ])
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "import pybvh.bvhplot",
+            "import pybvh.bvhplot as router",
+            "import pybvh.bvhplot.__init__ as router",
+            "import pybvh.bvhplot._scene",
+            "from pybvh import bvhplot",
+            "from pybvh import bvhplot as router",
+            "from .. import bvhplot",
+            "from ..__init__ import bvhplot",
+        ],
+    )
     def test_flags_the_router_taken_whole(self, line):
         found = _router_imports_in_source(line, {"_colors", "_scene"})
         assert [lineno for lineno, _ in found] == [1]
 
-    @pytest.mark.parametrize("line", [
-        "from . import _colors",
-        "from . import _colors, _scene",
-        "from ._scene import Scene",
-        "from pybvh.bvhplot._style import Style",
-        "import pybvh.bvhplot._scene as scene",
-        "from .. import tools",
-        "import numpy as np",
-    ])
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "from . import _colors",
+            "from . import _colors, _scene",
+            "from ._scene import Scene",
+            "from pybvh.bvhplot._style import Style",
+            "import pybvh.bvhplot._scene as scene",
+            "from .. import tools",
+            "import numpy as np",
+        ],
+    )
     def test_passes_sibling_modules_and_other_packages(self, line):
-        assert _router_imports_in_source(
-            line, {"_colors", "_scene"}) == []
+        assert _router_imports_in_source(line, {"_colors", "_scene"}) == []
 
-    @pytest.mark.parametrize("line", [
-        "from .__init__ import _from_bvh",
-        "from pybvh.bvhplot.__init__ import _from_bvh",
-    ])
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "from .__init__ import _from_bvh",
+            "from pybvh.bvhplot.__init__ import _from_bvh",
+        ],
+    )
     def test_flags_the_reader_taken_through_an_explicit_init(self, line):
         assert len(_sibling_imports_in_source(line, "_from_bvh")) == 1
 
@@ -1564,16 +1632,14 @@ class TestSceneIsPureData:
         imported: set[str] = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
-                imported.update(alias.name.split(".")[0]
-                                for alias in node.names)
+                imported.update(alias.name.split(".")[0] for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imported.add(node.module.split(".")[0])
 
-        forbidden = {"matplotlib", "mpl_toolkits", "cv2", "k3d", "vedo",
-                     "PIL", "vtk", "vtkmodules"}
+        forbidden = {"matplotlib", "mpl_toolkits", "cv2", "k3d", "vedo", "PIL", "vtk", "vtkmodules"}
         assert not (imported & forbidden), (
-            f"{module_name} must stay plotting-free but imports "
-            f"{sorted(imported & forbidden)}")
+            f"{module_name} must stay plotting-free but imports {sorted(imported & forbidden)}"
+        )
 
     def test_view_has_no_bvh_field(self):
         """The seam is real only if a view cannot hand a backend a Bvh."""
@@ -1588,17 +1654,29 @@ class TestSceneIsPureData:
         nested = sorted(
             str(path.relative_to(package_dir))
             for path in package_dir.rglob("*.py")
-            if path.parent != package_dir)
+            if path.parent != package_dir
+        )
         assert nested == [], (
             f"bvhplot has modules below its top level, which the import "
-            f"guards do not inspect: {nested}")
+            f"guards do not inspect: {nested}"
+        )
 
     def test_the_boundary_covers_the_package(self):
         """The module list is read from disk; this pins that it finds the
         modules the guards below are about."""
-        assert {"_scene", "_viewport", "_style", "_matplotlib", "_opencv",
-                "_k3d", "_vedo", "_vedo_offscreen", "_vedo_capsules",
-                "_colors", "_playback"} <= set(_BEHIND_THE_BOUNDARY)
+        assert {
+            "_scene",
+            "_viewport",
+            "_style",
+            "_matplotlib",
+            "_opencv",
+            "_k3d",
+            "_vedo",
+            "_vedo_offscreen",
+            "_vedo_capsules",
+            "_colors",
+            "_playback",
+        } <= set(_BEHIND_THE_BOUNDARY)
         assert _BVH_READER in _bvhplot_modules()
 
     @pytest.mark.parametrize("module_name", _CORE_FREE)
@@ -1607,8 +1685,7 @@ class TestSceneIsPureData:
         Bvh, tools or analysis, and neither do the Scene's and the
         Style's own modules. Type-only imports are allowed."""
         offenders = _core_imports_in_source(_module_source(module_name))
-        assert offenders == [], (
-            f"{module_name} imports core modules at runtime: {offenders}")
+        assert offenders == [], f"{module_name} imports core modules at runtime: {offenders}"
 
     @pytest.mark.parametrize("module_name", _BEHIND_THE_BOUNDARY)
     def test_never_reaches_the_router(self, module_name):
@@ -1616,11 +1693,8 @@ class TestSceneIsPureData:
         included. A module behind the boundary takes sibling modules
         from the package; it takes neither a name from the router nor
         the router itself."""
-        offenders = _router_imports_in_source(
-            _module_source(module_name), set(_bvhplot_modules()))
-        assert offenders == [], (
-            f"{module_name} imports the router or names from it: "
-            f"{offenders}")
+        offenders = _router_imports_in_source(_module_source(module_name), set(_bvhplot_modules()))
+        assert offenders == [], f"{module_name} imports the router or names from it: {offenders}"
 
     @pytest.mark.parametrize("module_name", _BEHIND_THE_BOUNDARY)
     def test_only_the_router_imports_the_bvh_reader(self, module_name):
@@ -1632,10 +1706,8 @@ class TestSceneIsPureData:
         importing anything, and ``importlib.import_module`` is not an
         import statement. The router hands backends a Scene and a
         Style, never a Bvh."""
-        offenders = _sibling_imports_in_source(
-            _module_source(module_name), _BVH_READER)
-        assert offenders == [], (
-            f"{module_name} imports {_BVH_READER} at lines {offenders}")
+        offenders = _sibling_imports_in_source(_module_source(module_name), _BVH_READER)
+        assert offenders == [], f"{module_name} imports {_BVH_READER} at lines {offenders}"
 
     def test_viewport_takes_only_array_kernels_from_the_core(self):
         """The viewport is computed at draw time from a view: the only
@@ -1643,8 +1715,7 @@ class TestSceneIsPureData:
         never a Bvh."""
         offenders = [
             (line, func, names)
-            for line, func, names in _core_imports_in_source(
-                _module_source("_viewport"))
-            if not set(names) <= _VIEWPORT_KERNELS]
-        assert offenders == [], (
-            f"_viewport imports more than array kernels: {offenders}")
+            for line, func, names in _core_imports_in_source(_module_source("_viewport"))
+            if not set(names) <= _VIEWPORT_KERNELS
+        ]
+        assert offenders == [], f"_viewport imports more than array kernels: {offenders}"

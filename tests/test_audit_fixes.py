@@ -7,6 +7,7 @@ PASS immediately.
 Groups follow the plan at:
   /home/victor/.claude/plans/logical-wibbling-cook.md
 """
+
 from __future__ import annotations
 
 import sys
@@ -37,6 +38,7 @@ EXAMPLE = str(BVH_DIR / "bvh_example.bvh")
 # ========================================================================
 #  Phase 0 — Synthetic fixture self-tests  (should PASS immediately)
 # ========================================================================
+
 
 class TestSyntheticFixtures:
     """Validate synthetic BVH fixtures are well-formed before using them."""
@@ -132,8 +134,7 @@ class TestSyntheticFixtures:
     # --- Write/read roundtrip ---
 
     def test_write_read_roundtrip(self, tmp_path):
-        for make_fn in [make_pos_y_up_bvh, make_neg_y_up_bvh,
-                        make_pos_z_up_bvh, make_neg_z_up_bvh]:
+        for make_fn in [make_pos_y_up_bvh, make_neg_y_up_bvh, make_pos_z_up_bvh, make_neg_z_up_bvh]:
             bvh = make_fn()
             p = tmp_path / f"{make_fn.__name__}.bvh"
             bvh.write(str(p), verbose=False)
@@ -170,8 +171,8 @@ class TestSyntheticFixtures:
 #  Phase 1 — Group A: up-axis sign  (should FAIL before fix)
 # ========================================================================
 
-class TestUpAxisSign:
 
+class TestUpAxisSign:
     # --- A1: rotate_vertical ---
 
     def test_rotate_vertical_neg_y_up(self):
@@ -186,13 +187,14 @@ class TestUpAxisSign:
         rp = bvh_neg.root_pos.copy()
         rp[:, 1] *= -1
         bvh_neg.root_pos = rp
-        bvh_neg.world_up = '-y'
+        bvh_neg.world_up = "-y"
 
         rot_neg = transforms.rotate_vertical(bvh_neg, np.pi / 2)
         rot_pos_ref = transforms.rotate_vertical(bvh_pos, -np.pi / 2)
         # Ground-plane (X, Z) positions should match
-        npt.assert_allclose(rot_neg.root_pos[:, [0, 2]],
-                            rot_pos_ref.root_pos[:, [0, 2]], atol=1e-10)
+        npt.assert_allclose(
+            rot_neg.root_pos[:, [0, 2]], rot_pos_ref.root_pos[:, [0, 2]], atol=1e-10
+        )
 
     def test_rotate_vertical_neg_z_up(self):
         bvh_pos = make_pos_z_up_bvh()
@@ -207,8 +209,9 @@ class TestUpAxisSign:
 
         rot_neg = transforms.rotate_vertical(bvh_neg, np.pi / 2)
         rot_pos_ref = transforms.rotate_vertical(bvh_pos, -np.pi / 2)
-        npt.assert_allclose(rot_neg.root_pos[:, [0, 1]],
-                            rot_pos_ref.root_pos[:, [0, 1]], atol=1e-10)
+        npt.assert_allclose(
+            rot_neg.root_pos[:, [0, 1]], rot_pos_ref.root_pos[:, [0, 1]], atol=1e-10
+        )
 
     # --- A2: foot_contacts height method ---
 
@@ -264,8 +267,8 @@ class TestUpAxisSign:
 #  Phase 2 — Group B: frequency terminology  (should FAIL before fix)
 # ========================================================================
 
-class TestFrequencyTerminology:
 
+class TestFrequencyTerminology:
     def test_str_no_frequency_word(self):
         bvh = read_bvh_file(EXAMPLE)
         s = str(bvh)
@@ -301,8 +304,8 @@ class TestFrequencyTerminology:
 #  Phase 3 — Group C: world_up cache invalidation  (should FAIL before fix)
 # ========================================================================
 
-class TestWorldUpCacheInvalidation:
 
+class TestWorldUpCacheInvalidation:
     def test_cache_cleared_after_root_pos_assignment(self):
         bvh = make_pos_y_up_bvh()
         bvh._world_up_override = None  # rely on cache
@@ -324,8 +327,8 @@ class TestWorldUpCacheInvalidation:
 #  Phase 4 — Group D: specific bugs  (should FAIL before fix)
 # ========================================================================
 
-class TestScaleRootPos:
 
+class TestScaleRootPos:
     def test_scale_scales_root_pos(self):
         bvh = make_simple_bvh()
         original_pos = bvh.root_pos.copy()
@@ -346,7 +349,6 @@ class TestScaleRootPos:
 
 
 class TestMirrorAnglesEulerOrder:
-
     def test_mirror_angles_heterogeneous_raw(self):
         """Negation uses the source joint's Euler order, not the slot's.
 
@@ -354,21 +356,18 @@ class TestMirrorAnglesEulerOrder:
         is re-expressed in its destination slot's order — compare the
         rotation it encodes, not the raw numbers.
         """
-        angles = np.array([[[10, 20, 30], [40, 50, 60],
-                            [70, 80, 90], [1, 2, 3]]],
-                          dtype=np.float64)
+        angles = np.array([[[10, 20, 30], [40, 50, 60], [70, 80, 90], [1, 2, 3]]], dtype=np.float64)
         root_pos = np.array([[100, 200, 300]], dtype=np.float64)
         lr_pairs = [(1, 2)]
         lateral_idx = 0  # X is lateral
-        rot_channels = [["Z", "Y", "X"], ["Z", "Y", "X"],
-                        ["X", "Y", "Z"], ["Z", "Y", "X"]]
+        rot_channels = [["Z", "Y", "X"], ["Z", "Y", "X"], ["X", "Y", "Z"], ["Z", "Y", "X"]]
         new_angles, _ = transforms.mirror_angles(
-            angles, root_pos, lr_pairs, lateral_idx, rot_channels)
+            angles, root_pos, lr_pairs, lateral_idx, rot_channels
+        )
         # Joint 2's [70,80,90] is read under its own XYZ order, so the
         # non-lateral channels are Y(ch1) and Z(ch2): -> [70,-80,-90].
         # Slot 1 declares ZYX, so it stores that same rotation as ZYX.
-        expected = rotations.euler_to_rotmat(
-            np.array([[70.0, -80.0, -90.0]]), "XYZ")
+        expected = rotations.euler_to_rotmat(np.array([[70.0, -80.0, -90.0]]), "XYZ")
         stored = rotations.euler_to_rotmat(new_angles[:, 1], "ZYX")
         npt.assert_allclose(stored, expected, atol=1e-12)
 
@@ -390,17 +389,18 @@ class TestBuildViewMatrix:
 
     def test_top_camera_no_nan(self):
         from pybvh.bvhplot._viewport import build_view_matrix
+
         vm = build_view_matrix(0, 90, "y")
         assert not np.any(np.isnan(vm)), f"NaN in view matrix:\n{vm}"
 
     def test_top_camera_z_up(self):
         from pybvh.bvhplot._viewport import build_view_matrix
+
         vm = build_view_matrix(0, 90, "z")
         assert not np.any(np.isnan(vm))
 
 
 class TestMutableDefault:
-
     def test_bvh_default_nodes_not_shared(self):
         b1 = Bvh()
         b2 = Bvh()
@@ -409,7 +409,6 @@ class TestMutableDefault:
 
 
 class TestProperEulerSign:
-
     @pytest.mark.parametrize("order", ["ZYZ", "XYX", "XZX", "YXY", "YZY", "ZXZ"])
     def test_euler_roundtrip_proper(self, order):
         angles = np.array([[30, 45, 60]], dtype=np.float64)
@@ -429,7 +428,6 @@ class TestProperEulerSign:
 
 
 class TestEqIgnoresFrameTime:
-
     def test_eq_different_frame_time(self):
         bvh1 = read_bvh_file(EXAMPLE)
         bvh2 = bvh1.copy()
@@ -446,8 +444,8 @@ class TestEqIgnoresFrameTime:
 #  Phase 5 — Group E: missing forwarding/validation  (should FAIL before fix)
 # ========================================================================
 
-class TestMissingForwarding:
 
+class TestMissingForwarding:
     def test_extract_joints_preserves_world_up_override(self):
         bvh = read_bvh_file(EXAMPLE)
         bvh.world_up = "+y"
@@ -462,10 +460,8 @@ class TestMissingForwarding:
 
     def test_add_rotation_noise_degrees_matches_the_radian_call(self):
         bvh = read_bvh_file(EXAMPLE)
-        deg = bvh.add_rotation_noise(sigma=5.0, degrees=True,
-                            rng=np.random.default_rng(0))
-        rad = bvh.add_rotation_noise(sigma=np.radians(5.0),
-                            rng=np.random.default_rng(0))
+        deg = bvh.add_rotation_noise(sigma=5.0, degrees=True, rng=np.random.default_rng(0))
+        rad = bvh.add_rotation_noise(sigma=np.radians(5.0), rng=np.random.default_rng(0))
         np.testing.assert_allclose(deg.joint_angles, rad.joint_angles, rtol=1e-12)
 
     # The former test_add_noise_degrees_never_converts_the_position_sigma
@@ -509,8 +505,8 @@ class TestMissingForwarding:
 #  Phase 6 — Group F: parser robustness  (should FAIL before fix)
 # ========================================================================
 
-class TestParserRobustness:
 
+class TestParserRobustness:
     def test_validates_frame_count(self, tmp_path):
         content = (
             "HIERARCHY\n"
@@ -584,10 +580,11 @@ class TestParserRobustness:
 #  Phase 7 — Group G: code quality  (should FAIL before fix)
 # ========================================================================
 
-class TestCodeQualityFixes:
 
+class TestCodeQualityFixes:
     def test_validate_bvh_path_raises_file_not_found(self):
         from pybvh.tools import _validate_bvh_path
+
         with pytest.raises(FileNotFoundError):
             _validate_bvh_path("definitely_nonexistent_42.bvh")
 
@@ -595,6 +592,7 @@ class TestCodeQualityFixes:
         f = tmp_path / "test.txt"
         f.write_text("hello")
         from pybvh.tools import _validate_bvh_path
+
         with pytest.raises(ValueError):
             _validate_bvh_path(str(f))
 
@@ -608,29 +606,36 @@ class TestCodeQualityFixes:
 #  Phase 8 — Group H: test gaps  (should PASS — testing existing behavior)
 # ========================================================================
 
+
 class TestBvhVisualizationWrappers:
     """H2: Smoke tests for Bvh convenience wrappers."""
 
     def test_plot_frame_wrapper(self):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+
         bvh = read_bvh_file(EXAMPLE)
         bvh.plot_frame(frame=0)
         plt.close("all")
 
     def test_plot_rest_pose_wrapper(self):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+
         bvh = read_bvh_file(EXAMPLE)
         bvh.plot_rest_pose()
         plt.close("all")
 
     def test_plot_trajectory_wrapper(self):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+
         bvh = read_bvh_file(EXAMPLE)
         bvh.plot_trajectory()
         plt.close("all")
@@ -639,10 +644,13 @@ class TestBvhVisualizationWrappers:
 class TestWorldUpPropagation:
     """H3: world_up override must persist through transforms."""
 
-    @pytest.mark.parametrize("method,kwargs", [
-        ("scale", {"scale": 2.0}),
-        ("translate_root", {"offset": [1, 0, 0]}),
-    ])
+    @pytest.mark.parametrize(
+        "method,kwargs",
+        [
+            ("scale", {"scale": 2.0}),
+            ("translate_root", {"offset": [1, 0, 0]}),
+        ],
+    )
     def test_world_up_preserved_through_transform(self, method, kwargs):
         bvh = read_bvh_file(EXAMPLE)
         bvh.world_up = "+y"

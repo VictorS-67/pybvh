@@ -6,6 +6,7 @@ the one place a node tree is built, for the parser, ``df_to_bvh`` and
 ``Bvh.extract_joints``. ``_check_node_tree`` is the test
 :class:`~pybvh.Bvh` runs on a finished tree when it is constructed.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
@@ -27,8 +28,7 @@ def _walk_depth_first(root: BvhNode) -> Iterator[tuple[BvhNode, BvhNode | None]]
         node, reached_from = stack.pop()
         yield node, reached_from
         if not node.is_end_site():
-            stack.extend(
-                (child, node) for child in reversed(node.children))  # type: ignore[attr-defined]
+            stack.extend((child, node) for child in reversed(node.children))  # type: ignore[attr-defined]
 
 
 def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
@@ -57,7 +57,8 @@ def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
                     f"nodes[{i}] is the same object as "
                     f"nodes[{first_seen[id(node)]}] ({node.name!r}); every "
                     f"node must be listed exactly once in nodes. Two nodes "
-                    f"sharing a name are two objects.")
+                    f"sharing a name are two objects."
+                )
             first_seen[id(node)] = i
 
     def describe(node: BvhNode | None) -> str:
@@ -75,7 +76,8 @@ def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
                 f"{describe(reached)}, a child of {describe(reached_from)}, "
                 f"after all {total} nodes were visited: a node is listed "
                 f"more than once in the children lists, or a child is not "
-                f"in nodes.")
+                f"in nodes."
+            )
         expected = nodes[visited]
         if reached is not expected:
             raise ValueError(
@@ -84,18 +86,21 @@ def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
                 f"where {describe(expected)} is listed. nodes must list the "
                 f"tree in depth-first order (each joint followed by its whole "
                 f"subtree, as a .bvh file writes it), with every node listed "
-                f"exactly once in its parent's children.")
+                f"exactly once in its parent's children."
+            )
         if reached_from is None:
             if reached.parent is not None:
                 raise ValueError(
                     f"nodes[0] ({reached.name!r}) is the root, but its parent "
                     f"is {describe(reached.parent)}; the root's parent must "
-                    f"be None.")
+                    f"be None."
+                )
         elif reached.parent is not reached_from:
             raise ValueError(
                 f"{describe(reached)} is in the children of "
                 f"{describe(reached_from)}, but its parent is "
-                f"{describe(reached.parent)}; parent and children must agree.")
+                f"{describe(reached.parent)}; parent and children must agree."
+            )
         visited += 1
 
     if visited != total:
@@ -104,14 +109,15 @@ def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
             f"{describe(unreached)} is not reached by the depth-first walk "
             f"of children from nodes[0]; its parent is "
             f"{describe(unreached.parent)}. Every node must be listed in "
-            f"its parent's children.")
+            f"its parent's children."
+        )
 
 
-#---------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------
 # The node table: a skeleton as plain data, and the builder of node trees from it
-#---------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------
 
-_TABLE_KEYS = ('name', 'parent', 'offset', 'pos_channels', 'rot_channels')
+_TABLE_KEYS = ("name", "parent", "offset", "pos_channels", "rot_channels")
 
 
 def nodes_to_table(nodes: Sequence[BvhNode]) -> list[dict[str, Any]]:
@@ -218,17 +224,17 @@ def nodes_to_table(nodes: Sequence[BvhNode]) -> list[dict[str, Any]]:
                 parent = position[id(node.parent)]
             except KeyError:
                 raise ValueError(
-                    f"Node {node.name!r} (index {i}) has a parent that is "
-                    f"not in the node list.") from None
+                    f"Node {node.name!r} (index {i}) has a parent that is not in the node list."
+                ) from None
         entry: dict[str, Any] = {
-            'name': node.name,
-            'parent': parent,
-            'offset': node.offset.copy(),
+            "name": node.name,
+            "parent": parent,
+            "offset": node.offset.copy(),
         }
         if node.is_root():
-            entry['pos_channels'] = list(node.pos_channels)  # type: ignore[attr-defined]
+            entry["pos_channels"] = list(node.pos_channels)  # type: ignore[attr-defined]
         if not node.is_end_site():
-            entry['rot_channels'] = list(node.rot_channels)  # type: ignore[attr-defined]
+            entry["rot_channels"] = list(node.rot_channels)  # type: ignore[attr-defined]
         table.append(entry)
     return table
 
@@ -326,7 +332,8 @@ def nodes_from_table(table: Sequence[Mapping[str, Any]]) -> list[BvhNode]:
         if not isinstance(entry, Mapping):
             raise ValueError(
                 f"Node table entry {i} is a {type(entry).__name__}, not a "
-                f"dict with the keys {', '.join(_TABLE_KEYS)}.")
+                f"dict with the keys {', '.join(_TABLE_KEYS)}."
+            )
         unknown_keys = sorted(set(entry) - set(_TABLE_KEYS))
         if unknown_keys:
             raise ValueError(
@@ -334,7 +341,8 @@ def nodes_from_table(table: Sequence[Mapping[str, Any]]) -> list[BvhNode]:
                 f"{unknown_keys} the format "
                 f"does not define; the keys are {', '.join(_TABLE_KEYS)}. "
                 f"(An entry without rot_channels is an end site, so a "
-                f"misspelt key would silently change the node's kind.)")
+                f"misspelt key would silently change the node's kind.)"
+            )
         parent = _table_parent(entry, i, nodes)
         node = _node_from_entry(entry, i, parent)
         if parent is not None:
@@ -346,97 +354,114 @@ def nodes_from_table(table: Sequence[Mapping[str, Any]]) -> list[BvhNode]:
 
 def _entry_label(index: int, entry: Mapping[str, Any]) -> str:
     """``"entry 3 ('Hand')"``, or ``"entry 3"`` when the name is unusable."""
-    name = entry.get('name')
+    name = entry.get("name")
     if isinstance(name, str):
         return f"entry {index} ({name!r})"
     return f"entry {index}"
 
 
-def _table_parent(entry: Mapping[str, Any], index: int,
-                  built: list[BvhNode]) -> BvhJoint | None:
+def _table_parent(entry: Mapping[str, Any], index: int, built: list[BvhNode]) -> BvhJoint | None:
     """Resolve an entry's ``parent`` index to the node built for it."""
-    parent_index = entry.get('parent')
+    parent_index = entry.get("parent")
     label = _entry_label(index, entry)
     if index == 0:
         if parent_index is not None:
             raise ValueError(
                 f"Node table {label} has parent {parent_index!r}; entry 0 is "
-                f"the root and its parent must be None.")
+                f"the root and its parent must be None."
+            )
         return None
     if parent_index is None:
         raise ValueError(
             f"Node table {label} has parent None; only entry 0, the root, "
-            f"has no parent. A node table holds exactly one root.")
+            f"has no parent. A node table holds exactly one root."
+        )
     if isinstance(parent_index, bool) or not isinstance(parent_index, (int, np.integer)):
         raise ValueError(
             f"Node table {label} has parent {parent_index!r}, which is not "
-            f"an int: parent is the index of the parent's entry in the table.")
+            f"an int: parent is the index of the parent's entry in the table."
+        )
     if not 0 <= parent_index < index:
         raise ValueError(
             f"Node table {label} has parent {int(parent_index)}, which is "
             f"not an index in [0, {index}): parents precede their children "
-            f"in a node table, and an entry cannot be its own parent.")
+            f"in a node table, and an entry cannot be its own parent."
+        )
     parent = built[parent_index]
     if parent.is_end_site():
         raise ValueError(
             f"Node table {label} has parent entry {int(parent_index)} "
             f"({parent.name!r}), which is an end site (an entry without "
-            f"rot_channels). End sites are leaves.")
+            f"rot_channels). End sites are leaves."
+        )
     return parent  # type: ignore[return-value]
 
 
-def _node_from_entry(entry: Mapping[str, Any], index: int,
-                     parent: BvhJoint | None) -> BvhNode:
+def _node_from_entry(entry: Mapping[str, Any], index: int, parent: BvhJoint | None) -> BvhNode:
     """Build the node an entry describes; its kind follows from its keys."""
     label = _entry_label(index, entry)
-    is_end_site = 'rot_channels' not in entry
+    is_end_site = "rot_channels" not in entry
     if index == 0 and is_end_site:
         raise ValueError(
             f"Node table {label} has no rot_channels; entry 0 is the root, "
             f"which carries the skeleton's base rotation. (An entry without "
-            f"rot_channels is an end site, and end sites are leaves.)")
-    if 'pos_channels' in entry and index != 0:
-        kind = ("an end site (no rot_channels), which has no channels at all"
-                if is_end_site else "a joint")
+            f"rot_channels is an end site, and end sites are leaves.)"
+        )
+    if "pos_channels" in entry and index != 0:
+        kind = (
+            "an end site (no rot_channels), which has no channels at all"
+            if is_end_site
+            else "a joint"
+        )
         raise ValueError(
             f"Node table {label} has pos_channels but is {kind}; only the "
-            f"root (entry 0) has position channels.")
-    if entry.get('offset') is None:
+            f"root (entry 0) has position channels."
+        )
+    if entry.get("offset") is None:
         raise ValueError(
             f"Node table {label} has no offset; offset is the rest offset "
-            f"from the parent, three numbers.")
+            f"from the parent, three numbers."
+        )
     # The node constructors turn a None channel order into their default
     # (ZYX, XYZ); here nothing is inferred, so None is rejected.
-    for key in ('rot_channels', 'pos_channels'):
+    for key in ("rot_channels", "pos_channels"):
         if key in entry and entry[key] is None:
-            how_to_omit = ("omit the key instead: an entry without "
-                           "rot_channels is an end site"
-                           if key == 'rot_channels' else
-                           "omit the key instead: the root then gets XYZ")
+            how_to_omit = (
+                "omit the key instead: an entry without rot_channels is an end site"
+                if key == "rot_channels"
+                else "omit the key instead: the root then gets XYZ"
+            )
             raise ValueError(
                 f"Node table {label} has {key} None; a channel order is a "
                 f"permutation of 'XYZ', and nothing is inferred, so "
-                f"{how_to_omit}.")
+                f"{how_to_omit}."
+            )
 
-    name = entry.get('name')
+    name = entry.get("name")
     if name is None:
         if not is_end_site:
             raise ValueError(
                 f"Node table {label} has no name; only an end-site entry "
-                f"may omit it (it is then named 'EndSite' + parent name).")
+                f"may omit it (it is then named 'EndSite' + parent name)."
+            )
         assert parent is not None  # entry 0 is never an end site
-        name = 'EndSite' + parent.name
+        name = "EndSite" + parent.name
 
     # The node setters validate name, offset and channels; the entry's
     # index is what their messages lack.
     try:
         if index == 0:
-            return BvhRoot(name, entry['offset'],
-                           entry.get('pos_channels', ['X', 'Y', 'Z']),
-                           entry['rot_channels'], [], None)
+            return BvhRoot(
+                name,
+                entry["offset"],
+                entry.get("pos_channels", ["X", "Y", "Z"]),
+                entry["rot_channels"],
+                [],
+                None,
+            )
         if is_end_site:
-            return BvhEndSite(name, entry['offset'], parent)
-        return BvhJoint(name, entry['offset'], entry['rot_channels'], [], parent)
+            return BvhEndSite(name, entry["offset"], parent)
+        return BvhJoint(name, entry["offset"], entry["rot_channels"], [], parent)
     except ValueError as e:
         raise ValueError(f"Node table {label}: {e}") from e
 
@@ -458,4 +483,5 @@ def _check_table_order(nodes: list[BvhNode]) -> None:
                 f"{position[id(reached)]} ({reached.name!r}) at position "
                 f"{visited}. A node table lists the tree as a .bvh file "
                 f"writes it, each joint followed by its whole subtree, "
-                f"because joint_angles columns follow that order.")
+                f"because joint_angles columns follow that order."
+            )

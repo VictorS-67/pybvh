@@ -27,6 +27,7 @@ is used deliberately over ``0.0`` so an *undefined* value is never confused
 with a genuine zero (e.g. the real zero curvature of a straight segment).
 The ``nan`` policy covers *data* degeneracy — values the motion itself made undefined. Invalid *arguments* (e.g. a ``weights`` vector with no positive total in ``center_of_mass``) are caller mistakes and raise ``ValueError`` instead of silently propagating ``nan``.
 """
+
 from __future__ import annotations
 
 from collections import namedtuple
@@ -62,6 +63,7 @@ GroundPath = namedtuple("GroundPath", ["distance", "area"])
 # ----------------------------------------------------------------
 #  Inter-point relations
 # ----------------------------------------------------------------
+
 
 def inter_joint_distance(
     pos: npt.NDArray[np.float64],
@@ -154,8 +156,7 @@ def segment_axis_angle(
     """
     seg = np.asarray(seg, dtype=np.float64)
     axis = np.asarray(axis, dtype=np.float64)
-    ang = np.arctan2(
-        np.linalg.norm(np.cross(seg, axis), axis=-1), np.sum(seg * axis, axis=-1))
+    ang = np.arctan2(np.linalg.norm(np.cross(seg, axis), axis=-1), np.sum(seg * axis, axis=-1))
     return np.degrees(ang) if degrees else ang
 
 
@@ -262,6 +263,7 @@ def point_to_segment_distance(
 # ----------------------------------------------------------------
 #  Bounding volumes & center of mass
 # ----------------------------------------------------------------
+
 
 def bounding_box(pts: npt.NDArray[np.float64]) -> BoundingBox:
     """Axis-aligned bounding box of a point set.
@@ -427,7 +429,8 @@ def center_of_mass(
         raise ValueError(
             f"center_of_mass weights must have a positive total, got sum "
             f"{total!r} — a zero/negative/NaN total makes the weighted "
-            f"mean undefined for every frame")
+            f"mean undefined for every frame"
+        )
     return np.sum(pts * w[:, None], axis=-2) / total
 
 
@@ -493,14 +496,14 @@ def verticality(
     height_coord = np.sum(pts * up, axis=-1)  # (..., P)
     height = height_coord.max(axis=-1) - height_coord.min(axis=-1)
     horizontal = pts - height_coord[..., None] * up
-    width = np.linalg.norm(
-        horizontal.max(axis=-2) - horizontal.min(axis=-2), axis=-1)
+    width = np.linalg.norm(horizontal.max(axis=-2) - horizontal.min(axis=-2), axis=-1)
     return _safe_ratio(height, width)
 
 
 # ----------------------------------------------------------------
 #  Trajectory descriptors
 # ----------------------------------------------------------------
+
 
 def path_length(traj: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """Arc length travelled — ``Σ ‖p_{t+1} − p_t‖`` over the frame axis.
@@ -573,16 +576,14 @@ def _aligned_derivatives(
     # Validate up front: every internal finite_difference call below uses
     # pad="edge", so a typo'd `pad` would otherwise silently mean "edge".
     if stencil not in ("central", "forward"):
-        raise ValueError(
-            f"stencil must be 'central' or 'forward', got {stencil!r}")
+        raise ValueError(f"stencil must be 'central' or 'forward', got {stencil!r}")
     if pad not in ("edge", "none"):
         raise ValueError(f"pad must be 'edge' or 'none', got {pad!r}")
 
     derivs: list[npt.NDArray[np.float64]] = []
     current = np.asarray(traj, dtype=np.float64)
     for _ in range(order):
-        current = finite_difference(
-            current, frame_time, stencil=stencil, pad="edge", axis=0)
+        current = finite_difference(current, frame_time, stencil=stencil, pad="edge", axis=0)
         derivs.append(current)
     if pad == "none":
         if stencil == "central":
@@ -645,7 +646,7 @@ def curvature(
     Source: Larboulette & Gibet, Gibet et al.
     """
     speed, swept = _speed_and_swept(traj, frame_time, stencil, pad)
-    return _safe_ratio(swept, speed ** 3)
+    return _safe_ratio(swept, speed**3)
 
 
 def torsion(
@@ -717,7 +718,7 @@ def movement_phase(
     Source: Larboulette & Gibet, Gibet et al.
     """
     speed, swept = _speed_and_swept(traj, frame_time, stencil, pad)
-    return _safe_ratio(swept, speed ** 2)
+    return _safe_ratio(swept, speed**2)
 
 
 def ground_path(
@@ -768,6 +769,7 @@ def ground_path(
 # ----------------------------------------------------------------
 #  Pose-level operations
 # ----------------------------------------------------------------
+
 
 def pose_distance(
     pose_a: npt.NDArray[np.float64],
@@ -825,8 +827,7 @@ def pose_distance(
     if reduction == "mpjpe":
         per_joint = np.sqrt(np.sum(diff * diff, axis=-1))
         return np.mean(per_joint, axis=-1)
-    raise ValueError(
-        f"reduction must be 'frobenius' or 'mpjpe', got {reduction!r}")
+    raise ValueError(f"reduction must be 'frobenius' or 'mpjpe', got {reduction!r}")
 
 
 def mean_pose_subtract(seq: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:

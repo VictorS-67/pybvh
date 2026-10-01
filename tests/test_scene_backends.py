@@ -5,6 +5,7 @@ SkeletonView does not carry, these are the tests that would fail. The
 Scene comes from ``tests/synthetic_scene.py``, which imports nothing
 that knows what a Bvh is.
 """
+
 from __future__ import annotations
 
 import ast
@@ -25,10 +26,13 @@ from pybvh.bvhplot._style import Style
 
 def test_factory_knows_nothing_about_bvh():
     tree = ast.parse(pathlib.Path(synthetic_scene.__file__).read_text())
-    imported = {node.module for node in ast.walk(tree)
-                if isinstance(node, ast.ImportFrom)}
-    imported |= {alias.name for node in ast.walk(tree)
-                 if isinstance(node, ast.Import) for alias in node.names}
+    imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    imported |= {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
     assert imported <= {"__future__", "numpy", "pybvh.bvhplot._scene"}
 
 
@@ -45,31 +49,43 @@ def pair():
 class TestMatplotlib:
     def test_frame(self, scene):
         from pybvh.bvhplot._matplotlib import frame_mpl
+
         fig, ax = frame_mpl(scene, Style("paper"))
         assert len(ax.collections) > 0
         plt.close(fig)
 
     def test_frame_pair_with_labels(self, pair):
         from pybvh.bvhplot._matplotlib import frame_mpl
+
         fig, axes = frame_mpl(pair, Style("debug"))
         assert len(axes) == 2
         plt.close(fig)
 
     def test_sequence(self, scene):
         from pybvh.bvhplot._matplotlib import sequence_mpl
+
         samples = np.array([0, 5, 11], dtype=np.intp)
         fig, ax = sequence_mpl(scene, Style("paper"), samples, "offset")
         plt.close(fig)
 
     def test_render_with_ghosts_trace_and_follow(self, scene, tmp_path):
         from pybvh.bvhplot._matplotlib import render_mpl
-        out = render_mpl(scene, Style("paper"), tmp_path / "walk.gif", 10.0,
-                         motion="follow", ghost=2, trajectory=True,
-                         resolution=(320, 240))
+
+        out = render_mpl(
+            scene,
+            Style("paper"),
+            tmp_path / "walk.gif",
+            10.0,
+            motion="follow",
+            ghost=2,
+            trajectory=True,
+            resolution=(320, 240),
+        )
         assert out.exists() and out.stat().st_size > 0
 
     def test_trajectory_with_facing_arrows(self, pair):
         from pybvh.bvhplot._matplotlib import trajectory_mpl
+
         fig, ax = trajectory_mpl(pair, Style("paper"), facing_arrows=True)
         assert len(ax.lines) >= 2
         plt.close(fig)
@@ -86,18 +102,26 @@ class TestMatplotlib:
 
         from pybvh.bvhplot._matplotlib import trajectory_mpl
         from pybvh.bvhplot._scene import Scene
+
         view = synthetic_scene.make_array_view(n_frames=4)
-        quarter_turns = np.array([[1.0, 0.0],    # faces +z
-                                  [0.0, -1.0],   # faces -x
-                                  [-1.0, 0.0],   # faces -z
-                                  [0.0, 1.0]])   # faces +x
-        plot_directions = np.array([[0.0, 1.0],  # (x, z) on the plot
-                                    [-1.0, 0.0],
-                                    [0.0, -1.0],
-                                    [1.0, 0.0]])
+        quarter_turns = np.array(
+            [
+                [1.0, 0.0],  # faces +z
+                [0.0, -1.0],  # faces -x
+                [-1.0, 0.0],  # faces -z
+                [0.0, 1.0],
+            ]
+        )  # faces +x
+        plot_directions = np.array(
+            [
+                [0.0, 1.0],  # (x, z) on the plot
+                [-1.0, 0.0],
+                [0.0, -1.0],
+                [1.0, 0.0],
+            ]
+        )
         turning = dataclasses.replace(view, root_heading=quarter_turns)
-        fig, ax = trajectory_mpl(
-            Scene(views=[turning]), Style("paper"), facing_arrows=True)
+        fig, ax = trajectory_mpl(Scene(views=[turning]), Style("paper"), facing_arrows=True)
         try:
             (arrows,) = [c for c in ax.collections if isinstance(c, Quiver)]
             roots = view.coords[:, 0][:, [0, 2]]
@@ -105,10 +129,8 @@ class TestMatplotlib:
             directions /= np.linalg.norm(directions, axis=1, keepdims=True)
             assert len(directions) > 1
             for start, direction in zip(arrows.get_offsets(), directions):
-                (drawn_at,) = np.flatnonzero(
-                    np.all(np.isclose(roots, start), axis=1))
-                np.testing.assert_allclose(
-                    direction, plot_directions[drawn_at], atol=1e-12)
+                (drawn_at,) = np.flatnonzero(np.all(np.isclose(roots, start), axis=1))
+                np.testing.assert_allclose(direction, plot_directions[drawn_at], atol=1e-12)
         finally:
             plt.close(fig)
 
@@ -117,17 +139,26 @@ class TestOpenCV:
     def test_render_with_every_option(self, scene, tmp_path):
         pytest.importorskip("cv2")
         from pybvh.bvhplot._opencv import render_opencv
-        out = render_opencv(scene, Style("paper"), tmp_path / "walk.mp4",
-                            10.0, (320, 240), motion="follow", ghost=1,
-                            trajectory=True, frame_counter=True)
+
+        out = render_opencv(
+            scene,
+            Style("paper"),
+            tmp_path / "walk.mp4",
+            10.0,
+            (320, 240),
+            motion="follow",
+            ghost=1,
+            trajectory=True,
+            frame_counter=True,
+        )
         assert out.exists() and out.stat().st_size > 0
 
 
 def _gif_frames(path):
     from PIL import Image, ImageSequence
+
     with Image.open(path) as gif:
-        return [np.asarray(frame.convert("RGB"))
-                for frame in ImageSequence.Iterator(gif)]
+        return [np.asarray(frame.convert("RGB")) for frame in ImageSequence.Iterator(gif)]
 
 
 class TestEveryPassIsDrawnAsTheFirst:
@@ -149,34 +180,47 @@ class TestEveryPassIsDrawnAsTheFirst:
     def test_opencv(self, looped):
         pytest.importorskip("cv2")
         from pybvh.bvhplot._opencv import _generate_frames
-        frames = list(_generate_frames(
-            looped, self.STYLE, (160, 120), ghost=2, trajectory=True,
-            frame_counter=True))
+
+        frames = list(
+            _generate_frames(
+                looped, self.STYLE, (160, 120), ghost=2, trajectory=True, frame_counter=True
+            )
+        )
         assert len(frames) == self.LOOPED
         for f in range(self.CLIP, self.LOOPED):
-            np.testing.assert_array_equal(
-                frames[f], frames[f % self.CLIP], err_msg=f"frame {f}")
+            np.testing.assert_array_equal(frames[f], frames[f % self.CLIP], err_msg=f"frame {f}")
 
     def test_matplotlib(self, looped, tmp_path):
         from pybvh.bvhplot._matplotlib import render_mpl
-        out = render_mpl(looped, self.STYLE, tmp_path / "loop.gif", 10.0,
-                         ghost=2, trajectory=True, resolution=(160, 120))
+
+        out = render_mpl(
+            looped,
+            self.STYLE,
+            tmp_path / "loop.gif",
+            10.0,
+            ghost=2,
+            trajectory=True,
+            resolution=(160, 120),
+        )
         frames = _gif_frames(out)
         assert len(frames) == self.LOOPED
         for f in range(self.CLIP, self.LOOPED):
-            np.testing.assert_array_equal(
-                frames[f], frames[f % self.CLIP], err_msg=f"frame {f}")
+            np.testing.assert_array_equal(frames[f], frames[f % self.CLIP], err_msg=f"frame {f}")
 
 
 def _one_seven_times_the_other(label):
     """Two skeletons, the second seven times the first's size: "a",
     then *label*."""
     from pybvh.bvhplot._scene import Scene
+
     small = synthetic_scene.make_array_view(label="a")
     big = synthetic_scene.make_array_view(label=label)
     big = dataclasses.replace(
-        big, coords=big.coords * 7.0, rest_coords=big.rest_coords * 7.0,
-        floor_height=big.floor_height * 7.0)
+        big,
+        coords=big.coords * 7.0,
+        rest_coords=big.rest_coords * 7.0,
+        floor_height=big.floor_height * 7.0,
+    )
     return Scene(views=[small, big])
 
 
@@ -184,6 +228,7 @@ class TestVedo:
     def test_offscreen_frame(self, scene):
         pytest.importorskip("vedo")
         from pybvh.bvhplot._vedo_offscreen import frame_vedo
+
         img = frame_vedo(scene, Style("paper"), resolution=(200, 200))
         assert img.ndim == 3 and img.shape[2] == 3
         assert img.dtype == np.uint8
@@ -191,33 +236,31 @@ class TestVedo:
     def test_offscreen_render(self, scene, tmp_path):
         pytest.importorskip("vedo")
         from pybvh.bvhplot._vedo_offscreen import render_vedo
-        out = render_vedo(scene, Style("paper"), tmp_path / "walk.mp4",
-                          10.0, resolution=(200, 200))
+
+        out = render_vedo(scene, Style("paper"), tmp_path / "walk.mp4", 10.0, resolution=(200, 200))
         assert out.exists() and out.stat().st_size > 0
 
-    def test_the_viewers_trails_lie_on_the_scene_ground(
-            self, pair, monkeypatch):
+    def test_the_viewers_trails_lie_on_the_scene_ground(self, pair, monkeypatch):
         pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo
+
         monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
         scene = pair.spread("auto")
-        player = _vedo._VedoPlayer(scene, Style("paper"), 30.0,
-                                   quality="high")
+        player = _vedo._VedoPlayer(scene, Style("paper"), 30.0, quality="high")
         try:
             up = player.viewport.up_index
             assert len(player._trail_full) == 2
             for path in player._trail_full:
-                np.testing.assert_array_equal(
-                    path[:, up], player.viewport.floor_height)
+                np.testing.assert_array_equal(path[:, up], player.viewport.floor_height)
         finally:
             player.plt.close()
 
     def test_viewer_shell_builds_from_the_pair(self, pair, monkeypatch):
         pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo
+
         monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
-        player = _vedo._VedoPlayer(pair.spread("auto"), Style("paper"), 30.0,
-                                   quality="high")
+        player = _vedo._VedoPlayer(pair.spread("auto"), Style("paper"), 30.0, quality="high")
         try:
             assert player.scene.num_skeletons == 2
         finally:
@@ -251,9 +294,7 @@ class TestVedo:
             # one sphere per joint, merged; a sphere's bounding-box
             # midpoint is its center
             n_nodes = len(player.scene.views[s].node_names)
-            spheres = np.asarray(
-                player._capsules[s].joints_mesh.vertices).reshape(
-                    n_nodes, -1, 3)
+            spheres = np.asarray(player._capsules[s].joints_mesh.vertices).reshape(n_nodes, -1, 3)
             return (spheres.min(axis=1) + spheres.max(axis=1)) / 2
         return np.asarray(player._points_actors[s].vertices)
 
@@ -262,23 +303,20 @@ class TestVedo:
         """The text of every 2-D text *plotter* draws, the viewer's
         controls included."""
         import vedo
-        return [o.text() for o in plotter.objects
-                if isinstance(o, vedo.Text2D)]
+
+        return [o.text() for o in plotter.objects if isinstance(o, vedo.Text2D)]
 
     @pytest.mark.parametrize("quality", ["high", "fast"])
-    def test_the_viewer_draws_size_matched_skeletons_at_one_height(
-            self, quality, open_viewer):
+    def test_the_viewer_draws_size_matched_skeletons_at_one_height(self, quality, open_viewer):
         """A skeleton seven times the first's size is drawn as tall as
         the first, with joints as wide, and its label says by what
         factor it was drawn."""
         scene = _one_seven_times_the_other("b").size_matched().spread("auto")
         player = open_viewer(scene, quality)
         if player.use_high:
-            drawn = [np.asarray(capsule.joints_mesh.vertices)
-                     for capsule in player._capsules]
+            drawn = [np.asarray(capsule.joints_mesh.vertices) for capsule in player._capsules]
         else:
-            drawn = [np.asarray(points.vertices)
-                     for points in player._points_actors]
+            drawn = [np.asarray(points.vertices) for points in player._points_actors]
         heights = [np.ptp(vertices[:, 1]) for vertices in drawn]
         assert heights[1] == pytest.approx(heights[0], rel=0.01)
         assert {"a", "b ×0.14"} <= set(self._texts(player.plt))
@@ -286,12 +324,13 @@ class TestVedo:
     def test_the_renderer_draws_size_matched_skeletons_at_one_height(self):
         pytest.importorskip("vedo")
         from pybvh.bvhplot._vedo_offscreen import _build_offscreen
+
         scene = _one_seven_times_the_other("b").size_matched()
-        plotter, capsules, _ = _build_offscreen(
-            scene, Style("paper"), (200, 200))
+        plotter, capsules, _ = _build_offscreen(scene, Style("paper"), (200, 200))
         try:
-            heights = [np.ptp(np.asarray(capsule.joints_mesh.vertices)[:, 1])
-                       for capsule in capsules]
+            heights = [
+                np.ptp(np.asarray(capsule.joints_mesh.vertices)[:, 1]) for capsule in capsules
+            ]
             texts = self._texts(plotter)
         finally:
             plotter.close()
@@ -299,33 +338,31 @@ class TestVedo:
         assert texts == ["a", "b ×0.14"]
 
     @pytest.mark.parametrize("quality", ["high", "fast"])
-    def test_the_frame_slider_poses_each_skeleton_at_its_frame(
-            self, pair, quality, open_viewer):
+    def test_the_frame_slider_poses_each_skeleton_at_its_frame(self, pair, quality, open_viewer):
         scene = pair.spread("auto")
         player = open_viewer(scene, quality)
         self._scrub_to(player, 7)
         assert player.clock.frame == 7
         for s, view in enumerate(scene.views):
             # VTK keeps float32 vertices
-            np.testing.assert_allclose(
-                self._drawn_joints(player, s), view.coords[7], atol=1e-5)
+            np.testing.assert_allclose(self._drawn_joints(player, s), view.coords[7], atol=1e-5)
 
-    def test_at_half_the_clip_rate_the_slider_steps_two_clip_frames(
-            self, scene, open_viewer):
+    def test_at_half_the_clip_rate_the_slider_steps_two_clip_frames(self, scene, open_viewer):
         """The 30 fps clip played at the 15 fps preset: slider position
         5 is clip frame 10."""
         player = open_viewer(scene, "fast")
         player._set_fps(player.clock.fps_presets.index(15))
         self._scrub_to(player, 5)
         np.testing.assert_allclose(
-            self._drawn_joints(player, 0), scene.views[0].coords[10],
-            atol=1e-5)
+            self._drawn_joints(player, 0), scene.views[0].coords[10], atol=1e-5
+        )
 
 
 class TestK3d:
     def test_play_builds_the_plot(self, pair, capsys):
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import play_k3d
+
         # Outside a notebook IPython's display() prints the widget's repr;
         # the point here is only that the backend needs nothing beyond
         # the Scene.
@@ -338,12 +375,12 @@ class TestK3d:
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import _build_plot
         from pybvh.bvhplot._viewport import make_viewport
+
         scene = pair.spread("auto")
         built = _build_plot(scene, Style("paper"))
         assert built.plot.camera_fov == 60.0
         eye, target, up = make_viewport(scene.views).camera(view_angle=60.0)
-        np.testing.assert_allclose(
-            built.plot.camera, [*eye, *target, *up], rtol=1e-6)
+        np.testing.assert_allclose(built.plot.camera, [*eye, *target, *up], rtol=1e-6)
         assert built.plot.camera_auto_fit is False
 
     @staticmethod
@@ -358,15 +395,13 @@ class TestK3d:
         right /= np.linalg.norm(right)
         screen_up = np.cross(right, forward)
         tangent = np.tan(np.radians(built.plot.camera_fov) / 2)
-        points = np.concatenate([view.coords.reshape(-1, 3)
-                                 for view in scene.views]) - eye
+        points = np.concatenate([view.coords.reshape(-1, 3) for view in scene.views]) - eye
         depth = points @ forward
         assert np.all(depth > 0)
         return np.abs(points @ screen_up) / (tangent * depth)
 
     @pytest.mark.parametrize("fov", [60.0, 45.0], ids=["default", "narrow"])
-    def test_the_figure_fills_the_widgets_height(self, scene, fov,
-                                                 monkeypatch):
+    def test_the_figure_fills_the_widgets_height(self, scene, fov, monkeypatch):
         """Every coordinate of every frame lands inside FIT_FRACTION of
         the picture's height, and one reaches it, at the view angle the
         plot has (a plot made with another one is fitted to it). The
@@ -374,11 +409,11 @@ class TestK3d:
         k3d = pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import _build_plot
         from pybvh.bvhplot._viewport import FIT_FRACTION
+
         make_plot = k3d.plot
         monkeypatch.setattr(
-            k3d, "plot",
-            lambda *args, **kwargs: make_plot(*args, camera_fov=fov,
-                                              **kwargs))
+            k3d, "plot", lambda *args, **kwargs: make_plot(*args, camera_fov=fov, **kwargs)
+        )
         built = _build_plot(scene, Style("paper"))
         assert built.plot.camera_fov == fov
         height = self._heights_on_screen(built, scene)
@@ -390,6 +425,7 @@ class TestK3d:
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import _build_plot
         from pybvh.bvhplot._viewport import FIT_FRACTION
+
         scene = pair.spread("auto")
         built = _build_plot(scene, Style("paper"))
         assert self._heights_on_screen(built, scene).max() <= FIT_FRACTION
@@ -400,19 +436,19 @@ class TestK3d:
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import _build_plot
         from pybvh.bvhplot._viewport import FLOOR_INSET
+
         built = _build_plot(pair.spread("auto"), Style("paper"))
         viewport = built.viewport
         up = viewport.up_index
         for path, view in zip(built.trail_paths, pair.spread("auto").views):
             np.testing.assert_allclose(path[:, up], viewport.floor_height)
             ground = list(viewport.ground_axes)
-            np.testing.assert_allclose(
-                path[:, ground], view.coords[:, 0][:, ground], rtol=1e-6)
+            np.testing.assert_allclose(path[:, ground], view.coords[:, 0][:, ground], rtol=1e-6)
         grid = np.asarray(built.plot.grid).reshape(2, 3)
         assert grid[0, up] == pytest.approx(
-            viewport.floor_height - FLOOR_INSET * viewport.half_span)
-        assert grid[1, up] == pytest.approx(
-            viewport.center[up] + viewport.half_span)
+            viewport.floor_height - FLOOR_INSET * viewport.half_span
+        )
+        assert grid[1, up] == pytest.approx(viewport.center[up] + viewport.half_span)
         assert built.plot.grid_auto_fit is False
 
     def test_a_negative_up_axis_keeps_the_trail_under_the_feet(self):
@@ -421,12 +457,16 @@ class TestK3d:
 
         from pybvh.bvhplot._k3d import _build_plot
         from pybvh.bvhplot._scene import Scene
+
         view = synthetic_scene.make_array_view(n_frames=12)
         flipped = view.coords * np.array([1.0, -1.0, 1.0])
         negative = dataclasses.replace(
-            view, coords=flipped, up="-y",
+            view,
+            coords=flipped,
+            up="-y",
             rest_coords=view.rest_coords * np.array([1.0, -1.0, 1.0]),
-            floor_height=float(flipped[..., 1].max()))
+            floor_height=float(flipped[..., 1].max()),
+        )
         built = _build_plot(Scene(views=[negative]), Style("paper"))
         # "under the feet" of a -y-up rig is the coordinate maximum
         assert np.all(built.trail_paths[0][:, 1] >= flipped[..., 1].max() - 1e-6)
@@ -434,14 +474,14 @@ class TestK3d:
     def test_the_floor_is_the_viewports_plane(self, pair):
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import FLOOR_EPSILON, _build_plot
+
         built = _build_plot(pair.spread("auto"), Style("paper"))
         viewport = built.viewport
         up = viewport.up_index
         corners = np.asarray(built.floor.vertices).reshape(-1, 3)
         expected = viewport.floor_quad()
         ground = list(viewport.ground_axes)
-        np.testing.assert_allclose(
-            corners[:, ground], expected[:, ground], rtol=1e-6)
+        np.testing.assert_allclose(corners[:, ground], expected[:, ground], rtol=1e-6)
         # a hair below the ground, and so below the trail
         below = viewport.floor_height - FLOOR_EPSILON * viewport.half_span
         np.testing.assert_allclose(corners[:, up], below, rtol=1e-6)
@@ -452,8 +492,8 @@ class TestK3d:
     def test_a_grid_floor_spans_the_same_plane(self, pair, kind):
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import FLOOR_GRID_LINES, _build_plot
-        built = _build_plot(
-            pair.spread("auto"), Style("paper", floor=kind))
+
+        built = _build_plot(pair.spread("auto"), Style("paper", floor=kind))
         viewport = built.viewport
         vertices = np.asarray(built.floor.vertices).reshape(-1, 3)
         # k3d keeps indices in a float32 trait
@@ -461,32 +501,32 @@ class TestK3d:
         assert len(indices) == 2 * FLOOR_GRID_LINES
         expected = viewport.floor_quad()
         for axis in viewport.ground_axes:
-            assert vertices[:, axis].min() == pytest.approx(
-                expected[:, axis].min(), rel=1e-6)
-            assert vertices[:, axis].max() == pytest.approx(
-                expected[:, axis].max(), rel=1e-6)
+            assert vertices[:, axis].min() == pytest.approx(expected[:, axis].min(), rel=1e-6)
+            assert vertices[:, axis].max() == pytest.approx(expected[:, axis].max(), rel=1e-6)
         # every line runs from one edge of the plane to the opposite one
-        lengths = np.linalg.norm(
-            vertices[indices[:, 1]] - vertices[indices[:, 0]], axis=1)
-        np.testing.assert_allclose(
-            lengths, 2 * viewport.floor_reach, rtol=1e-5)
+        lengths = np.linalg.norm(vertices[indices[:, 1]] - vertices[indices[:, 0]], axis=1)
+        np.testing.assert_allclose(lengths, 2 * viewport.floor_reach, rtol=1e-5)
 
     def test_a_style_without_a_floor_draws_none(self, pair):
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import _build_plot
+
         built = _build_plot(pair.spread("auto"), Style("debug"))
         assert built.floor is None
 
-    @pytest.mark.parametrize("preset, grid, label", [
-        # k3d's own defaults, which the paper look has always shown
-        ("paper", 0xE6E6E6, 0x444444),
-        # the same steps away from #16181D, toward white
-        ("dark", 0x2D2F33, 0xC1C1C3),
-    ])
-    def test_the_grid_box_takes_its_colors_from_the_style(
-            self, pair, preset, grid, label):
+    @pytest.mark.parametrize(
+        "preset, grid, label",
+        [
+            # k3d's own defaults, which the paper look has always shown
+            ("paper", 0xE6E6E6, 0x444444),
+            # the same steps away from #16181D, toward white
+            ("dark", 0x2D2F33, 0xC1C1C3),
+        ],
+    )
+    def test_the_grid_box_takes_its_colors_from_the_style(self, pair, preset, grid, label):
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import _build_plot
+
         built = _build_plot(pair.spread("auto"), Style(preset))
         assert f"{built.plot.grid_color:06X}" == f"{grid:06X}"
         assert f"{built.plot.label_color:06X}" == f"{label:06X}"
@@ -494,6 +534,7 @@ class TestK3d:
     def test_one_skeleton_and_one_trail_per_view(self, pair):
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import _build_plot
+
         built = _build_plot(pair.spread("auto"), Style("paper"))
         assert len(built.skeletons) == 2
         assert len(built.trails) == 2
@@ -508,6 +549,7 @@ class TestK3d:
         import IPython.display
 
         from pybvh.bvhplot import _k3d
+
         build_plot = _k3d._build_plot
         shown, built = [], []
 
@@ -520,12 +562,10 @@ class TestK3d:
         _k3d.play_k3d(scene, Style("paper"), 30.0)
         (widget,) = shown
         _plot, controls = widget.children
-        (slider,) = [w for w in controls.children
-                     if type(w).__name__ == "IntSlider"]
+        (slider,) = [w for w in controls.children if type(w).__name__ == "IntSlider"]
         return built[0], slider
 
-    def test_the_frame_slider_poses_each_skeleton_at_its_frame(
-            self, pair, monkeypatch):
+    def test_the_frame_slider_poses_each_skeleton_at_its_frame(self, pair, monkeypatch):
         scene = pair.spread("auto")
         built, slider = self._play_and_grab_slider(scene, monkeypatch)
         slider.value = 7
@@ -534,8 +574,7 @@ class TestK3d:
             np.testing.assert_array_equal(lines.vertices, expected)
             np.testing.assert_array_equal(points.positions, expected)
 
-    def test_the_frame_slider_grows_each_trail_to_its_frame(
-            self, pair, monkeypatch):
+    def test_the_frame_slider_grows_each_trail_to_its_frame(self, pair, monkeypatch):
         """The trail is the root's ground path up to the frame, and its
         later vertices wait at the frame's point."""
         scene = pair.spread("auto")
@@ -544,8 +583,7 @@ class TestK3d:
         for trail, path in zip(built.trails, built.trail_paths):
             drawn = np.asarray(trail.vertices)
             np.testing.assert_array_equal(drawn[:8], path[:8])
-            np.testing.assert_array_equal(
-                drawn[8:], np.broadcast_to(path[7], drawn[8:].shape))
+            np.testing.assert_array_equal(drawn[8:], np.broadcast_to(path[7], drawn[8:].shape))
 
     @pytest.mark.parametrize("label, name", [("b", "b ×0.14"), (None, "×0.14")])
     def test_size_matched_skeletons_are_drawn_at_one_height(self, label, name):
@@ -554,39 +592,45 @@ class TestK3d:
         by what factor it was drawn."""
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import _build_plot
+
         scene = _one_seven_times_the_other(label).size_matched().spread("auto")
         built = _build_plot(scene, Style("paper"))
         (small_lines, small_points), (big_lines, big_points) = built.skeletons
-        heights = [np.ptp(np.asarray(lines.vertices)[:, 1])
-                   for lines in (small_lines, big_lines)]
+        heights = [np.ptp(np.asarray(lines.vertices)[:, 1]) for lines in (small_lines, big_lines)]
         assert heights[1] == pytest.approx(heights[0], rel=0.01)
         assert big_lines.width == pytest.approx(small_lines.width)
         assert big_points.point_size == pytest.approx(small_points.point_size)
         assert (small_lines.name, big_lines.name) == ("a", name)
 
-    @pytest.mark.parametrize("preset, spine", [
-        ("paper", 0x3A3F4A),
-        ("dark", 0xC8CCD6),    # lightened to read on the dark ground
-    ])
-    def test_one_skeleton_colors_each_node_by_its_chain(
-            self, scene, preset, spine):
+    @pytest.mark.parametrize(
+        "preset, spine",
+        [
+            ("paper", 0x3A3F4A),
+            ("dark", 0xC8CCD6),  # lightened to read on the dark ground
+        ],
+    )
+    def test_one_skeleton_colors_each_node_by_its_chain(self, scene, preset, spine):
         """A node takes its parent bone's chain color, the root the
         spine's: left warm, right cool (Okabe-Ito)."""
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import _build_plot
+
         l_arm, r_arm, l_leg, r_leg = 0xE69F00, 0x56B4E9, 0xD55E00, 0x0072B2
         expected = [
-            spine,           # Hips, the root
-            spine, spine,    # Spine, Head
-            l_arm, l_arm,    # LeftArm, LeftHand
-            r_arm, r_arm,    # RightArm, RightHand
-            l_leg, r_leg,    # LeftFoot, RightFoot
+            spine,  # Hips, the root
+            spine,
+            spine,  # Spine, Head
+            l_arm,
+            l_arm,  # LeftArm, LeftHand
+            r_arm,
+            r_arm,  # RightArm, RightHand
+            l_leg,
+            r_leg,  # LeftFoot, RightFoot
         ]
         built = _build_plot(scene, Style(preset))
-        (lines, points), = built.skeletons
+        ((lines, points),) = built.skeletons
         for drawn in (lines.colors, points.colors):
-            assert [f"{c:06X}" for c in drawn] == [
-                f"{c:06X}" for c in expected]
+            assert [f"{c:06X}" for c in drawn] == [f"{c:06X}" for c in expected]
 
 
 # ---------------------------------------------------------------------------
@@ -597,8 +641,10 @@ class TestK3d:
 # tests/test_viewport.py; what is tested here is the translation into
 # each toolkit, which is where the backends used to drift apart.
 
+
 def _viewer(scene, monkeypatch, quality="high"):
     from pybvh.bvhplot import _vedo
+
     monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
     return _vedo._VedoPlayer(scene, Style("paper"), 30.0, quality=quality)
 
@@ -635,6 +681,7 @@ def _floor_corners(backend, scene, monkeypatch):
     if backend == "vedo offscreen":
         pytest.importorskip("vedo")
         from pybvh.bvhplot._vedo_offscreen import _build_offscreen
+
         plotter, _, _ = _build_offscreen(scene, Style("paper"), (200, 200))
         corners = _vedo_plane(plotter)
         plotter.close()
@@ -648,6 +695,7 @@ def _floor_corners(backend, scene, monkeypatch):
     assert backend == "k3d"
     pytest.importorskip("k3d")
     from pybvh.bvhplot._k3d import _build_plot
+
     built = _build_plot(scene, Style("paper"))
     return np.asarray(built.floor.vertices, dtype=np.float64).reshape(-1, 3)
 
@@ -659,8 +707,10 @@ def _declared_epsilon(backend):
         return 0.0
     if backend == "k3d":
         from pybvh.bvhplot._k3d import FLOOR_EPSILON
+
         return FLOOR_EPSILON
     from pybvh.bvhplot._vedo_capsules import FLOOR_EPSILON
+
     return FLOOR_EPSILON
 
 
@@ -669,44 +719,43 @@ _FLOOR_BACKENDS = ["matplotlib", "vedo offscreen", "vedo viewer", "k3d"]
 
 class TestEveryBackendDrawsTheViewportsFloor:
     @pytest.mark.parametrize("backend", _FLOOR_BACKENDS)
-    def test_the_plane_is_where_the_viewport_puts_it(
-            self, backend, scene, monkeypatch):
+    def test_the_plane_is_where_the_viewport_puts_it(self, backend, scene, monkeypatch):
         from pybvh.bvhplot._viewport import make_viewport
+
         viewport = make_viewport(scene.views, framing="still")
         corners = _floor_corners(backend, scene, monkeypatch)
         expected = viewport.floor_quad()
         up = viewport.up_index
 
         for axis in viewport.ground_axes:
-            assert corners[:, axis].min() == pytest.approx(
-                expected[:, axis].min(), rel=1e-5), backend
-            assert corners[:, axis].max() == pytest.approx(
-                expected[:, axis].max(), rel=1e-5), backend
-        below = viewport.below_floor(
-            _declared_epsilon(backend) * viewport.half_span)
-        np.testing.assert_allclose(
-            corners[:, up], below, rtol=1e-5, atol=1e-7, err_msg=backend)
+            assert corners[:, axis].min() == pytest.approx(expected[:, axis].min(), rel=1e-5), (
+                backend
+            )
+            assert corners[:, axis].max() == pytest.approx(expected[:, axis].max(), rel=1e-5), (
+                backend
+            )
+        below = viewport.below_floor(_declared_epsilon(backend) * viewport.half_span)
+        np.testing.assert_allclose(corners[:, up], below, rtol=1e-5, atol=1e-7, err_msg=backend)
 
     @pytest.mark.parametrize("backend", _FLOOR_BACKENDS)
-    def test_moving_the_scene_ground_moves_the_plane(
-            self, backend, scene, monkeypatch):
+    def test_moving_the_scene_ground_moves_the_plane(self, backend, scene, monkeypatch):
         """The property a floor re-derived inside a backend breaks."""
         import dataclasses
 
         from pybvh.bvhplot._scene import Scene
+
         view = scene.views[0]
-        moved = Scene(views=[dataclasses.replace(
-            view, floor_height=view.floor_height - 0.75)])
+        moved = Scene(views=[dataclasses.replace(view, floor_height=view.floor_height - 0.75)])
         before = _floor_corners(backend, scene, monkeypatch)
         after = _floor_corners(backend, moved, monkeypatch)
         up = view.up_index
-        assert before[:, up].mean() - after[:, up].mean() == pytest.approx(
-            0.75, abs=1e-5), backend
+        assert before[:, up].mean() - after[:, up].mean() == pytest.approx(0.75, abs=1e-5), backend
 
     def test_opencv_projects_the_viewports_plane(self, scene, monkeypatch):
         cv2 = pytest.importorskip("cv2")
         from pybvh.bvhplot import _opencv
         from pybvh.bvhplot._viewport import make_viewport
+
         drawn = []
         real = cv2.fillPoly
 
@@ -729,9 +778,9 @@ class TestEveryBackendFramesTheViewportsBox:
     def test_a_matplotlib_still_is_fitted_to_the_still_box(self, scene, floor):
         from pybvh.bvhplot._matplotlib import frame_mpl
         from pybvh.bvhplot._viewport import make_viewport
+
         fig, ax = frame_mpl(scene, Style("paper", floor=floor), show=False)
-        viewport = make_viewport(
-            scene.views, framing="still", include_floor=floor is not None)
+        viewport = make_viewport(scene.views, framing="still", include_floor=floor is not None)
         limits = np.array([ax.get_xlim(), ax.get_ylim(), ax.get_zlim()])
         np.testing.assert_array_equal(limits[:, 0], viewport.lo)
         np.testing.assert_array_equal(limits[:, 1], viewport.hi)
@@ -741,12 +790,14 @@ class TestEveryBackendFramesTheViewportsBox:
     def test_a_matplotlib_clip_is_fitted_to_the_clip_box(self, scene, motion):
         from pybvh.bvhplot._matplotlib import _setup_animated_panel
         from pybvh.bvhplot._viewport import make_viewport
+
         view = scene.views[0]
         viewport = make_viewport([view], framing="clip", motion=motion)
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
-        _setup_animated_panel(ax, view, viewport, Style("paper"),
-                              np.asarray(view.bones, dtype=int), 0, 1)
+        _setup_animated_panel(
+            ax, view, viewport, Style("paper"), np.asarray(view.bones, dtype=int), 0, 1
+        )
         limits = np.array([ax.get_xlim(), ax.get_ylim(), ax.get_zlim()])
         np.testing.assert_array_equal(limits[:, 0], viewport.lo)
         np.testing.assert_array_equal(limits[:, 1], viewport.hi)
@@ -767,6 +818,7 @@ class TestEveryBackendStatesItsProjection:
     @pytest.mark.parametrize("asked", ["persp", "ortho"])
     def test_matplotlib_draws_what_the_style_asks(self, scene, asked):
         from pybvh.bvhplot._matplotlib import frame_mpl, sequence_mpl
+
         style = Style("paper", projection=asked)
         fig, ax = frame_mpl(scene, style, show=False)
         assert _drawn_projection(ax) == asked
@@ -779,53 +831,63 @@ class TestEveryBackendStatesItsProjection:
     @pytest.mark.parametrize("asked", ["persp", "ortho"])
     def test_the_offset_sequence_is_always_orthographic(self, scene, asked):
         from pybvh.bvhplot._matplotlib import sequence_mpl
+
         samples = np.array([0, 5, 11], dtype=np.intp)
-        fig, ax = sequence_mpl(
-            scene, Style("paper", projection=asked), samples, "offset")
+        fig, ax = sequence_mpl(scene, Style("paper", projection=asked), samples, "offset")
         assert _drawn_projection(ax) == "ortho"
         plt.close(fig)
 
     @pytest.mark.parametrize("asked", ["persp", "ortho"])
-    def test_a_matplotlib_clip_draws_its_viewports_projection(
-            self, scene, asked):
+    def test_a_matplotlib_clip_draws_its_viewports_projection(self, scene, asked):
         from pybvh.bvhplot._matplotlib import _setup_animated_panel
         from pybvh.bvhplot._viewport import make_viewport
+
         view = scene.views[0]
         viewport = make_viewport([view], framing="clip", projection=asked)
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
         # the style asks for the opposite: the viewport is what is drawn
         other = "ortho" if asked == "persp" else "persp"
-        _setup_animated_panel(ax, view, viewport,
-                              Style("paper", projection=other),
-                              np.asarray(view.bones, dtype=int), 0, 1)
+        _setup_animated_panel(
+            ax,
+            view,
+            viewport,
+            Style("paper", projection=other),
+            np.asarray(view.bones, dtype=int),
+            0,
+            1,
+        )
         assert _drawn_projection(ax) == asked
         plt.close(fig)
 
-    @pytest.mark.parametrize("make_axes, asked", [
-        (dict(proj_type="ortho"), "persp"),
-        (dict(proj_type="persp"), "ortho"),
-        (dict(), "ortho"),
-    ])
-    def test_supplied_axes_are_drawn_with_the_styles_projection(
-            self, scene, make_axes, asked):
+    @pytest.mark.parametrize(
+        "make_axes, asked",
+        [
+            (dict(proj_type="ortho"), "persp"),
+            (dict(proj_type="persp"), "ortho"),
+            (dict(), "ortho"),
+        ],
+    )
+    def test_supplied_axes_are_drawn_with_the_styles_projection(self, scene, make_axes, asked):
         """``ax=`` hands over axes that already have a projection; the
         style still decides, so the viewport describes the picture."""
         from pybvh.bvhplot._matplotlib import frame_mpl, sequence_mpl
+
         style = Style("paper", projection=asked)
         samples = np.array([0, 5, 11], dtype=np.intp)
-        for draw in (lambda ax: frame_mpl(scene, style, show=False, ax=ax),
-                     lambda ax: sequence_mpl(
-                         scene, style, samples, "overlay", ax=ax)):
+        for draw in (
+            lambda ax: frame_mpl(scene, style, show=False, ax=ax),
+            lambda ax: sequence_mpl(scene, style, samples, "overlay", ax=ax),
+        ):
             fig = plt.figure()
             ax = fig.add_subplot(111, projection="3d", **make_axes)
             draw(ax)
             assert _drawn_projection(ax) == asked
             plt.close(fig)
 
-    def test_axes_reused_after_an_orthographic_figure_follow_the_style(
-            self, scene):
+    def test_axes_reused_after_an_orthographic_figure_follow_the_style(self, scene):
         from pybvh.bvhplot._matplotlib import frame_mpl
+
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
         frame_mpl(scene, Style("paper", projection="ortho"), show=False, ax=ax)
@@ -835,20 +897,25 @@ class TestEveryBackendStatesItsProjection:
         assert _drawn_projection(ax) == "persp"
         plt.close(fig)
 
-    @pytest.mark.parametrize("backend, library, expected", [
-        ("_opencv", "cv2", "ortho"),
-        ("_k3d", "k3d", "persp"),
-        ("_vedo_offscreen", "vedo", "persp"),
-        ("_vedo", "vedo", "persp"),
-    ])
+    @pytest.mark.parametrize(
+        "backend, library, expected",
+        [
+            ("_opencv", "cv2", "ortho"),
+            ("_k3d", "k3d", "persp"),
+            ("_vedo_offscreen", "vedo", "persp"),
+            ("_vedo", "vedo", "persp"),
+        ],
+    )
     def test_the_other_backends_say_what_they_draw_with(
-            self, scene, monkeypatch, backend, library, expected):
+        self, scene, monkeypatch, backend, library, expected
+    ):
         """OpenCV is orthographic, k3d and vedo perspective, whatever
         the style asks for."""
         pytest.importorskip(library)
         import importlib
 
         from pybvh.bvhplot import _viewport
+
         module = importlib.import_module(f"pybvh.bvhplot.{backend}")
         stated = []
         real = _viewport.make_viewport
@@ -883,6 +950,7 @@ class TestEveryPerspectiveBackendUsesTheViewportsCamera:
         vedo = pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo_offscreen
         from pybvh.bvhplot._viewport import make_viewport
+
         seen = {}
         real_screenshot = vedo.Plotter.screenshot
 
@@ -892,15 +960,15 @@ class TestEveryPerspectiveBackendUsesTheViewportsCamera:
                 position=np.array(camera.GetPosition()),
                 focal_point=np.array(camera.GetFocalPoint()),
                 viewup=np.array(camera.GetViewUp()),
-                view_angle=camera.GetViewAngle())
+                view_angle=camera.GetViewAngle(),
+            )
             return real_screenshot(plotter, *args, **kwargs)
 
         monkeypatch.setattr(vedo.Plotter, "screenshot", capture)
         _vedo_offscreen.frame_vedo(scene, Style("paper"), resolution=(240, 160))
 
         assert seen["view_angle"] == 30.0
-        eye, target, up = make_viewport(scene.views).camera(
-            view_angle=30.0, aspect=240 / 160)
+        eye, target, up = make_viewport(scene.views).camera(view_angle=30.0, aspect=240 / 160)
         np.testing.assert_allclose(seen["position"], eye)
         np.testing.assert_allclose(seen["focal_point"], target)
         np.testing.assert_allclose(seen["viewup"], up, atol=1e-12)
@@ -922,13 +990,12 @@ _BODY_SIZED_BACKENDS = ["vedo offscreen", "vedo viewer", "k3d"]
 def _travelling_view(body_lengths=5.0, n_frames=24):
     """The stick person (1.8 tall) walking *body_lengths* of its height."""
     from synthetic_scene import make_array_view
-    return make_array_view(
-        n_frames, walk_speed=body_lengths * 1.8 / (n_frames - 1))
+
+    return make_array_view(n_frames, walk_speed=body_lengths * 1.8 / (n_frames - 1))
 
 
 def _still_of(view):
-    return dataclasses.replace(
-        view, coords=view.coords[:1], root_heading=view.root_heading[:1])
+    return dataclasses.replace(view, coords=view.coords[:1], root_heading=view.root_heading[:1])
 
 
 def _scaled(view, factor, lateral_shift):
@@ -936,8 +1003,11 @@ def _scaled(view, factor, lateral_shift):
     coords = view.coords * factor
     coords[..., 0] += lateral_shift
     return dataclasses.replace(
-        view, coords=coords, rest_coords=view.rest_coords * factor,
-        floor_height=float(coords[..., 1].min()))
+        view,
+        coords=coords,
+        rest_coords=view.rest_coords * factor,
+        floor_height=float(coords[..., 1].min()),
+    )
 
 
 def _body_sizes(backend, scene, monkeypatch):
@@ -948,12 +1018,13 @@ def _body_sizes(backend, scene, monkeypatch):
     if backend == "k3d":
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import _build_plot
+
         built = _build_plot(scene, Style("paper"))
         return [
             np.array([lines.width, points.point_size, trail.width])
-            for (lines, points), trail in zip(built.skeletons, built.trails)]
-    return [np.array([capsule.base_radius])
-            for capsule in _capsules(backend, scene, monkeypatch)]
+            for (lines, points), trail in zip(built.skeletons, built.trails)
+        ]
+    return [np.array([capsule.base_radius]) for capsule in _capsules(backend, scene, monkeypatch)]
 
 
 def _capsules(backend, scene, monkeypatch):
@@ -961,8 +1032,8 @@ def _capsules(backend, scene, monkeypatch):
     pytest.importorskip("vedo")
     if backend == "vedo offscreen":
         from pybvh.bvhplot._vedo_offscreen import _build_offscreen
-        plotter, capsules, _ = _build_offscreen(
-            scene, Style("paper"), (120, 120))
+
+        plotter, capsules, _ = _build_offscreen(scene, Style("paper"), (120, 120))
     else:
         assert backend == "vedo viewer"
         player = _viewer(scene, monkeypatch)
@@ -977,16 +1048,15 @@ def _drawn_capsule_radii(backend, scene, monkeypatch):
     tubes are built along z from their parent end, where they are
     widest, and the spheres at the origin."""
     [capsule] = _capsules(backend, scene, monkeypatch)
-    tube_radii = np.linalg.norm(
-        capsule.canonical_bone_verts[..., :2], axis=-1).max(axis=1)
-    sphere_radii = np.linalg.norm(
-        capsule.canonical_joint_verts, axis=-1).max(axis=1)
+    tube_radii = np.linalg.norm(capsule.canonical_bone_verts[..., :2], axis=-1).max(axis=1)
+    sphere_radii = np.linalg.norm(capsule.canonical_joint_verts, axis=-1).max(axis=1)
     return np.concatenate([tube_radii, sphere_radii])
 
 
 def _one_node_walking(distance=10.0, n_frames=12):
     """A skeleton of one node carried *distance* along z."""
     from synthetic_scene import make_bare_view
+
     coords = np.zeros((n_frames, 1, 3))
     coords[:, 0, 2] = np.linspace(0.0, distance, n_frames)
     return make_bare_view(coords, np.zeros((1, 3)), [])
@@ -996,6 +1066,7 @@ def _coincident_nodes(distance=10.0, n_frames=12):
     """Three nodes at one point, rest pose included, carried
     *distance* along z."""
     from synthetic_scene import make_bare_view
+
     coords = np.zeros((n_frames, 3, 3))
     coords[..., 2] = np.linspace(0.0, distance, n_frames)[:, np.newaxis]
     return make_bare_view(coords, np.zeros((3, 3)), [(0, 1), (1, 2)])
@@ -1017,6 +1088,7 @@ def _draws_the_body(backend, scene, monkeypatch):
     if backend == "k3d":
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import _build_plot
+
         for style in (Style("paper"), Style("paper", floor="grid")):
             [(lines, points)] = _build_plot(scene, style).skeletons
             if not (lines.width > 0.0 and points.point_size > 0.0):
@@ -1025,8 +1097,8 @@ def _draws_the_body(backend, scene, monkeypatch):
     pytest.importorskip("vedo")
     if backend == "vedo offscreen":
         from pybvh.bvhplot._vedo_offscreen import frame_vedo
-        image = frame_vedo(
-            scene, Style("paper", floor=None), resolution=(200, 160))
+
+        image = frame_vedo(scene, Style("paper", floor=None), resolution=(200, 160))
         return len(np.unique(image.reshape(-1, 3), axis=0)) > 1
     assert backend == "vedo viewer"
     player = _viewer(scene, monkeypatch)
@@ -1041,28 +1113,25 @@ def _draws_the_body(backend, scene, monkeypatch):
 
 class TestEveryBackendSizesTheBodyFromTheBody:
     @pytest.mark.parametrize("backend", _BODY_SIZED_BACKENDS)
-    def test_a_still_and_the_whole_clip_draw_the_same_body(
-            self, backend, monkeypatch):
+    def test_a_still_and_the_whole_clip_draw_the_same_body(self, backend, monkeypatch):
         from pybvh.bvhplot._scene import Scene
+
         clip = _travelling_view()
-        [still] = _body_sizes(
-            backend, Scene(views=[_still_of(clip)]), monkeypatch)
+        [still] = _body_sizes(backend, Scene(views=[_still_of(clip)]), monkeypatch)
         [whole] = _body_sizes(backend, Scene(views=[clip]), monkeypatch)
         assert whole == pytest.approx(still)
 
     @pytest.mark.parametrize("backend", _BODY_SIZED_BACKENDS)
-    def test_each_skeleton_is_sized_from_its_own_body(
-            self, backend, monkeypatch):
+    def test_each_skeleton_is_sized_from_its_own_body(self, backend, monkeypatch):
         from pybvh.bvhplot._scene import Scene
+
         small = _travelling_view()
         big = _scaled(small, 3.0, lateral_shift=4.0)
-        small_sizes, big_sizes = _body_sizes(
-            backend, Scene(views=[small, big]), monkeypatch)
+        small_sizes, big_sizes = _body_sizes(backend, Scene(views=[small, big]), monkeypatch)
         assert big_sizes == pytest.approx(3.0 * small_sizes)
 
     @pytest.mark.parametrize("backend", ["vedo offscreen", "vedo viewer"])
-    def test_capsules_follow_the_coords_unit_past_zero_length_bones(
-            self, backend, monkeypatch):
+    def test_capsules_follow_the_coords_unit_past_zero_length_bones(self, backend, monkeypatch):
         """Coordinates a caller hands in centimetres against a rest pose
         in metres draw every tube and sphere 100 times as wide, crowded
         ones included, although most of the bones have zero length (the
@@ -1070,37 +1139,42 @@ class TestEveryBackendSizesTheBodyFromTheBody:
         from synthetic_scene import make_bare_view
 
         from pybvh.bvhplot._scene import Scene
+
         # Two parallel unit bones 0.01 apart (0-1 and 2-3), linked at
         # their base (0-2), with zero-length helpers on their tips.
-        rest = np.array([
-            [0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
-            [0.01, 0.0, 0.0], [0.01, 1.0, 0.0],
-            [0.0, 1.0, 0.0], [0.0, 1.0, 0.0],
-            [0.01, 1.0, 0.0], [0.01, 1.0, 0.0]])
+        rest = np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.01, 0.0, 0.0],
+                [0.01, 1.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.01, 1.0, 0.0],
+                [0.01, 1.0, 0.0],
+            ]
+        )
         bones = [(0, 1), (0, 2), (2, 3), (1, 4), (1, 5), (3, 6), (3, 7)]
         coords = np.repeat(rest[np.newaxis], 2, axis=0)
         in_metres = _drawn_capsule_radii(
-            backend, Scene(views=[make_bare_view(coords, rest, bones)]),
-            monkeypatch)
+            backend, Scene(views=[make_bare_view(coords, rest, bones)]), monkeypatch
+        )
         in_centimetres = _drawn_capsule_radii(
-            backend,
-            Scene(views=[make_bare_view(100.0 * coords, rest, bones)]),
-            monkeypatch)
+            backend, Scene(views=[make_bare_view(100.0 * coords, rest, bones)]), monkeypatch
+        )
         # The parallel bones are held to 60% of their 0.01 gap.
         assert in_metres[[0, 2]] == pytest.approx([0.006, 0.006], rel=1e-3)
         assert in_centimetres == pytest.approx(100.0 * in_metres, rel=1e-3)
 
-    @pytest.mark.parametrize("make_view", [
-        _one_node_walking, _coincident_nodes])
+    @pytest.mark.parametrize("make_view", [_one_node_walking, _coincident_nodes])
     @pytest.mark.parametrize("backend", _BODY_SIZED_BACKENDS)
-    def test_a_body_with_no_rest_extent_is_still_drawn(
-            self, backend, make_view, monkeypatch):
+    def test_a_body_with_no_rest_extent_is_still_drawn(self, backend, make_view, monkeypatch):
         """A rest pose with no extent has no height to size from; a
         clip that moves it is still drawn (see SkeletonView.body_size
         for the measure it falls back to)."""
         from pybvh.bvhplot._scene import Scene
-        assert _draws_the_body(
-            backend, Scene(views=[make_view()]), monkeypatch)
+
+        assert _draws_the_body(backend, Scene(views=[make_view()]), monkeypatch)
 
 
 def _viewer_sizes(scene, monkeypatch, quality):
@@ -1120,10 +1194,14 @@ def _viewer_sizes(scene, monkeypatch, quality):
                 point_size = player._points_actors[s].properties.GetPointSize()
             else:
                 line_width = point_size = 0.0
-            sizes.append(dict(
-                line_width=line_width, point_size=point_size,
-                font_size=label.GetTextProperty().GetFontSize(),
-                lift=float(np.linalg.norm(lift))))
+            sizes.append(
+                dict(
+                    line_width=line_width,
+                    point_size=point_size,
+                    font_size=label.GetTextProperty().GetFontSize(),
+                    lift=float(np.linalg.norm(lift)),
+                )
+            )
         return sizes
     finally:
         player.plt.close()
@@ -1133,9 +1211,9 @@ class TestTheViewersOtherSizesIgnoreTheDistanceTravelled:
     @pytest.mark.parametrize("quality", ["fast", "high"])
     def test_a_still_and_the_whole_clip(self, quality, monkeypatch):
         from pybvh.bvhplot._scene import Scene
+
         clip = _travelling_view()
-        [still] = _viewer_sizes(
-            Scene(views=[_still_of(clip)]), monkeypatch, quality)
+        [still] = _viewer_sizes(Scene(views=[_still_of(clip)]), monkeypatch, quality)
         [whole] = _viewer_sizes(Scene(views=[clip]), monkeypatch, quality)
         assert whole == pytest.approx(still)
 
@@ -1143,25 +1221,25 @@ class TestTheViewersOtherSizesIgnoreTheDistanceTravelled:
         """Line width, point size and font size are pixels: the same
         body in centimetres draws them as in metres."""
         from pybvh.bvhplot._scene import Scene
+
         clip = _travelling_view()
         [metres] = _viewer_sizes(Scene(views=[clip]), monkeypatch, "fast")
         [centimetres] = _viewer_sizes(
-            Scene(views=[_scaled(clip, 100.0, lateral_shift=0.0)]),
-            monkeypatch, "fast")
+            Scene(views=[_scaled(clip, 100.0, lateral_shift=0.0)]), monkeypatch, "fast"
+        )
         for pixels in ("line_width", "point_size", "font_size"):
             assert centimetres[pixels] == metres[pixels], pixels
         assert centimetres["lift"] == pytest.approx(100.0 * metres["lift"])
 
     def test_each_label_is_lifted_by_its_own_body(self, monkeypatch):
         from pybvh.bvhplot._scene import Scene
+
         small = _travelling_view()
         big = _scaled(small, 3.0, lateral_shift=4.0)
-        small_sizes, big_sizes = _viewer_sizes(
-            Scene(views=[small, big]), monkeypatch, "fast")
+        small_sizes, big_sizes = _viewer_sizes(Scene(views=[small, big]), monkeypatch, "fast")
         assert big_sizes["lift"] == pytest.approx(3.0 * small_sizes["lift"])
 
-    def test_fast_mode_draws_bones_as_wide_as_opencv_at_1080p(
-            self, monkeypatch):
+    def test_fast_mode_draws_bones_as_wide_as_opencv_at_1080p(self, monkeypatch):
         """At the debug style's 2.5, OpenCV draws 3-pixel bones and
         joint discs 2 pixels wider in radius, 10 pixels across; the
         viewer's fast mode draws the same, not 2 pixels from rounding
@@ -1169,10 +1247,11 @@ class TestTheViewersOtherSizesIgnoreTheDistanceTravelled:
         pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo
         from pybvh.bvhplot._scene import Scene
+
         monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
         player = _vedo._VedoPlayer(
-            Scene(views=[_travelling_view()]), Style("debug"), 30.0,
-            quality="fast")
+            Scene(views=[_travelling_view()]), Style("debug"), 30.0, quality="fast"
+        )
         try:
             assert player._lines_actors[0].properties.GetLineWidth() == 3
             assert player._points_actors[0].properties.GetPointSize() == 10

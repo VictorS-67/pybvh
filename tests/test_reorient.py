@@ -1,6 +1,7 @@
 """Tests for world_up features: load-time parameter, property validation,
 reorient_world_up, reorient_rest_up, reorient_rest_forward, warning toggle.
 """
+
 from __future__ import annotations
 
 import sys
@@ -37,8 +38,8 @@ TEST3 = str(BVH_DIR / "bvh_test3.bvh")  # disagreement file
 #  Feature 2: Property shape validation
 # ========================================================================
 
-class TestPropertyValidation:
 
+class TestPropertyValidation:
     def test_root_pos_rejects_1d(self):
         bvh = read_bvh_file(EXAMPLE)
         with pytest.raises(ValueError, match="root_pos"):
@@ -75,8 +76,8 @@ class TestPropertyValidation:
 #  Features 1+6: world_up parameter + warning toggle
 # ========================================================================
 
-class TestWorldUpParameter:
 
+class TestWorldUpParameter:
     def test_read_bvh_file_with_world_up(self):
         bvh = read_bvh_file(EXAMPLE, world_up="+y")
         assert bvh.world_up == "+y"
@@ -94,8 +95,11 @@ class TestWorldUpParameter:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             read_bvh_file(TEST3, world_up="+z")
-            user_warns = [x for x in w if issubclass(x.category, UserWarning)
-                          and "world up" in str(x.message).lower()]
+            user_warns = [
+                x
+                for x in w
+                if issubclass(x.category, UserWarning) and "world up" in str(x.message).lower()
+            ]
             assert len(user_warns) == 0
 
     def test_read_bvh_file_auto_warns_on_disagreement(self):
@@ -103,8 +107,11 @@ class TestWorldUpParameter:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             read_bvh_file(TEST3)
-            user_warns = [x for x in w if issubclass(x.category, UserWarning)
-                          and "world up" in str(x.message).lower()]
+            user_warns = [
+                x
+                for x in w
+                if issubclass(x.category, UserWarning) and "world up" in str(x.message).lower()
+            ]
             assert len(user_warns) > 0
 
     def test_warn_toggle_suppresses(self):
@@ -112,8 +119,11 @@ class TestWorldUpParameter:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             read_bvh_file(TEST3, warn_on_world_up_disagreement=False)
-            user_warns = [x for x in w if issubclass(x.category, UserWarning)
-                          and "world up" in str(x.message).lower()]
+            user_warns = [
+                x
+                for x in w
+                if issubclass(x.category, UserWarning) and "world up" in str(x.message).lower()
+            ]
             assert len(user_warns) == 0
 
     def test_bvh_init_world_up_param(self):
@@ -122,6 +132,7 @@ class TestWorldUpParameter:
 
     def test_read_bvh_directory_world_up(self):
         from pybvh import read_bvh_directory
+
         clips = read_bvh_directory(BVH_DIR, world_up="+y")
         assert all(c.world_up == "+y" for c in clips)
 
@@ -130,9 +141,9 @@ class TestWorldUpParameter:
 #  The load-time warning preference outlives the load
 # ========================================================================
 
+
 def _disagreement_warnings(caught: list[warnings.WarningMessage]) -> int:
-    return sum(1 for x in caught
-               if "rest pose suggests world up" in str(x.message).lower())
+    return sum(1 for x in caught if "rest pose suggests world up" in str(x.message).lower())
 
 
 class TestWorldUpWarningPreference:
@@ -184,7 +195,8 @@ class TestWorldUpWarningPreference:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             spine = silenced.extract_joints(
-                ["Hips", "Spine", "Spine1", "Spine2", "Spine3", "Neck", "Head"])
+                ["Hips", "Spine", "Spine1", "Spine2", "Spine3", "Neck", "Head"]
+            )
             _ = spine.world_up
         assert _disagreement_warnings(w) == 0
 
@@ -212,10 +224,10 @@ class TestWorldUpWarningPreference:
 
     def test_read_bvh_directory_loads_silently(self):
         from pybvh import read_bvh_directory
+
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            clips = read_bvh_directory(
-                BVH_DIR, warn_on_world_up_disagreement=False)
+            clips = read_bvh_directory(BVH_DIR, warn_on_world_up_disagreement=False)
             assert any(c.source_path == TEST3 for c in clips)
             for clip in clips:
                 _ = clip[0:10].world_up
@@ -243,8 +255,11 @@ class TestWorldUpWarningPreference:
             bvh = read_bvh_file(TEST3)
             _ = bvh[0:10].world_up
             _ = bvh.world_up_inferred
-        locations = {(x.filename, x.lineno) for x in w
-                     if "rest pose suggests world up" in str(x.message).lower()}
+        locations = {
+            (x.filename, x.lineno)
+            for x in w
+            if "rest pose suggests world up" in str(x.message).lower()
+        }
         assert len(locations) == 3
 
 
@@ -252,13 +267,23 @@ class TestWorldUpWarningPreference:
 #  Helper: _axis_aligned_rotation
 # ========================================================================
 
-class TestAxisAlignedRotation:
 
-    @pytest.mark.parametrize("from_ax,to_ax", [
-        ("+y", "+z"), ("+z", "+y"), ("+y", "-y"), ("+z", "-z"),
-        ("+y", "+x"), ("-z", "+y"), ("+x", "-x"), ("-y", "+z"),
-        ("+x", "+z"), ("-x", "-y"),
-    ])
+class TestAxisAlignedRotation:
+    @pytest.mark.parametrize(
+        "from_ax,to_ax",
+        [
+            ("+y", "+z"),
+            ("+z", "+y"),
+            ("+y", "-y"),
+            ("+z", "-z"),
+            ("+y", "+x"),
+            ("-z", "+y"),
+            ("+x", "-x"),
+            ("-y", "+z"),
+            ("+x", "+z"),
+            ("-x", "-y"),
+        ],
+    )
     def test_maps_axis_correctly(self, from_ax, to_ax):
         R = _axis_aligned_rotation(from_ax, to_ax)
         result = R @ _axis_to_vector(from_ax)
@@ -270,16 +295,26 @@ class TestAxisAlignedRotation:
         R = _axis_aligned_rotation(ax, ax)
         npt.assert_allclose(R, np.eye(3), atol=1e-14)
 
-    @pytest.mark.parametrize("from_ax,to_ax", [
-        ("+y", "+z"), ("+y", "-y"), ("+x", "+z"),
-    ])
+    @pytest.mark.parametrize(
+        "from_ax,to_ax",
+        [
+            ("+y", "+z"),
+            ("+y", "-y"),
+            ("+x", "+z"),
+        ],
+    )
     def test_det_is_one(self, from_ax, to_ax):
         R = _axis_aligned_rotation(from_ax, to_ax)
         assert abs(np.linalg.det(R) - 1.0) < 1e-14
 
-    @pytest.mark.parametrize("from_ax,to_ax", [
-        ("+y", "+z"), ("+y", "-y"), ("-z", "+x"),
-    ])
+    @pytest.mark.parametrize(
+        "from_ax,to_ax",
+        [
+            ("+y", "+z"),
+            ("+y", "-y"),
+            ("-z", "+x"),
+        ],
+    )
     def test_entries_are_exact_integers(self, from_ax, to_ax):
         R = _axis_aligned_rotation(from_ax, to_ax)
         npt.assert_array_equal(R, R.astype(int))
@@ -289,8 +324,8 @@ class TestAxisAlignedRotation:
 #  Feature 3: reorient_world_up
 # ========================================================================
 
-class TestReorientWorldUp:
 
+class TestReorientWorldUp:
     def test_noop_same_axis(self):
         bvh = make_pos_y_up_bvh()
         result = transforms.reorient_world_up(bvh, "+y")
@@ -399,8 +434,8 @@ class TestReorientWorldUp:
 #  Feature 4: reorient_rest_up
 # ========================================================================
 
-class TestReorientRestUp:
 
+class TestReorientRestUp:
     def test_fk_invariance(self):
         """FK positions must be identical before and after."""
         bvh = make_pos_z_up_bvh()
@@ -471,8 +506,8 @@ class TestReorientRestUp:
 #  Feature 5: reorient_rest_forward
 # ========================================================================
 
-class TestReorientRestForward:
 
+class TestReorientRestForward:
     def test_fk_invariance(self):
         bvh = make_pos_y_up_bvh()
         coords_before = bvh.node_positions()
@@ -481,8 +516,7 @@ class TestReorientRestForward:
         current_fwd = _compute_forward_at(bvh, rest, bvh.world_up)
         # Pick target that's perpendicular to up and different from current
         candidates = ["+x", "-x", "+z", "-z"]
-        target = [c for c in candidates if c != current_fwd
-                  and c[1] != bvh.world_up[1]][0]
+        target = [c for c in candidates if c != current_fwd and c[1] != bvh.world_up[1]][0]
         result = transforms.reorient_rest_forward(bvh, target)
         coords_after = result.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
@@ -493,8 +527,7 @@ class TestReorientRestForward:
         rest = bvh.rest_pose_positions()
         current_fwd = _compute_forward_at(bvh, rest, bvh.world_up)
         candidates = ["+x", "-x", "+z", "-z"]
-        target = [c for c in candidates if c != current_fwd
-                  and c[1] != bvh.world_up[1]][0]
+        target = [c for c in candidates if c != current_fwd and c[1] != bvh.world_up[1]][0]
         result = transforms.reorient_rest_forward(bvh, target)
         coords_after = result.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
@@ -509,8 +542,7 @@ class TestReorientRestForward:
         rest = bvh.rest_pose_positions()
         current_fwd = _compute_forward_at(bvh, rest, bvh.world_up)
         candidates = ["+x", "-x", "+z", "-z"]
-        target = [c for c in candidates if c != current_fwd
-                  and c[1] != bvh.world_up[1]][0]
+        target = [c for c in candidates if c != current_fwd and c[1] != bvh.world_up[1]][0]
         coords_before = bvh.node_positions()
         result = transforms.reorient_rest_forward(bvh, target, inplace=True)
         assert result is None
@@ -522,8 +554,7 @@ class TestReorientRestForward:
         rest = bvh.rest_pose_positions()
         current_fwd = _compute_forward_at(bvh, rest, bvh.world_up)
         candidates = ["+x", "-x", "+z", "-z"]
-        target = [c for c in candidates if c != current_fwd
-                  and c[1] != bvh.world_up[1]][0]
+        target = [c for c in candidates if c != current_fwd and c[1] != bvh.world_up[1]][0]
         coords_before = bvh.node_positions()
         result = bvh.reorient_rest_forward(target)
         coords_after = result.node_positions()
@@ -534,11 +565,13 @@ class TestReorientRestForward:
 #  Heterogeneous Euler order tests
 # ========================================================================
 
+
 class TestReorientHeterogeneousEulerOrders:
     """Verify reorient functions work when joints have different Euler orders."""
 
     def test_reorient_world_up_heterogeneous(self):
         from synthetic_bvh import make_heterogeneous_euler_bvh
+
         bvh = make_heterogeneous_euler_bvh()
         R = _axis_aligned_rotation(bvh.world_up, "+z")
         coords_old = bvh.node_positions()
@@ -550,6 +583,7 @@ class TestReorientHeterogeneousEulerOrders:
 
     def test_reorient_rest_up_heterogeneous(self):
         from synthetic_bvh import make_heterogeneous_euler_bvh
+
         bvh = make_heterogeneous_euler_bvh()
         coords_before = bvh.node_positions()
         result = transforms.reorient_rest_up(bvh, "+z")
@@ -558,6 +592,7 @@ class TestReorientHeterogeneousEulerOrders:
 
     def test_reorient_world_up_roundtrip_heterogeneous(self):
         from synthetic_bvh import make_heterogeneous_euler_bvh
+
         bvh = make_heterogeneous_euler_bvh()
         coords_before = bvh.node_positions()
         bvh2 = transforms.reorient_world_up(bvh, "+z")
@@ -570,8 +605,8 @@ class TestReorientHeterogeneousEulerOrders:
 #  Disagreement fixture tests
 # ========================================================================
 
-class TestDisagreementFixture:
 
+class TestDisagreementFixture:
     def test_disagreement_bvh_constructed(self):
         bvh = make_disagreement_bvh()
         assert bvh.frame_count > 0

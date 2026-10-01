@@ -11,6 +11,7 @@ Two quality modes:
 
 Requires ``vedo >= 2024.5``.
 """
+
 from __future__ import annotations
 
 import time
@@ -49,6 +50,7 @@ LABEL_FONT_SIZE = 14
 
 class _UiState(TypedDict, total=False):
     """UI-only flags — playback bookkeeping lives in PlaybackClock."""
+
     timer_id: int | None
     _slider_updating: bool
     show_labels: bool
@@ -83,19 +85,19 @@ def _interleave(
 # each entry places its Text2D *and* defines its click hit-box, so the
 # layout and the hit-testing can never drift apart.
 
-_PANEL_X = 0.01     # left-panel x
-_PANEL_S = 1.4      # left-panel text scale
-_RPANEL_X = 0.85    # right (help) panel x
+_PANEL_X = 0.01  # left-panel x
+_PANEL_S = 1.4  # left-panel text scale
+_RPANEL_X = 0.85  # right (help) panel x
 _TOP_ROW_Y0 = 0.89  # top row's bottom (speed buttons, help, notices)
 _PANEL_ROW_H = 0.06  # left panel's row pitch, and its lower rows' height
-_N_PANEL_ROWS = 4    # Spd, FPS, Loop, Reset Cam
+_N_PANEL_ROWS = 4  # Spd, FPS, Loop, Reset Cam
 
 # Bottom transport bar: _SL_X0/_SL_X1 drive both the slider and the
 # button layout.  Change them and everything stays aligned automatically.
-_SL_X0, _SL_X1 = 0.15, 0.85   # slider / button-row x extents
-_SL_Y = 0.12                  # the slider's line, the bar's top
-_BTN_S = 1.8                  # large, comfortable button text
-_BTN_GAP = 0.010              # normalized gap between adjacent buttons
+_SL_X0, _SL_X1 = 0.15, 0.85  # slider / button-row x extents
+_SL_Y = 0.12  # the slider's line, the bar's top
+_BTN_S = 1.8  # large, comfortable button text
+_BTN_GAP = 0.010  # normalized gap between adjacent buttons
 _N_BTNS = 5
 # Divide the full slider span evenly: N equal cells separated by (N-1) gaps
 _BTN_W = (_SL_X1 - _SL_X0 - (_N_BTNS - 1) * _BTN_GAP) / _N_BTNS
@@ -237,8 +239,10 @@ def play_vedo(
         player = _VedoPlayer(scene, style, fps, quality=quality)
         player.show()
     finally:
-        (vedo.settings.enable_default_keyboard_callbacks,
-         vedo.settings.enable_default_mouse_callbacks) = saved_callbacks
+        (
+            vedo.settings.enable_default_keyboard_callbacks,
+            vedo.settings.enable_default_mouse_callbacks,
+        ) = saved_callbacks
 
 
 class _VedoPlayer:
@@ -282,13 +286,13 @@ class _VedoPlayer:
 
         # --- UI state ---
         self.state: _UiState = {
-            'timer_id': None,
-            '_slider_updating': False,
-            'show_labels': False,
-            'skeleton_visible': [True] * self.n_skeletons,
-            'show_trail': False,
-            '_rendering': False,
-            '_screenshot_hide_at': None,
+            "timer_id": None,
+            "_slider_updating": False,
+            "show_labels": False,
+            "skeleton_visible": [True] * self.n_skeletons,
+            "show_trail": False,
+            "_rendering": False,
+            "_screenshot_hide_at": None,
         }
 
         self.plt = Plotter(
@@ -305,8 +309,7 @@ class _VedoPlayer:
         self.plt.renderer.LightFollowCameraOn()
 
         # Button registry: (x0, y0, w, h, callback) per clickable region.
-        self._buttons: list[
-            tuple[float, float, float, float, Callable[[], None]]] = []
+        self._buttons: list[tuple[float, float, float, float, Callable[[], None]]] = []
         # Every UI overlay actor registers here so the clean-screenshot
         # mode can hide the lot in one pass.
         self._ui_actors: list = []
@@ -322,12 +325,13 @@ class _VedoPlayer:
         # An offscreen plotter has no interactor: no events, no timers
         # (the offscreen path renders stills; playback needs a window).
         if self.plt.interactor is not None:
-            self.plt.add_callback('LeftButtonPress', self._on_click)
-            self.plt.add_callback('timer', self._on_timer)
-            self.plt.add_callback('key press', self._on_key)
-            if self.state['timer_id'] is None:
-                self.state['timer_id'] = self.plt.timer_callback(
-                    'create', dt=self.clock.interval_ms)
+            self.plt.add_callback("LeftButtonPress", self._on_click)
+            self.plt.add_callback("timer", self._on_timer)
+            self.plt.add_callback("key press", self._on_key)
+            if self.state["timer_id"] is None:
+                self.state["timer_id"] = self.plt.timer_callback(
+                    "create", dt=self.clock.interval_ms
+                )
 
     @property
     def num_frames(self) -> int:
@@ -346,8 +350,7 @@ class _VedoPlayer:
 
     def _skeleton_color(self, s: int) -> tuple[float, float, float]:
         """Skeleton *s*'s label and trail color, in vedo's form."""
-        return vedo_rgb(
-            skeleton_color_255(self.style, s, self.n_skeletons))
+        return vedo_rgb(skeleton_color_255(self.style, s, self.n_skeletons))
 
     def _build_geometry(self) -> None:
         """Create the floor, skeleton actors, labels, camera, and trails."""
@@ -375,11 +378,9 @@ class _VedoPlayer:
             floor_pos, normal, side = floor_placement(self.viewport)
             palette = floor_palette(self.style)
             if self.style.floor == "solid":
-                floor = Plane(
-                    pos=tuple(floor_pos), normal=tuple(normal),
-                    s=(side, side))
+                floor = Plane(pos=tuple(floor_pos), normal=tuple(normal), s=(side, side))
                 floor.alpha(self.style.floor_alpha)
-                floor.c(vedo_color(palette["face"])).lighting('off')
+                floor.c(vedo_color(palette["face"])).lighting("off")
             else:
                 # "grid" — and "checker", which falls back to grid in
                 # this viewer (no cheap checker primitive in vedo).
@@ -387,14 +388,14 @@ class _VedoPlayer:
                 # vedo rotates about the world origin, so a grid that
                 # is placed first swings away from where it was put.
                 floor = Grid(s=[side, side], res=(30, 30))
-                if self.up_axis == 'y':
+                if self.up_axis == "y":
                     floor.rotate_x(90)
-                elif self.up_axis == 'x':
+                elif self.up_axis == "x":
                     floor.rotate_y(90)
                 # up_axis='z': Grid defaults to XY plane, no rotation
                 floor.pos(*floor_pos)
                 floor.lw(1).alpha(0.6)
-                floor.c(vedo_color(palette["grid"])).lighting('off')
+                floor.c(vedo_color(palette["grid"])).lighting("off")
             self.plt += floor
 
         # --- Build persistent skeleton geometry (created once, updated in-place) ---
@@ -413,15 +414,13 @@ class _VedoPlayer:
         for s in range(n_skeletons):
             view = self.scene.views[s]
             bone_rgb = bone_colors_255(view, self.style, s, n_skeletons)
-            joint_rgb = node_colors_255(
-                view, self.style, s, n_skeletons, bone_rgb)
+            joint_rgb = node_colors_255(view, self.style, s, n_skeletons, bone_rgb)
             bones = self.skeleton_lines_list[s]
             self._bone_parent_idx.append(np.array([b[0] for b in bones]))
             self._bone_child_idx.append(np.array([b[1] for b in bones]))
 
             if self.use_high:
-                capsule = CapsuleSkeleton(
-                    view, self.style.bone_width, bone_rgb, joint_rgb)
+                capsule = CapsuleSkeleton(view, self.style.bone_width, bone_rgb, joint_rgb)
                 self._capsules.append(capsule)
                 for actor_mesh in capsule.actors:
                     self.plt += actor_mesh
@@ -434,9 +433,10 @@ class _VedoPlayer:
                 lines = Lines(
                     frame0[self._bone_parent_idx[s]],
                     frame0[self._bone_child_idx[s]],
-                    lw=line_width_px)
+                    lw=line_width_px,
+                )
                 lines.cellcolors = np.asarray(bone_rgb, dtype=np.uint8)
-                lines.lighting('off')
+                lines.lighting("off")
                 points = Points(frame0, r=point_size_px, alpha=0.9)
                 points.pointcolors = joint_rgb
                 self._lines_actors.append(lines)
@@ -448,15 +448,17 @@ class _VedoPlayer:
         if self.labels:
             # A skeleton without a label takes no row: the color ties
             # each label to its skeleton.
-            shown = [(s, text)
-                     for s, text in enumerate(self.labels[:n_skeletons])
-                     if text is not None]
+            shown = [
+                (s, text) for s, text in enumerate(self.labels[:n_skeletons]) if text is not None
+            ]
             for row, (s, text) in enumerate(shown):
                 text_y = _panel_row_y0(_N_PANEL_ROWS + row) + _TEXT_RAISE
                 label = Text2D(
                     text,
                     pos=(_PANEL_X, text_y),
-                    c=self._skeleton_color(s), s=_PANEL_S, font='Calco',
+                    c=self._skeleton_color(s),
+                    s=_PANEL_S,
+                    font="Calco",
                 )
                 self.plt += label
 
@@ -495,18 +497,18 @@ class _VedoPlayer:
         # (fast vertex update).  The trail lies on the scene ground, in
         # both quality modes; the floor plane is drawn a hair below it.
         self._trail_actors: list = []
-        self._trail_full: list[npt.NDArray] = []       # pre-computed root paths
+        self._trail_full: list[npt.NDArray] = []  # pre-computed root paths
         self._trail_collapsed: list[npt.NDArray] = []  # pre-allocated collapsed buffers
         for s in range(n_skeletons):
-            root_all = self.viewport.ground_path(
-                self._coords_full[s][:, 0, :])  # (F, 3)
+            root_all = self.viewport.ground_path(self._coords_full[s][:, 0, :])  # (F, 3)
             self._trail_full.append(root_all)
             # Pre-allocate collapsed buffer (reused every frame via .copy())
             collapsed = np.tile(root_all[0], (2 * (len(root_all) - 1), 1))
             self._trail_collapsed.append(collapsed)
-            trail = Lines(collapsed[::2], collapsed[1::2],
-                          lw=2, c=self._skeleton_color(s), alpha=0.6)
-            trail.lighting('off')
+            trail = Lines(
+                collapsed[::2], collapsed[1::2], lw=2, c=self._skeleton_color(s), alpha=0.6
+            )
+            trail.lighting("off")
             trail.actor.SetVisibility(0)
             self._trail_actors.append(trail)
             self.plt += trail
@@ -515,8 +517,7 @@ class _VedoPlayer:
         """Update Lines/Points vertex data in-place for skeleton *s*."""
         p_idx = self._bone_parent_idx[s]
         c_idx = self._bone_child_idx[s]
-        self._lines_actors[s].vertices = _interleave(
-            frame_data[p_idx], frame_data[c_idx])
+        self._lines_actors[s].vertices = _interleave(frame_data[p_idx], frame_data[c_idx])
         self._points_actors[s].vertices = frame_data
 
     def _set_camera(self) -> None:
@@ -532,8 +533,8 @@ class _VedoPlayer:
         whenever the skeletons move."""
         width, height = self.plt.window.GetSize()
         eye, target, up = self.viewport.camera(
-            view_angle=self.plt.camera.GetViewAngle(),
-            aspect=width / height, band=_FIGURE_BAND)
+            view_angle=self.plt.camera.GetViewAngle(), aspect=width / height, band=_FIGURE_BAND
+        )
         self.plt.camera.SetPosition(*eye)
         self.plt.camera.SetFocalPoint(*target)
         self.plt.camera.SetViewUp(*up)
@@ -553,8 +554,8 @@ class _VedoPlayer:
         callback: Callable[[], None],
         *,
         s: float = _PANEL_S,
-        bg: str = 'dodgerblue',
-        c: str = 'white',
+        bg: str = "dodgerblue",
+        c: str = "white",
         centered: bool = False,
     ):
         """Place a clickable Text2D and register its hit-box.
@@ -568,11 +569,17 @@ class _VedoPlayer:
         from vedo import Text2D  # type: ignore[import-untyped]
 
         if centered:
-            t2d = Text2D(text, pos=(x0 + w / 2, y0 + _TEXT_RAISE), s=s,
-                         c=c, bg=bg, font='Calco', justify='bottom-center')
+            t2d = Text2D(
+                text,
+                pos=(x0 + w / 2, y0 + _TEXT_RAISE),
+                s=s,
+                c=c,
+                bg=bg,
+                font="Calco",
+                justify="bottom-center",
+            )
         else:
-            t2d = Text2D(text, pos=(x0, y0 + _TEXT_RAISE), s=s,
-                         c=c, bg=bg, font='Calco')
+            t2d = Text2D(text, pos=(x0, y0 + _TEXT_RAISE), s=s, c=c, bg=bg, font="Calco")
         self.plt += t2d
         self._buttons.append((x0, y0, w, h, callback))
         self._ui_actors.append(t2d)
@@ -586,77 +593,104 @@ class _VedoPlayer:
 
         # --- Left panel (compact: label + < value > on same line) ---
         self.speed_label = Text2D(
-            "Spd", pos=(_PANEL_X, _TOP_ROW_TEXT_Y), s=_PANEL_S,
-            c='#2c3e50', font='Calco',
+            "Spd",
+            pos=(_PANEL_X, _TOP_ROW_TEXT_Y),
+            s=_PANEL_S,
+            c="#2c3e50",
+            font="Calco",
         )
         self.plt += self.speed_label
         self._ui_actors.append(self.speed_label)
-        self._add_button(
-            " < ", 0.05, _TOP_ROW_Y0, 0.03, 0.07, self._on_speed_down)
+        self._add_button(" < ", 0.05, _TOP_ROW_Y0, 0.03, 0.07, self._on_speed_down)
         self.speed_text = Text2D(
-            " 1x ", pos=(0.08, _TOP_ROW_TEXT_Y), s=_PANEL_S,
-            c='#2c3e50', bg='#c8c8d4', font='Calco',
+            " 1x ",
+            pos=(0.08, _TOP_ROW_TEXT_Y),
+            s=_PANEL_S,
+            c="#2c3e50",
+            bg="#c8c8d4",
+            font="Calco",
         )
         self.plt += self.speed_text
         self._ui_actors.append(self.speed_text)
-        self._add_button(
-            " > ", 0.12, _TOP_ROW_Y0, 0.04, 0.07, self._on_speed_up)
+        self._add_button(" > ", 0.12, _TOP_ROW_Y0, 0.04, 0.07, self._on_speed_up)
 
         # --- FPS selector ---
         fps_y0 = _panel_row_y0(1)
         self.fps_label = Text2D(
-            "FPS", pos=(_PANEL_X, fps_y0 + _TEXT_RAISE), s=_PANEL_S,
-            c='#2c3e50', font='Calco',
+            "FPS",
+            pos=(_PANEL_X, fps_y0 + _TEXT_RAISE),
+            s=_PANEL_S,
+            c="#2c3e50",
+            font="Calco",
         )
         self.plt += self.fps_label
         self._ui_actors.append(self.fps_label)
-        self._add_button(
-            " < ", 0.05, fps_y0, 0.03, _PANEL_ROW_H, self._on_fps_down)
+        self._add_button(" < ", 0.05, fps_y0, 0.03, _PANEL_ROW_H, self._on_fps_down)
         self.fps_text = Text2D(
-            f" {self.clock.target_fps} ", pos=(0.08, fps_y0 + _TEXT_RAISE),
-            s=_PANEL_S, c='#2c3e50', bg='#c8c8d4', font='Calco',
+            f" {self.clock.target_fps} ",
+            pos=(0.08, fps_y0 + _TEXT_RAISE),
+            s=_PANEL_S,
+            c="#2c3e50",
+            bg="#c8c8d4",
+            font="Calco",
         )
         self.plt += self.fps_text
         self._ui_actors.append(self.fps_text)
-        self._add_button(
-            " > ", 0.12, fps_y0, 0.04, _PANEL_ROW_H, self._on_fps_up)
+        self._add_button(" > ", 0.12, fps_y0, 0.04, _PANEL_ROW_H, self._on_fps_up)
 
         self.loop_btn = self._add_button(
-            " Loop ", _PANEL_X, _panel_row_y0(2), 0.19, _PANEL_ROW_H,
-            self._on_cycle_loop, bg='green4')
+            " Loop ",
+            _PANEL_X,
+            _panel_row_y0(2),
+            0.19,
+            _PANEL_ROW_H,
+            self._on_cycle_loop,
+            bg="green4",
+        )
         self.reset_btn = self._add_button(
-            " Reset Cam ", _PANEL_X, _panel_row_y0(3), 0.19, _PANEL_ROW_H,
-            self._on_reset_camera)
+            " Reset Cam ", _PANEL_X, _panel_row_y0(3), 0.19, _PANEL_ROW_H, self._on_reset_camera
+        )
 
         # --- Bottom: transport bar ---
         self.btn_first = self._add_button(
-            _L_FIRST, _BTN_X[0], _BTN_Y0, _BTN_W, _BTN_H, self._on_first,
-            s=_BTN_S, centered=True)
+            _L_FIRST, _BTN_X[0], _BTN_Y0, _BTN_W, _BTN_H, self._on_first, s=_BTN_S, centered=True
+        )
         self.btn_back = self._add_button(
-            _L_BACK, _BTN_X[1], _BTN_Y0, _BTN_W, _BTN_H, self._on_prev,
-            s=_BTN_S, centered=True)
+            _L_BACK, _BTN_X[1], _BTN_Y0, _BTN_W, _BTN_H, self._on_prev, s=_BTN_S, centered=True
+        )
         self.btn_play = self._add_button(
-            _L_PAUSE, _BTN_X[2], _BTN_Y0, _BTN_W, _BTN_H, self._toggle_play,
-            s=_BTN_S, bg='tomato', centered=True)
+            _L_PAUSE,
+            _BTN_X[2],
+            _BTN_Y0,
+            _BTN_W,
+            _BTN_H,
+            self._toggle_play,
+            s=_BTN_S,
+            bg="tomato",
+            centered=True,
+        )
         self.btn_fwd = self._add_button(
-            _L_FWD, _BTN_X[3], _BTN_Y0, _BTN_W, _BTN_H, self._on_next,
-            s=_BTN_S, centered=True)
+            _L_FWD, _BTN_X[3], _BTN_Y0, _BTN_W, _BTN_H, self._on_next, s=_BTN_S, centered=True
+        )
         self.btn_last = self._add_button(
-            _L_LAST, _BTN_X[4], _BTN_Y0, _BTN_W, _BTN_H, self._on_last,
-            s=_BTN_S, centered=True)
+            _L_LAST, _BTN_X[4], _BTN_Y0, _BTN_W, _BTN_H, self._on_last, s=_BTN_S, centered=True
+        )
 
         # --- Right panel: help (toggled with H key) ---
         self._help_header = Text2D(
-            " Help (H) ", pos=(_RPANEL_X, _TOP_ROW_TEXT_Y), s=_PANEL_S,
-            c='white', bg='#2c3e50', font='Calco',
+            " Help (H) ",
+            pos=(_RPANEL_X, _TOP_ROW_TEXT_Y),
+            s=_PANEL_S,
+            c="white",
+            bg="#2c3e50",
+            font="Calco",
         )
         self.plt += self._help_header
         self._ui_actors.append(self._help_header)
 
         self._help_items: list = []
         for i, txt in enumerate(_HELP_ENTRIES):
-            t = Text2D(txt, pos=(_RPANEL_X, 0.86 - i * 0.045), s=1.1,
-                       c='#2c3e50', font='Calco')
+            t = Text2D(txt, pos=(_RPANEL_X, 0.86 - i * 0.045), s=1.1, c="#2c3e50", font="Calco")
             t.actor.SetVisibility(0)
             self._help_items.append(t)
             self.plt += t
@@ -664,8 +698,12 @@ class _VedoPlayer:
 
         # --- Screenshot feedback overlay (center-top, hidden by default) ---
         self._screenshot_text = Text2D(
-            "", pos=(0.35, _TOP_ROW_TEXT_Y), s=1.2,
-            c='white', bg='green4', font='Calco',
+            "",
+            pos=(0.35, _TOP_ROW_TEXT_Y),
+            s=1.2,
+            c="white",
+            bg="green4",
+            font="Calco",
         )
         self._screenshot_text.actor.SetVisibility(0)
         self.plt += self._screenshot_text
@@ -674,10 +712,11 @@ class _VedoPlayer:
         # --- Frame scrubber slider ---
         self.slider = self.plt.add_slider(
             self._on_slider,
-            xmin=0, xmax=self.num_frames - 1,
+            xmin=0,
+            xmax=self.num_frames - 1,
             value=0,
             pos=[(_SL_X0, _SL_Y), (_SL_X1, _SL_Y)],  # the button row's extents
-            title='',
+            title="",
             show_value=False,
         )
 
@@ -690,25 +729,24 @@ class _VedoPlayer:
         # Play/pause button
         if self.clock.playing:
             self.btn_play.text(_L_PAUSE)
-            self.btn_play.background('tomato')
+            self.btn_play.background("tomato")
         else:
             self.btn_play.text(_L_PLAY)
-            self.btn_play.background('green4')
+            self.btn_play.background("green4")
         # Loop / ping-pong button
         mode = self.clock.loop_mode
-        if mode == 'loop':
+        if mode == "loop":
             self.loop_btn.text(" Loop ")
-            self.loop_btn.background('green4')
-        elif mode == 'ping-pong':
+            self.loop_btn.background("green4")
+        elif mode == "ping-pong":
             self.loop_btn.text(" Ping ")
-            self.loop_btn.background('dodgerblue')
+            self.loop_btn.background("dodgerblue")
         else:
             self.loop_btn.text(" ---  ")
-            self.loop_btn.background('gray')
+            self.loop_btn.background("gray")
         # Speed display
         spd = self.clock.speed
-        self.speed_text.text(
-            f" {spd:.1f}x " if spd != int(spd) else f" {int(spd)}x ")
+        self.speed_text.text(f" {spd:.1f}x " if spd != int(spd) else f" {int(spd)}x ")
 
     def _update_frame_display(self, f: int) -> None:
         """Update frame info in the window title bar."""
@@ -716,16 +754,16 @@ class _VedoPlayer:
         self.plt.window.SetWindowName(
             f"pybvh viewer  |  Frame {f}/{self.num_frames - 1}"
             f"  |  t={t:.2f}s  |  {self.clock.target_fps}fps"
-            f"  |  {self.clock.speed:.3g}x")
+            f"  |  {self.clock.speed:.3g}x"
+        )
 
     def _restart_timer(self) -> None:
         """(Re)create the render timer at the clock's current interval."""
         if self.plt.interactor is None:
             return
-        if self.state['timer_id'] is not None:
-            self.plt.timer_callback('destroy', self.state['timer_id'])
-        self.state['timer_id'] = self.plt.timer_callback(
-            'create', dt=self.clock.interval_ms)
+        if self.state["timer_id"] is not None:
+            self.plt.timer_callback("destroy", self.state["timer_id"])
+        self.state["timer_id"] = self.plt.timer_callback("create", dt=self.clock.interval_ms)
 
     def _set_speed(self, new_speed: float) -> None:
         """Change playback speed and restart the timer."""
@@ -739,16 +777,15 @@ class _VedoPlayer:
         The clock owns the fps-to-step formula; the coords are sliced
         with clock.step so the two can never disagree.
         """
-        self.clock.set_fps_index(idx, 1)   # frame count set below
-        self.coords_list = [c[::self.clock.step]
-                            for c in self._coords_full]
+        self.clock.set_fps_index(idx, 1)  # frame count set below
+        self.coords_list = [c[:: self.clock.step] for c in self._coords_full]
         self.clock.num_frames = self.coords_list[0].shape[0]
         self.fps_text.text(f" {self.clock.target_fps} ")
-        self.state['_slider_updating'] = True
+        self.state["_slider_updating"] = True
         self.slider.GetRepresentation().SetMinimumValue(0)
         self.slider.GetRepresentation().SetMaximumValue(self.num_frames - 1)
         self.slider.value = 0
-        self.state['_slider_updating'] = False
+        self.state["_slider_updating"] = False
         self._restart_timer()
         self._sync_all()
         self._update_frame(0)
@@ -756,9 +793,9 @@ class _VedoPlayer:
     def _jump_to(self, f: int) -> None:
         """Jump to frame f, pause, and sync UI."""
         f = self.clock.jump_to(f)
-        self.state['_slider_updating'] = True
+        self.state["_slider_updating"] = True
         self.slider.value = f
-        self.state['_slider_updating'] = False
+        self.state["_slider_updating"] = False
         self._sync_all()
         self._update_frame_display(f)
 
@@ -774,19 +811,17 @@ class _VedoPlayer:
             else:
                 self._update_skeleton_fast(s, frame_data)
             # Update joint labels when visible
-            if self.state['show_labels']:
+            if self.state["show_labels"]:
                 for j in range(len(frame_data)):
-                    self._label_actors[s][j].SetPosition(
-                        *(frame_data[j] + self._label_offsets[s]))
+                    self._label_actors[s][j].SetPosition(*(frame_data[j] + self._label_offsets[s]))
             # Show trail [0:current_frame], collapse the rest
-            if self.state['show_trail']:
+            if self.state["show_trail"]:
                 root_pts = self._trail_full[s]
                 full_f = min(f * self.clock.step, len(root_pts) - 1)
                 verts = self._trail_collapsed[s].copy()
                 if full_f > 0:
-                    visible = _interleave(
-                        root_pts[:full_f], root_pts[1:full_f + 1])
-                    verts[:len(visible)] = visible
+                    visible = _interleave(root_pts[:full_f], root_pts[1 : full_f + 1])
+                    verts[: len(visible)] = visible
                 self._trail_actors[s].vertices = verts
         # The clipping planes were fitted to the previous pose; a
         # skeleton that walked toward or away from the camera since
@@ -794,10 +829,10 @@ class _VedoPlayer:
         self.plt.renderer.ResetCameraClippingRange()
 
         # Hide screenshot feedback after timeout
-        hide_at = self.state.get('_screenshot_hide_at')
+        hide_at = self.state.get("_screenshot_hide_at")
         if hide_at and time.perf_counter() > hide_at:
             self._screenshot_text.actor.SetVisibility(0)
-            self.state['_screenshot_hide_at'] = None
+            self.state["_screenshot_hide_at"] = None
 
         self._update_frame_display(f)
         self.plt.render()
@@ -829,7 +864,7 @@ class _VedoPlayer:
 
         hidden = []
         for actor_obj in self._ui_actors:
-            vtk_actor = getattr(actor_obj, 'actor', actor_obj)
+            vtk_actor = getattr(actor_obj, "actor", actor_obj)
             if vtk_actor.GetVisibility():
                 vtk_actor.SetVisibility(0)
                 hidden.append(vtk_actor)
@@ -918,24 +953,24 @@ class _VedoPlayer:
         # frame advancement (accurate under dropped timer events) lives
         # in PlaybackClock.advance.
         state = self.state
-        if state.get('_rendering'):
+        if state.get("_rendering"):
             return
-        state['_rendering'] = True
+        state["_rendering"] = True
         try:
             was_playing = self.clock.playing
             target_f = self.clock.advance(time.perf_counter())
             if was_playing and not self.clock.playing:
                 self._sync_all()  # 'off' mode reached an end
             if target_f is not None:
-                state['_slider_updating'] = True
+                state["_slider_updating"] = True
                 self.slider.value = target_f
-                state['_slider_updating'] = False
+                state["_slider_updating"] = False
                 self._update_frame(target_f)
         finally:
-            state['_rendering'] = False
+            state["_rendering"] = False
 
     def _on_slider(self, widget: object, event: object) -> None:
-        if self.state['_slider_updating']:
+        if self.state["_slider_updating"]:
             return
         f = int(round(widget.value))  # type: ignore[attr-defined]
         self.clock.jump_to(f)
@@ -946,73 +981,73 @@ class _VedoPlayer:
         key = self.plt.last_event.keypress  # type: ignore[attr-defined]
         state = self.state
 
-        if key == 'space':
+        if key == "space":
             self._toggle_play()
 
-        elif key == 'Right':
+        elif key == "Right":
             self._on_next()
 
-        elif key == 'Left':
+        elif key == "Left":
             self._on_prev()
 
-        elif key in ('plus', 'equal'):
+        elif key in ("plus", "equal"):
             self._on_speed_up()
 
-        elif key == 'minus':
+        elif key == "minus":
             self._on_speed_down()
 
-        elif key == 'l':
+        elif key == "l":
             self._on_cycle_loop()
 
-        elif key == 'r':
+        elif key == "r":
             self._on_reset_camera()
 
-        elif key == 'Home':
+        elif key == "Home":
             self._on_first()
 
-        elif key == 'End':
+        elif key == "End":
             self._on_last()
 
-        elif key == 't':
+        elif key == "t":
             # Toggle root trajectory trail (pre-computed, just show/hide)
-            state['show_trail'] = not state['show_trail']
-            vis = 1 if state['show_trail'] else 0
+            state["show_trail"] = not state["show_trail"]
+            vis = 1 if state["show_trail"] else 0
             for s in range(self.n_skeletons):
                 self._trail_actors[s].actor.SetVisibility(vis)
             self.plt.render()
 
-        elif key == 'f':
+        elif key == "f":
             # Cycle FPS presets
-            self._set_fps((self.clock.fps_idx + 1)
-                          % len(self.clock.fps_presets))
+            self._set_fps((self.clock.fps_idx + 1) % len(self.clock.fps_presets))
 
-        elif key == 'j':
+        elif key == "j":
             # Toggle joint name labels
-            state['show_labels'] = not state['show_labels']
-            vis = 1 if state['show_labels'] else 0
+            state["show_labels"] = not state["show_labels"]
+            vis = 1 if state["show_labels"] else 0
             for s in range(self.n_skeletons):
                 frame_data = self.coords_list[s][self.clock.frame]
                 for j in range(len(frame_data)):
                     self._label_actors[s][j].SetVisibility(vis)
                     if vis:
                         self._label_actors[s][j].SetPosition(
-                            *(frame_data[j] + self._label_offsets[s]))
+                            *(frame_data[j] + self._label_offsets[s])
+                        )
             self.plt.render()
 
-        elif key == 's':
+        elif key == "s":
             # Clean screenshot (UI hidden, 2x resolution) with feedback
             fname = self.screenshot()
             print(f"Screenshot saved: {fname}")
             self._screenshot_text.text(f" Saved: {fname} ")
             self._screenshot_text.actor.SetVisibility(1)
-            state['_screenshot_hide_at'] = time.perf_counter() + 1.5
+            state["_screenshot_hide_at"] = time.perf_counter() + 1.5
             self.plt.render()
 
         elif key in [str(d) for d in range(1, 10)]:
             # Toggle skeleton visibility (keys 1-9)
             idx = int(key) - 1
             if idx < self.n_skeletons:
-                vis_list = state['skeleton_visible']
+                vis_list = state["skeleton_visible"]
                 vis_list[idx] = not vis_list[idx]
                 v = 1 if vis_list[idx] else 0
                 if self.use_high:
@@ -1025,11 +1060,10 @@ class _VedoPlayer:
                     self._points_actors[idx].actor.SetVisibility(v)
                 # Also toggle labels for this skeleton
                 for a in self._label_actors[idx]:
-                    a.SetVisibility(
-                        v if state['show_labels'] else 0)
+                    a.SetVisibility(v if state["show_labels"] else 0)
                 self.plt.render()
 
-        elif key == 'h':
+        elif key == "h":
             # Toggle right-side help panel
             vis = 0 if self._help_items[0].actor.GetVisibility() else 1
             for item in self._help_items:

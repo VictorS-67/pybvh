@@ -22,6 +22,7 @@ in that configuration, and ADR 0001 is worth reopening.
 
 Needs only vedo, numpy and opencv — nothing from pybvh.
 """
+
 import sys
 from pathlib import Path
 
@@ -40,10 +41,12 @@ def scene():
     return sphere, tube, floor
 
 
-cases = [(multi_samples, light, floor_lit)
-         for multi_samples in (8, 0)               # vedo's default, and off
-         for light in ("none", "point", "spot")    # "none" = the default headlight
-         for floor_lit in (True, False)]
+cases = [
+    (multi_samples, light, floor_lit)
+    for multi_samples in (8, 0)  # vedo's default, and off
+    for light in ("none", "point", "spot")  # "none" = the default headlight
+    for floor_lit in (True, False)
+]
 
 tiles, labels = [], []
 for multi_samples, light, floor_lit in cases:
@@ -53,11 +56,9 @@ for multi_samples, light, floor_lit in cases:
         floor.lighting("off")
     objects = [sphere, tube, floor]
     if light == "point":
-        objects.append(vedo.Light(pos=(2, 5, 2), focal_point=(0, 0, 0),
-                                  intensity=1))
+        objects.append(vedo.Light(pos=(2, 5, 2), focal_point=(0, 0, 0), intensity=1))
     elif light == "spot":
-        objects.append(vedo.Light(pos=(2, 5, 2), focal_point=(0, 0, 0),
-                                  angle=40, intensity=1))
+        objects.append(vedo.Light(pos=(2, 5, 2), focal_point=(0, 0, 0), angle=40, intensity=1))
     plotter = vedo.Plotter(offscreen=True, size=(420, 360), bg="white")
     plotter.add_shadows()
     plotter.show(*objects, camera=CAM, interactive=False)
@@ -68,11 +69,18 @@ for multi_samples, light, floor_lit in cases:
 
 rows = []
 for start in range(0, len(tiles), 4):
-    row = tiles[start:start + 4]
+    row = tiles[start : start + 4]
     for offset, tile in enumerate(row):
-        cv2.putText(tile, labels[start + offset], (8, 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.42, (30, 30, 30), 1,
-                    cv2.LINE_AA)
+        cv2.putText(
+            tile,
+            labels[start + offset],
+            (8, 20),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.42,
+            (30, 30, 30),
+            1,
+            cv2.LINE_AA,
+        )
     while len(row) < 4:
         row.append(np.full_like(tiles[0], 255))
     rows.append(np.hstack(row))

@@ -7,6 +7,7 @@ calls. Pure numpy. No plotting library imports; the one thing taken
 from the pybvh core is the array-pure facing kernel the follow camera
 runs.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -82,8 +83,8 @@ class Turntable:
     def __post_init__(self) -> None:
         if not (np.isfinite(self.period) and self.period > 0):
             raise ValueError(
-                f"A turntable's period must be a positive number of "
-                f"frames, got {self.period!r}.")
+                f"A turntable's period must be a positive number of frames, got {self.period!r}."
+            )
 
 
 @dataclass(frozen=True)
@@ -126,16 +127,16 @@ class Viewport(GroundFrame):
     and such a clip is framed as a fixed camera frames it.
     """
 
-    lo: npt.NDArray[np.float64]            # (3,) framing box, low corner
-    hi: npt.NDArray[np.float64]            # (3,) framing box, high corner
-    center: npt.NDArray[np.float64]        # (3,) centre of the cube
-    half_span: float                       # half side of the cube
-    up: str                                # signed world-up axis, e.g. '+y'
-    floor_height: float                    # ground plane along the up axis
-    azimuth: float                         # degrees, the camera's base angle
-    elevation: float                       # degrees
+    lo: npt.NDArray[np.float64]  # (3,) framing box, low corner
+    hi: npt.NDArray[np.float64]  # (3,) framing box, high corner
+    center: npt.NDArray[np.float64]  # (3,) centre of the cube
+    half_span: float  # half side of the cube
+    up: str  # signed world-up axis, e.g. '+y'
+    floor_height: float  # ground plane along the up axis
+    azimuth: float  # degrees, the camera's base angle
+    elevation: float  # degrees
     azimuths: npt.NDArray[np.float64] | None  # (F,) degrees, or None
-    projection: str                        # 'persp' | 'ortho', as drawn
+    projection: str  # 'persp' | 'ortho', as drawn
     # One (F, N, 3) array per view, the views' own read-only arrays:
     # what the perspective camera fits.
     shown_coords: tuple[npt.NDArray[np.float64], ...] = field(repr=False)
@@ -282,9 +283,7 @@ class Viewport(GroundFrame):
         """
         bottom, top = band
         if not 0.0 <= bottom < top <= 1.0:
-            raise ValueError(
-                f"band must be (bottom, top) with 0 <= bottom < top <= 1, "
-                f"got {band}")
+            raise ValueError(f"band must be (bottom, top) with 0 <= bottom < top <= 1, got {band}")
         # The fitted part of the band, in half heights from the
         # picture's middle (up positive).
         band_middle = bottom + top - 1.0
@@ -294,26 +293,25 @@ class Viewport(GroundFrame):
         if not fitted_down < 0.0 < fitted_up:
             raise ValueError(
                 f"band {band} must hold the picture's middle, where the "
-                f"camera aims, inside FIT_FRACTION of it")
+                f"camera aims, inside FIT_FRACTION of it"
+            )
         tangent = np.tan(np.radians(view_angle) / 2.0)
         matrices = self._view_matrices
         distances = []
         for coords in self.shown_coords:
             viewed = (coords - self.center) @ np.swapaxes(matrices, 1, 2)
             height = viewed[..., 1]
-            needed = np.where(height >= 0.0,
-                              height / (tangent * fitted_up),
-                              height / (tangent * fitted_down))
+            needed = np.where(
+                height >= 0.0, height / (tangent * fitted_up), height / (tangent * fitted_down)
+            )
             if aspect is not None:
                 reach_across = tangent * FIT_FRACTION * aspect
-                needed = np.maximum(
-                    needed, np.abs(viewed[..., 0]) / reach_across)
+                needed = np.maximum(needed, np.abs(viewed[..., 0]) / reach_across)
             distances.append(float((viewed[..., 2] + needed).max()))
         # The cube's corner nearest the eye stands half_span * sum|w_k|
         # from its centre along the unit direction w towards the eye.
         towards_eye = matrices[:, 2]
-        cube_corner_per_frame = (
-            self.half_span * np.abs(towards_eye).sum(axis=1))
+        cube_corner_per_frame = self.half_span * np.abs(towards_eye).sum(axis=1)
         return max(*distances, float(cube_corner_per_frame.max()))
 
     def enclosing_cube(
@@ -360,7 +358,8 @@ class Viewport(GroundFrame):
         return self.half_span * FLOOR_EXTENT
 
     def floor_quad(
-        self, clip_to_box: bool = False,
+        self,
+        clip_to_box: bool = False,
     ) -> npt.NDArray[np.float64]:
         """The four corners of the ground plane, shape ``(4, 3)``.
 
@@ -390,7 +389,8 @@ class Viewport(GroundFrame):
         return quad
 
     def ground_path(
-        self, points: npt.NDArray[np.float64],
+        self,
+        points: npt.NDArray[np.float64],
     ) -> npt.NDArray[np.float64]:
         """*points* dropped onto the ground plane, as a new array.
 
@@ -415,8 +415,8 @@ class Viewport(GroundFrame):
         under a rotating camera and reads as the character zooming in
         and out."""
         return ortho_project(
-            points, self.view_matrix(frame), (self.lo + self.hi) / 2.0,
-            self.view_half, resolution)
+            points, self.view_matrix(frame), (self.lo + self.hi) / 2.0, self.view_half, resolution
+        )
 
     @cached_property
     def view_half(self) -> tuple[float, float]:
@@ -424,18 +424,19 @@ class Viewport(GroundFrame):
         the largest over every frame of the camera's schedule."""
         corners = box_corners(self.lo, self.hi) - (self.lo + self.hi) / 2.0
         projected = corners @ np.swapaxes(self._view_matrices, 1, 2)
-        return (float(np.abs(projected[..., 0]).max()),
-                float(np.abs(projected[..., 1]).max()))
+        return (float(np.abs(projected[..., 0]).max()), float(np.abs(projected[..., 1]).max()))
 
     @cached_property
     def _view_matrices(self) -> npt.NDArray[np.float64]:
         """One view matrix per scheduled frame, or a single one for a
         fixed camera, shape ``(F, 3, 3)``."""
-        azimuths = (np.array([self.azimuth]) if self.azimuths is None
-                    else self.azimuths)
-        return np.stack([
-            build_view_matrix(float(azimuth), self.elevation, self.up_axis)
-            for azimuth in azimuths])
+        azimuths = np.array([self.azimuth]) if self.azimuths is None else self.azimuths
+        return np.stack(
+            [
+                build_view_matrix(float(azimuth), self.elevation, self.up_axis)
+                for azimuth in azimuths
+            ]
+        )
 
 
 def make_viewport(
@@ -493,11 +494,9 @@ def make_viewport(
     if not views:
         raise ValueError("A viewport needs at least one view.")
     if framing not in _FRAMINGS:
-        raise ValueError(
-            f"Unknown framing {framing!r}. Choose from: {list(_FRAMINGS)}")
+        raise ValueError(f"Unknown framing {framing!r}. Choose from: {list(_FRAMINGS)}")
     if not isinstance(motion, Turntable) and motion not in _MOTIONS:
-        raise ValueError(
-            f"Unknown motion {motion!r}. Choose from: {list(_MOTIONS)}")
+        raise ValueError(f"Unknown motion {motion!r}. Choose from: {list(_MOTIONS)}")
 
     first = views[0]
     num_frames = first.coords.shape[0]
@@ -510,8 +509,7 @@ def make_viewport(
     if motion == "follow":
         azimuths = compute_follow_azimuths(first, first.azimuth, fps=fps)
     elif isinstance(motion, Turntable):
-        azimuths = turntable_azimuths(
-            first.azimuth, num_frames, motion.period)
+        azimuths = turntable_azimuths(first.azimuth, num_frames, motion.period)
     else:
         azimuths = None
     if azimuths is not None and np.all(azimuths == azimuths[0]):
@@ -520,8 +518,10 @@ def make_viewport(
     if framing == "clip":
         lo, hi = _swept_box(
             np.concatenate([v.coords.reshape(-1, 3) for v in views]),
-            first.up_index, floor_height if include_floor else None,
-            rotating=azimuths is not None)
+            first.up_index,
+            floor_height if include_floor else None,
+            rotating=azimuths is not None,
+        )
     else:
         box_center = center.copy()
         if include_floor:
@@ -537,11 +537,18 @@ def make_viewport(
         lo, hi = box_center - half_span, box_center + half_span
 
     return Viewport(
-        lo=lo, hi=hi, center=center, half_span=half_span, up=first.up,
-        floor_height=floor_height, azimuth=float(first.azimuth),
-        elevation=float(first.elevation), azimuths=azimuths,
+        lo=lo,
+        hi=hi,
+        center=center,
+        half_span=half_span,
+        up=first.up,
+        floor_height=floor_height,
+        azimuth=float(first.azimuth),
+        elevation=float(first.elevation),
+        azimuths=azimuths,
         projection=projection,
-        shown_coords=tuple(v.coords for v in views))
+        shown_coords=tuple(v.coords for v in views),
+    )
 
 
 def panel_viewports(
@@ -552,13 +559,16 @@ def panel_viewports(
 
     Each panel is framed, floored and scheduled from its own view;
     *options* are :func:`make_viewport`'s."""
-    return [make_viewport([view], **options)  # type: ignore[arg-type]
-            for view in views]
+    return [
+        make_viewport([view], **options)  # type: ignore[arg-type]
+        for view in views
+    ]
 
 
 # ---------------------------------------------------------------------------
 # The cube (size scale, and the framing of a still)
 # ---------------------------------------------------------------------------
+
 
 def compute_unified_limits(
     coords_list: list[npt.NDArray[np.float64]],
@@ -598,8 +608,7 @@ def compute_unified_limits(
     center = (global_min + global_max) / 2.0
 
     # half_span must cover both body size AND trajectory extent from center
-    trajectory_half_span = float(
-        np.maximum(global_max - center, center - global_min).max())
+    trajectory_half_span = float(np.maximum(global_max - center, center - global_min).max())
     half_span = max(max_body_span / 2.0, trajectory_half_span)
     half_span *= CUBE_MARGIN
     return center, half_span
@@ -653,9 +662,7 @@ def framing_bounds(
     lo, hi : ndarray of shape (3,)
         Opposite corners of the framing box, margin included.
     """
-    return _swept_box(
-        view.coords.reshape(-1, 3), view.up_index, view.floor_height,
-        rotating)
+    return _swept_box(view.coords.reshape(-1, 3), view.up_index, view.floor_height, rotating)
 
 
 def _swept_box(
@@ -690,9 +697,10 @@ def box_corners(
     hi: npt.NDArray[np.float64],
 ) -> npt.NDArray[np.float64]:
     """The eight corners of an axis-aligned box, shape ``(8, 3)``."""
-    return np.array([[x, y, z] for x in (lo[0], hi[0])
-                     for y in (lo[1], hi[1]) for z in (lo[2], hi[2])],
-                    dtype=np.float64)
+    return np.array(
+        [[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])],
+        dtype=np.float64,
+    )
 
 
 def turntable_azimuths(
@@ -823,8 +831,7 @@ def compute_follow_azimuths(
     from ..tools import _leftward_units_from_pairs
 
     num_frames = view.coords.shape[0]
-    leftward, valid = _leftward_units_from_pairs(
-        view.coords, view.lr_pairs, view.up_vector)
+    leftward, valid = _leftward_units_from_pairs(view.coords, view.lr_pairs, view.up_vector)
     if not valid[0]:
         return np.full(num_frames, float(base_azim))
 
@@ -837,9 +844,11 @@ def compute_follow_azimuths(
         raise ValueError(
             "The follow camera smooths the heading over seconds of clip "
             "time, and this view's frame_time is 0 (unset): pass fps, "
-            "the rate the picture plays at.")
+            "the rate the picture plays at."
+        )
     smoothed = _gaussian_smooth_held_ends(
-        heading_change, FOLLOW_SIGMA * frames_per_second, FOLLOW_TRUNCATE)
+        heading_change, FOLLOW_SIGMA * frames_per_second, FOLLOW_TRUNCATE
+    )
     return base_azim + smoothed
 
 
@@ -890,6 +899,7 @@ def _gaussian_smooth_held_ends(
 # View matrix and orthographic projection
 # ---------------------------------------------------------------------------
 
+
 def build_view_matrix(
     azimuth_deg: float,
     elevation_deg: float,
@@ -923,11 +933,7 @@ def build_view_matrix(
 
     # Eye direction from spherical coordinates, rolled to match
     # vertical axis (same as matplotlib's _roll_to_vertical).
-    eye_dir = np.roll(
-        [np.cos(el) * np.cos(az),
-         np.cos(el) * np.sin(az),
-         np.sin(el)],
-        axis_idx - 2)
+    eye_dir = np.roll([np.cos(el) * np.cos(az), np.cos(el) * np.sin(az), np.sin(el)], axis_idx - 2)
 
     # w = viewing direction (from eye toward origin = out of screen)
     w = eye_dir / np.linalg.norm(eye_dir)
@@ -984,8 +990,11 @@ def ortho_project(
     w, h = resolution
     viewed = (points - center) @ view_matrix.T  # (N, 3)
 
-    scales = [(extent * FIT_FRACTION) / (2.0 * half)
-              for extent, half in zip((w, h), view_half) if half > 1e-8]
+    scales = [
+        (extent * FIT_FRACTION) / (2.0 * half)
+        for extent, half in zip((w, h), view_half)
+        if half > 1e-8
+    ]
     scale = min(scales) if scales else 1.0
 
     px = viewed[:, 0] * scale + w / 2.0

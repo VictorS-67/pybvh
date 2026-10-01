@@ -6,6 +6,7 @@ from several public calls through different depths, so each test here
 reaches it through one public path and checks that the warning is
 attributed to this file, the caller's, rather than to a pybvh module.
 """
+
 from __future__ import annotations
 
 import ast
@@ -24,7 +25,7 @@ from pybvh import analysis, batch, bvhplot, read_bvh_directory, read_bvh_file
 from pybvh.bvhplot import _matplotlib
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
-TEST3 = BVH_DIR / "bvh_test3.bvh"   # rest pose and first frame disagree on up
+TEST3 = BVH_DIR / "bvh_test3.bvh"  # rest pose and first frame disagree on up
 DISAGREEMENT = "Rest pose suggests world up"
 NO_UP = "Could not infer a world up axis"
 NO_FACING = "No usable left/right geometry"
@@ -118,8 +119,7 @@ def _unruly_warnings(source):
             if any(alias.name == "warn" for alias in node.names):
                 unruly.append(node.lineno)
         elif isinstance(node, ast.Import):
-            if any(alias.name == "warnings" and alias.asname
-                   for alias in node.names):
+            if any(alias.name == "warnings" and alias.asname for alias in node.names):
                 unruly.append(node.lineno)
         elif isinstance(node, ast.Call) and _is_warnings_warn(node.func):
             called.add(node.func)
@@ -132,16 +132,21 @@ def _unruly_warnings(source):
 
 
 def _is_warnings_warn(node):
-    return (isinstance(node, ast.Attribute) and node.attr == "warn"
-            and isinstance(node.value, ast.Name)
-            and node.value.id == "warnings")
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr == "warn"
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "warnings"
+    )
 
 
 def _takes_user_stacklevel(call):
     levels = [k.value for k in call.keywords if k.arg == "stacklevel"]
-    return (len(levels) == 1
-            and isinstance(levels[0], ast.Call)
-            and getattr(levels[0].func, "id", None) == "user_stacklevel")
+    return (
+        len(levels) == 1
+        and isinstance(levels[0], ast.Call)
+        and getattr(levels[0].func, "id", None) == "user_stacklevel"
+    )
 
 
 def test_these_tests_import_the_pybvh_they_test():
@@ -158,9 +163,11 @@ def test_every_warning_in_pybvh_takes_its_level_from_the_stack():
     so the tests below cover the paths that exist today and this one
     covers the warnings added tomorrow."""
     package = Path(pybvh.__file__).parent
-    unruly = [f"{path.relative_to(package)}:{line}"
-              for path in sorted(package.rglob("*.py"))
-              for line in _unruly_warnings(path.read_text())]
+    unruly = [
+        f"{path.relative_to(package)}:{line}"
+        for path in sorted(package.rglob("*.py"))
+        for line in _unruly_warnings(path.read_text())
+    ]
     assert unruly == []
 
 
@@ -168,24 +175,30 @@ class TestWarnGuard:
     """The guard itself, against small sources: a checker that misses a
     spelling proves nothing about the package it passes."""
 
-    @pytest.mark.parametrize("source", [
-        "import warnings\nwarnings.warn('m', stacklevel=user_stacklevel())",
-        "import warnings\nlogger.warn('m')",
-        "import warnings\nwarnings.filterwarnings('ignore')",
-    ])
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "import warnings\nwarnings.warn('m', stacklevel=user_stacklevel())",
+            "import warnings\nlogger.warn('m')",
+            "import warnings\nwarnings.filterwarnings('ignore')",
+        ],
+    )
     def test_passes_a_level_from_the_stack_and_other_calls(self, source):
         assert _unruly_warnings(source) == []
 
-    @pytest.mark.parametrize("source", [
-        "import warnings\nwarnings.warn('m')",
-        "import warnings\nwarnings.warn('m', stacklevel=2)",
-        "import warnings\nwarnings.warn('m', UserWarning, 2)",
-        "from warnings import warn",
-        "from warnings import filterwarnings, warn as emit",
-        "import warnings as w",
-        "import warnings\nemit = warnings.warn",
-        "import warnings\nf(warnings.warn)",
-    ])
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "import warnings\nwarnings.warn('m')",
+            "import warnings\nwarnings.warn('m', stacklevel=2)",
+            "import warnings\nwarnings.warn('m', UserWarning, 2)",
+            "from warnings import warn",
+            "from warnings import filterwarnings, warn as emit",
+            "import warnings as w",
+            "import warnings\nemit = warnings.warn",
+            "import warnings\nf(warnings.warn)",
+        ],
+    )
     def test_flags_a_fixed_level_and_every_other_spelling(self, source):
         assert _unruly_warnings(source) == [source.count("\n") + 1]
 
@@ -245,7 +258,6 @@ class TestWorldUpDisagreement:
 
 
 class TestReadingADirectory:
-
     @pytest.mark.parametrize("parallel", [False, True])
     def test_a_skipped_file_names_the_read_call(self, tmp_path, parallel):
         shutil.copy(BVH_DIR / "bvh_test1.bvh", tmp_path / "good.bvh")
@@ -253,22 +265,19 @@ class TestReadingADirectory:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             line = _line_after_this_one()
-            clips = read_bvh_directory(tmp_path, parallel=parallel,
-                                       skip_errors=True)
+            clips = read_bvh_directory(tmp_path, parallel=parallel, skip_errors=True)
         warning = _the_warning(caught, "skipping")
         assert (warning.filename, warning.lineno) == (__file__, line)
         assert [Path(c.source_path).name for c in clips] == ["good.bvh"]
 
     @pytest.mark.parametrize("parallel", [False, True])
-    def test_without_skip_errors_the_first_failure_propagates(
-            self, tmp_path, parallel):
+    def test_without_skip_errors_the_first_failure_propagates(self, tmp_path, parallel):
         (tmp_path / "a_broken.bvh").write_text("not a BVH file")
         shutil.copy(BVH_DIR / "bvh_test1.bvh", tmp_path / "b_good.bvh")
         with pytest.raises(ValueError, match="a_broken"):
             read_bvh_directory(tmp_path, parallel=parallel)
 
-    def test_a_parallel_failure_does_not_wait_for_the_rest(
-            self, tmp_path, monkeypatch):
+    def test_a_parallel_failure_does_not_wait_for_the_rest(self, tmp_path, monkeypatch):
         """Once the first file fails, the files no worker has started
         are cancelled rather than parsed. The one worker, if it reaches
         the second file, is held there until the pool shuts down: by
@@ -360,36 +369,47 @@ class TestFacingFallback:
         path.write_text(NO_FACING_BVH)
         return read_bvh_file(path)
 
-    @pytest.mark.parametrize("query", [
-        lambda clip: clip.rest_forward,
-        lambda clip: clip.forward_axis,
-        lambda clip: clip.forward_at(0),
-        lambda clip: clip.left_at(0),
-        lambda clip: clip.facing_frame(),
-    ], ids=["rest_forward", "forward_axis", "forward_at", "left_at",
-            "facing_frame"])
+    @pytest.mark.parametrize(
+        "query",
+        [
+            lambda clip: clip.rest_forward,
+            lambda clip: clip.forward_axis,
+            lambda clip: clip.forward_at(0),
+            lambda clip: clip.left_at(0),
+            lambda clip: clip.facing_frame(),
+        ],
+        ids=["rest_forward", "forward_axis", "forward_at", "left_at", "facing_frame"],
+    )
     def test_each_facing_query_names_its_caller(self, clip, query):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             query(clip)
         assert _the_warning(caught, NO_FACING).filename == __file__
 
-    @pytest.mark.parametrize("draw", [
-        lambda clip, path: bvhplot.frame(clip),
-        lambda clip, path: clip.plot_frame(),
-        lambda clip, path: bvhplot.render(clip, path, backend="matplotlib"),
-        lambda clip, path: clip.render(path, backend="matplotlib"),
-        lambda clip, path: bvhplot.play(clip, backend="matplotlib"),
-        lambda clip, path: clip.play(backend="matplotlib"),
-    ], ids=["bvhplot.frame", "Bvh.plot_frame", "bvhplot.render",
-            "Bvh.render", "bvhplot.play", "Bvh.play"])
-    def test_drawing_names_the_draw_call(
-            self, clip, draw, monkeypatch, tmp_path):
+    @pytest.mark.parametrize(
+        "draw",
+        [
+            lambda clip, path: bvhplot.frame(clip),
+            lambda clip, path: clip.plot_frame(),
+            lambda clip, path: bvhplot.render(clip, path, backend="matplotlib"),
+            lambda clip, path: clip.render(path, backend="matplotlib"),
+            lambda clip, path: bvhplot.play(clip, backend="matplotlib"),
+            lambda clip, path: clip.play(backend="matplotlib"),
+        ],
+        ids=[
+            "bvhplot.frame",
+            "Bvh.plot_frame",
+            "bvhplot.render",
+            "Bvh.render",
+            "bvhplot.play",
+            "Bvh.play",
+        ],
+    )
+    def test_drawing_names_the_draw_call(self, clip, draw, monkeypatch, tmp_path):
         """The "front" camera stands in front of the skeleton's
         forward axis, the fallback one here."""
         for backend in ("frame_mpl", "render_mpl", "play_mpl"):
-            monkeypatch.setattr(_matplotlib, backend,
-                                lambda *args, **kwargs: (None, None))
+            monkeypatch.setattr(_matplotlib, backend, lambda *args, **kwargs: (None, None))
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             draw(clip, tmp_path / "clip.gif")
@@ -438,7 +458,6 @@ TIPLESS = "no candidates have tip descendants"
 
 
 class TestFootDetectionFallback:
-
     @pytest.fixture
     def clip(self, tmp_path):
         path = tmp_path / "tipless_foot.bvh"
@@ -447,15 +466,23 @@ class TestFootDetectionFallback:
             warnings.simplefilter("ignore")
             return read_bvh_file(path)
 
-    @pytest.mark.parametrize("call", [
-        lambda clip: analysis.auto_detect_foot_joints(clip),
-        lambda clip: clip.auto_detect_foot_joints(),
-        lambda clip: analysis.foot_contacts(clip),
-        lambda clip: clip.foot_contacts(),
-        lambda clip: analysis.skeleton_size(clip),
-    ], ids=["analysis.auto_detect_foot_joints", "Bvh.auto_detect_foot_joints",
-            "analysis.foot_contacts", "Bvh.foot_contacts",
-            "analysis.skeleton_size"])
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda clip: analysis.auto_detect_foot_joints(clip),
+            lambda clip: clip.auto_detect_foot_joints(),
+            lambda clip: analysis.foot_contacts(clip),
+            lambda clip: clip.foot_contacts(),
+            lambda clip: analysis.skeleton_size(clip),
+        ],
+        ids=[
+            "analysis.auto_detect_foot_joints",
+            "Bvh.auto_detect_foot_joints",
+            "analysis.foot_contacts",
+            "Bvh.foot_contacts",
+            "analysis.skeleton_size",
+        ],
+    )
     def test_each_detection_names_its_caller(self, clip, call):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
@@ -474,7 +501,6 @@ class TestFootDetectionFallback:
 
 
 class TestConcatenatingClipsOfTwoRates:
-
     @pytest.fixture
     def clips(self):
         first = read_bvh_file(BVH_DIR / "bvh_test1.bvh")
@@ -503,13 +529,13 @@ class TestConcatenatingClipsOfTwoRates:
 
 def test_harmonize_names_the_line_of_its_call():
     from pybvh.batch import harmonize
+
     reference = read_bvh_file(BVH_DIR / "bvh_example.bvh")
     other_skeleton = read_bvh_file(BVH_DIR / "bvh_test2.bvh")
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         line = _line_after_this_one()
-        harmonize([reference, other_skeleton], reference=reference,
-                  verbose=True)
+        harmonize([reference, other_skeleton], reference=reference, verbose=True)
     warning = _the_warning(caught, "harmonize:")
     assert (warning.filename, warning.lineno) == (__file__, line)
 
@@ -525,26 +551,27 @@ class TestBvhplot:
 
     @pytest.fixture
     def stubbed(self, monkeypatch):
-        monkeypatch.setattr(_matplotlib, "render_mpl",
-                            lambda *args, **kwargs: None)
-        monkeypatch.setattr(_matplotlib, "play_mpl",
-                            lambda *args, **kwargs: None)
+        monkeypatch.setattr(_matplotlib, "render_mpl", lambda *args, **kwargs: None)
+        monkeypatch.setattr(_matplotlib, "play_mpl", lambda *args, **kwargs: None)
 
     @pytest.fixture
     def without(self, monkeypatch):
         """Make the packages named importable no more."""
+
         def remove(*names):
-            monkeypatch.setattr(
-                bvhplot, "_module_importable",
-                lambda name: name not in names)
+            monkeypatch.setattr(bvhplot, "_module_importable", lambda name: name not in names)
+
         return remove
 
-    @pytest.mark.parametrize("draw", [
-        lambda clips, path: bvhplot.render(clips, path, backend="matplotlib"),
-        lambda clips, path: bvhplot.play(clips, backend="matplotlib"),
-    ], ids=["render", "play"])
-    def test_clips_of_two_rates_name_the_draw_call(
-            self, walk, stubbed, tmp_path, draw):
+    @pytest.mark.parametrize(
+        "draw",
+        [
+            lambda clips, path: bvhplot.render(clips, path, backend="matplotlib"),
+            lambda clips, path: bvhplot.play(clips, backend="matplotlib"),
+        ],
+        ids=["render", "play"],
+    )
+    def test_clips_of_two_rates_name_the_draw_call(self, walk, stubbed, tmp_path, draw):
         faster = walk.resample(60)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
@@ -567,42 +594,52 @@ class TestBvhplot:
             bvhplot.play([walk, turned], backend="matplotlib")
         assert _files_named(caught, "different world_up") == {__file__}
 
-    @pytest.mark.parametrize("draw", [
-        lambda clip, path: bvhplot.render(clip, path),
-        lambda clip, path: clip.render(path),
-    ], ids=["bvhplot.render", "Bvh.render"])
+    @pytest.mark.parametrize(
+        "draw",
+        [
+            lambda clip, path: bvhplot.render(clip, path),
+            lambda clip, path: clip.render(path),
+        ],
+        ids=["bvhplot.render", "Bvh.render"],
+    )
     def test_a_render_without_opencv_names_the_render_call(
-            self, walk, stubbed, without, tmp_path, draw):
+        self, walk, stubbed, without, tmp_path, draw
+    ):
         without("cv2")
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             draw(walk, tmp_path / "clip.mp4")
         assert _files_named(caught, "OpenCV not found") == {__file__}
 
-    @pytest.mark.parametrize("play", [
-        lambda clip: bvhplot.play(clip),
-        lambda clip: clip.play(),
-    ], ids=["bvhplot.play", "Bvh.play"])
-    def test_a_slow_fallback_names_the_play_call(
-            self, walk, stubbed, without, monkeypatch, play):
+    @pytest.mark.parametrize(
+        "play",
+        [
+            lambda clip: bvhplot.play(clip),
+            lambda clip: clip.play(),
+        ],
+        ids=["bvhplot.play", "Bvh.play"],
+    )
+    def test_a_slow_fallback_names_the_play_call(self, walk, stubbed, without, monkeypatch, play):
         without("vedo")
-        monkeypatch.setattr(bvhplot, "_resolve_play_backend",
-                            lambda requested: ("matplotlib", 3))
+        monkeypatch.setattr(bvhplot, "_resolve_play_backend", lambda requested: ("matplotlib", 3))
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             play(walk)
         assert _files_named(caught, "No interactive backend") == {__file__}
         assert _files_named(caught, "OpenCV not found") == {__file__}
 
-    @pytest.mark.parametrize("draw", [
-        lambda clip, path: bvhplot.render(clip, path, backend="matplotlib"),
-        lambda clip, path: clip.render(path, backend="matplotlib"),
-    ], ids=["bvhplot.render", "Bvh.render"])
-    def test_a_video_without_ffmpeg_names_the_render_call(
-            self, walk, monkeypatch, tmp_path, draw):
+    @pytest.mark.parametrize(
+        "draw",
+        [
+            lambda clip, path: bvhplot.render(clip, path, backend="matplotlib"),
+            lambda clip, path: clip.render(path, backend="matplotlib"),
+        ],
+        ids=["bvhplot.render", "Bvh.render"],
+    )
+    def test_a_video_without_ffmpeg_names_the_render_call(self, walk, monkeypatch, tmp_path, draw):
         from matplotlib import animation
-        monkeypatch.setattr(animation.writers, "is_available",
-                            lambda name: False)
+
+        monkeypatch.setattr(animation.writers, "is_available", lambda name: False)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             draw(walk, tmp_path / "clip.mp4")
@@ -617,7 +654,7 @@ class TestParsingNeverWarns:
     @pytest.fixture
     def path(self, tmp_path):
         """A file that declares one frame and holds no motion row."""
-        text = NO_FACING_BVH[:NO_FACING_BVH.index("Frames:")]
+        text = NO_FACING_BVH[: NO_FACING_BVH.index("Frames:")]
         path = tmp_path / "no_rows.bvh"
         path.write_text(text + "Frames: 1\nFrame Time: 0.033333\n")
         return path
@@ -625,8 +662,7 @@ class TestParsingNeverWarns:
     def test_a_file_without_motion_rows_raises_without_warning(self, path):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            with pytest.raises(ValueError,
-                               match="declares 1 frames but file contains 0"):
+            with pytest.raises(ValueError, match="declares 1 frames but file contains 0"):
                 read_bvh_file(path)
         assert [str(w.message) for w in caught] == []
 

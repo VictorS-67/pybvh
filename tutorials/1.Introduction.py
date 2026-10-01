@@ -44,24 +44,24 @@ np.set_printoptions(precision=4, suppress=True)
 
 REPO_ROOT = Path.cwd().parent if Path.cwd().name == "tutorials" else Path.cwd()
 bvh_folder = REPO_ROOT / "bvh_data"
-output_folder = Path('./output')
+output_folder = Path("./output")
 output_folder.mkdir(exist_ok=True)
 
 # %%
 # Let's peek at the raw text of a BVH file
-bvh_path = bvh_folder / 'bvh_test1.bvh'
+bvh_path = bvh_folder / "bvh_test1.bvh"
 with open(bvh_path) as f:
     lines = f.readlines()
 
 print("=== HIERARCHY section (first 15 lines) ===")
 for line in lines[:15]:
-    print(line, end='')
+    print(line, end="")
 
 print("\n\n=== MOTION section (first 5 lines) ===")
 for i, line in enumerate(lines):
-    if line.strip() == 'MOTION':
-        for line in lines[i:i+5]:
-            print(line, end='')
+    if line.strip() == "MOTION":
+        for line in lines[i : i + 5]:
+            print(line, end="")
         break
 
 # %% [markdown]
@@ -82,7 +82,7 @@ for i, line in enumerate(lines):
 # The function `read_bvh_file` parses a `.bvh` file and returns a `Bvh` object — the central container in pybvh. A `Bvh` object holds two things: the **skeleton** (a hierarchy of joints with their bone offsets and rotation orders) and the **motion** (per-frame angles for every joint). The classmethod `pybvh.Bvh.from_file(path)` is an equivalent spelling of the same call — the constructor counterpart of `bvh.write(path)`.
 
 # %%
-bvh = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')
+bvh = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")
 print(bvh)
 
 # %%
@@ -136,8 +136,12 @@ plt.show()
 # These are the raw values from the BVH file, converted to radians on read (the file format uses degrees; pybvh converts at the I/O boundary). Use `np.rad2deg(bvh.joint_angles)` if you want degrees for display. Remember: `joint_angles` stores **rotations**, not positions. To get 3D positions, you need forward kinematics (covered in Tutorial 2).
 
 # %%
-print(f"root_pos shape:     {bvh.root_pos.shape}   — {bvh.frame_count} frames, 3 position channels (X, Y, Z)")
-print(f"joint_angles shape: {bvh.joint_angles.shape} — {bvh.frame_count} frames, {bvh.joint_count} joints, 3 Euler angles each")
+print(
+    f"root_pos shape:     {bvh.root_pos.shape}   — {bvh.frame_count} frames, 3 position channels (X, Y, Z)"
+)
+print(
+    f"joint_angles shape: {bvh.joint_angles.shape} — {bvh.frame_count} frames, {bvh.joint_count} joints, 3 Euler angles each"
+)
 
 # %%
 print("Root position (first 5 frames):")
@@ -155,7 +159,7 @@ print(bvh.joint_angles[:5, 0])
 # The `Bvh` object itself also supports NumPy-style frame indexing: `bvh[start:stop]` returns a new `Bvh` holding just the selected frame range. Negative indices and steps work as expected — `bvh[::2]` keeps every other frame (and doubles `frame_time` accordingly), and an integer index like `bvh[0]` returns a single-frame clip.
 
 # %%
-first_half = bvh[:bvh.frame_count // 2]
+first_half = bvh[: bvh.frame_count // 2]
 last_30 = bvh[-30:]
 
 print(f"Original:   {bvh.frame_count} frames")
@@ -233,7 +237,7 @@ print(f"Children: {[c.name for c in spine.children]}")
 
 # %%
 for node in bvh.nodes[:6]:
-    if hasattr(node, 'rot_channels'):
+    if hasattr(node, "rot_channels"):
         print(f"{node.name:15s}  offset: {node.offset}  rotation order: {node.rot_channels}")
     else:
         print(f"{node.name:15s}  offset: {node.offset}  (end site — no rotation)")
@@ -253,14 +257,14 @@ print(f"Children:          {[c.name for c in bvh.root.children]}")
 # To save a `Bvh` object back to a `.bvh` file, use `write()`. The round-trip is lossless — reading a written file back gives an equal `Bvh` (within the `%.6f` motion formatting; `Frame Time:` is written at full precision).
 
 # %%
-bvh.write(output_folder / 'bvh_example_copy.bvh', verbose=False)
-assert pybvh.read_bvh_file(output_folder / 'bvh_example_copy.bvh') == bvh
+bvh.write(output_folder / "bvh_example_copy.bvh", verbose=False)
+assert pybvh.read_bvh_file(output_folder / "bvh_example_copy.bvh") == bvh
 
 # %% [markdown]
 # You can also export the animation as a video file with `bvhplot.render()`.
 
 # %%
-path = bvh.render(output_folder / 'bvh_animation.mp4')
+path = bvh.render(output_folder / "bvh_animation.mp4")
 print(f"Animation saved to: {path}")
 
 # %% [markdown]

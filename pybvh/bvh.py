@@ -1031,6 +1031,14 @@ class Bvh:
             symmetric[right] = left
         return symmetric
 
+    @lr_mapping.setter
+    def lr_mapping(self, value: dict[str, str] | None) -> None:
+        if value is None:
+            self._lr_mapping = None
+            self._lr_mapping_source = None
+            return
+        self._validate_and_set_lr_mapping(value, source="user")
+
     @property
     def has_lr_geometry(self) -> bool:
         """Whether the rest pose carries usable left/right direction.
@@ -1081,14 +1089,6 @@ class Bvh:
         lr_mapping : The pairs the measurement is derived from.
         """
         return _facing_is_measured(self, self.world_up)
-
-    @lr_mapping.setter
-    def lr_mapping(self, value: dict[str, str] | None) -> None:
-        if value is None:
-            self._lr_mapping = None
-            self._lr_mapping_source = None
-            return
-        self._validate_and_set_lr_mapping(value, source="user")
 
     @property
     def lr_pairs(self) -> list[tuple[int, int]] | None:

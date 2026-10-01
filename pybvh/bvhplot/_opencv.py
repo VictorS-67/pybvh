@@ -364,6 +364,13 @@ def _generate_frames(
         Draw a ``Frame f/F`` counter in the bottom-right corner.
         Default ``False`` (opt-in — publication output never stamps
         text).
+    ghost : int, optional
+        Number of faded trailing poses behind each live skeleton,
+        spaced by ``style.ghost_spacing`` seconds of clip time. Default
+        0, none.
+    trajectory : bool, optional
+        Draw each root's trace on the floor, growing with playback.
+        Default ``False``.
     """
     import cv2
 
@@ -470,6 +477,12 @@ def render_opencv(
         ``"fixed"`` (default), ``"turntable"``, ``"follow"`` or a
         :class:`~._viewport.Turntable`, handed to the viewport
         untouched.
+    frame_counter, ghost, trajectory : optional
+        Passed to :func:`_generate_frames`, which documents them.
+    codec : str, optional
+        ``"auto"`` (default), ``"h264"`` or ``"mpeg4"``, as
+        :func:`pybvh.bvhplot.render` documents. Read for video output
+        only: a GIF is written by Pillow whatever the codec.
 
     Returns
     -------

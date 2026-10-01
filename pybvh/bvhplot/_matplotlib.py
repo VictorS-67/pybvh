@@ -948,6 +948,8 @@ def trajectory_mpl(
     ----------
     scene : Scene
         Prepared visualization; per-view labels become legend labels.
+    style : Style
+        Resolved style; only ``style.background`` is read.
     figsize : (float, float) or None
         Figure size.
     show : bool
@@ -955,6 +957,13 @@ def trajectory_mpl(
     ax : matplotlib.axes.Axes, optional
         Existing 2D axes to draw on. If provided, no new figure is
         created. Works with single or multiple skeletons.
+    facing_arrows : bool
+        Overlay facing-direction arrows along each path, as
+        :func:`pybvh.bvhplot.trajectory` documents.
+    tight : bool
+        Fit the axes to the root paths alone instead of the skeletons'
+        full horizontal extent, as :func:`pybvh.bvhplot.trajectory`
+        documents.
 
     Returns
     -------

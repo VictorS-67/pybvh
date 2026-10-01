@@ -1428,6 +1428,12 @@ def trajectory(
     ----------
     bvh : Bvh or list[Bvh]
         One or more BVH objects. Pass a list for overlaid comparison.
+    style : Style or str, optional
+        Visual styling: a preset name (``"paper"``, ``"debug"``,
+        ``"dark"``) or a :class:`Style` instance. Default ``"paper"``.
+        Only its background applies: a trajectory is a 2D data plot
+        whose axes, ticks and grid carry the information, so it keeps
+        them whatever ``style.axes`` says.
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional

@@ -241,8 +241,8 @@ class TestRoundTrips:
 
     @pytest.fixture(params=["collision_rig", "one_joint_two_end_sites_rig"])
     def dataframe_rig(self, request):
-        # duplicate_joint_rig joins once its 'Arm' columns stop colliding
-        # (the column suffix, ticket 02 of #16).
+        # duplicate_joint_rig joins once its 'Arm' columns stop colliding,
+        # which the column suffix of #16 fixes.
         return request.getfixturevalue(request.param)
 
     @pytest.fixture

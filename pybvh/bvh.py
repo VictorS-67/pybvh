@@ -63,7 +63,7 @@ def _unique_labels(names: Sequence[str]) -> list[str]:
 
 
 def _motion_column_names(nodes: Sequence[BvhNode], mode: str) -> list[str]:
-    """Column names of the motion *nodes* carry, for ``to_df_dict`` and ``df_to_bvh``.
+    """Column names of the motion *nodes* carry, in either ``to_df_dict`` mode.
 
     ``'euler'`` names the flat layout of ``root_pos`` and ``joint_angles``:
     ``<root>_<axis>_pos`` per position channel, then ``<joint>_<axis>_rot``
@@ -1501,23 +1501,23 @@ class Bvh:
         ``_rot`` columns are the rad→deg-converted view of the internal
         radians-valued :attr:`joint_angles`.
         """
-        columns = _motion_column_names(self.nodes, 'euler')
         joint_angles_deg = np.rad2deg(self.joint_angles)
         flat = np.concatenate(
             [self.root_pos, joint_angles_deg.reshape(self.frame_count, -1)],
             axis=1)
-
-        result: dict[str, npt.NDArray[np.float64]] = {
-            'time': np.arange(self.frame_count) * self.frame_time}
-        result.update(zip(columns, flat.T))
-        return result
+        return self._timed_columns(
+            _motion_column_names(self.nodes, 'euler'), flat)
 
     def _get_df_constructor_spatial_coord(self, centered: str) -> dict[str, npt.NDArray[np.float64]]:
         """Return column-name → array dict for spatial-coordinate DataFrame."""
         spatial_array = self.node_positions(centered=centered)  # (F, N, 3)
-        columns = _motion_column_names(self.nodes, 'coordinates')
         flat = spatial_array.reshape(self.frame_count, -1)
+        return self._timed_columns(
+            _motion_column_names(self.nodes, 'coordinates'), flat)
 
+    def _timed_columns(self, columns: list[str], flat: npt.NDArray[np.float64]
+                       ) -> dict[str, npt.NDArray[np.float64]]:
+        """``time``, then *columns* over the columns of *flat*."""
         result: dict[str, npt.NDArray[np.float64]] = {
             'time': np.arange(self.frame_count) * self.frame_time}
         result.update(zip(columns, flat.T))

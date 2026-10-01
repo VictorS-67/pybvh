@@ -172,6 +172,18 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]],
     -----
     The DataFrame's ``_rot`` columns are in **degrees** — the human-readable convention used by :meth:`Bvh.to_df_dict` output. ``df_to_bvh`` converts them to the radians held on :attr:`Bvh.joint_angles`; feed this function degrees even though the rest of the pybvh API works in radians.
 
+    The frame time is the elapsed time of the ``time`` column divided
+    by its number of intervals, so a first timestamp other than zero
+    does not matter and uneven intervals are averaged rather than
+    refused, and it is snapped to an exact ``1 / N`` when within 0.01%
+    of one, as :func:`read_bvh_file` snaps a truncated ``Frame Time``:
+    a ``time`` column written at six decimals gives ``1 / 30`` exactly,
+    and a non-integer rate such as 23.976 fps is kept as measured. A
+    clip that goes out through :meth:`Bvh.to_df_dict` and back
+    therefore keeps its skeleton exactly and its motion within float
+    precision, the degrees conversion being the one step applied to
+    the angles.
+
     Columns bind by label, not by position. The alternative, reading
     the motion columns in the order they come, would accept a frame
     whose columns are in the file's order under any labels, and would

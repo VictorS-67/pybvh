@@ -106,7 +106,8 @@ def _se3_twists() -> np.ndarray:
           np.array([5., -5., 5.])]
     rows = [np.concatenate([a * th, v]) for th in thetas for a in axes for v in vs]
     for _ in range(24):                        # general random twists
-        a = rng.normal(size=3); a /= np.linalg.norm(a)
+        a = rng.normal(size=3)
+        a /= np.linalg.norm(a)
         th = rng.uniform(0.05, np.pi - 0.05)
         rows.append(np.concatenate([a * th, rng.normal(size=3) * rng.uniform(0.1, 10)]))
     return np.asarray(rows, dtype=float)
@@ -132,7 +133,9 @@ def gen_se3() -> None:
         B = pt.transform_from_exponential_coordinates(rng.normal(size=6))
         rel = pt.exponential_coordinates_from_transform(np.linalg.inv(A) @ B)
         for t in (0.0, 0.25, 0.5, 0.75, 1.0):
-            T0.append(A); T1.append(B); tval.append(t)
+            T0.append(A)
+            T1.append(B)
+            tval.append(t)
             interp.append(A @ pt.transform_from_exponential_coordinates(t * rel))
     _save("se3_screw_interp",
           {"ref": "pytransform3d", "definition": "A @ exp(t*log(inv(A)@B)) screw geodesic",
@@ -146,7 +149,8 @@ def gen_geodesic() -> None:
     rng = np.random.default_rng(SEED ^ 0x6E0)
 
     def rotvecs(n):
-        a = rng.normal(size=(n, 3)); a /= np.linalg.norm(a, axis=1, keepdims=True)
+        a = rng.normal(size=(n, 3))
+        a /= np.linalg.norm(a, axis=1, keepdims=True)
         return a * rng.uniform(0.0, np.pi, size=(n, 1))
 
     rv1 = np.concatenate([rotvecs(48), np.array([[0., 0, 0], [0., 0, 0]])])

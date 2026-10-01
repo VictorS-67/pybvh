@@ -354,7 +354,8 @@ class TestBuildViewMatrix:
                 origin = np.array(
                     proj3d.proj_transform(0, 0, 0, ax.get_proj()))
                 for i in range(3):
-                    v = np.zeros(3); v[i] = 1.0
+                    v = np.zeros(3)
+                    v[i] = 1.0
                     p = np.array(
                         proj3d.proj_transform(*v, ax.get_proj()))
                     mpl_right[i] = p[0] - origin[0]

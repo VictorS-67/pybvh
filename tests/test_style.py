@@ -583,7 +583,9 @@ class TestBoneDepthSorting:
         ax.add_collection3d(collection_cls(
             [segs[k] for k in seg_order],
             colors=[colors[k] for k in seg_order], linewidths=6))
-        ax.set_xlim(-1, 1); ax.set_ylim(-1, 1); ax.set_zlim(-1, 1)
+        ax.set_xlim(-1, 1)
+        ax.set_ylim(-1, 1)
+        ax.set_zlim(-1, 1)
         ax.view_init(elev=10, azim=-90, vertical_axis="z")
         fig.canvas.draw()
         buf = np.asarray(fig.canvas.buffer_rgba())[..., :3].copy()

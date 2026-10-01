@@ -752,7 +752,8 @@ def test_gait_core_step_length_is_forward_only():
     # step_length must measure the forward advance, not the lateral step width.
     F = 8
     contacts = np.zeros((F, 2))
-    contacts[1:3, 0] = 1; contacts[5:7, 0] = 1     # left onsets 1,5
+    contacts[1:3, 0] = 1                            # left onsets 1,5
+    contacts[5:7, 0] = 1
     contacts[3:5, 1] = 1                            # right onset 3
     foot_h = np.zeros((F, 2, 3))
     foot_h[[1, 5], 0, :] = [[0.0, 5.0, 0.0], [2.0, 5.0, 0.0]]   # left forward 0->2, y=+5
@@ -869,13 +870,18 @@ def test_resolve_adaptive_per_foot_fallback_and_clamp():
 
 def test_detect_contacts_recovers_plant_lift_two_feet():
     F = 10
-    speed = np.full((F, 2), 5.0); clearance = np.full((F, 2), 5.0)
-    speed[3:7, 0] = 0.1; clearance[3:7, 0] = 0.1
-    speed[1:4, 1] = 0.1; clearance[1:4, 1] = 0.1
+    speed = np.full((F, 2), 5.0)
+    clearance = np.full((F, 2), 5.0)
+    speed[3:7, 0] = 0.1
+    clearance[3:7, 0] = 0.1
+    speed[1:4, 1] = 0.1
+    clearance[1:4, 1] = 0.1
     mask, _ = analysis._detect_contacts(
         speed, clearance, method="combined",
         vel_threshold=1.0, height_threshold=1.0, hysteresis=0.0)
-    expected = np.zeros((F, 2), bool); expected[3:7, 0] = True; expected[1:4, 1] = True
+    expected = np.zeros((F, 2), bool)
+    expected[3:7, 0] = True
+    expected[1:4, 1] = True
     np.testing.assert_array_equal(mask, expected)
 
 
@@ -909,20 +915,26 @@ def test_release_open_runs_trims_truncated_swing():
     # filled run reaches the last frame, but raw support ends earlier: the
     # trailing band is speculative (a swing cut off by the clip) -> dropped.
     F = 8
-    mask = np.zeros((F, 1), bool); mask[2:8, 0] = True   # filled run [2,8) touches end
-    raw = np.zeros((F, 1), bool); raw[2:5, 0] = True     # raw lift at frame 5
+    mask = np.zeros((F, 1), bool)
+    mask[2:8, 0] = True   # filled run [2,8) touches end
+    raw = np.zeros((F, 1), bool)
+    raw[2:5, 0] = True     # raw lift at frame 5
     out = analysis._release_open_runs(mask, raw)
-    expected = np.zeros((F, 1), bool); expected[2:5, 0] = True
+    expected = np.zeros((F, 1), bool)
+    expected[2:5, 0] = True
     np.testing.assert_array_equal(out, expected)
 
 
 def test_release_open_runs_trims_leading_band():
     # symmetric at the start: a run touching frame 0 trims to where raw begins.
     F = 8
-    mask = np.zeros((F, 1), bool); mask[0:6, 0] = True
-    raw = np.zeros((F, 1), bool); raw[3:6, 0] = True
+    mask = np.zeros((F, 1), bool)
+    mask[0:6, 0] = True
+    raw = np.zeros((F, 1), bool)
+    raw[3:6, 0] = True
     out = analysis._release_open_runs(mask, raw)
-    expected = np.zeros((F, 1), bool); expected[3:6, 0] = True
+    expected = np.zeros((F, 1), bool)
+    expected[3:6, 0] = True
     np.testing.assert_array_equal(out, expected)
 
 
@@ -931,10 +943,13 @@ def test_release_open_runs_leaves_closed_and_supported_runs():
     # col1: boundary run raw-supported to the edge -> untouched.
     # col2: planted the whole clip (raw all true) -> untouched.
     F = 10
-    mask = np.zeros((F, 3), bool); raw = np.zeros((F, 3), bool)
+    mask = np.zeros((F, 3), bool)
+    raw = np.zeros((F, 3), bool)
     mask[3:6, 0] = True
-    mask[7:10, 1] = True; raw[7:10, 1] = True
-    mask[:, 2] = True; raw[:, 2] = True
+    mask[7:10, 1] = True
+    raw[7:10, 1] = True
+    mask[:, 2] = True
+    raw[:, 2] = True
     out = analysis._release_open_runs(mask, raw)
     np.testing.assert_array_equal(out, mask)
 
@@ -947,7 +962,8 @@ def test_detect_contacts_releases_open_swing_under_hysteresis():
     mask, _ = analysis._detect_contacts(
         speed, None, method="velocity",
         vel_threshold=1.0, height_threshold=None, hysteresis=0.5)
-    expected = np.zeros((F, 1), bool); expected[2:6, 0] = True   # released at frame 6
+    expected = np.zeros((F, 1), bool)
+    expected[2:6, 0] = True   # released at frame 6
     np.testing.assert_array_equal(mask, expected)
 
 
@@ -959,7 +975,8 @@ def test_detect_contacts_keeps_genuine_boundary_contact():
     mask, _ = analysis._detect_contacts(
         speed, None, method="velocity",
         vel_threshold=1.0, height_threshold=None, hysteresis=0.5)
-    expected = np.zeros((F, 1), bool); expected[2:8, 0] = True
+    expected = np.zeros((F, 1), bool)
+    expected[2:8, 0] = True
     np.testing.assert_array_equal(mask, expected)
 
 
@@ -981,7 +998,9 @@ def test_foot_contacts_releases_foot_lifting_at_clip_end():
 
 def test_contact_diagnostics_skate_airborne_height():
     F = 6
-    mask = np.zeros((F, 2), bool); mask[1:4, 0] = True; mask[2:5, 1] = True
+    mask = np.zeros((F, 2), bool)
+    mask[1:4, 0] = True
+    mask[2:5, 1] = True
     foot_coords = np.zeros((F, 2, 3))
     foot_coords[2:5, 1, 0] = [0.0, 1.5, 3.0]    # foot1 slides 3 in x during contact
     clearance = np.zeros((F, 2))                # all on the floor
@@ -998,16 +1017,20 @@ def test_contact_diagnostics_skate_airborne_height():
 
 def test_velocity_informed_height_reduces_to_margin_on_floor():
     F, margin = 20, 1.0
-    clearance = np.zeros((F, 1)); clearance[10:, 0] = 10.0     # stance on floor, swing high
-    speed = np.zeros((F, 1)); speed[10:, 0] = 5.0             # slow then fast
+    clearance = np.zeros((F, 1))
+    clearance[10:, 0] = 10.0     # stance on floor, swing high
+    speed = np.zeros((F, 1))
+    speed[10:, 0] = 5.0             # slow then fast
     thr = analysis._velocity_informed_height(clearance, speed, 1.0, margin)
     np.testing.assert_allclose(thr, [margin])                # contact_h≈0 -> margin
 
 
 def test_velocity_informed_height_calibrates_to_hover():
     F, margin, h0 = 20, 1.0, 5.0
-    clearance = np.full((F, 1), h0); clearance[10:, 0] = h0 + 5 * margin
-    speed = np.zeros((F, 1)); speed[10:, 0] = 5.0
+    clearance = np.full((F, 1), h0)
+    clearance[10:, 0] = h0 + 5 * margin
+    speed = np.zeros((F, 1))
+    speed[10:, 0] = 5.0
     thr = analysis._velocity_informed_height(clearance, speed, 1.0, margin)
     np.testing.assert_allclose(thr, [h0 + margin])           # lifts to the hover level
 
@@ -1023,9 +1046,11 @@ def test_velocity_informed_height_guard_rejects_held_airborne():
 def test_velocity_informed_height_per_foot_and_no_slow():
     F, margin = 20, 1.0
     clearance = np.zeros((F, 2))
-    clearance[:, 0] = 5.0; clearance[10:, 0] = 10.0           # foot0 hovers at 5
+    clearance[:, 0] = 5.0                                     # foot0 hovers at 5
+    clearance[10:, 0] = 10.0
     clearance[10:, 1] = 10.0                                  # foot1 reaches floor
-    speed = np.zeros((F, 2)); speed[10:, :] = 5.0
+    speed = np.zeros((F, 2))
+    speed[10:, :] = 5.0
     thr = analysis._velocity_informed_height(clearance, speed, 1.0, margin)
     np.testing.assert_allclose(thr, [5 + margin, 0 + margin])  # distinct per foot
     # never slow -> fixed margin
@@ -1152,10 +1177,12 @@ def _hover_clip(hover_frac, swing_frac=0.3):
     fidx = [bvh.index(n, space="node") for n in feet]
     scale = analysis._skeleton_scale(bvh.rest_pose_positions(), fidx)
     coords = bvh.node_positions().copy()
-    F = bvh.frame_count; half = F // 2
+    F = bvh.frame_count
+    half = F // 2
     for f in fidx:
         rest = coords[0, f, :].copy()
-        stance = rest.copy(); stance[1] = rest[1] + hover_frac * scale
+        stance = rest.copy()
+        stance[1] = rest[1] + hover_frac * scale
         coords[:half, f, :] = stance                                   # fully still (slow)
         coords[half:, f, :] = stance
         coords[half:, f, 1] = rest[1] + swing_frac * scale             # swing high
@@ -1190,10 +1217,14 @@ def test_height_reference_rejects_held_airborne_foot():
     fidx = [bvh.index(n, space="node") for n in feet]
     scale = analysis._skeleton_scale(bvh.rest_pose_positions(), fidx)
     coords = bvh.node_positions().copy()
-    F = bvh.frame_count; base = coords[0, fidx[0], 1]; half = F // 2
+    F = bvh.frame_count
+    base = coords[0, fidx[0], 1]
+    half = F // 2
     coords[:, fidx[1], :] = coords[0, fidx[1], :]             # foot1 held still...
     coords[:, fidx[1], 1] = base + 0.3 * scale                # ...and high (airborne)
-    coords[:half, fidx[0], :] = coords[0, fidx[0], :]; coords[:half, fidx[0], 1] = base  # foot0 stance on floor
-    coords[half:, fidx[0], 1] = base + 0.3 * scale; coords[half:, fidx[0], 0] = np.linspace(0, scale, F - half)
+    coords[:half, fidx[0], :] = coords[0, fidx[0], :]
+    coords[:half, fidx[0], 1] = base  # foot0 stance on floor
+    coords[half:, fidx[0], 1] = base + 0.3 * scale
+    coords[half:, fidx[0], 0] = np.linspace(0, scale, F - half)
     cv = bvh.foot_contacts(foot_joints=feet, coords=coords, height_reference="velocity", hysteresis=0.0)
     assert cv[:, 1].sum() == 0                                # held-airborne foot rejected

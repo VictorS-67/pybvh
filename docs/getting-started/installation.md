@@ -20,7 +20,7 @@ Pandas is only used for DataFrame import/export — it is not required for core 
 
 ## Requirements
 
-- Python >= 3.9
+- Python >= 3.10
 - NumPy >= 1.21
 - Matplotlib >= 3.7
 

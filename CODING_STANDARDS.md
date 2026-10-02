@@ -1,6 +1,6 @@
 # Coding standards
 
-The rules a change to pybvh is reviewed against. They are written for the reviewer: the code-review pass holds the diff to this file, and so does the maintainer. An implementer reads it once, before shaping a public surface, not while writing every line. The design principles and the ownership boundaries are in `CLAUDE.md`, the branch, commit and pull-request rules in `CONTRIBUTING.md`, and the codebase's state, fixtures and test files in `CONTEXT.md`.
+The rules a change to pybvh is reviewed against. They are written for the reviewer: the review before ready (`CONTRIBUTING.md`) holds the diff to this file, and so does the maintainer. An implementer reads it once, before shaping a public surface, not while writing every line. The design principles and the ownership boundaries are in `CLAUDE.md`, the branch, commit and pull-request rules in `CONTRIBUTING.md`, and the codebase's state, fixtures and test files in `CONTEXT.md`.
 
 A rule a check can enforce does not stay here: once a test or a CI step holds it, the check is the rule and the entry goes. The last section lists the mechanical rules still waiting for their check.
 

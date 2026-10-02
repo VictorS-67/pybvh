@@ -12,7 +12,7 @@ from __future__ import annotations
 import warnings
 from collections import namedtuple
 from collections.abc import Mapping, Sequence
-from typing import Any, Callable
+from typing import Any, Callable, Literal, Optional, TypeVar, Union, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -863,6 +863,60 @@ def facing_frame(
 # ----------------------------------------------------------------
 
 
+@overload
+def foot_contacts(
+    bvh: Bvh,
+    foot_joints: Optional[list[str]] = ...,
+    method: str = ...,
+    coords: Optional[npt.NDArray[np.float64]] = ...,
+    *,
+    vel_threshold: Optional[float] = ...,
+    vel_smooth_duration: float = ...,
+    height_threshold: Optional[float] = ...,
+    floor: Union[float, str] = ...,
+    min_contact_duration: float = ...,
+    min_gap_duration: float = ...,
+    hysteresis: float = ...,
+    adaptive: bool = ...,
+    height_reference: str = ...,
+    return_info: Literal[False] = ...,
+) -> npt.NDArray[np.float64]: ...
+@overload
+def foot_contacts(
+    bvh: Bvh,
+    foot_joints: Optional[list[str]] = ...,
+    method: str = ...,
+    coords: Optional[npt.NDArray[np.float64]] = ...,
+    *,
+    vel_threshold: Optional[float] = ...,
+    vel_smooth_duration: float = ...,
+    height_threshold: Optional[float] = ...,
+    floor: Union[float, str] = ...,
+    min_contact_duration: float = ...,
+    min_gap_duration: float = ...,
+    hysteresis: float = ...,
+    adaptive: bool = ...,
+    height_reference: str = ...,
+    return_info: Literal[True],
+) -> tuple[npt.NDArray[np.float64], dict]: ...
+@overload
+def foot_contacts(
+    bvh: Bvh,
+    foot_joints: Optional[list[str]] = ...,
+    method: str = ...,
+    coords: Optional[npt.NDArray[np.float64]] = ...,
+    *,
+    vel_threshold: Optional[float] = ...,
+    vel_smooth_duration: float = ...,
+    height_threshold: Optional[float] = ...,
+    floor: Union[float, str] = ...,
+    min_contact_duration: float = ...,
+    min_gap_duration: float = ...,
+    hysteresis: float = ...,
+    adaptive: bool = ...,
+    height_reference: str = ...,
+    return_info: bool,
+) -> Union[npt.NDArray[np.float64], tuple[npt.NDArray[np.float64], dict]]: ...
 def foot_contacts(
     bvh: Bvh,
     foot_joints: list[str] | None = None,
@@ -1080,6 +1134,60 @@ def foot_contacts(
     )
 
 
+@overload
+def ground_contacts(
+    bvh: Bvh,
+    joints: Sequence[Union[str, int]],
+    method: str = ...,
+    coords: Optional[npt.NDArray[np.float64]] = ...,
+    *,
+    vel_threshold: Optional[float] = ...,
+    vel_smooth_duration: float = ...,
+    height_threshold: Optional[float] = ...,
+    floor: Union[float, str] = ...,
+    min_contact_duration: float = ...,
+    min_gap_duration: float = ...,
+    hysteresis: float = ...,
+    adaptive: bool = ...,
+    height_reference: str = ...,
+    return_info: Literal[False] = ...,
+) -> npt.NDArray[np.float64]: ...
+@overload
+def ground_contacts(
+    bvh: Bvh,
+    joints: Sequence[Union[str, int]],
+    method: str = ...,
+    coords: Optional[npt.NDArray[np.float64]] = ...,
+    *,
+    vel_threshold: Optional[float] = ...,
+    vel_smooth_duration: float = ...,
+    height_threshold: Optional[float] = ...,
+    floor: Union[float, str] = ...,
+    min_contact_duration: float = ...,
+    min_gap_duration: float = ...,
+    hysteresis: float = ...,
+    adaptive: bool = ...,
+    height_reference: str = ...,
+    return_info: Literal[True],
+) -> tuple[npt.NDArray[np.float64], dict]: ...
+@overload
+def ground_contacts(
+    bvh: Bvh,
+    joints: Sequence[Union[str, int]],
+    method: str = ...,
+    coords: Optional[npt.NDArray[np.float64]] = ...,
+    *,
+    vel_threshold: Optional[float] = ...,
+    vel_smooth_duration: float = ...,
+    height_threshold: Optional[float] = ...,
+    floor: Union[float, str] = ...,
+    min_contact_duration: float = ...,
+    min_gap_duration: float = ...,
+    hysteresis: float = ...,
+    adaptive: bool = ...,
+    height_reference: str = ...,
+    return_info: bool,
+) -> Union[npt.NDArray[np.float64], tuple[npt.NDArray[np.float64], dict]]: ...
 def ground_contacts(
     bvh: Bvh,
     joints: Sequence[str | int],
@@ -1297,8 +1405,9 @@ def _contacts_core(
     # ---- Signals (F, num_joints), threshold resolution ----
     speed = None
     clearance = None
-    vel_thr_used = None
-    height_thr_used = None
+    # The thresholds in use: the caller's, or a per-foot (nf,) array resolved here.
+    vel_thr_used: Union[float, npt.NDArray[np.float64], None] = None
+    height_thr_used: Union[float, npt.NDArray[np.float64], None] = None
     floor_raw = None
     vel_adaptive_used = None
     height_adaptive_used = None
@@ -1321,14 +1430,15 @@ def _contacts_core(
                 disp = box_filter_smooth(disp, vel_smooth_frames, axis=0)
             sp = np.linalg.norm(disp, axis=-1) / bvh.frame_time  # (F-1, nj), u/s
             speed = np.concatenate([sp[0:1], sp], axis=0)  # frame-0 propagated
-        if vel_threshold is None:
+        if vel_threshold is not None:
+            vel_thr_used = vel_threshold
+        else:
             assert scale is not None
             base = 0.12 * scale  # 12% of root-to-foot rest distance per second
             if adaptive and F >= 2:
-                vel_threshold, vel_adaptive_used = _resolve_adaptive(speed, base)
+                vel_thr_used, vel_adaptive_used = _resolve_adaptive(speed, base)
             else:
-                vel_threshold = base
-        vel_thr_used = vel_threshold
+                vel_thr_used = base
 
     if needs_height:
         heights_signed = joint_coords[:, :, up_idx] * up_sign  # up-positive
@@ -1345,26 +1455,28 @@ def _contacts_core(
             floor_raw = float(floor)
         floor_signed = floor_raw * up_sign
         clearance = heights_signed - floor_signed
-        if height_threshold is None:
+        if height_threshold is not None:
+            height_thr_used = height_threshold
+        else:
             assert scale is not None
             base = 0.013 * scale  # ~1.3% of root-to-foot rest distance above floor
-            if method == "combined" and height_reference == "velocity":
+            # A speed signal exists exactly when method is "combined" here.
+            if speed is not None and height_reference == "velocity":
                 # Calibrate the height threshold per foot to its own stance
                 # level (handles retargeting hover); reduces to `base` on rigs
                 # where the foot reaches the floor.
-                height_threshold = _velocity_informed_height(clearance, speed, vel_threshold, base)
+                height_thr_used = _velocity_informed_height(clearance, speed, vel_thr_used, base)
             elif adaptive:
-                height_threshold, height_adaptive_used = _resolve_adaptive(clearance, base)
+                height_thr_used, height_adaptive_used = _resolve_adaptive(clearance, base)
             else:
-                height_threshold = base
-        height_thr_used = height_threshold
+                height_thr_used = base
 
     mask, confidence = _detect_contacts(
         speed,
         clearance,
         method=method,
-        vel_threshold=vel_threshold,
-        height_threshold=height_threshold,
+        vel_threshold=vel_thr_used,
+        height_threshold=height_thr_used,
         hysteresis=hysteresis,
     )
 
@@ -2075,16 +2187,17 @@ def _detect_contacts(
             return _release_open_runs(mask, sig < thr)
         return sig < thr
 
-    vel_mask = thresholded(speed, vel_threshold) if method in ("velocity", "combined") else None
-    height_mask = (
-        thresholded(clearance, height_threshold) if method in ("height", "combined") else None
-    )
-
     if method == "velocity":
+        vel_mask = thresholded(speed, vel_threshold)
+        height_mask = None
         mask = vel_mask
     elif method == "height":
+        vel_mask = None
+        height_mask = thresholded(clearance, height_threshold)
         mask = height_mask
     else:
+        vel_mask = thresholded(speed, vel_threshold)
+        height_mask = thresholded(clearance, height_threshold)
         mask = vel_mask & height_mask
 
     confidence = _contact_confidence(
@@ -2256,17 +2369,23 @@ def _validate_speed_profile(speed: npt.NDArray[np.float64]) -> None:
         )
 
 
+_ScalarT = TypeVar("_ScalarT", bound=np.generic)
+_PyScalarT = TypeVar("_PyScalarT", int, float)
+
+
 def _reduce_like(
     speed: npt.NDArray[np.float64],
-    result: npt.NDArray[np.float64],
-    cast: Callable[[object], object] = float,
-) -> object:
+    result: npt.NDArray[_ScalarT],
+    to_scalar: Callable[[npt.NDArray[_ScalarT]], _PyScalarT],
+) -> Union[_PyScalarT, npt.NDArray[_ScalarT]]:
     """Shape a reduced result to match its input: scalar out for ``(T,)``.
 
     The single implementation of the ``(T,) -> scalar`` /
     ``(T, K) -> (K,)`` contract every kernel in this section shares.
+    ``to_scalar`` turns the 0-d result of a ``(T,)`` input into the
+    Python scalar the kernel returns (``float``, or ``int`` for a count).
     """
-    return cast(result) if speed.ndim == 1 else result
+    return to_scalar(result) if speed.ndim == 1 else result
 
 
 def _sparc_from_spectrum(
@@ -2387,7 +2506,7 @@ def _dlj_scale(
                 "amplitude=<float or (K,) array>."
             )
         extent = np.asarray(amplitude, dtype=np.float64)
-        valid_shapes = {()} if speed.ndim == 1 else {(), (speed.shape[1],)}
+        valid_shapes: set[tuple[int, ...]] = {()} if speed.ndim == 1 else {(), (speed.shape[1],)}
         wanted = "a scalar" if speed.ndim == 1 else f"a scalar or shape ({speed.shape[1]},)"
         if extent.shape not in valid_shapes:
             raise ValueError(
@@ -2505,7 +2624,7 @@ def dimensionless_jerk(
         dlj = -scale * np.sum(jerk**2, axis=0) * dt
     # zero extent: the normalization is undefined
     dlj = np.where(extent == 0, np.nan, dlj)
-    return _reduce_like(speed, dlj)
+    return _reduce_like(speed, dlj, float)
 
 
 def log_dimensionless_jerk(
@@ -2553,7 +2672,7 @@ def log_dimensionless_jerk(
             np.inf,  # zero jerk -> perfectly smooth
             -np.log(np.abs(dlj)),
         )
-    return _reduce_like(speed, ldlj)
+    return _reduce_like(speed, ldlj, float)
 
 
 def number_of_peaks(
@@ -2624,7 +2743,7 @@ def number_of_peaks(
     if min_height is not None:
         is_peak &= interior >= min_height
     peaks = np.sum(is_peak, axis=0)
-    return _reduce_like(speed, peaks, cast=int)
+    return _reduce_like(speed, peaks, int)
 
 
 def speed_metric(
@@ -2669,7 +2788,7 @@ def speed_metric(
     peak = magnitude.max(axis=0)
     with np.errstate(divide="ignore", invalid="ignore"):
         ratio = np.where(peak > 0, magnitude.mean(axis=0) / peak, np.nan)
-    return _reduce_like(speed, ratio)
+    return _reduce_like(speed, ratio, float)
 
 
 def integrated_squared_jerk(
@@ -2686,7 +2805,7 @@ def integrated_squared_jerk(
     dt = 1.0 / fs
     jerk = np.diff(speed, 2, axis=0) / dt**2
     isj = np.sum(jerk**2, axis=0) * dt
-    return _reduce_like(speed, isj)
+    return _reduce_like(speed, isj, float)
 
 
 def mean_squared_jerk(
@@ -2703,7 +2822,7 @@ def mean_squared_jerk(
     dt = 1.0 / fs
     jerk = np.diff(speed, 2, axis=0) / dt**2
     msj = np.mean(jerk**2, axis=0)
-    return _reduce_like(speed, msj)
+    return _reduce_like(speed, msj, float)
 
 
 def rms_squared_jerk(
@@ -2717,10 +2836,14 @@ def rms_squared_jerk(
     """
     speed = np.asarray(speed, dtype=np.float64)
     rms = np.sqrt(mean_squared_jerk(speed, fs))
-    return _reduce_like(speed, rms)
+    return _reduce_like(speed, rms, float)
 
 
-_SMOOTHNESS_FS_METRICS: dict[str, Callable[..., float]] = {
+# A smoothness metric's value: a scalar for a (T,) profile, one value per
+# column for (T, K); number_of_peaks counts, so its array holds integers.
+_SmoothnessValue = Union[float, npt.NDArray[np.float64], npt.NDArray[np.int_]]
+
+_SMOOTHNESS_FS_METRICS: dict[str, Callable[..., _SmoothnessValue]] = {
     "sparc": sparc,
     "dimensionless_jerk": dimensionless_jerk,
     "log_dimensionless_jerk": log_dimensionless_jerk,
@@ -2728,7 +2851,7 @@ _SMOOTHNESS_FS_METRICS: dict[str, Callable[..., float]] = {
     "mean_squared_jerk": mean_squared_jerk,
     "rms_squared_jerk": rms_squared_jerk,
 }
-_SMOOTHNESS_PLAIN_METRICS: dict[str, Callable[..., float]] = {
+_SMOOTHNESS_PLAIN_METRICS: dict[str, Callable[..., _SmoothnessValue]] = {
     "number_of_peaks": number_of_peaks,
     "speed_metric": speed_metric,
 }
@@ -2739,7 +2862,7 @@ def smoothness(
     fs: float,
     metric: str = "sparc",
     **kwargs: Any,
-) -> float | npt.NDArray[np.float64]:
+) -> Union[float, npt.NDArray[np.float64], npt.NDArray[np.int_]]:
     """Dispatch to a named smoothness metric on a speed profile.
 
     Parameters
@@ -2763,9 +2886,10 @@ def smoothness(
 
     Returns
     -------
-    float or ndarray
+    float, int or ndarray
         The selected smoothness value — a scalar for ``(T,)`` input, a
-        ``(K,)`` array for ``(T, K)``.
+        ``(K,)`` array for ``(T, K)``. ``"number_of_peaks"`` counts, so
+        it gives an ``int`` or an integer array.
 
     Raises
     ------
@@ -2954,7 +3078,7 @@ def active_duration(
     speed = np.asarray(speed, dtype=np.float64)
     _validate_speed_profile(speed)  # the input, not the derived boolean mask
     duration = np.count_nonzero(active_segments(speed, threshold), axis=0) / fs
-    return _reduce_like(speed, duration)
+    return _reduce_like(speed, duration, float)
 
 
 # ----------------------------------------------------------------

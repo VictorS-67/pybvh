@@ -55,7 +55,7 @@ def _node_colors_uint32(
     if effective_color_mode(style, scene.num_skeletons) != "chains":
         return None
     rgb = node_colors_255(scene.views[s], style, s, scene.num_skeletons).astype(np.uint32)
-    return (rgb[:, 0] << 16) | (rgb[:, 1] << 8) | rgb[:, 2]
+    return (rgb[:, 0] << 16) | (rgb[:, 1] << 8) | rgb[:, 2]  # type: ignore[return-value]  # NumPy's stub types uint32 << int as signed
 
 
 class _Plot(NamedTuple):
@@ -333,8 +333,8 @@ def play_k3d(
     None
         The plot and its controls are displayed as a side effect.
     """
-    from IPython.display import display  # type: ignore[import-untyped]
-    from ipywidgets import (  # type: ignore[import-untyped]
+    from IPython.display import display
+    from ipywidgets import (
         HBox,
         IntSlider,
         Label,

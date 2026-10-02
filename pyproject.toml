@@ -32,11 +32,17 @@ interactive = ["k3d>=2.14"]
 viewer = ["vedo>=2024.5"]
 all-viz = ["opencv-python>=4.5", "k3d>=2.14", "vedo>=2024.5"]
 dev = [
-    "pytest>=8", "pandas>=1.5", "mypy>=1.0", "jupytext>=1.16", "nbmake>=1.5",
+    "pytest>=8", "pandas>=1.5", "jupytext>=1.16", "nbmake>=1.5",
     "pre-commit>=3.2",
-    # Exact pin: CI installs this same version, so a ruff release adding a rule
-    # cannot turn the lint job red on its own. Bump it deliberately.
+    # Exact pins: CI installs these same versions, so a ruff release adding a
+    # rule, or a mypy or stub release reading the code differently, cannot turn
+    # the lint or typecheck job red on its own. Bump them deliberately.
     "ruff==0.16.9",
+    "mypy==1.19.1",
+    # pybvh never imports pandas at run time; dataframe.py names its types for
+    # the checker only, and pandas ships none of its own. The last release that
+    # installs on Python 3.9.
+    "pandas-stubs==2.2.2.240807",
 ]
 docs = ["mkdocs>=1.6", "mkdocs-material>=9.5", "mkdocstrings[python]>=0.26", "pillow>=9.0"]
 # Reference libraries for REGENERATING the golden fixtures in tests/fixtures/.
@@ -99,3 +105,25 @@ convention = "numpy"
 [tool.ruff.lint.per-file-ignores]
 # Docstrings are the public API reference, which only the package has.
 "!pybvh/**" = ["D"]
+
+[tool.mypy]
+# The oldest Python pybvh supports: syntax or a typing feature newer than it
+# is reported. CI runs mypy on this same version, so that the installed NumPy
+# and Matplotlib, and the stubs they ship, are the ones a 3.9 user resolves.
+python_version = "3.9"
+files = ["pybvh"]
+
+[[tool.mypy.overrides]]
+# Optional packages with no type information: k3d, vedo, ipywidgets, and
+# Matplotlib's mpl_toolkits (no py.typed). Their objects are Any to mypy.
+module = ["k3d", "k3d.*", "vedo", "vedo.*", "ipywidgets", "ipywidgets.*", "mpl_toolkits.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Optional packages that ship their own types but are not installed with
+# pybvh: opencv (cv2), IPython and VTK (vtk, vtkmodules). Where one is installed,
+# mypy checks the calls against its types; where it is absent, its import is
+# not an error. The typecheck job installs opencv, the one whose calls carry
+# the most code.
+module = ["cv2", "cv2.*", "IPython", "IPython.*", "vtk", "vtkmodules", "vtkmodules.*"]
+ignore_missing_imports = true

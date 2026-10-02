@@ -32,16 +32,18 @@ from ._viewport import Turntable, Viewport, panel_viewports
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from matplotlib.typing import ColorType
+
 # RGB is canonical in _style; the channel flip for OpenCV's BGR
 # drawing API happens here, at this backend's border.
 PALETTE_BGR = [(b, g, r) for (r, g, b) in PALETTE_RGB]
 
 
-def _to_bgr(color: object) -> tuple[int, int, int]:
+def _to_bgr(color: ColorType) -> tuple[int, int, int]:
     """Any matplotlib-parseable color -> OpenCV BGR uint8 tuple."""
     from matplotlib.colors import to_rgb
 
-    r, g, b = to_rgb(color)  # type: ignore[arg-type]
+    r, g, b = to_rgb(color)
     return (int(b * 255), int(g * 255), int(r * 255))
 
 
@@ -98,7 +100,7 @@ def _draw_floor_opencv(
 
     if style.floor == "solid":
         face = _blend_bgr(_to_bgr(palette["face"]), bg_bgr, style.floor_alpha)
-        cv2.fillPoly(img, [project(quad(c0, c1, ext))], face, lineType=cv2.LINE_AA)
+        cv2.fillPoly(img, [project(quad(c0, c1, ext))], face, lineType=cv2.LINE_AA)  # type: ignore[list-item]  # mypy reads a list of MatLike as Mat
     elif style.floor == "checker":
         n = 8
         s = ext / n
@@ -108,7 +110,7 @@ def _draw_floor_opencv(
         for i in range(-n, n):
             for j in range(-n, n):
                 sq = quad(c0 + (i + 0.5) * s, c1 + (j + 0.5) * s, s / 2)
-                cv2.fillPoly(img, [project(sq)], shades[(i + j) % 2], lineType=cv2.LINE_AA)
+                cv2.fillPoly(img, [project(sq)], shades[(i + j) % 2], lineType=cv2.LINE_AA)  # type: ignore[list-item]  # mypy reads a list of MatLike as Mat
     elif style.floor == "grid":
         color = _blend_bgr(_to_bgr(palette["grid"]), bg_bgr, 0.8)
         n = 10
@@ -263,7 +265,7 @@ def _draw_skeletons_on_frame(
         if trajectory and frame_idx > pass_start:
             path = ctx.trace_path[pass_start : frame_idx + 1]
             path_2d = viewport.project(path, panel_size, frame_idx)
-            cv2.polylines(canvas, [path_2d], False, ctx.trace_bgr, thin, cv2.LINE_AA)
+            cv2.polylines(canvas, [path_2d], False, ctx.trace_bgr, thin, cv2.LINE_AA)  # type: ignore[list-item]  # mypy reads a list of MatLike as Mat
 
         bones_arr = np.asarray(view.bones, dtype=int)
 

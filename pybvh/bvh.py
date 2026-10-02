@@ -16,7 +16,7 @@ import copy
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Union, overload
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast, overload
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -31,7 +31,7 @@ from ._warnings import user_stacklevel
 
 # Re-exported: pybvh.bvh has long served every node class, end sites included.
 from .bvhnode import BvhEndSite as BvhEndSite
-from .bvhnode import BvhJoint, BvhNode, BvhRoot
+from .bvhnode import BvhJoint, BvhNode, BvhRoot, _is_joint
 from .node_tree import _check_node_tree, nodes_from_table, nodes_to_table
 from .spatial_coord import (
     FkTopology,
@@ -1031,6 +1031,14 @@ class Bvh:
             symmetric[right] = left
         return symmetric
 
+    @lr_mapping.setter
+    def lr_mapping(self, value: dict[str, str] | None) -> None:
+        if value is None:
+            self._lr_mapping = None
+            self._lr_mapping_source = None
+            return
+        self._validate_and_set_lr_mapping(value, source="user")
+
     @property
     def has_lr_geometry(self) -> bool:
         """Whether the rest pose carries usable left/right direction.
@@ -1081,14 +1089,6 @@ class Bvh:
         lr_mapping : The pairs the measurement is derived from.
         """
         return _facing_is_measured(self, self.world_up)
-
-    @lr_mapping.setter
-    def lr_mapping(self, value: dict[str, str] | None) -> None:
-        if value is None:
-            self._lr_mapping = None
-            self._lr_mapping_source = None
-            return
-        self._validate_and_set_lr_mapping(value, source="user")
 
     @property
     def lr_pairs(self) -> list[tuple[int, int]] | None:
@@ -2427,12 +2427,12 @@ class Bvh:
         for n1, n2 in zip(self.nodes, other.nodes):
             if n1.name != n2.name:
                 raise ValueError(f"Node name mismatch: '{n1.name}' vs '{n2.name}'")
-            if not n1.is_end_site() and not n2.is_end_site():
-                if n1.rot_channels != n2.rot_channels:  # type: ignore[attr-defined]
+            if _is_joint(n1) and _is_joint(n2):
+                if n1.rot_channels != n2.rot_channels:
                     raise ValueError(
                         f"Rotation order mismatch for '{n1.name}': "
                         f"{n1.rot_channels} vs {n2.rot_channels}"
-                    )  # type: ignore[attr-defined]
+                    )
 
     def _concat(self, other: Bvh) -> Bvh:
         """Implementation of ``self + other`` (see :meth:`__add__`).
@@ -2852,6 +2852,60 @@ class Bvh:
             degrees=degrees,
         )
 
+    @overload
+    def foot_contacts(
+        self,
+        foot_joints: Optional[list[str]] = ...,
+        method: str = ...,
+        coords: Optional[npt.NDArray[np.float64]] = ...,
+        *,
+        vel_threshold: Optional[float] = ...,
+        vel_smooth_duration: float = ...,
+        height_threshold: Optional[float] = ...,
+        floor: Union[float, str] = ...,
+        min_contact_duration: float = ...,
+        min_gap_duration: float = ...,
+        hysteresis: float = ...,
+        adaptive: bool = ...,
+        height_reference: str = ...,
+        return_info: Literal[False] = ...,
+    ) -> npt.NDArray[np.float64]: ...
+    @overload
+    def foot_contacts(
+        self,
+        foot_joints: Optional[list[str]] = ...,
+        method: str = ...,
+        coords: Optional[npt.NDArray[np.float64]] = ...,
+        *,
+        vel_threshold: Optional[float] = ...,
+        vel_smooth_duration: float = ...,
+        height_threshold: Optional[float] = ...,
+        floor: Union[float, str] = ...,
+        min_contact_duration: float = ...,
+        min_gap_duration: float = ...,
+        hysteresis: float = ...,
+        adaptive: bool = ...,
+        height_reference: str = ...,
+        return_info: Literal[True],
+    ) -> tuple[npt.NDArray[np.float64], dict]: ...
+    @overload
+    def foot_contacts(
+        self,
+        foot_joints: Optional[list[str]] = ...,
+        method: str = ...,
+        coords: Optional[npt.NDArray[np.float64]] = ...,
+        *,
+        vel_threshold: Optional[float] = ...,
+        vel_smooth_duration: float = ...,
+        height_threshold: Optional[float] = ...,
+        floor: Union[float, str] = ...,
+        min_contact_duration: float = ...,
+        min_gap_duration: float = ...,
+        hysteresis: float = ...,
+        adaptive: bool = ...,
+        height_reference: str = ...,
+        return_info: bool,
+    ) -> Union[npt.NDArray[np.float64], tuple[npt.NDArray[np.float64], dict]]: ...
     def foot_contacts(
         self,
         foot_joints: list[str] | None = None,
@@ -2889,6 +2943,60 @@ class Bvh:
             return_info=return_info,
         )
 
+    @overload
+    def ground_contacts(
+        self,
+        joints: Sequence[Union[str, int]],
+        method: str = ...,
+        coords: Optional[npt.NDArray[np.float64]] = ...,
+        *,
+        vel_threshold: Optional[float] = ...,
+        vel_smooth_duration: float = ...,
+        height_threshold: Optional[float] = ...,
+        floor: Union[float, str] = ...,
+        min_contact_duration: float = ...,
+        min_gap_duration: float = ...,
+        hysteresis: float = ...,
+        adaptive: bool = ...,
+        height_reference: str = ...,
+        return_info: Literal[False] = ...,
+    ) -> npt.NDArray[np.float64]: ...
+    @overload
+    def ground_contacts(
+        self,
+        joints: Sequence[Union[str, int]],
+        method: str = ...,
+        coords: Optional[npt.NDArray[np.float64]] = ...,
+        *,
+        vel_threshold: Optional[float] = ...,
+        vel_smooth_duration: float = ...,
+        height_threshold: Optional[float] = ...,
+        floor: Union[float, str] = ...,
+        min_contact_duration: float = ...,
+        min_gap_duration: float = ...,
+        hysteresis: float = ...,
+        adaptive: bool = ...,
+        height_reference: str = ...,
+        return_info: Literal[True],
+    ) -> tuple[npt.NDArray[np.float64], dict]: ...
+    @overload
+    def ground_contacts(
+        self,
+        joints: Sequence[Union[str, int]],
+        method: str = ...,
+        coords: Optional[npt.NDArray[np.float64]] = ...,
+        *,
+        vel_threshold: Optional[float] = ...,
+        vel_smooth_duration: float = ...,
+        height_threshold: Optional[float] = ...,
+        floor: Union[float, str] = ...,
+        min_contact_duration: float = ...,
+        min_gap_duration: float = ...,
+        hysteresis: float = ...,
+        adaptive: bool = ...,
+        height_reference: str = ...,
+        return_info: bool,
+    ) -> Union[npt.NDArray[np.float64], tuple[npt.NDArray[np.float64], dict]]: ...
     def ground_contacts(
         self,
         joints: Sequence[str | int],
@@ -3272,7 +3380,9 @@ class Bvh:
 
         vel = self.node_velocities(coords=coords)
         speed = np.linalg.norm(vel[:, self._descriptor_index(joint), :], axis=-1)
-        return analysis.smoothness(speed, 1.0 / self.frame_time, metric=metric, **kwargs)
+        value = analysis.smoothness(speed, 1.0 / self.frame_time, metric=metric, **kwargs)
+        # One joint's (T,) speed reduces to a scalar; an array's rank is not in its type.
+        return cast(float, value)
 
     def velocity_reductions(self, joint: str, *, coords: npt.NDArray[np.float64] | None = None):
         """Scalar reductions of ``joint``'s speed profile (peak, mean, …).

@@ -1475,6 +1475,37 @@ class TestFrameSlicing:
         with pytest.raises(ValueError, match="Rotation order mismatch"):
             bvh_example + other
 
+    def test_concat_checks_rotation_order_of_custom_joint_class(self, bvh_example):
+        """A node class of the caller's own that is not an end site counts as a joint.
+
+        The skeleton check tells joints from end sites by is_end_site(),
+        not by isinstance(BvhJoint), so it still compares the rotation
+        order of such a node.
+        """
+        from pybvh.bvhnode import BvhNode
+
+        class CustomJoint(BvhNode):
+            def __init__(self, name, offset, parent, rot_channels, children):
+                super().__init__(name, offset, parent)
+                self.rot_channels = rot_channels
+                self.children = children
+
+            def is_end_site(self):
+                return False
+
+        other = bvh_example.copy()
+        joint = other.nodes[1]
+        reordered = ["X", "Y", "Z"]
+        assert reordered != joint.rot_channels
+        custom = CustomJoint(joint.name, joint.offset, joint.parent, reordered, joint.children)
+        siblings = joint.parent.children
+        siblings[siblings.index(joint)] = custom
+        for child in joint.children:
+            child.parent = custom
+        other.nodes[1] = custom
+        with pytest.raises(ValueError, match="Rotation order mismatch"):
+            bvh_example + other
+
     def test_concat_mismatched_frequency_warns(self, bvh_example):
         """Concat with different frame frequencies should warn."""
         other = bvh_example.copy()

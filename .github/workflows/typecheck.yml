@@ -1,0 +1,37 @@
+name: Typecheck
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # The python_version of [tool.mypy] in pyproject.toml: the oldest
+      # Python pybvh supports. Running on it installs the NumPy and
+      # Matplotlib releases a 3.9 user resolves, whose stubs are the ones
+      # the package must type-check against; a newer Python would install
+      # newer releases, whose stubs can type the same calls differently.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      # The same exact versions as the dev extra in pyproject.toml: bump them
+      # together. The opencv extra ships its own stubs, so the OpenCV
+      # backend's calls are checked against them; the other optional
+      # packages are listed in the mypy overrides. So is Matplotlib's 3D
+      # toolkit, which ships no stubs: Axes3D is Any to mypy, so calls on
+      # the backend's 3D axes are left to the plotting tests.
+      - run: python -m pip install ".[opencv]" mypy==1.19.1 pandas-stubs==2.2.2.240807
+
+      - run: mypy pybvh/

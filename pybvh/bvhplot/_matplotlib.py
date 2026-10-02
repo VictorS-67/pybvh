@@ -10,7 +10,7 @@ import dataclasses
 import inspect
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
@@ -50,7 +50,7 @@ _NO_AUTOSCALE = (
 )
 
 
-def _add_collection(ax: matplotlib.axes.Axes, collection: Any) -> None:
+def _add_collection(ax: Axes3D, collection: Any) -> None:
     """Add a 3D collection without letting it rescale the axes."""
     ax.add_collection3d(collection, **_NO_AUTOSCALE)
 
@@ -58,6 +58,7 @@ def _add_collection(ax: matplotlib.axes.Axes, collection: Any) -> None:
 if TYPE_CHECKING:
     import matplotlib.axes
     import matplotlib.figure
+    from matplotlib.typing import ColorType
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +134,7 @@ def _make_bone_collection(
 
 
 def _apply_axes_style(
-    ax: matplotlib.axes.Axes,
+    ax: Axes3D,
     style: Style,
 ) -> None:
     """Apply the axes/background part of a Style to a 3D axes.
@@ -152,7 +153,7 @@ def _apply_axes_style(
         # whenever a floor exists — under computed z-order the huge
         # semi-transparent plane's average depth beats the skeleton
         # and washes it out.
-        ax.computed_zorder = False  # type: ignore[attr-defined]
+        ax.computed_zorder = False
     # Leave the default white patch untouched (pixel parity for the
     # debug preset); only non-white backgrounds need painting.
     if style.background != "white":
@@ -160,7 +161,7 @@ def _apply_axes_style(
 
 
 def _apply_projection(
-    ax: matplotlib.axes.Axes,
+    ax: Axes3D,
     viewport: Viewport,
 ) -> None:
     """Draw the axes with the projection the viewport states.
@@ -172,11 +173,11 @@ def _apply_projection(
     what its viewport records. mplot3d sets the focal length with the
     projection, so a perspective focal length set on supplied axes
     beforehand goes back to the default."""
-    ax.set_proj_type(viewport.projection)  # type: ignore[attr-defined]
+    ax.set_proj_type(viewport.projection)
 
 
 def _draw_floor_mpl(
-    ax: matplotlib.axes.Axes,
+    ax: Axes3D,
     viewport: Viewport,
     style: Style,
     clip_to_box: bool = False,
@@ -278,7 +279,7 @@ def _pt3(ground: list[int], up: int, a: float, b: float, y: float):
 
 
 def _draw_joint_markers(
-    ax: matplotlib.axes.Axes,
+    ax: Axes3D,
     frame_data: npt.NDArray[np.float64],
     style: Style,
 ) -> None:
@@ -296,19 +297,19 @@ def _draw_joint_markers(
     )
 
 
-def _fade_toward_background(color: object, weight: float, style: Style):
+def _fade_toward_background(color: ColorType, weight: float, style: Style):
     """Blend a color toward the background: weight=1 is the full color,
     weight->0 disappears into the ground. This is the lighter-equals-past
     time encoding used by sequence figures and ghost trails."""
     from matplotlib.colors import to_rgb
 
-    rgb = np.array(to_rgb(color))  # type: ignore[arg-type]
+    rgb = np.array(to_rgb(color))
     bg = np.array(to_rgb(style.background))
     return tuple(bg + (rgb - bg) * weight)
 
 
 def _draw_pose(
-    ax: matplotlib.axes.Axes,
+    ax: Axes3D,
     pose: npt.NDArray[np.float64],
     view: SkeletonView,
     style: Style,
@@ -349,7 +350,7 @@ def _draw_pose(
 
 
 def _draw_floor_trace(
-    ax: matplotlib.axes.Axes,
+    ax: Axes3D,
     path: npt.NDArray[np.float64],
     style: Style,
 ):
@@ -362,6 +363,19 @@ def _draw_floor_trace(
     return line
 
 
+def _new_3d_figure(
+    figsize: tuple[float, float], dpi: Optional[int]
+) -> tuple[matplotlib.figure.Figure, Axes3D]:
+    """A new figure holding a single 3D axes.
+
+    Matplotlib types ``add_subplot`` as returning ``Axes`` whatever the
+    projection; the annotation here states the ``Axes3D`` it returns
+    for ``projection="3d"``.
+    """
+    fig = plt.figure(figsize=figsize, dpi=dpi)
+    return fig, fig.add_subplot(111, projection="3d")
+
+
 def sequence_mpl(
     scene: Scene,
     style: Style,
@@ -371,8 +385,8 @@ def sequence_mpl(
     trajectory: bool = True,
     figsize: tuple[float, float] | None = None,
     show: bool = False,
-    ax: matplotlib.axes.Axes | None = None,
-) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes]:
+    ax: Optional[Axes3D] = None,
+) -> tuple[matplotlib.figure.Figure, Axes3D]:
     """The motion-paper sequence still: sampled poses, lighter = past.
 
     ``layout="offset"``: poses at their world positions (locomotion
@@ -403,16 +417,13 @@ def sequence_mpl(
     else:
         if figsize is None:
             figsize = (13.0, 4.5) if layout == "offset" else (7.0, 6.5)
-        fig = plt.figure(figsize=figsize, dpi=style.dpi)
-        ax = fig.add_subplot(111, projection="3d")
+        fig, ax = _new_3d_figure(figsize, style.dpi)
 
     fig.patch.set_facecolor(style.background)
     _apply_axes_style(ax, style)
-    ax.computed_zorder = False  # type: ignore[attr-defined]
+    ax.computed_zorder = False
 
-    ax.view_init(  # type: ignore[attr-defined]
-        elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis
-    )
+    ax.view_init(elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis)
 
     # The figure shows the sampled poses, not the clip: frame those.
     # Overlay layouts re-center heights, so the world floor does not
@@ -439,7 +450,7 @@ def sequence_mpl(
         _set_span_limits(ax, viewport.lo, viewport.hi)
     else:
         _set_axis_limits(ax, *viewport.enclosing_cube())
-        ax.set_box_aspect((1, 1, 1))  # type: ignore[attr-defined]
+        ax.set_box_aspect((1, 1, 1))
 
     # Floor clipped to the box (a full-extent plane reads as a backdrop
     # wall in wide orthographic views), honoring the style's floor kind
@@ -475,8 +486,8 @@ def frame_mpl(
     *,
     figsize: tuple[float, float] | None = None,
     show: bool = False,
-    ax: matplotlib.axes.Axes | None = None,
-) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes | list[matplotlib.axes.Axes]]:
+    ax: Optional[Axes3D] = None,
+) -> tuple[matplotlib.figure.Figure, Union[Axes3D, list[Axes3D]]]:
     """Render one or more skeletons as static 3D subplots.
 
     Parameters
@@ -492,14 +503,14 @@ def frame_mpl(
         Figure size.
     show : bool
         Whether to call ``plt.show()``.
-    ax : matplotlib.axes.Axes, optional
+    ax : Axes3D, optional
         Existing 3D axes to draw on. If provided, no new figure is
         created. Only supported for a single skeleton (``n == 1``).
 
     Returns
     -------
     fig : Figure
-    axs : Axes or list[Axes]
+    axs : Axes3D or list[Axes3D]
     """
     n = scene.num_skeletons
 
@@ -517,7 +528,7 @@ def frame_mpl(
             )
         fig = ax.get_figure()
         assert fig is not None
-        axs_flat: list[matplotlib.axes.Axes] = [ax]
+        axs_flat: list[Axes3D] = [ax]
     else:
         if figsize is None:
             # 6.5" per subplot gives 3D axis labels room without ballooning.
@@ -549,13 +560,11 @@ def frame_mpl(
         _draw_pose(ax_i, frame_data, view, style, colors)
 
         _set_axis_limits(ax_i, viewport.lo, viewport.hi)
-        ax_i.view_init(  # type: ignore[attr-defined]
-            elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis
-        )
+        ax_i.view_init(elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis)
         if style.axes == "full":
             ax_i.set_xlabel("x")
             ax_i.set_ylabel("y")
-            ax_i.set_zlabel("z")  # type: ignore[attr-defined]
+            ax_i.set_zlabel("z")
             # 3D axis labels and tick labels are clipped to the axes patch
             # by default. With certain camera angles (e.g. azim ≈ 160°) the
             # labels are positioned just outside the axes rectangle and
@@ -598,7 +607,7 @@ def frame_mpl(
 
 
 def _setup_animated_panel(
-    ax: matplotlib.axes.Axes,
+    ax: Axes3D,
     view: SkeletonView,
     viewport: Viewport,
     style: Style,
@@ -652,15 +661,13 @@ def _setup_animated_panel(
     # longer cancel — the aspect ends up paired with the wrong axis limits,
     # which scales one screen direction against the others and stretches the
     # skeleton. Invisible on a z-up rig, where the roll is the identity.
-    ax.view_init(  # type: ignore[attr-defined]
-        elev=viewport.elevation, azim=viewport.azimuth, vertical_axis=viewport.up_axis
-    )
+    ax.view_init(elev=viewport.elevation, azim=viewport.azimuth, vertical_axis=viewport.up_axis)
     _set_span_limits(ax, viewport.lo, viewport.hi)
 
     if style.axes == "full":
         ax.set_xlabel("x")
         ax.set_ylabel("y")
-        ax.set_zlabel("z")  # type: ignore[attr-defined]
+        ax.set_zlabel("z")
         # See frame_mpl: prevent rotated views from clipping their axis
         # labels against the axes patch.
         _disable_3d_label_clipping(ax)
@@ -675,7 +682,7 @@ def _setup_render_extras(
     scene: Scene,
     viewports: list[Viewport],
     style: Style,
-    axs_flat: list[matplotlib.axes.Axes],
+    axs_flat: list[Axes3D],
     ghost: int,
     trajectory: bool,
 ) -> tuple[list, list]:
@@ -817,7 +824,7 @@ def render_mpl(
     fig, axs = plt.subplots(
         1, n, subplot_kw=dict(projection="3d"), figsize=(w / dpi, h / dpi), squeeze=False
     )
-    axs_flat: list[matplotlib.axes.Axes] = list(axs[0])
+    axs_flat: list[Axes3D] = list(axs[0])
 
     fig.patch.set_facecolor(style.background)
 
@@ -875,7 +882,7 @@ def render_mpl(
         # from the whole-millisecond interval, and the HTML writer's
         # floor division would then drop another millisecond (1000 //
         # (1000 / 33) is 32).
-        html_content = anim.to_jshtml(fps=fps)
+        html_content = anim.to_jshtml(fps=fps)  # type: ignore[arg-type]  # stub says int; its own default fps is a float
         with open(filepath, "w") as f:
             f.write(html_content)
     else:
@@ -941,7 +948,7 @@ def play_mpl(
     fig, axs = plt.subplots(
         1, n, subplot_kw=dict(projection="3d"), figsize=(6 * n, 6), squeeze=False
     )
-    axs_flat: list[matplotlib.axes.Axes] = list(axs[0])
+    axs_flat: list[Axes3D] = list(axs[0])
 
     fig.patch.set_facecolor(style.background)
 
@@ -966,7 +973,7 @@ def play_mpl(
 
     if in_notebook:
         # Render as inline HTML with play/pause/scrub controls
-        from IPython.display import HTML, display  # type: ignore[import-untyped]
+        from IPython.display import HTML, display
 
         display(HTML(anim.to_jshtml()))
         plt.close(fig)
@@ -1242,7 +1249,7 @@ def _make_update_fn(
     return update
 
 
-def _disable_3d_label_clipping(ax: matplotlib.axes.Axes) -> None:
+def _disable_3d_label_clipping(ax: Axes3D) -> None:
     """Render axis labels and tick labels even when positioned outside the
     axes patch.
 
@@ -1281,7 +1288,7 @@ def _measuring_renderer(
 
 def _extend_fig_tightbbox_with_3d_labels(
     fig: matplotlib.figure.Figure,
-    axes_list: list[matplotlib.axes.Axes],
+    axes_list: list[Axes3D],
 ) -> None:
     """Patch ``fig.get_tightbbox`` so it includes 3D axis labels.
 
@@ -1322,18 +1329,18 @@ def _extend_fig_tightbbox_with_3d_labels(
 
 
 def _set_axis_limits(
-    ax: matplotlib.axes.Axes,
+    ax: Axes3D,
     lo: npt.NDArray[np.float64],
     hi: npt.NDArray[np.float64],
 ) -> None:
     """Set a 3D axes' limits to a box, leaving its box aspect alone."""
     ax.set_xlim(lo[0], hi[0])
     ax.set_ylim(lo[1], hi[1])
-    ax.set_zlim(lo[2], hi[2])  # type: ignore[attr-defined]
+    ax.set_zlim(lo[2], hi[2])
 
 
 def _set_span_limits(
-    ax: matplotlib.axes.Axes,
+    ax: Axes3D,
     lo: npt.NDArray[np.float64],
     hi: npt.NDArray[np.float64],
 ) -> None:
@@ -1346,11 +1353,9 @@ def _set_span_limits(
     """
     ax.set_xlim(lo[0], hi[0])
     ax.set_ylim(lo[1], hi[1])
-    ax.set_zlim(lo[2], hi[2])  # type: ignore[attr-defined]
+    ax.set_zlim(lo[2], hi[2])
     spans = hi - lo
-    ax.set_box_aspect(  # type: ignore[attr-defined]
-        tuple(spans / spans.max()), zoom=BOX_ZOOM
-    )
+    ax.set_box_aspect(tuple(spans / spans.max()), zoom=BOX_ZOOM)
 
 
 def _resolve_writer(filepath: Path) -> tuple[Path, str]:

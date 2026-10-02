@@ -372,17 +372,17 @@ def harmonize(
             b = b.resample(target_fps)
             stages["resample"] = f"{old_fps:.4g}→{target_fps:.4g}"
         if target_world_up is not None and b.world_up != target_world_up:
-            old = b.world_up
+            old_world_up = b.world_up
             b = b.reorient_world_up(target_world_up)
-            stages["world_up"] = f"{old}→{target_world_up}"
+            stages["world_up"] = f"{old_world_up}→{target_world_up}"
         if target_rest_up is not None and b.rest_up != target_rest_up:
-            old = b.rest_up
+            old_rest_up = b.rest_up
             b = b.reorient_rest_up(target_rest_up)
-            stages["rest_up"] = f"{old}→{target_rest_up}"
+            stages["rest_up"] = f"{old_rest_up}→{target_rest_up}"
         if target_rest_forward is not None and b.rest_forward != target_rest_forward:
-            old = b.rest_forward
+            old_rest_forward = b.rest_forward
             b = b.reorient_rest_forward(target_rest_forward)
-            stages["rest_forward"] = f"{old}→{target_rest_forward}"
+            stages["rest_forward"] = f"{old_rest_forward}→{target_rest_forward}"
         if target_euler_order is not None and any(
             order != target_euler_order for order in b.euler_orders
         ):

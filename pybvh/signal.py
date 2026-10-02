@@ -266,7 +266,7 @@ def fft_magnitude(
             f"norm must be 'backward', 'ortho', 'forward' or 'amplitude', got {norm!r}"
         )
     freqs = np.fft.rfftfreq(n, d=1.0 / fs)
-    return freqs, magnitude
+    return freqs, magnitude  # type: ignore[return-value]  # NumPy 2.2's stub types rfftfreq as floating, not float64
 
 
 def dominant_frequency(

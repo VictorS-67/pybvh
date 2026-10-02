@@ -1602,7 +1602,7 @@ class Bvh:
     ) -> dict[str, npt.NDArray[np.float64]]:
         """``time``, then *columns* over the columns of *flat*."""
         result: dict[str, npt.NDArray[np.float64]] = {
-            "time": np.arange(self.frame_count) * self.frame_time
+            "time": np.arange(self.frame_count, dtype=np.float64) * self.frame_time
         }
         result.update(zip(columns, flat.T))
         return result

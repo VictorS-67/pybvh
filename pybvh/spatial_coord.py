@@ -11,7 +11,7 @@ can build.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NamedTuple, Union
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
@@ -295,7 +295,7 @@ def _validate_fk_topology(
 
 
 def frames_to_node_positions(
-    skeleton: Union[Bvh, list[BvhNode], FkTopology],
+    skeleton: Bvh | list[BvhNode] | FkTopology,
     root_pos: npt.ArrayLike | None = None,
     joint_angles: npt.ArrayLike | None = None,
     centered: str = "world",
@@ -503,7 +503,7 @@ def _ground_plane_offset(
 
 
 def _resolve_topology(
-    skeleton: Union[Bvh, list[BvhNode], FkTopology],
+    skeleton: Bvh | list[BvhNode] | FkTopology,
 ) -> tuple[FkTopology, Bvh | None]:
     """Resolve any accepted skeleton form into an :class:`FkTopology`.
 

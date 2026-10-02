@@ -38,7 +38,7 @@ from __future__ import annotations
 import math
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
@@ -486,7 +486,7 @@ def _prepare(
 
     # Which clip frames the coords are: one frame, the whole clip, or
     # none of them when the caller supplied the array.
-    clip_frames: Union[int, slice, None]
+    clip_frames: int | slice | None
     if isinstance(frames, np.ndarray):
         clip_frames = None
     elif isinstance(frames, int):

@@ -16,7 +16,7 @@ import numpy as np
 import numpy.typing as npt
 
 if TYPE_CHECKING:
-    from typing_extensions import TypeGuard
+    from typing import TypeGuard
 
 
 class BvhNode:

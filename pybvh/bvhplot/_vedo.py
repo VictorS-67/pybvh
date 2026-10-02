@@ -15,7 +15,8 @@ Requires ``vedo >= 2024.5``.
 from __future__ import annotations
 
 import time
-from typing import Callable, TypedDict
+from collections.abc import Callable
+from typing import TypedDict
 
 import numpy as np
 import numpy.typing as npt

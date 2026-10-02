@@ -16,7 +16,7 @@ import copy
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -2008,7 +2008,7 @@ class Bvh:
     @overload
     def change_euler_order(
         self,
-        order: Union[str, Sequence[str]],
+        order: str | Sequence[str],
         joint: str | BvhNode | None = ...,
         *,
         inplace: Literal[True],
@@ -2016,13 +2016,13 @@ class Bvh:
     @overload
     def change_euler_order(
         self,
-        order: Union[str, Sequence[str]],
+        order: str | Sequence[str],
         joint: str | BvhNode | None = ...,
         inplace: Literal[False] = ...,
     ) -> Bvh: ...
     def change_euler_order(
         self,
-        order: Union[str, Sequence[str]],
+        order: str | Sequence[str],
         joint: str | BvhNode | None = None,
         inplace: bool = False,
     ) -> Bvh | None:
@@ -2855,14 +2855,14 @@ class Bvh:
     @overload
     def foot_contacts(
         self,
-        foot_joints: Optional[list[str]] = ...,
+        foot_joints: list[str] | None = ...,
         method: str = ...,
-        coords: Optional[npt.NDArray[np.float64]] = ...,
+        coords: npt.NDArray[np.float64] | None = ...,
         *,
-        vel_threshold: Optional[float] = ...,
+        vel_threshold: float | None = ...,
         vel_smooth_duration: float = ...,
-        height_threshold: Optional[float] = ...,
-        floor: Union[float, str] = ...,
+        height_threshold: float | None = ...,
+        floor: float | str = ...,
         min_contact_duration: float = ...,
         min_gap_duration: float = ...,
         hysteresis: float = ...,
@@ -2873,14 +2873,14 @@ class Bvh:
     @overload
     def foot_contacts(
         self,
-        foot_joints: Optional[list[str]] = ...,
+        foot_joints: list[str] | None = ...,
         method: str = ...,
-        coords: Optional[npt.NDArray[np.float64]] = ...,
+        coords: npt.NDArray[np.float64] | None = ...,
         *,
-        vel_threshold: Optional[float] = ...,
+        vel_threshold: float | None = ...,
         vel_smooth_duration: float = ...,
-        height_threshold: Optional[float] = ...,
-        floor: Union[float, str] = ...,
+        height_threshold: float | None = ...,
+        floor: float | str = ...,
         min_contact_duration: float = ...,
         min_gap_duration: float = ...,
         hysteresis: float = ...,
@@ -2891,21 +2891,21 @@ class Bvh:
     @overload
     def foot_contacts(
         self,
-        foot_joints: Optional[list[str]] = ...,
+        foot_joints: list[str] | None = ...,
         method: str = ...,
-        coords: Optional[npt.NDArray[np.float64]] = ...,
+        coords: npt.NDArray[np.float64] | None = ...,
         *,
-        vel_threshold: Optional[float] = ...,
+        vel_threshold: float | None = ...,
         vel_smooth_duration: float = ...,
-        height_threshold: Optional[float] = ...,
-        floor: Union[float, str] = ...,
+        height_threshold: float | None = ...,
+        floor: float | str = ...,
         min_contact_duration: float = ...,
         min_gap_duration: float = ...,
         hysteresis: float = ...,
         adaptive: bool = ...,
         height_reference: str = ...,
         return_info: bool,
-    ) -> Union[npt.NDArray[np.float64], tuple[npt.NDArray[np.float64], dict]]: ...
+    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]: ...
     def foot_contacts(
         self,
         foot_joints: list[str] | None = None,
@@ -2946,14 +2946,14 @@ class Bvh:
     @overload
     def ground_contacts(
         self,
-        joints: Sequence[Union[str, int]],
+        joints: Sequence[str | int],
         method: str = ...,
-        coords: Optional[npt.NDArray[np.float64]] = ...,
+        coords: npt.NDArray[np.float64] | None = ...,
         *,
-        vel_threshold: Optional[float] = ...,
+        vel_threshold: float | None = ...,
         vel_smooth_duration: float = ...,
-        height_threshold: Optional[float] = ...,
-        floor: Union[float, str] = ...,
+        height_threshold: float | None = ...,
+        floor: float | str = ...,
         min_contact_duration: float = ...,
         min_gap_duration: float = ...,
         hysteresis: float = ...,
@@ -2964,14 +2964,14 @@ class Bvh:
     @overload
     def ground_contacts(
         self,
-        joints: Sequence[Union[str, int]],
+        joints: Sequence[str | int],
         method: str = ...,
-        coords: Optional[npt.NDArray[np.float64]] = ...,
+        coords: npt.NDArray[np.float64] | None = ...,
         *,
-        vel_threshold: Optional[float] = ...,
+        vel_threshold: float | None = ...,
         vel_smooth_duration: float = ...,
-        height_threshold: Optional[float] = ...,
-        floor: Union[float, str] = ...,
+        height_threshold: float | None = ...,
+        floor: float | str = ...,
         min_contact_duration: float = ...,
         min_gap_duration: float = ...,
         hysteresis: float = ...,
@@ -2982,21 +2982,21 @@ class Bvh:
     @overload
     def ground_contacts(
         self,
-        joints: Sequence[Union[str, int]],
+        joints: Sequence[str | int],
         method: str = ...,
-        coords: Optional[npt.NDArray[np.float64]] = ...,
+        coords: npt.NDArray[np.float64] | None = ...,
         *,
-        vel_threshold: Optional[float] = ...,
+        vel_threshold: float | None = ...,
         vel_smooth_duration: float = ...,
-        height_threshold: Optional[float] = ...,
-        floor: Union[float, str] = ...,
+        height_threshold: float | None = ...,
+        floor: float | str = ...,
         min_contact_duration: float = ...,
         min_gap_duration: float = ...,
         hysteresis: float = ...,
         adaptive: bool = ...,
         height_reference: str = ...,
         return_info: bool,
-    ) -> Union[npt.NDArray[np.float64], tuple[npt.NDArray[np.float64], dict]]: ...
+    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]: ...
     def ground_contacts(
         self,
         joints: Sequence[str | int],

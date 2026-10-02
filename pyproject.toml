@@ -42,8 +42,8 @@ dev = [
     "mypy==1.19.1",
     # pybvh never imports pandas at run time; dataframe.py names its types for
     # the checker only, and pandas ships none of its own. The last release that
-    # installs on Python 3.9.
-    "pandas-stubs==2.2.2.240807",
+    # installs on the oldest Python pybvh supports, where the typecheck job runs.
+    "pandas-stubs==2.3.3.260113",
 ]
 # mkdocs 2 drops the plugin system mkdocstrings and Material are built on, and
 # the docs-build check installs this extra fresh on every pull request.
@@ -112,8 +112,9 @@ convention = "numpy"
 [tool.mypy]
 # The oldest Python pybvh supports: syntax or a typing feature newer than it
 # is reported. CI runs mypy on this same version, so that the installed NumPy
-# and Matplotlib, and the stubs they ship, are the ones a 3.9 user resolves.
-python_version = "3.9"
+# and Matplotlib, and the stubs they ship, are the ones a user of that
+# version resolves.
+python_version = "3.10"
 files = ["pybvh"]
 
 [[tool.mypy.overrides]]

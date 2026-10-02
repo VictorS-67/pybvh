@@ -6,6 +6,8 @@ The directory also holds two hand-written **parser-edge `.bvh` fixtures** used b
 
 It also holds `pr_hygiene_event.json`, a recorded `pull_request` event payload (PR #54, trimmed) that `tests/test_check_pr_hygiene.py` feeds to the pr-hygiene check.
 
+And it holds `public_namespace.txt`, the names a user can import from the package and from each of its public modules, which `tests/test_public_namespace.py` compares with the live package; the test's docstring says which names count. After a deliberate change to the public surface, `python tests/test_public_namespace.py` rewrites the list, and the edit to it shows the change in the diff.
+
 ## Running the tests (no reference libraries needed)
 
 The `.npz` fixtures here are **committed**, and the tests (`tests/test_*_golden.py`) only `np.load` them. So anyone who clones the repo can run the full suite with just the normal dev deps — **scipy / pytransform3d are *not* required to run tests**:

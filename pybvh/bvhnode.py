@@ -10,13 +10,10 @@ holds the nodes. Trees are usually built by the reader or by
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TypeGuard
 
 import numpy as np
 import numpy.typing as npt
-
-if TYPE_CHECKING:
-    from typing import TypeGuard
 
 
 class BvhNode:

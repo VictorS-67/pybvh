@@ -3,8 +3,8 @@ name: Docs
 # No `paths:` filter: `docs-build` is meant to be a required check, and a required
 # check whose workflow a path filter skips stays pending and blocks the merge.
 on:
+  # Any base branch: a stacked pull request is checked against its parent.
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 

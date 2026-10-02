@@ -1,8 +1,8 @@
 name: PR hygiene
 
 on:
+  # Any base branch: a stacked pull request is checked against its parent.
   pull_request:
-    branches: [main]
     # edited, labeled and unlabeled rerun the check when the body or the
     # labels change, not only when commits are pushed.
     types: [opened, edited, reopened, synchronize, labeled, unlabeled]

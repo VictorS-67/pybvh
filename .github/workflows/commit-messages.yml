@@ -1,8 +1,8 @@
 name: Commit messages
 
 on:
+  # Any base branch: a stacked pull request is checked against its parent.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read

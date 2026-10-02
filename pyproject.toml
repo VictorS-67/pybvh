@@ -44,7 +44,9 @@ dev = [
     # installs on Python 3.9.
     "pandas-stubs==2.2.2.240807",
 ]
-docs = ["mkdocs>=1.6", "mkdocs-material>=9.5", "mkdocstrings[python]>=0.26", "pillow>=9.0"]
+# mkdocs 2 drops the plugin system mkdocstrings and Material are built on, and
+# the docs-build check installs this extra fresh on every pull request.
+docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.5", "mkdocstrings[python]>=0.26", "pillow>=9.0"]
 # Reference libraries for REGENERATING the golden fixtures in tests/fixtures/.
 # Dev-only — never a runtime dependency; the committed .npz fixtures load with
 # numpy alone, so running the tests does not need these. See tests/fixtures/README.md.

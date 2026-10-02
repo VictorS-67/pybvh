@@ -7,8 +7,12 @@ is missed: a stale ``CITATION.cff`` hands every citing paper the wrong
 version, and the 0.8.2 release shipped without its CHANGELOG compare link, so
 its heading rendered as a literal ``[0.8.2]`` for two months.
 
-All checks key off ``pyproject.toml``, which only moves in a release commit,
-so they hold between releases too.
+The version checks key off the version in ``pyproject.toml``, which only
+moves in a release commit, so they hold between releases too.
+
+The Python versions are written twice, as ``pyproject.toml`` classifiers and
+as the CI test matrix. PyPI shows the classifiers as the versions pybvh
+supports, so the two lists must be the same versions in the same order.
 """
 
 from __future__ import annotations
@@ -79,3 +83,19 @@ def test_changelog_links_the_released_version(version):
         changelog,
         "CHANGELOG.md footer",
     )
+
+
+def _without_comment_lines(text: str) -> str:
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
+def test_classifiers_list_the_python_versions_ci_tests():
+    pyproject = _without_comment_lines(_read("pyproject.toml"))
+    classified = re.findall(r"""["']Programming Language :: Python :: (3\.\d+)["']""", pyproject)
+    workflow = _without_comment_lines(_read(".github/workflows/test.yml"))
+    matrix = _one(
+        r"^\s*python-version:\s*\[([^\]]*)\]", workflow, ".github/workflows/test.yml matrix"
+    )
+    tested = re.findall(r"""["'](3\.\d+)["']""", matrix)
+    assert classified, "no Python version classifier found in pyproject.toml"
+    assert classified == tested

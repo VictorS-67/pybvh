@@ -351,6 +351,27 @@ def frames_to_node_positions(
         if they disagree on frame count or on the joint count the skeleton
         declares; or if ``centered="first"`` is requested without an
         ``up`` axis and the skeleton cannot supply one.
+
+    Notes
+    -----
+    Nodes are placed parents first. A node's position is its parent's
+    accumulated rotation applied to its offset, plus its parent's
+    position, ``P = R_acc[parent] @ offset + P[parent]``; a joint then
+    accumulates its own rotation onto its parent's,
+    ``R_acc = R_acc[parent] @ R``, where ``R`` is the matrix of its Euler
+    angles, intrinsic and pre-multiplied in the joint's channel order
+    (see :mod:`pybvh.rotations`). An end site has no rotation and takes
+    the first step only.
+
+    The recurrence starts from the root at the origin, with its own
+    rotation as ``R_acc``; its offset is not added, its position
+    channels being its position. Centering then translates every node
+    of a frame alike: by that frame's ``root_pos`` under ``"world"``, by
+    ``root_pos`` less the first frame's ground-plane position under
+    ``"first"``, and not at all under ``"skeleton"``. A reader that adds
+    the root's offset to ``root_pos`` instead places every node off by
+    that offset, which differs only for a file whose root offset is not
+    zero.
     """
     accepted_centered = ["skeleton", "first", "world"]
     if centered not in accepted_centered:

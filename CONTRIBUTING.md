@@ -19,12 +19,12 @@ The optional visualization backends (`pybvh[opencv]`, `pybvh[interactive]`, `pyb
 
 ## Branches and pull requests
 
-Every change goes through a pull request into `main`. `main` is the next release in progress; it is protected, so nothing is pushed to it directly, including one-line fixes (a small PR is `gh pr create --fill --label internal --label localized`, with the two labels that fit it, followed by `gh pr merge --squash --delete-branch`, under a minute).
+Every change goes through a pull request into `main`. `main` is the next release in progress; it is protected, so nothing is pushed to it directly, including one-line fixes. A one-line fix does not get a pull request of its own: it goes, as its own commit, on the branch of an open pull request or the next one opened. That pull request's body mentions it, its labels and CHANGELOG entry cover it, and its review covers it.
 
-- **One branch per change.** A branch holds one logical change: one feature, one fix, one refactor. Name it by intent, for example `fix/world-up-warn-flag`, `deepen/scene`, `docs/tutorial-4`.
+- **One branch per change.** A branch holds one logical change: one feature, one fix, one refactor. A one-line fix riding along, as above, is the only exception. Name it by intent, for example `fix/world-up-warn-flag`, `deepen/scene`, `docs/tutorial-4`.
 - **Branch from `main`, merge into `main`.** There is no long-lived development or release branch. Releases are marked by tags.
 - **Sequence dependent work, do not stack it.** If change B builds on change A, merge A first and branch B from the new `main`. Stacked branches are a fallback for the rare case where the two must overlap. A stacked PR gets every check against its parent branch. When the parent merges, GitHub retargets it to `main`, and since `main` requires a branch to be up to date before merging, the rebase that follows runs the checks again against `main`.
-- **Open the PR as a draft on the first push.** CI then runs on every push, and the PR description is where the notes live while the work is in progress. Mark it ready for review when the checklist below is done. A branch first pushed with the checklist already done, which is how the maintainer's tooling works, skips the draft and opens ready for review.
+- **Open the PR as a draft on the first push.** CI then runs on every push, and the PR description is where the notes live while the work is in progress. Mark it ready for review when the checklist below is done, which no branch is on its first push: its review and its checks come after.
 - **Link the issue.** The PR body says `Closes #N` for the issue it resolves, so merging closes the issue.
 
 Before marking a PR ready:
@@ -33,6 +33,8 @@ Before marking a PR ready:
 - `CHANGELOG.md` has its entry (see below), unless the change is invisible to users
 - docstrings name any convention the change chose (see the "Code & API quality" rules in `CLAUDE.md`)
 - the branch is rebased on the current `main`
+- the branch has passed the review described in "The review before ready", and its fixes are in
+- the required checks have run green against the current base
 
 ## The pull request body
 
@@ -45,6 +47,22 @@ The body follows `.github/PULL_REQUEST_TEMPLATE.md`, which GitHub prefills on a 
 - **Migration**: breaking changes only.
 
 Test inventories, review rounds and per-commit detail belong in the commits and the issue, not in the body.
+
+## The review before ready
+
+Every PR is reviewed before it is marked ready, by someone who did not write it: a person, or an agent working in a fresh context that holds none of the author's working notes. The checks hold the mechanical rules; this review holds what they cannot, so that the maintainer receives a branch whose open questions are the decisions its body lists.
+
+The reviewer reads the diff with the parent issue, `CODING_STANDARDS.md` and the PR body, and checks that:
+
+- the change does what the issue asks, and the tests show it;
+- the diff follows `CODING_STANDARDS.md`;
+- the two labels match the diff, derived from the diff rather than taken from the body;
+- every Evidence claim that behaviour is preserved names the command or test that shows it;
+- "Needs your eyes on" holds decisions to weigh, not merge instructions.
+
+Each finding is triaged by how realistic it is: a **regression** breaks something that worked, a **likely** defect is one realistic use will hit, a **theoretical** one needs a contrived input. The reviewer commits the fixes for regressions and likely defects to the branch directly, as commits on top, instead of listing them for the author: the maintainer receives fixed code rather than review comments, and the commits show what the review changed. A theoretical finding becomes a note on the issue, not a fix. A finding that is a judgement call rather than a defect goes to "Needs your eyes on". The author may revert a fix they disagree with, but not silently: the revert's message says why, and the disagreement goes to "Needs your eyes on".
+
+The PR is marked ready once the review's fixes are in and the required checks have run green against the current base.
 
 ## Commits
 
@@ -70,11 +88,12 @@ When `main` moves while your branch is open, rebase rather than merging `main` i
 
 ```bash
 git fetch origin
+git rebase origin/<your-branch>   # only when a reviewer has pushed fixes to it
 git rebase origin/main
 git push --force-with-lease
 ```
 
-Rebasing keeps the branch a straight line of your own commits; merging `main` in leaves catch-up merge commits that carry no content. Rewriting is safe because a branch has a single author here. Use `--force-with-lease`, never bare `--force`: the lease refuses to overwrite a remote branch that moved since you last fetched. Never rebase commits that are already on `main`.
+Rebasing keeps the branch a straight line of commits; merging `main` in leaves catch-up merge commits that carry no content. Rewriting is safe because only the author rewrites a branch: a reviewer adds commits on top and never rebases it. Take a reviewer's commits before you rewrite anything, an amend or an autosquash included, as the second line does: the lease checks the remote-tracking ref that `git fetch` has just updated, so it would not stop the push from dropping commits you never took. If you have already rewritten the branch locally, do not rebase onto its old remote tip, which would bring the rewritten commits back; cherry-pick the reviewer's commits onto your branch instead. Use `--force-with-lease`, never bare `--force`: the lease refuses to overwrite a remote branch that moved since you last fetched. Never rebase commits that are already on `main`.
 
 ## Merging
 

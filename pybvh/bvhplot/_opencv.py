@@ -8,25 +8,25 @@ Requires ``opencv-python >= 4.5``.
 """
 from __future__ import annotations
 
-import numpy as np
-import numpy.typing as npt
-
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
+import numpy.typing as npt
+
+from ._colors import bone_colors_255, floor_palette, node_colors_255
+from ._scene import Scene, SkeletonView
 from ._style import (
     GHOST_WIDTH_FACTOR,
     JOINT_DISC_MARGIN_PX,
-    bone_width_px,
-    Style,
+    PALETTE_RGB,
     TRACE_BLEND,
     TRACE_COLOR,
+    Style,
+    bone_width_px,
     ghost_schedule,
-    PALETTE_RGB,
 )
 from ._viewport import Turntable, Viewport, panel_viewports
-from ._scene import Scene, SkeletonView
-from ._colors import bone_colors_255, floor_palette, node_colors_255
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -176,6 +176,25 @@ class _ViewDrawContext:
                 _to_bgr(TRACE_COLOR), bg_bgr, TRACE_BLEND)
 
 
+def _painter_order(
+    pose: npt.NDArray[np.floating],
+    bones: npt.NDArray[np.integer],
+    view_matrix: npt.NDArray[np.floating],
+) -> npt.NDArray[np.intp]:
+    """Bone indices of *pose* ordered far-to-near from the camera.
+
+    *pose* is ``(N, 3)`` world coordinates, *bones* ``(B, 2)`` parent
+    and child node indices, *view_matrix* the ``(3, 3)`` world-to-view
+    rotation; the result is ``(B,)`` indices into *bones*.
+
+    cv2 has no depth buffer, so bones are drawn in painter's order:
+    sorted by their midpoint's depth along row 2 of *view_matrix*,
+    which points toward the viewer. The caller passes the frame's own
+    view matrix, since under follow/turntable it changes every frame.
+    """
+    return np.argsort(pose[bones].mean(axis=1) @ view_matrix[2])
+
+
 def _draw_skeletons_on_frame(
     img: npt.NDArray[np.uint8],
     frame_idx: int,
@@ -225,6 +244,7 @@ def _draw_skeletons_on_frame(
     # supersampled drawing surfaces scale up with them).
     thickness = bone_width_px(style.bone_width, px_scale)
     thin = max(1, int(px_scale + 0.5))
+    panel_size = (panel_w, h)
 
     for s, view in enumerate(scene.views):
         ctx = contexts[s]
@@ -245,23 +265,13 @@ def _draw_skeletons_on_frame(
                 canvas, style, viewport, frame_idx, panel_w, h, 0,
                 bg_bgr, px_scale=px_scale)
 
-        def project(world_pts):
-            return viewport.project(world_pts, (panel_w, h), frame_idx)
-
         if trajectory and frame_idx > pass_start:
             path = ctx.trace_path[pass_start:frame_idx + 1]
-            cv2.polylines(canvas, [project(path)], False, ctx.trace_bgr,
+            path_2d = viewport.project(path, panel_size, frame_idx)
+            cv2.polylines(canvas, [path_2d], False, ctx.trace_bgr,
                           thin, cv2.LINE_AA)
 
-        # Painter's order: cv2 has no depth buffer, so bones draw
-        # far-to-near along the camera direction (view_matrix row 2
-        # points toward the viewer). Recomputed per frame — under
-        # follow/turntable the view matrix changes every frame.
         bones_arr = np.asarray(view.bones, dtype=int)
-
-        def painter_order(pose):
-            return np.argsort(pose[bones_arr].mean(axis=1)
-                              @ view_matrix[2])
 
         if ghost > 0:
             ghost_thickness = max(
@@ -271,16 +281,18 @@ def _draw_skeletons_on_frame(
                 gf = frame_idx - (j + 1) * ctx.ghost_lag
                 if gf < pass_start:
                     continue
-                gpts = project(view.coords[gf])
-                for b in painter_order(view.coords[gf]):
+                gpts = viewport.project(view.coords[gf], panel_size,
+                                        frame_idx)
+                for b in _painter_order(view.coords[gf], bones_arr,
+                                        view_matrix):
                     p_idx, c_idx = view.bones[b]
                     cv2.line(canvas, tuple(gpts[p_idx]),
                              tuple(gpts[c_idx]), ctx.ghost_bgr[j][b],
                              ghost_thickness, cv2.LINE_AA)
 
-        pts_2d = project(frame_data)
+        pts_2d = viewport.project(frame_data, panel_size, frame_idx)
 
-        for b in painter_order(frame_data):
+        for b in _painter_order(frame_data, bones_arr, view_matrix):
             p_idx, c_idx = view.bones[b]
             pt1 = (int(pts_2d[p_idx, 0]), int(pts_2d[p_idx, 1]))
             pt2 = (int(pts_2d[c_idx, 0]), int(pts_2d[c_idx, 1]))
@@ -352,6 +364,13 @@ def _generate_frames(
         Draw a ``Frame f/F`` counter in the bottom-right corner.
         Default ``False`` (opt-in — publication output never stamps
         text).
+    ghost : int, optional
+        Number of faded trailing poses behind each live skeleton,
+        spaced by ``style.ghost_spacing`` seconds of clip time. Default
+        0, none.
+    trajectory : bool, optional
+        Draw each root's trace on the floor, growing with playback.
+        Default ``False``.
     """
     import cv2
 
@@ -458,6 +477,12 @@ def render_opencv(
         ``"fixed"`` (default), ``"turntable"``, ``"follow"`` or a
         :class:`~._viewport.Turntable`, handed to the viewport
         untouched.
+    frame_counter, ghost, trajectory : optional
+        Passed to :func:`_generate_frames`, which documents them.
+    codec : str, optional
+        ``"auto"`` (default), ``"h264"`` or ``"mpeg4"``, as
+        :func:`pybvh.bvhplot.render` documents. Read for video output
+        only: a GIF is written by Pillow whatever the codec.
 
     Returns
     -------

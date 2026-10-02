@@ -36,22 +36,21 @@ from __future__ import annotations
 
 import math
 import warnings
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
 
-from pathlib import Path
-from typing import TYPE_CHECKING
-
 from .._warnings import user_stacklevel
 from ._from_bvh import (
     as_clip_list,
-    get_skeleton_lines,   # noqa: F401 — re-export (public since 0.5.0)
+    get_skeleton_lines,  # noqa: F401 — re-export (public since 0.5.0)
     make_scene,
     normalize_input,
 )
-from ._style import Style, resolve_style
 from ._scene import Scene, align_frame_counts
+from ._style import Style, resolve_style
 
 __all__ = [
     "Style", "rest_pose", "frame", "sequence", "render", "play",
@@ -91,8 +90,9 @@ def _resolve_sample_frames(
                      .astype(np.intp))
 
 if TYPE_CHECKING:
-    import matplotlib.figure
     import matplotlib.axes
+    import matplotlib.figure
+
     from ..bvh import Bvh
     from ._viewport import Turntable
 
@@ -395,7 +395,8 @@ def _validated_spacing(spacing: float | str) -> float | str:
         spacing_val = float(spacing)
     except (TypeError, ValueError):
         raise ValueError(
-            f"spacing must be 'auto' or a non-negative number, got {spacing!r}")
+            f"spacing must be 'auto' or a non-negative number, got {spacing!r}"
+        ) from None
     if spacing_val < 0:
         raise ValueError(
             f"spacing must be non-negative, got {spacing_val}")
@@ -1360,10 +1361,10 @@ def play(
     if backend_name == "k3d":
         try:
             import k3d  # noqa: F401
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "k3d backend requires k3d and ipywidgets. "
-                "Install with: pip install pybvh[interactive]")
+                "Install with: pip install pybvh[interactive]") from err
         from ._k3d import play_k3d
         play_k3d(_arranged_in_one_scene(scene, spacing=spacing,
                                         centered=centered,
@@ -1374,10 +1375,10 @@ def play(
     elif backend_name == "vedo":
         try:
             import vedo  # noqa: F401
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "vedo backend requires vedo. "
-                "Install with: pip install pybvh[viewer]")
+                "Install with: pip install pybvh[viewer]") from err
         from ._vedo import play_vedo
         play_vedo(_arranged_in_one_scene(scene, spacing=spacing,
                                          centered=centered,
@@ -1387,8 +1388,10 @@ def play(
 
     elif backend_name == "opencv_notebook":
         import tempfile
+
+        from IPython.display import Video, display  # type: ignore[import-untyped]
+
         from ._opencv import render_opencv
-        from IPython.display import display, Video  # type: ignore[import-untyped]
 
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp_path = Path(tmp.name)
@@ -1425,6 +1428,12 @@ def trajectory(
     ----------
     bvh : Bvh or list[Bvh]
         One or more BVH objects. Pass a list for overlaid comparison.
+    style : Style or str, optional
+        Visual styling: a preset name (``"paper"``, ``"debug"``,
+        ``"dark"``) or a :class:`Style` instance. Default ``"paper"``.
+        Only its background applies: a trajectory is a 2D data plot
+        whose axes, ticks and grid carry the information, so it keeps
+        them whatever ``style.axes`` says.
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional

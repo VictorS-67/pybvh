@@ -27,12 +27,14 @@
 # *If your viewer fails to render any figure or clip, [the notebook on nbviewer](https://nbviewer.org/github/VictorS-67/pybvh/blob/main/gallery/feature_gallery.ipynb) renders everything.*
 
 # %%
-from pathlib import Path
-import numpy as np
 # %matplotlib inline
+from pathlib import Path
+
+import numpy as np
 
 import pybvh
-from pybvh import geometry, analysis, rotations, signal
+from pybvh import analysis, geometry, rotations, signal
+
 import gallery_plots as gp
 
 REPO = Path.cwd().parent if Path.cwd().name in ("tutorials", "gallery") else Path.cwd()
@@ -43,7 +45,10 @@ dt = bvh.frame_time
 t = np.arange(F) * dt
 FRAME = F // 2                              # a representative pose
 P = pos[FRAME]
-idx = lambda name: bvh.index(name, space="node")
+
+def idx(name):
+    return bvh.index(name, space="node")
+
 print(bvh)
 
 # %% [markdown]
@@ -93,7 +98,8 @@ ax.set_title("plot_frame(style='dark')");
 fig, (ax_paper, ax_debug) = gp.side_by_side_3d()
 bvh.plot_frame(frame=FRAME, ax=ax_paper)                    # style="paper" is the default
 bvh.plot_frame(frame=FRAME, style="debug", ax=ax_debug)
-ax_paper.set_title("style='paper' (0.9.0 default)"); ax_debug.set_title("style='debug' (pre-0.9.0)");
+ax_paper.set_title("style='paper' (0.9.0 default)")
+ax_debug.set_title("style='debug' (pre-0.9.0)");
 
 # %% [markdown]
 # **`plot_frame(backend="vedo")`** — the same pose as a shadowed 3D **capsule render**, computed fully offscreen (headless-safe) and returned as an `(H, W, 3)` uint8 RGB array: the publication-figure alternative to the matplotlib stick figure. `render(backend="vedo")` exports the same look as video.
@@ -136,7 +142,8 @@ gp.fig_centered_modes(walk, walk.frame_count // 2)
 
 # %%
 input_angles = np.linspace(170, 190, 41)
-euler = np.zeros((41, 3)); euler[:, 0] = input_angles          # Z component in ZYX order
+euler = np.zeros((41, 3))
+euler[:, 0] = input_angles          # Z component in ZYX order
 recovered = rotations.rotmat_to_euler(
     rotations.euler_to_rotmat(euler, "ZYX", degrees=True), "ZYX", degrees=True)
 quats = rotations.euler_to_quat(euler, "ZYX", degrees=True)
@@ -163,6 +170,7 @@ pybvh.bvhplot.frame([bvh_yup, bvh_yup.reorient_world_up("+z")], frame=0,
 
 # %%
 import warnings
+
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")   # test3's rest/animation mismatch warns on load — that mismatch is the point
     bvh_mixed = pybvh.read_bvh_file(REPO / "bvh_data" / "bvh_test3.bvh")
@@ -472,7 +480,8 @@ gp.fig_jerk_ladder(np.arange(F), speed, acc, jerk, f"{JT}: the velocity → acce
 # -- synthetic data creation --
 FS = 200.0                                           # sampling rate of the synthetic signal
 tt = np.arange(200) / FS                             # one second of samples at FS
-smooth = (tt ** 2 * (1 - tt) ** 2); smooth /= smooth.max()
+smooth = (tt ** 2 * (1 - tt) ** 2)
+smooth /= smooth.max()
 jerky = smooth + 0.12 * np.sin(2 * np.pi * 7 * tt)   # a superimposed 7 Hz tremor adds jerk
 # -- data analysis --
 sparc = [analysis.smoothness(p, FS, metric="sparc") for p in (smooth, jerky)]
@@ -597,7 +606,8 @@ gp.fig_geodesic(root_R, geo, t)
 # **`finite_difference`** — the shared derivative operator. On a sine wave, the central and forward differences both track the analytic derivative (cosine); central is symmetric and more accurate.
 
 # %%
-x = np.linspace(0, 4 * np.pi, 200); h = x[1] - x[0]
+x = np.linspace(0, 4 * np.pi, 200)
+h = x[1] - x[0]
 d_central = signal.finite_difference(np.sin(x), h, stencil="central")
 d_forward = signal.finite_difference(np.sin(x), h, stencil="forward")
 gp.fig_finite_difference(x, d_central, d_forward)

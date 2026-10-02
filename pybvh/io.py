@@ -14,11 +14,10 @@ from typing import Any, NamedTuple, TextIO
 import numpy as np
 import numpy.typing as npt
 
+from .bvh import Bvh
 from .bvhnode import BvhNode
 from .node_tree import nodes_from_table
-from .bvh import Bvh
 from .tools import _validate_bvh_path, _validate_frame_time
-
 
 # ----------------------------------------------------------------
 #  Reading
@@ -183,7 +182,7 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
 
     filepath = _validate_bvh_path(filepath)
 
-    with open(filepath, "r") as f:
+    with open(filepath) as f:
         #---------- first, read the hierarchy (first part of the file)
         for raw_line in f:
             line_number += 1

@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from pybvh import read_bvh_file, bvhplot
+from pybvh import bvhplot, read_bvh_file
 from pybvh.bvhplot import _resolve_sample_frames
 
 BVH_PATH = "bvh_data/cmu_12_01_walk.bvh"
@@ -347,8 +348,8 @@ class TestReviewFixes:
         plt.close(fig)
 
     def test_sequence_honors_floor_kind(self, bvh):
-        from mpl_toolkits.mplot3d.art3d import (
-            Line3DCollection, Poly3DCollection)
+        from mpl_toolkits.mplot3d.art3d import Line3DCollection
+
         from pybvh.bvhplot import Style
         fig, ax = bvhplot.sequence(
             bvh, n_poses=3, style=Style("paper", floor="grid"))
@@ -361,9 +362,10 @@ class TestReviewFixes:
 
     def test_mpl_ghosts_render_under_live_skeleton(self, bvh, tmp_path):
         """Ghost collections carry zorder 1.5, below the live bones (2)."""
-        from pybvh.bvhplot._from_bvh import make_scene
-        from pybvh.bvhplot import _matplotlib as m
         import matplotlib.pyplot as mplt
+
+        from pybvh.bvhplot import _matplotlib as m
+        from pybvh.bvhplot._from_bvh import make_scene
         coords = bvh.node_positions()[:50]
         scene = make_scene([bvh], [coords], "front", None)
         fig = mplt.figure()
@@ -380,10 +382,10 @@ class TestReviewFixes:
     def test_opencv_panels_do_not_overdraw(self, bvh):
         """A panel's floor must not bleed into its neighbor: the left
         panel of a 2-up render equals the same view rendered alone."""
-        cv2 = pytest.importorskip("cv2")
+        pytest.importorskip("cv2")
+        from pybvh.bvhplot import Style
         from pybvh.bvhplot._from_bvh import make_scene
         from pybvh.bvhplot._opencv import _generate_frames
-        from pybvh.bvhplot import Style
         # force chains so the multi-skeleton auto-switch can't recolor
         # the left panel relative to the solo render
         style = Style("paper", supersample=1, color_mode="chains")

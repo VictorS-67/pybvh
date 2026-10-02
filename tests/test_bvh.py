@@ -5,33 +5,47 @@ Uses bvh_data/bvh_example.bvh as the test fixture.
 Run with: pytest tests/test_bvh.py -v
 """
 
-import pytest
-import numpy as np
-import pandas as pd
-import tempfile
-import os
 import copy
 import re
+import sys
+import tempfile
 import warnings
 from fractions import Fraction
 from pathlib import Path
 
-import sys
+import numpy as np
+import pandas as pd
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from pybvh import (read_bvh_file, df_to_bvh, Bvh, frames_to_node_positions,
-                    read_bvh_directory, batch_to_numpy, Axis, parse_axis)
-from pybvh.bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
+from pybvh import (
+    Axis,
+    Bvh,
+    batch_to_numpy,
+    df_to_bvh,
+    frames_to_node_positions,
+    parse_axis,
+    read_bvh_directory,
+    read_bvh_file,
+)
+from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhNode, BvhRoot
 from pybvh.rotations import euler_to_rotmat
 
 sys.path.insert(0, str(Path(__file__).parent))  # for synthetic_bvh
 from synthetic_bvh import (
-    make_dot_lr_bvh, make_underscore_lr_bvh, make_namespace_lr_bvh,
-    make_numbered_lr_bvh, make_bare_substring_lr_bvh, make_nameless_lr_bvh,
-    make_singleton_lr_bvh, make_pos_y_up_bvh, make_neg_y_up_bvh,
-    make_pos_z_up_bvh, make_neg_z_up_bvh,
+    make_bare_substring_lr_bvh,
+    make_dot_lr_bvh,
+    make_nameless_lr_bvh,
+    make_namespace_lr_bvh,
+    make_neg_y_up_bvh,
+    make_neg_z_up_bvh,
+    make_numbered_lr_bvh,
+    make_pos_y_up_bvh,
+    make_pos_z_up_bvh,
+    make_singleton_lr_bvh,
+    make_underscore_lr_bvh,
 )
-
 
 # =============================================================================
 # Fixtures
@@ -197,7 +211,7 @@ class TestReadBvhFile:
     def test_node_names(self, bvh_example):
         """Verify expected node names."""
         expected_names = [
-            'Hips', 'Spine', 'Spine1', 'Spine2', 'Spine3', 'Neck', 'Neck1', 
+            'Hips', 'Spine', 'Spine1', 'Spine2', 'Spine3', 'Neck', 'Neck1',
             'Head', 'EndSiteHead', 'RightShoulder', 'RightArm', 'RightForeArm',
             'RightHand', 'EndSiteRightHand', 'LeftShoulder', 'LeftArm',
             'LeftForeArm', 'LeftHand', 'EndSiteLeftHand', 'RightUpLeg',
@@ -364,7 +378,6 @@ class TestRadiansContract:
         # Pick the first joint's first axis
         # Hips_X_rot — but root order varies; just verify magnitude consistency.
         sample_deg = abs(d[rot_keys[0]]).max()
-        sample_rad = abs(np.deg2rad(d[rot_keys[0]])).max()
         # sample_deg should be the same order of magnitude as the max joint angle in degrees
         max_ja_deg = np.rad2deg(abs(bvh_example.joint_angles)).max()
         # Loose check: the max of *any* column shouldn't exceed the max of all angles
@@ -539,10 +552,10 @@ class TestSpatialCoordinates:
     def test_single_frame_world_centered(self, bvh_example):
         """Verify spatial coordinates for single frame, world centered."""
         spatial = bvh_example.node_positions(frame=0, centered="world")
-        
+
         # Shape: 29 nodes x 3 coordinates
         assert spatial.shape == (29, 3)
-        
+
         # First 4 nodes (root + first 3 joints)
         expected_first_4 = np.array([
             [-0.8231, -10.8992, 36.4219],
@@ -612,9 +625,9 @@ class TestDataFrameConversion:
         """Verify to_df_dict output for euler mode."""
         df_data = bvh_example.to_df_dict(mode='euler', centered='world')
         df = pd.DataFrame(df_data)
-        
+
         assert df.shape == (75, 76)  # 75 frames, 75 channels + 1 time column
-        
+
         # Check expected columns
         expected_first_10 = [
             'time', 'Hips_X_pos', 'Hips_Y_pos', 'Hips_Z_pos',
@@ -779,19 +792,19 @@ class TestFileRoundTrip:
         """Writing and re-reading a BVH file should preserve data."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpfile = Path(tmpdir) / "test_output.bvh"
-            
+
             bvh_example.write(tmpfile, verbose=False)
             bvh_reread = read_bvh_file(tmpfile)
-            
+
             # Basic properties should match
             assert bvh_reread.frame_count == bvh_example.frame_count
             assert len(bvh_reread.nodes) == len(bvh_example.nodes)
             assert bvh_reread.root.name == bvh_example.root.name
-            
+
             # Frames should be close (allowing for float formatting precision)
             np.testing.assert_allclose(
-                bvh_reread.root_pos, 
-                bvh_example.root_pos, 
+                bvh_reread.root_pos,
+                bvh_example.root_pos,
                 atol=1e-5
             )
             np.testing.assert_allclose(
@@ -817,13 +830,11 @@ class TestFileRoundTrip:
         assert reloaded.frame_time == pytest.approx(bvh_example.frame_time, rel=1e-9)
 
     def test_write_to_invalid_extension_raises(self, bvh_example, tmp_path):
-        """Writing to non-.bvh file should raise Exception."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError, match=r"output\.txt is not a \.bvh file"):
             bvh_example.write(tmp_path / "output.txt")
 
     def test_write_to_nonexistent_dir_raises(self, bvh_example):
-        """Writing to non-existent directory should raise Exception."""
-        with pytest.raises(Exception):
+        with pytest.raises(FileNotFoundError, match="directory does not exist"):
             bvh_example.write("/nonexistent/dir/output.bvh")
 
     def test_write_overwrites_by_default(self, bvh_example, tmp_path):
@@ -1497,6 +1508,13 @@ class TestSkeletonRetargeting:
         ref.nodes[1]._name = 'NONEXISTENT'
         with pytest.raises(ValueError, match="not found"):
             bvh_example.retarget(ref, strict=True)
+
+    def test_retarget_rejects_a_node_list(self, bvh_example):
+        """A clip's nodes, passed where the clip belongs, are rejected
+        with pybvh's message alone, not the AttributeError behind it."""
+        with pytest.raises(ValueError, match="new_skeleton must be a Bvh object") as excinfo:
+            bvh_example.retarget(bvh_example.nodes)
+        assert excinfo.value.__suppress_context__
 
     def test_retarget_preserves_motion(self, bvh_example):
         """retarget should not modify root_pos or joint_angles."""
@@ -2919,7 +2937,7 @@ class TestJointIndex:
         # Build the DFS node-name list and count cumulative end sites.
         end_sites_before = 0
         found_any_gap = False
-        for i, node in enumerate(bvh_example.nodes):
+        for node in bvh_example.nodes:
             if node.is_end_site():
                 end_sites_before += 1
             else:
@@ -3083,13 +3101,10 @@ class TestBatchProcessing:
 
     def test_read_bvh_directory_sorted(self, bvh_dir):
         """Results should be sorted alphabetically by default."""
-        result = read_bvh_directory(bvh_dir)
-        names = [str(Path(f"bvh_data")) for f in result]
-        # Check by examining node counts (a proxy — sorted files have distinct sizes)
-        result_sorted = read_bvh_directory(bvh_dir, sort=True)
-        result_unsorted = read_bvh_directory(bvh_dir, sort=False)
-        # Sorted should be deterministic; verify at least it returns same count
-        assert len(result_sorted) == len(result_unsorted)
+        names = [Path(b.source_path).name for b in read_bvh_directory(bvh_dir)]
+        assert names == sorted(names)
+        unsorted = read_bvh_directory(bvh_dir, sort=False)
+        assert sorted(Path(b.source_path).name for b in unsorted) == names
 
     def test_read_bvh_directory_parallel(self, bvh_dir):
         """Parallel loading should give same results as sequential."""
@@ -3449,7 +3464,7 @@ class TestHarmonizeReport:
         assert isinstance(out, list)
 
     def test_return_report_true_returns_tuple(self, bvh_example):
-        from pybvh.batch import harmonize, HarmonizeReport
+        from pybvh.batch import HarmonizeReport, harmonize
         out, report = harmonize([bvh_example.copy()], return_report=True)
         assert isinstance(out, list)
         assert isinstance(report, HarmonizeReport)
@@ -3602,8 +3617,9 @@ class TestHarmonizeSummaryFormat:
         assert "topology mismatch" in report.drop_reasons[0]
 
     def test_report_is_json_serializable(self, bvh_example, bvh_test2):
-        import json
         import dataclasses
+        import json
+
         from pybvh.batch import harmonize
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
@@ -3651,8 +3667,8 @@ class TestReadDirectorySkipErrors:
         return tmp_path
 
     def test_default_propagates(self, mixed_dir):
-        """Without skip_errors, a bad file raises."""
-        with pytest.raises(Exception):
+        """Without skip_errors, a bad file raises its parse error."""
+        with pytest.raises(ValueError, match=r"No ROOT declaration found in .*broken\.bvh"):
             read_bvh_directory(mixed_dir)
 
     def test_skip_errors_returns_successes(self, mixed_dir):
@@ -4379,7 +4395,7 @@ class TestJointNoise:
 
     def test_chaining_reproduces_the_old_combined_call(self, bvh_example):
         """The documented migration: same rng, rotation first, then position."""
-        from pybvh.transforms import add_rotation_noise, add_position_noise
+        from pybvh.transforms import add_position_noise, add_rotation_noise
         rng = np.random.default_rng(7)
         chained = add_position_noise(
             add_rotation_noise(bvh_example, sigma=0.1, rng=rng),
@@ -4850,8 +4866,8 @@ class TestMirror:
 
     def test_spatial_coords_reflected(self, bvh_example):
         """Gold-standard test: FK positions should be reflected."""
-        from pybvh.transforms import mirror
         from pybvh.tools import _rest_leftward
+        from pybvh.transforms import mirror
 
         lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_leftward(bvh_example)[1]]
 
@@ -4882,8 +4898,8 @@ class TestMirror:
                     err_msg=f"Center joint {node.name} lateral coord not negated")
 
     def test_root_pos_lateral_negated(self, bvh_example):
-        from pybvh.transforms import mirror
         from pybvh.tools import _rest_leftward
+        from pybvh.transforms import mirror
         lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_leftward(bvh_example)[1]]
         result = mirror(bvh_example)
         np.testing.assert_allclose(
@@ -4997,8 +5013,8 @@ class TestMirrorAngles:
 
     def _get_mirror_metadata(self, bvh):
         """Extract metadata needed for mirror_angles from a Bvh."""
-        from pybvh.tools import _rest_leftward, _iter_unique_lr_pairs
         from pybvh.bvhnode import BvhJoint
+        from pybvh.tools import _iter_unique_lr_pairs, _rest_leftward
 
         lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_leftward(bvh)[1]]
 
@@ -5044,7 +5060,7 @@ class TestMirrorAngles:
 
     def test_matches_bvh_level_angles(self, bvh_example):
         """NumPy-level angles should match Bvh-level mirror's angles."""
-        from pybvh.transforms import mirror_angles, mirror
+        from pybvh.transforms import mirror, mirror_angles
         lr_pairs, lat_idx, rot_ch = self._get_mirror_metadata(bvh_example)
         m_angles, m_pos = mirror_angles(
             bvh_example.joint_angles, bvh_example.root_pos,
@@ -5169,8 +5185,8 @@ class TestAutoDetectLRPairs:
 
     def test_works_with_mirror_angles(self, bvh_example):
         """Index pairs should be directly usable with mirror_angles."""
-        from pybvh.transforms import auto_detect_lr_pairs, mirror_angles
         from pybvh.tools import _rest_leftward
+        from pybvh.transforms import auto_detect_lr_pairs, mirror_angles
         pairs = auto_detect_lr_pairs(bvh_example)
         lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_leftward(bvh_example)[1]]
         rot_ch = [
@@ -5584,7 +5600,6 @@ class TestBvhSetItemErrors:
             bvh[10:20] = donor
 
     def test_skeleton_mismatch_raises(self, bvh_example, bvh_test2):
-        bvh = bvh_example.copy()
         # bvh_test2 has different joint count → first check trips
         donor = bvh_test2[0:10]
         # Length might not match either, but skeleton check happens first in impl:
@@ -6469,7 +6484,7 @@ class TestHasLrGeometry:
         bvh = bvh_example.copy()
         bvh.lr_mapping = None
         with pytest.warns(UserWarning, match="cannot be measured"):
-            bvh.rest_forward
+            _ = bvh.rest_forward
         with pytest.warns(UserWarning, match="has_lr_geometry"):
             bvh.left_at(0)
 
@@ -6545,7 +6560,7 @@ class TestHasLrGeometry:
         assert bvh_example.has_lr_geometry is True
         with warnings.catch_warnings():
             warnings.simplefilter("error", UserWarning)
-            bvh_example.rest_forward
+            _ = bvh_example.rest_forward
 
 
 def _tips_bvh(nodes, n_frames=2):

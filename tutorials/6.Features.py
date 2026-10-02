@@ -28,14 +28,15 @@
 # - The combined feature array (`to_feature_array()`) and its column layout
 
 # %%
+# %matplotlib inline
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
-np.set_printoptions(precision=4, suppress=True)
 
 import pybvh
-from pybvh import analysis, features
-# %matplotlib inline
-import matplotlib.pyplot as plt
-from pathlib import Path
+
+np.set_printoptions(precision=4, suppress=True)
 
 REPO_ROOT = Path.cwd().parent if Path.cwd().name == "tutorials" else Path.cwd()
 bvh_folder = REPO_ROOT / "bvh_data"
@@ -148,7 +149,7 @@ plt.figure(figsize=(10, 3))
 plt.plot(t, ang_speed)
 plt.xlabel('Time (s)')
 plt.ylabel('|ω| (rad/s)')
-plt.title(f'RightFoot angular-velocity magnitude over time')
+plt.title('RightFoot angular-velocity magnitude over time')
 plt.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.show()
@@ -174,7 +175,7 @@ plt.show()
 trajectory = bvh.root_trajectory()
 
 print(f'Root trajectory shape: {trajectory.shape}  (F, 4)')
-print(f'\nFirst 5 frames:')
+print('\nFirst 5 frames:')
 print(trajectory[:5])
 
 # %% [markdown]

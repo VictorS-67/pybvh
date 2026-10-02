@@ -1,15 +1,17 @@
 """Tests for the Style system and bone-chain classification (Phase 1)."""
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from pybvh import read_bvh_file, bvhplot
+from pybvh import bvhplot, read_bvh_file
 from pybvh.bvhplot._from_bvh import get_bone_chains, get_skeleton_lines
 from pybvh.bvhplot._style import (
     CHAIN_COLORS,
@@ -80,7 +82,7 @@ class TestStyleConstruction:
 
     def test_frozen(self):
         s = Style()
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError, match="floor"):
             s.floor = None  # type: ignore[misc]
 
     def test_replace(self):
@@ -407,9 +409,10 @@ class TestFraming:
         roll is the identity, looks perfectly fine.
         """
         from mpl_toolkits.mplot3d import proj3d
+
         from pybvh.bvhplot import _prepare
-        from pybvh.bvhplot._style import resolve_style
         from pybvh.bvhplot._matplotlib import _setup_animated_panel
+        from pybvh.bvhplot._style import resolve_style
         from pybvh.bvhplot._viewport import make_viewport
 
         view = _prepare(read_bvh_file(clip), None, "world", "side").views[0]
@@ -484,7 +487,7 @@ class TestStyledRenderSmoke:
         plt.close(fig)
 
     def test_render_opencv_paper(self, bvh, tmp_path):
-        cv2 = pytest.importorskip("cv2")
+        pytest.importorskip("cv2")
         short = bvh[0:10]
         path = bvhplot.render(
             short, tmp_path / "paper.mp4", backend="opencv",
@@ -527,14 +530,15 @@ class TestReviewFixes:
     def test_floor_gray_unified_across_backends(self):
         """The vedo offscreen floor had drifted to #EDEDF1; all solid
         floors now read one palette."""
-        from pybvh.bvhplot import _colors, _vedo_offscreen, _matplotlib
         import inspect
+
+        from pybvh.bvhplot import _colors, _vedo_offscreen
         assert "#EDEDF1" not in inspect.getsource(_vedo_offscreen)
         assert _colors.FLOOR_LIGHT["face"] == "#E8E8EC"
 
     def test_negative_up_floor_at_ground_not_head(self, bvh):
-        from tests.synthetic_bvh import make_neg_y_up_bvh
         from pybvh.bvhplot._from_bvh import make_scene
+        from tests.synthetic_bvh import make_neg_y_up_bvh
         neg = make_neg_y_up_bvh()
         coords = neg.node_positions()
         scene = make_scene([neg], [coords], "front", None,
@@ -580,7 +584,9 @@ class TestBoneDepthSorting:
         ax.add_collection3d(collection_cls(
             [segs[k] for k in seg_order],
             colors=[colors[k] for k in seg_order], linewidths=6))
-        ax.set_xlim(-1, 1); ax.set_ylim(-1, 1); ax.set_zlim(-1, 1)
+        ax.set_xlim(-1, 1)
+        ax.set_ylim(-1, 1)
+        ax.set_zlim(-1, 1)
         ax.view_init(elev=10, azim=-90, vertical_axis="z")
         fig.canvas.draw()
         buf = np.asarray(fig.canvas.buffer_rgba())[..., :3].copy()
@@ -591,8 +597,9 @@ class TestBoneDepthSorting:
         """The depth-sorted collection must produce the same image no
         matter what order its segments arrive in — proof that draw
         order comes from depth, not from insertion."""
-        from pybvh.bvhplot._matplotlib import _DepthSortedLine3DCollection
         from mpl_toolkits.mplot3d.art3d import Line3DCollection
+
+        from pybvh.bvhplot._matplotlib import _DepthSortedLine3DCollection
         a = self._render_crossing(_DepthSortedLine3DCollection,
                                   ["near", "far"])
         b = self._render_crossing(_DepthSortedLine3DCollection,
@@ -607,8 +614,9 @@ class TestBoneDepthSorting:
     def test_paper_uses_depth_sorted_debug_uses_plain(self, bvh):
         """The gate: paper (manual z-order) depth-sorts; debug keeps the
         fixed-order collection for pre-0.9.0 pixel parity."""
-        from pybvh.bvhplot._matplotlib import _DepthSortedLine3DCollection
         from mpl_toolkits.mplot3d.art3d import Line3DCollection
+
+        from pybvh.bvhplot._matplotlib import _DepthSortedLine3DCollection
 
         def bone_collections(style):
             fig, ax = bvhplot.frame(bvh, 100, style=style)

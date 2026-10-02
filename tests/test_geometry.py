@@ -13,7 +13,6 @@ import pytest
 from pybvh import geometry as geo
 from pybvh import signal
 
-
 # ----------------------------------------------------------------
 #  Inter-point relations
 # ----------------------------------------------------------------

@@ -1,3 +1,12 @@
+"""Nodes of a BVH skeleton hierarchy.
+
+A skeleton is a tree of :class:`BvhRoot` (exactly one, first), :class:`BvhJoint`
+and :class:`BvhEndSite` nodes, all subclasses of :class:`BvhNode`. Each node
+carries its name, its rest offset from its parent and links to its parent
+and children; the motion itself lives in the :class:`~pybvh.bvh.Bvh` that
+holds the nodes. Trees are usually built by the reader or by
+:func:`~pybvh.nodes_from_table`, which wire both directions of every link.
+"""
 from __future__ import annotations
 
 import numpy as np
@@ -29,6 +38,16 @@ class BvhNode:
 
     @property
     def name(self) -> str:
+        """The node's name, as the file spells it.
+
+        Names are not unique: real files repeat joint names, and the
+        reader names an end site after its parent, so two end sites of one
+        joint share a name. pybvh builds and traverses the tree by node
+        identity and position, never by name. Lookups by name do exist
+        (``Bvh.index``, ``Bvh.node_index``, ``Bvh.joint_index``,
+        retargeting); ``node_index`` keeps the last node of a repeated
+        name. Assigning anything but a ``str`` raises ``ValueError``.
+        """
         return self._name
     @name.setter
     def name(self, value: str) -> None:
@@ -38,6 +57,13 @@ class BvhNode:
 
     @property
     def offset(self) -> npt.NDArray[np.float64]:
+        """Rest-pose offset from the parent, shape ``(3,)``.
+
+        In the parent's frame and in the file's length unit (the unit of
+        ``root_pos``). Assigning accepts any sequence of three finite
+        numbers and stores it as a new float64 array; NaN, infinity, a
+        ``None`` component or a wrong length raise ``ValueError``.
+        """
         return self._offset
     @offset.setter
     def offset(self, value: list[float] | npt.NDArray[np.float64]) -> None:
@@ -61,11 +87,18 @@ class BvhNode:
 
     @property
     def parent(self) -> BvhNode | None:
+        """The node this one hangs from, ``None`` for the root.
+
+        Assigning anything but ``None`` or a :class:`BvhNode` raises
+        ``ValueError``. Setting the parent does not add this node to the
+        parent's ``children``: each direction of the link is set on its
+        own.
+        """
         return self._parent
     @parent.setter
     def parent(self, value: BvhNode | None) -> None:
         #parent needs to be either None or an instance of BvhNode
-        if value != None and not isinstance(value, BvhNode):
+        if value is not None and not isinstance(value, BvhNode):
             raise ValueError("parent should either be None or a BvhNode class/subclasse object")
         self._parent = value
 
@@ -76,11 +109,29 @@ class BvhNode:
         return f'BvhNode(name = {self.name}, offset = {self.offset}, parent = {self.parent})'
 
     def is_end_site(self) -> bool:
+        """Whether this node is an end site, a channel-less leaf.
+
+        The node-kind check pybvh uses everywhere instead of name
+        conventions. A bare ``BvhNode`` is not a node kind, so it raises
+        ``NotImplementedError``; each subclass answers.
+
+        Returns
+        -------
+        bool
+        """
         raise NotImplementedError(
             "BvhNode is the abstract base class; build hierarchies from "
             "BvhRoot, BvhJoint, and BvhEndSite.")
 
     def is_root(self) -> bool:
+        """Whether this node is the root of its hierarchy.
+
+        ``False`` for every node kind but :class:`BvhRoot`.
+
+        Returns
+        -------
+        bool
+        """
         return False
 
 
@@ -105,6 +156,12 @@ class BvhEndSite(BvhNode):
         return f'BvhEndSite(name = {self.name}, offset = {self.offset}, parent = {self.parent})'
 
     def is_end_site(self) -> bool:
+        """Always ``True``: an end site has an offset and nothing else.
+
+        Returns
+        -------
+        bool
+        """
         return True
 
 
@@ -138,6 +195,23 @@ class BvhJoint(BvhNode):
 
     @property
     def rot_channels(self) -> list[str]:
+        """Euler rotation order, e.g. ``['Z', 'Y', 'X']``.
+
+        The order of the joint's rotation channels as the file's
+        ``CHANNELS`` line lists them, which is also the order of its
+        three angles in ``Bvh.joint_angles``: intrinsic rotations,
+        pre-multiplied, as :func:`~pybvh.rotations.euler_to_rotmat` reads
+        them. Assigning accepts a three-letter string or a list of three
+        one-letter strings, a permutation of ``'XYZ'`` either way, and
+        stores a new list; anything else raises ``ValueError``.
+
+        Frozen by the :class:`~pybvh.bvh.Bvh` constructor, which freezes
+        every node it is given, because the stored angles are only
+        meaningful in their own order: assigning then raises
+        ``AttributeError``, and ``Bvh.change_euler_order`` converts the
+        angles and the order together. A joint that reaches a ``Bvh`` only
+        through ``Bvh.nodes`` assignment is not frozen.
+        """
         return self._rot_channels
     @rot_channels.setter
     def rot_channels(self, value: list[str] | str) -> None:
@@ -160,6 +234,12 @@ class BvhJoint(BvhNode):
 
     @property
     def children(self) -> list[BvhNode]:
+        """The joints and end sites directly below this one, in file order.
+
+        Assigning anything but a list of :class:`BvhNode` raises
+        ``ValueError``. Like ``parent``, it sets one direction of the
+        link only: the children's ``parent`` is left as it was.
+        """
         return self._children
     @children.setter
     def children(self, value: list[BvhNode]) -> None:
@@ -205,6 +285,12 @@ class BvhJoint(BvhNode):
         return axes
 
     def is_end_site(self) -> bool:
+        """Always ``False``: a joint carries rotation channels.
+
+        Returns
+        -------
+        bool
+        """
         return False
 
 
@@ -238,6 +324,15 @@ class BvhRoot(BvhJoint):
 
     @property
     def pos_channels(self) -> list[str]:
+        """Order of the root's three position channels.
+
+        Accepts the same forms as ``rot_channels``. A
+        :class:`~pybvh.bvh.Bvh` supports only ``['X', 'Y', 'Z']``, the
+        order of every ``root_pos`` row, and raises ``ValueError`` at
+        construction for any other. The ``Bvh`` constructor freezes it
+        with ``rot_channels``: from then on, assigning raises
+        ``AttributeError``.
+        """
         return self._pos_channels
     @pos_channels.setter
     def pos_channels(self, value: list[str] | str) -> None:
@@ -262,4 +357,10 @@ class BvhRoot(BvhJoint):
 
 
     def is_root(self) -> bool:
+        """Always ``True``.
+
+        Returns
+        -------
+        bool
+        """
         return True

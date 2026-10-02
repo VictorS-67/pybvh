@@ -10,23 +10,23 @@ import pickle
 
 import numpy as np
 import pytest
-
-from pybvh import bvhplot, parse_axis, read_bvh_file
-from pybvh.analysis import root_trajectory
-from pybvh.bvhplot._from_bvh import (
-    make_scene,
-    get_skeleton_lines,
-    get_bone_chains,
-    get_camera_angles,
-)
-from pybvh.bvhplot._scene import Scene, SkeletonView
-from pybvh.tools import _resolve_lr_pairs
 from synthetic_bvh import (
     make_nameless_lr_bvh,
     make_neg_y_up_bvh,
     make_pos_z_up_bvh,
 )
 from synthetic_scene import make_array_scene, make_array_view, make_bare_view
+
+from pybvh import bvhplot, parse_axis, read_bvh_file
+from pybvh.analysis import root_trajectory
+from pybvh.bvhplot._from_bvh import (
+    get_bone_chains,
+    get_camera_angles,
+    get_skeleton_lines,
+    make_scene,
+)
+from pybvh.bvhplot._scene import Scene, SkeletonView
+from pybvh.tools import _resolve_lr_pairs
 
 BVH_PATH = "bvh_data/cmu_12_01_walk.bvh"
 
@@ -483,7 +483,7 @@ class TestSceneMethods:
 
     def test_views_are_frozen(self, bvh, coords):
         scene = make_scene([bvh], [coords], "front", None)
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError, match="frame_time"):
             scene.views[0].frame_time = 1.0  # type: ignore[misc]
 
     def test_subsampled_keeps_a_missing_heading_missing(self):
@@ -890,7 +890,7 @@ class TestBodySize:
         """A first frame with every node at one point has no bone
         length to compare with the rest pose's: no ratio, rather than a
         ratio of 0 that reads as a measurement."""
-        from synthetic_scene import REST_COORDS, BONES
+        from synthetic_scene import BONES, REST_COORDS
         coords = np.zeros((2, len(REST_COORDS), 3))
         coords[1, :, 2] = 5.0
         view = make_bare_view(coords, REST_COORDS, BONES)

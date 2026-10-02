@@ -1,9 +1,21 @@
+"""The :class:`Bvh` container: one clip's skeleton and motion.
+
+A :class:`Bvh` holds the node hierarchy, the root translation
+``root_pos`` (shape ``(F, 3)``, in the file's length unit) and the joint
+rotations ``joint_angles`` (shape ``(F, J, 3)``, Euler angles in
+radians), and exposes every high-level operation as a method. Most
+methods are thin wrappers over the array-level modules
+(:mod:`pybvh.analysis`, :mod:`pybvh.transforms`, :mod:`pybvh.geometry`,
+:mod:`pybvh.features`, :mod:`pybvh.bvhplot`), which document the
+computation itself.
+"""
 from __future__ import annotations
 
 import copy
 import warnings
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Literal, Sequence, TYPE_CHECKING, Union, overload
+from typing import TYPE_CHECKING, Any, Literal, Union, overload
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -13,16 +25,20 @@ if TYPE_CHECKING:
 import numpy as np
 import numpy.typing as npt
 
+from . import rotations
 from ._warnings import user_stacklevel
-from .bvhnode import BvhNode, BvhJoint, BvhRoot, BvhEndSite
+
+# Re-exported: pybvh.bvh has long served every node class, end sites included.
+from .bvhnode import BvhEndSite as BvhEndSite
+from .bvhnode import BvhJoint, BvhNode, BvhRoot
 from .node_tree import _check_node_tree, nodes_from_table, nodes_to_table
 from .spatial_coord import (
-    FkTopology, frames_to_node_positions, _ground_plane_offset,
+    FkTopology,
+    _ground_plane_offset,
+    frames_to_node_positions,
 )
-from . import rotations
 from .tools import (
     Axis,
-    parse_axis,
     _axis_to_vector,
     _compute_forward_at,
     _compute_left_at,
@@ -35,6 +51,7 @@ from .tools import (
     _validate_axis_string,
     _validate_fps,
     _validate_frame_time,
+    parse_axis,
 )
 
 
@@ -259,6 +276,26 @@ class Bvh:
 
     @property
     def nodes(self) -> list[BvhNode]:
+        """Skeleton hierarchy, one node per joint and end site.
+
+        In depth-first order as the file lists it: ``nodes[0]`` is the
+        :class:`~pybvh.bvhnode.BvhRoot`, and end sites
+        (:class:`~pybvh.bvhnode.BvhEndSite`) are included. ``len(nodes)``
+        is therefore the node count *N* that indexes
+        :meth:`node_positions` (shape ``(F, N, 3)``), not the joint count
+        *J* that indexes :attr:`joint_angles`; :attr:`node_index` and
+        :attr:`joint_index` map names to each.
+
+        Returns the live list, not a copy. Change the skeleton through
+        the methods that edit it (:meth:`scale`, :meth:`retarget`,
+        :meth:`extract_joints`, :meth:`change_euler_order`) rather than
+        by editing its nodes in place. Assigning replaces the list; the
+        setter only checks that the value is a non-empty list of
+        ``BvhNode`` (``ValueError`` otherwise). The tree wiring is
+        checked when a ``Bvh`` is constructed, not on assignment, so a
+        new skeleton goes to the constructor, built with
+        :func:`~pybvh.nodes_from_table` if it starts as plain data.
+        """
         return self._nodes
     @nodes.setter
     def nodes(self, value: list[BvhNode]) -> None:
@@ -371,6 +408,13 @@ class Bvh:
 
     @property
     def root(self) -> BvhRoot:
+        """The root joint, ``nodes[0]``.
+
+        The one node with position channels: its translation per frame is
+        :attr:`root_pos`, and its rotation is joint 0 of
+        :attr:`joint_angles`. Assigning anything but a
+        :class:`~pybvh.bvhnode.BvhRoot` raises ``ValueError``.
+        """
         return self._root
     @root.setter
     def root(self, value: BvhRoot) -> None:
@@ -388,7 +432,7 @@ class Bvh:
         """
         return _motion_column_names(self.nodes, 'euler')
 
-            
+
     def __str__(self) -> str:
         source = ""
         if self.source_path is not None:
@@ -449,6 +493,8 @@ class Bvh:
         Parameters
         ----------
         other : Bvh
+            The clip to compare against. Anything that is not a ``Bvh``
+            returns ``False`` rather than raising.
         match_offsets : bool, optional
             If True (default), require rest-pose offsets to agree within
             ``atol``. If False, ignore offsets and check only the
@@ -496,6 +542,8 @@ class Bvh:
         Parameters
         ----------
         other : Bvh
+            The clip to compare against. Anything that is not a ``Bvh``
+            returns ``False`` rather than raising.
 
         Returns
         -------
@@ -530,6 +578,8 @@ class Bvh:
         Parameters
         ----------
         other : Bvh
+            The clip to compare against. Anything that is not a ``Bvh``
+            returns ``False`` rather than raising.
 
         Returns
         -------
@@ -676,6 +726,17 @@ class Bvh:
         self._invalidate_motion_caches()
 
     def copy(self) -> Bvh:
+        """Return an independent deep copy.
+
+        Everything is copied: the node hierarchy, ``root_pos`` and
+        ``joint_angles``, ``frame_time``, ``source_path``, a manual
+        ``world_up`` and the L/R mapping. Editing either clip afterwards,
+        its arrays or its nodes, never affects the other.
+
+        Returns
+        -------
+        Bvh
+        """
         return copy.deepcopy(self)
 
     def _copy_skeleton(self) -> Bvh:
@@ -1407,7 +1468,7 @@ class Bvh:
         # node axis with `keep` — works for both shapes.
         return np_arr[..., keep, :]
 
-        
+
 
     def rest_pose_positions(self) -> npt.NDArray[np.float64]:
         """Rest-pose node positions (all angles zero, root at origin) — ``(N, 3)``.
@@ -1491,11 +1552,11 @@ class Bvh:
             return self._get_df_constructor_euler_angles()
         elif mode == 'coordinates':
             return self._get_df_constructor_spatial_coord(centered=centered)
-        else : 
+        else :
             raise ValueError(f'The value {mode} is not recognized for the mode argument.\
                              Currently recognized keywords are {correct_modes}')
-        
-    
+
+
     def _get_df_constructor_euler_angles(self) -> dict[str, npt.NDArray[np.float64]]:
         """Return column-name → array dict for Euler-angle DataFrame.
 
@@ -1530,7 +1591,7 @@ class Bvh:
 
 
 
-    
+
     def to_node_table(self) -> list[dict[str, Any]]:
         """Export the skeleton as a node table: one plain ``dict`` per node.
 
@@ -1837,7 +1898,7 @@ class Bvh:
         try:
             new_skel_nodes = new_skeleton.nodes
         except AttributeError:
-            raise ValueError('new_skeleton must be a Bvh object')
+            raise ValueError('new_skeleton must be a Bvh object') from None
 
         # Build name → index lookup for the reference skeleton
         newnodes2idx = {n.name: i for i, n in enumerate(new_skel_nodes)}
@@ -2901,7 +2962,7 @@ class Bvh:
             self._positions_or(coords)[:, self._descriptor_index(joint), :]))
 
     def ground_path(self, joint: str, *,
-                    coords: npt.NDArray[np.float64] | None = None) -> "geometry.GroundPath":
+                    coords: npt.NDArray[np.float64] | None = None) -> geometry.GroundPath:
         """Ground-plane path of ``joint`` (uses ``world_up``). See :func:`pybvh.geometry.ground_path`."""
         from . import geometry
         traj = self._positions_or(coords)[:, self._descriptor_index(joint), :]
@@ -2954,19 +3015,19 @@ class Bvh:
             seg, _axis_to_vector(self.world_up), degrees=degrees)
 
     def bounding_box(self, *,
-                     coords: npt.NDArray[np.float64] | None = None) -> "geometry.BoundingBox":
+                     coords: npt.NDArray[np.float64] | None = None) -> geometry.BoundingBox:
         """Per-frame axis-aligned bounding box of all nodes. See :func:`pybvh.geometry.bounding_box`."""
         from . import geometry
         return geometry.bounding_box(self._positions_or(coords))
 
     def bounding_sphere(self, *,
-                        coords: npt.NDArray[np.float64] | None = None) -> "geometry.BoundingSphere":
+                        coords: npt.NDArray[np.float64] | None = None) -> geometry.BoundingSphere:
         """Per-frame approximate enclosing sphere of all nodes. See :func:`pybvh.geometry.bounding_sphere`."""
         from . import geometry
         return geometry.bounding_sphere(self._positions_or(coords))
 
     def bounding_ellipsoid(self, *,
-                           coords: npt.NDArray[np.float64] | None = None) -> "geometry.BoundingEllipsoid":
+                           coords: npt.NDArray[np.float64] | None = None) -> geometry.BoundingEllipsoid:
         """Per-frame PCA-aligned bounding ellipsoid of all nodes. See :func:`pybvh.geometry.bounding_ellipsoid`."""
         from . import geometry
         return geometry.bounding_ellipsoid(self._positions_or(coords))

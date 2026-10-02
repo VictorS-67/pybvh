@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ._scene import SkeletonView

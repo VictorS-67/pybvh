@@ -13,16 +13,19 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 from synthetic_bvh import (
-    make_pos_y_up_bvh, make_neg_y_up_bvh,
-    make_pos_z_up_bvh, make_neg_z_up_bvh,
-    make_pos_y_up_rotating_bvh, make_simple_bvh,
     make_disagreement_bvh,
+    make_neg_z_up_bvh,
+    make_pos_y_up_bvh,
+    make_pos_y_up_rotating_bvh,
+    make_pos_z_up_bvh,
 )
 
-from pybvh import read_bvh_file, Bvh, transforms
+from pybvh import Bvh, read_bvh_file, transforms
 from pybvh.tools import (
-    _axis_aligned_rotation, _axis_to_vector,
-    _rest_upward, _compute_forward_at,
+    _axis_aligned_rotation,
+    _axis_to_vector,
+    _compute_forward_at,
+    _rest_upward,
 )
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
@@ -90,7 +93,7 @@ class TestWorldUpParameter:
         """Loading bvh_test3 with explicit world_up should not warn."""
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            bvh = read_bvh_file(TEST3, world_up="+z")
+            read_bvh_file(TEST3, world_up="+z")
             user_warns = [x for x in w if issubclass(x.category, UserWarning)
                           and "world up" in str(x.message).lower()]
             assert len(user_warns) == 0
@@ -99,7 +102,7 @@ class TestWorldUpParameter:
         """Loading bvh_test3 without override should warn."""
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            bvh = read_bvh_file(TEST3)
+            read_bvh_file(TEST3)
             user_warns = [x for x in w if issubclass(x.category, UserWarning)
                           and "world up" in str(x.message).lower()]
             assert len(user_warns) > 0
@@ -108,7 +111,7 @@ class TestWorldUpParameter:
         """warn_on_world_up_disagreement=False suppresses the warning."""
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            bvh = read_bvh_file(TEST3, warn_on_world_up_disagreement=False)
+            read_bvh_file(TEST3, warn_on_world_up_disagreement=False)
             user_warns = [x for x in w if issubclass(x.category, UserWarning)
                           and "world up" in str(x.message).lower()]
             assert len(user_warns) == 0

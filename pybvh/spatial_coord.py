@@ -1,3 +1,13 @@
+"""Forward kinematics: from joint angles to node positions.
+
+:func:`frames_to_node_positions` turns a skeleton, the root translation
+``root_pos`` (shape ``(F, 3)``) and the Euler angles ``joint_angles``
+(shape ``(F, J, 3)``, radians) into the world position of every node,
+end sites included (shape ``(F, N, 3)``, in the skeleton's length unit).
+The skeleton is a :class:`~pybvh.bvh.Bvh`, a node list or an
+:class:`FkTopology`, the array-only form a caller holding no node objects
+can build.
+"""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, NamedTuple, Union
@@ -5,9 +15,9 @@ from typing import TYPE_CHECKING, NamedTuple, Union
 import numpy as np
 import numpy.typing as npt
 
+from .bvhnode import BvhNode
 from .rotations import euler_to_rotmat
 from .tools import _validate_axis_string
-from .bvhnode import BvhNode
 
 if TYPE_CHECKING:
     from .bvh import Bvh
@@ -108,6 +118,15 @@ class FkTopology(_FkTopologyFields):
         joint_idx: npt.ArrayLike,
         euler_orders: list[str],
     ) -> FkTopology:
+        """Build a topology from its four fields, validated.
+
+        ``offsets`` is converted to float64, ``parent_idx`` and
+        ``joint_idx`` to ``intp``, and each Euler order to ``str``, so a
+        topology loaded from ``np.load`` (a string array of orders, say)
+        comes back in the same form :meth:`from_nodes` produces. The
+        fields and the ``ValueError`` raised for a malformed topology are
+        described on the class.
+        """
         offsets_arr = np.asarray(offsets, dtype=np.float64)
         parent_arr = np.asarray(parent_idx, dtype=np.intp)
         joint_arr = np.asarray(joint_idx, dtype=np.intp)

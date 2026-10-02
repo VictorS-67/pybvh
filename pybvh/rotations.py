@@ -24,11 +24,11 @@ Convention note:
 
 from __future__ import annotations
 
-from typing import Sequence, Union
+from collections.abc import Sequence
+from typing import Union
 
 import numpy as np
 import numpy.typing as npt
-
 
 # Channel count per per-joint rotation representation. Handy for
 # allocating output arrays or sizing model layers without hard-coding
@@ -769,8 +769,8 @@ def axisangle_to_rotmat(aa: npt.ArrayLike) -> npt.NDArray[np.float64]:
     sin_a = np.sin(angle)[:, np.newaxis, np.newaxis]
     cos_a = np.cos(angle)[:, np.newaxis, np.newaxis]
 
-    I = np.eye(3, dtype=np.float64)[np.newaxis, :, :]  # (1, 3, 3)
-    R = I + sin_a * K + (1.0 - cos_a) * (K @ K)
+    identity = np.eye(3, dtype=np.float64)[np.newaxis, :, :]  # (1, 3, 3)
+    R = identity + sin_a * K + (1.0 - cos_a) * (K @ K)
 
     R = R.reshape(batch_shape + (3, 3))
     if single:
@@ -1057,12 +1057,16 @@ def _extract_euler(R: npt.NDArray[np.float64], i: int, j: int, k: int) -> npt.ND
     Parameters
     ----------
     R : ndarray, shape (N, 3, 3)
+        Rotation matrices, the batch flattened to one axis by
+        :func:`_rotmat_to_euler_rad`.
     i, j, k : int
         Axis indices (0=X, 1=Y, 2=Z).
 
     Returns
     -------
     angles : ndarray, shape (N, 3)
+        Radians, in the order ``(i, j, k)``, on the branch and with the
+        gimbal-lock split :func:`rotmat_to_euler` documents.
     """
     N = R.shape[0]
     angles = np.empty((N, 3), dtype=np.float64)

@@ -20,16 +20,21 @@ One fixture is different in kind: `foot_contacts_pinned.npz` is a BEHAVIOR PIN o
     conda run -n pybvh python tests/fixtures/generate_fixtures.py --follow-azimuths-pin
 """
 from __future__ import annotations
+
 import json
 import os
 import sys
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 # The reference libraries (scipy, pytransform3d) are imported inside the
 # gen_* functions that need them, not here: the behavior-pin generator and
 # the pin tests (tests/test_analysis.py) import this module in the
-# numpy-only `pybvh` env, where those libraries do not exist.
+# numpy-only `pybvh` env, where those libraries do not exist. The import
+# below is for annotations only and never runs.
+if TYPE_CHECKING:
+    from scipy.spatial.transform import Rotation as SR
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SEED = 0xB7  # fixed: fixtures must be reproducible
@@ -105,7 +110,8 @@ def _se3_twists() -> np.ndarray:
           np.array([5., -5., 5.])]
     rows = [np.concatenate([a * th, v]) for th in thetas for a in axes for v in vs]
     for _ in range(24):                        # general random twists
-        a = rng.normal(size=3); a /= np.linalg.norm(a)
+        a = rng.normal(size=3)
+        a /= np.linalg.norm(a)
         th = rng.uniform(0.05, np.pi - 0.05)
         rows.append(np.concatenate([a * th, rng.normal(size=3) * rng.uniform(0.1, 10)]))
     return np.asarray(rows, dtype=float)
@@ -131,7 +137,9 @@ def gen_se3() -> None:
         B = pt.transform_from_exponential_coordinates(rng.normal(size=6))
         rel = pt.exponential_coordinates_from_transform(np.linalg.inv(A) @ B)
         for t in (0.0, 0.25, 0.5, 0.75, 1.0):
-            T0.append(A); T1.append(B); tval.append(t)
+            T0.append(A)
+            T1.append(B)
+            tval.append(t)
             interp.append(A @ pt.transform_from_exponential_coordinates(t * rel))
     _save("se3_screw_interp",
           {"ref": "pytransform3d", "definition": "A @ exp(t*log(inv(A)@B)) screw geodesic",
@@ -145,7 +153,8 @@ def gen_geodesic() -> None:
     rng = np.random.default_rng(SEED ^ 0x6E0)
 
     def rotvecs(n):
-        a = rng.normal(size=(n, 3)); a /= np.linalg.norm(a, axis=1, keepdims=True)
+        a = rng.normal(size=(n, 3))
+        a /= np.linalg.norm(a, axis=1, keepdims=True)
         return a * rng.uniform(0.0, np.pi, size=(n, 1))
 
     rv1 = np.concatenate([rotvecs(48), np.array([[0., 0, 0], [0., 0, 0]])])
@@ -162,7 +171,9 @@ def _load_smoothness_reference():
     """Fetch the Balasubramanian SPARC reference (ISC license, siva82kb/SPARC),
     pinned to a commit, and import it. Its code is NOT committed — only the
     numbers it produces are. Needs network at regeneration time (rare)."""
-    import importlib.util, tempfile, urllib.request
+    import importlib.util
+    import tempfile
+    import urllib.request
     sha = "7deff21add7e3b6403869c8932dff31bceacb472"
     url = f"https://raw.githubusercontent.com/siva82kb/SPARC/{sha}/scripts/smoothness.py"
     code = urllib.request.urlopen(url, timeout=30).read()
@@ -321,7 +332,7 @@ def gen_foot_contacts() -> None:
 
     bvh_path = os.path.join(repo_root, "bvh_data", "cmu_12_01_walk.bvh")
     arrays: dict[str, np.ndarray] = {}
-    for i, (name, build) in enumerate(FOOT_CONTACT_RUNS, start=1):
+    for i, (_name, build) in enumerate(FOOT_CONTACT_RUNS, start=1):
         # Fresh Bvh per run: no floor-cache state carries over between runs.
         bvh = read_bvh_file(bvh_path)
         contacts, info = bvh.foot_contacts(return_info=True, **build(bvh))

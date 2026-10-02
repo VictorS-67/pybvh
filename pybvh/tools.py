@@ -1,3 +1,16 @@
+"""Signed axes and the orientation a skeleton's geometry implies.
+
+Axes are written as signed strings (``'+y'``, ``'-z'``) throughout pybvh;
+:func:`parse_axis` turns one into an :class:`Axis` (column index, sign,
+unit vector) and :func:`get_main_direction` snaps a vector to the one it
+lies closest to. The private helpers infer orientation from a clip: the
+world up axis, the rest pose's up and forward, the left/right joint pairs
+found by name, and the per-frame facing direction built on them.
+:class:`~pybvh.bvh.Bvh` exposes their results as ``world_up``,
+``rest_up``, ``rest_forward``, ``lr_mapping``, ``forward_at`` and
+``left_at``. The module also holds the input validators the package
+shares (file paths, frame time, frame rate, axis strings).
+"""
 from __future__ import annotations
 
 import math
@@ -696,6 +709,13 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
     ----------
     bvh : Bvh
         The skeleton with populated animation data.
+    warn : bool, optional
+        Whether to warn when the first frame and the rest pose disagree
+        on the up axis (default True). Only the axis letter is compared,
+        so a sign flip alone (rest pose ``'+y'``, first frame ``'-y'``)
+        never warns. It gates only that warning: the warning that the
+        axis fell back to the invented ``'+y'`` is always issued, because
+        that result is a guess the returned string cannot flag.
 
     Returns
     -------
@@ -842,6 +862,8 @@ def _leftward_units_from_pairs(
     Parameters
     ----------
     coords : ndarray of shape (F, N, 3)
+        World-space node positions per frame, in the skeleton's length
+        unit, indexed along N by ``lr_pairs``.
     lr_pairs : int ndarray of shape (P, 2)
         ``(left_idx, right_idx)`` rows into the N axis; ``(0, 2)`` means
         no pairs, and every frame comes back invalid.

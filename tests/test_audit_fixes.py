@@ -10,7 +10,6 @@ Groups follow the plan at:
 from __future__ import annotations
 
 import sys
-import warnings
 from pathlib import Path
 
 import numpy as np
@@ -19,18 +18,17 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))  # for synthetic_bvh
 from synthetic_bvh import (
-    make_pos_y_up_bvh,
-    make_neg_y_up_bvh,
-    make_pos_z_up_bvh,
-    make_neg_z_up_bvh,
-    make_pos_y_up_rotating_bvh,
     make_heterogeneous_euler_bvh,
     make_lowercase_lr_bvh,
+    make_neg_y_up_bvh,
+    make_neg_z_up_bvh,
+    make_pos_y_up_bvh,
+    make_pos_y_up_rotating_bvh,
+    make_pos_z_up_bvh,
     make_simple_bvh,
 )
 
-from pybvh import read_bvh_file, Bvh, rotations, transforms
-from pybvh.bvhnode import BvhRoot, BvhJoint, BvhNode
+from pybvh import Bvh, read_bvh_file, rotations, transforms
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
 EXAMPLE = str(BVH_DIR / "bvh_example.bvh")

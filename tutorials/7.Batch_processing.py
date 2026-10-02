@@ -27,14 +27,15 @@
 # This tutorial walks through both in order, then puts them together into a complete dataset-preparation pipeline. A third classical step — **per-channel feature normalization** — is an ML-pipeline concern and lives in [pybvh-ml](https://github.com/VictorS-67/pybvh-ml); see the note near the end of this tutorial.
 
 # %%
-import numpy as np
-np.set_printoptions(precision=4, suppress=True)
-
 import warnings
+from pathlib import Path
+
+import numpy as np
 
 import pybvh
 from pybvh import batch
-from pathlib import Path
+
+np.set_printoptions(precision=4, suppress=True)
 
 REPO_ROOT = Path.cwd().parent if Path.cwd().name == "tutorials" else Path.cwd()
 bvh_folder = REPO_ROOT / "bvh_data"

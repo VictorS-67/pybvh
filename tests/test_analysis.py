@@ -6,23 +6,24 @@ remediation phase; tests should fail against the pre-v3 implementation
 and turn green as the phases land.
 """
 
-import warnings
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from pybvh import read_bvh_file, Bvh  # noqa: E402
-from pybvh import analysis, features  # noqa: E402
-from pybvh.bvhnode import BvhRoot, BvhJoint, BvhEndSite  # noqa: E402
+from pybvh import Bvh, analysis, features, read_bvh_file
+from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhRoot
 
 sys.path.insert(0, str(Path(__file__).parent))
-from synthetic_bvh import (  # noqa: E402
-    make_pos_y_up_bvh, make_neg_y_up_bvh,
-    make_pos_z_up_bvh, make_neg_z_up_bvh,
-    make_pos_y_up_rotating_bvh, make_clip_bvh,
+from synthetic_bvh import (
+    make_clip_bvh,
+    make_neg_y_up_bvh,
+    make_neg_z_up_bvh,
+    make_pos_y_up_bvh,
+    make_pos_y_up_rotating_bvh,
+    make_pos_z_up_bvh,
 )
 
 # The foot_contacts behavior-pin run spec is shared with the fixture
@@ -30,8 +31,7 @@ from synthetic_bvh import (  # noqa: E402
 # the committed fixture (importing it regenerates nothing — the reference
 # libraries only load inside the gen_* functions that need them).
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
-from generate_fixtures import FOOT_CONTACT_RUNS, flatten_info  # noqa: E402
-
+from generate_fixtures import FOOT_CONTACT_RUNS, flatten_info
 
 # ============================================================================
 # Fixtures
@@ -115,7 +115,7 @@ class TestRootTrajectoryHeadingRestForward:
 
     def _expected_rest_heading(self, bvh):
         """Derive ground-truth heading from rest-pose forward + world_up."""
-        from pybvh.tools import _compute_forward_at, _axis_to_vector
+        from pybvh.tools import _axis_to_vector, _compute_forward_at
         rest_coords = bvh.rest_pose_positions()
         fwd_axis = _compute_forward_at(bvh, rest_coords, bvh.world_up)
         fwd_vec = _axis_to_vector(fwd_axis)
@@ -866,7 +866,7 @@ class TestFootContactsFloorEstimation:
         _, info_auto = bvh.foot_contacts(return_info=True)
         assert info_min["floor"] <= info_auto["floor"] + 1e-12
 
-        bvh.floor_height                             # fill the scene ground
+        _ = bvh.floor_height                         # fill the scene ground
         _, info_min2 = bvh.foot_contacts(floor="min", return_info=True)
         assert info_min2["floor"] == pytest.approx(info_min["floor"])
 
@@ -1283,7 +1283,7 @@ class TestContactReferenceIsIndependentOfTheSceneGround:
         cold = cmu_walk.foot_contacts()
 
         warm = read_bvh_file(CMU_WALK_PATH)
-        warm.floor_height                            # fill the scene ground
+        _ = warm.floor_height                        # fill the scene ground
         np.testing.assert_array_equal(warm.foot_contacts(), cold)
 
         sentinel = read_bvh_file(CMU_WALK_PATH)

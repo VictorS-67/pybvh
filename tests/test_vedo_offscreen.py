@@ -4,10 +4,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-vedo = pytest.importorskip("vedo")
-
-from pybvh import read_bvh_file, bvhplot
+from pybvh import bvhplot, read_bvh_file
 from pybvh.bvhplot import Style
+
+vedo = pytest.importorskip("vedo")
 
 BVH_PATH = "bvh_data/cmu_12_01_walk.bvh"
 
@@ -168,8 +168,8 @@ class TestCapsuleSizing:
         """A finger is thickest at the knuckle. Untapered, the caps grow
         distally — splayed tips have more room than packed metacarpals —
         which renders a hand thin at the wrist and fattest at the tips."""
-        from pybvh.bvhplot._vedo_capsules import adaptive_radii
         from pybvh.bvhplot import get_skeleton_lines
+        from pybvh.bvhplot._vedo_capsules import adaptive_radii
         bones = get_skeleton_lines(bvh_hands)
         rest = bvh_hands.rest_pose_positions()
         radii, _ = adaptive_radii(rest, bones, 1.0, rest)
@@ -213,8 +213,8 @@ class TestCapsuleSizing:
         """Regression: the forearm is a hub joining one thick bone to
         five thin metacarpals. Sizing it from the thinnest neighbour
         collapsed it to finger width."""
-        from pybvh.bvhplot._vedo_capsules import adaptive_radii, base_radius
         from pybvh.bvhplot import get_skeleton_lines
+        from pybvh.bvhplot._vedo_capsules import adaptive_radii, base_radius
         bones = get_skeleton_lines(bvh_hands)
         rest = bvh_hands.rest_pose_positions()
         # The body size: this rest pose stands along y.
@@ -226,8 +226,8 @@ class TestCapsuleSizing:
         assert forearm == pytest.approx(upper, rel=0.25)
 
     def test_fingers_are_thinned_without_naming_them(self, bvh_hands):
-        from pybvh.bvhplot._vedo_capsules import adaptive_radii, base_radius
         from pybvh.bvhplot import get_skeleton_lines
+        from pybvh.bvhplot._vedo_capsules import adaptive_radii, base_radius
         bones = get_skeleton_lines(bvh_hands)
         rest = bvh_hands.rest_pose_positions()
         # The body size: this rest pose stands along y.
@@ -241,9 +241,9 @@ class TestCapsuleSizing:
     def test_short_isolated_bones_keep_full_radius(self):
         """The neck bug: short links with nothing beside them are not
         thinned, so a two-link neck matches the spine below it."""
-        from pybvh.bvhplot._vedo_capsules import adaptive_radii
         from pybvh import read_bvh_file
         from pybvh.bvhplot import get_skeleton_lines
+        from pybvh.bvhplot._vedo_capsules import adaptive_radii
         neck_rig = read_bvh_file("bvh_data/bvh_test1.bvh")
         bones = get_skeleton_lines(neck_rig)
         rest = neck_rig.rest_pose_positions()
@@ -285,6 +285,7 @@ class TestCapsuleShading:
         the tube."""
         from synthetic_scene import make_bare_view
         from vtk.util.numpy_support import vtk_to_numpy
+
         from pybvh.bvhplot._vedo_capsules import CapsuleSkeleton
 
         pose = np.array([[0.0, 0.0, 0.0],
@@ -330,9 +331,9 @@ class TestCapsuleShading:
         mesh. Two bones upright, then turned sideways, must render as
         a skeleton built sideways, whose first pose that is."""
         from synthetic_scene import make_bare_view
+
         from pybvh.bvhplot._scene import Scene
-        from pybvh.bvhplot._vedo_offscreen import (
-            _build_offscreen, _vtk_backend)
+        from pybvh.bvhplot._vedo_offscreen import _build_offscreen, _vtk_backend
 
         upright = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
                             [0.3, 0.0, 0.0], [0.3, 1.0, 0.0]])

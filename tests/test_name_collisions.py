@@ -505,6 +505,7 @@ class TestNodeLrPairs:
     def test_real_skeleton(self):
         """On a normal rig every pair resolves and points at matching nodes."""
         from pathlib import Path
+
         from pybvh import read_bvh_file
         bvh = read_bvh_file(
             Path(__file__).parent.parent / "bvh_data" / "bvh_example.bvh")

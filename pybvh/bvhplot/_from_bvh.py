@@ -8,12 +8,12 @@ imports this module; nothing else in the package does.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import numpy.typing as npt
 
-from typing import TYPE_CHECKING
-
-from ._scene import Scene, SkeletonView, UP_AXIS_INDEX
+from ._scene import UP_AXIS_INDEX, Scene, SkeletonView
 
 if TYPE_CHECKING:
     from ..bvh import Bvh
@@ -442,8 +442,8 @@ def get_bone_chains(bvh: Bvh) -> dict[str, list[int]]:
     if pairs is None:
         return {"spine": list(range(len(bones)))}
 
-    left_nodes = {l for l, _ in pairs}
-    right_nodes = {r for _, r in pairs}
+    left_nodes = {left for left, _ in pairs}
+    right_nodes = {right for _, right in pairs}
 
     parent_of = {child: parent for child, parent in bvh.node_edges}
     children_of: dict[int, list[int]] = {}

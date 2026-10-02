@@ -16,13 +16,12 @@ from typing import Any, Callable
 import numpy as np
 import numpy.typing as npt
 
+from . import geometry, rotations
 from ._warnings import user_stacklevel
 from .bvh import Bvh
 from .bvhnode import BvhNode
-from .tools import _axis_to_vector, _compute_forward_at, _facing_basis
-from . import rotations
-from . import geometry
 from .signal import box_filter_smooth
+from .tools import _axis_to_vector, _compute_forward_at, _facing_basis
 
 _EPS = 1e-12
 
@@ -2009,7 +2008,6 @@ def _contact_confidence(
     velocity and height masks concur. ``confidence = sqrt(margin*agreement)``
     for combined, ``margin`` otherwise. Zero when a foot never contacts.
     """
-    nf = mask.shape[1]
     margins = []
     if vel_mask is not None:
         margins.append(np.clip((vel_threshold - speed) / vel_threshold, 0.0, 1.0))

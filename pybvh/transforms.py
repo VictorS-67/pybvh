@@ -14,14 +14,15 @@ convention in :mod:`~pybvh.rotations`.
 """
 from __future__ import annotations
 
-from typing import Literal, TYPE_CHECKING, overload
+from typing import TYPE_CHECKING, Literal, overload
 
 import numpy as np
 import numpy.typing as npt
 
-from .bvhnode import BvhJoint
 from . import rotations
+from .bvhnode import BvhJoint
 from .tools import (
+    _AXIS_CHAR_TO_IDX,
     _axis_aligned_rotation,
     _axis_index_sign,
     _compute_forward_at,
@@ -30,7 +31,6 @@ from .tools import (
     _rest_leftward,
     _rest_upward,
     _validate_axis_string,
-    _AXIS_CHAR_TO_IDX,
 )
 
 if TYPE_CHECKING:
@@ -1029,18 +1029,32 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     looks visually identical; only the coordinate system changes.
 
     Restricted to axis-aligned rotations (multiples of 90 degrees) for
-    lossless transformation.
+    lossless transformation. Many rotations carry the old up onto the
+    new one; pybvh applies the smallest. Between two different axes that
+    is the 90-degree turn about the axis perpendicular to both. Between
+    the two signs of one axis (``'+y'`` to ``'-y'``) no smallest one
+    exists, and pybvh turns 180 degrees about the next axis in the cycle
+    X, Y, Z (``y`` flips about ``z``, ``z`` about ``x``, ``x`` about
+    ``y``); the flip about the other horizontal axis differs from it by a
+    half turn about the up axis, so the character would face the
+    opposite way.
 
     Parameters
     ----------
     bvh : Bvh
+        Input motion. Its current :attr:`~pybvh.bvh.Bvh.world_up`, set or
+        inferred, is the axis rotated away from.
     new_up : str
         Target up axis, e.g. ``'+y'``.
-    inplace : bool
+    inplace : bool, optional
+        If True, modify *bvh* and return None. Default False: return a
+        reoriented copy.
 
     Returns
     -------
     Bvh or None
+        The reoriented copy, or None when ``inplace=True``. Its
+        ``world_up`` is *new_up*.
     """
     old_up = _validate_axis_string(bvh.world_up)
     new_up = _validate_axis_string(new_up)
@@ -1089,16 +1103,23 @@ def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None
     The world coordinate system is unchanged: ``root_pos`` and ``world_up``
     are NOT modified.
 
+    The rotation is chosen as :func:`reorient_world_up` chooses it.
+
     Parameters
     ----------
     bvh : Bvh
+        Input motion. Its rest-pose up axis is inferred from the joint
+        offsets, as :attr:`~pybvh.bvh.Bvh.rest_up` reports it.
     new_up : str
         Target rest-pose up axis, e.g. ``'+y'``.
-    inplace : bool
+    inplace : bool, optional
+        If True, modify *bvh* and return None. Default False: return a
+        reoriented copy.
 
     Returns
     -------
     Bvh or None
+        The reoriented copy, or None when ``inplace=True``.
 
     Raises
     ------
@@ -1137,13 +1158,19 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
     Parameters
     ----------
     bvh : Bvh
+        Input motion. Its rest-pose forward is computed from the rest
+        pose and its ``world_up``, as
+        :attr:`~pybvh.bvh.Bvh.rest_forward` reports it.
     new_forward : str
         Target rest-pose forward axis, e.g. ``'+y'`` or ``'-z'``.
-    inplace : bool
+    inplace : bool, optional
+        If True, modify *bvh* and return None. Default False: return a
+        reoriented copy.
 
     Returns
     -------
     Bvh or None
+        The reoriented copy, or None when ``inplace=True``.
 
     Raises
     ------

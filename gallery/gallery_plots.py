@@ -11,13 +11,12 @@ figures set their own angle (baked into the function — edit here to change the
 """
 from __future__ import annotations
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib import animation
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-import pybvh
-from pybvh import geometry, analysis, rotations, tools, signal
+from pybvh import analysis, geometry, rotations, signal, tools
 from pybvh.bvhplot import get_skeleton_lines
 
 # Clips are committed to the repo and served to the docs page, where they
@@ -71,7 +70,9 @@ def set_equal_3d(ax, pts, pad=1.0, elev=None, azim=None):
     ax.set_xlim(c[0] - r, c[0] + r)
     ax.set_ylim(c[1] - r, c[1] + r)
     ax.set_zlim(c[2] - r, c[2] + r)
-    ax.set_xlabel("x"); ax.set_ylabel("y"); ax.set_zlabel("z")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
     set_view(ax, elev, azim)
 
 
@@ -110,7 +111,8 @@ def box_edges(lo, hi):
 
 
 def unit_sphere(nu=24, nv=12):
-    u = np.linspace(0, 2 * np.pi, nu); v = np.linspace(0, np.pi, nv)
+    u = np.linspace(0, 2 * np.pi, nu)
+    v = np.linspace(0, np.pi, nv)
     return np.array([np.outer(np.cos(u), np.sin(v)),
                      np.outer(np.sin(u), np.sin(v)),
                      np.outer(np.ones_like(u), np.cos(v))])
@@ -191,7 +193,8 @@ def trajectory_trace_gif(bvh, joint, path="feature_gallery_hand_traj.gif", fps=2
     # resampled to the GIF playback rate so the trace runs in real time
     # (same reasoning as motion_clip_gif)
     bvh = bvh.resample(fps)
-    pos = bvh.node_positions(); F = bvh.frame_count
+    pos = bvh.node_positions()
+    F = bvh.frame_count
     traj = pos[:, idx(bvh, joint), :]
     fig = plt.figure(figsize=(6, 6))
     ax = fig.add_subplot(111, projection="3d")
@@ -345,7 +348,9 @@ def fig_skeleton_ops(bvhs, labels, frame):
     pts = np.vstack(all_pts)
     lo, hi = pts.min(0), pts.max(0)
     ranges = np.maximum(hi - lo, 1e-9)
-    ax.set_xlim(lo[0], hi[0]); ax.set_ylim(lo[1], hi[1]); ax.set_zlim(lo[2], hi[2])
+    ax.set_xlim(lo[0], hi[0])
+    ax.set_ylim(lo[1], hi[1])
+    ax.set_zlim(lo[2], hi[2])
     ax.set_box_aspect(tuple(ranges / ranges.max()))    # true proportions, no cube
     ax.view_init(elev=8, azim=-88, vertical_axis="xyz"[up_idx])
     ax.set_axis_off()          # relative size is the lesson; ticks only clutter
@@ -443,7 +448,8 @@ def fig_inter_joint_distance(bvh, frame, a, b, value, title):
     pa, pb = P[idx(bvh, a)], P[idx(bvh, b)]
     ax.plot(*zip(pa, pb), "o--", color="tab:red", lw=2)
     ax.text(*((pa + pb) / 2), f"  {value:.1f}", color="tab:red", fontsize=11)
-    set_equal_3d(ax, P); plt.tight_layout()
+    set_equal_3d(ax, P)
+    plt.tight_layout()
 
 
 def fig_joint_angle(bvh, frame, a, vertex, b, value, title):
@@ -485,31 +491,43 @@ def fig_triangle_area(bvh, frame, a, b, c, value, title):
     ax.add_collection3d(Poly3DCollection([tri], alpha=0.35, facecolor="tab:purple"))
     ax.plot(*zip(*np.vstack([tri, tri[0]])), color="tab:purple", lw=2)
     ax.text(*tri.mean(0), f"  area={value:.0f}", color="tab:purple", fontsize=11)
-    set_equal_3d(ax, P); plt.tight_layout()
+    set_equal_3d(ax, P)
+    plt.tight_layout()
 
 
 def fig_point_to_plane_segment_synthetic():
     fig = plt.figure(figsize=(11, 5))
     # -- point to plane --
-    ax = fig.add_subplot(121, projection="3d"); ax.set_title("point_to_plane_distance")
-    pt = np.array([1.0, 1.0, 2.5]); n = np.array([0.0, 0.0, 1.0]); pp = np.zeros(3)
+    ax = fig.add_subplot(121, projection="3d")
+    ax.set_title("point_to_plane_distance")
+    pt = np.array([1.0, 1.0, 2.5])
+    n = np.array([0.0, 0.0, 1.0])
+    pp = np.zeros(3)
     gx, gy = np.meshgrid(np.linspace(-1, 3, 2), np.linspace(-1, 3, 2))
     ax.plot_surface(gx, gy, np.zeros_like(gx), alpha=0.25, color="tab:blue")
     foot = pt - geometry.point_to_plane_distance(pt, pp, n) * n
     ax.scatter(*pt, color="tab:red", s=50)
     ax.plot(*zip(pt, foot), "--", color="tab:red", lw=2)
     ax.text(*pt, f"  d={geometry.point_to_plane_distance(pt, pp, n):.2f}", color="tab:red")
-    ax.set_xlabel("x"); ax.set_ylabel("y"); ax.set_zlabel("z"); set_view(ax)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
+    set_view(ax)
     # -- point to segment --
-    ax = fig.add_subplot(122, projection="3d"); ax.set_title("point_to_segment_distance")
-    sa, sb = np.array([0.0, 0, 0]), np.array([3.0, 0, 0]); q = np.array([1.0, 2.0, 0.0])
+    ax = fig.add_subplot(122, projection="3d")
+    ax.set_title("point_to_segment_distance")
+    sa, sb = np.array([0.0, 0, 0]), np.array([3.0, 0, 0])
+    q = np.array([1.0, 2.0, 0.0])
     ax.plot(*zip(sa, sb), "-o", color="tab:blue", lw=3)
     t = np.clip(np.dot(q - sa, sb - sa) / np.dot(sb - sa, sb - sa), 0, 1)
     near = sa + t * (sb - sa)
     ax.scatter(*q, color="tab:red", s=50)
     ax.plot(*zip(q, near), "--", color="tab:red", lw=2)
     ax.text(*q, f"  d={geometry.point_to_segment_distance(q, sa, sb):.2f}", color="tab:red")
-    ax.set_xlabel("x"); ax.set_ylabel("y"); ax.set_zlabel("z"); set_view(ax)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
+    set_view(ax)
     plt.tight_layout()
 
 
@@ -568,13 +586,16 @@ def fig_bounding_volumes(bvh, frame, box, sph, ell):
     ax = fig.add_subplot(132, projection="3d")
     ax.set_title(f"bounding_sphere  (r={sph.radius[frame]:.0f})")
     draw_skeleton(ax, bvh, P, joints=True)
-    S = unit_sphere(); surf = sph.center[frame][:, None, None] + sph.radius[frame] * S
+    S = unit_sphere()
+    surf = sph.center[frame][:, None, None] + sph.radius[frame] * S
     ax.plot_wireframe(surf[0], surf[1], surf[2], color="tab:orange", alpha=0.35, lw=0.6)
     set_equal_3d(ax, P)
 
-    ax = fig.add_subplot(133, projection="3d"); ax.set_title("bounding_ellipsoid  (PCA)")
+    ax = fig.add_subplot(133, projection="3d")
+    ax.set_title("bounding_ellipsoid  (PCA)")
     draw_skeleton(ax, bvh, P, joints=True)
-    S = unit_sphere(); scaled = ell.radii[:, None, None] * S
+    S = unit_sphere()
+    scaled = ell.radii[:, None, None] * S
     surf = ell.center[:, None, None] + np.einsum("ij,jkl->ikl", ell.axes, scaled)
     ax.plot_wireframe(surf[0], surf[1], surf[2], color="tab:purple", alpha=0.35, lw=0.6)
     set_equal_3d(ax, P)
@@ -609,7 +630,8 @@ def fig_verticality(bvh, frame, value):
     ax.plot([lo[0], hi[0]], [lo[1], hi[1]], [lo[2], lo[2]], color="tab:orange", lw=4, label="width")
     ax.text(cx, cy, hi[2], f"  verticality={value:.2f}", fontsize=11)
     ax.legend(fontsize=8)
-    set_equal_3d(ax, P); plt.tight_layout()
+    set_equal_3d(ax, P)
+    plt.tight_layout()
 
 
 # ----------------------------------------------------------------
@@ -620,16 +642,19 @@ def fig_path_directness(traj, path_length, directness, title):
     fig, ax = new3d(title)
     ax.plot(traj[:, 0], traj[:, 1], traj[:, 2], color="tab:blue", lw=2, label="path")
     ax.plot(*zip(traj[0], traj[-1]), "--", color="tab:red", lw=2, label="start→end chord")
-    ax.scatter(*traj[0], color="g", s=40); ax.scatter(*traj[-1], color="r", s=40)
+    ax.scatter(*traj[0], color="g", s=40)
+    ax.scatter(*traj[-1], color="r", s=40)
     ax.text2D(0.02, 0.95, f"path_length = {path_length:.1f}\n"
               f"directness = {directness:.3f}", transform=ax.transAxes, fontsize=10)
     ax.legend(fontsize=8)
-    set_equal_3d(ax, traj); plt.tight_layout()
+    set_equal_3d(ax, traj)
+    plt.tight_layout()
 
 
 def fig_curvature(traj, kappa, title):
     fig = plt.figure(figsize=(7, 6))
-    ax = fig.add_subplot(111, projection="3d"); ax.set_title(title)
+    ax = fig.add_subplot(111, projection="3d")
+    ax.set_title(title)
     sc = ax.scatter(traj[:, 0], traj[:, 1], traj[:, 2], c=kappa, cmap="plasma", s=18)
     fig.colorbar(sc, ax=ax, shrink=0.6, label="curvature κ  (bright = tight turn)")
     set_equal_3d(ax, traj)
@@ -640,16 +665,19 @@ def fig_torsion(curve, tor, title):
     # torsion is a 3rd-derivative quantity — noisy and spike-prone on real mocap —
     # so this uses a clean synthetic flat→helix curve where the twist is visible.
     fig = plt.figure(figsize=(7, 6))
-    ax = fig.add_subplot(111, projection="3d"); ax.set_title(title)
+    ax = fig.add_subplot(111, projection="3d")
+    ax.set_title(title)
     span = np.nanmax(np.abs(tor))
     sc = ax.scatter(curve[:, 0], curve[:, 1], curve[:, 2], c=tor, cmap="coolwarm",
                     s=10, vmin=-span, vmax=span)
     fig.colorbar(sc, ax=ax, shrink=0.6, label="torsion τ  (0 = stays in-plane)")
-    set_equal_3d(ax, curve); plt.tight_layout()
+    set_equal_3d(ax, curve)
+    plt.tight_layout()
 
 
 def fig_movement_phase(bvh, joint, mp):
-    pos = bvh.node_positions(); traj = pos[:, idx(bvh, joint), :]
+    pos = bvh.node_positions()
+    traj = pos[:, idx(bvh, joint), :]
     fig = plt.figure(figsize=(7, 6))
     ax = fig.add_subplot(111, projection="3d")
     ax.set_title(f"movement_phase (speed·κ), {joint}")
@@ -660,22 +688,28 @@ def fig_movement_phase(bvh, joint, mp):
                label=f"peak · frame {peak}  (speed·κ = {mp[peak]:.0f})")
     ax.legend(loc="upper left", fontsize=9)
     fig.colorbar(sc, ax=ax, shrink=0.6, label="speed·κ  (bright = fast & sharp)")
-    set_equal_3d(ax, traj); plt.tight_layout()
+    set_equal_3d(ax, traj)
+    plt.tight_layout()
 
 
 def fig_ground_path(bvh, joint, gp_result):
-    pos = bvh.node_positions(); traj = pos[:, idx(bvh, joint), :]; F = bvh.frame_count
+    pos = bvh.node_positions()
+    traj = pos[:, idx(bvh, joint), :]
+    F = bvh.frame_count
     fig, ax = new3d(f"ground_path: {joint} and its ground shadow")
     ax.plot(traj[:, 0], traj[:, 1], traj[:, 2], color="tab:blue", lw=2, label="path")
     floor = traj[:, 2].min()
-    shadow = traj.copy(); shadow[:, 2] = floor
+    shadow = traj.copy()
+    shadow[:, 2] = floor
     ax.plot(shadow[:, 0], shadow[:, 1], shadow[:, 2], color="tab:gray", lw=2, label="ground shadow")
     ax.add_collection3d(Poly3DCollection([shadow], alpha=0.2, facecolor="tab:orange"))
     for k in range(0, F, 10):
         ax.plot(*zip(traj[k], shadow[k]), color="0.85", lw=0.6)
     ax.text2D(0.02, 0.95, f"distance = {gp_result.distance:.1f}\narea = {gp_result.area:.0f}",
               transform=ax.transAxes, fontsize=10)
-    ax.legend(fontsize=8); set_equal_3d(ax, traj); plt.tight_layout()
+    ax.legend(fontsize=8)
+    set_equal_3d(ax, traj)
+    plt.tight_layout()
 
 
 def fig_pose_distance(D):
@@ -698,7 +732,9 @@ def fig_mean_pose_subtract(bvh, frame, resid):
     for i in range(len(mean_pose)):
         ax.quiver(*mean_pose[i], *resid[frame, i], color="tab:red",
                   arrow_length_ratio=0.3, lw=1)
-    ax.legend(fontsize=8); set_equal_3d(ax, mean_pose); plt.tight_layout()
+    ax.legend(fontsize=8)
+    set_equal_3d(ax, mean_pose)
+    plt.tight_layout()
 
 
 # ----------------------------------------------------------------
@@ -709,9 +745,11 @@ def fig_jerk_ladder(frames, speed, acc, jerk, title):
     fig, axs = plt.subplots(3, 1, figsize=(9, 5), sharex=True)
     for a, y, lab, c in zip(axs, [speed, acc, jerk], ["speed", "‖accel‖", "‖jerk‖"],
                             ["tab:blue", "tab:orange", "tab:red"]):
-        a.plot(frames, y, color=c); a.set_ylabel(lab)
+        a.plot(frames, y, color=c)
+        a.set_ylabel(lab)
     axs[0].set_title(title)
-    axs[-1].set_xlabel("frame"); plt.tight_layout()
+    axs[-1].set_xlabel("frame")
+    plt.tight_layout()
 
 
 def fig_smoothness_profiles(smooth, jerky, sparc, fs):
@@ -721,11 +759,13 @@ def fig_smoothness_profiles(smooth, jerky, sparc, fs):
                              (jerky, "jerky", "tab:red", sparc[1])]:
         npk = analysis.number_of_peaks(prof)     # the wiggle count, visible on the left
         a1.plot(prof, color=c, label=f"{lab}: SPARC={sp:.2f}, peaks={npk}")
-        freqs, mag = signal.fft_magnitude(prof, fs=fs); mag = mag / mag.max()
+        freqs, mag = signal.fft_magnitude(prof, fs=fs)
+        mag = mag / mag.max()
         m = freqs <= band
         a2.plot(freqs[m], mag[m], color=c, marker="o", ms=3,
                 label=f"{lab}: arc length = {-sp:.2f}")
-    a1.set(title="speed profiles", xlabel="sample", ylabel="speed"); a1.legend(fontsize=8)
+    a1.set(title="speed profiles", xlabel="sample", ylabel="speed")
+    a1.legend(fontsize=8)
     a2.set(title="normalized spectra — SPARC = −(arc length of this curve)",
            xlabel="Hz", ylabel="normalized |F|", xlim=(0, band))
     a2.legend(fontsize=8)
@@ -764,7 +804,8 @@ def fig_velocity_reductions(t, speed, vr, fs, title):
     ax.annotate(f"peak_deceleration\n= {vr.peak_deceleration:.0f}", xy=(t[kd], speed[kd]),
                 xytext=(t[kd] - 0.05, vr.peak * 1.28), ha="right",
                 arrowprops=dict(arrowstyle="->", color="tab:orange"), color="tab:orange")
-    ax.set(title=title, xlabel="time (s)", ylabel="speed"); ax.legend(fontsize=8, loc="center right")
+    ax.set(title=title, xlabel="time (s)", ylabel="speed")
+    ax.legend(fontsize=8, loc="center right")
     plt.tight_layout()
 
 
@@ -774,7 +815,8 @@ def fig_zero_crossings_active(t, speed, zc, active):
     # left: each crossing happens *between* samples — interpolate its exact time
     # so the dot lands on the zero line, not on the last sample before it.
     centred = speed - speed.mean()
-    a1.plot(t, centred, color="tab:blue"); a1.axhline(0, color="k", lw=0.8)
+    a1.plot(t, centred, color="tab:blue")
+    a1.axhline(0, color="k", lw=0.8)
     i = np.where(centred[:-1] * centred[1:] < 0)[0]          # sample before each crossing
     f = centred[i] / (centred[i] - centred[i + 1])           # fraction of the step to zero
     tc = t[i] + f * (t[i + 1] - t[i])
@@ -794,14 +836,17 @@ def fig_zero_crossings_active(t, speed, zc, active):
     for lo, hi in zip(bounds[0::2], bounds[1::2]):
         a2.axvspan(lo, hi, color="tab:green", alpha=0.25)
     a2.set(title=f"active_duration = {active:.2f} s",
-           xlabel="time (s)", ylabel="speed"); a2.legend(fontsize=8)
+           xlabel="time (s)", ylabel="speed")
+    a2.legend(fontsize=8)
     plt.tight_layout()
 
 
 def fig_kinetic_energy(bvh, ke, frame, t):
     fig = plt.figure(figsize=(12, 5))
-    ax = fig.add_subplot(121); ax.set_title("kinetic_energy over time (summed over all joints)")
-    ax.plot(t, ke, color="tab:red"); ax.set(xlabel="time (s)", ylabel="Σ‖v‖²")
+    ax = fig.add_subplot(121)
+    ax.set_title("kinetic_energy over time (summed over all joints)")
+    ax.plot(t, ke, color="tab:red")
+    ax.set(xlabel="time (s)", ylabel="Σ‖v‖²")
     ax.axvline(t[frame], ls="--", color="k")
     ax2 = fig.add_subplot(122, projection="3d")
     ax2.set_title("per-joint speed at the marked frame")
@@ -862,7 +907,8 @@ def fig_gait(bvh, feet, g, t, contacts=None):
                  f"step={g.step_length:.1f}, asym={g.asymmetry:.2f}\n"
                  f"cadence={g.cadence:.2f}/s  pace={g.walking_pace:.1f}",
            xlabel="distance along path", ylabel="lateral")
-    a2.axis("equal"); a2.legend(fontsize=8)
+    a2.axis("equal")
+    a2.legend(fontsize=8)
     plt.tight_layout()
 
 
@@ -874,7 +920,8 @@ def fig_range_of_motion(bvh, jname, rom, t):
         ax.plot(t, jang[:, ch], label=f"ch{ch}: ROM={rom[ch]:.0f}°")
         ax.fill_between(t, jang[:, ch].min(), jang[:, ch].max(), alpha=0.08)
     ax.set(title=f"range_of_motion ({jname})", xlabel="time (s)", ylabel="angle (deg)")
-    ax.legend(fontsize=8); plt.tight_layout()
+    ax.legend(fontsize=8)
+    plt.tight_layout()
 
 
 def fig_covariance(C, L):
@@ -896,7 +943,8 @@ def fig_skeleton_size(bvh, feet, value):
     for fname in feet:
         ax.plot(*zip(root, rest[idx(bvh, fname)]), "-o", color="tab:red", lw=2)
     ax.text(*root, f"  size = {value:.1f}", fontsize=11, color="tab:red")
-    set_equal_3d(ax, rest); plt.tight_layout()
+    set_equal_3d(ax, rest)
+    plt.tight_layout()
 
 
 # ----------------------------------------------------------------
@@ -956,7 +1004,8 @@ def fig_screw_interpolate(frames, ts):
     ax.plot(*path.T, "--", color="0.3", lw=1.5)
     ax.text(*frames[0][:3, 3], " T₀", color="0.3", fontsize=10)
     ax.text(*frames[-1][:3, 3], " T₁", color="0.3", fontsize=10)
-    set_equal_3d(ax, np.vstack([path, frames[:, :3, 3]])); plt.tight_layout()
+    set_equal_3d(ax, np.vstack([path, frames[:, :3, 3]]))
+    plt.tight_layout()
 
 
 def fig_relative_transform(bvh, frame, twist):
@@ -969,18 +1018,22 @@ def fig_relative_transform(bvh, frame, twist):
         ax.plot(*zip(s[0], s[1]), "-o", lw=3)
     ax.text2D(0.02, 0.92, f"se3_log(relative) =\n[ω,v] = {twist.round(2)}",
               transform=ax.transAxes, fontsize=8, family="monospace")
-    set_equal_3d(ax, P); plt.tight_layout()
+    set_equal_3d(ax, P)
+    plt.tight_layout()
 
 
 def fig_geodesic(root_R, geo, t):
     fig = plt.figure(figsize=(12, 5))
-    ax = fig.add_subplot(121, projection="3d"); ax.set_title("two orientations + geodesic angle")
+    ax = fig.add_subplot(121, projection="3d")
+    ax.set_title("two orientations + geodesic angle")
     draw_triad(ax, np.eye(4), length=1.0, alpha=0.4)
-    Tk = np.eye(4); Tk[:3, :3] = root_R[-1] @ root_R[0].T
+    Tk = np.eye(4)
+    Tk[:3, :3] = root_R[-1] @ root_R[0].T
     draw_triad(ax, Tk, length=1.0)
     ax.text2D(0.02, 0.9, f"geodesic = {geo[-1]:.1f}°", transform=ax.transAxes, fontsize=11)
     set_equal_3d(ax, np.array([[-1, -1, -1], [1, 1, 1.]]))
-    ax2 = fig.add_subplot(122); ax2.set_title("root orientation vs frame 0")
+    ax2 = fig.add_subplot(122)
+    ax2.set_title("root orientation vs frame 0")
     ax2.plot(t, geo, color="tab:purple")
     ax2.set(xlabel="time (s)", ylabel="geodesic distance (deg)")
     plt.tight_layout()
@@ -996,7 +1049,8 @@ def fig_finite_difference(x, d_central, d_forward):
     ax.plot(x, d_central, color="tab:blue", alpha=0.8, label="central")
     ax.plot(x, d_forward, color="tab:orange", alpha=0.7, label="forward")
     ax.set(title="finite_difference of sin(x)", xlabel="x")
-    ax.legend(fontsize=8); plt.tight_layout()
+    ax.legend(fontsize=8)
+    plt.tight_layout()
 
 
 def fig_temporal_box(x, noisy, st, smoothed):
@@ -1008,7 +1062,9 @@ def fig_temporal_box(x, noisy, st, smoothed):
     a1.legend(fontsize=8)
     a2.plot(x, noisy, color="0.75", lw=1, label="noisy")
     a2.plot(x, smoothed, color="tab:red", lw=2, label="box_filter_smooth(w=15)")
-    a2.set(title="box_filter_smooth"); a2.legend(fontsize=8); plt.tight_layout()
+    a2.set(title="box_filter_smooth")
+    a2.legend(fontsize=8)
+    plt.tight_layout()
 
 
 def fig_fft(tx, mix, freqs, mag, dom):
@@ -1020,21 +1076,26 @@ def fig_fft(tx, mix, freqs, mag, dom):
     a2.plot(freqs, mag, color="tab:blue")
     a2.axvline(dom, ls="--", color="tab:red", label=f"dominant = {dom:.1f} Hz")
     a2.set(title="fft_magnitude / dominant_frequency", xlabel="Hz", ylabel="|F|", xlim=(0, 20))
-    a2.legend(fontsize=8); plt.tight_layout()
+    a2.legend(fontsize=8)
+    plt.tight_layout()
 
 
 def fig_rdp(curve, simp, eps):
     fig, ax = plt.subplots(figsize=(9, 3.5))
     ax.plot(curve[:, 0], curve[:, 1], color="0.7", lw=1, label=f"original ({len(curve)} pts)")
     ax.plot(simp[:, 0], simp[:, 1], "-o", color="tab:red", label=f"simplified ({len(simp)} pts)")
-    ax.set(title=f"ramer_douglas_peucker (eps={eps})"); ax.legend(fontsize=8); plt.tight_layout()
+    ax.set(title=f"ramer_douglas_peucker (eps={eps})")
+    ax.legend(fontsize=8)
+    plt.tight_layout()
 
 
 def fig_relative_scale(bvh, factor, scale):
     fig, ax = new3d("relative_scale_factor: matching two skeletons")
-    rest = bvh.rest_pose_positions(); big = rest * scale
+    rest = bvh.rest_pose_positions()
+    big = rest * scale
     draw_skeleton(ax, bvh, rest, color="tab:blue")
     draw_skeleton(ax, bvh, big, color="tab:orange")
     ax.text2D(0.02, 0.92, f"target is {scale}× reference\nrelative_scale_factor = {factor:.3f}\n"
               f"(so reference ≈ {factor:.3f} × target)", transform=ax.transAxes, fontsize=9)
-    set_equal_3d(ax, big); plt.tight_layout()
+    set_equal_3d(ax, big)
+    plt.tight_layout()

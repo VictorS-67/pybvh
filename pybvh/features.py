@@ -9,10 +9,10 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
+from .analysis import _validate_stencil_pad, foot_contacts, joint_velocities
 from .bvh import Bvh
 from .rotations import REPRESENTATION_CHANNELS as _REPRESENTATION_WIDTHS
 from .spatial_coord import _ground_plane_offset
-from .analysis import joint_velocities, foot_contacts, _validate_stencil_pad
 
 
 def feature_array_layout(

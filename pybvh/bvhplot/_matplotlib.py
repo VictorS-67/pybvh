@@ -1208,7 +1208,11 @@ def trajectory_mpl(
     if show:
         plt.show()
 
-    return fig, ax
+    # TODO: an ax inside a SubFigure hands back that SubFigure, which the
+    # annotation calls a Figure (frame and sequence do the same, unseen by
+    # mypy since Axes3D is Any). Returning the root figure instead is a
+    # behaviour change, to be decided on its own.
+    return fig, ax  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------

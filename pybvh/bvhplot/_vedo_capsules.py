@@ -6,18 +6,22 @@ around so per-frame posing is a single vectorized ``einsum``. Shared
 by the interactive viewer (`_vedo.py`) and the offscreen renderer
 (`_vedo_offscreen.py`) so the two can never drift apart.
 """
+
 from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
-
-from typing import TYPE_CHECKING, Sequence
 
 from ._colors import rgb255
 from ._style import bone_width_scale
 from ._viewport import STANDING_STILL_HALF_SPAN
 
 if TYPE_CHECKING:
+    from matplotlib.typing import ColorType
+
     from ._scene import SkeletonView
     from ._viewport import Viewport
 
@@ -36,7 +40,7 @@ SHADOW_EPSILON = 0.002
 # The capsules' specular highlight color (#AAAAAA).
 _HIGHLIGHT_GRAY = (170 / 255, 170 / 255, 170 / 255)
 
-LENGTH_BOOST = (1.0, 1.5)   # long bones get plumper; short ones never thinner
+LENGTH_BOOST = (1.0, 1.5)  # long bones get plumper; short ones never thinner
 # Share of the gap to its nearest crowder that a bone may take. Two facing
 # crowders nominally sum past the gap here, but a bone is at full radius only
 # at its parent end (tubes taper to half) and CHAIN_TAPER slims each link
@@ -44,13 +48,13 @@ LENGTH_BOOST = (1.0, 1.5)   # long bones get plumper; short ones never thinner
 # thick ends meet at the knuckles — which is what reads as a palm. Above
 # ~0.7 that fusion spreads down the fingers on tightly-packed rigs.
 CROWD_FRACTION = 0.60
-SAME_DIR_COS = 0.5          # "same direction" = within 60 degrees
-MIN_OVERLAP = 0.25          # side-by-side run, as a fraction of the shorter bone
+SAME_DIR_COS = 0.5  # "same direction" = within 60 degrees
+MIN_OVERLAP = 0.25  # side-by-side run, as a fraction of the shorter bone
 # Each link inside a crowded run is slimmer than the last. This compounds
 # along the chain, so a harsh value eventually bites loosely-crowded limbs
 # several links down; 0.85 shapes hands while leaving plain rigs untouched.
 CHAIN_TAPER = 0.85
-STUB_CAP_FACTOR = 2.0       # a stub is at most 2x the thinnest bone it joins
+STUB_CAP_FACTOR = 2.0  # a stub is at most 2x the thinnest bone it joins
 MIN_RADIUS_FRACTION = 0.10  # visibility floor
 
 # Base capsule radius as a fraction of the body size, at the paper
@@ -71,7 +75,7 @@ def vedo_rgb(rgb: tuple[int, int, int]) -> tuple[float, float, float]:
     return (r / 255, g / 255, b / 255)
 
 
-def vedo_color(color: object) -> tuple[float, float, float]:
+def vedo_color(color: ColorType) -> tuple[float, float, float]:
     """A style color (any form matplotlib parses) in vedo's form.
 
     Style colors are read by matplotlib's parser in every backend.
@@ -164,31 +168,28 @@ def crowding_clearance(
     starts, ends, lengths, directions = _segment_frames(rest_pose, bone_array)
     centers = (starts + ends) / 2
 
-    shares_node = (bone_array[:, None, :, None]
-                   == bone_array[None, :, None, :]).any(axis=(2, 3))
+    shares_node = (bone_array[:, None, :, None] == bone_array[None, :, None, :]).any(axis=(2, 3))
     same_direction = (directions @ directions.T) > SAME_DIR_COS
 
     shared_axis = directions[:, None, :] + directions[None, :, :]
-    shared_axis /= np.maximum(
-        np.linalg.norm(shared_axis, axis=-1, keepdims=True), 1e-9)
+    shared_axis /= np.maximum(np.linalg.norm(shared_axis, axis=-1, keepdims=True), 1e-9)
     proj_start_i = (starts[:, None, :] * shared_axis).sum(-1)
     proj_end_i = (ends[:, None, :] * shared_axis).sum(-1)
     proj_start_j = (starts[None, :, :] * shared_axis).sum(-1)
     proj_end_j = (ends[None, :, :] * shared_axis).sum(-1)
-    overlap = (np.minimum(np.maximum(proj_start_i, proj_end_i),
-                          np.maximum(proj_start_j, proj_end_j))
-               - np.maximum(np.minimum(proj_start_i, proj_end_i),
-                            np.minimum(proj_start_j, proj_end_j)))
-    side_by_side = overlap > MIN_OVERLAP * np.minimum(
-        lengths[:, None], lengths[None, :])
+    overlap = np.minimum(
+        np.maximum(proj_start_i, proj_end_i), np.maximum(proj_start_j, proj_end_j)
+    ) - np.maximum(np.minimum(proj_start_i, proj_end_i), np.minimum(proj_start_j, proj_end_j))
+    side_by_side = overlap > MIN_OVERLAP * np.minimum(lengths[:, None], lengths[None, :])
 
     offset = centers[None, :, :] - centers[:, None, :]
     axial = (offset * shared_axis).sum(-1)
     lateral = np.linalg.norm(offset - axial[..., None] * shared_axis, axis=-1)
 
     degenerate = lengths < 1e-8
-    crowds = (same_direction & side_by_side & ~shares_node
-              & ~degenerate[None, :] & ~degenerate[:, None])
+    crowds = (
+        same_direction & side_by_side & ~shares_node & ~degenerate[None, :] & ~degenerate[:, None]
+    )
     np.fill_diagonal(crowds, False)
     return np.where(crowds, lateral, np.inf).min(axis=1)
 
@@ -247,8 +248,7 @@ def adaptive_radii(
     bone_array = np.asarray(bones, dtype=int)
     _, _, lengths, _ = _segment_frames(frame0, bone_array)
     median_length = float(np.median(lengths)) if len(lengths) else 1.0
-    radii = r_base * np.clip(
-        lengths / median_length if median_length > 0 else 1.0, *LENGTH_BOOST)
+    radii = r_base * np.clip(lengths / median_length if median_length > 0 else 1.0, *LENGTH_BOOST)
 
     if rest_pose is None:
         rest_pose = frame0
@@ -257,8 +257,7 @@ def adaptive_radii(
     parent_bone = _parent_bone_indices(bones)
     for index in _root_first_order(parent_bone):
         if parent_bone[index] is not None:
-            cap[index] = min(cap[index],
-                             cap[parent_bone[index]] * CHAIN_TAPER)
+            cap[index] = min(cap[index], cap[parent_bone[index]] * CHAIN_TAPER)
     radii = np.minimum(radii, cap)
 
     neighbours = _neighbour_indices(parent_bone)
@@ -356,7 +355,7 @@ class CapsuleSkeleton:
         bone_rgb: Sequence[tuple[int, int, int]],
         joint_rgb: npt.NDArray[np.uint8],
     ) -> None:
-        from vedo import Tube, Sphere, merge  # type: ignore[import-untyped]
+        from vedo import Sphere, Tube, merge
 
         frame0 = view.coords[0]
         bones = view.bones
@@ -366,10 +365,10 @@ class CapsuleSkeleton:
         self.bone_child_idx = np.array([b[1] for b in bones], dtype=int)
 
         coords_per_rest_unit = view.coords_per_rest_unit
-        rest_pose = (None if coords_per_rest_unit is None
-                     else view.rest_coords * coords_per_rest_unit)
-        bone_radii, joint_radii = adaptive_radii(
-            frame0, bones, r_base, rest_pose)
+        rest_pose = (
+            None if coords_per_rest_unit is None else view.rest_coords * coords_per_rest_unit
+        )
+        bone_radii, joint_radii = adaptive_radii(frame0, bones, r_base, rest_pose)
 
         # --- canonical bone tubes ---
         bone_meshes = []
@@ -378,8 +377,7 @@ class CapsuleSkeleton:
         for k, (p_i, c_i) in enumerate(bones):
             r = bone_radii.get((p_i, c_i), r_base)
             tube = Tube([[0, 0, 0], [0, 0, 1]], r=[r, r / 2], res=12)
-            tube.pointcolors = np.tile(
-                np.array(bone_rgb[k], dtype=np.uint8), (tube.npoints, 1))
+            tube.pointcolors = np.tile(np.array(bone_rgb[k], dtype=np.uint8), (tube.npoints, 1))
             bone_verts.append(tube.vertices.copy())
             bone_normals.append(tube.vertex_normals.copy())
             bone_meshes.append(tube)
@@ -398,8 +396,7 @@ class CapsuleSkeleton:
         joint_verts = []
         for j in range(frame0.shape[0]):
             sph = Sphere(pos=(0, 0, 0), r=joint_radii[j], res=12)
-            sph.pointcolors = np.tile(
-                np.asarray(joint_rgb[j], dtype=np.uint8), (sph.npoints, 1))
+            sph.pointcolors = np.tile(np.asarray(joint_rgb[j], dtype=np.uint8), (sph.npoints, 1))
             joint_verts.append(sph.vertices.copy())
             joint_meshes.append(sph)
         self.joints_mesh = merge(joint_meshes)
@@ -421,8 +418,7 @@ class CapsuleSkeleton:
 
     @property
     def actors(self) -> list:
-        return [m for m in (self.bones_mesh, self.joints_mesh)
-                if m is not None]
+        return [m for m in (self.bones_mesh, self.joints_mesh) if m is not None]
 
     def update(self, frame_data: npt.NDArray[np.float64]) -> None:
         """Pose both merged meshes to *frame_data* via vectorized numpy.
@@ -437,16 +433,16 @@ class CapsuleSkeleton:
         c_idx = self.bone_child_idx
 
         if len(p_idx) > 0 and self.bones_mesh is not None:
-            starts = frame_data[p_idx]                     # (n_bones, 3)
-            ends = frame_data[c_idx]                       # (n_bones, 3)
+            starts = frame_data[p_idx]  # (n_bones, 3)
+            ends = frame_data[c_idx]  # (n_bones, 3)
             diffs = ends - starts
-            lengths = np.linalg.norm(diffs, axis=1)        # (n_bones,)
+            lengths = np.linalg.norm(diffs, axis=1)  # (n_bones,)
 
             # Vectorized rotation+scale matrices
             safe_len = np.where(lengths < 1e-8, 1.0, lengths)
             z_ax = diffs / safe_len[:, np.newaxis]
-            refs = np.tile(np.array([1., 0, 0]), (len(p_idx), 1))
-            refs[np.abs(z_ax[:, 0]) >= 0.9] = [0., 1, 0]
+            refs = np.tile(np.array([1.0, 0, 0]), (len(p_idx), 1))
+            refs[np.abs(z_ax[:, 0]) >= 0.9] = [0.0, 1, 0]
             x_ax = np.cross(refs, z_ax)
             x_ax /= np.linalg.norm(x_ax, axis=1, keepdims=True).clip(1e-10)
             y_ax = np.cross(z_ax, x_ax)
@@ -459,9 +455,9 @@ class CapsuleSkeleton:
 
             # Single einsum: R @ v for all bones at once
             transformed = (
-                np.einsum('bij,bvj->bvi', rotscale,
-                          self.canonical_bone_verts)
-                + starts[:, np.newaxis, :])
+                np.einsum("bij,bvj->bvi", rotscale, self.canonical_bone_verts)
+                + starts[:, np.newaxis, :]
+            )
 
             # Collapse zero-length bones (degenerate triangles)
             zero = lengths < 1e-8
@@ -474,8 +470,7 @@ class CapsuleSkeleton:
             # (its wall: vtkTubeFilter's normals are radial even on a
             # tapered tube) or along it (its end caps), and a scale
             # along the axis maps both directions onto themselves.
-            normals = np.einsum('bij,bvj->bvi', rotation,
-                                self.canonical_bone_normals)
+            normals = np.einsum("bij,bvj->bvi", rotation, self.canonical_bone_normals)
             # Written into VTK's own array, which stays the mesh's
             # active normals (vedo has no setter for them).
             vtk_normals = self.bones_mesh.dataset.GetPointData().GetNormals()

@@ -2,9 +2,11 @@
 
 Numeric helpers that operate on plain NumPy arrays sampled along an axis — no :class:`~pybvh.bvh.Bvh` involved. The centerpiece is :func:`finite_difference`, the single derivative convention shared by the kinematics ladder (:mod:`pybvh.analysis`) and the geometry derivative kernels (:mod:`pybvh.geometry`); the rest are self-contained statistics, smoothing, spectrum, and simplification tools (no scipy).
 """
+
 from __future__ import annotations
 
 from collections import namedtuple
+from typing import Union
 
 import numpy as np
 import numpy.typing as npt
@@ -57,8 +59,7 @@ def finite_difference(
         If ``stencil`` or ``pad`` is invalid.
     """
     if stencil not in ("central", "forward"):
-        raise ValueError(
-            f"stencil must be 'central' or 'forward', got {stencil!r}")
+        raise ValueError(f"stencil must be 'central' or 'forward', got {stencil!r}")
     if pad not in ("edge", "none"):
         raise ValueError(f"pad must be 'edge' or 'none', got {pad!r}")
 
@@ -80,8 +81,7 @@ def finite_difference(
     return np.concatenate([fd, last], axis=axis)
 
 
-TemporalStats = namedtuple(
-    "TemporalStats", ["mean", "std", "min", "max", "skewness", "kurtosis"])
+TemporalStats = namedtuple("TemporalStats", ["mean", "std", "min", "max", "skewness", "kurtosis"])
 
 
 def temporal_stats(
@@ -123,14 +123,15 @@ def temporal_stats(
     mean = signal.mean(axis=axis)
     std = signal.std(axis=axis)
     centered = signal - np.expand_dims(mean, axis)
-    m3 = (centered ** 3).mean(axis=axis)
-    m4 = (centered ** 4).mean(axis=axis)
+    m3 = (centered**3).mean(axis=axis)
+    m4 = (centered**4).mean(axis=axis)
     valid = std > 1e-12
     safe = np.where(valid, std, 1.0)
-    skewness = np.where(valid, m3 / safe ** 3, np.nan)
-    kurtosis = np.where(valid, m4 / safe ** 4 - 3.0, np.nan)
-    return TemporalStats(mean, std, signal.min(axis=axis),
-                         signal.max(axis=axis), skewness, kurtosis)
+    skewness = np.where(valid, m3 / safe**3, np.nan)
+    kurtosis = np.where(valid, m4 / safe**4 - 3.0, np.nan)
+    return TemporalStats(
+        mean, std, signal.min(axis=axis), signal.max(axis=axis), skewness, kurtosis
+    )
 
 
 def box_filter_smooth(
@@ -254,7 +255,7 @@ def fft_magnitude(
         magnitude *= 2.0 / n
         # DC (and Nyquist, when it exists as its own bin) appear once in
         # the full spectrum, so folding to one side must not double them.
-        edge = [slice(None)] * magnitude.ndim
+        edge: list[Union[int, slice]] = [slice(None)] * magnitude.ndim
         edge[axis] = 0
         magnitude[tuple(edge)] /= 2.0
         if n % 2 == 0:
@@ -262,8 +263,8 @@ def fft_magnitude(
             magnitude[tuple(edge)] /= 2.0
     elif norm != "backward":
         raise ValueError(
-            f"norm must be 'backward', 'ortho', 'forward' or 'amplitude', "
-            f"got {norm!r}")
+            f"norm must be 'backward', 'ortho', 'forward' or 'amplitude', got {norm!r}"
+        )
     freqs = np.fft.rfftfreq(n, d=1.0 / fs)
     return freqs, magnitude
 
@@ -341,7 +342,7 @@ def ramer_douglas_peucker(
         lo, hi = stack.pop()
         if hi <= lo + 1:
             continue
-        inner = curve[lo + 1:hi]
+        inner = curve[lo + 1 : hi]
         start, end = curve[lo], curve[hi]
         seg = end - start
         seg_len = np.linalg.norm(seg)

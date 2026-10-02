@@ -25,6 +25,7 @@ Run from the repo root (CI runs it before ``mkdocs build``):
 
     python scripts/export_gallery.py
 """
+
 from __future__ import annotations
 
 import base64
@@ -76,7 +77,8 @@ _FEATURE_NAME_RE = re.compile(r"\*\*`?([^*`\n]+)`?\*\*")
 # (any branch/ref); group 2 is the repo-relative path of the file.
 _RAW_IMAGE_RE = re.compile(
     r"!\[([^\]]*)\]\(https://raw\.githubusercontent\.com/VictorS-67/pybvh/"
-    r"[^/)#?\s]+/([^)#?\s]+)\)")
+    r"[^/)#?\s]+/([^)#?\s]+)\)"
+)
 
 
 def _payload_bytes(payload) -> bytes:
@@ -99,7 +101,7 @@ def _write_thumbnail(raw: bytes, ordinal: int, full_rel: str) -> str:
     except ImportError:
         return full_rel
     im = Image.open(io.BytesIO(raw))
-    im.seek(0)                      # first frame of animated GIFs
+    im.seek(0)  # first frame of animated GIFs
     im = im.convert("RGB")
     ratio = THUMB_WIDTH / im.width
     im = im.resize((THUMB_WIDTH, max(1, round(im.height * ratio))))
@@ -123,8 +125,7 @@ def _grid_markdown(entries: list[tuple[str, str, str]]) -> str:
         f'loading="lazy"></a>'
         for thumb, anchor, label in entries
     ]
-    return (GRID_INTRO + "\n\n"
-            + '<div class="gallery-grid">\n' + "\n".join(tiles) + "\n</div>")
+    return GRID_INTRO + "\n\n" + '<div class="gallery-grid">\n' + "\n".join(tiles) + "\n</div>"
 
 
 def main() -> None:
@@ -138,7 +139,7 @@ def main() -> None:
     grid_entries: list[tuple[str, str, str]] = []
     stable_pending = dict(STABLE_FIGURES)
     image_count = 0
-    grid_slot = None                # parts index where the grid gets inserted
+    grid_slot = None  # parts index where the grid gets inserted
     last_markdown = ""
 
     for cell in nb["cells"]:
@@ -153,13 +154,13 @@ def main() -> None:
                 if not src_file.exists():
                     raise RuntimeError(
                         f"markdown cell references {repo_rel}, which is not "
-                        f"in the repository — fix the URL or commit the file")
+                        f"in the repository — fix the URL or commit the file"
+                    )
                 raw = src_file.read_bytes()
                 rel = _write_image(raw, src_file.suffix.lstrip("."), image_count)
                 anchor = f"fig-{image_count}"
                 label = alt.strip() or f"figure {image_count}"
-                grid_entries.append(
-                    (_write_thumbnail(raw, image_count, rel), anchor, label))
+                grid_entries.append((_write_thumbnail(raw, image_count, rel), anchor, label))
                 image_count += 1
                 return f"![{alt}]({rel}){{ #{anchor} loading=lazy }}"
 
@@ -178,8 +179,7 @@ def main() -> None:
         if source:
             parts.append(f"```python\n{source}\n```")
 
-        stable_key = next(
-            (k for k, pat in stable_pending.items() if pat in source), None)
+        stable_key = next((k for k, pat in stable_pending.items() if pat in source), None)
 
         for output in cell.get("outputs", []):
             kind = output.get("output_type")
@@ -191,7 +191,8 @@ def main() -> None:
             if kind == "error":
                 raise RuntimeError(
                     f"notebook contains an error output ({output.get('ename')}):"
-                    " re-execute gallery/feature_gallery.ipynb before exporting")
+                    " re-execute gallery/feature_gallery.ipynb before exporting"
+                )
             if kind not in ("display_data", "execute_result"):
                 continue
             data = output.get("data", {})
@@ -209,27 +210,29 @@ def main() -> None:
             anchor = f"fig-{image_count}"
             label = _feature_label(last_markdown, image_count)
             parts.append(f"![{label}]({rel}){{ #{anchor} loading=lazy }}")
-            grid_entries.append(
-                (_write_thumbnail(raw, image_count, rel), anchor, label))
+            grid_entries.append((_write_thumbnail(raw, image_count, rel), anchor, label))
             if stable_key is not None:
                 stable_name = f"{stable_key}.{IMAGE_MIMES[mime]}"
                 (IMG_DIR / stable_name).write_bytes(raw)
                 del stable_pending[stable_key]
-                stable_key = None   # only the cell's first figure
+                stable_key = None  # only the cell's first figure
             image_count += 1
 
     if stable_pending:
         raise RuntimeError(
             "stable figure keys matched no notebook cell (guide pages embed "
             f"these images — fix STABLE_FIGURES or the notebook): "
-            f"{sorted(stable_pending)}")
+            f"{sorted(stable_pending)}"
+        )
     if grid_slot is not None:
         parts.insert(grid_slot, _grid_markdown(grid_entries))
 
     (OUT_DIR / "index.md").write_text("\n\n".join(parts) + "\n")
     n_files = len(list(IMG_DIR.iterdir()))
-    print(f"wrote docs/gallery/index.md ({image_count} figures, "
-          f"{len(STABLE_FIGURES)} stable copies, {n_files} image files)")
+    print(
+        f"wrote docs/gallery/index.md ({image_count} figures, "
+        f"{len(STABLE_FIGURES)} stable copies, {n_files} image files)"
+    )
 
 
 if __name__ == "__main__":

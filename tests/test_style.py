@@ -1,15 +1,18 @@
 """Tests for the Style system and bone-chain classification (Phase 1)."""
+
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from pybvh import read_bvh_file, bvhplot
+from pybvh import bvhplot, read_bvh_file
 from pybvh.bvhplot._from_bvh import get_bone_chains, get_skeleton_lines
 from pybvh.bvhplot._style import (
     CHAIN_COLORS,
@@ -80,7 +83,7 @@ class TestStyleConstruction:
 
     def test_frozen(self):
         s = Style()
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError, match="floor"):
             s.floor = None  # type: ignore[misc]
 
     def test_replace(self):
@@ -141,10 +144,8 @@ class TestGetBoneChains:
     def test_legs_contain_the_feet(self, bvh):
         chains = get_bone_chains(bvh)
         bones = get_skeleton_lines(bvh)
-        foot_nodes = {bvh.node_index[n]
-                      for n in bvh.auto_detect_foot_joints()}
-        leg_children = {bones[i][1]
-                        for i in chains["l_leg"] + chains["r_leg"]}
+        foot_nodes = {bvh.node_index[n] for n in bvh.auto_detect_foot_joints()}
+        leg_children = {bones[i][1] for i in chains["l_leg"] + chains["r_leg"]}
         assert foot_nodes <= leg_children
 
     def test_junction_bones_stay_in_spine(self, bvh):
@@ -156,24 +157,19 @@ class TestGetBoneChains:
         bones = get_skeleton_lines(bvh)
         pairs = bvh.node_lr_pairs
         paired = {n for pair in pairs for n in pair}
-        junction = {i for i, (p, c) in enumerate(bones)
-                    if c in paired and p not in paired}
+        junction = {i for i, (p, c) in enumerate(bones) if c in paired and p not in paired}
         assert junction, "walk skeleton must have torso->limb junctions"
         assert junction <= set(chains["spine"])
-        limb_indices = {i for name, idxs in chains.items()
-                        if name != "spine" for i in idxs}
-        assert all(bones[i][0] in paired and bones[i][1] in paired
-                   for i in limb_indices)
+        limb_indices = {i for name, idxs in chains.items() if name != "spine" for i in idxs}
+        assert all(bones[i][0] in paired and bones[i][1] in paired for i in limb_indices)
 
     def test_no_lr_pairs_falls_back_to_spine(self, bvh):
         """A skeleton without L/R pairs puts every bone in 'spine'."""
-        sub = bvh.extract_joints(
-            ["Hips", "LowerBack", "Spine", "Spine1", "Neck", "Neck1", "Head"])
+        sub = bvh.extract_joints(["Hips", "LowerBack", "Spine", "Spine1", "Neck", "Neck1", "Head"])
         assert sub.node_lr_pairs is None
         chains = get_bone_chains(sub)
         assert set(chains) == {"spine"}
-        assert sorted(chains["spine"]) == list(
-            range(len(get_skeleton_lines(sub))))
+        assert sorted(chains["spine"]) == list(range(len(get_skeleton_lines(sub))))
 
 
 def _mid_frame(path: Path) -> np.ndarray:
@@ -186,9 +182,9 @@ def _mid_frame(path: Path) -> np.ndarray:
         return np.asarray(clip.convert("RGB"))
 
     import cv2
+
     capture = cv2.VideoCapture(str(path))
-    capture.set(cv2.CAP_PROP_POS_FRAMES,
-                int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) // 2)
+    capture.set(cv2.CAP_PROP_POS_FRAMES, int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) // 2)
     ok, frame = capture.read()
     capture.release()
     assert ok, f"could not read a frame back from {path}"
@@ -234,12 +230,12 @@ def _assert_matches_v082(fig, fixture, tmp_path):
     plt.close(fig)
 
     assert text.mean() < 0.10, (
-        "the text mask covers too much of the figure for the comparison "
-        "to mean anything")
+        "the text mask covers too much of the figure for the comparison to mean anything"
+    )
     differs = (got != want).any(axis=2) & ~text
     assert not differs.any(), (
-        f"{fixture}: {differs.sum()} pixels outside text differ from the "
-        f"v0.8.2 baseline")
+        f"{fixture}: {differs.sum()} pixels outside text differ from the v0.8.2 baseline"
+    )
 
 
 class TestDebugPixelParity:
@@ -258,10 +254,13 @@ class TestDebugPixelParity:
     checked: a label that moves leaves its baseline pixels outside the mask.
     """
 
-    @pytest.mark.parametrize("fixture,kwargs", [
-        ("frame_single_f260.png", dict(frame=260)),
-        ("rest_pose.png", None),
-    ])
+    @pytest.mark.parametrize(
+        "fixture,kwargs",
+        [
+            ("frame_single_f260.png", dict(frame=260)),
+            ("rest_pose.png", None),
+        ],
+    )
     def test_matches_v082_baseline(self, bvh, tmp_path, fixture, kwargs):
         if kwargs is None:
             fig, _ = bvhplot.rest_pose(bvh, style="debug")
@@ -270,8 +269,7 @@ class TestDebugPixelParity:
         _assert_matches_v082(fig, fixture, tmp_path)
 
     def test_pair_matches_v082_baseline(self, bvh, tmp_path):
-        fig, _ = bvhplot.frame(
-            [bvh, bvh.mirror()], 100, labels=["a", "b"], style="debug")
+        fig, _ = bvhplot.frame([bvh, bvh.mirror()], 100, labels=["a", "b"], style="debug")
         _assert_matches_v082(fig, "frame_pair_f100.png", tmp_path)
 
 
@@ -310,22 +308,24 @@ class TestVectorExport:
         """
         from matplotlib.transforms import Bbox
 
-        fig, ax = bvhplot.frame(bvh, frame=100,
-                                style=Style("paper", axes="full"))
+        fig, ax = bvhplot.frame(bvh, frame=100, style=Style("paper", axes="full"))
         fig.canvas.draw()
         renderer = fig.canvas.get_renderer()
         tight = fig.get_tightbbox(renderer)
         to_inches = fig.dpi_scale_trans.inverted()
-        labels = [getattr(ax, name).label for name in
-                  ("xaxis", "yaxis", "zaxis")]
-        extents = [label.get_window_extent(renderer).transformed(to_inches)
-                   for label in labels if label.get_visible()]
+        labels = [getattr(ax, name).label for name in ("xaxis", "yaxis", "zaxis")]
+        extents = [
+            label.get_window_extent(renderer).transformed(to_inches)
+            for label in labels
+            if label.get_visible()
+        ]
         plt.close(fig)
 
         assert extents, "full axes should carry visible axis labels"
         for extent in extents:
-            assert Bbox.union([tight, extent]).extents == pytest.approx(
-                tight.extents), "an axis label falls outside the tight crop"
+            assert Bbox.union([tight, extent]).extents == pytest.approx(tight.extents), (
+                "an axis label falls outside the tight crop"
+            )
 
 
 class TestFraming:
@@ -333,6 +333,7 @@ class TestFraming:
 
     def _view(self, bvh, camera="side"):
         from pybvh.bvhplot import _prepare
+
         return _prepare(bvh, None, "world", camera).views[0]
 
     def test_box_follows_each_axis_of_the_motion(self, bvh):
@@ -343,7 +344,8 @@ class TestFraming:
         spans = hi - lo
         travel = float(spans.max())
         assert travel > 2 * float(np.median(spans)), (
-            "fixture no longer travels far enough to exercise framing")
+            "fixture no longer travels far enough to exercise framing"
+        )
         # the cube the old code framed to would have made every axis this long
         assert float(spans.min()) < 0.6 * travel
 
@@ -407,17 +409,24 @@ class TestFraming:
         roll is the identity, looks perfectly fine.
         """
         from mpl_toolkits.mplot3d import proj3d
+
         from pybvh.bvhplot import _prepare
-        from pybvh.bvhplot._style import resolve_style
         from pybvh.bvhplot._matplotlib import _setup_animated_panel
+        from pybvh.bvhplot._style import resolve_style
         from pybvh.bvhplot._viewport import make_viewport
 
         view = _prepare(read_bvh_file(clip), None, "world", "side").views[0]
         fig = plt.figure(figsize=(19.2, 10.8))
         ax = fig.add_subplot(111, projection="3d")
-        _setup_animated_panel(ax, view, make_viewport([view], framing="clip"),
-                              resolve_style("paper"),
-                              np.asarray(view.bones, dtype=int), 0, 1)
+        _setup_animated_panel(
+            ax,
+            view,
+            make_viewport([view], framing="clip"),
+            resolve_style("paper"),
+            np.asarray(view.bones, dtype=int),
+            0,
+            1,
+        )
 
         # The world -> screen map, differenced about the box centre so
         # the perspective projection is linearized where the motion is.
@@ -426,24 +435,22 @@ class TestFraming:
         step = 0.01 * float(np.abs(view.coords).max())
         columns = []
         for axis in np.eye(3):
-            ahead = np.array(proj3d.proj_transform(
-                *(centre + step * axis), projection)[:2])
-            behind = np.array(proj3d.proj_transform(
-                *(centre - step * axis), projection)[:2])
+            ahead = np.array(proj3d.proj_transform(*(centre + step * axis), projection)[:2])
+            behind = np.array(proj3d.proj_transform(*(centre - step * axis), projection)[:2])
             columns.append((ahead - behind) / (2 * step))
         plt.close(fig)
 
-        screen = np.array(columns).T                    # (2, 3)
+        screen = np.array(columns).T  # (2, 3)
         norms = np.linalg.norm(screen, axis=1)
         assert norms[0] == pytest.approx(norms[1], rel=0.01), (
-            "screen axes are scaled differently — the drawing is stretched")
+            "screen axes are scaled differently — the drawing is stretched"
+        )
         assert abs(screen[0] @ screen[1]) < 0.01 * norms.prod(), (
-            "screen axes are not perpendicular — the drawing is sheared")
+            "screen axes are not perpendicular — the drawing is sheared"
+        )
 
-    @pytest.mark.parametrize("backend,suffix", [
-        ("matplotlib", ".gif"), ("opencv", ".mp4")])
-    def test_a_walking_clip_fills_the_frame(self, bvh, tmp_path,
-                                            backend, suffix):
+    @pytest.mark.parametrize("backend,suffix", [("matplotlib", ".gif"), ("opencv", ".mp4")])
+    def test_a_walking_clip_fills_the_frame(self, bvh, tmp_path, backend, suffix):
         """The end-to-end promise, in both video backends.
 
         A cubic box put the walker at 20% of frame height in matplotlib
@@ -454,26 +461,30 @@ class TestFraming:
         if backend == "opencv":
             pytest.importorskip("cv2")
         clip = bvh[:240].resample(20)
-        out = bvhplot.render(clip, tmp_path / f"walk{suffix}", fps=20,
-                             backend=backend, camera="side")
+        out = bvhplot.render(
+            clip, tmp_path / f"walk{suffix}", fps=20, backend=backend, camera="side"
+        )
         frame = _mid_frame(out)
-        coloured = (frame.max(axis=2) - frame.min(axis=2)) > 40   # bones
+        coloured = (frame.max(axis=2) - frame.min(axis=2)) > 40  # bones
         rows = np.where(coloured.any(axis=1))[0]
         occupied = (rows[-1] - rows[0] + 1) / frame.shape[0]
-        assert occupied > 0.35, (
-            f"{backend}: subject fills only {occupied:.0%} of the frame")
+        assert occupied > 0.35, f"{backend}: subject fills only {occupied:.0%} of the frame"
 
 
 class TestStyledRenderSmoke:
     """Every preset and floor kind renders through both backends."""
 
-    @pytest.mark.parametrize("style", [
-        "paper", "dark",
-        Style("paper", floor="grid"),
-        Style("paper", floor="checker"),
-        Style("paper", projection="ortho"),
-        Style("paper", color_mode="chains"),
-    ])
+    @pytest.mark.parametrize(
+        "style",
+        [
+            "paper",
+            "dark",
+            Style("paper", floor="grid"),
+            Style("paper", floor="checker"),
+            Style("paper", projection="ortho"),
+            Style("paper", color_mode="chains"),
+        ],
+    )
     def test_frame_styles(self, bvh, style):
         fig, ax = bvhplot.frame(bvh, 10, style=style)
         assert fig is not None
@@ -484,26 +495,30 @@ class TestStyledRenderSmoke:
         plt.close(fig)
 
     def test_render_opencv_paper(self, bvh, tmp_path):
-        cv2 = pytest.importorskip("cv2")
+        pytest.importorskip("cv2")
         short = bvh[0:10]
         path = bvhplot.render(
-            short, tmp_path / "paper.mp4", backend="opencv",
-            resolution=(320, 240), style="paper")
+            short, tmp_path / "paper.mp4", backend="opencv", resolution=(320, 240), style="paper"
+        )
         assert path.exists() and path.stat().st_size > 0
 
     def test_render_opencv_debug(self, bvh, tmp_path):
         pytest.importorskip("cv2")
         short = bvh[0:10]
         path = bvhplot.render(
-            short, tmp_path / "debug.mp4", backend="opencv",
-            resolution=(320, 240), style="debug")
+            short, tmp_path / "debug.mp4", backend="opencv", resolution=(320, 240), style="debug"
+        )
         assert path.exists() and path.stat().st_size > 0
 
     def test_render_mpl_paper_gif(self, bvh, tmp_path):
         short = bvh[0:6]
         path = bvhplot.render(
-            short, tmp_path / "paper.gif", backend="matplotlib",
-            resolution=(320, 240), style="paper")
+            short,
+            tmp_path / "paper.gif",
+            backend="matplotlib",
+            resolution=(320, 240),
+            style="paper",
+        )
         assert path.exists() and path.stat().st_size > 0
 
 
@@ -518,7 +533,8 @@ class TestReviewFixes:
 
     def test_dark_background_by_luminance_not_string(self):
         from pybvh.bvhplot._colors import is_dark_background
-        assert not is_dark_background("#F5F5F7")   # light gray is light
+
+        assert not is_dark_background("#F5F5F7")  # light gray is light
         assert not is_dark_background("snow")
         assert not is_dark_background((1.0, 1.0, 1.0))
         assert is_dark_background("#16181D")
@@ -527,23 +543,24 @@ class TestReviewFixes:
     def test_floor_gray_unified_across_backends(self):
         """The vedo offscreen floor had drifted to #EDEDF1; all solid
         floors now read one palette."""
-        from pybvh.bvhplot import _colors, _vedo_offscreen, _matplotlib
         import inspect
+
+        from pybvh.bvhplot import _colors, _vedo_offscreen
+
         assert "#EDEDF1" not in inspect.getsource(_vedo_offscreen)
         assert _colors.FLOOR_LIGHT["face"] == "#E8E8EC"
 
     def test_negative_up_floor_at_ground_not_head(self, bvh):
-        from tests.synthetic_bvh import make_neg_y_up_bvh
         from pybvh.bvhplot._from_bvh import make_scene
+        from tests.synthetic_bvh import make_neg_y_up_bvh
+
         neg = make_neg_y_up_bvh()
         coords = neg.node_positions()
-        scene = make_scene([neg], [coords], "front", None,
-                           canonical_floor=False)
+        scene = make_scene([neg], [coords], "front", None, canonical_floor=False)
         view = scene.views[0]
         assert view.up_sign == -1.0
         # ground = coordinate MAXIMUM for -y up
-        assert view.floor_height == pytest.approx(
-            float(coords[..., view.up_index].max()))
+        assert view.floor_height == pytest.approx(float(coords[..., view.up_index].max()))
         # "below the floor" moves toward larger coordinates
         assert view.below_floor(1.0) > view.floor_height
 
@@ -551,8 +568,8 @@ class TestReviewFixes:
         """Floor under bones under joints, by explicit zorder."""
         fig, ax = bvhplot.frame(bvh, 10, style="paper")
         zorders = sorted(c.get_zorder() for c in ax.collections)
-        assert zorders[0] == 0.5          # floor
-        assert 3 in zorders               # joint markers on top
+        assert zorders[0] == 0.5  # floor
+        assert 3 in zorders  # joint markers on top
         plt.close(fig)
 
     def test_frame_filepath_written_on_matplotlib(self, bvh, tmp_path):
@@ -577,10 +594,14 @@ class TestBoneDepthSorting:
         ax = fig.add_subplot(111, projection="3d")
         ax.computed_zorder = False
         ax.set_axis_off()
-        ax.add_collection3d(collection_cls(
-            [segs[k] for k in seg_order],
-            colors=[colors[k] for k in seg_order], linewidths=6))
-        ax.set_xlim(-1, 1); ax.set_ylim(-1, 1); ax.set_zlim(-1, 1)
+        ax.add_collection3d(
+            collection_cls(
+                [segs[k] for k in seg_order], colors=[colors[k] for k in seg_order], linewidths=6
+            )
+        )
+        ax.set_xlim(-1, 1)
+        ax.set_ylim(-1, 1)
+        ax.set_zlim(-1, 1)
         ax.view_init(elev=10, azim=-90, vertical_axis="z")
         fig.canvas.draw()
         buf = np.asarray(fig.canvas.buffer_rgba())[..., :3].copy()
@@ -591,12 +612,12 @@ class TestBoneDepthSorting:
         """The depth-sorted collection must produce the same image no
         matter what order its segments arrive in — proof that draw
         order comes from depth, not from insertion."""
-        from pybvh.bvhplot._matplotlib import _DepthSortedLine3DCollection
         from mpl_toolkits.mplot3d.art3d import Line3DCollection
-        a = self._render_crossing(_DepthSortedLine3DCollection,
-                                  ["near", "far"])
-        b = self._render_crossing(_DepthSortedLine3DCollection,
-                                  ["far", "near"])
+
+        from pybvh.bvhplot._matplotlib import _DepthSortedLine3DCollection
+
+        a = self._render_crossing(_DepthSortedLine3DCollection, ["near", "far"])
+        b = self._render_crossing(_DepthSortedLine3DCollection, ["far", "near"])
         assert np.array_equal(a, b)
         # Sanity that the test has power: the plain collection IS
         # order-dependent on the same input.
@@ -607,19 +628,17 @@ class TestBoneDepthSorting:
     def test_paper_uses_depth_sorted_debug_uses_plain(self, bvh):
         """The gate: paper (manual z-order) depth-sorts; debug keeps the
         fixed-order collection for pre-0.9.0 pixel parity."""
-        from pybvh.bvhplot._matplotlib import _DepthSortedLine3DCollection
         from mpl_toolkits.mplot3d.art3d import Line3DCollection
+
+        from pybvh.bvhplot._matplotlib import _DepthSortedLine3DCollection
 
         def bone_collections(style):
             fig, ax = bvhplot.frame(bvh, 100, style=style)
-            found = [c for c in ax.collections
-                     if isinstance(c, Line3DCollection)]
+            found = [c for c in ax.collections if isinstance(c, Line3DCollection)]
             plt.close(fig)
             return found
 
         paper = bone_collections("paper")
-        assert any(isinstance(c, _DepthSortedLine3DCollection)
-                   for c in paper)
+        assert any(isinstance(c, _DepthSortedLine3DCollection) for c in paper)
         debug = bone_collections("debug")
-        assert debug and all(
-            not isinstance(c, _DepthSortedLine3DCollection) for c in debug)
+        assert debug and all(not isinstance(c, _DepthSortedLine3DCollection) for c in debug)

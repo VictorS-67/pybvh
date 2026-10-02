@@ -28,18 +28,19 @@
 # - The combined feature array (`to_feature_array()`) and its column layout
 
 # %%
+# %matplotlib inline
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
-np.set_printoptions(precision=4, suppress=True)
 
 import pybvh
-from pybvh import analysis, features
-# %matplotlib inline
-import matplotlib.pyplot as plt
-from pathlib import Path
+
+np.set_printoptions(precision=4, suppress=True)
 
 REPO_ROOT = Path.cwd().parent if Path.cwd().name == "tutorials" else Path.cwd()
 bvh_folder = REPO_ROOT / "bvh_data"
-bvh = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')
+bvh = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")
 print(bvh)
 
 # %% [markdown]
@@ -67,20 +68,21 @@ print(bvh)
 # %%
 velocities = bvh.joint_velocities()
 
-print(f'Input frames:    {bvh.frame_count}')
-print(f'Velocity shape:  {velocities.shape}  (F, joint_count, 3)')
+print(f"Input frames:    {bvh.frame_count}")
+print(f"Velocity shape:  {velocities.shape}  (F, joint_count, 3)")
 
 # %% [markdown]
 # By default, velocities are in **units per second**. Set `in_frames=True` to get units per frame instead — useful when you want representations that don't depend on the clip's frame rate.
 
 # %%
-vel_per_sec = bvh.joint_velocities()                  # default: units/second
+vel_per_sec = bvh.joint_velocities()  # default: units/second
 vel_per_frame = bvh.joint_velocities(in_frames=True)  # units/frame
 
-print(f'Velocity per second (frame 10, joint 0): {vel_per_sec[10, 0]}')
-print(f'Velocity per frame  (frame 10, joint 0): {vel_per_frame[10, 0]}')
-print(f'Ratio (should be fps = {bvh.fps:.1f}): '
-      f'{vel_per_sec[10, 0, 0] / vel_per_frame[10, 0, 0]:.1f}')
+print(f"Velocity per second (frame 10, joint 0): {vel_per_sec[10, 0]}")
+print(f"Velocity per frame  (frame 10, joint 0): {vel_per_frame[10, 0]}")
+print(
+    f"Ratio (should be fps = {bvh.fps:.1f}): {vel_per_sec[10, 0, 0] / vel_per_frame[10, 0, 0]:.1f}"
+)
 
 # %% [markdown]
 # Let's plot the speed (magnitude of velocity) of a specific joint over time to see the motion dynamics — peaks correspond to fast movements, valleys to rest. To connect the curve to the actual motion, it helps to watch the clip first (interactive — run locally):
@@ -89,15 +91,15 @@ print(f'Ratio (should be fps = {bvh.fps:.1f}): '
 bvh.play()
 
 # %%
-right_foot_idx = bvh.joint_index['RightFoot']
+right_foot_idx = bvh.joint_index["RightFoot"]
 speed = np.linalg.norm(vel_per_sec[:, right_foot_idx], axis=-1)
 
 t = np.arange(bvh.frame_count) * bvh.frame_time
 plt.figure(figsize=(10, 3))
 plt.plot(t, speed)
-plt.xlabel('Time (s)')
-plt.ylabel('Speed (units/s)')
-plt.title('Right foot speed over time')
+plt.xlabel("Time (s)")
+plt.ylabel("Speed (units/s)")
+plt.title("Right foot speed over time")
 plt.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.show()
@@ -113,7 +115,7 @@ plt.show()
 # %%
 accelerations = bvh.joint_accelerations()
 
-print(f'Acceleration shape: {accelerations.shape}  (F, joint_count, 3)')
+print(f"Acceleration shape: {accelerations.shape}  (F, joint_count, 3)")
 
 # %% [markdown]
 # # Angular velocities
@@ -131,8 +133,8 @@ print(f'Acceleration shape: {accelerations.shape}  (F, joint_count, 3)')
 # %%
 ang_vel = bvh.angular_velocities()
 
-print(f'Angular velocity shape: {ang_vel.shape}  (F, num_joints, 3)')
-print(f'\nAngular velocity of Hips (frame 10): {ang_vel[10, 0]} rad/s')
+print(f"Angular velocity shape: {ang_vel.shape}  (F, num_joints, 3)")
+print(f"\nAngular velocity of Hips (frame 10): {ang_vel[10, 0]} rad/s")
 
 # %% [markdown]
 # Angular velocities operate on **joints only** (shape axis J) — end sites have no rotation channels. Joint indexing is consistent across `joint_angles`, `joint_velocities`, `joint_accelerations`, and `angular_velocities`: `bvh.joint_index['name']` indexes the same row in all four. To get linear velocities including end sites, use `bvh.node_velocities()` and index with `bvh.node_index`.
@@ -141,14 +143,14 @@ print(f'\nAngular velocity of Hips (frame 10): {ang_vel[10, 0]} rad/s')
 # Plotting angular-velocity magnitude over time for a single joint shows when that joint is rotating fastest — analogous to the speed plot above, but in rotational units.
 
 # %%
-right_foot_idx = bvh.joint_index['RightFoot']
+right_foot_idx = bvh.joint_index["RightFoot"]
 ang_speed = np.linalg.norm(ang_vel[:, right_foot_idx], axis=-1)
 
 plt.figure(figsize=(10, 3))
 plt.plot(t, ang_speed)
-plt.xlabel('Time (s)')
-plt.ylabel('|ω| (rad/s)')
-plt.title(f'RightFoot angular-velocity magnitude over time')
+plt.xlabel("Time (s)")
+plt.ylabel("|ω| (rad/s)")
+plt.title("RightFoot angular-velocity magnitude over time")
 plt.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.show()
@@ -173,8 +175,8 @@ plt.show()
 # %%
 trajectory = bvh.root_trajectory()
 
-print(f'Root trajectory shape: {trajectory.shape}  (F, 4)')
-print(f'\nFirst 5 frames:')
+print(f"Root trajectory shape: {trajectory.shape}  (F, 4)")
+print("\nFirst 5 frames:")
 print(trajectory[:5])
 
 # %% [markdown]
@@ -201,7 +203,7 @@ plt.show()
 # %%
 # Default: method='combined'
 contacts = bvh.foot_contacts()
-print(f'Foot contacts shape: {contacts.shape}  (F, num_feet)')
+print(f"Foot contacts shape: {contacts.shape}  (F, num_feet)")
 
 # %% [markdown]
 # Visualizing the three methods side by side on the same clip shows where they disagree — **black pixels** are contact frames:
@@ -209,21 +211,21 @@ print(f'Foot contacts shape: {contacts.shape}  (F, num_feet)')
 # %%
 foot_names = bvh.auto_detect_foot_joints()
 
-contacts_vel = bvh.foot_contacts(method='velocity')
-contacts_ht  = bvh.foot_contacts(method='height')
-contacts_comb = bvh.foot_contacts(method='combined')
+contacts_vel = bvh.foot_contacts(method="velocity")
+contacts_ht = bvh.foot_contacts(method="height")
+contacts_comb = bvh.foot_contacts(method="combined")
 
 fig, axes = plt.subplots(3, 1, figsize=(10, 4.5), sharex=True)
 for ax, contacts, title in zip(
     axes,
     [contacts_vel, contacts_ht, contacts_comb],
-    ['velocity', 'height', 'combined (default)'],
+    ["velocity", "height", "combined (default)"],
 ):
-    ax.imshow(contacts.T, aspect='auto', cmap='Greys', interpolation='nearest')
+    ax.imshow(contacts.T, aspect="auto", cmap="Greys", interpolation="nearest")
     ax.set_yticks(range(len(foot_names)))
     ax.set_yticklabels(foot_names)
     ax.set_title(f"method='{title}'")
-axes[-1].set_xlabel('Frame')
+axes[-1].set_xlabel("Frame")
 plt.tight_layout()
 plt.show()
 
@@ -241,12 +243,14 @@ plt.show()
 # %%
 # Full feature array: root_pos + 6D rotations + velocities + foot contacts
 feat_full = bvh.to_feature_array(
-    representation='6d',
+    representation="6d",
     include_velocities=True,
     include_foot_contacts=True,
 )
-print(f'Full feature array: shape = {feat_full.shape}  '
-      f'({bvh.frame_count} frames, D={feat_full.shape[1]})')
+print(
+    f"Full feature array: shape = {feat_full.shape}  "
+    f"({bvh.frame_count} frames, D={feat_full.shape[1]})"
+)
 
 # %% [markdown]
 # ## Unpacking the feature array
@@ -256,22 +260,21 @@ print(f'Full feature array: shape = {feat_full.shape}  '
 # %%
 layout = bvh.feature_array_layout(
     num_feet=len(foot_names),
-    representation='6d',
+    representation="6d",
     include_velocities=True,
     include_foot_contacts=True,
 )
 for name, sl in layout.items():
-    print(f'  {name:14s}  columns {sl.start:3d}:{sl.stop:3d}  '
-          f'(width {sl.stop - sl.start})')
+    print(f"  {name:14s}  columns {sl.start:3d}:{sl.stop:3d}  (width {sl.stop - sl.start})")
 
 # %%
-rotations_block = feat_full[:, layout['rotations']]
-velocities_block = feat_full[:, layout['velocities']]
-contacts_block   = feat_full[:, layout['foot_contacts']]
+rotations_block = feat_full[:, layout["rotations"]]
+velocities_block = feat_full[:, layout["velocities"]]
+contacts_block = feat_full[:, layout["foot_contacts"]]
 
-print(f'Rotations block: {rotations_block.shape}')
-print(f'Velocities block: {velocities_block.shape}')
-print(f'Foot contacts block: {contacts_block.shape}')
+print(f"Rotations block: {rotations_block.shape}")
+print(f"Velocities block: {velocities_block.shape}")
+print(f"Foot contacts block: {contacts_block.shape}")
 
 # %% [markdown]
 # # Summary

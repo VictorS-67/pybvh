@@ -4,13 +4,14 @@ Each wrapper is a thin delegation, so the core check is that it equals the
 module-level kernel applied to the data it extracts — plus the node-space
 resolution contract (end sites are first-class) and a few analytic values.
 """
+
 from pathlib import Path
 
 import numpy as np
 import pytest
-
-from pybvh import geometry, analysis, read_bvh_file
 from synthetic_bvh import make_pos_y_up_bvh, make_pos_y_up_rotating_bvh
+
+from pybvh import analysis, geometry, read_bvh_file
 from pybvh.tools import _axis_to_vector
 
 
@@ -22,14 +23,13 @@ def _bvh():
 #  Trajectory wrappers == kernel on the extracted joint trajectory
 # ----------------------------------------------------------------
 
+
 def test_curvature_torsion_path_directness_match_kernel():
     bvh = _bvh()
     idx = bvh.index("Spine", space="node")
     traj = bvh.node_positions()[:, idx, :]
-    np.testing.assert_allclose(bvh.curvature("Spine"),
-                               geometry.curvature(traj, bvh.frame_time))
-    np.testing.assert_allclose(bvh.torsion("Spine"),
-                               geometry.torsion(traj, bvh.frame_time))
+    np.testing.assert_allclose(bvh.curvature("Spine"), geometry.curvature(traj, bvh.frame_time))
+    np.testing.assert_allclose(bvh.torsion("Spine"), geometry.torsion(traj, bvh.frame_time))
     np.testing.assert_allclose(bvh.path_length("Spine"), geometry.path_length(traj))
     assert np.isnan(bvh.directness("Spine")) == np.isnan(geometry.directness(traj))
 
@@ -49,25 +49,31 @@ def test_ground_path_matches_kernel():
 #  Relational wrappers resolve names in NODE space (end sites included)
 # ----------------------------------------------------------------
 
+
 def test_inter_joint_distance_by_name_matches_kernel():
     bvh = _bvh()
     pos = bvh.node_positions()
     pairs = [("Hips", "Head"), ("LeftFoot", "RightFoot")]
     idx_pairs = [[bvh.index(a, space="node"), bvh.index(b, space="node")] for a, b in pairs]
-    np.testing.assert_allclose(bvh.inter_joint_distance(pairs),
-                               geometry.inter_joint_distance(pos, idx_pairs))
+    np.testing.assert_allclose(
+        bvh.inter_joint_distance(pairs), geometry.inter_joint_distance(pos, idx_pairs)
+    )
 
 
 def test_joint_angle_and_triangle_area_by_name():
     bvh = _bvh()
     pos = bvh.node_positions()
-    i = lambda n: bvh.index(n, space="node")
+    left_foot, hips, right_foot = (
+        pos[:, bvh.index(name, space="node")] for name in ("LeftFoot", "Hips", "RightFoot")
+    )
     np.testing.assert_allclose(
         bvh.joint_angle("LeftFoot", "Hips", "RightFoot"),
-        geometry.joint_angle(pos[:, i("LeftFoot")], pos[:, i("Hips")], pos[:, i("RightFoot")]))
+        geometry.joint_angle(left_foot, hips, right_foot),
+    )
     np.testing.assert_allclose(
         bvh.triangle_area("LeftFoot", "Hips", "RightFoot"),
-        geometry.triangle_area(pos[:, i("LeftFoot")], pos[:, i("Hips")], pos[:, i("RightFoot")]))
+        geometry.triangle_area(left_foot, hips, right_foot),
+    )
 
 
 def test_segment_axis_angle_matches_kernel():
@@ -76,7 +82,8 @@ def test_segment_axis_angle_matches_kernel():
     seg = pos[:, bvh.index("Head", space="node")] - pos[:, bvh.index("Hips", space="node")]
     np.testing.assert_allclose(
         bvh.segment_axis_angle("Hips", "Head"),
-        geometry.segment_axis_angle(seg, _axis_to_vector(bvh.world_up)))
+        geometry.segment_axis_angle(seg, _axis_to_vector(bvh.world_up)),
+    )
 
 
 def test_descriptor_int_index_raises_type_error():
@@ -96,28 +103,27 @@ def test_movement_phase_wrapper_matches_kernel():
     idx = bvh.index("LeftFoot", space="node")
     traj = bvh.node_positions()[:, idx, :]
     np.testing.assert_allclose(
-        bvh.movement_phase("LeftFoot"),
-        geometry.movement_phase(traj, bvh.frame_time))
+        bvh.movement_phase("LeftFoot"), geometry.movement_phase(traj, bvh.frame_time)
+    )
 
 
 def test_descriptors_accept_precomputed_coords():
     bvh = make_pos_y_up_rotating_bvh()
     pos = bvh.node_positions()
-    np.testing.assert_allclose(bvh.curvature("Spine", coords=pos),
-                               bvh.curvature("Spine"))
-    np.testing.assert_allclose(bvh.path_length("Head", coords=pos),
-                               bvh.path_length("Head"))
-    np.testing.assert_allclose(bvh.center_of_mass(coords=pos),
-                               bvh.center_of_mass())
+    np.testing.assert_allclose(bvh.curvature("Spine", coords=pos), bvh.curvature("Spine"))
+    np.testing.assert_allclose(bvh.path_length("Head", coords=pos), bvh.path_length("Head"))
+    np.testing.assert_allclose(bvh.center_of_mass(coords=pos), bvh.center_of_mass())
     # constant-offset coords actually flow through (not silently ignored)
     shifted = pos + np.array([100.0, 0.0, 0.0])
-    np.testing.assert_allclose(bvh.center_of_mass(coords=shifted),
-                               bvh.center_of_mass() + np.array([100.0, 0.0, 0.0]))
+    np.testing.assert_allclose(
+        bvh.center_of_mass(coords=shifted), bvh.center_of_mass() + np.array([100.0, 0.0, 0.0])
+    )
 
 
 # ----------------------------------------------------------------
 #  Bounding / center-of-mass wrappers
 # ----------------------------------------------------------------
+
 
 def test_bounding_and_center_of_mass_wrappers_match_kernel():
     bvh = _bvh()
@@ -125,8 +131,9 @@ def test_bounding_and_center_of_mass_wrappers_match_kernel():
     np.testing.assert_allclose(bvh.bounding_box().volume, geometry.bounding_box(pos).volume)
     np.testing.assert_allclose(bvh.bounding_sphere().radius, geometry.bounding_sphere(pos).radius)
     np.testing.assert_allclose(bvh.center_of_mass(), geometry.center_of_mass(pos))
-    np.testing.assert_allclose(bvh.verticality(),
-                               geometry.verticality(pos, _axis_to_vector(bvh.world_up)))
+    np.testing.assert_allclose(
+        bvh.verticality(), geometry.verticality(pos, _axis_to_vector(bvh.world_up))
+    )
 
 
 def test_bounding_ellipsoid_wrapper_matches_kernel():
@@ -142,14 +149,14 @@ def test_com_displacement_defaults_to_first_frame_com():
     bvh = _bvh()
     com = geometry.center_of_mass(bvh.node_positions())
     # default reference is the first-frame CoM (same world frame) -> travel
-    np.testing.assert_allclose(bvh.com_displacement(),
-                               geometry.com_displacement(com, com[0]))
+    np.testing.assert_allclose(bvh.com_displacement(), geometry.com_displacement(com, com[0]))
     assert bvh.com_displacement()[0] == 0.0  # zero displacement at the start
 
 
 # ----------------------------------------------------------------
 #  Analysis wrappers
 # ----------------------------------------------------------------
+
 
 def test_jerk_wrappers_match_module():
     bvh = _bvh()
@@ -159,15 +166,13 @@ def test_jerk_wrappers_match_module():
 
 def test_speed_derivative_wrappers_match_module():
     bvh = _bvh()
-    np.testing.assert_allclose(bvh.node_speed_derivative(),
-                               analysis.node_speed_derivative(bvh))
-    np.testing.assert_allclose(bvh.joint_speed_derivative(),
-                               analysis.joint_speed_derivative(bvh))
+    np.testing.assert_allclose(bvh.node_speed_derivative(), analysis.node_speed_derivative(bvh))
+    np.testing.assert_allclose(bvh.joint_speed_derivative(), analysis.joint_speed_derivative(bvh))
     # coords= passthrough
     coords = bvh.node_positions() + 3.0
     np.testing.assert_allclose(
-        bvh.node_speed_derivative(coords=coords),
-        analysis.node_speed_derivative(bvh, coords=coords))
+        bvh.node_speed_derivative(coords=coords), analysis.node_speed_derivative(bvh, coords=coords)
+    )
 
 
 def test_smoothness_wrapper_uses_joint_speed():
@@ -175,8 +180,10 @@ def test_smoothness_wrapper_uses_joint_speed():
     idx = bvh.index("LeftFoot", space="node")
     speed = np.linalg.norm(bvh.node_velocities()[:, idx, :], axis=-1)
     fs = 1.0 / bvh.frame_time
-    np.testing.assert_allclose(bvh.smoothness("LeftFoot", metric="number_of_peaks"),
-                               analysis.smoothness(speed, fs, metric="number_of_peaks"))
+    np.testing.assert_allclose(
+        bvh.smoothness("LeftFoot", metric="number_of_peaks"),
+        analysis.smoothness(speed, fs, metric="number_of_peaks"),
+    )
 
 
 def test_velocity_reductions_wrapper_matches_kernel():
@@ -191,8 +198,7 @@ def test_velocity_reductions_wrapper_matches_kernel():
 def test_skeleton_size_wrapper_matches_kernel():
     bvh = _bvh()
     feet = ["LeftFoot", "RightFoot"]
-    assert bvh.skeleton_size(foot_joints=feet) == \
-        analysis.skeleton_size(bvh, foot_joints=feet)
+    assert bvh.skeleton_size(foot_joints=feet) == analysis.skeleton_size(bvh, foot_joints=feet)
     # feet are end sites on this fixture, so auto-detection finds none and
     # both entry points refuse to fabricate a size
     with pytest.raises(ValueError, match="no foot joints"):
@@ -234,8 +240,8 @@ def test_gait_wrappers_accept_precomputed_contacts():
     # so precomputed-vs-internal labels are identical by construction
     contacts = np.asarray(bvh.foot_contacts(foot_joints=feet, adaptive=True))
     np.testing.assert_allclose(
-        bvh.cadence(foot_joints=feet, contacts=contacts),
-        bvh.cadence(foot_joints=feet))
+        bvh.cadence(foot_joints=feet, contacts=contacts), bvh.cadence(foot_joints=feet)
+    )
     s_pre = bvh.stride_length(foot_joints=feet, contacts=contacts)
     s = bvh.stride_length(foot_joints=feet)
     assert (np.isnan(s_pre) and np.isnan(s)) or np.isclose(s_pre, s)
@@ -247,12 +253,11 @@ def test_gait_parameters_adaptive_default_sane_on_real_walk():
     # on this retargeted CMU clip (feet hover above the estimated floor),
     # yielding physically impossible numbers: airborne 58% of frames and
     # double_support_fraction = 0.0 on a plain walk.
-    walk = read_bvh_file(
-        Path(__file__).parent.parent / "bvh_data" / "cmu_12_01_walk.bvh")
+    walk = read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "cmu_12_01_walk.bvh")
     g = walk.gait_parameters()
-    assert g.double_support_fraction > 0.0    # a walk always has double support
-    assert 0.35 < g.stance_fraction < 0.75    # human stance ~60% of the cycle
-    assert 1.2 < g.cadence < 2.5              # ~1.8 steps/s on this clip
+    assert g.double_support_fraction > 0.0  # a walk always has double support
+    assert 0.35 < g.stance_fraction < 0.75  # human stance ~60% of the cycle
+    assert 1.2 < g.cadence < 2.5  # ~1.8 steps/s on this clip
     # explicit contacts= still fully overrides the internal detection
     feet = analysis.auto_detect_foot_joints(walk)
     pre = walk.foot_contacts(foot_joints=feet, adaptive=True)
@@ -264,13 +269,12 @@ def test_range_of_motion_wrapper_matches_kernel():
     bvh = make_pos_y_up_rotating_bvh()
     jidx = bvh.index("Hips", space="joint")
     np.testing.assert_allclose(
-        bvh.range_of_motion("Hips"),
-        analysis.range_of_motion(bvh.joint_angles[:, jidx, :], axis=0))
+        bvh.range_of_motion("Hips"), analysis.range_of_motion(bvh.joint_angles[:, jidx, :], axis=0)
+    )
 
 
 def test_ground_contacts_wrapper_matches_module():
-    walk = read_bvh_file(
-        Path(__file__).parent.parent / "bvh_data" / "cmu_12_01_walk.bvh")
+    walk = read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "cmu_12_01_walk.bvh")
     feet = walk.auto_detect_foot_joints()
     got, got_info = walk.ground_contacts(feet, return_info=True)
     ref, ref_info = analysis.ground_contacts(walk, feet, return_info=True)
@@ -279,5 +283,5 @@ def test_ground_contacts_wrapper_matches_module():
     # keyword passthrough: a non-default parameterization delegates too
     np.testing.assert_array_equal(
         walk.ground_contacts(feet, method="height", floor=walk.floor_height),
-        analysis.ground_contacts(walk, feet, method="height",
-                                 floor=walk.floor_height))
+        analysis.ground_contacts(walk, feet, method="height", floor=walk.floor_height),
+    )

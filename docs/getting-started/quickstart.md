@@ -67,8 +67,7 @@ bvh.play()
 bvh.plot_trajectory()
 ```
 
-Multi-skeleton comparisons use the `pybvh.bvhplot` module functions, which
-accept a list of `Bvh` objects:
+Multi-skeleton comparisons use the `pybvh.bvhplot` module functions, which accept a list of `Bvh` objects:
 
 ```python
 from pybvh import bvhplot

@@ -1,3 +1,17 @@
+"""Signed axes and the orientation a skeleton's geometry implies.
+
+Axes are written as signed strings (``'+y'``, ``'-z'``) throughout pybvh;
+:func:`parse_axis` turns one into an :class:`Axis` (column index, sign,
+unit vector) and :func:`get_main_direction` snaps a vector to the one it
+lies closest to. The private helpers infer orientation from a clip: the
+world up axis, the rest pose's up and forward, the left/right joint pairs
+found by name, and the per-frame facing direction built on them.
+:class:`~pybvh.bvh.Bvh` exposes their results as ``world_up``,
+``rest_up``, ``rest_forward``, ``lr_mapping``, ``forward_at`` and
+``left_at``. The module also holds the input validators the package
+shares (file paths, frame time, frame rate, axis strings).
+"""
+
 from __future__ import annotations
 
 import math
@@ -15,7 +29,6 @@ from .rotations import _elementary_rotmat
 
 if TYPE_CHECKING:
     from .bvh import Bvh
-
 
 
 def _validate_bvh_path(filepath: str | Path) -> Path:
@@ -39,10 +52,10 @@ def _validate_bvh_path(filepath: str | Path) -> Path:
         If the file does not exist.
     """
     filepath = Path(filepath)
-    if filepath.suffix != '.bvh':
-        raise ValueError(f'{filepath} is not a bvh file')
+    if filepath.suffix != ".bvh":
+        raise ValueError(f"{filepath} is not a bvh file")
     elif not filepath.exists():
-        raise FileNotFoundError(f'could not find the file {filepath}')
+        raise FileNotFoundError(f"could not find the file {filepath}")
     return filepath
 
 
@@ -57,8 +70,8 @@ def _validate_frame_time(value: float) -> None:
     # int64 and NumPy scalars, where np.isfinite raises TypeError.
     if not (math.isfinite(value) and value >= 0):
         raise ValueError(
-            f"frame_time must be 0 (unset) or a positive finite number of "
-            f"seconds, got {value}")
+            f"frame_time must be 0 (unset) or a positive finite number of seconds, got {value}"
+        )
 
 
 def _validate_fps(value: float, name: str = "fps") -> None:
@@ -69,13 +82,15 @@ def _validate_fps(value: float, name: str = "fps") -> None:
     """
     if not (math.isfinite(value) and value > 0):
         raise ValueError(
-            f"{name} must be a positive finite number of frames per second, "
-            f"got {value}")
+            f"{name} must be a positive finite number of frames per second, got {value}"
+        )
 
-#--------------------------------------------------------------------------------------------
+
+# --------------------------------------------------------------------------------------------
 
 # Axis detection utilities
 # These are used by bvhplot and by ML pipeline methods (foot contacts, root trajectory)
+
 
 def get_main_direction(
     coord_array: npt.NDArray[np.float64],
@@ -131,9 +146,9 @@ def extract_sign(ax: str) -> bool:
     is_positive : bool
         ``True`` for positive, ``False`` for negative.
     """
-    if ax[0] == '+':
+    if ax[0] == "+":
         return True
-    elif ax[0] == '-':
+    elif ax[0] == "-":
         return False
     else:
         raise ValueError("The sign of the axis should be either '+' or '-'.")
@@ -202,10 +217,9 @@ def extract_sign(ax: str) -> bool:
 # underscore-prefixed and intended for internal use by pybvh modules.
 # ---------------------------------------------------------------------------
 
-_VALID_AXIS_STRINGS = frozenset(
-    {'+x', '-x', '+y', '-y', '+z', '-z'})
+_VALID_AXIS_STRINGS = frozenset({"+x", "-x", "+y", "-y", "+z", "-z"})
 
-_AXIS_CHAR_TO_IDX = {'x': 0, 'y': 1, 'z': 2}
+_AXIS_CHAR_TO_IDX = {"x": 0, "y": 1, "z": 2}
 
 Axis = namedtuple("Axis", ["index", "sign", "vector"])
 Axis.__doc__ = """A signed coordinate axis parsed into machine-usable form.
@@ -221,13 +235,13 @@ Comparing two ``Axis`` values with ``==`` raises, because tuple equality reaches
 
 # Arbitrary-but-stable horizontal forward per up axis, used when a
 # skeleton carries no L/R orientation information at all.
-_FALLBACK_FORWARD = {'y': '+z', 'z': '+x', 'x': '+y'}
+_FALLBACK_FORWARD = {"y": "+z", "z": "+x", "x": "+y"}
 
 
 def _axis_to_vector(ax: str) -> npt.NDArray[np.float64]:
     """Convert a signed axis string ('+y') to a unit vector ([0, 1, 0])."""
     vec = np.zeros(3)
-    vec[_AXIS_CHAR_TO_IDX[ax[1]]] = 1.0 if ax[0] == '+' else -1.0
+    vec[_AXIS_CHAR_TO_IDX[ax[1]]] = 1.0 if ax[0] == "+" else -1.0
     return vec
 
 
@@ -236,7 +250,7 @@ def _axis_index_sign(ax: str) -> tuple[int, float]:
 
     The scalar companion of :func:`_axis_to_vector`: ``index`` selects the coordinate column, ``sign`` (``+1.0`` / ``-1.0``) restores the direction, so ``coords[..., index] * sign`` is the up-positive height. The single parsing implementation behind :attr:`Bvh.up_axis` and the internal up-axis consumers.
     """
-    return _AXIS_CHAR_TO_IDX[ax[1]], 1.0 if ax[0] == '+' else -1.0
+    return _AXIS_CHAR_TO_IDX[ax[1]], 1.0 if ax[0] == "+" else -1.0
 
 
 def parse_axis(axis: str, *, allow_unsigned: bool = False) -> Axis:
@@ -322,20 +336,20 @@ def _rest_upward(bvh: Bvh) -> str | None:
         return None  # degenerate rest pose: all joints coincide
     up_idx_fallback = int(np.argmax(spread))
     # Use the mean to determine sign (positive mean = positive axis direction)
-    sign = '+' if np.mean(local_coord[:, up_idx_fallback]) >= 0 else '-'
-    return sign + 'xyz'[up_idx_fallback]
+    sign = "+" if np.mean(local_coord[:, up_idx_fallback]) >= 0 else "-"
+    return sign + "xyz"[up_idx_fallback]
 
 
 # ---------------------------------------------------------------------------
 # L/R name-detection heuristics (pure string logic on joint names)
 # ---------------------------------------------------------------------------
 
-_NUMBER_SUFFIX_RE = re.compile(r'\.\d+$')
+_NUMBER_SUFFIX_RE = re.compile(r"\.\d+$")
 
 
 def _strip_number_suffix(name: str) -> str:
     """Strip trailing ``.NNN`` suffix like Blender's ``.001`` duplicates."""
-    return _NUMBER_SUFFIX_RE.sub('', name)
+    return _NUMBER_SUFFIX_RE.sub("", name)
 
 
 def _strip_namespace_prefix(name: str) -> tuple[str, str]:
@@ -343,10 +357,10 @@ def _strip_namespace_prefix(name: str) -> tuple[str, str]:
 
     Returns ``(prefix, base)``. If no namespace, prefix is empty.
     """
-    if ':' in name:
-        prefix, _, base = name.rpartition(':')
-        return prefix + ':', base
-    return '', name
+    if ":" in name:
+        prefix, _, base = name.rpartition(":")
+        return prefix + ":", base
+    return "", name
 
 
 _SUFFIX_LR_TABLE = [
@@ -354,15 +368,20 @@ _SUFFIX_LR_TABLE = [
     # of the base name (after namespace and number-suffix strip). Ordered
     # most-specific-first so e.g. ".Left" / ".Right" wins over ".L" / ".R"
     # if both would parse.
-    ('.Left', '.Right'), ('_Left', '_Right'),
-    ('.left', '.right'), ('_left', '_right'),
-    ('.L', '.R'), ('_L', '_R'),
-    ('.l', '.r'), ('_l', '_r'),
+    (".Left", ".Right"),
+    ("_Left", "_Right"),
+    (".left", ".right"),
+    ("_left", "_right"),
+    (".L", ".R"),
+    ("_L", "_R"),
+    (".l", ".r"),
+    ("_l", "_r"),
 ]
 
 
-def _try_suffix_partner(base: str, joint_names: set[str], prefix: str,
-                        number_suffix: str) -> str | None:
+def _try_suffix_partner(
+    base: str, joint_names: set[str], prefix: str, number_suffix: str
+) -> str | None:
     """If ``base`` matches a known L/R suffix, return the partner's full name."""
     for left_suf, right_suf in _SUFFIX_LR_TABLE:
         if base.endswith(left_suf):
@@ -417,7 +436,7 @@ def _detect_lr_mapping_by_names(bvh: Bvh) -> dict[str, str]:
         # Decompose name for suffix rule: strip namespace and number suffix
         ns_prefix, after_ns = _strip_namespace_prefix(name)
         base = _strip_number_suffix(after_ns)
-        number_suffix = after_ns[len(base):]  # e.g. '.001' or ''
+        number_suffix = after_ns[len(base) :]  # e.g. '.001' or ''
 
         # Strategy 1: delimited suffix (most specific)
         partner = _try_suffix_partner(base, joint_names, ns_prefix, number_suffix)
@@ -428,18 +447,16 @@ def _detect_lr_mapping_by_names(bvh: Bvh) -> dict[str, str]:
         if partner is None:
             lower = base.lower()
             if "left" in lower:
-                partner_base = (base
-                                .replace("Left", "Right")
-                                .replace("left", "right")
-                                .replace("LEFT", "RIGHT"))
+                partner_base = (
+                    base.replace("Left", "Right").replace("left", "right").replace("LEFT", "RIGHT")
+                )
                 candidate = ns_prefix + partner_base + number_suffix
                 if candidate in joint_names:
                     partner = candidate
             elif "right" in lower:
-                partner_base = (base
-                                .replace("Right", "Left")
-                                .replace("right", "left")
-                                .replace("RIGHT", "LEFT"))
+                partner_base = (
+                    base.replace("Right", "Left").replace("right", "left").replace("RIGHT", "LEFT")
+                )
                 candidate = ns_prefix + partner_base + number_suffix
                 if candidate in joint_names:
                     partner = candidate
@@ -543,12 +560,12 @@ def _resolve_lr_pairs(
         if left_name in name2idx and right_name in name2idx:
             pairs.append((name2idx[left_name], name2idx[right_name]))
         else:
-            unknown.update(
-                n for n in (left_name, right_name) if n not in name2idx)
+            unknown.update(n for n in (left_name, right_name) if n not in name2idx)
     if strict and unknown:
         raise ValueError(
             f"lr_mapping references unknown joint names: "
-            f"{sorted(unknown)}. Check against `bvh.joint_names`.")
+            f"{sorted(unknown)}. Check against `bvh.joint_names`."
+        )
     return pairs
 
 
@@ -595,8 +612,7 @@ def _resolve_node_lr_pairs(
         return [], []
 
     node_position = {id(node): i for i, node in enumerate(bvh.nodes)}
-    joint_by_name = {
-        node.name: node for node in bvh.nodes if not node.is_end_site()}
+    joint_by_name = {node.name: node for node in bvh.nodes if not node.is_end_site()}
 
     joint_pairs: list[tuple[int, int]] = []
     end_site_pairs: list[tuple[int, int]] = []
@@ -607,24 +623,22 @@ def _resolve_node_lr_pairs(
         right_joint = joint_by_name.get(right_name)
         if left_joint is None or right_joint is None:
             continue
-        joint_pairs.append(
-            (node_position[id(left_joint)], node_position[id(right_joint)]))
+        joint_pairs.append((node_position[id(left_joint)], node_position[id(right_joint)]))
 
         left_ends = [c for c in left_joint.children if c.is_end_site()]  # type: ignore[attr-defined]
         right_ends = [c for c in right_joint.children if c.is_end_site()]  # type: ignore[attr-defined]
         if len(left_ends) != len(right_ends):
-            mismatches.append(
-                (left_name, len(left_ends), right_name, len(right_ends)))
+            mismatches.append((left_name, len(left_ends), right_name, len(right_ends)))
             continue
         for left_end, right_end in zip(left_ends, right_ends):
-            end_site_pairs.append(
-                (node_position[id(left_end)], node_position[id(right_end)]))
+            end_site_pairs.append((node_position[id(left_end)], node_position[id(right_end)]))
 
     return joint_pairs + end_site_pairs, mismatches
 
 
 def _rest_leftward(
-    bvh: Bvh, mapping: dict[str, str] | None = None,
+    bvh: Bvh,
+    mapping: dict[str, str] | None = None,
 ) -> str | None:
     """Infer the skeleton's leftward axis from rest-pose L/R symmetry.
 
@@ -696,6 +710,13 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
     ----------
     bvh : Bvh
         The skeleton with populated animation data.
+    warn : bool, optional
+        Whether to warn when the first frame and the rest pose disagree
+        on the up axis (default True). Only the axis letter is compared,
+        so a sign flip alone (rest pose ``'+y'``, first frame ``'-y'``)
+        never warns. It gates only that warning: the warning that the
+        axis fell back to the invented ``'+y'`` is always issued, because
+        that result is a guess the returned string cannot flag.
 
     Returns
     -------
@@ -722,8 +743,10 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
             "default — anything derived from up (floor_height, "
             "foot_contacts, facing, ground-plane projections) rests on a "
             "guess here. Set `bvh.world_up = '<axis>'` to fix it.",
-            UserWarning, stacklevel=user_stacklevel())
-        return '+y'
+            UserWarning,
+            stacklevel=user_stacklevel(),
+        )
+        return "+y"
 
     # Need animation frames to do first-frame inference
     if bvh.frame_count == 0:
@@ -733,7 +756,7 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
     # Priority: head -> neck -> last joint in spine chain.
     name_lookup = {n.name.lower(): i for i, n in enumerate(bvh.nodes)}
     head_idx = None
-    for candidate in ('head', 'neck', 'chest', 'spine'):
+    for candidate in ("head", "neck", "chest", "spine"):
         if candidate in name_lookup:
             head_idx = name_lookup[candidate]
             break
@@ -810,8 +833,7 @@ def _world_leftward_units(
         up, or zero). Callers should handle invalid frames by falling
         back to the topological rest-pose direction.
     """
-    return _leftward_units_from_pairs(
-        coords, _facing_lr_pairs(bvh), _axis_to_vector(world_up))
+    return _leftward_units_from_pairs(coords, _facing_lr_pairs(bvh), _axis_to_vector(world_up))
 
 
 def _facing_lr_pairs(bvh: Bvh) -> npt.NDArray[np.intp]:
@@ -842,6 +864,8 @@ def _leftward_units_from_pairs(
     Parameters
     ----------
     coords : ndarray of shape (F, N, 3)
+        World-space node positions per frame, in the skeleton's length
+        unit, indexed along N by ``lr_pairs``.
     lr_pairs : int ndarray of shape (P, 2)
         ``(left_idx, right_idx)`` rows into the N axis; ``(0, 2)`` means
         no pairs, and every frame comes back invalid.
@@ -857,8 +881,7 @@ def _leftward_units_from_pairs(
     num_frames = coords.shape[0]
     lr_pairs = np.asarray(lr_pairs, dtype=np.intp).reshape(-1, 2)
     if lr_pairs.shape[0] == 0:
-        return (np.zeros((num_frames, 3)),
-                np.zeros(num_frames, dtype=bool))
+        return (np.zeros((num_frames, 3)), np.zeros(num_frames, dtype=bool))
 
     left_idx = lr_pairs[:, 0]
     right_idx = lr_pairs[:, 1]
@@ -884,8 +907,7 @@ def _world_leftward_unit_at_frame(
     form flags the frame invalid (no L/R pairs, or leftward parallel to
     world up / zero).
     """
-    leftward, valid = _world_leftward_units(
-        bvh, frame_coords[np.newaxis], world_up)
+    leftward, valid = _world_leftward_units(bvh, frame_coords[np.newaxis], world_up)
     if not valid[0]:
         return None
     return leftward[0]
@@ -931,8 +953,7 @@ def _facing_is_measured(bvh: Bvh, world_up: str) -> bool:
     :func:`_compute_forward_at` walks on the rest pose, so the predicate
     tracks the fallback by construction rather than by parallel logic.
     """
-    rest_leftward = _world_leftward_unit_at_frame(
-        bvh, bvh.rest_pose_positions(), world_up)
+    rest_leftward = _world_leftward_unit_at_frame(bvh, bvh.rest_pose_positions(), world_up)
     if rest_leftward is not None:
         return True
     return _rest_forward_from_topology(bvh, world_up) is not None
@@ -969,7 +990,9 @@ def _fallback_forward_vector(
         f"forward_at, left_at, facing_frame) is a default here, not a "
         f"property of this file. Set `bvh.lr_mapping = {{...}}` to fix it, "
         f"or check `bvh.has_lr_geometry` to detect it.",
-        UserWarning, stacklevel=user_stacklevel())
+        UserWarning,
+        stacklevel=user_stacklevel(),
+    )
     return _axis_to_vector(fallback)
 
 
@@ -977,8 +1000,9 @@ def _facing_basis(
     bvh: Bvh,
     coords: npt.NDArray[np.float64],
     world_up: str,
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64],
-           npt.NDArray[np.float64], npt.NDArray[np.bool_]]:
+) -> tuple[
+    npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.bool_]
+]:
     """Vectorized per-frame facing basis — the geometry under ``facing_frame``.
 
     Builds the right-handed orthonormal triple from the leftward
@@ -1157,15 +1181,13 @@ def _validate_axis_string(value: object, *, allow_unsigned: bool = False) -> str
     on any other input.
     """
     normalized = value.lower() if isinstance(value, str) else value
-    if (allow_unsigned and isinstance(normalized, str)
-            and normalized in _AXIS_CHAR_TO_IDX):
-        normalized = '+' + normalized
+    if allow_unsigned and isinstance(normalized, str) and normalized in _AXIS_CHAR_TO_IDX:
+        normalized = "+" + normalized
     if normalized not in _VALID_AXIS_STRINGS:
         expected = sorted(_VALID_AXIS_STRINGS)
         if allow_unsigned:
             expected = expected + sorted(_AXIS_CHAR_TO_IDX)
-        raise ValueError(
-            f"Axis must be one of {expected}, got {value!r}")
+        raise ValueError(f"Axis must be one of {expected}, got {value!r}")
     return normalized  # type: ignore[return-value]
 
 
@@ -1197,7 +1219,7 @@ def _axis_aligned_rotation(
     if np.allclose(from_vec, -to_vec):
         # 180-degree rotation around a perpendicular axis
         from_idx = _AXIS_CHAR_TO_IDX[from_ax[1]]
-        perp_axis = 'XYZ'[(from_idx + 1) % 3]
+        perp_axis = "XYZ"[(from_idx + 1) % 3]
         R = _elementary_rotmat(np.pi, perp_axis)
         return np.round(R).astype(np.float64)
 
@@ -1205,5 +1227,5 @@ def _axis_aligned_rotation(
     cross = np.cross(from_vec, to_vec)
     rot_idx = int(np.argmax(np.abs(cross)))
     rot_sign = np.sign(cross[rot_idx])
-    R = _elementary_rotmat(rot_sign * np.pi / 2, 'XYZ'[rot_idx])
+    R = _elementary_rotmat(rot_sign * np.pi / 2, "XYZ"[rot_idx])
     return np.round(R).astype(np.float64)

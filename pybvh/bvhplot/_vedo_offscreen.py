@@ -12,24 +12,32 @@ self-shadowing); for raytraced softness use a Blender pipeline
 
 Headless-safe: no display or interactor is needed.
 """
-from __future__ import annotations
 
-import numpy as np
-import numpy.typing as npt
+from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ._style import Style
-from ._viewport import make_viewport
-from ._scene import Scene
+import numpy as np
+import numpy.typing as npt
+
 from ._colors import (
-    bone_colors_255, floor_palette, node_colors_255, skeleton_color_255,
+    bone_colors_255,
+    floor_palette,
+    node_colors_255,
+    skeleton_color_255,
 )
+from ._scene import Scene
+from ._style import Style
 from ._vedo_capsules import (
-    CapsuleSkeleton, floor_placement, shadow_height, vedo_color, vedo_rgb,
+    CapsuleSkeleton,
+    floor_placement,
+    shadow_height,
+    vedo_color,
+    vedo_rgb,
 )
+from ._viewport import make_viewport
 
 if TYPE_CHECKING:
     pass
@@ -52,7 +60,7 @@ def _vtk_backend():
     the plain backend is forced for the duration of the render and the
     user's setting is restored afterwards.
     """
-    import vedo  # type: ignore[import-untyped]
+    import vedo
 
     saved = vedo.settings.default_backend
     vedo.settings.default_backend = "vtk"
@@ -74,7 +82,8 @@ def _attach_projected_shadow(
     never appear side by side in pybvh code outside this module.
     """
     mesh.add_shadow(  # type: ignore[attr-defined]
-        up_axis, shadow_height, c=_SHADOW_GRAY, alpha=1)
+        up_axis, shadow_height, c=_SHADOW_GRAY, alpha=1
+    )
 
 
 def _build_offscreen(
@@ -88,29 +97,24 @@ def _build_offscreen(
     one scene (single-scene backend, like the viewer): one viewport of
     all the views, which supplies the cube, the camera and the floor.
     """
-    from vedo import Plane, Plotter  # type: ignore[import-untyped]
+    from vedo import Plane, Plotter
 
     # vedo draws in perspective whatever the style asks.
     viewport = make_viewport(scene.views, projection="persp")
-    view0 = scene.views[0]
 
-    plt = Plotter(offscreen=True, size=resolution,
-                  bg=vedo_color(style.background))
+    plt = Plotter(offscreen=True, size=resolution, bg=vedo_color(style.background))
 
     capsules: list[CapsuleSkeleton] = []
     for s, view in enumerate(scene.views):
         bone_rgb = bone_colors_255(view, style, s, scene.num_skeletons)
-        joint_rgb = node_colors_255(
-            view, style, s, scene.num_skeletons, bone_rgb)
-        capsule = CapsuleSkeleton(
-            view, style.bone_width, bone_rgb, joint_rgb)
+        joint_rgb = node_colors_255(view, style, s, scene.num_skeletons, bone_rgb)
+        capsule = CapsuleSkeleton(view, style.bone_width, bone_rgb, joint_rgb)
         capsule.update(view.coords[0])
         for mesh in capsule.actors:
             # Shadows must exist BEFORE the mesh joins the plotter —
             # vedo registers a mesh's shadow sub-objects at add time.
             if style.shadow and style.floor is not None:
-                _attach_projected_shadow(
-                    mesh, viewport.up_axis, shadow_height(viewport))
+                _attach_projected_shadow(mesh, viewport.up_axis, shadow_height(viewport))
             plt += mesh
         capsules.append(capsule)
 
@@ -118,27 +122,25 @@ def _build_offscreen(
         # Flat-shaded solid plane: under real lights the plane picks up
         # a tint in this stack, and a flat floor is the paper look.
         position, normal, side = floor_placement(viewport)
-        floor = Plane(pos=tuple(position), normal=tuple(normal),
-                      s=(side, side))
-        floor.c(vedo_color(floor_palette(style)["face"])).lighting('off')
+        floor = Plane(pos=tuple(position), normal=tuple(normal), s=(side, side))
+        floor.c(vedo_color(floor_palette(style)["face"])).lighting("off")
         plt += floor
 
     if scene.labels is not None:
-        from vedo import Text2D  # type: ignore[import-untyped]
+        from vedo import Text2D
 
         for s, view in enumerate(scene.views):
             if view.label is None:
                 continue
             color = skeleton_color_255(style, s, scene.num_skeletons)
             plt += Text2D(
-                view.label, pos=(0.03, 0.95 - s * 0.05),
-                c=vedo_rgb(color), s=1.2, font='Calco')
+                view.label, pos=(0.03, 0.95 - s * 0.05), c=vedo_rgb(color), s=1.2, font="Calco"
+            )
 
     # The view angle is read from VTK, not written down here, so the fit
     # follows whatever vedo sets it to.
     width, height = resolution
-    eye, target, up = viewport.camera(
-        view_angle=plt.camera.GetViewAngle(), aspect=width / height)
+    eye, target, up = viewport.camera(view_angle=plt.camera.GetViewAngle(), aspect=width / height)
     camera = dict(
         position=eye.tolist(),
         focal_point=target.tolist(),
@@ -166,6 +168,7 @@ def frame_vedo(
             img = np.asarray(plt.screenshot(asarray=True))
             if filepath is not None:
                 from PIL import Image
+
                 Image.fromarray(img).save(filepath)
         finally:
             plt.close()
@@ -188,26 +191,27 @@ def render_vedo(
     are not supported on this backend.
     """
     ext = filepath.suffix.lower()
-    if ext not in {'.mp4', '.mov', '.avi', '.gif'}:
+    if ext not in {".mp4", ".mov", ".avi", ".gif"}:
         raise ValueError(
             f"The vedo backend cannot write {ext!r} files. Supported: "
             f".mp4, .mov, .avi, .gif. Use backend='matplotlib' for "
-            f"other formats.")
-    if ext != '.gif':
+            f"other formats."
+        )
+    if ext != ".gif":
         # Guard BEFORE rendering every frame: the video sink is
         # cv2-based, and vedo-only installs would otherwise crash deep
         # in the writer with a raw ModuleNotFoundError.
         try:
             import cv2  # noqa: F401
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 f"Writing {ext} via the vedo backend requires "
                 f"opencv-python. Install with: pip install "
-                f"pybvh[opencv], or render to .gif instead.")
+                f"pybvh[opencv], or render to .gif instead."
+            ) from err
 
     with _vtk_backend():
-        return _render_vedo_frames(scene, style, filepath, fps, resolution,
-                                   codec)
+        return _render_vedo_frames(scene, style, filepath, fps, resolution, codec)
 
 
 def _render_vedo_frames(
@@ -235,11 +239,13 @@ def _render_vedo_frames(
                 rgb = np.asarray(plt.screenshot(asarray=True))
                 yield rgb[:, :, ::-1]
 
-        if ext == '.gif':
+        if ext == ".gif":
             from ._opencv import _render_gif
+
             return _render_gif(frames_bgr(), filepath, fps)
 
         from ._opencv import _open_writer
+
         frame_iter = frames_bgr()
         first = next(frame_iter)
         # vedo may deliver a screenshot size differing from the request

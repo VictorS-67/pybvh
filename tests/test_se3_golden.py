@@ -8,6 +8,7 @@ se(3) twist = ``[omega(3), v(3)]`` rotation-first, V-left-Jacobian-coupled
 Edge cases are over-covered on purpose — theta->0 (V Taylor series) and
 theta->pi (log branch) are where SE(3) exp/log implementations break.
 """
+
 import os
 
 import numpy as np
@@ -21,8 +22,9 @@ FX = os.path.join(os.path.dirname(__file__), "fixtures")
 def _load(name):
     p = os.path.join(FX, name + ".npz")
     if not os.path.exists(p):
-        pytest.skip(f"missing fixture {name}.npz "
-                    "(run tests/fixtures/generate_fixtures.py in pybvh_test)")
+        pytest.skip(
+            f"missing fixture {name}.npz (run tests/fixtures/generate_fixtures.py in pybvh_test)"
+        )
     return np.load(p)
 
 
@@ -48,8 +50,8 @@ def _v_series(omega):
     """Left Jacobian V via the Taylor series (no 1-cosθ underflow)."""
     theta2 = float(omega @ omega)
     K = rot._skew(omega)
-    b = 0.5 - theta2 / 24.0 + theta2 ** 2 / 720.0
-    c = 1.0 / 6.0 - theta2 / 120.0 + theta2 ** 2 / 5040.0
+    b = 0.5 - theta2 / 24.0 + theta2**2 / 720.0
+    c = 1.0 / 6.0 - theta2 / 120.0 + theta2**2 / 5040.0
     return np.eye(3) + b * K + c * (K @ K)
 
 
@@ -73,8 +75,7 @@ def test_se3_exp_small_angle_vs_analytic_series():
     twist = d["twist"]
     small = d["theta"] < _PT_UNDERFLOW
     assert small.sum() >= 10
-    expected_d = np.array([_v_series(twist[i, :3]) @ twist[i, 3:]
-                           for i in np.nonzero(small)[0]])
+    expected_d = np.array([_v_series(twist[i, :3]) @ twist[i, 3:] for i in np.nonzero(small)[0]])
     got_d = rot.se3_exp(twist[small])[:, :3, 3]
     np.testing.assert_allclose(got_d, expected_d, atol=1e-11)
 
@@ -86,10 +87,8 @@ def test_se3_log_vs_pytransform3d_unambiguous():
     unambiguous = d["theta"] < (np.pi - 1e-3)
     exact = unambiguous & (d["theta"] >= _PT_UNDERFLOW)
     loose = unambiguous & (d["theta"] < _PT_UNDERFLOW)
-    np.testing.assert_allclose(rot.se3_log(d["transform"][exact]),
-                               d["twist"][exact], atol=1e-8)
-    np.testing.assert_allclose(rot.se3_log(d["transform"][loose]),
-                               d["twist"][loose], atol=1e-7)
+    np.testing.assert_allclose(rot.se3_log(d["transform"][exact]), d["twist"][exact], atol=1e-8)
+    np.testing.assert_allclose(rot.se3_log(d["transform"][loose]), d["twist"][loose], atol=1e-7)
 
 
 # ---------- round-trip: branch-agnostic; MUST hold at every edge case ----------
@@ -104,7 +103,7 @@ def test_se3_small_angle_V_jacobian():
     _require("se3_exp", "se3_log")
     d = _load("se3_exp_log")
     mask = d["theta"] < 1e-2
-    assert mask.sum() >= 10                      # ensure the regime is exercised
+    assert mask.sum() >= 10  # ensure the regime is exercised
     T = d["transform"][mask]
     # round-trip is self-consistent -> tight everywhere
     np.testing.assert_allclose(rot.se3_exp(rot.se3_log(T)), T, atol=1e-9)
@@ -128,16 +127,14 @@ def test_se3_pure_translation():
     d = _load("se3_exp_log")
     mask = d["theta"] == 0.0
     assert mask.sum() >= 3
-    np.testing.assert_allclose(rot.se3_log(d["transform"][mask]),
-                               d["twist"][mask], atol=1e-12)
+    np.testing.assert_allclose(rot.se3_log(d["transform"][mask]), d["twist"][mask], atol=1e-12)
 
 
 # ---------- screw interpolation ----------
 def test_screw_interpolate_vs_pytransform3d():
     _require("screw_interpolate")
     d = _load("se3_screw_interp")
-    out = np.array([rot.screw_interpolate(a, b, t)
-                    for a, b, t in zip(d["T0"], d["T1"], d["t"])])
+    out = np.array([rot.screw_interpolate(a, b, t) for a, b, t in zip(d["T0"], d["T1"], d["t"])])
     np.testing.assert_allclose(out, d["interp"], atol=1e-9)
 
 

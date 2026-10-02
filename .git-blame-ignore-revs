@@ -1,0 +1,6 @@
+# Commits that only reformat code, skipped by `git blame` so each line is
+# attributed to the change that wrote it. Enable locally with
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# chore(format): apply ruff format
+c26eaa546be98a300276ae74968475e397fda90b

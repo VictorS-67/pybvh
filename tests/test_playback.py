@@ -1,4 +1,5 @@
 """Tests for the pure playback state machine (viewer cluster)."""
+
 from __future__ import annotations
 
 import pytest
@@ -77,8 +78,8 @@ class TestAdvance:
 
     def test_realtime_advance(self):
         c = make_clock(num_frames=100, fps=30.0)
-        c.advance(0.0)                      # establishes the clock
-        assert c.advance(1.0) == 30         # 1 s at 30 fps
+        c.advance(0.0)  # establishes the clock
+        assert c.advance(1.0) == 30  # 1 s at 30 fps
 
     def test_speed_doubles_advance(self):
         c = make_clock(num_frames=100, fps=30.0)
@@ -92,12 +93,12 @@ class TestAdvance:
         c.advance(0.0)
         c.advance(1.0)
         assert c.frame == 30
-        assert c.advance(3.0) == 90         # no ticks between t=1 and 3
+        assert c.advance(3.0) == 90  # no ticks between t=1 and 3
 
     def test_loop_wraps(self):
         c = make_clock(num_frames=30, fps=30.0)
         c.advance(0.0)
-        f = c.advance(1.5)                  # 45 frames into a 30-frame clip
+        f = c.advance(1.5)  # 45 frames into a 30-frame clip
         assert f == 45 % 30
         assert c.playing
 
@@ -116,7 +117,7 @@ class TestAdvance:
         assert c.play_direction == -1
         # keeps playing backward from the end
         assert c.playing
-        c.advance(2.0)                      # re-establish clock after flip
+        c.advance(2.0)  # re-establish clock after flip
         f = c.advance(2.5)
         assert f is not None and f < 29
 

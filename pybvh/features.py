@@ -4,15 +4,16 @@ Composes the per-frame motion descriptors from :mod:`pybvh.analysis`
 (rotations, root position, velocities, foot contacts) into a single flat
 ``(F, D)`` array, plus the column-layout helper that describes it.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
 
+from .analysis import _validate_stencil_pad, foot_contacts, joint_velocities
 from .bvh import Bvh
 from .rotations import REPRESENTATION_CHANNELS as _REPRESENTATION_WIDTHS
 from .spatial_coord import _ground_plane_offset
-from .analysis import joint_velocities, foot_contacts, _validate_stencil_pad
 
 
 def feature_array_layout(
@@ -77,9 +78,7 @@ def feature_array_layout(
             f"must be one of {sorted(_REPRESENTATION_WIDTHS)}."
         )
     if include_foot_contacts and num_feet <= 0:
-        raise ValueError(
-            "num_feet must be > 0 when include_foot_contacts=True"
-        )
+        raise ValueError("num_feet must be > 0 when include_foot_contacts=True")
     K = _REPRESENTATION_WIDTHS[representation]
 
     layout: dict[str, slice] = {}
@@ -175,7 +174,8 @@ def to_feature_array(
     if representation not in _REPRESENTATION_WIDTHS:
         raise ValueError(
             f"Unknown representation '{representation}'. "
-            f"Choose from {sorted(_REPRESENTATION_WIDTHS)}.")
+            f"Choose from {sorted(_REPRESENTATION_WIDTHS)}."
+        )
     if include_velocities:
         _validate_stencil_pad(stencil, pad)
 
@@ -193,8 +193,7 @@ def to_feature_array(
         elif centered == "first":
             # Ground-plane centering: first-frame root subtracted in the
             # non-up axes only, matching node_positions(centered="first").
-            parts.append(
-                bvh.root_pos - _ground_plane_offset(bvh.root_pos[0], bvh.world_up))
+            parts.append(bvh.root_pos - _ground_plane_offset(bvh.root_pos[0], bvh.world_up))
         else:  # "world"
             parts.append(bvh.root_pos)
 
@@ -219,8 +218,8 @@ def to_feature_array(
     vel_shape: int | None = None
     if include_velocities:
         vel = joint_velocities(
-            bvh, centered=centered, in_frames=True, coords=coords,
-            stencil=stencil, pad=pad)
+            bvh, centered=centered, in_frames=True, coords=coords, stencil=stencil, pad=pad
+        )
         vel_flat = vel.reshape(vel.shape[0], -1)
         parts.append(vel_flat)
         vel_shape = vel.shape[0]
@@ -232,9 +231,8 @@ def to_feature_array(
     # own world FK (served by the Bvh cache).
     if include_foot_contacts:
         contacts = foot_contacts(
-            bvh, foot_joints=foot_joints,
-            coords=coords if centered != "skeleton" else None)
-        assert isinstance(contacts, np.ndarray)
+            bvh, foot_joints=foot_joints, coords=coords if centered != "skeleton" else None
+        )
         parts.append(contacts)
 
     # Align frames: trim F-shaped blocks (root_pos, rot, contacts) to match
@@ -252,11 +250,7 @@ def to_feature_array(
             slicer = slice(drop // 2, F - drop // 2)
         else:  # stencil == "forward"
             slicer = slice(0, F - drop)
-        aligned = [
-            p[slicer] if p.shape[0] == F else p
-            for p in parts
-        ]
+        aligned = [p[slicer] if p.shape[0] == F else p for p in parts]
         parts = aligned
 
     return np.concatenate(parts, axis=1)
-

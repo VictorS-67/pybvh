@@ -1,0 +1,38 @@
+# Install once per clone with `pre-commit install` (CONTRIBUTING.md): the
+# hooks then run on every commit, the same checks as the Lint and Commit
+# messages workflows.
+default_install_hook_types: [pre-commit, commit-msg]
+# Without it, every hook would also run, on no files, at the commit-msg stage.
+default_stages: [pre-commit]
+
+repos:
+  # The same exact version as the dev extra in pyproject.toml and the lint
+  # workflow: bump the three together.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.9
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+        types_or: [python, pyi]
+      - id: ruff-format
+        types_or: [python, pyi]
+      # Notebooks are checked but never written: ruff's JSON writer rounds
+      # floats of the saved widget state, and a notebook is fixed through its
+      # jupytext twin ("How to edit" in docs/tutorials.md).
+      - id: ruff-check
+        alias: ruff-check-notebooks
+        name: ruff check (notebooks, no fix)
+        types_or: [jupyter]
+      - id: ruff-format
+        alias: ruff-format-notebooks
+        name: ruff format (notebooks, check only)
+        args: [--check]
+        types_or: [jupyter]
+
+  - repo: local
+    hooks:
+      - id: commit-message
+        name: commit message
+        entry: python scripts/check_commit_msg.py
+        language: python
+        stages: [commit-msg]

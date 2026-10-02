@@ -6,6 +6,7 @@ playback semantics are unit-testable without opening a window. The
 rendering/UI shells (`_vedo.py` today) own everything visual and
 delegate state changes to this class.
 """
+
 from __future__ import annotations
 
 import math
@@ -35,17 +36,17 @@ class PlaybackClock:
         self.num_frames = int(num_frames)
         self.native_fps = float(native_fps)
 
-        self.fps_presets = sorted(
-            set([15, 30, 60, 120, int(round(native_fps))]))
+        self.fps_presets = sorted(set([15, 30, 60, 120, int(round(native_fps))]))
         default_fps = 30 if native_fps > 30 else native_fps
         self.fps_idx = self.fps_presets.index(
-            min(self.fps_presets, key=lambda x: abs(x - default_fps)))
+            min(self.fps_presets, key=lambda x: abs(x - default_fps))
+        )
 
         self.frame = 0
         self.playing = True
         self.speed = 1.0
         self.loop_mode = "loop"
-        self.play_direction = 1        # 1 = forward, -1 = backward
+        self.play_direction = 1  # 1 = forward, -1 = backward
 
         self._start_time: float | None = None
         self._start_frame = 0
@@ -116,8 +117,7 @@ class PlaybackClock:
 
     def cycle_loop(self) -> str:
         modes = self.LOOP_MODES
-        self.loop_mode = modes[(modes.index(self.loop_mode) + 1)
-                               % len(modes)]
+        self.loop_mode = modes[(modes.index(self.loop_mode) + 1) % len(modes)]
         self.play_direction = 1
         self.reset_clock()
         return self.loop_mode
@@ -139,8 +139,7 @@ class PlaybackClock:
 
         elapsed = now - self._start_time
         d = self.play_direction
-        target = self._start_frame + d * int(
-            elapsed * self.effective_fps * self.speed)
+        target = self._start_frame + d * int(elapsed * self.effective_fps * self.speed)
 
         if target >= self.num_frames:
             if self.loop_mode == "loop":

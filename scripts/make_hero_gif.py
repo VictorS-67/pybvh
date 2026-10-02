@@ -14,25 +14,27 @@ Usage::
 Writes ``docs/assets/hand-trajectory.gif`` (committed; the README serves it
 from raw.githubusercontent.com, which only sees committed files).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
 import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt          # noqa: E402
-import numpy as np                       # noqa: E402
 
-import pybvh                             # noqa: E402
-from pybvh import bvhplot                # noqa: E402
-from pybvh.bvhplot._from_bvh import get_camera_angles  # noqa: E402
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+
+import pybvh
+from pybvh import bvhplot
+from pybvh.bvhplot._from_bvh import get_camera_angles
 
 REPO = Path(__file__).resolve().parent.parent
 CLIP = REPO / "bvh_data" / "bvh_test1.bvh"
 OUT = REPO / "docs" / "assets" / "hand-trajectory.gif"
 
 TRACED_JOINT = "RightHand"
-FPS = 20                    # 50 ms frames — exactly on the GIF delay grid
+FPS = 20  # 50 ms frames — exactly on the GIF delay grid
 SIZE_INCHES = 6.0
 # Okabe-Ito reddish purple: the one hue in that palette the chain colors do
 # not use, so the traced path never reads as part of a limb.
@@ -50,7 +52,7 @@ def main() -> None:
     # is given, which is right for a still and wrong for an animation).
     points = np.vstack([positions.reshape(-1, 3), traced])
     lo, hi = points.min(axis=0), points.max(axis=0)
-    lo[2] = min(lo[2], bvh.floor_height)          # this clip is +z up
+    lo[2] = min(lo[2], bvh.floor_height)  # this clip is +z up
     pad = 0.04 * float((hi - lo).max())
     lo, hi = lo - pad, hi + pad
     spans = hi - lo
@@ -67,8 +69,14 @@ def main() -> None:
     def draw(frame: int) -> None:
         ax.cla()
         bvhplot.frame(bvh, frame=frame, ax=ax, camera=camera)
-        ax.plot(traced[:frame + 1, 0], traced[:frame + 1, 1],
-                traced[:frame + 1, 2], color=TRACE_COLOR, lw=2.5, zorder=4)
+        ax.plot(
+            traced[: frame + 1, 0],
+            traced[: frame + 1, 1],
+            traced[: frame + 1, 2],
+            color=TRACE_COLOR,
+            lw=2.5,
+            zorder=4,
+        )
         ax.scatter(*traced[frame], color=MARKER_COLOR, s=45, zorder=5)
         ax.set_xlim(lo[0], hi[0])
         ax.set_ylim(lo[1], hi[1])
@@ -76,11 +84,14 @@ def main() -> None:
         ax.set_box_aspect(tuple(spans / spans.max()), zoom=1.25)
 
     from matplotlib import animation
+
     anim = animation.FuncAnimation(fig, draw, frames=bvh.frame_count)
     anim.save(OUT, writer="pillow", fps=FPS)
     plt.close(fig)
-    print(f"wrote {OUT.relative_to(REPO)} "
-          f"({OUT.stat().st_size / 1024:.0f} KB, {bvh.frame_count} frames)")
+    print(
+        f"wrote {OUT.relative_to(REPO)} "
+        f"({OUT.stat().st_size / 1024:.0f} KB, {bvh.frame_count} frames)"
+    )
 
 
 if __name__ == "__main__":

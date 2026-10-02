@@ -24,11 +24,11 @@ Convention note:
 
 from __future__ import annotations
 
-from typing import Sequence, Union
+from collections.abc import Sequence
+from typing import Union
 
 import numpy as np
 import numpy.typing as npt
-
 
 # Channel count per per-joint rotation representation. Handy for
 # allocating output arrays or sizing model layers without hard-coding
@@ -46,14 +46,14 @@ REPRESENTATION_CHANNELS = {
 # Euler angles <-> Rotation matrices
 # ============================================================================
 
+
 def _validate_order(order_str: str) -> None:
-    if len(order_str) != 3 or not all(c in 'XYZ' for c in order_str):
+    if len(order_str) != 3 or not all(c in "XYZ" for c in order_str):
         raise ValueError(f"order must be 3 characters from 'XYZ', got '{order_str}'")
     # Consecutive rotations about the same axis collapse into one — the
     # third angle is unrecoverable and extraction would return garbage.
     if order_str[0] == order_str[1] or order_str[1] == order_str[2]:
-        raise ValueError(
-            f"order must not repeat an axis consecutively, got '{order_str}'")
+        raise ValueError(f"order must not repeat an axis consecutively, got '{order_str}'")
 
 
 def _group_joints_by_order(
@@ -86,7 +86,7 @@ def _parse_order(order: Union[str, Sequence[str]]) -> tuple[str | None, list[str
     order_seq = [str(o) for o in order]
     if len(order_seq) == 3 and all(len(o) == 1 for o in order_seq):
         # Backward-compat: 3 single chars joined to form one global order
-        return ''.join(order_seq).upper(), None
+        return "".join(order_seq).upper(), None
 
     per_joint = [o.upper() for o in order_seq]
     for o in per_joint:
@@ -132,7 +132,7 @@ def euler_to_rotmat(
 
     if single_order is not None:
         _validate_order(single_order)
-        single = (angles_arr.ndim == 1)
+        single = angles_arr.ndim == 1
         if single:
             angles_arr = angles_arr[np.newaxis, :]
         R = _euler_to_rotmat_rad(angles_arr, single_order)
@@ -144,11 +144,12 @@ def euler_to_rotmat(
     if angles_arr.ndim < 2 or angles_arr.shape[-2] != J:
         raise ValueError(
             f"per-joint order of length {J} requires angles shape "
-            f"(..., {J}, 3); got shape {angles_arr.shape}")
+            f"(..., {J}, 3); got shape {angles_arr.shape}"
+        )
 
     out = np.empty(angles_arr.shape + (3,), dtype=np.float64)
     for order_str, idx_arr in _group_joints_by_order(per_joint).items():
-        block = angles_arr[..., idx_arr, :]              # (*, |group|, 3)
+        block = angles_arr[..., idx_arr, :]  # (*, |group|, 3)
         out[..., idx_arr, :, :] = _euler_to_rotmat_rad(block, order_str)
     return out
 
@@ -216,7 +217,7 @@ def rotmat_to_euler(
 
     if single_order is not None:
         _validate_order(single_order)
-        single = (R_arr.ndim == 2)
+        single = R_arr.ndim == 2
         if single:
             R_arr = R_arr[np.newaxis, :, :]
         out = _rotmat_to_euler_rad(R_arr, single_order)
@@ -230,11 +231,12 @@ def rotmat_to_euler(
     if R_arr.ndim < 3 or R_arr.shape[-3] != J:
         raise ValueError(
             f"per-joint order of length {J} requires R shape "
-            f"(..., {J}, 3, 3); got shape {R_arr.shape}")
+            f"(..., {J}, 3, 3); got shape {R_arr.shape}"
+        )
 
     out = np.empty(R_arr.shape[:-2] + (3,), dtype=np.float64)
     for order_str, idx_arr in _group_joints_by_order(per_joint).items():
-        block = R_arr[..., idx_arr, :, :]                # (*, |group|, 3, 3)
+        block = R_arr[..., idx_arr, :, :]  # (*, |group|, 3, 3)
         out[..., idx_arr, :] = _rotmat_to_euler_rad(block, order_str)
     if degrees:
         out = np.degrees(out)
@@ -246,7 +248,7 @@ def _rotmat_to_euler_rad(
     order_str: str,
 ) -> npt.NDArray[np.float64]:
     """Core extraction: R_arr shape (..., 3, 3) → (..., 3) radians."""
-    ax2idx = {'X': 0, 'Y': 1, 'Z': 2}
+    ax2idx = {"X": 0, "Y": 1, "Z": 2}
     i = ax2idx[order_str[0]]
     j = ax2idx[order_str[1]]
     k = ax2idx[order_str[2]]
@@ -259,6 +261,7 @@ def _rotmat_to_euler_rad(
 # ============================================================================
 # Rotation matrices <-> 6D representation (Zhou et al., CVPR 2019)
 # ============================================================================
+
 
 def rotmat_to_rot6d(R: npt.ArrayLike) -> npt.NDArray[np.float64]:
     """
@@ -317,6 +320,7 @@ def rot6d_to_rotmat(rot6d: npt.ArrayLike) -> npt.NDArray[np.float64]:
 # Euler angles <-> 6D (convenience wrappers)
 # ============================================================================
 
+
 def euler_to_rot6d(
     angles: npt.ArrayLike,
     order: Union[str, Sequence[str]],
@@ -369,6 +373,7 @@ def rot6d_to_euler(
 # Rotation matrices <-> Quaternions
 # ============================================================================
 
+
 def rotmat_to_quat(R: npt.ArrayLike) -> npt.NDArray[np.float64]:
     """
     Convert rotation matrices to quaternions (batch).
@@ -403,7 +408,7 @@ def rotmat_to_quat(R: npt.ArrayLike) -> npt.NDArray[np.float64]:
     when you need sequence continuity.
     """
     R_arr: npt.NDArray[np.float64] = np.asarray(R, dtype=np.float64)
-    single = (R_arr.ndim == 2)
+    single = R_arr.ndim == 2
     if single:
         R_arr = R_arr[np.newaxis, :, :]
 
@@ -430,7 +435,14 @@ def rotmat_to_quat(R: npt.ArrayLike) -> npt.NDArray[np.float64]:
     # Case 1: R00 is largest diagonal
     mask1 = (~mask0) & (R_flat[:, 0, 0] > R_flat[:, 1, 1]) & (R_flat[:, 0, 0] > R_flat[:, 2, 2])
     if np.any(mask1):
-        s1 = np.sqrt(np.maximum(1.0 + R_flat[mask1, 0, 0] - R_flat[mask1, 1, 1] - R_flat[mask1, 2, 2], 0.0)) * 2
+        s1 = (
+            np.sqrt(
+                np.maximum(
+                    1.0 + R_flat[mask1, 0, 0] - R_flat[mask1, 1, 1] - R_flat[mask1, 2, 2], 0.0
+                )
+            )
+            * 2
+        )
         q[mask1, 0] = (R_flat[mask1, 2, 1] - R_flat[mask1, 1, 2]) / s1
         q[mask1, 1] = 0.25 * s1
         q[mask1, 2] = (R_flat[mask1, 0, 1] + R_flat[mask1, 1, 0]) / s1
@@ -439,7 +451,14 @@ def rotmat_to_quat(R: npt.ArrayLike) -> npt.NDArray[np.float64]:
     # Case 2: R11 is largest diagonal
     mask2 = (~mask0) & (~mask1) & (R_flat[:, 1, 1] > R_flat[:, 2, 2])
     if np.any(mask2):
-        s2 = np.sqrt(np.maximum(1.0 + R_flat[mask2, 1, 1] - R_flat[mask2, 0, 0] - R_flat[mask2, 2, 2], 0.0)) * 2
+        s2 = (
+            np.sqrt(
+                np.maximum(
+                    1.0 + R_flat[mask2, 1, 1] - R_flat[mask2, 0, 0] - R_flat[mask2, 2, 2], 0.0
+                )
+            )
+            * 2
+        )
         q[mask2, 0] = (R_flat[mask2, 0, 2] - R_flat[mask2, 2, 0]) / s2
         q[mask2, 1] = (R_flat[mask2, 0, 1] + R_flat[mask2, 1, 0]) / s2
         q[mask2, 2] = 0.25 * s2
@@ -448,7 +467,14 @@ def rotmat_to_quat(R: npt.ArrayLike) -> npt.NDArray[np.float64]:
     # Case 3: R22 is largest diagonal
     mask3 = (~mask0) & (~mask1) & (~mask2)
     if np.any(mask3):
-        s3 = np.sqrt(np.maximum(1.0 + R_flat[mask3, 2, 2] - R_flat[mask3, 0, 0] - R_flat[mask3, 1, 1], 0.0)) * 2
+        s3 = (
+            np.sqrt(
+                np.maximum(
+                    1.0 + R_flat[mask3, 2, 2] - R_flat[mask3, 0, 0] - R_flat[mask3, 1, 1], 0.0
+                )
+            )
+            * 2
+        )
         q[mask3, 0] = (R_flat[mask3, 1, 0] - R_flat[mask3, 0, 1]) / s3
         q[mask3, 1] = (R_flat[mask3, 0, 2] + R_flat[mask3, 2, 0]) / s3
         q[mask3, 2] = (R_flat[mask3, 1, 2] + R_flat[mask3, 2, 1]) / s3
@@ -488,7 +514,7 @@ def quat_to_rotmat(q: npt.ArrayLike) -> npt.NDArray[np.float64]:
         If any input quaternion has zero norm (no rotation is defined).
     """
     q_arr: npt.NDArray[np.float64] = np.asarray(q, dtype=np.float64)
-    single = (q_arr.ndim == 1)
+    single = q_arr.ndim == 1
     if single:
         q_arr = q_arr[np.newaxis, :]
 
@@ -497,7 +523,8 @@ def quat_to_rotmat(q: npt.ArrayLike) -> npt.NDArray[np.float64]:
     if np.any(norm == 0.0):
         raise ValueError(
             "quat_to_rotmat received a zero-norm quaternion; the zero "
-            "quaternion does not represent a rotation")
+            "quaternion does not represent a rotation"
+        )
     q_arr = q_arr / norm
 
     w, x, y, z = q_arr[..., 0], q_arr[..., 1], q_arr[..., 2], q_arr[..., 3]
@@ -526,6 +553,7 @@ def quat_to_rotmat(q: npt.ArrayLike) -> npt.NDArray[np.float64]:
 # ============================================================================
 # Euler angles <-> Quaternions (convenience wrappers)
 # ============================================================================
+
 
 def euler_to_quat(
     angles: npt.ArrayLike,
@@ -581,6 +609,7 @@ def quat_to_euler(
 # Quaternion algebra
 # ============================================================================
 
+
 def quat_multiply(
     q1: npt.ArrayLike,
     q2: npt.ArrayLike,
@@ -606,16 +635,17 @@ def quat_multiply(
     """
     q1_arr: npt.NDArray[np.float64] = np.asarray(q1, dtype=np.float64)
     q2_arr: npt.NDArray[np.float64] = np.asarray(q2, dtype=np.float64)
-    w1, x1, y1, z1 = (q1_arr[..., 0], q1_arr[..., 1],
-                      q1_arr[..., 2], q1_arr[..., 3])
-    w2, x2, y2, z2 = (q2_arr[..., 0], q2_arr[..., 1],
-                      q2_arr[..., 2], q2_arr[..., 3])
-    return np.stack([
-        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-    ], axis=-1)
+    w1, x1, y1, z1 = (q1_arr[..., 0], q1_arr[..., 1], q1_arr[..., 2], q1_arr[..., 3])
+    w2, x2, y2, z2 = (q2_arr[..., 0], q2_arr[..., 1], q2_arr[..., 2], q2_arr[..., 3])
+    return np.stack(
+        [
+            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+        ],
+        axis=-1,
+    )
 
 
 def quat_unwrap(
@@ -670,13 +700,13 @@ def quat_unwrap(
     """
     q_arr: npt.NDArray[np.float64] = np.asarray(q, dtype=np.float64)
     if q_arr.ndim < 1 or q_arr.shape[-1] != 4:
-        raise ValueError(
-            f"q must have shape (*, 4), got {q_arr.shape}")
+        raise ValueError(f"q must have shape (*, 4), got {q_arr.shape}")
     normalized_axis = axis % q_arr.ndim if q_arr.ndim else 0
     if normalized_axis == q_arr.ndim - 1:
         raise ValueError(
             f"axis={axis} is the quaternion component axis, not a sequence "
-            f"axis; unwrapping runs over time/frames.")
+            f"axis; unwrapping runs over time/frames."
+        )
 
     seq = np.moveaxis(q_arr, normalized_axis, 0)
     if seq.shape[0] < 2:
@@ -689,14 +719,15 @@ def quat_unwrap(
     pair_dots = np.sum(seq[1:] * seq[:-1], axis=-1)
     step_sign = np.where(pair_dots < 0.0, -1.0, 1.0)
     signs = np.concatenate(
-        [np.ones((1,) + step_sign.shape[1:]), np.cumprod(step_sign, axis=0)],
-        axis=0)
+        [np.ones((1,) + step_sign.shape[1:]), np.cumprod(step_sign, axis=0)], axis=0
+    )
     return np.moveaxis(seq * signs[..., np.newaxis], 0, normalized_axis)
 
 
 # ============================================================================
 # Rotation matrices <-> Axis-angle
 # ============================================================================
+
 
 def rotmat_to_axisangle(R: npt.ArrayLike) -> npt.NDArray[np.float64]:
     """
@@ -748,7 +779,7 @@ def axisangle_to_rotmat(aa: npt.ArrayLike) -> npt.NDArray[np.float64]:
         Rotation matrices.
     """
     aa_arr: npt.NDArray[np.float64] = np.asarray(aa, dtype=np.float64)
-    single = (aa_arr.ndim == 1)
+    single = aa_arr.ndim == 1
     if single:
         aa_arr = aa_arr[np.newaxis, :]
 
@@ -769,8 +800,8 @@ def axisangle_to_rotmat(aa: npt.ArrayLike) -> npt.NDArray[np.float64]:
     sin_a = np.sin(angle)[:, np.newaxis, np.newaxis]
     cos_a = np.cos(angle)[:, np.newaxis, np.newaxis]
 
-    I = np.eye(3, dtype=np.float64)[np.newaxis, :, :]  # (1, 3, 3)
-    R = I + sin_a * K + (1.0 - cos_a) * (K @ K)
+    identity = np.eye(3, dtype=np.float64)[np.newaxis, :, :]  # (1, 3, 3)
+    R = identity + sin_a * K + (1.0 - cos_a) * (K @ K)
 
     R = R.reshape(batch_shape + (3, 3))
     if single:
@@ -781,6 +812,7 @@ def axisangle_to_rotmat(aa: npt.ArrayLike) -> npt.NDArray[np.float64]:
 # ============================================================================
 # Euler angles <-> Axis-angle (convenience wrappers)
 # ============================================================================
+
 
 def euler_to_axisangle(
     angles: npt.ArrayLike,
@@ -835,6 +867,7 @@ def axisangle_to_euler(
 # ============================================================================
 # Quaternion SLERP
 # ============================================================================
+
 
 def quat_slerp(
     q1: npt.ArrayLike,
@@ -993,6 +1026,7 @@ def convert(
 # Internal helpers
 # ============================================================================
 
+
 def _normalize(v: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """Normalize vectors along the last axis. Safe against zero-length."""
     norm = np.linalg.norm(v, axis=-1, keepdims=True)
@@ -1024,19 +1058,19 @@ def _elementary_rotmat(angle: npt.ArrayLike, axis: str) -> npt.NDArray[np.float6
     # Preallocate and fill the 5 non-zero slots — this is the hottest path
     # in Euler→rotmat conversion, so avoid the temporaries of nested stacks.
     R = np.zeros(angle_arr.shape + (3, 3), dtype=np.float64)
-    if axis == 'X':
+    if axis == "X":
         R[..., 0, 0] = 1.0
         R[..., 1, 1] = c
         R[..., 1, 2] = -s
         R[..., 2, 1] = s
         R[..., 2, 2] = c
-    elif axis == 'Y':
+    elif axis == "Y":
         R[..., 0, 0] = c
         R[..., 0, 2] = s
         R[..., 1, 1] = 1.0
         R[..., 2, 0] = -s
         R[..., 2, 2] = c
-    elif axis == 'Z':
+    elif axis == "Z":
         R[..., 0, 0] = c
         R[..., 0, 1] = -s
         R[..., 1, 0] = s
@@ -1057,12 +1091,16 @@ def _extract_euler(R: npt.NDArray[np.float64], i: int, j: int, k: int) -> npt.ND
     Parameters
     ----------
     R : ndarray, shape (N, 3, 3)
+        Rotation matrices, the batch flattened to one axis by
+        :func:`_rotmat_to_euler_rad`.
     i, j, k : int
         Axis indices (0=X, 1=Y, 2=Z).
 
     Returns
     -------
     angles : ndarray, shape (N, 3)
+        Radians, in the order ``(i, j, k)``, on the branch and with the
+        gimbal-lock split :func:`rotmat_to_euler` documents.
     """
     N = R.shape[0]
     angles = np.empty((N, 3), dtype=np.float64)
@@ -1081,12 +1119,12 @@ def _extract_euler(R: npt.NDArray[np.float64], i: int, j: int, k: int) -> npt.ND
         safe = np.abs(np.sin(angles[:, 1])) > 1e-7
 
         # Safe case
-        angles[:, 0] = np.where(safe,
-            np.arctan2(R[:, j, i], sign * R[:, k_actual, i]),
-            0.0)
-        angles[:, 2] = np.where(safe,
+        angles[:, 0] = np.where(safe, np.arctan2(R[:, j, i], sign * R[:, k_actual, i]), 0.0)
+        angles[:, 2] = np.where(
+            safe,
             np.arctan2(R[:, i, j], -sign * R[:, i, k_actual]),
-            np.arctan2(sign * R[:, j, k_actual], R[:, j, j]))
+            np.arctan2(sign * R[:, j, k_actual], R[:, j, j]),
+        )
     else:
         # Tait-Bryan angles (e.g., ZYX, XYZ, ...)
         # Sign factor: +1 if (i,j,k) is an even permutation of (0,1,2), else -1
@@ -1101,12 +1139,12 @@ def _extract_euler(R: npt.NDArray[np.float64], i: int, j: int, k: int) -> npt.ND
         safe = np.abs(np.cos(angles[:, 1])) > 1e-7
 
         # Safe case
-        angles[:, 0] = np.where(safe,
-            np.arctan2(-sign * R[:, j, k], R[:, k, k]),
-            0.0)
-        angles[:, 2] = np.where(safe,
+        angles[:, 0] = np.where(safe, np.arctan2(-sign * R[:, j, k], R[:, k, k]), 0.0)
+        angles[:, 2] = np.where(
+            safe,
             np.arctan2(-sign * R[:, i, j], R[:, i, i]),
-            np.arctan2(sign * R[:, j, i], R[:, j, j]))
+            np.arctan2(sign * R[:, j, i], R[:, j, j]),
+        )
 
     return angles
 
@@ -1151,15 +1189,17 @@ def _v_coeffs(
     small = theta < _SE3_SMALL
     safe = np.where(small, 1.0, theta)
     a_exact = np.sin(safe) / safe
-    b_exact = (1.0 - np.cos(safe)) / safe ** 2
-    c_exact = (safe - np.sin(safe)) / safe ** 3
-    t2 = theta ** 2
-    a_series = 1.0 - t2 / 6.0 + t2 ** 2 / 120.0
-    b_series = 0.5 - t2 / 24.0 + t2 ** 2 / 720.0
-    c_series = 1.0 / 6.0 - t2 / 120.0 + t2 ** 2 / 5040.0
-    return (np.where(small, a_series, a_exact),
-            np.where(small, b_series, b_exact),
-            np.where(small, c_series, c_exact))
+    b_exact = (1.0 - np.cos(safe)) / safe**2
+    c_exact = (safe - np.sin(safe)) / safe**3
+    t2 = theta**2
+    a_series = 1.0 - t2 / 6.0 + t2**2 / 120.0
+    b_series = 0.5 - t2 / 24.0 + t2**2 / 720.0
+    c_series = 1.0 / 6.0 - t2 / 120.0 + t2**2 / 5040.0
+    return (
+        np.where(small, a_series, a_exact),
+        np.where(small, b_series, b_exact),
+        np.where(small, c_series, c_exact),
+    )
 
 
 def _vinv_coeff(theta: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
@@ -1171,9 +1211,9 @@ def _vinv_coeff(theta: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     small = theta < _SE3_SMALL
     safe = np.where(small, 1.0, theta)
     half = safe / 2.0
-    e_exact = 1.0 / safe ** 2 - np.cos(half) / (2.0 * safe * np.sin(half))
-    t2 = theta ** 2
-    e_series = 1.0 / 12.0 + t2 / 720.0 + t2 ** 2 / 30240.0
+    e_exact = 1.0 / safe**2 - np.cos(half) / (2.0 * safe * np.sin(half))
+    t2 = theta**2
+    e_series = 1.0 / 12.0 + t2 / 720.0 + t2**2 / 30240.0
     return np.where(small, e_series, e_exact)
 
 
@@ -1489,11 +1529,9 @@ def mean_rotation(R: npt.ArrayLike) -> npt.NDArray[np.float64]:
     """
     R = np.asarray(R, dtype=np.float64)
     if R.ndim < 3 or R.shape[-2:] != (3, 3):
-        raise ValueError(
-            f"R must have shape (..., N, 3, 3), got {R.shape}")
+        raise ValueError(f"R must have shape (..., N, 3, 3), got {R.shape}")
     if R.shape[-3] == 0:
-        raise ValueError(
-            "mean_rotation of an empty set (N == 0) is undefined")
+        raise ValueError("mean_rotation of an empty set (N == 0) is undefined")
     M = R.mean(axis=-3)
     U, _, Vt = np.linalg.svd(M)
     # Batched diag(1, 1, det(U @ Vt)): flip the smallest singular direction

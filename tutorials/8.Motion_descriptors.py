@@ -27,14 +27,16 @@
 # This tutorial is a standalone deep-dive: it assumes only Tutorial 1 (plus the foot-contact idea from Tutorial 6 for the gait section).
 
 # %%
-import numpy as np
-np.set_printoptions(precision=4, suppress=True)
 # %matplotlib inline
-import matplotlib.pyplot as plt
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+import numpy as np
+
 import pybvh
-from pybvh import geometry, analysis, rotations
+from pybvh import analysis, geometry, rotations
+
+np.set_printoptions(precision=4, suppress=True)
 
 REPO_ROOT = Path.cwd().parent if Path.cwd().name == "tutorials" else Path.cwd()
 bvh = pybvh.read_bvh_file(REPO_ROOT / "bvh_data" / "bvh_test1.bvh")
@@ -48,8 +50,9 @@ print(bvh)
 
 # %%
 joint = "RightHand"
-print(f"{joint}: path length = {bvh.path_length(joint):.2f}, "
-      f"directness = {bvh.directness(joint):.3f}")
+print(
+    f"{joint}: path length = {bvh.path_length(joint):.2f}, directness = {bvh.directness(joint):.3f}"
+)
 
 kappa = bvh.curvature(joint)
 fig, ax = plt.subplots(figsize=(8, 3))
@@ -101,8 +104,10 @@ print(f"{hand} # of peaks = {bvh.smoothness(hand, metric='number_of_peaks')}")
 speed = np.linalg.norm(bvh.node_velocities()[:, node, :], axis=-1)
 jerk = np.linalg.norm(bvh.node_jerk()[:, node, :], axis=-1)
 fig, (a1, a2) = plt.subplots(2, 1, figsize=(8, 4), sharex=True)
-a1.plot(t, speed); a1.set(ylabel="speed")
-a2.plot(t, jerk); a2.set(ylabel="‖jerk‖", xlabel="time (s)")
+a1.plot(t, speed)
+a1.set(ylabel="speed")
+a2.plot(t, jerk)
+a2.set(ylabel="‖jerk‖", xlabel="time (s)")
 a1.set_title(f"{hand} speed and jerk magnitude")
 plt.tight_layout()
 plt.show()
@@ -120,8 +125,10 @@ print(f"bounding-box volume: {box.volume.min():.1f} -> {box.volume.max():.1f}")
 print(f"centre of mass drifts from {com[0]} to {com[-1]}")
 
 fig, (a1, a2) = plt.subplots(2, 1, figsize=(8, 4), sharex=True)
-a1.plot(t, vert); a1.set(ylabel="verticality (h/w)")
-a2.plot(t, com); a2.set(ylabel="CoM (x, y, z)", xlabel="time (s)")
+a1.plot(t, vert)
+a1.set(ylabel="verticality (h/w)")
+a2.plot(t, com)
+a2.set(ylabel="CoM (x, y, z)", xlabel="time (s)")
 a1.set_title("whole-body shape over time")
 plt.tight_layout()
 plt.show()
@@ -151,8 +158,10 @@ print(f"double-support fraction = {gait.double_support_fraction:.2f}")
 # %%
 pos_all = bvh.node_positions()
 print(f"path length (coords=) = {bvh.path_length('RightHand', coords=pos_all):.2f}")
-print(f"verticality (coords=) matches: "
-      f"{np.allclose(bvh.verticality(coords=pos_all), bvh.verticality())}")
+print(
+    f"verticality (coords=) matches: "
+    f"{np.allclose(bvh.verticality(coords=pos_all), bvh.verticality())}"
+)
 
 # %% [markdown]
 # # SE(3) rigid-transform math
@@ -161,24 +170,32 @@ print(f"verticality (coords=) matches: "
 
 # %%
 pos = bvh.node_positions()
-def seg(a, b):
-    return np.stack([pos[:, bvh.index(a, space="node")],
-                     pos[:, bvh.index(b, space="node")]], axis=1)  # (F, 2, 3)
 
-relative = rotations.relative_transform(seg("RightArm", "RightForeArm"),
-                                        seg("RightForeArm", "RightHand"))
-twist = rotations.se3_log(relative)                 # (F, 6) = [ω, v]
+
+def seg(a, b):
+    return np.stack(
+        [pos[:, bvh.index(a, space="node")], pos[:, bvh.index(b, space="node")]], axis=1
+    )  # (F, 2, 3)
+
+
+relative = rotations.relative_transform(
+    seg("RightArm", "RightForeArm"), seg("RightForeArm", "RightHand")
+)
+twist = rotations.se3_log(relative)  # (F, 6) = [ω, v]
 elbow_angle = np.degrees(np.linalg.norm(twist[:, :3], axis=-1))
 
 # how far each frame's root orientation has rotated from the first frame
-_, rotmats = bvh.to_rotmat()                         # (F, J, 3, 3)
+_, rotmats = bvh.to_rotmat()  # (F, J, 3, 3)
 root_R = rotmats[:, 0]
-geo = np.degrees(rotations.rotation_geodesic_distance(
-    np.broadcast_to(root_R[0], root_R.shape), root_R))
+geo = np.degrees(
+    rotations.rotation_geodesic_distance(np.broadcast_to(root_R[0], root_R.shape), root_R)
+)
 
 fig, (a1, a2) = plt.subplots(2, 1, figsize=(8, 4), sharex=True)
-a1.plot(t, elbow_angle); a1.set(ylabel="forearm vs arm (deg)")
-a2.plot(t, geo); a2.set(ylabel="root vs frame 0 (deg)", xlabel="time (s)")
+a1.plot(t, elbow_angle)
+a1.set(ylabel="forearm vs arm (deg)")
+a2.plot(t, geo)
+a2.set(ylabel="root vs frame 0 (deg)", xlabel="time (s)")
 a1.set_title("SE(3) relative rotation & geodesic distance")
 plt.tight_layout()
 plt.show()

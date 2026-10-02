@@ -1,20 +1,22 @@
 """Batch file loading and numpy export utilities for BVH datasets."""
+
 from __future__ import annotations
 
 import re
 import warnings
+from collections.abc import Iterator
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator, Literal, overload
+from typing import Literal, overload
 
 import numpy as np
 import numpy.typing as npt
 
 from ._warnings import user_stacklevel
-from .io import _ParsedBvh, _bvh_from_parsed, _extract_bvh_file_info
 from .bvh import Bvh
 from .features import to_feature_array
+from .io import _bvh_from_parsed, _extract_bvh_file_info, _ParsedBvh
 
 
 @dataclass
@@ -47,6 +49,7 @@ class HarmonizeReport:
         ``"rest_forward"``, ``"euler_order"``. Empty dict means the clip
         passed the gate without needing any transformation.
     """
+
     kept_indices: list[int] = field(default_factory=list)
     kept_sources: list[str | None] = field(default_factory=list)
     dropped_indices: list[int] = field(default_factory=list)
@@ -63,7 +66,8 @@ def _natural_sort_key(path: Path) -> tuple:
     """
     return tuple(
         (True, int(token)) if token.isdigit() else (False, token.lower())
-        for token in re.split(r"(\d+)", str(path)))
+        for token in re.split(r"(\d+)", str(path))
+    )
 
 
 def read_bvh_directory(
@@ -137,8 +141,7 @@ def read_bvh_directory(
         If ``dirpath`` does not exist.
     """
     if isinstance(sort, str) and sort not in ("lexicographic", "natural"):
-        raise ValueError(
-            f"sort must be a bool, 'lexicographic' or 'natural', got {sort!r}")
+        raise ValueError(f"sort must be a bool, 'lexicographic' or 'natural', got {sort!r}")
 
     dirpath = Path(dirpath)
     if not dirpath.is_dir():
@@ -164,10 +167,9 @@ def read_bvh_directory(
     with ExitStack() as stack:
         if parallel:
             from concurrent.futures import ThreadPoolExecutor
-            pool = stack.enter_context(
-                ThreadPoolExecutor(max_workers=max_workers))
-            parsed_files: Iterator[_ParsedBvh | Exception] = pool.map(
-                _parse_or_error, files)
+
+            pool = stack.enter_context(ThreadPoolExecutor(max_workers=max_workers))
+            parsed_files: Iterator[_ParsedBvh | Exception] = pool.map(_parse_or_error, files)
             # Closing the map's generator (typeshed types it as a plain
             # Iterator) cancels the parses no worker has started. Registered
             # after the pool, it runs before the pool's shutdown, which would
@@ -182,17 +184,22 @@ def read_bvh_directory(
             try:
                 if isinstance(parsed, Exception):
                     raise parsed
-                clips.append(_bvh_from_parsed(
-                    parsed, path, world_up=world_up,
-                    warn_on_world_up_disagreement=warn_on_world_up_disagreement,
-                    lr_mapping=lr_mapping))
+                clips.append(
+                    _bvh_from_parsed(
+                        parsed,
+                        path,
+                        world_up=world_up,
+                        warn_on_world_up_disagreement=warn_on_world_up_disagreement,
+                        lr_mapping=lr_mapping,
+                    )
+                )
             except Exception as error:
                 if not skip_errors:
                     raise
                 warnings.warn(
-                    f"read_bvh_directory: skipping {path} "
-                    f"({type(error).__name__}: {error})",
-                    stacklevel=user_stacklevel())
+                    f"read_bvh_directory: skipping {path} ({type(error).__name__}: {error})",
+                    stacklevel=user_stacklevel(),
+                )
     return clips
 
 
@@ -342,8 +349,7 @@ def harmonize(
         ``on_incompatible='raise'`` and a clip mismatches ``reference``.
     """
     if on_incompatible not in ("drop", "raise"):
-        raise ValueError(
-            f"on_incompatible must be 'drop' or 'raise', got {on_incompatible!r}")
+        raise ValueError(f"on_incompatible must be 'drop' or 'raise', got {on_incompatible!r}")
 
     report = HarmonizeReport()
     out: list[Bvh] = []
@@ -351,8 +357,7 @@ def harmonize(
         if reference is not None and not reference.matches_hierarchy(b, match_offsets=False):
             reason = "topology mismatch with reference"
             if on_incompatible == "raise":
-                raise ValueError(
-                    f"Clip at index {i} has incompatible topology with reference.")
+                raise ValueError(f"Clip at index {i} has incompatible topology with reference.")
             report.dropped_indices.append(i)
             report.dropped_sources.append(b.source_path)
             report.drop_reasons.append(reason)
@@ -367,19 +372,20 @@ def harmonize(
             b = b.resample(target_fps)
             stages["resample"] = f"{old_fps:.4g}→{target_fps:.4g}"
         if target_world_up is not None and b.world_up != target_world_up:
-            old = b.world_up
+            old_world_up = b.world_up
             b = b.reorient_world_up(target_world_up)
-            stages["world_up"] = f"{old}→{target_world_up}"
+            stages["world_up"] = f"{old_world_up}→{target_world_up}"
         if target_rest_up is not None and b.rest_up != target_rest_up:
-            old = b.rest_up
+            old_rest_up = b.rest_up
             b = b.reorient_rest_up(target_rest_up)
-            stages["rest_up"] = f"{old}→{target_rest_up}"
+            stages["rest_up"] = f"{old_rest_up}→{target_rest_up}"
         if target_rest_forward is not None and b.rest_forward != target_rest_forward:
-            old = b.rest_forward
+            old_rest_forward = b.rest_forward
             b = b.reorient_rest_forward(target_rest_forward)
-            stages["rest_forward"] = f"{old}→{target_rest_forward}"
+            stages["rest_forward"] = f"{old_rest_forward}→{target_rest_forward}"
         if target_euler_order is not None and any(
-                order != target_euler_order for order in b.euler_orders):
+            order != target_euler_order for order in b.euler_orders
+        ):
             b = b.change_euler_order(target_euler_order)
             stages["euler_order"] = f"→{target_euler_order}"
 
@@ -389,8 +395,7 @@ def harmonize(
         out.append(b)
 
     if verbose and report.dropped_indices:
-        warnings.warn(_harmonize_summary(report, len(clips)),
-                      stacklevel=user_stacklevel())
+        warnings.warn(_harmonize_summary(report, len(clips)), stacklevel=user_stacklevel())
 
     if return_report:
         return out, report
@@ -410,7 +415,8 @@ def _harmonize_summary(report: HarmonizeReport, total: int) -> str:
     return (
         f"harmonize: dropped {n_drop}/{total} clips (topology mismatch with "
         f"reference). First divergent: {', '.join(preview)}{more}. "
-        f"Pass return_report=True for the full drop list with reasons.")
+        f"Pass return_report=True for the full drop list with reasons."
+    )
 
 
 def _clip_label(bvh: Bvh, idx: int) -> str:
@@ -428,34 +434,38 @@ def _hierarchy_mismatch_message(ref: Bvh, bvh: Bvh, ref_idx: int, idx: int) -> s
     if len(ref.nodes) != len(bvh.nodes):
         return (
             f"Skeleton hierarchy mismatch between {ref_label} and "
-            f"{div_label}: node count {len(ref.nodes)} vs {len(bvh.nodes)}.")
+            f"{div_label}: node count {len(ref.nodes)} vs {len(bvh.nodes)}."
+        )
 
     for j, (n1, n2) in enumerate(zip(ref.nodes, bvh.nodes)):
         if n1.name != n2.name:
             return (
                 f"Skeleton hierarchy mismatch between {ref_label} and "
-                f"{div_label}: node {j} is '{n1.name}' vs '{n2.name}'.")
+                f"{div_label}: node {j} is '{n1.name}' vs '{n2.name}'."
+            )
         p1 = n1.parent.name if n1.parent is not None else None
         p2 = n2.parent.name if n2.parent is not None else None
         if p1 != p2:
             return (
                 f"Skeleton hierarchy mismatch between {ref_label} and "
                 f"{div_label}: node '{n1.name}' parent is "
-                f"{p1!r} vs {p2!r}.")
+                f"{p1!r} vs {p2!r}."
+            )
         if not np.allclose(n1.offset, n2.offset, atol=1e-6):
             return (
                 f"Skeleton hierarchy mismatch between {ref_label} and "
                 f"{div_label}: rest offset for '{n1.name}' differs "
                 f"({list(n1.offset)} vs {list(n2.offset)}). "
                 f"Pre-harmonize bone proportions via "
-                f"harmonize(clips, reference=ref).")
+                f"harmonize(clips, reference=ref)."
+            )
 
-    return (
-        f"Skeleton hierarchy mismatch between {ref_label} and {div_label}.")
+    return f"Skeleton hierarchy mismatch between {ref_label} and {div_label}."
 
 
-def _channel_mismatch_message(ref: Bvh, bvh: Bvh, ref_idx: int, idx: int,
-                               representation: str) -> str:
+def _channel_mismatch_message(
+    ref: Bvh, bvh: Bvh, ref_idx: int, idx: int, representation: str
+) -> str:
     """Build a diagnostic for a matches_channels failure."""
     ref_label = _clip_label(ref, ref_idx)
     div_label = _clip_label(bvh, idx)
@@ -474,7 +484,8 @@ def _channel_mismatch_message(ref: Bvh, bvh: Bvh, ref_idx: int, idx: int,
         return (
             f"Root position-channel mismatch between {ref_label} and "
             f"{div_label}: {ref.root.pos_channels} vs "
-            f"{bvh.root.pos_channels}.")
+            f"{bvh.root.pos_channels}."
+        )
 
     return (
         f"Rotation-channel mismatch between {ref_label} and {div_label} "
@@ -484,7 +495,8 @@ def _channel_mismatch_message(ref: Bvh, bvh: Bvh, ref_idx: int, idx: int,
         f"layout — pre-harmonize the dataset with "
         f"harmonize(clips, target_euler_order='<ORDER>'). For "
         f"representation='6d' / 'quat' / 'rotmat', the tensor is "
-        f"order-agnostic and this check is skipped.")
+        f"order-agnostic and this check is skipped."
+    )
 
 
 def batch_to_numpy(
@@ -542,26 +554,22 @@ def batch_to_numpy(
         if not ref.matches_hierarchy(bvh):
             raise ValueError(_hierarchy_mismatch_message(ref, bvh, 0, i))
         if channel_layout_matters and not ref.matches_channels(bvh):
-            raise ValueError(
-                _channel_mismatch_message(ref, bvh, 0, i, representation))
+            raise ValueError(_channel_mismatch_message(ref, bvh, 0, i, representation))
 
     # Per-clip extraction delegates to the features module — one place
     # owns the flat (F, D) layout, the valid-representation set, and its
     # error message.
     arrays: list[npt.NDArray[np.float64]] = [
-        to_feature_array(
-            bvh, representation=representation,
-            include_root_pos=include_root_pos)
+        to_feature_array(bvh, representation=representation, include_root_pos=include_root_pos)
         for bvh in bvh_list
     ]
 
     if pad:
         max_len = max(a.shape[0] for a in arrays)
         dim = arrays[0].shape[1]
-        result = np.full((len(arrays), max_len, dim), pad_value,
-                         dtype=np.float64)
+        result = np.full((len(arrays), max_len, dim), pad_value, dtype=np.float64)
         for i, a in enumerate(arrays):
-            result[i, :a.shape[0]] = a
+            result[i, : a.shape[0]] = a
         return result
 
     return arrays

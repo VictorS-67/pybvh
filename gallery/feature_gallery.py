@@ -27,23 +27,30 @@
 # *If your viewer fails to render any figure or clip, [the notebook on nbviewer](https://nbviewer.org/github/VictorS-67/pybvh/blob/main/gallery/feature_gallery.ipynb) renders everything.*
 
 # %%
-from pathlib import Path
-import numpy as np
 # %matplotlib inline
+from pathlib import Path
+
+import numpy as np
 
 import pybvh
-from pybvh import geometry, analysis, rotations, signal
+from pybvh import analysis, geometry, rotations, signal
+
 import gallery_plots as gp
 
 REPO = Path.cwd().parent if Path.cwd().name in ("tutorials", "gallery") else Path.cwd()
 bvh = pybvh.read_bvh_file(REPO / "bvh_data" / "bvh_test1.bvh")
-pos = bvh.node_positions()                  # (F, N, 3)
+pos = bvh.node_positions()  # (F, N, 3)
 F = bvh.frame_count
 dt = bvh.frame_time
 t = np.arange(F) * dt
-FRAME = F // 2                              # a representative pose
+FRAME = F // 2  # a representative pose
 P = pos[FRAME]
-idx = lambda name: bvh.index(name, space="node")
+
+
+def idx(name):
+    return bvh.index(name, space="node")
+
+
 print(bvh)
 
 # %% [markdown]
@@ -55,7 +62,7 @@ print(bvh)
 # The test clip used through most of this gallery, rendered with **`bvh.render`** to a GIF committed beside this notebook (resampled to the GIF's 20 fps so it plays in real time). The markdown cell below displays the committed file rather than the cell embedding the clip as an output: GitHub's notebook renderer shows `image/png` outputs but silently drops `image/gif` ones, so an embedded clip would be invisible exactly where most readers meet the library. For an interactive scrubber instead, use `bvh.play()` in a live kernel.
 
 # %% tags=["slow-on-pr"]
-seq_gif = gp.motion_clip_gif(bvh)   # renders the clip itself — no single feature value to surface
+seq_gif = gp.motion_clip_gif(bvh)  # renders the clip itself — no single feature value to surface
 
 # %% [markdown]
 # ![the test clip, rendered by bvh.render with the front camera](https://raw.githubusercontent.com/VictorS-67/pybvh/main/gallery/feature_gallery_seq.gif)
@@ -91,9 +98,10 @@ ax.set_title("plot_frame(style='dark')");
 
 # %%
 fig, (ax_paper, ax_debug) = gp.side_by_side_3d()
-bvh.plot_frame(frame=FRAME, ax=ax_paper)                    # style="paper" is the default
+bvh.plot_frame(frame=FRAME, ax=ax_paper)  # style="paper" is the default
 bvh.plot_frame(frame=FRAME, style="debug", ax=ax_debug)
-ax_paper.set_title("style='paper' (0.9.0 default)"); ax_debug.set_title("style='debug' (pre-0.9.0)");
+ax_paper.set_title("style='paper' (0.9.0 default)")
+ax_debug.set_title("style='debug' (pre-0.9.0)");
 
 # %% [markdown]
 # **`plot_frame(backend="vedo")`** — the same pose as a shadowed 3D **capsule render**, computed fully offscreen (headless-safe) and returned as an `(H, W, 3)` uint8 RGB array: the publication-figure alternative to the matplotlib stick figure. `render(backend="vedo")` exports the same look as video.
@@ -136,9 +144,11 @@ gp.fig_centered_modes(walk, walk.frame_count // 2)
 
 # %%
 input_angles = np.linspace(170, 190, 41)
-euler = np.zeros((41, 3)); euler[:, 0] = input_angles          # Z component in ZYX order
+euler = np.zeros((41, 3))
+euler[:, 0] = input_angles  # Z component in ZYX order
 recovered = rotations.rotmat_to_euler(
-    rotations.euler_to_rotmat(euler, "ZYX", degrees=True), "ZYX", degrees=True)
+    rotations.euler_to_rotmat(euler, "ZYX", degrees=True), "ZYX", degrees=True
+)
 quats = rotations.euler_to_quat(euler, "ZYX", degrees=True)
 rot6d = rotations.euler_to_rot6d(euler, "ZYX", degrees=True)
 gp.fig_rotation_continuity(input_angles, recovered, quats, rot6d)
@@ -154,24 +164,32 @@ gp.fig_orientation_triad(bvh, FRAME)
 
 # %%
 bvh_yup = pybvh.read_bvh_file(REPO / "bvh_data" / "bvh_test2.bvh")
-pybvh.bvhplot.frame([bvh_yup, bvh_yup.reorient_world_up("+z")], frame=0,
-                    labels=[f"original (world_up '{bvh_yup.world_up}')",
-                            "reorient_world_up('+z')"]);
+pybvh.bvhplot.frame(
+    [bvh_yup, bvh_yup.reorient_world_up("+z")],
+    frame=0,
+    labels=[f"original (world_up '{bvh_yup.world_up}')", "reorient_world_up('+z')"],
+);
 
 # %% [markdown]
 # **`reorient_rest_up`** — some files author the rest pose in one convention but the animation in another (pybvh warns on load and trusts the animation). This rewrites the rest pose to match, compensating every joint rotation so the animated joint positions are unchanged to machine precision (printed below). `reorient_rest_forward` is the same idea for the facing axis.
 
 # %%
 import warnings
+
 with warnings.catch_warnings():
-    warnings.simplefilter("ignore")   # test3's rest/animation mismatch warns on load — that mismatch is the point
+    warnings.simplefilter(
+        "ignore"
+    )  # test3's rest/animation mismatch warns on load — that mismatch is the point
     bvh_mixed = pybvh.read_bvh_file(REPO / "bvh_data" / "bvh_test3.bvh")
 bvh_fixedrest = bvh_mixed.reorient_rest_up("+z")
-print("max joint-position change:",
-      np.abs(bvh_mixed.node_positions() - bvh_fixedrest.node_positions()).max())
-pybvh.bvhplot.rest_pose([bvh_mixed, bvh_fixedrest],
-                        labels=["rest pose as authored (up ≠ animation up)",
-                                "reorient_rest_up('+z')"]);
+print(
+    "max joint-position change:",
+    np.abs(bvh_mixed.node_positions() - bvh_fixedrest.node_positions()).max(),
+)
+pybvh.bvhplot.rest_pose(
+    [bvh_mixed, bvh_fixedrest],
+    labels=["rest pose as authored (up ≠ animation up)", "reorient_rest_up('+z')"],
+);
 
 # %% [markdown]
 # ## 3 · Transforms & augmentation
@@ -190,17 +208,22 @@ pybvh.bvhplot.frame([bvh, bvh.mirror()], frame=FRAME, labels=["original", "mirro
 # %%
 pybvh.bvhplot.trajectory(
     [bvh, bvh.rotate_vertical(np.pi / 2), bvh.translate_root([50, 0, 0])],
-    labels=["original", "rotate_vertical(π/2)", "translate_root(+50 x)"]);
+    labels=["original", "rotate_vertical(π/2)", "translate_root(+50 x)"],
+);
 
 # %% [markdown]
 # **`add_rotation_noise`** — zero-mean Gaussian noise on the joint angles (σ in radians). Calibration on a human skeleton: σ ≈ 0.5° is imperceptible sensor-level noise, ≈ 2° a typical augmentation, ≈ 5° clearly visible, > 10° destructive.
 
 # %%
 pybvh.bvhplot.frame(
-    [bvh,
-     bvh.add_rotation_noise(sigma=np.radians(0.5), rng=np.random.default_rng(42)),
-     bvh.add_rotation_noise(sigma=np.radians(5.0), rng=np.random.default_rng(42))],
-    frame=FRAME, labels=["original", "σ = 0.5°", "σ = 5°"]);
+    [
+        bvh,
+        bvh.add_rotation_noise(sigma=np.radians(0.5), rng=np.random.default_rng(42)),
+        bvh.add_rotation_noise(sigma=np.radians(5.0), rng=np.random.default_rng(42)),
+    ],
+    frame=FRAME,
+    labels=["original", "σ = 0.5°", "σ = 5°"],
+);
 
 # %% [markdown]
 # **`perturb_speed`** — changes how fast the motion plays by resampling (SLERP under the hood). The subtlety worth a figure: it changes the **frame count**, not the frame rate — this 75-frame 30 fps clip at factor 2 becomes ~38 frames, still at 30 fps.
@@ -218,13 +241,18 @@ gp.fig_drop_frames(bvh, bvh.drop_frames(drop_rate=0.5, rng=np.random.default_rng
 # **Composing transforms** — every transform returns a new `Bvh`, so augmentation pipelines chain:
 
 # %%
-augmented = (bvh.mirror()
-                .rotate_vertical(np.pi / 4)
-                .add_rotation_noise(sigma=0.02, rng=np.random.default_rng(42))
-                .perturb_speed(1.1))
-pybvh.bvhplot.frame([bvh, augmented], frame=45,
-                    labels=["original", "mirror → yaw 45° → noise → 1.1× speed"],
-                    camera=(120, 20));
+augmented = (
+    bvh.mirror()
+    .rotate_vertical(np.pi / 4)
+    .add_rotation_noise(sigma=0.02, rng=np.random.default_rng(42))
+    .perturb_speed(1.1)
+)
+pybvh.bvhplot.frame(
+    [bvh, augmented],
+    frame=45,
+    labels=["original", "mirror → yaw 45° → noise → 1.1× speed"],
+    camera=(120, 20),
+);
 
 # %% [markdown]
 # ## 4 · Skeleton & frame ops
@@ -236,11 +264,24 @@ pybvh.bvhplot.frame([bvh, augmented], frame=45,
 
 # %%
 tall = bvh.scale(1.5)
-major = ["Hips", "Spine3", "Head", "RightArm", "RightHand", "LeftArm", "LeftHand",
-         "RightUpLeg", "RightFoot", "LeftUpLeg", "LeftFoot"]
+major = [
+    "Hips",
+    "Spine3",
+    "Head",
+    "RightArm",
+    "RightHand",
+    "LeftArm",
+    "LeftHand",
+    "RightUpLeg",
+    "RightFoot",
+    "LeftUpLeg",
+    "LeftFoot",
+]
 gp.fig_skeleton_ops(
     [bvh, bvh.scale(0.5), tall.retarget(bvh), bvh.extract_joints(major)],
-    ["original", "scale(0.5)", "tall.retarget(bvh)", "extract_joints\n(11 of 24)"], FRAME)
+    ["original", "scale(0.5)", "tall.retarget(bvh)", "extract_joints\n(11 of 24)"],
+    FRAME,
+)
 
 # %% [markdown]
 # **`resample`** — change the frame rate; the new samples are SLERP-interpolated onto the same motion. (Slicing `bvh[10:50]` and concatenation `bvh_a + bvh_b` round out the timeline operations — no figure needed.)
@@ -270,17 +311,19 @@ gp.fig_foot_contacts_signals(walk, feet)
 # **`root_trajectory`** — the root's ground-plane position plus its heading as a (sin, cos) pair: the standard root parameterization in motion-generation pipelines. `bvhplot.trajectory(..., facing_arrows=True)` draws the heading along the path.
 
 # %%
-traj_feats = walk.root_trajectory()          # (F, 4): ground a/b + heading sin/cos
+traj_feats = walk.root_trajectory()  # (F, 4): ground a/b + heading sin/cos
 pybvh.bvhplot.trajectory(walk, facing_arrows=True);
 
 # %% [markdown]
 # **`to_feature_array`** — composes root position, joint rotations (any representation), velocities, and foot contacts into one flat `(F, D)` array; **`feature_array_layout`** reports each block's column slice so downstream code never counts columns. The diagram shows the layout of the exact call below.
 
 # %%
-feat = bvh.to_feature_array(representation="6d",
-                            include_velocities=True, include_foot_contacts=True)
-layout = bvh.feature_array_layout(num_feet=2, representation="6d",
-                                  include_velocities=True, include_foot_contacts=True)
+feat = bvh.to_feature_array(
+    representation="6d", include_velocities=True, include_foot_contacts=True
+)
+layout = bvh.feature_array_layout(
+    num_feet=2, representation="6d", include_velocities=True, include_foot_contacts=True
+)
 gp.fig_feature_layout(layout, feat.shape)
 
 # %% [markdown]
@@ -297,50 +340,62 @@ gp.fig_feature_layout(layout, feat.shape)
 
 # %%
 d = bvh.inter_joint_distance([("RightHand", "LeftHand")])[FRAME, 0]
-gp.fig_inter_joint_distance(bvh, FRAME, "RightHand", "LeftHand", d,
-                            "inter_joint_distance: ‖RightHand − LeftHand‖")
+gp.fig_inter_joint_distance(
+    bvh, FRAME, "RightHand", "LeftHand", d, "inter_joint_distance: ‖RightHand − LeftHand‖"
+)
 
 # %% [markdown]
 # **`joint_angle`** — the angle at a *vertex* joint between its two neighbours. The two red bones meet at the elbow; the orange arc and label show the angle. (Drawn at the most-bent-elbow frame so the angle is unmistakable.)
 
 # %%
 elbow = bvh.joint_angle("RightArm", "RightForeArm", "RightHand", degrees=True)
-fa = int(np.argmin(elbow))                  # most-bent elbow frame
-gp.fig_joint_angle(bvh, fa, "RightArm", "RightForeArm", "RightHand", elbow[fa],
-                   "joint_angle: shoulder–elbow–wrist (the elbow angle)")
+fa = int(np.argmin(elbow))  # most-bent elbow frame
+gp.fig_joint_angle(
+    bvh,
+    fa,
+    "RightArm",
+    "RightForeArm",
+    "RightHand",
+    elbow[fa],
+    "joint_angle: shoulder–elbow–wrist (the elbow angle)",
+)
 
 # %% [markdown]
 # **`segment_axis_angle`** — the angle of a bone relative to a reference axis (here the world up). The blue arrow is "up", the red bone is the segment, the arc is the angle between them.
 
 # %%
 saa = bvh.segment_axis_angle("RightForeArm", "RightHand", degrees=True)[FRAME]
-gp.fig_segment_axis_angle(bvh, FRAME, "RightForeArm", "RightHand", saa,
-                          "segment_axis_angle: forearm vs world-up")
+gp.fig_segment_axis_angle(
+    bvh, FRAME, "RightForeArm", "RightHand", saa, "segment_axis_angle: forearm vs world-up"
+)
 
 # %% [markdown]
 # **`triangle_area`** — the area of the triangle spanned by three joints (a coarse "openness" measure). The shaded triangle is the measured region.
 
 # %%
 area = bvh.triangle_area("Head", "RightHand", "LeftHand")[FRAME]
-gp.fig_triangle_area(bvh, FRAME, "Head", "RightHand", "LeftHand", area,
-                     "triangle_area: Head · RightHand · LeftHand")
+gp.fig_triangle_area(
+    bvh, FRAME, "Head", "RightHand", "LeftHand", area, "triangle_area: Head · RightHand · LeftHand"
+)
 
 # %% [markdown]
 # **`point_to_plane_distance`** & **`point_to_segment_distance`** — signed distance from a point to an infinite plane, and shortest distance to a finite segment (clamped to the endpoints). Shown on a clean synthetic setup so the perpendicular drop is unmistakable.
 
 # %%
-gp.fig_point_to_plane_segment_synthetic()   # didactic illustration on synthetic points (no bvh feature)
+gp.fig_point_to_plane_segment_synthetic()  # didactic illustration on synthetic points (no bvh feature)
 
 # %% [markdown]
 # **On the skeleton.** The same two distances become useful motion features: `point_to_plane_distance` to the ground gives a foot's **clearance** (how high it is lifted off the floor), and `point_to_segment_distance` to a body axis gives how far a hand **reaches** from the torso. Both are drawn on the same pose (the frame where the toe is most lifted), with the red perpendicular as the measured distance.
 
 # %%
 floor = pos[:, :, 2].min()
-kf = int(np.argmax(pos[:, idx("RightToeBase"), 2]))          # most-lifted-toe frame
-clearance = geometry.point_to_plane_distance(pos[kf, idx("RightToeBase")],
-                                             np.array([0, 0, floor]), gp.UP)
-reach = geometry.point_to_segment_distance(pos[kf, idx("RightHand")],
-                                           pos[kf, idx("Hips")], pos[kf, idx("Neck")])
+kf = int(np.argmax(pos[:, idx("RightToeBase"), 2]))  # most-lifted-toe frame
+clearance = geometry.point_to_plane_distance(
+    pos[kf, idx("RightToeBase")], np.array([0, 0, floor]), gp.UP
+)
+reach = geometry.point_to_segment_distance(
+    pos[kf, idx("RightHand")], pos[kf, idx("Hips")], pos[kf, idx("Neck")]
+)
 gp.fig_point_to_plane_segment_skeleton(bvh, kf, clearance, reach)
 
 # %% [markdown]
@@ -392,8 +447,9 @@ gif_path = gp.trajectory_trace_gif(bvh, JT)
 # **`path_length`** vs **`directness`** — the blue curve is the actual path (its arc length = `path_length`); the dashed chord is the straight start→end distance. `directness` = chord ÷ path (1 = perfectly straight).
 
 # %%
-gp.fig_path_directness(traj, bvh.path_length(JT), bvh.directness(JT),
-                       f"path_length & directness ({JT})")
+gp.fig_path_directness(
+    traj, bvh.path_length(JT), bvh.directness(JT), f"path_length & directness ({JT})"
+)
 
 # %% [markdown]
 # **`curvature`** — how sharply the path bends (κ = 1 ÷ the radius of the circle that best hugs the path at each point). Drawn by colouring the trajectory: bright = tight turn, dark = nearly straight.
@@ -407,9 +463,9 @@ gp.fig_curvature(traj, kappa, f"curvature along {JT} path")
 
 # %%
 s = np.linspace(0, 6 * np.pi, 600)
-climb_rate = 0.4 * (1 + np.tanh(s - 3 * np.pi)) / 2          # vertical speed: smoothly 0 → 0.4
-z = np.cumsum(climb_rate) * (s[1] - s[0])                    # integrate it: flat, then climbs
-helix = np.stack([np.cos(s), np.sin(s), z], axis=1)          # smooth join → no torsion spike
+climb_rate = 0.4 * (1 + np.tanh(s - 3 * np.pi)) / 2  # vertical speed: smoothly 0 → 0.4
+z = np.cumsum(climb_rate) * (s[1] - s[0])  # integrate it: flat, then climbs
+helix = np.stack([np.cos(s), np.sin(s), z], axis=1)  # smooth join → no torsion spike
 tor = geometry.torsion(helix, s[1] - s[0])
 gp.fig_torsion(helix, tor, "torsion: flat circle → rising helix")
 
@@ -433,14 +489,14 @@ gp.fig_ground_path(bvh, JT, bvh.ground_path(JT))
 # **`pose_distance`** — the Euclidean distance between two whole poses. Computed between *every* pair of frames it gives a self-similarity matrix: with this colormap bright = similar (the diagonal is brightest — every pose matches itself) and dark = dissimilar. Recurring motifs show up as off-diagonal bright streaks.
 
 # %%
-D = geometry.pose_distance(pos[:, None], pos[None, :])      # (F, F) self-similarity
+D = geometry.pose_distance(pos[:, None], pos[None, :])  # (F, F) self-similarity
 gp.fig_pose_distance(D)
 
 # %% [markdown]
 # **`mean_pose_subtract`** — removes the average pose, returning a per-frame, per-joint deviation from it (shape `(F, N, 3)`) — the motion *about* the mean. The figure shows the mean pose (grey skeleton, what gets subtracted) and a single frame's slice of that deviation field (red arrows).
 
 # %%
-resid = geometry.mean_pose_subtract(pos)                    # motion about the mean pose
+resid = geometry.mean_pose_subtract(pos)  # motion about the mean pose
 gp.fig_mean_pose_subtract(bvh, FRAME, resid)
 
 # %% [markdown]
@@ -463,17 +519,20 @@ fs = 1.0 / dt
 # %%
 acc = np.linalg.norm(bvh.node_accelerations()[:, idx(JT)], axis=-1)
 jerk = np.linalg.norm(bvh.node_jerk()[:, idx(JT)], axis=-1)
-gp.fig_jerk_ladder(np.arange(F), speed, acc, jerk, f"{JT}: the velocity → acceleration → jerk ladder")
+gp.fig_jerk_ladder(
+    np.arange(F), speed, acc, jerk, f"{JT}: the velocity → acceleration → jerk ladder"
+)
 
 # %% [markdown]
 # **`smoothness(metric=…)`** scores a *speed profile*; each metric has its own scale and direction (the next cell spells them out). **SPARC** — more negative = less smooth — is the one with a clean geometric picture, so we use it to build intuition here; the others have no natural 2D drawing and are compared as numbers below. *(Synthetic on purpose: smoothness is a contrast metric, so we show a known smooth vs jerky pair.)* **Left:** the two speed profiles (the jerky one's wiggle count is what `number_of_peaks` reports). **Right:** their normalized spectra. SPARC is the *arc length* of this curve: the smooth motion's energy sits entirely at low frequency (a short arc), while the jerky tremor adds a bump at 7 Hz that lengthens the arc — that extra length is its lower SPARC.
 
 # %%
 # -- synthetic data creation --
-FS = 200.0                                           # sampling rate of the synthetic signal
-tt = np.arange(200) / FS                             # one second of samples at FS
-smooth = (tt ** 2 * (1 - tt) ** 2); smooth /= smooth.max()
-jerky = smooth + 0.12 * np.sin(2 * np.pi * 7 * tt)   # a superimposed 7 Hz tremor adds jerk
+FS = 200.0  # sampling rate of the synthetic signal
+tt = np.arange(200) / FS  # one second of samples at FS
+smooth = tt**2 * (1 - tt) ** 2
+smooth /= smooth.max()
+jerky = smooth + 0.12 * np.sin(2 * np.pi * 7 * tt)  # a superimposed 7 Hz tremor adds jerk
 # -- data analysis --
 sparc = [analysis.smoothness(p, FS, metric="sparc") for p in (smooth, jerky)]
 gp.fig_smoothness_profiles(smooth, jerky, sparc, FS)
@@ -482,8 +541,16 @@ gp.fig_smoothness_profiles(smooth, jerky, sparc, FS)
 # **The full `smoothness` family** — every metric scored on the same smooth vs jerky pair through the `smoothness(metric=…)` dispatcher (the call is now shown in the cell). The jerk-based metrics all rate the tremulous motion as less smooth (more negative for SPARC / DLJ / LDLJ, larger for the squared-jerk metrics and the peak count); `speed_metric` captures a different notion (mean-to-peak ratio), so it need not move the same way.
 
 # %%
-metrics = ["sparc", "dimensionless_jerk", "log_dimensionless_jerk", "number_of_peaks",
-           "speed_metric", "integrated_squared_jerk", "mean_squared_jerk", "rms_squared_jerk"]
+metrics = [
+    "sparc",
+    "dimensionless_jerk",
+    "log_dimensionless_jerk",
+    "number_of_peaks",
+    "speed_metric",
+    "integrated_squared_jerk",
+    "mean_squared_jerk",
+    "rms_squared_jerk",
+]
 scores = {m: [analysis.smoothness(p, FS, metric=m) for p in (smooth, jerky)] for m in metrics}
 gp.fig_smoothness_bars(scores)
 
@@ -544,7 +611,7 @@ gp.fig_skeleton_size(bvh, bvh_feet, analysis.skeleton_size(bvh, foot_joints=bvh_
 
 # %%
 t_walk = np.arange(walk.frame_count) * walk.frame_time
-g = walk.gait_parameters(foot_joints=feet)     # feet auto-detected in section 5
+g = walk.gait_parameters(foot_joints=feet)  # feet auto-detected in section 5
 gp.fig_gait(walk, feet, g, t_walk)
 
 # %% [markdown]
@@ -556,7 +623,7 @@ gp.fig_gait(walk, feet, g, t_walk)
 # **`se3_exp` / `se3_log`** — a twist `[ω, v]` (six numbers, rotation first) exponentiates to a 4×4 rigid transform; `se3_log` inverts it exactly (see the inset round-trip). `ω` is an axis-angle vector — here 1.4 rad ≈ 80° about z — and `v` is the twist's *linear generator*, **not** the final translation: the exp map couples it to the ongoing rotation (`d = V(ω)·v`), so the origin of the identity frame (faint) travels along the dashed helix to the black dot at `d ≈ [0.70, 0.59, 0.60]`, where the transformed frame (bold) lands. The grey line is the **true screw axis**.
 
 # %%
-twist = np.array([0.0, 0.0, 1.4, 1.0, 0.0, 0.6])     # ω about z, with translation
+twist = np.array([0.0, 0.0, 1.4, 1.0, 0.0, 0.6])  # ω about z, with translation
 gp.fig_se3_exp(twist)
 
 # %% [markdown]
@@ -566,7 +633,7 @@ gp.fig_se3_exp(twist)
 T0 = np.eye(4)
 T1 = rotations.se3_exp(np.array([0.3, 1.2, 0.6, 2.0, 1.0, 0.5]))
 ts = np.linspace(0, 1, 7)
-frames = rotations.screw_interpolate(T0, T1, ts)     # (7, 4, 4): t=0 → T₀ … t=1 → T₁
+frames = rotations.screw_interpolate(T0, T1, ts)  # (7, 4, 4): t=0 → T₀ … t=1 → T₁
 gp.fig_screw_interpolate(frames, ts)
 
 # %% [markdown]
@@ -584,8 +651,9 @@ gp.fig_relative_transform(bvh, FRAME, twist)
 # %%
 _, rotmats = bvh.to_rotmat()
 root_R = rotmats[:, 0]
-geo = np.degrees(rotations.rotation_geodesic_distance(
-    np.broadcast_to(root_R[0], root_R.shape), root_R))
+geo = np.degrees(
+    rotations.rotation_geodesic_distance(np.broadcast_to(root_R[0], root_R.shape), root_R)
+)
 gp.fig_geodesic(root_R, geo, t)
 
 # %% [markdown]
@@ -597,7 +665,8 @@ gp.fig_geodesic(root_R, geo, t)
 # **`finite_difference`** — the shared derivative operator. On a sine wave, the central and forward differences both track the analytic derivative (cosine); central is symmetric and more accurate.
 
 # %%
-x = np.linspace(0, 4 * np.pi, 200); h = x[1] - x[0]
+x = np.linspace(0, 4 * np.pi, 200)
+h = x[1] - x[0]
 d_central = signal.finite_difference(np.sin(x), h, stencil="central")
 d_forward = signal.finite_difference(np.sin(x), h, stencil="forward")
 gp.fig_finite_difference(x, d_central, d_forward)

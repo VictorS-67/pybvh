@@ -22,21 +22,23 @@
 # This tutorial covers all of `bvhplot`'s capabilities — feature by feature. If you are here to produce a figure for a paper rather than to learn the module, the [Publication Figures](https://victors-67.github.io/pybvh/guide/publication-figures/) guide is the short path: vector export, the sequence still, supplementary video, and the capsule look. **Static plots** (`rest_pose`, `frame`, `sequence`, `trajectory`) always use matplotlib, which is always available. **Video rendering** (`render`) and **interactive playback** (`play`) automatically select the fastest backend available — matplotlib is the universal fallback, but when OpenCV, vedo, or k3d are installed, pybvh uses them transparently. Every function takes a `style=` parameter (covered in its own section below) that controls the whole look — the default is a publication-grade style with a ground plane and per-chain bone colors. The last section of the tutorial details the optional backends and how to install them.
 
 # %%
+# %matplotlib inline
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
-np.set_printoptions(precision=4, suppress=True)
 
 import pybvh
 from pybvh import bvhplot
-# %matplotlib inline
-import matplotlib.pyplot as plt
-from pathlib import Path
+
+np.set_printoptions(precision=4, suppress=True)
 
 REPO_ROOT = Path.cwd().parent if Path.cwd().name == "tutorials" else Path.cwd()
 bvh_folder = REPO_ROOT / "bvh_data"
-output_folder = Path('./output')
+output_folder = Path("./output")
 output_folder.mkdir(exist_ok=True)
 
-bvh = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')
+bvh = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")
 print(bvh)
 
 # %% [markdown]
@@ -92,13 +94,13 @@ plt.show()
 # %%
 # Early frame
 fig, ax = bvh.plot_frame(frame=0)
-ax.set_title('Frame 0: Start of motion')
+ax.set_title("Frame 0: Start of motion")
 plt.show()
 
 # %%
 # Mid-motion frame
 fig, ax = bvh.plot_frame(frame=30)
-ax.set_title('Frame 30: Mid-motion')
+ax.set_title("Frame 30: Mid-motion")
 plt.show()
 
 # %% [markdown]
@@ -117,11 +119,11 @@ plt.show()
 # Compare the same frame from different camera angles
 frame_num = 20
 
-fig, axes = plt.subplots(1, 3, figsize=(15, 4), subplot_kw={'projection': '3d'})
+fig, axes = plt.subplots(1, 3, figsize=(15, 4), subplot_kw={"projection": "3d"})
 
-for ax, angle in zip(axes, ['front', 'side', 'top']):
+for ax, angle in zip(axes, ["front", "side", "top"]):
     bvh.plot_frame(frame=frame_num, camera=angle, ax=ax)
-    ax.set_title(f'Camera: {angle}')
+    ax.set_title(f"Camera: {angle}")
 
 plt.tight_layout()
 plt.show()
@@ -130,7 +132,7 @@ plt.show()
 # Custom angle
 azimuth, elevation = -45, 30
 fig, ax = bvh.plot_frame(frame=20, camera=(azimuth, elevation))
-ax.set_title(f'Custom angle (azimuth={azimuth}°, elevation={elevation}°)')
+ax.set_title(f"Custom angle (azimuth={azimuth}°, elevation={elevation}°)")
 plt.show()
 
 # %% [markdown]
@@ -142,16 +144,16 @@ plt.show()
 
 # %%
 # Load a second skeleton for comparison
-bvh2 = pybvh.read_bvh_file(bvh_folder / 'bvh_test3.bvh')
+bvh2 = pybvh.read_bvh_file(bvh_folder / "bvh_test3.bvh")
 bvh_small = bvh.scale(0.7)
 
-fig, axes = bvhplot.rest_pose([bvh, bvh_small], labels=['Original', 'Scaled 0.7x'])
+fig, axes = bvhplot.rest_pose([bvh, bvh_small], labels=["Original", "Scaled 0.7x"])
 plt.tight_layout()
 plt.show()
 
 # %%
 # Compare the same frame from two different skeletons
-fig, axes = bvhplot.frame([bvh, bvh2], frame=15, labels=['BVH 1', 'BVH 2'])
+fig, axes = bvhplot.frame([bvh, bvh2], frame=15, labels=["BVH 1", "BVH 2"])
 plt.tight_layout()
 plt.show()
 
@@ -165,7 +167,7 @@ plt.show()
 # - `'dark'` — the paper look on a near-black background, for slides and project pages.
 
 # %%
-for preset in ['paper', 'debug', 'dark']:
+for preset in ["paper", "debug", "dark"]:
     fig, ax = bvh.plot_frame(frame=30, style=preset)
     ax.set_title(f"style='{preset}'")
 plt.show()
@@ -176,12 +178,14 @@ plt.show()
 # `Style(preset, **overrides)` starts from a preset and replaces any field. The commonly tweaked ones: `floor` (`'solid'`, `'checker'`, `'grid'`, or `None`), `axes` (`'off'` or `'full'`), `bone_width`, `joint_markers`, and `color_mode`. See the `Style` API docs for the full field list.
 
 # %%
-fig, axes = plt.subplots(1, 3, figsize=(16, 5), subplot_kw={'projection': '3d'})
+fig, axes = plt.subplots(1, 3, figsize=(16, 5), subplot_kw={"projection": "3d"})
 
-styles = [bvhplot.Style('paper', floor='checker'),
-          bvhplot.Style('paper', floor=None),
-          bvhplot.Style('paper', axes='full')]
-titles = ["floor='checker'", 'floor=None', "axes='full'"]
+styles = [
+    bvhplot.Style("paper", floor="checker"),
+    bvhplot.Style("paper", floor=None),
+    bvhplot.Style("paper", axes="full"),
+]
+titles = ["floor='checker'", "floor=None", "axes='full'"]
 
 for ax, style, title in zip(axes, styles, titles):
     bvh.plot_frame(frame=30, style=style, ax=ax)
@@ -196,14 +200,18 @@ plt.show()
 # With the default `color_mode='auto'`, a **single skeleton** gets per-chain colors (left limbs warm, right limbs cool — you can tell left from right at a glance), while **side-by-side comparisons** switch to one flat color per skeleton, the standard convention for ground-truth-vs-generated figures. Force either behavior with `color_mode='chains'`, `'skeleton'`, or `'single'`.
 
 # %%
-fig, axes = bvhplot.frame([bvh, bvh.mirror()], frame=30, labels=['original', 'mirror()'])
-plt.suptitle('auto: side-by-side uses per-skeleton palette colors', y=0.98)
+fig, axes = bvhplot.frame([bvh, bvh.mirror()], frame=30, labels=["original", "mirror()"])
+plt.suptitle("auto: side-by-side uses per-skeleton palette colors", y=0.98)
 plt.tight_layout()
 plt.show()
 
 # %%
-fig, axes = bvhplot.frame([bvh, bvh.mirror()], frame=30, labels=['original', 'mirror()'],
-                          style=bvhplot.Style('paper', color_mode='chains'))
+fig, axes = bvhplot.frame(
+    [bvh, bvh.mirror()],
+    frame=30,
+    labels=["original", "mirror()"],
+    style=bvhplot.Style("paper", color_mode="chains"),
+)
 plt.suptitle("color_mode='chains': chain colors everywhere", y=0.98)
 plt.tight_layout()
 plt.show()
@@ -220,14 +228,14 @@ plt.show()
 
 # %%
 # A walking clip makes the offset layout shine (CMU mocap, subject 12)
-walk = pybvh.read_bvh_file(bvh_folder / 'cmu_12_01_walk.bvh')
+walk = pybvh.read_bvh_file(bvh_folder / "cmu_12_01_walk.bvh")
 
 fig, ax = walk.plot_sequence(n_poses=8)
 plt.show()
 
 # %%
 # In-place motion: overlay layout
-fig, ax = bvh.plot_sequence(n_poses=5, layout='overlay')
+fig, ax = bvh.plot_sequence(n_poses=5, layout="overlay")
 plt.show()
 
 # %% [markdown]
@@ -235,7 +243,7 @@ plt.show()
 
 # %%
 fig, ax = walk.plot_sequence(n_poses=6, frames=(200, 450))
-ax.set_title('frames=(200, 450)')
+ax.set_title("frames=(200, 450)")
 plt.show()
 
 # %% [markdown]
@@ -250,9 +258,9 @@ plt.show()
 
 # %%
 # Side-by-side frame plots — axis tick values reveal the centering difference
-fig, axes = plt.subplots(1, 3, figsize=(16, 5), subplot_kw={'projection': '3d'})
+fig, axes = plt.subplots(1, 3, figsize=(16, 5), subplot_kw={"projection": "3d"})
 
-for ax, mode in zip(axes, ['world', 'first', 'skeleton']):
+for ax, mode in zip(axes, ["world", "first", "skeleton"]):
     bvh.plot_frame(frame=30, centered=mode, ax=ax)
     ax.set_title(f'centered="{mode}"')
 
@@ -273,22 +281,22 @@ plt.show()
 
 # %%
 # Absolute trajectory
-fig, ax = bvh.plot_trajectory(centered='world')
-ax.set_title('World trajectory')
+fig, ax = bvh.plot_trajectory(centered="world")
+ax.set_title("World trajectory")
 plt.show()
 
 # %%
 # Relative to first frame
-fig, ax = bvh.plot_trajectory(centered='first')
-ax.set_title('Trajectory relative to frame 0')
+fig, ax = bvh.plot_trajectory(centered="first")
+ax.set_title("Trajectory relative to frame 0")
 plt.show()
 
 # %%
 # Compare multiple trajectories
-bvh2 = pybvh.read_bvh_file(bvh_folder / 'bvh_test2.bvh')
+bvh2 = pybvh.read_bvh_file(bvh_folder / "bvh_test2.bvh")
 
-fig, ax = bvhplot.trajectory([bvh, bvh2], labels=['Motion 1', 'Motion 2'], centered='first')
-ax.set_title('Trajectory comparison')
+fig, ax = bvhplot.trajectory([bvh, bvh2], labels=["Motion 1", "Motion 2"], centered="first")
+ax.set_title("Trajectory comparison")
 plt.show()
 
 # %% [markdown]
@@ -311,25 +319,25 @@ plt.show()
 
 # %% tags=["slow-on-pr"]
 # Export to MP4
-output_path = bvh.render(output_folder / 'bvh_animation.mp4')
-print(f'Animation saved to: {output_path}')
+output_path = bvh.render(output_folder / "bvh_animation.mp4")
+print(f"Animation saved to: {output_path}")
 
 # %% tags=["slow-on-pr"]
 # Export to GIF (smaller file, good for web/README)
-output_path = bvh.render(output_folder / 'bvh_animation.gif', fps=15)
-print(f'GIF saved to: {output_path}')
+output_path = bvh.render(output_folder / "bvh_animation.gif", fps=15)
+print(f"GIF saved to: {output_path}")
 
 # %% [markdown]
 # ## Render options
 
 # %% tags=["slow-on-pr"]
 output_path = bvh.render(
-    output_folder / 'bvh_animation_custom.mp4',
-    camera='side',
+    output_folder / "bvh_animation_custom.mp4",
+    camera="side",
     fps=30,
-    style=bvhplot.Style('paper', axes='full'),
+    style=bvhplot.Style("paper", axes="full"),
 )
-print(f'Animation with options saved to: {output_path}')
+print(f"Animation with options saved to: {output_path}")
 
 # %% [markdown]
 # ## Motion context: ghost trails and trajectory traces
@@ -343,12 +351,12 @@ print(f'Animation with options saved to: {output_path}')
 
 # %% tags=["slow-on-pr"]
 output_path = walk.render(
-    output_folder / 'walk_ghost_trace.mp4',
-    camera='side',
+    output_folder / "walk_ghost_trace.mp4",
+    camera="side",
     ghost=3,
     trajectory=True,
 )
-print(f'Ghost + trace animation saved to: {output_path}')
+print(f"Ghost + trace animation saved to: {output_path}")
 
 # %% [markdown]
 # ## Turntable camera
@@ -356,8 +364,8 @@ print(f'Ghost + trace animation saved to: {output_path}')
 # `camera='turntable'` orbits the camera a full 360° around the skeleton over the clip's duration, starting from the front view — the standard way to show a motion from all sides in one clip:
 
 # %% tags=["slow-on-pr"]
-output_path = bvh.render(output_folder / 'bvh_turntable.mp4', camera='turntable')
-print(f'Turntable animation saved to: {output_path}')
+output_path = bvh.render(output_folder / "bvh_turntable.mp4", camera="turntable")
+print(f"Turntable animation saved to: {output_path}")
 
 # %% [markdown]
 # ## Frame counter
@@ -365,8 +373,8 @@ print(f'Turntable animation saved to: {output_path}')
 # Rendered clips are clean by default — publication output never stamps text on the image. For debugging or review, `frame_counter=True` stamps a `Frame f/F` counter in the corner (OpenCV backend):
 
 # %% tags=["slow-on-pr"]
-output_path = bvh.render(output_folder / 'bvh_counter.mp4', frame_counter=True)
-print(f'Frame-counter animation saved to: {output_path}')
+output_path = bvh.render(output_folder / "bvh_counter.mp4", frame_counter=True)
+print(f"Frame-counter animation saved to: {output_path}")
 
 # %% [markdown]
 # ## Camera tracking: `follow=True`
@@ -388,11 +396,11 @@ print(f'Frame-counter animation saved to: {output_path}')
 # For this particular clip the character doesn't rotate much, so the effect
 # is subtle; try it on a clip where the character turns.
 output_path = bvh.render(
-    output_folder / 'bvh_animation_follow.mp4',
-    camera='front',
+    output_folder / "bvh_animation_follow.mp4",
+    camera="front",
     follow=True,
 )
-print(f'Follow-mode animation saved to: {output_path}')
+print(f"Follow-mode animation saved to: {output_path}")
 
 # %% [markdown]
 # ## Side-by-side video
@@ -402,16 +410,16 @@ print(f'Follow-mode animation saved to: {output_path}')
 # - `'pad'`: pad shorter clips by freezing on their last frame
 
 # %% tags=["slow-on-pr"]
-bvh2 = pybvh.read_bvh_file(bvh_folder / 'bvh_test2.bvh')
+bvh2 = pybvh.read_bvh_file(bvh_folder / "bvh_test2.bvh")
 
 output_path = bvhplot.render(
     [bvh, bvh2],
-    output_folder / 'comparison.mp4',
-    labels=['Original', 'Other skeleton'],
-    sync='pad',
-    match_fps="highest"
+    output_folder / "comparison.mp4",
+    labels=["Original", "Other skeleton"],
+    sync="pad",
+    match_fps="highest",
 )
-print(f'Comparison video saved to: {output_path}')
+print(f"Comparison video saved to: {output_path}")
 
 # %% [markdown]
 # # Interactive playback
@@ -432,8 +440,8 @@ bvh.play()
 
 # %% tags=["skip-execution"]
 # Play multiple skeletons side by side
-bvh2 = pybvh.read_bvh_file(bvh_folder / 'bvh_test2.bvh')
-bvhplot.play([bvh, bvh2], labels=['Motion 1', 'Motion 2'], centered='first', sync="pad")
+bvh2 = pybvh.read_bvh_file(bvh_folder / "bvh_test2.bvh")
+bvhplot.play([bvh, bvh2], labels=["Motion 1", "Motion 2"], centered="first", sync="pad")
 
 # %% [markdown]
 # The previous cell triggers two warnings: the clips have different frame rates (30 fps vs 120 fps) and different world_up conventions (`+z` for Motion 1, `+y` for Motion 2). The cell below addresses both: `reorient_world_up()` aligns the coordinate systems, `match_fps` resamples to a common frame rate, and `sync="pad"` extends the shorter clip rather than truncating the longer one.
@@ -441,11 +449,13 @@ bvhplot.play([bvh, bvh2], labels=['Motion 1', 'Motion 2'], centered='first', syn
 # %% tags=["skip-execution"]
 bvh2_zup = bvh2.reorient_world_up("+z")
 
-bvhplot.play([bvh, bvh2_zup], labels=['Motion 1', 'Motion 2'],
-                    centered='first',
-                    match_fps="highest",
-                    sync="pad"
-                    )
+bvhplot.play(
+    [bvh, bvh2_zup],
+    labels=["Motion 1", "Motion 2"],
+    centered="first",
+    match_fps="highest",
+    sync="pad",
+)
 
 # %% [markdown]
 # # Interactive backends (optional)
@@ -489,7 +499,7 @@ bvhplot.play([bvh, bvh2_zup], labels=['Motion 1', 'Motion 2'],
 # %% tags=["skip-execution"]
 # Requires vedo (pip install pybvh[viewer]) and a desktop session — opens a window,
 # so this will not work on a remote/headless notebook
-bvh.play(backend='vedo', quality='high')
+bvh.play(backend="vedo", quality="high")
 
 # %% [markdown]
 # ## Publication renders with vedo (offscreen)
@@ -499,18 +509,18 @@ bvh.play(backend='vedo', quality='high')
 # `frame(backend='vedo')` returns an `(H, W, 3)` uint8 RGB image array instead of a matplotlib figure — display it with `plt.imshow` or save it directly via `filepath=`:
 
 # %%
-img = bvh.plot_frame(frame=30, backend='vedo', resolution=(1100, 1000))
+img = bvh.plot_frame(frame=30, backend="vedo", resolution=(1100, 1000))
 plt.figure(figsize=(7, 6.4))
 plt.imshow(img)
-plt.axis('off')
+plt.axis("off")
 plt.show()
 
 # %% [markdown]
 # `render(backend='vedo')` exports the same look as a video or GIF. The capsule renders honor `style=` like everything else (presets, floor kinds, chain colors, and the `Style.shadow` toggle); camera motions, ghosts, and traces are not supported on this backend — use OpenCV or matplotlib for those.
 
 # %% tags=["slow-on-pr"]
-output_path = bvh.render(output_folder / 'bvh_capsules.mp4', backend='vedo')
-print(f'Capsule render saved to: {output_path}')
+output_path = bvh.render(output_folder / "bvh_capsules.mp4", backend="vedo")
+print(f"Capsule render saved to: {output_path}")
 
 # %% [markdown]
 # ## Jupyter playback with k3d
@@ -519,7 +529,7 @@ print(f'Capsule render saved to: {output_path}')
 
 # %% tags=["skip-execution"]
 # Requires k3d and a Jupyter session: pip install pybvh[interactive]
-bvh.play(backend='k3d')
+bvh.play(backend="k3d")
 
 # %% [markdown]
 # # Summary

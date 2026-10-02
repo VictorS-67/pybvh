@@ -6,40 +6,44 @@ than matplotlib for video export.
 
 Requires ``opencv-python >= 4.5``.
 """
-from __future__ import annotations
 
-import numpy as np
-import numpy.typing as npt
+from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
+import numpy.typing as npt
+
+from ._colors import bone_colors_255, floor_palette, node_colors_255
+from ._scene import Scene, SkeletonView
 from ._style import (
     GHOST_WIDTH_FACTOR,
     JOINT_DISC_MARGIN_PX,
-    bone_width_px,
-    Style,
+    PALETTE_RGB,
     TRACE_BLEND,
     TRACE_COLOR,
+    Style,
+    bone_width_px,
     ghost_schedule,
-    PALETTE_RGB,
 )
 from ._viewport import Turntable, Viewport, panel_viewports
-from ._scene import Scene, SkeletonView
-from ._colors import bone_colors_255, floor_palette, node_colors_255
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from matplotlib.typing import ColorType
 
 # RGB is canonical in _style; the channel flip for OpenCV's BGR
 # drawing API happens here, at this backend's border.
 PALETTE_BGR = [(b, g, r) for (r, g, b) in PALETTE_RGB]
 
 
-def _to_bgr(color: object) -> tuple[int, int, int]:
+def _to_bgr(color: ColorType) -> tuple[int, int, int]:
     """Any matplotlib-parseable color -> OpenCV BGR uint8 tuple."""
     from matplotlib.colors import to_rgb
-    r, g, b = to_rgb(color)  # type: ignore[arg-type]
+
+    r, g, b = to_rgb(color)
     return (int(b * 255), int(g * 255), int(r * 255))
 
 
@@ -49,8 +53,7 @@ def _blend_bgr(
     alpha: float,
 ) -> tuple[int, int, int]:
     """Emulate alpha compositing (cv2 has none) by pre-blending."""
-    return tuple(int(f * alpha + b * (1.0 - alpha))
-                 for f, b in zip(fg, bg))  # type: ignore[return-value]
+    return tuple(int(f * alpha + b * (1.0 - alpha)) for f, b in zip(fg, bg))  # type: ignore[return-value]
 
 
 def _draw_floor_opencv(
@@ -96,21 +99,18 @@ def _draw_floor_opencv(
     c1 = float(viewport.center[ground[1]])
 
     if style.floor == "solid":
-        face = _blend_bgr(_to_bgr(palette["face"]), bg_bgr,
-                          style.floor_alpha)
-        cv2.fillPoly(img, [project(quad(c0, c1, ext))], face,
-                     lineType=cv2.LINE_AA)
+        face = _blend_bgr(_to_bgr(palette["face"]), bg_bgr, style.floor_alpha)
+        cv2.fillPoly(img, [project(quad(c0, c1, ext))], face, lineType=cv2.LINE_AA)  # type: ignore[list-item]  # mypy reads a list of MatLike as Mat
     elif style.floor == "checker":
         n = 8
         s = ext / n
         shades = [
-            _blend_bgr(_to_bgr(shade), bg_bgr, style.floor_alpha)
-            for shade in palette["checker"]]
+            _blend_bgr(_to_bgr(shade), bg_bgr, style.floor_alpha) for shade in palette["checker"]
+        ]
         for i in range(-n, n):
             for j in range(-n, n):
                 sq = quad(c0 + (i + 0.5) * s, c1 + (j + 0.5) * s, s / 2)
-                cv2.fillPoly(img, [project(sq)], shades[(i + j) % 2],
-                             lineType=cv2.LINE_AA)
+                cv2.fillPoly(img, [project(sq)], shades[(i + j) % 2], lineType=cv2.LINE_AA)  # type: ignore[list-item]  # mypy reads a list of MatLike as Mat
     elif style.floor == "grid":
         color = _blend_bgr(_to_bgr(palette["grid"]), bg_bgr, 0.8)
         n = 10
@@ -126,13 +126,14 @@ def _draw_floor_opencv(
                     seg[0, ground[1]], seg[1, ground[1]] = c1 - ext, c1 + ext
                 seg[:, up] = y
                 p = project(seg)
-                cv2.line(img, tuple(p[0]), tuple(p[1]), color,
-                         max(1, int(px_scale + 0.5)), cv2.LINE_AA)
+                cv2.line(
+                    img, tuple(p[0]), tuple(p[1]), color, max(1, int(px_scale + 0.5)), cv2.LINE_AA
+                )
 
 
 # Extensions this backend can actually write: video containers via
 # cv2.VideoWriter, plus GIF via a dedicated Pillow path.
-_OPENCV_EXTENSIONS = {'.mp4', '.mov', '.avi', '.gif'}
+_OPENCV_EXTENSIONS = {".mp4", ".mov", ".avi", ".gif"}
 
 # Valid values for render(codec=); shared by the OpenCV and vedo sinks.
 VIDEO_CODECS = {"auto", "h264", "mpeg4"}
@@ -157,23 +158,38 @@ class _ViewDrawContext:
         bone_rgb = bone_colors_255(view, style, view_index, n_skeletons)
         self.bone_bgr = [(b, g, r) for (r, g, b) in bone_rgb]
         # node -> BGR dot color for the markers-off (legacy) look
-        node_rgb = node_colors_255(view, style, view_index, n_skeletons,
-                                   bone_rgb)
+        node_rgb = node_colors_255(view, style, view_index, n_skeletons, bone_rgb)
         self.node_bgr = node_rgb[:, ::-1]
         self.joint_bgr = _to_bgr(style.joint_color)
-        self.label_bgr = (self.bone_bgr[0] if self.bone_bgr
-                          else (0, 0, 0))
+        self.label_bgr = self.bone_bgr[0] if self.bone_bgr else (0, 0, 0)
         if ghost > 0:
-            self.ghost_lag, weights = ghost_schedule(
-                style, view.frame_time, ghost)
+            self.ghost_lag, weights = ghost_schedule(style, view.frame_time, ghost)
             self.ghost_bgr = [
-                [_blend_bgr(c, bg_bgr, float(w)) for c in self.bone_bgr]
-                for w in weights]
+                [_blend_bgr(c, bg_bgr, float(w)) for c in self.bone_bgr] for w in weights
+            ]
         if trajectory:
             # Full floored path once; per frame we slice a view of it.
             self.trace_path = viewport.ground_path(view.coords[:, 0])
-            self.trace_bgr = _blend_bgr(
-                _to_bgr(TRACE_COLOR), bg_bgr, TRACE_BLEND)
+            self.trace_bgr = _blend_bgr(_to_bgr(TRACE_COLOR), bg_bgr, TRACE_BLEND)
+
+
+def _painter_order(
+    pose: npt.NDArray[np.floating],
+    bones: npt.NDArray[np.integer],
+    view_matrix: npt.NDArray[np.floating],
+) -> npt.NDArray[np.intp]:
+    """Bone indices of *pose* ordered far-to-near from the camera.
+
+    *pose* is ``(N, 3)`` world coordinates, *bones* ``(B, 2)`` parent
+    and child node indices, *view_matrix* the ``(3, 3)`` world-to-view
+    rotation; the result is ``(B,)`` indices into *bones*.
+
+    cv2 has no depth buffer, so bones are drawn in painter's order:
+    sorted by their midpoint's depth along row 2 of *view_matrix*,
+    which points toward the viewer. The caller passes the frame's own
+    view matrix, since under follow/turntable it changes every frame.
+    """
+    return np.argsort(pose[bones].mean(axis=1) @ view_matrix[2])
 
 
 def _draw_skeletons_on_frame(
@@ -225,6 +241,7 @@ def _draw_skeletons_on_frame(
     # supersampled drawing surfaces scale up with them).
     thickness = bone_width_px(style.bone_width, px_scale)
     thin = max(1, int(px_scale + 0.5))
+    panel_size = (panel_w, h)
 
     for s, view in enumerate(scene.views):
         ctx = contexts[s]
@@ -242,73 +259,78 @@ def _draw_skeletons_on_frame(
 
         if style.floor is not None:
             _draw_floor_opencv(
-                canvas, style, viewport, frame_idx, panel_w, h, 0,
-                bg_bgr, px_scale=px_scale)
-
-        def project(world_pts):
-            return viewport.project(world_pts, (panel_w, h), frame_idx)
+                canvas, style, viewport, frame_idx, panel_w, h, 0, bg_bgr, px_scale=px_scale
+            )
 
         if trajectory and frame_idx > pass_start:
-            path = ctx.trace_path[pass_start:frame_idx + 1]
-            cv2.polylines(canvas, [project(path)], False, ctx.trace_bgr,
-                          thin, cv2.LINE_AA)
+            path = ctx.trace_path[pass_start : frame_idx + 1]
+            path_2d = viewport.project(path, panel_size, frame_idx)
+            cv2.polylines(canvas, [path_2d], False, ctx.trace_bgr, thin, cv2.LINE_AA)  # type: ignore[list-item]  # mypy reads a list of MatLike as Mat
 
-        # Painter's order: cv2 has no depth buffer, so bones draw
-        # far-to-near along the camera direction (view_matrix row 2
-        # points toward the viewer). Recomputed per frame — under
-        # follow/turntable the view matrix changes every frame.
         bones_arr = np.asarray(view.bones, dtype=int)
 
-        def painter_order(pose):
-            return np.argsort(pose[bones_arr].mean(axis=1)
-                              @ view_matrix[2])
-
         if ghost > 0:
-            ghost_thickness = max(
-                1, int(style.bone_width * GHOST_WIDTH_FACTOR
-                       * px_scale + 0.5))
-            for j in reversed(range(ghost)):     # oldest first
+            ghost_thickness = max(1, int(style.bone_width * GHOST_WIDTH_FACTOR * px_scale + 0.5))
+            for j in reversed(range(ghost)):  # oldest first
                 gf = frame_idx - (j + 1) * ctx.ghost_lag
                 if gf < pass_start:
                     continue
-                gpts = project(view.coords[gf])
-                for b in painter_order(view.coords[gf]):
+                gpts = viewport.project(view.coords[gf], panel_size, frame_idx)
+                for b in _painter_order(view.coords[gf], bones_arr, view_matrix):
                     p_idx, c_idx = view.bones[b]
-                    cv2.line(canvas, tuple(gpts[p_idx]),
-                             tuple(gpts[c_idx]), ctx.ghost_bgr[j][b],
-                             ghost_thickness, cv2.LINE_AA)
+                    cv2.line(
+                        canvas,
+                        tuple(gpts[p_idx]),
+                        tuple(gpts[c_idx]),
+                        ctx.ghost_bgr[j][b],
+                        ghost_thickness,
+                        cv2.LINE_AA,
+                    )
 
-        pts_2d = project(frame_data)
+        pts_2d = viewport.project(frame_data, panel_size, frame_idx)
 
-        for b in painter_order(frame_data):
+        for b in _painter_order(frame_data, bones_arr, view_matrix):
             p_idx, c_idx = view.bones[b]
             pt1 = (int(pts_2d[p_idx, 0]), int(pts_2d[p_idx, 1]))
             pt2 = (int(pts_2d[c_idx, 0]), int(pts_2d[c_idx, 1]))
-            cv2.line(canvas, pt1, pt2, ctx.bone_bgr[b], thickness,
-                     cv2.LINE_AA)
+            cv2.line(canvas, pt1, pt2, ctx.bone_bgr[b], thickness, cv2.LINE_AA)
 
         if style.joint_markers:
             for pt in pts_2d:
-                cv2.circle(canvas, (int(pt[0]), int(pt[1])),
-                           thickness + JOINT_DISC_MARGIN_PX, ctx.joint_bgr,
-                           -1, cv2.LINE_AA)
+                cv2.circle(
+                    canvas,
+                    (int(pt[0]), int(pt[1])),
+                    thickness + JOINT_DISC_MARGIN_PX,
+                    ctx.joint_bgr,
+                    -1,
+                    cv2.LINE_AA,
+                )
         else:
             for j, pt in enumerate(pts_2d):
-                cv2.circle(canvas, (int(pt[0]), int(pt[1])),
-                           thickness + 1,
-                           tuple(int(c) for c in ctx.node_bgr[j]), -1,
-                           cv2.LINE_AA)
+                cv2.circle(
+                    canvas,
+                    (int(pt[0]), int(pt[1])),
+                    thickness + 1,
+                    tuple(int(c) for c in ctx.node_bgr[j]),
+                    -1,
+                    cv2.LINE_AA,
+                )
 
         if view.label is not None:
             cv2.putText(
-                canvas, view.label,
+                canvas,
+                view.label,
                 (int(15 * px_scale), int(35 * px_scale)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8 * px_scale, ctx.label_bgr,
-                max(1, int(2 * px_scale + 0.5)), cv2.LINE_AA)
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8 * px_scale,
+                ctx.label_bgr,
+                max(1, int(2 * px_scale + 0.5)),
+                cv2.LINE_AA,
+            )
 
         if n_skeletons > 1:
             x0 = s * panel_w
-            img[:, x0:x0 + panel_w] = canvas
+            img[:, x0 : x0 + panel_w] = canvas
 
     if n_skeletons > 1:
         for s in range(1, n_skeletons):
@@ -352,6 +374,13 @@ def _generate_frames(
         Draw a ``Frame f/F`` counter in the bottom-right corner.
         Default ``False`` (opt-in — publication output never stamps
         text).
+    ghost : int, optional
+        Number of faded trailing poses behind each live skeleton,
+        spaced by ``style.ghost_spacing`` seconds of clip time. Default
+        0, none.
+    trajectory : bool, optional
+        Draw each root's trace on the floor, growing with playback.
+        Default ``False``.
     """
     import cv2
 
@@ -375,23 +404,32 @@ def _generate_frames(
     # Orthographic whatever the style asks: this backend has no
     # perspective projection, and says so to the viewport.
     viewports = panel_viewports(
-        scene.views, framing="clip", motion=motion, projection="ortho",
-        fps=fps)
+        scene.views, framing="clip", motion=motion, projection="ortho", fps=fps
+    )
 
     contexts = [
-        _ViewDrawContext(v, viewports[s], style, s, n_skeletons, bg_bgr,
-                         ghost, trajectory)
-        for s, v in enumerate(scene.views)]
+        _ViewDrawContext(v, viewports[s], style, s, n_skeletons, bg_bgr, ghost, trajectory)
+        for s, v in enumerate(scene.views)
+    ]
 
     for f in range(num_frames):
         img = np.empty((draw_h, draw_w, 3), dtype=np.uint8)
         img[:] = bg_bgr
 
         _draw_skeletons_on_frame(
-            img, f, scene, style, viewports, contexts, panel_w,
-            draw_h, bg_bgr,
+            img,
+            f,
+            scene,
+            style,
+            viewports,
+            contexts,
+            panel_w,
+            draw_h,
+            bg_bgr,
             px_scale=px_scale,
-            ghost=ghost, trajectory=trajectory)
+            ghost=ghost,
+            trajectory=trajectory,
+        )
 
         if ss > 1:
             img = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
@@ -403,16 +441,21 @@ def _generate_frames(
             fc_text = f"Frame {clip_frame}/{scene.pass_length - 1}"
             fc_x = max(5, w - 200)
             cv2.putText(
-                img, fc_text,
+                img,
+                fc_text,
                 (fc_x, h - 15),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1,
-                cv2.LINE_AA)
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (150, 150, 150),
+                1,
+                cv2.LINE_AA,
+            )
 
         if style.axes == "full":
             for s, viewport in enumerate(viewports):
                 _draw_axis_indicator(
-                    img, viewport.view_matrix(f), viewport.up_axis,
-                    panel_w // ss, h, panel_idx=s)
+                    img, viewport.view_matrix(f), viewport.up_axis, panel_w // ss, h, panel_idx=s
+                )
 
         yield img
 
@@ -458,6 +501,12 @@ def render_opencv(
         ``"fixed"`` (default), ``"turntable"``, ``"follow"`` or a
         :class:`~._viewport.Turntable`, handed to the viewport
         untouched.
+    frame_counter, ghost, trajectory : optional
+        Passed to :func:`_generate_frames`, which documents them.
+    codec : str, optional
+        ``"auto"`` (default), ``"h264"`` or ``"mpeg4"``, as
+        :func:`pybvh.bvhplot.render` documents. Read for video output
+        only: a GIF is written by Pillow whatever the codec.
 
     Returns
     -------
@@ -475,14 +524,22 @@ def render_opencv(
         raise ValueError(
             f"The OpenCV backend cannot write {ext!r} files. "
             f"Supported extensions: {sorted(_OPENCV_EXTENSIONS)}. "
-            f"Use backend='matplotlib' for other formats.")
+            f"Use backend='matplotlib' for other formats."
+        )
 
     frames = _generate_frames(
-        scene, style, resolution, motion=motion, fps=fps,
-        frame_counter=frame_counter, ghost=ghost, trajectory=trajectory)
+        scene,
+        style,
+        resolution,
+        motion=motion,
+        fps=fps,
+        frame_counter=frame_counter,
+        ghost=ghost,
+        trajectory=trajectory,
+    )
 
     # Pillow sink for GIF output (cv2.VideoWriter doesn't support GIF).
-    if ext == '.gif':
+    if ext == ".gif":
         return _render_gif(frames, filepath, fps)
 
     writer = _open_writer(filepath, fps, resolution, codec)
@@ -513,13 +570,34 @@ class _FfmpegPipeWriter:
         w, h = resolution
         self._frame_bytes = w * h * 3
         self._proc = subprocess.Popen(
-            ["ffmpeg", "-y", "-loglevel", "error",
-             "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}",
-             "-r", f"{fps}", "-i", "-",
-             "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
-             "-c:v", "libx264", "-pix_fmt", "yuv420p",
-             "-movflags", "+faststart", str(filepath)],
-            stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+            [
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "bgr24",
+                "-s",
+                f"{w}x{h}",
+                "-r",
+                f"{fps}",
+                "-i",
+                "-",
+                "-vf",
+                "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+                str(filepath),
+            ],
+            stdin=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
     def write(self, frame: npt.NDArray[np.uint8]) -> None:
         assert self._proc.stdin is not None
@@ -532,8 +610,8 @@ class _FfmpegPipeWriter:
         code = self._proc.wait()
         if code != 0:
             raise RuntimeError(
-                f"ffmpeg exited with code {code} while encoding: "
-                f"{err.strip()[:500]}")
+                f"ffmpeg exited with code {code} while encoding: {err.strip()[:500]}"
+            )
 
 
 def _open_writer(
@@ -553,8 +631,7 @@ def _open_writer(
     import shutil
 
     if codec not in VIDEO_CODECS:
-        raise ValueError(
-            f"Unknown codec {codec!r}. Choose from: {sorted(VIDEO_CODECS)}")
+        raise ValueError(f"Unknown codec {codec!r}. Choose from: {sorted(VIDEO_CODECS)}")
     have_ffmpeg = shutil.which("ffmpeg") is not None
     if codec == "h264" and not have_ffmpeg:
         raise RuntimeError(
@@ -562,13 +639,14 @@ def _open_writer(
             "OpenCV cannot encode H.264 itself. Install ffmpeg (e.g. "
             "apt install ffmpeg / conda install ffmpeg), or use "
             "codec='mpeg4' (plays in desktop players such as VLC, but "
-            "not in browsers or VSCode).")
+            "not in browsers or VSCode)."
+        )
     if have_ffmpeg and codec in ("auto", "h264"):
         return _FfmpegPipeWriter(filepath, fps, resolution)
 
     import cv2
 
-    codecs = ['mp4v', 'XVID']
+    codecs = ["mp4v", "XVID"]
     for fourcc_name in codecs:
         fourcc = cv2.VideoWriter_fourcc(*fourcc_name)  # type: ignore[attr-defined]
         writer = cv2.VideoWriter(str(filepath), fourcc, fps, resolution)
@@ -577,7 +655,8 @@ def _open_writer(
 
     raise RuntimeError(
         f"Could not open video writer for {filepath}. "
-        f"Tried codecs: {codecs}. Ensure OpenCV has video codec support.")
+        f"Tried codecs: {codecs}. Ensure OpenCV has video codec support."
+    )
 
 
 def _render_gif(
@@ -596,11 +675,8 @@ def _render_gif(
     pil_frames = (Image.fromarray(img[:, :, ::-1]) for img in frames)
     first_frame = next(pil_frames)
     first_frame.save(
-        filepath,
-        save_all=True,
-        append_images=pil_frames,
-        duration=duration_ms,
-        loop=0)
+        filepath, save_all=True, append_images=pil_frames, duration=duration_ms, loop=0
+    )
 
     return filepath
 
@@ -625,20 +701,26 @@ def _draw_axis_indicator(
     axis_len = 30
 
     axis_colors = {
-        'x': (50, 50, 220),    # red
-        'y': (50, 180, 50),    # green
-        'z': (220, 120, 50),   # blue
+        "x": (50, 50, 220),  # red
+        "y": (50, 180, 50),  # green
+        "z": (220, 120, 50),  # blue
     }
 
-    for i, axis_name in enumerate('xyz'):
+    for i, axis_name in enumerate("xyz"):
         direction_3d = np.zeros(3)
         direction_3d[i] = 1.0
         projected = view_matrix @ direction_3d
         end = origin + np.array([projected[0], -projected[1]]) * axis_len
         end = end.astype(int)
 
-        cv2.line(img, tuple(origin), tuple(end),
-                 axis_colors[axis_name], 2, cv2.LINE_AA)
-        cv2.putText(img, axis_name, tuple(end + 3),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.4,
-                    axis_colors[axis_name], 1, cv2.LINE_AA)
+        cv2.line(img, tuple(origin), tuple(end), axis_colors[axis_name], 2, cv2.LINE_AA)
+        cv2.putText(
+            img,
+            axis_name,
+            tuple(end + 3),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.4,
+            axis_colors[axis_name],
+            1,
+            cv2.LINE_AA,
+        )

@@ -7,6 +7,7 @@ leaves a dead entry behind. These tests assert two-way set equality between
 what the markdown documents and what the code actually exposes, and fail
 with the exact member names so the fix is obvious.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -15,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from pybvh.bvh import Bvh
 from pybvh import analysis, rotations
+from pybvh.bvh import Bvh
 
 DOCS_API = Path(__file__).resolve().parent.parent / "docs" / "api"
 
@@ -35,11 +36,11 @@ def _documented(page: str, prefix: str) -> set[str]:
     names: set[str] = set()
     for match in _BLOCK_RE.finditer(text):
         target = match.group(1)
-        if target.startswith(prefix + ".") and "." not in target[len(prefix) + 1:]:
-            names.add(target[len(prefix) + 1:])
+        if target.startswith(prefix + ".") and "." not in target[len(prefix) + 1 :]:
+            names.add(target[len(prefix) + 1 :])
         elif target == prefix:
             # a root block: pick up an explicit `members:` list if present
-            tail = text[match.end():]
+            tail = text[match.end() :]
             members_at = tail.find("members:")
             if members_at != -1:
                 # stop at the first line that is not an indented list item
@@ -50,7 +51,8 @@ def _documented(page: str, prefix: str) -> set[str]:
 
 def _module_public(mod) -> set[str]:
     return {
-        n for n, o in vars(mod).items()
+        n
+        for n, o in vars(mod).items()
         if not n.startswith("_")
         and (inspect.isfunction(o) or inspect.isclass(o))
         and getattr(o, "__module__", "") == mod.__name__
@@ -62,11 +64,9 @@ def _assert_two_way(documented: set[str], actual: set[str], page: str) -> None:
     stale = sorted(documented - actual)
     problems = []
     if undocumented:
-        problems.append(
-            f"public members missing from docs/api/{page}: {undocumented}")
+        problems.append(f"public members missing from docs/api/{page}: {undocumented}")
     if stale:
-        problems.append(
-            f"docs/api/{page} documents members that no longer exist: {stale}")
+        problems.append(f"docs/api/{page} documents members that no longer exist: {stale}")
     assert not problems, "; ".join(problems)
 
 
@@ -76,10 +76,13 @@ def test_bvh_page_covers_every_public_member():
     _assert_two_way(documented, actual, "bvh.md")
 
 
-@pytest.mark.parametrize("page, mod, prefix", [
-    ("analysis.md", analysis, "pybvh.analysis"),
-    ("rotations.md", rotations, "pybvh.rotations"),
-])
+@pytest.mark.parametrize(
+    "page, mod, prefix",
+    [
+        ("analysis.md", analysis, "pybvh.analysis"),
+        ("rotations.md", rotations, "pybvh.rotations"),
+    ],
+)
 def test_module_page_covers_every_public_member(page, mod, prefix):
     documented = _documented(page, prefix)
     _assert_two_way(documented, _module_public(mod), page)

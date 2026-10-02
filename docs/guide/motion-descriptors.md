@@ -1,15 +1,10 @@
 # Motion Descriptors
 
-pybvh computes a layer of **theory-neutral motion descriptors** — geometric and
-dynamic properties measured directly from the motion. They are properties of the
-*data*, not of any particular consumer: a biomechanics researcher, a game
-developer, and an ML engineer all read the same curvature, smoothness, and gait
-numbers. Everything is pure NumPy in and out, so it composes with any framework.
+pybvh computes a layer of **theory-neutral motion descriptors** — geometric and dynamic properties measured directly from the motion. They are properties of the *data*, not of any particular consumer: a biomechanics researcher, a game developer, and an ML engineer all read the same curvature, smoothness, and gait numbers. Everything is pure NumPy in and out, so it composes with any framework.
 
 **Every descriptor on this page is drawn in the [Feature Gallery](../gallery/index.md)** — one figure and one call each; skim it first if you want the visual overview before the prose.
 
-The descriptors live in four modules, mirroring the two halves of the BVH data
-model (rotations and positions) plus their dynamics and the shared signal layer:
+The descriptors live in four modules, mirroring the two halves of the BVH data model (rotations and positions) plus their dynamics and the shared signal layer:
 
 | Module | Owns | Examples |
 |---|---|---|
@@ -20,15 +15,7 @@ model (rotations and positions) plus their dynamics and the shared signal layer:
 
 ## Geometry — what the body traces out
 
-`pybvh.geometry` measures points and trajectories: how far a joint travels
-(`path_length`) and how directly (`directness`); how sharply its path turns
-(`curvature`) and twists out of plane (`torsion`); the size and shape of the
-whole pose (`bounding_box`, `bounding_sphere`, `bounding_ellipsoid`,
-`verticality`); its centre of mass (`center_of_mass`, `com_displacement`); and
-relations between joints (`inter_joint_distance`, `joint_angle`,
-`triangle_area`). Derivative-based kernels share pybvh's one finite-difference
-convention with the velocity ladder (`signal.finite_difference`), so geometry and
-kinematics derivatives stay consistent when you combine them.
+`pybvh.geometry` measures points and trajectories: how far a joint travels (`path_length`) and how directly (`directness`); how sharply its path turns (`curvature`) and twists out of plane (`torsion`); the size and shape of the whole pose (`bounding_box`, `bounding_sphere`, `bounding_ellipsoid`, `verticality`); its centre of mass (`center_of_mass`, `com_displacement`); and relations between joints (`inter_joint_distance`, `joint_angle`, `triangle_area`). Derivative-based kernels share pybvh's one finite-difference convention with the velocity ladder (`signal.finite_difference`), so geometry and kinematics derivatives stay consistent when you combine them.
 
 ## Analysis — how the body moves
 
@@ -36,44 +23,20 @@ kinematics derivatives stay consistent when you combine them.
 
 ## SE(3) — rigid-transform features
 
-`pybvh.rotations` handles rigid transforms alongside its rotation conversions:
-the exp/log maps between 4×4 transforms and se(3) twists `[ω, v]`
-(`se3_exp`/`se3_log`), screw-motion interpolation (the SE(3) analogue of SLERP),
-the segment-to-segment `relative_transform` bridge, and
-`rotation_geodesic_distance`. These are the building blocks for Lie-group
-skeletal features.
+`pybvh.rotations` handles rigid transforms alongside its rotation conversions: the exp/log maps between 4×4 transforms and se(3) twists `[ω, v]` (`se3_exp`/`se3_log`), screw-motion interpolation (the SE(3) analogue of SLERP), the segment-to-segment `relative_transform` bridge, and `rotation_geodesic_distance`. These are the building blocks for Lie-group skeletal features.
 
 ## Array-pure kernels vs `Bvh` methods
 
 Two layers, by design:
 
-- **Array-pure kernels** take plain NumPy arrays and return arrays — all of
-  `pybvh.geometry`, the smoothness functions, the covariance descriptors, and the
-  SE(3) math. A downstream library can call them with no `Bvh` at all.
-- **`Bvh` methods** wrap the primitives that are either skeleton-bound (they need
-  `world_up`, `frame_time`, or foot detection) or common single-joint queries —
-  e.g. `bvh.curvature("RightHand")`, `bvh.bounding_box()`, `bvh.smoothness(joint)`,
-  `bvh.cadence()`. Relational and trajectory methods resolve names in **node
-  space**, so end sites (fingertips, toe tips, head top) are first-class;
-  `range_of_motion` resolves in **joint** space, since rotations exist only on
-  joints. Joints are addressed by **name only** — integer indices raise
-  `TypeError` (they were ambiguous between the two index spaces); resolve with
-  `bvh.index(name, space=...)` and use the array-pure kernels for index-based
-  access. Every descriptor method also accepts pre-computed positions via
-  `coords=` for hot loops (the default path is served by the FK cache anyway).
+- **Array-pure kernels** take plain NumPy arrays and return arrays — all of `pybvh.geometry`, the smoothness functions, the covariance descriptors, and the SE(3) math. A downstream library can call them with no `Bvh` at all.
+- **`Bvh` methods** wrap the primitives that are either skeleton-bound (they need `world_up`, `frame_time`, or foot detection) or common single-joint queries — e.g. `bvh.curvature("RightHand")`, `bvh.bounding_box()`, `bvh.smoothness(joint)`, `bvh.cadence()`. Relational and trajectory methods resolve names in **node space**, so end sites (fingertips, toe tips, head top) are first-class; `range_of_motion` resolves in **joint** space, since rotations exist only on joints. Joints are addressed by **name only** — integer indices raise `TypeError` (they were ambiguous between the two index spaces); resolve with `bvh.index(name, space=...)` and use the array-pure kernels for index-based access. Every descriptor method also accepts pre-computed positions via `coords=` for hot loops (the default path is served by the FK cache anyway).
 
 !!! note "Name-based primitives assume one consistent skeleton"
-    Descriptors addressed by joint name (`inter_joint_distance(pairs)`, foot and
-    centre-of-mass detection) assume every clip shares the same skeleton.
-    Reconciling differing skeletons across a dataset is a harmonization concern
-    (`pybvh.batch.harmonize`; `pybvh.analysis.relative_scale_factor` for size),
-    not a descriptor concern.
+    Descriptors addressed by joint name (`inter_joint_distance(pairs)`, foot and centre-of-mass detection) assume every clip shares the same skeleton. Reconciling differing skeletons across a dataset is a harmonization concern (`pybvh.batch.harmonize`; `pybvh.analysis.relative_scale_factor` for size), not a descriptor concern.
 
 ## See also
 
-- The [Feature Gallery](../gallery/index.md) — every descriptor drawn, one figure
-  and one call each (sections 6-12).
-- The [Motion descriptors tutorial](https://github.com/VictorS-67/pybvh/blob/main/tutorials/8.Motion_descriptors.ipynb)
-  walks through these on a real clip with closed-form sanity checks.
-- API reference: [geometry](../api/geometry.md), [analysis](../api/analysis.md),
-  [rotations](../api/rotations.md), [signal](../api/signal.md).
+- The [Feature Gallery](../gallery/index.md) — every descriptor drawn, one figure and one call each (sections 6-12).
+- The [Motion descriptors tutorial](https://github.com/VictorS-67/pybvh/blob/main/tutorials/8.Motion_descriptors.ipynb) walks through these on a real clip with closed-form sanity checks.
+- API reference: [geometry](../api/geometry.md), [analysis](../api/analysis.md), [rotations](../api/rotations.md), [signal](../api/signal.md).

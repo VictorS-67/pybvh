@@ -4,15 +4,15 @@ the ghost and trace conventions every backend shares.
 Pure data, no plotting library imports; the pieces that need
 matplotlib's color parser live in :mod:`._colors`.
 """
+
 from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ._scene import SkeletonView
@@ -28,12 +28,12 @@ if TYPE_CHECKING:
 
 # Per-skeleton comparison palette (multi-skeleton figures)
 PALETTE_RGB = [
-    (50, 120, 255),   # blue
-    (220, 50, 50),    # red
-    (50, 180, 50),    # green
-    (50, 130, 200),   # teal
-    (200, 100, 50),   # orange
-    (200, 50, 200),   # magenta
+    (50, 120, 255),  # blue
+    (220, 50, 50),  # red
+    (50, 180, 50),  # green
+    (50, 130, 200),  # teal
+    (200, 100, 50),  # orange
+    (200, 50, 200),  # magenta
 ]
 PALETTE_MPL = [(r / 255, g / 255, b / 255) for (r, g, b) in PALETTE_RGB]
 
@@ -229,8 +229,8 @@ class Style:
     def __init__(self, preset: str = "paper", **overrides: object) -> None:
         if preset not in _STYLE_PRESETS:
             raise ValueError(
-                f"Unknown style preset {preset!r}. "
-                f"Choose from: {sorted(_STYLE_PRESETS)}")
+                f"Unknown style preset {preset!r}. Choose from: {sorted(_STYLE_PRESETS)}"
+            )
         self._assign_fields(dict(_STYLE_PRESETS[preset]), overrides)
 
     def _assign_fields(
@@ -243,8 +243,8 @@ class Style:
         unknown = set(overrides) - set(fields)
         if unknown:
             raise TypeError(
-                f"Unknown Style field(s): {sorted(unknown)}. "
-                f"Valid fields: {sorted(fields)}")
+                f"Unknown Style field(s): {sorted(unknown)}. Valid fields: {sorted(fields)}"
+            )
         fields.update(overrides)
         for name, value in fields.items():
             # Copy mutable field values (chain_colors) so no instance
@@ -258,37 +258,32 @@ class Style:
     def _validate(self) -> None:
         if self.color_mode not in _VALID_COLOR_MODES:
             raise ValueError(
-                f"color_mode must be one of {sorted(_VALID_COLOR_MODES)}, "
-                f"got {self.color_mode!r}")
+                f"color_mode must be one of {sorted(_VALID_COLOR_MODES)}, got {self.color_mode!r}"
+            )
         if self.floor not in _VALID_FLOORS:
             raise ValueError(
                 f"floor must be one of "
                 f"{sorted(f for f in _VALID_FLOORS if f)} or None, "
-                f"got {self.floor!r}")
+                f"got {self.floor!r}"
+            )
         if self.axes not in _VALID_AXES:
-            raise ValueError(
-                f"axes must be one of {sorted(_VALID_AXES)}, "
-                f"got {self.axes!r}")
+            raise ValueError(f"axes must be one of {sorted(_VALID_AXES)}, got {self.axes!r}")
         if self.projection not in _VALID_PROJECTIONS:
             raise ValueError(
-                f"projection must be one of {sorted(_VALID_PROJECTIONS)}, "
-                f"got {self.projection!r}")
+                f"projection must be one of {sorted(_VALID_PROJECTIONS)}, got {self.projection!r}"
+            )
         if not self.bone_width > 0:
-            raise ValueError(
-                f"bone_width must be positive, got {self.bone_width}")
+            raise ValueError(f"bone_width must be positive, got {self.bone_width}")
         if not (isinstance(self.supersample, int) and self.supersample >= 1):
-            raise ValueError(
-                f"supersample must be an integer >= 1, "
-                f"got {self.supersample!r}")
+            raise ValueError(f"supersample must be an integer >= 1, got {self.supersample!r}")
         if not self.ghost_spacing > 0:
             raise ValueError(
-                f"ghost_spacing must be positive (seconds), "
-                f"got {self.ghost_spacing!r}")
+                f"ghost_spacing must be positive (seconds), got {self.ghost_spacing!r}"
+            )
 
     def replace(self, **overrides: object) -> Style:
         """A new Style with the given fields changed."""
-        fields = {f.name: getattr(self, f.name)
-                  for f in dataclasses.fields(self)}
+        fields = {f.name: getattr(self, f.name) for f in dataclasses.fields(self)}
         new = object.__new__(Style)
         new._assign_fields(fields, overrides)
         return new
@@ -300,9 +295,7 @@ def resolve_style(style: Style | str) -> Style:
         return style
     if isinstance(style, str):
         return Style(style)
-    raise TypeError(
-        f"style must be a Style or a preset name string, "
-        f"got {type(style).__name__}")
+    raise TypeError(f"style must be a Style or a preset name string, got {type(style).__name__}")
 
 
 def effective_color_mode(style: Style, n_skeletons: int) -> str:
@@ -369,8 +362,7 @@ def bone_colors_for_view(
     # A skeleton with no L/R pairs is all-"spine" in view.bone_chains,
     # i.e. a single dark color (the documented fallback).
     spine = spine_color(style)
-    return [style.chain_colors.get(chain_name, spine)
-            for chain_name in view.bone_chains]
+    return [style.chain_colors.get(chain_name, spine) for chain_name in view.bone_chains]
 
 
 # ---------------------------------------------------------------------------
@@ -397,7 +389,7 @@ def bone_width_px(bone_width: float, px_scale: float = 1.0) -> int:
 # The trace and ghost look must be identical across backends: one
 # render() call, different sinks. These are the single definitions.
 TRACE_COLOR = "#7A8090"
-TRACE_BLEND = 0.9          # blended toward the background at this weight
+TRACE_BLEND = 0.9  # blended toward the background at this weight
 GHOST_WIDTH_FACTOR = 0.75  # ghosts draw thinner than the live skeleton
 
 

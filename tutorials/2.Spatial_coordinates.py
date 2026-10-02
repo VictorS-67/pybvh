@@ -24,17 +24,19 @@
 # pybvh handles this with a single method: `node_positions()`. This tutorial covers how to use it, how to control the coordinate frame, and how to manipulate the skeleton itself.
 
 # %%
+# %matplotlib inline
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
-np.set_printoptions(precision=4, suppress=True)
 
 import pybvh
-# %matplotlib inline
-import matplotlib.pyplot as plt
-from pathlib import Path
+
+np.set_printoptions(precision=4, suppress=True)
 
 REPO_ROOT = Path.cwd().parent if Path.cwd().name == "tutorials" else Path.cwd()
 bvh_folder = REPO_ROOT / "bvh_data"
-bvh = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')
+bvh = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")
 print(bvh)
 
 # %% [markdown]
@@ -66,8 +68,8 @@ print(f"spatial_coord shape: {coords.shape}  — {coords.shape[1]} nodes")
 # Pick the property whose name matches the array you're indexing. For joints that aren't end sites, both dicts contain the name — but they return **different** integers (offset by the number of preceding end sites in the depth-first node walk).
 
 # %%
-hips_idx = bvh.node_index['Hips']
-head_idx = bvh.node_index['Head']
+hips_idx = bvh.node_index["Hips"]
+head_idx = bvh.node_index["Head"]
 
 print(f"Hips 3D position (frame 0): {coords[0, hips_idx]}")
 print(f"Head 3D position (frame 0): {coords[0, head_idx]}")
@@ -148,8 +150,7 @@ print(coords_skel[:5, 0])  # all zeros
 # %%
 small = bvh.scale(0.5)
 
-fig, axes = pybvh.bvhplot.frame([bvh, small], frame=15,
-                                 labels=['Original', 'Scaled 0.5x'])
+fig, axes = pybvh.bvhplot.frame([bvh, small], frame=15, labels=["Original", "Scaled 0.5x"])
 plt.show()
 
 # %%
@@ -171,13 +172,14 @@ tall = bvh.scale(1.5)
 # Now retarget the tall skeleton's motion onto the original body proportions
 retargeted = tall.retarget(bvh)
 
-fig, axes = pybvh.bvhplot.frame([tall, retargeted], frame=15,
-                                 labels=['Tall (1.5x)', 'Retargeted to original'])
+fig, axes = pybvh.bvhplot.frame(
+    [tall, retargeted], frame=15, labels=["Tall (1.5x)", "Retargeted to original"]
+)
 plt.show()
 
 # %%
 # In practice, you'd load a reference skeleton from a file:
-reference = pybvh.read_bvh_file(bvh_folder / 'standard_skeleton.bvh')
+reference = pybvh.read_bvh_file(bvh_folder / "standard_skeleton.bvh")
 normalized = bvh.retarget(reference)
 
 print(f"Original Spine offset:   {bvh.nodes[1].offset}")
@@ -194,16 +196,27 @@ print(f"Normalized Spine offset: {normalized.nodes[1].offset}")
 # %%
 print(f"Original: {bvh.joint_count} joints — {bvh.joint_names}")
 
-major_joints = ['Hips', 'Spine3', 'Head', 'RightArm', 'RightHand',
-                'LeftArm', 'LeftHand', 'RightUpLeg', 'RightFoot',
-                'LeftUpLeg', 'LeftFoot']
+major_joints = [
+    "Hips",
+    "Spine3",
+    "Head",
+    "RightArm",
+    "RightHand",
+    "LeftArm",
+    "LeftHand",
+    "RightUpLeg",
+    "RightFoot",
+    "LeftUpLeg",
+    "LeftFoot",
+]
 
 reduced = bvh.extract_joints(major_joints)
 print(f"Reduced:  {reduced.joint_count} joints — {reduced.joint_names}")
 
 # %%
-fig, axes = pybvh.bvhplot.frame([bvh, reduced], frame=15,
-                                 labels=['Original (24 joints)', 'Reduced (11 joints)'])
+fig, axes = pybvh.bvhplot.frame(
+    [bvh, reduced], frame=15, labels=["Original (24 joints)", "Reduced (11 joints)"]
+)
 plt.show()
 
 # %% [markdown]

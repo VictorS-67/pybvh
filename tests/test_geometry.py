@@ -7,16 +7,17 @@ Also covers the structural invariants from the implementation plan: shape
 sweeps, vectorization over the frame axis (no Python frame loop), the shared
 finite-difference convention, and the nan zero-denominator policy.
 """
+
 import numpy as np
 import pytest
 
 from pybvh import geometry as geo
 from pybvh import signal
 
-
 # ----------------------------------------------------------------
 #  Inter-point relations
 # ----------------------------------------------------------------
+
 
 def test_inter_joint_distance_known():
     pos = np.array([[0.0, 0, 0], [3, 4, 0], [0, 0, 12]])
@@ -36,28 +37,25 @@ def test_inter_joint_distance_vectorizes_over_frames():
 
 def test_joint_angle_right_angle_and_straight():
     o = np.zeros(3)
-    np.testing.assert_allclose(
-        geo.joint_angle([1, 0, 0], o, [0, 1, 0]), np.pi / 2)
-    np.testing.assert_allclose(
-        geo.joint_angle([1, 0, 0], o, [-1, 0, 0]), np.pi)
-    np.testing.assert_allclose(
-        geo.joint_angle([1, 0, 0], o, [0, 1, 0], degrees=True), 90.0)
+    np.testing.assert_allclose(geo.joint_angle([1, 0, 0], o, [0, 1, 0]), np.pi / 2)
+    np.testing.assert_allclose(geo.joint_angle([1, 0, 0], o, [-1, 0, 0]), np.pi)
+    np.testing.assert_allclose(geo.joint_angle([1, 0, 0], o, [0, 1, 0], degrees=True), 90.0)
 
 
 def test_joint_angle_symmetric_in_outer_points():
     rng = np.random.default_rng(2)
     a, v, b = rng.normal(size=(3, 5, 3))
-    np.testing.assert_allclose(
-        geo.joint_angle(a, v, b), geo.joint_angle(b, v, a))
+    np.testing.assert_allclose(geo.joint_angle(a, v, b), geo.joint_angle(b, v, a))
 
 
 def test_joint_angle_shape_sweep():
     o = np.zeros(3)
-    assert np.ndim(geo.joint_angle([1, 0, 0], o, [0, 1, 0])) == 0      # scalar
-    assert geo.joint_angle(np.ones((5, 3)), np.zeros((5, 3)),
-                           np.ones((5, 3))).shape == (5,)
-    assert geo.joint_angle(np.ones((4, 5, 3)), np.zeros((4, 5, 3)),
-                           np.ones((4, 5, 3))).shape == (4, 5)
+    assert np.ndim(geo.joint_angle([1, 0, 0], o, [0, 1, 0])) == 0  # scalar
+    assert geo.joint_angle(np.ones((5, 3)), np.zeros((5, 3)), np.ones((5, 3))).shape == (5,)
+    assert geo.joint_angle(np.ones((4, 5, 3)), np.zeros((4, 5, 3)), np.ones((4, 5, 3))).shape == (
+        4,
+        5,
+    )
 
 
 def test_segment_axis_angle_known():
@@ -68,19 +66,17 @@ def test_segment_axis_angle_known():
 
 
 def test_triangle_area_unit_and_equilateral():
-    np.testing.assert_allclose(
-        geo.triangle_area([0, 0, 0], [1, 0, 0], [0, 1, 0]), 0.5)
+    np.testing.assert_allclose(geo.triangle_area([0, 0, 0], [1, 0, 0], [0, 1, 0]), 0.5)
     s = 2.0
     eq = geo.triangle_area([0, 0, 0], [s, 0, 0], [s / 2, s * np.sqrt(3) / 2, 0])
-    np.testing.assert_allclose(eq, np.sqrt(3) / 4 * s ** 2)
+    np.testing.assert_allclose(eq, np.sqrt(3) / 4 * s**2)
 
 
 def test_point_to_plane_distance_signed_and_abs():
     pp, n = np.zeros(3), np.array([0.0, 0, 1])
     np.testing.assert_allclose(geo.point_to_plane_distance([0, 0, 5], pp, n), 5.0)
     np.testing.assert_allclose(geo.point_to_plane_distance([0, 0, -3], pp, n), -3.0)
-    np.testing.assert_allclose(
-        geo.point_to_plane_distance([0, 0, -3], pp, n, signed=False), 3.0)
+    np.testing.assert_allclose(geo.point_to_plane_distance([0, 0, -3], pp, n, signed=False), 3.0)
 
 
 def test_point_to_segment_distance_interior_and_clamped():
@@ -90,12 +86,14 @@ def test_point_to_segment_distance_interior_and_clamped():
     np.testing.assert_allclose(geo.point_to_segment_distance([2, 0, 0], a, b), 1.0)
     # degenerate segment -> point-to-point
     np.testing.assert_allclose(
-        geo.point_to_segment_distance([3, 4, 0], a, a), np.linalg.norm([4, 4, 0]))
+        geo.point_to_segment_distance([3, 4, 0], a, a), np.linalg.norm([4, 4, 0])
+    )
 
 
 # ----------------------------------------------------------------
 #  Bounding volumes & center of mass
 # ----------------------------------------------------------------
+
 
 def _cube_corners():
     return np.array([[x, y, z] for x in (0.0, 1) for y in (0.0, 1) for z in (0.0, 1)])
@@ -111,8 +109,7 @@ def test_bounding_box_unit_cube():
 
 def test_bounding_sphere_axis_points():
     c, r = np.array([2.0, -1, 3]), 1.5
-    pts = c + r * np.array([[1, 0, 0], [-1, 0, 0], [0, 1, 0],
-                            [0, -1, 0], [0, 0, 1], [0, 0, -1.0]])
+    pts = c + r * np.array([[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1.0]])
     sph = geo.bounding_sphere(pts)
     np.testing.assert_allclose(sph.center, c, atol=1e-9)
     np.testing.assert_allclose(sph.radius, r, atol=1e-9)
@@ -128,8 +125,7 @@ def test_bounding_sphere_encloses_all_points():
 
 def test_bounding_ellipsoid_axis_aligned_box():
     half = np.array([1.0, 2.0, 3.0])
-    corners = np.array([[x, y, z] for x in (-1, 1) for y in (-2, 2)
-                        for z in (-3, 3.0)])
+    corners = np.array([[x, y, z] for x in (-1, 1) for y in (-2, 2) for z in (-3, 3.0)])
     ell = geo.bounding_ellipsoid(corners)
     np.testing.assert_allclose(ell.center, [0, 0, 0], atol=1e-12)
     # Every corner projects to the per-axis maxima simultaneously
@@ -152,8 +148,7 @@ def test_center_of_mass_uniform_and_weighted():
     pts = np.array([[0.0, 0, 0], [2, 0, 0], [0, 2, 0], [0, 0, 2]])
     np.testing.assert_allclose(geo.center_of_mass(pts), [0.5, 0.5, 0.5])
     # all weight on the last point
-    np.testing.assert_allclose(
-        geo.center_of_mass(pts, weights=[0, 0, 0, 1.0]), [0, 0, 2])
+    np.testing.assert_allclose(geo.center_of_mass(pts, weights=[0, 0, 0, 1.0]), [0, 0, 2])
 
 
 def test_center_of_mass_nonpositive_weight_total_raises():
@@ -173,13 +168,11 @@ def test_center_of_mass_negative_individual_weight_allowed():
     pts = np.array([[0.0, 0, 0], [2, 0, 0], [0, 2, 0], [0, 0, 2]])
     weights = np.array([2.0, -1.0, 1.0, 2.0])
     expected = (weights[:, None] * pts).sum(axis=0) / weights.sum()
-    np.testing.assert_allclose(
-        geo.center_of_mass(pts, weights=weights), expected)
+    np.testing.assert_allclose(geo.center_of_mass(pts, weights=weights), expected)
 
 
 def test_com_displacement_known():
-    np.testing.assert_allclose(
-        geo.com_displacement([3.0, 4, 0], [0, 0, 0]), 5.0)
+    np.testing.assert_allclose(geo.com_displacement([3.0, 4, 0], [0, 0, 0]), 5.0)
 
 
 def test_verticality_known_rectangle():
@@ -192,6 +185,7 @@ def test_verticality_known_rectangle():
 # ----------------------------------------------------------------
 #  Trajectory descriptors (closed-form)
 # ----------------------------------------------------------------
+
 
 def test_path_length_straight_and_square():
     line = np.linspace([0, 0, 0], [10, 0, 0], 11)
@@ -243,7 +237,7 @@ def test_torsion_helix_matches_closed_form():
     r, b = 1.0, 0.5
     traj, dt = _helix(2000, r, b, turns=4)
     tau = geo.torsion(traj, dt)
-    expected = b / (r ** 2 + b ** 2)  # = 0.4
+    expected = b / (r**2 + b**2)  # = 0.4
     np.testing.assert_allclose(tau[20:-20], expected, rtol=1e-2)
 
 
@@ -260,13 +254,14 @@ def test_ground_path_square():
     s = 3.0
     traj = np.array([[0, 0, 0], [s, 0, 0], [s, 0, s], [0, 0, s]])
     gp = geo.ground_path(traj, up)
-    np.testing.assert_allclose(gp.area, s ** 2)          # shoelace closes the loop
-    np.testing.assert_allclose(gp.distance, 3 * s)        # open path, 3 segments
+    np.testing.assert_allclose(gp.area, s**2)  # shoelace closes the loop
+    np.testing.assert_allclose(gp.distance, 3 * s)  # open path, 3 segments
 
 
 # ----------------------------------------------------------------
 #  Pose-level ops
 # ----------------------------------------------------------------
+
 
 def test_pose_distance_is_euclidean():
     a = np.zeros((4, 3))
@@ -289,11 +284,10 @@ def test_pose_distance_mpjpe():
     b = a.copy()
     b[2] = [3, 4, 0]
     # one joint off by 5, three exact -> mean per-joint error 5/4
-    np.testing.assert_allclose(
-        geo.pose_distance(a, b, reduction="mpjpe"), 1.25)
+    np.testing.assert_allclose(geo.pose_distance(a, b, reduction="mpjpe"), 1.25)
     # uniform per-joint error: frobenius = sqrt(N) * mpjpe exactly
     c = np.zeros((4, 3))
-    d = np.tile([1.0, 2.0, 2.0], (4, 1))          # every joint off by 3
+    d = np.tile([1.0, 2.0, 2.0], (4, 1))  # every joint off by 3
     np.testing.assert_allclose(geo.pose_distance(c, d, reduction="mpjpe"), 3.0)
     np.testing.assert_allclose(geo.pose_distance(c, d), 2.0 * 3.0)  # sqrt(4)*3
     with pytest.raises(ValueError, match="reduction"):
@@ -305,8 +299,7 @@ def test_pose_distance_mpjpe_vectorizes_over_frames():
     a, b = rng.normal(size=(2, 8, 6, 3))
     out = geo.pose_distance(a, b, reduction="mpjpe")
     assert out.shape == (8,)
-    np.testing.assert_allclose(
-        out[5], geo.pose_distance(a[5], b[5], reduction="mpjpe"))
+    np.testing.assert_allclose(out[5], geo.pose_distance(a[5], b[5], reduction="mpjpe"))
 
 
 def test_mean_pose_subtract_removes_temporal_mean():
@@ -321,8 +314,10 @@ def test_mean_pose_subtract_removes_temporal_mean():
 #  Vectorization over the frame axis (no Python frame loop)
 # ----------------------------------------------------------------
 
-@pytest.mark.parametrize("kernel", ["bounding_box", "bounding_sphere",
-                                    "bounding_ellipsoid", "center_of_mass"])
+
+@pytest.mark.parametrize(
+    "kernel", ["bounding_box", "bounding_sphere", "bounding_ellipsoid", "center_of_mass"]
+)
 def test_pointset_kernels_vectorize_over_frames(kernel):
     rng = np.random.default_rng(6)
     pts = rng.normal(size=(11, 14, 3))  # (F, P, 3)
@@ -342,13 +337,15 @@ def test_pointset_kernels_vectorize_over_frames(kernel):
 #  Shared finite-difference convention
 # ----------------------------------------------------------------
 
+
 def test_finite_difference_central_matches_np_gradient():
     rng = np.random.default_rng(7)
     arr = rng.normal(size=(20, 4, 3))
     dt = 0.0333
     np.testing.assert_allclose(
         signal.finite_difference(arr, dt, stencil="central", pad="edge"),
-        np.gradient(arr, dt, axis=0))
+        np.gradient(arr, dt, axis=0),
+    )
 
 
 def test_finite_difference_forward_formula_and_shapes():
@@ -384,6 +381,7 @@ def test_trajectory_derivative_kernels_reject_bad_args():
 # ----------------------------------------------------------------
 #  Zero-denominator policy -> nan, consistently
 # ----------------------------------------------------------------
+
 
 def test_nan_sentinels_on_degenerate_input():
     stationary = np.zeros((10, 3))

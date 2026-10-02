@@ -32,29 +32,34 @@ Install optional backends::
     pip install pybvh[viewer]       # vedo desktop viewer + renders
     pip install pybvh[all-viz]      # all of the above
 """
+
 from __future__ import annotations
 
 import math
 import warnings
+from pathlib import Path
+from typing import TYPE_CHECKING, Union
 
 import numpy as np
 import numpy.typing as npt
 
-from pathlib import Path
-from typing import TYPE_CHECKING
-
 from .._warnings import user_stacklevel
 from ._from_bvh import (
     as_clip_list,
-    get_skeleton_lines,   # noqa: F401 — re-export (public since 0.5.0)
+    get_skeleton_lines,  # noqa: F401 — re-export (public since 0.5.0)
     make_scene,
     normalize_input,
 )
-from ._style import Style, resolve_style
 from ._scene import Scene, align_frame_counts
+from ._style import Style, resolve_style
 
 __all__ = [
-    "Style", "rest_pose", "frame", "sequence", "render", "play",
+    "Style",
+    "rest_pose",
+    "frame",
+    "sequence",
+    "render",
+    "play",
     "trajectory",
 ]
 
@@ -73,26 +78,25 @@ def _resolve_sample_frames(
         start, stop, step = frames.indices(num_frames)
         if step != 1:
             raise ValueError(
-                "frames slice must have step 1 — n_poses controls the "
-                "sampling density.")
+                "frames slice must have step 1 — n_poses controls the sampling density."
+            )
     elif isinstance(frames, tuple) and len(frames) == 2:
         start, stop = frames
         start = start if start >= 0 else num_frames + start
         stop = stop if stop >= 0 else num_frames + stop
     else:
-        raise TypeError(
-            f"frames must be a slice, a (start, stop) tuple, or None, "
-            f"got {frames!r}")
+        raise TypeError(f"frames must be a slice, a (start, stop) tuple, or None, got {frames!r}")
     if not 0 <= start < stop <= num_frames:
         raise ValueError(
-            f"frames range [{start}, {stop}) is empty or outside the "
-            f"clip's {num_frames} frames.")
-    return np.unique(np.linspace(start, stop - 1, n_poses).round()
-                     .astype(np.intp))
+            f"frames range [{start}, {stop}) is empty or outside the clip's {num_frames} frames."
+        )
+    return np.unique(np.linspace(start, stop - 1, n_poses).round().astype(np.intp))
+
 
 if TYPE_CHECKING:
-    import matplotlib.figure
     import matplotlib.axes
+    import matplotlib.figure
+
     from ..bvh import Bvh
     from ._viewport import Turntable
 
@@ -101,12 +105,14 @@ if TYPE_CHECKING:
 # Backend detection
 # ---------------------------------------------------------------------------
 
+
 def _detect_notebook() -> bool:
     """Check if running inside a Jupyter notebook."""
     try:
-        from IPython import get_ipython  # type: ignore[import-untyped]
+        from IPython import get_ipython
+
         shell = get_ipython().__class__.__name__
-        return shell == 'ZMQInteractiveShell'
+        return shell == "ZMQInteractiveShell"
     except (ImportError, AttributeError):
         return False
 
@@ -115,9 +121,10 @@ def _has_display() -> bool:
     """Check if a display server is available."""
     import os
     import sys
-    if sys.platform in ('darwin', 'win32'):
+
+    if sys.platform in ("darwin", "win32"):
         return True  # macOS/Windows always have a windowing system
-    return bool(os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'))
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
 def _module_importable(name: str) -> bool:
@@ -131,8 +138,8 @@ def _module_importable(name: str) -> bool:
 # Formats only the matplotlib/pillow pipeline can write — OpenCV's
 # VideoWriter handles video containers only (its .gif support is a
 # dedicated pillow-based path inside render_opencv).
-_MPL_ONLY_EXTENSIONS = {'.html', '.webp', '.apng', '.gif'}
-_VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi'}   # containers codec= applies to
+_MPL_ONLY_EXTENSIONS = {".html", ".webp", ".apng", ".gif"}
+_VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi"}  # containers codec= applies to
 
 
 def _resolve_render_backend(requested: str, ext: str) -> str:
@@ -146,9 +153,7 @@ def _resolve_render_backend(requested: str, ext: str) -> str:
     """
     valid = {"auto", "opencv", "matplotlib", "vedo"}
     if requested not in valid:
-        raise ValueError(
-            f"Unknown backend {requested!r}. "
-            f"Choose from: {sorted(valid)}")
+        raise ValueError(f"Unknown backend {requested!r}. Choose from: {sorted(valid)}")
     if requested != "auto":
         return requested
     if ext in _MPL_ONLY_EXTENSIONS:
@@ -162,6 +167,7 @@ def _written_fps(backend_name: str, suffix: str, fps: float) -> float:
     OpenCV and vedo write it as given."""
     if backend_name == "matplotlib":
         from ._matplotlib import written_fps
+
         return written_fps(fps, suffix)
     return fps
 
@@ -226,11 +232,10 @@ def _require_frame_rates(
     if ghost:
         reasons["ghost="] = (
             "ghost= spaces its trailing poses style.ghost_spacing seconds "
-            "apart in each clip's own time")
+            "apart in each clip's own time"
+        )
     if match_fps is not None and len(clips) > 1:
-        reasons["match_fps="] = (
-            f"match_fps={match_fps!r} resamples each clip from its own "
-            f"rate")
+        reasons["match_fps="] = f"match_fps={match_fps!r} resamples each clip from its own rate"
     if reasons:
         options = " and ".join(reasons)
         drop = f"drop {options}"
@@ -240,12 +245,14 @@ def _require_frame_rates(
             f"{entry}() needs every clip's frame rate even when fps= is "
             f"given, because {'; '.join(reasons.values())}; but {subject} "
             f"frame_time 0 (unset). Set bvh.frame_time (or bvh.fps), or "
-            f"{drop}.")
+            f"{drop}."
+        )
     if fps is None:
         raise ValueError(
             f"{entry}() needs a frame rate to time the animation, but "
             f"{subject} frame_time 0 (unset). Set bvh.frame_time (or "
-            f"bvh.fps), or pass fps= to {entry}().")
+            f"bvh.fps), or pass fps= to {entry}()."
+        )
 
 
 def _resolve_play_backend(requested: str) -> tuple[str, int]:
@@ -273,11 +280,13 @@ def _resolve_play_backend(requested: str) -> tuple[str, int]:
     if in_notebook:
         try:
             import k3d  # noqa: F401
+
             return "k3d", 1
         except ImportError:
             pass
         try:
             import cv2  # noqa: F401
+
             return "opencv_notebook", 2
         except ImportError:
             pass
@@ -287,6 +296,7 @@ def _resolve_play_backend(requested: str) -> tuple[str, int]:
     if _has_display():
         try:
             import vedo  # noqa: F401
+
             return "vedo", 1
         except ImportError:
             pass
@@ -300,12 +310,11 @@ _VALID_SYNC = {"truncate", "pad"}
 
 def _validate_sync(sync: str) -> None:
     if sync not in _VALID_SYNC:
-        raise ValueError(
-            f"Unknown sync mode {sync!r}. "
-            f"Choose from: {sorted(_VALID_SYNC)}")
+        raise ValueError(f"Unknown sync mode {sync!r}. Choose from: {sorted(_VALID_SYNC)}")
 
 
 # ---------------------------------------------------------------------------
+
 
 def _match_frame_rates(
     bvh_list: list[Bvh],
@@ -342,7 +351,8 @@ def _match_frame_rates(
         raise ValueError(
             f"match_fps={match_fps!r} resamples each clip from its own "
             f"rate, but {unset_subject} frame_time 0 (unset). Set "
-            f"bvh.frame_time (or bvh.fps), or drop match_fps=.")
+            f"bvh.frame_time (or bvh.fps), or drop match_fps=."
+        )
 
     rates = [1.0 / b.frame_time for b in bvh_list if b.frame_time > 0]
     rates_agree = all(abs(r - rates[0]) < 0.5 for r in rates)
@@ -395,10 +405,10 @@ def _validated_spacing(spacing: float | str) -> float | str:
         spacing_val = float(spacing)
     except (TypeError, ValueError):
         raise ValueError(
-            f"spacing must be 'auto' or a non-negative number, got {spacing!r}")
+            f"spacing must be 'auto' or a non-negative number, got {spacing!r}"
+        ) from None
     if spacing_val < 0:
-        raise ValueError(
-            f"spacing must be non-negative, got {spacing_val}")
+        raise ValueError(f"spacing must be non-negative, got {spacing_val}")
     return spacing_val
 
 
@@ -462,8 +472,8 @@ def _prepare(
     _VALID_CENTERED = {"world", "skeleton", "first"}
     if centered not in _VALID_CENTERED:
         raise ValueError(
-            f"Unknown centered mode {centered!r}. "
-            f"Choose from: {sorted(_VALID_CENTERED)}")
+            f"Unknown centered mode {centered!r}. Choose from: {sorted(_VALID_CENTERED)}"
+        )
 
     bvh_list, coords_list = normalize_input(bvh, frames, centered)
     coords_list = align_frame_counts(coords_list, pad=pad)
@@ -472,11 +482,11 @@ def _prepare(
     # units: FK-computed coords under "world" or "first" centering
     # (first-centering is ground-plane-only since 0.8.0). Root-relative
     # or caller-supplied coords use the min of the coords in use.
-    canonical_floor = (
-        not isinstance(frames, np.ndarray) and centered in ("world", "first"))
+    canonical_floor = not isinstance(frames, np.ndarray) and centered in ("world", "first")
 
     # Which clip frames the coords are: one frame, the whole clip, or
     # none of them when the caller supplied the array.
+    clip_frames: Union[int, slice, None]
     if isinstance(frames, np.ndarray):
         clip_frames = None
     elif isinstance(frames, int):
@@ -485,13 +495,19 @@ def _prepare(
         clip_frames = slice(None)
 
     return make_scene(
-        bvh_list, coords_list, camera, labels,
-        canonical_floor=canonical_floor, clip_frames=clip_frames)
+        bvh_list,
+        coords_list,
+        camera,
+        labels,
+        canonical_floor=canonical_floor,
+        clip_frames=clip_frames,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def rest_pose(
     bvh: Bvh | list[Bvh],
@@ -542,15 +558,12 @@ def rest_pose(
     # same pipeline as frame(), bypassing spatial_coords.
     from ._matplotlib import frame_mpl
 
-    coords_list = [b.rest_pose_positions()[np.newaxis]
-                   for b in clips]
+    coords_list = [b.rest_pose_positions()[np.newaxis] for b in clips]
     # Rest-pose coords put the root at the origin, so the canonical
     # world floor does not apply — the floor is the pose's lowest point.
-    scene = make_scene(clips, coords_list, camera, labels,
-                       canonical_floor=False)
+    scene = make_scene(clips, coords_list, camera, labels, canonical_floor=False)
 
-    return frame_mpl(scene, resolve_style(style),
-                     figsize=figsize, show=show, ax=ax)
+    return frame_mpl(scene, resolve_style(style), figsize=figsize, show=show, ax=ax)
 
 
 def frame(
@@ -570,7 +583,10 @@ def frame(
     ax: matplotlib.axes.Axes | None = None,
     spacing: float | str = "auto",
     match_size: bool = False,
-) -> tuple[matplotlib.figure.Figure, matplotlib.axes.Axes | list[matplotlib.axes.Axes]] | npt.NDArray[np.uint8]:
+) -> (
+    tuple[matplotlib.figure.Figure, matplotlib.axes.Axes | list[matplotlib.axes.Axes]]
+    | npt.NDArray[np.uint8]
+):
     """Plot a static 3D skeleton snapshot.
 
     Parameters
@@ -682,8 +698,8 @@ def frame(
     _VALID_FRAME_BACKENDS = {"matplotlib", "vedo"}
     if backend not in _VALID_FRAME_BACKENDS:
         raise ValueError(
-            f"Unknown backend {backend!r}. "
-            f"Choose from: {sorted(_VALID_FRAME_BACKENDS)}")
+            f"Unknown backend {backend!r}. Choose from: {sorted(_VALID_FRAME_BACKENDS)}"
+        )
     spacing = _validated_spacing(spacing)
 
     frame_spec = coords if coords is not None else frame
@@ -691,28 +707,24 @@ def frame(
 
     if backend == "vedo":
         if not _module_importable("vedo"):
-            raise ImportError(
-                "vedo backend requires vedo. "
-                "Install with: pip install pybvh[viewer]")
+            raise ImportError("vedo backend requires vedo. Install with: pip install pybvh[viewer]")
         from ._vedo_offscreen import frame_vedo
+
         # Only a comparison is arranged, so only it needs its clips'
         # every frame. The still is not cut from that Scene: under
         # "skeleton" its floor would become the clip's, not its pose's.
-        whole_clip = (_prepare(clips, None, centered, camera, labels)
-                      if len(clips) > 1 else None)
+        whole_clip = _prepare(clips, None, centered, camera, labels) if len(clips) > 1 else None
         scene = _arranged_in_one_scene(
-            scene, spacing=spacing, centered=centered, match_size=match_size,
-            measured_on=whole_clip)
-        return frame_vedo(scene, resolve_style(style),
-                          resolution=resolution, filepath=filepath)
+            scene, spacing=spacing, centered=centered, match_size=match_size, measured_on=whole_clip
+        )
+        return frame_vedo(scene, resolve_style(style), resolution=resolution, filepath=filepath)
 
     from ._matplotlib import frame_mpl
+
     style_obj = resolve_style(style)
-    fig, axs = frame_mpl(scene, style_obj,
-                         figsize=figsize, show=show, ax=ax)
+    fig, axs = frame_mpl(scene, style_obj, figsize=figsize, show=show, ax=ax)
     if filepath is not None:
-        fig.savefig(filepath, dpi=style_obj.dpi,
-                    facecolor=fig.get_facecolor())
+        fig.savefig(filepath, dpi=style_obj.dpi, facecolor=fig.get_facecolor())
     return fig, axs
 
 
@@ -775,25 +787,30 @@ def sequence(
     """
     if isinstance(bvh, list):
         raise ValueError(
-            "sequence() takes a single Bvh — multi-skeleton sequence "
-            "figures are not supported.")
+            "sequence() takes a single Bvh — multi-skeleton sequence figures are not supported."
+        )
     _VALID_LAYOUTS = {"offset", "overlay"}
     if layout not in _VALID_LAYOUTS:
-        raise ValueError(
-            f"Unknown layout {layout!r}. "
-            f"Choose from: {sorted(_VALID_LAYOUTS)}")
+        raise ValueError(f"Unknown layout {layout!r}. Choose from: {sorted(_VALID_LAYOUTS)}")
 
     if camera is None:
         camera = "side" if layout == "offset" else "front"
 
     scene = _prepare(bvh, None, centered, camera, None)
-    sample_frames = _resolve_sample_frames(
-        scene.num_frames, n_poses, frames)
+    sample_frames = _resolve_sample_frames(scene.num_frames, n_poses, frames)
 
     from ._matplotlib import sequence_mpl
+
     return sequence_mpl(
-        scene, resolve_style(style), sample_frames, layout,
-        trajectory=trajectory, figsize=figsize, show=show, ax=ax)
+        scene,
+        resolve_style(style),
+        sample_frames,
+        layout,
+        trajectory=trajectory,
+        figsize=figsize,
+        show=show,
+        ax=ax,
+    )
 
 
 def render(
@@ -1015,13 +1032,14 @@ def render(
         raise ValueError(f"ghost must be an integer >= 0, got {ghost!r}")
 
     from ._opencv import VIDEO_CODECS
+
     if codec not in VIDEO_CODECS:
-        raise ValueError(
-            f"Unknown codec {codec!r}. Choose from: {sorted(VIDEO_CODECS)}")
+        raise ValueError(f"Unknown codec {codec!r}. Choose from: {sorted(VIDEO_CODECS)}")
     if codec != "auto" and filepath.suffix.lower() not in _VIDEO_EXTENSIONS:
         raise ValueError(
             f"codec= applies to video containers "
-            f"({sorted(_VIDEO_EXTENSIONS)}), not {filepath.suffix!r}.")
+            f"({sorted(_VIDEO_EXTENSIONS)}), not {filepath.suffix!r}."
+        )
 
     # "turntable" is a camera *motion*, not an angle: orbit from the
     # front view. It overrides follow (both prescribe the azimuth).
@@ -1029,12 +1047,12 @@ def render(
     if turntable_period is not None:
         if not turntable:
             raise ValueError(
-                f"turntable_period= sets the speed of camera='turntable', "
-                f"not of camera={camera!r}.")
+                f"turntable_period= sets the speed of camera='turntable', not of camera={camera!r}."
+            )
         if not (math.isfinite(turntable_period) and turntable_period > 0):
             raise ValueError(
-                f"turntable_period must be a positive number of seconds, "
-                f"got {turntable_period!r}.")
+                f"turntable_period must be a positive number of seconds, got {turntable_period!r}."
+            )
     if turntable:
         camera = "front"
 
@@ -1055,11 +1073,11 @@ def render(
     motion: str | Turntable
     if turntable:
         from ._viewport import Turntable
+
         if turntable_period is None:
             period = float(scene.num_frames)
         else:
-            video_fps = _written_fps(
-                backend_name, filepath.suffix, actual_fps)
+            video_fps = _written_fps(backend_name, filepath.suffix, actual_fps)
             period = turntable_period * video_fps
             if period <= _MIN_TURNTABLE_FRAMES:
                 shortest = _MIN_TURNTABLE_FRAMES / video_fps
@@ -1068,7 +1086,8 @@ def render(
                     f"at {video_fps:g} fps, the rate the video is written "
                     f"at ({_MIN_TURNTABLE_FRAMES} frames), got "
                     f"{turntable_period!r}: a camera turning 180 degrees "
-                    f"or more a frame looks frozen or turning backwards.")
+                    f"or more a frame looks frozen or turning backwards."
+                )
         # Rounded, not ceiled: a period of 360.0000001 frames (a rate
         # read back from a frame time) must not add a 361st frame.
         video_frames = round(period)
@@ -1080,19 +1099,21 @@ def render(
     else:
         motion = "fixed"
 
-    if (backend == "auto" and backend_name == "matplotlib"
-            and filepath.suffix.lower() not in _MPL_ONLY_EXTENSIONS):
+    if (
+        backend == "auto"
+        and backend_name == "matplotlib"
+        and filepath.suffix.lower() not in _MPL_ONLY_EXTENSIONS
+    ):
         warnings.warn(
             "OpenCV not found for fast rendering. "
             "Install with: pip install pybvh[opencv]. "
             "Falling back to matplotlib (slower).",
-            stacklevel=user_stacklevel())
+            stacklevel=user_stacklevel(),
+        )
 
     if backend_name == "vedo":
         if not _module_importable("vedo"):
-            raise ImportError(
-                "vedo backend requires vedo. "
-                "Install with: pip install pybvh[viewer]")
+            raise ImportError("vedo backend requires vedo. Install with: pip install pybvh[viewer]")
         unsupported = []
         if motion != "fixed":
             unsupported.append("follow/turntable cameras")
@@ -1104,38 +1125,54 @@ def render(
             raise ValueError(
                 f"The vedo render backend does not support "
                 f"{', '.join(unsupported)}. Use backend='opencv' or "
-                f"'matplotlib' for those.")
+                f"'matplotlib' for those."
+            )
         from ._vedo_offscreen import render_vedo
+
         scene = _arranged_in_one_scene(
-            scene, spacing=spacing, centered=centered, match_size=match_size)
-        return render_vedo(
-            scene, style_obj, filepath, actual_fps, resolution,
-            codec=codec)
+            scene, spacing=spacing, centered=centered, match_size=match_size
+        )
+        return render_vedo(scene, style_obj, filepath, actual_fps, resolution, codec=codec)
 
     if backend_name == "opencv":
         if not _module_importable("cv2"):
             raise ImportError(
-                "OpenCV backend requires opencv-python. "
-                "Install with: pip install pybvh[opencv]")
+                "OpenCV backend requires opencv-python. Install with: pip install pybvh[opencv]"
+            )
         from ._opencv import render_opencv
+
         return render_opencv(
-            scene, style_obj, filepath, actual_fps, resolution,
+            scene,
+            style_obj,
+            filepath,
+            actual_fps,
+            resolution,
             motion=motion,
             frame_counter=frame_counter,
-            ghost=ghost, trajectory=trajectory, codec=codec)
+            ghost=ghost,
+            trajectory=trajectory,
+            codec=codec,
+        )
 
     else:  # matplotlib
         if codec == "mpeg4":
             raise ValueError(
                 "codec='mpeg4' is only available on the OpenCV and "
                 "vedo backends — the matplotlib backend writes video "
-                "through ffmpeg, which encodes H.264.")
+                "through ffmpeg, which encodes H.264."
+            )
         from ._matplotlib import render_mpl
+
         return render_mpl(
-            scene, style_obj, filepath, actual_fps,
+            scene,
+            style_obj,
+            filepath,
+            actual_fps,
             motion=motion,
             resolution=resolution,
-            ghost=ghost, trajectory=trajectory)
+            ghost=ghost,
+            trajectory=trajectory,
+        )
 
 
 def play(
@@ -1285,26 +1322,24 @@ def play(
 
     valid_backends = {"auto", "k3d", "vedo", "opencv", "matplotlib"}
     if backend not in valid_backends:
-        raise ValueError(
-            f"Unknown backend {backend!r}. "
-            f"Choose from: {sorted(valid_backends)}")
+        raise ValueError(f"Unknown backend {backend!r}. Choose from: {sorted(valid_backends)}")
     if backend == "opencv":
         if not _module_importable("cv2"):
             raise ImportError(
                 "The opencv play backend requires opencv-python. "
-                "Install with: pip install pybvh[opencv]")
+                "Install with: pip install pybvh[opencv]"
+            )
         if not _detect_notebook():
             raise ValueError(
                 "backend='opencv' plays an inline video and only works "
                 "inside a Jupyter notebook. In a script, use "
                 "backend='vedo' (interactive window) or render() to a "
-                "file instead.")
+                "file instead."
+            )
 
     _VALID_QUALITY = {"fast", "high"}
     if quality not in _VALID_QUALITY:
-        raise ValueError(
-            f"Unknown quality {quality!r}. "
-            f"Choose from: {sorted(_VALID_QUALITY)}")
+        raise ValueError(f"Unknown quality {quality!r}. Choose from: {sorted(_VALID_QUALITY)}")
 
     spacing = _validated_spacing(spacing)
     _validate_sync(sync)
@@ -1329,13 +1364,15 @@ def play(
         warnings.warn(
             "No interactive backend (k3d, vedo) found. "
             "Install with: pip install pybvh[interactive]",
-            stacklevel=user_stacklevel())
+            stacklevel=user_stacklevel(),
+        )
     if tier >= 3:
         warnings.warn(
             "OpenCV not found for fast rendering. "
             "Install with: pip install pybvh[opencv]. "
             "Falling back to matplotlib (slow for long clips).",
-            stacklevel=user_stacklevel())
+            stacklevel=user_stacklevel(),
+        )
 
     # --- Subsample to 30fps when fps is auto ---
     # Notebooks (k3d, jshtml) and matplotlib windows can't keep up with
@@ -1343,9 +1380,11 @@ def play(
     # opencv_notebook uses a video player that handles any fps natively.
     # vedo uses persistent actors + timer, handles high fps well.
     _PLAY_MAX_FPS = 30.0
-    if (fps is None
-            and backend_name not in ("opencv_notebook", "vedo")
-            and actual_fps > _PLAY_MAX_FPS):
+    if (
+        fps is None
+        and backend_name not in ("opencv_notebook", "vedo")
+        and actual_fps > _PLAY_MAX_FPS
+    ):
         subsample_step = math.ceil(actual_fps / _PLAY_MAX_FPS)
         scene = scene.subsampled(subsample_step)
         actual_fps = 1.0 / scene.frame_time
@@ -1360,41 +1399,54 @@ def play(
     if backend_name == "k3d":
         try:
             import k3d  # noqa: F401
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "k3d backend requires k3d and ipywidgets. "
-                "Install with: pip install pybvh[interactive]")
+                "Install with: pip install pybvh[interactive]"
+            ) from err
         from ._k3d import play_k3d
-        play_k3d(_arranged_in_one_scene(scene, spacing=spacing,
-                                        centered=centered,
-                                        match_size=match_size),
-                 style_obj, actual_fps)
+
+        play_k3d(
+            _arranged_in_one_scene(
+                scene, spacing=spacing, centered=centered, match_size=match_size
+            ),
+            style_obj,
+            actual_fps,
+        )
         return None
 
     elif backend_name == "vedo":
         try:
             import vedo  # noqa: F401
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
-                "vedo backend requires vedo. "
-                "Install with: pip install pybvh[viewer]")
+                "vedo backend requires vedo. Install with: pip install pybvh[viewer]"
+            ) from err
         from ._vedo import play_vedo
-        play_vedo(_arranged_in_one_scene(scene, spacing=spacing,
-                                         centered=centered,
-                                         match_size=match_size),
-                  style_obj, actual_fps, quality=quality)
+
+        play_vedo(
+            _arranged_in_one_scene(
+                scene, spacing=spacing, centered=centered, match_size=match_size
+            ),
+            style_obj,
+            actual_fps,
+            quality=quality,
+        )
         return None
 
     elif backend_name == "opencv_notebook":
         import tempfile
+
+        from IPython.display import Video, display
+
         from ._opencv import render_opencv
-        from IPython.display import display, Video  # type: ignore[import-untyped]
 
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp_path = Path(tmp.name)
 
-        render_opencv(scene, style_obj, tmp_path, actual_fps, resolution,
-                      frame_counter=frame_counter)
+        render_opencv(
+            scene, style_obj, tmp_path, actual_fps, resolution, frame_counter=frame_counter
+        )
 
         display(Video(str(tmp_path), embed=True, mimetype="video/mp4"))
         tmp_path.unlink(missing_ok=True)
@@ -1402,8 +1454,8 @@ def play(
 
     else:  # matplotlib
         from ._matplotlib import play_mpl
-        play_mpl(scene, style_obj, actual_fps,
-                 in_notebook=_detect_notebook())
+
+        play_mpl(scene, style_obj, actual_fps, in_notebook=_detect_notebook())
         return None
 
 
@@ -1425,6 +1477,12 @@ def trajectory(
     ----------
     bvh : Bvh or list[Bvh]
         One or more BVH objects. Pass a list for overlaid comparison.
+    style : Style or str, optional
+        Visual styling: a preset name (``"paper"``, ``"debug"``,
+        ``"dark"``) or a :class:`Style` instance. Default ``"paper"``.
+        Only its background applies: a trajectory is a 2D data plot
+        whose axes, ticks and grid carry the information, so it keeps
+        them whatever ``style.axes`` says.
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional
@@ -1461,6 +1519,13 @@ def trajectory(
     # trajectory_mpl() computes its own per-skeleton horizontal axes
     # internally (drop each skeleton's own up axis).
     from ._matplotlib import trajectory_mpl
+
     return trajectory_mpl(
-        scene, resolve_style(style), figsize=figsize, show=show, ax=ax,
-        facing_arrows=facing_arrows, tight=tight)
+        scene,
+        resolve_style(style),
+        figsize=figsize,
+        show=show,
+        ax=ax,
+        facing_arrows=facing_arrows,
+        tight=tight,
+    )

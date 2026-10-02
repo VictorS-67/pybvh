@@ -5,8 +5,7 @@
 [![Docs](https://img.shields.io/badge/docs-online-4051b5)](https://victors-67.github.io/pybvh/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/VictorS-67/pybvh/blob/main/LICENSE)
 
-A lightweight Python library for reading, writing, and manipulating BVH motion capture files.
-Built for researchers and developers working with skeletal animation and motion data.
+A lightweight Python library for reading, writing, and manipulating BVH motion capture files. Built for researchers and developers working with skeletal animation and motion data.
 
 ![A skeleton walks in place while one hand's path is traced behind it — pybvh renders motion and extracts analyzable trajectories from it](https://raw.githubusercontent.com/VictorS-67/pybvh/main/docs/assets/hand-trajectory.gif)
 
@@ -118,8 +117,7 @@ Getting figures out of Python and into a paper — vector stills, supplementary 
 
 ## Tutorials
 
-Eight Jupyter notebooks with detailed walkthroughs, from reading your first file to motion descriptors — see the [tutorials page](https://victors-67.github.io/pybvh/tutorials/).
-Each tutorial is committed as a Jupytext-paired `.ipynb` + `.py` so the source is reviewable as plain Python.
+Eight Jupyter notebooks with detailed walkthroughs, from reading your first file to motion descriptors — see the [tutorials page](https://victors-67.github.io/pybvh/tutorials/). Each tutorial is committed as a Jupytext-paired `.ipynb` + `.py` so the source is reviewable as plain Python.
 
 ## Stability and versioning
 

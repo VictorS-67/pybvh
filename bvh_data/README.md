@@ -14,4 +14,12 @@ Source: [mocap.cs.cmu.edu](http://mocap.cs.cmu.edu) · BVH conversion: [cgspeed 
 
 ## Other clips
 
-`bvh_example.bvh`, `bvh_test1.bvh`, `bvh_test2.bvh`, `bvh_test3.bvh`, `standard_skeleton.bvh` are pybvh's own bundled test fixtures — small clips and a reference skeleton exercised by the unit tests and used as the default subject across most of the feature gallery.
+pybvh's own bundled test fixtures: small clips and a reference skeleton exercised by the unit tests and used as the default subject across most of the feature gallery. Each is there for what it has that the others lack:
+
+| File | What it is for |
+|---|---|
+| `bvh_example.bvh` | The tests' default clip: an anger clip from the DIEM-A dataset, Z-up at 30 fps, with four different Euler orders across its joints. |
+| `bvh_test1.bvh` | A byte-identical copy of `bvh_example.bvh`; the tutorials, the gallery, the README's hero animation and several tests load it under this name. |
+| `bvh_test2.bvh` | Y-up at 120 fps, one Euler order (`YXZ`) on every joint, and a root turned so the character faces −Z while its rest pose faces +Z: the regression clip for `camera="front"`. |
+| `bvh_test3.bvh` | A large skeleton (60 joints, mixed Euler orders) whose rest pose is Y-up while its animation is Z-up, so reading it warns that the two disagree: the clip for world-up inference and `reorient_rest_up`. |
+| `standard_skeleton.bvh` | The node names of `bvh_example.bvh` with other bone lengths and one Euler order, as a single frame at rest: the reference skeleton `retarget` maps onto. |

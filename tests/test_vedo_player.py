@@ -199,11 +199,11 @@ class TestPlayerShell:
 
     def test_clean_screenshot_hides_and_restores_ui(self, player, tmp_path):
         out = tmp_path / "shot.png"
-        visible_before = [getattr(a, "actor", a).GetVisibility() for a in player._ui_actors]
+        visible_before = [a.actor.GetVisibility() for a in player._ui_actors]
         fname = player.screenshot(str(out), scale=1)
         assert fname == str(out)
         assert out.exists() and out.stat().st_size > 0
-        visible_after = [getattr(a, "actor", a).GetVisibility() for a in player._ui_actors]
+        visible_after = [a.actor.GetVisibility() for a in player._ui_actors]
         assert visible_before == visible_after
 
     def test_fps_switch_resamples(self, player):

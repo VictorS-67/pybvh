@@ -862,8 +862,8 @@ class _VedoPlayer:
             return fname
 
         hidden = []
-        for actor_obj in self._ui_actors:
-            vtk_actor = getattr(actor_obj, "actor", actor_obj)
+        for text in self._ui_actors:
+            vtk_actor = text.actor
             if vtk_actor.GetVisibility():
                 vtk_actor.SetVisibility(0)
                 hidden.append(vtk_actor)

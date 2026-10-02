@@ -4,3 +4,6 @@
 
 # chore(format): apply ruff format
 c26eaa546be98a300276ae74968475e397fda90b
+
+# refactor(typing): write unions as X | Y now that 3.10 is the floor
+a1c0ce4d14447d07d60dbadc9fa44ae76154c38b

@@ -548,7 +548,9 @@ def _text_box(text2d, renderer, dpi):
     vtk.vtkTextRenderer.GetInstance().GetBoundingBox(
         text2d.mapper.GetTextProperty(), text2d.mapper.GetInput(), corners, dpi
     )
-    x, y = text2d.GetPositionCoordinate().GetComputedDisplayValue(renderer)
+    # .actor is the VTK actor on every vedo the extra allows: the Text2D
+    # itself until vedo 2026, which made Text2D wrap one instead.
+    x, y = text2d.actor.GetPositionCoordinate().GetComputedDisplayValue(renderer)
     return (x + corners[0], x + corners[1], y + corners[2], y + corners[3])
 
 

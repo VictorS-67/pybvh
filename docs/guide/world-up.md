@@ -121,8 +121,7 @@ All of these handle the sign correctly.
 
 ## Reorienting data
 
-The `world_up` setter only changes metadata.  To actually **rewrite the data** so a
-file uses a different coordinate system or rest-pose orientation:
+The `world_up` setter only changes metadata.  To actually **rewrite the data** so a file uses a different coordinate system or rest-pose orientation:
 
 ```python
 # Change the world coordinate system (Z-up -> Y-up)
@@ -135,8 +134,7 @@ bvh_fixed = bvh.reorient_rest_up('+y')  # FK positions unchanged, rest pose rota
 bvh_fwd = bvh.reorient_rest_forward('+z')  # FK positions unchanged
 ```
 
-All three are restricted to axis-aligned rotations (multiples of 90 degrees) for
-lossless transformation.
+All three are restricted to axis-aligned rotations (multiples of 90 degrees) for lossless transformation.
 
 ## Quick reference
 

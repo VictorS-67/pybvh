@@ -50,8 +50,9 @@ print(bvh)
 
 # %%
 joint = "RightHand"
-print(f"{joint}: path length = {bvh.path_length(joint):.2f}, "
-      f"directness = {bvh.directness(joint):.3f}")
+print(
+    f"{joint}: path length = {bvh.path_length(joint):.2f}, directness = {bvh.directness(joint):.3f}"
+)
 
 kappa = bvh.curvature(joint)
 fig, ax = plt.subplots(figsize=(8, 3))
@@ -157,8 +158,10 @@ print(f"double-support fraction = {gait.double_support_fraction:.2f}")
 # %%
 pos_all = bvh.node_positions()
 print(f"path length (coords=) = {bvh.path_length('RightHand', coords=pos_all):.2f}")
-print(f"verticality (coords=) matches: "
-      f"{np.allclose(bvh.verticality(coords=pos_all), bvh.verticality())}")
+print(
+    f"verticality (coords=) matches: "
+    f"{np.allclose(bvh.verticality(coords=pos_all), bvh.verticality())}"
+)
 
 # %% [markdown]
 # # SE(3) rigid-transform math
@@ -167,20 +170,26 @@ print(f"verticality (coords=) matches: "
 
 # %%
 pos = bvh.node_positions()
-def seg(a, b):
-    return np.stack([pos[:, bvh.index(a, space="node")],
-                     pos[:, bvh.index(b, space="node")]], axis=1)  # (F, 2, 3)
 
-relative = rotations.relative_transform(seg("RightArm", "RightForeArm"),
-                                        seg("RightForeArm", "RightHand"))
-twist = rotations.se3_log(relative)                 # (F, 6) = [ω, v]
+
+def seg(a, b):
+    return np.stack(
+        [pos[:, bvh.index(a, space="node")], pos[:, bvh.index(b, space="node")]], axis=1
+    )  # (F, 2, 3)
+
+
+relative = rotations.relative_transform(
+    seg("RightArm", "RightForeArm"), seg("RightForeArm", "RightHand")
+)
+twist = rotations.se3_log(relative)  # (F, 6) = [ω, v]
 elbow_angle = np.degrees(np.linalg.norm(twist[:, :3], axis=-1))
 
 # how far each frame's root orientation has rotated from the first frame
-_, rotmats = bvh.to_rotmat()                         # (F, J, 3, 3)
+_, rotmats = bvh.to_rotmat()  # (F, J, 3, 3)
 root_R = rotmats[:, 0]
-geo = np.degrees(rotations.rotation_geodesic_distance(
-    np.broadcast_to(root_R[0], root_R.shape), root_R))
+geo = np.degrees(
+    rotations.rotation_geodesic_distance(np.broadcast_to(root_R[0], root_R.shape), root_R)
+)
 
 fig, (a1, a2) = plt.subplots(2, 1, figsize=(8, 4), sharex=True)
 a1.plot(t, elbow_angle)

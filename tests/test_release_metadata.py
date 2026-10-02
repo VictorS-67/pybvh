@@ -10,6 +10,7 @@ its heading rendered as a literal ``[0.8.2]`` for two months.
 All checks key off ``pyproject.toml``, which only moves in a release commit,
 so they hold between releases too.
 """
+
 from __future__ import annotations
 
 import re
@@ -32,15 +33,14 @@ def _read(name: str) -> str:
 def _one(pattern: str, text: str, where: str) -> str:
     matches = re.findall(pattern, text, flags=re.MULTILINE)
     assert len(matches) == 1, (
-        f"expected exactly one match for {pattern!r} in {where}, "
-        f"found {len(matches)}")
+        f"expected exactly one match for {pattern!r} in {where}, found {len(matches)}"
+    )
     return matches[0]
 
 
 @pytest.fixture(scope="module")
 def version() -> str:
-    return _one(r'^version\s*=\s*"([^"]+)"', _read("pyproject.toml"),
-                "pyproject.toml")
+    return _one(r'^version\s*=\s*"([^"]+)"', _read("pyproject.toml"), "pyproject.toml")
 
 
 def test_package_reports_the_released_version(version):
@@ -54,26 +54,28 @@ def test_citation_file_matches(version):
 
 def test_readme_bibtex_matches(version):
     readme = _read("README.md")
-    assert _one(r"^\s*version\s*=\s*\{([^}]+)\}", readme,
-                "README.md BibTeX") == version
+    assert _one(r"^\s*version\s*=\s*\{([^}]+)\}", readme, "README.md BibTeX") == version
 
 
 def test_citation_date_is_the_changelog_release_date(version):
     """``date-released`` must be the date the CHANGELOG gives that version."""
     changelog = _read("CHANGELOG.md")
-    released = _one(rf"^## \[{re.escape(version)}\] — (\S+)", changelog,
-                    "CHANGELOG.md heading")
+    released = _one(rf"^## \[{re.escape(version)}\] — (\S+)", changelog, "CHANGELOG.md heading")
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", released), (
         f"CHANGELOG still calls {version} {released!r}, but pyproject.toml "
-        f"already says it is released — date the section in the release commit")
+        f"already says it is released — date the section in the release commit"
+    )
     cff = _read("CITATION.cff")
-    assert _one(r'^date-released:\s*"?([0-9-]+)"?\s*$', cff,
-                "CITATION.cff") == released
+    assert _one(r'^date-released:\s*"?([0-9-]+)"?\s*$', cff, "CITATION.cff") == released
 
 
 def test_changelog_links_the_released_version(version):
     """The heading ``## [x.y.z]`` only renders as a link with a footer entry."""
     changelog = _read("CHANGELOG.md")
-    _one(rf"^\[{re.escape(version)}\]: "
-         rf"https://github\.com/VictorS-67/pybvh/compare/v\S+\.\.\.v"
-         rf"{re.escape(version)}$", changelog, "CHANGELOG.md footer")
+    _one(
+        rf"^\[{re.escape(version)}\]: "
+        rf"https://github\.com/VictorS-67/pybvh/compare/v\S+\.\.\.v"
+        rf"{re.escape(version)}$",
+        changelog,
+        "CHANGELOG.md footer",
+    )

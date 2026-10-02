@@ -7,6 +7,7 @@ constructor rejects every malformed topology that would otherwise produce
 silently wrong geometry, since the train-time caller builds one from arrays
 with no node tree to check itself against.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -33,6 +34,7 @@ def topology(bvh_example):
 # Extraction
 # =============================================================================
 
+
 class TestFromNodes:
     """`FkTopology.from_nodes` / `Bvh.fk_topology` describe the node tree."""
 
@@ -53,9 +55,9 @@ class TestFromNodes:
 
     def test_parent_idx_is_node_edges(self, bvh_example, topology):
         """`node_edges` is the edge-list view of the same parent array."""
-        derived = [(child, int(parent))
-                   for child, parent in enumerate(topology.parent_idx)
-                   if parent >= 0]
+        derived = [
+            (child, int(parent)) for child, parent in enumerate(topology.parent_idx) if parent >= 0
+        ]
         assert derived == bvh_example.node_edges
 
     def test_end_sites_are_exactly_the_negative_joint_idx(self, bvh_example, topology):
@@ -74,28 +76,27 @@ class TestFromNodes:
         """Recomputed per access, so it cannot go stale against the skeleton."""
         before = bvh_example.fk_topology
         scaled = bvh_example.scale(2.0)
-        np.testing.assert_allclose(
-            scaled.fk_topology.offsets, before.offsets * 2.0)
+        np.testing.assert_allclose(scaled.fk_topology.offsets, before.offsets * 2.0)
 
 
 # =============================================================================
 # FK from arrays alone
 # =============================================================================
 
+
 class TestForwardKinematicsFromArrays:
     """A topology reproduces the node-object path exactly."""
 
-    @pytest.mark.parametrize("filename", [
-        "bvh_example.bvh", "cmu_12_01_walk.bvh", "bvh_test3.bvh"])
+    @pytest.mark.parametrize("filename", ["bvh_example.bvh", "cmu_12_01_walk.bvh", "bvh_test3.bvh"])
     def test_matches_the_bvh_path(self, filename):
         """Bit-exact: the array path is the same computation, not an approximation."""
         bvh = read_bvh_file(BVH_DATA / filename)
         result = frames_to_node_positions(
-            bvh.fk_topology, bvh.root_pos, bvh.joint_angles, centered="world")
+            bvh.fk_topology, bvh.root_pos, bvh.joint_angles, centered="world"
+        )
         np.testing.assert_array_equal(result, bvh.node_positions())
 
-    @pytest.mark.parametrize("filename", [
-        "bvh_example.bvh", "cmu_12_01_walk.bvh", "bvh_test3.bvh"])
+    @pytest.mark.parametrize("filename", ["bvh_example.bvh", "cmu_12_01_walk.bvh", "bvh_test3.bvh"])
     def test_matches_the_bvh_path_skeleton_centered(self, filename):
         """Same geometry, but not bit-exact by design.
 
@@ -105,38 +106,47 @@ class TestForwardKinematicsFromArrays:
         """
         bvh = read_bvh_file(BVH_DATA / filename)
         result = frames_to_node_positions(
-            bvh.fk_topology, bvh.root_pos, bvh.joint_angles,
-            centered="skeleton")
-        np.testing.assert_allclose(
-            result, bvh.node_positions(centered="skeleton"), atol=1e-12)
+            bvh.fk_topology, bvh.root_pos, bvh.joint_angles, centered="skeleton"
+        )
+        np.testing.assert_allclose(result, bvh.node_positions(centered="skeleton"), atol=1e-12)
 
     def test_matches_the_node_list_path(self, bvh_example):
         from_nodes = frames_to_node_positions(
-            bvh_example.nodes, bvh_example.root_pos, bvh_example.joint_angles)
+            bvh_example.nodes, bvh_example.root_pos, bvh_example.joint_angles
+        )
         from_arrays = frames_to_node_positions(
-            bvh_example.fk_topology, bvh_example.root_pos,
-            bvh_example.joint_angles)
+            bvh_example.fk_topology, bvh_example.root_pos, bvh_example.joint_angles
+        )
         np.testing.assert_array_equal(from_arrays, from_nodes)
 
     def test_single_frame(self, bvh_example, topology):
         result = frames_to_node_positions(
-            topology, bvh_example.root_pos[0], bvh_example.joint_angles[0])
+            topology, bvh_example.root_pos[0], bvh_example.joint_angles[0]
+        )
         assert result.shape == (len(bvh_example.nodes), 3)
         np.testing.assert_array_equal(result, bvh_example.node_positions(frame=0))
 
     def test_survives_a_serialization_round_trip(self, bvh_example, topology, tmp_path):
         """Every field stores and reloads — the persistence requirement."""
         path = tmp_path / "topology.npz"
-        np.savez(path, offsets=topology.offsets, parent_idx=topology.parent_idx,
-                 joint_idx=topology.joint_idx, euler_orders=topology.euler_orders)
+        np.savez(
+            path,
+            offsets=topology.offsets,
+            parent_idx=topology.parent_idx,
+            joint_idx=topology.joint_idx,
+            euler_orders=topology.euler_orders,
+        )
         loaded = np.load(path)
         rebuilt = FkTopology(
-            loaded["offsets"], loaded["parent_idx"], loaded["joint_idx"],
-            list(loaded["euler_orders"]))
+            loaded["offsets"],
+            loaded["parent_idx"],
+            loaded["joint_idx"],
+            list(loaded["euler_orders"]),
+        )
         np.testing.assert_array_equal(
-            frames_to_node_positions(
-                rebuilt, bvh_example.root_pos, bvh_example.joint_angles),
-            bvh_example.node_positions())
+            frames_to_node_positions(rebuilt, bvh_example.root_pos, bvh_example.joint_angles),
+            bvh_example.node_positions(),
+        )
 
     def test_permuted_joint_columns_need_permuted_orders(self, bvh_example, topology):
         """`euler_orders` is indexed by joint column, not by node.
@@ -154,20 +164,22 @@ class TestForwardKinematicsFromArrays:
         joint_idx[is_joint] = permutation[joint_idx[is_joint]]
         inverse = np.argsort(permutation)
         repacked = topology._replace(
-            joint_idx=joint_idx,
-            euler_orders=[topology.euler_orders[j] for j in inverse])
+            joint_idx=joint_idx, euler_orders=[topology.euler_orders[j] for j in inverse]
+        )
 
         np.testing.assert_allclose(
             frames_to_node_positions(
-                repacked, bvh_example.root_pos,
-                bvh_example.joint_angles[:, inverse]),
-            bvh_example.node_positions(), atol=1e-12)
+                repacked, bvh_example.root_pos, bvh_example.joint_angles[:, inverse]
+            ),
+            bvh_example.node_positions(),
+            atol=1e-12,
+        )
 
     def test_joint_count_mismatch_raises(self, bvh_example, topology):
         with pytest.raises(ValueError, match="but the skeleton declares"):
             frames_to_node_positions(
-                topology, bvh_example.root_pos,
-                bvh_example.joint_angles[:, :-1])
+                topology, bvh_example.root_pos, bvh_example.joint_angles[:, :-1]
+            )
 
     def test_motion_is_required(self, topology):
         with pytest.raises(ValueError, match="must be provided"):
@@ -175,47 +187,54 @@ class TestForwardKinematicsFromArrays:
 
     def test_rejects_other_types(self):
         with pytest.raises(ValueError, match="skeleton must be"):
-            frames_to_node_positions("not a skeleton", np.zeros((1, 3)),
-                                     np.zeros((1, 1, 3)))
+            frames_to_node_positions("not a skeleton", np.zeros((1, 3)), np.zeros((1, 1, 3)))
 
 
 # =============================================================================
 # The up axis for centered="first"
 # =============================================================================
 
+
 class TestFirstCenteringUpAxis:
     """`centered='first'` never guesses a gravity direction."""
 
     def test_bvh_supplies_its_own_world_up(self, bvh_example):
         """A Bvh knows its up axis, so no argument is needed — and '+y' is not assumed."""
-        assert bvh_example.world_up == '+z'
+        assert bvh_example.world_up == "+z"
         np.testing.assert_allclose(
             frames_to_node_positions(bvh_example, centered="first"),
-            bvh_example.node_positions(centered="first"))
+            bvh_example.node_positions(centered="first"),
+        )
 
     def test_topology_without_up_raises(self, bvh_example, topology):
         with pytest.raises(ValueError, match="carries no gravity direction"):
             frames_to_node_positions(
-                topology, bvh_example.root_pos, bvh_example.joint_angles,
-                centered="first")
+                topology, bvh_example.root_pos, bvh_example.joint_angles, centered="first"
+            )
 
     def test_node_list_without_up_raises(self, bvh_example):
         with pytest.raises(ValueError, match="carries no gravity direction"):
             frames_to_node_positions(
-                bvh_example.nodes, bvh_example.root_pos,
-                bvh_example.joint_angles, centered="first")
+                bvh_example.nodes, bvh_example.root_pos, bvh_example.joint_angles, centered="first"
+            )
 
     def test_explicit_up_is_honoured(self, bvh_example, topology):
         np.testing.assert_allclose(
             frames_to_node_positions(
-                topology, bvh_example.root_pos, bvh_example.joint_angles,
-                centered="first", up=bvh_example.world_up),
-            bvh_example.node_positions(centered="first"))
+                topology,
+                bvh_example.root_pos,
+                bvh_example.joint_angles,
+                centered="first",
+                up=bvh_example.world_up,
+            ),
+            bvh_example.node_positions(centered="first"),
+        )
 
 
 # =============================================================================
 # Validation
 # =============================================================================
+
 
 class TestValidation:
     """Every invariant the FK loop relies on is checked at construction."""
@@ -261,7 +280,7 @@ class TestValidation:
 
     def test_euler_order_must_be_a_permutation_of_xyz(self, topology):
         orders = list(topology.euler_orders)
-        orders[2] = 'XXY'
+        orders[2] = "XXY"
         with pytest.raises(ValueError, match="not a permutation"):
             topology._replace(euler_orders=orders)
 
@@ -293,7 +312,8 @@ class TestValidation:
             topology.offsets.astype(np.float32),
             topology.parent_idx.astype(np.int16),
             topology.joint_idx.astype(np.int16),
-            topology.euler_orders)
+            topology.euler_orders,
+        )
         assert rebuilt.offsets.dtype == np.float64
         assert rebuilt.parent_idx.dtype == np.intp
         assert rebuilt.joint_idx.dtype == np.intp

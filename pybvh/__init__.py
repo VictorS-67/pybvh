@@ -9,6 +9,7 @@ namespace re-exports the main entry points; everything else lives in its
 submodule, for example ``rotations``, ``transforms``, ``analysis``,
 ``features`` or ``bvhplot``.
 """
+
 from __future__ import annotations
 
 __version__ = "0.9.0"

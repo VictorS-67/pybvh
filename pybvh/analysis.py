@@ -6,6 +6,7 @@ first argument; thin wrapper methods on the ``Bvh`` class delegate here.
 
 Feature-array export for ML pipelines lives in :mod:`pybvh.features`.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -30,10 +31,10 @@ _EPS = 1e-12
 #  Joint velocities & accelerations
 # ----------------------------------------------------------------
 
+
 def _validate_stencil_pad(stencil: str, pad: str) -> None:
     if stencil not in ("central", "forward"):
-        raise ValueError(
-            f"stencil must be 'central' or 'forward', got {stencil!r}")
+        raise ValueError(f"stencil must be 'central' or 'forward', got {stencil!r}")
     if pad not in ("edge", "none"):
         raise ValueError(f"pad must be 'edge' or 'none', got {pad!r}")
 
@@ -100,7 +101,8 @@ def _validate_node_coords(bvh: Bvh, coords: npt.NDArray[np.float64] | None) -> N
         raise ValueError(
             f"coords must be node-shaped (F, N, 3) with N = {n_nodes} nodes "
             f"(joints + end sites, as returned by Bvh.node_positions()); got "
-            f"{coords.shape}.")
+            f"{coords.shape}."
+        )
 
 
 def node_velocities(
@@ -192,7 +194,8 @@ def node_velocities(
     if not in_frames and bvh.frame_time == 0:
         raise ValueError(
             "frame_time is 0; cannot compute per-second velocity. "
-            "Use in_frames=True for per-frame velocity.")
+            "Use in_frames=True for per-frame velocity."
+        )
 
     if coords is None:
         coords = bvh.node_positions(centered=centered)
@@ -227,8 +230,8 @@ def joint_velocities(
     """
     _validate_node_coords(bvh, coords)
     nv = node_velocities(
-        bvh, centered=centered, in_frames=in_frames, coords=coords,
-        stencil=stencil, pad=pad)
+        bvh, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
+    )
     return nv[:, _non_end_site_indices(bvh), :]
 
 
@@ -311,7 +314,8 @@ def node_accelerations(
     if not in_frames and bvh.frame_time == 0:
         raise ValueError(
             "frame_time is 0; cannot compute per-second acceleration. "
-            "Use in_frames=True for per-frame acceleration.")
+            "Use in_frames=True for per-frame acceleration."
+        )
 
     if coords is None:
         coords = bvh.node_positions(centered=centered)
@@ -346,8 +350,8 @@ def joint_accelerations(
     """
     _validate_node_coords(bvh, coords)
     na = node_accelerations(
-        bvh, centered=centered, in_frames=in_frames, coords=coords,
-        stencil=stencil, pad=pad)
+        bvh, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
+    )
     return na[:, _non_end_site_indices(bvh), :]
 
 
@@ -450,11 +454,12 @@ def node_speed_derivative(
     if not in_frames and bvh.frame_time == 0:
         raise ValueError(
             "frame_time is 0; cannot compute a per-second speed derivative. "
-            "Use in_frames=True for per-frame units.")
+            "Use in_frames=True for per-frame units."
+        )
 
     vel = node_velocities(
-        bvh, centered=centered, in_frames=in_frames, coords=coords,
-        stencil=stencil, pad=pad)
+        bvh, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
+    )
     speed = np.linalg.norm(vel, axis=-1)
     dt = 1.0 if in_frames else bvh.frame_time
     return _finite_difference(speed, dt, 1, stencil, pad)
@@ -487,14 +492,15 @@ def joint_speed_derivative(
     """
     _validate_node_coords(bvh, coords)
     sd = node_speed_derivative(
-        bvh, centered=centered, in_frames=in_frames, coords=coords,
-        stencil=stencil, pad=pad)
+        bvh, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
+    )
     return sd[:, _non_end_site_indices(bvh)]
 
 
 # ----------------------------------------------------------------
 #  Angular velocities
 # ----------------------------------------------------------------
+
 
 def angular_velocities(
     bvh: Bvh,
@@ -577,13 +583,13 @@ def angular_velocities(
     min_frames = 3 if stencil == "central" else 2
     if bvh.frame_count < min_frames:
         raise ValueError(
-            f"stencil={stencil!r} requires at least {min_frames} frames "
-            f"(have {bvh.frame_count})."
+            f"stencil={stencil!r} requires at least {min_frames} frames (have {bvh.frame_count})."
         )
     if not in_frames and bvh.frame_time == 0:
         raise ValueError(
             "frame_time is 0; cannot compute per-second angular velocity. "
-            "Use in_frames=True for per-frame angular velocity.")
+            "Use in_frames=True for per-frame angular velocity."
+        )
 
     _, R = bvh.to_rotmat()  # (F, J, 3, 3)
     F = R.shape[0]
@@ -598,14 +604,14 @@ def angular_velocities(
 
     if stencil == "forward":
         # ω[i] = log(R_i^T @ R_{i+1})
-        R_rel = np.einsum('...ji,...jk->...ik', R[:-1], R[1:])  # (F-1, J, 3, 3)
-        ang_vel = rotations.rotmat_to_axisangle(R_rel)          # radians/frame
+        R_rel = np.einsum("...ji,...jk->...ik", R[:-1], R[1:])  # (F-1, J, 3, 3)
+        ang_vel = rotations.rotmat_to_axisangle(R_rel)  # radians/frame
         if pad == "edge":
             ang_vel = np.concatenate([ang_vel, ang_vel[-1:]], axis=0)  # (F, J, 3)
         return _finalize(ang_vel)
 
     # stencil == "central": two-step ω[i] = log(R_{i-1}^T R_{i+1}) / 2
-    R_rel_central = np.einsum('...ji,...jk->...ik', R[:-2], R[2:])  # (F-2, J, 3, 3)
+    R_rel_central = np.einsum("...ji,...jk->...ik", R[:-2], R[2:])  # (F-2, J, 3, 3)
     omega_central = rotations.rotmat_to_axisangle(R_rel_central) / 2.0  # rad/frame
 
     if pad == "none":
@@ -614,9 +620,9 @@ def angular_velocities(
     # pad == "edge": one-sided forward/backward at boundaries
     omega = np.empty((F,) + R.shape[1:-2] + (3,), dtype=np.float64)
     omega[1:-1] = omega_central
-    R_rel_first = np.einsum('...ji,...jk->...ik', R[0:1], R[1:2])
+    R_rel_first = np.einsum("...ji,...jk->...ik", R[0:1], R[1:2])
     omega[0:1] = rotations.rotmat_to_axisangle(R_rel_first)
-    R_rel_last = np.einsum('...ji,...jk->...ik', R[-2:-1], R[-1:])
+    R_rel_last = np.einsum("...ji,...jk->...ik", R[-2:-1], R[-1:])
     omega[-1:] = rotations.rotmat_to_axisangle(R_rel_last)
     return _finalize(omega)  # (F, J, 3)
 
@@ -624,6 +630,7 @@ def angular_velocities(
 # ----------------------------------------------------------------
 #  Root trajectory
 # ----------------------------------------------------------------
+
 
 def root_trajectory(
     bvh: Bvh,
@@ -696,7 +703,7 @@ def root_trajectory(
     """
     # Resolve up axis (honors bvh.world_up by default)
     up_str = bvh.world_up if up_axis is None else up_axis
-    up_idx = {'x': 0, 'y': 1, 'z': 2}[up_str[1]]
+    up_idx = {"x": 0, "y": 1, "z": 2}[up_str[1]]
     ground_axes = [i for i in range(3) if i != up_idx]
 
     # Rest-pose forward direction — independent of animation start
@@ -711,17 +718,18 @@ def root_trajectory(
     R_root = rotations.euler_to_rotmat(root_angles, root_order)
 
     # World-space forward at each frame = R_root @ rest_forward
-    fwd_world = np.einsum('fij,j->fi', R_root, fwd_rest)  # (F, 3)
+    fwd_world = np.einsum("fij,j->fi", R_root, fwd_rest)  # (F, 3)
 
     ground_pos = bvh.root_pos[:, ground_axes]  # (F, 2)
-    heading = np.arctan2(fwd_world[:, ground_axes[1]],
-                         fwd_world[:, ground_axes[0]])  # (F,)
+    heading = np.arctan2(fwd_world[:, ground_axes[1]], fwd_world[:, ground_axes[0]])  # (F,)
 
-    base = np.column_stack([
-        ground_pos,
-        np.sin(heading),
-        np.cos(heading),
-    ])  # (F, 4)
+    base = np.column_stack(
+        [
+            ground_pos,
+            np.sin(heading),
+            np.cos(heading),
+        ]
+    )  # (F, 4)
 
     if not include_velocities:
         return base
@@ -735,8 +743,7 @@ def root_trajectory(
     min_frames = _finite_difference_min_frames(1, stencil, pad)
     if bvh.frame_count < min_frames:
         raise ValueError(
-            f"stencil={stencil!r} requires at least {min_frames} frames "
-            f"(have {bvh.frame_count})."
+            f"stencil={stencil!r} requires at least {min_frames} frames (have {bvh.frame_count})."
         )
 
     dt = bvh.frame_time
@@ -744,11 +751,11 @@ def root_trajectory(
     ground_vel = _finite_difference(ground_pos, dt, 1, stencil, pad)
     heading_vel = _finite_difference(heading_unwrapped, dt, 1, stencil, pad)
     if pad == "edge":
-        base_aligned = base                                        # (F, 4)
+        base_aligned = base  # (F, 4)
     elif stencil == "central":
-        base_aligned = base[1:-1]                                  # (F-2, 4)
+        base_aligned = base[1:-1]  # (F-2, 4)
     else:  # forward + none: "drop first frame" alignment convention
-        base_aligned = base[1:]                                    # (F-1, 4)
+        base_aligned = base[1:]  # (F-1, 4)
 
     if degrees:
         heading_vel = np.degrees(heading_vel)
@@ -854,6 +861,7 @@ def facing_frame(
 # ----------------------------------------------------------------
 #  Foot contacts
 # ----------------------------------------------------------------
+
 
 def foot_contacts(
     bvh: Bvh,
@@ -1042,7 +1050,8 @@ def foot_contacts(
         if not foot_joints:
             raise ValueError(
                 "Could not auto-detect foot joints. Please provide "
-                "foot_joints explicitly (e.g. ['LeftFoot', 'RightFoot']).")
+                "foot_joints explicitly (e.g. ['LeftFoot', 'RightFoot'])."
+            )
 
     foot_indices: list[int] = []
     for name in foot_joints:
@@ -1051,16 +1060,24 @@ def foot_contacts(
         foot_indices.append(bvh.node_index[name])
 
     return _contacts_core(
-        bvh, list(foot_joints), foot_indices,
-        method=method, coords=coords,
+        bvh,
+        list(foot_joints),
+        foot_indices,
+        method=method,
+        coords=coords,
         vel_threshold=vel_threshold,
         vel_smooth_duration=vel_smooth_duration,
-        height_threshold=height_threshold, floor=floor,
+        height_threshold=height_threshold,
+        floor=floor,
         min_contact_duration=min_contact_duration,
         min_gap_duration=min_gap_duration,
-        hysteresis=hysteresis, adaptive=adaptive,
-        height_reference=height_reference, return_info=return_info,
-        check_rest_height=True, rest_coords=rest_coords)
+        hysteresis=hysteresis,
+        adaptive=adaptive,
+        height_reference=height_reference,
+        return_info=return_info,
+        check_rest_height=True,
+        rest_coords=rest_coords,
+    )
 
 
 def ground_contacts(
@@ -1134,14 +1151,14 @@ def ground_contacts(
         # bool is an int subclass; catch it before the int branch.
         if isinstance(joint, bool):
             raise TypeError(
-                "joints entries must be node names (str) or node indices "
-                f"(int), got bool {joint!r}")
+                f"joints entries must be node names (str) or node indices (int), got bool {joint!r}"
+            )
         if isinstance(joint, (int, np.integer)):
             index = int(joint)
             if not -num_nodes <= index < num_nodes:
                 raise IndexError(
-                    f"node index {index} out of range for a skeleton with "
-                    f"{num_nodes} nodes")
+                    f"node index {index} out of range for a skeleton with {num_nodes} nodes"
+                )
             if index < 0:
                 index += num_nodes
             joint_indices.append(index)
@@ -1154,19 +1171,27 @@ def ground_contacts(
         else:
             raise TypeError(
                 "joints entries must be node names (str) or node indices "
-                f"(int), got {type(joint).__name__}")
+                f"(int), got {type(joint).__name__}"
+            )
 
     return _contacts_core(
-        bvh, joint_names, joint_indices,
-        method=method, coords=coords,
+        bvh,
+        joint_names,
+        joint_indices,
+        method=method,
+        coords=coords,
         vel_threshold=vel_threshold,
         vel_smooth_duration=vel_smooth_duration,
-        height_threshold=height_threshold, floor=floor,
+        height_threshold=height_threshold,
+        floor=floor,
         min_contact_duration=min_contact_duration,
         min_gap_duration=min_gap_duration,
-        hysteresis=hysteresis, adaptive=adaptive,
-        height_reference=height_reference, return_info=return_info,
-        check_rest_height=False)
+        hysteresis=hysteresis,
+        adaptive=adaptive,
+        height_reference=height_reference,
+        return_info=return_info,
+        check_rest_height=False,
+    )
 
 
 def _contacts_core(
@@ -1194,42 +1219,40 @@ def _contacts_core(
     Both entry points resolve their joint arguments into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists and delegate here. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet. ``rest_coords`` forwards an already-computed rest pose so auto-detection and the scale/sanity logic share one FK evaluation.
     """
     if method not in ("velocity", "height", "combined"):
-        raise ValueError(
-            f"Unknown method {method!r}. "
-            f"Choose 'combined', 'velocity', or 'height'.")
+        raise ValueError(f"Unknown method {method!r}. Choose 'combined', 'velocity', or 'height'.")
 
     if height_reference not in ("velocity", "floor"):
         raise ValueError(
-            f"height_reference must be 'velocity' or 'floor', "
-            f"got {height_reference!r}")
+            f"height_reference must be 'velocity' or 'floor', got {height_reference!r}"
+        )
 
     if isinstance(floor, str) and floor not in ("auto", "min"):
-        raise ValueError(
-            f"floor must be 'auto', 'min' or a float, got {floor!r}")
+        raise ValueError(f"floor must be 'auto', 'min' or a float, got {floor!r}")
 
     if vel_smooth_duration < 0:
-        raise ValueError(
-            f"vel_smooth_duration must be >= 0 (seconds), "
-            f"got {vel_smooth_duration}")
+        raise ValueError(f"vel_smooth_duration must be >= 0 (seconds), got {vel_smooth_duration}")
 
     if bvh.frame_time == 0:
         if method in ("velocity", "combined"):
             raise ValueError(
                 "frame_time is 0; cannot compute the units/second foot "
                 "speed. Set bvh.frame_time to the clip's real sampling "
-                "period.")
+                "period."
+            )
         if min_contact_duration > 0 or min_gap_duration > 0:
             raise ValueError(
                 "frame_time is 0; cannot convert the duration filters "
                 "(seconds) to frames. Set bvh.frame_time, or disable the "
                 "filters with min_contact_duration=0.0 and "
-                "min_gap_duration=0.0.")
+                "min_gap_duration=0.0."
+            )
 
     if not joint_indices:
         raise ValueError(
             "contact detection needs at least one joint; got an empty "
             "joint list. (auto_detect_foot_joints returns [] on footless "
-            "rigs — pass joints explicitly.)")
+            "rigs — pass joints explicitly.)"
+        )
 
     if coords is None:
         coords = bvh.node_positions()
@@ -1246,9 +1269,8 @@ def _contacts_core(
     # Rest-pose coords drive both the skeleton-scale estimate and the
     # height-signal sanity check.  Compute once (unless the caller already
     # did), reuse.
-    needs_scale = (
-        (needs_vel and vel_threshold is None)
-        or (needs_height and height_threshold is None)
+    needs_scale = (needs_vel and vel_threshold is None) or (
+        needs_height and height_threshold is None
     )
     if (needs_scale or (needs_height and check_rest_height)) and rest_coords is None:
         rest_coords = bvh.rest_pose_positions()
@@ -1261,9 +1283,7 @@ def _contacts_core(
     # ---- Sanity check for the height signal (feet-presuming entry only) ----
     if needs_height and check_rest_height:
         assert rest_coords is not None
-        rest_foot_height = (
-            rest_coords[joint_indices, up_idx].mean() * up_sign
-        )
+        rest_foot_height = rest_coords[joint_indices, up_idx].mean() * up_sign
         rest_hip_height = rest_coords[0, up_idx] * up_sign
         if rest_foot_height > rest_hip_height:
             raise ValueError(
@@ -1290,21 +1310,20 @@ def _contacts_core(
             # (speed 0 < any positive threshold) so combined falls back to height.
             speed = np.zeros((F, num_joints))
         else:
-            disp = joint_coords[1:] - joint_coords[:-1]   # (F-1, nj, 3)
+            disp = joint_coords[1:] - joint_coords[:-1]  # (F-1, nj, 3)
             # Condition the speed estimator over a fixed physical time span
             # so detection does not depend on the capture rate: box-averaging
             # the displacement *vectors* (norm-of-mean) cancels the
             # high-frequency jitter that adjacent-frame differencing picks up
             # at high fps.  Window is 1 at <= 30 fps — the raw signal, exactly.
-            vel_smooth_frames = min(
-                F - 1, max(1, round(vel_smooth_duration / bvh.frame_time)))
+            vel_smooth_frames = min(F - 1, max(1, round(vel_smooth_duration / bvh.frame_time)))
             if vel_smooth_frames > 1:
                 disp = box_filter_smooth(disp, vel_smooth_frames, axis=0)
             sp = np.linalg.norm(disp, axis=-1) / bvh.frame_time  # (F-1, nj), u/s
-            speed = np.concatenate([sp[0:1], sp], axis=0)   # frame-0 propagated
+            speed = np.concatenate([sp[0:1], sp], axis=0)  # frame-0 propagated
         if vel_threshold is None:
             assert scale is not None
-            base = 0.12 * scale   # 12% of root-to-foot rest distance per second
+            base = 0.12 * scale  # 12% of root-to-foot rest distance per second
             if adaptive and F >= 2:
                 vel_threshold, vel_adaptive_used = _resolve_adaptive(speed, base)
             else:
@@ -1320,21 +1339,20 @@ def _contacts_core(
             # and would sit an end site's length below these joints.
             percentile = 0.0 if floor == "min" else 2.0
             floor_raw = _floor_from_coords(
-                coords, joint_indices, up_idx, up_sign,
-                percentile=percentile)
+                coords, joint_indices, up_idx, up_sign, percentile=percentile
+            )
         else:
             floor_raw = float(floor)
         floor_signed = floor_raw * up_sign
         clearance = heights_signed - floor_signed
         if height_threshold is None:
             assert scale is not None
-            base = 0.013 * scale   # ~1.3% of root-to-foot rest distance above floor
+            base = 0.013 * scale  # ~1.3% of root-to-foot rest distance above floor
             if method == "combined" and height_reference == "velocity":
                 # Calibrate the height threshold per foot to its own stance
                 # level (handles retargeting hover); reduces to `base` on rigs
                 # where the foot reaches the floor.
-                height_threshold = _velocity_informed_height(
-                    clearance, speed, vel_threshold, base)
+                height_threshold = _velocity_informed_height(clearance, speed, vel_threshold, base)
             elif adaptive:
                 height_threshold, height_adaptive_used = _resolve_adaptive(clearance, base)
             else:
@@ -1342,9 +1360,13 @@ def _contacts_core(
         height_thr_used = height_threshold
 
     mask, confidence = _detect_contacts(
-        speed, clearance, method=method,
-        vel_threshold=vel_threshold, height_threshold=height_threshold,
-        hysteresis=hysteresis)
+        speed,
+        clearance,
+        method=method,
+        vel_threshold=vel_threshold,
+        height_threshold=height_threshold,
+        hysteresis=hysteresis,
+    )
 
     # ---- Morphological duration filters (time → frames) ----
     # frame_time == 0 with nonzero durations was rejected up front.
@@ -1392,9 +1414,10 @@ def _contacts_core(
         if height_adaptive_used is not None:
             info["adaptive_used_height"] = height_adaptive_used
 
-    diag_scale = scale if scale is not None else _skeleton_scale(
-        bvh.rest_pose_positions(), joint_indices)
-    if clearance is None:   # method="velocity": derive a clearance for diagnostics
+    diag_scale = (
+        scale if scale is not None else _skeleton_scale(bvh.rest_pose_positions(), joint_indices)
+    )
+    if clearance is None:  # method="velocity": derive a clearance for diagnostics
         h = joint_coords[:, :, up_idx] * up_sign
         clearance = h - _estimate_floor(h)
     info.update(_contact_diagnostics(mask, joint_coords, clearance, up_idx, diag_scale))
@@ -1453,9 +1476,9 @@ def auto_detect_foot_joints(
 
     # Step 1: substring match
     matched = [
-        n for n in bvh.nodes
-        if not n.is_end_site()
-        and any(kw in n.name.lower() for kw in ("foot", "toe"))
+        n
+        for n in bvh.nodes
+        if not n.is_end_site() and any(kw in n.name.lower() for kw in ("foot", "toe"))
     ]
     if not matched:
         return []
@@ -1482,7 +1505,7 @@ def auto_detect_foot_joints(
     candidate_names = {n.name for n in with_tip}
 
     def _has_candidate_descendant(node: BvhNode) -> bool:
-        for child in (getattr(node, "children", None) or []):
+        for child in getattr(node, "children", None) or []:
             if child.name in candidate_names:
                 return True
             if not child.is_end_site() and _has_candidate_descendant(child):
@@ -1586,12 +1609,12 @@ def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
                 "skeleton_size: no foot joints auto-detected on this "
                 "skeleton, so its size cannot be measured. Pass foot_joints= "
                 "explicitly (the deepest leg-chain joints), or catch this "
-                "error and choose your own scale.")
+                "error and choose your own scale."
+            )
     else:
         unknown = [n for n in foot_joints if n not in bvh.node_index]
         if unknown:
-            raise ValueError(
-                f"skeleton_size: joint names {unknown} not found in skeleton.")
+            raise ValueError(f"skeleton_size: joint names {unknown} not found in skeleton.")
     rest_coords = bvh.rest_pose_positions()
     foot_indices = [bvh.node_index[name] for name in foot_joints]
     root = rest_coords[0]
@@ -1601,7 +1624,8 @@ def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
             "skeleton_size: every foot joint coincides with the root in the "
             "rest pose, so this skeleton has no measurable size. Pass "
             "different foot_joints=, or catch this error and choose your "
-            "own scale.")
+            "own scale."
+        )
     return float(np.mean(dists))
 
 
@@ -1659,8 +1683,8 @@ def relative_scale_factor(
     target = np.asarray(target, dtype=np.float64)
     if reference.shape != target.shape:
         raise ValueError(
-            f"reference and target must share shape, got {reference.shape} "
-            f"and {target.shape}")
+            f"reference and target must share shape, got {reference.shape} and {target.shape}"
+        )
     if centered:
         point_axes = tuple(range(reference.ndim - 1))
         reference = reference - reference.mean(axis=point_axes, keepdims=True)
@@ -1719,9 +1743,8 @@ def _compute_floor_height(bvh: Bvh) -> float:
     was chosen over.
     """
     up_idx, up_sign, _ = bvh.up_axis
-    coords = bvh.node_positions()                       # (F, N, 3), world
-    return _floor_from_coords(
-        coords, list(range(coords.shape[1])), up_idx, up_sign)
+    coords = bvh.node_positions()  # (F, N, 3), world
+    return _floor_from_coords(coords, list(range(coords.shape[1])), up_idx, up_sign)
 
 
 def _run_extents(
@@ -1749,7 +1772,7 @@ def _run_extents(
     # Next run end position strictly after each row.
     end_idx = np.where(diffs == -1, pos_col, F + 2)
     end_pos = np.minimum.accumulate(end_idx[::-1], axis=0)[::-1]
-    return start_pos[:F], end_pos[1:F + 1]
+    return start_pos[:F], end_pos[1 : F + 1]
 
 
 def _filter_short_runs(
@@ -1824,13 +1847,14 @@ def _hysteresis_mask(
     strong = signal < low_thr
     F, M = signal.shape
     starts, ends = _run_extents(weak)
-    s = np.clip(starts, 0, F)                            # run start per row (F, M)
-    e = np.clip(ends, 0, F)                              # run end per row (F, M)
+    s = np.clip(starts, 0, F)  # run start per row (F, M)
+    e = np.clip(ends, 0, F)  # run end per row (F, M)
     strong_cum = np.concatenate(
-        [np.zeros((1, M), dtype=np.int64),
-         np.cumsum(strong.astype(np.int64), axis=0)], axis=0)   # (F+1, M)
-    strong_in_run = (np.take_along_axis(strong_cum, e, axis=0)
-                     - np.take_along_axis(strong_cum, s, axis=0))
+        [np.zeros((1, M), dtype=np.int64), np.cumsum(strong.astype(np.int64), axis=0)], axis=0
+    )  # (F+1, M)
+    strong_in_run = np.take_along_axis(strong_cum, e, axis=0) - np.take_along_axis(
+        strong_cum, s, axis=0
+    )
     return weak & (strong_in_run > 0)
 
 
@@ -1862,13 +1886,13 @@ def _release_open_runs(
         if not runs:
             continue
         s, e = runs[0]
-        if s == 0:                                   # left-open: drop leading band
+        if s == 0:  # left-open: drop leading band
             support = np.flatnonzero(raw[s:e, j])
-            out[s:s + support[0], j] = False
+            out[s : s + support[0], j] = False
         s, e = runs[-1]
-        if e == F:                                   # right-open: drop trailing band
+        if e == F:  # right-open: drop trailing band
             support = np.flatnonzero(raw[s:e, j])
-            out[s + support[-1] + 1:e, j] = False
+            out[s + support[-1] + 1 : e, j] = False
     return out
 
 
@@ -1912,8 +1936,7 @@ def _otsu_threshold(
     mu_t = cum_mean[-1]
     valid = (w0 > 0) & (w1 > 0)
     sigma_b2 = np.zeros_like(p)
-    sigma_b2[valid] = ((mu_t * w0[valid] - cum_mean[valid]) ** 2
-                       / (w0[valid] * w1[valid]))
+    sigma_b2[valid] = (mu_t * w0[valid] - cum_mean[valid]) ** 2 / (w0[valid] * w1[valid])
     # Centre the split in any flat plateau (a wide empty valley makes σ_b²
     # constant across it; argmax alone would snap to its left edge).
     plateau = np.flatnonzero(sigma_b2 >= sigma_b2.max() - 1e-12)
@@ -1925,9 +1948,9 @@ def _otsu_threshold(
     # Smooth the histogram before the valley test — raw bin noise in a unimodal
     # distribution would otherwise fake a dip next to the mode.
     sm = np.convolve(hist.astype(np.float64), np.ones(5) / 5.0, mode="same")
-    left_peak = float(sm[:k + 1].max())
+    left_peak = float(sm[: k + 1].max())
     right_peak = float(sm[k:].max())
-    valley = float(sm[max(0, k - 1):k + 2].min())
+    valley = float(sm[max(0, k - 1) : k + 2].min())
     peak = min(left_peak, right_peak)
     valley_ok = peak > 0 and valley <= valley_ratio * peak
     mass_ok = (w0[k] >= mass_min) and (w1[k] >= mass_min)
@@ -1959,10 +1982,10 @@ def _resolve_adaptive(
 
 
 def _velocity_informed_height(
-    clearance: npt.NDArray[np.float64],   # (F, nf), up-positive height above floor
-    speed: npt.NDArray[np.float64],       # (F, nf), per-frame foot speed
-    vel_threshold,                        # scalar or (nf,) — the stance velocity gate
-    margin: float,                        # 0.013*scale, the fixed default reused as a margin
+    clearance: npt.NDArray[np.float64],  # (F, nf), up-positive height above floor
+    speed: npt.NDArray[np.float64],  # (F, nf), per-frame foot speed
+    vel_threshold,  # scalar or (nf,) — the stance velocity gate
+    margin: float,  # 0.013*scale, the fixed default reused as a margin
 ) -> npt.NDArray[np.float64]:
     """Per-foot height threshold calibrated to each foot's own stance level.
 
@@ -1989,17 +2012,23 @@ def _velocity_informed_height(
     for i in range(nf):
         slow = speed[:, i] < vt[i]
         if not slow.any():
-            continue                                   # no stance candidate -> fixed
+            continue  # no stance candidate -> fixed
         contact_h = float(np.median(clearance[slow, i]))
         swing_high = float(np.percentile(clearance[:, i], 90))
-        if swing_high > contact_h + 2.0 * margin:      # a clear swing exists
+        if swing_high > contact_h + 2.0 * margin:  # a clear swing exists
             thr[i] = contact_h + margin
     return thr
 
 
 def _contact_confidence(
-    speed, clearance, vel_mask, height_mask, mask, method,
-    vel_threshold, height_threshold,
+    speed,
+    clearance,
+    vel_mask,
+    height_mask,
+    mask,
+    method,
+    vel_threshold,
+    height_threshold,
 ) -> npt.NDArray[np.float64]:
     """Per-foot detection confidence in ``[0, 1]`` (decisiveness, not probability).
 
@@ -2013,12 +2042,10 @@ def _contact_confidence(
         margins.append(np.clip((vel_threshold - speed) / vel_threshold, 0.0, 1.0))
     if height_mask is not None:
         margins.append(np.clip((height_threshold - clearance) / height_threshold, 0.0, 1.0))
-    margin_frame = (np.mean(margins, axis=0) if margins
-                    else np.zeros_like(mask, dtype=np.float64))
+    margin_frame = np.mean(margins, axis=0) if margins else np.zeros_like(mask, dtype=np.float64)
     contact_count = mask.sum(axis=0)
     safe = np.where(contact_count > 0, contact_count, 1)
-    margin = np.where(contact_count > 0,
-                      (margin_frame * mask).sum(axis=0) / safe, 0.0)
+    margin = np.where(contact_count > 0, (margin_frame * mask).sum(axis=0) / safe, 0.0)
     if method == "combined" and vel_mask is not None and height_mask is not None:
         agreement = np.mean(vel_mask == height_mask, axis=0)
         return np.sqrt(margin * agreement)
@@ -2039,6 +2066,7 @@ def _detect_contacts(
     Returns ``(mask, confidence)`` — the raw (pre-morphology) contact mask and a
     per-foot confidence. Thresholds may be scalar or per-foot ``(nf,)``.
     """
+
     def thresholded(sig, thr):
         if hysteresis and hysteresis > 0:
             mask = _hysteresis_mask(sig, thr * (1.0 - hysteresis), thr * (1.0 + hysteresis))
@@ -2048,7 +2076,9 @@ def _detect_contacts(
         return sig < thr
 
     vel_mask = thresholded(speed, vel_threshold) if method in ("velocity", "combined") else None
-    height_mask = thresholded(clearance, height_threshold) if method in ("height", "combined") else None
+    height_mask = (
+        thresholded(clearance, height_threshold) if method in ("height", "combined") else None
+    )
 
     if method == "velocity":
         mask = vel_mask
@@ -2058,8 +2088,8 @@ def _detect_contacts(
         mask = vel_mask & height_mask
 
     confidence = _contact_confidence(
-        speed, clearance, vel_mask, height_mask, mask, method,
-        vel_threshold, height_threshold)
+        speed, clearance, vel_mask, height_mask, mask, method, vel_threshold, height_threshold
+    )
     return mask, confidence
 
 
@@ -2072,7 +2102,7 @@ def _contact_diagnostics(mask, foot_coords, clearance, up_idx, scale):
     - ``height_at_contact``: mean clearance over each foot's contact frames.
     """
     horiz_axes = [a for a in range(3) if a != up_idx]
-    horiz = foot_coords[:, :, horiz_axes]                # (F, nf, 2)
+    horiz = foot_coords[:, :, horiz_axes]  # (F, nf, 2)
     nf = mask.shape[1]
     skate_mean = np.zeros(nf)
     skate_max = np.zeros(nf)
@@ -2088,7 +2118,8 @@ def _contact_diagnostics(mask, foot_coords, clearance, up_idx, scale):
     airborne = float(np.mean(mask.sum(axis=1) == 0))
     cc = mask.sum(axis=0)
     height_at_contact = np.where(
-        cc > 0, (np.where(mask, clearance, 0.0)).sum(axis=0) / np.where(cc > 0, cc, 1), np.nan)
+        cc > 0, (np.where(mask, clearance, 0.0)).sum(axis=0) / np.where(cc > 0, cc, 1), np.nan
+    )
     return {
         "foot_skate": {"mean": skate_mean, "max": skate_max},
         "airborne_fraction": airborne,
@@ -2099,6 +2130,7 @@ def _contact_diagnostics(mask, foot_coords, clearance, up_idx, scale):
 # ----------------------------------------------------------------
 #  Jerk (third derivative of position) — [Bvh]
 # ----------------------------------------------------------------
+
 
 def node_jerk(
     bvh: Bvh,
@@ -2154,11 +2186,13 @@ def node_jerk(
     if bvh.frame_count < min_frames:
         raise ValueError(
             f"stencil={stencil!r}, pad={pad!r} requires at least "
-            f"{min_frames} frames (have {bvh.frame_count}).")
+            f"{min_frames} frames (have {bvh.frame_count})."
+        )
     if not in_frames and bvh.frame_time == 0:
         raise ValueError(
             "frame_time is 0; cannot compute per-second jerk. "
-            "Use in_frames=True for per-frame jerk.")
+            "Use in_frames=True for per-frame jerk."
+        )
 
     if coords is None:
         coords = bvh.node_positions(centered=centered)
@@ -2181,8 +2215,9 @@ def joint_jerk(
     Raises ``ValueError`` if ``coords`` is not node-shaped ``(F, N, 3)``.
     """
     _validate_node_coords(bvh, coords)
-    nj = node_jerk(bvh, centered=centered, in_frames=in_frames, coords=coords,
-                   stencil=stencil, pad=pad)
+    nj = node_jerk(
+        bvh, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
+    )
     return nj[:, _non_end_site_indices(bvh), :]
 
 
@@ -2212,11 +2247,13 @@ def joint_jerk(
 #  magnitude (``max|v|``, ``mean|v|``) while the *signal being
 #  differentiated or transformed* is used as given.
 
+
 def _validate_speed_profile(speed: npt.NDArray[np.float64]) -> None:
     if speed.ndim not in (1, 2):
         raise ValueError(
             f"speed must have shape (T,) — one profile — or (T, K) — K "
-            f"profiles reduced per column; got shape {speed.shape}.")
+            f"profiles reduced per column; got shape {speed.shape}."
+        )
 
 
 def _reduce_like(
@@ -2252,13 +2289,12 @@ def _sparc_from_spectrum(
     if above.size == 0:
         return float("nan")  # no component above the amplitude threshold
     lo, hi = int(above[0]), int(above[-1])
-    freq_sel = freq_sel[lo:hi + 1]
-    mag_sel = mag_sel[lo:hi + 1]
+    freq_sel = freq_sel[lo : hi + 1]
+    mag_sel = mag_sel[lo : hi + 1]
     if freq_sel.size < 2:
         return float("nan")  # single-point band (constant speed): no arc to trace
 
-    arc = np.sqrt((np.diff(freq_sel) / (freq_sel[-1] - freq_sel[0])) ** 2
-                  + np.diff(mag_sel) ** 2)
+    arc = np.sqrt((np.diff(freq_sel) / (freq_sel[-1] - freq_sel[0])) ** 2 + np.diff(mag_sel) ** 2)
     return float(-arc.sum())
 
 
@@ -2321,8 +2357,9 @@ def sparc(
         return _sparc_from_spectrum(freq, mag, fc, amp_th)
     # the band bounds (lo, hi) are data-dependent per column, so the
     # arc-length tail stays a per-column pass over the batched spectrum
-    return np.array([_sparc_from_spectrum(freq, mag[:, k], fc, amp_th)
-                     for k in range(speed.shape[1])])
+    return np.array(
+        [_sparc_from_spectrum(freq, mag[:, k], fc, amp_th) for k in range(speed.shape[1])]
+    )
 
 
 DLJ_NORMALIZERS = ("peak_speed", "mean_speed", "amplitude")
@@ -2340,39 +2377,39 @@ def _dlj_scale(
     ``extent == 0 -> nan`` guard on the quantity that actually degenerates.
     """
     if normalize not in DLJ_NORMALIZERS:
-        raise ValueError(f"Unknown normalize {normalize!r}; "
-                         f"choose from {list(DLJ_NORMALIZERS)}.")
+        raise ValueError(f"Unknown normalize {normalize!r}; choose from {list(DLJ_NORMALIZERS)}.")
 
     if normalize == "amplitude":
         if amplitude is None:
             raise ValueError(
                 "normalize='amplitude' needs the movement extent A, which "
                 "cannot be recovered from a speed profile alone — pass "
-                "amplitude=<float or (K,) array>.")
+                "amplitude=<float or (K,) array>."
+            )
         extent = np.asarray(amplitude, dtype=np.float64)
         valid_shapes = {()} if speed.ndim == 1 else {(), (speed.shape[1],)}
-        wanted = ("a scalar" if speed.ndim == 1
-                  else f"a scalar or shape ({speed.shape[1]},)")
+        wanted = "a scalar" if speed.ndim == 1 else f"a scalar or shape ({speed.shape[1]},)"
         if extent.shape not in valid_shapes:
             raise ValueError(
                 f"amplitude must be {wanted} to match speed of shape "
-                f"{speed.shape}; got shape {extent.shape}.")
+                f"{speed.shape}; got shape {extent.shape}."
+            )
         if np.any(extent < 0):
             raise ValueError("amplitude is a movement extent and must be >= 0.")
         with np.errstate(divide="ignore", invalid="ignore"):
-            return duration ** 5 / extent ** 2, extent
+            return duration**5 / extent**2, extent
 
     # An ignored amplitude= is how a convention mismatch turns into an
     # unnoticed wrong number, so reject it instead of dropping it silently.
     if amplitude is not None:
-        raise ValueError(f"amplitude= applies only to normalize='amplitude'; "
-                         f"got normalize={normalize!r}.")
+        raise ValueError(
+            f"amplitude= applies only to normalize='amplitude'; got normalize={normalize!r}."
+        )
     # magnitudes: the normalizer is a scale, and a signed velocity's mean
     # would otherwise cancel toward zero on an out-and-back movement
-    extent = (np.abs(speed).max(axis=0) if normalize == "peak_speed"
-              else np.abs(speed).mean(axis=0))
+    extent = np.abs(speed).max(axis=0) if normalize == "peak_speed" else np.abs(speed).mean(axis=0)
     with np.errstate(divide="ignore", invalid="ignore"):
-        return duration ** 3 / extent ** 2, extent
+        return duration**3 / extent**2, extent
 
 
 def dimensionless_jerk(
@@ -2463,9 +2500,9 @@ def dimensionless_jerk(
     dt = 1.0 / fs
     duration = speed.shape[0] * dt
     scale, extent = _dlj_scale(speed, duration, normalize, amplitude)
-    jerk = np.diff(speed, 2, axis=0) / dt ** 2
+    jerk = np.diff(speed, 2, axis=0) / dt**2
     with np.errstate(invalid="ignore"):
-        dlj = -scale * np.sum(jerk ** 2, axis=0) * dt
+        dlj = -scale * np.sum(jerk**2, axis=0) * dt
     # zero extent: the normalization is undefined
     dlj = np.where(extent == 0, np.nan, dlj)
     return _reduce_like(speed, dlj)
@@ -2511,9 +2548,11 @@ def log_dimensionless_jerk(
     speed = np.asarray(speed, dtype=np.float64)
     dlj = dimensionless_jerk(speed, fs, normalize=normalize, amplitude=amplitude)
     with np.errstate(divide="ignore"):
-        ldlj = np.where(dlj == 0,
-                        np.inf,  # zero jerk -> perfectly smooth
-                        -np.log(np.abs(dlj)))
+        ldlj = np.where(
+            dlj == 0,
+            np.inf,  # zero jerk -> perfectly smooth
+            -np.log(np.abs(dlj)),
+        )
     return _reduce_like(speed, ldlj)
 
 
@@ -2645,8 +2684,8 @@ def integrated_squared_jerk(
     speed = np.asarray(speed, dtype=np.float64)
     _validate_speed_profile(speed)
     dt = 1.0 / fs
-    jerk = np.diff(speed, 2, axis=0) / dt ** 2
-    isj = np.sum(jerk ** 2, axis=0) * dt
+    jerk = np.diff(speed, 2, axis=0) / dt**2
+    isj = np.sum(jerk**2, axis=0) * dt
     return _reduce_like(speed, isj)
 
 
@@ -2662,8 +2701,8 @@ def mean_squared_jerk(
     speed = np.asarray(speed, dtype=np.float64)
     _validate_speed_profile(speed)
     dt = 1.0 / fs
-    jerk = np.diff(speed, 2, axis=0) / dt ** 2
-    msj = np.mean(jerk ** 2, axis=0)
+    jerk = np.diff(speed, 2, axis=0) / dt**2
+    msj = np.mean(jerk**2, axis=0)
     return _reduce_like(speed, msj)
 
 
@@ -2746,8 +2785,8 @@ def smoothness(
 # ----------------------------------------------------------------
 
 VelocityReductions = namedtuple(
-    "VelocityReductions",
-    ["peak", "mean", "peak_to_mean", "peak_acceleration", "peak_deceleration"])
+    "VelocityReductions", ["peak", "mean", "peak_to_mean", "peak_acceleration", "peak_deceleration"]
+)
 
 
 def velocity_reductions(
@@ -2815,10 +2854,13 @@ def velocity_reductions(
         peak_to_mean = np.where(np.abs(mean) > _EPS, peak / mean, np.nan)
     if speed.ndim == 1:
         return VelocityReductions(
-            float(peak), float(mean), float(peak_to_mean),
-            float(peak_acceleration), float(peak_deceleration))
-    return VelocityReductions(peak, mean, peak_to_mean,
-                              peak_acceleration, peak_deceleration)
+            float(peak),
+            float(mean),
+            float(peak_to_mean),
+            float(peak_acceleration),
+            float(peak_deceleration),
+        )
+    return VelocityReductions(peak, mean, peak_to_mean, peak_acceleration, peak_deceleration)
 
 
 def zero_crossings(
@@ -2919,6 +2961,7 @@ def active_duration(
 #  Kinetic energy & gait — [Bvh]
 # ----------------------------------------------------------------
 
+
 def _resolve_masses(
     masses: npt.NDArray[np.float64] | Mapping[str, float],
     joint_names: list[str],
@@ -2944,15 +2987,16 @@ def _resolve_masses(
             if unknown:
                 problems.append(f"unknown joint names {unknown}")
             raise ValueError(
-                "masses dict must map every joint exactly once "
-                f"({'; '.join(problems)})")
+                f"masses dict must map every joint exactly once ({'; '.join(problems)})"
+            )
         m = np.array([float(masses[n]) for n in names], dtype=np.float64)
     else:
         m = np.asarray(masses, dtype=np.float64)
         if m.shape != (len(names),):
             raise ValueError(
                 f"masses must have shape ({len(names)},) in joint-axis order "
-                f"(see Bvh.joint_names), got {m.shape}")
+                f"(see Bvh.joint_names), got {m.shape}"
+            )
     total = float(m.sum())
     # Strict > 0 with no epsilon — deliberately looser than geometry's
     # _EPS guard: masses only ever multiply (never divide), so any true
@@ -2960,7 +3004,8 @@ def _resolve_masses(
     if not total > 0.0:
         raise ValueError(
             f"masses must have a positive total, got sum {total!r} — a "
-            f"zero/negative/NaN total silently zeroes the energy")
+            f"zero/negative/NaN total silently zeroes the energy"
+        )
     return m
 
 
@@ -3014,7 +3059,7 @@ def kinetic_energy(
     Source: Głowinski et al., Piana et al., Lu et al. 2025.
     """
     vel = joint_velocities(bvh, centered=centered, stencil=stencil, pad=pad)
-    speed_sq = np.sum(vel ** 2, axis=-1)  # (F, J)
+    speed_sq = np.sum(vel**2, axis=-1)  # (F, J)
     if masses is None:
         return speed_sq.sum(axis=-1)
     m = _resolve_masses(masses, bvh.joint_names)
@@ -3122,8 +3167,7 @@ def stride_length(
     -----
     Source: Crane & Gross, Gross et al. 2012, Karg et al. 2010.
     """
-    return gait_parameters(
-        bvh, foot_joints=foot_joints, contacts=contacts).stride_length
+    return gait_parameters(bvh, foot_joints=foot_joints, contacts=contacts).stride_length
 
 
 def walking_pace(bvh: Bvh) -> float:
@@ -3158,13 +3202,22 @@ def walking_pace(bvh: Bvh) -> float:
     return _root_horizontal_distance(bvh) / duration
 
 
-GaitParameters = namedtuple("GaitParameters", [
-    "cadence", "walking_pace", "stride_length", "stride_cv",
-    "step_length", "stance_fraction", "double_support_fraction", "asymmetry"])
+GaitParameters = namedtuple(
+    "GaitParameters",
+    [
+        "cadence",
+        "walking_pace",
+        "stride_length",
+        "stride_cv",
+        "step_length",
+        "stance_fraction",
+        "double_support_fraction",
+        "asymmetry",
+    ],
+)
 
 
-def _compute_gait_parameters(contacts, foot_h, foot_names, frame_time,
-                             root_distance, progression):
+def _compute_gait_parameters(contacts, foot_h, foot_names, frame_time, root_distance, progression):
     """Spatiotemporal gait parameters from contacts + foot ground positions.
 
     Pure array core (no ``Bvh``) so it is directly testable. ``foot_h`` is the
@@ -3210,7 +3263,8 @@ def _compute_gait_parameters(contacts, foot_h, foot_names, frame_time,
         direction = np.asarray(progression, dtype=np.float64) / prog_norm
         frames = np.concatenate([onsets for onsets, _ in events])
         positions = np.concatenate(
-            [foot_h[onsets, fi, :] for fi, (onsets, _) in enumerate(events)], axis=0)
+            [foot_h[onsets, fi, :] for fi, (onsets, _) in enumerate(events)], axis=0
+        )
         pts = positions[np.argsort(frames, kind="stable")]
         advances = np.abs(np.diff(pts, axis=0) @ direction)
         step = float(advances.mean())
@@ -3245,8 +3299,7 @@ def _compute_gait_parameters(contacts, foot_h, foot_names, frame_time,
     else:
         asymmetry = float("nan")
 
-    return GaitParameters(cadence, pace, stride, stride_cv, step,
-                          stance, double_support, asymmetry)
+    return GaitParameters(cadence, pace, stride, stride_cv, step, stance, double_support, asymmetry)
 
 
 def gait_parameters(
@@ -3337,8 +3390,7 @@ def gait_parameters(
     if foot_joints is None:
         foot_joints = auto_detect_foot_joints(bvh)
     if not foot_joints:
-        raise ValueError(
-            "gait_parameters: no foot joints found; pass foot_joints explicitly")
+        raise ValueError("gait_parameters: no foot joints found; pass foot_joints explicitly")
 
     node_pos = bvh.node_positions()
     if contacts is None:
@@ -3347,22 +3399,26 @@ def gait_parameters(
         # for its adaptive thresholds.  The fixed thresholds under-detect
         # stance on retargeted mocap whose feet hover above the floor, which
         # yields impossible gait numbers (double_support = 0 on a plain walk).
-        contacts = foot_contacts(bvh, foot_joints=foot_joints, coords=node_pos,
-                                 adaptive=True)
+        contacts = foot_contacts(bvh, foot_joints=foot_joints, coords=node_pos, adaptive=True)
     contacts = np.asarray(contacts, dtype=np.float64)
 
     up = _axis_to_vector(bvh.world_up)
     foot_idx = [bvh.index(name, space="node") for name in foot_joints]
-    foot_xyz = node_pos[:, foot_idx, :]                       # (F, n_feet, 3)
-    foot_h = foot_xyz - (foot_xyz @ up)[..., None] * up       # project to ground
+    foot_xyz = node_pos[:, foot_idx, :]  # (F, n_feet, 3)
+    foot_h = foot_xyz - (foot_xyz @ up)[..., None] * up  # project to ground
 
     root = bvh.root_pos
-    root_h = root - (root @ up)[:, None] * up                 # (F, 3) on the ground
-    progression = root_h[-1] - root_h[0]                      # net travel direction
+    root_h = root - (root @ up)[:, None] * up  # (F, 3) on the ground
+    progression = root_h[-1] - root_h[0]  # net travel direction
 
     return _compute_gait_parameters(
-        contacts, foot_h, list(foot_joints), bvh.frame_time,
-        _root_horizontal_distance(bvh), progression)
+        contacts,
+        foot_h,
+        list(foot_joints),
+        bvh.frame_time,
+        _root_horizontal_distance(bvh),
+        progression,
+    )
 
 
 def range_of_motion(
@@ -3395,6 +3451,7 @@ def range_of_motion(
 # ----------------------------------------------------------------
 #  Covariance descriptors — array-pure
 # ----------------------------------------------------------------
+
 
 def cov3dj(pos: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """Covariance of 3D joint positions over time (Cov3DJ).

@@ -8,6 +8,7 @@ positions in the skeleton's length unit and joint rotations in
 the radians of ``joint_angles``. pandas is never imported at run time:
 this module only reads the DataFrame it is given.
 """
+
 from __future__ import annotations
 
 from collections.abc import Hashable, Mapping, Sequence
@@ -27,7 +28,8 @@ if TYPE_CHECKING:
 _SUFFIX_RULE = (
     "pybvh labels the columns of a repeated node name X, X.1, X.2, ... in "
     "node order, the first keeping its name, as pandas labels repeated CSV "
-    "headers")
+    "headers"
+)
 
 
 def _time_label(df: pd.DataFrame) -> Hashable:
@@ -36,7 +38,7 @@ def _time_label(df: pd.DataFrame) -> Hashable:
     The first label spelling ``time`` in any case is taken.
     """
     for label in df.columns:
-        if str(label).lower() == 'time':
+        if str(label).lower() == "time":
             return label
     raise ValueError("No 'time' column found in the DataFrame")
 
@@ -55,7 +57,7 @@ def _motion_columns(nodes: Sequence[BvhNode], df: pd.DataFrame) -> pd.DataFrame:
     without the rule lacks the ``.1`` columns, or when *df* repeats a
     label.
     """
-    expected = _motion_column_names(nodes, 'euler')
+    expected = _motion_column_names(nodes, "euler")
     present = set(df.columns)
     repeated = df.columns[df.columns.duplicated()].unique().tolist()
     missing = [name for name in expected if name not in present]
@@ -67,11 +69,9 @@ def _motion_columns(nodes: Sequence[BvhNode], df: pd.DataFrame) -> pd.DataFrame:
     hierarchy_repeats_a_name = len(set(joint_names)) < len(joint_names)
     problems = []
     if missing:
-        problems.append(
-            f"df is missing columns the hierarchy expects: {missing}")
+        problems.append(f"df is missing columns the hierarchy expects: {missing}")
     if ambiguous:
-        problems.append(
-            f"df lists expected columns more than once: {ambiguous}")
+        problems.append(f"df lists expected columns more than once: {ambiguous}")
     if repeated:
         problems.append(f"df has repeated column labels {repeated}")
     if repeated or hierarchy_repeats_a_name:
@@ -79,8 +79,7 @@ def _motion_columns(nodes: Sequence[BvhNode], df: pd.DataFrame) -> pd.DataFrame:
     raise ValueError(". ".join(problems))
 
 
-def _nodes_from_hier(
-        hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]]) -> list[BvhNode]:
+def _nodes_from_hier(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]]) -> list[BvhNode]:
     """Build fresh nodes from *hier*, a node table or a node list.
 
     The form is decided by the type of the first element: a ``BvhNode``
@@ -93,11 +92,13 @@ def _nodes_from_hier(
             "hier is a dict: the name-keyed hierarchy dict was removed in "
             "v0.10.0. Pass bvh.to_node_table(), a list with one entry per "
             "node in depth-first order and parent as the parent's index, or "
-            "bvh.nodes. See the CHANGELOG for the migration.")
+            "bvh.nodes. See the CHANGELOG for the migration."
+        )
     if len(hier) == 0:
         raise ValueError(
             "hier is empty: pass bvh.to_node_table() or bvh.nodes, a node "
-            "table or a node list with the root first.")
+            "table or a node list with the root first."
+        )
     # The first element decides the form; the casts state that choice,
     # which narrowing a union of sequences by one element cannot.
     first = hier[0]
@@ -108,11 +109,11 @@ def _nodes_from_hier(
     raise TypeError(
         f"hier[0] is a {type(first).__name__}; hier must be a node table "
         f"(bvh.to_node_table(), one dict per node) or a node list "
-        f"(bvh.nodes).")
+        f"(bvh.nodes)."
+    )
 
 
-def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]],
-              df: pd.DataFrame) -> Bvh:
+def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.DataFrame) -> Bvh:
     """Create a Bvh object from a skeleton and a motion DataFrame.
 
     Build a complete BVH representation by combining a skeleton with
@@ -221,7 +222,8 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]],
     if len(time_values) < 2:
         raise ValueError(
             f"df must contain at least 2 rows to derive the frame time "
-            f"from the 'time' column (got {len(time_values)})")
+            f"from the 'time' column (got {len(time_values)})"
+        )
     # Elapsed time over frame intervals — robust to a nonzero first timestamp.
     frame_time = float((time_values[-1] - time_values[0]) / (len(time_values) - 1))
     frame_time = _snap_frame_time(frame_time)
@@ -232,5 +234,4 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]],
     joint_angles_deg = frames[:, 3:].reshape(frames.shape[0], num_joints, 3).astype(np.float64)
     joint_angles = np.deg2rad(joint_angles_deg)
 
-    return Bvh(nodes=nodes, root_pos=root_pos, joint_angles=joint_angles,
-               frame_time=frame_time)
+    return Bvh(nodes=nodes, root_pos=root_pos, joint_angles=joint_angles, frame_time=frame_time)

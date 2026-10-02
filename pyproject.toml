@@ -68,6 +68,12 @@ target-version = "py39"
 # one flat module would report every finding twice and misread both.
 extend-exclude = ["tutorials/*.py", "gallery/feature_gallery.py"]
 
+[tool.ruff.format]
+# ruff also formats the Python blocks in Markdown files. The docs' blocks are
+# cheat sheets whose comments are aligned into a column the reader scans
+# down, which the formatter would collapse; they keep their page's layout.
+exclude = ["*.md"]
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B", "UP", "D1", "D417"]
 # The formatter owns line length (#57). D105: the dunders left without a

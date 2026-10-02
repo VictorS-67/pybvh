@@ -12,6 +12,7 @@ All angle parameters are in **radians** (pybvh's internal convention);
 functions that rotate accept a ``degrees=True`` flag matching the
 convention in :mod:`~pybvh.rotations`.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, overload
@@ -41,13 +42,19 @@ if TYPE_CHECKING:
 # 6.5  Root Translation
 # =========================================================================
 
+
 @overload
 def translate_root(
-    bvh: Bvh, offset: npt.ArrayLike, *, inplace: Literal[True],
+    bvh: Bvh,
+    offset: npt.ArrayLike,
+    *,
+    inplace: Literal[True],
 ) -> None: ...
 @overload
 def translate_root(
-    bvh: Bvh, offset: npt.ArrayLike, inplace: Literal[False] = ...,
+    bvh: Bvh,
+    offset: npt.ArrayLike,
+    inplace: Literal[False] = ...,
 ) -> Bvh: ...
 def translate_root(
     bvh: Bvh,
@@ -115,17 +122,25 @@ def random_translate_root(
 # A single call taking both meant `degrees=` had to apply to one argument
 # and not the other, which is the shape of a unit bug waiting to happen.
 
+
 @overload
 def add_rotation_noise(
-    bvh: Bvh, sigma: float, *,
-    rng: np.random.Generator | None = ..., inplace: Literal[True],
-    wrap: bool = ..., degrees: bool = ...,
+    bvh: Bvh,
+    sigma: float,
+    *,
+    rng: np.random.Generator | None = ...,
+    inplace: Literal[True],
+    wrap: bool = ...,
+    degrees: bool = ...,
 ) -> None: ...
 @overload
 def add_rotation_noise(
-    bvh: Bvh, sigma: float,
-    rng: np.random.Generator | None = ..., inplace: Literal[False] = ...,
-    wrap: bool = ..., degrees: bool = ...,
+    bvh: Bvh,
+    sigma: float,
+    rng: np.random.Generator | None = ...,
+    inplace: Literal[False] = ...,
+    wrap: bool = ...,
+    degrees: bool = ...,
 ) -> Bvh: ...
 def add_rotation_noise(
     bvh: Bvh,
@@ -173,10 +188,7 @@ def add_rotation_noise(
 
     target = bvh if inplace else bvh.copy()
     if sigma_rad > 0:
-        noised = (
-            target.joint_angles
-            + rng.normal(0.0, sigma_rad, target.joint_angles.shape)
-        )
+        noised = target.joint_angles + rng.normal(0.0, sigma_rad, target.joint_angles.shape)
         if wrap:
             noised = (noised + np.pi) % (2.0 * np.pi) - np.pi
         target.joint_angles = noised
@@ -187,13 +199,18 @@ def add_rotation_noise(
 
 @overload
 def add_position_noise(
-    bvh: Bvh, sigma: float, *,
-    rng: np.random.Generator | None = ..., inplace: Literal[True],
+    bvh: Bvh,
+    sigma: float,
+    *,
+    rng: np.random.Generator | None = ...,
+    inplace: Literal[True],
 ) -> None: ...
 @overload
 def add_position_noise(
-    bvh: Bvh, sigma: float,
-    rng: np.random.Generator | None = ..., inplace: Literal[False] = ...,
+    bvh: Bvh,
+    sigma: float,
+    rng: np.random.Generator | None = ...,
+    inplace: Literal[False] = ...,
 ) -> Bvh: ...
 def add_position_noise(
     bvh: Bvh,
@@ -233,9 +250,7 @@ def add_position_noise(
 
     target = bvh if inplace else bvh.copy()
     if sigma > 0:
-        target.root_pos = (
-            target.root_pos + rng.normal(0.0, sigma, target.root_pos.shape)
-        )
+        target.root_pos = target.root_pos + rng.normal(0.0, sigma, target.root_pos.shape)
     if inplace:
         return None
     return target
@@ -244,6 +259,7 @@ def add_position_noise(
 # =========================================================================
 # 6.3  Speed Perturbation
 # =========================================================================
+
 
 def perturb_speed(bvh: Bvh, factor: float) -> Bvh:
     """Change motion speed by resampling.
@@ -318,14 +334,20 @@ def random_perturb_speed(
 # 6.6  Frame Dropout with Interpolation
 # =========================================================================
 
+
 @overload
 def drop_frames(
-    bvh: Bvh, drop_rate: float, *, rng: np.random.Generator | None = ...,
+    bvh: Bvh,
+    drop_rate: float,
+    *,
+    rng: np.random.Generator | None = ...,
     inplace: Literal[True],
 ) -> None: ...
 @overload
 def drop_frames(
-    bvh: Bvh, drop_rate: float, rng: np.random.Generator | None = ...,
+    bvh: Bvh,
+    drop_rate: float,
+    rng: np.random.Generator | None = ...,
     inplace: Literal[False] = ...,
 ) -> Bvh: ...
 def drop_frames(
@@ -384,9 +406,9 @@ def drop_frames(
     # For every dropped frame, find left and right kept-neighbour indices.
     # searchsorted gives the insertion point in kept_indices.
     dropped = np.where(drop_mask)[0]
-    ins = np.searchsorted(kept_indices, dropped, side='right')
-    left_frames = kept_indices[ins - 1]   # (D,)
-    right_frames = kept_indices[ins]      # (D,)
+    ins = np.searchsorted(kept_indices, dropped, side="right")
+    left_frames = kept_indices[ins - 1]  # (D,)
+    right_frames = kept_indices[ins]  # (D,)
     alpha = (dropped - left_frames) / (right_frames - left_frames)  # (D,)
 
     # Interpolate root position linearly (dropped rows only)
@@ -399,14 +421,12 @@ def drop_frames(
     # SLERP all joints of the dropped frames in one broadcast call:
     # (D, J, 4) endpoints with (D, 1) t broadcasting over the joint axis.
     _, quats = bvh.to_quat()  # (F, J, 4)
-    dropped_quats = rotations.quat_slerp(
-        quats[left_frames], quats[right_frames], alpha[:, None])
+    dropped_quats = rotations.quat_slerp(quats[left_frames], quats[right_frames], alpha[:, None])
 
     # Convert only the dropped frames back to Euler — kept frames never
     # round-trip through quaternions, so their angle values are untouched.
     new_angles = bvh.joint_angles.copy()
-    new_angles[drop_mask] = rotations.quat_to_euler(
-        dropped_quats, bvh.euler_orders)
+    new_angles[drop_mask] = rotations.quat_to_euler(dropped_quats, bvh.euler_orders)
 
     target = bvh if inplace else bvh.copy()
     target.root_pos = new_root_pos
@@ -419,6 +439,7 @@ def drop_frames(
 # =========================================================================
 # NumPy-level API — rotate_angles_vertical
 # =========================================================================
+
 
 def _resolve_vertical_pivot(
     pivot: str | npt.ArrayLike,
@@ -438,19 +459,14 @@ def _resolve_vertical_pivot(
         if pivot == "origin":
             return np.zeros(3)
         if pivot != "root":
-            raise ValueError(
-                f"pivot must be 'origin', 'root', or a (3,) point, "
-                f"got {pivot!r}")
+            raise ValueError(f"pivot must be 'origin', 'root', or a (3,) point, got {pivot!r}")
         if len(root_pos) == 0:
-            raise ValueError(
-                "pivot='root' needs at least one frame to read the root "
-                "position from")
+            raise ValueError("pivot='root' needs at least one frame to read the root position from")
         point = np.array(root_pos[0], dtype=np.float64)
     else:
         point = np.array(pivot, dtype=np.float64)
         if point.shape != (3,):
-            raise ValueError(
-                f"an explicit pivot must have shape (3,), got {point.shape}")
+            raise ValueError(f"an explicit pivot must have shape (3,), got {point.shape}")
 
     point[up_idx] = 0.0
     return point
@@ -524,8 +540,7 @@ def rotate_angles_vertical(
     """
     angle_rad = np.radians(angle) if degrees else angle
     pivot_point = _resolve_vertical_pivot(pivot, root_pos, up_idx)
-    R_vert: npt.NDArray[np.float64] = rotations._elementary_rotmat(
-        angle_rad, 'XYZ'[up_idx])
+    R_vert: npt.NDArray[np.float64] = rotations._elementary_rotmat(angle_rad, "XYZ"[up_idx])
 
     new_root_pos = (R_vert @ (root_pos - pivot_point).T).T + pivot_point
 
@@ -541,16 +556,24 @@ def rotate_angles_vertical(
 # 6.2  Vertical Rotation
 # =========================================================================
 
+
 @overload
 def rotate_vertical(
-    bvh: Bvh, angle: float, *, up_axis: str | None = ...,
-    degrees: bool = ..., pivot: str | npt.ArrayLike = ...,
+    bvh: Bvh,
+    angle: float,
+    *,
+    up_axis: str | None = ...,
+    degrees: bool = ...,
+    pivot: str | npt.ArrayLike = ...,
     inplace: Literal[True],
 ) -> None: ...
 @overload
 def rotate_vertical(
-    bvh: Bvh, angle: float, up_axis: str | None = ...,
-    degrees: bool = ..., pivot: str | npt.ArrayLike = ...,
+    bvh: Bvh,
+    angle: float,
+    up_axis: str | None = ...,
+    degrees: bool = ...,
+    pivot: str | npt.ArrayLike = ...,
     inplace: Literal[False] = ...,
 ) -> Bvh: ...
 def rotate_vertical(
@@ -624,8 +647,13 @@ def rotate_vertical(
 
     root_order = "".join(target.root.rot_channels)
     new_angles, new_root_pos = rotate_angles_vertical(
-        target.joint_angles, target.root_pos, angle * up_sign, up_idx,
-        root_order, degrees=degrees, pivot=pivot,
+        target.joint_angles,
+        target.root_pos,
+        angle * up_sign,
+        up_idx,
+        root_order,
+        degrees=degrees,
+        pivot=pivot,
     )
     target.joint_angles = new_angles
     target.root_pos = new_root_pos
@@ -671,12 +699,14 @@ def random_rotate_vertical(
         rng = np.random.default_rng()
     angle = float(rng.uniform(angle_range[0], angle_range[1]))
     return rotate_vertical(  # type: ignore[return-value]
-        bvh, angle, up_axis=up_axis, degrees=degrees, pivot=pivot)
+        bvh, angle, up_axis=up_axis, degrees=degrees, pivot=pivot
+    )
 
 
 # =========================================================================
 # NumPy-level API — mirror_angles
 # =========================================================================
+
 
 def mirror_angles(
     joint_angles: npt.NDArray[np.float64],
@@ -778,11 +808,11 @@ def mirror_angles(
             new_angles[:, rj] = left_data
         else:
             new_angles[:, lj] = rotations.rotmat_to_euler(
-                rotations.euler_to_rotmat(right_data, right_order),
-                left_order)
+                rotations.euler_to_rotmat(right_data, right_order), left_order
+            )
             new_angles[:, rj] = rotations.rotmat_to_euler(
-                rotations.euler_to_rotmat(left_data, left_order),
-                right_order)
+                rotations.euler_to_rotmat(left_data, left_order), right_order
+            )
 
     return new_angles, new_root_pos
 
@@ -790,6 +820,7 @@ def mirror_angles(
 # =========================================================================
 # 6.1  Left-Right Mirroring
 # =========================================================================
+
 
 def auto_detect_lr_pairs(bvh: Bvh) -> list[tuple[int, int]]:
     """Auto-detect left/right joint pairs as index tuples.
@@ -814,13 +845,18 @@ def auto_detect_lr_pairs(bvh: Bvh) -> list[tuple[int, int]]:
 
 @overload
 def mirror(
-    bvh: Bvh, *, lr_mapping: dict[str, str] | None = ...,
-    lateral_axis: str | None = ..., inplace: Literal[True],
+    bvh: Bvh,
+    *,
+    lr_mapping: dict[str, str] | None = ...,
+    lateral_axis: str | None = ...,
+    inplace: Literal[True],
 ) -> None: ...
 @overload
 def mirror(
-    bvh: Bvh, lr_mapping: dict[str, str] | None = ...,
-    lateral_axis: str | None = ..., inplace: Literal[False] = ...,
+    bvh: Bvh,
+    lr_mapping: dict[str, str] | None = ...,
+    lateral_axis: str | None = ...,
+    inplace: Literal[False] = ...,
 ) -> Bvh: ...
 def mirror(
     bvh: Bvh,
@@ -878,7 +914,8 @@ def mirror(
             "Provide a mapping explicitly — either set `bvh.lr_mapping = "
             "{...}` after loading, or pass `lr_mapping=` at load time "
             "(`read_bvh_file(..., lr_mapping=...)`). If your skeleton is "
-            "not bilaterally symmetric, mirroring does not apply.")
+            "not bilaterally symmetric, mirroring does not apply."
+        )
 
     # Build joint-index pairs (indices into joint_angles axis 1).
     # An explicitly passed mapping is resolved strictly so typos raise
@@ -886,8 +923,7 @@ def mirror(
     # `Bvh.lr_mapping` was already validated on assignment.
     joints = [n for n in target.nodes if isinstance(n, BvhJoint)]
     j_name2idx = {j.name: i for i, j in enumerate(joints)}
-    lr_j_pairs = _resolve_lr_pairs(
-        lr_mapping, j_name2idx, strict=explicit_mapping)
+    lr_j_pairs = _resolve_lr_pairs(lr_mapping, j_name2idx, strict=explicit_mapping)
 
     # --- Detect lateral axis ---
     # Mirror is a topology operation (swap L/R joints, negate the lateral
@@ -902,11 +938,11 @@ def mirror(
             raise ValueError(
                 "Cannot infer lateral axis from L/R mapping: averaged "
                 "left-to-right offsets are degenerate (parallel to up "
-                "axis or zero). Pass `lateral_axis=` explicitly.")
+                "axis or zero). Pass `lateral_axis=` explicitly."
+            )
         lateral_char = rest_left[1]
     else:
-        lateral_char = _validate_axis_string(
-            lateral_axis, allow_unsigned=True)[1]
+        lateral_char = _validate_axis_string(lateral_axis, allow_unsigned=True)[1]
     lateral_idx = _AXIS_CHAR_TO_IDX[lateral_char]
 
     # Build node-index pairs for offset swapping (includes end sites).
@@ -914,21 +950,24 @@ def mirror(
     # unpairable joint: the property drops its end sites, mirror refuses,
     # because swapping some of a joint's tips and not others produces a
     # skeleton that is wrong rather than incomplete.
-    lr_node_pairs, end_site_mismatches = _resolve_node_lr_pairs(
-        target, lr_mapping)
+    lr_node_pairs, end_site_mismatches = _resolve_node_lr_pairs(target, lr_mapping)
     if end_site_mismatches:
         left_name, num_left, right_name, num_right = end_site_mismatches[0]
         raise ValueError(
             f"Cannot pair end sites for mirror(): joint "
             f"{left_name!r} has {num_left} end site(s) "
             f"but its L/R partner {right_name!r} has "
-            f"{num_right}.")
+            f"{num_right}."
+        )
 
     # --- Steps 1, 4, 5: Mirror arrays via NumPy-level API ---
     rot_ch = [list(j.rot_channels) for j in joints]
     new_angles, new_root_pos = mirror_angles(
-        target.joint_angles, target.root_pos,
-        lr_j_pairs, lateral_idx, rot_ch,
+        target.joint_angles,
+        target.root_pos,
+        lr_j_pairs,
+        lateral_idx,
+        rot_ch,
     )
     target.joint_angles = new_angles
     target.root_pos = new_root_pos
@@ -955,6 +994,7 @@ def mirror(
 # 8.  Coordinate-frame reorientation
 # =========================================================================
 
+
 def _apply_similarity_to_joints(
     angles: npt.NDArray[np.float64],
     joints: list,
@@ -976,8 +1016,8 @@ def _apply_similarity_to_joints(
     sel = np.asarray(joint_indices)
     per_joint = ["".join(joints[j].rot_channels) for j in joint_indices]  # type: ignore[attr-defined]
 
-    block = angles[:, sel]                                              # (F, G, 3)
-    R_j = rotations.euler_to_rotmat(block, per_joint)     # (F, G, 3, 3)
+    block = angles[:, sel]  # (F, G, 3)
+    R_j = rotations.euler_to_rotmat(block, per_joint)  # (F, G, 3, 3)
     R_j_new = R_left @ R_j @ R_right
     angles[:, sel] = rotations.rotmat_to_euler(R_j_new, per_joint)
 
@@ -1005,13 +1045,12 @@ def _reorient_rest(target: Bvh, R_fix: npt.NDArray[np.float64]) -> None:
     # Root (index 0): right-multiply by R_fix_inv only
     root_order = "".join(joints[0].rot_channels)  # type: ignore[attr-defined]
     R_root = rotations.euler_to_rotmat(angles_copy[:, 0], root_order)
-    angles_copy[:, 0] = rotations.rotmat_to_euler(
-        R_root @ R_fix_inv, root_order)
+    angles_copy[:, 0] = rotations.rotmat_to_euler(R_root @ R_fix_inv, root_order)
 
     # All other joints: full similarity
     _apply_similarity_to_joints(
-        angles_copy, joints, R_fix, R_fix_inv,
-        joint_indices=range(1, len(joints)))
+        angles_copy, joints, R_fix, R_fix_inv, joint_indices=range(1, len(joints))
+    )
 
     target.joint_angles = angles_copy
 
@@ -1131,7 +1170,8 @@ def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None
         raise ValueError(
             "Cannot infer the skeleton's rest-pose up axis: the rest "
             "pose is degenerate (all joint offsets are zero or there "
-            "are too few joints).")
+            "are too few joints)."
+        )
     new_up = _validate_axis_string(new_up)
 
     target = bvh if inplace else bvh.copy()
@@ -1182,8 +1222,8 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
     fwd_idx = _AXIS_CHAR_TO_IDX[new_forward[1]]
     if up_idx == fwd_idx:
         raise ValueError(
-            f"new_forward ({new_forward}) cannot be parallel to "
-            f"world_up ({bvh.world_up})")
+            f"new_forward ({new_forward}) cannot be parallel to world_up ({bvh.world_up})"
+        )
 
     # Determine current rest-pose forward from topology
     rest_coords = bvh.rest_pose_positions()

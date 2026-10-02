@@ -8,6 +8,7 @@ is not). These target `analysis.sparc` / `…log_dimensionless_jerk` /
 When implemented, our defaults must match the reference's pinned convention
 (SPARC: padlevel=4, fc=10 Hz, amp_th=0.05 — see the fixture `meta`).
 """
+
 import json
 import os
 
@@ -20,8 +21,9 @@ FX = os.path.join(os.path.dirname(__file__), "fixtures")
 def _load(name):
     p = os.path.join(FX, name + ".npz")
     if not os.path.exists(p):
-        pytest.skip(f"missing fixture {name}.npz "
-                    "(run tests/fixtures/generate_fixtures.py in pybvh_test)")
+        pytest.skip(
+            f"missing fixture {name}.npz (run tests/fixtures/generate_fixtures.py in pybvh_test)"
+        )
     return np.load(p)
 
 
@@ -63,6 +65,7 @@ def test_dimensionless_jerk_vs_reference():
 # / `fc` / `amp_th` — the entire reason sparc takes parameters — had no
 # external check. These pin the non-default paths too.
 
+
 def _sparc_param_sets():
     d = _load("smoothness")
     meta = json.loads(str(d["meta"]))
@@ -93,7 +96,8 @@ def test_the_pinned_parameter_sets_are_not_all_the_same_answer():
     for i in range(1, 4):
         assert not np.allclose(rows[i], rows[0]), (
             f"sparc{i} matches the default row, so it cannot detect "
-            f"{_sparc_param_sets()[i]} being ignored")
+            f"{_sparc_param_sets()[i]} being ignored"
+        )
 
 
 def test_signed_input_is_part_of_the_pinned_contract():

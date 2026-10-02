@@ -5,6 +5,7 @@ change a Scene, and the helper that aligns frame counts. No plotting library
 imports and no imports from the pybvh core; a Scene is built from a
 :class:`~pybvh.bvh.Bvh` in :mod:`._from_bvh`, or from plain arrays.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -17,8 +18,8 @@ import numpy.typing as npt
 
 from .._warnings import user_stacklevel
 
-UP_AXIS_INDEX = {'x': 0, 'y': 1, 'z': 2}
-_SIGNED_AXES = ('+x', '-x', '+y', '-y', '+z', '-z')
+UP_AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
+_SIGNED_AXES = ("+x", "-x", "+y", "-y", "+z", "-z")
 
 # Which measure a view's body size took (SkeletonView.body_size_measure).
 BodySizeMeasure = Literal["rest height", "rest extent", "clip extent", "default"]
@@ -35,7 +36,7 @@ def _axis_vector(signed_axis: str) -> npt.NDArray[np.float64]:
     """The unit vector of a signed axis string, ``'-z'`` -> ``[0, 0, -1]``.
 
     A fresh array on every call."""
-    sign = -1.0 if signed_axis[0] == '-' else 1.0
+    sign = -1.0 if signed_axis[0] == "-" else 1.0
     vector = np.zeros(3, dtype=np.float64)
     vector[UP_AXIS_INDEX[signed_axis[1]]] = sign
     return vector
@@ -44,6 +45,7 @@ def _axis_vector(signed_axis: str) -> npt.NDArray[np.float64]:
 # ---------------------------------------------------------------------------
 # Scene container
 # ---------------------------------------------------------------------------
+
 
 class GroundFrame:
     """What follows from a signed up axis and a floor height.
@@ -70,7 +72,7 @@ class GroundFrame:
     @property
     def up_sign(self) -> float:
         """``+1.0`` for ``'+y'``, ``-1.0`` for ``'-y'``."""
-        return -1.0 if self.up[0] == '-' else 1.0
+        return -1.0 if self.up[0] == "-" else 1.0
 
     @property
     def up_vector(self) -> npt.NDArray[np.float64]:
@@ -191,29 +193,32 @@ class SkeletonView(GroundFrame):
       Change a Scene through its operations.
     """
 
-    coords: npt.NDArray[np.float64]        # (F, N, 3)
-    bones: list[tuple[int, int]]           # (parent_idx, child_idx) pairs
+    coords: npt.NDArray[np.float64]  # (F, N, 3)
+    bones: list[tuple[int, int]]  # (parent_idx, child_idx) pairs
     label: str | None
-    azimuth: float                         # degrees
-    elevation: float                       # degrees
-    up: str                                # signed world-up axis, e.g. '+y', '-z'
-    floor_height: float                    # scene ground along the up axis
-    frame_time: float                      # seconds per frame
-    node_names: list[str]                  # parallel to the N axis
-    rest_coords: npt.NDArray[np.float64]   # (N, 3) rest pose, root at origin
-    rest_up: str | None                    # signed up axis of rest_coords, e.g. '+y'; None if unknown
-    lr_pairs: npt.NDArray[np.intp]         # (P, 2) joint L/R pairs in node index space, the facing geometry's; (0, 2) if none
-    forward_axis: str                      # snapped facing of coords row 0, e.g. '+y'
-    bone_chains: list[str]                 # chain name per bone, parallel to ``bones``
+    azimuth: float  # degrees
+    elevation: float  # degrees
+    up: str  # signed world-up axis, e.g. '+y', '-z'
+    floor_height: float  # scene ground along the up axis
+    frame_time: float  # seconds per frame
+    node_names: list[str]  # parallel to the N axis
+    rest_coords: npt.NDArray[np.float64]  # (N, 3) rest pose, root at origin
+    rest_up: str | None  # signed up axis of rest_coords, e.g. '+y'; None if unknown
+    lr_pairs: npt.NDArray[
+        np.intp
+    ]  # (P, 2) joint L/R pairs in node index space, the facing geometry's; (0, 2) if none
+    forward_axis: str  # snapped facing of coords row 0, e.g. '+y'
+    bone_chains: list[str]  # chain name per bone, parallel to ``bones``
     root_heading: npt.NDArray[np.float64] | None  # (F, 2) [sin, cos] or None
-    coords_in_rest_unit: bool = False      # coords posed from this rest pose: unit ratio exactly 1
+    coords_in_rest_unit: bool = False  # coords posed from this rest pose: unit ratio exactly 1
 
     def __post_init__(self) -> None:
         coords = np.asarray(self.coords)
         if coords.ndim != 3 or coords.shape[2] != 3 or 0 in coords.shape:
             raise ValueError(
                 f"coords must have shape (F, N, 3) with at least one frame "
-                f"and one node, got {coords.shape}.")
+                f"and one node, got {coords.shape}."
+            )
         num_frames, num_nodes = coords.shape[:2]
 
         # rest_up may also be None, unknown; body_size measures without it.
@@ -222,26 +227,27 @@ class SkeletonView(GroundFrame):
             signed_axes["rest_up"] = self.rest_up
         for name, value in signed_axes.items():
             if value not in _SIGNED_AXES:
-                raise ValueError(
-                    f"{name} must be one of {', '.join(_SIGNED_AXES)}, "
-                    f"got {value!r}.")
+                raise ValueError(f"{name} must be one of {', '.join(_SIGNED_AXES)}, got {value!r}.")
         if self.forward_axis[1] == self.up[1]:
             raise ValueError(
                 f"forward_axis {self.forward_axis!r} lies along the up "
-                f"axis {self.up!r}; forward is a ground direction.")
+                f"axis {self.up!r}; forward is a ground direction."
+            )
 
         if len(self.node_names) != num_nodes:
             raise ValueError(
-                f"node_names has {len(self.node_names)} entries but coords "
-                f"has {num_nodes} nodes.")
+                f"node_names has {len(self.node_names)} entries but coords has {num_nodes} nodes."
+            )
         if np.shape(self.rest_coords) != (num_nodes, 3):
             raise ValueError(
                 f"rest_coords must have shape ({num_nodes}, 3) to match "
-                f"coords, got {np.shape(self.rest_coords)}.")
+                f"coords, got {np.shape(self.rest_coords)}."
+            )
         if len(self.bone_chains) != len(self.bones):
             raise ValueError(
                 f"bone_chains has {len(self.bone_chains)} entries but there "
-                f"are {len(self.bones)} bones.")
+                f"are {len(self.bones)} bones."
+            )
 
         for name in ("bones", "lr_pairs"):
             pairs = np.asarray(getattr(self, name))
@@ -250,27 +256,28 @@ class SkeletonView(GroundFrame):
             if pairs.ndim != 2 or pairs.shape[1] != 2:
                 raise ValueError(
                     f"{name} must be (first, second) node index pairs, "
-                    f"shape (P, 2), got {pairs.shape}.")
+                    f"shape (P, 2), got {pairs.shape}."
+                )
             if pairs.size and not np.issubdtype(pairs.dtype, np.integer):
-                raise ValueError(
-                    f"{name} must hold integer node indices, got dtype "
-                    f"{pairs.dtype}.")
+                raise ValueError(f"{name} must hold integer node indices, got dtype {pairs.dtype}.")
             outside = np.unique(pairs[(pairs < 0) | (pairs >= num_nodes)])
             if outside.size:
                 raise ValueError(
                     f"{name} names nodes {outside.tolist()} but coords has "
-                    f"nodes 0 to {num_nodes - 1}.")
+                    f"nodes 0 to {num_nodes - 1}."
+                )
 
-        if (self.root_heading is not None
-                and np.shape(self.root_heading) != (num_frames, 2)):
+        if self.root_heading is not None and np.shape(self.root_heading) != (num_frames, 2):
             raise ValueError(
                 f"root_heading must have shape ({num_frames}, 2) to match "
                 f"the {num_frames} frames of coords, got "
-                f"{np.shape(self.root_heading)}.")
+                f"{np.shape(self.root_heading)}."
+            )
         if not (np.isfinite(self.frame_time) and self.frame_time >= 0):
             raise ValueError(
                 f"frame_time must be a number of seconds, zero (unset) or "
-                f"positive, got {self.frame_time!r}.")
+                f"positive, got {self.frame_time!r}."
+            )
 
         self._protect_arrays()
 
@@ -353,11 +360,9 @@ class SkeletonView(GroundFrame):
         measure of the chain that is positive."""
         coords_per_rest_unit = self.coords_per_rest_unit
         if coords_per_rest_unit is not None:
-            rest_extents = (
-                np.ptp(self.rest_coords, axis=0) * coords_per_rest_unit)
+            rest_extents = np.ptp(self.rest_coords, axis=0) * coords_per_rest_unit
             if self.rest_up is not None:
-                rest_height = float(
-                    rest_extents[UP_AXIS_INDEX[self.rest_up[1]]])
+                rest_height = float(rest_extents[UP_AXIS_INDEX[self.rest_up[1]]])
                 if rest_height > 0.0:
                     return rest_height, "rest height"
             widest_rest_extent = float(rest_extents.max())
@@ -409,13 +414,13 @@ class SkeletonView(GroundFrame):
             return None
         parents, children = np.asarray(self.bones).T
         rest_lengths = np.linalg.norm(
-            self.rest_coords[children] - self.rest_coords[parents], axis=1)
+            self.rest_coords[children] - self.rest_coords[parents], axis=1
+        )
         measurable = rest_lengths > 0.0
         if not measurable.any():
             return None
         pose = self.coords[0]
-        pose_lengths = np.linalg.norm(
-            pose[children] - pose[parents], axis=1)
+        pose_lengths = np.linalg.norm(pose[children] - pose[parents], axis=1)
         ratios = pose_lengths[measurable] / rest_lengths[measurable]
         median_ratio = float(np.median(ratios))
         return median_ratio if median_ratio > 0.0 else None
@@ -438,6 +443,7 @@ class SkeletonView(GroundFrame):
         # running __post_init__, and NumPy hands them writable arrays.
         self.__dict__.update(state)
         self._protect_arrays()
+
 
 @dataclass(frozen=True)
 class Scene:
@@ -470,14 +476,15 @@ class Scene:
         counts = [int(v.coords.shape[0]) for v in self.views]
         if len(set(counts)) > 1:
             raise ValueError(
-                f"All views of a Scene must hold the same number of "
-                f"frames, got {counts}.")
+                f"All views of a Scene must hold the same number of frames, got {counts}."
+            )
         if self.loop_length is not None and not (
-                _is_whole_number(self.loop_length)
-                and 1 <= self.loop_length <= counts[0]):
+            _is_whole_number(self.loop_length) and 1 <= self.loop_length <= counts[0]
+        ):
             raise ValueError(
                 f"loop_length must be a whole number of frames from 1 to "
-                f"the Scene's {counts[0]}, got {self.loop_length!r}.")
+                f"the Scene's {counts[0]}, got {self.loop_length!r}."
+            )
 
     @property
     def num_frames(self) -> int:
@@ -535,21 +542,18 @@ class Scene:
         so looping twice is looping once to the longer length.
         """
         if not _is_whole_number(num_frames):
-            raise ValueError(
-                f"num_frames must be a whole number of frames, got "
-                f"{num_frames!r}.")
+            raise ValueError(f"num_frames must be a whole number of frames, got {num_frames!r}.")
         if num_frames < self.num_frames:
             raise ValueError(
                 f"looped() plays the clip again and cannot shorten it: "
                 f"num_frames must be at least {self.num_frames}, got "
-                f"{num_frames}.")
+                f"{num_frames}."
+            )
         shown = np.arange(num_frames) % self.pass_length
         views = []
         for v in self.views:
-            heading = (None if v.root_heading is None
-                       else v.root_heading[shown])
-            views.append(dataclasses.replace(
-                v, coords=v.coords[shown], root_heading=heading))
+            heading = None if v.root_heading is None else v.root_heading[shown]
+            views.append(dataclasses.replace(v, coords=v.coords[shown], root_heading=heading))
         return Scene(views=views, loop_length=self.pass_length)
 
     def subsampled(self, step: int) -> Scene:
@@ -576,15 +580,16 @@ class Scene:
             raise ValueError(f"step must be >= 1, got {step}.")
         if self.loop_length is not None:
             raise ValueError(
-                "A looped Scene cannot be subsampled: subsample the clip "
-                "first, then loop it.")
+                "A looped Scene cannot be subsampled: subsample the clip first, then loop it."
+            )
         views = []
         for v in self.views:
-            heading = (None if v.root_heading is None
-                       else v.root_heading[::step])
-            views.append(dataclasses.replace(
-                v, coords=v.coords[::step],
-                frame_time=v.frame_time * step, root_heading=heading))
+            heading = None if v.root_heading is None else v.root_heading[::step]
+            views.append(
+                dataclasses.replace(
+                    v, coords=v.coords[::step], frame_time=v.frame_time * step, root_heading=heading
+                )
+            )
         return Scene(views=views)
 
     def offset(self, offsets: list[npt.NDArray[np.float64]]) -> Scene:
@@ -596,19 +601,18 @@ class Scene:
         translation-invariant and are kept.
         """
         if len(offsets) != len(self.views):
-            raise ValueError(
-                f"Expected {len(self.views)} offsets, got {len(offsets)}.")
+            raise ValueError(f"Expected {len(self.views)} offsets, got {len(offsets)}.")
         views = []
         for v, off in zip(self.views, offsets):
             off = np.asarray(off, dtype=np.float64).reshape(3)
-            views.append(dataclasses.replace(
-                v,
-                coords=v.coords + off,
-                floor_height=v.floor_height + float(off[v.up_index])))
+            views.append(
+                dataclasses.replace(
+                    v, coords=v.coords + off, floor_height=v.floor_height + float(off[v.up_index])
+                )
+            )
         return dataclasses.replace(self, views=views)
 
-    def scaled(self, factors: list[float], *,
-               measured_on: Scene | None = None) -> Scene:
+    def scaled(self, factors: list[float], *, measured_on: Scene | None = None) -> Scene:
         """Draw each view at its own factor times its size, as a new Scene.
 
         A view is scaled about its **ground point**: the root's position
@@ -650,27 +654,26 @@ class Scene:
         whose factor is exactly 1 is kept as it is, label included.
         """
         if len(factors) != len(self.views):
-            raise ValueError(
-                f"Expected {len(self.views)} factors, got {len(factors)}.")
+            raise ValueError(f"Expected {len(self.views)} factors, got {len(factors)}.")
         measured_on = self._measurement_scene(measured_on)
         views = []
-        for v, pivot_view, factor in zip(
-                self.views, measured_on.views, factors):
+        for v, pivot_view, factor in zip(self.views, measured_on.views, factors):
             factor = float(factor)
             if not (np.isfinite(factor) and factor > 0.0):
-                raise ValueError(
-                    f"A scale factor must be a positive number, got "
-                    f"{factor!r}.")
+                raise ValueError(f"A scale factor must be a positive number, got {factor!r}.")
             if factor == 1.0:
                 views.append(v)
                 continue
             ground_point = np.array(pivot_view.coords[0, 0], dtype=np.float64)
             ground_point[v.up_index] = v.floor_height
-            views.append(dataclasses.replace(
-                v,
-                coords=ground_point + factor * (v.coords - ground_point),
-                rest_coords=factor * v.rest_coords,
-                label=_label_with_factor(v.label, factor)))
+            views.append(
+                dataclasses.replace(
+                    v,
+                    coords=ground_point + factor * (v.coords - ground_point),
+                    rest_coords=factor * v.rest_coords,
+                    label=_label_with_factor(v.label, factor),
+                )
+            )
         return dataclasses.replace(self, views=views)
 
     def size_matched(self, *, measured_on: Scene | None = None) -> Scene:
@@ -742,7 +745,9 @@ class Scene:
                 f"measured from its rest pose (body_size_measure "
                 f"{reference.body_size_measure!r}), so there is no height "
                 f"to match; every skeleton is drawn at its own size.",
-                UserWarning, stacklevel=user_stacklevel())
+                UserWarning,
+                stacklevel=user_stacklevel(),
+            )
             return self
         factors = []
         for index, v in enumerate(self.views):
@@ -752,7 +757,9 @@ class Scene:
                     f"measured from its rest pose (body_size_measure "
                     f"{v.body_size_measure!r}); it is drawn at its own "
                     f"size.",
-                    UserWarning, stacklevel=user_stacklevel())
+                    UserWarning,
+                    stacklevel=user_stacklevel(),
+                )
                 factors.append(1.0)
                 continue
             factors.append(reference.body_size / v.body_size)
@@ -765,12 +772,11 @@ class Scene:
             return self
         if len(measured_on.views) != len(self.views):
             raise ValueError(
-                f"measured_on has {len(measured_on.views)} views; this "
-                f"Scene has {len(self.views)}.")
+                f"measured_on has {len(measured_on.views)} views; this Scene has {len(self.views)}."
+            )
         return measured_on
 
-    def spread(self, spacing: float | str, *,
-               measured_on: Scene | None = None) -> Scene:
+    def spread(self, spacing: float | str, *, measured_on: Scene | None = None) -> Scene:
         """Offset the views laterally so skeletons sharing one 3-D scene
         do not overlap.
 
@@ -824,8 +830,7 @@ class Scene:
         if effective == 0.0:
             return self
 
-        return self.offset(
-            [leftward * k * effective for k in range(len(self.views))])
+        return self.offset([leftward * k * effective for k in range(len(self.views))])
 
 
 def _label_with_factor(label: str | None, factor: float) -> str:
@@ -833,20 +838,21 @@ def _label_with_factor(label: str | None, factor: float) -> str:
     factor alone for a view with no label. Two significant digits,
     never in exponent notation."""
     shown = np.format_float_positional(
-        factor, precision=2, unique=False, fractional=False, trim='-')
+        factor, precision=2, unique=False, fractional=False, trim="-"
+    )
     return f"×{shown}" if label is None else f"{label} ×{shown}"
 
 
 def _is_whole_number(value: object) -> bool:
     """Whether *value* is an integer type (Python or NumPy), bool
     excluded: a frame count, not a float that happens to be whole."""
-    return (isinstance(value, (int, np.integer))
-            and not isinstance(value, bool))
+    return isinstance(value, (int, np.integer)) and not isinstance(value, bool)
 
 
 # ---------------------------------------------------------------------------
 # Frame count alignment
 # ---------------------------------------------------------------------------
+
 
 def align_frame_counts(
     coords_list: list[npt.NDArray[np.float64]],

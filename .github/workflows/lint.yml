@@ -29,3 +29,8 @@ jobs:
       # Reviewers read the diff, not the job log: the github format puts each
       # finding there as an annotation on the line it concerns.
       - run: ruff check --output-format=github .
+
+      # Fails on any file the formatter would change, and prints the diff.
+      # A notebook's fix also goes to its jupytext twin: "How to edit" in
+      # docs/tutorials.md gives the commands.
+      - run: ruff format --check .

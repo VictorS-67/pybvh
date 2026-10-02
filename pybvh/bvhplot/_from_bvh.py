@@ -6,6 +6,7 @@ is handed the user's ``Bvh`` and prepares it (resampling, rest pose,
 world-up checks), this is the Bvh-facing layer of bvhplot. The router
 imports this module; nothing else in the package does.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Input normalization
 # ---------------------------------------------------------------------------
+
 
 def as_clip_list(bvh: Bvh | list[Bvh]) -> list[Bvh]:
     """The clips an entry point was given, as a non-empty list.
@@ -93,20 +95,19 @@ def normalize_input(
         if len(bvh_list) != 1:
             raise ValueError(
                 "Pre-computed coordinate arrays can only be passed with a "
-                "single Bvh object, not a list.")
+                "single Bvh object, not a list."
+            )
         arr = np.asarray(frames, dtype=np.float64)
         if arr.ndim == 2:
             arr = arr[np.newaxis]  # (N, 3) -> (1, N, 3)
         elif arr.ndim != 3:
-            raise ValueError(
-                f"Expected frames array with 2 or 3 dimensions, got {arr.ndim}.")
+            raise ValueError(f"Expected frames array with 2 or 3 dimensions, got {arr.ndim}.")
         # An array becomes one still frame, its first: the other frames
         # must not size the picture or place the floor.
         coords_list.append(arr[:1])
 
     else:
-        raise TypeError(
-            f"frames must be int, ndarray, or None, got {type(frames).__name__}.")
+        raise TypeError(f"frames must be int, ndarray, or None, got {type(frames).__name__}.")
 
     return bvh_list, coords_list
 
@@ -114,6 +115,7 @@ def normalize_input(
 # ---------------------------------------------------------------------------
 # Scene construction
 # ---------------------------------------------------------------------------
+
 
 def make_scene(
     bvh_list: list[Bvh],
@@ -176,8 +178,7 @@ def make_scene(
 
     views: list[SkeletonView] = []
     for i, (b, coords) in enumerate(zip(bvh_list, coords_list)):
-        azimuth, elevation, up_axis, forward_axis = _camera_angles_and_forward(
-            b, coords[0], camera)
+        azimuth, elevation, up_axis, forward_axis = _camera_angles_and_forward(b, coords[0], camera)
         up_idx = UP_AXIS_INDEX.get(up_axis, 2)
         up_sign = float(b.up_axis.sign)
         bones = get_skeleton_lines(b)
@@ -187,15 +188,15 @@ def make_scene(
         else:
             heading = root_trajectory(b)[:, 2:4]
             if isinstance(clip_frames, slice):
-                root_heading = _align_rows(heading[clip_frames],
-                                           coords.shape[0])
+                root_heading = _align_rows(heading[clip_frames], coords.shape[0])
             else:
                 root_heading = heading[clip_frames][np.newaxis]
             if root_heading.shape[0] != coords.shape[0]:
                 raise ValueError(
                     f"clip_frames={clip_frames!r} names one clip frame but "
                     f"the coords hold {coords.shape[0]} frames; pass a slice "
-                    f"for multi-frame coords.")
+                    f"for multi-frame coords."
+                )
         if canonical_floor:
             floor_height = float(b.floor_height)
         else:
@@ -203,31 +204,33 @@ def make_scene(
             # minimum for a positive up axis, the MAXIMUM for a
             # negative one (where larger values point downward).
             extreme = coords[..., up_idx]
-            floor_height = float(extreme.min() if up_sign > 0
-                                 else extreme.max())
-        views.append(SkeletonView(
-            coords=coords,
-            bones=bones,
-            label=labels[i] if labels and i < len(labels) else None,
-            azimuth=azimuth,
-            elevation=elevation,
-            up=b.world_up,
-            floor_height=floor_height,
-            frame_time=float(b.frame_time),
-            node_names=[node.name for node in b.nodes],
-            rest_coords=b.rest_pose_positions(),
-            rest_up=b.rest_up,
-            lr_pairs=_facing_lr_pairs(b),
-            forward_axis=forward_axis,
-            bone_chains=_chain_per_bone(get_bone_chains(b), len(bones)),
-            root_heading=root_heading,
-            coords_in_rest_unit=clip_frames is not None,
-        ))
+            floor_height = float(extreme.min() if up_sign > 0 else extreme.max())
+        views.append(
+            SkeletonView(
+                coords=coords,
+                bones=bones,
+                label=labels[i] if labels and i < len(labels) else None,
+                azimuth=azimuth,
+                elevation=elevation,
+                up=b.world_up,
+                floor_height=floor_height,
+                frame_time=float(b.frame_time),
+                node_names=[node.name for node in b.nodes],
+                rest_coords=b.rest_pose_positions(),
+                rest_up=b.rest_up,
+                lr_pairs=_facing_lr_pairs(b),
+                forward_axis=forward_axis,
+                bone_chains=_chain_per_bone(get_bone_chains(b), len(bones)),
+                root_heading=root_heading,
+                coords_in_rest_unit=clip_frames is not None,
+            )
+        )
     return Scene(views=views)
 
 
 def _align_rows(
-    arr: npt.NDArray[np.float64], num_frames: int,
+    arr: npt.NDArray[np.float64],
+    num_frames: int,
 ) -> npt.NDArray[np.float64]:
     """Truncate or last-row pad ``arr`` along axis 0 to ``num_frames``.
 
@@ -255,6 +258,7 @@ def _chain_per_bone(chains: dict[str, list[int]], n_bones: int) -> list[str]:
 # ---------------------------------------------------------------------------
 # Skeleton topology
 # ---------------------------------------------------------------------------
+
 
 def get_skeleton_lines(bvh: Bvh) -> list[tuple[int, int]]:
     """Precompute (parent_node_idx, child_node_idx) pairs for bone drawing.
@@ -285,6 +289,7 @@ def get_skeleton_lines(bvh: Bvh) -> list[tuple[int, int]]:
 # ---------------------------------------------------------------------------
 # Camera angles
 # ---------------------------------------------------------------------------
+
 
 def get_camera_angles(
     bvh: Bvh,
@@ -317,8 +322,7 @@ def get_camera_angles(
     up_axis : str
         Single character: ``'x'``, ``'y'``, or ``'z'``.
     """
-    azimuth, elevation, up_axis, _ = _camera_angles_and_forward(
-        bvh, ref_frame, camera)
+    azimuth, elevation, up_axis, _ = _camera_angles_and_forward(bvh, ref_frame, camera)
     return azimuth, elevation, up_axis
 
 
@@ -349,7 +353,7 @@ def _camera_angles_and_forward(
     # as the animation plays (not just the rest-pose topology).
     up_ax = bvh.world_up
     forward_ax = _compute_forward_at(bvh, ref_frame, up_ax)
-    up_char = up_ax[1]                   # 'y'
+    up_char = up_ax[1]  # 'y'
     up_positive = extract_sign(up_ax)
     fwd_char = forward_ax[1]
     fwd_positive = extract_sign(forward_ax)
@@ -366,7 +370,7 @@ def _camera_angles_and_forward(
     # vertical_axis='z': azim=0 looks along -x, so default front is 'x'
     # vertical_axis='y': azim=0 looks along -z, so default front is 'z'
     # vertical_axis='x': azim=0 looks along -y, so default front is 'y'
-    default_up2front = {'z': 'x', 'y': 'z', 'x': 'y'}
+    default_up2front = {"z": "x", "y": "z", "x": "y"}
 
     base_azim = -20.0
     base_elev = 20.0
@@ -393,12 +397,14 @@ def _camera_angles_and_forward(
     else:
         raise ValueError(
             f"Unknown camera preset {camera!r}. "
-            f"Use 'front', 'side', 'top', or (azimuth, elevation).")
+            f"Use 'front', 'side', 'top', or (azimuth, elevation)."
+        )
 
 
 # ---------------------------------------------------------------------------
 # Bone chain classification (for per-chain coloring)
 # ---------------------------------------------------------------------------
+
 
 def get_bone_chains(bvh: Bvh) -> dict[str, list[int]]:
     """Classify each drawn bone into a kinematic chain for coloring.
@@ -468,8 +474,7 @@ def get_bone_chains(bvh: Bvh) -> dict[str, list[int]]:
             leg_nodes.add(n2)
             n2 = parent_of.get(n2)
 
-    chains: dict[str, list[int]] = {
-        "spine": [], "l_arm": [], "l_leg": [], "r_arm": [], "r_leg": []}
+    chains: dict[str, list[int]] = {"spine": [], "l_arm": [], "l_leg": [], "r_arm": [], "r_leg": []}
     paired = left_nodes | right_nodes
     for i, (parent, child) in enumerate(bones):
         if child in left_nodes:

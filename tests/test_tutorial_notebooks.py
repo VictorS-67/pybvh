@@ -13,6 +13,7 @@ CI executes the notebooks in `tutorials.yml` (nbmake), which catches cells that 
 
 Cells tagged `skip-execution` are excluded throughout: they are never executed, so they carry stale execution counts and no outputs by design.
 """
+
 from __future__ import annotations
 
 import json
@@ -33,11 +34,12 @@ def _servable_from_github(repo_rel: str) -> bool:
     if not (REPO / repo_rel).exists():
         return False
     if not (REPO / ".git").exists():
-        return True                     # sdist/tarball: existence is all we have
+        return True  # sdist/tarball: existence is all we have
     ignored = subprocess.run(
-        ["git", "-C", str(REPO), "check-ignore", "-q", repo_rel],
-        capture_output=True)
+        ["git", "-C", str(REPO), "check-ignore", "-q", repo_rel], capture_output=True
+    )
     return ignored.returncode != 0
+
 
 # Emitted by pyplot when the active backend cannot display a figure — the
 # signature of a notebook executed with a non-interactive backend forced on.
@@ -54,9 +56,12 @@ def _load(path):
 
 def _code_cells(nb_dict):
     """(index, cell) for code cells that are actually executed."""
-    return [(i, c) for i, c in enumerate(nb_dict["cells"])
-            if c["cell_type"] == "code"
-            and "skip-execution" not in c.get("metadata", {}).get("tags", [])]
+    return [
+        (i, c)
+        for i, c in enumerate(nb_dict["cells"])
+        if c["cell_type"] == "code"
+        and "skip-execution" not in c.get("metadata", {}).get("tags", [])
+    ]
 
 
 def _source(cell):
@@ -65,9 +70,9 @@ def _source(cell):
 
 
 def _has_image(cell):
-    return any(key.startswith("image/")
-               for out in cell.get("outputs", [])
-               for key in out.get("data", {}))
+    return any(
+        key.startswith("image/") for out in cell.get("outputs", []) for key in out.get("data", {})
+    )
 
 
 def _normalized_cells(nb_dict):
@@ -94,11 +99,13 @@ def test_jupytext_pair_in_sync(ipynb):
     assert len(py_cells) == len(nb_cells), (
         f"cell count differs: {len(py_cells)} in {py.name} vs "
         f"{len(nb_cells)} in {ipynb.name} — run `jupytext --sync "
-        f"tutorials/*.ipynb`")
+        f"tutorials/*.ipynb`"
+    )
     for i, (pc, nc) in enumerate(zip(py_cells, nb_cells)):
         assert pc == nc, (
             f"cell {i} differs between {py.name} and {ipynb.name} — run "
-            f"`jupytext --sync tutorials/*.ipynb`")
+            f"`jupytext --sync tutorials/*.ipynb`"
+        )
 
 
 @pytest.mark.parametrize("ipynb", TUTORIALS, ids=_id)
@@ -112,19 +119,22 @@ def test_plotting_notebooks_pin_the_inline_backend(ipynb):
         f"Without it, executing the notebook in an environment that sets "
         f"MPLBACKEND (CI sets Agg) silently drops every figure. Add the "
         f"magic to the setup cell of the paired .py as `# %matplotlib "
-        f"inline` — jupytext uncomments it into the notebook.")
+        f"inline` — jupytext uncomments it into the notebook."
+    )
 
 
 @pytest.mark.parametrize("ipynb", TUTORIALS, ids=_id)
 def test_every_plot_cell_has_a_figure(ipynb):
     nb = _load(ipynb)
-    missing = [i for i, cell in _code_cells(nb)
-               if "plt.show()" in _source(cell) and not _has_image(cell)]
+    missing = [
+        i for i, cell in _code_cells(nb) if "plt.show()" in _source(cell) and not _has_image(cell)
+    ]
     assert not missing, (
         f"{ipynb.name} cells {missing} call plt.show() but committed no "
         f"figure — readers on GitHub see the code and no plot. Re-execute "
         f"with the inline backend: `jupyter nbconvert --to notebook "
-        f"--execute --inplace tutorials/{ipynb.name}`")
+        f"--execute --inplace tutorials/{ipynb.name}`"
+    )
 
 
 @pytest.mark.parametrize("ipynb", TUTORIALS, ids=_id)
@@ -145,7 +155,8 @@ def test_no_rendering_warnings_or_errors(ipynb):
                     problems.append(
                         f"cell {i}: matplotlib backend warning — the notebook "
                         f"was executed with a non-interactive backend and its "
-                        f"figures were dropped")
+                        f"figures were dropped"
+                    )
     assert not problems, f"{ipynb.name}: " + "; ".join(problems)
 
 
@@ -156,14 +167,18 @@ def test_no_gif_cell_outputs(ipynb):
     GitHub's notebook renderer displays ``image/png`` outputs but silently drops ``image/gif`` ones — the reader sees ``<IPython.core.display.Image object>`` where the clip should play, and no check on figures-as-PNG notices. A clip belongs in a committed ``.gif`` file displayed from a markdown cell (see ``test_markdown_images_are_absolute_and_resolve`` for the form that cell must take).
     """
     nb = _load(ipynb)
-    offenders = [i for i, cell in enumerate(nb["cells"])
-                 for out in cell.get("outputs", [])
-                 if "image/gif" in out.get("data", {})]
+    offenders = [
+        i
+        for i, cell in enumerate(nb["cells"])
+        for out in cell.get("outputs", [])
+        if "image/gif" in out.get("data", {})
+    ]
     assert not offenders, (
         f"{ipynb.name} cells {offenders} embed image/gif outputs, invisible "
         f"on github.com. Write the GIF to tutorials/assets/, commit it, and "
         f"display it from a markdown cell with an absolute "
-        f"raw.githubusercontent.com URL.")
+        f"raw.githubusercontent.com URL."
+    )
 
 
 @pytest.mark.parametrize("ipynb", TUTORIALS, ids=_id)
@@ -181,12 +196,14 @@ def test_markdown_images_are_absolute_and_resolve(ipynb):
             if not src.startswith(RAW_PREFIX):
                 problems.append(
                     f"cell {i}: {src!r} is not an absolute {RAW_PREFIX} URL "
-                    f"(GitHub shows only the alt text for relative paths)")
-            elif not _servable_from_github(src[len(RAW_PREFIX):]):
+                    f"(GitHub shows only the alt text for relative paths)"
+                )
+            elif not _servable_from_github(src[len(RAW_PREFIX) :]):
                 problems.append(
                     f"cell {i}: {src!r} does not resolve to a committed, "
                     f"non-gitignored file (GitHub would show a broken-image "
-                    f"icon)")
+                    f"icon)"
+                )
     assert not problems, f"{ipynb.name}: " + "; ".join(problems)
 
 
@@ -199,4 +216,5 @@ def test_notebook_was_fully_executed_in_order(ipynb):
         f"{ipynb.name}: execution counts are not sequential 1..N — the "
         f"committed outputs are stale (a cell was edited without a full "
         f"re-run). Re-execute: `jupyter nbconvert --to notebook --execute "
-        f"--inplace tutorials/{ipynb.name}`")
+        f"--inplace tutorials/{ipynb.name}`"
+    )

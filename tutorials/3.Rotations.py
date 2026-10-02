@@ -48,7 +48,7 @@ np.set_printoptions(precision=4, suppress=True)
 
 REPO_ROOT = Path.cwd().parent if Path.cwd().name == "tutorials" else Path.cwd()
 bvh_folder = REPO_ROOT / "bvh_data"
-bvh = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')
+bvh = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")
 
 # %% [markdown]
 # # What Euler angles actually do
@@ -80,17 +80,21 @@ bvh = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')
 # At gimbal lock (Y = 90° in ZYX order), X and Z rotations become coupled.
 # Only the *difference* (Z - X) affects the result — infinitely many (X, Z) pairs
 # give the same rotation. Let's verify: all three sets below have Z - X = 30°.
-gimbal_cases = np.array([
-    [ 0.0, 90.0, 30.0],
-    [20.0, 90.0, 50.0],
-    [45.0, 90.0, 75.0],
-])
+gimbal_cases = np.array(
+    [
+        [0.0, 90.0, 30.0],
+        [20.0, 90.0, 50.0],
+        [45.0, 90.0, 75.0],
+    ]
+)
 
-Rs = pybvh.rotations.euler_to_rotmat(gimbal_cases, 'ZYX', degrees=True)
+Rs = pybvh.rotations.euler_to_rotmat(gimbal_cases, "ZYX", degrees=True)
 
 print("Three different Euler angle sets, all with Y = 90° and (Z - X) = 30°:\n")
 for i in range(3):
-    print(f"  (X={gimbal_cases[i, 0]:5.1f}°, Y={gimbal_cases[i, 1]:5.1f}°, Z={gimbal_cases[i, 2]:5.1f}°)")
+    print(
+        f"  (X={gimbal_cases[i, 0]:5.1f}°, Y={gimbal_cases[i, 1]:5.1f}°, Z={gimbal_cases[i, 2]:5.1f}°)"
+    )
 print()
 print(f"Same rotation matrix? {np.allclose(Rs[0], Rs[1]) and np.allclose(Rs[1], Rs[2])}")
 print(f"\nThe rotation matrix (all three are identical):\n{Rs[0]}")
@@ -110,31 +114,31 @@ euler = np.zeros((41, 3))
 euler[:, 0] = input_angles  # Z component in ZYX order
 
 # Convert to all representations and back
-rotmats = pybvh.rotations.euler_to_rotmat(euler, 'ZYX', degrees=True)
-recovered_euler = pybvh.rotations.rotmat_to_euler(rotmats, 'ZYX', degrees=True)
-quats = pybvh.rotations.euler_to_quat(euler, 'ZYX', degrees=True)
-rot6d = pybvh.rotations.euler_to_rot6d(euler, 'ZYX', degrees=True)
+rotmats = pybvh.rotations.euler_to_rotmat(euler, "ZYX", degrees=True)
+recovered_euler = pybvh.rotations.rotmat_to_euler(rotmats, "ZYX", degrees=True)
+quats = pybvh.rotations.euler_to_quat(euler, "ZYX", degrees=True)
+rot6d = pybvh.rotations.euler_to_rot6d(euler, "ZYX", degrees=True)
 
 fig, axes = plt.subplots(1, 3, figsize=(14, 4))
 
-axes[0].plot(input_angles, recovered_euler[:, 0], 'o-', color='C3')
-axes[0].set_title('Euler Z (recovered)')
-axes[0].set_xlabel('input angle (deg)')
-axes[0].set_ylabel('Z component (deg)')
-axes[0].axvline(180, color='gray', linestyle=':', alpha=0.5)
+axes[0].plot(input_angles, recovered_euler[:, 0], "o-", color="C3")
+axes[0].set_title("Euler Z (recovered)")
+axes[0].set_xlabel("input angle (deg)")
+axes[0].set_ylabel("Z component (deg)")
+axes[0].axvline(180, color="gray", linestyle=":", alpha=0.5)
 
-axes[1].plot(input_angles, quats[:, 0], 'o-', label='w')
-axes[1].plot(input_angles, quats[:, 3], 'o-', label='z')
-axes[1].set_title('Quaternion (canonical, w \u2265 0)')
-axes[1].set_xlabel('input angle (deg)')
-axes[1].axvline(180, color='gray', linestyle=':', alpha=0.5)
+axes[1].plot(input_angles, quats[:, 0], "o-", label="w")
+axes[1].plot(input_angles, quats[:, 3], "o-", label="z")
+axes[1].set_title("Quaternion (canonical, w \u2265 0)")
+axes[1].set_xlabel("input angle (deg)")
+axes[1].axvline(180, color="gray", linestyle=":", alpha=0.5)
 axes[1].legend()
 
-axes[2].plot(input_angles, rot6d[:, 0], 'o-', label='[0]')
-axes[2].plot(input_angles, rot6d[:, 3], 'o-', label='[3]')
-axes[2].set_title('6D representation')
-axes[2].set_xlabel('input angle (deg)')
-axes[2].axvline(180, color='gray', linestyle=':', alpha=0.5)
+axes[2].plot(input_angles, rot6d[:, 0], "o-", label="[0]")
+axes[2].plot(input_angles, rot6d[:, 3], "o-", label="[3]")
+axes[2].set_title("6D representation")
+axes[2].set_xlabel("input angle (deg)")
+axes[2].axvline(180, color="gray", linestyle=":", alpha=0.5)
 axes[2].legend()
 
 plt.tight_layout()
@@ -186,8 +190,8 @@ print(np.rad2deg(bvh.joint_angles[0, :3]))
 # %%
 angles = np.array([30.0, 45.0, 60.0])  # same 3 numbers, two different orders
 
-R_zyx = pybvh.rotations.euler_to_rotmat(angles, 'ZYX', degrees=True)
-R_xyz = pybvh.rotations.euler_to_rotmat(angles, 'XYZ', degrees=True)
+R_zyx = pybvh.rotations.euler_to_rotmat(angles, "ZYX", degrees=True)
+R_xyz = pybvh.rotations.euler_to_rotmat(angles, "XYZ", degrees=True)
 
 print("R with order ZYX:")
 print(R_zyx)
@@ -210,7 +214,7 @@ print("\nDifferent matrices? ", not np.allclose(R_zyx, R_xyz))
 
 # %%
 angles_deg = np.array([30.0, 45.0, 60.0])
-order = 'ZYX'
+order = "ZYX"
 
 # Forward: Euler -> Rotation matrix
 R = pybvh.rotations.euler_to_rotmat(angles_deg, order, degrees=True)
@@ -228,12 +232,12 @@ print(f"\nRecovered Euler angles: {recovered}")
 
 # %%
 # Decompose the same rotation matrix in XYZ order instead of ZYX
-angles_xyz = pybvh.rotations.rotmat_to_euler(R, 'XYZ', degrees=True)
+angles_xyz = pybvh.rotations.rotmat_to_euler(R, "XYZ", degrees=True)
 print(f"Same rotation as ZYX: {recovered}")
 print(f"Same rotation as XYZ: {angles_xyz}")
 
 # Verify both produce the same rotation matrix
-R_check = pybvh.rotations.euler_to_rotmat(angles_xyz, 'XYZ', degrees=True)
+R_check = pybvh.rotations.euler_to_rotmat(angles_xyz, "XYZ", degrees=True)
 print(f"Both give the same R? {np.allclose(R, R_check)}")
 
 # %% [markdown]
@@ -242,14 +246,17 @@ print(f"Both give the same R? {np.allclose(R, R_check)}")
 # All functions in `pybvh.rotations` are **fully vectorized**. They accept arrays of any shape `(*, 3)` and return arrays of shape `(*, 3, 3)`. For a 1000-frame motion with 24 joints, this is the only practical way to convert — pure-Python loops would be orders of magnitude slower.
 
 # %%
-batch_angles = np.array([
-    [0, 0, 0],
-    [30, 45, 60],
-    [90, 0, 0],
-    [-45, 90, 30],
-], dtype=float)
+batch_angles = np.array(
+    [
+        [0, 0, 0],
+        [30, 45, 60],
+        [90, 0, 0],
+        [-45, 90, 30],
+    ],
+    dtype=float,
+)
 
-batch_R = pybvh.rotations.euler_to_rotmat(batch_angles, 'ZYX', degrees=True)
+batch_R = pybvh.rotations.euler_to_rotmat(batch_angles, "ZYX", degrees=True)
 print(f"Input shape:  {batch_angles.shape}")
 print(f"Output shape: {batch_R.shape}")
 
@@ -268,10 +275,10 @@ print(f"Output shape: {batch_R.shape}")
 # %%
 angles_deg = np.array([30.0, 45.0, 60.0])
 
-rot6d = pybvh.rotations.euler_to_rot6d(angles_deg, 'ZYX', degrees=True)
+rot6d = pybvh.rotations.euler_to_rot6d(angles_deg, "ZYX", degrees=True)
 print(f"6D vector: {rot6d}")
 
-recovered = pybvh.rotations.rot6d_to_euler(rot6d, 'ZYX', degrees=True)
+recovered = pybvh.rotations.rot6d_to_euler(rot6d, "ZYX", degrees=True)
 print(f"Recovered: {recovered}")
 
 # %% [markdown]
@@ -282,11 +289,11 @@ print(f"Recovered: {recovered}")
 # pybvh uses the **scalar-first** convention `(w, x, y, z)` and enforces a **canonical form** where `w ≥ 0` to resolve the double-cover ambiguity (since `q` and `-q` represent the same rotation).
 
 # %%
-q = pybvh.rotations.euler_to_quat(angles_deg, 'ZYX', degrees=True)
+q = pybvh.rotations.euler_to_quat(angles_deg, "ZYX", degrees=True)
 print(f"Quaternion (w, x, y, z): {q}")
 print(f"Norm: {np.linalg.norm(q):.6f}")  # always 1.0
 
-recovered = pybvh.rotations.quat_to_euler(q, 'ZYX', degrees=True)
+recovered = pybvh.rotations.quat_to_euler(q, "ZYX", degrees=True)
 print(f"Recovered: {recovered}")
 
 # %% [markdown]
@@ -295,15 +302,15 @@ print(f"Recovered: {recovered}")
 # The quaternion superpower is **SLERP** (spherical linear interpolation): blending two orientations along the shortest arc between them, at constant angular speed. Interpolating Euler angles component-wise does *not* do this — near the ±180° wraparound it takes the long way around. Consider two orientations that are only 20° apart, at +170° and −170° around Z:
 
 # %%
-q_a = pybvh.rotations.euler_to_quat(np.array([170.0, 0, 0]), 'ZYX', degrees=True)
-q_b = pybvh.rotations.euler_to_quat(np.array([-170.0, 0, 0]), 'ZYX', degrees=True)
+q_a = pybvh.rotations.euler_to_quat(np.array([170.0, 0, 0]), "ZYX", degrees=True)
+q_b = pybvh.rotations.euler_to_quat(np.array([-170.0, 0, 0]), "ZYX", degrees=True)
 
 print("Interpolating from Z=170° to Z=-170° (20° apart across the boundary):\n")
 print(f"{'t':>6} {'Euler lerp':>12} {'SLERP':>12}")
 for t in [0.0, 0.25, 0.5, 0.75, 1.0]:
     euler_lerp = (1 - t) * 170.0 + t * -170.0
     q_t = pybvh.rotations.quat_slerp(q_a, q_b, t)
-    slerp_z = pybvh.rotations.quat_to_euler(q_t, 'ZYX', degrees=True)[0]
+    slerp_z = pybvh.rotations.quat_to_euler(q_t, "ZYX", degrees=True)[0]
     print(f"{t:>6.2f} {euler_lerp:>11.1f}° {slerp_z:>11.1f}°")
 
 # %% [markdown]
@@ -322,7 +329,7 @@ for t in [0.0, 0.25, 0.5, 0.75, 1.0]:
 # This is the representation used by **SMPL** and **SMPL-X** body models, and by many pose estimation pipelines.
 
 # %%
-aa = pybvh.rotations.euler_to_axisangle(angles_deg, 'ZYX', degrees=True)
+aa = pybvh.rotations.euler_to_axisangle(angles_deg, "ZYX", degrees=True)
 angle_rad = np.linalg.norm(aa)
 axis = aa / angle_rad
 
@@ -330,7 +337,7 @@ print(f"Axis-angle vector: {aa}")
 print(f"Rotation axis:     {axis}")
 print(f"Rotation angle:    {np.degrees(angle_rad):.2f}°")
 
-recovered = pybvh.rotations.axisangle_to_euler(aa, 'ZYX', degrees=True)
+recovered = pybvh.rotations.axisangle_to_euler(aa, "ZYX", degrees=True)
 print(f"Recovered: {recovered}")
 
 # %% [markdown]
@@ -344,7 +351,7 @@ print(f"Recovered: {recovered}")
 angles = np.array([30.0, 45.0, 60.0])
 
 # Start with a valid rotation
-R_valid = pybvh.rotations.euler_to_rotmat(angles, 'ZYX', degrees=True)
+R_valid = pybvh.rotations.euler_to_rotmat(angles, "ZYX", degrees=True)
 rot6d_valid = pybvh.rotations.rotmat_to_rot6d(R_valid)
 
 # Add noise (simulating a network's imperfect output)
@@ -358,7 +365,7 @@ print(f"Determinant of recovered R: {np.linalg.det(R_recovered):.6f}  (must be 1
 print(f"Is orthogonal? {np.allclose(R_recovered @ R_recovered.T, np.eye(3), atol=1e-6)}")
 
 # The recovered rotation is close but not identical to the original due to the noise
-angles_recovered = pybvh.rotations.rotmat_to_euler(R_recovered, order='ZYX', degrees=True)
+angles_recovered = pybvh.rotations.rotmat_to_euler(R_recovered, order="ZYX", degrees=True)
 print(f"\nOriginal angles:  {angles}")
 print(f"Recovered angles: {angles_recovered}")
 
@@ -368,7 +375,7 @@ print(f"Recovered angles: {angles_recovered}")
 # Compare with quaternions:
 
 # %%
-q_valid = pybvh.rotations.euler_to_quat(angles, 'ZYX', degrees=True)
+q_valid = pybvh.rotations.euler_to_quat(angles, "ZYX", degrees=True)
 q_noisy = q_valid + rng.normal(scale=0.1, size=4)
 
 print(f"||q_noisy|| = {np.linalg.norm(q_noisy):.4f}  (a valid unit quaternion has norm exactly 1)")
@@ -407,9 +414,9 @@ spatial_before = bvh.node_positions()
 
 results = {}
 for name, get_fn_name, set_fn_name in [
-    ("6D",         'to_6d',         'from_6d'),
-    ("quaternion", 'to_quat',        'from_quat'),
-    ("axis-angle", 'to_axisangle',  'from_axisangle'),
+    ("6D", "to_6d", "from_6d"),
+    ("quaternion", "to_quat", "from_quat"),
+    ("axis-angle", "to_axisangle", "from_axisangle"),
 ]:
     test = bvh.copy()
     root_pos, joint_data = getattr(test, get_fn_name)()
@@ -438,7 +445,7 @@ for name, err in results.items():
 print(f"Hips order before: {bvh.root.rot_channels}")
 print(f"Hips angles (frame 0): {bvh.joint_angles[0, 0]}")
 
-bvh_new = bvh.change_euler_order('XYZ', joint='Hips', inplace=False)
+bvh_new = bvh.change_euler_order("XYZ", joint="Hips", inplace=False)
 
 print(f"\nHips order after:  {bvh_new.root.rot_channels}")
 print(f"Hips angles (frame 0): {bvh_new.joint_angles[0, 0]}")
@@ -446,7 +453,7 @@ print("\nThe angles look completely different, but they represent the same rotat
 
 # %%
 # Unify all joints to a single order
-bvh_unified = bvh.change_euler_order('XYZ', inplace=False)
+bvh_unified = bvh.change_euler_order("XYZ", inplace=False)
 
 print("Right arms joints — orders before vs after:")
 for orig, new in zip(bvh.nodes[9:13], bvh_unified.nodes[9:13]):

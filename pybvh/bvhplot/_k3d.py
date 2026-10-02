@@ -5,6 +5,7 @@ and a frame scrubber widget.
 
 Requires ``k3d >= 2.14`` and ``ipywidgets``.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -53,21 +54,20 @@ def _node_colors_uint32(
     """
     if effective_color_mode(style, scene.num_skeletons) != "chains":
         return None
-    rgb = node_colors_255(
-        scene.views[s], style, s, scene.num_skeletons).astype(np.uint32)
+    rgb = node_colors_255(scene.views[s], style, s, scene.num_skeletons).astype(np.uint32)
     return (rgb[:, 0] << 16) | (rgb[:, 1] << 8) | rgb[:, 2]
 
 
 class _Plot(NamedTuple):
     """A built k3d plot and the handles its frame callback updates."""
 
-    plot: Any                        # k3d.plot.Plot
+    plot: Any  # k3d.plot.Plot
     viewport: Viewport
-    coords: list[npt.NDArray[np.float32]]        # per skeleton, (F, N, 3)
-    skeletons: list[tuple[Any, Any]]             # (k3d Lines, k3d Points)
-    trails: list[Any]                            # k3d Line per skeleton
-    trail_paths: list[npt.NDArray[np.float32]]   # per skeleton, (F, 3)
-    floor: Any | None                # k3d Mesh or Lines, None without a floor
+    coords: list[npt.NDArray[np.float32]]  # per skeleton, (F, N, 3)
+    skeletons: list[tuple[Any, Any]]  # (k3d Lines, k3d Points)
+    trails: list[Any]  # k3d Line per skeleton
+    trail_paths: list[npt.NDArray[np.float32]]  # per skeleton, (F, 3)
+    floor: Any | None  # k3d Mesh or Lines, None without a floor
 
 
 def _build_plot(
@@ -98,13 +98,15 @@ def _build_plot(
     # doesn't leak into the caller's process-wide warning state.
     with warnings.catch_warnings():
         warnings.filterwarnings(
-            "ignore", message=".*dtype.*does not match required type.*",
-            module="traittypes")
+            "ignore", message=".*dtype.*does not match required type.*", module="traittypes"
+        )
 
-        plot = k3d.plot(name='pybvh skeleton viewer',
-                        background_color=_packed(rgb255(style.background)),
-                        grid_color=_packed(grid_line_rgb),
-                        label_color=_packed(grid_label_rgb))
+        plot = k3d.plot(
+            name="pybvh skeleton viewer",
+            background_color=_packed(rgb255(style.background)),
+            grid_color=_packed(grid_line_rgb),
+            label_color=_packed(grid_label_rgb),
+        )
 
         # Build k3d objects for each skeleton
         skeleton_objects: list[tuple[Any, Any]] = []
@@ -122,21 +124,21 @@ def _build_plot(
             node_colors = _node_colors_uint32(scene, style, s)
 
             lines = k3d.lines(
-                frame0, indices,
-                indices_type='segment',
+                frame0,
+                indices,
+                indices_type="segment",
                 color=color,
                 colors=node_colors if node_colors is not None else [],
                 width=BONE_WIDTH_FRACTION * view.body_size * width_factor,
-                shader='thick',
-                name=(labels[s] if labels and labels[s] is not None
-                      else f"Skeleton {s}"),
+                shader="thick",
+                name=(labels[s] if labels and labels[s] is not None else f"Skeleton {s}"),
             )
             points = k3d.points(
                 frame0,
                 color=color,
                 colors=node_colors if node_colors is not None else [],
                 point_size=JOINT_SIZE_FRACTION * view.body_size,
-                shader='3dSpecular',
+                shader="3dSpecular",
                 name=f"Joints {s}",
             )
 
@@ -154,8 +156,7 @@ def _build_plot(
         trail_objects: list[Any] = []
         trail_full_paths: list[npt.NDArray[np.float32]] = []
         for s, view in enumerate(scene.views):
-            root_path = viewport.ground_path(
-                view.coords[:, 0, :]).astype(np.float32)  # (F, 3)
+            root_path = viewport.ground_path(view.coords[:, 0, :]).astype(np.float32)  # (F, 3)
             trail_full_paths.append(root_path)
 
             # Initial trail: all vertices collapsed at frame 0
@@ -168,7 +169,7 @@ def _build_plot(
                 color=color,
                 width=TRAIL_WIDTH_FRACTION * view.body_size,
                 opacity=0.6,
-                shader='thick',
+                shader="thick",
                 name=f"Trajectory {s}",
             )
             plot += trail
@@ -181,8 +182,12 @@ def _build_plot(
     # The grid covers the full motion extent, from the ground up.
     grid_min, grid_max = viewport.grounded_box()
     plot.grid = [
-        float(grid_min[0]), float(grid_min[1]), float(grid_min[2]),
-        float(grid_max[0]), float(grid_max[1]), float(grid_max[2]),
+        float(grid_min[0]),
+        float(grid_min[1]),
+        float(grid_min[2]),
+        float(grid_max[0]),
+        float(grid_max[1]),
+        float(grid_max[2]),
     ]
     plot.grid_auto_fit = False
     plot.camera_auto_fit = False
@@ -194,8 +199,9 @@ def _build_plot(
     eye, target, up = viewport.camera(view_angle=plot.camera_fov)
     plot.camera = [float(value) for value in (*eye, *target, *up)]
 
-    return _Plot(plot, viewport, coords_f32, skeleton_objects,
-                 trail_objects, trail_full_paths, floor)
+    return _Plot(
+        plot, viewport, coords_f32, skeleton_objects, trail_objects, trail_full_paths, floor
+    )
 
 
 def _build_floor(viewport: Viewport, style: Style) -> Any | None:
@@ -212,34 +218,45 @@ def _build_floor(viewport: Viewport, style: Style) -> Any | None:
     import k3d
 
     corners = viewport.floor_quad()
-    corners[:, viewport.up_index] = viewport.below_floor(
-        FLOOR_EPSILON * viewport.half_span)
+    corners[:, viewport.up_index] = viewport.below_floor(FLOOR_EPSILON * viewport.half_span)
     palette = floor_palette(style)
 
     if style.floor == "solid":
         return k3d.mesh(
             corners.astype(np.float32),
             np.array([[0, 1, 2], [0, 2, 3]], dtype=np.uint32),
-            color=_packed(rgb255(palette["face"])), opacity=style.floor_alpha,
-            side='double', flat_shading=True, name="Floor")
+            color=_packed(rgb255(palette["face"])),
+            opacity=style.floor_alpha,
+            side="double",
+            flat_shading=True,
+            name="Floor",
+        )
 
     # Lines across the quad in both ground directions: from one edge
     # to the opposite one, at equal steps.
     steps = np.linspace(0.0, 1.0, FLOOR_GRID_LINES)[:, np.newaxis]
-    along_first = (corners[0] + steps * (corners[1] - corners[0]),
-                   corners[3] + steps * (corners[2] - corners[3]))
-    along_second = (corners[0] + steps * (corners[3] - corners[0]),
-                    corners[1] + steps * (corners[2] - corners[1]))
+    along_first = (
+        corners[0] + steps * (corners[1] - corners[0]),
+        corners[3] + steps * (corners[2] - corners[3]),
+    )
+    along_second = (
+        corners[0] + steps * (corners[3] - corners[0]),
+        corners[1] + steps * (corners[2] - corners[1]),
+    )
     starts = np.concatenate([along_first[0], along_second[0]])
     ends = np.concatenate([along_first[1], along_second[1]])
     vertices = np.concatenate([starts, ends]).astype(np.float32)
     count = len(starts)
-    indices = np.stack(
-        [np.arange(count), np.arange(count) + count], axis=1)
+    indices = np.stack([np.arange(count), np.arange(count) + count], axis=1)
     return k3d.lines(
-        vertices, indices.astype(np.uint32), indices_type='segment',
+        vertices,
+        indices.astype(np.uint32),
+        indices_type="segment",
         color=_packed(rgb255(palette["grid"])),
-        width=0.004 * viewport.half_span, opacity=0.8, name="Floor")
+        width=0.004 * viewport.half_span,
+        opacity=0.8,
+        name="Floor",
+    )
 
 
 def play_k3d(
@@ -341,23 +358,23 @@ def play_k3d(
         max=num_frames - 1,
         step=1,
         interval=int(1000.0 / fps),
-        description='',
+        description="",
     )
     slider = IntSlider(
         value=0,
         min=0,
         max=num_frames - 1,
         step=1,
-        description='Frame',
-        layout={'width': '500px'},
+        description="Frame",
+        layout={"width": "500px"},
     )
-    frame_label = Label(value=f'0 / {num_frames - 1}')
+    frame_label = Label(value=f"0 / {num_frames - 1}")
 
-    jslink((play_widget, 'value'), (slider, 'value'))
+    jslink((play_widget, "value"), (slider, "value"))
 
     def on_frame_change(change: dict) -> None:
-        f = change['new']
-        frame_label.value = f'{f} / {num_frames - 1}'
+        f = change["new"]
+        frame_label.value = f"{f} / {num_frames - 1}"
         for s, (lines_obj, pts_obj) in enumerate(skeleton_objects):
             frame_data = coords_f32[s][f]
             lines_obj.vertices = frame_data
@@ -367,11 +384,11 @@ def play_k3d(
         for s, trail_obj in enumerate(trail_objects):
             full_path = trail_full_paths[s]
             verts = np.empty_like(full_path)
-            verts[:f + 1] = full_path[:f + 1]
-            verts[f + 1:] = full_path[f]
+            verts[: f + 1] = full_path[: f + 1]
+            verts[f + 1 :] = full_path[f]
             trail_obj.vertices = verts
 
-    slider.observe(on_frame_change, names='value')
+    slider.observe(on_frame_change, names="value")
 
     controls = HBox([play_widget, slider, frame_label])
     display(VBox([plot, controls]))

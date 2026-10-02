@@ -42,7 +42,7 @@ np.set_printoptions(precision=4, suppress=True)
 
 REPO_ROOT = Path.cwd().parent if Path.cwd().name == "tutorials" else Path.cwd()
 bvh_folder = REPO_ROOT / "bvh_data"
-bvh = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')
+bvh = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")
 print(bvh)
 
 # %% [markdown]
@@ -83,9 +83,9 @@ print(bvh)
 # %%
 mapping = bvh.lr_mapping
 
-print(f'Detected {len(mapping)} L/R joint pairs:')
+print(f"Detected {len(mapping)} L/R joint pairs:")
 for left, right in mapping.items():
-    print(f'  {left:20s} <-> {right}')
+    print(f"  {left:20s} <-> {right}")
 
 # %% [markdown]
 # `bvh.lr_mapping` was introduced in Tutorial 1 — the auto-detected dict of L/R joint names. `mirror()` reads it to know which joints to swap. For tensor pipelines that need `(left_idx, right_idx)` index tuples instead of names, `transforms.auto_detect_lr_pairs(bvh)` returns that form.
@@ -98,8 +98,7 @@ for left, right in mapping.items():
 # %%
 mirrored = bvh.mirror()
 
-fig, axes = pybvh.bvhplot.frame([bvh, mirrored], frame=30,
-                                 labels=['Original', 'Mirrored'])
+fig, axes = pybvh.bvhplot.frame([bvh, mirrored], frame=30, labels=["Original", "Mirrored"])
 plt.show()
 
 # %% [markdown]
@@ -107,12 +106,12 @@ plt.show()
 
 # %%
 # joint_index is the right lookup for joint_angles (see Tutorial 2).
-left_idx = bvh.joint_index['LeftArm']
-right_idx = bvh.joint_index['RightArm']
+left_idx = bvh.joint_index["LeftArm"]
+right_idx = bvh.joint_index["RightArm"]
 
-print('LeftArm rotation channel order:', bvh.nodes[bvh.node_index["LeftArm"]].rot_channels)
-print('Original  LeftArm  angles (frame 0):', bvh.joint_angles[0, left_idx])
-print('Mirrored  RightArm angles (frame 0):', mirrored.joint_angles[0, right_idx])
+print("LeftArm rotation channel order:", bvh.nodes[bvh.node_index["LeftArm"]].rot_channels)
+print("Original  LeftArm  angles (frame 0):", bvh.joint_angles[0, left_idx])
+print("Mirrored  RightArm angles (frame 0):", mirrored.joint_angles[0, right_idx])
 
 # %% [markdown]
 # # Vertical (yaw) rotation
@@ -125,18 +124,18 @@ print('Mirrored  RightArm angles (frame 0):', mirrored.joint_angles[0, right_idx
 # The up axis is auto-detected from the skeleton (`bvh.world_up`) — no need to specify it manually in most cases. The angle is in **radians**, the same convention as `bvh.joint_angles`; pass `degrees=True` if you prefer to think in degrees.
 
 # %%
-rotated = bvh.rotate_vertical(np.pi / 2)          # same as bvh.rotate_vertical(90, degrees=True)
+rotated = bvh.rotate_vertical(np.pi / 2)  # same as bvh.rotate_vertical(90, degrees=True)
 
-fig, axes = pybvh.bvhplot.frame([bvh, rotated], frame=20,
-                                 labels=['Original', 'Rotated 90°'],
-                                 camera=(120,20))
+fig, axes = pybvh.bvhplot.frame(
+    [bvh, rotated], frame=20, labels=["Original", "Rotated 90°"], camera=(120, 20)
+)
 plt.show()
 
 # %% [markdown]
 # The pose is unchanged — only the character's facing direction differs. The root trajectory rotates by the same 90° around the origin:
 
 # %%
-fig, ax = pybvh.bvhplot.trajectory([bvh, rotated], labels=['Original', 'Rotated 90°'])
+fig, ax = pybvh.bvhplot.trajectory([bvh, rotated], labels=["Original", "Rotated 90°"])
 plt.show()
 
 # %% [markdown]
@@ -147,8 +146,9 @@ plt.show()
 # %%
 rand_rotated = bvh.random_rotate_vertical(rng=np.random.default_rng(42))
 
-fig, axes = pybvh.bvhplot.frame([bvh, rand_rotated], frame=20,
-                                 labels=['Original', 'Random yaw (seed=42)'])
+fig, axes = pybvh.bvhplot.frame(
+    [bvh, rand_rotated], frame=20, labels=["Original", "Random yaw (seed=42)"]
+)
 plt.show()
 
 # %% [markdown]
@@ -160,21 +160,19 @@ plt.show()
 # %%
 translated = bvh.translate_root(offset=[50, 0, 0])
 
-fig, ax = pybvh.bvhplot.trajectory([bvh, translated],
-                                    labels=['Original', 'Translated +50 X'])
+fig, ax = pybvh.bvhplot.trajectory([bvh, translated], labels=["Original", "Translated +50 X"])
 plt.show()
 
-print(f'Original   root position (frame 0): {bvh.root_pos[0]}')
-print(f'Translated root position (frame 0): {translated.root_pos[0]}')
+print(f"Original   root position (frame 0): {bvh.root_pos[0]}")
+print(f"Translated root position (frame 0): {translated.root_pos[0]}")
 
 # %% [markdown]
 # The random variant, `random_translate_root()`, samples each axis uniformly from a given range:
 
 # %%
-rand_translated = bvh.random_translate_root(offset_range=(-50, 50),
-                                            rng=np.random.default_rng(42))
+rand_translated = bvh.random_translate_root(offset_range=(-50, 50), rng=np.random.default_rng(42))
 
-print(f'Random offset applied (frame 0): {rand_translated.root_pos[0] - bvh.root_pos[0]}')
+print(f"Random offset applied (frame 0): {rand_translated.root_pos[0] - bvh.root_pos[0]}")
 
 # %% [markdown]
 # # Reorientation
@@ -198,17 +196,18 @@ print(f'Random offset applied (frame 0): {rand_translated.root_pos[0] - bvh.root
 # `bvh_test2.bvh` is a **Y-up** file; our reference `bvh_test1.bvh` is **Z-up**. Side-by-side rendering of two such files looks wrong because one character stands up while the other lies down. `reorient_world_up` fixes this by rotating the entire scene so the up axes match.
 
 # %%
-bvh_yup = pybvh.read_bvh_file(bvh_folder / 'bvh_test2.bvh')
-print(f'bvh (bvh_test1)     world_up: {bvh.world_up}')
-print(f'bvh_yup (bvh_test2) world_up: {bvh_yup.world_up}')
+bvh_yup = pybvh.read_bvh_file(bvh_folder / "bvh_test2.bvh")
+print(f"bvh (bvh_test1)     world_up: {bvh.world_up}")
+print(f"bvh_yup (bvh_test2) world_up: {bvh_yup.world_up}")
 
 # Unify: rotate bvh_yup into +z-up to match bvh
-bvh_unified = bvh_yup.reorient_world_up('+z')
-print(f'\nAfter reorient, bvh_unified world_up: {bvh_unified.world_up}')
+bvh_unified = bvh_yup.reorient_world_up("+z")
+print(f"\nAfter reorient, bvh_unified world_up: {bvh_unified.world_up}")
 
 # %%
-fig, axes = pybvh.bvhplot.frame([bvh_yup, bvh_unified], frame=0,
-                                 labels=['Y-up (original)', 'Z-up (reoriented)'])
+fig, axes = pybvh.bvhplot.frame(
+    [bvh_yup, bvh_unified], frame=0, labels=["Y-up (original)", "Z-up (reoriented)"]
+)
 plt.show()
 
 # %% [markdown]
@@ -225,8 +224,8 @@ plt.show()
 import warnings
 
 with warnings.catch_warnings():
-    warnings.simplefilter('always')
-    bvh_mixed = pybvh.read_bvh_file(bvh_folder / 'bvh_test3.bvh')
+    warnings.simplefilter("always")
+    bvh_mixed = pybvh.read_bvh_file(bvh_folder / "bvh_test3.bvh")
 
 fig, ax = bvh_mixed.plot_rest_pose()
 ax.set_title("Rest pose, up as '+y'")
@@ -240,12 +239,14 @@ plt.show()
 # `reorient_rest_up` rotates the rest-pose offsets and compensates all joint rotations so forward kinematics produces **identical** joint positions. The animation looks the same; only the skeleton's rest pose (T-pose) gets fixed.
 
 # %%
-bvh_fixed = bvh_mixed.reorient_rest_up('+z')
+bvh_fixed = bvh_mixed.reorient_rest_up("+z")
 
 # Joint positions are unchanged by reorient_rest_up — confirm numerically
 coords_before = bvh_mixed.node_positions()
-coords_after  = bvh_fixed.node_positions()
-print(f'Max joint-position difference after reorient_rest_up: {np.abs(coords_before - coords_after).max():.2e}')
+coords_after = bvh_fixed.node_positions()
+print(
+    f"Max joint-position difference after reorient_rest_up: {np.abs(coords_before - coords_after).max():.2e}"
+)
 
 fig, ax = bvh_fixed.plot_rest_pose()
 ax.set_title("Fixed rest pose, up as '+z'")
@@ -257,11 +258,13 @@ plt.show()
 # Similar to `reorient_rest_up`, but for the horizontal axis: rotates around the up axis so the skeleton's default forward direction matches `new_forward`. Useful for datasets where some files face `+y` and others `-z`. Again, 3D joint positions are preserved — only the rest pose and joint rotations change in compensation.
 
 # %%
-bvh_canon_fwd = bvh.reorient_rest_forward('+y')
+bvh_canon_fwd = bvh.reorient_rest_forward("+y")
 
 coords_before = bvh.node_positions()
-coords_after  = bvh_canon_fwd.node_positions()
-print(f'Max joint-position difference after reorient_rest_forward: {np.abs(coords_before - coords_after).max():.2e}')
+coords_after = bvh_canon_fwd.node_positions()
+print(
+    f"Max joint-position difference after reorient_rest_forward: {np.abs(coords_before - coords_after).max():.2e}"
+)
 
 # %% [markdown]
 # For full details on `world_up`, `forward_at`, and the reorientation family, see the [World Up guide](https://victors-67.github.io/pybvh/guide/world-up/).
@@ -283,8 +286,9 @@ print(f'Max joint-position difference after reorient_rest_forward: {np.abs(coord
 noisy_small = bvh.add_rotation_noise(sigma=np.radians(0.5), rng=np.random.default_rng(42))
 noisy_large = bvh.add_rotation_noise(sigma=np.radians(5.0), rng=np.random.default_rng(42))
 
-fig, axes = pybvh.bvhplot.frame([bvh, noisy_small, noisy_large], frame=20,
-                                 labels=['Original', 'σ=0.5°', 'σ=5.0°'])
+fig, axes = pybvh.bvhplot.frame(
+    [bvh, noisy_small, noisy_large], frame=20, labels=["Original", "σ=0.5°", "σ=5.0°"]
+)
 plt.show()
 
 # %% [markdown]
@@ -292,11 +296,12 @@ plt.show()
 
 # %%
 rng = np.random.default_rng(42)
-noisy_pos = (bvh.add_rotation_noise(sigma=np.radians(1.0), rng=rng)
-                .add_position_noise(sigma=2.0, rng=rng))
+noisy_pos = bvh.add_rotation_noise(sigma=np.radians(1.0), rng=rng).add_position_noise(
+    sigma=2.0, rng=rng
+)
 
-print(f'Original root position (frame 0): {bvh.root_pos[0]}')
-print(f'Noisy    root position (frame 0): {noisy_pos.root_pos[0]}')
+print(f"Original root position (frame 0): {bvh.root_pos[0]}")
+print(f"Noisy    root position (frame 0): {noisy_pos.root_pos[0]}")
 
 # %% [markdown]
 # One subtle behavior: by default the noised angles are **not** wrapped into `[-π, π]` (`wrap=False`) — BVH channels can legitimately hold values outside that range (rotations accumulated over multiple turns), and wrapping those would corrupt the motion. Pass `wrap=True` if your downstream pipeline expects canonical Euler ranges (Tutorial 3's discontinuity demo shows what happens to Euler values at the ±180° boundary).
@@ -315,18 +320,24 @@ print(f'Noisy    root position (frame 0): {noisy_pos.root_pos[0]}')
 faster = bvh.perturb_speed(factor=2.0)
 slower = bvh.perturb_speed(factor=0.5)
 
-print(f'Original: {bvh.frame_count:>3d} frames, fps={1/bvh.frame_time:.0f}, duration={bvh.frame_count*bvh.frame_time:.2f}s')
-print(f'2x speed: {faster.frame_count:>3d} frames, fps={1/faster.frame_time:.0f}, duration={faster.frame_count*faster.frame_time:.2f}s')
-print(f'0.5x speed: {slower.frame_count:>3d} frames, fps={1/slower.frame_time:.0f}, duration={slower.frame_count*slower.frame_time:.2f}s')
+print(
+    f"Original: {bvh.frame_count:>3d} frames, fps={1 / bvh.frame_time:.0f}, duration={bvh.frame_count * bvh.frame_time:.2f}s"
+)
+print(
+    f"2x speed: {faster.frame_count:>3d} frames, fps={1 / faster.frame_time:.0f}, duration={faster.frame_count * faster.frame_time:.2f}s"
+)
+print(
+    f"0.5x speed: {slower.frame_count:>3d} frames, fps={1 / slower.frame_time:.0f}, duration={slower.frame_count * slower.frame_time:.2f}s"
+)
 
 # %%
 gif_path = pybvh.bvhplot.render(
     [slower, bvh, faster],
-    Path('assets') / 'speed_comparison.gif',
-    labels=['0.5x', '1.0x (original)', '2.0x'],
-    sync='pad',
+    Path("assets") / "speed_comparison.gif",
+    labels=["0.5x", "1.0x (original)", "2.0x"],
+    sync="pad",
     fps=15,
-    resolution=(1280, 480),   # three panels, sized for a web-served GIF
+    resolution=(1280, 480),  # three panels, sized for a web-served GIF
 )
 
 # %% [markdown]
@@ -338,10 +349,9 @@ gif_path = pybvh.bvhplot.render(
 # The random variant samples uniformly from `factor_range` (default `(0.8, 1.2)` — moderate speed jitter).
 
 # %%
-rand_speed = bvh.random_perturb_speed(factor_range=(0.8, 1.2),
-                                      rng=np.random.default_rng(42))
-print(f'Original: {bvh.frame_count} frames')
-print(f'Random speed: {rand_speed.frame_count} frames')
+rand_speed = bvh.random_perturb_speed(factor_range=(0.8, 1.2), rng=np.random.default_rng(42))
+print(f"Original: {bvh.frame_count} frames")
+print(f"Random speed: {rand_speed.frame_count} frames")
 
 # %% [markdown]
 # # Frame dropout
@@ -356,34 +366,38 @@ print(f'Random speed: {rand_speed.frame_count} frames')
 # %%
 dropped = bvh.drop_frames(drop_rate=0.3, rng=np.random.default_rng(42))
 
-print(f'Original frame count: {bvh.frame_count}')
-print(f'After 30% dropout:    {dropped.frame_count}  (same count — gaps interpolated)')
+print(f"Original frame count: {bvh.frame_count}")
+print(f"After 30% dropout:    {dropped.frame_count}  (same count — gaps interpolated)")
 
 # Endpoint preservation
-print(f'\nFirst frame identical: {np.allclose(bvh.joint_angles[0], dropped.joint_angles[0])}')
-print(f'Last  frame identical: {np.allclose(bvh.joint_angles[-1], dropped.joint_angles[-1])}')
+print(f"\nFirst frame identical: {np.allclose(bvh.joint_angles[0], dropped.joint_angles[0])}")
+print(f"Last  frame identical: {np.allclose(bvh.joint_angles[-1], dropped.joint_angles[-1])}")
 
 # %% [markdown]
 # To see the replacement effect, plot one joint's angle curve over time. The original has natural motion detail; the dropped-and-interpolated version is smoother where frames were replaced (interpolation flattens fine motion).
 
 # %%
 # Plot a single joint channel over time, original vs. dropped
-joint_idx = bvh.joint_index['Spine3']
+joint_idx = bvh.joint_index["Spine3"]
 channel = 0  # first Euler channel
 
 dropped_heavy = bvh.drop_frames(drop_rate=0.5, rng=np.random.default_rng(0))
 
 t = np.arange(bvh.frame_count) * bvh.frame_time
 fig, ax = plt.subplots(figsize=(10, 4))
-ax.plot(t, bvh.joint_angles[:, joint_idx, channel],
-        label='Original', linewidth=2, color='#1f77b4')
-ax.plot(t, dropped_heavy.joint_angles[:, joint_idx, channel],
-        label='After 50% dropout (SLERP-interpolated)', linewidth=1.5,
-        color='#d62728', alpha=0.85)
-ax.set_xlabel('Time (s)')
-ax.set_ylabel(f'{bvh.joint_names[joint_idx]} angle (radians)')
+ax.plot(t, bvh.joint_angles[:, joint_idx, channel], label="Original", linewidth=2, color="#1f77b4")
+ax.plot(
+    t,
+    dropped_heavy.joint_angles[:, joint_idx, channel],
+    label="After 50% dropout (SLERP-interpolated)",
+    linewidth=1.5,
+    color="#d62728",
+    alpha=0.85,
+)
+ax.set_xlabel("Time (s)")
+ax.set_ylabel(f"{bvh.joint_names[joint_idx]} angle (radians)")
 ax.legend()
-ax.set_title('Frame dropout replaces values in place; frame count unchanged')
+ax.set_title("Frame dropout replaces values in place; frame count unchanged")
 plt.tight_layout()
 plt.show()
 
@@ -401,9 +415,9 @@ plt.show()
 bvh_tmp = bvh.copy()
 result = bvh_tmp.translate_root(offset=[10, 0, 0], inplace=True)
 
-print(f'Return value: {result}')
-print(f'bvh_tmp modified in place — root (frame 0): {bvh_tmp.root_pos[0]}')
-print(f'Original bvh unchanged  — root (frame 0): {bvh.root_pos[0]}')
+print(f"Return value: {result}")
+print(f"bvh_tmp modified in place — root (frame 0): {bvh_tmp.root_pos[0]}")
+print(f"Original bvh unchanged  — root (frame 0): {bvh.root_pos[0]}")
 
 # %% [markdown]
 # ## Chaining
@@ -414,11 +428,12 @@ print(f'Original bvh unchanged  — root (frame 0): {bvh.root_pos[0]}')
 rng = np.random.default_rng(42)
 
 # Style A: method-chaining pipeline
-aug_a = (bvh
-         .mirror()
-         .rotate_vertical(np.pi / 4)
-         .add_rotation_noise(sigma=0.02, rng=rng)
-         .perturb_speed(1.1))
+aug_a = (
+    bvh.mirror()
+    .rotate_vertical(np.pi / 4)
+    .add_rotation_noise(sigma=0.02, rng=rng)
+    .perturb_speed(1.1)
+)
 
 # Style B: explicit reassignment (easier to debug, easier to branch)
 aug_b = bvh.mirror()
@@ -426,13 +441,13 @@ aug_b = aug_b.rotate_vertical(np.pi / 4)
 aug_b = aug_b.add_rotation_noise(sigma=0.02, rng=np.random.default_rng(42))
 aug_b = aug_b.perturb_speed(1.1)
 
-print(f'Style A result: {aug_a.frame_count} frames')
-print(f'Style B result: {aug_b.frame_count} frames (same pipeline, same seed)')
+print(f"Style A result: {aug_a.frame_count} frames")
+print(f"Style B result: {aug_b.frame_count} frames (same pipeline, same seed)")
 
 # %%
-fig, axes = pybvh.bvhplot.frame([bvh, aug_a], frame=45,
-                                 labels=['Original', 'Augmented'],
-                                 camera=(120,20))
+fig, axes = pybvh.bvhplot.frame(
+    [bvh, aug_a], frame=45, labels=["Original", "Augmented"], camera=(120, 20)
+)
 plt.show()
 
 # %% [markdown]
@@ -449,7 +464,7 @@ plt.show()
 result_a = bvh.random_rotate_vertical(rng=np.random.default_rng(123))
 result_b = bvh.random_rotate_vertical(rng=np.random.default_rng(123))
 
-print(f'Same seed → same results: {np.allclose(result_a.root_pos, result_b.root_pos)}')
+print(f"Same seed → same results: {np.allclose(result_a.root_pos, result_b.root_pos)}")
 
 # %% [markdown]
 # ## Gotchas when composing

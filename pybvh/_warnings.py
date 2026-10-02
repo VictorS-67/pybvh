@@ -1,4 +1,5 @@
 """Where a pybvh warning points: the user's line, whatever the path to it."""
+
 from __future__ import annotations
 
 import inspect
@@ -24,8 +25,9 @@ def user_stacklevel() -> int:
     frame = inspect.currentframe()
     level = 0
     try:
-        while (frame is not None and os.path.abspath(
-                frame.f_code.co_filename).startswith(_PACKAGE_DIR)):
+        while frame is not None and os.path.abspath(frame.f_code.co_filename).startswith(
+            _PACKAGE_DIR
+        ):
             frame = frame.f_back
             level += 1
     finally:

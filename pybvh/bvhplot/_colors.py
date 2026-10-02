@@ -7,6 +7,7 @@ derived from the background, and the conversion of per-bone/per-node
 style colors to 0-255 RGB. Backends do only their
 own format packing at their border (BGR flip, uint32 shift).
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -82,12 +83,10 @@ def grid_box_colors(
     pole = 255 if is_dark_background(style.background) else 0
 
     def step_toward_pole(fraction: float) -> tuple[int, int, int]:
-        r, g, b = (int(v) for v in np.rint(
-            background + fraction * (pole - background)))
+        r, g, b = (int(v) for v in np.rint(background + fraction * (pole - background)))
         return (r, g, b)
 
-    return (step_toward_pole(GRID_BOX_LINE_STEP),
-            step_toward_pole(GRID_BOX_LABEL_STEP))
+    return (step_toward_pole(GRID_BOX_LINE_STEP), step_toward_pole(GRID_BOX_LABEL_STEP))
 
 
 def rgb255(color: object) -> tuple[int, int, int]:
@@ -105,8 +104,7 @@ def bone_colors_255(
     n_skeletons: int,
 ) -> list[tuple[int, int, int]]:
     """Per-bone colors as 0-255 RGB, parallel to ``view.bones``."""
-    return [rgb255(c) for c in
-            bone_colors_for_view(view, style, view_index, n_skeletons)]
+    return [rgb255(c) for c in bone_colors_for_view(view, style, view_index, n_skeletons)]
 
 
 def skeleton_color_255(

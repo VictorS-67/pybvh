@@ -39,7 +39,7 @@ np.set_printoptions(precision=4, suppress=True)
 
 REPO_ROOT = Path.cwd().parent if Path.cwd().name == "tutorials" else Path.cwd()
 bvh_folder = REPO_ROOT / "bvh_data"
-output_folder = Path('./output')
+output_folder = Path("./output")
 output_folder.mkdir(exist_ok=True)
 
 # %% [markdown]
@@ -51,10 +51,12 @@ output_folder.mkdir(exist_ok=True)
 # %%
 bvh_list = batch.read_bvh_directory(bvh_folder)
 
-print(f'Loaded {len(bvh_list)} BVH files:')
+print(f"Loaded {len(bvh_list)} BVH files:")
 for i, b in enumerate(bvh_list):
-    print(f'  [{i}] {b.joint_count:>2d} joints, {b.frame_count:>3d} frames, '
-          f'fps={b.fps:>5.0f}, world_up={b.world_up}')
+    print(
+        f"  [{i}] {b.joint_count:>2d} joints, {b.frame_count:>3d} frames, "
+        f"fps={b.fps:>5.0f}, world_up={b.world_up}"
+    )
 
 # %% [markdown]
 # Notice that the loaded files are heterogeneous: different joint counts, frame rates, and up-axis conventions. We'll unify them below.
@@ -66,7 +68,7 @@ for i, b in enumerate(bvh_list):
 
 # %%
 # Only files starting with 'bvh_test' (excludes bvh_example.bvh and standard_skeleton.bvh)
-test_files = batch.read_bvh_directory(bvh_folder, pattern='bvh_test*.bvh')
+test_files = batch.read_bvh_directory(bvh_folder, pattern="bvh_test*.bvh")
 print(f'Loaded {len(test_files)} of {len(bvh_list)} files matching "bvh_test*.bvh"')
 
 # %% [markdown]
@@ -76,7 +78,7 @@ print(f'Loaded {len(test_files)} of {len(bvh_list)} files matching "bvh_test*.bv
 
 # %%
 bvh_list_parallel = batch.read_bvh_directory(bvh_folder, parallel=True, max_workers=4)
-print(f'Loaded {len(bvh_list_parallel)} files in parallel')
+print(f"Loaded {len(bvh_list_parallel)} files in parallel")
 
 # %% [markdown]
 # ## Robustness: skipping corrupt files
@@ -99,10 +101,10 @@ print(f'Loaded {len(bvh_list_parallel)} files in parallel')
 
 # %%
 # Force every loaded file to be interpreted as +z up
-bvh_list_zup = batch.read_bvh_directory(bvh_folder, world_up='+z')
+bvh_list_zup = batch.read_bvh_directory(bvh_folder, world_up="+z")
 print('After world_up="+z" at load:')
 for i, b in enumerate(bvh_list_zup):
-    print(f'  [{i}] world_up={b.world_up}')
+    print(f"  [{i}] world_up={b.world_up}")
 
 # %% [markdown]
 # # Harmonizing heterogeneous datasets
@@ -122,20 +124,20 @@ for i, b in enumerate(bvh_list_zup):
 
 # %%
 # Retarget every compatible clip to a reference skeleton's bone proportions
-reference = pybvh.read_bvh_file(bvh_folder / 'standard_skeleton.bvh')
-clip_a = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')
-clip_b = pybvh.read_bvh_file(bvh_folder / 'bvh_example.bvh')
+reference = pybvh.read_bvh_file(bvh_folder / "standard_skeleton.bvh")
+clip_a = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")
+clip_b = pybvh.read_bvh_file(bvh_folder / "bvh_example.bvh")
 
-print('Before retargeting — Spine offset varies:')
-print(f'  reference: {reference.nodes[1].offset}')
-print(f'  clip_a:    {clip_a.nodes[1].offset}')
-print(f'  clip_b:    {clip_b.nodes[1].offset}')
+print("Before retargeting — Spine offset varies:")
+print(f"  reference: {reference.nodes[1].offset}")
+print(f"  clip_a:    {clip_a.nodes[1].offset}")
+print(f"  clip_b:    {clip_b.nodes[1].offset}")
 
 retargeted = [c.retarget(reference) for c in [clip_a, clip_b]]
 
-print('\nAfter retargeting — all match the reference:')
+print("\nAfter retargeting — all match the reference:")
 for i, c in enumerate(retargeted):
-    print(f'  clip_{chr(ord("a")+i)}:    {c.nodes[1].offset}')
+    print(f"  clip_{chr(ord('a') + i)}:    {c.nodes[1].offset}")
 
 # %% [markdown]
 # ## Frame-rate unification
@@ -145,20 +147,21 @@ for i, c in enumerate(retargeted):
 # (This is also the primitive `transforms.perturb_speed` builds on, covered in [Tutorial 5](5.Transforms.ipynb).)
 
 # %%
-bvh_30 = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')   # 30 fps
-bvh_120 = pybvh.read_bvh_file(bvh_folder / 'bvh_test2.bvh')  # 120 fps
+bvh_30 = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")  # 30 fps
+bvh_120 = pybvh.read_bvh_file(bvh_folder / "bvh_test2.bvh")  # 120 fps
 
-print('Before unification:')
-for name, b in [('bvh_30', bvh_30), ('bvh_120', bvh_120)]:
-    print(f'  {name:7s}  {b.frame_count:>3d} frames @ {b.fps:>4.0f} fps')
+print("Before unification:")
+for name, b in [("bvh_30", bvh_30), ("bvh_120", bvh_120)]:
+    print(f"  {name:7s}  {b.frame_count:>3d} frames @ {b.fps:>4.0f} fps")
 
 target_fps = 30
-unified = [b if abs(b.fps - target_fps) < 0.1 else b.resample(target_fps)
-           for b in [bvh_30, bvh_120]]
+unified = [
+    b if abs(b.fps - target_fps) < 0.1 else b.resample(target_fps) for b in [bvh_30, bvh_120]
+]
 
-print(f'\nAfter resampling to {target_fps} fps:')
+print(f"\nAfter resampling to {target_fps} fps:")
 for i, c in enumerate(unified):
-    print(f'  clip_{i}:   {c.frame_count:>3d} frames @ {c.fps:>4.0f} fps')
+    print(f"  clip_{i}:   {c.frame_count:>3d} frames @ {c.fps:>4.0f} fps")
 
 # %% [markdown]
 # ## Up-axis unification
@@ -168,20 +171,21 @@ for i, c in enumerate(unified):
 # `bvh.reorient_world_up(new_up)` rotates the entire scene so the world vertical axis changes, without altering how the character looks (covered in more depth in [Tutorial 5](5.Transforms.ipynb)).
 
 # %%
-bvh_yup = pybvh.read_bvh_file(bvh_folder / 'bvh_test2.bvh')  # +y
-bvh_zup = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')  # +z
+bvh_yup = pybvh.read_bvh_file(bvh_folder / "bvh_test2.bvh")  # +y
+bvh_zup = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")  # +z
 
-print('Before unification:')
-for name, b in [('bvh_yup', bvh_yup), ('bvh_zup', bvh_zup)]:
-    print(f'  {name:7s}  world_up={b.world_up}')
+print("Before unification:")
+for name, b in [("bvh_yup", bvh_yup), ("bvh_zup", bvh_zup)]:
+    print(f"  {name:7s}  world_up={b.world_up}")
 
-target_up = '+z'
-unified = [b if b.world_up == target_up else b.reorient_world_up(target_up)
-           for b in [bvh_yup, bvh_zup]]
+target_up = "+z"
+unified = [
+    b if b.world_up == target_up else b.reorient_world_up(target_up) for b in [bvh_yup, bvh_zup]
+]
 
-print(f'\nAfter reorienting to {target_up}:')
+print(f"\nAfter reorienting to {target_up}:")
 for i, c in enumerate(unified):
-    print(f'  clip_{i}:   world_up={c.world_up}')
+    print(f"  clip_{i}:   world_up={c.world_up}")
 
 # %% [markdown]
 # ## Harmonizing everything at once
@@ -197,27 +201,30 @@ for i, c in enumerate(unified):
 # Any of `reference`, `target_fps`, `target_world_up`, `target_rest_up`, `target_rest_forward`, `target_euler_order` may be `None` to skip that stage. When clips are dropped, `harmonize` emits **one summary `UserWarning` per call** (not one per dropped clip), or raises `ValueError` immediately with `on_incompatible='raise'`. For workflows `batch.harmonize` doesn't fit — e.g. using `extract_joints` to reduce clips to a common joint subset instead of dropping mismatched files — fall back on the three primitives directly.
 
 # %%
-reference = pybvh.read_bvh_file(bvh_folder / 'bvh_example.bvh')
-raw = [pybvh.read_bvh_file(bvh_folder / name) for name in
-       ['bvh_example.bvh', 'bvh_test1.bvh', 'bvh_test2.bvh']]
+reference = pybvh.read_bvh_file(bvh_folder / "bvh_example.bvh")
+raw = [
+    pybvh.read_bvh_file(bvh_folder / name)
+    for name in ["bvh_example.bvh", "bvh_test1.bvh", "bvh_test2.bvh"]
+]
 
 with warnings.catch_warnings():
-    warnings.simplefilter('ignore')  # quiet the summary drop warning for a tidy cell output
+    warnings.simplefilter("ignore")  # quiet the summary drop warning for a tidy cell output
     harmonized = batch.harmonize(
         raw,
         reference=reference,
         target_fps=30,
-        target_world_up='+z',
-        target_euler_order='XYZ',
+        target_world_up="+z",
+        target_euler_order="XYZ",
         verbose=False,
     )
 
-print(f'In: {len(raw)}  Out: {len(harmonized)} '
-      f'(bvh_test2 dropped — different topology)')
+print(f"In: {len(raw)}  Out: {len(harmonized)} (bvh_test2 dropped — different topology)")
 for i, c in enumerate(harmonized):
-    print(f'  clip {i}: {c.joint_count} joints, {c.frame_count} frames '
-          f'@ {c.fps:.0f} fps, up={c.world_up}, '
-          f"order={c.euler_orders[0]}")
+    print(
+        f"  clip {i}: {c.joint_count} joints, {c.frame_count} frames "
+        f"@ {c.fps:.0f} fps, up={c.world_up}, "
+        f"order={c.euler_orders[0]}"
+    )
 
 # %% [markdown]
 # ### Auditing what `harmonize` did
@@ -226,28 +233,24 @@ for i, c in enumerate(harmonized):
 
 # %%
 with warnings.catch_warnings():
-    warnings.simplefilter('ignore')
+    warnings.simplefilter("ignore")
     harmonized, report = batch.harmonize(
         raw,
         reference=reference,
         target_fps=30,
-        target_world_up='+z',
-        target_euler_order='XYZ',
+        target_world_up="+z",
+        target_euler_order="XYZ",
         return_report=True,
         verbose=False,
     )
 
-print(f'Kept {len(report.kept_indices)} / dropped {len(report.dropped_indices)}')
-for idx, src, stages in zip(report.kept_indices,
-                             report.kept_sources,
-                             report.applied_stages):
-    src_name = Path(src).name if src else f'<index {idx}>'
-    print(f'  {src_name}: {stages}')
-for idx, src, reason in zip(report.dropped_indices,
-                             report.dropped_sources,
-                             report.drop_reasons):
-    src_name = Path(src).name if src else f'<index {idx}>'
-    print(f'  DROPPED {src_name}: {reason}')
+print(f"Kept {len(report.kept_indices)} / dropped {len(report.dropped_indices)}")
+for idx, src, stages in zip(report.kept_indices, report.kept_sources, report.applied_stages):
+    src_name = Path(src).name if src else f"<index {idx}>"
+    print(f"  {src_name}: {stages}")
+for idx, src, reason in zip(report.dropped_indices, report.dropped_sources, report.drop_reasons):
+    src_name = Path(src).name if src else f"<index {idx}>"
+    print(f"  DROPPED {src_name}: {reason}")
 
 # %% [markdown]
 # # Batch conversion to NumPy
@@ -258,10 +261,10 @@ for idx, src, reason in zip(report.dropped_indices,
 # Build a small demo batch from one clip sliced at different ranges so all share the same skeleton (frame slicing — `bvh[start:stop]` — was introduced in Tutorial 1):
 
 # %%
-base = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')
+base = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")
 clips = [base, base[0:40], base[20:75]]
 
-print(f'Clip frame counts: {[c.frame_count for c in clips]}')
+print(f"Clip frame counts: {[c.frame_count for c in clips]}")
 
 # %% [markdown]
 # ## Variable-length vs. padded output
@@ -269,13 +272,13 @@ print(f'Clip frame counts: {[c.frame_count for c in clips]}')
 # `pad=False` (default) returns one 2D array per clip — good when clip length is a property of the data (e.g., variable-length sequence models). `pad=True` zero-pads to the longest clip and returns a single 3D tensor — good for fixed-length batching.
 
 # %%
-arrays = batch.batch_to_numpy(clips, representation='6d')
-print(f'pad=False → {type(arrays).__name__} of:')
+arrays = batch.batch_to_numpy(clips, representation="6d")
+print(f"pad=False → {type(arrays).__name__} of:")
 for i, a in enumerate(arrays):
-    print(f'  clip {i}: shape {a.shape}')
+    print(f"  clip {i}: shape {a.shape}")
 
-padded = batch.batch_to_numpy(clips, representation='6d', pad=True)
-print(f'\npad=True  → single array: shape {padded.shape}  (B, F_max, D)')
+padded = batch.batch_to_numpy(clips, representation="6d", pad=True)
+print(f"\npad=True  → single array: shape {padded.shape}  (B, F_max, D)")
 
 # %% [markdown]
 # ## Feature-column layout
@@ -297,11 +300,11 @@ print(f'\npad=True  → single array: shape {padded.shape}  (B, F_max, D)')
 # Pass `include_root_pos=False` to drop the 3 leading position columns when your model conditions on rotation only.
 
 # %%
-print(f'Joint count: {base.joint_count}; expected D = 3 + J × rep_dim\n')
-for rep in ['euler', '6d', 'quat', 'axisangle', 'rotmat']:
+print(f"Joint count: {base.joint_count}; expected D = 3 + J × rep_dim\n")
+for rep in ["euler", "6d", "quat", "axisangle", "rotmat"]:
     arr = batch.batch_to_numpy(clips, representation=rep)[0]
     rep_dim = (arr.shape[1] - 3) // base.joint_count
-    print(f'  {rep:11s}  rep_dim = {rep_dim}  →  D = {arr.shape[1]}')
+    print(f"  {rep:11s}  rep_dim = {rep_dim}  →  D = {arr.shape[1]}")
 
 # %% [markdown]
 # ## Validation
@@ -316,28 +319,32 @@ for rep in ['euler', '6d', 'quat', 'axisangle', 'rotmat']:
 
 # %%
 # Soft predicates — no exception, just booleans
-ex = pybvh.read_bvh_file(bvh_folder / 'bvh_example.bvh')   # 24 joints
-t1 = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')     # 24 joints, same skeleton
+ex = pybvh.read_bvh_file(bvh_folder / "bvh_example.bvh")  # 24 joints
+t1 = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")  # 24 joints, same skeleton
 with warnings.catch_warnings():
-    warnings.simplefilter('ignore')  # bvh_test3 emits a rest/animation warning on load
-    t3 = pybvh.read_bvh_file(bvh_folder / 'bvh_test3.bvh')  # 60 joints
+    warnings.simplefilter("ignore")  # bvh_test3 emits a rest/animation warning on load
+    t3 = pybvh.read_bvh_file(bvh_folder / "bvh_test3.bvh")  # 60 joints
 
-print(f'bvh_example vs bvh_test1: hierarchy={ex.matches_hierarchy(t1)}, '
-      f'channels={ex.matches_channels(t1)}, topology={ex.matches_topology(t1)}')
-print(f'bvh_example vs bvh_test3: hierarchy={ex.matches_hierarchy(t3)}, '
-      f'channels={ex.matches_channels(t3)}, topology={ex.matches_topology(t3)}')
+print(
+    f"bvh_example vs bvh_test1: hierarchy={ex.matches_hierarchy(t1)}, "
+    f"channels={ex.matches_channels(t1)}, topology={ex.matches_topology(t1)}"
+)
+print(
+    f"bvh_example vs bvh_test3: hierarchy={ex.matches_hierarchy(t3)}, "
+    f"channels={ex.matches_channels(t3)}, topology={ex.matches_topology(t3)}"
+)
 
 # %%
 # Files with different joint counts cannot batch together
 with warnings.catch_warnings():
-    warnings.simplefilter('ignore')  # bvh_test3 emits a rest/animation warning on load
-    incompat_a = pybvh.read_bvh_file(bvh_folder / 'bvh_test1.bvh')  # 24 joints
-    incompat_b = pybvh.read_bvh_file(bvh_folder / 'bvh_test3.bvh')  # 60 joints
+    warnings.simplefilter("ignore")  # bvh_test3 emits a rest/animation warning on load
+    incompat_a = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")  # 24 joints
+    incompat_b = pybvh.read_bvh_file(bvh_folder / "bvh_test3.bvh")  # 60 joints
 
 try:
     batch.batch_to_numpy([incompat_a, incompat_b])
 except ValueError as e:
-    print(f'Caught: {e}')
+    print(f"Caught: {e}")
 
 # %% [markdown]
 # # Normalization
@@ -358,37 +365,36 @@ except ValueError as e:
 
 # %%
 # 1. Load raw files
-raw = batch.read_bvh_directory(bvh_folder, pattern='bvh_*.bvh')
-print(f'Step 1 — Loaded {len(raw)} files')
+raw = batch.read_bvh_directory(bvh_folder, pattern="bvh_*.bvh")
+print(f"Step 1 — Loaded {len(raw)} files")
 
 # 2. Harmonize (topology check / retarget / resample / reorient / Euler order)
 #    in one call. Clips incompatible with the reference skeleton are dropped;
 #    `harmonize` emits one summary UserWarning at end of call when that happens.
 #    We use bvh_example as the canonical rig here.
-reference = pybvh.read_bvh_file(bvh_folder / 'bvh_example.bvh')
+reference = pybvh.read_bvh_file(bvh_folder / "bvh_example.bvh")
 with warnings.catch_warnings():
-    warnings.simplefilter('ignore')  # quiet the summary drop warning for tutorial output
+    warnings.simplefilter("ignore")  # quiet the summary drop warning for tutorial output
     harmonized = batch.harmonize(
         raw,
         reference=reference,
         target_fps=30,
-        target_world_up='+z',
-        target_euler_order='XYZ',
+        target_world_up="+z",
+        target_euler_order="XYZ",
         verbose=False,
     )
-print(f'Step 2 — Harmonized, kept {len(harmonized)} of {len(raw)} clips')
+print(f"Step 2 — Harmonized, kept {len(harmonized)} of {len(raw)} clips")
 
 # 3. Convert to arrays
-arrays = batch.batch_to_numpy(harmonized, representation='6d')
-print(f'Step 3 — Converted, D = {arrays[0].shape[1]}')
+arrays = batch.batch_to_numpy(harmonized, representation="6d")
+print(f"Step 3 — Converted, D = {arrays[0].shape[1]}")
 
 # 4. Save
-np.savez(output_folder / 'dataset.npz',
-         **{f'clip_{i}': a for i, a in enumerate(arrays)})
-print(f'Step 4 — Saved {len(arrays)} clips to {output_folder}/')
+np.savez(output_folder / "dataset.npz", **{f"clip_{i}": a for i, a in enumerate(arrays)})
+print(f"Step 4 — Saved {len(arrays)} clips to {output_folder}/")
 
 # Clean up (for tutorial reruns)
-(output_folder / 'dataset.npz').unlink()
+(output_folder / "dataset.npz").unlink()
 
 # %% [markdown]
 # For ML-framework-specific downstream work — per-channel normalization, PyTorch `Dataset` classes, DataLoaders, collate functions, augmentation pipelines, HDF5 packing — see [pybvh-ml](https://github.com/VictorS-67/pybvh-ml), the companion library that builds on top of pybvh.

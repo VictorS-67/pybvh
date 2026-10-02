@@ -3,6 +3,7 @@
 Provides static frame plots, animated renders (to file), interactive
 playback via plt.show(), and 2D trajectory plots.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -45,14 +46,14 @@ BOX_ZOOM = 1.25
 # history to show). bvhplot sets every axis limit itself, so nothing it adds
 # should autoscale; matplotlib before 3.10 has no autolim and never did.
 _NO_AUTOSCALE = (
-    {"autolim": False}
-    if "autolim" in inspect.signature(Axes3D.add_collection3d).parameters
-    else {})
+    {"autolim": False} if "autolim" in inspect.signature(Axes3D.add_collection3d).parameters else {}
+)
 
 
 def _add_collection(ax: matplotlib.axes.Axes, collection: Any) -> None:
     """Add a 3D collection without letting it rescale the axes."""
     ax.add_collection3d(collection, **_NO_AUTOSCALE)
+
 
 if TYPE_CHECKING:
     import matplotlib.axes
@@ -62,6 +63,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Style application helpers
 # ---------------------------------------------------------------------------
+
 
 def _manual_zorder(style: Style) -> bool:
     """Whether this style takes manual control of the 3D draw order.
@@ -103,16 +105,15 @@ class _DepthSortedLine3DCollection(Line3DCollection):
         if len(segs) == 0:
             return super().do_3d_projection()
         pts = segs.reshape(-1, 3)
-        tx, ty, tz = proj3d.proj_transform(
-            pts[:, 0], pts[:, 1], pts[:, 2], self.axes.M)
+        tx, ty, tz = proj3d.proj_transform(pts[:, 0], pts[:, 1], pts[:, 2], self.axes.M)
         depth = np.asarray(tz).reshape(len(segs), 2).mean(axis=1)
         # In mpl's projected space larger z is farther from the viewer
         # (Axes3D draws artists in decreasing do_3d_projection order),
         # so far-to-near means descending depth.
         order = np.argsort(depth)[::-1]
         segs_2d = np.stack(
-            [np.asarray(tx).reshape(len(segs), 2),
-             np.asarray(ty).reshape(len(segs), 2)], axis=-1)
+            [np.asarray(tx).reshape(len(segs), 2), np.asarray(ty).reshape(len(segs), 2)], axis=-1
+        )
         LineCollection.set_segments(self, list(segs_2d[order]))
         if len(self._base_edgecolors) == len(segs):
             LineCollection.set_color(self, self._base_edgecolors[order])
@@ -127,8 +128,7 @@ def _make_bone_collection(
     """The right bone-collection class for the style: depth-sorted under
     manual z-order, the plain fixed-order collection otherwise (debug
     pixel parity)."""
-    cls = (_DepthSortedLine3DCollection if _manual_zorder(style)
-           else Line3DCollection)
+    cls = _DepthSortedLine3DCollection if _manual_zorder(style) else Line3DCollection
     return cls(segments, **kwargs)
 
 
@@ -204,8 +204,7 @@ def _draw_floor_mpl(
 
     def quad(a_lo: float, a_hi: float, b_lo: float, b_hi: float):
         pts = []
-        for a, b in ((a_lo, b_lo), (a_hi, b_lo), (a_hi, b_hi),
-                     (a_lo, b_hi)):
+        for a, b in ((a_lo, b_lo), (a_hi, b_lo), (a_hi, b_hi), (a_lo, b_hi)):
             p = [0.0, 0.0, 0.0]
             p[ground[0]] = a
             p[ground[1]] = b
@@ -214,10 +213,17 @@ def _draw_floor_mpl(
         return pts
 
     if style.floor == "solid":
-        _add_collection(ax, Poly3DCollection(
-            [quad(g0_lo, g0_hi, g1_lo, g1_hi)],
-            facecolors=palette["face"], edgecolors=palette["edge"],
-            linewidths=0.5, alpha=style.floor_alpha, zorder=0.5))
+        _add_collection(
+            ax,
+            Poly3DCollection(
+                [quad(g0_lo, g0_hi, g1_lo, g1_hi)],
+                facecolors=palette["face"],
+                edgecolors=palette["edge"],
+                linewidths=0.5,
+                alpha=style.floor_alpha,
+                zorder=0.5,
+            ),
+        )
     elif style.floor == "checker":
         n = 16
         s0 = (g0_hi - g0_lo) / n
@@ -226,12 +232,13 @@ def _draw_floor_mpl(
         colors = []
         for i in range(n):
             for j in range(n):
-                squares.append(quad(g0_lo + i * s0, g0_lo + (i + 1) * s0,
-                                    g1_lo + j * s1, g1_lo + (j + 1) * s1))
+                squares.append(
+                    quad(g0_lo + i * s0, g0_lo + (i + 1) * s0, g1_lo + j * s1, g1_lo + (j + 1) * s1)
+                )
                 colors.append(palette["checker"][(i + j) % 2])
-        _add_collection(ax, Poly3DCollection(
-            squares, facecolors=colors, alpha=style.floor_alpha,
-            zorder=0.5))
+        _add_collection(
+            ax, Poly3DCollection(squares, facecolors=colors, alpha=style.floor_alpha, zorder=0.5)
+        )
     elif style.floor == "grid":
         # Square cells: divisions per axis follow its extent, so a wide
         # sequence floor doesn't get dense crosshatching on the short
@@ -243,14 +250,23 @@ def _draw_floor_mpl(
         s1 = (g1_hi - g1_lo) / n1
         segs = []
         for i in range(n0 + 1):
-            segs.append([_pt3(ground, up, g0_lo + i * s0, g1_lo, y),
-                         _pt3(ground, up, g0_lo + i * s0, g1_hi, y)])
+            segs.append(
+                [
+                    _pt3(ground, up, g0_lo + i * s0, g1_lo, y),
+                    _pt3(ground, up, g0_lo + i * s0, g1_hi, y),
+                ]
+            )
         for j in range(n1 + 1):
-            segs.append([_pt3(ground, up, g0_lo, g1_lo + j * s1, y),
-                         _pt3(ground, up, g0_hi, g1_lo + j * s1, y)])
-        _add_collection(ax, Line3DCollection(
-            segs, colors=palette["grid"], linewidths=0.7, alpha=0.8,
-            zorder=0.5))
+            segs.append(
+                [
+                    _pt3(ground, up, g0_lo, g1_lo + j * s1, y),
+                    _pt3(ground, up, g0_hi, g1_lo + j * s1, y),
+                ]
+            )
+        _add_collection(
+            ax,
+            Line3DCollection(segs, colors=palette["grid"], linewidths=0.7, alpha=0.8, zorder=0.5),
+        )
 
 
 def _pt3(ground: list[int], up: int, a: float, b: float, y: float):
@@ -270,9 +286,14 @@ def _draw_joint_markers(
     # default of 1 would put them underneath once computed_zorder is
     # off in paper mode).
     ax.scatter(
-        frame_data[:, 0], frame_data[:, 1], frame_data[:, 2],
-        s=style.joint_size, c=style.joint_color, depthshade=False,
-        zorder=3)
+        frame_data[:, 0],
+        frame_data[:, 1],
+        frame_data[:, 2],
+        s=style.joint_size,
+        c=style.joint_color,
+        depthshade=False,
+        zorder=3,
+    )
 
 
 def _fade_toward_background(color: object, weight: float, style: Style):
@@ -301,16 +322,30 @@ def _draw_pose(
     if weight < 1.0:
         colors = [_fade_toward_background(c, weight, style) for c in colors]
     segments = pose[np.asarray(view.bones, dtype=int)]
-    _add_collection(ax, _make_bone_collection(
-        segments, style, colors=colors,
-        linewidths=line_width if line_width is not None else style.bone_width))
+    _add_collection(
+        ax,
+        _make_bone_collection(
+            segments,
+            style,
+            colors=colors,
+            linewidths=line_width if line_width is not None else style.bone_width,
+        ),
+    )
     if joints and style.joint_markers:
-        joint_color = (style.joint_color if weight >= 1.0 else
-                       _fade_toward_background(style.joint_color, weight,
-                                               style))
-        ax.scatter(pose[:, 0], pose[:, 1], pose[:, 2],
-                   s=style.joint_size, c=[joint_color], depthshade=False,
-                   zorder=3)
+        joint_color = (
+            style.joint_color
+            if weight >= 1.0
+            else _fade_toward_background(style.joint_color, weight, style)
+        )
+        ax.scatter(
+            pose[:, 0],
+            pose[:, 1],
+            pose[:, 2],
+            s=style.joint_size,
+            c=[joint_color],
+            depthshade=False,
+            zorder=3,
+        )
 
 
 def _draw_floor_trace(
@@ -322,8 +357,8 @@ def _draw_floor_trace(
     has laid on the ground. Returns the artist."""
     trace_color = _fade_toward_background(TRACE_COLOR, TRACE_BLEND, style)
     (line,) = ax.plot(
-        path[:, 0], path[:, 1], path[:, 2],
-        c=trace_color, lw=1.4, ls=(0, (4, 2)), zorder=0.8)
+        path[:, 0], path[:, 1], path[:, 2], c=trace_color, lw=1.4, ls=(0, (4, 2)), zorder=0.8
+    )
     return line
 
 
@@ -355,9 +390,9 @@ def sequence_mpl(
 
     # Per-pose coordinates under the chosen layout — one fancy index,
     # no Python loop over frames.
-    stack = view.coords[sample_frames]              # (S, N, 3)
+    stack = view.coords[sample_frames]  # (S, N, 3)
     if layout == "overlay":
-        shifts = stack[:, :1, :].copy()             # (S, 1, 3) root positions
+        shifts = stack[:, :1, :].copy()  # (S, 1, 3) root positions
         shifts[..., view.up_index] = 0.0
         stack = stack - shifts
     poses = list(stack)
@@ -376,7 +411,8 @@ def sequence_mpl(
     ax.computed_zorder = False  # type: ignore[attr-defined]
 
     ax.view_init(  # type: ignore[attr-defined]
-        elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis)
+        elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis
+    )
 
     # The figure shows the sampled poses, not the clip: frame those.
     # Overlay layouts re-center heights, so the world floor does not
@@ -386,15 +422,16 @@ def sequence_mpl(
         floor_y = view.floor_height
     else:
         heights = stack[..., view.up_index]
-        floor_y = float(heights.min() if view.up_sign > 0
-                        else heights.max())
-    poses_view = dataclasses.replace(
-        view, coords=stack, floor_height=floor_y, root_heading=None)
+        floor_y = float(heights.min() if view.up_sign > 0 else heights.max())
+    poses_view = dataclasses.replace(view, coords=stack, floor_height=floor_y, root_heading=None)
     # The offset figure is orthographic by design (D4): perspective
     # would shrink distant poses and break the left-to-right read.
     viewport = make_viewport(
-        [poses_view], framing="clip", include_floor=style.floor is not None,
-        projection="ortho" if layout == "offset" else style.projection)
+        [poses_view],
+        framing="clip",
+        include_floor=style.floor is not None,
+        projection="ortho" if layout == "offset" else style.projection,
+    )
     _apply_projection(ax, viewport)
 
     if layout == "offset":
@@ -414,15 +451,13 @@ def sequence_mpl(
         # Trace only the sampled range — a frames= restriction must not
         # leak the whole clip's path into (and beyond) the figure.
         traced = slice(int(sample_frames[0]), int(sample_frames[-1]) + 1)
-        _draw_floor_trace(
-            ax, viewport.ground_path(view.coords[traced, 0]), style)
+        _draw_floor_trace(ax, viewport.ground_path(view.coords[traced, 0]), style)
 
     colors = bone_colors_for_view(view, style, 0, 1)
     for k, pose in enumerate(poses):
         # lighter = past: the last sampled pose is fully saturated
         weight = 0.3 + 0.7 * (k / (n_samples - 1) if n_samples > 1 else 1.0)
-        _draw_pose(ax, pose, view, style, colors, weight=weight,
-                   joints=(k == n_samples - 1))
+        _draw_pose(ax, pose, view, style, colors, weight=weight, joints=(k == n_samples - 1))
 
     if show:
         plt.show()
@@ -432,6 +467,7 @@ def sequence_mpl(
 # ---------------------------------------------------------------------------
 # Static frame
 # ---------------------------------------------------------------------------
+
 
 def frame_mpl(
     scene: Scene,
@@ -473,7 +509,7 @@ def frame_mpl(
                 "ax is only supported for single skeletons; pass a single "
                 "Bvh object (not a list) when using ax."
             )
-        if not hasattr(ax, 'get_zlim'):
+        if not hasattr(ax, "get_zlim"):
             raise ValueError(
                 "ax must be a 3D axes. Create one with "
                 "plt.subplots(..., subplot_kw={'projection': '3d'}) or "
@@ -488,8 +524,8 @@ def frame_mpl(
             figsize = (6.5 * n, 6)
 
         fig, axs = plt.subplots(
-            1, n, subplot_kw=dict(projection="3d"), figsize=figsize,
-            dpi=style.dpi, squeeze=False)
+            1, n, subplot_kw=dict(projection="3d"), figsize=figsize, dpi=style.dpi, squeeze=False
+        )
         axs_flat = list(axs[0])
 
     fig.patch.set_facecolor(style.background)
@@ -500,8 +536,11 @@ def frame_mpl(
         _apply_axes_style(ax_i, style)
 
         viewport = make_viewport(
-            [view], framing="still", include_floor=style.floor is not None,
-            projection=style.projection)
+            [view],
+            framing="still",
+            include_floor=style.floor is not None,
+            projection=style.projection,
+        )
         _apply_projection(ax_i, viewport)
         if style.floor is not None:
             _draw_floor_mpl(ax_i, viewport, style)
@@ -511,12 +550,12 @@ def frame_mpl(
 
         _set_axis_limits(ax_i, viewport.lo, viewport.hi)
         ax_i.view_init(  # type: ignore[attr-defined]
-            elev=view.elevation, azim=view.azimuth,
-            vertical_axis=view.up_axis)
+            elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis
+        )
         if style.axes == "full":
-            ax_i.set_xlabel('x')
-            ax_i.set_ylabel('y')
-            ax_i.set_zlabel('z')  # type: ignore[attr-defined]
+            ax_i.set_xlabel("x")
+            ax_i.set_ylabel("y")
+            ax_i.set_zlabel("z")  # type: ignore[attr-defined]
             # 3D axis labels and tick labels are clipped to the axes patch
             # by default. With certain camera angles (e.g. azim ≈ 160°) the
             # labels are positioned just outside the axes rectangle and
@@ -536,7 +575,11 @@ def frame_mpl(
         # margins tuned for 3D solve both. Only needed when there are
         # neighbors; the single-subplot case fits comfortably in defaults.
         fig.subplots_adjust(
-            left=0.05, right=0.95, top=0.92, bottom=0.05, wspace=0.1,
+            left=0.05,
+            right=0.95,
+            top=0.92,
+            bottom=0.05,
+            wspace=0.1,
         )
     if ax is None:
         # Jupyter's inline backend saves with bbox_inches='tight', which
@@ -552,6 +595,7 @@ def frame_mpl(
 # ---------------------------------------------------------------------------
 # Animated render (save to file)
 # ---------------------------------------------------------------------------
+
 
 def _setup_animated_panel(
     ax: matplotlib.axes.Axes,
@@ -586,16 +630,21 @@ def _setup_animated_panel(
 
     colors = bone_colors_for_view(view, style, view_index, n_skeletons)
     collection = _make_bone_collection(
-        view.coords[0][bones], style, colors=colors,
-        linewidths=style.bone_width)
+        view.coords[0][bones], style, colors=colors, linewidths=style.bone_width
+    )
     _add_collection(ax, collection)
 
     joint_scatter = None
     if style.joint_markers:
         frame0 = view.coords[0]
         joint_scatter = ax.scatter(
-            frame0[:, 0], frame0[:, 1], frame0[:, 2],
-            s=style.joint_size, c=style.joint_color, depthshade=False)
+            frame0[:, 0],
+            frame0[:, 1],
+            frame0[:, 2],
+            s=style.joint_size,
+            c=style.joint_color,
+            depthshade=False,
+        )
 
     # view_init first: set_box_aspect stores the aspect rolled to whatever
     # vertical axis is current, and get_proj rolls it back the same way. Set
@@ -604,14 +653,14 @@ def _setup_animated_panel(
     # which scales one screen direction against the others and stretches the
     # skeleton. Invisible on a z-up rig, where the roll is the identity.
     ax.view_init(  # type: ignore[attr-defined]
-        elev=viewport.elevation, azim=viewport.azimuth,
-        vertical_axis=viewport.up_axis)
+        elev=viewport.elevation, azim=viewport.azimuth, vertical_axis=viewport.up_axis
+    )
     _set_span_limits(ax, viewport.lo, viewport.hi)
 
     if style.axes == "full":
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-        ax.set_zlabel('z')  # type: ignore[attr-defined]
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.set_zlabel("z")  # type: ignore[attr-defined]
         # See frame_mpl: prevent rotated views from clipping their axis
         # labels against the axes patch.
         _disable_3d_label_clipping(ax)
@@ -636,32 +685,34 @@ def _setup_render_extras(
     seconds; nearer ghosts are darker (weights fade from 0.32 down to
     0.15 toward the oldest).
     """
-    ghost_slots: list = []   # per skeleton: list of (collection, lag_frames)
-    trace_lines: list = []   # per skeleton: Line3D or None
+    ghost_slots: list = []  # per skeleton: list of (collection, lag_frames)
+    trace_lines: list = []  # per skeleton: Line3D or None
     n = scene.num_skeletons
 
-    for i, (view, viewport, ax) in enumerate(
-            zip(scene.views, viewports, axs_flat)):
+    for i, (view, viewport, ax) in enumerate(zip(scene.views, viewports, axs_flat)):
         slots = []
         if ghost > 0:
             colors = bone_colors_for_view(view, style, i, n)
             lag, weights = ghost_schedule(style, view.frame_time, ghost)
             for j in range(ghost):
-                faded = [_fade_toward_background(c, float(weights[j]), style)
-                         for c in colors]
+                faded = [_fade_toward_background(c, float(weights[j]), style) for c in colors]
                 # zorder 1.5: ghosts sit behind the live skeleton (bones
                 # at the default 2) regardless of artist creation order.
                 collection = _make_bone_collection(
-                    np.empty((0, 2, 3)), style, colors=faded,
+                    np.empty((0, 2, 3)),
+                    style,
+                    colors=faded,
                     linewidths=style.bone_width * GHOST_WIDTH_FACTOR,
-                    zorder=1.5)
+                    zorder=1.5,
+                )
                 _add_collection(ax, collection)
                 slots.append((collection, (j + 1) * lag))
         ghost_slots.append(slots)
         trace_lines.append(
-            _draw_floor_trace(
-                ax, viewport.ground_path(view.coords[:1, 0]), style)
-            if trajectory else None)
+            _draw_floor_trace(ax, viewport.ground_path(view.coords[:1, 0]), style)
+            if trajectory
+            else None
+        )
 
     return ghost_slots, trace_lines
 
@@ -680,23 +731,23 @@ def _wrap_update_with_extras(
     pass (:meth:`~._scene.Scene.pass_start`), so a looped Scene draws
     every pass as the first.
     """
-    trace_paths = [viewport.ground_path(view.coords[:, 0])
-                   for view, viewport in zip(scene.views, viewports)]
+    trace_paths = [
+        viewport.ground_path(view.coords[:, 0]) for view, viewport in zip(scene.views, viewports)
+    ]
     empty = np.empty((0, 2, 3))
 
     def update(f: int):
         artists = base_update(f)
         pass_start = scene.pass_start(f)
         for view, bones, slots, trace, path in zip(
-                scene.views, bones_arrays, ghost_slots, trace_lines,
-                trace_paths):
+            scene.views, bones_arrays, ghost_slots, trace_lines, trace_paths
+        ):
             for collection, lag in slots:
                 gf = f - lag
-                collection.set_segments(
-                    view.coords[gf][bones] if gf >= pass_start else empty)
+                collection.set_segments(view.coords[gf][bones] if gf >= pass_start else empty)
                 artists.append(collection)
             if trace is not None:
-                upto = path[pass_start:f + 1]
+                upto = path[pass_start : f + 1]
                 trace.set_data_3d(upto[:, 0], upto[:, 1], upto[:, 2])
                 artists.append(trace)
         return artists
@@ -761,26 +812,26 @@ def render_mpl(
     n = scene.num_skeletons
     # matplotlib sizes figures in inches; convert the requested pixel
     # resolution via the figure dpi so the saved frames honor it.
-    dpi = float(plt.rcParams['figure.dpi'])
+    dpi = float(plt.rcParams["figure.dpi"])
     w, h = resolution
     fig, axs = plt.subplots(
-        1, n, subplot_kw=dict(projection="3d"),
-        figsize=(w / dpi, h / dpi), squeeze=False)
+        1, n, subplot_kw=dict(projection="3d"), figsize=(w / dpi, h / dpi), squeeze=False
+    )
     axs_flat: list[matplotlib.axes.Axes] = list(axs[0])
 
     fig.patch.set_facecolor(style.background)
 
     viewports = panel_viewports(
-        scene.views, framing="clip", motion=motion,
-        projection=style.projection, fps=fps)
+        scene.views, framing="clip", motion=motion, projection=style.projection, fps=fps
+    )
     coords_list = [v.coords for v in scene.views]
     bones_arrays = [np.asarray(v.bones, dtype=int) for v in scene.views]
     bone_collections: list[Line3DCollection] = []
     joint_scatters: list = []
     for i, (view, viewport, bones, ax) in enumerate(
-            zip(scene.views, viewports, bones_arrays, axs_flat)):
-        collection, joint_scatter = _setup_animated_panel(
-            ax, view, viewport, style, bones, i, n)
+        zip(scene.views, viewports, bones_arrays, axs_flat)
+    ):
+        collection, joint_scatter = _setup_animated_panel(ax, view, viewport, style, bones, i, n)
         bone_collections.append(collection)
         joint_scatters.append(joint_scatter)
 
@@ -790,7 +841,11 @@ def render_mpl(
         # other's axes and the outer subplots to clip against the figure
         # edge. Outer margins handle the latter.
         fig.subplots_adjust(
-            left=0.05, right=0.95, top=0.92, bottom=0.05, wspace=0.1,
+            left=0.05,
+            right=0.95,
+            top=0.92,
+            bottom=0.05,
+            wspace=0.1,
         )
     if style.axes == "full":
         # Same tight-bbox adjustment as frame_mpl, in case the animation
@@ -799,22 +854,21 @@ def render_mpl(
 
     if any(viewport.rotating for viewport in viewports):
         update = _make_orbit_update_fn(
-            scene, bones_arrays, bone_collections, joint_scatters,
-            axs_flat, viewports)
+            scene, bones_arrays, bone_collections, joint_scatters, axs_flat, viewports
+        )
     else:
-        update = _make_update_fn(
-            coords_list, bones_arrays, bone_collections, joint_scatters)
+        update = _make_update_fn(coords_list, bones_arrays, bone_collections, joint_scatters)
 
     if ghost > 0 or trajectory:
         ghost_slots, trace_lines = _setup_render_extras(
-            scene, viewports, style, axs_flat, ghost, trajectory)
+            scene, viewports, style, axs_flat, ghost, trajectory
+        )
         update = _wrap_update_with_extras(
-            update, scene, viewports, bones_arrays, ghost_slots,
-            trace_lines)
+            update, scene, viewports, bones_arrays, ghost_slots, trace_lines
+        )
 
     interval = int(1000.0 / fps)
-    anim = animation.FuncAnimation(
-        fig, update, frames=num_frames, interval=interval)
+    anim = animation.FuncAnimation(fig, update, frames=num_frames, interval=interval)
 
     if writer_name == "jshtml":
         # Hand the rate explicitly: to_jshtml would otherwise derive it
@@ -822,14 +876,13 @@ def render_mpl(
         # floor division would then drop another millisecond (1000 //
         # (1000 / 33) is 32).
         html_content = anim.to_jshtml(fps=fps)
-        with open(filepath, 'w') as f:
+        with open(filepath, "w") as f:
             f.write(html_content)
     else:
         # Pass fps explicitly: the writer's rate would otherwise be
         # derived from the integer-millisecond interval, quantizing e.g.
         # 24 fps (41.67 ms) to 1000/41 ≈ 24.4 fps.
-        anim.save(filepath, writer=writer_name,
-                  fps=_movie_writer_fps(fps))
+        anim.save(filepath, writer=writer_name, fps=_movie_writer_fps(fps))
 
     plt.close(fig)
     return filepath
@@ -846,15 +899,17 @@ def _make_orbit_update_fn(
     """Build an animation update fn that also re-aims each panel's
     camera every frame, at the azimuth its viewport schedules."""
     base_update = _make_update_fn(
-        [v.coords for v in scene.views], bones_arrays, bone_collections,
-        joint_scatters)
+        [v.coords for v in scene.views], bones_arrays, bone_collections, joint_scatters
+    )
 
     def update(frame):
         artists = base_update(frame)
         for viewport, ax in zip(viewports, axs_flat):
-            ax.view_init(elev=viewport.elevation,
-                         azim=viewport.azimuth_at(frame),
-                         vertical_axis=viewport.up_axis)
+            ax.view_init(
+                elev=viewport.elevation,
+                azim=viewport.azimuth_at(frame),
+                vertical_axis=viewport.up_axis,
+            )
         return artists
 
     return update
@@ -863,6 +918,7 @@ def _make_orbit_update_fn(
 # ---------------------------------------------------------------------------
 # Interactive playback (matplotlib fallback)
 # ---------------------------------------------------------------------------
+
 
 def play_mpl(
     scene: Scene,
@@ -883,37 +939,35 @@ def play_mpl(
     n = scene.num_skeletons
 
     fig, axs = plt.subplots(
-        1, n, subplot_kw=dict(projection="3d"),
-        figsize=(6 * n, 6), squeeze=False)
+        1, n, subplot_kw=dict(projection="3d"), figsize=(6 * n, 6), squeeze=False
+    )
     axs_flat: list[matplotlib.axes.Axes] = list(axs[0])
 
     fig.patch.set_facecolor(style.background)
 
-    viewports = panel_viewports(
-        scene.views, framing="clip", projection=style.projection)
+    viewports = panel_viewports(scene.views, framing="clip", projection=style.projection)
     coords_list = [v.coords for v in scene.views]
     bones_arrays = [np.asarray(v.bones, dtype=int) for v in scene.views]
     bone_collections: list[Line3DCollection] = []
     joint_scatters: list = []
     for i, (view, viewport, bones, ax) in enumerate(
-            zip(scene.views, viewports, bones_arrays, axs_flat)):
-        collection, joint_scatter = _setup_animated_panel(
-            ax, view, viewport, style, bones, i, n)
+        zip(scene.views, viewports, bones_arrays, axs_flat)
+    ):
+        collection, joint_scatter = _setup_animated_panel(ax, view, viewport, style, bones, i, n)
         bone_collections.append(collection)
         joint_scatters.append(joint_scatter)
 
     plt.tight_layout()
 
-    update = _make_update_fn(
-        coords_list, bones_arrays, bone_collections, joint_scatters)
+    update = _make_update_fn(coords_list, bones_arrays, bone_collections, joint_scatters)
 
     interval = int(1000.0 / fps)
-    anim = animation.FuncAnimation(
-        fig, update, frames=num_frames, interval=interval)
+    anim = animation.FuncAnimation(fig, update, frames=num_frames, interval=interval)
 
     if in_notebook:
         # Render as inline HTML with play/pause/scrub controls
         from IPython.display import HTML, display  # type: ignore[import-untyped]
+
         display(HTML(anim.to_jshtml()))
         plt.close(fig)
     else:
@@ -926,6 +980,7 @@ def play_mpl(
 # ---------------------------------------------------------------------------
 # 2D trajectory
 # ---------------------------------------------------------------------------
+
 
 def trajectory_mpl(
     scene: Scene,
@@ -972,10 +1027,10 @@ def trajectory_mpl(
     """
     labels = scene.labels
 
-    axis_names = ['x', 'y', 'z']
+    axis_names = ["x", "y", "z"]
 
     if ax is not None:
-        if hasattr(ax, 'get_zlim'):
+        if hasattr(ax, "get_zlim"):
             raise ValueError(
                 "ax must be a 2D axes for trajectory(). "
                 "Do not pass subplot_kw={'projection': '3d'} when creating it."
@@ -984,11 +1039,10 @@ def trajectory_mpl(
         assert fig is not None
     else:
         if figsize is None:
-            figsize = _trajectory_figsize(
-                _trajectory_data_aspect(scene.views))
+            figsize = _trajectory_figsize(_trajectory_data_aspect(scene.views))
         # constrained_layout handles external (bbox_to_anchor) legends
         # without clipping; tight_layout does not.
-        fig, ax = plt.subplots(figsize=figsize, layout='constrained')
+        fig, ax = plt.subplots(figsize=figsize, layout="constrained")
 
     # trajectory() is a 2D data plot: axes, ticks, and grid carry the
     # information, so only Style's background applies here (the plot
@@ -1027,8 +1081,8 @@ def trajectory_mpl(
         label = labels[i] if labels and i < len(labels) else None
 
         ax.plot(h0, h1, c=color, lw=1.5, label=label)
-        ax.scatter(h0[0], h1[0], c=[color], marker='o', s=60, zorder=5)
-        ax.scatter(h0[-1], h1[-1], c=[color], marker='s', s=60, zorder=5)
+        ax.scatter(h0[0], h1[0], c=[color], marker="o", s=60, zorder=5)
+        ax.scatter(h0[-1], h1[-1], c=[color], marker="s", s=60, zorder=5)
 
         if facing_arrows and h0.shape[0] >= 2:
             # Overlay ~10 facing-direction arrows along this skeleton's path.
@@ -1044,9 +1098,10 @@ def trajectory_mpl(
             if view.root_heading is None:
                 raise ValueError(
                     "facing_arrows needs a Scene built from clip frames; "
-                    "caller-supplied coordinates carry no root heading.")
-            facing_sin = view.root_heading[:, 0]        # y-component (h1)
-            facing_cos = view.root_heading[:, 1]        # x-component (h0)
+                    "caller-supplied coordinates carry no root heading."
+                )
+            facing_sin = view.root_heading[:, 0]  # y-component (h1)
+            facing_cos = view.root_heading[:, 1]  # x-component (h0)
             step = max(1, F_plot // 10)
             idx = np.arange(0, F_plot, step)
             # Arrow length: 8 % of the larger ground-plane span.  Using
@@ -1057,25 +1112,29 @@ def trajectory_mpl(
                 span = 1.0
             arrow_len = span * 0.08
             ax.quiver(
-                h0[idx], h1[idx],
+                h0[idx],
+                h1[idx],
                 facing_cos[idx] * arrow_len,
                 facing_sin[idx] * arrow_len,
                 color=color,
-                angles='xy', scale_units='xy', scale=1,
-                width=0.005, zorder=4,
+                angles="xy",
+                scale_units="xy",
+                scale=1,
+                width=0.005,
+                zorder=4,
             )
 
     # Label axes — if all skeletons share the same horizontal pair, name them
     if len(all_horiz) == 1:
         h0_idx, h1_idx = all_horiz.pop()
-        ax.set_xlabel(f'{axis_names[h0_idx]} axis')
-        ax.set_ylabel(f'{axis_names[h1_idx]} axis')
+        ax.set_xlabel(f"{axis_names[h0_idx]} axis")
+        ax.set_ylabel(f"{axis_names[h1_idx]} axis")
     else:
-        ax.set_xlabel('horizontal axis 1')
-        ax.set_ylabel('horizontal axis 2')
+        ax.set_xlabel("horizontal axis 1")
+        ax.set_ylabel("horizontal axis 2")
 
-    ax.set_aspect('equal')
-    ax.set_title('Root Trajectory (top-down)')
+    ax.set_aspect("equal")
+    ax.set_title("Root Trajectory (top-down)")
 
     if not tight and skeleton_h0_bounds:
         # Union of per-skeleton horizontal extents, matching the bounding box
@@ -1094,6 +1153,7 @@ def trajectory_mpl(
     # The start/end markers are shown in gray so the legend communicates
     # "shape → meaning" without being tied to any one skeleton's color.
     from matplotlib.lines import Line2D
+
     handles: list[Line2D] = []
     if labels:
         for i, label in enumerate(labels):
@@ -1101,18 +1161,39 @@ def trajectory_mpl(
                 continue
             color = PALETTE_MPL[i % len(PALETTE_MPL)]
             handles.append(Line2D([0], [0], color=color, lw=2, label=label))
-    handles.append(Line2D(
-        [0], [0], marker='o', color='w', markerfacecolor='gray',
-        markersize=9, label='start', linestyle=''))
-    handles.append(Line2D(
-        [0], [0], marker='s', color='w', markerfacecolor='gray',
-        markersize=9, label='end', linestyle=''))
+    handles.append(
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="w",
+            markerfacecolor="gray",
+            markersize=9,
+            label="start",
+            linestyle="",
+        )
+    )
+    handles.append(
+        Line2D(
+            [0],
+            [0],
+            marker="s",
+            color="w",
+            markerfacecolor="gray",
+            markersize=9,
+            label="end",
+            linestyle="",
+        )
+    )
     # Legend is anchored outside the axes so it can never obstruct the
     # data — important for wide-flat trajectories where set_aspect('equal')
     # collapses the axes box into a thin strip.
     ax.legend(
-        handles=handles, loc='center left',
-        bbox_to_anchor=(1.02, 0.5), borderaxespad=0, framealpha=0.9,
+        handles=handles,
+        loc="center left",
+        bbox_to_anchor=(1.02, 0.5),
+        borderaxespad=0,
+        framealpha=0.9,
     )
 
     ax.grid(True, alpha=0.3)
@@ -1126,6 +1207,7 @@ def trajectory_mpl(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_update_fn(
     coords_list: list[npt.NDArray[np.float64]],
@@ -1143,15 +1225,20 @@ def _make_update_fn(
 
     def update(f: int) -> list[Any]:
         for coords, bones, collection, scatter in zip(
-                coords_list, bones_arrays, bone_collections, scatters):
+            coords_list, bones_arrays, bone_collections, scatters
+        ):
             frame_data = coords[f]
             collection.set_segments(frame_data[bones])
             if scatter is not None:
                 scatter._offsets3d = (  # noqa: SLF001 — mpl's supported idiom
-                    frame_data[:, 0], frame_data[:, 1], frame_data[:, 2])
+                    frame_data[:, 0],
+                    frame_data[:, 1],
+                    frame_data[:, 2],
+                )
         artists: list[Any] = list(bone_collections)
         artists.extend(s for s in scatters if s is not None)
         return artists
+
     return update
 
 
@@ -1164,7 +1251,7 @@ def _disable_3d_label_clipping(ax: matplotlib.axes.Axes) -> None:
     where the default ``clip_on=True`` makes them invisible. Disabling
     clipping lets them render into the surrounding figure margin.
     """
-    for axis_name in ('xaxis', 'yaxis', 'zaxis'):
+    for axis_name in ("xaxis", "yaxis", "zaxis"):
         axis = getattr(ax, axis_name)
         axis.label.set_clip_on(False)
         for tick in axis.get_major_ticks():
@@ -1185,10 +1272,10 @@ def _measuring_renderer(
     every ``savefig(..., bbox_inches="tight")`` to a vector format, which
     is exactly how figures get saved for print.
     """
-    renderer = kwargs.get('renderer', args[0] if args else None)
+    renderer = kwargs.get("renderer", args[0] if args else None)
     if renderer is not None:
         return renderer
-    get_renderer = getattr(fig.canvas, 'get_renderer', None)
+    get_renderer = getattr(fig.canvas, "get_renderer", None)
     return get_renderer() if get_renderer is not None else None
 
 
@@ -1219,9 +1306,9 @@ def _extend_fig_tightbbox_with_3d_labels(
         to_inches = fig.dpi_scale_trans.inverted()
         extras = []
         for ax in axes_list:
-            if not hasattr(ax, 'zaxis'):
+            if not hasattr(ax, "zaxis"):
                 continue
-            for axis_name in ('xaxis', 'yaxis', 'zaxis'):
+            for axis_name in ("xaxis", "yaxis", "zaxis"):
                 axis = getattr(ax, axis_name)
                 if not axis.label.get_visible():
                     continue
@@ -1262,7 +1349,8 @@ def _set_span_limits(
     ax.set_zlim(lo[2], hi[2])  # type: ignore[attr-defined]
     spans = hi - lo
     ax.set_box_aspect(  # type: ignore[attr-defined]
-        tuple(spans / spans.max()), zoom=BOX_ZOOM)
+        tuple(spans / spans.max()), zoom=BOX_ZOOM
+    )
 
 
 def _resolve_writer(filepath: Path) -> tuple[Path, str]:
@@ -1277,23 +1365,24 @@ def _resolve_writer(filepath: Path) -> tuple[Path, str]:
     """
     ext = filepath.suffix.lower()
 
-    if ext in ('.mp4', '.mov', '.avi'):
-        if animation.writers.is_available('ffmpeg'):
-            return filepath, 'ffmpeg'
+    if ext in (".mp4", ".mov", ".avi"):
+        if animation.writers.is_available("ffmpeg"):
+            return filepath, "ffmpeg"
         # Fallback to GIF
-        filepath = filepath.with_suffix('.gif')
+        filepath = filepath.with_suffix(".gif")
         warnings.warn(
             f"FFmpeg not found — cannot save as {ext}. "
             f"Falling back to GIF: '{filepath}'. "
             f".webp and .html are also available.",
-            stacklevel=user_stacklevel())
-        return filepath, 'pillow'
+            stacklevel=user_stacklevel(),
+        )
+        return filepath, "pillow"
 
-    if ext in ('.gif', '.webp', '.apng'):
-        return filepath, 'pillow'
+    if ext in (".gif", ".webp", ".apng"):
+        return filepath, "pillow"
 
-    if ext == '.html':
-        return filepath, 'jshtml'
+    if ext == ".html":
+        return filepath, "jshtml"
 
     raise ValueError(f"Unsupported file format: {ext}")
 
@@ -1301,6 +1390,7 @@ def _resolve_writer(filepath: Path) -> tuple[Path, str]:
 # ---------------------------------------------------------------------------
 # Trajectory layout helpers
 # ---------------------------------------------------------------------------
+
 
 def _trajectory_data_aspect(views: list[SkeletonView]) -> float:
     """Aspect ratio (dx / dy) of the combined trajectory data.

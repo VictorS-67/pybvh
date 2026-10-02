@@ -9,7 +9,7 @@ Two quality modes:
   joints, floor, one headlight.
 - ``"fast"``: Flat lines and points. Maximum performance for large files.
 
-Requires ``vedo >= 2024.5``.
+Requires ``vedo >= 2025.5.3``.
 """
 
 from __future__ import annotations

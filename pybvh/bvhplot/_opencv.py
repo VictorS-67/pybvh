@@ -249,6 +249,7 @@ def _draw_skeletons_on_frame(
         viewport = viewports[s]
         view_matrix = viewport.view_matrix(frame_idx)
 
+        canvas: npt.NDArray[np.uint8]
         if n_skeletons > 1:
             # Contiguous per-panel canvas: clips every primitive to the
             # panel, then blits.

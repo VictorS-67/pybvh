@@ -52,10 +52,10 @@ Non-negotiable across every change to the codebase:
 
 - Comments explain why, never what. A docstring names the convention it chose, as the first section says.
 - `CHANGELOG.md` has an entry for every user-visible change, phrased against the previous shipped release (`CONTRIBUTING.md`). A breaking change has its breaking row, and its PR a Migration section.
+- A commit subject is in the imperative, and a body, when there is one, says why: the constraint, the mechanism, the alternative rejected (`CONTRIBUTING.md`). The commit-message check holds the format, not these.
 
 ## Mechanical rules waiting for a check
 
 Held by the reviewer until a test or a CI step takes them over; each leaves this file when its check lands.
 
-- Markdown prose is not hard-wrapped: one paragraph is one line, in `.md` files, notebook markdown cells, commit bodies and PR bodies. Docstrings and code comments wrap at the code's line length.
-- Commit subjects follow `type(scope): subject`, imperative, under about 70 characters; a body is one paragraph that says why (`CONTRIBUTING.md`).
+- Markdown prose is not hard-wrapped in notebook markdown cells and PR bodies: one paragraph is one line. The suite checks `.md` files and the commit-message check covers commit bodies. Docstrings and code comments wrap at the code's line length.

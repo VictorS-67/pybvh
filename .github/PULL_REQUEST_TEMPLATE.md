@@ -11,7 +11,7 @@ Closes #
 **localized | extensive.** <!-- Keep one; it is the PR's second label. Then the public names touched, whether the file round trip is involved, and which consumer must change. -->
 
 **Needs your eyes on:**
-- <!-- One to three decisions taken while building: a choice between defensible options, a deliberate omission, a surprise. Or "None." -->
+- <!-- One to three decisions taken while building: a choice between defensible options, a deliberate omission, a surprise. Or "None." Merge instructions go in one line after this list, not in it. -->
 
 ## Change outline
 
@@ -19,7 +19,7 @@ Closes #
 
 ## Evidence
 
-<!-- Before and after. A fix: the issue's reproduction, with its output on main and on this branch. A feature: the test that failed and now passes, as pseudocode. bvhplot: an image, or a link to the showcase. Then the full-suite line. -->
+<!-- Before and after. A fix: the issue's reproduction, with its output on main and on this branch. A feature: the test that failed and now passes, as pseudocode. bvhplot: an image, or a link to the showcase. A claim that behaviour is preserved names the command or test that shows it. Then the full-suite line. -->
 
 ## Migration
 

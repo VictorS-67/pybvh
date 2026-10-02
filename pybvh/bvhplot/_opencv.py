@@ -432,7 +432,7 @@ def _generate_frames(
         )
 
         if ss > 1:
-            img = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
+            img = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)  # type: ignore[assignment]  # stub says any MatLike; resize keeps the uint8 it is given
 
         # Text and the axis indicator stamp AFTER the downsample so
         # they stay crisp at the output resolution.

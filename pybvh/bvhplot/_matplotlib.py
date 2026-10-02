@@ -117,7 +117,7 @@ class _DepthSortedLine3DCollection(Line3DCollection):
         )
         LineCollection.set_segments(self, list(segs_2d[order]))
         if len(self._base_edgecolors) == len(segs):
-            LineCollection.set_color(self, self._base_edgecolors[order])
+            LineCollection.set_color(self, self._base_edgecolors[order])  # type: ignore[arg-type]  # stub takes a sequence of colors, not the (N, 4) RGBA array set_color accepts
         return float(depth.min())
 
 

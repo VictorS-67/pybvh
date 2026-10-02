@@ -5,6 +5,8 @@ against an independent reference implementation on the same input.
 
 The directory also holds two hand-written **parser-edge `.bvh` fixtures** used by `tests/test_bvh.py::TestReadWriteReadEquality` (no regeneration involved): `rotation_first_root.bvh` (a root that declares its rotation channels before its position channels) and `full_precision_frame_time.bvh` (a many-digit non-integer-rate `Frame Time` that must not be snapped or truncated).
 
+It also holds `pr_hygiene_event.json`, a recorded `pull_request` event payload (PR #54, trimmed) that `tests/test_check_pr_hygiene.py` feeds to the pr-hygiene check.
+
 ## Running the tests (no reference libraries needed)
 
 The `.npz` fixtures here are **committed**, and the tests (`tests/test_*_golden.py`)

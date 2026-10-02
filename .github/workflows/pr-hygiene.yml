@@ -1,0 +1,39 @@
+name: PR hygiene
+
+on:
+  pull_request:
+    branches: [main]
+    # edited, labeled and unlabeled rerun the check when the body or the
+    # labels change, not only when commits are pushed.
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+
+# The check reads the git history and the pull request's current labels and
+# body, nothing else: it needs no write permission and no secret beyond the
+# job's own read-only token.
+permissions:
+  contents: read
+  pull-requests: read
+
+# Labelling a new PR fires one event per label. Every run fetches the current
+# labels, so only the latest run on a commit needs to finish. The head commit
+# is in the group so that a rerun on an older commit cannot cancel the run on
+# the current one.
+concurrency:
+  group: pr-hygiene-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+
+jobs:
+  pr-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The changed files are `git diff base...head`, which needs the
+          # merge base, so the whole history.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check labels, CHANGELOG and Migration section
+        run: python3 scripts/check_pr_hygiene.py
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

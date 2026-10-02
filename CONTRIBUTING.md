@@ -19,7 +19,7 @@ The optional visualization backends (`pybvh[opencv]`, `pybvh[interactive]`, `pyb
 
 ## Branches and pull requests
 
-Every change goes through a pull request into `main`. `main` is the next release in progress; it is protected, so nothing is pushed to it directly, including one-line fixes (a small PR is `gh pr create --fill` followed by `gh pr merge --squash --delete-branch`, under a minute).
+Every change goes through a pull request into `main`. `main` is the next release in progress; it is protected, so nothing is pushed to it directly, including one-line fixes (a small PR is `gh pr create --fill --label internal --label localized`, with the two labels that fit it, followed by `gh pr merge --squash --delete-branch`, under a minute).
 
 - **One branch per change.** A branch holds one logical change: one feature, one fix, one refactor. Name it by intent, for example `fix/world-up-warn-flag`, `deepen/scene`, `docs/tutorial-4`.
 - **Branch from `main`, merge into `main`.** There is no long-lived development or release branch. Releases are marked by tags.

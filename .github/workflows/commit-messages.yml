@@ -1,0 +1,30 @@
+name: Commit messages
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  commit-messages:
+    runs-on: ubuntu-latest
+    steps:
+      # The full history, so that the base branch and every commit the pull
+      # request adds are present to compare.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Every commit the pull request adds, merge commits skipped. The rules
+      # are in CONTRIBUTING.md under "Commits".
+      - run: python scripts/check_commit_msg.py --range "origin/${BASE_REF}..${HEAD_SHA}"
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}

@@ -115,7 +115,7 @@ Planned work is tracked as GitHub issues, one per change, and grouped into a mil
 
 ## Releases
 
-A release is its own PR: it bumps the version in `pyproject.toml`, dates the CHANGELOG section, updates `CITATION.cff` and the README citation, and nothing else. `tests/test_release_metadata.py` checks that these agree. After the PR merges, the tag is created on `main` and the publish workflow uploads to PyPI.
+A release is its own PR: it bumps the version in `pyproject.toml`, dates the CHANGELOG section, updates `CITATION.cff` and the README citation, and nothing else. `tests/test_release_metadata.py` checks that these agree. Because it changes the version, the release PR is the one whose `test-backends` check installs every visualization backend and runs the full suite against them, which takes minutes, so on any other PR that check passes at once. After the PR merges, the tag is created on `main` and the publish workflow uploads to PyPI.
 
 ## The CHANGELOG
 

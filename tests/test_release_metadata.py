@@ -12,7 +12,9 @@ moves in a release commit, so they hold between releases too.
 
 The Python versions are written twice, as ``pyproject.toml`` classifiers and
 as the CI test matrix. PyPI shows the classifiers as the versions pybvh
-supports, so the two lists must be the same versions in the same order.
+supports, so the two lists must be the same versions in the same order. The
+backend tests run on the newest of them alone, so their Python is the last
+entry of the matrix.
 
 The ruff version is written twice, as the ``lint`` dependency group's pin in
 ``pyproject.toml``, which CI and a contributor's environment install, and as
@@ -96,16 +98,37 @@ def _without_comment_lines(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
 
-def test_classifiers_list_the_python_versions_ci_tests():
-    pyproject = _without_comment_lines(_read("pyproject.toml"))
-    classified = re.findall(r"""["']Programming Language :: Python :: (3\.\d+)["']""", pyproject)
+def _tested_pythons() -> list[str]:
+    """The Python versions of the CI test matrix, in its order."""
     workflow = _without_comment_lines(_read(".github/workflows/test.yml"))
     matrix = _one(
         r"^\s*python-version:\s*\[([^\]]*)\]", workflow, ".github/workflows/test.yml matrix"
     )
-    tested = re.findall(r"""["'](3\.\d+)["']""", matrix)
+    return re.findall(r"""["'](3\.\d+)["']""", matrix)
+
+
+def test_classifiers_list_the_python_versions_ci_tests():
+    pyproject = _without_comment_lines(_read("pyproject.toml"))
+    classified = re.findall(r"""["']Programming Language :: Python :: (3\.\d+)["']""", pyproject)
     assert classified, "no Python version classifier found in pyproject.toml"
-    assert classified == tested
+    assert classified == _tested_pythons()
+
+
+def test_backend_tests_run_on_the_newest_python_ci_tests():
+    # PyYAML comes with the dev group, with pre-commit.
+    import yaml
+
+    newest_tested = _tested_pythons()[-1]
+    backends = yaml.safe_load(_read(".github/workflows/backends.yml"))
+    pythons = [
+        str(step["with"]["python-version"])
+        for step in backends["jobs"]["test-backends"]["steps"]
+        if str(step.get("uses", "")).startswith("actions/setup-python@")
+    ]
+    assert pythons == [newest_tested], (
+        f"the test matrix's newest Python is {newest_tested}, but the backend tests "
+        f"set up {pythons}: run them on the newest one"
+    )
 
 
 def test_pre_commit_runs_the_ruff_the_lint_group_pins():

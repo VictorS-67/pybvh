@@ -14,7 +14,7 @@ The `.npz` fixtures here are **committed**, and the tests (`tests/test_*_golden.
 
 ```bash
 pip install -e ".[dev]"      # or: conda run -n pybvh ...
-pytest tests/ -v
+python -m pytest tests/ -v
 ```
 
 This keeps pybvh numpy-only at runtime *and* in CI (the charter), while still validating against scipy-derived ground truth.
@@ -36,7 +36,7 @@ python tests/fixtures/generate_fixtures.py
 Then re-run the golden tests in the normal env:
 
 ```bash
-conda run -n pybvh pytest tests/ -k golden -v
+conda run -n pybvh python -m pytest tests/ -k golden -v
 ```
 
 Pinned reference versions (see `environment.yml`): scipy 1.17, pytransform3d 3.15, numpy 2.4 — pin so regeneration is deterministic (no version drift in the golden values).

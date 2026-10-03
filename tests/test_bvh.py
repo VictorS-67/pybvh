@@ -2,7 +2,7 @@
 Tests for pybvh library.
 
 Uses bvh_data/bvh_example.bvh as the test fixture.
-Run with: pytest tests/test_bvh.py -v
+Run with: python -m pytest tests/test_bvh.py -v
 """
 
 import copy

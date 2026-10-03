@@ -9,11 +9,13 @@ Create the development environment and run the test suite before you start:
 ```bash
 conda create -n pybvh python=3.10
 conda run -n pybvh pip install -e ".[dev,all-viz]"
-conda run -n pybvh pytest tests/ -v
+conda run -n pybvh python -m pytest tests/ -v
 conda run -n pybvh pre-commit install
 ```
 
 The last line installs the git hooks once per clone: on every commit, ruff and ruff format run on the staged files and the message is checked against the rules under "Commits", the same checks CI runs on a pull request.
+
+Run the tests as `python -m pytest` from the root of the checkout, not as bare `pytest`: it puts that directory first on the import path, so the tests import the checkout's own `pybvh` even when the editable install points at another clone or worktree. While you work, run the tests each commit touches before committing it; run the full suite once on the finished branch.
 
 The optional visualization backends (`pybvh[opencv]`, `pybvh[interactive]`, `pybvh[viewer]`) each unlock further tests; tests that need a backend you do not have are skipped, not failed.
 
@@ -30,7 +32,7 @@ Every change goes through a pull request into `main`. `main` is the next release
 
 Before marking a PR ready:
 
-- tests pass locally: `conda run -n pybvh pytest tests/ -v`
+- the full suite passes locally on the finished branch: `conda run -n pybvh python -m pytest tests/ -v`
 - `CHANGELOG.md` has its entry (see below), unless the change is invisible to users
 - docstrings name any convention the change chose (see the "Code & API quality" rules in `CLAUDE.md`)
 - the branch is rebased on the current `main`, or, for an integration branch, built on it

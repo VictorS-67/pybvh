@@ -52,10 +52,10 @@ Each fixture embeds a `meta` JSON string documenting the exact convention mappin
 | `euler_zyx_to_rotmat.npz` | Euler (ZYX, rad) → rotmat | scipy | `test_rotations_golden.py` (active) |
 | `rotmat_to_quat.npz` | rotmat → quat (w,x,y,z) | scipy | active |
 | `rotmat_to_axisangle.npz` | rotmat → rotvec | scipy | active |
-| `se3_exp_log.npz` | twist `[ω,v]` ↔ 4×4 transform | pytransform3d | `test_se3_golden.py` (skips until `rotations.se3_exp/log`) |
-| `se3_screw_interp.npz` | (T0, T1, t) → screw geodesic | pytransform3d | skips until `rotations.screw_interpolate` |
-| `rotation_geodesic.npz` | (R1, R2) → angle | scipy | skips until `rotations.rotation_geodesic_distance` |
-| `smoothness.npz` | speed profile → SPARC / DLJ / LDLJ | siva82kb/SPARC (ISC) | `test_smoothness_golden.py` (skips until `analysis.sparc` etc.) |
+| `se3_exp_log.npz` | twist `[ω,v]` ↔ 4×4 transform | pytransform3d | `test_se3_golden.py` (active) |
+| `se3_screw_interp.npz` | (T0, T1, t) → screw geodesic | pytransform3d | active |
+| `rotation_geodesic.npz` | (R1, R2) → angle | scipy | active |
+| `smoothness.npz` | speed profile → SPARC / DLJ / LDLJ | siva82kb/SPARC (ISC) | `test_smoothness_golden.py` (active) |
 | `foot_contacts_pinned.npz` | CMU walk clip → contacts + full `info` dict for 9 `foot_contacts` parameterizations | **pybvh itself (behavior pin)** | `test_analysis.py::TestFootContactsPinnedGolden` (active) |
 | `follow_azimuths_pinned.npz` | CMU walk clip → the follow camera's azimuth per frame (degrees, base azimuth −20°) | **pybvh itself (behavior pin)** | `test_plot.py::TestComputeFollowAzimuths` (active) |
 
@@ -63,7 +63,7 @@ Each fixture embeds a `meta` JSON string documenting the exact convention mappin
 
 `follow_azimuths_pinned.npz` is a second behavior pin of the same kind, of the follow camera's azimuth schedule: it proves that a refactor of the facing geometry or of the viewport does not move the camera. `test_plot.py::TestComputeFollowAzimuths` compares both `compute_follow_azimuths` and the viewport's `follow` schedule with it, and writes seven of its values out, so a re-baselined fixture fails there. It regenerates only via `conda run -n pybvh python tests/fixtures/generate_fixtures.py --follow-azimuths-pin`, which re-baselines the pin, under the same rule.
 
-The SE(3)/smoothness tests are committed now (pre-built oracles) and **skip until the corresponding functions exist**, then auto-validate. SE(3) fixtures deliberately over-cover the failure-prone regimes: θ→0 (V left-Jacobian Taylor), θ→π (log branch), pure translation, and large-translation V-coupling.
+The SE(3) and smoothness fixtures were committed as pre-built oracles before the functions they test existed; those functions shipped in 0.8.0 (`rotations.se3_exp`, `se3_log`, `screw_interpolate`, `rotation_geodesic_distance`; `analysis.sparc`, `dimensionless_jerk`, `log_dimensionless_jerk`), and the tests now validate them. SE(3) fixtures deliberately over-cover the failure-prone regimes: θ→0 (V left-Jacobian Taylor), θ→π (log branch), pure translation, and large-translation V-coupling.
 
 **Convention locks (pinned by these fixtures):** se(3) twist = `[ω(3), v(3)]` rotation-first, V-Jacobian-coupled (= pytransform3d / Vemulapalli 2014). SPARC defaults `padlevel=4, fc=10 Hz, amp_th=0.05`.
 

@@ -7,10 +7,9 @@ name = "pybvh"
 version = "0.9.0"
 description = "BVH reader/writer and kinematics utilities"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -43,8 +42,8 @@ dev = [
     "mypy==1.19.1",
     # pybvh never imports pandas at run time; dataframe.py names its types for
     # the checker only, and pandas ships none of its own. The last release that
-    # installs on Python 3.9.
-    "pandas-stubs==2.2.2.240807",
+    # installs on the oldest Python pybvh supports, where the typecheck job runs.
+    "pandas-stubs==2.3.3.260113",
 ]
 # mkdocs 2 drops the plugin system mkdocstrings and Material are built on, and
 # the docs-build check installs this extra fresh on every pull request.
@@ -72,7 +71,7 @@ include = ["pybvh*"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 # The jupytext twins of the notebooks: ruff lints the .ipynb itself, where it
 # knows the cell boundaries (an import at the top of a cell is fine, a trailing
 # semicolon that suppresses a cell's output is not useless). Linting the .py as
@@ -91,17 +90,16 @@ select = ["E", "F", "I", "W", "B", "UP", "D1", "D417"]
 # docstring are __str__ and __repr__, whose contract is Python's data model
 # and whose body already shows the text it builds. Dunders with behaviour of
 # their own (__eq__, __getitem__, __add__, ...) should carry one, but the rule
-# cannot tell the two kinds apart.
-ignore = ["E501", "D105"]
+# cannot tell the two kinds apart. B905 (zip() without strict=) applies from
+# Python 3.10 on, and the zips written before it each need a choice: strict=True
+# where the lengths must agree, strict=False where truncating is meant. #87
+# makes that choice at each zip and drops B905 from this list.
+ignore = ["E501", "D105", "B905"]
 
 [tool.ruff.lint.isort]
 # The gallery notebook's helper module sits beside it, not on any import path
 # ruff can see, so ruff would otherwise file it with the third-party packages.
 known-local-folder = ["gallery_plots"]
-
-[tool.ruff.lint.pyupgrade]
-# Keep Union and Optional: typing.get_type_hints evaluates X | Y, which fails on Python 3.9.
-keep-runtime-typing = true
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
@@ -113,8 +111,9 @@ convention = "numpy"
 [tool.mypy]
 # The oldest Python pybvh supports: syntax or a typing feature newer than it
 # is reported. CI runs mypy on this same version, so that the installed NumPy
-# and Matplotlib, and the stubs they ship, are the ones a 3.9 user resolves.
-python_version = "3.9"
+# and Matplotlib, and the stubs they ship, are the ones a user of that
+# version resolves.
+python_version = "3.10"
 files = ["pybvh"]
 
 [[tool.mypy.overrides]]

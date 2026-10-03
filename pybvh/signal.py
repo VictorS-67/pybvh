@@ -6,7 +6,6 @@ Numeric helpers that operate on plain NumPy arrays sampled along an axis — no 
 from __future__ import annotations
 
 from collections import namedtuple
-from typing import Union
 
 import numpy as np
 import numpy.typing as npt
@@ -255,7 +254,7 @@ def fft_magnitude(
         magnitude *= 2.0 / n
         # DC (and Nyquist, when it exists as its own bin) appear once in
         # the full spectrum, so folding to one side must not double them.
-        edge: list[Union[int, slice]] = [slice(None)] * magnitude.ndim
+        edge: list[int | slice] = [slice(None)] * magnitude.ndim
         edge[axis] = 0
         magnitude[tuple(edge)] /= 2.0
         if n % 2 == 0:
@@ -266,7 +265,7 @@ def fft_magnitude(
             f"norm must be 'backward', 'ortho', 'forward' or 'amplitude', got {norm!r}"
         )
     freqs = np.fft.rfftfreq(n, d=1.0 / fs)
-    return freqs, magnitude
+    return freqs, magnitude  # type: ignore[return-value]  # NumPy 2.2's stub types rfftfreq as floating, not float64
 
 
 def dominant_frequency(

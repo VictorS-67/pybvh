@@ -9,13 +9,13 @@
 | Field | Value |
 |---|---|
 | **Name** | pybvh |
-| **Language** | Python 3 (>= 3.9) |
+| **Language** | Python 3 (>= 3.10) |
 | **Dependencies** | `numpy` (required), `matplotlib` (required), `pandas` (optional), `opencv-python` (optional, fast render), `k3d` (optional, Jupyter), `vedo` (optional, desktop) |
 | **Primary use-case** | Reading, writing, and manipulating BVH (Biovision Hierarchy) motion capture files — serving ML pipelines, biomechanics research, game dev, and any workflow that consumes skeleton animation data |
 | **Design principles** | **Fast** (NumPy-vectorised, pre-allocated arrays), **Lightweight** (minimal code surface, no ML framework deps), **Self-contained** (no scipy, no PyTorch, no TensorFlow) |
 | **Version** | 0.9.0 |
 | **Package** | Published on PyPI as `pybvh`. Install via `pip install pybvh`. Optional extras: `pybvh[opencv]` (fast render), `pybvh[interactive]` (k3d for Jupyter), `pybvh[viewer]` (vedo desktop), `pybvh[all-viz]` (all of the above), `pybvh[pandas]` (pandas integration) |
-| **CI/CD** | GitHub Actions. On every pull request, whatever its base: test (Python 3.9–3.14), lint (`ruff check` and `ruff format --check`), typecheck (`mypy pybvh/` on Python 3.9), docs-build (strict MkDocs build), commit-messages (`scripts/check_commit_msg.py`), pr-hygiene (one kind-of-change and one blast-radius label, a `breaking` or `behaviour-change` PR touches `CHANGELOG.md`, a `breaking` PR fills in its Migration section; `scripts/check_pr_hygiene.py`), and the tutorial notebooks when their inputs change. On push to main: test, lint, typecheck, the tutorial notebooks when their inputs change, and the docs deploy to GitHub Pages. On release: publish to PyPI |
+| **CI/CD** | GitHub Actions. On every pull request, whatever its base: test (Python 3.10–3.14), lint (`ruff check` and `ruff format --check`), typecheck (`mypy pybvh/` on Python 3.10), docs-build (strict MkDocs build), commit-messages (`scripts/check_commit_msg.py`), pr-hygiene (one kind-of-change and one blast-radius label, a `breaking` or `behaviour-change` PR touches `CHANGELOG.md`, a `breaking` PR fills in its Migration section; `scripts/check_pr_hygiene.py`), and the tutorial notebooks when their inputs change. On push to main: test, lint, typecheck, the tutorial notebooks when their inputs change, and the docs deploy to GitHub Pages. On release: publish to PyPI |
 | **Type safety** | Full type annotations on all source files, `@overload` on inplace methods and on `return_info`. `mypy pybvh/` passes and the typecheck job keeps it so (see §7) |
 | **Tests** | 2538 unit tests via pytest (plus ~23 000 parametrized `test_transforms_battle` cases across 3 real-world datasets, skipped unless the private fixtures are present) |
 | **Documentation** | MkDocs + mkdocstrings + Material theme, auto-deployed to GitHub Pages |
@@ -242,7 +242,7 @@ where the order comes from the joint's `rot_channels`.
 
 The conventions a change is held to (property validation, type annotations, the `inplace` convention, copies, the channel freeze, identity-resolved nodes, radians inside and degrees at the boundary, naming) are the reviewer's rules and live in `CODING_STANDARDS.md`. Two facts about the code's state that the standards do not cover:
 
-- **Type checking**: `mypy pybvh/` is clean, and the typecheck job runs it on Python 3.9, the `python_version` it is configured for, with mypy and `pandas-stubs` pinned in the dev extra. Every `# type: ignore` names its error code. Two things it does not see: Matplotlib's `mpl_toolkits` ships no type information, so `Axes3D` is `Any` and the Matplotlib backend's calls on its 3D axes are left to the plotting tests; and an array's shape is not part of its type, which is why `Bvh.smoothness` narrows its scalar result with `typing.cast`.
+- **Type checking**: `mypy pybvh/` is clean, and the typecheck job runs it on Python 3.10, the `python_version` it is configured for, with mypy and `pandas-stubs` pinned in the dev extra. Every `# type: ignore` names its error code. Two things it does not see: Matplotlib's `mpl_toolkits` ships no type information, so `Axes3D` is `Any` and the Matplotlib backend's calls on its 3D axes are left to the plotting tests; and an array's shape is not part of its type, which is why `Bvh.smoothness` narrows its scalar result with `typing.cast`.
 - **Errors**: Mix of `ValueError`, `Exception`, and `AttributeError`.
 
 ---

@@ -406,5 +406,5 @@ def ghost_schedule(
     clip whose rate is unset.
     """
     lag = max(1, round(style.ghost_spacing / frame_time))
-    weights = np.linspace(0.32, 0.15, n_ghosts)
+    weights = np.linspace(0.32, 0.15, n_ghosts, dtype=np.float64)
     return lag, weights

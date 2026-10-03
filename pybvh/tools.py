@@ -938,7 +938,7 @@ def _rest_forward_from_topology(
     # it is zero only in the (anti)parallel case described above.
     if float(np.linalg.norm(forward)) < 1e-6:
         return None
-    return forward
+    return forward  # type: ignore[return-value]  # NumPy 2.2's stub types a float cross product as floating, not float64
 
 
 def _facing_is_measured(bvh: Bvh, world_up: str) -> bool:
@@ -1045,7 +1045,7 @@ def _facing_basis(
         left[~valid] = np.cross(up_vec, fallback_forward)
 
     up = np.tile(up_vec, (coords.shape[0], 1))
-    return forward, left, up, valid
+    return forward, left, up, valid  # type: ignore[return-value]  # NumPy 2.2's stub types a float cross product as floating, not float64
 
 
 def _signed_rotation_delta_around_axis(
@@ -1106,7 +1106,7 @@ def _compute_forward_at(
     if leftward_vec is None:
         forward_vec = _fallback_forward_vector(bvh, world_up)
     else:
-        forward_vec = np.cross(leftward_vec, _axis_to_vector(world_up))
+        forward_vec = np.cross(leftward_vec, _axis_to_vector(world_up))  # type: ignore[assignment]  # NumPy 2.2's stub types a float cross product as floating, not float64
 
     # Both branches yield a unit vector perpendicular to world_up, so
     # the snap never degenerates and never lands on the up axis.
@@ -1165,7 +1165,7 @@ def _compute_left_at(
     # defaulted "left" is exactly as unmeasured as a defaulted forward.
     fwd_vec = _fallback_forward_vector(bvh, world_up)
     up_vec = _axis_to_vector(world_up)
-    left_ax = get_main_direction(np.cross(up_vec, fwd_vec))
+    left_ax = get_main_direction(np.cross(up_vec, fwd_vec))  # type: ignore[arg-type]  # NumPy 2.2's stub types a float cross product as floating, not float64
     assert left_ax is not None  # axis-aligned cross never degenerate
     return left_ax
 

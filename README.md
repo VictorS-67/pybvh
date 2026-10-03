@@ -129,7 +129,7 @@ This will change at **1.0**: from then on, pybvh will commit to strict semver â€
 
 ## Requirements
 
-- Python >= 3.9
+- Python >= 3.10
 - NumPy >= 1.21
 - Matplotlib >= 3.7
 

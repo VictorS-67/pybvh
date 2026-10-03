@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import warnings
 from collections import namedtuple
-from collections.abc import Mapping, Sequence
-from typing import Any, Callable, Literal, Optional, TypeVar, Union, overload
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, Literal, TypeVar, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -866,14 +866,14 @@ def facing_frame(
 @overload
 def foot_contacts(
     bvh: Bvh,
-    foot_joints: Optional[list[str]] = ...,
+    foot_joints: list[str] | None = ...,
     method: str = ...,
-    coords: Optional[npt.NDArray[np.float64]] = ...,
+    coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: Optional[float] = ...,
+    vel_threshold: float | None = ...,
     vel_smooth_duration: float = ...,
-    height_threshold: Optional[float] = ...,
-    floor: Union[float, str] = ...,
+    height_threshold: float | None = ...,
+    floor: float | str = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
     hysteresis: float = ...,
@@ -884,14 +884,14 @@ def foot_contacts(
 @overload
 def foot_contacts(
     bvh: Bvh,
-    foot_joints: Optional[list[str]] = ...,
+    foot_joints: list[str] | None = ...,
     method: str = ...,
-    coords: Optional[npt.NDArray[np.float64]] = ...,
+    coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: Optional[float] = ...,
+    vel_threshold: float | None = ...,
     vel_smooth_duration: float = ...,
-    height_threshold: Optional[float] = ...,
-    floor: Union[float, str] = ...,
+    height_threshold: float | None = ...,
+    floor: float | str = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
     hysteresis: float = ...,
@@ -902,21 +902,21 @@ def foot_contacts(
 @overload
 def foot_contacts(
     bvh: Bvh,
-    foot_joints: Optional[list[str]] = ...,
+    foot_joints: list[str] | None = ...,
     method: str = ...,
-    coords: Optional[npt.NDArray[np.float64]] = ...,
+    coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: Optional[float] = ...,
+    vel_threshold: float | None = ...,
     vel_smooth_duration: float = ...,
-    height_threshold: Optional[float] = ...,
-    floor: Union[float, str] = ...,
+    height_threshold: float | None = ...,
+    floor: float | str = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
     hysteresis: float = ...,
     adaptive: bool = ...,
     height_reference: str = ...,
     return_info: bool,
-) -> Union[npt.NDArray[np.float64], tuple[npt.NDArray[np.float64], dict]]: ...
+) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]: ...
 def foot_contacts(
     bvh: Bvh,
     foot_joints: list[str] | None = None,
@@ -1137,14 +1137,14 @@ def foot_contacts(
 @overload
 def ground_contacts(
     bvh: Bvh,
-    joints: Sequence[Union[str, int]],
+    joints: Sequence[str | int],
     method: str = ...,
-    coords: Optional[npt.NDArray[np.float64]] = ...,
+    coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: Optional[float] = ...,
+    vel_threshold: float | None = ...,
     vel_smooth_duration: float = ...,
-    height_threshold: Optional[float] = ...,
-    floor: Union[float, str] = ...,
+    height_threshold: float | None = ...,
+    floor: float | str = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
     hysteresis: float = ...,
@@ -1155,14 +1155,14 @@ def ground_contacts(
 @overload
 def ground_contacts(
     bvh: Bvh,
-    joints: Sequence[Union[str, int]],
+    joints: Sequence[str | int],
     method: str = ...,
-    coords: Optional[npt.NDArray[np.float64]] = ...,
+    coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: Optional[float] = ...,
+    vel_threshold: float | None = ...,
     vel_smooth_duration: float = ...,
-    height_threshold: Optional[float] = ...,
-    floor: Union[float, str] = ...,
+    height_threshold: float | None = ...,
+    floor: float | str = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
     hysteresis: float = ...,
@@ -1173,21 +1173,21 @@ def ground_contacts(
 @overload
 def ground_contacts(
     bvh: Bvh,
-    joints: Sequence[Union[str, int]],
+    joints: Sequence[str | int],
     method: str = ...,
-    coords: Optional[npt.NDArray[np.float64]] = ...,
+    coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: Optional[float] = ...,
+    vel_threshold: float | None = ...,
     vel_smooth_duration: float = ...,
-    height_threshold: Optional[float] = ...,
-    floor: Union[float, str] = ...,
+    height_threshold: float | None = ...,
+    floor: float | str = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
     hysteresis: float = ...,
     adaptive: bool = ...,
     height_reference: str = ...,
     return_info: bool,
-) -> Union[npt.NDArray[np.float64], tuple[npt.NDArray[np.float64], dict]]: ...
+) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]: ...
 def ground_contacts(
     bvh: Bvh,
     joints: Sequence[str | int],
@@ -1406,8 +1406,8 @@ def _contacts_core(
     speed = None
     clearance = None
     # The thresholds in use: the caller's, or a per-foot (nf,) array resolved here.
-    vel_thr_used: Union[float, npt.NDArray[np.float64], None] = None
-    height_thr_used: Union[float, npt.NDArray[np.float64], None] = None
+    vel_thr_used: float | npt.NDArray[np.float64] | None = None
+    height_thr_used: float | npt.NDArray[np.float64] | None = None
     floor_raw = None
     vel_adaptive_used = None
     height_adaptive_used = None
@@ -2377,7 +2377,7 @@ def _reduce_like(
     speed: npt.NDArray[np.float64],
     result: npt.NDArray[_ScalarT],
     to_scalar: Callable[[npt.NDArray[_ScalarT]], _PyScalarT],
-) -> Union[_PyScalarT, npt.NDArray[_ScalarT]]:
+) -> _PyScalarT | npt.NDArray[_ScalarT]:
     """Shape a reduced result to match its input: scalar out for ``(T,)``.
 
     The single implementation of the ``(T,) -> scalar`` /
@@ -2841,7 +2841,7 @@ def rms_squared_jerk(
 
 # A smoothness metric's value: a scalar for a (T,) profile, one value per
 # column for (T, K); number_of_peaks counts, so its array holds integers.
-_SmoothnessValue = Union[float, npt.NDArray[np.float64], npt.NDArray[np.int_]]
+_SmoothnessValue = float | npt.NDArray[np.float64] | npt.NDArray[np.int_]
 
 _SMOOTHNESS_FS_METRICS: dict[str, Callable[..., _SmoothnessValue]] = {
     "sparc": sparc,
@@ -2862,7 +2862,7 @@ def smoothness(
     fs: float,
     metric: str = "sparc",
     **kwargs: Any,
-) -> Union[float, npt.NDArray[np.float64], npt.NDArray[np.int_]]:
+) -> float | npt.NDArray[np.float64] | npt.NDArray[np.int_]:
     """Dispatch to a named smoothness metric on a speed profile.
 
     Parameters

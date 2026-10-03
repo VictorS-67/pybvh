@@ -718,7 +718,7 @@ def turntable_azimuths(
     so a looped playback does not hold the identical view for two
     frames.
     """
-    return base_azim + np.arange(num_frames) * (360.0 / period)
+    return base_azim + np.arange(num_frames, dtype=np.float64) * (360.0 / period)
 
 
 # The follow camera's smoothing window: a Gaussian of this standard

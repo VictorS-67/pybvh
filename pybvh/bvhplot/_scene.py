@@ -830,7 +830,7 @@ class Scene:
         if effective == 0.0:
             return self
 
-        return self.offset([leftward * k * effective for k in range(len(self.views))])
+        return self.offset([leftward * k * effective for k in range(len(self.views))])  # type: ignore[misc]  # leftward: NumPy 2.2's stub types a float cross product as floating, not float64
 
 
 def _label_with_factor(label: str | None, factor: float) -> str:

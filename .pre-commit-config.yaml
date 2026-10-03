@@ -8,7 +8,7 @@ default_stages: [pre-commit]
 repos:
   # pre-commit installs these hooks in an environment of their own, pinned by
   # `rev`, and cannot read pyproject.toml: the rev is the version of the lint
-  # group's ruff pin there, and the two are bumped together.
+  # group's ruff pin there, which tests/test_release_metadata.py checks.
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.9
     hooks:

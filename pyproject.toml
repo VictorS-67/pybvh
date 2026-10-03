@@ -54,7 +54,7 @@ Issues = "https://github.com/VictorS-67/pybvh/issues"
 # or a mypy or stub release reading the code differently, cannot turn the lint
 # or typecheck job red on its own. Bump them deliberately. The ruff hooks in
 # .pre-commit-config.yaml run in their own environment, pinned by their `rev`,
-# which must name the ruff pin here: bump the two together.
+# which tests/test_release_metadata.py holds equal to the ruff pin here.
 lint = ["ruff==0.16.9"]
 typecheck = [
     "mypy==1.19.1",

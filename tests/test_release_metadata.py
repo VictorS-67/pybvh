@@ -13,11 +13,18 @@ moves in a release commit, so they hold between releases too.
 The Python versions are written twice, as ``pyproject.toml`` classifiers and
 as the CI test matrix. PyPI shows the classifiers as the versions pybvh
 supports, so the two lists must be the same versions in the same order.
+
+The ruff version is written twice, as the ``lint`` dependency group's pin in
+``pyproject.toml``, which CI and a contributor's environment install, and as
+the ``rev`` of the ruff hooks in ``.pre-commit-config.yaml``, which pre-commit
+installs in an environment of its own. Two versions can format the same code
+differently, so the commit hook and the lint job would disagree.
 """
 
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -99,3 +106,36 @@ def test_classifiers_list_the_python_versions_ci_tests():
     tested = re.findall(r"""["'](3\.\d+)["']""", matrix)
     assert classified, "no Python version classifier found in pyproject.toml"
     assert classified == tested
+
+
+def test_pre_commit_runs_the_ruff_the_lint_group_pins():
+    # Both parsers come with the dev group: PyYAML with pre-commit, and tomli,
+    # the stdlib tomllib before Python 3.11, with pytest.
+    import yaml
+
+    if sys.version_info >= (3, 11):
+        import tomllib
+    else:
+        import tomli as tomllib
+
+    both = "pyproject.toml's lint group and .pre-commit-config.yaml's ruff-pre-commit rev"
+    lint_group = tomllib.loads(_read("pyproject.toml")).get("dependency-groups", {}).get("lint", [])
+    pins = [
+        requirement.split("==", 1)[1].strip()
+        for requirement in lint_group
+        if isinstance(requirement, str) and re.match(r"ruff\s*==", requirement)
+    ]
+    hooks = yaml.safe_load(_read(".pre-commit-config.yaml"))
+    revs = [
+        str(repo.get("rev", ""))
+        for repo in hooks.get("repos", [])
+        if str(repo.get("repo", "")).rstrip("/").endswith("astral-sh/ruff-pre-commit")
+    ]
+    assert len(pins) == 1 and len(revs) == 1, (
+        f"expected one ruff pin in each of {both}; found pins {pins} and revs {revs}"
+    )
+    # ruff-pre-commit tags each ruff release with a leading v.
+    assert revs[0].removeprefix("v") == pins[0], (
+        f"pyproject.toml pins ruff=={pins[0]} in its lint group, but "
+        f".pre-commit-config.yaml runs the ruff hooks at rev {revs[0]}: bump the two together"
+    )

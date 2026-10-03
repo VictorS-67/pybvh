@@ -24,6 +24,7 @@ Every change goes through a pull request into `main`. `main` is the next release
 - **One branch per change.** A branch holds one logical change: one feature, one fix, one refactor. A one-line fix riding along, as above, is the only exception. Name it by intent, for example `fix/world-up-warn-flag`, `deepen/scene`, `docs/tutorial-4`.
 - **Branch from `main`, merge into `main`.** There is no long-lived development or release branch. Releases are marked by tags.
 - **Sequence dependent work, do not stack it.** If change B builds on change A, merge A first and branch B from the new `main`. Stacked branches are a fallback for the rare case where the two must overlap. A stacked PR gets every check against its parent branch. When the parent merges, GitHub retargets it to `main`, and since `main` requires a branch to be up to date before merging, the rebase that follows runs the checks again against `main`.
+- **Land a batch of related PRs through one integration PR.** When several related changes are ready at the same time, each keeps its own branch and PR and is reviewed there, and they reach `main` together, so that CI runs once over the combined tree and no reviewed branch is rebased after each of its siblings merges; two dependent changes are still sequenced as above. An integration branch from `main` merges each branch unchanged with `git merge --no-ff`, so its reviewed commits keep their hashes. A conflict between two branches is resolved once, in the merge commit that meets it, and that commit's message says how it was resolved. One integration PR carries every `Closes #N` of the batch and a Migration section if any of the merged PRs is breaking; its body and its review cover what is new in it: the conflict resolutions and any commit of its own. It is merged with a merge commit, and GitHub then marks each individual PR merged. If `main` moves before the integration PR merges, the integration branch is rebuilt rather than rebased, since a plain rebase would flatten its merges: keep the old tip, start again from the current `main`, merge the same reviewed branch heads with the same resolutions, replay the branch's own commits in order, check that `git diff <old-tip> <new-tip>` shows only what `main` brought in, and push with `--force-with-lease`.
 - **Open the PR as a draft on the first push.** CI then runs on every push, and the PR description is where the notes live while the work is in progress. Mark it ready for review when the checklist below is done, which no branch is on its first push: its review and its checks come after.
 - **Link the issue.** The PR body says `Closes #N` for the issue it resolves, so merging closes the issue.
 
@@ -32,7 +33,7 @@ Before marking a PR ready:
 - tests pass locally: `conda run -n pybvh pytest tests/ -v`
 - `CHANGELOG.md` has its entry (see below), unless the change is invisible to users
 - docstrings name any convention the change chose (see the "Code & API quality" rules in `CLAUDE.md`)
-- the branch is rebased on the current `main`
+- the branch is rebased on the current `main`, or, for an integration branch, built on it
 - the branch has passed the review described in "The review before ready", and its fixes are in
 - the required checks have run green against the current base
 
@@ -56,7 +57,7 @@ The reviewer reads the diff with the parent issue, `CODING_STANDARDS.md` and the
 
 - the change does what the issue asks, and the tests show it;
 - the diff follows `CODING_STANDARDS.md`;
-- the two labels match the diff, derived from the diff rather than taken from the body;
+- the two labels match the diff, derived from the diff rather than taken from the body; for an integration PR, the first is the strongest kind among its PRs (`breaking`, then `behaviour-change`, `internal`, `documentation`) and the second is `extensive` when any of them is;
 - every Evidence claim that behaviour is preserved names the command or test that shows it;
 - "Needs your eyes on" holds decisions to weigh, not merge instructions.
 
@@ -93,14 +94,14 @@ git rebase origin/main
 git push --force-with-lease
 ```
 
-Rebasing keeps the branch a straight line of commits; merging `main` in leaves catch-up merge commits that carry no content. Rewriting is safe because only the author rewrites a branch: a reviewer adds commits on top and never rebases it. Take a reviewer's commits before you rewrite anything, an amend or an autosquash included, as the second line does: the lease checks the remote-tracking ref that `git fetch` has just updated, so it would not stop the push from dropping commits you never took. If you have already rewritten the branch locally, do not rebase onto its old remote tip, which would bring the rewritten commits back; cherry-pick the reviewer's commits onto your branch instead. Use `--force-with-lease`, never bare `--force`: the lease refuses to overwrite a remote branch that moved since you last fetched. Never rebase commits that are already on `main`.
+Rebasing keeps the branch a straight line of commits; merging `main` in leaves catch-up merge commits that carry no content. Rewriting is safe because only the author rewrites a branch: a reviewer adds commits on top and never rebases it. Take a reviewer's commits before you rewrite anything, an amend or an autosquash included, as the second line does: the lease checks the remote-tracking ref that `git fetch` has just updated, so it would not stop the push from dropping commits you never took. If you have already rewritten the branch locally, do not rebase onto its old remote tip, which would bring the rewritten commits back; cherry-pick the reviewer's commits onto your branch instead. Use `--force-with-lease`, never bare `--force`: the lease refuses to overwrite a remote branch that moved since you last fetched. Never rebase commits that are already on `main`. A branch that an integration branch has merged is the exception to keeping current: it stays as it was reviewed, and the integration branch is rebuilt instead (see "Branches and pull requests").
 
 ## Merging
 
 Choose the merge method per PR:
 
 - **Squash** when the PR is small or its intermediate commits are not worth keeping. The squash commit's message is written like any other commit.
-- **Merge commit** when the branch carries several atomic commits worth preserving for `git bisect` and `git blame`: the PR stays one unit on `main` (`git log --first-parent` shows one line per PR, one `git revert -m 1` undoes it) and the reviewed commits keep their hashes. Rebase-and-merge only suits a PR of one to a few commits.
+- **Merge commit** when the branch carries several atomic commits worth preserving for `git bisect` and `git blame`: the PR stays one unit on `main` (`git log --first-parent` shows one line per PR, one `git revert -m 1` undoes it) and the reviewed commits keep their hashes. An integration PR is always merged this way, so that every branch it carries reaches `main` with the hashes it was reviewed at. Rebase-and-merge only suits a PR of one to a few commits.
 
 Delete the branch after merging. The repository is set to do this automatically.
 

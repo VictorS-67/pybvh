@@ -30,8 +30,8 @@ dependencies = [
 pandas = ["pandas>=1.5"]
 opencv = ["opencv-python>=4.5"]
 interactive = ["k3d>=2.14"]
-viewer = ["vedo>=2024.5"]
-all-viz = ["opencv-python>=4.5", "k3d>=2.14", "vedo>=2024.5"]
+viewer = ["vedo>=2025.5.3"]
+all-viz = ["opencv-python>=4.5", "k3d>=2.14", "vedo>=2025.5.3"]
 dev = [
     "pytest>=8", "pandas>=1.5", "jupytext>=1.16", "nbmake>=1.5",
     "pre-commit>=3.2",

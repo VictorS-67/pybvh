@@ -199,11 +199,11 @@ class TestPlayerShell:
 
     def test_clean_screenshot_hides_and_restores_ui(self, player, tmp_path):
         out = tmp_path / "shot.png"
-        visible_before = [getattr(a, "actor", a).GetVisibility() for a in player._ui_actors]
+        visible_before = [a.actor.GetVisibility() for a in player._ui_actors]
         fname = player.screenshot(str(out), scale=1)
         assert fname == str(out)
         assert out.exists() and out.stat().st_size > 0
-        visible_after = [getattr(a, "actor", a).GetVisibility() for a in player._ui_actors]
+        visible_after = [a.actor.GetVisibility() for a in player._ui_actors]
         assert visible_before == visible_after
 
     def test_fps_switch_resamples(self, player):
@@ -548,7 +548,9 @@ def _text_box(text2d, renderer, dpi):
     vtk.vtkTextRenderer.GetInstance().GetBoundingBox(
         text2d.mapper.GetTextProperty(), text2d.mapper.GetInput(), corners, dpi
     )
-    x, y = text2d.GetPositionCoordinate().GetComputedDisplayValue(renderer)
+    # .actor is the VTK actor on every vedo the extra allows: the Text2D
+    # itself until vedo 2026, which made Text2D wrap one instead.
+    x, y = text2d.actor.GetPositionCoordinate().GetComputedDisplayValue(renderer)
     return (x + corners[0], x + corners[1], y + corners[2], y + corners[3])
 
 

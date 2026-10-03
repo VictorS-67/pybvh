@@ -1,7 +1,7 @@
 """
 Tests for pybvh.rotations module and Bvh rotation convenience methods.
 
-Run with: pytest tests/test_rotations.py -v
+Run with: python -m pytest tests/test_rotations.py -v
 
 Ground-truth values for the ``TestScipyReference*`` classes were pre-computed
 with ``scipy.spatial.transform.Rotation`` (scipy 1.14) and hardcoded here so

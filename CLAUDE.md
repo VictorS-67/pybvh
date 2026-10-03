@@ -68,7 +68,7 @@ pybvh never depends on or knows about either. Dependencies flow one way: `pybvh-
 
 ## Development guidelines
 
-- Run tests with: `conda run -n pybvh pytest tests/ -v`
+- Run tests with `conda run -n pybvh python -m pytest tests/ -v`: before each commit the tests it touches, and the full suite once on the finished branch.
 - pybvh-ml tests use a separate env: `conda run -n pybvh_ml pytest tests/ -v`
 - README is the PyPI page — must look professional, not like a personal project
 - Never add PyTorch/TensorFlow as dependencies — numpy-only output

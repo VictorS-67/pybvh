@@ -1,0 +1,84 @@
+name: Backend tests
+
+# The full suite with every visualization backend installed: OpenCV, k3d and
+# vedo. The Tests workflow installs none of them, so their tests are skipped
+# there, and installing them on every pull request would add minutes to each.
+# They run on the pull request that releases a version, the last point before
+# a backend's breakage would ship.
+#
+# `test-backends` is a required check. GitHub leaves a required check pending,
+# blocking the merge, when a path or branch filter skips its workflow, so
+# there is none here. Nor is there a job-level `if:`: whether the pull request
+# changes the version is known only from the repository, after the checkout.
+# The job therefore runs on every pull request; on one that leaves the version
+# alone, the gate step skips every step after it, and the job passes within
+# seconds without installing anything.
+#
+# No `push` trigger: `main` only moves through pull requests, which must be up
+# to date before merging, so the release pull request's run has already
+# tested the merge that lands.
+on:
+  # Any base branch: a stacked pull request is checked against its parent.
+  pull_request:
+  # A full run on demand on any branch, for instance after a backend releases
+  # a new version, before a pybvh release is prepared.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-backends:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # On a pull request the checkout is GitHub's merge of the head into the
+      # base, whose first parent is the base: two commits are all the gate
+      # compares.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      # Before any setup, so that an ordinary pull request spends its seconds
+      # on nothing else: the runner's own python3 is 3.12, which has tomllib.
+      # On workflow_dispatch the gate does not run, its output is empty, and
+      # the conditions below let the whole job run.
+      - name: Does the pull request change the version?
+        id: gate
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/version_changed.py HEAD^1 HEAD
+
+      # The newest Python pybvh supports, the last entry of the Tests matrix;
+      # tests/test_release_metadata.py holds the two equal.
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.changed != 'false'
+        with:
+          python-version: "3.14"
+
+      # vedo renders off-screen through VTK, which needs an X display (xvfb)
+      # and OpenGL, and OpenCV's wheel links against the X and GLib
+      # libraries; ffmpeg exercises the H.264 path of render(). The same
+      # packages as the Tutorials workflow, which runs the backends too.
+      - name: Install system packages
+        if: steps.gate.outputs.changed != 'false'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg xvfb libgl1 libglib2.0-0 libxrender1 libsm6
+
+      - name: Install pybvh with every backend and the dev group
+        if: steps.gate.outputs.changed != 'false'
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[all-viz]" --group dev
+
+      - name: Run tests
+        if: steps.gate.outputs.changed != 'false'
+        run: xvfb-run -a pytest tests/ -v -rs --junitxml="$RUNNER_TEMP/backend-tests.xml"
+
+      # A test whose backend is missing is skipped, and pytest passes: this
+      # job exists to run those tests, so such a skip fails it.
+      - name: Check no test was skipped for a missing module
+        if: steps.gate.outputs.changed != 'false'
+        run: python scripts/check_no_import_skips.py "$RUNNER_TEMP/backend-tests.xml"

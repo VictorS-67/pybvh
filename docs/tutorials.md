@@ -31,10 +31,10 @@ Both files are committed. Every cell — code, markdown, and cell-level tags lik
 
 ### How to edit
 
-Install the dev extras (includes `jupytext` and `nbmake`):
+Install the `dev` dependency group (includes `jupytext` and `nbmake`; it needs pip 25.1 or later):
 
 ```bash
-pip install -e ".[dev,all-viz,pandas]"
+pip install -e ".[all-viz,pandas]" --group dev
 ```
 
 Then edit either side:

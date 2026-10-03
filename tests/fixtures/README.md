@@ -13,7 +13,7 @@ And it holds `public_namespace.txt`, the names a user can import from the packag
 The `.npz` fixtures here are **committed**, and the tests (`tests/test_*_golden.py`) only `np.load` them. So anyone who clones the repo can run the full suite with just the normal dev deps — **scipy / pytransform3d are *not* required to run tests**:
 
 ```bash
-pip install -e ".[dev]"      # or: conda run -n pybvh ...
+pip install -e . --group dev  # or: conda run -n pybvh ...
 pytest tests/ -v
 ```
 

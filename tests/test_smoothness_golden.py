@@ -2,10 +2,10 @@
 
 The reference (siva82kb/SPARC, ISC license) was run offline at a pinned commit
 by tests/fixtures/generate_fixtures.py; only its NUMBERS are committed (its code
-is not). These target `analysis.sparc` / `…log_dimensionless_jerk` /
-`…dimensionless_jerk`, which don't exist yet — they SKIP until implemented.
+is not). These validate `analysis.sparc`, `analysis.log_dimensionless_jerk` and
+`analysis.dimensionless_jerk` against it.
 
-When implemented, our defaults must match the reference's pinned convention
+Our defaults must match the reference's pinned convention
 (SPARC: padlevel=4, fc=10 Hz, amp_th=0.05 — see the fixture `meta`).
 """
 
@@ -14,6 +14,8 @@ import os
 
 import numpy as np
 import pytest
+
+import pybvh.analysis as analysis
 
 FX = os.path.join(os.path.dirname(__file__), "fixtures")
 
@@ -27,22 +29,7 @@ def _load(name):
     return np.load(p)
 
 
-def _fn(name):
-    """The smoothness kernel `name`, wherever it ends up living, or None."""
-    for mod in ("analysis", "kinematics", "features"):
-        try:
-            m = __import__(f"pybvh.{mod}", fromlist=[name])
-        except Exception:
-            continue
-        if hasattr(m, name):
-            return getattr(m, name)
-    return None
-
-
-def _check(name, ref_key):
-    fn = _fn(name)
-    if fn is None:
-        pytest.skip(f"analysis.{name} not implemented yet")
+def _check(fn, ref_key):
     d = _load("smoothness")
     fs = float(d["fs"])
     out = np.array([fn(s, fs) for s in d["signals"]])
@@ -50,15 +37,15 @@ def _check(name, ref_key):
 
 
 def test_sparc_vs_reference():
-    _check("sparc", "sparc")
+    _check(analysis.sparc, "sparc")
 
 
 def test_log_dimensionless_jerk_vs_reference():
-    _check("log_dimensionless_jerk", "ldlj")
+    _check(analysis.log_dimensionless_jerk, "ldlj")
 
 
 def test_dimensionless_jerk_vs_reference():
-    _check("dimensionless_jerk", "dlj")
+    _check(analysis.dimensionless_jerk, "dlj")
 
 
 # The reference was only ever consulted at pybvh's defaults, so `padlevel`
@@ -74,9 +61,7 @@ def _sparc_param_sets():
 
 @pytest.mark.parametrize("index", range(4))
 def test_sparc_non_default_parameters_vs_reference(index):
-    fn = _fn("sparc")
-    if fn is None:
-        pytest.skip("analysis.sparc not implemented yet")
+    fn = analysis.sparc
     d = _load("smoothness")
     key = f"sparc{index}"
     if key not in d:

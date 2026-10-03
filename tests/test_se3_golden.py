@@ -1,7 +1,7 @@
 """Golden SE(3) / geodesic tests vs frozen pytransform3d / scipy references.
 
-These target `rotations.py` functions that DO NOT EXIST YET — they SKIP until
-implemented, then validate against the frozen oracle. The convention is locked:
+These validate `rotations.se3_exp`, `se3_log`, `screw_interpolate` and
+`rotation_geodesic_distance` against the frozen oracle. The convention is locked:
 se(3) twist = ``[omega(3), v(3)]`` rotation-first, V-left-Jacobian-coupled
 (matches pytransform3d and Vemulapalli 2014). See each fixture's `meta`.
 
@@ -28,12 +28,6 @@ def _load(name):
     return np.load(p)
 
 
-def _require(*names):
-    missing = [n for n in names if not hasattr(rot, n)]
-    if missing:
-        pytest.skip(f"rotations.{'/'.join(missing)} not implemented yet")
-
-
 # pytransform3d's V-coupling (the SE(3) left Jacobian) is computed from
 # ``1 - cos θ``, which underflows to 0 in float64 for θ ≲ 1e-4. With a large
 # translation (the fixture stresses ‖v‖ up to 100) the lost coupling term is
@@ -57,7 +51,6 @@ def _v_series(omega):
 
 # ---------- se3_exp: single-valued -> clean everywhere, edges included ----------
 def test_se3_exp_vs_pytransform3d():
-    _require("se3_exp")
     d = _load("se3_exp_log")
     mine = rot.se3_exp(d["twist"])
     exact = d["theta"] >= _PT_UNDERFLOW
@@ -70,7 +63,6 @@ def test_se3_exp_small_angle_vs_analytic_series():
     """Pin the V left-Jacobian coupling at θ→0 against the closed-form series —
     independent of pytransform3d, which underflows here. This is where SE(3)
     implementations tend to break, so it is verified tightly (1e-11)."""
-    _require("se3_exp")
     d = _load("se3_exp_log")
     twist = d["twist"]
     small = d["theta"] < _PT_UNDERFLOW
@@ -82,7 +74,6 @@ def test_se3_exp_small_angle_vs_analytic_series():
 
 # ---------- se3_log: compare to ref twist only where unambiguous ----------
 def test_se3_log_vs_pytransform3d_unambiguous():
-    _require("se3_log")
     d = _load("se3_exp_log")
     unambiguous = d["theta"] < (np.pi - 1e-3)
     exact = unambiguous & (d["theta"] >= _PT_UNDERFLOW)
@@ -93,14 +84,12 @@ def test_se3_log_vs_pytransform3d_unambiguous():
 
 # ---------- round-trip: branch-agnostic; MUST hold at every edge case ----------
 def test_se3_roundtrip_all():
-    _require("se3_exp", "se3_log")
     T = _load("se3_exp_log")["transform"]
     np.testing.assert_allclose(rot.se3_exp(rot.se3_log(T)), T, atol=1e-9)
 
 
 def test_se3_small_angle_V_jacobian():
     """theta -> 0 (incl. with large translation): V Taylor must stay stable."""
-    _require("se3_exp", "se3_log")
     d = _load("se3_exp_log")
     mask = d["theta"] < 1e-2
     assert mask.sum() >= 10  # ensure the regime is exercised
@@ -113,7 +102,6 @@ def test_se3_small_angle_V_jacobian():
 
 def test_se3_near_pi_log_branch():
     """theta -> pi: log is multivalued; round-trip must still reconstruct T."""
-    _require("se3_exp", "se3_log")
     d = _load("se3_exp_log")
     mask = d["theta"] > (np.pi - 1e-3)
     assert mask.sum() >= 6
@@ -123,7 +111,6 @@ def test_se3_near_pi_log_branch():
 
 def test_se3_pure_translation():
     """theta == 0: V == I, so v is the raw translation; log recovers [0, v]."""
-    _require("se3_log")
     d = _load("se3_exp_log")
     mask = d["theta"] == 0.0
     assert mask.sum() >= 3
@@ -132,14 +119,12 @@ def test_se3_pure_translation():
 
 # ---------- screw interpolation ----------
 def test_screw_interpolate_vs_pytransform3d():
-    _require("screw_interpolate")
     d = _load("se3_screw_interp")
     out = np.array([rot.screw_interpolate(a, b, t) for a, b, t in zip(d["T0"], d["T1"], d["t"])])
     np.testing.assert_allclose(out, d["interp"], atol=1e-9)
 
 
 def test_screw_interpolate_endpoints():
-    _require("screw_interpolate")
     d = _load("se3_screw_interp")
     for a, b, t in zip(d["T0"], d["T1"], d["t"]):
         if t == 0.0:
@@ -150,7 +135,6 @@ def test_screw_interpolate_endpoints():
 
 # ---------- rotation geodesic distance ----------
 def test_rotation_geodesic_distance_vs_scipy():
-    _require("rotation_geodesic_distance")
     d = _load("rotation_geodesic")
     out = rot.rotation_geodesic_distance(d["rotmat_a"], d["rotmat_b"])
     np.testing.assert_allclose(out, d["angle"], atol=1e-9)

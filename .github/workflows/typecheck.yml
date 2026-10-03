@@ -27,12 +27,16 @@ jobs:
         with:
           python-version: "3.10"
 
-      # The same exact versions as the dev extra in pyproject.toml: bump them
-      # together. The opencv extra ships its own stubs, so the OpenCV
-      # backend's calls are checked against them; the other optional
-      # packages are listed in the mypy overrides. So is Matplotlib's 3D
-      # toolkit, which ships no stubs: Axes3D is Any to mypy, so calls on
-      # the backend's 3D axes are left to the plotting tests.
-      - run: python -m pip install ".[opencv]" mypy==1.19.1 pandas-stubs==2.3.3.260113
+      # The typecheck group of pyproject.toml holds the mypy and stub pins.
+      # The opencv extra ships its own stubs, so the OpenCV backend's calls
+      # are checked against them; the other optional packages are listed in
+      # the mypy overrides. So is Matplotlib's 3D toolkit, which ships no
+      # stubs: Axes3D is Any to mypy, so calls on the backend's 3D axes are
+      # left to the plotting tests. pip reads dependency groups from 25.1 on,
+      # and the runner's pip is whatever its Python was built with, so it is
+      # upgraded first.
+      - run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[opencv]" --group typecheck
 
       - run: mypy pybvh/

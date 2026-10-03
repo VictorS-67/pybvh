@@ -32,19 +32,6 @@ opencv = ["opencv-python>=4.5"]
 interactive = ["k3d>=2.14"]
 viewer = ["vedo>=2025.5.3"]
 all-viz = ["opencv-python>=4.5", "k3d>=2.14", "vedo>=2025.5.3"]
-dev = [
-    "pytest>=8", "pandas>=1.5", "jupytext>=1.16", "nbmake>=1.5",
-    "pre-commit>=3.2",
-    # Exact pins: CI installs these same versions, so a ruff release adding a
-    # rule, or a mypy or stub release reading the code differently, cannot turn
-    # the lint or typecheck job red on its own. Bump them deliberately.
-    "ruff==0.16.9",
-    "mypy==1.19.1",
-    # pybvh never imports pandas at run time; dataframe.py names its types for
-    # the checker only, and pandas ships none of its own. The last release that
-    # installs on the oldest Python pybvh supports, where the typecheck job runs.
-    "pandas-stubs==2.3.3.260113",
-]
 # mkdocs 2 drops the plugin system mkdocstrings and Material are built on, and
 # the docs-build check installs this extra fresh on every pull request.
 docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.5", "mkdocstrings[python]>=0.26", "pillow>=9.0"]
@@ -57,6 +44,31 @@ fixtures = ["scipy>=1.11", "pytransform3d>=3.0"]
 Homepage = "https://github.com/VictorS-67/pybvh"
 Repository = "https://github.com/VictorS-67/pybvh"
 Issues = "https://github.com/VictorS-67/pybvh/issues"
+
+# The development tools, for working on pybvh rather than using it: they are
+# not published as an extra. Install them with pip 25.1 or later, which reads
+# these groups: `pip install -e . --group dev` (CONTRIBUTING.md), and the CI
+# jobs install the group they need, so no workflow repeats a version.
+[dependency-groups]
+# Exact pins: CI installs these same versions, so a ruff release adding a rule,
+# or a mypy or stub release reading the code differently, cannot turn the lint
+# or typecheck job red on its own. Bump them deliberately. The ruff hooks in
+# .pre-commit-config.yaml run in their own environment, pinned by their `rev`,
+# which tests/test_release_metadata.py holds equal to the ruff pin here.
+lint = ["ruff==0.16.9"]
+typecheck = [
+    "mypy==1.19.1",
+    # pybvh never imports pandas at run time; dataframe.py names its types for
+    # the checker only, and pandas ships none of its own. The last release that
+    # installs on the oldest Python pybvh supports, where the typecheck job runs.
+    "pandas-stubs==2.3.3.260113",
+]
+dev = [
+    { include-group = "lint" },
+    { include-group = "typecheck" },
+    "pytest>=8", "pandas>=1.5", "jupytext>=1.16", "nbmake>=1.5",
+    "pre-commit>=3.2",
+]
 
 [tool.setuptools]
 include-package-data = false

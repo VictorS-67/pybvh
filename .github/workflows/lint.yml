@@ -21,10 +21,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      # The same exact version as the dev extra in pyproject.toml: bump the
-      # two together. ruff alone is enough to lint; the rules come from
-      # [tool.ruff] in pyproject.toml.
-      - run: python -m pip install ruff==0.16.9
+      # The lint group of pyproject.toml holds ruff's pin, and [tool.ruff]
+      # its rules; ruff alone is enough to lint. pip reads dependency groups
+      # from 25.1 on, and the runner's pip is whatever its Python was built
+      # with, so it is upgraded first.
+      - run: |
+          python -m pip install --upgrade pip
+          python -m pip install --group lint
 
       # Reviewers read the diff, not the job log: the github format puts each
       # finding there as an annotation on the line it concerns.

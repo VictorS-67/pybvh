@@ -9,7 +9,7 @@ GitHub text is public and permanent, so it holds the decision and not the discus
 
 ## Parent issues
 
-Issues #6 and #9 are the house style (`gh issue view 6`); copy their shape in place of the publishing skill's body template. The title reads `area: what changes`. Each issue takes one category label (`bug`, `enhancement`, `refactor`, `documentation`) and the version milestone. Show the maintainer the full text before creating it.
+Issues #6 and #9 are the house style (`gh issue view 6 --json title,body,labels,milestone`); copy their shape in place of the publishing skill's body template. The title reads `area: what changes`. Each issue takes one category label (`bug`, `enhancement`, `refactor`, `documentation`) and the version milestone. Show the maintainer the full text before creating it.
 
 Triage state labels are for **outside reports**: issues whose author is not `VictorS-67`. `/triage` lists only those, unless the maintainer names an issue. Where a skill says to put a state label on an issue it publishes (`/to-spec` and `ready-for-agent`), leave it off.
 
@@ -45,7 +45,7 @@ A **private parent** is `.scratch/<slug>/spec.md`, written in the house style; i
 
 ## When a skill says "fetch the relevant ticket"
 
-- **`#N`**: `gh issue view <N> --comments`, then its tickets under `.scratch/<N>-<slug>/issues/`.
+- **`#N`**: `gh issue view <N> --json title,body,comments`, then its tickets under `.scratch/<N>-<slug>/issues/`.
 - **A ticket path**: read the file, then the parent its `**Parent:**` line names, if any.
 
 ## Pull requests as a triage surface

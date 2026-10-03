@@ -12,7 +12,7 @@ submodule, for example ``rotations``, ``transforms``, ``analysis``,
 
 from __future__ import annotations
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 
 # "X as X" declares a re-export (the PEP 484 convention), so linters do not
 # report these imports as unused.

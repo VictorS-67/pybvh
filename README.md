@@ -144,7 +144,7 @@ If pybvh is useful in your research, please cite it. On GitHub, the *Cite this r
   author  = {Schneider, Victor},
   title   = {pybvh},
   url     = {https://github.com/VictorS-67/pybvh},
-  version = {0.9.0},
+  version = {0.9.1},
   year    = {2026}
 }
 ```

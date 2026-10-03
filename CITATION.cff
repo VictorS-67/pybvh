@@ -10,8 +10,8 @@ authors:
 repository-code: "https://github.com/VictorS-67/pybvh"
 url: "https://victors-67.github.io/pybvh/"
 license: MIT
-version: "0.9.0"
-date-released: "2026-09-28"
+version: "0.9.1"
+date-released: "2026-10-03"
 keywords:
   - motion capture
   - BVH

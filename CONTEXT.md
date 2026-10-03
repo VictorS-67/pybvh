@@ -1,502 +1,74 @@
 # CONTEXT.md — pybvh
 
-> **Purpose of this document**: Give any new AI agent (or human contributor) a complete, precise understanding of the pybvh codebase—its goals, architecture, data flow, every module, class, method, and design decision—so they can modify or extend it without guessing.
+The architecture: which module owns what, and why each boundary sits where it does. What a module computes is in its docstrings and the API reference (`docs/api/`); the terms are in `GLOSSARY.md`; the rules a change is held to are in `CODING_STANDARDS.md`; the project's scope, principles and ecosystem are in `CLAUDE.md`; a decision whose argument must be kept has its record in `docs/adr/`.
 
----
+## 1. The layers
 
-## 1. Project Identity
-
-| Field | Value |
-|---|---|
-| **Name** | pybvh |
-| **Language** | Python 3 (>= 3.9) |
-| **Dependencies** | `numpy` (required), `matplotlib` (required), `pandas` (optional), `opencv-python` (optional, fast render), `k3d` (optional, Jupyter), `vedo` (optional, desktop) |
-| **Primary use-case** | Reading, writing, and manipulating BVH (Biovision Hierarchy) motion capture files — serving ML pipelines, biomechanics research, game dev, and any workflow that consumes skeleton animation data |
-| **Design principles** | **Fast** (NumPy-vectorised, pre-allocated arrays), **Lightweight** (minimal code surface, no ML framework deps), **Self-contained** (no scipy, no PyTorch, no TensorFlow) |
-| **Version** | 0.9.0 |
-| **Package** | Published on PyPI as `pybvh`. Install via `pip install pybvh`. Optional extras: `pybvh[opencv]` (fast render), `pybvh[interactive]` (k3d for Jupyter), `pybvh[viewer]` (vedo desktop), `pybvh[all-viz]` (all of the above), `pybvh[pandas]` (pandas integration) |
-| **CI/CD** | GitHub Actions. On every pull request, whatever its base: test (Python 3.9–3.14), lint (`ruff check` and `ruff format --check`), typecheck (`mypy pybvh/` on Python 3.9), docs-build (strict MkDocs build), commit-messages (`scripts/check_commit_msg.py`), pr-hygiene (one kind-of-change and one blast-radius label, a `breaking` or `behaviour-change` PR touches `CHANGELOG.md`, a `breaking` PR fills in its Migration section; `scripts/check_pr_hygiene.py`), and the tutorial notebooks when their inputs change. On push to main: test, lint, typecheck, the tutorial notebooks when their inputs change, and the docs deploy to GitHub Pages. On release: publish to PyPI |
-| **Type safety** | Full type annotations on all source files, `@overload` on inplace methods and on `return_info`. `mypy pybvh/` passes and the typecheck job keeps it so (see §7) |
-| **Tests** | 2538 unit tests via pytest (plus ~23 000 parametrized `test_transforms_battle` cases across 3 real-world datasets, skipped unless the private fixtures are present) |
-| **Documentation** | MkDocs + mkdocstrings + Material theme, auto-deployed to GitHub Pages |
-
----
-
-## 2. What is a BVH File?
-
-A BVH file is a plain-text motion capture format with two sections:
-
-### 2.1 HIERARCHY section
-Defines a skeleton as a tree of joints. Each joint has:
-- **OFFSET** — 3 floats (x, y, z) describing the bone vector from parent to this joint in the rest pose.
-- **CHANNELS** — either 6 (root: 3 position + 3 rotation) or 3 (other joints: 3 rotation). Channel names encode both axis and type, e.g. `Zrotation Yrotation Xrotation`.
-- **End Site** — leaf nodes with only an OFFSET (no channels). They represent the tip of a terminal bone.
-
-### 2.2 MOTION section
-- `Frames: N` — number of frames.
-- `Frame Time: T` — seconds per frame (e.g. `0.033333` for 30 fps).
-- N lines of floats — each line is one frame. Column order matches the depth-first traversal order of channels declared in the HIERARCHY.
-
-**Key insight**: The HIERARCHY gives you the skeleton topology (offsets + rotation orders). The MOTION gives you per-frame Euler angles (and root translation). Combining them via forward kinematics yields 3D joint positions.
-
----
-
-## 3. High-Level Architecture & Data Flow
+A `.bvh` file declares a skeleton and, per frame, the root's position and every joint's Euler angles (`docs/guide/core-concepts.md`). pybvh reads it into a `Bvh`, poses it by forward kinematics, and derives everything else from the angles and the positions. The modules stack in that order:
 
 ```
-                         ┌──────────────────────┐
-   .bvh file ──────────► │  read_bvh_file()     │ ──────► Bvh object
-                         └──────────────────────┘            │
-                                                              │
-   directory of ──────► read_bvh_directory() ──► list[Bvh]   │
-   .bvh files                    │                            │
-                                 ▼                            │
-                        batch_to_numpy() ──► NumPy arrays     │
-                                                              │
-                    ┌─────────────────────────────────────────┤
-                    │                                         │
-                    ▼                                         ▼
-                bvh.to_df_dict()                    bvh.node_positions()
-                    │                                         │
-                    ▼                                         ▼
-            pd.DataFrame(...)                      NumPy array (3D positions)
-                    │                                         │
-                    ▼                                         ▼
-              df_to_bvh() ──► Bvh object       bvh.plot_frame() / bvh.render() /
-                    │                          bvh.play() / bvhplot.frame([...])
-                    ▼
-              bvh.write() ──► .bvh file
+bvhplot                          pictures, through a Scene (section 3)
+batch                            many clips
+features    dataframe            a clip as one array · a DataFrame as a clip
+analysis    io    transforms     descriptors · the file · a clip in, a clip out
+bvh                              the clip: skeleton and motion
+spatial_coord                    forward kinematics
+node_tree   tools   geometry     the tree · axes and orientation · position kernels
+bvhnode   rotations   signal   _warnings
 ```
 
-**Central object**: `Bvh` — everything flows through it.
-
----
-
-## 4. File-by-File Module Reference
-
-### 4.1 `pybvh/__init__.py`
-Public API surface. Exports:
-```python
-__version__ = "0.9.0"
-
-from .bvh import Bvh
-from .io import read_bvh_file, write_bvh_file
-from .dataframe import df_to_bvh
-from .node_tree import nodes_from_table, nodes_to_table
-from .spatial_coord import FkTopology, frames_to_node_positions
-from .batch import (read_bvh_directory, batch_to_numpy, harmonize,
-                    HarmonizeReport)
-from .analysis import relative_scale_factor
-
-from . import io
-from . import batch
-from . import bvhplot
-from . import rotations
-from . import transforms
-from . import geometry
-from . import analysis
-from . import signal
-from . import features
-```
-
-**Module renamed `plot` → `bvhplot`** in v0.5.0 to avoid confusion with matplotlib's `plot()`.
-
-### 4.2 `pybvh/rotations.py` — Rotation & Rigid-Transform Math
-
-Pure NumPy, batch-vectorised rotation conversions. No scipy dependency. Supports Euler angles `(*, 3)`, rotation matrices `(*, 3, 3)`, 6D rotation (Zhou et al.) `(*, 6)`, quaternions `(*, 4)`, and axis-angle `(*, 3)`. Core functions convert between any pair via rotmat as the hub representation, plus `quat_slerp` for interpolation and `quat_multiply` (Hamilton product) for composition. Convenience wrappers provide direct paths (e.g. `euler_to_quat`). This module owns *all* Euler→rotmat math in pybvh: the forward-kinematics core (`spatial_coord.py`) and the transforms call `euler_to_rotmat` / `_elementary_rotmat` rather than keeping private copies.
-
-v0.8.0 added **SE(3) rigid-transform math** (the orientation companion to `geometry.py`'s positions): `se3_exp` / `se3_log` (4×4 transform ↔ se(3) twist `[ω, v]`, rotation-first, V-left-Jacobian-coupled, with small-angle Taylor series), `screw_interpolate` (SE(3) analogue of SLERP), `se3_inverse` (closed-form rigid inverse `[Rᵀ, −Rᵀd]`), `relative_transform` (the geometry→SE(3) bridge between two segments), and `rotation_geodesic_distance`. The SE(3) log and geodesic build on `rotmat_to_axisangle`, which routes through the quaternion and stays accurate at θ≈π where the arccos-trace form loses ~1e-4. Validated against pytransform3d / scipy via golden fixtures, with a θ→0 V-coupling check pinned to the analytic series (pytransform3d underflows there). Also `mean_rotation` — the chordal (Frobenius) mean of a batch of rotation matrices `(..., N, 3, 3) → (..., 3, 3)` via SVD projection with a determinant guard (always a proper rotation; wide-spread degeneracy documented, `rotation_geodesic_distance` recommended as the spread check). The first `np.linalg.svd` use in the package. See source docstrings for signatures.
-
-**Conventions**:
-- Euler: intrinsic rotations, pre-multiplication `R = R1 @ R2 @ R3`
-- Quaternion: `(w, x, y, z)` scalar-first, canonical `w >= 0`
-- Axis-angle: zero vector = identity rotation; norm = rotation angle in `[0, π]`
-
-### 4.3 `pybvh/bvhnode.py` — Node Class Hierarchy
-
-Four classes: a base and the three node kinds built from it.
-
-```
-BvhNode  (base: name, offset, parent)
-  ├── BvhEndSite  (end sites)
-  └── BvhJoint  (interior joints)
-        └── BvhRoot  (root joint — exactly one per skeleton)
-```
-
-`BvhNode` carries only the data every node kind shares (`name`, `offset`, `parent`); a tree is built from its subclasses, and a bare `BvhNode` cannot answer `is_end_site()`. `BvhEndSite` is a leaf bone with no channels. `BvhJoint` adds `rot_channels` (list of 3 chars, e.g. `['Z', 'Y', 'X']`) and `children`. `BvhRoot` adds `pos_channels`. Node kind is read through `is_end_site()` / `is_root()`, never from the name.
-
-**Freeze mechanism**: After a `Bvh` object is constructed, `_frozen = True` is set on all joints. Direct assignment to `rot_channels` raises `AttributeError` — users must use `Bvh.change_euler_order()`. Internal code uses `_set_rot_channels_internal()` to bypass the freeze.
-
-The skeleton is a **tree**. Traverse from `root` via `.children`, or walk up via `.parent`. The `Bvh.nodes` list is a **flat depth-first list** of all nodes (joints + end sites). What makes such a list a valid tree, and its flat form as a node table, is in `node_tree.py` (§4.16). See source docstrings for method signatures.
-
-### 4.4 `pybvh/bvh.py` — The `Bvh` Class (Central Container)
-
-The central container holding skeleton + motion data. Constructor: `Bvh(nodes, root_pos, joint_angles, frame_time)`. Checks the node tree with `_check_node_tree` (the depth-first walk of `children` from `nodes[0]` must visit exactly `nodes`, in order, by identity, with each node's `parent` the node it was reached from; O(N), no FK), so a tree wired on one side only raises at construction rather than surfacing later as a wrong file from `write_bvh_file`; validates `root.pos_channels == ['X', 'Y', 'Z']`, freezes channel attributes after construction, and eagerly computes `_world_up_cached` via `_infer_world_up()`.
-
-**Note**: the parameter was renamed from `frame_frequency` (misnamed — stored frame *time*, not frequency) to `frame_time` in v0.6.0. The old name was removed outright, no deprecation shim.
-
-#### Data layout
-- `root_pos`: Shape `(F, 3)`. Root translation per frame, column order always `(X, Y, Z)`.
-- `joint_angles`: Shape `(F, J, 3)`. Euler angles in **radians** per joint per frame. Joint order follows `nodes` (end sites excluded). BVH files store degrees; pybvh converts at the I/O boundary in `read_bvh_file` / `write_bvh_file`.
-- `frame_time`: Seconds per frame (e.g. `1/30`).
-- `world_up`: Gravity axis (e.g. `'+y'`), auto-detected from frame 0 with rest-pose fallback. Settable; propagates through `copy()` / frame slicing (`bvh[a:b]`). Assign `"auto"`/`None` to clear. The load-time `warn_on_world_up_disagreement` preference is instance state: every re-inference (after a motion edit, `world_up_inferred`) honours it, and so does every clip a `Bvh` operation derives (slices, `copy()`, transformed copies, `extract_joints`, `resample`, `a + b` from its left operand). A clip rebuilt from its data (`df_to_bvh` / `Bvh.from_df`) is new, like one read from a file, and starts from the default.
-- Read-only properties: `frame_count`, `joint_names`, `joint_count`, `euler_orders`, `edges`, `node_edges`, `fk_topology`, `node_index`, `joint_index`, `joint_tips` (joint name → end-site node index or `None`, identity-resolved so name collisions with generated end-site display names can't mislead it), `root`, `up_axis` / `forward_axis` / `rest_up_axis` (`world_up` / `rest_forward` / `rest_up` parsed into an `Axis(index, sign, vector)` named tuple via the top-level `pybvh.parse_axis`; each mirrors the nullability of the string it parses, so `rest_up_axis` is `Axis | None` and the other two are always defined).
-
-There is **no flat `.frames` property** — code should use `root_pos` and `joint_angles` directly.
-
-The class provides methods for I/O (`write`, `from_file`, `from_df`, `node_positions`, `rest_pose_positions`, `rest_pose_angles`, `to_df_dict`, `to_node_table`, `copy`), skeleton ops (`retarget`, `scale`, `change_euler_order`, `extract_joints`), topology checks (`matches_topology`, `matches_hierarchy`, `matches_channels`), rotation conversions (`to_rotmat`, `to_6d`, `to_quat`, `to_axisangle`, `from_rotmat`, `from_6d`, `from_quat`, `from_axisangle`), frame ops (`bvh[a:b:c]` slicing, `a + b` concatenation, `resample`), features (`joint_velocities`, `joint_accelerations`, `node_velocities`, `node_accelerations`, `angular_velocities`, `root_trajectory`, `foot_contacts`, `ground_contacts`, `to_feature_array`, `feature_array_layout`, `auto_detect_foot_joints`), transforms (`translate_root`, `random_translate_root`, `add_rotation_noise`, `add_position_noise`, `perturb_speed`, `random_perturb_speed`, `drop_frames`, `rotate_vertical`, `random_rotate_vertical`, `mirror`), reorientation (`reorient_world_up`, `reorient_rest_up`, `reorient_rest_forward`), orientation (`forward_at`, `left_at`, `facing_frame`), motion descriptors added in v0.8.0 (`curvature`, `torsion`, `path_length`, `directness`, `ground_path`, `inter_joint_distance`, `joint_angle`, `triangle_area`, `segment_axis_angle`, `bounding_box`, `bounding_sphere`, `bounding_ellipsoid`, `movement_phase`, `center_of_mass`, `com_displacement`, `verticality`, `node_jerk`, `joint_jerk`, `node_speed_derivative`, `joint_speed_derivative`, `smoothness`, `kinetic_energy`, `velocity_reductions`, `cadence`, `stride_length`, `walking_pace`, `gait_parameters`, `range_of_motion`, `skeleton_size` — relational/trajectory ones resolve in node space so end sites are first-class; `range_of_motion` resolves in joint space; joint arguments are names only, and every descriptor method accepts pre-computed positions via `coords=`), and visualization wrappers (`plot_rest_pose`, `plot_frame`, `plot_sequence`, `plot_trajectory`, `render`, `play`). The `joint_index` and `lr_mapping` properties complement `node_index` for joint-axis lookups and L/R joint pairing respectively. The `source_path` attribute (populated by `read_bvh_file`) carries the on-disk origin for diagnostics. Many methods were renamed in v0.6.0 — old names were removed outright (no deprecation wrappers); see `pybvh/API_RENAME.md` for the complete old → new mapping. See source docstrings for method signatures.
-
-#### The `centered` Parameter (appears throughout the codebase)
-Three modes controlling how root position is handled:
-- `"world"` — Root at the actual saved coordinates from the BVH file.
-- `"skeleton"` — Root forced to `(0, 0, 0)` in every frame.
-- `"first"` — Ground-plane-only centering (since v0.8.0): the first frame's root position is subtracted in the two horizontal axes only, so the ground track starts at the origin while heights stay in world units (floor estimation and height-based features keep working).
-
-### 4.5 `pybvh/batch.py` — Batch Loading & NumPy Export
-
-Batch loading of BVH directories with optional parallelism, conversion to packed NumPy arrays, and dataset-level harmonization. Provides `read_bvh_directory` (supports `world_up=`, `warn_on_world_up_disagreement=`, `lr_mapping=`, `skip_errors=`), `harmonize` (topology drop/raise + retarget + resample + reorient + Euler-order unification in one call; emits one summary `UserWarning` per call; pass `return_report=True` for a JSON-serializable `HarmonizeReport`), and `batch_to_numpy` (per-clip extraction delegates to `features.to_feature_array`; representation-aware skeleton checks: full topology for `'euler'`/`'axisangle'`, hierarchy only for `'6d'`/`'quat'`/`'rotmat'`; error messages name clips by `source_path` when set). Dataset-level normalization (`compute_normalization_stats` / `normalize_array` / `denormalize_array`) moved to pybvh-ml in v0.8.0. See source docstrings for method signatures.
-
-### 4.6 `pybvh/io.py` — BVH File I/O
-
-Provides `read_bvh_file(filepath)` and `write_bvh_file(bvh, filepath)`. The reader parses the HIERARCHY with a brace-stack parser (token-driven node-block reading, so blank lines and line-order variations don't break it), classifies `CHANNELS` entries by token suffix (rotation-first 6-channel roots parse correctly; unsupported layouts raise), and loads the motion block via `np.loadtxt` (row count validated against `Frames:`). The writer serializes back to `.bvh` format with `%.6f` precision for offsets/motion and full-precision `Frame Time:` (`%.10g`, so non-integer rates like 23.976 fps round-trip losslessly; the read side keeps a documented snap-to-`1/N` salvage for 6-digit-truncated foreign files). See source docstrings for method signatures.
-
-### 4.7 `pybvh/spatial_coord.py` — Forward Kinematics
-
-`frames_to_node_positions(skeleton, root_pos, joint_angles, centered, up)` computes 3D joint positions via forward kinematics. Output shape: `(F, N, 3)` for multiple frames, `(N, 3)` for a single frame, where N = total nodes including end sites. Fully vectorized across all frames using batch matrix operations.
-
-v0.8.2 added **`FkTopology`** — the skeleton as plain arrays (`offsets (N, 3)`, `parent_idx (N,)`, `joint_idx (N,)`, `euler_orders` length J) — as a third accepted value for the first parameter (renamed `nodes_container` → `skeleton` at the same time), so FK runs from arrays with no node objects. `_resolve_topology` is the single point where all three input forms converge; the FK loop reads nothing but the resulting topology. `FkTopology.from_nodes` / `Bvh.fk_topology` derive one, and the constructor validates every invariant the loop relies on (parents precede children, exactly one root, the root is a joint, no node parented to an end site, joint columns are a complete `0..J-1` range) — the last two would otherwise produce silently wrong geometry rather than an error, via `-1`-as-negative-index and an uninitialized rotation read respectively. It is an FK *input bundle*, deliberately not a skeleton descriptor: no names, no orientation axes. `euler_orders` is indexed by joint column, not by node. See source docstrings for signatures.
-
-### 4.8 `pybvh/dataframe.py` — DataFrame to Bvh Conversion
-
-`df_to_bvh(hier, df)` converts a pandas DataFrame back to a `Bvh` object. `hier` is a node table (`Bvh.to_node_table()`) or a node list (`bvh.nodes`), told apart by the type of the first element; both build fresh nodes through `nodes_from_table`, and the name-keyed hierarchy dict of earlier releases raises `TypeError`. The columns `df` must carry are derived from the skeleton by the same function `to_df_dict` labels with (`_motion_column_names`, a repeated node name suffixed `.1`, `.2`) and bound by label: the columns may come in any order, columns outside the set are ignored, and a missing label raises `ValueError`. Channel orders come from the skeleton, never from the DataFrame. The module was `df_to_bvh.py` until v0.10.0: sharing the function's name, `pybvh.df_to_bvh` was the module to static tools such as griffe and the function at runtime, so the API reference rendered neither. See source docstrings for method signatures.
-
-### 4.9 `pybvh/tools.py` — Private Helpers
-
-Mostly-private low-level helpers: string utilities (`get_main_direction`, `extract_sign`), file validation (`_validate_bvh_path`, used by `read_bvh_file`), and private orientation heuristics (`_rest_upward`, `_rest_leftward`, `_infer_world_up`, `_compute_forward_at`, `_compute_left_at`, `_world_leftward_units` — the single vectorized implementation of the per-frame leftward/facing geometry — with its single-frame view `_world_leftward_unit_at_frame`, the facing-basis builders `_facing_basis` / `_fallback_forward_vector` under `analysis.facing_frame`, `_signed_rotation_delta_around_axis`, `_validate_axis_string`, plus the name-string L/R pairing heuristics) used by `Bvh.world_up`, `Bvh.forward_at()`, `Bvh.facing_frame()`, `mirror()`, and follow-mode rendering. Rotation-matrix construction lives in `rotations.py` (v0.8.0 deleted the duplicate `rotX/Y/Z` / `get_premult_mat_rot` family here in favor of `rotations.euler_to_rotmat` / `_elementary_rotmat`); the array-pure signal utilities that briefly lived here moved to `pybvh/signal.py` (§4.15). See source docstrings for method signatures.
-
-### 4.10 `pybvh/bvhplot/` — Visualization Package
-
-Visualization module with 6 public functions — `rest_pose`, `frame`, `sequence` (the motion-paper still: sampled poses, lighter = earlier), `render`, `play`, `trajectory` — plus the `Style` object every one of them accepts (`style: Style | str = "paper"`; presets `paper`/`debug`/`dark`, preset-plus-overrides constructor `Style("paper", floor=None)`). The v0.9.0 paper default draws a ground plane at `Bvh.floor_height` (the scene ground — all nodes, so the plane sits under the toe tips; every backend draws the one plane the viewport computes from the `Scene`, and lays its root trail on it), per-chain bone colors (left warm / right cool / spine dark, from `node_lr_pairs` + a foot-rooted topology walk in `get_bone_chains`), and joint markers with axes off; multi-skeleton figures auto-switch to flat per-skeleton palette colors. Architecture: `_prepare` builds a `Scene` of per-skeleton `SkeletonView`s and every backend consumes `(scene, style, **sink_options)`. The shared code is four modules, each named for the one thing it holds (until v0.10.0 they were one `_common.py`): `_scene.py` (the `Scene` and its operations; pure data), `_from_bvh.py` (where a `Bvh` becomes a Scene: `normalize_input`, `make_scene`, `get_skeleton_lines`, the camera presets, `get_bone_chains`; with the router, which prepares the user's `Bvh` before handing it over, it is the Bvh-facing layer, and the router alone imports it), `_viewport.py` (the **viewport**, the geometry of a picture: what is framed, where the ground plane lies, where the camera stands and how it moves) and `_style.py` (`Style`, presets, palettes, the ghost and trace conventions). Since v0.10.0 the view is **complete**: besides coords, bones, camera angles and floor it carries `frame_time`, `node_names`, `rest_coords`, `rest_up` (the rest pose's own signed up axis, `Bvh.rest_up`, which differs from `up` on a file authoring its rest pose in another convention than its animation; `None` where `Bvh.rest_up` cannot infer it, never replaced by `up`), `lr_pairs` (the facing geometry's joint pairs in node index space, as `tools._facing_lr_pairs` resolves them — not `node_lr_pairs`, which adds the end-site pairs), `up` (the world-up axis as one signed string, `'+y'` or `'-z'`, the form `Bvh.world_up` uses; `up_axis`, `up_index`, `up_sign` and `up_vector` are properties derived from it, so a view cannot state two up axes), `forward_axis`, `bone_chains` (one chain name per bone) and `root_heading` (`root_trajectory`'s `[sin, cos]`, aligned to the coords by `make_scene(clip_frames=)`, `None` unless the caller says which clip frames the coords are, so a rest pose or a caller-supplied array carries none) and `coords_in_rest_unit` (set by `make_scene` on the same vouch: the clip's frames were posed from the rest pose, so `coords_per_rest_unit` is exactly 1 rather than measured off coordinate row 0, where each clip reads it a few ulps apart; caller-supplied coords are measured). There is no `bvh` field: a `Bvh` is read by the router, which prepares the one the user hands it (frame timing, resampling, world-up checks, the rest pose), and by the readers in `_from_bvh` that the router calls (`normalize_input`, `make_scene` and the adapters it calls); backends are handed a Scene and a Style, and `tests/test_scene.py` guards the module boundary with AST tests over import statements — no plotting imports in `_scene`, `_viewport`, `_style` or `_from_bvh`; no module but the router imports `_from_bvh`, not even for types, or reaches the router itself, whole or for a name (it re-exports the readers); and no other module imports the core (`pybvh.bvh`/`tools`/`analysis`/`transforms`/`spatial_coord`, ...) at runtime, with one exception, the array-pure `tools._leftward_units_from_pairs` kernel that `_viewport.compute_follow_azimuths(view, base_azim)` runs. The guarded modules are the package's top-level modules, read from disk, so a module added to the package is covered without being listed; bvhplot is flat and a test keeps it so, because the guards would not see into a subpackage. They inspect import statements only: a dynamic `importlib` import, or a function that is handed a `Bvh`, is invisible to them. A view and a Scene are **checked at construction**: shapes and lengths that disagree, a bone or L/R index that is not an integer naming a node, an axis that is not a signed axis string, a negative or non-finite frame time (zero is `Bvh.frame_time`'s "unset" and is accepted: stills never read it), a Scene with no view or with views of different frame counts all raise `ValueError` there (consistency only, never plausibility). A view's arrays are **read-only and borrowed**: it stores read-only NumPy views, no copy is made, the caller's own array keeps its flags, and a copied or unpickled view is protected like the original; the lists are not protected, and a write into the caller's own array still shows through the view. A Scene should be changed through its intent-named operations, which recompute what they touch: `subsampled(step)` (coords and heading sliced, `frame_time` scaled), `offset(offsets)` (coords and floor moved together), `spread(spacing, measured_on=)` (the lateral spacing k3d and vedo need, each view further toward the first skeleton's own left, `up × forward` of the first view, the front camera's right on every rig; the direction and the `"auto"` extent are read from `measured_on`, by default the Scene itself, and a vedo still passes the Scene of its whole clip so it is spread as the viewer spreads that frame; the router's `_arranged_in_one_scene`, which `play`, `frame` and `render` all reach for k3d and vedo, keeps the policy that `"auto"` respects raw world coordinates), `scaled(factors, measured_on=)` (each view drawn at a factor of its size about its ground point under the root at frame 0 of `measured_on`, by default the Scene itself, at the view's own floor height, rest pose included, so the floor stays and the body size follows; the label shows the factor), `size_matched(measured_on=)` (every view as tall as the first, by `body_size`, before the spread, in that same router helper, which passes a vedo still's whole-clip Scene to both, so under `"world"` the still is the viewer's frame (at a frame index every clip has, without `match_fps`: the still draws each clip's own index, the viewer cuts or pads to one length and resamples) and under `"first"` and `"skeleton"` it differs by centering alone; only a comparison builds the whole-clip Scene, a single skeleton being neither spread nor scaled; `match_size=True` on `play` for k3d and vedo, and on `frame`/`render` for vedo; a view whose body size is a clip extent or the default is left at its own size with a warning) and `looped(num_frames)` (the clip played again from its first frame, for a turntable slower than the clip; the Scene records its `loop_length`, and backends draw ghosts, the root trace and the frame counter from `pass_start(frame)`, so every pass draws as the first). `tests/synthetic_scene.py` builds a Scene from arrays with no `Bvh`, and `tests/test_scene_backends.py` renders it through every installed backend. Backends: matplotlib (default; also `sequence`), OpenCV (fast video, supersampled + resolution-anchored primitives, `ghost=`/`trajectory=`/`camera="turntable"`), k3d (Jupyter interactive), vedo desktop viewer (`_vedo.py` UI shell over the pure `PlaybackClock` state machine in `_playback.py`; clean 2x screenshots on `S`), and the offscreen vedo renderer (`_vedo_offscreen.py`: shadowed capsule stills/videos via `frame/render(backend="vedo")`, projected shadows per ADR 0001, shared geometry in `_vedo_capsules.py`). `render` supports `follow=True` for camera tracking. **The viewport** (`_viewport.py`, since v0.10.0) is one frozen `Viewport` value per picture, built by `make_viewport(views, framing=, motion=, include_floor=, projection=)` from one view (a panel of matplotlib or OpenCV, via `panel_viewports`) or from all of a Scene's views (the single scene k3d and vedo draw into). A view holds no box: everything a picture frames is computed here, when the picture is made. It holds two boxes on purpose. The **cube** (`center`, `half_span`, 5% margin) is the scale of the picture: the floor's reach is a multiple of `half_span`, and perspective cameras look at `center`. What is drawn on a body is sized from that body instead, since the cube grows with the distance a clip travels: `SkeletonView.body_size` is the rest pose's height along `rest_up`, in the coords' unit (alternative, not used: the median over frames of the pose's extent, which shrinks for a crouched or lying clip); where that height cannot be measured it falls back, in order, to the rest pose's widest extent, the widest extent the clip sweeps, and one unit of the coords, and `body_size_measure` names the one taken, and the vedo capsule radius (`_vedo_capsules.base_radius`), the viewer's label lift, and k3d's bone width, joint size and trail width (scene units, what k3d's `thick` lines and 3D points take) are fractions of it, per skeleton; the vedo viewer's pixel sizes (fast-mode line width and point size, label font) come from the style alone. The **framing box** (`lo`, `hi`) is what axes or the orthographic projection are fitted to, and **framing differs between stills and video, deliberately**: `framing="still"` is the cube (shifted along up, as far as it takes and keeping its size, until a drawn floor sits `FLOOR_INSET` = 0.02 half-spans inside its ground-side face), `framing="clip"` is the box the whole clip sweeps (`framing_bounds`, 4% margin), so the world does not drift behind the character; when the camera rotates the two ground axes are squared off to the motion's circumscribed radius, making the framing azimuth-invariant. The **floor** is one plane per viewport, exactly at the scene ground (the ground-side extreme of the views' floor heights), reaching `FLOOR_EXTENT` = 1.8 half-spans from the cube's centre, or clipped to the framing box where a full plane would read as a wall (`sequence`); a z-fighting epsilon is a toolkit fact, so only vedo and k3d apply one (`FLOOR_EPSILON` = 0.004 half-spans below, vedo's projected shadows at 0.002, through `below_floor`), while matplotlib and OpenCV, which order their drawing by hand, draw the plane where it is. The **camera** of the perspective backends is `viewport.camera(view_angle=, aspect=, band=)`: it looks at the cube's centre along the viewing direction, from `eye_distance`, the smallest distance at which every coordinate shown (not the cube's corners, whose empty depth would stand it about 6.6 half-spans away at 30° instead of 4.1) projects inside `FIT_FRACTION` of the picture in whichever direction is tighter, solved exactly from the toolkit's vertical view angle (every perspective backend passes one: a fixed multiple of the half-span, the rule until v0.10.0, fits one view angle only) and the picture's aspect ratio (`None`: the vertical direction alone), and inside `FIT_FRACTION` of a `band` of the picture's height where a toolkit's controls cover the rest (the target stays at the picture's middle, so an off-centre band leaves room unused on one side; the alternative, shifting the projection to the band's middle, would need a camera carrying that shift); a moving camera keeps the largest distance over its schedule, and the eye stands no nearer than the cube's nearest corner, so every coordinate is in front of it. The offscreen vedo renderer passes VTK's view angle and its resolution's aspect ratio; the vedo viewer passes VTK's view angle, its window's aspect ratio at the moment and the band between its frame slider and its top row of controls (`_FIGURE_BAND`, built from the layout values that place them), at opening and on reset; k3d passes its own view angle, read from the plot's `camera_fov` (60° by default), and no aspect ratio: it fits the widget's height alone, since the notebook sets the widget's width and k3d does not report it; matplotlib keeps its own `view_init`, handed the same angles, and `tests/test_plot.py` pins that the two agree. The vedo viewer refits VTK's clipping planes whenever the skeletons move, since VTK fits them to what is in the scene at the moment. The **schedule** (`azimuths`, one per frame, or `None`) comes from `motion="fixed" | "turntable" | "follow"` or a `Turntable(period)` (one revolution every `period` frames; the router builds it from `render(turntable_period=)` seconds at the rate the file is written at, which the matplotlib backend states in `written_fps`, and `"turntable"` is the period of the frames), which the router resolves and the backends pass on untouched; a schedule that turns out constant, whatever the reason, is stored as `None`, so `rotating` means the azimuth really changes and such a clip is framed as a fixed camera frames it. `projection` records what the picture is drawn with, as the adapter states it: matplotlib what the style asks for, on axes it creates and on axes the caller supplies alike (the offset `sequence` is always orthographic), OpenCV always `"ortho"`, k3d and vedo always `"persp"`. The orthographic **projection** to pixels has one scale for the whole clip, the box fitted at its widest over the schedule into `FIT_FRACTION` = 0.9 of the panel. `grounded_box()` is the cube with its bottom face just under the ground (`FLOOR_INSET` below it), for k3d's grid. No backend computes a box, a floor extent or an eye position of its own; `tests/test_viewport.py` tests the viewport on array-built Scenes and `tests/test_scene_backends.py` checks each backend against its numbers. In matplotlib the box aspect must be set *after* `view_init`: `Axes3D.set_box_aspect` stores the aspect rolled to whatever vertical axis is current and `get_proj` rolls it back, so setting it first stretches the drawing on any rig that is not +z up (invisible on `bvh_test1`; `tests/test_style.py::TestFraming` guards it on both up axes). Optional dependencies installed via `pybvh[opencv]`, `pybvh[interactive]`, `pybvh[viewer]`, or `pybvh[all-viz]`. See source docstrings for method signatures.
-
-### 4.11 `pybvh/transforms.py` — Spatial Augmentation Transforms
-
-Data augmentation transforms operating on `Bvh` objects: `translate_root`, `random_translate_root`, `add_rotation_noise`, `add_position_noise`, `perturb_speed`, `random_perturb_speed`, `drop_frames`, `rotate_vertical`, `random_rotate_vertical`, `auto_detect_lr_pairs`, and `mirror`. All angle parameters are radians (a `degrees=True` flag opts in to degrees), matching `Bvh.joint_angles`. Also provides coordinate-frame reorientation (`reorient_world_up`, `reorient_rest_up`, `reorient_rest_forward`) for dataset preprocessing. All follow the `inplace=False` convention. NumPy-level functions (`rotate_angles_vertical`, `mirror_angles`) are exposed for users working with pre-extracted arrays. See source docstrings for method signatures.
-
-### 4.12 `pybvh/analysis.py` — Motion Analysis
-
-Standalone functions for extracting motion descriptors: `joint_velocities` / `joint_accelerations` (shape `(F, J, 3)`, non-end-site joints — align with `joint_angles` axis), `node_velocities` / `node_accelerations` (shape `(F, N, 3)`, all nodes including end sites — useful for extremity tracking), `angular_velocities` (shape `(F, J, 3)` — rotations only exist on joints), `root_trajectory`, `foot_contacts`, `ground_contacts` (the same detection engine opened to arbitrary joint sets — node names and/or node indices, end sites legal; no rest-pose sanity check, no floor-cache interaction, `height_reference="floor"` default; `foot_contacts` is a thin wrapper over the shared `_contacts_core`), and `auto_detect_foot_joints` (returns `[]` on footless rigs, never raises — the detectors raise on an empty joint list). **Two ground levels, deliberately distinct** (ADR 0002): `Bvh.floor_height` is the *scene ground*, a property of the clip — robust 2nd percentile over **all nodes**, cached, what you draw a floor at; the contact detectors' `floor="auto"` is a *contact reference*, a property of the query — estimated per call over the joints being tested, returned as `info["floor"]`, never cached. They differ by roughly a toe length on rigs with toe end sites, and substituting one for the other reads every foot as airborne. Bvh-bound functions take `bvh: Bvh` as their first argument; the corresponding `Bvh` class methods are thin wrappers.
-
-v0.8.0 added (the descriptor-review primitives): **jerk** `node_jerk` / `joint_jerk` (third-derivative rung of the velocity→accel ladder, same `stencil`/`pad`); **speed derivative** `node_speed_derivative` / `joint_speed_derivative` (the tangential rung `d‖v‖/dt` — positive speeding up, negative braking; not recoverable from the vector accelerations; same signature as `node_accelerations`); **smoothness** on a speed profile — accepts `(T,)` for a scalar or `(T, K)` reduced per column — `sparc` (spectral arc length), `dimensionless_jerk`, `log_dimensionless_jerk`, `number_of_peaks`, `speed_metric`, `integrated`/`mean`/`rms_squared_jerk`, plus a `smoothness(metric=…)` dispatcher (SPARC/DLJ/LDLJ validated against the Balasubramanian reference via golden fixtures); **reductions** `velocity_reductions`, `zero_crossings`, `active_segments` / `active_duration` (time-based kernels take a required `fs`; `velocity_reductions` / `active_duration` reduce `(T, K)` input per column like the smoothness kernels); **`kinetic_energy`** (Σ‖v‖² or Σ½m‖v‖²); **gait** `cadence` / `stride_length` (projections of `gait_parameters`, with a `contacts=` passthrough) and `walking_pace` (root ground path / duration); **`range_of_motion`**; the covariance descriptors `cov3dj` / `lagged_covariance` (mean-centered); and the scale primitives `skeleton_size` / `relative_scale_factor`. The array-pure kernels (smoothness, reductions, covariance) take signals/arrays directly; jerk/energy/gait/ROM-wrapper are Bvh-bound. Also **`facing_frame`** (`Bvh.facing_frame()` / `analysis.facing_frame`, requested by pybvh-qualities): the continuous per-frame facing basis as a `FacingFrame(forward, left, up)` named tuple of `(F, 3)` unit vectors — the yaw-only, gravity-aligned triple that `forward_at` / `left_at` snap to axis labels; built on the consolidated leftward geometry in `pybvh.tools`. See source docstrings for signatures.
-
-### 4.13 `pybvh/features.py` — Feature-Array Export
-
-`to_feature_array` and `feature_array_layout`: compose the `analysis` descriptors (rotations, root position, velocities, foot contacts) into a single flat `(F, D)` array, plus the column-layout map describing it. Split out of the old mixed `features.py` in v0.8.0 so the analysis layer stays free of assembly concerns (briefly named `pybvh.packing` during 0.8.0 development; that interim name never shipped). See source docstrings for signatures.
-
-### 4.14 `pybvh/geometry.py` — Position Descriptors (array-pure)
-
-The position half of pybvh's geometry surface — the companion to `rotations.py` (§4.2, the orientation half). All functions are **array-pure** (plain NumPy point arrays in, arrays out; no `Bvh`), so downstream libraries build on them directly. Added in v0.8.0. Two shape conventions: point-set kernels take `(..., P, 3)` and reduce over the point axis `P` (`bounding_box`/`bounding_sphere`/`bounding_ellipsoid`/`center_of_mass`/`verticality`); trajectory kernels take `(F, …, 3)` over the time axis (`path_length`, `directness`, `curvature`, `torsion`, `movement_phase`, `ground_path`). Also inter-point relations (`inter_joint_distance`, `joint_angle`, `segment_axis_angle`, `triangle_area`, `point_to_plane_distance`, `point_to_segment_distance`) and pose ops (`pose_distance`, `mean_pose_subtract`). Derivative kernels route through `signal.finite_difference` (§4.15 — the shared stencil/pad convention, bit-identical to the velocity ladder). Zero-denominator ratios return `np.nan` consistently. Bounding sphere is Ritter's approximate 2-pass (vectorized, not exact Welzl); ellipsoid is PCA via batched `eigh` — no scipy.
-
-### 4.15 `pybvh/signal.py` — Signal Utilities (array-pure)
-
-Array-pure 1-D/N-D signal helpers shared by the analysis and geometry layers, public since v0.8.0 (moved out of `tools.py` so they are documented and discoverable): `finite_difference` (the single stencil/pad derivative convention used by the velocity→acceleration→jerk ladder and the geometry derivative kernels), `temporal_stats` (mean/std/min/max/skew/kurtosis, manual moments — no scipy), `box_filter_smooth` (cumsum moving average), `fft_magnitude` / `dominant_frequency`, and `ramer_douglas_peucker` (polyline simplification, explicit-stack). See source docstrings for signatures.
-
-### 4.16 `pybvh/node_tree.py` — The Node Tree as a Whole
-
-What makes a list of nodes a valid skeleton, and its flat form. Added in v0.10.0 beside `bvhnode.py`, which keeps the node classes and their per-node validation; this module imports only from it. **`nodes_to_table(nodes)`** and **`nodes_from_table(table)`** are the node table and its builder. The first exports a tree as a node table — one plain `dict` per node in `nodes` order with `name`, `parent` (the index of the parent's entry, `None` on the root), `offset` (a copy), `pos_channels` (root) and `rot_channels` (root and joints; an entry without it is an end site), and no `children` key — and the second builds fresh `BvhRoot` / `BvhJoint` / `BvhEndSite` objects back from it with `parent` and `children` wired from the indices. `nodes_from_table` is the one place a node tree is built (the parser, `df_to_bvh` and `extract_joints` all call it) and validated: single root at entry 0, parents before children, end sites as leaves, depth-first order (required, not repaired, since reordering would move `joint_angles` columns away from their joints), well-formed offsets and channel lists, `pos_channels` on the root only, no key the format does not define. `_check_node_tree(nodes)` applies the same depth-first, wired-both-ways test to a finished tree and is what `Bvh.__init__` runs. Both builder functions are exported from `pybvh`; `Bvh.to_node_table()` wraps the first. `_walk_depth_first` is the walk both checks share.
-
----
-
-## 5. Data Representation Details
-
-### 5.1 Motion Data: `root_pos` + `joint_angles`
-- **`root_pos`**: Shape `(F, 3)`. Column order always `(X, Y, Z)`.
-- **`joint_angles`**: Shape `(F, J, 3)`. Euler angles in **radians**. `J` = number of non-end-site nodes.
-
-Example for `bvh_example.bvh`: `root_pos.shape = (56, 3)`, `joint_angles.shape = (56, 24, 3)`.
-
-### 5.2 Spatial Coordinates Output
-- Shape: `(N, 3)` for a single frame, `(F, N, 3)` for multiple frames.
-- N = total number of nodes including end sites (29 for `bvh_example.bvh`).
-- Order matches `Bvh.nodes` list order (depth-first).
-- `node_index` maps `"JointName"` → integer index into the N-axis (use for `node_positions()` output).
-- `joint_index` maps `"JointName"` → integer index into the J-axis (use for `joint_angles`, which excludes end sites).
-- **Node table** — the skeleton as plain data: one `dict` per node in `nodes` order, the parent referenced by index (`None` on the root), the named twin of `FkTopology`, the same positions with names (`Bvh.to_node_table()`; `nodes_to_table` / `nodes_from_table` in `node_tree.py`).
-
----
-
-## 6. Forward Kinematics — The Math
-
-Given a joint `J` with offset, parent's accumulated rotation `R_parent`, parent's position `P_parent`, and J's own rotation `R_J`:
-
-$$P_J = R_{parent} \cdot \text{offset}_J + P_{parent}$$
-$$R_{acc,J} = R_{parent} \cdot R_J$$
-
-Rotation matrix from Euler angles uses **intrinsic** rotations with **pre-multiplication**:
-$$R = R_{\text{first}} \cdot R_{\text{second}} \cdot R_{\text{third}}$$
-
-where the order comes from the joint's `rot_channels`.
-
----
-
-## 7. Coding Conventions & Patterns
-
-The conventions a change is held to (property validation, type annotations, the `inplace` convention, copies, the channel freeze, identity-resolved nodes, radians inside and degrees at the boundary, naming) are the reviewer's rules and live in `CODING_STANDARDS.md`. Two facts about the code's state that the standards do not cover:
-
-- **Type checking**: `mypy pybvh/` is clean, and the typecheck job runs it on Python 3.9, the `python_version` it is configured for, with mypy and `pandas-stubs` pinned in the dev extra. Every `# type: ignore` names its error code. Two things it does not see: Matplotlib's `mpl_toolkits` ships no type information, so `Axes3D` is `Any` and the Matplotlib backend's calls on its 3D axes are left to the plotting tests; and an array's shape is not part of its type, which is why `Bvh.smoothness` narrows its scalar result with `typing.cast`.
-- **Errors**: Mix of `ValueError`, `Exception`, and `AttributeError`.
-
----
-
-## 8. Testing Conventions
-
-- **Framework**: pytest
-- **Fixture files**: `bvh_data/bvh_example.bvh` (primary), plus `bvh_test1.bvh`, `bvh_test2.bvh`, `bvh_test3.bvh`, `standard_skeleton.bvh`, `cmu_12_01_walk.bvh`; `tests/fixtures/` holds frozen golden references (scipy/pytransform3d/SPARC `.npz` files with a `generate_fixtures.py` regenerator, plus `foot_contacts_pinned.npz` — a bit-exact behavior pin of nine `foot_contacts` parameterizations on the CMU walk, the identity gate for any refactor of the contacts machinery; regenerating it re-baselines the pin, so it is only ever regenerated deliberately) and synthetic round-trip files (`rotation_first_root.bvh`, `full_precision_frame_time.bvh`).
-- **Synthetic fixtures**: `tests/synthetic_bvh.py` — a library of 8 factory functions for programmatically creating BVH objects with known properties: `make_pos_y_up_bvh`, `make_neg_y_up_bvh`, `make_pos_z_up_bvh`, `make_neg_z_up_bvh`, `make_heterogeneous_euler_bvh`, `make_lowercase_lr_bvh`, `make_pos_y_up_rotating_bvh`, `make_simple_bvh`.
-- **Numerical assertions**: `np.testing.assert_allclose` with `atol=1e-4` to `1e-10` depending on precision needs. File round-trips use `atol=1e-5` (due to `%.6f` formatting).
-- **Round-trip tests**: BVH → file → BVH, BVH → DataFrame → BVH, BVH → {6D, quat, axis-angle, rotmat} → BVH, Euler order conversion → re-conversion.
-- **Test files**:
-  - `tests/test_bvh.py` — File I/O, hierarchy, spatial coordinates, DataFrame conversion, skeleton operations, batch processing, freeze preservation, motion features (velocities, foot contacts, feature export), edge cases.
-  - `tests/test_analysis.py` / `tests/test_analysis_primitives.py` — foot contacts, gait, jerk/smoothness, reductions, covariance descriptors.
-  - `tests/test_geometry.py` — position-descriptor kernels; `tests/test_signal.py` — signal utilities.
-  - `tests/test_fk_topology.py` — the `FkTopology` array-signature FK input: extraction, bit-exact equivalence with the node-object path, serialization round-trip, the `centered="first"` up-axis requirement, and every construction-time invariant.
-  - `tests/test_name_collisions.py` — identity-resolution regressions on two hand-built rigs (a joint shadowed by a generated end-site name; two joints sharing a name). Pins `edges` / `node_edges` / `get_skeleton_lines` / `joint_tips` / FK / `extract_joints` against an identity-derived truth, plus the multi-end-site `mirror` fix and `node_lr_pairs`.
-  - `tests/test_rotations.py` / `tests/test_rotations_se3.py` — all conversion paths, gimbal lock, 180° SLERP, analytical values, SE(3) math.
-  - `tests/test_rotations_golden.py` / `tests/test_se3_golden.py` / `tests/test_smoothness_golden.py` — comparisons against frozen scipy / pytransform3d / SPARC references in `tests/fixtures/`.
-  - `tests/test_bvh_descriptors.py` — the `Bvh` descriptor method wrappers; `tests/test_reorient.py` — the three reorientation transforms.
-  - `tests/test_plot.py` — Visualization module tests (bvhplot functions, backends, camera presets); `tests/test_scene.py` — the Scene/SkeletonView container: the fields `make_scene` fills, the single signed `up` field and its derived forms, the construction checks of view and Scene, the read-only arrays, the `subsampled` / `offset` / `spread` / `scaled` / `size_matched` operations, and the AST guards of the module boundary (no plotting imports in the pure-data modules; only the router imports `_from_bvh`; nothing behind the boundary reaches the router; no core imports at runtime anywhere else, the viewport's array kernel excepted; the package stays flat), the checkers themselves tested against small sources; `tests/test_viewport.py` — the viewport on array-built Scenes: both framings, the floor quad, the camera, the schedules, the projection, several views; `tests/test_scene_backends.py` — a Scene built from arrays alone (`tests/synthetic_scene.py`, guarded to import nothing that knows a `Bvh`) rendered through matplotlib, OpenCV, vedo offscreen, the vedo viewer shell and k3d, and each of those backends checked against the viewport's floor, framing box and camera; `tests/test_style.py` — Style presets/validation, chain classification, and the debug-preset pixel-parity guard against the frozen v0.8.2 baselines in `tests/fixtures/baseline_v082/`; `tests/test_sequence.py` — sequence(), ghosts, turntable, Phase-3 export options; `tests/test_playback.py` — the pure PlaybackClock; `tests/test_vedo_player.py` / `tests/test_vedo_offscreen.py` — headless vedo viewer shell and offscreen shadowed renders.
-  - `tests/test_audit_fixes.py` — audit tests verifying correctness of specific bug fixes and edge cases identified during code audits.
-  - `tests/test_docs_api_coverage.py` — docs guard: two-way set equality between the curated member lists in `docs/api/{bvh,analysis,rotations}.md` and the actual public API (a new public member missing from the docs fails CI, as does a stale entry).
-  - `tests/test_gallery_notebook.py` — gallery freshness guard: the `gallery/feature_gallery.{py,ipynb}` jupytext pair must match, the committed execution counts must be sequential 1..N (stale-output detector), no error/stderr outputs may be committed, the setup cell must pin `%matplotlib inline`, and at least 40 figures must be present (wipeout detector). Plus the clip-visibility guard: no `image/gif` cell outputs (GitHub's notebook renderer silently drops them), and each of the three animated clips displayed as a markdown image whose absolute `raw.githubusercontent.com` URL resolves to a committed, non-gitignored file.
-  - `tests/test_tutorial_notebooks.py` — same guard for `tutorials/*.ipynb`, which GitHub renders straight from the committed outputs: pair sync, sequential execution counts, `%matplotlib inline` pinned in every plotting tutorial, every `plt.show()` cell carrying its figure, and no backend warnings or tracebacks. Also the clip-visibility guard: no `image/gif` cell outputs, and every markdown image an absolute `raw.githubusercontent.com` URL resolving to a committed, non-gitignored file. Unlike the gallery's, it does **not** ban all stderr — tutorials 4, 5 and 7 deliberately show the `bvh_test3.bvh` world-up `UserWarning` to the reader. Cells tagged `skip-execution` are excluded throughout.
-  - `tests/test_release_metadata.py` — release-hygiene guard: the version in `pyproject.toml` must match `pybvh.__version__`, `CITATION.cff` and the README's BibTeX entry; `CITATION.cff`'s `date-released` must equal that version's CHANGELOG date; and the CHANGELOG footer must carry the version's compare link. All keyed off `pyproject.toml`, which only moves in a release commit, so it holds between releases.
-  - `tests/test_check_pr_hygiene.py` — the pr-hygiene check (`scripts/check_pr_hygiene.py`) on a recorded `pull_request` event payload (`tests/fixtures/pr_hygiene_event.json`, PR #54): each failing rule and the passing case, with the changed files given as a list, so no git or network.
-- **Run command**: `conda run -n pybvh pytest tests/ -v`
-- **Current count**: 2538 tests, all passing.
-- **Note**: `tests/test_transforms_battle.py` uses private datasets from `internal_data/` and is gitignored — never publish or share this file.
-
----
-
-## 9. Sample BVH Data Files
-
-| File | Joints | Nodes | Frames | FPS | World Up | Purpose |
-|---|---|---|---|---|---|---|
-| `bvh_example.bvh` | 24 | 29 | 75 | 30 | +z | Main test file (anger clip from DIEM-A dataset) |
-| `bvh_test1.bvh` | 24 | 29 | 75 | 30 | +z | Additional Z-up test |
-| `bvh_test2.bvh` | 23 | 28 | 61 | 120 | +y | Y-up test with root rotated ~180° from rest (regression fixture for `camera='front'`) |
-| `bvh_test3.bvh` | 60 | 73 | 100 | 120 | +z* | Large skeleton, rest pose and first frame disagree on world up — triggers the `_infer_world_up` `UserWarning` |
-| `standard_skeleton.bvh` | 24 | 29 | 1 | 120 | +z | Reference skeleton for retargeting |
-| `cmu_12_01_walk.bvh` | 31 | 38 | 524 | 120 | +y | Real CMU walk clip — gait / foot-contact ground truth |
-
-*`bvh_test3` rest pose suggests `+y` but frame-0 head-hips is closer to `+z`; the new inference picks `+z` from the animation data. This is exactly the edge case the `world_up` warning was designed to catch.
-
----
-
-## 10. Quick Reference: Common Operations
-
-```python
-from pybvh import read_bvh_file, df_to_bvh, Bvh, rotations, bvhplot
-from pybvh import read_bvh_directory, batch_to_numpy
-import pandas as pd
-
-# Read
-bvh = read_bvh_file("walk.bvh")
-
-# Inspect
-bvh.root_pos.shape          # (F, 3)
-bvh.joint_angles.shape      # (F, J, 3)
-bvh.joint_names              # ['Hips', 'Spine', ...]
-bvh.joint_count              # 24
-bvh.node_index['Hips']       # 0  — index into node_positions() (incl. end sites)
-bvh.joint_index['Hips']      # 0  — index into joint_angles axis 1 (excl. end sites)
-bvh.world_up                 # '+z' — auto-detected gravity axis
-bvh.forward_at(0)            # '+y' — facing direction at frame 0
-bvh.world_up = '+y'          # manual override (validated)
-
-# Spatial coordinates (forward kinematics)
-coords = bvh.node_positions(centered="world")  # (F, N, 3)
-rest = bvh.rest_pose_positions()
-
-# Rotation representations
-root_pos, rot6d = bvh.to_6d()
-root_pos, quats = bvh.to_quat()
-root_pos, aa    = bvh.to_axisangle()
-
-# Set frames back (inplace=False returns new Bvh)
-bvh2 = bvh.from_6d(root_pos, rot6d)
-
-# Euler order conversion (unified method)
-bvh_xyz = bvh.change_euler_order('XYZ')           # all joints
-bvh_hips = bvh.change_euler_order('XYZ', joint='Hips')  # one joint
-
-# Frame operations
-clip = bvh[10:50]
-combined = bvh + other_bvh
-bvh_30fps = bvh.resample(30)
-
-# Skeleton operations
-bvh_scaled = bvh.scale(0.01)
-retargeted = bvh.retarget(standard_skeleton)
-upper = bvh.extract_joints(["Hips", "Spine", "Neck", "Head"])
-
-# Transforms (augmentation)
-noisy = bvh.add_rotation_noise(sigma=0.02)   # radians
-faster = bvh.perturb_speed(factor=1.5)
-dropped = bvh.drop_frames(drop_rate=0.1)
-mirrored = bvh.mirror()
-rotated = bvh.rotate_vertical(np.pi / 2)  # radians (degrees=True to opt in)
-shifted = bvh.random_translate_root(rng=rng)  # random-variant method wrappers
-jittered = bvh.random_rotate_vertical(rng=rng)
-warped = bvh.random_perturb_speed(rng=rng)
-
-# Reorientation (preprocessing)
-bvh_zup = bvh.reorient_world_up('+z')        # rotate whole scene; character unchanged
-bvh_rest = bvh.reorient_rest_up('+z')        # fix rest-pose / animation disagreement
-bvh_fwd = bvh.reorient_rest_forward('+y')    # canonicalize rest-pose facing direction
-
-# Skeleton topology checks
-compatible = bvh.matches_topology(other)     # hierarchy AND channels (Euler orders)
-same_graph = bvh.matches_hierarchy(other)    # names + parents + rest offsets only
-same_chans = bvh.matches_channels(other)     # per-joint Euler orders only
-
-# Batch loading for ML
-clips = read_bvh_directory("dataset/", parallel=True, skip_errors=True)
-data = batch_to_numpy(clips, representation="6d", pad=True)  # (B, F_max, D)
-
-# One-shot dataset harmonization (topology / fps / up-axis / Euler order)
-from pybvh import harmonize
-clips, report = harmonize(clips, reference=ref, target_fps=30,
-                          target_world_up='+z', target_euler_order='XYZ',
-                          return_report=True)
-
-# Standalone rotations
-R = rotations.euler_to_rotmat([30, 45, 60], 'ZYX', degrees=True)
-q = rotations.rotmat_to_quat(R)
-q_mid = rotations.quat_slerp(q1, q2, t=0.5)
-
-# Motion features (de-prefixed)
-vel = bvh.joint_velocities()                     # (F, J, 3) units/second (default stencil="central", pad="edge")
-acc = bvh.joint_accelerations()                  # (F, J, 3) units/second^2
-node_vel = bvh.node_velocities()                 # (F, N, 3) — all nodes incl. end sites
-ang_vel = bvh.angular_velocities()               # (F, J, 3) radians/second
-rel_pos = bvh.node_positions(centered='skeleton')# (F, N, 3) root-at-origin
-traj = bvh.root_trajectory()                     # (F, 4) ground pos + heading
-contacts = bvh.foot_contacts()                   # (F, num_feet) binary
-feat = bvh.to_feature_array(representation="6d", # (F, D) one-stop export
-         include_velocities=True, include_foot_contacts=True)
-layout = bvh.feature_array_layout(                # slice map for unpacking
-         representation="6d", include_velocities=True, include_foot_contacts=True)
-# {'root_pos': slice(0, 3), 'rotations': slice(3, ...), 'velocities': ..., 'foot_contacts': ...}
-
-# Motion descriptors (names only; coords= accepts pre-computed positions)
-k = bvh.curvature('LeftHand')                    # (F,) trajectory curvature
-com = bvh.center_of_mass()                       # (F, 3) per-frame centre of mass
-gait = bvh.gait_parameters()                     # GaitParameters named tuple
-sm = bvh.smoothness('RightHand', metric='sparc') # scalar smoothness score
-
-# Dataset-level normalization (compute_normalization_stats / normalize_array /
-# denormalize_array) lives in pybvh-ml as of v0.8.0.
-
-# DataFrame (pybvh does NOT import pandas)
-df = pd.DataFrame(bvh.to_df_dict(mode='euler'))
-bvh2 = df_to_bvh(bvh.nodes, df)
-
-# Write to file
-bvh.write("output.bvh")
-
-# Visualization — single-skeleton via Bvh wrappers
-bvh.plot_rest_pose()
-bvh.plot_frame(frame=0, camera='front')          # 'front' | 'side' | 'top' | (azim, elev)
-bvh.plot_trajectory()
-bvh.render("walk.mp4")                           # fast video export
-bvh.render("walk.mp4", follow=True)              # camera tracks character rotation
-bvh.play()                                       # interactive auto-backend
-
-# Visualization — multi-skeleton via bvhplot module
-bvhplot.frame([bvh1, bvh2], frame=0, labels=["A", "B"])
-bvhplot.render([bvh1, bvh2], "compare.mp4", sync="pad")
-bvhplot.trajectory([bvh1, bvh2], labels=["A", "B"])
-```
-
----
-
-## 11. Extending the Codebase — Guidelines
-
-1. **Add new rotation representations** in `rotations.py`. Keep them as pure NumPy batch-vectorized functions.
-2. **Add new Bvh methods** in `bvh.py`. Follow the existing pattern: validate inputs in properties, delegate to helper modules.
-3. **`_euler_column_names` is computed on the fly**: Any operation that changes `rot_channels` only needs to update the node and `joint_angles` — the internal channel-name helper reflects the change automatically.
-4. **Test with fixtures**: Add tests using the existing fixtures. Include numerical assertions with known expected values.
-5. **No new dependencies** unless absolutely necessary. Output NumPy arrays — let users convert to their ML framework of choice.
-6. **Performance**: Pre-allocate arrays, vectorize with NumPy, avoid Python loops over frames.
-7. **Type all new code**: Use `npt.NDArray[np.float64]` for returns, `npt.ArrayLike` for inputs. Add `@overload` for inplace methods.
-8. **Caching opportunity**: `euler_orders` and `edges` properties recompute on every access (they traverse the node list). This is fine for single calls but wasteful in hot loops. If profiling shows these as bottlenecks, consider caching with invalidation on skeleton mutation (e.g. `change_euler_order`, `extract_joints`).
-9. **Two release records, two audiences**: `CHANGELOG.md` (public) carries only the net change per version — entries in an unreleased version's dated section are rewritten in place as code evolves, always phrased against the last shipped release. The full internal development history, including intermediate states superseded before release and the reasons for every change, lives in `docs/internal_logs/<version>/` (gitignored; convention in its `README.md` and in `CLAUDE.md`). Update both as part of landing significant work.
-
----
-
-## 12. Ecosystem & Scope Boundary
-
-pybvh is the **foundation layer** in a three-library ecosystem:
-
-```
-pybvh-ml      (ML bridge: tensor packing, augmentation pipelines, PyTorch Datasets)
-    │
-    ▼
-  pybvh       (BVH foundation: parsing, rotation math, transforms, motion analysis, quick visualization)
-    │
-    ▲
-pybvh-blender (Blender addon: deep BVH inspection, joint panels, analysis overlays)
-```
-
-**pybvh never imports or knows about pybvh-ml or pybvh-blender.** Dependencies flow one way: `pybvh-ml -> pybvh` and `pybvh-blender -> pybvh`.
-
-### Scope rules
-- If a feature is useful to anyone working with BVH data (researcher, game dev, biomechanics) — it belongs in **pybvh**.
-- If it only makes sense in an ML training context (tensor layouts, Datasets, HDF5 export) — it belongs in **pybvh-ml**.
-- If it requires GUI widgets (property panels, graph editors, skeleton trees) for deep inspection — it belongs in **pybvh-blender**.
-- If it's a quick visualization callable from Python (`bvhplot.play(bvh)`) — it belongs in **pybvh.bvhplot**.
-
-### API surface that pybvh-ml relies on
-pybvh-ml is a primary consumer of pybvh's public API. When modifying pybvh, be aware that these entry points are used downstream:
-- `bvh.root_pos`, `bvh.joint_angles`, `bvh.joint_count`, `bvh.joint_names` — data access
-- `bvh.to_quat()`, `bvh.to_6d()`, `bvh.to_rotmat()`, `bvh.to_axisangle()` — representation conversion. Return `(root_pos, joint_data)` 2-tuples (the third `joints` element in the old 3-tuple shape was removed in v0.6.0 — derivable from `bvh.nodes` / `bvh.joint_names` / `bvh.joint_index`).
-- `bvh.from_rotmat()`, `bvh.from_6d()`, `bvh.from_quat()`, `bvh.from_axisangle()` — inverse representation conversion.
-- `bvh.euler_orders` — per-joint Euler order strings
-- `bvh.edges` / `bvh.node_edges` — skeleton edge list as index tuples, in `joint_angles` and `nodes` index space respectively. Both are views of `bvh.fk_topology.parent_idx`, so they cannot disagree with the topology FK poses. Parents are resolved by node identity, never by name (node names are not unique — the parser derives end-site display names from the parent joint).
-- `bvh.fk_topology` — the skeleton as plain arrays (`FkTopology`), for running `frames_to_node_positions` with no `Bvh` in hand. The array-signature FK entry point pybvh-ml uses to refresh positions after rotation augmentation at train time.
-- `bvh.node_lr_pairs` — L/R pairs in `nodes` index space, joints **and** end sites, for mirroring a `(F, N, 3)` position stream. Node-space counterpart of `lr_pairs`; same `None` sentinel.
-- `bvh.nodes`, `bvh.node_index` — skeleton topology (indexes `node_positions()` output)
-- `bvh.joint_index` — joint-only name → index dict (indexes `joint_angles` axis 1). Symmetric counterpart to `node_index`; preferred over `bvh.joint_names.index(name)`.
-- `bvh.world_up`, `bvh.rest_up`, `bvh.rest_forward`, `bvh.forward_at(frame)`, `bvh.left_at(frame)`, `bvh.facing_frame()` — orientation API. `world_up` / `forward_at` are animation-derived; `rest_up` / `rest_forward` are topology-derived (rest pose only). On clean files the two pairs agree. `(world_up, forward_at, left_at)` form an orthonormal right-hand-rule triple: `left = up × forward`; `facing_frame()` is the continuous (pre-snap) vector form of the same triple for all frames at once.
-- `bvh.lr_mapping` — cached L/R joint pair mapping, auto-detected at init via extended name heuristic (`Left`/`Right`, `.L`/`.R`, `_l`/`_r`, `mixamorig:` namespace, `.001` numbered suffix). `None` when no pairs detected. Settable via post-load setter or `lr_mapping=` kwarg on `read_bvh_file` / `read_bvh_directory` / `Bvh.__init__`. Consumed by `mirror()`, `forward_at()`, `left_at()`, `facing_frame()`, `_rest_leftward`, `reorient_rest_forward`.
-- `pybvh.transforms.auto_detect_lr_pairs()` — L/R index pair detection (module-level; reads `bvh.lr_mapping` internally)
-- `bvh.random_translate_root()`, `bvh.random_rotate_vertical()`, `bvh.random_perturb_speed()` — method wrappers for the `random_*` augmentation variants (same signatures as the module-level functions)
-- `bvh.matches_hierarchy(other, match_offsets=True, atol=1e-6)` — boolean predicate: True iff node names, parent structure, and (by default) rest offsets match. Pass `match_offsets=False` to ignore bone proportions when the caller is about to retarget. Channel layout / Euler orders are NOT compared.
-- `bvh.matches_channels(other)` — boolean predicate: True iff per-joint Euler rotation orders and root position-channel order match. The serialization half previously conflated into `matches_topology`.
-- `bvh.matches_topology(other)` — conjunction `matches_hierarchy(other) and matches_channels(other)`. Pre-0.7.0 this was a looser check (just `joint_names` + `euler_orders`); the new definition is stricter and additionally compares parent structure and rest offsets.
-- `bvh.source_path` — on-disk origin set by `read_bvh_file`; preserved through `copy()` / frame slicing / single-source concatenation; surfaced in `batch_to_numpy` error messages and `HarmonizeReport.kept_sources` / `dropped_sources`.
-- `pybvh.rotations.*` — rotation primitives (especially `quat_slerp`)
-- `pybvh.analysis.*` — motion analysis descriptors (`joint_velocities`, `foot_contacts`, etc.); `pybvh.features.*` — feature-array export (`to_feature_array`, `feature_array_layout`). The old mixed module was split by responsibility in v0.8.0.
-- `pybvh.batch.*` — batch loading and NumPy export, plus `batch.harmonize(clips, *, reference, target_fps, target_world_up, target_rest_up, target_rest_forward, target_euler_order, on_incompatible, verbose, return_report)` for dataset-level preprocessing (topology drop/raise + retarget + resample + three-axis reorient + Euler-order unification, applied in the order world_up → rest_up → rest_forward → euler_order). Emits one summary `UserWarning` per call on drops. With `return_report=True`, returns `(clips, HarmonizeReport)` — a JSON-serializable audit trail with per-clip `applied_stages` records suitable for embedding alongside preprocessed datasets. `read_bvh_directory` accepts `skip_errors=` to tolerate corrupt files. The normalization trio (`compute_normalization_stats` / `normalize_array` / `denormalize_array`) moved to pybvh-ml in v0.8.0.
-
-**Compatibility**: v0.6.0 removed all pre-0.6 `get_*` / `set_frames_from_*` / `scale_skeleton` / `change_skeleton` / `speed_perturbation` / `dropout_frames` etc. aliases outright (no deprecation cycle — the only known consumer, pybvh-ml, was briefed ahead of time). Code written against a pre-0.6 pybvh will `AttributeError` / `ImportError` until migrated. See `pybvh/API_RENAME.md` for the complete old → new mapping.
-
-### Design history: the emo_mocap review
-The two-library split was motivated by a detailed external review from a developer integrating pybvh into an ML project (emo_mocap, emotion recognition from motion capture). The review proposed 13 improvements. Our analysis:
-- **Implemented in pybvh**: `euler_orders` property, `auto_detect_lr_pairs`, `__eq__`, `edges` property, better docstrings (pending)
-- **Implemented in pybvh-ml**: tensor packing (CTV/TVC/flat), skeleton graph metadata, array-level augmentation (quaternion + 6D), speed perturbation/dropout on arrays, HDF5 preprocessing, PyTorch Datasets, body-part partitions
-- **Rejected**: linear Euler interpolation for dropout (mathematically unsound), framework-specific graph objects (too much coupling), `to_ml_tensor` as a Bvh method (extends `to_feature_array` instead)
-- **Key principle established**: pybvh owns motion data; pybvh-ml owns how ML consumes it
-
----
-
-## 13. Docs & Gallery Pipeline
-
-The mkdocs-material site (`mkdocs.yml`, built with `mkdocs build --strict` by `.github/workflows/docs.yml` on every pull request to `main`, job `docs-build`, and deployed by the same workflow on push to `main`, job `deploy`) has one generated page: the **Feature Gallery**.
-
-- **Source of truth**: `gallery/feature_gallery.ipynb` (jupytext-paired with `gallery/feature_gallery.py`; plotting helpers in `gallery/gallery_plots.py`), executed manually and committed **with outputs** — the docs build never executes it. One figure + one call per visual capability, journey-ordered (core library first, 0.8.0 descriptors after).
-- **Exporter**: `scripts/export_gallery.py` (stdlib + optional Pillow) converts the committed notebook into `docs/gallery/` (gitignored, regenerated by every docs build): a thumbnail grid with jump anchors, every figure as a cacheable lazy-loaded file, and **stable-named copies** (declared in its `STABLE_FIGURES` dict) that six guide pages embed inline — it raises if a stable pattern stops matching a cell. Markdown-cell clip images (absolute `raw.githubusercontent.com` URLs) are rewritten to local copies of the committed GIFs so the docs site stays self-contained.
-- **Guards**: `tests/test_gallery_notebook.py` (pair sync + output freshness + figures present + clips linked, not embedded), `tests/test_docs_api_coverage.py` (API-page completeness), and nbmake execution of the gallery in `tutorials.yml` (GIF cells tagged `slow-on-pr`).
-- **Animated clips are markdown images, never cell outputs.** GitHub's notebook renderer displays `image/png` outputs but silently drops `image/gif` ones, and does not resolve relative paths in markdown cells — so a clip is only visible on github.com as a markdown image with an absolute `raw.githubusercontent.com/VictorS-67/pybvh/main/...` URL (possible because the repo is public). The clip helpers in `gallery_plots.py` therefore return the *path* they wrote, the GIFs themselves are **committed** (`gallery/*.gif`, `tutorials/assets/*.gif`), and a markdown cell displays each one. The URL pins repo and branch: a fork or a feature-branch reader gets `main`'s clip, which is accepted; renames must update the URLs (the guard tests catch a URL that stops resolving).
-- **The figures depend on the inline backend.** No gallery cell calls `plt.show()` or `savefig` — every figure reaches the committed outputs through the inline backend's end-of-cell flush of open figures. That flush is not installed when `MPLBACKEND` names another backend, and the loss is silent: no warning, no error, execution counts still sequential. The setup cell therefore pins `%matplotlib inline`; keep it there, and re-execute with it in place. The same applies to the tutorials, which additionally *do* call `plt.show()` and so at least warn when it happens.
-- **Editing workflow**: edit `gallery/feature_gallery.py` → `jupytext --sync gallery/feature_gallery.ipynb` → `jupyter nbconvert --to notebook --execute --inplace gallery/feature_gallery.ipynb` → `python scripts/export_gallery.py` to preview. Full instructions: the contributors section of `docs/tutorials.md`.
-- The GIFs the notebook renders (`gallery/*.gif`) are **committed** and refreshed in place by re-execution — they are what the notebook's markdown cells display on github.com (see above), so they must never be gitignored. The hero copy at `docs/assets/hand-trajectory.gif` (referenced by the README via a raw.githubusercontent URL) is separate — refresh it manually when the trace figure changes.
+Every run-time import at module level points down this picture: a layer depends on nothing above it. Imports for type annotations only, under `TYPE_CHECKING`, are exempt: `tools` and `spatial_coord` name `Bvh` that way. `rotations`, `signal`, `geometry` and `FkTopology` know no clip: they take arrays, which lets a consumer pose and measure motion with no `Bvh` in hand, a data loader at train time for instance. Two kinds of import point up, and each sits inside the function that needs it, never at module level: a `Bvh` method that wraps another module's function, and the one function in `spatial_coord` that tells a `Bvh` from the other skeleton forms.
+
+## 2. The module map
+
+`docs/api/index.md` ("Modules at a glance") says what each public module offers a user. This map adds the boundaries, and the modules that page does not list.
+
+| Module | Owns | Does not |
+|---|---|---|
+| `io` | the `.bvh` text: parsing and writing, and the conversion from and to the degrees a file stores | build a node tree itself: `node_tree` does |
+| `dataframe` | a `Bvh` built from a pandas DataFrame, the inverse of `Bvh.to_df_dict` | import pandas at run time |
+| `bvhnode` | the node classes, each node's own fields and checks | know the tree as a whole, or any motion |
+| `node_tree` | the tree as a whole: the one builder, and the check `Bvh` runs on a finished tree | import anything but `bvhnode` |
+| `bvh` | one clip's state, validated and cached; the skeleton and frame edits; its angles in the other rotation representations | compute a descriptor, a transform or a picture, or read or write a file: those methods wrap their module's function |
+| `rotations` | every rotation representation and conversion, interpolation, SE(3), and the one Euler-to-matrix conversion | know a node or a clip |
+| `spatial_coord` | forward kinematics, and `FkTopology`, the arrays it reads | keep rotation math of its own |
+| `tools` | signed axes, the orientation a skeleton implies (world up, rest up and forward, L/R pairs, facing), and the input validators the package shares | import a `Bvh` at run time |
+| `_warnings` | where a warning points: the line of the user's code | |
+| `signal` | array-pure signal kernels | know a clip |
+| `geometry` | array-pure position descriptors | know a clip, or differentiate other than through `signal` |
+| `analysis` | the descriptors of a clip, as functions taking the `Bvh` first, and the array kernels behind the dynamics descriptors | assemble an export array |
+| `features` | the flat feature array and its column layout | compute a descriptor: it calls `analysis` |
+| `transforms` | spatial transforms and augmentation, on a clip and on raw arrays, and the reorientations | |
+| `batch` | many clips: loading a directory, harmonizing, stacking into one array | own a per-clip layout: it calls `features` |
+
+bvhplot (`pybvh/bvhplot/`) splits at its Scene: the router and `_from_bvh` read a `Bvh`, and no module behind them does. "The core" below means the package modules that know a clip or its nodes.
+
+| Module | Owns | Does not |
+|---|---|---|
+| `__init__` (the router) | the public functions; preparing the user's `Bvh` (timing, resampling, world-up checks, rest pose); choosing a backend; arranging a comparison | draw |
+| `_from_bvh` | turning a `Bvh` into a Scene: views, bones, camera presets, bone chains | get imported by any module but the router |
+| `_scene` | the Scene and its views, checked read-only data, and the operations that change a Scene | import a plotting library or the core |
+| `_viewport` | the geometry of one 3D picture: framing, floor, camera, schedule, projection | import a plotting library, or take more than array kernels from the core |
+| `_style` | `Style`, its presets and palettes, the ghost and trace conventions | import a plotting library |
+| `_colors` | the color resolution that needs matplotlib's color parser | |
+| `_playback` | the viewer's playback state machine | import a rendering library |
+| `_vedo_capsules` | the capsule geometry both vedo backends draw | |
+| `_matplotlib`, `_opencv`, `_k3d`, `_vedo`, `_vedo_offscreen` | drawing a Scene with a Style in one toolkit | compute a box, a floor or a camera of their own for a 3D picture (one exception: the floor of matplotlib's overlay `sequence`), or read the core; the 2D `trajectory` plot has no viewport, and `_matplotlib` frames it |
+
+## 3. Why the boundaries sit where they do
+
+- **A `Bvh` method computes nothing another module owns.** A descriptor, a transform or a picture is computed by its module, and the method only adapts the clip to it: it hands the `Bvh` itself to a function of `analysis`, `features`, `transforms`, `io` or bvhplot, or arrays read from it (positions, a speed, the frame time) to an array kernel of `geometry` or `analysis`. The computation has one home, documented there, and the `Bvh` stays the discoverable surface.
+- **One implementation per concern.** A node tree is built only by `node_tree` (the parser, `df_to_bvh` and `extract_joints` all go through it), so the checks are made in one place. The Euler-to-matrix conversion is only in `rotations`, and the orientation a skeleton implies is inferred only in `tools`, which `transforms`, `analysis` and bvhplot's follow camera call rather than keep their own. Skeleton topology has one derivation, `FkTopology.from_nodes`: forward kinematics runs on its result, `Bvh.fk_topology` returns it, and the edges and the bones bvhplot draws are views of that, so they cannot disagree with the geometry forward kinematics produces.
+- **Units change at the boundary.** The angles a `Bvh` holds are radians; the conversion from and to the degrees of a file or a DataFrame happens where those are read or written (`io`, `dataframe`, `Bvh.to_df_dict`).
+- **Descriptors, assembly and datasets are three modules.** `analysis` computes descriptors, `features` packs one clip's into an array, `batch` stacks clips and delegates each clip to `features`, so the column layout has one owner whether one clip or a dataset is exported.
+- **The scene ground and the contact reference are two quantities**, both in `analysis` and never substituted for one another: ADR 0002.
+- **bvhplot draws from a Scene, never from a `Bvh`.** Only the router and `_from_bvh` read a `Bvh`; `_viewport` computes each 3D picture's geometry from the Scene's views once (the 2D `trajectory` plot, matplotlib only, is framed by `_matplotlib`); a backend translates Scene, Style and viewport into its toolkit's calls. So every backend computes floor, framing and camera by the same rules: once per panel where it draws each skeleton in its own panel (matplotlib, OpenCV), once over all the views where it draws them in one scene (k3d, vedo), with one exception, the overlay `sequence`, which re-centers its sampled poses and takes its floor from their lowest point. Each backend can be tested from a Scene built from arrays (`tests/synthetic_scene.py`). The import guards in `tests/test_scene.py` pin the boundary and state what they cannot see. bvhplot's scope against pybvh-blender is `pybvh/bvhplot/CHARTER.md`; the vedo shadows are ADR 0001.
+
+## 4. Where the rest lives
+
+- The BVH format: `docs/guide/core-concepts.md`. The arrays, the index spaces and the node table: `GLOSSARY.md`. The forward-kinematics recurrence: `frames_to_node_positions`.
+- The bundled sample clips and what each is for: `bvh_data/README.md`. A quick tour of the API: `README.md` and `docs/api/index.md`.
+- The tests: what a test pins and how it asserts is in `CODING_STANDARDS.md` ("Tests"); clips and Scenes built from arrays with known properties come from `tests/synthetic_bvh.py` and `tests/synthetic_scene.py`; the frozen references, and when they may be regenerated, are in `tests/fixtures/README.md`. An invariant that holds across the package is pinned by one guard test, and every test file's docstring says what it covers.
+- The docs site, the gallery and the notebooks: `docs/tutorials.md` ("Editing the tutorials").
+- Dependencies, versions and tool configuration: `pyproject.toml`; the checks a pull request runs: `.github/workflows/`; how a change reaches `main`: `CONTRIBUTING.md`.
+- What changed between releases, old names included: `CHANGELOG.md` and `pybvh/API_RENAME.md`; the two release records: `CLAUDE.md`.

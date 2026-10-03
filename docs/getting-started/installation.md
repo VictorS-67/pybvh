@@ -20,7 +20,7 @@ Pandas is only used for DataFrame import/export — it is not required for core 
 
 ## Requirements
 
-- Python >= 3.9
+- Python >= 3.10
 - NumPy >= 1.21
 - Matplotlib >= 3.7
 
@@ -28,7 +28,7 @@ Optional visualization backends have their own requirements:
 
 - OpenCV: `opencv-python >= 4.5`
 - k3d: `k3d >= 2.14`
-- vedo: `vedo >= 2024.5`
+- vedo: `vedo >= 2025.5.3`
 
 !!! info "See also"
     [Quick Start](quickstart.md) — load your first file · [Feature Gallery](../gallery/index.md) — what pybvh can do, one picture per feature

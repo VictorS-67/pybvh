@@ -219,7 +219,7 @@ plt.show()
 # Some BVH files have a rest pose authored in one convention but animation data in another — e.g., the rest pose is a Y-up T-pose but the first frame's head-to-hips vector is closer to +Z. pybvh warns on load and picks the animation's convention, but the mismatch lingers in the rest pose itself. See the following example.
 
 # %%
-# bvh_test3 is the canonical example (per CONTEXT.md): rest pose suggests +y,
+# bvh_test3 is the canonical example (bvh_data/README.md): rest pose suggests +y,
 # animation plays in +z. pybvh warns on load.
 import warnings
 

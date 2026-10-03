@@ -7,7 +7,7 @@ This page describes how changes reach `main`. It applies to the maintainer as mu
 Create the development environment and run the test suite before you start:
 
 ```bash
-conda create -n pybvh python=3.12
+conda create -n pybvh python=3.10
 conda run -n pybvh pip install -e ".[dev,all-viz]"
 conda run -n pybvh pytest tests/ -v
 conda run -n pybvh pre-commit install

@@ -25,7 +25,6 @@ Convention note:
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Union
 
 import numpy as np
 import numpy.typing as npt
@@ -70,7 +69,7 @@ def _group_joints_by_order(
     return {o: np.asarray(idxs, dtype=np.intp) for o, idxs in groups.items()}
 
 
-def _parse_order(order: Union[str, Sequence[str]]) -> tuple[str | None, list[str] | None]:
+def _parse_order(order: str | Sequence[str]) -> tuple[str | None, list[str] | None]:
     """Classify the ``order`` argument.
 
     Returns ``(single_order, per_joint_orders)`` — exactly one is not None.
@@ -96,7 +95,7 @@ def _parse_order(order: Union[str, Sequence[str]]) -> tuple[str | None, list[str
 
 def euler_to_rotmat(
     angles: npt.ArrayLike,
-    order: Union[str, Sequence[str]],
+    order: str | Sequence[str],
     degrees: bool = False,
 ) -> npt.NDArray[np.float64]:
     """
@@ -169,7 +168,7 @@ def _euler_to_rotmat_rad(
 
 def rotmat_to_euler(
     R: npt.ArrayLike,
-    order: Union[str, Sequence[str]],
+    order: str | Sequence[str],
     degrees: bool = False,
 ) -> npt.NDArray[np.float64]:
     """
@@ -323,7 +322,7 @@ def rot6d_to_rotmat(rot6d: npt.ArrayLike) -> npt.NDArray[np.float64]:
 
 def euler_to_rot6d(
     angles: npt.ArrayLike,
-    order: Union[str, Sequence[str]],
+    order: str | Sequence[str],
     degrees: bool = False,
 ) -> npt.NDArray[np.float64]:
     """
@@ -347,7 +346,7 @@ def euler_to_rot6d(
 
 def rot6d_to_euler(
     rot6d: npt.ArrayLike,
-    order: Union[str, Sequence[str]],
+    order: str | Sequence[str],
     degrees: bool = False,
 ) -> npt.NDArray[np.float64]:
     """
@@ -557,7 +556,7 @@ def quat_to_rotmat(q: npt.ArrayLike) -> npt.NDArray[np.float64]:
 
 def euler_to_quat(
     angles: npt.ArrayLike,
-    order: Union[str, Sequence[str]],
+    order: str | Sequence[str],
     degrees: bool = False,
 ) -> npt.NDArray[np.float64]:
     """
@@ -582,7 +581,7 @@ def euler_to_quat(
 
 def quat_to_euler(
     q: npt.ArrayLike,
-    order: Union[str, Sequence[str]],
+    order: str | Sequence[str],
     degrees: bool = False,
 ) -> npt.NDArray[np.float64]:
     """
@@ -816,7 +815,7 @@ def axisangle_to_rotmat(aa: npt.ArrayLike) -> npt.NDArray[np.float64]:
 
 def euler_to_axisangle(
     angles: npt.ArrayLike,
-    order: Union[str, Sequence[str]],
+    order: str | Sequence[str],
     degrees: bool = False,
 ) -> npt.NDArray[np.float64]:
     """
@@ -841,7 +840,7 @@ def euler_to_axisangle(
 
 def axisangle_to_euler(
     aa: npt.ArrayLike,
-    order: Union[str, Sequence[str]],
+    order: str | Sequence[str],
     degrees: bool = False,
 ) -> npt.NDArray[np.float64]:
     """
@@ -955,7 +954,7 @@ def convert(
     from_repr: str,
     to_repr: str,
     *,
-    order: Union[str, Sequence[str], None] = None,
+    order: str | Sequence[str] | None = None,
     degrees: bool = False,
 ) -> npt.NDArray[np.float64]:
     """Convert rotation data between representations via a string alias.

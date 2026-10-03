@@ -164,7 +164,7 @@ New in the same release (no old names): `Bvh.from_file(path)`, `Bvh.from_df(hier
 
 | Old pattern | New pattern | Notes |
 |---|---|---|
-| `bvh.joint_names.index(name)` | `bvh.joint_index[name]` | **Addition, not a rename.** `joint_names` still exists and still returns a plain `list[str]`; `.index()` still works. The new `joint_index` dict is the preferred lookup because it mirrors `node_index` (same dict shape) and its name matches the array it indexes. See [CONTEXT.md §5.2](CONTEXT.md). |
+| `bvh.joint_names.index(name)` | `bvh.joint_index[name]` | **Addition, not a rename.** `joint_names` still exists and still returns a plain `list[str]`; `.index()` still works. The new `joint_index` dict is the preferred lookup because it mirrors `node_index` (same dict shape) and its name matches the array it indexes. See the index spaces in [GLOSSARY.md](https://github.com/VictorS-67/pybvh/blob/main/GLOSSARY.md#index-spaces). |
 
 ## Bvh class — I/O
 

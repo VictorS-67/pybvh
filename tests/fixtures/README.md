@@ -6,6 +6,8 @@ The directory also holds two hand-written **parser-edge `.bvh` fixtures** used b
 
 It also holds `pr_hygiene_event.json`, a recorded `pull_request` event payload (PR #54, trimmed) that `tests/test_check_pr_hygiene.py` feeds to the pr-hygiene check.
 
+And it holds `public_namespace.txt`, the names a user can import from the package and from each of its public modules, which `tests/test_public_namespace.py` compares with the live package; the test's docstring says which names count. After a deliberate change to the public surface, `python tests/test_public_namespace.py` rewrites the list, and the edit to it shows the change in the diff.
+
 ## Running the tests (no reference libraries needed)
 
 The `.npz` fixtures here are **committed**, and the tests (`tests/test_*_golden.py`) only `np.load` them. So anyone who clones the repo can run the full suite with just the normal dev deps — **scipy / pytransform3d are *not* required to run tests**:
@@ -55,8 +57,11 @@ Each fixture embeds a `meta` JSON string documenting the exact convention mappin
 | `rotation_geodesic.npz` | (R1, R2) → angle | scipy | skips until `rotations.rotation_geodesic_distance` |
 | `smoothness.npz` | speed profile → SPARC / DLJ / LDLJ | siva82kb/SPARC (ISC) | `test_smoothness_golden.py` (skips until `analysis.sparc` etc.) |
 | `foot_contacts_pinned.npz` | CMU walk clip → contacts + full `info` dict for 9 `foot_contacts` parameterizations | **pybvh itself (behavior pin)** | `test_analysis.py::TestFootContactsPinnedGolden` (active) |
+| `follow_azimuths_pinned.npz` | CMU walk clip → the follow camera's azimuth per frame (degrees, base azimuth −20°) | **pybvh itself (behavior pin)** | `test_plot.py::TestComputeFollowAzimuths` (active) |
 
 **`foot_contacts_pinned.npz` is a behavior pin, not a reference fixture:** it freezes pybvh's *own* `foot_contacts` output bit-exactly so refactors of the contacts machinery can be proven behavior-neutral. It is excluded from the default generator run and regenerates only via `conda run -n pybvh python tests/fixtures/generate_fixtures.py --foot-contacts-pin` — and doing so **re-baselines the pin**, so the committed file must come from the pre-refactor tree; never regenerate it to make a failing pin test pass.
+
+`follow_azimuths_pinned.npz` is a second behavior pin of the same kind, of the follow camera's azimuth schedule: it proves that a refactor of the facing geometry or of the viewport does not move the camera. `test_plot.py::TestComputeFollowAzimuths` compares both `compute_follow_azimuths` and the viewport's `follow` schedule with it, and writes seven of its values out, so a re-baselined fixture fails there. It regenerates only via `conda run -n pybvh python tests/fixtures/generate_fixtures.py --follow-azimuths-pin`, which re-baselines the pin, under the same rule.
 
 The SE(3)/smoothness tests are committed now (pre-built oracles) and **skip until the corresponding functions exist**, then auto-validate. SE(3) fixtures deliberately over-cover the failure-prone regimes: θ→0 (V left-Jacobian Taylor), θ→π (log branch), pure translation, and large-translation V-coupling.
 

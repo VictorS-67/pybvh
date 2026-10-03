@@ -1,6 +1,6 @@
 # Coding standards
 
-The rules a change to pybvh is reviewed against. They are written for the reviewer: the review before ready (`CONTRIBUTING.md`) holds the diff to this file, and so does the maintainer. An implementer reads it once, before shaping a public surface, not while writing every line. The design principles and the ownership boundaries are in `CLAUDE.md`, the branch, commit and pull-request rules in `CONTRIBUTING.md`, and the codebase's state, fixtures and test files in `CONTEXT.md`.
+The rules a change to pybvh is reviewed against. They are written for the reviewer: the review before ready (`CONTRIBUTING.md`) holds the diff to this file, and so does the maintainer. An implementer reads it once, before shaping a public surface, not while writing every line. The design principles and the ownership boundaries are in `CLAUDE.md`, the branch, commit and pull-request rules in `CONTRIBUTING.md`, and which module inside the package owns what, and why, in `CONTEXT.md`.
 
 A rule a check can enforce does not stay here: once a test or a CI step holds it, the check is the rule and the entry goes. The last section lists the mechanical rules still waiting for their check.
 
@@ -35,7 +35,7 @@ Non-negotiable across every change to the codebase:
 - A mutation method takes `inplace=False` by default and returns a modified copy; with `inplace=True` it modifies `self` and returns `None`.
 - What a method hands out, the caller may mutate: `copy()` deep-copies, `to_node_table()` copies offsets. An array that must not be written is returned read-only.
 - `rot_channels` and `pos_channels` are frozen after `Bvh.__init__`; a change goes through `change_euler_order()`.
-- Nodes are resolved by identity and position, never by name: node names are not unique (two end sites of one joint share a generated name, and real files repeat joint names).
+- Nodes are resolved by identity and position, never by name: node names are not unique (two end sites of one joint share a generated name, and real files repeat joint names). A node's kind is read through `is_end_site()` and `is_root()`, never from its name: an end site's generated name is cosmetic.
 - Angles are radians inside the package and degrees in files and DataFrames; the conversion happens at the I/O boundary only. A docstring states the shape and unit of every array it takes or returns.
 - Names are `snake_case`; `_private` marks what is not public. A new public name is listed in the API reference under `docs/api/`.
 
@@ -59,3 +59,4 @@ Non-negotiable across every change to the codebase:
 Held by the reviewer until a test or a CI step takes them over; each leaves this file when its check lands.
 
 - Markdown prose is not hard-wrapped in notebook markdown cells and PR bodies: one paragraph is one line. The suite checks `.md` files and the commit-message check covers commit bodies. Docstrings and code comments wrap at the code's line length.
+- Every `# type: ignore` names its error code (`# type: ignore[call-overload]`), so that it silences that error alone. The check is mypy's `ignore-without-code` error code, once `[tool.mypy]` enables it.

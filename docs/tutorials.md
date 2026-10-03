@@ -80,6 +80,8 @@ Static figures reach GitHub as `image/png` cell outputs, but that route does not
 ![the clip](https://raw.githubusercontent.com/VictorS-67/pybvh/main/tutorials/assets/my_clip.gif)
 ```
 
+The URL pins the repository and the `main` branch: a reader of a fork or of a feature branch sees `main`'s clip, which is accepted, and a clip that is renamed or moved needs its URL updated.
+
 So for any animated clip: write the GIF to a committed location (`tutorials/assets/` for tutorials, `gallery/` for the gallery — the rendering cell just returns the path), commit the file, and display it from a markdown cell as above. Never return `IPython.display.Image` from a cell — besides being invisible on GitHub, it embeds the GIF a second time as base64 inside the `.ipynb`. `tests/test_tutorial_notebooks.py` and `tests/test_gallery_notebook.py` enforce both halves: no `image/gif` cell outputs anywhere, and every markdown image an absolute `raw.githubusercontent.com` URL that resolves to a committed, non-gitignored file.
 
 ### Cell-level execution control on CI
@@ -110,7 +112,7 @@ This is also safe to run as a pre-commit step. A future commit may add a pre-com
 
 ### The Feature Gallery page
 
-The [Gallery](gallery/index.md) docs page is **generated** from `gallery/feature_gallery.ipynb` (a Jupytext pair like the tutorials, executed and committed with outputs). CI regenerates it on every deploy; `docs/gallery/` is gitignored — never edit it by hand. To preview locally:
+The [Gallery](gallery/index.md) docs page is **generated** from `gallery/feature_gallery.ipynb` (a Jupytext pair like the tutorials, executed and committed with outputs). CI regenerates it in every docs build, the strict build each pull request runs and the deploy on a push to `main`; `docs/gallery/` is gitignored, so never edit it by hand. The exporter rewrites each clip's absolute `raw.githubusercontent.com` URL to a local copy of the committed GIF, so the docs site serves its own clips. To preview locally:
 
 ```bash
 python scripts/export_gallery.py
@@ -122,3 +124,5 @@ After editing gallery code cells, re-execute the notebook (`jupyter nbconvert --
 The gallery's setup cell pins `%matplotlib inline` for the same reason the tutorials do, and it matters more here: no gallery cell calls `plt.show()`, so every figure arrives via the inline backend's end-of-cell flush of open figures. Under a different `MPLBACKEND` they vanish without even a warning — sequential execution counts, clean stderr, and an empty docs page.
 
 A handful of figures are also embedded inline in the guide pages via stable names (`docs/gallery/img/centered-modes.png`, …) declared in `STABLE_FIGURES` inside [`scripts/export_gallery.py`](https://github.com/VictorS-67/pybvh/blob/main/scripts/export_gallery.py); the exporter fails loudly if a gallery refactor breaks one of those matches.
+
+The animation at the top of the README and of the docs home, `docs/assets/hand-trajectory.gif`, is not a gallery figure and nothing regenerates it. It draws `bvhplot`'s default look, so when that look changes, rerun `python scripts/make_hero_gif.py` by hand and commit the new file.

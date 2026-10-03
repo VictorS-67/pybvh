@@ -10,7 +10,7 @@ import dataclasses
 import inspect
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any
 
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
@@ -117,7 +117,7 @@ class _DepthSortedLine3DCollection(Line3DCollection):
         )
         LineCollection.set_segments(self, list(segs_2d[order]))
         if len(self._base_edgecolors) == len(segs):
-            LineCollection.set_color(self, self._base_edgecolors[order])
+            LineCollection.set_color(self, self._base_edgecolors[order])  # type: ignore[arg-type]  # stub takes a sequence of colors, not the (N, 4) RGBA array set_color accepts
         return float(depth.min())
 
 
@@ -364,7 +364,7 @@ def _draw_floor_trace(
 
 
 def _new_3d_figure(
-    figsize: tuple[float, float], dpi: Optional[int]
+    figsize: tuple[float, float], dpi: int | None
 ) -> tuple[matplotlib.figure.Figure, Axes3D]:
     """A new figure holding a single 3D axes.
 
@@ -385,7 +385,7 @@ def sequence_mpl(
     trajectory: bool = True,
     figsize: tuple[float, float] | None = None,
     show: bool = False,
-    ax: Optional[Axes3D] = None,
+    ax: Axes3D | None = None,
 ) -> tuple[matplotlib.figure.Figure, Axes3D]:
     """The motion-paper sequence still: sampled poses, lighter = past.
 
@@ -486,8 +486,8 @@ def frame_mpl(
     *,
     figsize: tuple[float, float] | None = None,
     show: bool = False,
-    ax: Optional[Axes3D] = None,
-) -> tuple[matplotlib.figure.Figure, Union[Axes3D, list[Axes3D]]]:
+    ax: Axes3D | None = None,
+) -> tuple[matplotlib.figure.Figure, Axes3D | list[Axes3D]]:
     """Render one or more skeletons as static 3D subplots.
 
     Parameters
@@ -1208,7 +1208,10 @@ def trajectory_mpl(
     if show:
         plt.show()
 
-    return fig, ax
+    # An ax inside a SubFigure hands back that SubFigure, which the
+    # annotation calls a Figure (frame and sequence do the same, unseen by
+    # mypy since Axes3D is Any). #88 returns the root figure instead.
+    return fig, ax  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------

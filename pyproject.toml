@@ -92,8 +92,8 @@ select = ["E", "F", "I", "W", "B", "UP", "D1", "D417"]
 # their own (__eq__, __getitem__, __add__, ...) should carry one, but the rule
 # cannot tell the two kinds apart. B905 (zip() without strict=) applies from
 # Python 3.10 on, and the zips written before it each need a choice: strict=True
-# where the lengths must agree, strict=False where truncating is meant. TODO:
-# make that choice at each zip and drop B905 from this list.
+# where the lengths must agree, strict=False where truncating is meant. #87
+# makes that choice at each zip and drops B905 from this list.
 ignore = ["E501", "D105", "B905"]
 
 [tool.ruff.lint.isort]

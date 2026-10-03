@@ -8,10 +8,12 @@ Create the development environment and run the test suite before you start:
 
 ```bash
 conda create -n pybvh python=3.10
-conda run -n pybvh pip install -e ".[dev,all-viz]"
+conda run -n pybvh pip install -e ".[all-viz]" --group dev
 conda run -n pybvh pytest tests/ -v
 conda run -n pybvh pre-commit install
 ```
+
+The `dev` dependency group in `pyproject.toml` holds the tools for working on pybvh: pytest and what the tests import, ruff and mypy at the versions CI runs, and pre-commit. pip installs dependency groups from version 25.1 on.
 
 The last line installs the git hooks once per clone: on every commit, ruff and ruff format run on the staged files and the message is checked against the rules under "Commits", the same checks CI runs on a pull request.
 

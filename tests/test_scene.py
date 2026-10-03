@@ -1168,27 +1168,35 @@ class TestSceneIsCheckedAtConstruction:
         assert scene.spread("auto").num_frames == 12
 
 
-# The pybvh modules that know what a Bvh is. bvhplot keeps them behind a
-# module boundary: the router and _from_bvh are the Bvh-facing layer, and
-# only the router imports _from_bvh; every other module draws or computes
-# from the Scene and takes nothing from the core at runtime, except the
-# viewport, which may take array kernels.
+# The pybvh modules that know a clip or its nodes: the core, as CONTEXT.md's
+# module map names it. bvhplot keeps them behind a module boundary: the
+# router and _from_bvh are the Bvh-facing layer, and only the router imports
+# _from_bvh; every other module draws or computes from the Scene and takes
+# nothing from the core at runtime, except the viewport, which may take
+# array kernels.
 _CORE_MODULES = {
+    "analysis",
+    "batch",
     "bvh",
     "bvhnode",
-    "tools",
-    "analysis",
-    "transforms",
-    "spatial_coord",
-    "batch",
+    "dataframe",
     "features",
     "io",
-    "df_to_bvh",
+    "node_tree",
+    "spatial_coord",
+    "tools",
+    "transforms",
 }
+# The rest of pybvh knows no clip, so any bvhplot module may import it: the
+# array-pure math and the helper that points a warning at the user's line.
+# That they stay so is not checked here: a Bvh import added to one of them
+# would reach bvhplot through it unseen.
+_NOT_CORE = {"_warnings", "geometry", "rotations", "signal"}
 _ROUTER = "__init__"
 _BVH_READER = "_from_bvh"
-# Pure data: no plotting library may be imported here.
-_PURE_DATA = ["_scene", "_viewport", "_style", "_from_bvh"]
+# No plotting library may be imported here: the pure-data modules, and the
+# playback state machine, which the viewer drives.
+_PURE_DATA = ["_scene", "_viewport", "_style", "_from_bvh", "_playback"]
 # Array-pure kernels the viewport may take from pybvh.tools: they take
 # arrays, never a Bvh.
 _VIEWPORT_KERNELS = {"_leftward_units_from_pairs"}
@@ -1625,9 +1633,9 @@ class TestSiblingImportGuard:
 class TestSceneIsPureData:
     @pytest.mark.parametrize("module_name", _PURE_DATA)
     def test_no_plotting_imports_in_pure_data_modules(self, module_name):
-        """The Scene, the viewport, the Style and the Bvh reader must
-        never import a plotting library, by any of its top-level
-        package names."""
+        """The Scene, the viewport, the Style, the Bvh reader and the
+        playback clock must never import a plotting library, by any of
+        its top-level package names."""
         tree = ast.parse(_module_source(module_name))
         imported: set[str] = set()
         for node in ast.walk(tree):
@@ -1678,6 +1686,18 @@ class TestSceneIsPureData:
             "_playback",
         } <= set(_BEHIND_THE_BOUNDARY)
         assert _BVH_READER in _bvhplot_modules()
+
+    def test_the_core_list_covers_pybvh(self):
+        """The core is listed by hand, so every pybvh module, read from
+        disk, must be sorted into it or out of it: a module added or
+        renamed in the core would otherwise drop out of the guards
+        unnoticed, as ``df_to_bvh`` did when it became ``dataframe``.
+        Only top-level modules are read; bvhplot is pybvh's one
+        subpackage."""
+        package_dir = pathlib.Path(bvhplot.__file__).parent.parent
+        modules = {path.stem for path in package_dir.glob("*.py")} - {"__init__"}
+        assert not (_CORE_MODULES & _NOT_CORE)
+        assert modules == _CORE_MODULES | _NOT_CORE
 
     @pytest.mark.parametrize("module_name", _CORE_FREE)
     def test_takes_nothing_from_the_core_at_runtime(self, module_name):

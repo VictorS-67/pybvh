@@ -5,7 +5,7 @@
 A BVH file has two sections:
 
 - **HIERARCHY** — defines a skeleton as a tree of joints. Each joint has an offset (bone vector from parent) and rotation channels (e.g., `Zrotation Yrotation Xrotation`). Leaf nodes called "End Sites" have only an offset.
-- **MOTION** — per-frame data. Each frame is a row of floats: root position (3 values) followed by Euler angles for every joint.
+- **MOTION** holds the per-frame data: the number of frames (`Frames:`), the seconds per frame (`Frame Time:`), then one row of floats per frame. Its columns are the channels in the order the HIERARCHY declares them, depth-first: the root's six values (position and rotation) first, then three Euler angles for every joint other than the root.
 
 ## The Bvh object
 

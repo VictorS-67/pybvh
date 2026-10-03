@@ -1,0 +1,281 @@
+# The public namespace of pybvh. tests/test_public_namespace.py compares it
+# with the live package, and its docstring says which names count. After a
+# deliberate change to the public surface, regenerate this file and commit it:
+#
+#     python tests/test_public_namespace.py
+
+pybvh.Axis
+pybvh.Bvh
+pybvh.FkTopology
+pybvh.HarmonizeReport
+pybvh.analysis
+pybvh.batch
+pybvh.batch_to_numpy
+pybvh.bvh
+pybvh.bvhnode
+pybvh.bvhplot
+pybvh.dataframe
+pybvh.df_to_bvh
+pybvh.features
+pybvh.frames_to_node_positions
+pybvh.geometry
+pybvh.harmonize
+pybvh.io
+pybvh.node_tree
+pybvh.nodes_from_table
+pybvh.nodes_to_table
+pybvh.parse_axis
+pybvh.read_bvh_directory
+pybvh.read_bvh_file
+pybvh.relative_scale_factor
+pybvh.rotations
+pybvh.signal
+pybvh.spatial_coord
+pybvh.tools
+pybvh.transforms
+pybvh.write_bvh_file
+from pybvh import * binds Axis
+from pybvh import * binds Bvh
+from pybvh import * binds FkTopology
+from pybvh import * binds HarmonizeReport
+from pybvh import * binds analysis
+from pybvh import * binds annotations
+from pybvh import * binds batch
+from pybvh import * binds batch_to_numpy
+from pybvh import * binds bvh
+from pybvh import * binds bvhnode
+from pybvh import * binds bvhplot
+from pybvh import * binds dataframe
+from pybvh import * binds df_to_bvh
+from pybvh import * binds features
+from pybvh import * binds frames_to_node_positions
+from pybvh import * binds geometry
+from pybvh import * binds harmonize
+from pybvh import * binds io
+from pybvh import * binds node_tree
+from pybvh import * binds nodes_from_table
+from pybvh import * binds nodes_to_table
+from pybvh import * binds parse_axis
+from pybvh import * binds read_bvh_directory
+from pybvh import * binds read_bvh_file
+from pybvh import * binds relative_scale_factor
+from pybvh import * binds rotations
+from pybvh import * binds signal
+from pybvh import * binds spatial_coord
+from pybvh import * binds tools
+from pybvh import * binds transforms
+from pybvh import * binds write_bvh_file
+
+pybvh.analysis.Bvh
+pybvh.analysis.BvhNode
+pybvh.analysis.DLJ_NORMALIZERS
+pybvh.analysis.FacingFrame
+pybvh.analysis.GaitParameters
+pybvh.analysis.VelocityReductions
+pybvh.analysis.active_duration
+pybvh.analysis.active_segments
+pybvh.analysis.angular_velocities
+pybvh.analysis.auto_detect_foot_joints
+pybvh.analysis.box_filter_smooth
+pybvh.analysis.cadence
+pybvh.analysis.cov3dj
+pybvh.analysis.dimensionless_jerk
+pybvh.analysis.facing_frame
+pybvh.analysis.foot_contacts
+pybvh.analysis.gait_parameters
+pybvh.analysis.geometry
+pybvh.analysis.ground_contacts
+pybvh.analysis.integrated_squared_jerk
+pybvh.analysis.joint_accelerations
+pybvh.analysis.joint_jerk
+pybvh.analysis.joint_speed_derivative
+pybvh.analysis.joint_velocities
+pybvh.analysis.kinetic_energy
+pybvh.analysis.lagged_covariance
+pybvh.analysis.log_dimensionless_jerk
+pybvh.analysis.mean_squared_jerk
+pybvh.analysis.node_accelerations
+pybvh.analysis.node_jerk
+pybvh.analysis.node_speed_derivative
+pybvh.analysis.node_velocities
+pybvh.analysis.number_of_peaks
+pybvh.analysis.range_of_motion
+pybvh.analysis.relative_scale_factor
+pybvh.analysis.rms_squared_jerk
+pybvh.analysis.root_trajectory
+pybvh.analysis.rotations
+pybvh.analysis.skeleton_size
+pybvh.analysis.smoothness
+pybvh.analysis.sparc
+pybvh.analysis.speed_metric
+pybvh.analysis.stride_length
+pybvh.analysis.user_stacklevel
+pybvh.analysis.velocity_reductions
+pybvh.analysis.walking_pace
+pybvh.analysis.zero_crossings
+
+pybvh.batch.Bvh
+pybvh.batch.HarmonizeReport
+pybvh.batch.batch_to_numpy
+pybvh.batch.harmonize
+pybvh.batch.read_bvh_directory
+pybvh.batch.to_feature_array
+pybvh.batch.user_stacklevel
+
+pybvh.bvh.Axis
+pybvh.bvh.Bvh
+pybvh.bvh.BvhEndSite
+pybvh.bvh.BvhJoint
+pybvh.bvh.BvhNode
+pybvh.bvh.BvhRoot
+pybvh.bvh.FkTopology
+pybvh.bvh.frames_to_node_positions
+pybvh.bvh.nodes_from_table
+pybvh.bvh.nodes_to_table
+pybvh.bvh.parse_axis
+pybvh.bvh.rotations
+pybvh.bvh.user_stacklevel
+
+pybvh.bvhnode.BvhEndSite
+pybvh.bvhnode.BvhJoint
+pybvh.bvhnode.BvhNode
+pybvh.bvhnode.BvhRoot
+
+pybvh.bvhplot.Scene
+pybvh.bvhplot.Style
+pybvh.bvhplot.align_frame_counts
+pybvh.bvhplot.as_clip_list
+pybvh.bvhplot.frame
+pybvh.bvhplot.get_skeleton_lines
+pybvh.bvhplot.make_scene
+pybvh.bvhplot.normalize_input
+pybvh.bvhplot.play
+pybvh.bvhplot.render
+pybvh.bvhplot.resolve_style
+pybvh.bvhplot.rest_pose
+pybvh.bvhplot.sequence
+pybvh.bvhplot.trajectory
+pybvh.bvhplot.user_stacklevel
+from pybvh.bvhplot import * binds Style
+from pybvh.bvhplot import * binds frame
+from pybvh.bvhplot import * binds play
+from pybvh.bvhplot import * binds render
+from pybvh.bvhplot import * binds rest_pose
+from pybvh.bvhplot import * binds sequence
+from pybvh.bvhplot import * binds trajectory
+
+pybvh.dataframe.Bvh
+pybvh.dataframe.BvhNode
+pybvh.dataframe.df_to_bvh
+pybvh.dataframe.nodes_from_table
+pybvh.dataframe.nodes_to_table
+
+pybvh.features.Bvh
+pybvh.features.feature_array_layout
+pybvh.features.foot_contacts
+pybvh.features.joint_velocities
+pybvh.features.to_feature_array
+
+pybvh.geometry.BoundingBox
+pybvh.geometry.BoundingEllipsoid
+pybvh.geometry.BoundingSphere
+pybvh.geometry.GroundPath
+pybvh.geometry.bounding_box
+pybvh.geometry.bounding_ellipsoid
+pybvh.geometry.bounding_sphere
+pybvh.geometry.center_of_mass
+pybvh.geometry.com_displacement
+pybvh.geometry.curvature
+pybvh.geometry.directness
+pybvh.geometry.finite_difference
+pybvh.geometry.ground_path
+pybvh.geometry.inter_joint_distance
+pybvh.geometry.joint_angle
+pybvh.geometry.mean_pose_subtract
+pybvh.geometry.movement_phase
+pybvh.geometry.path_length
+pybvh.geometry.point_to_plane_distance
+pybvh.geometry.point_to_segment_distance
+pybvh.geometry.pose_distance
+pybvh.geometry.segment_axis_angle
+pybvh.geometry.torsion
+pybvh.geometry.triangle_area
+pybvh.geometry.verticality
+
+pybvh.io.Bvh
+pybvh.io.BvhNode
+pybvh.io.nodes_from_table
+pybvh.io.read_bvh_file
+pybvh.io.write_bvh_file
+
+pybvh.node_tree.BvhEndSite
+pybvh.node_tree.BvhJoint
+pybvh.node_tree.BvhNode
+pybvh.node_tree.BvhRoot
+pybvh.node_tree.nodes_from_table
+pybvh.node_tree.nodes_to_table
+
+pybvh.rotations.REPRESENTATION_CHANNELS
+pybvh.rotations.axisangle_to_euler
+pybvh.rotations.axisangle_to_rotmat
+pybvh.rotations.convert
+pybvh.rotations.euler_to_axisangle
+pybvh.rotations.euler_to_quat
+pybvh.rotations.euler_to_rot6d
+pybvh.rotations.euler_to_rotmat
+pybvh.rotations.mean_rotation
+pybvh.rotations.quat_multiply
+pybvh.rotations.quat_slerp
+pybvh.rotations.quat_to_euler
+pybvh.rotations.quat_to_rotmat
+pybvh.rotations.quat_unwrap
+pybvh.rotations.relative_transform
+pybvh.rotations.rot6d_to_euler
+pybvh.rotations.rot6d_to_rotmat
+pybvh.rotations.rotation_geodesic_distance
+pybvh.rotations.rotmat_to_axisangle
+pybvh.rotations.rotmat_to_euler
+pybvh.rotations.rotmat_to_quat
+pybvh.rotations.rotmat_to_rot6d
+pybvh.rotations.screw_interpolate
+pybvh.rotations.se3_exp
+pybvh.rotations.se3_inverse
+pybvh.rotations.se3_log
+
+pybvh.signal.TemporalStats
+pybvh.signal.box_filter_smooth
+pybvh.signal.dominant_frequency
+pybvh.signal.fft_magnitude
+pybvh.signal.finite_difference
+pybvh.signal.ramer_douglas_peucker
+pybvh.signal.temporal_stats
+
+pybvh.spatial_coord.BvhNode
+pybvh.spatial_coord.FkTopology
+pybvh.spatial_coord.euler_to_rotmat
+pybvh.spatial_coord.frames_to_node_positions
+
+pybvh.tools.Axis
+pybvh.tools.extract_sign
+pybvh.tools.get_main_direction
+pybvh.tools.parse_axis
+pybvh.tools.user_stacklevel
+
+pybvh.transforms.BvhJoint
+pybvh.transforms.add_position_noise
+pybvh.transforms.add_rotation_noise
+pybvh.transforms.auto_detect_lr_pairs
+pybvh.transforms.drop_frames
+pybvh.transforms.mirror
+pybvh.transforms.mirror_angles
+pybvh.transforms.perturb_speed
+pybvh.transforms.random_perturb_speed
+pybvh.transforms.random_rotate_vertical
+pybvh.transforms.random_translate_root
+pybvh.transforms.reorient_rest_forward
+pybvh.transforms.reorient_rest_up
+pybvh.transforms.reorient_world_up
+pybvh.transforms.rotate_angles_vertical
+pybvh.transforms.rotate_vertical
+pybvh.transforms.rotations
+pybvh.transforms.translate_root

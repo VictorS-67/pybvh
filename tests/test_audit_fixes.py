@@ -32,7 +32,7 @@ from synthetic_bvh import (
 from pybvh import Bvh, read_bvh_file, rotations, transforms
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
-EXAMPLE = str(BVH_DIR / "bvh_example.bvh")
+EXAMPLE = str(BVH_DIR / "bvh_test1.bvh")
 
 
 # ========================================================================

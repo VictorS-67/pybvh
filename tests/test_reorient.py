@@ -30,7 +30,7 @@ from pybvh.tools import (
 )
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
-EXAMPLE = str(BVH_DIR / "bvh_example.bvh")
+EXAMPLE = str(BVH_DIR / "bvh_test1.bvh")
 TEST3 = str(BVH_DIR / "bvh_test3.bvh")  # disagreement file
 
 

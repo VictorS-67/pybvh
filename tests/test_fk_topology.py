@@ -22,7 +22,7 @@ BVH_DATA = Path(__file__).parent.parent / "bvh_data"
 
 @pytest.fixture
 def bvh_example():
-    return read_bvh_file(BVH_DATA / "bvh_example.bvh")
+    return read_bvh_file(BVH_DATA / "bvh_test1.bvh")
 
 
 @pytest.fixture
@@ -87,7 +87,7 @@ class TestFromNodes:
 class TestForwardKinematicsFromArrays:
     """A topology reproduces the node-object path exactly."""
 
-    @pytest.mark.parametrize("filename", ["bvh_example.bvh", "cmu_12_01_walk.bvh", "bvh_test3.bvh"])
+    @pytest.mark.parametrize("filename", ["bvh_test1.bvh", "cmu_12_01_walk.bvh", "bvh_test3.bvh"])
     def test_matches_the_bvh_path(self, filename):
         """Bit-exact: the array path is the same computation, not an approximation."""
         bvh = read_bvh_file(BVH_DATA / filename)
@@ -96,7 +96,7 @@ class TestForwardKinematicsFromArrays:
         )
         np.testing.assert_array_equal(result, bvh.node_positions())
 
-    @pytest.mark.parametrize("filename", ["bvh_example.bvh", "cmu_12_01_walk.bvh", "bvh_test3.bvh"])
+    @pytest.mark.parametrize("filename", ["bvh_test1.bvh", "cmu_12_01_walk.bvh", "bvh_test3.bvh"])
     def test_matches_the_bvh_path_skeleton_centered(self, filename):
         """Same geometry, but not bit-exact by design.
 

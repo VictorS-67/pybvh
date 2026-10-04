@@ -393,7 +393,7 @@ print(f"Step 3 — Converted, D = {arrays[0].shape[1]}")
 
 # 4. Save
 np.savez(output_folder / "dataset.npz", **{f"clip_{i}": a for i, a in enumerate(arrays)})
-print(f"Step 4 — Saved {len(arrays)} clips to {output_folder}/")
+print(f"Step 4 — Saved {len(arrays)} clip(s) to {output_folder}/")
 
 # Clean up (for tutorial reruns)
 (output_folder / "dataset.npz").unlink()

@@ -67,7 +67,7 @@ for i, b in enumerate(bvh_list):
 # The `pattern` parameter accepts glob patterns. Common uses: restrict to a sub-category (`'*walk*.bvh'`), exclude metadata files (`'subject*.bvh'`), or handle nested structure (`'*/*.bvh'`).
 
 # %%
-# Only files starting with 'bvh_test' (excludes bvh_example.bvh and standard_skeleton.bvh)
+# Only files starting with 'bvh_test' (excludes cmu_12_01_walk.bvh and standard_skeleton.bvh)
 test_files = batch.read_bvh_directory(bvh_folder, pattern="bvh_test*.bvh")
 print(f'Loaded {len(test_files)} of {len(bvh_list)} files matching "bvh_test*.bvh"')
 
@@ -123,21 +123,18 @@ for i, b in enumerate(bvh_list_zup):
 # If neither tool applies — e.g., finger-rich files vs. body-only files with no sensible common subset — the practical answer is to **drop the incompatible files**.
 
 # %%
-# Retarget every compatible clip to a reference skeleton's bone proportions
+# Retarget a compatible clip to a reference skeleton's bone proportions
 reference = pybvh.read_bvh_file(bvh_folder / "standard_skeleton.bvh")
-clip_a = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")
-clip_b = pybvh.read_bvh_file(bvh_folder / "bvh_example.bvh")
+clip = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")  # same joint names and hierarchy
 
-print("Before retargeting — Spine offset varies:")
+print("Before retargeting — Spine offset differs:")
 print(f"  reference: {reference.nodes[1].offset}")
-print(f"  clip_a:    {clip_a.nodes[1].offset}")
-print(f"  clip_b:    {clip_b.nodes[1].offset}")
+print(f"  clip:      {clip.nodes[1].offset}")
 
-retargeted = [c.retarget(reference) for c in [clip_a, clip_b]]
+retargeted = clip.retarget(reference)
 
-print("\nAfter retargeting — all match the reference:")
-for i, c in enumerate(retargeted):
-    print(f"  clip_{chr(ord('a') + i)}:    {c.nodes[1].offset}")
+print("\nAfter retargeting — the clip matches the reference:")
+print(f"  clip:      {retargeted.nodes[1].offset}")
 
 # %% [markdown]
 # ## Frame-rate unification
@@ -201,10 +198,10 @@ for i, c in enumerate(unified):
 # Any of `reference`, `target_fps`, `target_world_up`, `target_rest_up`, `target_rest_forward`, `target_euler_order` may be `None` to skip that stage. When clips are dropped, `harmonize` emits **one summary `UserWarning` per call** (not one per dropped clip), or raises `ValueError` immediately with `on_incompatible='raise'`. For workflows `batch.harmonize` doesn't fit — e.g. using `extract_joints` to reduce clips to a common joint subset instead of dropping mismatched files — fall back on the three primitives directly.
 
 # %%
-reference = pybvh.read_bvh_file(bvh_folder / "bvh_example.bvh")
+reference = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")
 raw = [
     pybvh.read_bvh_file(bvh_folder / name)
-    for name in ["bvh_example.bvh", "bvh_test1.bvh", "bvh_test2.bvh"]
+    for name in ["bvh_test1.bvh", "bvh_test2.bvh", "cmu_12_01_walk.bvh"]
 ]
 
 with warnings.catch_warnings():
@@ -218,7 +215,10 @@ with warnings.catch_warnings():
         verbose=False,
     )
 
-print(f"In: {len(raw)}  Out: {len(harmonized)} (bvh_test2 dropped — different topology)")
+print(
+    f"In: {len(raw)}  Out: {len(harmonized)} "
+    "(bvh_test2 and cmu_12_01_walk dropped — different topology)"
+)
 for i, c in enumerate(harmonized):
     print(
         f"  clip {i}: {c.joint_count} joints, {c.frame_count} frames "
@@ -319,19 +319,21 @@ for rep in ["euler", "6d", "quat", "axisangle", "rotmat"]:
 
 # %%
 # Soft predicates — no exception, just booleans
-ex = pybvh.read_bvh_file(bvh_folder / "bvh_example.bvh")  # 24 joints
-t1 = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")  # 24 joints, same skeleton
+t1 = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")  # 24 joints
+# Same joint names and hierarchy, other bone lengths, one Euler order on every joint
+standard = pybvh.read_bvh_file(bvh_folder / "standard_skeleton.bvh")
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")  # bvh_test3 emits a rest/animation warning on load
     t3 = pybvh.read_bvh_file(bvh_folder / "bvh_test3.bvh")  # 60 joints
 
 print(
-    f"bvh_example vs bvh_test1: hierarchy={ex.matches_hierarchy(t1)}, "
-    f"channels={ex.matches_channels(t1)}, topology={ex.matches_topology(t1)}"
+    f"bvh_test1 vs standard_skeleton: hierarchy={t1.matches_hierarchy(standard)}, "
+    f"hierarchy(match_offsets=False)={t1.matches_hierarchy(standard, match_offsets=False)}, "
+    f"channels={t1.matches_channels(standard)}, topology={t1.matches_topology(standard)}"
 )
 print(
-    f"bvh_example vs bvh_test3: hierarchy={ex.matches_hierarchy(t3)}, "
-    f"channels={ex.matches_channels(t3)}, topology={ex.matches_topology(t3)}"
+    f"bvh_test1 vs bvh_test3: hierarchy={t1.matches_hierarchy(t3)}, "
+    f"channels={t1.matches_channels(t3)}, topology={t1.matches_topology(t3)}"
 )
 
 # %%
@@ -371,8 +373,8 @@ print(f"Step 1 — Loaded {len(raw)} files")
 # 2. Harmonize (topology check / retarget / resample / reorient / Euler order)
 #    in one call. Clips incompatible with the reference skeleton are dropped;
 #    `harmonize` emits one summary UserWarning at end of call when that happens.
-#    We use bvh_example as the canonical rig here.
-reference = pybvh.read_bvh_file(bvh_folder / "bvh_example.bvh")
+#    We use bvh_test1 as the canonical rig here.
+reference = pybvh.read_bvh_file(bvh_folder / "bvh_test1.bvh")
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")  # quiet the summary drop warning for tutorial output
     harmonized = batch.harmonize(

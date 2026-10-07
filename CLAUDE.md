@@ -66,23 +66,6 @@ pybvh is the foundation that other libraries build on:
 
 pybvh never depends on or knows about either. Dependencies flow one way: `pybvh-ml -> pybvh` and `pybvh-blender -> pybvh`.
 
-## Development guidelines
-
-- Run tests with `conda run -n pybvh python -m pytest tests/ -v`: before each commit the tests it touches, and the full suite once on the finished branch.
-- pybvh-ml tests use a separate env: `conda run -n pybvh_ml pytest tests/ -v`
-- README is the PyPI page — must look professional, not like a personal project
-- Never add PyTorch/TensorFlow as dependencies — numpy-only output
-- Git workflow (full rules in `CONTRIBUTING.md`): one branch per change, merged into `main` only through a PR with green CI; `main` is protected. Commits are atomic (each leaves the tests green) and use the `type(scope): subject` style already in the history.
-- On a feature branch, agents commit as they go (atomic commits, messages in the house style) so a long stretch of work needs no supervision. When the branch's work is complete (every acceptance criterion met, the full test suite green, the branch rebased on `main`), the agent pushes the branch and opens the PR as a draft, with `Closes #N` when there is a parent issue, has it reviewed as "The review before ready" in `CONTRIBUTING.md` describes, and marks it ready once the review's fixes are in and the required checks are green; fixes asked for in a later review go to the same branch, rebased as `CONTRIBUTING.md` describes. Work the maintainer has marked private is pushed only when Victor asks, because pushing publishes it. Victor reviews the whole sequence at the PR and merges it himself: agents never merge, never commit or push to `main`, and create issues only once Victor has approved their text.
-- Planned work is a GitHub issue on the version's milestone; the PR body says `Closes #N`.
-
-## Release records: CHANGELOG vs internal session logs
-
-Two records with different audiences, kept deliberately different:
-
-- **CHANGELOG.md is public-facing and shows only the net change per version.** Every entry describes the migration from the *previous shipped release* to this one. While a version is still unreleased, entries in its dated section are **rewritten in place** as the code evolves — never append churn: if a thing added during the version is later renamed, revised, or removed before shipping, the CHANGELOG shows only the final state, phrased so "previously" always refers to the last shipped release (verify against `git show v<prev>:...` when unsure). Dated sections of *shipped* versions are immutable and period-accurate.
-- **`docs/internal_logs/<version>/` (gitignored) is the internal development history.** It records all substantive changes made during the version — including intermediate states that were overwritten before release — each with the *reason* for the change and for its supersession. When you rewrite a CHANGELOG entry per the rule above, the superseded state moves here (see the `05-superseded-*.md` ledger pattern in `docs/internal_logs/v0.8.0/`). Update these logs as part of landing significant work, not retroactively at release time.
-
 ## Agent skills
 
 ### Issue tracker

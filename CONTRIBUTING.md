@@ -125,4 +125,8 @@ A release is its own PR: it bumps the version in `pyproject.toml`, dates the CHA
 
 ## The CHANGELOG
 
-`CHANGELOG.md` follows Keep a Changelog and shows only the *net* change per version, phrased against the previous shipped release. While a version is unreleased its section is rewritten in place as the code evolves: if something added during the version is renamed or removed before shipping, the CHANGELOG shows only the final state. Shipped sections are never edited.
+`CHANGELOG.md` follows Keep a Changelog and shows only the *net* change per version: each entry describes the migration from the previous shipped release to this one. While a version is unreleased its section is rewritten in place as the code evolves, not appended to: if something added during the version is renamed, revised or removed before shipping, the CHANGELOG shows only the final state. "Previously" in an entry always means the last shipped release; when unsure what that release did, read it with `git show v<prev>:<path>`. Shipped sections are never edited: each describes the code as it was when it shipped.
+
+## The README
+
+`README.md` is pybvh's page on PyPI as well as on GitHub, the first page a prospective user reads. Write it as the page of a maintained library, not of a personal project.

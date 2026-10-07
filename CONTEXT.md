@@ -1,6 +1,6 @@
 # CONTEXT.md — pybvh
 
-The architecture: which module owns what, and why each boundary sits where it does. What a module computes is in its docstrings and the API reference (`docs/api/`); the terms are in `GLOSSARY.md`; the rules a change is held to are in `CODING_STANDARDS.md`; the project's scope, principles and ecosystem are in `CLAUDE.md`; a decision whose argument must be kept has its record in `docs/adr/`.
+The architecture: which module owns what, and why each boundary sits where it does. What a module computes is in its docstrings and the API reference (`docs/api/`); the terms are in `GLOSSARY.md`; the rules a change is held to are in `CODING_STANDARDS.md`; the project's scope, principles and ecosystem are in `CHARTER.md`; a decision whose argument must be kept has its record in `docs/adr/`.
 
 ## 1. The layers
 

@@ -36,7 +36,7 @@ Before marking a PR ready:
 
 - the full suite passes locally on the finished branch: `conda run -n pybvh python -m pytest tests/ -v`
 - `CHANGELOG.md` has its entry (see below), unless the change is invisible to users
-- docstrings name any convention the change chose (see the "Code & API quality" rules in `CLAUDE.md`)
+- docstrings name any convention the change chose (see `incomplete-documentation` in `CODING_STANDARDS.md`)
 - the branch is rebased on the current `main`, or, for an integration branch, built on it
 - the branch has passed the review described in "The review before ready", and its fixes are in
 - the required checks have run green against the current base
@@ -46,7 +46,7 @@ Before marking a PR ready:
 The body follows `.github/PULL_REQUEST_TEMPLATE.md`, which GitHub prefills on a new PR. It is written for the reviewer, who decides from its first lines how much attention the PR needs, and it shows the shape of the change rather than describing it.
 
 - **Why**: one sentence.
-- **Review depth**: two lines that each open with a label, and one short list. The first label is the kind of change, which is also the PR's first label: `breaking` (a user of the previous release must change something, under the 0.x policy in `CLAUDE.md`; it has its CHANGELOG rows and a Migration section), `behaviour-change` (valid input gives a different result, with no API change), `internal` (nothing a user can see) or `documentation`. The second is the blast radius, the PR's second label: `localized` (one module, and callers are unaffected) or `extensive` (several modules, or a consumer such as pybvh-ml must change). "Needs your eyes on" lists the one to three decisions taken while building that the reviewer should weigh, or says "None."
+- **Review depth**: two lines that each open with a label, and one short list. The first label is the kind of change, which is also the PR's first label: `breaking` (a user of the previous release must change something, under the 0.x policy in `CHARTER.md`; it has its CHANGELOG rows and a Migration section), `behaviour-change` (valid input gives a different result, with no API change), `internal` (nothing a user can see) or `documentation`. The second is the blast radius, the PR's second label: `localized` (one module, and callers are unaffected) or `extensive` (several modules, or a consumer such as pybvh-ml must change). "Needs your eyes on" lists the one to three decisions taken while building that the reviewer should weigh, or says "None."
 - **Change outline**: the shape of the change as the smallest views that show it, each next to one short sentence: an API diff-sketch, a data shape, pseudocode of an algorithm, a call tree, a shallow file tree, a Mermaid diagram. Not prose, not a file-by-file list.
 - **Evidence**: before and after. For a fix, the issue's reproduction with its output on `main` and on the branch; for a feature, the test that failed and now passes; for bvhplot, an image or a link to the showcase. A claim that behaviour is preserved names the command or the test that shows it, so the reader can rerun it rather than trust it. Then the full-suite line.
 - **Migration**: breaking changes only.

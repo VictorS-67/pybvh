@@ -67,6 +67,12 @@ The reviewer reads the diff with the parent issue, `CODING_STANDARDS.md` and the
 
 Each finding is triaged by how realistic it is: a **regression** breaks something that worked, a **likely** defect is one realistic use will hit, a **theoretical** one needs a contrived input. The reviewer commits the fixes for regressions and likely defects to the branch directly, as commits on top, instead of listing them for the author: the maintainer receives fixed code rather than review comments, and the commits show what the review changed. A theoretical finding becomes a note on the issue, not a fix. A finding that is a judgement call rather than a defect goes to "Needs your eyes on". The author may revert a fix they disagree with, but not silently: the revert's message says why, and the disagreement goes to "Needs your eyes on".
 
+Each finding also names its class, the kind of defect it is, so that it points at the rule it breaks: a finding is written as its triage word and its class, such as "likely, `weak-assertion`". Each class is a term with a proper meaning, and a finding takes the class whose meaning covers it, not the nearest one stretched to fit. The classes that open rules in `CODING_STANDARDS.md`, each rule stating what the work should be, are `tautological-test`, `weak-assertion`, `overspecified-test` and `test-gap` in "Tests"; `shallow-module`, `mysterious-name`, `inconsistent-naming`, `magic-literal`, `duplication`, `dead-code`, `speculative-generality` and `band-aid-fix` in "Code and API quality"; and `narrating-comment`, `unverified-claim` and `incomplete-documentation` in "Docs". Three sit outside those rules:
+
+- `bug`: the work does the wrong thing, in a way its user can observe. A document read by the work's user (a caller reading the public docs, a contributor following this page) that would lead them to a wrong result or a wrong step is a bug, whatever class its wording would otherwise take. A statement addressed to the reviewer or the maintainer, such as a PR body's Evidence or a commit message, is `unverified-claim` or `incomplete-documentation`, never a bug on these grounds.
+- `pr-hygiene`: the record around the change (its commits, the PR body and labels, the form or place of a CHANGELOG entry) breaks the rules on this page.
+- `other`: a finding no class covers.
+
 The PR is marked ready once the review's fixes are in and the required checks have run green against the current base.
 
 ## Commits

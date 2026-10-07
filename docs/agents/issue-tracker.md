@@ -5,11 +5,11 @@
 | **Parent issue** | one reviewable change: one branch, one PR | GitHub issues on `VictorS-67/pybvh`, through `gh` |
 | **Ticket** | one fresh agent context | a gitignored file under `.scratch/` |
 
-GitHub text is public and permanent, so it holds the decision and not the discussion behind it. The development history in `docs/internal_logs/<version>/`, and anything the maintainer has marked private, stays in local files whatever a rule below says. Requests between the pybvh-family projects go to the private message hub at `/home/victor/projects/lab-messages/` (protocol in its `README.md`).
+GitHub text is public and permanent, so it holds the decision and not the discussion behind it. Anything the maintainer has marked private stays in local files whatever a rule below says.
 
 ## Parent issues
 
-Issues #6 and #9 are the house style (`gh issue view 6 --json title,body,labels,milestone`); copy their shape in place of the publishing skill's body template. The title reads `area: what changes`. Each issue takes one category label (`bug`, `enhancement`, `refactor`, `documentation`) and the version milestone. Show the maintainer the full text before creating it.
+Issues #6 and #9 are the house style (`gh issue view 6 --json title,body,labels,milestone`); copy their shape in place of the publishing skill's body template. The title reads `area: what changes`. Each issue takes one category label (`bug`, `enhancement`, `refactor`, `documentation`) and the version milestone.
 
 Triage state labels are for **outside reports**: issues whose author is not `VictorS-67`. `/triage` lists only those, unless the maintainer names an issue. Where a skill says to put a state label on an issue it publishes (`/to-spec` and `ready-for-agent`), leave it off.
 

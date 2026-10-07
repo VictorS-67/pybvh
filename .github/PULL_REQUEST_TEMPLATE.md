@@ -19,7 +19,7 @@ Closes #
 
 ## Evidence
 
-<!-- Before and after. A fix: the issue's reproduction, with its output on main and on this branch. A feature: the test that failed and now passes, as pseudocode. bvhplot: an image, or a link to the showcase. A claim that behaviour is preserved names the command or test that shows it. Then the full-suite line. -->
+<!-- Before and after. A fix: the issue's reproduction, with its output on main and on this branch. A feature: the test that failed and now passes, as pseudocode. A bvhplot change to what is drawn: an image, or a link to the showcase; one that draws the same picture: the evidence above. A claim that behaviour is preserved names the command or test that shows it. Then the full-suite line. -->
 
 ## Migration
 

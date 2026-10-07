@@ -36,7 +36,7 @@ Before marking a PR ready:
 
 - the full suite passes locally on the finished branch: `conda run -n pybvh python -m pytest tests/ -v`
 - `CHANGELOG.md` has its entry (see below), unless the change is invisible to users
-- docstrings name any convention the change chose (see `incomplete-documentation` in `CODING_STANDARDS.md`)
+- docstrings name any convention the change chose (see "Name every convention choice" in `CODING_STANDARDS.md`)
 - the branch is rebased on the current `main`, or, for an integration branch, built on it
 - the branch has passed the review described in "The review before ready", and its fixes are in
 - the required checks have run green against the current base

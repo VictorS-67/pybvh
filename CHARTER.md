@@ -28,7 +28,7 @@ The few known production consumers (notably pybvh-ml) are briefed ahead of each 
 
 ## Code & API quality
 
-Non-negotiable across every change to the codebase: the rules in `CODING_STANDARDS.md`. The reviewer holds every diff to them. Read them once before shaping a public surface, since the first rule is about the shape of the API; `mean_rotation` and `foot_contacts` are the reference examples it names.
+Non-negotiable across every change to the codebase: the rules in `CODING_STANDARDS.md`. The reviewer holds every diff to them. Read them once before shaping a public surface, since its first section is about the shape of the API; `mean_rotation` and `foot_contacts` are the reference examples its convention rule names.
 
 ## What pybvh owns
 

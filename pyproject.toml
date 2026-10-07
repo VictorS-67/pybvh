@@ -72,7 +72,6 @@ dev = [
 
 [tool.setuptools]
 include-package-data = false
-exclude-package-data = {"*" = ["CLAUDE.md"]}
 
 [tool.setuptools.package-data]
 "pybvh" = ["API_RENAME.md"]

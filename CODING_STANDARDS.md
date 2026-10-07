@@ -1,6 +1,6 @@
 # Coding standards
 
-The rules a change to pybvh is reviewed against. They are written for the reviewer: the review before ready (`CONTRIBUTING.md`) holds the diff to this file, and so does the maintainer. An implementer reads it once, before shaping a public surface, not while writing every line. The design principles and the ownership boundaries are in `CLAUDE.md`, the branch, commit and pull-request rules in `CONTRIBUTING.md`, and which module inside the package owns what, and why, in `CONTEXT.md`.
+The rules a change to pybvh is reviewed against. They are written for the reviewer: the review before ready (`CONTRIBUTING.md`) holds the diff to this file, and so does the maintainer. An implementer reads it once, before shaping a public surface, not while writing every line. The design principles and the ownership boundaries are in `CHARTER.md`, the branch, commit and pull-request rules in `CONTRIBUTING.md`, and which module inside the package owns what, and why, in `CONTEXT.md`.
 
 A rule that opens with a class name, such as **band-aid-fix**, states what the work should be, and a finding against it belongs to that class. The review names the class of every finding; `CONTRIBUTING.md` ("The review before ready") lists the classes, the three outside these rules among them.
 
@@ -29,13 +29,13 @@ Non-negotiable across every change to the codebase:
 
 ## The design principles, as rules
 
-`CLAUDE.md` states the principles; a diff is held to them as follows.
+`CHARTER.md` states the principles; a diff is held to them as follows.
 
 - Output is NumPy. Nothing in the package imports PyTorch, TensorFlow, JAX, scipy or h5py; pandas stays optional and is never imported by the package, which is why `to_df_dict()` returns a dict of arrays.
 - Numerical work is vectorized over frames and nodes. A Python loop over frames is a finding. A loop over the handful of nodes or joints is acceptable where the vectorized form would be unreadable, and a comment says why.
 - Rotation math, forward kinematics and interpolation are implemented in the package. `rotations.py` is the one owner of the Euler-to-matrix conversion; nothing keeps a private copy of it.
 - Fidelity to the format. A read-write round trip is lossless within float precision, and nothing a file declares (topology, node names, offsets, Euler orders, frame time) is silently altered on the way through.
-- Framework-agnostic. A feature that only makes sense for one consumer belongs in that consumer's library; `CLAUDE.md` draws the boundary.
+- Framework-agnostic. A feature that only makes sense for one consumer belongs in that consumer's library; `CHARTER.md` draws the boundary.
 
 ## Conventions of the code
 

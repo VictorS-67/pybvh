@@ -1,6 +1,6 @@
 # CONTEXT.md — pybvh
 
-The architecture: which module owns what, and why each boundary sits where it does. What a module computes is in its docstrings and the API reference (`docs/api/`); the terms are in `GLOSSARY.md`; the rules a change is held to are in `CODING_STANDARDS.md`; the project's scope, principles and ecosystem are in `CLAUDE.md`; a decision whose argument must be kept has its record in `docs/adr/`.
+The architecture: which module owns what, and why each boundary sits where it does. What a module computes is in its docstrings and the API reference (`docs/api/`); the terms are in `GLOSSARY.md`; the rules a change is held to are in `CODING_STANDARDS.md`; the project's scope, principles and ecosystem are in `CHARTER.md`; a decision whose argument must be kept has its record in `docs/adr/`.
 
 ## 1. The layers
 
@@ -71,4 +71,4 @@ bvhplot (`pybvh/bvhplot/`) splits at its Scene: the router and `_from_bvh` read 
 - The tests: what a test pins and how it asserts is in `CODING_STANDARDS.md` ("Tests"); clips and Scenes built from arrays with known properties come from `tests/synthetic_bvh.py` and `tests/synthetic_scene.py`; the frozen references, and when they may be regenerated, are in `tests/fixtures/README.md`. An invariant that holds across the package is pinned by one guard test, and every test file's docstring says what it covers.
 - The docs site, the gallery and the notebooks: `docs/tutorials.md` ("Editing the tutorials").
 - Dependencies, versions and tool configuration: `pyproject.toml`; the checks a pull request runs: `.github/workflows/`; how a change reaches `main`: `CONTRIBUTING.md`.
-- What changed between releases, old names included: `CHANGELOG.md` and `pybvh/API_RENAME.md`; the two release records: `CLAUDE.md`.
+- What changed between releases, old names included: `CHANGELOG.md` and `pybvh/API_RENAME.md`; how an entry is written: `CONTRIBUTING.md` ("The CHANGELOG").

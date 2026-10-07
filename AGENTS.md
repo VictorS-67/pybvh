@@ -15,7 +15,7 @@ Parent issues (one per PR-sized change) are GitHub Issues on `VictorS-67/pybvh` 
 
 ### Triage labels
 
-Default five-label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+Of the five triage roles, only `wontfix` has a label in this repo, `wontfix`; for the other four the skills apply no label. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 

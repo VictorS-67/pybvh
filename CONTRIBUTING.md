@@ -65,7 +65,7 @@ The reviewer reads the diff with the parent issue, `CODING_STANDARDS.md` and the
 - every Evidence claim that behaviour is preserved names the command or test that shows it;
 - "Needs your eyes on" holds decisions to weigh, not merge instructions.
 
-Each finding is triaged by how realistic it is: a **regression** breaks something that worked, a **likely** defect is one realistic use will hit, a **theoretical** one needs a contrived input. The reviewer commits the fixes for regressions and likely defects to the branch directly, as commits on top, instead of listing them for the author: the maintainer receives fixed code rather than review comments, and the commits show what the review changed. A theoretical finding becomes a note on the issue, not a fix. A finding that is a judgement call rather than a defect goes to "Needs your eyes on". The author may revert a fix they disagree with, but not silently: the revert's message says why, and the disagreement goes to "Needs your eyes on".
+Each finding is triaged by how realistic it is: a **regression** breaks something that worked, a **likely** defect is one realistic use will hit, a **theoretical** one needs a contrived input. The reviewer reports the findings and does not change the branch. The author commits the fix for each regression and likely defect, and a new round, a fresh review like the first, reads the result: the maintainer receives fixed code rather than review comments, and no reviewer reviews their own fix. A theoretical finding becomes a note on the issue, not a fix. A finding that is a judgement call rather than a defect goes to "Needs your eyes on". The author may decline a finding they disagree with, but not silently: the disagreement and its reason go to "Needs your eyes on".
 
 Each finding also names its class, the kind of defect it is, so that it points at the rule it breaks: a finding is written as its triage word and its class, such as "likely, `weak-assertion`". Each class is a term with a proper meaning, and a finding takes the class whose meaning covers it, not the nearest one stretched to fit. The classes that open rules in `CODING_STANDARDS.md`, each rule stating what the work should be, are `tautological-test`, `weak-assertion`, `overspecified-test` and `test-gap` in "Tests"; `shallow-module`, `mysterious-name`, `inconsistent-naming`, `magic-literal`, `duplication`, `dead-code`, `speculative-generality` and `band-aid-fix` in "Code and API quality"; and `narrating-comment`, `unverified-claim` and `incomplete-documentation` in "Docs". Three sit outside those rules:
 
@@ -99,12 +99,11 @@ When `main` moves while your branch is open, rebase rather than merging `main` i
 
 ```bash
 git fetch origin
-git rebase origin/<your-branch>   # only when a reviewer has pushed fixes to it
 git rebase origin/main
 git push --force-with-lease
 ```
 
-Rebasing keeps the branch a straight line of commits; merging `main` in leaves catch-up merge commits that carry no content. Rewriting is safe because only the author rewrites a branch: a reviewer adds commits on top and never rebases it. Take a reviewer's commits before you rewrite anything, an amend or an autosquash included, as the second line does: the lease checks the remote-tracking ref that `git fetch` has just updated, so it would not stop the push from dropping commits you never took. If you have already rewritten the branch locally, do not rebase onto its old remote tip, which would bring the rewritten commits back; cherry-pick the reviewer's commits onto your branch instead. Use `--force-with-lease`, never bare `--force`: the lease refuses to overwrite a remote branch that moved since you last fetched. Never rebase commits that are already on `main`. A branch that an integration branch has merged is the exception to keeping current: it stays as it was reviewed, and the integration branch is rebuilt instead (see "Branches and pull requests").
+Rebasing keeps the branch a straight line of commits; merging `main` in leaves catch-up merge commits that carry no content. Rewriting is safe because only the author commits to a branch: a reviewer reports findings and never pushes to it. Use `--force-with-lease`, never bare `--force`: the lease refuses to overwrite a remote branch that moved since you last fetched. Never rebase commits that are already on `main`. A branch that an integration branch has merged is the exception to keeping current: it stays as it was reviewed, and the integration branch is rebuilt instead (see "Branches and pull requests").
 
 ## Merging
 

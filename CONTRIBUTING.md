@@ -37,7 +37,7 @@ Before marking a PR ready:
 - the full suite passes locally on the finished branch: `conda run -n pybvh python -m pytest tests/ -v`
 - `CHANGELOG.md` has its entry (see below), unless the change is invisible to users
 - docstrings name any convention the change chose (see "Name every convention choice" in `CODING_STANDARDS.md`)
-- the branch is rebased on the current `main`, or, for an integration branch, built on it
+- the branch is rebased on its current base, which is `main`, or its parent branch while the PR is stacked; an integration branch is built on the current `main`
 - the branch has passed the review described in "The review before ready", and its fixes are in
 - the required checks have run green against the current base
 
@@ -104,6 +104,8 @@ git push --force-with-lease
 ```
 
 Rebasing keeps the branch a straight line of commits; merging `main` in leaves catch-up merge commits that carry no content. Rewriting is safe because only the author commits to a branch: a reviewer reports findings and never pushes to it. Use `--force-with-lease`, never bare `--force`: the lease refuses to overwrite a remote branch that moved since you last fetched. Never rebase commits that are already on `main`. A branch that an integration branch has merged is the exception to keeping current: it stays as it was reviewed, and the integration branch is rebuilt instead (see "Branches and pull requests").
+
+A stacked branch is kept current on its parent branch the same way, with `origin/<parent-branch>` in place of `origin/main`. If the parent was amended or rebased since your branch last took it, rebase with `git rebase --onto origin/<parent-branch> <the last commit of the parent in your branch's history>`, for the reason given under "Branches and pull requests".
 
 ## Merging
 

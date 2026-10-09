@@ -2330,3 +2330,52 @@ class TestSpreadInOneScene:
         bvhplot.frame(twins, 3, backend="vedo", centered="first")
         assert len(whole_clip_scenes) == 1
         assert all(a is b for a, b in zip(whole_clip_scenes[0], twins))
+
+
+# Each public function that draws into a caller's ax=, with the axes
+# projection it needs.
+DRAWN_INTO_AN_AXES = {
+    "frame": (lambda clip, ax, style: bvhplot.frame(clip, 0, ax=ax, style=style), "3d"),
+    "rest_pose": (lambda clip, ax, style: bvhplot.rest_pose(clip, ax=ax, style=style), "3d"),
+    "sequence": (lambda clip, ax, style: bvhplot.sequence(clip, ax=ax, style=style), "3d"),
+    "trajectory": (lambda clip, ax, style: bvhplot.trajectory(clip, ax=ax, style=style), None),
+}
+
+
+@pytest.mark.parametrize("draw, projection", DRAWN_INTO_AN_AXES.values(), ids=DRAWN_INTO_AN_AXES)
+class TestAxesInSubFigure:
+    """An ax= inside a SubFigure, the panel of a composite figure."""
+
+    @pytest.fixture
+    def composite(self, projection):
+        """(figure, panel, ax): a figure split in two SubFigures, and an
+        axes in the second."""
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        fig = plt.figure()
+        panel = fig.subfigures(1, 2)[1]
+        ax = panel.add_subplot(projection=projection)
+        yield fig, panel, ax
+        plt.close(fig)
+
+    def test_returns_the_root_figure(self, draw, composite, bvh_test1, tmp_path):
+        fig, _, ax = composite
+        returned_fig, returned_ax = draw(bvh_test1, ax, "paper")
+        assert returned_fig is fig
+        assert returned_ax is ax
+        returned_fig.savefig(tmp_path / "composite.png")
+        assert (tmp_path / "composite.png").stat().st_size > 0
+
+    def test_paints_only_its_panel(self, draw, composite, bvh_test1):
+        """The style's background colors the SubFigure holding the axes,
+        not the figure behind the caller's other panels."""
+        from matplotlib.colors import to_rgba
+
+        fig, panel, ax = composite
+        figure_color = fig.get_facecolor()
+        draw(bvh_test1, ax, "dark")
+        assert panel.get_facecolor() == to_rgba(bvhplot.Style("dark").background)
+        assert fig.get_facecolor() == figure_color

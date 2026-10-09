@@ -34,7 +34,7 @@ BUNDLED_FILES = sorted(BVH_DATA.glob("*.bvh")) + [
 
 @pytest.fixture
 def bvh_example():
-    return read_bvh_file(BVH_DATA / "bvh_example.bvh")
+    return read_bvh_file(BVH_DATA / "bvh_test1.bvh")
 
 
 def _attach(parent, child):

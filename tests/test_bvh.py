@@ -1,7 +1,7 @@
 """
 Tests for pybvh library.
 
-Uses bvh_data/bvh_example.bvh as the test fixture.
+Uses bvh_data/bvh_test1.bvh as the test fixture.
 Run with: python -m pytest tests/test_bvh.py -v
 """
 
@@ -55,12 +55,12 @@ from synthetic_bvh import (
 @pytest.fixture
 def bvh_example_path():
     """Path to the example BVH file."""
-    return Path(__file__).parent.parent / "bvh_data" / "bvh_example.bvh"
+    return Path(__file__).parent.parent / "bvh_data" / "bvh_test1.bvh"
 
 
 @pytest.fixture
 def bvh_example(bvh_example_path):
-    """Loaded Bvh object from bvh_example.bvh."""
+    """Loaded Bvh object from bvh_test1.bvh."""
     return read_bvh_file(bvh_example_path)
 
 
@@ -1186,7 +1186,7 @@ class TestVectorizedFK:
     def test_fk_on_different_skeletons(self):
         """FK should work on all test files with different skeletons."""
         test_files = [
-            "bvh_data/bvh_example.bvh",  # 75 frames, 29 nodes
+            "bvh_data/bvh_test1.bvh",  # 75 frames, 29 nodes
             "bvh_data/bvh_test2.bvh",  # 61 frames, 28 nodes
             "bvh_data/bvh_test3.bvh",  # 100 frames, 73 nodes
         ]
@@ -1253,7 +1253,6 @@ class TestParserMultipleFiles:
     def test_parse_all_test_files(self):
         """All test BVH files should parse without errors and have valid data."""
         files = {
-            "bvh_data/bvh_example.bvh": (75, 24, 29),
             "bvh_data/bvh_test1.bvh": (75, 24, 29),
             "bvh_data/bvh_test2.bvh": (61, 23, 28),
             "bvh_data/bvh_test3.bvh": (100, 60, 73),
@@ -3242,9 +3241,9 @@ class TestBatchProcessing:
         return Path(__file__).parent.parent / "bvh_data"
 
     def test_read_bvh_directory_basic(self, bvh_dir):
-        """Should load all 6 BVH files from bvh_data/."""
+        """Should load all 5 BVH files from bvh_data/."""
         result = read_bvh_directory(bvh_dir)
-        assert len(result) == 6
+        assert len(result) == 5
         for bvh in result:
             assert isinstance(bvh, Bvh)
 
@@ -3341,8 +3340,7 @@ class TestBatchProcessing:
 
     def test_batch_to_numpy_pad_true(self, bvh_dir):
         """Padding should produce a single 3D array."""
-        # bvh_example and bvh_test1 have same skeleton but potentially different frame counts
-        bvhs = read_bvh_directory(bvh_dir, pattern="bvh_example.bvh")
+        bvhs = read_bvh_directory(bvh_dir, pattern="bvh_test1.bvh")
         # Duplicate with different frame count by slicing
         bvh2 = bvhs[0][0:10]
         result = batch_to_numpy([bvhs[0], bvh2], pad=True)
@@ -3353,7 +3351,7 @@ class TestBatchProcessing:
 
     def test_batch_to_numpy_pad_false_returns_list(self, bvh_dir):
         """Without padding, returns a list of arrays."""
-        bvhs = read_bvh_directory(bvh_dir, pattern="bvh_example.bvh")
+        bvhs = read_bvh_directory(bvh_dir, pattern="bvh_test1.bvh")
         bvh2 = bvhs[0][0:10]
         result = batch_to_numpy([bvhs[0], bvh2], pad=False)
         assert isinstance(result, list)
@@ -3377,7 +3375,7 @@ class TestBatchProcessing:
 
     def test_batch_to_numpy_single_file(self, bvh_dir):
         """Single-element list should work."""
-        bvhs = read_bvh_directory(bvh_dir, pattern="bvh_example.bvh")
+        bvhs = read_bvh_directory(bvh_dir, pattern="bvh_test1.bvh")
         result = batch_to_numpy(bvhs)
         assert len(result) == 1
 
@@ -3860,7 +3858,7 @@ class TestReadDirectorySkipErrors:
         # Copy a valid fixture
         import shutil
 
-        valid_src = Path(__file__).parent.parent / "bvh_data" / "bvh_example.bvh"
+        valid_src = Path(__file__).parent.parent / "bvh_data" / "bvh_test1.bvh"
         shutil.copy(valid_src, tmp_path / "good.bvh")
         # Write a corrupt file with the .bvh extension
         (tmp_path / "broken.bvh").write_text("not a valid BVH file content")

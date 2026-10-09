@@ -40,7 +40,7 @@ from generate_fixtures import FOOT_CONTACT_RUNS, flatten_info
 
 @pytest.fixture
 def bvh_example():
-    return read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_example.bvh")
+    return read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_test1.bvh")
 
 
 @pytest.fixture

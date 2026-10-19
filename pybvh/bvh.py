@@ -786,11 +786,12 @@ class Bvh:
             Euler order, since the angles are only meaningful in the order
             they were recorded in (:meth:`change_euler_order` converts
             them). A user-set L/R mapping follows its joints by position,
-            under their new names; one detected from the names is
-            detected again from the new names. World up is inherited, set
-            or guessed: new offsets do not change which way is up. To
-            guess it again from the new skeleton,
-            ``edited.world_up = edited.world_up_inferred``.
+            under their new names, so each mapped joint's new name must be
+            one no other joint carries (the mapping goes by name); one
+            detected from the names is detected again from the new names.
+            World up is inherited, set or guessed: new offsets do not
+            change which way is up. To guess it again from the new
+            skeleton, ``edited.world_up = edited.world_up_inferred``.
 
         Returns
         -------
@@ -803,8 +804,9 @@ class Bvh:
             :func:`~pybvh.nodes_from_table`), has another number of joints
             than ``joint_angles`` has columns, changes a joint's Euler
             order, or gives the root position channels other than XYZ; or
-            if a renamed joint breaks the L/R mapping (two pairs on one
-            name, say).
+            if it gives a joint of a user-set L/R mapping a name another
+            joint carries too (on a clip without motion, which binds no
+            joint, if it lacks a name the mapping uses).
         TypeError
             If ``nodes`` is neither a node table nor a node list.
 
@@ -846,6 +848,24 @@ class Bvh:
             if bound:
                 index = self.joint_index
                 new_names = [joint.name for joint in new_joints]
+                # The mapping goes by name, so it cannot hold a mapped joint
+                # whose new name another joint carries too: refuse before
+                # the renamed mapping overwrites a pair or names that joint.
+                # A name the clip already repeated, on the same joints, is
+                # the clip's own ambiguity, which copy() keeps too.
+                old_names = self.joint_names
+                for name in [name for pair in setting.items() for name in pair]:
+                    new_name = new_names[index[name]]
+                    carriers = [i for i, other in enumerate(new_names) if other == new_name]
+                    before = [i for i, other in enumerate(old_names) if other == name]
+                    if len(carriers) > 1 and carriers != before:
+                        raise ValueError(
+                            f"nodes gives the mapped joint {name!r} the name "
+                            f"{new_name!r}, which {len(carriers)} joints carry, but "
+                            f"the L/R mapping identifies joints by name. Keep "
+                            f"each mapped joint's name unique, or set "
+                            f"lr_mapping again on the copy."
+                        )
                 setting = {
                     new_names[index[left]]: new_names[index[right]]
                     for left, right in setting.items()

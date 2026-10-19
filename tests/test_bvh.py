@@ -3269,6 +3269,52 @@ class TestCopyWithNodes:
         }
         assert edited.lr_pairs == bvh_example.lr_pairs
 
+    @staticmethod
+    def _renamed_table(bvh, renames):
+        table = bvh.to_node_table()
+        for row in table:
+            row["name"] = renames.get(row.get("name"), row.get("name"))
+        return table
+
+    def test_two_mapped_joints_renamed_alike_are_refused(self, bvh_example):
+        bvh_example.lr_mapping = {"LeftShoulder": "RightShoulder", "LeftArm": "RightArm"}
+        table = self._renamed_table(bvh_example, {"LeftShoulder": "Left", "LeftArm": "Left"})
+        with pytest.raises(
+            ValueError, match=r"'LeftShoulder' the name 'Left'.*identifies joints by name"
+        ):
+            bvh_example.copy(nodes=table)
+
+    def test_a_mapped_joint_renamed_to_another_joints_name_is_refused(self, bvh_example):
+        bvh_example.lr_mapping = {"LeftShoulder": "RightShoulder", "LeftArm": "RightArm"}
+        table = self._renamed_table(bvh_example, {"LeftShoulder": "LeftToeBase"})
+        with pytest.raises(
+            ValueError, match=r"'LeftShoulder' the name 'LeftToeBase'.*identifies joints by name"
+        ):
+            bvh_example.copy(nodes=table)
+
+    def test_an_unmapped_joint_renamed_to_a_mapped_name_is_refused(self, bvh_example):
+        bvh_example.lr_mapping = {"LeftShoulder": "RightShoulder", "LeftArm": "RightArm"}
+        table = self._renamed_table(bvh_example, {"Spine": "RightArm"})
+        with pytest.raises(ValueError, match=r"'RightArm' the name 'RightArm', which 2 joints"):
+            bvh_example.copy(nodes=table)
+
+    def test_a_name_the_source_already_repeats_is_kept(self, bvh_example):
+        """The copy refuses an ambiguity its nodes make, not one the clip has."""
+        source = bvh_example.copy(nodes=self._renamed_table(bvh_example, {"Spine": "LeftArm"}))
+        source.lr_mapping = {"LeftArm": "RightArm"}
+        assert source.copy(nodes=source.to_node_table()).lr_pairs == source.lr_pairs
+        # Another joint taking the name adds to the ambiguity: refused.
+        table = self._renamed_table(source, {"Spine1": "LeftArm"})
+        with pytest.raises(ValueError, match=r"'LeftArm' the name 'LeftArm', which 3 joints"):
+            source.copy(nodes=table)
+
+    def test_unmapped_joints_may_share_a_name(self, bvh_example):
+        bvh_example.lr_mapping = {"LeftShoulder": "RightShoulder", "LeftArm": "RightArm"}
+        table = self._renamed_table(bvh_example, {"LeftToeBase": "Toe", "RightToeBase": "Toe"})
+        edited = bvh_example.copy(nodes=table)
+        assert edited.joint_names.count("Toe") == 2
+        assert edited.lr_pairs == bvh_example.lr_pairs
+
     def test_name_detected_pairs_are_detected_from_the_new_names(self, bvh_example):
         edited = bvh_example.copy(nodes=self._edited_table(bvh_example))
         lost = {"LeftArm", "RightArm"}

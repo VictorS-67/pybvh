@@ -101,15 +101,18 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
           format, its two leniencies and what it rejects.
         * A **node list** of ``BvhRoot``, ``BvhJoint`` and ``BvhEndSite``
           objects in depth-first order, such as :attr:`Bvh.nodes`. It is
-          read through :func:`~pybvh.nodes_to_table`, so only each node's
-          ``parent`` is consulted, and nothing is shared with the list
-          given.
+          taken over as :class:`Bvh` takes the nodes it is given: the
+          clip holds those node objects and freezes them, so a node
+          edited afterwards raises; nodes another clip owns are frozen
+          already and are shared. A call that raises leaves the list
+          editable. Pass ``nodes_to_table(nodes)`` to keep it editable.
 
         A table and a list are told apart by the type of the first
-        element, and both build their nodes through
-        :func:`~pybvh.nodes_from_table`, which returns fresh nodes and
-        raises ``ValueError`` for a table or a list that is not one tree
-        in depth-first order. Channel orders come from the skeleton and
+        element. A table is data: :func:`~pybvh.nodes_from_table` builds
+        the clip's own nodes from it. Either raises ``ValueError`` when
+        it is not one tree in depth-first order, a list's nodes wired
+        both ways (each in its parent's ``children``, with that parent
+        as its ``parent``). Channel orders come from the skeleton and
         are never inferred from *df*: a table entry states its
         ``rot_channels`` or it is an end site. The name-keyed hierarchy
         dict of earlier releases is refused with ``TypeError``.
@@ -140,7 +143,8 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
         neither a node table nor a node list.
     ValueError
         If *hier* is empty, or is not one tree in depth-first order (see
-        :func:`~pybvh.nodes_from_table`); if *df* has no ``time``
+        :func:`~pybvh.nodes_from_table` for a table, :class:`Bvh` for a
+        list); if *df* has no ``time``
         column, lacks a column the hierarchy expects (the message lists
         every missing label and, when *df* has repeated labels, states
         how repeated node names are labelled) or lists an expected label
@@ -188,7 +192,7 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
             "node in depth-first order and parent as the parent's index, or "
             "bvh.nodes. See the CHANGELOG for the migration."
         )
-    nodes = _nodes_from_table_or_list(hier, "hier", take_list=False)
+    nodes = _nodes_from_table_or_list(hier, "hier")
     time_values = df[_time_label(df)].to_numpy()
     frames = _motion_columns(nodes, df).to_numpy()
 

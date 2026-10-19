@@ -760,20 +760,107 @@ class TestDataFrameConversion:
         np.testing.assert_allclose(bvh2.root_pos, bvh_example.root_pos, atol=1e-10)
         np.testing.assert_allclose(bvh2.joint_angles, bvh_example.joint_angles, atol=1e-10)
 
-    def test_df_to_bvh_list_shares_no_node_with_the_input(self, bvh_example):
-        """The node list is rebuilt through the node table: the result holds
-        fresh nodes and the input list is left as it was."""
-        df = pd.DataFrame(bvh_example.to_df_dict(mode="euler", centered="world"))
-        children_before = [list(n.children) for n in bvh_example.nodes if not n.is_end_site()]
+    FROM_DF = {"df_to_bvh": df_to_bvh, "Bvh.from_df": Bvh.from_df}
 
-        bvh2 = df_to_bvh(bvh_example.nodes, df)
+    @pytest.fixture(params=FROM_DF.values(), ids=FROM_DF.keys())
+    def from_df(self, request):
+        return request.param
+
+    def test_a_node_list_is_taken_over_as_bvh_takes_it(self, bvh_example, from_df):
+        """The clip holds the caller's nodes and freezes them, so an edit
+        to a node the caller holds fails loudly instead of missing the clip."""
+        df = pd.DataFrame(bvh_example.to_df_dict(mode="euler"))
+        nodes = nodes_from_table(bvh_example.to_node_table())
+
+        bvh2 = from_df(nodes, df)
+
+        assert all(mine is given for mine, given in zip(bvh2.nodes, nodes, strict=True))
+        assert bvh2.matches_hierarchy(bvh_example, atol=0)
+        with pytest.raises(AttributeError, match=f"offset of node 'Spine'.*{_THE_WAY}"):
+            nodes[1].offset = nodes[1].offset + 1.0
+
+    def test_a_clips_node_list_is_shared(self, bvh_example, from_df):
+        """Owned nodes are frozen, so two clips can hold them safely."""
+        df = pd.DataFrame(bvh_example.to_df_dict(mode="euler", centered="world"))
+
+        bvh2 = from_df(bvh_example.nodes, df)
+
+        assert all(
+            mine is theirs for mine, theirs in zip(bvh2.nodes, bvh_example.nodes, strict=True)
+        )
+        np.testing.assert_allclose(bvh2.joint_angles, bvh_example.joint_angles, atol=1e-10)
+
+    def test_a_node_table_gives_nodes_of_the_clips_own(self, bvh_example, from_df):
+        df = pd.DataFrame(bvh_example.to_df_dict(mode="euler"))
+        table = bvh_example.to_node_table()
+
+        bvh2 = from_df(table, df)
+        again = from_df(table, df)
 
         originals = {id(node) for node in bvh_example.nodes}
         assert not any(id(node) in originals for node in bvh2.nodes)
+        assert not any(id(node) in {id(n) for n in bvh2.nodes} for node in again.nodes)
         assert bvh2.matches_hierarchy(bvh_example, atol=0)
-        assert [
-            list(n.children) for n in bvh_example.nodes if not n.is_end_site()
-        ] == children_before
+
+    def test_a_node_list_is_checked_as_bvh_checks_it(self, from_df):
+        """A list wired on the parent side alone was rebuilt through the
+        table before; taken over, it must be one tree wired both ways."""
+        bvh = self._make_underscored_bvh()
+        df = pd.DataFrame(bvh.to_df_dict(mode="euler"))
+        end = BvhEndSite("tip", offset=[0.0, 2.0, 0.0])
+        hip = BvhJoint("Left_Hip", offset=[1.0, -3.0, 0.0], rot_channels=["X", "Y", "Z"])
+        root = BvhRoot("Hip", offset=[0.0, 0.0, 0.0], rot_channels=["Z", "Y", "X"])
+        hip.parent, end.parent = root, hip
+        with pytest.raises(ValueError, match="not reached by the depth-first walk"):
+            from_df([root, hip, end], df)
+
+    @staticmethod
+    def _missing_column(bvh):
+        df = pd.DataFrame(bvh.to_df_dict(mode="euler")).drop(columns="Spine_X_rot")
+        return bvh.to_node_table(), df, "missing columns"
+
+    @staticmethod
+    def _no_time_column(bvh):
+        df = pd.DataFrame(bvh.to_df_dict(mode="euler")).drop(columns="time")
+        return bvh.to_node_table(), df, "No 'time' column"
+
+    @staticmethod
+    def _one_row(bvh):
+        df = pd.DataFrame(bvh.to_df_dict(mode="euler")).iloc[:1]
+        return bvh.to_node_table(), df, "at least 2"
+
+    @staticmethod
+    def _nan_frame_time(bvh):
+        df = pd.DataFrame(bvh.to_df_dict(mode="euler"))
+        df.loc[df.index[-1], "time"] = float("nan")
+        return bvh.to_node_table(), df, "frame_time .* got nan"
+
+    @staticmethod
+    def _root_position_order_changed(bvh):
+        """Refused by the constructor, the last check before the freeze."""
+        table = bvh.to_node_table()
+        table[0]["pos_channels"] = "ZYX"
+        df = pd.DataFrame(bvh.to_df_dict(mode="euler"))
+        return table, df, "Non-standard root position channel order"
+
+    REFUSALS = {
+        "missing_column": _missing_column,
+        "no_time_column": _no_time_column,
+        "one_row": _one_row,
+        "nan_frame_time": _nan_frame_time,
+        "root_position_order": _root_position_order_changed,
+    }
+
+    @pytest.mark.parametrize("refusal", REFUSALS.values(), ids=REFUSALS.keys())
+    def test_a_refused_node_list_stays_editable(self, bvh_example, from_df, refusal):
+        """As after a Bvh(...) that raises: the call owns nothing it refused."""
+        table, df, message = refusal(bvh_example)
+        nodes = nodes_from_table(table)
+        with pytest.raises(ValueError, match=message):
+            from_df(nodes, df)
+        for node in nodes:
+            node.offset = node.offset + 1.0
+            node.name = f"{node.name}_edited"
 
     @staticmethod
     def _make_underscored_bvh():

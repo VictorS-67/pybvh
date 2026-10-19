@@ -862,7 +862,7 @@ class Bvh:
             return self._derive_clip(
                 root_pos=self._root_pos.copy(), joint_angles=self._joint_angles.copy()
             )
-        new_nodes = _nodes_from_table_or_list(nodes, "nodes", take_list=True)
+        new_nodes = _nodes_from_table_or_list(nodes, "nodes")
         # Every check runs before the copy is built, as in the constructor:
         # building it freezes the nodes, and a copy that raises must leave
         # a node list it was given editable, as a Bvh(...) that raises does.
@@ -1650,9 +1650,12 @@ class Bvh:
 
         The constructor counterpart of :meth:`to_node_table` and
         :meth:`to_df_dict`: ``hier`` is a node table, or a node list such
-        as :attr:`nodes`, and ``df`` holds euler-mode frames. Delegates
-        to :func:`pybvh.df_to_bvh`; see it for the two forms of ``hier``,
-        the expected column naming and what raises.
+        as :attr:`nodes`, and ``df`` holds euler-mode frames. A table is
+        data, so the clip builds nodes of its own from it; a node list is
+        taken over as the constructor takes one: the clip owns and
+        freezes those nodes, and nodes another clip owns are shared.
+        Delegates to :func:`pybvh.df_to_bvh`; see it for the two forms of
+        ``hier``, the expected column naming and what raises.
         """
         from .dataframe import df_to_bvh
 

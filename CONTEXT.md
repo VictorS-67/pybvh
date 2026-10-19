@@ -29,7 +29,7 @@ Every run-time import at module level points down this picture: a layer depends 
 | `dataframe` | a `Bvh` built from a pandas DataFrame, the inverse of `Bvh.to_df_dict` | import pandas at run time |
 | `bvhnode` | the node classes, each node's own fields and checks | know the tree as a whole, or any motion |
 | `node_tree` | the tree as a whole: the one builder, and the check `Bvh` runs on a finished tree | import anything but `bvhnode` |
-| `bvh` | one clip's state, validated, and the computation of its derived state; the skeleton and frame edits; its angles in the other rotation representations | compute a descriptor, a transform or a picture, or read or write a file: those methods wrap their module's function |
+| `bvh` | one clip's state, validated, and the computation of its derived state, whose lifecycle `_derived` holds; the skeleton and frame edits, each skeleton edit a new frozen skeleton swapped in; its angles in the other rotation representations | compute a descriptor, a transform or a picture, or read or write a file: those methods wrap their module's function |
 | `rotations` | every rotation representation and conversion, interpolation, SE(3), and the one Euler-to-matrix conversion | know a node or a clip |
 | `spatial_coord` | forward kinematics, and `FkTopology`, the arrays it reads | keep rotation math of its own |
 | `tools` | signed axes, the orientation a skeleton implies (world up, rest up and forward, L/R pairs, facing), and the input validators the package shares | import a `Bvh` at run time |

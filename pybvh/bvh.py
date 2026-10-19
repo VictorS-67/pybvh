@@ -111,6 +111,22 @@ def _motion_column_names(nodes: Sequence[BvhNode], mode: str) -> list[str]:
     raise ValueError(f"mode must be 'euler' or 'coordinates', got {mode!r}")
 
 
+def _checked_root_pos(value: npt.ArrayLike) -> npt.NDArray[np.float64]:
+    """``value`` as a float array, if it has the shape of ``root_pos``."""
+    arr = np.asarray(value, dtype=np.float64)
+    if arr.ndim != 2 or arr.shape[1] != 3:
+        raise ValueError(f"root_pos must have shape (F, 3), got {arr.shape}")
+    return arr
+
+
+def _checked_joint_angles(value: npt.ArrayLike) -> npt.NDArray[np.float64]:
+    """``value`` as a float array, if it has the shape of ``joint_angles``."""
+    arr = np.asarray(value, dtype=np.float64)
+    if arr.ndim != 3 or arr.shape[2] != 3:
+        raise ValueError(f"joint_angles must have shape (F, J, 3), got {arr.shape}")
+    return arr
+
+
 def _build_rest_pose(bvh: Bvh) -> npt.NDArray[np.float64]:
     """FK of ``bvh``'s skeleton with every angle zero and the root at the origin."""
     return frames_to_node_positions(
@@ -355,10 +371,7 @@ class Bvh:
 
     @root_pos.setter
     def root_pos(self, value: npt.ArrayLike) -> None:
-        arr = np.asarray(value, dtype=np.float64)
-        if arr.ndim != 2 or arr.shape[1] != 3:
-            raise ValueError(f"root_pos must have shape (F, 3), got {arr.shape}")
-        self._root_pos = arr
+        self._root_pos = _checked_root_pos(value)
         self._derived.user_replaced_motion()
 
     @property
@@ -381,11 +394,27 @@ class Bvh:
 
     @joint_angles.setter
     def joint_angles(self, value: npt.ArrayLike) -> None:
-        arr = np.asarray(value, dtype=np.float64)
-        if arr.ndim != 3 or arr.shape[2] != 3:
-            raise ValueError(f"joint_angles must have shape (F, J, 3), got {arr.shape}")
-        self._joint_angles = arr
+        self._joint_angles = _checked_joint_angles(value)
         self._derived.user_replaced_motion()
+
+    def _set_motion(
+        self,
+        *,
+        root_pos: npt.ArrayLike | None = None,
+        joint_angles: npt.ArrayLike | None = None,
+    ) -> None:
+        """Write motion as pybvh's own edits do, through no public setter.
+
+        The transforms, ``a += b`` and the rebuild of a derived clip write
+        here and report that the motion changed. The public setters report
+        that the user replaced the motion, the one change that starts the
+        world-up guess again (ADR 0003).
+        """
+        if root_pos is not None:
+            self._root_pos = _checked_root_pos(root_pos)
+        if joint_angles is not None:
+            self._joint_angles = _checked_joint_angles(joint_angles)
+        self._derived.motion_changed()
 
     @property
     def frame_count(self) -> int:
@@ -627,9 +656,8 @@ class Bvh:
         """In-place concatenation. Grows ``self`` by appending ``other``'s frames.
 
         Validates skeleton compatibility and warns on ``frame_time`` mismatch
-        just like ``a + b``. Assigns ``self.root_pos`` and
-        ``self.joint_angles`` through their setters, so the values derived
-        from the motion are recomputed on their next read.
+        just like ``a + b``. The values derived from the motion are
+        recomputed on their next read.
         """
         if not isinstance(other, Bvh):
             return NotImplemented  # type: ignore[return-value]
@@ -640,8 +668,10 @@ class Bvh:
                 f"{other.frame_time}. Using self's frame time.",
                 stacklevel=user_stacklevel(),
             )
-        self.root_pos = np.concatenate([self.root_pos, other.root_pos], axis=0)
-        self.joint_angles = np.concatenate([self.joint_angles, other.joint_angles], axis=0)
+        self._set_motion(
+            root_pos=np.concatenate([self.root_pos, other.root_pos], axis=0),
+            joint_angles=np.concatenate([self.joint_angles, other.joint_angles], axis=0),
+        )
         if self.source_path != other.source_path:
             self.source_path = None
         return self
@@ -780,8 +810,7 @@ class Bvh:
             source_path=state["source_path"],
             warn_on_disagreement=state["warn_on_disagreement"],
         )
-        self.root_pos = state["root_pos"]
-        self.joint_angles = state["joint_angles"]
+        self._set_motion(root_pos=state["root_pos"], joint_angles=state["joint_angles"])
         self._world_up_override = state["world_up_override"]
         self._lr_mapping_setting = state["lr_mapping_setting"]
 
@@ -2079,7 +2108,7 @@ class Bvh:
         factor = float(scale)
         target = self if inplace else self.copy()
         target._replace_offsets(target._offsets() * factor)
-        target.root_pos = target.root_pos * factor
+        target._set_motion(root_pos=target.root_pos * factor)
         if inplace:
             return None
         return target

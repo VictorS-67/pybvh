@@ -81,7 +81,7 @@ def translate_root(
         raise ValueError(f"offset must have shape (3,), got {off.shape}")
 
     target = bvh if inplace else bvh.copy()
-    target.root_pos = target.root_pos + off  # broadcast (F,3)+(3,)
+    target._set_motion(root_pos=target.root_pos + off)  # broadcast (F,3)+(3,)
     if inplace:
         return None
     return target
@@ -191,7 +191,7 @@ def add_rotation_noise(
         noised = target.joint_angles + rng.normal(0.0, sigma_rad, target.joint_angles.shape)
         if wrap:
             noised = (noised + np.pi) % (2.0 * np.pi) - np.pi
-        target.joint_angles = noised
+        target._set_motion(joint_angles=noised)
     if inplace:
         return None
     return target
@@ -250,7 +250,7 @@ def add_position_noise(
 
     target = bvh if inplace else bvh.copy()
     if sigma > 0:
-        target.root_pos = target.root_pos + rng.normal(0.0, sigma, target.root_pos.shape)
+        target._set_motion(root_pos=target.root_pos + rng.normal(0.0, sigma, target.root_pos.shape))
     if inplace:
         return None
     return target
@@ -429,8 +429,7 @@ def drop_frames(
     new_angles[drop_mask] = rotations.quat_to_euler(dropped_quats, bvh.euler_orders)
 
     target = bvh if inplace else bvh.copy()
-    target.root_pos = new_root_pos
-    target.joint_angles = new_angles
+    target._set_motion(root_pos=new_root_pos, joint_angles=new_angles)
     if inplace:
         return None
     return target
@@ -655,8 +654,7 @@ def rotate_vertical(
         degrees=degrees,
         pivot=pivot,
     )
-    target.joint_angles = new_angles
-    target.root_pos = new_root_pos
+    target._set_motion(root_pos=new_root_pos, joint_angles=new_angles)
 
     if inplace:
         return None
@@ -971,8 +969,7 @@ def mirror(
         lateral_idx,
         rot_ch,
     )
-    target.joint_angles = new_angles
-    target.root_pos = new_root_pos
+    target._set_motion(root_pos=new_root_pos, joint_angles=new_angles)
 
     # --- Step 2: Negate node offset lateral component for ALL nodes ---
     offsets = target._offsets()
@@ -1049,7 +1046,7 @@ def _reorient_rest(target: Bvh, R_fix: npt.NDArray[np.float64]) -> None:
         angles_copy, joints, R_fix, R_fix_inv, joint_indices=range(1, len(joints))
     )
 
-    target.joint_angles = angles_copy
+    target._set_motion(joint_angles=angles_copy)
 
 
 @overload
@@ -1105,7 +1102,7 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     R = _axis_aligned_rotation(old_up, new_up)
 
     # 1. Rotate root positions
-    target.root_pos = (R @ target.root_pos.T).T
+    target._set_motion(root_pos=(R @ target.root_pos.T).T)
 
     # 2. Rotate all node offsets
     target._replace_offsets(target._offsets() @ R.T)
@@ -1116,7 +1113,7 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     joints = [n for n in target.nodes if not n.is_end_site()]
     angles_copy = target.joint_angles.copy()
     _apply_similarity_to_joints(angles_copy, joints, R, R.T)
-    target.joint_angles = angles_copy
+    target._set_motion(joint_angles=angles_copy)
 
     # 4. Update metadata
     target.world_up = new_up

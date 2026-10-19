@@ -1175,6 +1175,7 @@ class TestSceneIsCheckedAtConstruction:
 # nothing from the core at runtime, except the viewport, which may take
 # array kernels.
 _CORE_MODULES = {
+    "_derived",
     "analysis",
     "batch",
     "bvh",

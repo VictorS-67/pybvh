@@ -850,14 +850,15 @@ class TestFootContactsFloorEstimation:
         assert info_min["floor"] * up.sign == pytest.approx(true_min)
         assert info_auto["floor"] * up.sign > true_min + 50.0
 
-    def test_floor_min_is_below_the_auto_estimate_and_ignores_the_cache(self, bvh_example):
+    def test_floor_min_is_below_the_auto_estimate_and_ignores_the_scene_ground(
+        self, bvh_example, computations
+    ):
         """ "min" is the true minimum of the feet's own heights, computed
-        fresh every call and unaffected by the scene-ground cache."""
+        fresh every call and never through the scene ground."""
         bvh = bvh_example.copy()
-        assert bvh._floor_height_cached is None
         _, info_min = bvh.foot_contacts(floor="min", return_info=True)
-        assert bvh._floor_height_cached is None  # not filled
         _, info_auto = bvh.foot_contacts(return_info=True)
+        assert computations.floor_height == 0
         assert info_min["floor"] <= info_auto["floor"] + 1e-12
 
         _ = bvh.floor_height  # fill the scene ground
@@ -1229,7 +1230,7 @@ class TestFootContactsPinnedGolden:
         [(i, name) for i, (name, _) in enumerate(FOOT_CONTACT_RUNS, start=1)],
         ids=[name for name, _ in FOOT_CONTACT_RUNS],
     )
-    def test_run_matches_pin(self, pin, run_idx, run_name):
+    def test_run_matches_pin(self, pin, run_idx, run_name, computations):
         _, build = FOOT_CONTACT_RUNS[run_idx - 1]
         # Fresh Bvh per run: no floor-cache state carries over, mirroring
         # exactly how the fixture was generated.
@@ -1265,32 +1266,28 @@ class TestFootContactsPinnedGolden:
                     got, want, err_msg=f"run{run_idx} ({run_name}): info[{key!r}] changed"
                 )
 
-        if run_idx == 1:
-            # The reported reference is the feet's own, and no path leaves
-            # it behind in the scene-ground cache.
-            assert bvh._floor_height_cached is None
+        # The reported reference is the feet's own: no run computes the
+        # scene ground.
+        assert computations.floor_height == 0
 
 
 class TestContactReferenceIsIndependentOfTheSceneGround:
     """The contact reference belongs to the query; the scene ground to the clip.
 
-    ``foot_contacts`` measures clearance at joint *centres*, so its reference must be the level those joints reach — estimated per call, over the joints in use. :attr:`Bvh.floor_height` is measured over all nodes and sits a toe length lower on any rig with toe end sites. The two must never be substituted for one another, in either direction: these tests pin that no contact path reads or writes ``Bvh._floor_height_cached``.
+    ``foot_contacts`` measures clearance at joint *centres*, so its reference must be the level those joints reach — estimated per call, over the joints in use. :attr:`Bvh.floor_height` is measured over all nodes and sits a toe length lower on any rig with toe end sites. The two must never be substituted for one another, in either direction: these tests pin that no contact path computes the scene ground, and that a scene ground already computed, even an absurd one, changes no contact.
     """
 
     @pytest.fixture
     def cmu_walk(self):
         return read_bvh_file(CMU_WALK_PATH)
 
-    def test_no_contact_path_fills_the_scene_ground_cache(self, cmu_walk):
-        assert cmu_walk._floor_height_cached is None
+    def test_no_contact_path_computes_the_scene_ground(self, cmu_walk, computations):
         cmu_walk.foot_contacts()
-        assert cmu_walk._floor_height_cached is None
         cmu_walk.foot_contacts(foot_joints=cmu_walk.auto_detect_foot_joints())
-        assert cmu_walk._floor_height_cached is None
         cmu_walk.foot_contacts(coords=cmu_walk.node_positions())
-        assert cmu_walk._floor_height_cached is None
+        assert computations.floor_height == 0
 
-    def test_reading_floor_height_first_does_not_change_contacts(self, cmu_walk):
+    def test_reading_floor_height_first_does_not_change_contacts(self, cmu_walk, monkeypatch):
         """The bug the shared cache would cause: contacts depending on
         whether anything happened to read the scene ground beforehand."""
         cold = cmu_walk.foot_contacts()
@@ -1299,9 +1296,10 @@ class TestContactReferenceIsIndependentOfTheSceneGround:
         _ = warm.floor_height  # fill the scene ground
         np.testing.assert_array_equal(warm.foot_contacts(), cold)
 
-        sentinel = read_bvh_file(CMU_WALK_PATH)
-        sentinel._floor_height_cached = 1e4  # even an absurd value
-        np.testing.assert_array_equal(sentinel.foot_contacts(), cold)
+        absurd = read_bvh_file(CMU_WALK_PATH)
+        monkeypatch.setattr(analysis, "_compute_floor_height", lambda bvh: 1e4)
+        assert absurd.floor_height == 1e4  # the clip now holds an absurd ground
+        np.testing.assert_array_equal(absurd.foot_contacts(), cold)
 
     def test_reference_is_the_tested_feet_not_the_scene_ground(self, cmu_walk):
         """On a rig with toe end sites the two are measurably different, and
@@ -1403,17 +1401,17 @@ class TestGroundContacts:
         assert info["height_reference"] == "floor"
         np.testing.assert_array_equal(default_contacts, explicit)
 
-    def test_never_touches_floor_cache(self, cmu_walk):
+    def test_never_computes_or_reads_the_scene_ground(self, cmu_walk, computations):
         feet = cmu_walk.auto_detect_foot_joints()
-        assert cmu_walk._floor_height_cached is None
         analysis.ground_contacts(cmu_walk, feet)  # auto floor, default coords
-        assert cmu_walk._floor_height_cached is None
-        # ... and a pre-warmed cache is never served either
-        sentinel = cmu_walk.floor_height + 1.0
-        cmu_walk._floor_height_cached = sentinel
-        _, info = analysis.ground_contacts(cmu_walk, feet, return_info=True)
-        assert info["floor"] != sentinel
-        assert cmu_walk._floor_height_cached == sentinel
+        assert computations.floor_height == 0
+        # ... and a scene ground already computed is never served either
+        _, cold_info = analysis.ground_contacts(cmu_walk, feet, return_info=True)
+        _ = cmu_walk.floor_height
+        _, warm_info = analysis.ground_contacts(cmu_walk, feet, return_info=True)
+        assert warm_info["floor"] == cold_info["floor"]
+        assert warm_info["floor"] != cmu_walk.floor_height
+        assert computations.floor_height == 1
 
     def test_arm_set_skips_rest_height_sanity_check(self, cmu_walk):
         # foot_contacts refuses hands (feet-above-hips world_up sanity check);

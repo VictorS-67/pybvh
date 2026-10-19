@@ -2603,12 +2603,13 @@ class TestEqualityHierarchy:
 class TestNodePositionsCache:
     """node_positions() caches world FK and invalidates on motion changes."""
 
-    def test_cache_populated_and_reused(self, bvh_example):
-        assert bvh_example._node_positions_cached is None
+    def test_fk_runs_once_across_calls(self, bvh_example, computations):
         first = bvh_example.node_positions(centered="world")
-        assert bvh_example._node_positions_cached is not None
-        second = bvh_example.node_positions(centered="world")
-        np.testing.assert_array_equal(first, second)
+        second = bvh_example.node_positions(centered="skeleton")
+        third = bvh_example.node_positions(frame=3)
+        assert computations.fk == 1
+        np.testing.assert_array_equal(first, second + bvh_example.root_pos[:, np.newaxis, :])
+        np.testing.assert_array_equal(third, first[3])
 
     def test_returned_array_is_a_copy(self, bvh_example):
         first = bvh_example.node_positions(centered="world")
@@ -2616,13 +2617,13 @@ class TestNodePositionsCache:
         second = bvh_example.node_positions(centered="world")
         assert not np.allclose(first, second)
 
-    def test_setter_invalidates(self, bvh_example):
+    def test_setter_invalidates(self, bvh_example, computations):
         before = bvh_example.node_positions(centered="world").copy()
         ja = bvh_example.joint_angles.copy()
         ja[:, :, :] = 0.0
         bvh_example.joint_angles = ja
-        assert bvh_example._node_positions_cached is None
         after = bvh_example.node_positions(centered="world")
+        assert computations.fk == 2
         assert not np.allclose(before, after)
 
     def test_setitem_invalidates(self, bvh_example):
@@ -5823,12 +5824,16 @@ class TestBvhIAdd:
         assert id(bvh) == original_id
         assert len(bvh) == 2 * bvh_example.frame_count
 
-    def test_iadd_invalidates_world_up_cache(self, bvh_example):
+    def test_iadd_infers_world_up_again(self, bvh_example, computations):
         bvh = bvh_example.copy()
-        _ = bvh.world_up  # populate cache
-        assert bvh._world_up_cached is not None
+        _ = bvh.world_up
+        inferred = computations.world_up
+        _ = bvh.world_up
+        assert computations.world_up == inferred
         bvh += bvh_example
-        assert bvh._world_up_cached is None
+        _ = bvh.world_up
+        _ = bvh.world_up
+        assert computations.world_up == inferred + 1
 
     def test_iadd_non_bvh_raises_type_error(self, bvh_example):
         bvh = bvh_example.copy()
@@ -5929,12 +5934,14 @@ class TestBvhSetItemErrors:
 class TestBvhDunderInvariants:
     """Cross-cutting invariants: cache, deepcopy, freeze, formatting."""
 
-    def test_setitem_invalidates_world_up_cache(self, bvh_example):
+    def test_setitem_infers_world_up_again(self, bvh_example, computations):
         bvh = bvh_example.copy()
-        _ = bvh.world_up  # populate
-        assert bvh._world_up_cached is not None
+        _ = bvh.world_up
+        inferred = computations.world_up
         bvh[0] = bvh_example[1]
-        assert bvh._world_up_cached is None
+        _ = bvh.world_up
+        _ = bvh.world_up
+        assert computations.world_up == inferred + 1
 
     def test_getitem_is_deep_independent(self, bvh_example):
         sub = bvh_example[:]

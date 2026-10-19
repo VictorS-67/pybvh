@@ -27,6 +27,7 @@ import numpy as np
 import numpy.typing as npt
 
 from . import rotations
+from ._derived import DerivedState as _DerivedState
 from ._warnings import user_stacklevel
 
 # Re-exported: pybvh.bvh has long served every node class, end sites included.
@@ -177,26 +178,21 @@ class Bvh:
         source_path: str | None = None,
         warn_on_disagreement: bool = True,
     ) -> None:
-        # All lazy caches exist before any property setter runs, so the
-        # setters can invalidate them unconditionally. ``_world_up_override``
-        # is set via the public ``world_up`` setter; ``_world_up_cached`` is
-        # computed eagerly below (from first animation frame, with rest-pose
-        # fallback) so that file-reading paths have a ready-to-use world_up
-        # immediately. Floor height and FK positions are lazily computed on
-        # first access (FK is too costly to run in every constructor) and
-        # invalidated by the motion setters.
+        # The derived state exists before any property setter runs, so the
+        # setters can report their change unconditionally. Each value in it
+        # is computed on first read, except the guessed world up, which is
+        # inferred below so that a clip read from a file has its world up
+        # (and any disagreement warning) at once.
+        self._derived = _DerivedState()
         self._world_up_override: str | None = None
-        self._world_up_cached: str | None = None
         # The warn preference lives on the instance, not only in this
-        # call, because ``_world_up_cached`` is dropped on every motion
+        # call, because the guessed world up is cleared on every motion
         # edit and is not carried to derived clips: each re-inference
         # must still see what the caller asked for at load. Each inference
         # site calls ``_infer_world_up`` itself rather than through a
         # shared wrapper, so its warnings keep pointing at that site and
         # are not collapsed into one location by the "default" filter.
         self._warn_on_world_up_disagreement = warn_on_disagreement
-        self._floor_height_cached: float | None = None
-        self._node_positions_cached: npt.NDArray[np.float64] | None = None
         self._lr_mapping: dict[str, str] | None = None
         self._lr_mapping_source: str | None = None  # 'names' | 'user' | None
 
@@ -259,7 +255,9 @@ class Bvh:
         if world_up != "auto":
             self._world_up_override = _validate_axis_string(world_up)
         elif self.frame_count > 0 and len(self.nodes) > 1:
-            self._world_up_cached = _infer_world_up(self, warn=self._warn_on_world_up_disagreement)
+            self._derived.guessed_world_up = _infer_world_up(
+                self, warn=self._warn_on_world_up_disagreement
+            )
 
         # L/R pair mapping — cached. Depends on names + topology only, so
         # no runtime invalidation hooks are needed (no pybvh operation
@@ -366,7 +364,7 @@ class Bvh:
         if arr.ndim != 2 or arr.shape[1] != 3:
             raise ValueError(f"root_pos must have shape (F, 3), got {arr.shape}")
         self._root_pos = arr
-        self._invalidate_motion_caches()
+        self._derived.user_replaced_motion()
 
     @property
     def joint_angles(self) -> npt.NDArray[np.float64]:
@@ -392,18 +390,7 @@ class Bvh:
         if arr.ndim != 3 or arr.shape[2] != 3:
             raise ValueError(f"joint_angles must have shape (F, J, 3), got {arr.shape}")
         self._joint_angles = arr
-        self._invalidate_motion_caches()
-
-    def _invalidate_motion_caches(self) -> None:
-        """Drop every cache derived from the motion data.
-
-        Called by the ``root_pos`` / ``joint_angles`` setters and by any
-        code path that mutates motion or rest-pose geometry without going
-        through them (``__setitem__``, in-place ``retarget``).
-        """
-        self._world_up_cached = None
-        self._floor_height_cached = None
-        self._node_positions_cached = None
+        self._derived.user_replaced_motion()
 
     @property
     def frame_count(self) -> int:
@@ -651,9 +638,9 @@ class Bvh:
         """In-place concatenation. Grows ``self`` by appending ``other``'s frames.
 
         Validates skeleton compatibility and warns on ``frame_time`` mismatch
-        just like ``a + b``. Mutates ``self.root_pos`` and
-        ``self.joint_angles`` via their setters so ``_world_up_cached`` is
-        invalidated.
+        just like ``a + b``. Assigns ``self.root_pos`` and
+        ``self.joint_angles`` through their setters, so the values derived
+        from the motion are recomputed on their next read.
         """
         if not isinstance(other, Bvh):
             return NotImplemented  # type: ignore[return-value]
@@ -680,7 +667,8 @@ class Bvh:
         ``value.frame_count == 1``.
 
         Frames are written into the motion arrays in place (no full-array
-        copies); motion-derived caches are invalidated explicitly.
+        copies), and the values derived from the motion are recomputed on
+        their next read.
         """
         # --- key → canonical slice ---
         if isinstance(key, (int, np.integer)):
@@ -725,10 +713,10 @@ class Bvh:
                 "array assignment for more complex splicing."
             )
 
-        # --- in-place splice + explicit cache invalidation ---
+        # --- in-place splice, bypassing the setters ---
         self._root_pos[s] = value.root_pos
         self._joint_angles[s] = value.joint_angles
-        self._invalidate_motion_caches()
+        self._derived.user_replaced_motion()
 
     def copy(self) -> Bvh:
         """Return an independent deep copy.
@@ -810,9 +798,11 @@ class Bvh:
         """
         if self._world_up_override is not None:
             return self._world_up_override
-        if self._world_up_cached is None:
-            self._world_up_cached = _infer_world_up(self, warn=self._warn_on_world_up_disagreement)
-        return self._world_up_cached
+        guessed = self._derived.guessed_world_up
+        if guessed is None:
+            guessed = _infer_world_up(self, warn=self._warn_on_world_up_disagreement)
+            self._derived.guessed_world_up = guessed
+        return guessed
 
     @world_up.setter
     def world_up(self, value: str | None) -> None:
@@ -935,11 +925,13 @@ class Bvh:
         ``root_pos`` or ``joint_angles`` is reassigned. Nothing else fills or
         reads that cache.
         """
-        if self._floor_height_cached is None:
+        floor = self._derived.floor_height
+        if floor is None:
             from . import analysis
 
-            self._floor_height_cached = analysis._compute_floor_height(self)
-        return self._floor_height_cached
+            floor = analysis._compute_floor_height(self)
+            self._derived.floor_height = floor
+        return floor
 
     @property
     def rest_up(self) -> str | None:
@@ -1372,17 +1364,18 @@ class Bvh:
         return [i for i, n in enumerate(self.nodes) if not n.is_end_site()]
 
     def _world_node_positions(self) -> npt.NDArray[np.float64]:
-        """World-frame FK positions for all frames — lazily computed, cached.
+        """World-frame FK positions for all frames, computed once per input.
 
-        The cache is invalidated by :meth:`_invalidate_motion_caches`
-        whenever motion data changes. Callers must not mutate the returned
-        array; :meth:`node_positions` derives fresh arrays from it.
+        The array is the clip's derived state and is read-only;
+        :meth:`node_positions` derives fresh arrays from it.
         """
-        if self._node_positions_cached is None:
-            self._node_positions_cached = frames_to_node_positions(
+        positions = self._derived.node_positions
+        if positions is None:
+            positions = frames_to_node_positions(
                 self, root_pos=self.root_pos, joint_angles=self.joint_angles, centered="world"
             )
-        return self._node_positions_cached
+            self._derived.node_positions = positions
+        return positions
 
     def node_positions(
         self, frame: int | None = None, centered: str = "world"
@@ -1439,8 +1432,8 @@ class Bvh:
                 f"{self.frame_count} frames. Use frame=None for all frames."
             )
         actual = frame if frame >= 0 else frame + self.frame_count
-        if self._node_positions_cached is not None:
-            world_frame = self._node_positions_cached[actual]
+        if self._derived.node_positions is not None:
+            world_frame = self._derived.node_positions[actual]
             if centered == "world":
                 return world_frame.copy()
             if centered == "skeleton":
@@ -1959,12 +1952,10 @@ class Bvh:
                 )
             # else: keep original offset (lenient mode)
 
-        # Offsets changed without going through the motion setters, so
-        # FK-derived caches (positions, floor height, world_up) are stale.
         if inplace:
-            self._invalidate_motion_caches()
+            self._derived.skeleton_changed()
             return None
-        new_bvh._invalidate_motion_caches()
+        new_bvh._derived.skeleton_changed()
         return new_bvh
 
     @overload

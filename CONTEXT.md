@@ -14,7 +14,7 @@ analysis    io    transforms     descriptors · the file · a clip in, a clip ou
 bvh                              the clip: skeleton and motion
 spatial_coord                    forward kinematics
 node_tree   tools   geometry     the tree · axes and orientation · position kernels
-bvhnode   rotations   signal   _warnings
+bvhnode   rotations   signal   _warnings   _derived
 ```
 
 Every run-time import at module level points down this picture: a layer depends on nothing above it. Imports for type annotations only, under `TYPE_CHECKING`, are exempt: `tools` and `spatial_coord` name `Bvh` that way. `rotations`, `signal`, `geometry` and `FkTopology` know no clip: they take arrays, which lets a consumer pose and measure motion with no `Bvh` in hand, a data loader at train time for instance. Two kinds of import point up, and each sits inside the function that needs it, never at module level: a `Bvh` method that wraps another module's function, and the one function in `spatial_coord` that tells a `Bvh` from the other skeleton forms.
@@ -29,11 +29,12 @@ Every run-time import at module level points down this picture: a layer depends 
 | `dataframe` | a `Bvh` built from a pandas DataFrame, the inverse of `Bvh.to_df_dict` | import pandas at run time |
 | `bvhnode` | the node classes, each node's own fields and checks | know the tree as a whole, or any motion |
 | `node_tree` | the tree as a whole: the one builder, and the check `Bvh` runs on a finished tree | import anything but `bvhnode` |
-| `bvh` | one clip's state, validated and cached; the skeleton and frame edits; its angles in the other rotation representations | compute a descriptor, a transform or a picture, or read or write a file: those methods wrap their module's function |
+| `bvh` | one clip's state, validated, and the computation of its derived state; the skeleton and frame edits; its angles in the other rotation representations | compute a descriptor, a transform or a picture, or read or write a file: those methods wrap their module's function |
 | `rotations` | every rotation representation and conversion, interpolation, SE(3), and the one Euler-to-matrix conversion | know a node or a clip |
 | `spatial_coord` | forward kinematics, and `FkTopology`, the arrays it reads | keep rotation math of its own |
 | `tools` | signed axes, the orientation a skeleton implies (world up, rest up and forward, L/R pairs, facing), and the input validators the package shares | import a `Bvh` at run time |
 | `_warnings` | where a warning points: the line of the user's code | |
+| `_derived` | a clip's derived state: the values themselves, and the table of which change to the skeleton, the motion or the world up clears which value (ADR 0003) | compute a value: `bvh` computes each one and fills it on read |
 | `signal` | array-pure signal kernels | know a clip |
 | `geometry` | array-pure position descriptors | know a clip, or differentiate other than through `signal` |
 | `analysis` | the descriptors of a clip, as functions taking the `Bvh` first, and the array kernels behind the dynamics descriptors | assemble an export array |

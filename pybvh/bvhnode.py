@@ -11,9 +11,9 @@ A node is mutable until a :class:`~pybvh.bvh.Bvh` owns it: the ``Bvh``
 constructor freezes every node it is given. From then on, assigning its
 ``name``, ``offset``, ``parent``, ``children`` or channels raises
 ``AttributeError`` naming the way to change a skeleton
-(:func:`~pybvh.nodes_to_table`, edit the table,
-:func:`~pybvh.nodes_from_table`, a new ``Bvh``), ``offset`` is a read-only
-array and ``children`` a tuple. A clip's derived values (forward
+(``table = bvh.to_node_table()``, edit the rows, then
+``bvh.copy(nodes=table)``; see :meth:`~pybvh.bvh.Bvh.copy`), ``offset``
+is a read-only array and ``children`` a tuple. A clip's derived values (forward
 kinematics, indexes, floor height) are computed from its skeleton, so the
 skeleton cannot change under them.
 """
@@ -32,11 +32,9 @@ def _frozen_error(node: BvhNode, attribute: str) -> AttributeError:
     return AttributeError(
         f"{attribute} of node {node.name!r} cannot be changed: a Bvh owns "
         f"this node, and the skeleton of a Bvh is frozen. To change it, edit "
-        f"the skeleton as a table and build a new clip: "
-        f"table = pybvh.nodes_to_table(bvh.nodes), edit the rows, then "
-        f"pybvh.Bvh(nodes=pybvh.nodes_from_table(table), "
-        f"root_pos=bvh.root_pos, joint_angles=bvh.joint_angles, "
-        f"frame_time=bvh.frame_time)."
+        f"the skeleton as a table and copy the clip onto it: "
+        f"table = bvh.to_node_table(), edit the rows, then "
+        f"bvh.copy(nodes=table)."
     )
 
 

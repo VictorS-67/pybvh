@@ -67,21 +67,22 @@ The skeleton comes back exactly: the table identifies nodes by position, not by 
 
 The nodes a `Bvh` holds are frozen: assigning a node's `name`, `offset`, `parent`, `children` or channels raises `AttributeError`, and `node.offset` is a read-only array. The clip computes its forward kinematics, its rest pose and its name indexes from the skeleton, so a node edited in place would leave them describing the old one. `bvh.nodes` is a tuple, `node.children` a tuple once the clip owns the node, and channel orders are tuples (`('Z', 'Y', 'X')`); take `list(...)` where you need a list, and `node.offset.copy()` for a writable offset.
 
-To change a skeleton, edit it as a node table and build a new clip from it:
+To change a skeleton, edit it as a node table and copy the clip onto it:
 
 ```python
-from pybvh import Bvh, nodes_to_table, nodes_from_table
-
-table = nodes_to_table(bvh.nodes)    # plain dicts, one per node, in `nodes` order
+table = bvh.to_node_table()    # plain dicts, one per node, in `nodes` order
 i = bvh.node_index["Spine"]
 table[i]["offset"] = table[i]["offset"] * 1.1
 table[i]["name"] = "Spine0"
 
-edited = Bvh(nodes=nodes_from_table(table), root_pos=bvh.root_pos,
-             joint_angles=bvh.joint_angles, frame_time=bvh.frame_time)
+edited = bvh.copy(nodes=table)
 ```
 
-The table holds copies, so editing it leaves `bvh` as it was. Keep one row per joint of `joint_angles`, in the same order: the motion is matched to the joints by position. To keep a subset of the joints, use `extract_joints`, which drops their columns too. The new clip is built like a clip read from a file: it guesses its own world up and detects its L/R pairs from the joint names; pass `world_up=` or `lr_mapping=` to `Bvh(...)` to set them.
+The table holds copies, so editing it leaves `bvh` as it was. `copy(nodes=...)` also takes a node list, such as another clip's `nodes` or one built with `nodes_from_table`; it reads the list and builds nodes of its own. The copy carries the motion, the frame time, the source path and your settings, as `copy()` does.
+
+The motion is matched to the joints by position, so keep one row per joint of `joint_angles`, in the same order, and keep each joint's Euler order: a different joint count raises `ValueError`, and so does a changed order, since the angles are only meaningful in the order they were recorded in; `change_euler_order` converts them with the order. To keep a subset of the joints, use `extract_joints`, which drops their columns too. An L/R mapping you set follows its joints by position, so a renamed joint keeps its pair under the new name; pairs detected from the names are detected again from the new names. World up is inherited, set or guessed, as by every clip pybvh derives, since new offsets do not change which way is up; `edited.world_up = edited.world_up_inferred` guesses it from the new skeleton.
+
+To build a clip from a skeleton and motion that do not come from one clip, pass them to the constructor: `Bvh(nodes=nodes_from_table(table), root_pos=..., joint_angles=..., frame_time=...)`. Such a clip is built like a clip read from a file: it guesses its own world up and detects its L/R pairs from the joint names; pass `world_up=` or `lr_mapping=` to set them.
 
 Nodes not yet handed to a `Bvh` stay editable, so a skeleton built by hand (nodes created, `parent`, `children` and `offset` set) works as before, as long as it is finished before it reaches `Bvh(...)`.
 

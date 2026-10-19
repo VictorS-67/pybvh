@@ -1529,7 +1529,7 @@ class TestChannelOrdersAreTuples:
 
 
 # The way every refusal names: edit the skeleton as a table, build a new clip.
-_THE_WAY = r"nodes_to_table.*Bvh\(nodes=pybvh\.nodes_from_table"
+_THE_WAY = r"bvh\.to_node_table\(\).*bvh\.copy\(nodes=table\)"
 
 
 class TestOwnedSkeletonIsFrozen:

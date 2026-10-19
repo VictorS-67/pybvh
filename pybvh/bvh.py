@@ -170,7 +170,7 @@ class Bvh:
         a tree from plain data, :func:`~pybvh.nodes_from_table` wires it.
         The constructor freezes every node it is given (see
         :mod:`pybvh.bvhnode`), and ``nodes`` cannot be assigned: a new
-        skeleton goes to a new ``Bvh``.
+        skeleton goes to a new ``Bvh``, such as ``bvh.copy(nodes=table)``.
     root : BvhRoot
         The root node (``nodes[0]``), read-only.
     root_pos : ndarray, shape (F, 3)
@@ -329,10 +329,9 @@ class Bvh:
         assigned, nor edited in place, being a tuple (``list(bvh.nodes)``
         gives a list). Change the skeleton through the methods that edit it
         (:meth:`scale`, :meth:`retarget`, :meth:`extract_joints`,
-        :meth:`change_euler_order`), or edit it as a table and build a new
-        clip: ``table = nodes_to_table(bvh.nodes)``, edit the rows, then
-        ``Bvh(nodes=nodes_from_table(table), root_pos=bvh.root_pos,
-        joint_angles=bvh.joint_angles, frame_time=bvh.frame_time)``. The
+        :meth:`change_euler_order`), or edit it as a table and copy the
+        clip onto it: ``table = bvh.to_node_table()``, edit the rows, then
+        ``bvh.copy(nodes=table)`` (see :meth:`copy`). The
         methods swap in a new tuple of new nodes, even with
         ``inplace=True``, so a tuple or node taken before the call keeps
         the old skeleton.

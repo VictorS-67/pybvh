@@ -421,7 +421,7 @@ class BvhRoot(BvhJoint):
         :class:`~pybvh.bvh.Bvh` supports only ``['X', 'Y', 'Z']``, the
         order of every ``root_pos`` row, and raises ``ValueError`` at
         construction for any other. The ``Bvh`` constructor freezes it
-        with ``rot_channels``: from then on, assigning raises
+        with the rest of the node: from then on, assigning raises
         ``AttributeError``.
         """
         return self._pos_channels
@@ -429,7 +429,7 @@ class BvhRoot(BvhJoint):
     @pos_channels.setter
     def pos_channels(self, value: list[str] | str) -> None:
         if self._frozen:
-            raise AttributeError("pos_channels is frozen after construction and cannot be changed.")
+            raise _frozen_error(self, "pos_channels")
         self._pos_channels = self._check_channels(value)
 
     def __str__(self) -> str:

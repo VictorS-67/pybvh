@@ -1406,8 +1406,8 @@ class TestChannelProtection:
             joint.rot_channels = ["X", "Y", "Z"]
 
     def test_pos_channels_frozen_after_bvh_init(self, bvh_example):
-        """Direct mutation of pos_channels on the root should raise."""
-        with pytest.raises(AttributeError, match="pos_channels is frozen"):
+        """The refusal names the way to change a skeleton (ADR 0003 decision 1)."""
+        with pytest.raises(AttributeError, match=f"pos_channels of node 'Hips'.*{_THE_WAY}"):
             bvh_example.root.pos_channels = ["Z", "Y", "X"]
 
     def test_standalone_node_not_frozen(self):

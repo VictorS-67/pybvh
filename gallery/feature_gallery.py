@@ -226,7 +226,7 @@ pybvh.bvhplot.frame(
 );
 
 # %% [markdown]
-# **`perturb_speed`** — changes how fast the motion plays by resampling (SLERP under the hood). The subtlety worth a figure: it changes the **frame count**, not the frame rate — this 75-frame 30 fps clip at factor 2 becomes ~38 frames, still at 30 fps.
+# **`perturb_speed`** — changes how fast the motion plays by resampling (SLERP under the hood). The subtlety worth a figure: it changes the **frame count**, not the frame rate — this 126-frame 30 fps clip at factor 2 becomes 63 frames, still at 30 fps.
 
 # %%
 gp.fig_perturb_speed(bvh, bvh.perturb_speed(0.5), bvh.perturb_speed(2.0))
@@ -584,7 +584,7 @@ rom = bvh.range_of_motion("RightForeArm")
 gp.fig_range_of_motion(bvh, "RightForeArm", rom, t)
 
 # %% [markdown]
-# Note that ch1 has no range of motion here (ROM = 0°). This is because the forearm's rotation order is `ZYX`, so ch1 is the Y-rotation — and for the elbow that is the **non-hinge** axis: the elbow is a hinge, it flexes in a single plane (captured here by ch0, the Z-rotation, ~101°) and the bone twists along its length (ch2, the X-rotation, ~103° of pronation/supination), but it physically cannot bend sideways, so that channel stays at 0 for the whole clip.
+# Note that ch1 has no range of motion here (ROM = 0°). This is because the forearm's rotation order is `ZYX`, so ch1 is the Y-rotation — and for the elbow that is the **non-hinge** axis: the elbow is a hinge, it flexes in a single plane (captured here by ch0, the Z-rotation, ~102°) and the bone twists along its length (ch2, the X-rotation, ~73° of pronation/supination), but it physically cannot bend sideways, so that channel stays at 0 for the whole clip.
 
 # %% [markdown]
 # **`cov3dj`** & **`lagged_covariance`** — fixed-size statistical descriptors of a whole sequence: the covariance of all 3D joint coordinates (`cov3dj`, 3N×3N), and the channel covariance at a temporal lag (`lagged_covariance`). Drawn as heatmaps — block structure reflects coordinated joints.

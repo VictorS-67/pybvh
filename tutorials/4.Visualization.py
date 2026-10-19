@@ -234,8 +234,9 @@ fig, ax = walk.plot_sequence(n_poses=8)
 plt.show()
 
 # %%
-# In-place motion: overlay layout
-fig, ax = bvh.plot_sequence(n_poses=5, layout="overlay")
+# In-place motion: overlay layout (bvh_test4.bvh, a joy clip that stays near its start)
+joy = pybvh.read_bvh_file(bvh_folder / "bvh_test4.bvh")
+fig, ax = joy.plot_sequence(n_poses=5, layout="overlay")
 plt.show()
 
 # %% [markdown]

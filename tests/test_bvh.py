@@ -25,6 +25,8 @@ from pybvh import (
     batch_to_numpy,
     df_to_bvh,
     frames_to_node_positions,
+    nodes_from_table,
+    nodes_to_table,
     parse_axis,
     read_bvh_directory,
     read_bvh_file,
@@ -2802,6 +2804,92 @@ class TestFreezePreservation:
         """resample result is frozen."""
         result = bvh_example.resample(60)
         self._assert_frozen(result)
+
+
+# =============================================================================
+# Test: pybvh's skeleton edits replace the skeleton
+# =============================================================================
+
+
+def _other_rest_forward(bvh):
+    """A horizontal axis that is not the clip's rest forward."""
+    return "+x" if bvh.rest_forward[1] != "x" else "+y"
+
+
+# Every edit pybvh makes to a clip's skeleton, applied with a given inplace.
+SKELETON_EDITS = {
+    "scale": lambda bvh, inplace: bvh.scale(2.0, inplace=inplace),
+    "mirror": lambda bvh, inplace: bvh.mirror(inplace=inplace),
+    "retarget": lambda bvh, inplace: bvh.retarget(bvh.scale(1.5), inplace=inplace),
+    "reorient_rest_up": lambda bvh, inplace: bvh.reorient_rest_up("+y", inplace=inplace),
+    "reorient_rest_forward": lambda bvh, inplace: bvh.reorient_rest_forward(
+        _other_rest_forward(bvh), inplace=inplace
+    ),
+    "reorient_world_up": lambda bvh, inplace: bvh.reorient_world_up("+y", inplace=inplace),
+    "change_euler_order": lambda bvh, inplace: bvh.change_euler_order("ZYX", inplace=inplace),
+}
+
+
+@pytest.mark.parametrize("inplace", [True, False], ids=["inplace", "copy"])
+@pytest.mark.parametrize("edit", SKELETON_EDITS.values(), ids=SKELETON_EDITS.keys())
+class TestSkeletonEditsReplaceTheSkeleton:
+    """Each edit swaps in a new node list rather than writing into the nodes
+    the clip owns (ADR 0003)."""
+
+    @staticmethod
+    def _apply(edit, bvh, inplace):
+        result = edit(bvh, inplace)
+        return bvh if inplace else result
+
+    def test_a_node_held_before_the_edit_keeps_its_values(self, bvh_example, edit, inplace):
+        held = list(bvh_example.nodes)
+        offsets = [node.offset.copy() for node in held]
+        channels = [None if n.is_end_site() else list(n.rot_channels) for n in held]
+
+        result = self._apply(edit, bvh_example, inplace)
+
+        assert not any(new is old for new, old in zip(result.nodes, held))
+        for node, offset, order in zip(held, offsets, channels):
+            np.testing.assert_array_equal(node.offset, offset)
+            if order is not None:
+                assert node.rot_channels == order
+
+    def test_positions_read_before_are_computed_again_after(
+        self, bvh_example, edit, inplace, computations
+    ):
+        bvh_example.node_positions()
+
+        result = self._apply(edit, bvh_example, inplace)
+        positions = result.node_positions()
+
+        assert computations.fk == 2
+        # World positions do not depend on world up; setting one spares
+        # the rebuilt clip an inference.
+        rebuilt = Bvh(
+            nodes=nodes_from_table(nodes_to_table(result.nodes)),
+            root_pos=result.root_pos,
+            joint_angles=result.joint_angles,
+            world_up="+z",
+        )
+        np.testing.assert_allclose(positions, rebuilt.node_positions(), atol=1e-9)
+
+    def test_the_new_skeleton_is_frozen(self, bvh_example, edit, inplace):
+        result = self._apply(edit, bvh_example, inplace)
+        with pytest.raises(AttributeError, match="frozen"):
+            result.root.rot_channels = ["Y", "X", "Z"]
+
+
+class TestRetargetFailsWhole:
+    def test_strict_retarget_that_raises_leaves_the_clip_unchanged(self, bvh_example):
+        joints = [n.name for n in bvh_example.nodes if not n.is_end_site()]
+        reference = bvh_example.scale(2.0).extract_joints(joints[:3])
+        before = [node.offset.copy() for node in bvh_example.nodes]
+
+        with pytest.raises(ValueError, match="strict=True"):
+            bvh_example.retarget(reference, strict=True, inplace=True)
+
+        for node, offset in zip(bvh_example.nodes, before):
+            np.testing.assert_array_equal(node.offset, offset)
 
 
 # =============================================================================

@@ -243,11 +243,7 @@ class Bvh:
             self.root_pos = np.empty((0, 3), dtype=np.float64)
             self.joint_angles = np.empty((0, 0, 3), dtype=np.float64)
 
-        # Freeze channel attributes on all nodes to prevent
-        # desynchronization with joint_angles
-        for node in self.nodes:
-            if hasattr(node, "_frozen"):
-                node._frozen = True
+        self._freeze_skeleton()
 
         if world_up != "auto":
             self._world_up_override = _validate_axis_string(world_up)
@@ -274,7 +270,9 @@ class Bvh:
         Returns the live list, not a copy. Change the skeleton through
         the methods that edit it (:meth:`scale`, :meth:`retarget`,
         :meth:`extract_joints`, :meth:`change_euler_order`) rather than
-        by editing its nodes in place. Assigning replaces the list; the
+        by editing its nodes in place. Those methods swap in a new list
+        of new nodes, even with ``inplace=True``, so a list or node taken
+        before the call keeps the old skeleton. Assigning replaces the list; the
         setter only checks that the value is a non-empty list of
         ``BvhNode`` (``ValueError`` otherwise). The tree wiring is
         checked when a ``Bvh`` is constructed, not on assignment, so a
@@ -736,6 +734,42 @@ class Bvh:
         new_bvh._world_up_override = self._world_up_override
         new_bvh._lr_mapping_setting = copy.deepcopy(self._lr_mapping_setting)
         return new_bvh
+
+    def _freeze_skeleton(self) -> None:
+        """Freeze the channels of every node, so they cannot drift away
+        from ``joint_angles``."""
+        for node in self.nodes:
+            if hasattr(node, "_frozen"):
+                node._frozen = True
+
+    def _replace_skeleton(self, nodes: list[BvhNode]) -> None:
+        """Swap in a new skeleton: the one way a clip's skeleton changes
+        after construction.
+
+        Every skeleton edit pybvh makes (``scale``, ``mirror``,
+        ``retarget``, the rest and world-up reorientations,
+        ``change_euler_order``) builds a fresh node list with
+        ``nodes_from_table`` and hands it here; none writes into a node
+        the clip owns, so an edit cannot depend on the order of its
+        statements, and a node object taken before the edit keeps its old
+        values. The new nodes keep the joint layout of ``joint_angles``.
+        """
+        _check_node_tree(nodes)
+        self.nodes = nodes
+        self.root = nodes[0]  # type: ignore[assignment]
+        self._freeze_skeleton()
+        self._derived.skeleton_changed()
+
+    def _replace_offsets(self, offsets: npt.ArrayLike) -> None:
+        """Replace every node's offset, given in ``nodes`` order as ``(N, 3)``."""
+        table = nodes_to_table(self.nodes)
+        for row, offset in zip(table, np.asarray(offsets, dtype=np.float64), strict=True):
+            row["offset"] = offset
+        self._replace_skeleton(nodes_from_table(table))
+
+    def _offsets(self) -> npt.NDArray[np.float64]:
+        """Every node's offset, in ``nodes`` order, as a new ``(N, 3)`` array."""
+        return np.array([node.offset for node in self.nodes], dtype=np.float64).reshape(-1, 3)
 
     # ------------------------------------------------------------------
     # Orientation: world_up and forward_at
@@ -1922,6 +1956,8 @@ class Bvh:
         inplace : bool, optional
             If True, modify self and return None.
             If False (default), return a modified copy.
+            With True, the skeleton is replaced, not edited: a node taken from
+            ``nodes`` before the call keeps its old values.
 
         Returns
         -------
@@ -1935,13 +1971,8 @@ class Bvh:
         # Build name → index lookup for the reference skeleton
         newnodes2idx = {n.name: i for i, n in enumerate(new_skel_nodes)}
 
-        if inplace:
-            nodes = self.nodes
-        else:
-            new_bvh = self.copy()
-            nodes = new_bvh.nodes
-
-        for node in nodes:
+        offsets = self._offsets()
+        for i, node in enumerate(self.nodes):
             # Determine the target name in new_skeleton
             if name_mapping and node.name in name_mapping:
                 target_name = name_mapping[node.name]
@@ -1949,7 +1980,7 @@ class Bvh:
                 target_name = node.name
 
             if target_name in newnodes2idx:
-                node.offset = new_skel_nodes[newnodes2idx[target_name]].offset
+                offsets[i] = new_skel_nodes[newnodes2idx[target_name]].offset
             elif strict:
                 raise ValueError(
                     f"Node '{node.name}' (mapped to '{target_name}') not found "
@@ -1957,11 +1988,11 @@ class Bvh:
                 )
             # else: keep original offset (lenient mode)
 
+        target = self if inplace else self.copy()
+        target._replace_offsets(offsets)
         if inplace:
-            self._derived.skeleton_changed()
             return None
-        new_bvh._derived.skeleton_changed()
-        return new_bvh
+        return target
 
     @overload
     def scale(self, scale: float, *, inplace: Literal[True]) -> None: ...
@@ -1979,6 +2010,8 @@ class Bvh:
         inplace : bool, optional
             If True, modify self and return None.
             If False (default), return a modified copy.
+            With True, the skeleton is replaced, not edited: a node taken from
+            ``nodes`` before the call keeps its old values.
 
         Returns
         -------
@@ -1994,8 +2027,7 @@ class Bvh:
 
         factor = float(scale)
         target = self if inplace else self.copy()
-        for node in target.nodes:
-            node.offset = node.offset * factor
+        target._replace_offsets(target._offsets() * factor)
         target.root_pos = target.root_pos * factor
         if inplace:
             return None
@@ -2039,6 +2071,8 @@ class Bvh:
         inplace : bool
             If True, modify self and return None.
             If False, return a modified copy while leaving self unchanged.
+            With True, the skeleton is replaced, not edited: a node taken from
+            ``nodes`` before the call keeps its old values.
 
         Returns
         -------
@@ -2064,23 +2098,25 @@ class Bvh:
             joint_indices = [self.joint_index[joint_name]]
 
         target = self if inplace else self.copy()
-        joints = [n for n in target.nodes if not n.is_end_site()]
+        # The new skeleton is built, and the order checked, before any
+        # angle is converted.
+        table = nodes_to_table(target.nodes)
+        joint_rows = [row for row in table if "rot_channels" in row]
+        old_orders = [row["rot_channels"] for row in joint_rows]
+        for j_idx in joint_indices:
+            joint_rows[j_idx]["rot_channels"] = new_order
+        new_nodes = nodes_from_table(table)
 
         for j_idx in joint_indices:
-            node = joints[j_idx]
-            old_order = node.rot_channels  # type: ignore[attr-defined]
+            old_order = old_orders[j_idx]
             if old_order == new_order:
                 continue
             # Convert: old Euler → rotmat → new Euler, then write back
             # (private array — the public view is read-only).
             R = rotations.euler_to_rotmat(target.joint_angles[:, j_idx], old_order)
             target._joint_angles[:, j_idx] = rotations.rotmat_to_euler(R, new_order)
-            # Update rot_channels (bypasses the freeze check)
-            node._set_rot_channels_internal(new_order)  # type: ignore[attr-defined]
+        target._replace_skeleton(new_nodes)
 
-        # Cache invalidation is intentionally skipped: the physical
-        # rotations — and therefore all FK-derived caches — are unchanged
-        # by an Euler-order re-expression.
         if inplace:
             return None
         return target

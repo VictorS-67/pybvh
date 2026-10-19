@@ -244,16 +244,6 @@ class BvhJoint(BvhNode):
             )
         self._rot_channels = self._check_channels(value)
 
-    def _set_rot_channels_internal(self, value: list[str] | str) -> None:
-        """Set rot_channels bypassing the freeze check.
-
-        Parameters
-        ----------
-        value : list of str or str
-            Rotation channel order as a permutation of ``'XYZ'``.
-        """
-        self._rot_channels = self._check_channels(value)
-
     @property
     def children(self) -> list[BvhNode]:
         """The joints and end sites directly below this one, in file order.

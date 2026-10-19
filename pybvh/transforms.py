@@ -889,6 +889,8 @@ def mirror(
         degenerate (parallel to the up axis, or zero).
     inplace : bool, optional
         If True, modify *bvh* and return None.
+        With True, the skeleton is replaced, not edited: a node taken from
+        ``bvh.nodes`` before the call keeps its old values.
 
     Returns
     -------
@@ -973,17 +975,13 @@ def mirror(
     target.root_pos = new_root_pos
 
     # --- Step 2: Negate node offset lateral component for ALL nodes ---
-    for node in target.nodes:
-        off = node.offset.copy()
-        off[lateral_idx] *= -1
-        node.offset = off
+    offsets = target._offsets()
+    offsets[:, lateral_idx] *= -1
 
     # --- Step 3: Swap offsets for L/R paired nodes ---
     for li, ri in lr_node_pairs:
-        left_off = target.nodes[li].offset.copy()
-        right_off = target.nodes[ri].offset.copy()
-        target.nodes[li].offset = right_off
-        target.nodes[ri].offset = left_off
+        offsets[[li, ri]] = offsets[[ri, li]]
+    target._replace_offsets(offsets)
 
     if inplace:
         return None
@@ -1035,8 +1033,7 @@ def _reorient_rest(target: Bvh, R_fix: npt.NDArray[np.float64]) -> None:
     R_fix_inv = R_fix.T  # orthogonal → inverse = transpose
 
     # 1. Rotate all offsets
-    for node in target.nodes:
-        node.offset = R_fix @ node.offset
+    target._replace_offsets(target._offsets() @ R_fix.T)
 
     # 2. Compensate joint rotations so FK positions are unchanged
     joints = [n for n in target.nodes if not n.is_end_site()]
@@ -1088,6 +1085,8 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     inplace : bool, optional
         If True, modify *bvh* and return None. Default False: return a
         reoriented copy.
+        With True, the skeleton is replaced, not edited: a node taken from
+        ``bvh.nodes`` before the call keeps its old values.
 
     Returns
     -------
@@ -1109,8 +1108,7 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     target.root_pos = (R @ target.root_pos.T).T
 
     # 2. Rotate all node offsets
-    for node in target.nodes:
-        node.offset = R @ node.offset
+    target._replace_offsets(target._offsets() @ R.T)
 
     # 3. Conjugate ALL joint rotations: R_j' = R @ R_j @ R^T
     #    This is the correct formula for a global scene rotation applied to
@@ -1154,6 +1152,8 @@ def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None
     inplace : bool, optional
         If True, modify *bvh* and return None. Default False: return a
         reoriented copy.
+        With True, the skeleton is replaced, not edited: a node taken from
+        ``bvh.nodes`` before the call keeps its old values.
 
     Returns
     -------
@@ -1206,6 +1206,8 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
     inplace : bool, optional
         If True, modify *bvh* and return None. Default False: return a
         reoriented copy.
+        With True, the skeleton is replaced, not edited: a node taken from
+        ``bvh.nodes`` before the call keeps its old values.
 
     Returns
     -------

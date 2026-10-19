@@ -808,8 +808,9 @@ class Bvh:
     def world_up(self, value: str | None) -> None:
         if value is None or value == "auto":
             self._world_up_override = None
-            return
-        self._world_up_override = _validate_axis_string(value)
+        else:
+            self._world_up_override = _validate_axis_string(value)
+        self._derived.world_up_changed()
 
     @property
     def world_up_inferred(self) -> str:
@@ -921,9 +922,10 @@ class Bvh:
         end sites. Passing this value in as ``foot_contacts(floor=...)`` will
         make every foot read as airborne.
 
-        Lazily computed and cached; the cache is invalidated whenever
-        ``root_pos`` or ``joint_angles`` is reassigned. Nothing else fills or
-        reads that cache.
+        Computed on first read and kept until the skeleton, the motion or
+        :attr:`world_up` changes; assigning :attr:`world_up` measures it
+        again along the new axis. The contact detectors never compute or
+        read it.
         """
         floor = self._derived.floor_height
         if floor is None:

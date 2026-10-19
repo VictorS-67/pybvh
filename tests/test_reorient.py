@@ -137,6 +137,40 @@ class TestWorldUpParameter:
         assert all(c.world_up == "+y" for c in clips)
 
 
+class TestWorldUpSetterMovesTheFloor:
+    """The scene ground is measured along world up, so setting world up
+    rebuilds it (bug 1 of #112: v0.9.0 kept the old axis's floor)."""
+
+    def test_floor_height_after_setting_world_up_is_the_new_axis_floor(self):
+        bvh = read_bvh_file(EXAMPLE)
+        _ = bvh.floor_height
+        bvh.world_up = "+x"
+        loaded_with_x_up = read_bvh_file(EXAMPLE, world_up="+x")
+        assert bvh.floor_height == pytest.approx(loaded_with_x_up.floor_height)
+
+    def test_clearing_the_override_gives_back_the_guessed_axis_floor(self):
+        bvh = read_bvh_file(EXAMPLE, world_up="+x")
+        _ = bvh.floor_height
+        bvh.world_up = "auto"
+        guessed = read_bvh_file(EXAMPLE)
+        assert bvh.floor_height == pytest.approx(guessed.floor_height)
+
+    def test_only_the_floor_is_computed_again(self, computations):
+        bvh = read_bvh_file(EXAMPLE)
+        _ = bvh.floor_height
+        before = (computations.fk, computations.world_up, computations.floor_height)
+        bvh.world_up = "+x"
+        _ = bvh.floor_height
+        _ = bvh.node_positions()
+        bvh.world_up = "auto"
+        _ = bvh.world_up
+        assert (computations.fk, computations.world_up, computations.floor_height) == (
+            before[0],
+            before[1],
+            before[2] + 1,
+        )
+
+
 # ========================================================================
 #  The load-time warning preference outlives the load
 # ========================================================================

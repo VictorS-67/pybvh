@@ -28,6 +28,7 @@ class _Change(Enum):
     SKELETON = auto()
     MOTION = auto()
     USER_REPLACED_MOTION = auto()
+    WORLD_UP_OVERRIDE = auto()
 
 
 _MOTION_CHANGES: Final = frozenset({_Change.SKELETON, _Change.MOTION, _Change.USER_REPLACED_MOTION})
@@ -36,7 +37,7 @@ _MOTION_CHANGES: Final = frozenset({_Change.SKELETON, _Change.MOTION, _Change.US
 _CLEARED_BY: Final[dict[str, frozenset[_Change]]] = {
     "node_positions": _MOTION_CHANGES,
     "guessed_world_up": _MOTION_CHANGES,
-    "floor_height": _MOTION_CHANGES,
+    "floor_height": _MOTION_CHANGES | {_Change.WORLD_UP_OVERRIDE},
 }
 
 
@@ -82,6 +83,10 @@ class DerivedState:
         """The user assigned motion: the ``root_pos`` or ``joint_angles``
         setter, or a frame assignment (``bvh[i] = other``)."""
         self._clear(_Change.USER_REPLACED_MOTION)
+
+    def world_up_changed(self) -> None:
+        """The user set or cleared the world-up override."""
+        self._clear(_Change.WORLD_UP_OVERRIDE)
 
     def _clear(self, change: _Change) -> None:
         for name, changes in _CLEARED_BY.items():

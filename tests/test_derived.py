@@ -22,6 +22,7 @@ CLEARED_BY = {
     "skeleton_changed": ALL_VALUES,
     "motion_changed": MOTION_DEPENDENTS,
     "user_replaced_motion": MOTION_DEPENDENTS,
+    "world_up_changed": {"floor_height"},
 }
 
 

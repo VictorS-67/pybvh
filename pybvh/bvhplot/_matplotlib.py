@@ -16,6 +16,7 @@ import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
+from matplotlib.artist import Artist
 from matplotlib.collections import LineCollection
 from mpl_toolkits.mplot3d import proj3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
@@ -363,6 +364,40 @@ def _draw_floor_trace(
     return line
 
 
+# Matplotlib 3.10 added get_figure(root=True), the Figure at the root of a tree
+# of SubFigures. Before it, the root is the figure attribute of the
+# (Sub)Figure an axes is drawn in.
+_GET_FIGURE_TAKES_ROOT = "root" in inspect.signature(Artist.get_figure).parameters
+
+
+def _root_figure(ax: matplotlib.axes.Axes) -> matplotlib.figure.Figure:
+    """The Figure *ax* belongs to, through any SubFigures between them.
+
+    The figure a function returns is there to be saved or shown, and a
+    SubFigure can do neither: it has no ``savefig``. A caller who wants
+    the SubFigure holding the axes has it as ``ax.get_figure()``.
+    """
+    if _GET_FIGURE_TAKES_ROOT:
+        root = ax.get_figure(root=True)
+    else:
+        root = ax.figure.figure
+    assert root is not None
+    return root
+
+
+def _set_panel_background(ax: matplotlib.axes.Axes, color: ColorType) -> None:
+    """Color the (Sub)Figure *ax* is drawn in, not the root Figure.
+
+    The root shows through every SubFigure whose patch is transparent
+    (the default on recent Matplotlib), so coloring it would recolor the
+    caller's other panels too, and under an opaque patch (the default
+    on older releases) it would leave the panel holding *ax* as it was.
+    """
+    panel = ax.get_figure()
+    assert panel is not None
+    panel.patch.set_facecolor(color)
+
+
 def _new_3d_figure(
     figsize: tuple[float, float], dpi: int | None
 ) -> tuple[matplotlib.figure.Figure, Axes3D]:
@@ -412,14 +447,13 @@ def sequence_mpl(
     poses = list(stack)
 
     if ax is not None:
-        fig = ax.get_figure()
-        assert fig is not None
+        fig = _root_figure(ax)
     else:
         if figsize is None:
             figsize = (13.0, 4.5) if layout == "offset" else (7.0, 6.5)
         fig, ax = _new_3d_figure(figsize, style.dpi)
 
-    fig.patch.set_facecolor(style.background)
+    _set_panel_background(ax, style.background)
     _apply_axes_style(ax, style)
     ax.computed_zorder = False
 
@@ -526,8 +560,7 @@ def frame_mpl(
                 "plt.subplots(..., subplot_kw={'projection': '3d'}) or "
                 "fig.add_subplot(..., projection='3d')."
             )
-        fig = ax.get_figure()
-        assert fig is not None
+        fig = _root_figure(ax)
         axs_flat: list[Axes3D] = [ax]
     else:
         if figsize is None:
@@ -539,7 +572,7 @@ def frame_mpl(
         )
         axs_flat = list(axs[0])
 
-    fig.patch.set_facecolor(style.background)
+    _set_panel_background(axs_flat[0], style.background)
 
     for i, (view, ax_i) in enumerate(zip(scene.views, axs_flat)):
         frame_data = view.coords[0]  # (N, 3) — first frame
@@ -1042,8 +1075,7 @@ def trajectory_mpl(
                 "ax must be a 2D axes for trajectory(). "
                 "Do not pass subplot_kw={'projection': '3d'} when creating it."
             )
-        fig = ax.get_figure()
-        assert fig is not None
+        fig = _root_figure(ax)
     else:
         if figsize is None:
             figsize = _trajectory_figsize(_trajectory_data_aspect(scene.views))
@@ -1055,7 +1087,7 @@ def trajectory_mpl(
     # information, so only Style's background applies here (the plot
     # keeps its axes regardless of style.axes).
     if style.background != "white":
-        fig.patch.set_facecolor(style.background)
+        _set_panel_background(ax, style.background)
         ax.set_facecolor(style.background)
 
     # Track which horizontal axes are used across all skeletons
@@ -1208,10 +1240,7 @@ def trajectory_mpl(
     if show:
         plt.show()
 
-    # An ax inside a SubFigure hands back that SubFigure, which the
-    # annotation calls a Figure (frame and sequence do the same, unseen by
-    # mypy since Axes3D is Any). #88 returns the root figure instead.
-    return fig, ax  # type: ignore[return-value]
+    return fig, ax
 
 
 # ---------------------------------------------------------------------------

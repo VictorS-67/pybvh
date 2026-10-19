@@ -1256,6 +1256,7 @@ class TestParserMultipleFiles:
             "bvh_data/bvh_test1.bvh": (126, 24, 29),
             "bvh_data/bvh_test2.bvh": (61, 23, 28),
             "bvh_data/bvh_test3.bvh": (100, 60, 73),
+            "bvh_data/bvh_test4.bvh": (83, 24, 29),
             "bvh_data/standard_skeleton.bvh": (1, 24, 29),
         }
         for filepath, (exp_frames, exp_joints, exp_nodes) in files.items():
@@ -3241,16 +3242,16 @@ class TestBatchProcessing:
         return Path(__file__).parent.parent / "bvh_data"
 
     def test_read_bvh_directory_basic(self, bvh_dir):
-        """Should load all 5 BVH files from bvh_data/."""
+        """Should load all 6 BVH files from bvh_data/."""
         result = read_bvh_directory(bvh_dir)
-        assert len(result) == 5
+        assert len(result) == 6
         for bvh in result:
             assert isinstance(bvh, Bvh)
 
     def test_read_bvh_directory_pattern(self, bvh_dir):
         """Pattern filter should restrict results."""
         result = read_bvh_directory(bvh_dir, pattern="bvh_test*.bvh")
-        assert len(result) == 3
+        assert len(result) == 4
 
     def test_read_bvh_directory_natural_sort(self, bvh_dir, tmp_path):
         """sort="natural" orders digit runs numerically (clip2 before

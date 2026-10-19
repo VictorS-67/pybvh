@@ -12,9 +12,9 @@ Source: [mocap.cs.cmu.edu](http://mocap.cs.cmu.edu) · BVH conversion: [cgspeed 
 
 **Acknowledgment:** The data used in this project was obtained from mocap.cs.cmu.edu. The database was created with funding from NSF EIA-0196217.
 
-## `bvh_test1.bvh` — the author's own recording
+## `bvh_test1.bvh` and `bvh_test4.bvh` — the author's own recordings
 
-Recorded by Victor Schneider, pybvh's author, who is also the actor, and released under the repository's MIT license. The clip was captured at 120 fps; the file keeps every fourth frame of the capture, unchanged, so it plays at 30 fps.
+Recorded by Victor Schneider, pybvh's author, who is also the actor, and released under the repository's MIT license. Both clips were captured at 120 fps; each file keeps every fourth frame of its capture, unchanged, so it plays at 30 fps.
 
 ## Other clips
 
@@ -25,4 +25,5 @@ pybvh's own bundled test fixtures: small clips and a reference skeleton exercise
 | `bvh_test1.bvh` | The tests' default clip, which the tutorials, the gallery and the README's hero animation load too: an anger clip of 126 frames, Z-up at 30 fps, with four different Euler orders across its joints. |
 | `bvh_test2.bvh` | Y-up at 120 fps, one Euler order (`YXZ`) on every joint, and a root turned so the character faces −Z while its rest pose faces +Z: the regression clip for `camera="front"`. |
 | `bvh_test3.bvh` | A large skeleton (60 joints, mixed Euler orders) whose rest pose is Y-up while its animation is Z-up, so reading it warns that the two disagree: the clip for world-up inference and `reorient_rest_up`. |
+| `bvh_test4.bvh` | A joy clip of 83 frames on the rig of `bvh_test1.bvh`, by the same actor: the second clip of one rig, for the batch and retarget operations that take several clips of one skeleton. |
 | `standard_skeleton.bvh` | The node names of `bvh_test1.bvh` with other bone lengths and one Euler order, as a single frame at rest: the reference skeleton `retarget` maps onto. |

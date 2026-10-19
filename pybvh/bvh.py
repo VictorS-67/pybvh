@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import copy
 import warnings
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
@@ -33,7 +33,12 @@ from ._warnings import user_stacklevel
 # Re-exported: pybvh.bvh has long served every node class, end sites included.
 from .bvhnode import BvhEndSite as BvhEndSite
 from .bvhnode import BvhJoint, BvhNode, BvhRoot, _is_joint
-from .node_tree import _check_node_tree, nodes_from_table, nodes_to_table
+from .node_tree import (
+    _check_node_tree,
+    _nodes_from_table_or_list,
+    nodes_from_table,
+    nodes_to_table,
+)
 from .spatial_coord import (
     FkTopology,
     _ground_plane_offset,
@@ -263,19 +268,7 @@ class Bvh:
         if root_pos is not None:
             self.root_pos = np.asarray(root_pos, dtype=np.float64)
             self.joint_angles = np.asarray(joint_angles, dtype=np.float64)
-            if self._root_pos.shape[0] != self._joint_angles.shape[0]:
-                raise ValueError(
-                    f"root_pos and joint_angles disagree on frame count: "
-                    f"root_pos has {self._root_pos.shape[0]} frames, "
-                    f"joint_angles has {self._joint_angles.shape[0]}."
-                )
-            joint_count = sum(1 for n in self.nodes if not n.is_end_site())
-            if self._joint_angles.shape[1] != joint_count:
-                raise ValueError(
-                    f"joint_angles has {self._joint_angles.shape[1]} joints "
-                    f"on axis 1, but the skeleton has {joint_count} "
-                    f"non-end-site joints."
-                )
+            self._check_motion_fits_skeleton()
         else:
             # Empty object
             self.root_pos = np.empty((0, 3), dtype=np.float64)
@@ -295,6 +288,28 @@ class Bvh:
         # under warnings-as-errors; it reads the same node objects either
         # way.
         self._freeze_skeleton()
+
+    def _check_motion_fits_skeleton(self) -> None:
+        """Raise ``ValueError`` unless the motion has one frame count and
+        one column per joint of the skeleton.
+
+        The constructor runs it on the motion it is given, and the rebuild
+        of a derived clip or a pickle on the motion it carries, so a
+        skeleton handed to ``copy(nodes=...)`` is held to the same check.
+        """
+        if self._root_pos.shape[0] != self._joint_angles.shape[0]:
+            raise ValueError(
+                f"root_pos and joint_angles disagree on frame count: "
+                f"root_pos has {self._root_pos.shape[0]} frames, "
+                f"joint_angles has {self._joint_angles.shape[0]}."
+            )
+        joint_count = sum(1 for n in self.nodes if not n.is_end_site())
+        if self._joint_angles.shape[1] != joint_count:
+            raise ValueError(
+                f"joint_angles has {self._joint_angles.shape[1]} joints "
+                f"on axis 1, but the skeleton has {joint_count} "
+                f"non-end-site joints."
+            )
 
     @property
     def nodes(self) -> tuple[BvhNode, ...]:
@@ -745,8 +760,8 @@ class Bvh:
         self._joint_angles[s] = value.joint_angles
         self._derived.user_replaced_motion()
 
-    def copy(self) -> Bvh:
-        """Return an independent copy.
+    def copy(self, nodes: Sequence[BvhNode] | Sequence[Mapping[str, Any]] | None = None) -> Bvh:
+        """Return an independent copy, on this skeleton or on an edited one.
 
         The node hierarchy, ``root_pos`` and ``joint_angles``,
         ``frame_time``, ``source_path``, a manual ``world_up``, the warn
@@ -757,13 +772,89 @@ class Bvh:
         height) are not copied: the copy computes them again on first
         read.
 
+        Parameters
+        ----------
+        nodes : list of dict or sequence of BvhNode, optional
+            A skeleton for the copy, the way to change a clip's frozen
+            skeleton: ``table = bvh.to_node_table()``, edit the rows, then
+            ``bvh.copy(nodes=table)``. A node table or a node list, as
+            :meth:`from_df` takes; a node list is read through
+            :func:`~pybvh.nodes_to_table`, so the copy builds nodes of its
+            own and never freezes or shares the ones given. The motion
+            binds the joints by position: joint *i* of ``nodes`` takes
+            column *i* of ``joint_angles``, so names and offsets may
+            change, the joint count may not, and neither may a joint's
+            Euler order, since the angles are only meaningful in the order
+            they were recorded in (:meth:`change_euler_order` converts
+            them). A user-set L/R mapping follows its joints by position,
+            under their new names; one detected from the names is
+            detected again from the new names. World up is inherited, set
+            or guessed: new offsets do not change which way is up. To
+            guess it again from the new skeleton,
+            ``edited.world_up = edited.world_up_inferred``.
+
         Returns
         -------
         Bvh
+
+        Raises
+        ------
+        ValueError
+            If ``nodes`` is not one tree in depth-first order (see
+            :func:`~pybvh.nodes_from_table`), has another number of joints
+            than ``joint_angles`` has columns, changes a joint's Euler
+            order, or gives the root position channels other than XYZ; or
+            if a renamed joint breaks the L/R mapping (two pairs on one
+            name, say).
+        TypeError
+            If ``nodes`` is neither a node table nor a node list.
+
+        Examples
+        --------
+        >>> table = bvh.to_node_table()
+        >>> table[1]["offset"] = [0.0, 12.0, 0.0]
+        >>> edited = bvh.copy(nodes=table)
         """
-        return self._derive_clip(
-            root_pos=self._root_pos.copy(), joint_angles=self._joint_angles.copy()
+        if nodes is None:
+            return self._derive_clip(
+                root_pos=self._root_pos.copy(), joint_angles=self._joint_angles.copy()
+            )
+        edited = self._derive_clip(
+            root_pos=self._root_pos.copy(),
+            joint_angles=self._joint_angles.copy(),
+            nodes=_nodes_from_table_or_list(nodes, "nodes"),
         )
+        joints = [node for node in self.nodes if _is_joint(node)]
+        new_joints = [node for node in edited.nodes if _is_joint(node)]
+        # A clip built without motion holds (0, 0, 3) angles, which bind no
+        # joint: it takes any skeleton, as the derivation does. Otherwise
+        # the derivation checked that the joint counts match.
+        bound = len(new_joints) == len(joints)
+        if bound and self._joint_angles.shape[:2] != (0, 0):
+            for joint, new_joint in zip(joints, new_joints, strict=True):
+                old_order = "".join(joint.rot_channels)
+                new_order = "".join(new_joint.rot_channels)
+                if new_order != old_order:
+                    raise ValueError(
+                        f"nodes changes the Euler order of joint {joint.name!r} "
+                        f"from {old_order!r} to {new_order!r}, but the clip's "
+                        f"angles are in {old_order!r}. To change an order, "
+                        f"convert the angles with it: "
+                        f"bvh.change_euler_order({new_order!r}, joint={joint.name!r})."
+                    )
+        setting = self._lr_mapping_setting
+        if isinstance(setting, dict):
+            if bound:
+                index = self.joint_index
+                new_names = [joint.name for joint in new_joints]
+                setting = {
+                    new_names[index[left]]: new_names[index[right]]
+                    for left, right in setting.items()
+                }
+            # Unbound (a clip without motion took another joint count), the
+            # names are all there is to go by.
+            edited._validate_and_set_lr_mapping(setting)
+        return edited
 
     def _derive_clip(
         self,
@@ -824,6 +915,10 @@ class Bvh:
             warn_on_disagreement=state["warn_on_disagreement"],
         )
         self._set_motion(root_pos=state["root_pos"], joint_angles=state["joint_angles"])
+        # A clip built without motion holds (0, 0, 3) angles whatever its
+        # skeleton; there is no motion to fit, as in the constructor.
+        if self._joint_angles.shape[:2] != (0, 0):
+            self._check_motion_fits_skeleton()
         self._world_up_override = state["world_up_override"]
         self._lr_mapping_setting = state["lr_mapping_setting"]
         self._derived.inherited_world_up = state["world_up_guess"]

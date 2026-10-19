@@ -167,8 +167,6 @@ from pybvh.bvhplot import * binds trajectory
 pybvh.dataframe.Bvh
 pybvh.dataframe.BvhNode
 pybvh.dataframe.df_to_bvh
-pybvh.dataframe.nodes_from_table
-pybvh.dataframe.nodes_to_table
 
 pybvh.features.Bvh
 pybvh.features.feature_array_layout

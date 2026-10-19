@@ -17,7 +17,7 @@ Supported representations:
 Convention note:
     Euler angles in BVH files use intrinsic rotations with pre-multiplication:
         R = R_first @ R_second @ R_third
-    where the order comes from the joint's rot_channels (e.g., ['Z','Y','X']).
+    where the order comes from the joint's rot_channels (e.g., ('Z', 'Y', 'X')).
     Angles are in degrees in BVH files, but most functions here work in radians
     unless stated otherwise.
 """

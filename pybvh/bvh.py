@@ -246,11 +246,11 @@ class Bvh:
         self.source_path = source_path
 
         # Validate that root position channels are standard XYZ
-        if self.root.pos_channels != ["X", "Y", "Z"]:
+        pos_order = "".join(self.root.pos_channels)
+        if pos_order != "XYZ":
             raise ValueError(
-                f"Non-standard root position channel order "
-                f"{self.root.pos_channels} is not supported. "
-                f"Expected ['X', 'Y', 'Z']."
+                f"Non-standard root position channel order {pos_order!r} is "
+                f"not supported. Expected 'XYZ', the order of every root_pos row."
             )
 
         # ---------- Determine root_pos / joint_angles ----------

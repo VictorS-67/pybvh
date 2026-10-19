@@ -20,6 +20,7 @@ skeleton cannot change under them.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TypeGuard
 
 import numpy as np
@@ -242,8 +243,8 @@ class BvhJoint(BvhNode):
         Name of the joint.
     offset : np.ndarray
         3-element array of positional offset values.
-    rot_channels : list of str
-        Rotation channel order as a permutation of ``['X', 'Y', 'Z']``.
+    rot_channels : tuple of str
+        Rotation channel order as a permutation of ``('X', 'Y', 'Z')``.
     children : list or tuple of BvhNode
         Child nodes in the hierarchy; a tuple once a ``Bvh`` owns the node.
     parent : BvhNode or None
@@ -254,27 +255,30 @@ class BvhJoint(BvhNode):
         self,
         name: str,
         offset: list[float] | npt.NDArray[np.float64] | None = None,
-        rot_channels: list[str] | str | None = None,
+        rot_channels: str | Sequence[str] | None = None,
         children: list[BvhNode] | None = None,
         parent: BvhNode | None = None,
     ) -> None:
         # inheritance
         super().__init__(name, offset, parent)
 
-        self.rot_channels = rot_channels if rot_channels is not None else ["Z", "Y", "X"]  # type: ignore[assignment]
+        self.rot_channels = rot_channels if rot_channels is not None else ("Z", "Y", "X")
         self.children = children if children is not None else []
 
     @property
-    def rot_channels(self) -> list[str]:
-        """Euler rotation order, e.g. ``['Z', 'Y', 'X']``.
+    def rot_channels(self) -> tuple[str, ...]:
+        """Euler rotation order, a tuple such as ``('Z', 'Y', 'X')``.
 
         The order of the joint's rotation channels as the file's
         ``CHANNELS`` line lists them, which is also the order of its
         three angles in ``Bvh.joint_angles``: intrinsic rotations,
         pre-multiplied, as :func:`~pybvh.rotations.euler_to_rotmat` reads
-        them. Assigning accepts a three-letter string or a list of three
-        one-letter strings, a permutation of ``'XYZ'`` either way, and
-        stores a new list; anything else raises ``ValueError``.
+        them. Assigning accepts a three-letter string or a sequence (a
+        list, a tuple) of three one-letter strings, a permutation of
+        ``'XYZ'`` either way, and stores it as a tuple, so the order never
+        changes in place; anything else raises ``ValueError``. Compare it
+        with a tuple or as a string (``"".join(joint.rot_channels) ==
+        "ZYX"``): a tuple never equals a list.
 
         Frozen by the :class:`~pybvh.bvh.Bvh` constructor with the rest of
         the node: assigning then raises ``AttributeError``, and
@@ -285,7 +289,7 @@ class BvhJoint(BvhNode):
         return self._rot_channels
 
     @rot_channels.setter
-    def rot_channels(self, value: list[str] | str) -> None:
+    def rot_channels(self, value: str | Sequence[str]) -> None:
         if self._frozen:
             raise AttributeError(
                 "rot_channels is frozen. Use "
@@ -331,24 +335,25 @@ class BvhJoint(BvhNode):
                 children_list.append(f"BvhJoint({child.__str__()})")
         return f"BvhJoint(name = {self.name}, offset = {self.offset}, rot_channels = {self.rot_channels}, children = {str(children_list)}, parent = {self.parent})"
 
-    def _check_channels(self, value: list[str] | str) -> list[str]:
-        # A string of 3 characters or a list of 3 one-character strings,
-        # a permutation of 'XYZ' either way. A list is checked element by
-        # element, not joined: ['XY', 'Z'] joins to 'XYZ' but would write
-        # a CHANNELS line of five tokens (XYrotation) the reader rejects.
-        # The result is a new list, never the caller's own: channel lists
-        # are frozen after Bvh construction and must not be mutable from
-        # the outside.
+    def _check_channels(self, value: str | Sequence[str]) -> tuple[str, ...]:
+        # A string of 3 characters or a sequence (a list, a tuple) of 3
+        # one-character strings, a permutation of 'XYZ' either way. A
+        # sequence is checked element by element, not joined: ['XY', 'Z']
+        # joins to 'XYZ' but would write a CHANNELS line of five tokens
+        # (XYrotation) the reader rejects. The result is a tuple, so a
+        # channel order never changes in place: on a node a Bvh owns, that
+        # would reinterpret the stored angles under another order, and on
+        # one not yet owned it would bypass this check.
         error = ValueError(
-            "the channels should be a string of 3 characters or a list of "
-            "3 one-character strings, one of each from 'X' 'Y' 'Z'"
+            "the channels should be a string of 3 characters or a sequence "
+            "of 3 one-character strings, one of each from 'X' 'Y' 'Z'"
         )
         if isinstance(value, str):
-            axes = list(value)
-        elif isinstance(value, list):
+            axes = tuple(value)
+        elif isinstance(value, Sequence):
             if not all(isinstance(axis, str) and len(axis) == 1 for axis in value):
                 raise error
-            axes = list(value)
+            axes = tuple(value)
         else:
             raise error
         if sorted(axes) != ["X", "Y", "Z"]:
@@ -389,10 +394,10 @@ class BvhRoot(BvhJoint):
         Name of the root joint.
     offset : np.ndarray
         3-element array of positional offset values.
-    pos_channels : list of str
-        Position channel order as a permutation of ``['X', 'Y', 'Z']``.
-    rot_channels : list of str
-        Rotation channel order as a permutation of ``['X', 'Y', 'Z']``.
+    pos_channels : tuple of str
+        Position channel order as a permutation of ``('X', 'Y', 'Z')``.
+    rot_channels : tuple of str
+        Rotation channel order as a permutation of ``('X', 'Y', 'Z')``.
     children : list or tuple of BvhNode
         Child nodes in the hierarchy; a tuple once a ``Bvh`` owns the node.
     parent : BvhNode or None
@@ -403,22 +408,22 @@ class BvhRoot(BvhJoint):
         self,
         name: str = "root",
         offset: list[float] | npt.NDArray[np.float64] | None = None,
-        pos_channels: list[str] | str | None = None,
-        rot_channels: list[str] | str | None = None,
+        pos_channels: str | Sequence[str] | None = None,
+        rot_channels: str | Sequence[str] | None = None,
         children: list[BvhNode] | None = None,
         parent: BvhNode | None = None,
     ) -> None:
         # inheritance
         super().__init__(name, offset, rot_channels, children, parent)
 
-        self.pos_channels = pos_channels if pos_channels is not None else ["X", "Y", "Z"]  # type: ignore[assignment]
+        self.pos_channels = pos_channels if pos_channels is not None else ("X", "Y", "Z")
 
     @property
-    def pos_channels(self) -> list[str]:
+    def pos_channels(self) -> tuple[str, ...]:
         """Order of the root's three position channels.
 
-        Accepts the same forms as ``rot_channels``. A
-        :class:`~pybvh.bvh.Bvh` supports only ``['X', 'Y', 'Z']``, the
+        A tuple, assigned in the same forms as ``rot_channels``. A
+        :class:`~pybvh.bvh.Bvh` supports only ``('X', 'Y', 'Z')``, the
         order of every ``root_pos`` row, and raises ``ValueError`` at
         construction for any other. The ``Bvh`` constructor freezes it
         with the rest of the node: from then on, assigning raises
@@ -427,7 +432,7 @@ class BvhRoot(BvhJoint):
         return self._pos_channels
 
     @pos_channels.setter
-    def pos_channels(self, value: list[str] | str) -> None:
+    def pos_channels(self, value: str | Sequence[str]) -> None:
         if self._frozen:
             raise _frozen_error(self, "pos_channels")
         self._pos_channels = self._check_channels(value)

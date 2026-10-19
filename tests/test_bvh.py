@@ -239,8 +239,8 @@ class TestReadBvhFile:
 
     def test_root_channels(self, bvh_example):
         """Verify root has both position and rotation channels."""
-        assert bvh_example.root.pos_channels == ["X", "Y", "Z"]
-        assert bvh_example.root.rot_channels == ["X", "Z", "Y"]
+        assert bvh_example.root.pos_channels == ("X", "Y", "Z")
+        assert bvh_example.root.rot_channels == ("X", "Z", "Y")
 
     def test_node_names(self, bvh_example):
         """Verify expected node names."""
@@ -566,7 +566,16 @@ class TestNodeHierarchy:
         assert bvh_example.root.parent is None
 
     @pytest.mark.parametrize(
-        "bad", [["XY", "Z"], ["XYZ"], ["X", "Y", "Z", ""], ["X", "Y", 1], ["X", "Y", "Y"]]
+        "bad",
+        [
+            ["XY", "Z"],
+            ["XYZ"],
+            ["X", "Y", "Z", ""],
+            ["X", "Y", 1],
+            ["X", "Y", "Y"],
+            ("X", "Y", "Y"),
+            {"X", "Y", "Z"},
+        ],
     )
     def test_channel_list_must_be_three_single_axes(self, bad):
         """`['XY', 'Z']` joins to 'XYZ' but is not an axis order: written,
@@ -579,8 +588,7 @@ class TestNodeHierarchy:
     @pytest.mark.parametrize("good", [["X", "Y", "Z"], "ZYX"])
     def test_channel_list_and_string_forms(self, good):
         joint = BvhJoint("a", rot_channels=good)
-        assert joint.rot_channels == list(good)
-        assert joint.rot_channels is not good
+        assert joint.rot_channels == tuple(good)
 
     @pytest.mark.parametrize(
         "bad", [[None, 0, 0], [np.nan, 0, 0], [0, np.inf, 0], np.array([0, 0, -np.inf])]
@@ -1415,13 +1423,13 @@ class TestChannelProtection:
         joint = BvhJoint("TestJoint", rot_channels=["Z", "Y", "X"])
         # Should work fine — not frozen
         joint.rot_channels = ["X", "Y", "Z"]
-        assert joint.rot_channels == ["X", "Y", "Z"]
+        assert joint.rot_channels == ("X", "Y", "Z")
 
     def test_change_euler_order_single_joint_still_works(self, bvh_example):
         """Bvh methods should bypass the freeze to update channels."""
         old_order = bvh_example.nodes[1].rot_channels[:]
         result = bvh_example.change_euler_order("XYZ", joint=bvh_example.nodes[1].name)
-        assert result.nodes[1].rot_channels == ["X", "Y", "Z"]
+        assert result.nodes[1].rot_channels == ("X", "Y", "Z")
         # Original unchanged
         assert bvh_example.nodes[1].rot_channels == old_order
 
@@ -1430,7 +1438,7 @@ class TestChannelProtection:
         result = bvh_example.change_euler_order("XYZ")
         for node in result.nodes:
             if not node.is_end_site():
-                assert node.rot_channels == ["X", "Y", "Z"]
+                assert node.rot_channels == ("X", "Y", "Z")
 
     def test_frozen_flag_preserved_on_copy(self, bvh_example):
         """deepcopy should preserve the frozen state."""
@@ -1443,7 +1451,7 @@ class TestChannelProtection:
         """inplace=True euler change should work on frozen nodes."""
         bvh = bvh_example.copy()
         bvh.change_euler_order("XYZ", joint=bvh.nodes[1].name, inplace=True)
-        assert bvh.nodes[1].rot_channels == ["X", "Y", "Z"]
+        assert bvh.nodes[1].rot_channels == ("X", "Y", "Z")
 
     def test_read_bvh_file_produces_frozen_nodes(self, bvh_example_path):
         """Nodes from read_bvh_file should be frozen after Bvh construction."""
@@ -1452,6 +1460,62 @@ class TestChannelProtection:
             if not node.is_end_site():
                 with pytest.raises(AttributeError):
                     node.rot_channels = ["X", "Y", "Z"]
+
+
+class TestChannelOrdersAreTuples:
+    """A channel order is a tuple on every node, so it never changes in place."""
+
+    @pytest.mark.parametrize("given", ["XZY", ["X", "Z", "Y"], ("X", "Z", "Y")])
+    def test_any_sequence_is_stored_as_a_tuple(self, given):
+        root = BvhRoot("Hips", pos_channels=given, rot_channels=given)
+        assert root.rot_channels == ("X", "Z", "Y")
+        assert root.pos_channels == ("X", "Z", "Y")
+
+    def test_a_node_takes_another_nodes_order(self, bvh_example):
+        joint = BvhJoint("Copy", rot_channels=bvh_example.nodes[1].rot_channels)
+        assert joint.rot_channels == bvh_example.nodes[1].rot_channels
+
+    @pytest.mark.parametrize("owned", [False, True])
+    @pytest.mark.parametrize("attribute", ["rot_channels", "pos_channels"])
+    def test_an_order_cannot_change_in_place(self, bvh_example, owned, attribute):
+        """On a node not yet owned, an append would bypass validation and reach Bvh()."""
+        root = bvh_example.root if owned else BvhRoot("Hips")
+        order = getattr(root, attribute)
+        with pytest.raises(TypeError, match="does not support item assignment"):
+            order[0] = "Y"
+        with pytest.raises(AttributeError, match="'tuple' object has no attribute 'append'"):
+            order.append("X")
+
+    def test_copies_and_pickles_keep_tuples(self, bvh_example):
+        for clip in (
+            bvh_example.copy(),
+            copy.deepcopy(bvh_example),
+            pickle.loads(pickle.dumps(bvh_example)),
+        ):
+            assert type(clip.root.pos_channels) is tuple
+            assert type(clip.nodes[1].rot_channels) is tuple
+
+    def test_the_node_table_gives_lists_to_edit(self, bvh_example):
+        table = nodes_to_table(bvh_example.nodes)
+        assert table[0]["pos_channels"] == ["X", "Y", "Z"]
+        assert table[1]["rot_channels"] == list(bvh_example.nodes[1].rot_channels)
+
+    def test_a_table_holding_tuples_builds_nodes(self, bvh_example):
+        table = nodes_to_table(bvh_example.nodes)
+        for row in table:
+            for key in ("pos_channels", "rot_channels"):
+                if key in row:
+                    row[key] = tuple(row[key])
+        nodes = nodes_from_table(table)
+        assert [getattr(n, "rot_channels", None) for n in nodes] == [
+            getattr(n, "rot_channels", None) for n in bvh_example.nodes
+        ]
+
+    def test_a_clip_refuses_a_root_position_order_other_than_xyz(self):
+        root = BvhRoot("Hips", pos_channels="ZYX")
+        root.children.append(BvhEndSite("Tip", offset=[0, 1, 0], parent=root))
+        with pytest.raises(ValueError, match="order 'ZYX' is not supported. Expected 'XYZ'"):
+            Bvh(nodes=[root, root.children[0]])
 
 
 # The way every refusal names: edit the skeleton as a table, build a new clip.
@@ -3327,7 +3391,7 @@ class TestSkeletonEditsReplaceTheSkeleton:
     def test_a_node_held_before_the_edit_keeps_its_values(self, bvh_example, edit, inplace):
         held = list(bvh_example.nodes)
         offsets = [node.offset.copy() for node in held]
-        channels = [None if n.is_end_site() else list(n.rot_channels) for n in held]
+        channels = [None if n.is_end_site() else n.rot_channels for n in held]
 
         result = self._apply(edit, bvh_example, inplace)
 

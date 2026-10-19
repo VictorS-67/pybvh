@@ -15,6 +15,7 @@ convention in :mod:`~pybvh.rotations`.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal, overload
 
 import numpy as np
@@ -711,7 +712,7 @@ def mirror_angles(
     root_pos: npt.NDArray[np.float64],
     lr_joint_pairs: list[tuple[int, int]],
     lateral_idx: int,
-    rot_channels: list[list[str]],
+    rot_channels: Sequence[Sequence[str]],
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Mirror joint angles and root position (NumPy-level).
 
@@ -734,8 +735,9 @@ def mirror_angles(
         Index pairs into the joint axis of ``joint_angles``.
     lateral_idx : int
         Index of the lateral axis (0=X, 1=Y, 2=Z).
-    rot_channels : list of list of str
-        Per-joint Euler channel order, e.g. ``[['Z','Y','X'], ...]``.
+    rot_channels : sequence of sequences of str
+        Per-joint Euler channel order, e.g. ``[('Z','Y','X'), ...]``
+        (each joint's ``rot_channels``) or ``['ZYX', ...]``.
         Length must equal ``J``.
 
     Returns
@@ -961,7 +963,7 @@ def mirror(
         )
 
     # --- Steps 1, 4, 5: Mirror arrays via NumPy-level API ---
-    rot_ch = [list(j.rot_channels) for j in joints]
+    rot_ch = [j.rot_channels for j in joints]
     new_angles, new_root_pos = mirror_angles(
         target.joint_angles,
         target.root_pos,

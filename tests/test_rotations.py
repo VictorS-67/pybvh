@@ -409,8 +409,8 @@ class TestBvhRotationMethods:
         """to_rotmat should return correct shapes."""
         root_pos, joint_rotmats = bvh_example.to_rotmat()
         num_joints = len([n for n in bvh_example.nodes if not n.is_end_site()])
-        assert root_pos.shape == (75, 3)
-        assert joint_rotmats.shape == (75, num_joints, 3, 3)
+        assert root_pos.shape == (126, 3)
+        assert joint_rotmats.shape == (126, num_joints, 3, 3)
 
     def test_to_rotmat_orthogonal(self, bvh_example):
         """All output rotation matrices should be orthogonal."""
@@ -426,15 +426,15 @@ class TestBvhRotationMethods:
         """to_6d should return correct shapes."""
         root_pos, joint_rot6d = bvh_example.to_6d()
         num_joints = len([n for n in bvh_example.nodes if not n.is_end_site()])
-        assert root_pos.shape == (75, 3)
-        assert joint_rot6d.shape == (75, num_joints, 6)
+        assert root_pos.shape == (126, 3)
+        assert joint_rot6d.shape == (126, num_joints, 6)
 
     def test_to_quat_shape(self, bvh_example):
         """to_quat should return correct shapes."""
         root_pos, joint_quats = bvh_example.to_quat()
         num_joints = len([n for n in bvh_example.nodes if not n.is_end_site()])
-        assert root_pos.shape == (75, 3)
-        assert joint_quats.shape == (75, num_joints, 4)
+        assert root_pos.shape == (126, 3)
+        assert joint_quats.shape == (126, num_joints, 4)
 
     def test_6d_roundtrip_through_bvh(self, bvh_example):
         """Bvh → 6D → from_6d should preserve data."""
@@ -500,15 +500,16 @@ class TestBvhRotationMethods:
     def test_from_6d_wrong_joints_raises(self, bvh_example):
         """from_6d with wrong number of joints should raise."""
         root_pos = bvh_example.root_pos
-        wrong_6d = np.zeros((75, 5, 6))  # wrong number of joints
-        with pytest.raises(ValueError):
+        wrong_6d = np.zeros((bvh_example.frame_count, 5, 6))  # wrong number of joints
+        with pytest.raises(ValueError, match="Expected 24 joints"):
             bvh_example.from_6d(root_pos, wrong_6d, inplace=True)
 
     def test_from_quat_wrong_joints_raises(self, bvh_example):
         """from_quat with wrong number of joints should raise."""
         root_pos = bvh_example.root_pos
-        wrong_quats = np.zeros((75, 5, 4))
-        with pytest.raises(ValueError):
+        wrong_quats = np.zeros((bvh_example.frame_count, 5, 4))
+        wrong_quats[..., 0] = 1.0  # identity, so only the joint count is wrong
+        with pytest.raises(ValueError, match="Expected 24 joints"):
             bvh_example.from_quat(root_pos, wrong_quats, inplace=True)
 
 
@@ -1131,8 +1132,8 @@ class TestBvhAxisAngleMethods:
         """to_axisangle should return correct shapes."""
         root_pos, joint_aa = bvh_example.to_axisangle()
         num_joints = len([n for n in bvh_example.nodes if not n.is_end_site()])
-        assert root_pos.shape == (75, 3)
-        assert joint_aa.shape == (75, num_joints, 3)
+        assert root_pos.shape == (126, 3)
+        assert joint_aa.shape == (126, num_joints, 3)
 
     def test_axisangle_roundtrip_through_bvh(self, bvh_example):
         """Bvh → axis-angle → from_axisangle should preserve data."""
@@ -1172,8 +1173,8 @@ class TestBvhAxisAngleMethods:
     def test_from_axisangle_wrong_joints_raises(self, bvh_example):
         """from_axisangle with wrong number of joints should raise."""
         root_pos = bvh_example.root_pos
-        wrong_aa = np.zeros((75, 5, 3))
-        with pytest.raises(ValueError):
+        wrong_aa = np.zeros((bvh_example.frame_count, 5, 3))
+        with pytest.raises(ValueError, match="Expected 24 joints"):
             bvh_example.from_axisangle(root_pos, wrong_aa, inplace=True)
 
 

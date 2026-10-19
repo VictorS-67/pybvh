@@ -105,7 +105,7 @@ class TestReadBvhFile:
 
     def test_frame_count(self, bvh_example):
         """Verify expected frame count."""
-        assert bvh_example.frame_count == 75
+        assert bvh_example.frame_count == 126
 
     def test_frame_time(self, bvh_example):
         """Verify expected frame time."""
@@ -190,8 +190,8 @@ class TestReadBvhFile:
 
     def test_frames_shape(self, bvh_example):
         """Verify root_pos and joint_angles shapes."""
-        assert bvh_example.root_pos.shape == (75, 3)
-        assert bvh_example.joint_angles.shape == (75, 24, 3)
+        assert bvh_example.root_pos.shape == (126, 3)
+        assert bvh_example.joint_angles.shape == (126, 24, 3)
 
     def test_root_is_bvh_root(self, bvh_example):
         """Root should be a BvhRoot instance."""
@@ -244,10 +244,10 @@ class TestReadBvhFile:
 
     def test_first_frame_values(self, bvh_example):
         """Verify first frame data values (joint_angles in radians)."""
-        expected_root_pos = np.array([-0.8231, -10.8992, 36.4219])
-        expected_first_joint = np.deg2rad([0.8701, -2.6197, -3.0713])
-        expected_second_joint = np.deg2rad([-1.3469, 1.1738, -0.3412])
-        expected_third_joint = np.deg2rad([-1.3459, 1.1990, -0.2376])
+        expected_root_pos = np.array([-36.3996, -1.3182, 36.2035])
+        expected_first_joint = np.deg2rad([53.7844, -85.7833, -54.1157])
+        expected_second_joint = np.deg2rad([-4.4625, -0.2515, 0.1860])
+        expected_third_joint = np.deg2rad([-4.4624, -0.2668, 0.1633])
         np.testing.assert_allclose(bvh_example.root_pos[0], expected_root_pos, atol=1e-4)
         np.testing.assert_allclose(bvh_example.joint_angles[0, 0], expected_first_joint, atol=1e-6)
         np.testing.assert_allclose(bvh_example.joint_angles[0, 1], expected_second_joint, atol=1e-6)
@@ -572,7 +572,7 @@ class TestJointPositions:
     """Tests for Bvh.joint_positions — (F, J, 3) subset of node_positions."""
 
     def test_shape(self, bvh_example):
-        assert bvh_example.joint_positions().shape == (75, 24, 3)
+        assert bvh_example.joint_positions().shape == (126, 24, 3)
 
     def test_single_frame_shape(self, bvh_example):
         assert bvh_example.joint_positions(frame=0).shape == (24, 3)
@@ -606,10 +606,10 @@ class TestSpatialCoordinates:
         # First 4 nodes (root + first 3 joints)
         expected_first_4 = np.array(
             [
-                [-0.8231, -10.8992, 36.4219],
-                [-1.0614, -10.9558, 40.8680],
-                [-1.3379, -11.6809, 45.2527],
-                [-1.6151, -11.9160, 49.6907],
+                [-36.3996, -1.3182, 36.2035],
+                [-36.6480, -1.2995, 40.3664],
+                [-37.2963, -1.3085, 44.4860],
+                [-37.2586, -1.3009, 48.6561],
             ]
         )
         np.testing.assert_allclose(spatial[:4], expected_first_4, atol=1e-4)
@@ -625,9 +625,9 @@ class TestSpatialCoordinates:
         expected_first_4 = np.array(
             [
                 [0.0, 0.0, 0.0],
-                [-0.2383, -0.0566, 4.4461],
-                [-0.5148, -0.7817, 8.8308],
-                [-0.7920, -1.0168, 13.2688],
+                [-0.2484, 0.0187, 4.1629],
+                [-0.8967, 0.0097, 8.2825],
+                [-0.8590, 0.0173, 12.4526],
             ]
         )
         np.testing.assert_allclose(spatial[:4], expected_first_4, atol=1e-4)
@@ -635,14 +635,14 @@ class TestSpatialCoordinates:
     def test_all_frames_world_centered(self, bvh_example):
         """Verify all frames spatial coordinates shape."""
         spatial = bvh_example.node_positions(frame=None, centered="world")
-        assert spatial.shape == (75, 29, 3)
+        assert spatial.shape == (126, 29, 3)
 
     def test_all_frames_first_centered(self, bvh_example):
         """'first' = ground-plane centering: first-frame root over the origin,
         up coordinate untouched."""
         spatial = bvh_example.node_positions(frame=None, centered="first")
 
-        assert spatial.shape == (75, 29, 3)
+        assert spatial.shape == (126, 29, 3)
         # First-frame root: zero in the two horizontal axes, original
         # height along world_up.
         up_idx = {"x": 0, "y": 1, "z": 2}[bvh_example.world_up[1]]
@@ -677,7 +677,7 @@ class TestDataFrameConversion:
         df_data = bvh_example.to_df_dict(mode="euler", centered="world")
         df = pd.DataFrame(df_data)
 
-        assert df.shape == (75, 76)  # 75 frames, 75 channels + 1 time column
+        assert df.shape == (126, 76)  # 126 frames, 75 channels + 1 time column
 
         # Check expected columns
         expected_first_10 = [
@@ -948,7 +948,7 @@ class TestBvhMethods:
         """__str__ should return readable summary."""
         s = str(bvh_example)
         assert "24 joints" in s  # 29 nodes - 5 end sites = 24 joints
-        assert "75 frames" in s
+        assert "126 frames" in s
 
     def test_repr_representation(self, bvh_example):
         """__repr__ should return constructor-like string."""
@@ -1015,21 +1015,21 @@ class TestStructuredRepresentation:
 
     def test_root_pos_shape(self, bvh_example):
         """root_pos should be (num_frames, 3)."""
-        assert bvh_example.root_pos.shape == (75, 3)
+        assert bvh_example.root_pos.shape == (126, 3)
 
     def test_joint_angles_shape(self, bvh_example):
         """joint_angles should be (num_frames, num_joints, 3)."""
         num_joints = len([n for n in bvh_example.nodes if not n.is_end_site()])
-        assert bvh_example.joint_angles.shape == (75, num_joints, 3)
+        assert bvh_example.joint_angles.shape == (126, num_joints, 3)
 
     def test_root_pos_values(self, bvh_example):
         """root_pos should match the expected first-frame root translation."""
-        expected = np.array([-0.8231, -10.8992, 36.4219])
+        expected = np.array([-36.3996, -1.3182, 36.2035])
         np.testing.assert_allclose(bvh_example.root_pos[0], expected, atol=1e-4)
 
     def test_joint_angles_first_joint(self, bvh_example):
         """First joint's angles should match expected values (radians)."""
-        expected = np.deg2rad([0.8701, -2.6197, -3.0713])
+        expected = np.deg2rad([53.7844, -85.7833, -54.1157])
         np.testing.assert_allclose(bvh_example.joint_angles[0, 0], expected, atol=1e-6)
 
     def test_copy_independence_root_pos(self, bvh_example):
@@ -1186,7 +1186,7 @@ class TestVectorizedFK:
     def test_fk_on_different_skeletons(self):
         """FK should work on all test files with different skeletons."""
         test_files = [
-            "bvh_data/bvh_test1.bvh",  # 75 frames, 29 nodes
+            "bvh_data/bvh_test1.bvh",  # 126 frames, 29 nodes
             "bvh_data/bvh_test2.bvh",  # 61 frames, 28 nodes
             "bvh_data/bvh_test3.bvh",  # 100 frames, 73 nodes
         ]
@@ -1253,7 +1253,7 @@ class TestParserMultipleFiles:
     def test_parse_all_test_files(self):
         """All test BVH files should parse without errors and have valid data."""
         files = {
-            "bvh_data/bvh_test1.bvh": (75, 24, 29),
+            "bvh_data/bvh_test1.bvh": (126, 24, 29),
             "bvh_data/bvh_test2.bvh": (61, 23, 28),
             "bvh_data/bvh_test3.bvh": (100, 60, 73),
             "bvh_data/standard_skeleton.bvh": (1, 24, 29),
@@ -2693,9 +2693,9 @@ class TestConcatSliceRoundTrip:
     """Tests for split-concat round-trip."""
 
     def test_split_concat_recovers_original(self, bvh_example):
-        """slice [0:38] + [38:75], concat, compare to original."""
-        part1 = bvh_example[0:38]
-        part2 = bvh_example[38:75]
+        """slice [0:63] + [63:126], concat, compare to original."""
+        part1 = bvh_example[0:63]
+        part2 = bvh_example[63:126]
         recovered = part1 + part2
         np.testing.assert_allclose(recovered.root_pos, bvh_example.root_pos, atol=1e-12)
         np.testing.assert_allclose(recovered.joint_angles, bvh_example.joint_angles, atol=1e-12)
@@ -2711,8 +2711,8 @@ class TestConcatSliceRoundTrip:
 
     def test_concat_preserves_spatial(self, bvh_example):
         """Spatial coords of concatenated match original."""
-        part1 = bvh_example[0:38]
-        part2 = bvh_example[38:75]
+        part1 = bvh_example[0:63]
+        part2 = bvh_example[63:126]
         recovered = part1 + part2
         orig_spatial = bvh_example.node_positions(centered="world")
         recovered_spatial = recovered.node_positions(centered="world")
@@ -5683,7 +5683,7 @@ class TestBvhLen:
     """Tests for __len__."""
 
     def test_len_matches_frame_count(self, bvh_example):
-        assert len(bvh_example) == bvh_example.frame_count == 75
+        assert len(bvh_example) == bvh_example.frame_count == 126
 
     def test_len_on_sliced(self, bvh_example):
         assert len(bvh_example[10:50]) == 40

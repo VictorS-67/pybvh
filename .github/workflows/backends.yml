@@ -75,7 +75,7 @@ jobs:
 
       - name: Run tests
         if: steps.gate.outputs.changed != 'false'
-        run: xvfb-run -a pytest tests/ -v -rs --junitxml="$RUNNER_TEMP/backend-tests.xml"
+        run: xvfb-run -a python -m pytest tests/ -v -rs --junitxml="$RUNNER_TEMP/backend-tests.xml"
 
       # A test whose backend is missing is skipped, and pytest passes: this
       # job exists to run those tests, so such a skip fails it.

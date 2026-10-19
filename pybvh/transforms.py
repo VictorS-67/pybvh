@@ -1228,7 +1228,7 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
         )
 
     # Determine current rest-pose forward from topology
-    rest_coords = bvh.rest_pose_positions()
+    rest_coords = bvh._rest_pose()
     current_fwd = _compute_forward_at(bvh, rest_coords, bvh.world_up)
 
     target = bvh if inplace else bvh.copy()

@@ -31,8 +31,10 @@ from pybvh import (
     read_bvh_directory,
     read_bvh_file,
 )
+from pybvh.analysis import foot_contacts
 from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhNode, BvhRoot
 from pybvh.rotations import euler_to_rotmat
+from pybvh.transforms import reorient_rest_forward, reorient_rest_up, reorient_world_up
 
 sys.path.insert(0, str(Path(__file__).parent))  # for synthetic_bvh
 from synthetic_bvh import (
@@ -2180,6 +2182,83 @@ class TestRestPose:
             centered="skeleton",
         )
         np.testing.assert_allclose(rest_via_fk, rest_coords, atol=1e-10)
+
+
+def _rest_pose_by_fk(bvh):
+    """The rest pose of the skeleton as it is now, by FK at zero angles."""
+    return frames_to_node_positions(
+        bvh,
+        root_pos=np.zeros(3),
+        joint_angles=np.zeros((bvh.joint_count, 3)),
+        centered="skeleton",
+    )
+
+
+# Every edit pybvh makes to a clip's skeleton, each returning the edited clip.
+_SKELETON_EDITS = {
+    "scale": lambda b, inplace: b.scale(2.0, inplace=inplace),
+    "mirror": lambda b, inplace: b.mirror(inplace=inplace),
+    "retarget": lambda b, inplace: b.retarget(b.scale(2.0), inplace=inplace),
+    "reorient_rest_up": lambda b, inplace: reorient_rest_up(b, "+y", inplace=inplace),
+    "reorient_rest_forward": lambda b, inplace: reorient_rest_forward(b, "+x", inplace=inplace),
+    "reorient_world_up": lambda b, inplace: reorient_world_up(b, "+y", inplace=inplace),
+}
+
+
+class TestRestPoseCache:
+    """The rest pose is computed once per skeleton (ADR 0003)."""
+
+    def test_computed_once_across_its_readers(self, bvh_example_path, computations):
+        bvh = read_bvh_file(bvh_example_path)
+        readers = (
+            lambda: bvh.rest_up,
+            lambda: bvh.rest_forward,
+            lambda: foot_contacts(bvh),
+            bvh.rest_pose_positions,
+        )
+        for read in readers:
+            read()
+        assert computations.rest_pose == 1
+
+    def test_a_motion_change_keeps_it(self, bvh_example, computations):
+        bvh_example.rest_pose_positions()
+        computed = computations.rest_pose
+        bvh_example.joint_angles = np.zeros_like(bvh_example.joint_angles)
+        bvh_example.root_pos = bvh_example.root_pos + 1.0
+        bvh_example[0] = bvh_example[5]
+        bvh_example.rest_pose_positions()
+        assert computations.rest_pose == computed
+
+    def test_a_skeleton_change_recomputes_it(self, bvh_example, computations):
+        before = bvh_example.rest_pose_positions()
+        computed = computations.rest_pose
+        bvh_example.retarget(bvh_example.scale(2.0), inplace=True)
+        after = bvh_example.rest_pose_positions()
+        assert computations.rest_pose == computed + 1
+        np.testing.assert_allclose(after, 2.0 * before, atol=1e-10)
+
+    @pytest.mark.parametrize("inplace", [True, False])
+    @pytest.mark.parametrize("edit", sorted(_SKELETON_EDITS))
+    def test_follows_every_skeleton_edit(self, bvh_example, edit, inplace):
+        bvh_example.rest_pose_positions()
+        result = _SKELETON_EDITS[edit](bvh_example, inplace)
+        edited = bvh_example if inplace else result
+        np.testing.assert_allclose(
+            edited.rest_pose_positions(), _rest_pose_by_fk(edited), atol=1e-10
+        )
+
+    def test_follows_a_new_node_list(self, bvh_example, bvh_test2):
+        bvh_example.rest_pose_positions()
+        bvh_example.nodes = bvh_test2.nodes
+        np.testing.assert_allclose(
+            bvh_example.rest_pose_positions(), bvh_test2.rest_pose_positions(), atol=1e-10
+        )
+
+    def test_a_write_into_the_result_leaves_the_clip_unchanged(self, bvh_example):
+        rest = bvh_example.rest_pose_positions()
+        expected = rest.copy()
+        rest += 1000.0
+        np.testing.assert_array_equal(bvh_example.rest_pose_positions(), expected)
 
 
 # =============================================================================
@@ -6897,9 +6976,17 @@ class TestParsedAxisProperties:
         assert (bvh_example.rest_up is None) == (bvh_example.rest_up_axis is None)
 
     def test_rest_up_axis_is_none_for_a_degenerate_rest_pose(self):
-        bvh = make_pos_y_up_bvh()
-        for node in bvh.nodes:
-            node.offset = np.zeros(3)
+        source = make_pos_y_up_bvh()
+        table = nodes_to_table(source.nodes)
+        for entry in table:
+            entry["offset"] = np.zeros(3)
+        bvh = Bvh(
+            nodes=nodes_from_table(table),
+            root_pos=source.root_pos,
+            joint_angles=source.joint_angles,
+            frame_time=source.frame_time,
+            world_up="+y",
+        )
         assert bvh.rest_up is None
         assert bvh.rest_up_axis is None
         # forward stays defined — it falls back rather than returning None

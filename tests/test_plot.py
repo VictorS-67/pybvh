@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pybvh import bvhplot, read_bvh_file
+from pybvh import Bvh, bvhplot, nodes_from_table, nodes_to_table, read_bvh_file
 from pybvh.analysis import root_trajectory
 from pybvh.bvhplot import _k3d, _opencv, _vedo
 from pybvh.bvhplot._from_bvh import (
@@ -2029,10 +2029,19 @@ class TestMatchSize:
 
     @staticmethod
     def _sizeless(clip):
-        """*clip* with every rest-pose offset zero: no height to match."""
-        for node in clip.nodes:
-            node.offset = np.zeros(3)
-        return clip
+        """*clip*'s motion on its skeleton with every offset zero: no
+        height to match."""
+        table = nodes_to_table(clip.nodes)
+        for entry in table:
+            entry["offset"] = np.zeros(3)
+        return Bvh(
+            nodes=nodes_from_table(table),
+            root_pos=clip.root_pos,
+            joint_angles=clip.joint_angles,
+            frame_time=clip.frame_time,
+            world_up=clip.world_up,
+            source_path=clip.source_path,
+        )
 
     @pytest.mark.filterwarnings(NO_FACING)
     @pytest.mark.parametrize("entry_point, backend, module, function", SINGLE_SCENE)

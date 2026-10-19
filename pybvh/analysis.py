@@ -685,7 +685,7 @@ def root_trajectory(
     ground_axes = [i for i in range(3) if i != up_idx]
 
     # Rest-pose forward direction — independent of animation start
-    rest_coords = bvh.rest_pose_positions()
+    rest_coords = bvh._rest_pose()
     fwd_axis = _compute_forward_at(bvh, rest_coords, up_str)
     fwd_rest = _axis_to_vector(fwd_axis)  # (3,) unit vector
 
@@ -1077,7 +1077,7 @@ def foot_contacts(
     rest_coords: npt.NDArray[np.float64] | None = None
 
     if foot_joints is None:
-        rest_coords = bvh.rest_pose_positions()
+        rest_coords = bvh._rest_pose()
         foot_joints = auto_detect_foot_joints(bvh, _rest_coords=rest_coords)
         if not foot_joints:
             raise ValueError(
@@ -1359,7 +1359,7 @@ def _contacts_core(
         needs_height and height_threshold is None
     )
     if (needs_scale or (needs_height and check_rest_height)) and rest_coords is None:
-        rest_coords = bvh.rest_pose_positions()
+        rest_coords = bvh._rest_pose()
 
     scale: float | None = None
     if needs_scale:
@@ -1504,9 +1504,7 @@ def _contacts_core(
         if height_adaptive_used is not None:
             info["adaptive_used_height"] = height_adaptive_used
 
-    diag_scale = (
-        scale if scale is not None else _skeleton_scale(bvh.rest_pose_positions(), joint_indices)
-    )
+    diag_scale = scale if scale is not None else _skeleton_scale(bvh._rest_pose(), joint_indices)
     if clearance is None:  # method="velocity": derive a clearance for diagnostics
         h = joint_coords[:, :, up_idx] * up_sign
         clearance = h - _estimate_floor(h)
@@ -1605,7 +1603,7 @@ def auto_detect_foot_joints(
     most_distal = [n for n in with_tip if not _has_candidate_descendant(n)]
 
     # Step 4: stable sort — height (ascending) then name (alphabetical)
-    rest_coords = _rest_coords if _rest_coords is not None else bvh.rest_pose_positions()
+    rest_coords = _rest_coords if _rest_coords is not None else bvh._rest_pose()
     assert isinstance(rest_coords, np.ndarray)  # mypy narrowing
 
     # Identity-keyed: node names are not unique in general, and a name
@@ -1705,7 +1703,7 @@ def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
         unknown = [n for n in foot_joints if n not in bvh.node_index]
         if unknown:
             raise ValueError(f"skeleton_size: joint names {unknown} not found in skeleton.")
-    rest_coords = bvh.rest_pose_positions()
+    rest_coords = bvh._rest_pose()
     foot_indices = [bvh.node_index[name] for name in foot_joints]
     root = rest_coords[0]
     dists = [float(np.linalg.norm(rest_coords[i] - root)) for i in foot_indices]

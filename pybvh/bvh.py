@@ -111,6 +111,16 @@ def _motion_column_names(nodes: Sequence[BvhNode], mode: str) -> list[str]:
     raise ValueError(f"mode must be 'euler' or 'coordinates', got {mode!r}")
 
 
+def _build_rest_pose(bvh: Bvh) -> npt.NDArray[np.float64]:
+    """FK of ``bvh``'s skeleton with every angle zero and the root at the origin."""
+    return frames_to_node_positions(
+        bvh,
+        root_pos=np.zeros(3),
+        joint_angles=np.zeros((bvh.joint_count, 3), dtype=np.float64),
+        centered="skeleton",
+    )
+
+
 class Bvh:
     """Container for BVH motion-capture data.
 
@@ -288,6 +298,7 @@ class Bvh:
         if len(value) == 0:
             raise ValueError("nodes must hold at least one node, the root.")
         self._nodes = value
+        self._derived.skeleton_changed()
 
     @property
     def frame_time(self) -> float:
@@ -998,7 +1009,7 @@ class Bvh:
         str
             Signed axis string (e.g. ``'+z'``, ``'-x'``).
         """
-        return _compute_forward_at(self, self.rest_pose_positions(), self.world_up)
+        return _compute_forward_at(self, self._rest_pose(), self.world_up)
 
     @property
     def lr_mapping(self) -> dict[str, str] | None:
@@ -1521,13 +1532,23 @@ class Bvh:
 
         Derived from the skeleton offsets alone, so it works on Bvh objects
         with no motion data. Use :attr:`node_index` to look up rows by name.
+
+        Computed once per skeleton; each call returns a new array, so
+        writing into it leaves the clip unchanged.
         """
-        return frames_to_node_positions(
-            self,
-            root_pos=np.zeros(3),
-            joint_angles=np.zeros((self.joint_count, 3), dtype=np.float64),
-            centered="skeleton",
-        )
+        return self._rest_pose().copy()
+
+    def _rest_pose(self) -> npt.NDArray[np.float64]:
+        """The rest pose, computed once per skeleton and read-only.
+
+        pybvh's own readers share this array; :meth:`rest_pose_positions`
+        hands the user a copy of it.
+        """
+        rest = self._derived.rest_pose_positions
+        if rest is None:
+            rest = _build_rest_pose(self)
+            self._derived.rest_pose_positions = rest
+        return rest
 
     def rest_pose_angles(self) -> npt.NDArray[np.float64]:
         """Rest-pose joint angles — zeros of shape ``(J, 3)`` (radians).

@@ -562,7 +562,7 @@ def rest_pose(
     # same pipeline as frame(), bypassing spatial_coords.
     from ._matplotlib import frame_mpl
 
-    coords_list = [b.rest_pose_positions()[np.newaxis] for b in clips]
+    coords_list = [b._rest_pose()[np.newaxis] for b in clips]
     # Rest-pose coords put the root at the origin, so the canonical
     # world floor does not apply — the floor is the pose's lowest point.
     scene = make_scene(clips, coords_list, camera, labels, canonical_floor=False)

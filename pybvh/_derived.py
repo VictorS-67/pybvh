@@ -40,6 +40,7 @@ _CLEARED_BY: Final[dict[str, frozenset[_Change]]] = {
     "node_index": frozenset({_Change.SKELETON}),
     "joint_index": frozenset({_Change.SKELETON}),
     "names_lr_mapping": frozenset({_Change.SKELETON}),
+    "rest_pose_positions": frozenset({_Change.SKELETON}),
     "node_positions": _SKELETON_OR_MOTION,
     # ADR 0003 ends this row at USER_REPLACED_MOTION alone, once derived
     # clips inherit the guess.
@@ -57,6 +58,9 @@ class DerivedState:
         World-frame forward kinematics of every frame, shape ``(F, N, 3)``.
         Stored read-only: a write into the array raises at the line that
         made it.
+    rest_pose_positions : ndarray or None
+        The rest pose (every angle zero, root at the origin), shape
+        ``(N, 3)``. Stored read-only, as ``node_positions`` is.
     floor_height : float or None
         The scene ground, along world up (``Bvh.floor_height``).
     guessed_world_up : str or None
@@ -73,6 +77,7 @@ class DerivedState:
     # first change instead of setting a stray attribute.
     __slots__ = (
         "_node_positions",
+        "_rest_pose_positions",
         "floor_height",
         "guessed_world_up",
         "node_index",
@@ -82,6 +87,7 @@ class DerivedState:
 
     def __init__(self) -> None:
         self._node_positions: npt.NDArray[np.float64] | None = None
+        self._rest_pose_positions: npt.NDArray[np.float64] | None = None
         self.floor_height: float | None = None
         self.guessed_world_up: str | None = None
         self.node_index: dict[str, int] | None = None
@@ -94,9 +100,15 @@ class DerivedState:
 
     @node_positions.setter
     def node_positions(self, value: npt.NDArray[np.float64] | None) -> None:
-        if value is not None:
-            value.flags.writeable = False
-        self._node_positions = value
+        self._node_positions = _read_only(value)
+
+    @property
+    def rest_pose_positions(self) -> npt.NDArray[np.float64] | None:
+        return self._rest_pose_positions
+
+    @rest_pose_positions.setter
+    def rest_pose_positions(self, value: npt.NDArray[np.float64] | None) -> None:
+        self._rest_pose_positions = _read_only(value)
 
     def skeleton_changed(self) -> None:
         """The skeleton was replaced or edited."""
@@ -119,3 +131,10 @@ class DerivedState:
         for name, changes in _CLEARED_BY.items():
             if change in changes:
                 setattr(self, name, None)
+
+
+def _read_only(value: npt.NDArray[np.float64] | None) -> npt.NDArray[np.float64] | None:
+    """Mark a cached array read-only, so a write raises where it is made."""
+    if value is not None:
+        value.flags.writeable = False
+    return value

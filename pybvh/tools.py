@@ -316,7 +316,7 @@ def _rest_upward(bvh: Bvh) -> str | None:
     if len(bvh.nodes) < 2:
         return None
 
-    rest = bvh.rest_pose_positions()  # (N, 3)
+    rest = bvh._rest_pose()  # (N, 3)
     local_coord = rest - rest[0]  # root at origin
 
     up_body_parts = ["head", "neck", "chest", "spine"]
@@ -678,7 +678,7 @@ def _rest_leftward(
     if not pairs:
         return None
 
-    rest = bvh.rest_pose_positions()  # (N, 3)
+    rest = bvh._rest_pose()  # (N, 3)
     left_idx = [li for li, _ in pairs]
     right_idx = [ri for _, ri in pairs]
     avg_leftward = np.mean(rest[left_idx] - rest[right_idx], axis=0)
@@ -953,7 +953,7 @@ def _facing_is_measured(bvh: Bvh, world_up: str) -> bool:
     :func:`_compute_forward_at` walks on the rest pose, so the predicate
     tracks the fallback by construction rather than by parallel logic.
     """
-    rest_leftward = _world_leftward_unit_at_frame(bvh, bvh.rest_pose_positions(), world_up)
+    rest_leftward = _world_leftward_unit_at_frame(bvh, bvh._rest_pose(), world_up)
     if rest_leftward is not None:
         return True
     return _rest_forward_from_topology(bvh, world_up) is not None

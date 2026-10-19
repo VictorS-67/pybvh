@@ -19,3 +19,7 @@ Only the `wontfix` role has a label in this repo; for the other four roles the s
 ### Domain docs
 
 Single-context: root `GLOSSARY.md` (the terms) + `CONTEXT.md` (the architecture) + `docs/adr/`. See `docs/agents/domain.md`.
+
+### PR body
+
+Load `mattpocock-skills:pr` before writing a PR body, for the forms of the Change outline's views and of before-and-after evidence. `.github/PULL_REQUEST_TEMPLATE.md` and `CONTRIBUTING.md` ("The pull request body") hold the sections and their order.

@@ -496,6 +496,19 @@ class TestRoundTrips:
 # =============================================================================
 
 
+def _tips_rig(right_tips):
+    """Two hands, the left with two end sites, the right with ``right_tips``."""
+    root = BvhRoot("Hips", [0, 0, 0], "XYZ", "ZYX", [])
+    left = _attach(root, BvhJoint("LeftHand", [1, 0, 0], "ZYX", []))
+    right = _attach(root, BvhJoint("RightHand", [-1, 0, 0], "ZYX", []))
+    _attach(left, BvhEndSite("EndSiteLeftHand", [0.5, 1.0, 0.0]))
+    _attach(left, BvhEndSite("EndSiteLeftHand", [0.5, 2.0, 0.0]))
+    for height in [1.0, 2.0][:right_tips]:
+        _attach(right, BvhEndSite("EndSiteRightHand", [-0.5, height, 0.0]))
+    nodes = [root, left, *left.children, right, *right.children]
+    return Bvh(nodes, np.zeros((3, 3)), np.zeros((3, 3, 3)), 1 / 30)
+
+
 @pytest.fixture
 def two_tips_rig():
     """A symmetric skeleton whose hands each carry two end sites.
@@ -504,23 +517,7 @@ def two_tips_rig():
     lookup returns one of them twice. The rig is symmetric about x, so a
     correct mirror is the identity on the offsets.
     """
-    root = BvhRoot("Hips", [0, 0, 0], "XYZ", "ZYX", [])
-    left = _attach(root, BvhJoint("LeftHand", [1, 0, 0], "ZYX", []))
-    right = _attach(root, BvhJoint("RightHand", [-1, 0, 0], "ZYX", []))
-    _attach(left, BvhEndSite("EndSiteLeftHand", [0.5, 1.0, 0.0]))
-    _attach(left, BvhEndSite("EndSiteLeftHand", [0.5, 2.0, 0.0]))
-    _attach(right, BvhEndSite("EndSiteRightHand", [-0.5, 1.0, 0.0]))
-    _attach(right, BvhEndSite("EndSiteRightHand", [-0.5, 2.0, 0.0]))
-    nodes = [
-        root,
-        left,
-        left.children[0],
-        left.children[1],
-        right,
-        right.children[0],
-        right.children[1],
-    ]
-    return Bvh(nodes, np.zeros((3, 3)), np.zeros((3, 3, 3)), 1 / 30)
+    return _tips_rig(right_tips=2)
 
 
 class TestMirrorWithRepeatedEndSiteNames:
@@ -546,12 +543,10 @@ class TestMirrorWithRepeatedEndSiteNames:
         for original, result in zip(two_tips_rig.nodes, twice.nodes):
             np.testing.assert_allclose(result.offset, original.offset, atol=1e-12)
 
-    def test_unequal_end_site_counts_still_raise(self, two_tips_rig):
+    def test_unequal_end_site_counts_still_raise(self):
         """The domain error survives the move into the shared resolver."""
-        lonely = [n for n in two_tips_rig.nodes if n.name == "RightHand"][0]
-        lonely.children = lonely.children[:1]
         with pytest.raises(ValueError, match="Cannot pair end sites"):
-            two_tips_rig.mirror(lateral_axis="x")
+            _tips_rig(right_tips=1).mirror(lateral_axis="x")
 
 
 # =============================================================================
@@ -588,11 +583,9 @@ class TestNodeLrPairs:
         assert two_tips_rig.node_lr_pairs is None
         assert two_tips_rig.lr_pairs is None
 
-    def test_unequal_end_site_counts_are_filtered_not_raised(self, two_tips_rig):
+    def test_unequal_end_site_counts_are_filtered_not_raised(self):
         """The property drops what it cannot pair; only `mirror` refuses."""
-        lonely = [n for n in two_tips_rig.nodes if n.name == "RightHand"][0]
-        lonely.children = lonely.children[:1]
-        pairs = two_tips_rig.node_lr_pairs
+        pairs = _tips_rig(right_tips=1).node_lr_pairs
         assert pairs == [(1, 4)]  # the joint pair survives, its tips do not
 
     def test_real_skeleton(self):

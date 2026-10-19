@@ -7,7 +7,7 @@ The library that reads, writes, transforms and analyzes BVH motion capture files
 ### The skeleton
 
 **Node**:
-One entry of a skeleton's hierarchy: the root, a joint or an end site. `Bvh.nodes` lists them in the file's depth-first order.
+One entry of a skeleton's hierarchy: the root, a joint or an end site. `Bvh.nodes` lists them in the file's depth-first order. A node passed to `Bvh(...)` is owned by that clip and frozen; a changed skeleton goes to a new `Bvh`.
 
 **Root**:
 The first node, the only one with position channels; its translation per frame is the root position.
@@ -61,6 +61,10 @@ In bvhplot, the run of bones from a limb's root to its tip that shares one color
 One `Bvh`: a skeleton and its motion, usually one file.
 _Avoid_: take, recording
 
+**Derived state**:
+What a clip holds that is computed from its skeleton, motion or world up, such as the forward-kinematics positions or the scene ground: rebuilt on demand after an input changes, never copied to a derived clip. Unlike a descriptor, it is held by the clip rather than computed per call.
+_Avoid_: cache
+
 **Frame**:
 One row of the motion: the root position and every joint's angles at one instant. `F` counts them.
 
@@ -106,7 +110,7 @@ Left and right counterparts detected from names (`lr_mapping`), as index pairs i
 A signed axis such as `'+y'` or `'-z'`, the form every orientation property speaks; `parse_axis` turns it into an `Axis(index, sign, vector)`.
 
 **World up**:
-The signed axis that points against gravity in the animation, inferred from the first frame with the rest pose as fallback; settable.
+The signed axis that points against gravity in the animation, inferred from the first frame with the rest pose as fallback and inherited by every clip derived from the clip. Settable, and a set value is kept until the user changes it.
 _Avoid_: vertical axis
 
 **Rest up**:

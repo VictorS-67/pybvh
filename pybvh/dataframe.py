@@ -12,14 +12,14 @@ this module only reads the DataFrame it is given.
 from __future__ import annotations
 
 from collections.abc import Hashable, Mapping, Sequence
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from .bvh import Bvh, _motion_column_names
 from .bvhnode import BvhNode
 from .io import _snap_frame_time
-from .node_tree import nodes_from_table, nodes_to_table
+from .node_tree import _nodes_from_table_or_list
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -79,40 +79,6 @@ def _motion_columns(nodes: Sequence[BvhNode], df: pd.DataFrame) -> pd.DataFrame:
     raise ValueError(". ".join(problems))
 
 
-def _nodes_from_hier(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]]) -> list[BvhNode]:
-    """Build fresh nodes from *hier*, a node table or a node list.
-
-    The form is decided by the type of the first element: a ``BvhNode``
-    means a node list, read through ``nodes_to_table``; a ``Mapping``
-    means a node table. Both go through ``nodes_from_table``, which
-    validates the tree and is the one place a node tree is built.
-    """
-    if isinstance(hier, Mapping):
-        raise TypeError(
-            "hier is a dict: the name-keyed hierarchy dict was removed in "
-            "v0.10.0. Pass bvh.to_node_table(), a list with one entry per "
-            "node in depth-first order and parent as the parent's index, or "
-            "bvh.nodes. See the CHANGELOG for the migration."
-        )
-    if len(hier) == 0:
-        raise ValueError(
-            "hier is empty: pass bvh.to_node_table() or bvh.nodes, a node "
-            "table or a node list with the root first."
-        )
-    # The first element decides the form; the casts state that choice,
-    # which narrowing a union of sequences by one element cannot.
-    first = hier[0]
-    if isinstance(first, BvhNode):
-        return nodes_from_table(nodes_to_table(cast(Sequence[BvhNode], hier)))
-    if isinstance(first, Mapping):
-        return nodes_from_table(cast(Sequence[Mapping[str, Any]], hier))
-    raise TypeError(
-        f"hier[0] is a {type(first).__name__}; hier must be a node table "
-        f"(bvh.to_node_table(), one dict per node) or a node list "
-        f"(bvh.nodes)."
-    )
-
-
 def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.DataFrame) -> Bvh:
     """Create a Bvh object from a skeleton and a motion DataFrame.
 
@@ -135,15 +101,18 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
           format, its two leniencies and what it rejects.
         * A **node list** of ``BvhRoot``, ``BvhJoint`` and ``BvhEndSite``
           objects in depth-first order, such as :attr:`Bvh.nodes`. It is
-          read through :func:`~pybvh.nodes_to_table`, so only each node's
-          ``parent`` is consulted, and nothing is shared with the list
-          given.
+          taken over as :class:`Bvh` takes the nodes it is given: the
+          clip holds those node objects and freezes them, so a node
+          edited afterwards raises; nodes another clip owns are frozen
+          already and are shared. A call that raises leaves the list
+          editable. Pass ``nodes_to_table(nodes)`` to keep it editable.
 
         A table and a list are told apart by the type of the first
-        element, and both build their nodes through
-        :func:`~pybvh.nodes_from_table`, which returns fresh nodes and
-        raises ``ValueError`` for a table or a list that is not one tree
-        in depth-first order. Channel orders come from the skeleton and
+        element. A table is data: :func:`~pybvh.nodes_from_table` builds
+        the clip's own nodes from it. Either raises ``ValueError`` when
+        it is not one tree in depth-first order, a list's nodes wired
+        both ways (each in its parent's ``children``, with that parent
+        as its ``parent``). Channel orders come from the skeleton and
         are never inferred from *df*: a table entry states its
         ``rot_channels`` or it is an end site. The name-keyed hierarchy
         dict of earlier releases is refused with ``TypeError``.
@@ -174,7 +143,8 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
         neither a node table nor a node list.
     ValueError
         If *hier* is empty, or is not one tree in depth-first order (see
-        :func:`~pybvh.nodes_from_table`); if *df* has no ``time``
+        :func:`~pybvh.nodes_from_table` for a table, :class:`Bvh` for a
+        list); if *df* has no ``time``
         column, lacks a column the hierarchy expects (the message lists
         every missing label and, when *df* has repeated labels, states
         how repeated node names are labelled) or lists an expected label
@@ -215,7 +185,14 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
     frames only.
     """
 
-    nodes = _nodes_from_hier(hier)
+    if isinstance(hier, Mapping):
+        raise TypeError(
+            "hier is a dict: the name-keyed hierarchy dict was removed in "
+            "v0.10.0. Pass bvh.to_node_table(), a list with one entry per "
+            "node in depth-first order and parent as the parent's index, or "
+            "bvh.nodes. See the CHANGELOG for the migration."
+        )
+    nodes = _nodes_from_table_or_list(hier, "hier")
     time_values = df[_time_label(df)].to_numpy()
     frames = _motion_columns(nodes, df).to_numpy()
 

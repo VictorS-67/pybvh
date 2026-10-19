@@ -15,6 +15,7 @@ convention in :mod:`~pybvh.rotations`.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal, overload
 
 import numpy as np
@@ -81,7 +82,7 @@ def translate_root(
         raise ValueError(f"offset must have shape (3,), got {off.shape}")
 
     target = bvh if inplace else bvh.copy()
-    target.root_pos = target.root_pos + off  # broadcast (F,3)+(3,)
+    target._set_motion(root_pos=target.root_pos + off)  # broadcast (F,3)+(3,)
     if inplace:
         return None
     return target
@@ -191,7 +192,7 @@ def add_rotation_noise(
         noised = target.joint_angles + rng.normal(0.0, sigma_rad, target.joint_angles.shape)
         if wrap:
             noised = (noised + np.pi) % (2.0 * np.pi) - np.pi
-        target.joint_angles = noised
+        target._set_motion(joint_angles=noised)
     if inplace:
         return None
     return target
@@ -250,7 +251,7 @@ def add_position_noise(
 
     target = bvh if inplace else bvh.copy()
     if sigma > 0:
-        target.root_pos = target.root_pos + rng.normal(0.0, sigma, target.root_pos.shape)
+        target._set_motion(root_pos=target.root_pos + rng.normal(0.0, sigma, target.root_pos.shape))
     if inplace:
         return None
     return target
@@ -429,8 +430,7 @@ def drop_frames(
     new_angles[drop_mask] = rotations.quat_to_euler(dropped_quats, bvh.euler_orders)
 
     target = bvh if inplace else bvh.copy()
-    target.root_pos = new_root_pos
-    target.joint_angles = new_angles
+    target._set_motion(root_pos=new_root_pos, joint_angles=new_angles)
     if inplace:
         return None
     return target
@@ -655,8 +655,7 @@ def rotate_vertical(
         degrees=degrees,
         pivot=pivot,
     )
-    target.joint_angles = new_angles
-    target.root_pos = new_root_pos
+    target._set_motion(root_pos=new_root_pos, joint_angles=new_angles)
 
     if inplace:
         return None
@@ -713,7 +712,7 @@ def mirror_angles(
     root_pos: npt.NDArray[np.float64],
     lr_joint_pairs: list[tuple[int, int]],
     lateral_idx: int,
-    rot_channels: list[list[str]],
+    rot_channels: Sequence[Sequence[str]],
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Mirror joint angles and root position (NumPy-level).
 
@@ -736,8 +735,9 @@ def mirror_angles(
         Index pairs into the joint axis of ``joint_angles``.
     lateral_idx : int
         Index of the lateral axis (0=X, 1=Y, 2=Z).
-    rot_channels : list of list of str
-        Per-joint Euler channel order, e.g. ``[['Z','Y','X'], ...]``.
+    rot_channels : sequence of sequences of str
+        Per-joint Euler channel order, e.g. ``[('Z','Y','X'), ...]``
+        (each joint's ``rot_channels``) or ``['ZYX', ...]``.
         Length must equal ``J``.
 
     Returns
@@ -889,6 +889,8 @@ def mirror(
         degenerate (parallel to the up axis, or zero).
     inplace : bool, optional
         If True, modify *bvh* and return None.
+        With True, the skeleton is replaced, not edited: a node taken from
+        ``bvh.nodes`` before the call keeps its old values.
 
     Returns
     -------
@@ -961,7 +963,7 @@ def mirror(
         )
 
     # --- Steps 1, 4, 5: Mirror arrays via NumPy-level API ---
-    rot_ch = [list(j.rot_channels) for j in joints]
+    rot_ch = [j.rot_channels for j in joints]
     new_angles, new_root_pos = mirror_angles(
         target.joint_angles,
         target.root_pos,
@@ -969,21 +971,16 @@ def mirror(
         lateral_idx,
         rot_ch,
     )
-    target.joint_angles = new_angles
-    target.root_pos = new_root_pos
+    target._set_motion(root_pos=new_root_pos, joint_angles=new_angles)
 
     # --- Step 2: Negate node offset lateral component for ALL nodes ---
-    for node in target.nodes:
-        off = node.offset.copy()
-        off[lateral_idx] *= -1
-        node.offset = off
+    offsets = target._offsets()
+    offsets[:, lateral_idx] *= -1
 
     # --- Step 3: Swap offsets for L/R paired nodes ---
     for li, ri in lr_node_pairs:
-        left_off = target.nodes[li].offset.copy()
-        right_off = target.nodes[ri].offset.copy()
-        target.nodes[li].offset = right_off
-        target.nodes[ri].offset = left_off
+        offsets[[li, ri]] = offsets[[ri, li]]
+    target._replace_offsets(offsets)
 
     if inplace:
         return None
@@ -1035,8 +1032,7 @@ def _reorient_rest(target: Bvh, R_fix: npt.NDArray[np.float64]) -> None:
     R_fix_inv = R_fix.T  # orthogonal → inverse = transpose
 
     # 1. Rotate all offsets
-    for node in target.nodes:
-        node.offset = R_fix @ node.offset
+    target._replace_offsets(target._offsets() @ R_fix.T)
 
     # 2. Compensate joint rotations so FK positions are unchanged
     joints = [n for n in target.nodes if not n.is_end_site()]
@@ -1052,7 +1048,7 @@ def _reorient_rest(target: Bvh, R_fix: npt.NDArray[np.float64]) -> None:
         angles_copy, joints, R_fix, R_fix_inv, joint_indices=range(1, len(joints))
     )
 
-    target.joint_angles = angles_copy
+    target._set_motion(joint_angles=angles_copy)
 
 
 @overload
@@ -1088,12 +1084,16 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     inplace : bool, optional
         If True, modify *bvh* and return None. Default False: return a
         reoriented copy.
+        With True, the skeleton is replaced, not edited: a node taken from
+        ``bvh.nodes`` before the call keeps its old values.
 
     Returns
     -------
     Bvh or None
         The reoriented copy, or None when ``inplace=True``. Its
-        ``world_up`` is *new_up*.
+        ``world_up`` is *new_up*, set as an override. The guessed axis
+        turns with the frames, so assigning ``'auto'`` afterwards gives
+        the axis the rotated frames show.
     """
     old_up = _validate_axis_string(bvh.world_up)
     new_up = _validate_axis_string(new_up)
@@ -1104,13 +1104,13 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
         return None if inplace else target
 
     R = _axis_aligned_rotation(old_up, new_up)
+    target._rotate_world_up_guess(R)
 
     # 1. Rotate root positions
-    target.root_pos = (R @ target.root_pos.T).T
+    target._set_motion(root_pos=(R @ target.root_pos.T).T)
 
     # 2. Rotate all node offsets
-    for node in target.nodes:
-        node.offset = R @ node.offset
+    target._replace_offsets(target._offsets() @ R.T)
 
     # 3. Conjugate ALL joint rotations: R_j' = R @ R_j @ R^T
     #    This is the correct formula for a global scene rotation applied to
@@ -1118,7 +1118,7 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     joints = [n for n in target.nodes if not n.is_end_site()]
     angles_copy = target.joint_angles.copy()
     _apply_similarity_to_joints(angles_copy, joints, R, R.T)
-    target.joint_angles = angles_copy
+    target._set_motion(joint_angles=angles_copy)
 
     # 4. Update metadata
     target.world_up = new_up
@@ -1154,6 +1154,8 @@ def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None
     inplace : bool, optional
         If True, modify *bvh* and return None. Default False: return a
         reoriented copy.
+        With True, the skeleton is replaced, not edited: a node taken from
+        ``bvh.nodes`` before the call keeps its old values.
 
     Returns
     -------
@@ -1206,6 +1208,8 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
     inplace : bool, optional
         If True, modify *bvh* and return None. Default False: return a
         reoriented copy.
+        With True, the skeleton is replaced, not edited: a node taken from
+        ``bvh.nodes`` before the call keeps its old values.
 
     Returns
     -------
@@ -1226,7 +1230,7 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
         )
 
     # Determine current rest-pose forward from topology
-    rest_coords = bvh.rest_pose_positions()
+    rest_coords = bvh._rest_pose()
     current_fwd = _compute_forward_at(bvh, rest_coords, bvh.world_up)
 
     target = bvh if inplace else bvh.copy()

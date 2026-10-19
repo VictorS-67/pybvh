@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import copy
 import warnings
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
@@ -27,12 +27,19 @@ import numpy as np
 import numpy.typing as npt
 
 from . import rotations
+from ._derived import DerivedState as _DerivedState
 from ._warnings import user_stacklevel
 
 # Re-exported: pybvh.bvh has long served every node class, end sites included.
 from .bvhnode import BvhEndSite as BvhEndSite
 from .bvhnode import BvhJoint, BvhNode, BvhRoot, _is_joint
-from .node_tree import _check_node_tree, nodes_from_table, nodes_to_table
+from .node_tree import (
+    _check_node_list,
+    _check_node_tree,
+    _nodes_from_table_or_list,
+    nodes_from_table,
+    nodes_to_table,
+)
 from .spatial_coord import (
     FkTopology,
     _ground_plane_offset,
@@ -54,6 +61,7 @@ from .tools import (
     _validate_frame_time,
     parse_axis,
 )
+from .tools import get_main_direction as _get_main_direction
 
 
 def _unique_labels(names: Sequence[str]) -> list[str]:
@@ -110,10 +118,78 @@ def _motion_column_names(nodes: Sequence[BvhNode], mode: str) -> list[str]:
     raise ValueError(f"mode must be 'euler' or 'coordinates', got {mode!r}")
 
 
+def _checked_root_pos(value: npt.ArrayLike) -> npt.NDArray[np.float64]:
+    """``value`` as a float array, if it has the shape of ``root_pos``."""
+    arr = np.asarray(value, dtype=np.float64)
+    if arr.ndim != 2 or arr.shape[1] != 3:
+        raise ValueError(f"root_pos must have shape (F, 3), got {arr.shape}")
+    return arr
+
+
+def _checked_joint_angles(value: npt.ArrayLike) -> npt.NDArray[np.float64]:
+    """``value`` as a float array, if it has the shape of ``joint_angles``."""
+    arr = np.asarray(value, dtype=np.float64)
+    if arr.ndim != 3 or arr.shape[2] != 3:
+        raise ValueError(f"joint_angles must have shape (F, J, 3), got {arr.shape}")
+    return arr
+
+
+def _validated_lr_mapping(mapping: dict[str, str], joint_names: Sequence[str]) -> dict[str, str]:
+    """The user's lr_mapping dict, checked against ``joint_names``, one
+    direction per pair.
+
+    Validation: both names must exist in ``joint_names``; no
+    self-pairs; no duplicate names on either side of a pair. The result
+    is stored one-directional (left to right); the public ``lr_mapping``
+    property gives the symmetric view, so every internal consumer that
+    iterates its items gets one (left, right) tuple per pair.
+    """
+    if not isinstance(mapping, dict):
+        raise TypeError(f"lr_mapping must be a dict, got {type(mapping).__name__}")
+    if not mapping:
+        raise ValueError("lr_mapping must have at least one pair; pass None to clear the mapping.")
+    # Accept symmetric input ({L: R, R: L, ...}) — canonicalize to
+    # one-directional by deduping pairs by frozenset before
+    # validating. Each pair appears exactly once afterward.
+    canonical: dict[str, str] = dict(_iter_unique_lr_pairs(mapping))
+    joint_name_set = set(joint_names)
+    lefts_seen: set[str] = set()
+    rights_seen: set[str] = set()
+    for left, right in canonical.items():
+        if not isinstance(left, str) or not isinstance(right, str):
+            raise TypeError(
+                f"lr_mapping keys and values must be str, "
+                f"got {type(left).__name__}/{type(right).__name__}"
+            )
+        if left == right:
+            raise ValueError(f"lr_mapping self-pair not allowed: {left!r}")
+        if left not in joint_name_set:
+            raise ValueError(f"lr_mapping left joint {left!r} not in joint_names")
+        if right not in joint_name_set:
+            raise ValueError(f"lr_mapping right joint {right!r} not in joint_names")
+        if left in lefts_seen or left in rights_seen:
+            raise ValueError(f"lr_mapping joint {left!r} appears in multiple pairs")
+        if right in lefts_seen or right in rights_seen:
+            raise ValueError(f"lr_mapping joint {right!r} appears in multiple pairs")
+        lefts_seen.add(left)
+        rights_seen.add(right)
+    return canonical
+
+
+def _build_rest_pose(bvh: Bvh) -> npt.NDArray[np.float64]:
+    """FK of ``bvh``'s skeleton with every angle zero and the root at the origin."""
+    return frames_to_node_positions(
+        bvh,
+        root_pos=np.zeros(3),
+        joint_angles=np.zeros((bvh.joint_count, 3), dtype=np.float64),
+        centered="skeleton",
+    )
+
+
 class Bvh:
     """Container for BVH motion-capture data.
 
-    The hierarchy is stored as a list of ``BvhNode`` objects (one per
+    The hierarchy is stored as a tuple of ``BvhNode`` objects (one per
     joint / end-site).  Motion data is stored as two structured arrays:
 
     - ``root_pos``:     shape ``(F, 3)``    — root translation per frame
@@ -125,15 +201,21 @@ class Bvh:
 
     Attributes
     ----------
-    nodes : list of BvhNode
+    nodes : tuple of BvhNode
         Skeleton hierarchy in depth-first order, as a file lists it.
+        The constructor takes a list or a tuple and keeps a tuple of its
+        own, so a later edit to the list it was given leaves the clip as
+        it was.
         The constructor checks that the tree is wired both ways: the
         depth-first walk of ``children`` from ``nodes[0]`` must visit
         exactly ``nodes``, in order, and each node's ``parent`` must be
         the node it was reached from; ``ValueError`` otherwise. To build
         a tree from plain data, :func:`~pybvh.nodes_from_table` wires it.
+        The constructor freezes every node it is given (see
+        :mod:`pybvh.bvhnode`), and ``nodes`` cannot be assigned: a new
+        skeleton goes to a new ``Bvh``, such as ``bvh.copy(nodes=table)``.
     root : BvhRoot
-        The root node (``nodes[0]``).
+        The root node (``nodes[0]``), read-only.
     root_pos : ndarray, shape (F, 3)
         Root position per frame.
     joint_angles : ndarray, shape (F, J, 3)
@@ -168,7 +250,7 @@ class Bvh:
 
     def __init__(
         self,
-        nodes: list[BvhNode] | None = None,
+        nodes: list[BvhNode] | tuple[BvhNode, ...] | None = None,
         root_pos: npt.ArrayLike | None = None,
         joint_angles: npt.ArrayLike | None = None,
         frame_time: float = 0,
@@ -177,45 +259,41 @@ class Bvh:
         source_path: str | None = None,
         warn_on_disagreement: bool = True,
     ) -> None:
-        # All lazy caches exist before any property setter runs, so the
-        # setters can invalidate them unconditionally. ``_world_up_override``
-        # is set via the public ``world_up`` setter; ``_world_up_cached`` is
-        # computed eagerly below (from first animation frame, with rest-pose
-        # fallback) so that file-reading paths have a ready-to-use world_up
-        # immediately. Floor height and FK positions are lazily computed on
-        # first access (FK is too costly to run in every constructor) and
-        # invalidated by the motion setters.
+        # The derived state exists before any property setter runs, so the
+        # setters can report their change unconditionally. Each value in it
+        # is computed on first read, except the guessed world up, which is
+        # guessed below so that a clip read from a file has its world up
+        # (and any disagreement warning) at once.
+        self._derived = _DerivedState()
         self._world_up_override: str | None = None
-        self._world_up_cached: str | None = None
         # The warn preference lives on the instance, not only in this
-        # call, because ``_world_up_cached`` is dropped on every motion
-        # edit and is not carried to derived clips: each re-inference
-        # must still see what the caller asked for at load. Each inference
-        # site calls ``_infer_world_up`` itself rather than through a
-        # shared wrapper, so its warnings keep pointing at that site and
-        # are not collapsed into one location by the "default" filter.
+        # call, because the guess starts again when the user assigns
+        # motion, and world_up_inferred guesses afresh on every read: each
+        # of those must still see what the caller asked for at load.
         self._warn_on_world_up_disagreement = warn_on_disagreement
-        self._floor_height_cached: float | None = None
-        self._node_positions_cached: npt.NDArray[np.float64] | None = None
-        self._lr_mapping: dict[str, str] | None = None
-        self._lr_mapping_source: str | None = None  # 'names' | 'user' | None
+        # The user's L/R choice: a mapping they set (one direction, left to
+        # right), None once they cleared it, or "names" (the default) for
+        # the pairs detected from the joint names.
+        self._lr_mapping_setting: dict[str, str] | Literal["names"] | None = "names"
 
         if nodes is None:
             nodes = [BvhRoot()]
-        self.nodes = nodes
-        # The root's type is checked before the walk, which asks every
-        # node its kind; a bare BvhNode cannot answer that.
-        self.root = self.nodes[0]  # type: ignore[assignment]
-        _check_node_tree(self.nodes)
+        if not isinstance(nodes, (list, tuple)):
+            raise ValueError("nodes should be a list or tuple of BvhNode objects")
+        _check_node_list(nodes)
+        # A tuple of the clip's own: neither an edit to the caller's list
+        # nor one through ``bvh.nodes`` can change the skeleton behind the
+        # indexes and the derived values.
+        self._nodes: tuple[BvhNode, ...] = tuple(nodes)
         self.frame_time = frame_time
         self.source_path = source_path
 
         # Validate that root position channels are standard XYZ
-        if self.root.pos_channels != ["X", "Y", "Z"]:
+        pos_order = "".join(self.root.pos_channels)
+        if pos_order != "XYZ":
             raise ValueError(
-                f"Non-standard root position channel order "
-                f"{self.root.pos_channels} is not supported. "
-                f"Expected ['X', 'Y', 'Z']."
+                f"Non-standard root position channel order {pos_order!r} is "
+                f"not supported. Expected 'XYZ', the order of every root_pos row."
             )
 
         # ---------- Determine root_pos / joint_angles ----------
@@ -227,56 +305,54 @@ class Bvh:
         if root_pos is not None:
             self.root_pos = np.asarray(root_pos, dtype=np.float64)
             self.joint_angles = np.asarray(joint_angles, dtype=np.float64)
-            if self._root_pos.shape[0] != self._joint_angles.shape[0]:
-                raise ValueError(
-                    f"root_pos and joint_angles disagree on frame count: "
-                    f"root_pos has {self._root_pos.shape[0]} frames, "
-                    f"joint_angles has {self._joint_angles.shape[0]}."
-                )
-            joint_count = sum(1 for n in self.nodes if not n.is_end_site())
-            if self._joint_angles.shape[1] != joint_count:
-                raise ValueError(
-                    f"joint_angles has {self._joint_angles.shape[1]} joints "
-                    f"on axis 1, but the skeleton has {joint_count} "
-                    f"non-end-site joints."
-                )
+            self._check_motion_fits_skeleton()
         else:
             # Empty object
             self.root_pos = np.empty((0, 3), dtype=np.float64)
             self.joint_angles = np.empty((0, 0, 3), dtype=np.float64)
 
-        # node name → integer index into the spatial-coordinate array
-        self._create_node_index()
-        # joint name → integer index into joint_angles axis 1
-        self._create_joint_index()
-
-        # Freeze channel attributes on all nodes to prevent
-        # desynchronization with joint_angles
-        for node in self.nodes:
-            if hasattr(node, "_frozen"):
-                node._frozen = True
-
         if world_up != "auto":
             self._world_up_override = _validate_axis_string(world_up)
-        elif self.frame_count > 0 and len(self.nodes) > 1:
-            self._world_up_cached = _infer_world_up(self, warn=self._warn_on_world_up_disagreement)
-
-        # L/R pair mapping — cached. Depends on names + topology only, so
-        # no runtime invalidation hooks are needed (no pybvh operation
-        # mutates names on an existing Bvh). See also the `lr_mapping`
-        # property docstring.
         if lr_mapping is not None:
-            # B3 — explicit user mapping at construction time
-            self._validate_and_set_lr_mapping(lr_mapping, source="user")
-        elif len(self.nodes) > 1:
-            # Strategy A — eager name-based detection
-            names_mapping = _detect_lr_mapping_by_names(self)
-            if names_mapping:
-                self._lr_mapping = names_mapping
-                self._lr_mapping_source = "names"
+            self._validate_and_set_lr_mapping(lr_mapping)
+
+        if world_up == "auto":
+            self._settle_world_up()
+
+        # Frozen last, once nothing can raise: a Bvh(...) that raises owns
+        # nothing, so the caller's nodes stay editable for a retry. That
+        # includes the guess above, whose disagreement warning raises
+        # under warnings-as-errors; it reads the same node objects either
+        # way.
+        self._freeze_skeleton()
+
+    def _check_motion_fits_skeleton(self, nodes: Sequence[BvhNode] | None = None) -> None:
+        """Raise ``ValueError`` unless the motion has one frame count and
+        one column per joint of ``nodes`` (default: the clip's own).
+
+        The constructor runs it on the motion it is given, the rebuild of
+        a derived clip or a pickle on the motion it carries, and
+        ``copy(nodes=...)`` on the skeleton it is given, before building
+        the copy, so that skeleton is held to the same check.
+        """
+        if nodes is None:
+            nodes = self.nodes
+        if self._root_pos.shape[0] != self._joint_angles.shape[0]:
+            raise ValueError(
+                f"root_pos and joint_angles disagree on frame count: "
+                f"root_pos has {self._root_pos.shape[0]} frames, "
+                f"joint_angles has {self._joint_angles.shape[0]}."
+            )
+        joint_count = sum(1 for n in nodes if not n.is_end_site())
+        if self._joint_angles.shape[1] != joint_count:
+            raise ValueError(
+                f"joint_angles has {self._joint_angles.shape[1]} joints "
+                f"on axis 1, but the skeleton has {joint_count} "
+                f"non-end-site joints."
+            )
 
     @property
-    def nodes(self) -> list[BvhNode]:
+    def nodes(self) -> tuple[BvhNode, ...]:
         """Skeleton hierarchy, one node per joint and end site.
 
         In depth-first order as the file lists it: ``nodes[0]`` is the
@@ -287,25 +363,20 @@ class Bvh:
         *J* that indexes :attr:`joint_angles`; :attr:`node_index` and
         :attr:`joint_index` map names to each.
 
-        Returns the live list, not a copy. Change the skeleton through
-        the methods that edit it (:meth:`scale`, :meth:`retarget`,
-        :meth:`extract_joints`, :meth:`change_euler_order`) rather than
-        by editing its nodes in place. Assigning replaces the list; the
-        setter only checks that the value is a non-empty list of
-        ``BvhNode`` (``ValueError`` otherwise). The tree wiring is
-        checked when a ``Bvh`` is constructed, not on assignment, so a
-        new skeleton goes to the constructor, built with
-        :func:`~pybvh.nodes_from_table` if it starts as plain data.
+        The clip owns these nodes and has frozen them: assigning a
+        node's ``name``, ``offset``, ``parent``, ``children`` or channels
+        raises ``AttributeError``, and ``nodes`` itself cannot be
+        assigned, nor edited in place, being a tuple (``list(bvh.nodes)``
+        gives a list). Change the skeleton through the methods that edit it
+        (:meth:`scale`, :meth:`retarget`, :meth:`extract_joints`,
+        :meth:`change_euler_order`), or edit it as a table and copy the
+        clip onto it: ``table = bvh.to_node_table()``, edit the rows, then
+        ``bvh.copy(nodes=table)`` (see :meth:`copy`). The
+        methods swap in a new tuple of new nodes, even with
+        ``inplace=True``, so a tuple or node taken before the call keeps
+        the old skeleton.
         """
         return self._nodes
-
-    @nodes.setter
-    def nodes(self, value: list[BvhNode]) -> None:
-        if (not isinstance(value, list)) or any([not isinstance(x, BvhNode) for x in value]):
-            raise ValueError("nodes should be a list of BvhNode class/subclasse objects")
-        if len(value) == 0:
-            raise ValueError("nodes must hold at least one node, the root.")
-        self._nodes = value
 
     @property
     def frame_time(self) -> float:
@@ -362,11 +433,8 @@ class Bvh:
 
     @root_pos.setter
     def root_pos(self, value: npt.ArrayLike) -> None:
-        arr = np.asarray(value, dtype=np.float64)
-        if arr.ndim != 2 or arr.shape[1] != 3:
-            raise ValueError(f"root_pos must have shape (F, 3), got {arr.shape}")
-        self._root_pos = arr
-        self._invalidate_motion_caches()
+        self._root_pos = _checked_root_pos(value)
+        self._derived.user_replaced_motion()
 
     @property
     def joint_angles(self) -> npt.NDArray[np.float64]:
@@ -388,22 +456,27 @@ class Bvh:
 
     @joint_angles.setter
     def joint_angles(self, value: npt.ArrayLike) -> None:
-        arr = np.asarray(value, dtype=np.float64)
-        if arr.ndim != 3 or arr.shape[2] != 3:
-            raise ValueError(f"joint_angles must have shape (F, J, 3), got {arr.shape}")
-        self._joint_angles = arr
-        self._invalidate_motion_caches()
+        self._joint_angles = _checked_joint_angles(value)
+        self._derived.user_replaced_motion()
 
-    def _invalidate_motion_caches(self) -> None:
-        """Drop every cache derived from the motion data.
+    def _set_motion(
+        self,
+        *,
+        root_pos: npt.ArrayLike | None = None,
+        joint_angles: npt.ArrayLike | None = None,
+    ) -> None:
+        """Write motion as pybvh's own edits do, through no public setter.
 
-        Called by the ``root_pos`` / ``joint_angles`` setters and by any
-        code path that mutates motion or rest-pose geometry without going
-        through them (``__setitem__``, in-place ``retarget``).
+        The transforms, ``a += b`` and the rebuild of a derived clip write
+        here and report that the motion changed. The public setters report
+        that the user replaced the motion, the one change that starts the
+        world-up guess again (ADR 0003).
         """
-        self._world_up_cached = None
-        self._floor_height_cached = None
-        self._node_positions_cached = None
+        if root_pos is not None:
+            self._root_pos = _checked_root_pos(root_pos)
+        if joint_angles is not None:
+            self._joint_angles = _checked_joint_angles(joint_angles)
+        self._derived.motion_changed()
 
     @property
     def frame_count(self) -> int:
@@ -416,16 +489,10 @@ class Bvh:
 
         The one node with position channels: its translation per frame is
         :attr:`root_pos`, and its rotation is joint 0 of
-        :attr:`joint_angles`. Assigning anything but a
-        :class:`~pybvh.bvhnode.BvhRoot` raises ``ValueError``.
+        :attr:`joint_angles`. Read-only: the root is whatever ``nodes``
+        starts with.
         """
-        return self._root
-
-    @root.setter
-    def root(self, value: BvhRoot) -> None:
-        if not isinstance(value, BvhRoot):
-            raise ValueError("The first element of nodes should be a BvhRoot object")
-        self._root = value
+        return self._nodes[0]  # type: ignore[return-value]
 
     @property
     def _euler_column_names(self) -> list[str]:
@@ -651,9 +718,8 @@ class Bvh:
         """In-place concatenation. Grows ``self`` by appending ``other``'s frames.
 
         Validates skeleton compatibility and warns on ``frame_time`` mismatch
-        just like ``a + b``. Mutates ``self.root_pos`` and
-        ``self.joint_angles`` via their setters so ``_world_up_cached`` is
-        invalidated.
+        just like ``a + b``. The values derived from the motion are
+        recomputed on their next read.
         """
         if not isinstance(other, Bvh):
             return NotImplemented  # type: ignore[return-value]
@@ -664,8 +730,10 @@ class Bvh:
                 f"{other.frame_time}. Using self's frame time.",
                 stacklevel=user_stacklevel(),
             )
-        self.root_pos = np.concatenate([self.root_pos, other.root_pos], axis=0)
-        self.joint_angles = np.concatenate([self.joint_angles, other.joint_angles], axis=0)
+        self._set_motion(
+            root_pos=np.concatenate([self.root_pos, other.root_pos], axis=0),
+            joint_angles=np.concatenate([self.joint_angles, other.joint_angles], axis=0),
+        )
         if self.source_path != other.source_path:
             self.source_path = None
         return self
@@ -680,7 +748,8 @@ class Bvh:
         ``value.frame_count == 1``.
 
         Frames are written into the motion arrays in place (no full-array
-        copies); motion-derived caches are invalidated explicitly.
+        copies), and the values derived from the motion are recomputed on
+        their next read.
         """
         # --- key → canonical slice ---
         if isinstance(key, (int, np.integer)):
@@ -725,44 +794,265 @@ class Bvh:
                 "array assignment for more complex splicing."
             )
 
-        # --- in-place splice + explicit cache invalidation ---
+        # --- in-place splice, bypassing the setters ---
         self._root_pos[s] = value.root_pos
         self._joint_angles[s] = value.joint_angles
-        self._invalidate_motion_caches()
+        self._derived.user_replaced_motion()
 
-    def copy(self) -> Bvh:
-        """Return an independent deep copy.
+    def copy(self, nodes: Sequence[BvhNode] | Sequence[Mapping[str, Any]] | None = None) -> Bvh:
+        """Return an independent copy, on this skeleton or on an edited one.
 
-        Everything is copied: the node hierarchy, ``root_pos`` and
-        ``joint_angles``, ``frame_time``, ``source_path``, a manual
-        ``world_up`` and the L/R mapping. Editing either clip afterwards,
-        its arrays or its nodes, never affects the other.
+        The node hierarchy, ``root_pos`` and ``joint_angles``,
+        ``frame_time``, ``source_path``, a manual ``world_up``, the warn
+        preference and a user-set L/R mapping are copied. Editing either
+        clip afterwards, its arrays or its nodes, never affects the other.
+        A guessed world up is inherited (see :attr:`world_up`). Values the
+        clip computes from these (forward-kinematics positions, the floor
+        height) are not copied: the copy computes them again on first
+        read.
+
+        Parameters
+        ----------
+        nodes : list of dict or sequence of BvhNode, optional
+            A skeleton for the copy, the way to change a clip's frozen
+            skeleton: ``table = bvh.to_node_table()``, edit the rows, then
+            ``bvh.copy(nodes=table)``. A node table or a node list, as
+            :meth:`from_df` takes. A table is data: the copy builds nodes
+            of its own from it. A node list is taken over as the
+            constructor takes one: the copy owns those nodes and freezes
+            them (nodes another clip owns are shared, being frozen), and
+            a copy that raises leaves them editable. The motion
+            binds the joints by position: joint *i* of ``nodes`` takes
+            column *i* of ``joint_angles``, so names and offsets may
+            change, the joint count may not, and neither may a joint's
+            Euler order, since the angles are only meaningful in the order
+            they were recorded in (:meth:`change_euler_order` converts
+            them). A user-set L/R mapping follows its joints by position,
+            under their new names, so each mapped joint's new name must be
+            one no other joint carries (the mapping goes by name); one
+            detected from the names is detected again from the new names.
+            World up is inherited, set or guessed: new offsets do not
+            change which way is up. To guess it again from the new
+            skeleton, ``edited.world_up = edited.world_up_inferred``.
 
         Returns
         -------
         Bvh
-        """
-        return copy.deepcopy(self)
 
-    def _copy_skeleton(self) -> Bvh:
-        """Deep-copy the hierarchy and metadata into a zero-frame Bvh.
+        Raises
+        ------
+        ValueError
+            If ``nodes`` is not one tree in depth-first order (see
+            :func:`~pybvh.nodes_from_table`), has another number of joints
+            than ``joint_angles`` has columns, changes a joint's Euler
+            order, or gives the root position channels other than XYZ; or
+            if it gives a joint of a user-set L/R mapping a name another
+            joint carries too (on a clip without motion, which binds no
+            joint, if it lacks a name the mapping uses).
+        TypeError
+            If ``nodes`` is neither a node table nor a node list.
 
-        Copies ``nodes`` (deeply), ``frame_time``, ``source_path``, the
-        ``world_up`` override, and the L/R mapping — but not the motion
-        arrays. Frame-producing operations (slicing, concatenation,
-        resampling) use this instead of :meth:`copy` so full motion arrays
-        aren't deep-copied only to be overwritten immediately.
+        Examples
+        --------
+        >>> table = bvh.to_node_table()
+        >>> table[1]["offset"] = [0.0, 12.0, 0.0]
+        >>> edited = bvh.copy(nodes=table)
         """
-        new_bvh = Bvh(
-            nodes=copy.deepcopy(self.nodes),
-            frame_time=self.frame_time,
-            source_path=self.source_path,
-            warn_on_disagreement=self._warn_on_world_up_disagreement,
+        if nodes is None:
+            return self._derive_clip(
+                root_pos=self._root_pos.copy(), joint_angles=self._joint_angles.copy()
+            )
+        new_nodes = _nodes_from_table_or_list(nodes, "nodes")
+        # Every check runs before the copy is built, as in the constructor:
+        # building it freezes the nodes, and a copy that raises must leave
+        # a node list it was given editable, as a Bvh(...) that raises does.
+        joints = [node for node in self.nodes if _is_joint(node)]
+        new_joints = [node for node in new_nodes if _is_joint(node)]
+        # A clip built without motion holds (0, 0, 3) angles, which bind no
+        # joint: it takes any skeleton.
+        has_motion = self._joint_angles.shape[:2] != (0, 0)
+        if has_motion:
+            self._check_motion_fits_skeleton(new_nodes)
+            for joint, new_joint in zip(joints, new_joints, strict=True):
+                old_order = "".join(joint.rot_channels)
+                new_order = "".join(new_joint.rot_channels)
+                if new_order != old_order:
+                    raise ValueError(
+                        f"nodes changes the Euler order of joint {joint.name!r} "
+                        f"from {old_order!r} to {new_order!r}, but the clip's "
+                        f"angles are in {old_order!r}. To change an order, "
+                        f"convert the angles with it: "
+                        f"bvh.change_euler_order({new_order!r}, joint={joint.name!r})."
+                    )
+        setting = self._lr_mapping_setting
+        if isinstance(setting, dict):
+            new_names = [joint.name for joint in new_joints]
+            if len(new_joints) == len(joints):
+                index = self.joint_index
+                # The mapping goes by name, so it cannot hold a mapped joint
+                # whose new name another joint carries too: refuse before
+                # the renamed mapping overwrites a pair or names that joint.
+                # A name the clip already repeated, on the same joints, is
+                # the clip's own ambiguity, which copy() keeps too.
+                old_names = self.joint_names
+                for name in [name for pair in setting.items() for name in pair]:
+                    new_name = new_names[index[name]]
+                    carriers = [i for i, other in enumerate(new_names) if other == new_name]
+                    before = [i for i, other in enumerate(old_names) if other == name]
+                    if len(carriers) > 1 and carriers != before:
+                        raise ValueError(
+                            f"nodes gives the mapped joint {name!r} the name "
+                            f"{new_name!r}, which {len(carriers)} joints carry, but "
+                            f"the L/R mapping identifies joints by name. Keep "
+                            f"each mapped joint's name unique, or set "
+                            f"lr_mapping again on the copy."
+                        )
+                setting = {
+                    new_names[index[left]]: new_names[index[right]]
+                    for left, right in setting.items()
+                }
+            # Unbound (a clip without motion took another joint count), the
+            # names are all there is to go by.
+            setting = _validated_lr_mapping(setting, new_names)
+        edited = self._derive_clip(
+            root_pos=self._root_pos.copy(),
+            joint_angles=self._joint_angles.copy(),
+            nodes=new_nodes,
         )
-        new_bvh._world_up_override = self._world_up_override
-        new_bvh._lr_mapping = copy.deepcopy(self._lr_mapping)
-        new_bvh._lr_mapping_source = self._lr_mapping_source
+        if isinstance(setting, dict):
+            edited._lr_mapping_setting = setting
+        return edited
+
+    def _derive_clip(
+        self,
+        root_pos: npt.NDArray[np.float64],
+        joint_angles: npt.NDArray[np.float64],
+        nodes: list[BvhNode] | tuple[BvhNode, ...] | None = None,
+    ) -> Bvh:
+        """Build a clip from new primary state and this clip's settings.
+
+        The one way pybvh derives a clip (ADR 0003): the result carries what
+        :meth:`__getstate__` lists, with the given motion and skeleton
+        (default: a deep copy of this one's), and none of this clip's
+        derived state. The arrays are taken as they are, not copied; the
+        caller hands over arrays no other clip holds.
+        """
+        state = self.__getstate__()
+        state["nodes"] = copy.deepcopy(self.nodes) if nodes is None else nodes
+        state["root_pos"] = root_pos
+        state["joint_angles"] = joint_angles
+        setting = state["lr_mapping_setting"]
+        if isinstance(setting, dict):
+            state["lr_mapping_setting"] = dict(setting)
+        new_bvh = type(self).__new__(type(self))
+        new_bvh.__setstate__(state)
         return new_bvh
+
+    def __getstate__(self) -> dict[str, Any]:
+        """What a pickle and every derived clip carry (ADR 0003).
+
+        The primary state (skeleton, motion, frame time, source path), the
+        user's settings (world-up override, warn preference, L/R choice)
+        and the world up this clip guessed, which the rebuilt clip
+        inherits; never a derived value, which the rebuilt clip computes
+        again on first read.
+        """
+        self._settle_world_up()
+        derived = self._derived
+        return {
+            "nodes": self.nodes,
+            "root_pos": self._root_pos,
+            "joint_angles": self._joint_angles,
+            "frame_time": self.frame_time,
+            "source_path": self.source_path,
+            "world_up_override": self._world_up_override,
+            "world_up_guess": derived.inherited_world_up or derived.inferred_world_up,
+            "warn_on_disagreement": self._warn_on_world_up_disagreement,
+            "lr_mapping_setting": self._lr_mapping_setting,
+        }
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        # Built with no frames, so the constructor guesses no world up;
+        # the motion is assigned after, then the settings and the guess.
+        Bvh.__init__(
+            self,
+            nodes=state["nodes"],
+            frame_time=state["frame_time"],
+            source_path=state["source_path"],
+            warn_on_disagreement=state["warn_on_disagreement"],
+        )
+        self._set_motion(root_pos=state["root_pos"], joint_angles=state["joint_angles"])
+        # A clip built without motion holds (0, 0, 3) angles whatever its
+        # skeleton; there is no motion to fit, as in the constructor.
+        if self._joint_angles.shape[:2] != (0, 0):
+            self._check_motion_fits_skeleton()
+        self._world_up_override = state["world_up_override"]
+        self._lr_mapping_setting = state["lr_mapping_setting"]
+        self._derived.inherited_world_up = state["world_up_guess"]
+
+    def _settle_world_up(self) -> None:
+        """Guess world up now, unless it is set or already guessed.
+
+        A clip with motion guesses at load, and before a clip is derived
+        from it, so that the guess is made once, on the source, and
+        inherited from there (ADR 0003). A clip with no frames or a lone
+        root is left to guess on first read: it has no frame to guess
+        from, and a lone root warns that it falls back to ``'+y'``.
+        """
+        if self.frame_count > 0 and len(self.nodes) > 1:
+            _ = self.world_up
+
+    def _rotate_world_up_guess(self, rotation: npt.NDArray[np.float64]) -> None:
+        """Turn the guessed world up, inferred or inherited, by an
+        axis-aligned ``rotation`` of the whole scene.
+
+        ``reorient_world_up`` rotates every frame and offset by
+        ``rotation``, so the axis guessed before is, exactly, the axis
+        those frames would be guessed to have now; turning it keeps the
+        guess made once (ADR 0003, decision 3). A clip that has guessed
+        nothing is left to guess from its new frames.
+        """
+        derived = self._derived
+        for name in ("inferred_world_up", "inherited_world_up"):
+            guess = getattr(derived, name)
+            if guess is not None:
+                turned = _get_main_direction(rotation @ _axis_to_vector(guess))
+                assert turned is not None  # a rotation keeps a unit vector unit
+                setattr(derived, name, turned)
+
+    def _freeze_skeleton(self) -> None:
+        """Freeze every node the clip owns, so its skeleton cannot change
+        under ``joint_angles`` and the derived values."""
+        for node in self.nodes:
+            node._freeze()
+
+    def _replace_skeleton(self, nodes: Sequence[BvhNode]) -> None:
+        """Swap in a new skeleton: the one way a clip's skeleton changes
+        after construction.
+
+        Every skeleton edit pybvh makes (``scale``, ``mirror``,
+        ``retarget``, the rest and world-up reorientations,
+        ``change_euler_order``) builds a fresh node list with
+        ``nodes_from_table`` and hands it here; none writes into a node
+        the clip owns, so an edit cannot depend on the order of its
+        statements, and a node object taken before the edit keeps its old
+        values. The new nodes keep the joint layout of ``joint_angles``.
+        """
+        _check_node_tree(nodes)
+        self._nodes = tuple(nodes)
+        self._freeze_skeleton()
+        self._derived.skeleton_changed()
+
+    def _replace_offsets(self, offsets: npt.ArrayLike) -> None:
+        """Replace every node's offset, given in ``nodes`` order as ``(N, 3)``."""
+        table = nodes_to_table(self.nodes)
+        for row, offset in zip(table, np.asarray(offsets, dtype=np.float64), strict=True):
+            row["offset"] = offset
+        self._replace_skeleton(nodes_from_table(table))
+
+    def _offsets(self) -> npt.NDArray[np.float64]:
+        """Every node's offset, in ``nodes`` order, as a new ``(N, 3)`` array."""
+        return np.array([node.offset for node in self.nodes], dtype=np.float64).reshape(-1, 3)
 
     # ------------------------------------------------------------------
     # Orientation: world_up and forward_at
@@ -773,11 +1063,38 @@ class Bvh:
         """Gravity axis of the BVH coordinate system.
 
         Returned as a signed axis string (``'+y'``, ``'-z'``, etc.).
-        Constant per file. Auto-detected from the first animation frame's
+        Constant per file. Guessed from the first animation frame's
         head-above-hips direction, with rest-pose topology as fallback.
         Issues a ``UserWarning`` if the first frame and rest pose disagree,
         unless the clip (or the clip it derives from) was loaded with
         ``warn_on_world_up_disagreement=False``.
+
+        A clip's world up is in one of three states:
+
+        - **Set**: an axis you assigned, or passed as ``world_up=`` at
+          load, or the target of :meth:`reorient_world_up`. It is kept
+          until you assign another, and every clip derived from this one
+          keeps it set. :meth:`reorient_world_up` also turns the guessed
+          axis with the frames, so clearing its axis gives the one the
+          rotated frames show.
+        - **Inferred**: guessed from this clip's own first frame, for a
+          clip read from a file or built from arrays. It is guessed again
+          when you assign :attr:`root_pos`, :attr:`joint_angles` or frames
+          (``bvh[i] = other``), the one change that replaces the
+          recording, and never by an edit pybvh makes.
+        - **Inherited**: a clip pybvh derives from this one reports the
+          axis guessed here, without guessing from its own frames:
+          ``copy()``, slicing, ``a + b`` and ``a += b`` (from ``a``),
+          :meth:`resample`, the transforms, :meth:`retarget`,
+          :meth:`extract_joints` and a pickle. Cutting, resampling or
+          transforming a clip does not change which way is up, though a
+          slice whose first frame is a crouch or a fall would be guessed
+          differently on its own. Assigning motion to the derived clip
+          guesses again, as for an inferred axis.
+
+        :attr:`world_up_inferred` always guesses from this clip's own
+        motion: where it differs from ``world_up`` and you set no axis,
+        the axis was inherited.
 
         The detection specifics, since they decide which answer you get:
         "head" is the first **exact** lowercase name match among
@@ -797,29 +1114,30 @@ class Bvh:
 
             >>> bvh.world_up = '+y'
 
-        The override is preserved through ``copy()``, frame slicing
-        (``bvh[a:b]``), and transforms that don't change the world
-        coordinate system (``mirror``, ``rotate_vertical``, ``scale``,
-        ``translate_root``). ``retarget()`` re-infers from the new skeleton.
-
         Assign ``'auto'`` or ``None`` to clear a previous override and
-        return to auto-detection.
+        return to the guessed axis, inferred or inherited.
 
         Note: BVH files do not store a world-up field, so manual overrides
         are lost on write→read round trips and must be re-applied.
         """
         if self._world_up_override is not None:
             return self._world_up_override
-        if self._world_up_cached is None:
-            self._world_up_cached = _infer_world_up(self, warn=self._warn_on_world_up_disagreement)
-        return self._world_up_cached
+        derived = self._derived
+        if derived.inherited_world_up is not None:
+            return derived.inherited_world_up
+        if derived.inferred_world_up is None:
+            derived.inferred_world_up = _infer_world_up(
+                self, warn=self._warn_on_world_up_disagreement
+            )
+        return derived.inferred_world_up
 
     @world_up.setter
     def world_up(self, value: str | None) -> None:
         if value is None or value == "auto":
             self._world_up_override = None
-            return
-        self._world_up_override = _validate_axis_string(value)
+        else:
+            self._world_up_override = _validate_axis_string(value)
+        self._derived.world_up_changed()
 
     @property
     def world_up_inferred(self) -> str:
@@ -828,12 +1146,15 @@ class Bvh:
         Useful for auditing whether a manual ``bvh.world_up = '+x'``
         override was necessary, or for diagnosing skeletons whose
         animation and rest-pose conventions disagree. Always runs the
-        inference fresh; doesn't consult or write the cache. Warns on a
-        disagreement as :attr:`world_up` does, and is silenced the same
-        way (``warn_on_world_up_disagreement=False`` at load).
+        inference fresh on this clip's own motion, and neither reads nor
+        changes the axis :attr:`world_up` reports, so on a clip that
+        inherited its world up it shows what a guess of its own would
+        have been. Warns on a disagreement as :attr:`world_up` does, and
+        is silenced the same way (``warn_on_world_up_disagreement=False``
+        at load).
 
-        Compare against :attr:`world_up` to see whether an override is
-        in effect:
+        Compare against :attr:`world_up` to see whether an override, or
+        an inherited axis, is in effect:
 
             >>> bvh.world_up_inferred  # '+y'  (auto's guess)
             >>> bvh.world_up           # '+z'  (user override)
@@ -931,15 +1252,18 @@ class Bvh:
         end sites. Passing this value in as ``foot_contacts(floor=...)`` will
         make every foot read as airborne.
 
-        Lazily computed and cached; the cache is invalidated whenever
-        ``root_pos`` or ``joint_angles`` is reassigned. Nothing else fills or
-        reads that cache.
+        Computed on first read and kept until the skeleton, the motion or
+        :attr:`world_up` changes; assigning :attr:`world_up` measures it
+        again along the new axis. The contact detectors never compute or
+        read it.
         """
-        if self._floor_height_cached is None:
+        floor = self._derived.floor_height
+        if floor is None:
             from . import analysis
 
-            self._floor_height_cached = analysis._compute_floor_height(self)
-        return self._floor_height_cached
+            floor = analysis._compute_floor_height(self)
+            self._derived.floor_height = floor
+        return floor
 
     @property
     def rest_up(self) -> str | None:
@@ -985,7 +1309,7 @@ class Bvh:
         str
             Signed axis string (e.g. ``'+z'``, ``'-x'``).
         """
-        return _compute_forward_at(self, self.rest_pose_positions(), self.world_up)
+        return _compute_forward_at(self, self._rest_pose(), self.world_up)
 
     @property
     def lr_mapping(self) -> dict[str, str] | None:
@@ -1000,7 +1324,7 @@ class Bvh:
         ``mapping['RightArm'] == 'LeftArm'``. Useful for mirroring-based
         data augmentation, where a lookup can come from either side.
 
-        Detection at construction time runs the extended name heuristic
+        Detection, run on first use, applies the extended name heuristic
         (`Left`/`Right` substring, `L`/`R` prefix, `.L`/`.R` suffix,
         `_l`/`_r` suffix, Mixamo `mixamorig:` namespace, numbered `.001`
         duplicates). Skeletons with conventions the heuristic can't parse
@@ -1034,10 +1358,26 @@ class Bvh:
     @lr_mapping.setter
     def lr_mapping(self, value: dict[str, str] | None) -> None:
         if value is None:
-            self._lr_mapping = None
-            self._lr_mapping_source = None
+            self._lr_mapping_setting = None
             return
-        self._validate_and_set_lr_mapping(value, source="user")
+        self._validate_and_set_lr_mapping(value)
+
+    @property
+    def _lr_mapping(self) -> dict[str, str] | None:
+        """The L/R mapping in effect, one direction (left to right), or None.
+
+        The user's mapping when they set one; otherwise the pairs detected
+        from the joint names, ``None`` when the names give none or the user
+        cleared the mapping.
+        """
+        setting = self._lr_mapping_setting
+        if setting != "names":
+            return setting
+        detected = self._derived.names_lr_mapping
+        if detected is None:
+            detected = _detect_lr_mapping_by_names(self)
+            self._derived.names_lr_mapping = detected
+        return detected or None
 
     @property
     def has_lr_geometry(self) -> bool:
@@ -1154,53 +1494,9 @@ class Bvh:
         pairs, _mismatches = _resolve_node_lr_pairs(self, self._lr_mapping)
         return pairs
 
-    def _validate_and_set_lr_mapping(
-        self,
-        mapping: dict[str, str],
-        source: str,
-    ) -> None:
-        """Validate an lr_mapping dict and set the cache.
-
-        Validation: both names must exist in ``joint_names``; no
-        self-pairs; no duplicate names on either side of a pair.
-        """
-        if not isinstance(mapping, dict):
-            raise TypeError(f"lr_mapping must be a dict, got {type(mapping).__name__}")
-        if not mapping:
-            raise ValueError(
-                "lr_mapping must have at least one pair; pass None to clear the mapping."
-            )
-        # Accept symmetric input ({L: R, R: L, ...}) — canonicalize to
-        # one-directional by deduping pairs by frozenset before
-        # validating. Each pair appears exactly once afterward.
-        canonical: dict[str, str] = dict(_iter_unique_lr_pairs(mapping))
-        joint_name_set = set(self.joint_names)
-        lefts_seen: set[str] = set()
-        rights_seen: set[str] = set()
-        for left, right in canonical.items():
-            if not isinstance(left, str) or not isinstance(right, str):
-                raise TypeError(
-                    f"lr_mapping keys and values must be str, "
-                    f"got {type(left).__name__}/{type(right).__name__}"
-                )
-            if left == right:
-                raise ValueError(f"lr_mapping self-pair not allowed: {left!r}")
-            if left not in joint_name_set:
-                raise ValueError(f"lr_mapping left joint {left!r} not in joint_names")
-            if right not in joint_name_set:
-                raise ValueError(f"lr_mapping right joint {right!r} not in joint_names")
-            if left in lefts_seen or left in rights_seen:
-                raise ValueError(f"lr_mapping joint {left!r} appears in multiple pairs")
-            if right in lefts_seen or right in rights_seen:
-                raise ValueError(f"lr_mapping joint {right!r} appears in multiple pairs")
-            lefts_seen.add(left)
-            rights_seen.add(right)
-        # Stored one-directional (left → right). Symmetric view is
-        # produced by the public `lr_mapping` property — this keeps
-        # every internal consumer that iterates `_lr_mapping.items()`
-        # working with one (left, right) tuple per pair.
-        self._lr_mapping = canonical
-        self._lr_mapping_source = source
+    def _validate_and_set_lr_mapping(self, mapping: dict[str, str]) -> None:
+        """Validate the user's lr_mapping dict and make it the mapping in effect."""
+        self._lr_mapping_setting = _validated_lr_mapping(mapping, self.joint_names)
 
     def forward_at(
         self,
@@ -1354,9 +1650,12 @@ class Bvh:
 
         The constructor counterpart of :meth:`to_node_table` and
         :meth:`to_df_dict`: ``hier`` is a node table, or a node list such
-        as :attr:`nodes`, and ``df`` holds euler-mode frames. Delegates
-        to :func:`pybvh.df_to_bvh`; see it for the two forms of ``hier``,
-        the expected column naming and what raises.
+        as :attr:`nodes`, and ``df`` holds euler-mode frames. A table is
+        data, so the clip builds nodes of its own from it; a node list is
+        taken over as the constructor takes one: the clip owns and
+        freezes those nodes, and nodes another clip owns are shared.
+        Delegates to :func:`pybvh.df_to_bvh`; see it for the two forms of
+        ``hier``, the expected column naming and what raises.
         """
         from .dataframe import df_to_bvh
 
@@ -1372,17 +1671,18 @@ class Bvh:
         return [i for i, n in enumerate(self.nodes) if not n.is_end_site()]
 
     def _world_node_positions(self) -> npt.NDArray[np.float64]:
-        """World-frame FK positions for all frames — lazily computed, cached.
+        """World-frame FK positions for all frames, computed once per input.
 
-        The cache is invalidated by :meth:`_invalidate_motion_caches`
-        whenever motion data changes. Callers must not mutate the returned
-        array; :meth:`node_positions` derives fresh arrays from it.
+        The array is the clip's derived state and is read-only;
+        :meth:`node_positions` derives fresh arrays from it.
         """
-        if self._node_positions_cached is None:
-            self._node_positions_cached = frames_to_node_positions(
+        positions = self._derived.node_positions
+        if positions is None:
+            positions = frames_to_node_positions(
                 self, root_pos=self.root_pos, joint_angles=self.joint_angles, centered="world"
             )
-        return self._node_positions_cached
+            self._derived.node_positions = positions
+        return positions
 
     def node_positions(
         self, frame: int | None = None, centered: str = "world"
@@ -1439,8 +1739,8 @@ class Bvh:
                 f"{self.frame_count} frames. Use frame=None for all frames."
             )
         actual = frame if frame >= 0 else frame + self.frame_count
-        if self._node_positions_cached is not None:
-            world_frame = self._node_positions_cached[actual]
+        if self._derived.node_positions is not None:
+            world_frame = self._derived.node_positions[actual]
             if centered == "world":
                 return world_frame.copy()
             if centered == "skeleton":
@@ -1489,13 +1789,23 @@ class Bvh:
 
         Derived from the skeleton offsets alone, so it works on Bvh objects
         with no motion data. Use :attr:`node_index` to look up rows by name.
+
+        Computed once per skeleton; each call returns a new array, so
+        writing into it leaves the clip unchanged.
         """
-        return frames_to_node_positions(
-            self,
-            root_pos=np.zeros(3),
-            joint_angles=np.zeros((self.joint_count, 3), dtype=np.float64),
-            centered="skeleton",
-        )
+        return self._rest_pose().copy()
+
+    def _rest_pose(self) -> npt.NDArray[np.float64]:
+        """The rest pose, computed once per skeleton and read-only.
+
+        pybvh's own readers share this array; :meth:`rest_pose_positions`
+        hands the user a copy of it.
+        """
+        rest = self._derived.rest_pose_positions
+        if rest is None:
+            rest = _build_rest_pose(self)
+            self._derived.rest_pose_positions = rest
+        return rest
 
     def rest_pose_angles(self) -> npt.NDArray[np.float64]:
         """Rest-pose joint angles — zeros of shape ``(J, 3)`` (radians).
@@ -1635,14 +1945,6 @@ class Bvh:
         """
         return nodes_to_table(self.nodes)
 
-    def _create_node_index(self) -> None:
-        """Build ``node_index`` mapping node name to its index in ``nodes``."""
-        self._node_index = {node.name: i for i, node in enumerate(self.nodes)}
-
-    def _create_joint_index(self) -> None:
-        """Build ``joint_index`` mapping joint name to its index in ``joint_angles`` axis 1."""
-        self._joint_index = {name: i for i, name in enumerate(self.joint_names)}
-
     @property
     def node_index(self) -> dict[str, int]:
         """Mapping from node name to its integer index in ``nodes``.
@@ -1668,7 +1970,11 @@ class Bvh:
         dict
             ``{node_name: int}`` for every node (joints and end sites).
         """
-        return self._node_index
+        index = self._derived.node_index
+        if index is None:
+            index = {node.name: i for i, node in enumerate(self.nodes)}
+            self._derived.node_index = index
+        return index
 
     @property
     def joint_index(self) -> dict[str, int]:
@@ -1693,7 +1999,11 @@ class Bvh:
             ``{joint_name: int}`` for every non-end-site joint.
             Values cover ``range(joint_count)``.
         """
-        return self._joint_index
+        index = self._derived.joint_index
+        if index is None:
+            index = {name: i for i, name in enumerate(self.joint_names)}
+            self._derived.joint_index = index
+        return index
 
     def index(self, name: str, space: Literal["joint", "node"]) -> int:
         """Look up the integer index for ``name`` in the requested index space.
@@ -1727,9 +2037,9 @@ class Bvh:
             If ``space`` is not ``'joint'`` or ``'node'``.
         """
         if space == "joint":
-            return self._joint_index[name]
+            return self.joint_index[name]
         if space == "node":
-            return self._node_index[name]
+            return self.node_index[name]
         raise ValueError(f"space must be 'joint' or 'node', got {space!r}")
 
     @property
@@ -1924,10 +2234,15 @@ class Bvh:
         inplace : bool, optional
             If True, modify self and return None.
             If False (default), return a modified copy.
+            With True, the skeleton is replaced, not edited: a node taken from
+            ``nodes`` before the call keeps its old values.
 
         Returns
         -------
         None or Bvh
+            The result keeps this clip's world up, set or guessed: a new
+            skeleton does not change which way is up, so it is not guessed
+            again from the new offsets (see :attr:`world_up`).
         """
         try:
             new_skel_nodes = new_skeleton.nodes
@@ -1937,13 +2252,8 @@ class Bvh:
         # Build name → index lookup for the reference skeleton
         newnodes2idx = {n.name: i for i, n in enumerate(new_skel_nodes)}
 
-        if inplace:
-            nodes = self.nodes
-        else:
-            new_bvh = self.copy()
-            nodes = new_bvh.nodes
-
-        for node in nodes:
+        offsets = self._offsets()
+        for i, node in enumerate(self.nodes):
             # Determine the target name in new_skeleton
             if name_mapping and node.name in name_mapping:
                 target_name = name_mapping[node.name]
@@ -1951,7 +2261,7 @@ class Bvh:
                 target_name = node.name
 
             if target_name in newnodes2idx:
-                node.offset = new_skel_nodes[newnodes2idx[target_name]].offset
+                offsets[i] = new_skel_nodes[newnodes2idx[target_name]].offset
             elif strict:
                 raise ValueError(
                     f"Node '{node.name}' (mapped to '{target_name}') not found "
@@ -1959,13 +2269,11 @@ class Bvh:
                 )
             # else: keep original offset (lenient mode)
 
-        # Offsets changed without going through the motion setters, so
-        # FK-derived caches (positions, floor height, world_up) are stale.
+        target = self if inplace else self.copy()
+        target._replace_offsets(offsets)
         if inplace:
-            self._invalidate_motion_caches()
             return None
-        new_bvh._invalidate_motion_caches()
-        return new_bvh
+        return target
 
     @overload
     def scale(self, scale: float, *, inplace: Literal[True]) -> None: ...
@@ -1983,6 +2291,8 @@ class Bvh:
         inplace : bool, optional
             If True, modify self and return None.
             If False (default), return a modified copy.
+            With True, the skeleton is replaced, not edited: a node taken from
+            ``nodes`` before the call keeps its old values.
 
         Returns
         -------
@@ -1998,9 +2308,8 @@ class Bvh:
 
         factor = float(scale)
         target = self if inplace else self.copy()
-        for node in target.nodes:
-            node.offset = node.offset * factor
-        target.root_pos = target.root_pos * factor
+        target._replace_offsets(target._offsets() * factor)
+        target._set_motion(root_pos=target.root_pos * factor)
         if inplace:
             return None
         return target
@@ -2043,6 +2352,8 @@ class Bvh:
         inplace : bool
             If True, modify self and return None.
             If False, return a modified copy while leaving self unchanged.
+            With True, the skeleton is replaced, not edited: a node taken from
+            ``nodes`` before the call keeps its old values.
 
         Returns
         -------
@@ -2068,23 +2379,25 @@ class Bvh:
             joint_indices = [self.joint_index[joint_name]]
 
         target = self if inplace else self.copy()
-        joints = [n for n in target.nodes if not n.is_end_site()]
+        # The new skeleton is built, and the order checked, before any
+        # angle is converted.
+        table = nodes_to_table(target.nodes)
+        joint_rows = [row for row in table if "rot_channels" in row]
+        old_orders = [row["rot_channels"] for row in joint_rows]
+        for j_idx in joint_indices:
+            joint_rows[j_idx]["rot_channels"] = new_order
+        new_nodes = nodes_from_table(table)
 
         for j_idx in joint_indices:
-            node = joints[j_idx]
-            old_order = node.rot_channels  # type: ignore[attr-defined]
+            old_order = old_orders[j_idx]
             if old_order == new_order:
                 continue
             # Convert: old Euler → rotmat → new Euler, then write back
             # (private array — the public view is read-only).
             R = rotations.euler_to_rotmat(target.joint_angles[:, j_idx], old_order)
             target._joint_angles[:, j_idx] = rotations.rotmat_to_euler(R, new_order)
-            # Update rot_channels (bypasses the freeze check)
-            node._set_rot_channels_internal(new_order)  # type: ignore[attr-defined]
+        target._replace_skeleton(new_nodes)
 
-        # Cache invalidation is intentionally skipped: the physical
-        # rotations — and therefore all FK-derived caches — are unchanged
-        # by an Euler-order re-expression.
         if inplace:
             return None
         return target
@@ -2406,10 +2719,10 @@ class Bvh:
         Bvh
             New Bvh object with the sliced frames and same skeleton.
         """
-        new_bvh = self._copy_skeleton()
         s = slice(start, end, step)
-        new_bvh.root_pos = self.root_pos[s].copy()
-        new_bvh.joint_angles = self.joint_angles[s].copy()
+        new_bvh = self._derive_clip(
+            root_pos=self._root_pos[s].copy(), joint_angles=self._joint_angles[s].copy()
+        )
         # Adjust frame frequency if step changes the sampling rate
         if step is not None and abs(step) != 1:
             new_bvh.frame_time = self.frame_time * abs(step)
@@ -2463,9 +2776,10 @@ class Bvh:
                 stacklevel=user_stacklevel(),
             )
 
-        new_bvh = self._copy_skeleton()
-        new_bvh.root_pos = np.concatenate([self.root_pos, other.root_pos], axis=0)
-        new_bvh.joint_angles = np.concatenate([self.joint_angles, other.joint_angles], axis=0)
+        new_bvh = self._derive_clip(
+            root_pos=np.concatenate([self.root_pos, other.root_pos], axis=0),
+            joint_angles=np.concatenate([self.joint_angles, other.joint_angles], axis=0),
+        )
         if self.source_path != other.source_path:
             new_bvh.source_path = None
         return new_bvh
@@ -2560,9 +2874,7 @@ class Bvh:
             rotations.quat_to_rotmat(new_quats), self.euler_orders
         )
 
-        new_bvh = self._copy_skeleton()
-        new_bvh.root_pos = new_root_pos
-        new_bvh.joint_angles = new_angles
+        new_bvh = self._derive_clip(root_pos=new_root_pos, joint_angles=new_angles)
         new_bvh.frame_time = new_freq
         return new_bvh
 
@@ -2587,7 +2899,8 @@ class Bvh:
 
         ``source_path``, a manual ``world_up`` override, and a user-set
         ``lr_mapping`` (filtered to pairs whose joints are both kept) are
-        preserved on the result.
+        preserved on the result. A guessed world up is inherited, not
+        guessed again from the kept joints (see :attr:`world_up`).
 
         Parameters
         ----------
@@ -2686,29 +2999,23 @@ class Bvh:
 
         new_nodes = nodes_from_table(rows)
 
-        # --- Build new joint_angles by selecting kept columns ---
-        new_joint_angles = self.joint_angles[:, kept_old_j_indices, :]
-
-        new_bvh = Bvh(
+        # Selecting the kept columns makes a new array.
+        new_bvh = self._derive_clip(
+            root_pos=self._root_pos.copy(),
+            joint_angles=self._joint_angles[:, kept_old_j_indices, :],
             nodes=new_nodes,
-            root_pos=self.root_pos.copy(),
-            joint_angles=new_joint_angles.copy(),
-            frame_time=self.frame_time,
-            source_path=self.source_path,
-            warn_on_disagreement=self._warn_on_world_up_disagreement,
         )
-        new_bvh._world_up_override = self._world_up_override
-        # A user-set L/R mapping survives, filtered to pairs whose joints
-        # are both kept. Name-detected mappings are re-derived by the
-        # constructor from the reduced skeleton.
-        if self._lr_mapping_source == "user" and self._lr_mapping:
+        # A user-set L/R mapping keeps the pairs whose joints are both kept;
+        # with none left, the pairs are detected from the kept names, as
+        # they are when the user set none.
+        user_mapping = self._lr_mapping_setting
+        if isinstance(user_mapping, dict):
             kept_pairs = {
                 left: right
-                for left, right in self._lr_mapping.items()
+                for left, right in user_mapping.items()
                 if left in keep_set and right in keep_set
             }
-            if kept_pairs:
-                new_bvh._validate_and_set_lr_mapping(kept_pairs, source="user")
+            new_bvh._lr_mapping_setting = kept_pairs or "names"
         return new_bvh
 
     def _find_end_site_offset(self, node: BvhNode) -> npt.NDArray[np.float64]:

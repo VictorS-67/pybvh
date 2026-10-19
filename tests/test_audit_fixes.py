@@ -29,7 +29,7 @@ from synthetic_bvh import (
     make_simple_bvh,
 )
 
-from pybvh import Bvh, read_bvh_file, rotations, transforms
+from pybvh import Bvh, nodes_from_table, nodes_to_table, read_bvh_file, rotations, transforms
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
 EXAMPLE = str(BVH_DIR / "bvh_test1.bvh")
@@ -178,16 +178,19 @@ class TestUpAxisSign:
     def test_rotate_vertical_neg_y_up(self):
         """rotate_vertical(90) with -y up = rotate_vertical(-90) with +y up."""
         bvh_pos = make_pos_y_up_rotating_bvh()
-        bvh_neg = bvh_pos.copy()
         # Negate Y offsets and root_pos to make a -y up version
-        for node in bvh_neg.nodes:
-            off = node.offset.copy()
-            off[1] *= -1
-            node._offset = off
-        rp = bvh_neg.root_pos.copy()
+        table = nodes_to_table(bvh_pos.nodes)
+        for row in table:
+            row["offset"][1] *= -1
+        rp = bvh_pos.root_pos.copy()
         rp[:, 1] *= -1
-        bvh_neg.root_pos = rp
-        bvh_neg.world_up = "-y"
+        bvh_neg = Bvh(
+            nodes=nodes_from_table(table),
+            root_pos=rp,
+            joint_angles=bvh_pos.joint_angles,
+            frame_time=bvh_pos.frame_time,
+            world_up="-y",
+        )
 
         rot_neg = transforms.rotate_vertical(bvh_neg, np.pi / 2)
         rot_pos_ref = transforms.rotate_vertical(bvh_pos, -np.pi / 2)
@@ -306,21 +309,25 @@ class TestFrequencyTerminology:
 
 
 class TestWorldUpCacheInvalidation:
-    def test_cache_cleared_after_root_pos_assignment(self):
+    def test_inferred_again_after_root_pos_assignment(self, computations):
         bvh = make_pos_y_up_bvh()
-        bvh._world_up_override = None  # rely on cache
-        _ = bvh.world_up  # populate cache
-        assert bvh._world_up_cached is not None
-        bvh.root_pos = bvh.root_pos.copy()  # assign same data
-        assert bvh._world_up_cached is None  # cache should be cleared
-
-    def test_cache_cleared_after_joint_angles_assignment(self):
-        bvh = make_pos_y_up_bvh()
-        bvh._world_up_override = None
+        bvh.world_up = "auto"  # guess rather than use the helper's override
         _ = bvh.world_up
-        assert bvh._world_up_cached is not None
+        inferred = computations.world_up
+        bvh.root_pos = bvh.root_pos.copy()  # assign same data
+        _ = bvh.world_up
+        _ = bvh.world_up
+        assert computations.world_up == inferred + 1
+
+    def test_inferred_again_after_joint_angles_assignment(self, computations):
+        bvh = make_pos_y_up_bvh()
+        bvh.world_up = "auto"  # guess rather than use the helper's override
+        _ = bvh.world_up
+        inferred = computations.world_up
         bvh.joint_angles = bvh.joint_angles.copy()
-        assert bvh._world_up_cached is None
+        _ = bvh.world_up
+        _ = bvh.world_up
+        assert computations.world_up == inferred + 1
 
 
 # ========================================================================

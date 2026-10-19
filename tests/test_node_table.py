@@ -201,8 +201,8 @@ class TestRoundTrip:
         assert type(nodes[0]) is BvhRoot
         assert type(nodes[1]) is BvhJoint
         assert type(nodes[2]) is BvhEndSite
-        assert nodes[0].pos_channels == ["X", "Y", "Z"]
-        assert nodes[1].rot_channels == ["Z", "Y", "X"]
+        assert nodes[0].pos_channels == ("X", "Y", "Z")
+        assert nodes[1].rot_channels == ("Z", "Y", "X")
 
     def test_table_is_not_shared_with_the_result(self):
         table = _two_end_sites_table()
@@ -210,7 +210,7 @@ class TestRoundTrip:
         table[1]["offset"][1] = 99.0
         table[1]["rot_channels"][0] = "Q"
         assert nodes[1].offset[1] == 1.0
-        assert nodes[1].rot_channels == ["Z", "Y", "X"]
+        assert nodes[1].rot_channels == ("Z", "Y", "X")
 
 
 # =============================================================================
@@ -368,7 +368,7 @@ class TestNodesFromTableLeniency:
         table = _two_end_sites_table()
         del table[0]["pos_channels"]
         nodes = nodes_from_table(table)
-        assert nodes[0].pos_channels == ["X", "Y", "Z"]
+        assert nodes[0].pos_channels == ("X", "Y", "Z")
 
     def test_end_site_name_defaults_to_the_parser_rule(self):
         table = _two_end_sites_table()
@@ -384,8 +384,8 @@ class TestNodesFromTableLeniency:
         table[0]["pos_channels"] = "XYZ"
         table[1]["rot_channels"] = "XYZ"
         nodes = nodes_from_table(table)
-        assert nodes[0].rot_channels == ["Z", "Y", "X"]
-        assert nodes[1].rot_channels == ["X", "Y", "Z"]
+        assert nodes[0].rot_channels == ("Z", "Y", "X")
+        assert nodes[1].rot_channels == ("X", "Y", "Z")
 
     def test_offsets_may_be_lists(self):
         table = _two_end_sites_table()

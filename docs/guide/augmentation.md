@@ -129,7 +129,7 @@ new_angles, new_pos = rotate_angles_vertical(
 
 # Mirror with index pairs
 pairs = transforms.auto_detect_lr_pairs(bvh)
-rot_ch = [list(n.rot_channels) for n in bvh.nodes if not n.is_end_site()]
+rot_ch = [n.rot_channels for n in bvh.nodes if not n.is_end_site()]
 m_angles, m_pos = mirror_angles(
     bvh.joint_angles, bvh.root_pos, pairs, lateral_idx=0, rot_channels=rot_ch)
 ```

@@ -1201,7 +1201,7 @@ class TestEulerOrderConversion:
 
         for n in bvh.nodes:
             if n.name == joint_name and not n.is_end_site():
-                assert n.rot_channels == ["X", "Y", "Z"]
+                assert n.rot_channels == ("X", "Y", "Z")
                 break
 
     def test_single_joint_preserves_rotation(self, bvh_example):
@@ -1263,20 +1263,19 @@ class TestEulerOrderConversion:
         """inplace=False should return a new Bvh, leaving original unchanged."""
         bvh = bvh_example.copy()
         original_joint_angles = bvh.joint_angles.copy()
+        original_order = bvh.nodes[bvh.node_index["Spine"]].rot_channels
+        assert original_order != ("X", "Y", "Z")
         result = bvh.change_euler_order("XYZ", joint="Spine", inplace=False)
 
         # Original should be unchanged
         np.testing.assert_allclose(bvh.joint_angles, original_joint_angles)
-        for n in bvh.nodes:
-            if n.name == "Spine" and not n.is_end_site():
-                assert n.rot_channels != ["X", "Y", "Z"] or n.rot_channels == ["X", "Y", "Z"]
-                break
+        assert bvh.nodes[bvh.node_index["Spine"]].rot_channels == original_order
 
         # Result should have the new order
         assert result is not None
         for n in result.nodes:
             if n.name == "Spine" and not n.is_end_site():
-                assert n.rot_channels == ["X", "Y", "Z"]
+                assert n.rot_channels == ("X", "Y", "Z")
                 break
 
     def test_single_joint_invalid_name_raises(self, bvh_example):
@@ -1291,7 +1290,7 @@ class TestEulerOrderConversion:
 
         for node in bvh.nodes:
             if not node.is_end_site():
-                assert node.rot_channels == ["X", "Y", "Z"], (
+                assert node.rot_channels == ("X", "Y", "Z"), (
                     f"Joint {node.name} still has order {node.rot_channels}"
                 )
 
@@ -1339,7 +1338,7 @@ class TestEulerOrderConversion:
         # Result has new orders
         for node in result.nodes:
             if not node.is_end_site():
-                assert node.rot_channels == ["X", "Y", "Z"]
+                assert node.rot_channels == ("X", "Y", "Z")
 
     def test_double_conversion_roundtrip(self, bvh_example):
         """Converting all to XYZ then back to ZYX should recover original data."""
@@ -1375,7 +1374,7 @@ class TestEulerOrderConversion:
 
         for node in bvh_reloaded.nodes:
             if not node.is_end_site():
-                assert node.rot_channels == ["X", "Y", "Z"], (
+                assert node.rot_channels == ("X", "Y", "Z"), (
                     f"Joint {node.name} has order {node.rot_channels} after reload"
                 )
 

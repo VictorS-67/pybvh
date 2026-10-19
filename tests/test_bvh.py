@@ -6,6 +6,7 @@ Run with: python -m pytest tests/test_bvh.py -v
 """
 
 import copy
+import pickle
 import re
 import sys
 import tempfile
@@ -25,12 +26,16 @@ from pybvh import (
     batch_to_numpy,
     df_to_bvh,
     frames_to_node_positions,
+    nodes_from_table,
+    nodes_to_table,
     parse_axis,
     read_bvh_directory,
     read_bvh_file,
 )
+from pybvh.analysis import foot_contacts
 from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhNode, BvhRoot
 from pybvh.rotations import euler_to_rotmat
+from pybvh.transforms import reorient_rest_forward, reorient_rest_up, reorient_world_up
 
 sys.path.insert(0, str(Path(__file__).parent))  # for synthetic_bvh
 from synthetic_bvh import (
@@ -52,10 +57,51 @@ from synthetic_bvh import (
 # =============================================================================
 
 
+def _with_offsets(bvh, offsets):
+    """*bvh* rebuilt on new offsets, ``(N, 3)`` in ``nodes`` order.
+
+    A clip's nodes are frozen, so a changed skeleton is a new clip, built
+    from the node table.
+    """
+    return _with_column(bvh, "offset", offsets)
+
+
+def _with_names(bvh, names):
+    """*bvh* rebuilt with new node names, in ``nodes`` order."""
+    return _with_column(bvh, "name", names)
+
+
+def _with_column(bvh, key, values):
+    """*bvh* rebuilt with one column of its node table replaced."""
+    table = nodes_to_table(bvh.nodes)
+    for row, value in zip(table, values, strict=True):
+        row[key] = value
+    return Bvh(
+        nodes=nodes_from_table(table),
+        root_pos=bvh.root_pos,
+        joint_angles=bvh.joint_angles,
+        frame_time=bvh.frame_time,
+        world_up=bvh.world_up,
+    )
+
+
+def _offsets(bvh):
+    return np.array([node.offset for node in bvh.nodes])
+
+
 @pytest.fixture
 def bvh_example_path():
     """Path to the example BVH file."""
     return Path(__file__).parent.parent / "bvh_data" / "bvh_test1.bvh"
+
+
+# bvh_test1.bvh's joints that differ only by a Left/Right prefix: the pairs
+# detected from its names, in both directions.
+EXAMPLE_NAME_PAIRS = {
+    f"{side}{part}": f"{other}{part}"
+    for side, other in (("Left", "Right"), ("Right", "Left"))
+    for part in ("Shoulder", "Arm", "ForeArm", "Hand", "UpLeg", "Leg", "Foot", "ToeBase")
+}
 
 
 @pytest.fixture
@@ -82,7 +128,7 @@ def standard_skeleton():
 @pytest.fixture
 def zero_frame_clip():
     """A root, a joint and an end site with no motion, the way `Bvh()` and
-    `_copy_skeleton()` hold a skeleton: every frame array has length 0."""
+    an empty slice (`bvh[0:0]`) hold a skeleton: every frame array has length 0."""
     end = BvhEndSite("EndSiteHand", offset=[0.0, 1.0, 0.0])
     hand = BvhJoint("Hand", offset=[0.0, 1.0, 0.0], rot_channels=["X", "Y", "Z"], children=[end])
     end.parent = hand
@@ -203,8 +249,8 @@ class TestReadBvhFile:
 
     def test_root_channels(self, bvh_example):
         """Verify root has both position and rotation channels."""
-        assert bvh_example.root.pos_channels == ["X", "Y", "Z"]
-        assert bvh_example.root.rot_channels == ["X", "Z", "Y"]
+        assert bvh_example.root.pos_channels == ("X", "Y", "Z")
+        assert bvh_example.root.rot_channels == ("X", "Z", "Y")
 
     def test_node_names(self, bvh_example):
         """Verify expected node names."""
@@ -530,7 +576,16 @@ class TestNodeHierarchy:
         assert bvh_example.root.parent is None
 
     @pytest.mark.parametrize(
-        "bad", [["XY", "Z"], ["XYZ"], ["X", "Y", "Z", ""], ["X", "Y", 1], ["X", "Y", "Y"]]
+        "bad",
+        [
+            ["XY", "Z"],
+            ["XYZ"],
+            ["X", "Y", "Z", ""],
+            ["X", "Y", 1],
+            ["X", "Y", "Y"],
+            ("X", "Y", "Y"),
+            {"X", "Y", "Z"},
+        ],
     )
     def test_channel_list_must_be_three_single_axes(self, bad):
         """`['XY', 'Z']` joins to 'XYZ' but is not an axis order: written,
@@ -543,8 +598,7 @@ class TestNodeHierarchy:
     @pytest.mark.parametrize("good", [["X", "Y", "Z"], "ZYX"])
     def test_channel_list_and_string_forms(self, good):
         joint = BvhJoint("a", rot_channels=good)
-        assert joint.rot_channels == list(good)
-        assert joint.rot_channels is not good
+        assert joint.rot_channels == tuple(good)
 
     @pytest.mark.parametrize(
         "bad", [[None, 0, 0], [np.nan, 0, 0], [0, np.inf, 0], np.array([0, 0, -np.inf])]
@@ -706,20 +760,107 @@ class TestDataFrameConversion:
         np.testing.assert_allclose(bvh2.root_pos, bvh_example.root_pos, atol=1e-10)
         np.testing.assert_allclose(bvh2.joint_angles, bvh_example.joint_angles, atol=1e-10)
 
-    def test_df_to_bvh_list_shares_no_node_with_the_input(self, bvh_example):
-        """The node list is rebuilt through the node table: the result holds
-        fresh nodes and the input list is left as it was."""
-        df = pd.DataFrame(bvh_example.to_df_dict(mode="euler", centered="world"))
-        children_before = [list(n.children) for n in bvh_example.nodes if not n.is_end_site()]
+    FROM_DF = {"df_to_bvh": df_to_bvh, "Bvh.from_df": Bvh.from_df}
 
-        bvh2 = df_to_bvh(bvh_example.nodes, df)
+    @pytest.fixture(params=FROM_DF.values(), ids=FROM_DF.keys())
+    def from_df(self, request):
+        return request.param
+
+    def test_a_node_list_is_taken_over_as_bvh_takes_it(self, bvh_example, from_df):
+        """The clip holds the caller's nodes and freezes them, so an edit
+        to a node the caller holds fails loudly instead of missing the clip."""
+        df = pd.DataFrame(bvh_example.to_df_dict(mode="euler"))
+        nodes = nodes_from_table(bvh_example.to_node_table())
+
+        bvh2 = from_df(nodes, df)
+
+        assert all(mine is given for mine, given in zip(bvh2.nodes, nodes, strict=True))
+        assert bvh2.matches_hierarchy(bvh_example, atol=0)
+        with pytest.raises(AttributeError, match=f"offset of node 'Spine'.*{_THE_WAY}"):
+            nodes[1].offset = nodes[1].offset + 1.0
+
+    def test_a_clips_node_list_is_shared(self, bvh_example, from_df):
+        """Owned nodes are frozen, so two clips can hold them safely."""
+        df = pd.DataFrame(bvh_example.to_df_dict(mode="euler", centered="world"))
+
+        bvh2 = from_df(bvh_example.nodes, df)
+
+        assert all(
+            mine is theirs for mine, theirs in zip(bvh2.nodes, bvh_example.nodes, strict=True)
+        )
+        np.testing.assert_allclose(bvh2.joint_angles, bvh_example.joint_angles, atol=1e-10)
+
+    def test_a_node_table_gives_nodes_of_the_clips_own(self, bvh_example, from_df):
+        df = pd.DataFrame(bvh_example.to_df_dict(mode="euler"))
+        table = bvh_example.to_node_table()
+
+        bvh2 = from_df(table, df)
+        again = from_df(table, df)
 
         originals = {id(node) for node in bvh_example.nodes}
         assert not any(id(node) in originals for node in bvh2.nodes)
+        assert not any(id(node) in {id(n) for n in bvh2.nodes} for node in again.nodes)
         assert bvh2.matches_hierarchy(bvh_example, atol=0)
-        assert [
-            list(n.children) for n in bvh_example.nodes if not n.is_end_site()
-        ] == children_before
+
+    def test_a_node_list_is_checked_as_bvh_checks_it(self, from_df):
+        """A list wired on the parent side alone was rebuilt through the
+        table before; taken over, it must be one tree wired both ways."""
+        bvh = self._make_underscored_bvh()
+        df = pd.DataFrame(bvh.to_df_dict(mode="euler"))
+        end = BvhEndSite("tip", offset=[0.0, 2.0, 0.0])
+        hip = BvhJoint("Left_Hip", offset=[1.0, -3.0, 0.0], rot_channels=["X", "Y", "Z"])
+        root = BvhRoot("Hip", offset=[0.0, 0.0, 0.0], rot_channels=["Z", "Y", "X"])
+        hip.parent, end.parent = root, hip
+        with pytest.raises(ValueError, match="not reached by the depth-first walk"):
+            from_df([root, hip, end], df)
+
+    @staticmethod
+    def _missing_column(bvh):
+        df = pd.DataFrame(bvh.to_df_dict(mode="euler")).drop(columns="Spine_X_rot")
+        return bvh.to_node_table(), df, "missing columns"
+
+    @staticmethod
+    def _no_time_column(bvh):
+        df = pd.DataFrame(bvh.to_df_dict(mode="euler")).drop(columns="time")
+        return bvh.to_node_table(), df, "No 'time' column"
+
+    @staticmethod
+    def _one_row(bvh):
+        df = pd.DataFrame(bvh.to_df_dict(mode="euler")).iloc[:1]
+        return bvh.to_node_table(), df, "at least 2"
+
+    @staticmethod
+    def _nan_frame_time(bvh):
+        df = pd.DataFrame(bvh.to_df_dict(mode="euler"))
+        df.loc[df.index[-1], "time"] = float("nan")
+        return bvh.to_node_table(), df, "frame_time .* got nan"
+
+    @staticmethod
+    def _root_position_order_changed(bvh):
+        """Refused by the constructor, the last check before the freeze."""
+        table = bvh.to_node_table()
+        table[0]["pos_channels"] = "ZYX"
+        df = pd.DataFrame(bvh.to_df_dict(mode="euler"))
+        return table, df, "Non-standard root position channel order"
+
+    REFUSALS = {
+        "missing_column": _missing_column,
+        "no_time_column": _no_time_column,
+        "one_row": _one_row,
+        "nan_frame_time": _nan_frame_time,
+        "root_position_order": _root_position_order_changed,
+    }
+
+    @pytest.mark.parametrize("refusal", REFUSALS.values(), ids=REFUSALS.keys())
+    def test_a_refused_node_list_stays_editable(self, bvh_example, from_df, refusal):
+        """As after a Bvh(...) that raises: the call owns nothing it refused."""
+        table, df, message = refusal(bvh_example)
+        nodes = nodes_from_table(table)
+        with pytest.raises(ValueError, match=message):
+            from_df(nodes, df)
+        for node in nodes:
+            node.offset = node.offset + 1.0
+            node.name = f"{node.name}_edited"
 
     @staticmethod
     def _make_underscored_bvh():
@@ -998,11 +1139,14 @@ class TestEdgeCases:
         assert bvh.frame_count == 0
         assert len(bvh.nodes) == 1  # Default root
 
-    def test_nodes_setter_validates(self):
-        """Setting nodes to invalid value should raise ValueError."""
-        bvh = Bvh()
-        with pytest.raises(ValueError):
-            bvh.nodes = "not a list"
+    def test_constructor_validates_nodes(self):
+        """A node list that is not a list or tuple of BvhNode raises ValueError."""
+        with pytest.raises(ValueError, match="list or tuple of BvhNode"):
+            Bvh(nodes="not a list")
+        with pytest.raises(ValueError, match="at least one node"):
+            Bvh(nodes=[])
+        with pytest.raises(ValueError, match="BvhRoot"):
+            Bvh(nodes=[BvhJoint("Hips")])
 
 
 # =============================================================================
@@ -1367,8 +1511,8 @@ class TestChannelProtection:
             joint.rot_channels = ["X", "Y", "Z"]
 
     def test_pos_channels_frozen_after_bvh_init(self, bvh_example):
-        """Direct mutation of pos_channels on the root should raise."""
-        with pytest.raises(AttributeError, match="pos_channels is frozen"):
+        """The refusal names the way to change a skeleton (ADR 0003 decision 1)."""
+        with pytest.raises(AttributeError, match=f"pos_channels of node 'Hips'.*{_THE_WAY}"):
             bvh_example.root.pos_channels = ["Z", "Y", "X"]
 
     def test_standalone_node_not_frozen(self):
@@ -1376,13 +1520,13 @@ class TestChannelProtection:
         joint = BvhJoint("TestJoint", rot_channels=["Z", "Y", "X"])
         # Should work fine — not frozen
         joint.rot_channels = ["X", "Y", "Z"]
-        assert joint.rot_channels == ["X", "Y", "Z"]
+        assert joint.rot_channels == ("X", "Y", "Z")
 
     def test_change_euler_order_single_joint_still_works(self, bvh_example):
         """Bvh methods should bypass the freeze to update channels."""
         old_order = bvh_example.nodes[1].rot_channels[:]
         result = bvh_example.change_euler_order("XYZ", joint=bvh_example.nodes[1].name)
-        assert result.nodes[1].rot_channels == ["X", "Y", "Z"]
+        assert result.nodes[1].rot_channels == ("X", "Y", "Z")
         # Original unchanged
         assert bvh_example.nodes[1].rot_channels == old_order
 
@@ -1391,7 +1535,7 @@ class TestChannelProtection:
         result = bvh_example.change_euler_order("XYZ")
         for node in result.nodes:
             if not node.is_end_site():
-                assert node.rot_channels == ["X", "Y", "Z"]
+                assert node.rot_channels == ("X", "Y", "Z")
 
     def test_frozen_flag_preserved_on_copy(self, bvh_example):
         """deepcopy should preserve the frozen state."""
@@ -1404,7 +1548,7 @@ class TestChannelProtection:
         """inplace=True euler change should work on frozen nodes."""
         bvh = bvh_example.copy()
         bvh.change_euler_order("XYZ", joint=bvh.nodes[1].name, inplace=True)
-        assert bvh.nodes[1].rot_channels == ["X", "Y", "Z"]
+        assert bvh.nodes[1].rot_channels == ("X", "Y", "Z")
 
     def test_read_bvh_file_produces_frozen_nodes(self, bvh_example_path):
         """Nodes from read_bvh_file should be frozen after Bvh construction."""
@@ -1413,6 +1557,230 @@ class TestChannelProtection:
             if not node.is_end_site():
                 with pytest.raises(AttributeError):
                     node.rot_channels = ["X", "Y", "Z"]
+
+
+class TestChannelOrdersAreTuples:
+    """A channel order is a tuple on every node, so it never changes in place."""
+
+    @pytest.mark.parametrize("given", ["XZY", ["X", "Z", "Y"], ("X", "Z", "Y")])
+    def test_any_sequence_is_stored_as_a_tuple(self, given):
+        root = BvhRoot("Hips", pos_channels=given, rot_channels=given)
+        assert root.rot_channels == ("X", "Z", "Y")
+        assert root.pos_channels == ("X", "Z", "Y")
+
+    def test_a_node_takes_another_nodes_order(self, bvh_example):
+        joint = BvhJoint("Copy", rot_channels=bvh_example.nodes[1].rot_channels)
+        assert joint.rot_channels == bvh_example.nodes[1].rot_channels
+
+    @pytest.mark.parametrize("owned", [False, True])
+    @pytest.mark.parametrize("attribute", ["rot_channels", "pos_channels"])
+    def test_an_order_cannot_change_in_place(self, bvh_example, owned, attribute):
+        """On a node not yet owned, an append would bypass validation and reach Bvh()."""
+        root = bvh_example.root if owned else BvhRoot("Hips")
+        order = getattr(root, attribute)
+        with pytest.raises(TypeError, match="does not support item assignment"):
+            order[0] = "Y"
+        with pytest.raises(AttributeError, match="'tuple' object has no attribute 'append'"):
+            order.append("X")
+
+    def test_copies_and_pickles_keep_tuples(self, bvh_example):
+        for clip in (
+            bvh_example.copy(),
+            copy.deepcopy(bvh_example),
+            pickle.loads(pickle.dumps(bvh_example)),
+        ):
+            assert type(clip.root.pos_channels) is tuple
+            assert type(clip.nodes[1].rot_channels) is tuple
+
+    def test_the_node_table_gives_lists_to_edit(self, bvh_example):
+        table = nodes_to_table(bvh_example.nodes)
+        assert table[0]["pos_channels"] == ["X", "Y", "Z"]
+        assert table[1]["rot_channels"] == list(bvh_example.nodes[1].rot_channels)
+
+    def test_a_table_holding_tuples_builds_nodes(self, bvh_example):
+        table = nodes_to_table(bvh_example.nodes)
+        for row in table:
+            for key in ("pos_channels", "rot_channels"):
+                if key in row:
+                    row[key] = tuple(row[key])
+        nodes = nodes_from_table(table)
+        assert [getattr(n, "rot_channels", None) for n in nodes] == [
+            getattr(n, "rot_channels", None) for n in bvh_example.nodes
+        ]
+
+    def test_a_clip_refuses_a_root_position_order_other_than_xyz(self):
+        root = BvhRoot("Hips", pos_channels="ZYX")
+        root.children.append(BvhEndSite("Tip", offset=[0, 1, 0], parent=root))
+        with pytest.raises(ValueError, match="order 'ZYX' is not supported. Expected 'XYZ'"):
+            Bvh(nodes=[root, root.children[0]])
+
+
+# The way every refusal names: edit the skeleton as a table, build a new clip.
+_THE_WAY = r"bvh\.to_node_table\(\).*bvh\.copy\(nodes=table\)"
+
+
+class TestOwnedSkeletonIsFrozen:
+    """A node a Bvh owns refuses every edit, and says how to make it."""
+
+    def test_offset_edit_raises(self, bvh_example):
+        """Bug 2 of #112: the edit left forward kinematics stale."""
+        bvh = bvh_example
+        before = bvh.node_positions()[0, 1].copy()
+        with pytest.raises(AttributeError, match=f"offset of node 'Spine'.*{_THE_WAY}"):
+            bvh.nodes[1].offset = bvh.nodes[1].offset + 10.0
+        assert (bvh.node_positions()[0, 1] == before).all()
+
+    def test_rename_raises(self, bvh_example):
+        """Bug 3 of #112: the rename left the name index stale."""
+        bvh = bvh_example
+        with pytest.raises(AttributeError, match=f"name of node 'Spine'.*{_THE_WAY}"):
+            bvh.nodes[1].name = "Torso"
+        assert "Spine" in bvh.node_index
+
+    @pytest.mark.parametrize("attribute, value", [("parent", None), ("children", [])])
+    def test_assignment_names_the_way(self, bvh_example, attribute, value):
+        node = bvh_example.nodes[1]
+        with pytest.raises(AttributeError, match=f"{attribute} of node 'Spine'.*{_THE_WAY}"):
+            setattr(node, attribute, value)
+
+    def test_offset_is_read_only(self, bvh_example):
+        node = bvh_example.nodes[1]
+        with pytest.raises(ValueError, match="read-only"):
+            node.offset[0] += 1
+        with pytest.raises(ValueError, match="cannot set WRITEABLE flag"):
+            node.offset.flags.writeable = True
+
+    def test_a_copied_or_unpickled_node_stays_frozen(self, bvh_example):
+        import pickle
+
+        for node in (
+            copy.deepcopy(bvh_example).nodes[1],
+            copy.deepcopy(bvh_example.nodes)[1],
+            pickle.loads(pickle.dumps(bvh_example.nodes))[1],
+        ):
+            with pytest.raises(AttributeError, match=_THE_WAY):
+                node.offset = [0, 0, 0]
+            with pytest.raises(ValueError, match="read-only"):
+                node.offset[0] += 1
+
+    def test_children_is_a_tuple(self, bvh_example):
+        node = bvh_example.nodes[1]
+        assert node.children == (bvh_example.nodes[2],)
+        with pytest.raises(AttributeError, match="'tuple' object has no attribute 'append'"):
+            node.children.append(BvhEndSite("Tip", parent=node))
+
+    def test_a_skeleton_built_by_hand_is_editable_until_owned(self):
+        """The sister libraries' rigs set parent, children and offset, then construct."""
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels="ZYX")
+        leg = BvhJoint("Leg", offset=[0, 0, 0], rot_channels="ZYX", parent=hips)
+        tip = BvhEndSite("Tip", offset=[0, -1, 0], parent=leg)
+        hips.children.append(leg)
+        leg.children.append(tip)
+        offset = list(leg.offset)
+        offset[1] -= 5
+        leg.offset = offset
+        leg.offset[0] += 1
+        leg.name = "LeftLeg"
+
+        bvh = Bvh(
+            nodes=[hips, leg, tip], root_pos=np.zeros((1, 3)), joint_angles=np.zeros((1, 2, 3))
+        )
+
+        np.testing.assert_array_equal(bvh.rest_pose_positions()[2], [1, -6, 0])
+        assert bvh.node_index["LeftLeg"] == 1
+        with pytest.raises(AttributeError, match=f"offset of node 'LeftLeg'.*{_THE_WAY}"):
+            leg.offset = [0, 0, 0]
+
+    @pytest.mark.parametrize(
+        "bad_argument",
+        [
+            {"world_up": "up"},
+            {"lr_mapping": {"Nope": "Leg"}},
+            {"lr_mapping": [("Hips", "Leg")]},
+            {"joint_angles": np.zeros((2, 2, 3))},
+            {"joint_angles": np.zeros((1, 3, 3))},
+        ],
+    )
+    def test_a_failed_construction_leaves_the_nodes_editable(self, bad_argument):
+        """A typo in a Bvh(...) call, then an edit of the nodes: a notebook sequence."""
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels="ZYX")
+        leg = BvhJoint("Leg", offset=[0, -1, 0], rot_channels="ZYX", parent=hips)
+        tip = BvhEndSite("Tip", offset=[0, -1, 0], parent=leg)
+        hips.children.append(leg)
+        leg.children.append(tip)
+        arguments = {"root_pos": np.zeros((1, 3)), "joint_angles": np.zeros((1, 2, 3))}
+
+        with pytest.raises((ValueError, TypeError)):
+            Bvh(nodes=[hips, leg, tip], **{**arguments, **bad_argument})
+
+        leg.offset = [0, -2, 0]
+        leg.offset[0] += 1
+        leg.name = "LeftLeg"
+        leg.rot_channels = "XYZ"
+        leg.children.append(BvhEndSite("Toe", offset=[0, 0, 1], parent=leg))
+        leg.children.pop()
+        bvh = Bvh(nodes=[hips, leg, tip], **arguments)
+        np.testing.assert_array_equal(bvh.rest_pose_positions()[1], [1, -2, 0])
+        with pytest.raises(AttributeError, match=f"offset of node 'LeftLeg'.*{_THE_WAY}"):
+            leg.offset = [0, 0, 0]
+
+    def test_a_warning_raised_as_an_error_leaves_the_nodes_editable(self):
+        """Under warnings-as-errors, the world-up disagreement of bvh_test3's
+        motion makes the constructor raise: it owns nothing then either."""
+        source = read_bvh_file(
+            Path(__file__).parent.parent / "bvh_data" / "bvh_test3.bvh",
+            warn_on_world_up_disagreement=False,
+        )
+        nodes = nodes_from_table(nodes_to_table(source.nodes))
+        motion = {"root_pos": source.root_pos, "joint_angles": source.joint_angles}
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with pytest.raises(UserWarning, match="world up"):
+                Bvh(nodes=nodes, **motion)
+
+        nodes[1].offset = nodes[1].offset * 2
+        nodes[1].name = "Renamed"
+        with pytest.warns(UserWarning, match="world up"):
+            bvh = Bvh(nodes=nodes, **motion)
+        assert bvh.nodes[1].name == "Renamed"
+        with pytest.raises(AttributeError, match=f"offset of node 'Renamed'.*{_THE_WAY}"):
+            nodes[1].offset = [0, 0, 0]
+
+    def test_nodes_and_root_cannot_be_assigned(self, bvh_example):
+        """Bug 4 of #112: assigning nodes left the index and the root behind."""
+        bvh = bvh_example
+        sub = bvh.extract_joints(["Hips", "Spine"])
+        with pytest.raises(AttributeError):
+            bvh.nodes = sub.nodes
+        with pytest.raises(AttributeError):
+            bvh.root = sub.root
+        assert len(bvh.nodes) == len(bvh.node_index) == 29
+        assert bvh.root is bvh.nodes[0]
+
+    def test_node_list_cannot_be_edited(self, bvh_example):
+        """The last of bug 4 of #112: an edit to the list left the index behind."""
+        bvh = bvh_example
+        spine = bvh.nodes[1]
+        with pytest.raises(AttributeError, match="'tuple' object has no attribute 'append'"):
+            bvh.nodes.append(BvhEndSite("Tip", parent=bvh.root))
+        with pytest.raises(TypeError, match="'tuple' object does not support item assignment"):
+            bvh.nodes[1] = BvhJoint("Torso", parent=bvh.root)
+        assert bvh.nodes[1] is spine
+        assert len(bvh.nodes) == len(bvh.node_index) == 29
+
+    def test_the_callers_list_is_not_the_clips(self):
+        hips = BvhRoot("Hips", rot_channels="ZYX")
+        tip = BvhEndSite("Tip", offset=[0, 1, 0], parent=hips)
+        hips.children.append(tip)
+        nodes = [hips, tip]
+        bvh = Bvh(nodes=nodes, root_pos=np.zeros((1, 3)), joint_angles=np.zeros((1, 1, 3)))
+
+        nodes.pop()
+        nodes.append(BvhEndSite("Other", parent=hips))
+
+        assert bvh.nodes == (hips, tip)
+        assert bvh.node_index == {"Hips": 0, "Tip": 1}
 
 
 class TestFrameSlicing:
@@ -1464,8 +1832,9 @@ class TestFrameSlicing:
 
     def test_concat_mismatched_names_raises(self, bvh_example):
         """Concat with different joint names should raise."""
-        other = bvh_example.copy()
-        other.nodes[1]._name = "DifferentName"
+        names = [node.name for node in bvh_example.nodes]
+        names[1] = "DifferentName"
+        other = _with_names(bvh_example, names)
         with pytest.raises(ValueError, match="name mismatch"):
             bvh_example + other
 
@@ -1493,8 +1862,8 @@ class TestFrameSlicing:
             def is_end_site(self):
                 return False
 
-        other = bvh_example.copy()
-        joint = other.nodes[1]
+        nodes = nodes_from_table(nodes_to_table(bvh_example.nodes))
+        joint = nodes[1]
         reordered = ["X", "Y", "Z"]
         assert reordered != joint.rot_channels
         custom = CustomJoint(joint.name, joint.offset, joint.parent, reordered, joint.children)
@@ -1502,7 +1871,13 @@ class TestFrameSlicing:
         siblings[siblings.index(joint)] = custom
         for child in joint.children:
             child.parent = custom
-        other.nodes[1] = custom
+        nodes[1] = custom
+        other = Bvh(
+            nodes=nodes,
+            root_pos=bvh_example.root_pos,
+            joint_angles=bvh_example.joint_angles,
+            frame_time=bvh_example.frame_time,
+        )
         with pytest.raises(ValueError, match="Rotation order mismatch"):
             bvh_example + other
 
@@ -1583,10 +1958,8 @@ class TestSkeletonRetargeting:
     def test_retarget_with_prefix_mapping(self, bvh_example):
         """Mapping with prefixed names should copy offsets correctly."""
         # Create a reference with prefixed names
-        ref = bvh_example.copy()
-        ref.scale(3.0, inplace=True)
-        for node in ref.nodes:
-            node._name = "prefix:" + node.name
+        scaled = bvh_example.scale(3.0)
+        ref = _with_names(scaled, ["prefix:" + node.name for node in scaled.nodes])
 
         # Build mapping: self name → prefixed name
         mapping = {n.name: "prefix:" + n.name for n in bvh_example.nodes}
@@ -1597,11 +1970,9 @@ class TestSkeletonRetargeting:
 
     def test_retarget_lenient_unmapped(self, bvh_example):
         """Unmapped joints keep their original offsets in lenient mode."""
-        ref = bvh_example.copy()
-        ref.scale(5.0, inplace=True)
+        scaled = bvh_example.scale(5.0)
         # Rename all ref nodes so nothing matches by name
-        for node in ref.nodes:
-            node._name = "ref_" + node.name
+        ref = _with_names(scaled, ["ref_" + node.name for node in scaled.nodes])
         # Only map the root
         mapping = {bvh_example.root.name: "ref_" + bvh_example.root.name}
         result = bvh_example.retarget(ref, name_mapping=mapping, strict=False)
@@ -1612,9 +1983,10 @@ class TestSkeletonRetargeting:
 
     def test_retarget_strict_unmapped_raises(self, bvh_example):
         """Strict mode should raise when a joint has no match."""
-        ref = bvh_example.copy()
         # Remove one node name from ref to create a mismatch
-        ref.nodes[1]._name = "NONEXISTENT"
+        names = [node.name for node in bvh_example.nodes]
+        names[1] = "NONEXISTENT"
+        ref = _with_names(bvh_example, names)
         with pytest.raises(ValueError, match="not found"):
             bvh_example.retarget(ref, strict=True)
 
@@ -1813,6 +2185,19 @@ class TestJointSubsetting:
         assert [n.name for n in sub.nodes] == ["Hips", "Spine", "Neck", "EndSiteNeck"]
         sub.write(tmp_path / "chain.bvh")
         assert sub.matches_hierarchy(read_bvh_file(tmp_path / "chain.bvh"))
+
+    def test_an_override_is_kept_without_inferring(self, computations):
+        """bvh_test3's frame 0 and rest pose disagree, so inferring its world
+        up warns; with the axis set by the user there is nothing to infer,
+        on the clip or on the joints extracted from it."""
+        b3 = read_bvh_file(
+            Path(__file__).parent.parent / "bvh_data" / "bvh_test3.bvh", world_up="+y"
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            sub = b3.extract_joints(["Hips", "Spine", "Spine1"])
+            assert sub.world_up == "+y"
+        assert computations.world_up == 0
 
 
 # =============================================================================
@@ -2151,7 +2536,7 @@ class TestRestPose:
 
     def test_rest_pose_positions_zero_frame_bvh(self, bvh_example):
         """rest_pose_positions works on a Bvh with no motion data."""
-        skeleton_only = bvh_example._copy_skeleton()
+        skeleton_only = bvh_example[0:0]
         assert skeleton_only.frame_count == 0
         rest = skeleton_only.rest_pose_positions()
         np.testing.assert_allclose(rest, bvh_example.rest_pose_positions(), atol=1e-10)
@@ -2178,6 +2563,76 @@ class TestRestPose:
             centered="skeleton",
         )
         np.testing.assert_allclose(rest_via_fk, rest_coords, atol=1e-10)
+
+
+def _rest_pose_by_fk(bvh):
+    """The rest pose of the skeleton as it is now, by FK at zero angles."""
+    return frames_to_node_positions(
+        bvh,
+        root_pos=np.zeros(3),
+        joint_angles=np.zeros((bvh.joint_count, 3)),
+        centered="skeleton",
+    )
+
+
+# Every edit pybvh makes to a clip's skeleton, each returning the edited clip.
+_SKELETON_EDITS = {
+    "scale": lambda b, inplace: b.scale(2.0, inplace=inplace),
+    "mirror": lambda b, inplace: b.mirror(inplace=inplace),
+    "retarget": lambda b, inplace: b.retarget(b.scale(2.0), inplace=inplace),
+    "reorient_rest_up": lambda b, inplace: reorient_rest_up(b, "+y", inplace=inplace),
+    "reorient_rest_forward": lambda b, inplace: reorient_rest_forward(b, "+x", inplace=inplace),
+    "reorient_world_up": lambda b, inplace: reorient_world_up(b, "+y", inplace=inplace),
+}
+
+
+class TestRestPoseDerivedState:
+    """The rest pose is computed once per skeleton (ADR 0003)."""
+
+    def test_computed_once_across_its_readers(self, bvh_example_path, computations):
+        bvh = read_bvh_file(bvh_example_path)
+        readers = (
+            lambda: bvh.rest_up,
+            lambda: bvh.rest_forward,
+            lambda: foot_contacts(bvh),
+            bvh.rest_pose_positions,
+        )
+        for read in readers:
+            read()
+        assert computations.rest_pose == 1
+
+    def test_a_motion_change_keeps_it(self, bvh_example, computations):
+        bvh_example.rest_pose_positions()
+        computed = computations.rest_pose
+        bvh_example.joint_angles = np.zeros_like(bvh_example.joint_angles)
+        bvh_example.root_pos = bvh_example.root_pos + 1.0
+        bvh_example[0] = bvh_example[5]
+        bvh_example.rest_pose_positions()
+        assert computations.rest_pose == computed
+
+    def test_a_skeleton_change_recomputes_it(self, bvh_example, computations):
+        before = bvh_example.rest_pose_positions()
+        computed = computations.rest_pose
+        bvh_example.retarget(bvh_example.scale(2.0), inplace=True)
+        after = bvh_example.rest_pose_positions()
+        assert computations.rest_pose == computed + 1
+        np.testing.assert_allclose(after, 2.0 * before, atol=1e-10)
+
+    @pytest.mark.parametrize("inplace", [True, False])
+    @pytest.mark.parametrize("edit", sorted(_SKELETON_EDITS))
+    def test_follows_every_skeleton_edit(self, bvh_example, edit, inplace):
+        bvh_example.rest_pose_positions()
+        result = _SKELETON_EDITS[edit](bvh_example, inplace)
+        edited = bvh_example if inplace else result
+        np.testing.assert_allclose(
+            edited.rest_pose_positions(), _rest_pose_by_fk(edited), atol=1e-10
+        )
+
+    def test_a_write_into_the_result_leaves_the_clip_unchanged(self, bvh_example):
+        rest = bvh_example.rest_pose_positions()
+        expected = rest.copy()
+        rest += 1000.0
+        np.testing.assert_array_equal(bvh_example.rest_pose_positions(), expected)
 
 
 # =============================================================================
@@ -2341,6 +2796,16 @@ class TestFramesToSpatialCoordsStandalone:
         method = bvh_example.node_positions(centered="world")
         np.testing.assert_allclose(standalone, method, atol=1e-10)
 
+    @pytest.mark.parametrize("as_type", [tuple, list])
+    def test_node_list_with_arrays_matches_bvh_method(self, bvh_example, as_type):
+        """``bvh.nodes`` (a tuple) and a list of the same nodes both pose."""
+        standalone = frames_to_node_positions(
+            as_type(bvh_example.nodes),
+            root_pos=bvh_example.root_pos,
+            joint_angles=bvh_example.joint_angles,
+        )
+        np.testing.assert_allclose(standalone, bvh_example.node_positions(), atol=1e-10)
+
     def test_node_list_without_arrays_raises(self, bvh_example):
         """Passing node list without root_pos/joint_angles raises."""
         with pytest.raises(ValueError):
@@ -2357,11 +2822,10 @@ class TestFramesToSpatialCoordsStandalone:
 
     def test_duplicate_joint_names_fk_unaffected(self, bvh_example):
         """Topology is keyed by node identity: duplicate names can't corrupt FK."""
-        from copy import deepcopy
-
-        nodes = deepcopy(bvh_example.nodes)
-        for node in nodes:
-            node.name = "same_name"
+        table = nodes_to_table(bvh_example.nodes)
+        for row in table:
+            row["name"] = "same_name"
+        nodes = nodes_from_table(table)
         result = frames_to_node_positions(
             nodes, root_pos=bvh_example.root_pos, joint_angles=bvh_example.joint_angles
         )
@@ -2584,15 +3048,15 @@ class TestEqualityHierarchy:
         assert bvh_example == bvh_example.copy()
 
     def test_offset_difference_detected(self, bvh_example):
-        other = bvh_example.copy()
-        other.nodes[2].offset = other.nodes[2].offset + 1.0
-        assert bvh_example != other
+        offsets = _offsets(bvh_example)
+        offsets[2] += 1.0
+        assert bvh_example != _with_offsets(bvh_example, offsets)
 
     def test_end_site_offset_difference_detected(self, bvh_example):
-        other = bvh_example.copy()
-        end_idx = next(i for i, n in enumerate(other.nodes) if n.is_end_site())
-        other.nodes[end_idx].offset = other.nodes[end_idx].offset + 1.0
-        assert bvh_example != other
+        offsets = _offsets(bvh_example)
+        end_idx = next(i for i, n in enumerate(bvh_example.nodes) if n.is_end_site())
+        offsets[end_idx] += 1.0
+        assert bvh_example != _with_offsets(bvh_example, offsets)
 
 
 # =============================================================================
@@ -2603,12 +3067,13 @@ class TestEqualityHierarchy:
 class TestNodePositionsCache:
     """node_positions() caches world FK and invalidates on motion changes."""
 
-    def test_cache_populated_and_reused(self, bvh_example):
-        assert bvh_example._node_positions_cached is None
+    def test_fk_runs_once_across_calls(self, bvh_example, computations):
         first = bvh_example.node_positions(centered="world")
-        assert bvh_example._node_positions_cached is not None
-        second = bvh_example.node_positions(centered="world")
-        np.testing.assert_array_equal(first, second)
+        second = bvh_example.node_positions(centered="skeleton")
+        third = bvh_example.node_positions(frame=3)
+        assert computations.fk == 1
+        np.testing.assert_array_equal(first, second + bvh_example.root_pos[:, np.newaxis, :])
+        np.testing.assert_array_equal(third, first[3])
 
     def test_returned_array_is_a_copy(self, bvh_example):
         first = bvh_example.node_positions(centered="world")
@@ -2616,13 +3081,13 @@ class TestNodePositionsCache:
         second = bvh_example.node_positions(centered="world")
         assert not np.allclose(first, second)
 
-    def test_setter_invalidates(self, bvh_example):
+    def test_setter_invalidates(self, bvh_example, computations):
         before = bvh_example.node_positions(centered="world").copy()
         ja = bvh_example.joint_angles.copy()
         ja[:, :, :] = 0.0
         bvh_example.joint_angles = ja
-        assert bvh_example._node_positions_cached is None
         after = bvh_example.node_positions(centered="world")
+        assert computations.fk == 2
         assert not np.allclose(before, after)
 
     def test_setitem_invalidates(self, bvh_example):
@@ -2681,8 +3146,540 @@ class TestSkeletonCopyMetadata:
     def test_slice_preserves_user_lr_mapping(self, bvh_example):
         bvh_example.lr_mapping = {"LeftArm": "RightArm"}
         sliced = bvh_example[0:5]
-        assert sliced.lr_mapping == bvh_example.lr_mapping
-        assert sliced._lr_mapping_source == "user"
+        assert sliced.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
+
+
+class TestWhatACopyCarries:
+    """A copy and a pickle carry the primary state and the user's settings,
+    never a derived value (ADR 0003)."""
+
+    def test_a_copy_computes_fk_when_read_and_not_before(self, bvh_example, computations):
+        expected = bvh_example.node_positions()
+        duplicate = bvh_example.copy()
+        assert computations.fk == 1
+        np.testing.assert_array_equal(duplicate.node_positions(), expected)
+        assert computations.fk == 2
+
+    DERIVATIONS = {
+        "copy": lambda b: b.copy(),
+        "copy_with_nodes": lambda b: b.copy(nodes=b.to_node_table()),
+        "slice": lambda b: b[2:8],
+        "concat": lambda b: b[0:5] + b[5:10],
+        "resample": lambda b: b.resample(60),
+        "mirror": lambda b: b.mirror(),
+        "scale": lambda b: b.scale(2.0),
+        "retarget": lambda b: b.retarget(b.scale(2.0)),
+        "change_euler_order": lambda b: b.change_euler_order("XYZ"),
+        "extract_joints": lambda b: b.extract_joints(b.joint_names),
+        "pickle": lambda b: pickle.loads(pickle.dumps(b)),
+    }
+
+    @pytest.mark.parametrize("derive", DERIVATIONS.values(), ids=DERIVATIONS.keys())
+    def test_a_user_lr_mapping_travels(self, bvh_example, derive):
+        bvh_example.lr_mapping = {"LeftArm": "RightArm"}
+        assert derive(bvh_example).lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
+
+    # mirror() needs an L/R mapping, and raises on a clip whose mapping was cleared.
+    DERIVATIONS_WITHOUT_LR = {k: v for k, v in DERIVATIONS.items() if k != "mirror"}
+
+    @pytest.mark.parametrize(
+        "derive", DERIVATIONS_WITHOUT_LR.values(), ids=DERIVATIONS_WITHOUT_LR.keys()
+    )
+    def test_a_cleared_lr_mapping_stays_cleared(self, bvh_example, derive):
+        bvh_example.lr_mapping = None
+        assert derive(bvh_example).lr_mapping is None
+
+    @pytest.mark.parametrize("derive", DERIVATIONS.values(), ids=DERIVATIONS.keys())
+    def test_name_detected_pairs_travel(self, bvh_example, derive):
+        assert derive(bvh_example).lr_mapping == EXAMPLE_NAME_PAIRS
+
+    def test_a_pickle_round_trip_equals_the_source(self, bvh_example):
+        bvh_example.world_up = "+x"
+        bvh_example.lr_mapping = {"LeftArm": "RightArm"}
+        back = pickle.loads(pickle.dumps(bvh_example))
+        assert back == bvh_example
+        assert back.world_up == "+x"
+        assert back.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
+        assert back.source_path == bvh_example.source_path
+
+    def test_a_pickle_keeps_a_cleared_lr_mapping_cleared(self, bvh_example):
+        bvh_example.lr_mapping = None
+        assert pickle.loads(pickle.dumps(bvh_example)).lr_mapping is None
+
+    def test_a_pickle_keeps_the_warn_preference(self):
+        """bvh_test3's frame 0 and rest pose disagree: inferring warns
+        unless the clip was loaded quiet."""
+        quiet = read_bvh_file(
+            Path(__file__).parent.parent / "bvh_data" / "bvh_test3.bvh",
+            warn_on_world_up_disagreement=False,
+        )
+        back = pickle.loads(pickle.dumps(quiet))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert back.world_up_inferred == quiet.world_up
+
+    def test_a_pickle_holds_no_fk_array(self, bvh_example):
+        before = pickle.dumps(bvh_example)
+        bvh_example.node_positions()
+        _ = bvh_example.floor_height
+        assert pickle.dumps(bvh_example) == before
+
+    def test_an_unpickled_clip_computes_fk_when_read(self, bvh_example, computations):
+        expected = bvh_example.node_positions()
+        back = pickle.loads(pickle.dumps(bvh_example))
+        assert computations.fk == 1
+        np.testing.assert_array_equal(back.node_positions(), expected)
+        assert computations.fk == 2
+
+
+class TestCopyWithNodes:
+    """`copy(nodes=...)` is a copy on a skeleton the caller edited, bound to
+    the motion by position."""
+
+    @staticmethod
+    def _edited_table(bvh):
+        """bvh's node table with every offset doubled and LeftArm renamed."""
+        table = bvh.to_node_table()
+        for row in table:
+            row["offset"] = 2.0 * np.asarray(row["offset"])
+            if row["name"] == "LeftArm":
+                row["name"] = "LeftUpperArm"
+        return table
+
+    @pytest.fixture(params=["table", "node_list"])
+    def as_nodes(self, request):
+        """The form a test hands its node table to ``copy(nodes=...)`` in:
+        the table itself, or a node list built from it."""
+        if request.param == "table":
+            return lambda table: table
+        return nodes_from_table
+
+    def test_a_skeleton_gives_the_clip_bvh_builds_from_it(self, bvh_example, as_nodes):
+        table = self._edited_table(bvh_example)
+        edited = bvh_example.copy(nodes=as_nodes(table))
+        built = Bvh(
+            nodes=nodes_from_table(table),
+            root_pos=bvh_example.root_pos,
+            joint_angles=bvh_example.joint_angles,
+            frame_time=bvh_example.frame_time,
+        )
+        assert edited.joint_names == built.joint_names
+        np.testing.assert_array_equal(edited.node_positions(), built.node_positions())
+        assert edited.frame_time == bvh_example.frame_time
+
+    def test_a_node_list_is_taken_over_as_bvh_takes_it(self, bvh_example):
+        table = self._edited_table(bvh_example)
+        nodes = nodes_from_table(table)
+        edited = bvh_example.copy(nodes=nodes)
+        assert all(mine is given for mine, given in zip(edited.nodes, nodes, strict=True))
+        np.testing.assert_array_equal(
+            edited.node_positions(), bvh_example.copy(nodes=table).node_positions()
+        )
+        # The copy owns them, so an edit to a node the caller holds fails
+        # loudly instead of missing the clip.
+        with pytest.raises(AttributeError, match=f"offset of node 'Spine'.*{_THE_WAY}"):
+            nodes[1].offset = nodes[1].offset + 1.0
+
+    def test_another_clips_nodes_are_shared(self, bvh_example):
+        """Owned nodes are frozen, so two clips can hold them safely."""
+        donor = bvh_example.scale(2.0)
+        edited = bvh_example.copy(nodes=donor.nodes)
+        assert all(mine is theirs for mine, theirs in zip(edited.nodes, donor.nodes, strict=True))
+        np.testing.assert_array_equal(_offsets(edited), _offsets(donor))
+
+    def test_the_sources_own_nodes_are_shared(self, bvh_example):
+        edited = bvh_example.copy(nodes=bvh_example.nodes)
+        assert all(
+            mine is theirs for mine, theirs in zip(edited.nodes, bvh_example.nodes, strict=True)
+        )
+        assert edited == bvh_example
+
+    def test_a_table_gives_nodes_of_the_copys_own(self, bvh_example):
+        table = bvh_example.to_node_table()
+        edited = bvh_example.copy(nodes=table)
+        again = bvh_example.copy(nodes=table)
+        held = {id(node) for node in [*bvh_example.nodes, *again.nodes]}
+        assert not any(id(node) in held for node in edited.nodes)
+
+    @staticmethod
+    def _order_changed(bvh):
+        table = bvh.to_node_table()
+        next(row for row in table if row["name"] == "LeftArm")["rot_channels"] = "ZYX"
+        return table, "Euler order"
+
+    @staticmethod
+    def _joint_added(bvh):
+        table = bvh.to_node_table()
+        table.append({"name": "Tail", "parent": 0, "offset": [0, 0, -1], "rot_channels": "ZYX"})
+        table.append({"parent": len(table) - 1, "offset": [0, 0, -1]})
+        return table, "non-end-site joints"
+
+    @staticmethod
+    def _mapped_joints_renamed_alike(bvh):
+        bvh.lr_mapping = {"LeftShoulder": "RightShoulder", "LeftArm": "RightArm"}
+        table = bvh.to_node_table()
+        for row in table:
+            if row["name"] in ("LeftShoulder", "LeftArm"):
+                row["name"] = "Left"
+        return table, "identifies joints by name"
+
+    @staticmethod
+    def _root_position_order_changed(bvh):
+        table = bvh.to_node_table()
+        table[0]["pos_channels"] = "ZYX"
+        return table, "Non-standard root position channel order"
+
+    @staticmethod
+    def _mapped_name_missing_without_motion(bvh):
+        """A clip without motion takes another joint count, and its mapping
+        then goes by name."""
+        bvh = Bvh(nodes=nodes_from_table(bvh.to_node_table()))
+        bvh.lr_mapping = {"LeftArm": "RightArm"}
+        table, _ = TestCopyWithNodes._joint_added(bvh)
+        next(row for row in table if row["name"] == "LeftArm")["name"] = "LeftUpperArm"
+        return bvh, table, "'LeftArm' not in joint_names"
+
+    REFUSALS = {
+        "euler_order": _order_changed,
+        "joint_count": _joint_added,
+        "rename_collision": _mapped_joints_renamed_alike,
+        "root_position_order": _root_position_order_changed,
+    }
+
+    @pytest.mark.parametrize("refusal", REFUSALS.values(), ids=REFUSALS.keys())
+    def test_a_refused_node_list_stays_editable(self, bvh_example, refusal):
+        """As after a Bvh(...) that raises: the copy owns nothing it refused."""
+        table, message = refusal(bvh_example)
+        self._assert_refused_and_editable(bvh_example, nodes_from_table(table), message)
+
+    def test_a_node_list_refused_by_name_stays_editable(self, bvh_example):
+        source, table, message = self._mapped_name_missing_without_motion(bvh_example)
+        self._assert_refused_and_editable(source, nodes_from_table(table), message)
+
+    @staticmethod
+    def _assert_refused_and_editable(source, nodes, message):
+        with pytest.raises(ValueError, match=message):
+            source.copy(nodes=nodes)
+        for node in nodes:
+            node.offset = node.offset + 1.0
+            node.name = f"{node.name}_edited"
+
+    def test_the_source_is_unchanged(self, bvh_example, as_nodes):
+        before = bvh_example.to_node_table()
+        positions = bvh_example.node_positions()
+        bvh_example.copy(nodes=as_nodes(self._edited_table(bvh_example)))
+        assert bvh_example.joint_names == [row["name"] for row in before if "rot_channels" in row]
+        np.testing.assert_array_equal(bvh_example.node_positions(), positions)
+
+    def test_a_joint_count_mismatch_raises_as_the_constructor_does(self, bvh_example, as_nodes):
+        table = bvh_example.to_node_table()
+        # A joint and its end site added under the root.
+        table.append({"name": "Tail", "parent": 0, "offset": [0, 0, -1], "rot_channels": "ZYX"})
+        table.append({"parent": len(table) - 1, "offset": [0, 0, -1]})
+        with pytest.raises(ValueError, match="non-end-site joints"):
+            bvh_example.copy(nodes=as_nodes(table))
+
+    def test_a_changed_euler_order_is_refused(self, bvh_example, as_nodes):
+        table = bvh_example.to_node_table()
+        row = next(row for row in table if row["name"] == "LeftArm")
+        row["rot_channels"] = "ZYX"
+        row["name"] = "LeftUpperArm"
+        with pytest.raises(
+            ValueError, match=r"Euler order of joint 'LeftArm'.*change_euler_order"
+        ) as excinfo:
+            bvh_example.copy(nodes=as_nodes(table))
+        assert "'XZY'" in str(excinfo.value) and "'ZYX'" in str(excinfo.value)
+
+    def test_the_same_order_spelled_as_a_string_is_kept(self, bvh_example, as_nodes):
+        table = bvh_example.to_node_table()
+        for row in table:
+            if "rot_channels" in row:
+                row["rot_channels"] = "".join(row["rot_channels"])
+        assert bvh_example.copy(nodes=as_nodes(table)) == bvh_example
+
+    def test_root_position_channels_other_than_xyz_stay_refused(self, bvh_example, as_nodes):
+        table = bvh_example.to_node_table()
+        table[0]["pos_channels"] = "ZYX"
+        with pytest.raises(ValueError, match="Non-standard root position channel order"):
+            bvh_example.copy(nodes=as_nodes(table))
+
+    @staticmethod
+    def _turned_table(bvh):
+        """bvh's node table with every offset turned 90 degrees about x: the
+        motion on it stands along another axis."""
+        turn = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]])
+        table = bvh.to_node_table()
+        for row in table:
+            row["offset"] = turn @ np.asarray(row["offset"])
+        return table
+
+    def test_a_guessed_world_up_is_inherited(self, bvh_example, as_nodes, computations):
+        assert bvh_example.world_up == "+z"
+        guessed = computations.world_up
+        edited = bvh_example.copy(nodes=as_nodes(self._turned_table(bvh_example)))
+        assert edited.world_up == "+z"
+        assert computations.world_up == guessed
+        # The way to guess again, from the new skeleton, whose rest pose
+        # stands along '-y'.
+        with pytest.warns(UserWarning, match="Rest pose suggests"):
+            edited.world_up = edited.world_up_inferred
+        assert edited.world_up == "-x"
+
+    def test_a_set_world_up_stays_set(self, bvh_example, as_nodes):
+        bvh_example.world_up = "+y"
+        edited = bvh_example.copy(nodes=as_nodes(self._turned_table(bvh_example)))
+        assert edited.world_up == "+y"
+        edited.world_up = None
+        assert edited.world_up == "+z"
+
+    def test_a_user_lr_mapping_follows_a_renamed_joint(self, bvh_example, as_nodes):
+        bvh_example.lr_mapping = {"LeftArm": "RightArm", "LeftLeg": "RightLeg"}
+        edited = bvh_example.copy(nodes=as_nodes(self._edited_table(bvh_example)))
+        assert edited.lr_mapping == {
+            "LeftUpperArm": "RightArm",
+            "RightArm": "LeftUpperArm",
+            "LeftLeg": "RightLeg",
+            "RightLeg": "LeftLeg",
+        }
+        assert edited.lr_pairs == bvh_example.lr_pairs
+
+    @staticmethod
+    def _renamed_table(bvh, renames):
+        table = bvh.to_node_table()
+        for row in table:
+            row["name"] = renames.get(row.get("name"), row.get("name"))
+        return table
+
+    def test_two_mapped_joints_renamed_alike_are_refused(self, bvh_example, as_nodes):
+        bvh_example.lr_mapping = {"LeftShoulder": "RightShoulder", "LeftArm": "RightArm"}
+        table = self._renamed_table(bvh_example, {"LeftShoulder": "Left", "LeftArm": "Left"})
+        with pytest.raises(
+            ValueError, match=r"'LeftShoulder' the name 'Left'.*identifies joints by name"
+        ):
+            bvh_example.copy(nodes=as_nodes(table))
+
+    def test_a_mapped_joint_renamed_to_another_joints_name_is_refused(self, bvh_example, as_nodes):
+        bvh_example.lr_mapping = {"LeftShoulder": "RightShoulder", "LeftArm": "RightArm"}
+        table = self._renamed_table(bvh_example, {"LeftShoulder": "LeftToeBase"})
+        with pytest.raises(
+            ValueError, match=r"'LeftShoulder' the name 'LeftToeBase'.*identifies joints by name"
+        ):
+            bvh_example.copy(nodes=as_nodes(table))
+
+    def test_an_unmapped_joint_renamed_to_a_mapped_name_is_refused(self, bvh_example, as_nodes):
+        bvh_example.lr_mapping = {"LeftShoulder": "RightShoulder", "LeftArm": "RightArm"}
+        table = self._renamed_table(bvh_example, {"Spine": "RightArm"})
+        with pytest.raises(ValueError, match=r"'RightArm' the name 'RightArm', which 2 joints"):
+            bvh_example.copy(nodes=as_nodes(table))
+
+    def test_a_name_the_source_already_repeats_is_kept(self, bvh_example, as_nodes):
+        """The copy refuses an ambiguity its nodes make, not one the clip has."""
+        source = bvh_example.copy(
+            nodes=as_nodes(self._renamed_table(bvh_example, {"Spine": "LeftArm"}))
+        )
+        source.lr_mapping = {"LeftArm": "RightArm"}
+        assert source.copy(nodes=as_nodes(source.to_node_table())).lr_pairs == source.lr_pairs
+        # Another joint taking the name adds to the ambiguity: refused.
+        table = self._renamed_table(source, {"Spine1": "LeftArm"})
+        with pytest.raises(ValueError, match=r"'LeftArm' the name 'LeftArm', which 3 joints"):
+            source.copy(nodes=as_nodes(table))
+
+    def test_unmapped_joints_may_share_a_name(self, bvh_example, as_nodes):
+        bvh_example.lr_mapping = {"LeftShoulder": "RightShoulder", "LeftArm": "RightArm"}
+        table = self._renamed_table(bvh_example, {"LeftToeBase": "Toe", "RightToeBase": "Toe"})
+        edited = bvh_example.copy(nodes=as_nodes(table))
+        assert edited.joint_names.count("Toe") == 2
+        assert edited.lr_pairs == bvh_example.lr_pairs
+
+    def test_name_detected_pairs_are_detected_from_the_new_names(self, bvh_example, as_nodes):
+        edited = bvh_example.copy(nodes=as_nodes(self._edited_table(bvh_example)))
+        lost = {"LeftArm", "RightArm"}
+        assert edited.lr_mapping == {
+            left: right for left, right in EXAMPLE_NAME_PAIRS.items() if left not in lost
+        }
+
+    def test_a_cleared_lr_mapping_stays_cleared(self, bvh_example, as_nodes):
+        bvh_example.lr_mapping = None
+        assert bvh_example.copy(nodes=as_nodes(self._edited_table(bvh_example))).lr_mapping is None
+
+    @pytest.mark.parametrize(
+        ("nodes", "message"),
+        [({"Hips": {}}, r"nodes is a dict"), ([1.0, 2.0], r"nodes\[0\] is a float")],
+        ids=["dict", "floats"],
+    )
+    def test_neither_a_table_nor_a_node_list_raises(self, bvh_example, nodes, message):
+        with pytest.raises(TypeError, match=message):
+            bvh_example.copy(nodes=nodes)
+
+    def test_a_clip_without_motion_takes_the_skeleton(self, bvh_example, as_nodes):
+        """`Bvh(nodes=...)` holds (0, 0, 3) angles, which fit any skeleton."""
+        skeleton_only = Bvh(nodes=nodes_from_table(bvh_example.to_node_table()))
+        table = self._edited_table(bvh_example)
+        assert skeleton_only.copy().joint_names == bvh_example.joint_names
+        assert "LeftUpperArm" in skeleton_only.copy(nodes=as_nodes(table)).joint_names
+        # Nor is an order or a joint count held against it: no angles bind them.
+        table[1]["rot_channels"] = "XYZ"
+        table.append({"name": "Tail", "parent": 0, "offset": [0, 0, -1], "rot_channels": "ZYX"})
+        skeleton_only.lr_mapping = {"LeftLeg": "RightLeg"}
+        other = skeleton_only.copy(nodes=as_nodes(table))
+        assert other.joint_names[-1] == "Tail"
+        # With no column binding joints by position, the mapping goes by name.
+        assert other.lr_mapping == {"LeftLeg": "RightLeg", "RightLeg": "LeftLeg"}
+
+
+def _in_place(edit):
+    """A derivation that edits the clip in place and returns it."""
+
+    def derive(bvh):
+        edit(bvh)
+        return bvh
+
+    return derive
+
+
+class TestInheritedWorldUp:
+    """A clip pybvh derives reports the world up of the clip it came from;
+    only the user assigning motion guesses again (ADR 0003, decision 3)."""
+
+    @pytest.fixture
+    def tilted(self):
+        """bvh_test3 with its body tilted 45 degrees about x from frame 5 on.
+
+        Frame 0 stands along '+z', so the clip guesses '+z'. From frame 5
+        the head-hips direction is ambiguous, so a clip starting there,
+        guessing from its own first frame, falls back to its rest pose's
+        '+y'. Loaded quiet: bvh_test3's frame 0 and rest pose disagree.
+        """
+        clip = read_bvh_file(BVH_DATA_DIR / "bvh_test3.bvh", warn_on_world_up_disagreement=False)
+        root_pos, rotmats = clip.to_rotmat()
+        tilt = euler_to_rotmat(np.radians([45.0, 0.0, 0.0]), "XYZ")
+        rotmats[5:, 0] = tilt @ rotmats[5:, 0]
+        return clip.from_rotmat(root_pos, rotmats)
+
+    def test_a_slice_reports_its_sources_axis(self, tilted):
+        sliced = tilted[5:]
+        assert sliced.world_up_inferred == "+y"
+        assert sliced.world_up == "+z"
+
+    DERIVATIONS = {
+        **TestWhatACopyCarries.DERIVATIONS,
+        "extract_joints_subset": lambda b: b.extract_joints(["Hips", "Spine", "Spine1"]),
+        "translate_root": lambda b: b.translate_root([1.0, 2.0, 3.0]),
+        "add_rotation_noise": lambda b: b.add_rotation_noise(0.01, rng=np.random.default_rng(0)),
+        "add_position_noise": lambda b: b.add_position_noise(0.1, rng=np.random.default_rng(0)),
+        "drop_frames": lambda b: b.drop_frames(0.2, rng=np.random.default_rng(0)),
+        "rotate_vertical": lambda b: b.rotate_vertical(30.0, degrees=True),
+        "reorient_rest_up": lambda b: b.reorient_rest_up("+z"),
+        "reorient_rest_forward": lambda b: b.reorient_rest_forward("+x"),
+        "rotate_vertical_in_place": _in_place(
+            lambda b: b.rotate_vertical(30.0, degrees=True, inplace=True)
+        ),
+        "scale_in_place": _in_place(lambda b: b.scale(2.0, inplace=True)),
+        "mirror_in_place": _in_place(lambda b: b.mirror(inplace=True)),
+        "reorient_rest_up_in_place": _in_place(lambda b: b.reorient_rest_up("+z", inplace=True)),
+        "change_euler_order_in_place": _in_place(
+            lambda b: b.change_euler_order("XYZ", inplace=True)
+        ),
+        "iadd": _in_place(lambda b: b.__iadd__(b[0:5])),
+    }
+
+    @pytest.mark.parametrize("derive", DERIVATIONS.values(), ids=DERIVATIONS.keys())
+    def test_every_derived_clip_reports_it_without_guessing(self, tilted, derive, computations):
+        source = tilted[5:]
+        guessed = computations.world_up
+        assert derive(source).world_up == "+z"
+        assert computations.world_up == guessed
+
+    def test_a_plus_b_takes_as_axis(self, tilted):
+        a = tilted[5:]
+        b = tilted[5:]
+        b.joint_angles = b.joint_angles
+        assert b.world_up == "+y"
+        assert (a + b).world_up == "+z"
+        assert (b + a).world_up == "+y"
+
+    def test_a_iadd_b_keeps_as_axis(self, tilted):
+        a = tilted[5:]
+        b = tilted[5:]
+        b.joint_angles = b.joint_angles
+        a += b
+        b += tilted[5:]
+        assert a.world_up == "+z"
+        assert b.world_up == "+y"
+
+    ASSIGNMENTS = {
+        "root_pos": lambda b: setattr(b, "root_pos", b.root_pos),
+        "joint_angles": lambda b: setattr(b, "joint_angles", b.joint_angles),
+        "setitem": lambda b: b.__setitem__(0, b[1]),
+    }
+
+    @pytest.mark.parametrize("assign", ASSIGNMENTS.values(), ids=ASSIGNMENTS.keys())
+    def test_assigning_motion_guesses_again(self, tilted, assign):
+        sliced = tilted[5:]
+        assign(sliced)
+        assert sliced.world_up == "+y"
+
+    @pytest.mark.parametrize("assign", ASSIGNMENTS.values(), ids=ASSIGNMENTS.keys())
+    def test_assigning_motion_keeps_an_override(self, tilted, assign, computations):
+        sliced = tilted[5:]
+        sliced.world_up = "-x"
+        guessed = computations.world_up
+        assign(sliced)
+        assert sliced.world_up == "-x"
+        assert computations.world_up == guessed
+
+    def test_reorient_world_up_sets_its_axis_as_an_override(self, tilted):
+        turned = tilted[5:].reorient_world_up("+x")
+        turned.joint_angles = turned.joint_angles
+        assert turned.world_up == "+x"
+
+    def test_a_source_whose_motion_was_assigned_guesses_once_for_both(self, tilted, computations):
+        """The guess the source makes is the one its derived clip reports,
+        also when the source makes it only at derivation."""
+        tilted.joint_angles = tilted.joint_angles
+        guessed = computations.world_up
+        sliced = tilted[5:]
+        assert sliced.world_up == "+z"
+        assert tilted.world_up == "+z"
+        assert computations.world_up == guessed + 1
+
+    def test_a_clip_that_warned_at_load_does_not_warn_again(self):
+        """bvh_test3's frame 0 and rest pose disagree: the guess at load
+        warns, and its derived clips report that guess without warning."""
+        with pytest.warns(UserWarning, match="Rest pose suggests"):
+            clip = read_bvh_file(BVH_DATA_DIR / "bvh_test3.bvh")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert clip.copy().world_up == "+z"
+            assert clip[10:].world_up == "+z"
+            assert clip.change_euler_order("XYZ").world_up == "+z"
+            clip.change_euler_order("XYZ", inplace=True)
+            assert clip.world_up == "+z"
+
+    def test_harmonize_guesses_at_most_once_per_clip(self, computations):
+        """Both clips stand along '+z', so the world-up stage reads world up
+        and applies nothing, and the rest stages read it again on their own
+        results."""
+        clips = [read_bvh_file(BVH_DATA_DIR / name) for name in ("bvh_test1.bvh", "bvh_test4.bvh")]
+        for clip in clips:
+            clip.joint_angles = clip.joint_angles
+        guessed = computations.world_up
+        from pybvh.batch import harmonize
+
+        _, report = harmonize(
+            clips,
+            reference=clips[0],
+            target_fps=60.0,
+            target_world_up="+z",
+            target_rest_up="+y",
+            target_rest_forward="+x",
+            target_euler_order="XYZ",
+            return_report=True,
+        )
+        assert [sorted(stages) for stages in report.applied_stages] == [
+            ["euler_order", "resample", "rest_forward", "rest_up", "retarget"]
+        ] * 2
+        assert computations.world_up == guessed + len(clips)
 
 
 # =============================================================================
@@ -2801,6 +3798,92 @@ class TestFreezePreservation:
         """resample result is frozen."""
         result = bvh_example.resample(60)
         self._assert_frozen(result)
+
+
+# =============================================================================
+# Test: pybvh's skeleton edits replace the skeleton
+# =============================================================================
+
+
+def _other_rest_forward(bvh):
+    """A horizontal axis that is not the clip's rest forward."""
+    return "+x" if bvh.rest_forward[1] != "x" else "+y"
+
+
+# Every edit pybvh makes to a clip's skeleton, applied with a given inplace.
+SKELETON_EDITS = {
+    "scale": lambda bvh, inplace: bvh.scale(2.0, inplace=inplace),
+    "mirror": lambda bvh, inplace: bvh.mirror(inplace=inplace),
+    "retarget": lambda bvh, inplace: bvh.retarget(bvh.scale(1.5), inplace=inplace),
+    "reorient_rest_up": lambda bvh, inplace: bvh.reorient_rest_up("+y", inplace=inplace),
+    "reorient_rest_forward": lambda bvh, inplace: bvh.reorient_rest_forward(
+        _other_rest_forward(bvh), inplace=inplace
+    ),
+    "reorient_world_up": lambda bvh, inplace: bvh.reorient_world_up("+y", inplace=inplace),
+    "change_euler_order": lambda bvh, inplace: bvh.change_euler_order("ZYX", inplace=inplace),
+}
+
+
+@pytest.mark.parametrize("inplace", [True, False], ids=["inplace", "copy"])
+@pytest.mark.parametrize("edit", SKELETON_EDITS.values(), ids=SKELETON_EDITS.keys())
+class TestSkeletonEditsReplaceTheSkeleton:
+    """Each edit swaps in a new node list rather than writing into the nodes
+    the clip owns (ADR 0003)."""
+
+    @staticmethod
+    def _apply(edit, bvh, inplace):
+        result = edit(bvh, inplace)
+        return bvh if inplace else result
+
+    def test_a_node_held_before_the_edit_keeps_its_values(self, bvh_example, edit, inplace):
+        held = list(bvh_example.nodes)
+        offsets = [node.offset.copy() for node in held]
+        channels = [None if n.is_end_site() else n.rot_channels for n in held]
+
+        result = self._apply(edit, bvh_example, inplace)
+
+        assert not any(new is old for new, old in zip(result.nodes, held))
+        for node, offset, order in zip(held, offsets, channels):
+            np.testing.assert_array_equal(node.offset, offset)
+            if order is not None:
+                assert node.rot_channels == order
+
+    def test_positions_read_before_are_computed_again_after(
+        self, bvh_example, edit, inplace, computations
+    ):
+        bvh_example.node_positions()
+
+        result = self._apply(edit, bvh_example, inplace)
+        positions = result.node_positions()
+
+        assert computations.fk == 2
+        # World positions do not depend on world up; setting one spares
+        # the rebuilt clip an inference.
+        rebuilt = Bvh(
+            nodes=nodes_from_table(nodes_to_table(result.nodes)),
+            root_pos=result.root_pos,
+            joint_angles=result.joint_angles,
+            world_up="+z",
+        )
+        np.testing.assert_allclose(positions, rebuilt.node_positions(), atol=1e-9)
+
+    def test_the_new_skeleton_is_frozen(self, bvh_example, edit, inplace):
+        result = self._apply(edit, bvh_example, inplace)
+        with pytest.raises(AttributeError, match="frozen"):
+            result.root.rot_channels = ["Y", "X", "Z"]
+
+
+class TestRetargetFailsWhole:
+    def test_strict_retarget_that_raises_leaves_the_clip_unchanged(self, bvh_example):
+        joints = [n.name for n in bvh_example.nodes if not n.is_end_site()]
+        reference = bvh_example.scale(2.0).extract_joints(joints[:3])
+        before = [node.offset.copy() for node in bvh_example.nodes]
+
+        with pytest.raises(ValueError, match="strict=True"):
+            bvh_example.retarget(reference, strict=True, inplace=True)
+
+        for node, offset in zip(bvh_example.nodes, before):
+            np.testing.assert_array_equal(node.offset, offset)
 
 
 # =============================================================================
@@ -5533,9 +6616,7 @@ class TestAutoDetectLRPairs:
         """Skeleton with no L/R naming returns empty list."""
         from pybvh.transforms import auto_detect_lr_pairs
 
-        root = BvhRoot()
-        root._frozen = False
-        bvh = Bvh(nodes=[root])
+        bvh = Bvh(nodes=[BvhRoot()])
         assert auto_detect_lr_pairs(bvh) == []
 
 
@@ -5633,9 +6714,7 @@ class TestMatchesHierarchy:
 
     def test_atol_relaxes_offset_check(self, bvh_example):
         # Perturb offsets within atol and verify the looser check accepts.
-        nudged = bvh_example.copy()
-        for node in nudged.nodes:
-            node.offset = node.offset + 1e-8
+        nudged = _with_offsets(bvh_example, _offsets(bvh_example) + 1e-8)
         assert bvh_example.matches_hierarchy(nudged, atol=1e-6)
         assert not bvh_example.matches_hierarchy(nudged, atol=1e-10)
 
@@ -5823,12 +6902,13 @@ class TestBvhIAdd:
         assert id(bvh) == original_id
         assert len(bvh) == 2 * bvh_example.frame_count
 
-    def test_iadd_invalidates_world_up_cache(self, bvh_example):
+    def test_iadd_keeps_the_guessed_world_up(self, bvh_example, computations):
         bvh = bvh_example.copy()
-        _ = bvh.world_up  # populate cache
-        assert bvh._world_up_cached is not None
+        guessed = bvh.world_up
+        counted = computations.world_up
         bvh += bvh_example
-        assert bvh._world_up_cached is None
+        assert bvh.world_up == guessed
+        assert computations.world_up == counted
 
     def test_iadd_non_bvh_raises_type_error(self, bvh_example):
         bvh = bvh_example.copy()
@@ -5929,12 +7009,14 @@ class TestBvhSetItemErrors:
 class TestBvhDunderInvariants:
     """Cross-cutting invariants: cache, deepcopy, freeze, formatting."""
 
-    def test_setitem_invalidates_world_up_cache(self, bvh_example):
+    def test_setitem_infers_world_up_again(self, bvh_example, computations):
         bvh = bvh_example.copy()
-        _ = bvh.world_up  # populate
-        assert bvh._world_up_cached is not None
+        _ = bvh.world_up
+        inferred = computations.world_up
         bvh[0] = bvh_example[1]
-        assert bvh._world_up_cached is None
+        _ = bvh.world_up
+        _ = bvh.world_up
+        assert computations.world_up == inferred + 1
 
     def test_getitem_is_deep_independent(self, bvh_example):
         sub = bvh_example[:]
@@ -6025,23 +7107,33 @@ class TestEdges:
 class TestLRMappingProperty:
     """Tests for the bvh.lr_mapping cached property and setter (B1)."""
 
-    def test_bvh_example_names_source(self, bvh_example):
-        assert bvh_example.lr_mapping is not None
-        assert bvh_example._lr_mapping_source == "names"
-        assert len(bvh_example.lr_mapping) >= 8  # arms, forearms, hands, legs
+    def test_bvh_example_pairs_are_detected_from_names(self, bvh_example):
+        assert bvh_example.lr_mapping == EXAMPLE_NAME_PAIRS
 
     def test_setter_accepts_valid_mapping(self, bvh_example):
         bvh = bvh_example.copy()
         bvh.lr_mapping = {"LeftArm": "RightArm"}
         # Public lr_mapping is symmetric (both directions of each pair).
         assert bvh.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
-        assert bvh._lr_mapping_source == "user"
 
     def test_setter_none_clears(self, bvh_example):
         bvh = bvh_example.copy()
         bvh.lr_mapping = None
         assert bvh.lr_mapping is None
-        assert bvh._lr_mapping_source is None
+
+    def test_a_skeleton_change_keeps_the_users_choice(self, bvh_example):
+        """The user's mapping, and a mapping they cleared, are settings: a
+        skeleton change detects nothing from the names in their place."""
+        new_skeleton = bvh_example.scale(2.0)
+        cleared = bvh_example.copy()
+        cleared.lr_mapping = None
+        cleared.retarget(new_skeleton, inplace=True)
+        assert cleared.lr_mapping is None
+
+        chosen = bvh_example.copy()
+        chosen.lr_mapping = {"LeftArm": "RightArm"}
+        chosen.retarget(new_skeleton, inplace=True)
+        assert chosen.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
 
     def test_setter_rejects_empty_dict(self, bvh_example):
         bvh = bvh_example.copy()
@@ -6075,17 +7167,14 @@ class TestLRMappingProperty:
         with pytest.raises(TypeError):
             bvh.lr_mapping = [("LeftArm", "RightArm")]
 
-    def test_copy_propagates_cache(self, bvh_example):
-        bvh2 = bvh_example.copy()
-        assert bvh2.lr_mapping == bvh_example.lr_mapping
-        assert bvh2._lr_mapping_source == bvh_example._lr_mapping_source
+    def test_a_copy_has_the_name_detected_pairs(self, bvh_example):
+        assert bvh_example.copy().lr_mapping == EXAMPLE_NAME_PAIRS
 
     def test_copy_preserves_user_source(self, bvh_example):
         bvh = bvh_example.copy()
         bvh.lr_mapping = {"LeftArm": "RightArm"}
         bvh2 = bvh.copy()
         assert bvh2.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
-        assert bvh2._lr_mapping_source == "user"
 
 
 class TestLRMappingKwarg:
@@ -6104,20 +7193,15 @@ class TestLRMappingKwarg:
             lr_mapping={"LeftArm": "RightArm"},
         )
         assert bvh2.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
-        assert bvh2._lr_mapping_source == "user"
 
     def test_read_bvh_file_kwarg(self, bvh_example_path):
         bvh = read_bvh_file(bvh_example_path, lr_mapping={"LeftArm": "RightArm"})
         assert bvh.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
-        assert bvh._lr_mapping_source == "user"
 
     def test_read_bvh_file_without_kwarg(self, bvh_example_path):
         """Without the kwarg, A runs and finds the full mapping."""
         bvh = read_bvh_file(bvh_example_path)
-        assert bvh.lr_mapping is not None
-        assert bvh._lr_mapping_source == "names"
-        # Symmetric form: each pair counted twice (>= 8 pairs ⇒ >= 16 keys).
-        assert len(bvh.lr_mapping) >= 16
+        assert bvh.lr_mapping == EXAMPLE_NAME_PAIRS
 
     def test_read_bvh_directory_kwarg(self, tmp_path, bvh_example_path):
         import shutil
@@ -6129,7 +7213,6 @@ class TestLRMappingKwarg:
         assert len(clips) == 2
         for c in clips:
             assert c.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
-            assert c._lr_mapping_source == "user"
 
     def test_kwarg_precedence_over_A(self, bvh_example_path):
         """B3 kwarg wins over strategy A even when A would have succeeded."""
@@ -6138,7 +7221,6 @@ class TestLRMappingKwarg:
         assert bvh.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
         # Symmetric form: 1 logical pair ⇒ 2 keys.
         assert len(bvh.lr_mapping) == 2
-        assert bvh._lr_mapping_source == "user"
 
     def test_setter_precedence_over_A(self, bvh_example):
         """B1 setter (post-load) overrides whatever A produced."""
@@ -6147,7 +7229,6 @@ class TestLRMappingKwarg:
         bvh = bvh_example.copy()
         bvh.lr_mapping = {"LeftArm": "RightArm"}
         assert bvh.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
-        assert bvh._lr_mapping_source == "user"
 
 
 class TestLRMappingNoneConsumerBehavior:
@@ -6187,12 +7268,10 @@ class TestLRMappingExtendedNamingA:
     def test_dot_suffix(self):
         bvh = make_dot_lr_bvh()
         assert bvh.lr_mapping == {"Leg.L": "Leg.R", "Leg.R": "Leg.L"}
-        assert bvh._lr_mapping_source == "names"
 
     def test_underscore_suffix_lowercase(self):
         bvh = make_underscore_lr_bvh()
         assert bvh.lr_mapping == {"leg_l": "leg_r", "leg_r": "leg_l"}
-        assert bvh._lr_mapping_source == "names"
 
     def test_namespace_prefix(self):
         bvh = make_namespace_lr_bvh()
@@ -6200,24 +7279,20 @@ class TestLRMappingExtendedNamingA:
             "mixamorig:LeftLeg": "mixamorig:RightLeg",
             "mixamorig:RightLeg": "mixamorig:LeftLeg",
         }
-        assert bvh._lr_mapping_source == "names"
 
     def test_numbered_suffix(self):
         bvh = make_numbered_lr_bvh()
         assert bvh.lr_mapping == {"Leg.L.001": "Leg.R.001", "Leg.R.001": "Leg.L.001"}
-        assert bvh._lr_mapping_source == "names"
 
     def test_bare_substring_regression(self):
         """LeftEye/RightEye — no delimiter, must still match substring rule."""
         bvh = make_bare_substring_lr_bvh()
         assert bvh.lr_mapping == {"LeftEye": "RightEye", "RightEye": "LeftEye"}
-        assert bvh._lr_mapping_source == "names"
 
     def test_cryptic_names_return_none(self):
-        """Skeleton with no L/R cues → lr_mapping is None, source None."""
+        """Skeleton with no L/R cues → lr_mapping is None."""
         bvh = make_nameless_lr_bvh()
         assert bvh.lr_mapping is None
-        assert bvh._lr_mapping_source is None
 
 
 class TestMirrorWithExtendedA:
@@ -6378,7 +7453,6 @@ class TestStrategyASingleton:
         # Skeleton has 'LeftLeg' (matchable) + 'OtherLeg' (no L/R cue)
         # Mutual-match requirement: LeftLeg has no partner → not paired
         assert bvh.lr_mapping is None
-        assert bvh._lr_mapping_source is None
 
     def test_mirror_raises_on_singleton(self):
         """mirror() on a skeleton whose only L-named joint has no partner raises."""
@@ -6444,7 +7518,6 @@ class TestStrategyAMixedConventions:
     def test_both_conventions_detected(self):
         bvh = self._build_mixed_skeleton()
         assert bvh.lr_mapping is not None
-        assert bvh._lr_mapping_source == "names"
         # Both pairs must appear (symmetric form ⇒ 2 keys per logical pair)
         assert bvh.lr_mapping.get("LeftArm") == "RightArm"
         assert bvh.lr_mapping.get("RightArm") == "LeftArm"
@@ -6463,7 +7536,6 @@ class TestLRMappingMinorEdgeCases:
         """Root-only skeleton: strategy A is guarded (len(nodes) > 1) → lr_mapping is None."""
         bvh = Bvh()  # default: [BvhRoot()]
         assert bvh.lr_mapping is None
-        assert bvh._lr_mapping_source is None
 
     def test_parallel_directory_read_with_lr_mapping(self, tmp_path, bvh_example_path):
         """read_bvh_directory(parallel=True, lr_mapping=...) threads the kwarg through."""
@@ -6477,15 +7549,11 @@ class TestLRMappingMinorEdgeCases:
         assert len(clips) == 2
         for c in clips:
             assert c.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
-            assert c._lr_mapping_source == "user"
 
     def test_explicit_none_kwarg_falls_through_to_A(self, bvh_example_path):
         """read_bvh_file(path, lr_mapping=None) should behave as if kwarg was omitted."""
         bvh = read_bvh_file(bvh_example_path, lr_mapping=None)
-        assert bvh.lr_mapping is not None  # A ran and succeeded
-        assert bvh._lr_mapping_source == "names"
-        # Symmetric: 8 pairs ⇒ 16 keys.
-        assert len(bvh.lr_mapping) >= 16
+        assert bvh.lr_mapping == EXAMPLE_NAME_PAIRS
 
 
 # =============================================================================
@@ -6614,8 +7682,22 @@ class TestExtractJointsMetadata:
         bvh.lr_mapping = {"LeftArm": "RightArm", "LeftUpLeg": "RightUpLeg"}
         keep = [n for n in bvh.joint_names if n not in ("LeftArm", "RightArm")]
         sub = bvh.extract_joints(keep)
-        assert sub._lr_mapping_source == "user"
         assert sub.lr_mapping == {"LeftUpLeg": "RightUpLeg", "RightUpLeg": "LeftUpLeg"}
+
+    def test_name_detected_pairs_are_detected_on_the_kept_joints(self, bvh_example):
+        assert bvh_example.lr_mapping["LeftArm"] == "RightArm"
+        sub = bvh_example.extract_joints(["Hips", "LeftArm", "RightUpLeg", "LeftUpLeg"])
+        assert sub.lr_mapping == {"LeftUpLeg": "RightUpLeg", "RightUpLeg": "LeftUpLeg"}
+
+    def test_a_user_mapping_with_no_kept_pair_gives_the_name_detected_pairs(self, bvh_example):
+        bvh_example.lr_mapping = {"LeftArm": "RightArm"}
+        sub = bvh_example.extract_joints(["Hips", "LeftArm", "RightUpLeg", "LeftUpLeg"])
+        assert sub.lr_mapping == {"LeftUpLeg": "RightUpLeg", "RightUpLeg": "LeftUpLeg"}
+
+    def test_a_cleared_mapping_stays_cleared(self, bvh_example):
+        bvh_example.lr_mapping = None
+        sub = bvh_example.extract_joints(["Hips", "RightUpLeg", "LeftUpLeg"])
+        assert sub.lr_mapping is None
 
 
 class TestSliceConcatArePrivate:
@@ -6645,11 +7727,15 @@ class TestMirrorValidationCarryOver:
 
         bvh = make_pos_y_up_bvh()
         # Drop the left leg's end site so L/R end-site counts disagree
-        nodes = [n for n in bvh.nodes if n.name != "LeftFoot"]
-        left_leg = next(n for n in nodes if n.name == "LeftLeg")
-        left_leg._children = [c for c in left_leg.children if c.name != "LeftFoot"]
+        table = nodes_to_table(bvh.nodes)
+        dropped = bvh.node_index["LeftFoot"]
+        assert bvh.nodes[dropped].is_end_site()
+        del table[dropped]
+        for row in table:
+            if row["parent"] is not None and row["parent"] > dropped:
+                row["parent"] -= 1
         lopsided = Bvh(
-            nodes=nodes,
+            nodes=nodes_from_table(table),
             root_pos=bvh.root_pos.copy(),
             joint_angles=bvh.joint_angles.copy(),
             frame_time=bvh.frame_time,
@@ -6789,8 +7875,7 @@ class TestParsedAxisProperties:
 
     def test_rest_up_axis_is_none_for_a_degenerate_rest_pose(self):
         bvh = make_pos_y_up_bvh()
-        for node in bvh.nodes:
-            node.offset = np.zeros(3)
+        bvh = _with_offsets(bvh, np.zeros((len(bvh.nodes), 3)))
         assert bvh.rest_up is None
         assert bvh.rest_up_axis is None
         # forward stays defined — it falls back rather than returning None

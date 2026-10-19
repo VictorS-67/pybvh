@@ -192,7 +192,7 @@ df.head()
 #
 # A BVH skeleton is a **tree**: the root joint (usually the hips) has children (spine, left leg, right leg), each of which has its own children, and so on down to the fingertips or toes.
 #
-# pybvh represents this tree as a flat list of node objects, stored in `bvh.nodes`. Each node knows its parent and children, so you can traverse the tree in any direction.
+# pybvh represents this tree as a flat sequence of node objects in depth-first order, stored in `bvh.nodes` (a tuple). Each node knows its parent and children, so you can traverse the tree in any direction.
 
 # %%
 # The full list of nodes
@@ -202,7 +202,7 @@ for node in bvh.nodes:
 # %% [markdown]
 # There are three types of nodes:
 #
-# - **BvhRoot** — the root joint (always first in the list). Has position channels, rotation channels, and children.
+# - **BvhRoot** — the root joint (always first in `bvh.nodes`). Has position channels, rotation channels, and children.
 # - **BvhJoint** — a regular joint. Has rotation channels, children, and a parent.
 # - **BvhEndSite** — an end site (leaf node). Has only an offset and a parent. Represents the tip of a terminal bone (e.g., top of the head, tip of the toes).
 
@@ -219,7 +219,7 @@ print(type(bvh.nodes[8]).__name__, "  —", bvh.nodes[8].name)
 # %% [markdown]
 # ## Navigating the tree
 #
-# Each node has a `parent` pointer and (for joints) a `children` list. These point to the actual objects, so you can walk the tree directly.
+# Each node has a `parent` pointer and (for joints) a `children` tuple. These point to the actual objects, so you can walk the tree directly.
 
 # %%
 spine = bvh.nodes[1]
@@ -233,7 +233,7 @@ print(f"Children: {[c.name for c in spine.children]}")
 #
 # Each node has an **offset** — a 3D vector `[x, y, z]` from its parent to itself. This is the direction and length of the bone connecting the two joints. In the rest pose, stacking these offsets from root to any joint gives you that joint's 3D position.
 #
-# Each joint also has **rot_channels** — the Euler rotation order for that joint (e.g., `['Z', 'Y', 'X']`). Different joints can have different orders. This matters when converting between rotation representations (see Tutorial 3).
+# Each joint also has **rot_channels** — the Euler rotation order for that joint (e.g., `('Z', 'Y', 'X')`). Different joints can have different orders. This matters when converting between rotation representations (see Tutorial 3).
 
 # %%
 for node in bvh.nodes[:6]:
@@ -243,7 +243,9 @@ for node in bvh.nodes[:6]:
         print(f"{node.name:15s}  offset: {node.offset}  (end site — no rotation)")
 
 # %% [markdown]
-# The root also has a `pos_channels` property, indicating the order of its position channels (always `['X', 'Y', 'Z']` for standard BVH files). You can access the root directly with `bvh.root`.
+# The root also has a `pos_channels` property, indicating the order of its position channels (always `('X', 'Y', 'Z')` for standard BVH files). You can access the root directly with `bvh.root`.
+#
+# The nodes a `Bvh` holds are frozen: assigning a node's `name`, `offset`, `parent` or channels raises an error, because the clip's joint positions and name lookups are computed from them. To change a skeleton, edit it as a node table and build a new `Bvh`, as the [Skeleton Operations guide](https://victors-67.github.io/pybvh/guide/skeleton-ops/#editing-a-skeleton) shows.
 
 # %%
 print(f"Root joint:       {bvh.root.name}")

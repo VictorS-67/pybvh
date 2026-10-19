@@ -30,4 +30,4 @@ jobs:
         python -m pip install --upgrade pip
         pip install . --group dev
     - name: Run tests
-      run: pytest tests/ -v
+      run: python -m pytest tests/ -v

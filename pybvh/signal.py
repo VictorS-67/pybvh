@@ -1,6 +1,6 @@
 """Array-pure signal utilities.
 
-Numeric helpers that operate on plain NumPy arrays sampled along an axis — no :class:`~pybvh.bvh.Bvh` involved. The centerpiece is :func:`finite_difference`, the single derivative convention shared by the kinematics ladder (:mod:`pybvh.analysis`) and the geometry derivative kernels (:mod:`pybvh.geometry`); the rest are self-contained statistics, smoothing, spectrum, and simplification tools (no scipy).
+Numeric helpers that operate on plain NumPy arrays sampled along an axis — no :class:`~pybvh.bvh.Bvh` involved. The centerpiece is :func:`finite_difference`, the one finite-difference convention in pybvh: the kinematics ladder of :mod:`pybvh.analysis` differentiates through it at the order it needs (``order=2`` for accelerations, 3 for jerk), and the geometry derivative kernels of :mod:`pybvh.geometry` through its first order. A higher order applies the stencil that many times and pads or crops once, at the end; the function's docstring says when that differs from calling it repeatedly. The rest are self-contained statistics, smoothing, spectrum, and simplification tools (no scipy).
 """
 
 from __future__ import annotations
@@ -15,69 +15,128 @@ def finite_difference(
     arr: npt.NDArray[np.float64],
     dt: float,
     *,
+    order: int = 1,
     stencil: str = "central",
     pad: str = "edge",
     axis: int = 0,
 ) -> npt.NDArray[np.float64]:
-    """Differentiate a sampled array along one axis.
+    """Differentiate a sampled array ``order`` times along one axis.
 
-    The single finite-difference convention shared across pybvh — the
-    kinematics ladder (``node_velocities`` → ``…accelerations`` → jerk)
-    and the geometry derivative kernels (``curvature``, ``torsion``,
-    ``movement_phase``) all route through this, so derivatives composed
-    across the two stay consistent.
+    The one finite-difference convention in pybvh. The kinematics ladder
+    of :mod:`pybvh.analysis` (velocities, accelerations, the speed
+    derivative, jerk and the ``root_trajectory`` velocities) and the
+    geometry derivative kernels of :mod:`pybvh.geometry` (``curvature``,
+    ``torsion``, ``movement_phase``) differentiate through it. A current
+    limitation: the geometry kernels call it at order 1 once per
+    derivative rather than with ``order``, so under
+    ``stencil="forward"`` with ``pad="edge"`` their second and third
+    derivatives carry the tail of repeated calls described next.
+
+    A higher ``order`` applies the stencil ``order`` times and pads or
+    crops **once**, at the end. The alternative, calling this function
+    ``order`` times, pads after every pass. Where both are defined, the
+    two agree for ``stencil="central"`` and for ``pad="none"``. They are
+    not always both defined: under ``"central"`` with ``pad="none"``, a
+    call can crop a short input to one sample, which the next call
+    refuses, while ``order`` returns the empty result. With
+    ``stencil="forward"`` and ``pad="edge"`` they differ at order 2 and
+    above in the last ``order`` samples. There the one-pass form repeats
+    the last valid ``order``-th difference, while repeated calls
+    difference each padded copy against the sample it copies, which
+    leaves the last two samples exactly 0, a derivative the signal does
+    not have.
 
     Parameters
     ----------
     arr : ndarray
         Samples taken at a uniform step ``dt`` along ``axis``.
     dt : float
-        Sample spacing (e.g. ``frame_time``).
+        Sample spacing (e.g. ``frame_time``). The result is in units of
+        ``arr`` per ``dt**order``.
+    order : int, keyword-only, optional
+        How many times the stencil is applied: 1 (default) is the first
+        derivative, 2 the second, and so on.
     stencil : {"central", "forward"}, optional
         ``"central"`` (default): ``np.gradient`` — second-order accurate
         interior, one-sided at the boundary.  ``"forward"``:
         ``(arr[i+1] - arr[i]) / dt``, first-order, causal.
     pad : {"edge", "none"}, optional
         ``"edge"`` (default): output keeps the input length along
-        ``axis``.  ``"none"``: drop the boundary samples the stencil
-        cannot define — central drops one at each end, forward drops the
-        trailing one.
+        ``axis``; ``"central"`` gets its boundary samples from the
+        one-sided differences of ``np.gradient``, and ``"forward"``
+        repeats its last valid value over the last ``order`` samples.
+        ``"none"``: drop the boundary samples the repeated stencil
+        cannot define — central drops ``order`` at each end, forward
+        drops the trailing ``order``. An input too short to keep one
+        sample gives an empty result.
     axis : int, optional
         Axis to differentiate along (default 0, the frame axis).
 
     Returns
     -------
     ndarray
-        The derivative. Same shape as ``arr`` when ``pad="edge"``;
-        shorter by 2 (central) or 1 (forward) along ``axis`` when
+        The ``order``-th derivative. Same shape as ``arr`` when
+        ``pad="edge"``; shorter along ``axis`` by ``2 * order``
+        (central) or ``order`` (forward), down to empty, when
         ``pad="none"``.
 
     Raises
     ------
+    TypeError
+        If ``order`` is not an int. A bool is refused rather than read
+        as 0 or 1.
     ValueError
-        If ``stencil`` or ``pad`` is invalid.
+        If ``stencil`` or ``pad`` is invalid, ``order`` is below 1, or
+        ``arr`` is too short along ``axis`` to compute anything: fewer
+        than 2 samples under ``"central"`` (``np.gradient`` needs two,
+        at any order and either pad), or fewer than ``order + 1`` under
+        ``"forward"`` with ``pad="edge"`` (no valid ``order``-th
+        difference to repeat). A caller with a stricter notion of
+        enough samples, such as the clip minimums of
+        :mod:`pybvh.analysis`, checks it before calling.
     """
     if stencil not in ("central", "forward"):
         raise ValueError(f"stencil must be 'central' or 'forward', got {stencil!r}")
     if pad not in ("edge", "none"):
         raise ValueError(f"pad must be 'edge' or 'none', got {pad!r}")
+    # bool is an int subclass; catch it before the int check.
+    if isinstance(order, bool) or not isinstance(order, (int, np.integer)):
+        raise TypeError(f"order must be an int, got {type(order).__name__} {order!r}")
+    if order < 1:
+        raise ValueError(f"order must be at least 1, got {order}")
+    # An unsigned NumPy integer would wrap in the -order crop below.
+    order = int(order)
 
     arr = np.asarray(arr, dtype=np.float64)
+    n_samples = arr.shape[axis]
+    if stencil == "central" and n_samples < 2:
+        raise ValueError(
+            f"stencil='central' requires at least 2 samples along axis {axis} (have {n_samples})."
+        )
+    if stencil == "forward" and pad == "edge" and n_samples < order + 1:
+        raise ValueError(
+            f"stencil='forward', pad='edge' at order {order} requires at least "
+            f"{order + 1} samples along axis {axis} (have {n_samples})."
+        )
 
+    out = arr
     if stencil == "central":
-        d = np.gradient(arr, dt, axis=axis)
+        for _ in range(order):
+            out = np.gradient(out, dt, axis=axis)
         if pad == "edge":
-            return d
+            return out
         interior = [slice(None)] * arr.ndim
-        interior[axis] = slice(1, -1)
-        return d[tuple(interior)]
+        interior[axis] = slice(order, -order)
+        return out[tuple(interior)]
 
     # stencil == "forward"
-    fd = np.diff(arr, axis=axis) / dt
+    for _ in range(order):
+        out = np.diff(out, axis=axis) / dt
     if pad == "none":
-        return fd
-    last = np.take(fd, [-1], axis=axis)  # replicate the trailing value
-    return np.concatenate([fd, last], axis=axis)
+        return out
+    last = np.take(out, [-1], axis=axis)
+    tail = np.repeat(last, order, axis=axis)
+    return np.concatenate([out, tail], axis=axis)
 
 
 TemporalStats = namedtuple("TemporalStats", ["mean", "std", "min", "max", "skewness", "kurtosis"])

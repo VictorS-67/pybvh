@@ -1072,13 +1072,8 @@ def foot_contacts(
     ground_contacts : The same detection engine for arbitrary (non-foot) joint sets — hands, knees, props.
     auto_detect_foot_joints : The detection used when ``foot_joints`` is None.
     """
-    # Rest-pose coords are used by auto-detect and by the core's scale
-    # estimate and height-signal sanity check; compute once, hand down.
-    rest_coords: npt.NDArray[np.float64] | None = None
-
     if foot_joints is None:
-        rest_coords = bvh._rest_pose()
-        foot_joints = auto_detect_foot_joints(bvh, _rest_coords=rest_coords)
+        foot_joints = auto_detect_foot_joints(bvh)
         if not foot_joints:
             raise ValueError(
                 "Could not auto-detect foot joints. Please provide "
@@ -1108,7 +1103,6 @@ def foot_contacts(
         height_reference=height_reference,
         return_info=return_info,
         check_rest_height=True,
-        rest_coords=rest_coords,
     )
 
 
@@ -1298,11 +1292,10 @@ def _contacts_core(
     height_reference: str,
     return_info: bool,
     check_rest_height: bool,
-    rest_coords: npt.NDArray[np.float64] | None = None,
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
     """Shared contact-detection engine behind :func:`foot_contacts` and :func:`ground_contacts`.
 
-    Both entry points resolve their joint arguments into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists and delegate here. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet. ``rest_coords`` forwards an already-computed rest pose so auto-detection and the scale/sanity logic share one FK evaluation.
+    Both entry points resolve their joint arguments into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists and delegate here. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet.
     """
     if method not in ("velocity", "height", "combined"):
         raise ValueError(f"Unknown method {method!r}. Choose 'combined', 'velocity', or 'height'.")
@@ -1352,23 +1345,17 @@ def _contacts_core(
     needs_vel = method in ("velocity", "combined")
     needs_height = method in ("height", "combined")
 
-    # Rest-pose coords drive both the skeleton-scale estimate and the
-    # height-signal sanity check.  Compute once (unless the caller already
-    # did), reuse.
     needs_scale = (needs_vel and vel_threshold is None) or (
         needs_height and height_threshold is None
     )
-    if (needs_scale or (needs_height and check_rest_height)) and rest_coords is None:
-        rest_coords = bvh._rest_pose()
+    rest_coords = bvh._rest_pose()
 
     scale: float | None = None
     if needs_scale:
-        assert rest_coords is not None
         scale = _skeleton_scale(rest_coords, joint_indices)
 
     # ---- Sanity check for the height signal (feet-presuming entry only) ----
     if needs_height and check_rest_height:
-        assert rest_coords is not None
         rest_foot_height = rest_coords[joint_indices, up_idx].mean() * up_sign
         rest_hip_height = rest_coords[0, up_idx] * up_sign
         if rest_foot_height > rest_hip_height:
@@ -1504,7 +1491,7 @@ def _contacts_core(
         if height_adaptive_used is not None:
             info["adaptive_used_height"] = height_adaptive_used
 
-    diag_scale = scale if scale is not None else _skeleton_scale(bvh._rest_pose(), joint_indices)
+    diag_scale = scale if scale is not None else _skeleton_scale(rest_coords, joint_indices)
     if clearance is None:  # method="velocity": derive a clearance for diagnostics
         h = joint_coords[:, :, up_idx] * up_sign
         clearance = h - _estimate_floor(h)
@@ -1512,11 +1499,7 @@ def _contacts_core(
     return contacts, info
 
 
-def auto_detect_foot_joints(
-    bvh: Bvh,
-    *,
-    _rest_coords: npt.NDArray[np.float64] | None = None,
-) -> list[str]:
+def auto_detect_foot_joints(bvh: Bvh) -> list[str]:
     """Auto-detect foot joint names by topology.
 
     Algorithm:
@@ -1603,8 +1586,7 @@ def auto_detect_foot_joints(
     most_distal = [n for n in with_tip if not _has_candidate_descendant(n)]
 
     # Step 4: stable sort — height (ascending) then name (alphabetical)
-    rest_coords = _rest_coords if _rest_coords is not None else bvh._rest_pose()
-    assert isinstance(rest_coords, np.ndarray)  # mypy narrowing
+    rest_coords = bvh._rest_pose()
 
     # Identity-keyed: node names are not unique in general, and a name
     # lookup here would read another node's height into the sort.

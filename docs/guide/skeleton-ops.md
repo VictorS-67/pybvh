@@ -78,7 +78,7 @@ table[i]["name"] = "Spine0"
 edited = bvh.copy(nodes=table)
 ```
 
-The table holds copies, so editing it leaves `bvh` as it was. `copy(nodes=...)` also takes a node list, such as another clip's `nodes` or one built with `nodes_from_table`; it reads the list and builds nodes of its own. The copy carries the motion, the frame time, the source path and your settings, as `copy()` does.
+The table holds copies, so editing it leaves `bvh` as it was. `copy(nodes=...)` also takes a node list, such as another clip's `nodes` or one built with `nodes_from_table`, and takes it over as `Bvh(...)` does: the copy owns those nodes and freezes them, so a later edit to one of them raises instead of missing the clip, and nodes another clip owns are shared, being frozen already. A copy that raises leaves the list editable. A table, being data, gives the copy nodes of its own. The copy carries the motion, the frame time, the source path and your settings, as `copy()` does.
 
 The motion is matched to the joints by position, so keep one row per joint of `joint_angles`, in the same order, and keep each joint's Euler order: a different joint count raises `ValueError`, and so does a changed order, since the angles are only meaningful in the order they were recorded in; `change_euler_order` converts them with the order. To keep a subset of the joints, use `extract_joints`, which drops their columns too. An L/R mapping you set follows its joints by position, so a renamed joint keeps its pair under the new name; pairs detected from the names are detected again from the new names. World up is inherited, set or guessed, as by every clip pybvh derives, since new offsets do not change which way is up; `edited.world_up = edited.world_up_inferred` guesses it from the new skeleton.
 

@@ -3,8 +3,9 @@
 :func:`nodes_to_table` and :func:`nodes_from_table` carry a skeleton as
 plain data and build it back, wired and checked; ``nodes_from_table`` is
 the one place a node tree is built, for the parser, ``df_to_bvh``,
-``Bvh.copy(nodes=...)`` and ``Bvh.extract_joints``. ``_check_node_tree`` is the test
-:class:`~pybvh.Bvh` runs on a finished tree when it is constructed.
+``Bvh.copy(nodes=table)`` and ``Bvh.extract_joints``. ``_check_node_list``
+is the test :class:`~pybvh.Bvh` runs on the nodes it is given when it is
+constructed, and ``Bvh.copy`` on a node list it takes over.
 """
 
 from __future__ import annotations
@@ -29,6 +30,25 @@ def _walk_depth_first(root: BvhNode) -> Iterator[tuple[BvhNode, BvhNode | None]]
         yield node, reached_from
         if not node.is_end_site():
             stack.extend((child, node) for child in reversed(node.children))  # type: ignore[attr-defined]
+
+
+def _check_node_list(nodes: Sequence[object]) -> None:
+    """Raise ``ValueError`` unless ``nodes`` is a node list a clip can own.
+
+    Every element a ``BvhNode``, a ``BvhRoot`` first, and one tree in
+    depth-first order (:func:`_check_node_tree`). :class:`~pybvh.Bvh`
+    checks the nodes it is given with it, and ``copy(nodes=...)`` the
+    node list it takes over, before either freezes a node.
+    """
+    if any(not isinstance(node, BvhNode) for node in nodes):
+        raise ValueError("nodes should be a list or tuple of BvhNode objects")
+    if len(nodes) == 0:
+        raise ValueError("nodes must hold at least one node, the root.")
+    # The root's type is checked before the walk, which asks every
+    # node its kind; a bare BvhNode cannot answer that.
+    if not isinstance(nodes[0], BvhRoot):
+        raise ValueError("The first element of nodes should be a BvhRoot object")
+    _check_node_tree(cast(Sequence[BvhNode], nodes))
 
 
 def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
@@ -356,16 +376,24 @@ def nodes_from_table(table: Sequence[Mapping[str, Any]]) -> list[BvhNode]:
 
 
 def _nodes_from_table_or_list(
-    skeleton: Sequence[BvhNode] | Sequence[Mapping[str, Any]], argument: str
+    skeleton: Sequence[BvhNode] | Sequence[Mapping[str, Any]],
+    argument: str,
+    *,
+    take_list: bool,
 ) -> list[BvhNode]:
-    """Build fresh nodes from *skeleton*, a node table or a node list.
+    """The nodes a clip is built on from *skeleton*, a node table or a
+    node list.
 
-    The form is decided by the type of the first element: a ``BvhNode``
-    means a node list, read through ``nodes_to_table``; a ``Mapping``
-    means a node table. Both go through ``nodes_from_table``, so the
-    nodes returned are new and unowned whatever the caller passed, and
-    a node list owned by a clip is read, never shared. *argument* is
-    the parameter's name, for the messages.
+    The form is decided by the type of the first element. A ``Mapping``
+    means a node table, which is data: ``nodes_from_table`` builds new,
+    unowned nodes from it. A ``BvhNode`` means a node list. With
+    *take_list*, the list's own nodes are returned, checked as
+    :class:`~pybvh.Bvh` checks the nodes it is given, for the caller to
+    own as the constructor does (nodes another clip owns are frozen, so
+    they are shared). Without it, the list is read through
+    ``nodes_to_table`` into new nodes, so a node list owned by a clip is
+    read, never shared. *argument* is the parameter's name, for the
+    messages.
     """
     if isinstance(skeleton, Mapping):
         raise TypeError(
@@ -381,6 +409,9 @@ def _nodes_from_table_or_list(
     # which narrowing a union of sequences by one element cannot.
     first = skeleton[0]
     if isinstance(first, BvhNode):
+        if take_list:
+            _check_node_list(skeleton)
+            return list(cast(Sequence[BvhNode], skeleton))
         return nodes_from_table(nodes_to_table(cast(Sequence[BvhNode], skeleton)))
     if isinstance(first, Mapping):
         return nodes_from_table(cast(Sequence[Mapping[str, Any]], skeleton))

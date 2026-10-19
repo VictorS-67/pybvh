@@ -34,6 +34,7 @@ from ._warnings import user_stacklevel
 from .bvhnode import BvhEndSite as BvhEndSite
 from .bvhnode import BvhJoint, BvhNode, BvhRoot, _is_joint
 from .node_tree import (
+    _check_node_list,
     _check_node_tree,
     _nodes_from_table_or_list,
     nodes_from_table,
@@ -131,6 +132,48 @@ def _checked_joint_angles(value: npt.ArrayLike) -> npt.NDArray[np.float64]:
     if arr.ndim != 3 or arr.shape[2] != 3:
         raise ValueError(f"joint_angles must have shape (F, J, 3), got {arr.shape}")
     return arr
+
+
+def _validated_lr_mapping(mapping: dict[str, str], joint_names: Sequence[str]) -> dict[str, str]:
+    """The user's lr_mapping dict, checked against ``joint_names``, one
+    direction per pair.
+
+    Validation: both names must exist in ``joint_names``; no
+    self-pairs; no duplicate names on either side of a pair. The result
+    is stored one-directional (left to right); the public ``lr_mapping``
+    property gives the symmetric view, so every internal consumer that
+    iterates its items gets one (left, right) tuple per pair.
+    """
+    if not isinstance(mapping, dict):
+        raise TypeError(f"lr_mapping must be a dict, got {type(mapping).__name__}")
+    if not mapping:
+        raise ValueError("lr_mapping must have at least one pair; pass None to clear the mapping.")
+    # Accept symmetric input ({L: R, R: L, ...}) — canonicalize to
+    # one-directional by deduping pairs by frozenset before
+    # validating. Each pair appears exactly once afterward.
+    canonical: dict[str, str] = dict(_iter_unique_lr_pairs(mapping))
+    joint_name_set = set(joint_names)
+    lefts_seen: set[str] = set()
+    rights_seen: set[str] = set()
+    for left, right in canonical.items():
+        if not isinstance(left, str) or not isinstance(right, str):
+            raise TypeError(
+                f"lr_mapping keys and values must be str, "
+                f"got {type(left).__name__}/{type(right).__name__}"
+            )
+        if left == right:
+            raise ValueError(f"lr_mapping self-pair not allowed: {left!r}")
+        if left not in joint_name_set:
+            raise ValueError(f"lr_mapping left joint {left!r} not in joint_names")
+        if right not in joint_name_set:
+            raise ValueError(f"lr_mapping right joint {right!r} not in joint_names")
+        if left in lefts_seen or left in rights_seen:
+            raise ValueError(f"lr_mapping joint {left!r} appears in multiple pairs")
+        if right in lefts_seen or right in rights_seen:
+            raise ValueError(f"lr_mapping joint {right!r} appears in multiple pairs")
+        lefts_seen.add(left)
+        rights_seen.add(right)
+    return canonical
 
 
 def _build_rest_pose(bvh: Bvh) -> npt.NDArray[np.float64]:
@@ -235,15 +278,9 @@ class Bvh:
 
         if nodes is None:
             nodes = [BvhRoot()]
-        if not isinstance(nodes, (list, tuple)) or any(not isinstance(x, BvhNode) for x in nodes):
+        if not isinstance(nodes, (list, tuple)):
             raise ValueError("nodes should be a list or tuple of BvhNode objects")
-        if len(nodes) == 0:
-            raise ValueError("nodes must hold at least one node, the root.")
-        # The root's type is checked before the walk, which asks every
-        # node its kind; a bare BvhNode cannot answer that.
-        if not isinstance(nodes[0], BvhRoot):
-            raise ValueError("The first element of nodes should be a BvhRoot object")
-        _check_node_tree(nodes)
+        _check_node_list(nodes)
         # A tuple of the clip's own: neither an edit to the caller's list
         # nor one through ``bvh.nodes`` can change the skeleton behind the
         # indexes and the derived values.
@@ -289,21 +326,24 @@ class Bvh:
         # way.
         self._freeze_skeleton()
 
-    def _check_motion_fits_skeleton(self) -> None:
+    def _check_motion_fits_skeleton(self, nodes: Sequence[BvhNode] | None = None) -> None:
         """Raise ``ValueError`` unless the motion has one frame count and
-        one column per joint of the skeleton.
+        one column per joint of ``nodes`` (default: the clip's own).
 
-        The constructor runs it on the motion it is given, and the rebuild
-        of a derived clip or a pickle on the motion it carries, so a
-        skeleton handed to ``copy(nodes=...)`` is held to the same check.
+        The constructor runs it on the motion it is given, the rebuild of
+        a derived clip or a pickle on the motion it carries, and
+        ``copy(nodes=...)`` on the skeleton it is given, before building
+        the copy, so that skeleton is held to the same check.
         """
+        if nodes is None:
+            nodes = self.nodes
         if self._root_pos.shape[0] != self._joint_angles.shape[0]:
             raise ValueError(
                 f"root_pos and joint_angles disagree on frame count: "
                 f"root_pos has {self._root_pos.shape[0]} frames, "
                 f"joint_angles has {self._joint_angles.shape[0]}."
             )
-        joint_count = sum(1 for n in self.nodes if not n.is_end_site())
+        joint_count = sum(1 for n in nodes if not n.is_end_site())
         if self._joint_angles.shape[1] != joint_count:
             raise ValueError(
                 f"joint_angles has {self._joint_angles.shape[1]} joints "
@@ -777,9 +817,11 @@ class Bvh:
             A skeleton for the copy, the way to change a clip's frozen
             skeleton: ``table = bvh.to_node_table()``, edit the rows, then
             ``bvh.copy(nodes=table)``. A node table or a node list, as
-            :meth:`from_df` takes; a node list is read through
-            :func:`~pybvh.nodes_to_table`, so the copy builds nodes of its
-            own and never freezes or shares the ones given. The motion
+            :meth:`from_df` takes. A table is data: the copy builds nodes
+            of its own from it. A node list is taken over as the
+            constructor takes one: the copy owns those nodes and freezes
+            them (nodes another clip owns are shared, being frozen), and
+            a copy that raises leaves them editable. The motion
             binds the joints by position: joint *i* of ``nodes`` takes
             column *i* of ``joint_angles``, so names and offsets may
             change, the joint count may not, and neither may a joint's
@@ -820,18 +862,17 @@ class Bvh:
             return self._derive_clip(
                 root_pos=self._root_pos.copy(), joint_angles=self._joint_angles.copy()
             )
-        edited = self._derive_clip(
-            root_pos=self._root_pos.copy(),
-            joint_angles=self._joint_angles.copy(),
-            nodes=_nodes_from_table_or_list(nodes, "nodes"),
-        )
+        new_nodes = _nodes_from_table_or_list(nodes, "nodes", take_list=True)
+        # Every check runs before the copy is built, as in the constructor:
+        # building it freezes the nodes, and a copy that raises must leave
+        # a node list it was given editable, as a Bvh(...) that raises does.
         joints = [node for node in self.nodes if _is_joint(node)]
-        new_joints = [node for node in edited.nodes if _is_joint(node)]
+        new_joints = [node for node in new_nodes if _is_joint(node)]
         # A clip built without motion holds (0, 0, 3) angles, which bind no
-        # joint: it takes any skeleton, as the derivation does. Otherwise
-        # the derivation checked that the joint counts match.
-        bound = len(new_joints) == len(joints)
-        if bound and self._joint_angles.shape[:2] != (0, 0):
+        # joint: it takes any skeleton.
+        has_motion = self._joint_angles.shape[:2] != (0, 0)
+        if has_motion:
+            self._check_motion_fits_skeleton(new_nodes)
             for joint, new_joint in zip(joints, new_joints, strict=True):
                 old_order = "".join(joint.rot_channels)
                 new_order = "".join(new_joint.rot_channels)
@@ -845,9 +886,9 @@ class Bvh:
                     )
         setting = self._lr_mapping_setting
         if isinstance(setting, dict):
-            if bound:
+            new_names = [joint.name for joint in new_joints]
+            if len(new_joints) == len(joints):
                 index = self.joint_index
-                new_names = [joint.name for joint in new_joints]
                 # The mapping goes by name, so it cannot hold a mapped joint
                 # whose new name another joint carries too: refuse before
                 # the renamed mapping overwrites a pair or names that joint.
@@ -872,7 +913,14 @@ class Bvh:
                 }
             # Unbound (a clip without motion took another joint count), the
             # names are all there is to go by.
-            edited._validate_and_set_lr_mapping(setting)
+            setting = _validated_lr_mapping(setting, new_names)
+        edited = self._derive_clip(
+            root_pos=self._root_pos.copy(),
+            joint_angles=self._joint_angles.copy(),
+            nodes=new_nodes,
+        )
+        if isinstance(setting, dict):
+            edited._lr_mapping_setting = setting
         return edited
 
     def _derive_clip(
@@ -1447,47 +1495,8 @@ class Bvh:
         return pairs
 
     def _validate_and_set_lr_mapping(self, mapping: dict[str, str]) -> None:
-        """Validate the user's lr_mapping dict and make it the mapping in effect.
-
-        Validation: both names must exist in ``joint_names``; no
-        self-pairs; no duplicate names on either side of a pair.
-        """
-        if not isinstance(mapping, dict):
-            raise TypeError(f"lr_mapping must be a dict, got {type(mapping).__name__}")
-        if not mapping:
-            raise ValueError(
-                "lr_mapping must have at least one pair; pass None to clear the mapping."
-            )
-        # Accept symmetric input ({L: R, R: L, ...}) — canonicalize to
-        # one-directional by deduping pairs by frozenset before
-        # validating. Each pair appears exactly once afterward.
-        canonical: dict[str, str] = dict(_iter_unique_lr_pairs(mapping))
-        joint_name_set = set(self.joint_names)
-        lefts_seen: set[str] = set()
-        rights_seen: set[str] = set()
-        for left, right in canonical.items():
-            if not isinstance(left, str) or not isinstance(right, str):
-                raise TypeError(
-                    f"lr_mapping keys and values must be str, "
-                    f"got {type(left).__name__}/{type(right).__name__}"
-                )
-            if left == right:
-                raise ValueError(f"lr_mapping self-pair not allowed: {left!r}")
-            if left not in joint_name_set:
-                raise ValueError(f"lr_mapping left joint {left!r} not in joint_names")
-            if right not in joint_name_set:
-                raise ValueError(f"lr_mapping right joint {right!r} not in joint_names")
-            if left in lefts_seen or left in rights_seen:
-                raise ValueError(f"lr_mapping joint {left!r} appears in multiple pairs")
-            if right in lefts_seen or right in rights_seen:
-                raise ValueError(f"lr_mapping joint {right!r} appears in multiple pairs")
-            lefts_seen.add(left)
-            rights_seen.add(right)
-        # Stored one-directional (left → right). Symmetric view is
-        # produced by the public `lr_mapping` property — this keeps
-        # every internal consumer that iterates `_lr_mapping.items()`
-        # working with one (left, right) tuple per pair.
-        self._lr_mapping_setting = canonical
+        """Validate the user's lr_mapping dict and make it the mapping in effect."""
+        self._lr_mapping_setting = _validated_lr_mapping(mapping, self.joint_names)
 
     def forward_at(
         self,

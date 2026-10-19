@@ -188,7 +188,7 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
             "node in depth-first order and parent as the parent's index, or "
             "bvh.nodes. See the CHANGELOG for the migration."
         )
-    nodes = _nodes_from_table_or_list(hier, "hier")
+    nodes = _nodes_from_table_or_list(hier, "hier", take_list=False)
     time_values = df[_time_label(df)].to_numpy()
     frames = _motion_columns(nodes, df).to_numpy()
 

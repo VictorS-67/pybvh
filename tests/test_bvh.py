@@ -3159,9 +3159,17 @@ class TestCopyWithNodes:
                 row["name"] = "LeftUpperArm"
         return table
 
-    def test_a_table_gives_the_clip_bvh_builds_from_it(self, bvh_example):
+    @pytest.fixture(params=["table", "node_list"])
+    def as_nodes(self, request):
+        """The form a test hands its node table to ``copy(nodes=...)`` in:
+        the table itself, or a node list built from it."""
+        if request.param == "table":
+            return lambda table: table
+        return nodes_from_table
+
+    def test_a_skeleton_gives_the_clip_bvh_builds_from_it(self, bvh_example, as_nodes):
         table = self._edited_table(bvh_example)
-        edited = bvh_example.copy(nodes=table)
+        edited = bvh_example.copy(nodes=as_nodes(table))
         built = Bvh(
             nodes=nodes_from_table(table),
             root_pos=bvh_example.root_pos,
@@ -3172,40 +3180,119 @@ class TestCopyWithNodes:
         np.testing.assert_array_equal(edited.node_positions(), built.node_positions())
         assert edited.frame_time == bvh_example.frame_time
 
-    def test_a_node_list_gives_the_clip_its_table_gives(self, bvh_example):
+    def test_a_node_list_is_taken_over_as_bvh_takes_it(self, bvh_example):
         table = self._edited_table(bvh_example)
         nodes = nodes_from_table(table)
         edited = bvh_example.copy(nodes=nodes)
+        assert all(mine is given for mine, given in zip(edited.nodes, nodes, strict=True))
         np.testing.assert_array_equal(
             edited.node_positions(), bvh_example.copy(nodes=table).node_positions()
         )
-        # The copy reads the list and keeps nodes of its own: the caller's
-        # list is not frozen, and an edit to it does not reach the copy.
-        nodes[0].name = "Pelvis"
-        assert edited.nodes[0].name == bvh_example.nodes[0].name
+        # The copy owns them, so an edit to a node the caller holds fails
+        # loudly instead of missing the clip.
+        with pytest.raises(AttributeError, match=f"offset of node 'Spine'.*{_THE_WAY}"):
+            nodes[1].offset = nodes[1].offset + 1.0
 
-    def test_another_clips_nodes_are_read_not_shared(self, bvh_example):
+    def test_another_clips_nodes_are_shared(self, bvh_example):
+        """Owned nodes are frozen, so two clips can hold them safely."""
         donor = bvh_example.scale(2.0)
         edited = bvh_example.copy(nodes=donor.nodes)
-        assert all(mine is not theirs for mine, theirs in zip(edited.nodes, donor.nodes))
+        assert all(mine is theirs for mine, theirs in zip(edited.nodes, donor.nodes, strict=True))
         np.testing.assert_array_equal(_offsets(edited), _offsets(donor))
 
-    def test_the_source_is_unchanged(self, bvh_example):
+    def test_the_sources_own_nodes_are_shared(self, bvh_example):
+        edited = bvh_example.copy(nodes=bvh_example.nodes)
+        assert all(
+            mine is theirs for mine, theirs in zip(edited.nodes, bvh_example.nodes, strict=True)
+        )
+        assert edited == bvh_example
+
+    def test_a_table_gives_nodes_of_the_copys_own(self, bvh_example):
+        table = bvh_example.to_node_table()
+        edited = bvh_example.copy(nodes=table)
+        again = bvh_example.copy(nodes=table)
+        held = {id(node) for node in [*bvh_example.nodes, *again.nodes]}
+        assert not any(id(node) in held for node in edited.nodes)
+
+    @staticmethod
+    def _order_changed(bvh):
+        table = bvh.to_node_table()
+        next(row for row in table if row["name"] == "LeftArm")["rot_channels"] = "ZYX"
+        return table, "Euler order"
+
+    @staticmethod
+    def _joint_added(bvh):
+        table = bvh.to_node_table()
+        table.append({"name": "Tail", "parent": 0, "offset": [0, 0, -1], "rot_channels": "ZYX"})
+        table.append({"parent": len(table) - 1, "offset": [0, 0, -1]})
+        return table, "non-end-site joints"
+
+    @staticmethod
+    def _mapped_joints_renamed_alike(bvh):
+        bvh.lr_mapping = {"LeftShoulder": "RightShoulder", "LeftArm": "RightArm"}
+        table = bvh.to_node_table()
+        for row in table:
+            if row["name"] in ("LeftShoulder", "LeftArm"):
+                row["name"] = "Left"
+        return table, "identifies joints by name"
+
+    @staticmethod
+    def _root_position_order_changed(bvh):
+        table = bvh.to_node_table()
+        table[0]["pos_channels"] = "ZYX"
+        return table, "Non-standard root position channel order"
+
+    @staticmethod
+    def _mapped_name_missing_without_motion(bvh):
+        """A clip without motion takes another joint count, and its mapping
+        then goes by name."""
+        bvh = Bvh(nodes=nodes_from_table(bvh.to_node_table()))
+        bvh.lr_mapping = {"LeftArm": "RightArm"}
+        table, _ = TestCopyWithNodes._joint_added(bvh)
+        next(row for row in table if row["name"] == "LeftArm")["name"] = "LeftUpperArm"
+        return bvh, table, "'LeftArm' not in joint_names"
+
+    REFUSALS = {
+        "euler_order": _order_changed,
+        "joint_count": _joint_added,
+        "rename_collision": _mapped_joints_renamed_alike,
+        "root_position_order": _root_position_order_changed,
+    }
+
+    @pytest.mark.parametrize("refusal", REFUSALS.values(), ids=REFUSALS.keys())
+    def test_a_refused_node_list_stays_editable(self, bvh_example, refusal):
+        """As after a Bvh(...) that raises: the copy owns nothing it refused."""
+        table, message = refusal(bvh_example)
+        self._assert_refused_and_editable(bvh_example, nodes_from_table(table), message)
+
+    def test_a_node_list_refused_by_name_stays_editable(self, bvh_example):
+        source, table, message = self._mapped_name_missing_without_motion(bvh_example)
+        self._assert_refused_and_editable(source, nodes_from_table(table), message)
+
+    @staticmethod
+    def _assert_refused_and_editable(source, nodes, message):
+        with pytest.raises(ValueError, match=message):
+            source.copy(nodes=nodes)
+        for node in nodes:
+            node.offset = node.offset + 1.0
+            node.name = f"{node.name}_edited"
+
+    def test_the_source_is_unchanged(self, bvh_example, as_nodes):
         before = bvh_example.to_node_table()
         positions = bvh_example.node_positions()
-        bvh_example.copy(nodes=self._edited_table(bvh_example))
+        bvh_example.copy(nodes=as_nodes(self._edited_table(bvh_example)))
         assert bvh_example.joint_names == [row["name"] for row in before if "rot_channels" in row]
         np.testing.assert_array_equal(bvh_example.node_positions(), positions)
 
-    def test_a_joint_count_mismatch_raises_as_the_constructor_does(self, bvh_example):
+    def test_a_joint_count_mismatch_raises_as_the_constructor_does(self, bvh_example, as_nodes):
         table = bvh_example.to_node_table()
         # A joint and its end site added under the root.
         table.append({"name": "Tail", "parent": 0, "offset": [0, 0, -1], "rot_channels": "ZYX"})
         table.append({"parent": len(table) - 1, "offset": [0, 0, -1]})
         with pytest.raises(ValueError, match="non-end-site joints"):
-            bvh_example.copy(nodes=table)
+            bvh_example.copy(nodes=as_nodes(table))
 
-    def test_a_changed_euler_order_is_refused(self, bvh_example):
+    def test_a_changed_euler_order_is_refused(self, bvh_example, as_nodes):
         table = bvh_example.to_node_table()
         row = next(row for row in table if row["name"] == "LeftArm")
         row["rot_channels"] = "ZYX"
@@ -3213,21 +3300,21 @@ class TestCopyWithNodes:
         with pytest.raises(
             ValueError, match=r"Euler order of joint 'LeftArm'.*change_euler_order"
         ) as excinfo:
-            bvh_example.copy(nodes=table)
+            bvh_example.copy(nodes=as_nodes(table))
         assert "'XZY'" in str(excinfo.value) and "'ZYX'" in str(excinfo.value)
 
-    def test_the_same_order_spelled_as_a_string_is_kept(self, bvh_example):
+    def test_the_same_order_spelled_as_a_string_is_kept(self, bvh_example, as_nodes):
         table = bvh_example.to_node_table()
         for row in table:
             if "rot_channels" in row:
                 row["rot_channels"] = "".join(row["rot_channels"])
-        assert bvh_example.copy(nodes=table) == bvh_example
+        assert bvh_example.copy(nodes=as_nodes(table)) == bvh_example
 
-    def test_root_position_channels_other_than_xyz_stay_refused(self, bvh_example):
+    def test_root_position_channels_other_than_xyz_stay_refused(self, bvh_example, as_nodes):
         table = bvh_example.to_node_table()
         table[0]["pos_channels"] = "ZYX"
         with pytest.raises(ValueError, match="Non-standard root position channel order"):
-            bvh_example.copy(nodes=table)
+            bvh_example.copy(nodes=as_nodes(table))
 
     @staticmethod
     def _turned_table(bvh):
@@ -3239,10 +3326,10 @@ class TestCopyWithNodes:
             row["offset"] = turn @ np.asarray(row["offset"])
         return table
 
-    def test_a_guessed_world_up_is_inherited(self, bvh_example, computations):
+    def test_a_guessed_world_up_is_inherited(self, bvh_example, as_nodes, computations):
         assert bvh_example.world_up == "+z"
         guessed = computations.world_up
-        edited = bvh_example.copy(nodes=self._turned_table(bvh_example))
+        edited = bvh_example.copy(nodes=as_nodes(self._turned_table(bvh_example)))
         assert edited.world_up == "+z"
         assert computations.world_up == guessed
         # The way to guess again, from the new skeleton, whose rest pose
@@ -3251,16 +3338,16 @@ class TestCopyWithNodes:
             edited.world_up = edited.world_up_inferred
         assert edited.world_up == "-x"
 
-    def test_a_set_world_up_stays_set(self, bvh_example):
+    def test_a_set_world_up_stays_set(self, bvh_example, as_nodes):
         bvh_example.world_up = "+y"
-        edited = bvh_example.copy(nodes=self._turned_table(bvh_example))
+        edited = bvh_example.copy(nodes=as_nodes(self._turned_table(bvh_example)))
         assert edited.world_up == "+y"
         edited.world_up = None
         assert edited.world_up == "+z"
 
-    def test_a_user_lr_mapping_follows_a_renamed_joint(self, bvh_example):
+    def test_a_user_lr_mapping_follows_a_renamed_joint(self, bvh_example, as_nodes):
         bvh_example.lr_mapping = {"LeftArm": "RightArm", "LeftLeg": "RightLeg"}
-        edited = bvh_example.copy(nodes=self._edited_table(bvh_example))
+        edited = bvh_example.copy(nodes=as_nodes(self._edited_table(bvh_example)))
         assert edited.lr_mapping == {
             "LeftUpperArm": "RightArm",
             "RightArm": "LeftUpperArm",
@@ -3276,55 +3363,57 @@ class TestCopyWithNodes:
             row["name"] = renames.get(row.get("name"), row.get("name"))
         return table
 
-    def test_two_mapped_joints_renamed_alike_are_refused(self, bvh_example):
+    def test_two_mapped_joints_renamed_alike_are_refused(self, bvh_example, as_nodes):
         bvh_example.lr_mapping = {"LeftShoulder": "RightShoulder", "LeftArm": "RightArm"}
         table = self._renamed_table(bvh_example, {"LeftShoulder": "Left", "LeftArm": "Left"})
         with pytest.raises(
             ValueError, match=r"'LeftShoulder' the name 'Left'.*identifies joints by name"
         ):
-            bvh_example.copy(nodes=table)
+            bvh_example.copy(nodes=as_nodes(table))
 
-    def test_a_mapped_joint_renamed_to_another_joints_name_is_refused(self, bvh_example):
+    def test_a_mapped_joint_renamed_to_another_joints_name_is_refused(self, bvh_example, as_nodes):
         bvh_example.lr_mapping = {"LeftShoulder": "RightShoulder", "LeftArm": "RightArm"}
         table = self._renamed_table(bvh_example, {"LeftShoulder": "LeftToeBase"})
         with pytest.raises(
             ValueError, match=r"'LeftShoulder' the name 'LeftToeBase'.*identifies joints by name"
         ):
-            bvh_example.copy(nodes=table)
+            bvh_example.copy(nodes=as_nodes(table))
 
-    def test_an_unmapped_joint_renamed_to_a_mapped_name_is_refused(self, bvh_example):
+    def test_an_unmapped_joint_renamed_to_a_mapped_name_is_refused(self, bvh_example, as_nodes):
         bvh_example.lr_mapping = {"LeftShoulder": "RightShoulder", "LeftArm": "RightArm"}
         table = self._renamed_table(bvh_example, {"Spine": "RightArm"})
         with pytest.raises(ValueError, match=r"'RightArm' the name 'RightArm', which 2 joints"):
-            bvh_example.copy(nodes=table)
+            bvh_example.copy(nodes=as_nodes(table))
 
-    def test_a_name_the_source_already_repeats_is_kept(self, bvh_example):
+    def test_a_name_the_source_already_repeats_is_kept(self, bvh_example, as_nodes):
         """The copy refuses an ambiguity its nodes make, not one the clip has."""
-        source = bvh_example.copy(nodes=self._renamed_table(bvh_example, {"Spine": "LeftArm"}))
+        source = bvh_example.copy(
+            nodes=as_nodes(self._renamed_table(bvh_example, {"Spine": "LeftArm"}))
+        )
         source.lr_mapping = {"LeftArm": "RightArm"}
-        assert source.copy(nodes=source.to_node_table()).lr_pairs == source.lr_pairs
+        assert source.copy(nodes=as_nodes(source.to_node_table())).lr_pairs == source.lr_pairs
         # Another joint taking the name adds to the ambiguity: refused.
         table = self._renamed_table(source, {"Spine1": "LeftArm"})
         with pytest.raises(ValueError, match=r"'LeftArm' the name 'LeftArm', which 3 joints"):
-            source.copy(nodes=table)
+            source.copy(nodes=as_nodes(table))
 
-    def test_unmapped_joints_may_share_a_name(self, bvh_example):
+    def test_unmapped_joints_may_share_a_name(self, bvh_example, as_nodes):
         bvh_example.lr_mapping = {"LeftShoulder": "RightShoulder", "LeftArm": "RightArm"}
         table = self._renamed_table(bvh_example, {"LeftToeBase": "Toe", "RightToeBase": "Toe"})
-        edited = bvh_example.copy(nodes=table)
+        edited = bvh_example.copy(nodes=as_nodes(table))
         assert edited.joint_names.count("Toe") == 2
         assert edited.lr_pairs == bvh_example.lr_pairs
 
-    def test_name_detected_pairs_are_detected_from_the_new_names(self, bvh_example):
-        edited = bvh_example.copy(nodes=self._edited_table(bvh_example))
+    def test_name_detected_pairs_are_detected_from_the_new_names(self, bvh_example, as_nodes):
+        edited = bvh_example.copy(nodes=as_nodes(self._edited_table(bvh_example)))
         lost = {"LeftArm", "RightArm"}
         assert edited.lr_mapping == {
             left: right for left, right in EXAMPLE_NAME_PAIRS.items() if left not in lost
         }
 
-    def test_a_cleared_lr_mapping_stays_cleared(self, bvh_example):
+    def test_a_cleared_lr_mapping_stays_cleared(self, bvh_example, as_nodes):
         bvh_example.lr_mapping = None
-        assert bvh_example.copy(nodes=self._edited_table(bvh_example)).lr_mapping is None
+        assert bvh_example.copy(nodes=as_nodes(self._edited_table(bvh_example))).lr_mapping is None
 
     @pytest.mark.parametrize(
         ("nodes", "message"),
@@ -3335,17 +3424,17 @@ class TestCopyWithNodes:
         with pytest.raises(TypeError, match=message):
             bvh_example.copy(nodes=nodes)
 
-    def test_a_clip_without_motion_takes_the_skeleton(self, bvh_example):
+    def test_a_clip_without_motion_takes_the_skeleton(self, bvh_example, as_nodes):
         """`Bvh(nodes=...)` holds (0, 0, 3) angles, which fit any skeleton."""
         skeleton_only = Bvh(nodes=nodes_from_table(bvh_example.to_node_table()))
         table = self._edited_table(bvh_example)
         assert skeleton_only.copy().joint_names == bvh_example.joint_names
-        assert "LeftUpperArm" in skeleton_only.copy(nodes=table).joint_names
+        assert "LeftUpperArm" in skeleton_only.copy(nodes=as_nodes(table)).joint_names
         # Nor is an order or a joint count held against it: no angles bind them.
         table[1]["rot_channels"] = "XYZ"
         table.append({"name": "Tail", "parent": 0, "offset": [0, 0, -1], "rot_channels": "ZYX"})
         skeleton_only.lr_mapping = {"LeftLeg": "RightLeg"}
-        other = skeleton_only.copy(nodes=table)
+        other = skeleton_only.copy(nodes=as_nodes(table))
         assert other.joint_names[-1] == "Tail"
         # With no column binding joints by position, the mapping goes by name.
         assert other.lr_mapping == {"LeftLeg": "RightLeg", "RightLeg": "LeftLeg"}

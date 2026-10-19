@@ -63,6 +63,15 @@ def bvh_example_path():
     return Path(__file__).parent.parent / "bvh_data" / "bvh_test1.bvh"
 
 
+# bvh_test1.bvh's joints that differ only by a Left/Right prefix: the pairs
+# detected from its names, in both directions.
+EXAMPLE_NAME_PAIRS = {
+    f"{side}{part}": f"{other}{part}"
+    for side, other in (("Left", "Right"), ("Right", "Left"))
+    for part in ("Shoulder", "Arm", "ForeArm", "Hand", "UpLeg", "Leg", "Foot", "ToeBase")
+}
+
+
 @pytest.fixture
 def bvh_example(bvh_example_path):
     """Loaded Bvh object from bvh_test1.bvh."""
@@ -2777,8 +2786,7 @@ class TestSkeletonCopyMetadata:
     def test_slice_preserves_user_lr_mapping(self, bvh_example):
         bvh_example.lr_mapping = {"LeftArm": "RightArm"}
         sliced = bvh_example[0:5]
-        assert sliced.lr_mapping == bvh_example.lr_mapping
-        assert sliced._lr_mapping_source == "user"
+        assert sliced.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
 
 
 class TestWhatACopyCarries:
@@ -2791,6 +2799,38 @@ class TestWhatACopyCarries:
         assert computations.fk == 1
         np.testing.assert_array_equal(duplicate.node_positions(), expected)
         assert computations.fk == 2
+
+    DERIVATIONS = {
+        "copy": lambda b: b.copy(),
+        "slice": lambda b: b[2:8],
+        "concat": lambda b: b[0:5] + b[5:10],
+        "resample": lambda b: b.resample(60),
+        "mirror": lambda b: b.mirror(),
+        "scale": lambda b: b.scale(2.0),
+        "retarget": lambda b: b.retarget(b.scale(2.0)),
+        "change_euler_order": lambda b: b.change_euler_order("XYZ"),
+        "extract_joints": lambda b: b.extract_joints(b.joint_names),
+        "pickle": lambda b: pickle.loads(pickle.dumps(b)),
+    }
+
+    @pytest.mark.parametrize("derive", DERIVATIONS.values(), ids=DERIVATIONS.keys())
+    def test_a_user_lr_mapping_travels(self, bvh_example, derive):
+        bvh_example.lr_mapping = {"LeftArm": "RightArm"}
+        assert derive(bvh_example).lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
+
+    # mirror() needs an L/R mapping, and raises on a clip whose mapping was cleared.
+    DERIVATIONS_WITHOUT_LR = {k: v for k, v in DERIVATIONS.items() if k != "mirror"}
+
+    @pytest.mark.parametrize(
+        "derive", DERIVATIONS_WITHOUT_LR.values(), ids=DERIVATIONS_WITHOUT_LR.keys()
+    )
+    def test_a_cleared_lr_mapping_stays_cleared(self, bvh_example, derive):
+        bvh_example.lr_mapping = None
+        assert derive(bvh_example).lr_mapping is None
+
+    @pytest.mark.parametrize("derive", DERIVATIONS.values(), ids=DERIVATIONS.keys())
+    def test_name_detected_pairs_travel(self, bvh_example, derive):
+        assert derive(bvh_example).lr_mapping == EXAMPLE_NAME_PAIRS
 
     def test_a_pickle_round_trip_equals_the_source(self, bvh_example):
         bvh_example.world_up = "+x"
@@ -6263,23 +6303,19 @@ class TestEdges:
 class TestLRMappingProperty:
     """Tests for the bvh.lr_mapping cached property and setter (B1)."""
 
-    def test_bvh_example_names_source(self, bvh_example):
-        assert bvh_example.lr_mapping is not None
-        assert bvh_example._lr_mapping_source == "names"
-        assert len(bvh_example.lr_mapping) >= 8  # arms, forearms, hands, legs
+    def test_bvh_example_pairs_are_detected_from_names(self, bvh_example):
+        assert bvh_example.lr_mapping == EXAMPLE_NAME_PAIRS
 
     def test_setter_accepts_valid_mapping(self, bvh_example):
         bvh = bvh_example.copy()
         bvh.lr_mapping = {"LeftArm": "RightArm"}
         # Public lr_mapping is symmetric (both directions of each pair).
         assert bvh.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
-        assert bvh._lr_mapping_source == "user"
 
     def test_setter_none_clears(self, bvh_example):
         bvh = bvh_example.copy()
         bvh.lr_mapping = None
         assert bvh.lr_mapping is None
-        assert bvh._lr_mapping_source is None
 
     def test_a_skeleton_change_keeps_the_users_choice(self, bvh_example):
         """The user's mapping, and a mapping they cleared, are settings: a
@@ -6327,17 +6363,14 @@ class TestLRMappingProperty:
         with pytest.raises(TypeError):
             bvh.lr_mapping = [("LeftArm", "RightArm")]
 
-    def test_copy_propagates_cache(self, bvh_example):
-        bvh2 = bvh_example.copy()
-        assert bvh2.lr_mapping == bvh_example.lr_mapping
-        assert bvh2._lr_mapping_source == bvh_example._lr_mapping_source
+    def test_a_copy_has_the_name_detected_pairs(self, bvh_example):
+        assert bvh_example.copy().lr_mapping == EXAMPLE_NAME_PAIRS
 
     def test_copy_preserves_user_source(self, bvh_example):
         bvh = bvh_example.copy()
         bvh.lr_mapping = {"LeftArm": "RightArm"}
         bvh2 = bvh.copy()
         assert bvh2.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
-        assert bvh2._lr_mapping_source == "user"
 
 
 class TestLRMappingKwarg:
@@ -6356,20 +6389,15 @@ class TestLRMappingKwarg:
             lr_mapping={"LeftArm": "RightArm"},
         )
         assert bvh2.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
-        assert bvh2._lr_mapping_source == "user"
 
     def test_read_bvh_file_kwarg(self, bvh_example_path):
         bvh = read_bvh_file(bvh_example_path, lr_mapping={"LeftArm": "RightArm"})
         assert bvh.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
-        assert bvh._lr_mapping_source == "user"
 
     def test_read_bvh_file_without_kwarg(self, bvh_example_path):
         """Without the kwarg, A runs and finds the full mapping."""
         bvh = read_bvh_file(bvh_example_path)
-        assert bvh.lr_mapping is not None
-        assert bvh._lr_mapping_source == "names"
-        # Symmetric form: each pair counted twice (>= 8 pairs ⇒ >= 16 keys).
-        assert len(bvh.lr_mapping) >= 16
+        assert bvh.lr_mapping == EXAMPLE_NAME_PAIRS
 
     def test_read_bvh_directory_kwarg(self, tmp_path, bvh_example_path):
         import shutil
@@ -6381,7 +6409,6 @@ class TestLRMappingKwarg:
         assert len(clips) == 2
         for c in clips:
             assert c.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
-            assert c._lr_mapping_source == "user"
 
     def test_kwarg_precedence_over_A(self, bvh_example_path):
         """B3 kwarg wins over strategy A even when A would have succeeded."""
@@ -6390,7 +6417,6 @@ class TestLRMappingKwarg:
         assert bvh.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
         # Symmetric form: 1 logical pair ⇒ 2 keys.
         assert len(bvh.lr_mapping) == 2
-        assert bvh._lr_mapping_source == "user"
 
     def test_setter_precedence_over_A(self, bvh_example):
         """B1 setter (post-load) overrides whatever A produced."""
@@ -6399,7 +6425,6 @@ class TestLRMappingKwarg:
         bvh = bvh_example.copy()
         bvh.lr_mapping = {"LeftArm": "RightArm"}
         assert bvh.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
-        assert bvh._lr_mapping_source == "user"
 
 
 class TestLRMappingNoneConsumerBehavior:
@@ -6439,12 +6464,10 @@ class TestLRMappingExtendedNamingA:
     def test_dot_suffix(self):
         bvh = make_dot_lr_bvh()
         assert bvh.lr_mapping == {"Leg.L": "Leg.R", "Leg.R": "Leg.L"}
-        assert bvh._lr_mapping_source == "names"
 
     def test_underscore_suffix_lowercase(self):
         bvh = make_underscore_lr_bvh()
         assert bvh.lr_mapping == {"leg_l": "leg_r", "leg_r": "leg_l"}
-        assert bvh._lr_mapping_source == "names"
 
     def test_namespace_prefix(self):
         bvh = make_namespace_lr_bvh()
@@ -6452,24 +6475,20 @@ class TestLRMappingExtendedNamingA:
             "mixamorig:LeftLeg": "mixamorig:RightLeg",
             "mixamorig:RightLeg": "mixamorig:LeftLeg",
         }
-        assert bvh._lr_mapping_source == "names"
 
     def test_numbered_suffix(self):
         bvh = make_numbered_lr_bvh()
         assert bvh.lr_mapping == {"Leg.L.001": "Leg.R.001", "Leg.R.001": "Leg.L.001"}
-        assert bvh._lr_mapping_source == "names"
 
     def test_bare_substring_regression(self):
         """LeftEye/RightEye — no delimiter, must still match substring rule."""
         bvh = make_bare_substring_lr_bvh()
         assert bvh.lr_mapping == {"LeftEye": "RightEye", "RightEye": "LeftEye"}
-        assert bvh._lr_mapping_source == "names"
 
     def test_cryptic_names_return_none(self):
-        """Skeleton with no L/R cues → lr_mapping is None, source None."""
+        """Skeleton with no L/R cues → lr_mapping is None."""
         bvh = make_nameless_lr_bvh()
         assert bvh.lr_mapping is None
-        assert bvh._lr_mapping_source is None
 
 
 class TestMirrorWithExtendedA:
@@ -6630,7 +6649,6 @@ class TestStrategyASingleton:
         # Skeleton has 'LeftLeg' (matchable) + 'OtherLeg' (no L/R cue)
         # Mutual-match requirement: LeftLeg has no partner → not paired
         assert bvh.lr_mapping is None
-        assert bvh._lr_mapping_source is None
 
     def test_mirror_raises_on_singleton(self):
         """mirror() on a skeleton whose only L-named joint has no partner raises."""
@@ -6696,7 +6714,6 @@ class TestStrategyAMixedConventions:
     def test_both_conventions_detected(self):
         bvh = self._build_mixed_skeleton()
         assert bvh.lr_mapping is not None
-        assert bvh._lr_mapping_source == "names"
         # Both pairs must appear (symmetric form ⇒ 2 keys per logical pair)
         assert bvh.lr_mapping.get("LeftArm") == "RightArm"
         assert bvh.lr_mapping.get("RightArm") == "LeftArm"
@@ -6715,7 +6732,6 @@ class TestLRMappingMinorEdgeCases:
         """Root-only skeleton: strategy A is guarded (len(nodes) > 1) → lr_mapping is None."""
         bvh = Bvh()  # default: [BvhRoot()]
         assert bvh.lr_mapping is None
-        assert bvh._lr_mapping_source is None
 
     def test_parallel_directory_read_with_lr_mapping(self, tmp_path, bvh_example_path):
         """read_bvh_directory(parallel=True, lr_mapping=...) threads the kwarg through."""
@@ -6729,15 +6745,11 @@ class TestLRMappingMinorEdgeCases:
         assert len(clips) == 2
         for c in clips:
             assert c.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
-            assert c._lr_mapping_source == "user"
 
     def test_explicit_none_kwarg_falls_through_to_A(self, bvh_example_path):
         """read_bvh_file(path, lr_mapping=None) should behave as if kwarg was omitted."""
         bvh = read_bvh_file(bvh_example_path, lr_mapping=None)
-        assert bvh.lr_mapping is not None  # A ran and succeeded
-        assert bvh._lr_mapping_source == "names"
-        # Symmetric: 8 pairs ⇒ 16 keys.
-        assert len(bvh.lr_mapping) >= 16
+        assert bvh.lr_mapping == EXAMPLE_NAME_PAIRS
 
 
 # =============================================================================
@@ -6866,7 +6878,6 @@ class TestExtractJointsMetadata:
         bvh.lr_mapping = {"LeftArm": "RightArm", "LeftUpLeg": "RightUpLeg"}
         keep = [n for n in bvh.joint_names if n not in ("LeftArm", "RightArm")]
         sub = bvh.extract_joints(keep)
-        assert sub._lr_mapping_source == "user"
         assert sub.lr_mapping == {"LeftUpLeg": "RightUpLeg", "RightUpLeg": "LeftUpLeg"}
 
     def test_name_detected_pairs_are_detected_on_the_kept_joints(self, bvh_example):

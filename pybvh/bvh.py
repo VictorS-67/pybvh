@@ -1125,13 +1125,6 @@ class Bvh:
         return detected or None
 
     @property
-    def _lr_mapping_source(self) -> Literal["names", "user"] | None:
-        """Where the mapping in effect comes from; ``None`` when there is none."""
-        if isinstance(self._lr_mapping_setting, dict):
-            return "user"
-        return "names" if self._lr_mapping is not None else None
-
-    @property
     def has_lr_geometry(self) -> bool:
         """Whether the rest pose carries usable left/right direction.
 

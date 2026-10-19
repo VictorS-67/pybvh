@@ -1035,8 +1035,8 @@ class TestEdgeCases:
         assert len(bvh.nodes) == 1  # Default root
 
     def test_constructor_validates_nodes(self):
-        """A node list that is not a list of BvhNode raises ValueError."""
-        with pytest.raises(ValueError, match="list of BvhNode"):
+        """A node list that is not a list or tuple of BvhNode raises ValueError."""
+        with pytest.raises(ValueError, match="list or tuple of BvhNode"):
             Bvh(nodes="not a list")
         with pytest.raises(ValueError, match="at least one node"):
             Bvh(nodes=[])
@@ -1540,6 +1540,30 @@ class TestOwnedSkeletonIsFrozen:
             bvh.root = sub.root
         assert len(bvh.nodes) == len(bvh.node_index) == 29
         assert bvh.root is bvh.nodes[0]
+
+    def test_node_list_cannot_be_edited(self, bvh_example):
+        """The last of bug 4 of #112: an edit to the list left the index behind."""
+        bvh = bvh_example
+        spine = bvh.nodes[1]
+        with pytest.raises(AttributeError, match="'tuple' object has no attribute 'append'"):
+            bvh.nodes.append(BvhEndSite("Tip", parent=bvh.root))
+        with pytest.raises(TypeError, match="'tuple' object does not support item assignment"):
+            bvh.nodes[1] = BvhJoint("Torso", parent=bvh.root)
+        assert bvh.nodes[1] is spine
+        assert len(bvh.nodes) == len(bvh.node_index) == 29
+
+    def test_the_callers_list_is_not_the_clips(self):
+        hips = BvhRoot("Hips", rot_channels="ZYX")
+        tip = BvhEndSite("Tip", offset=[0, 1, 0], parent=hips)
+        hips.children.append(tip)
+        nodes = [hips, tip]
+        bvh = Bvh(nodes=nodes, root_pos=np.zeros((1, 3)), joint_angles=np.zeros((1, 1, 3)))
+
+        nodes.pop()
+        nodes.append(BvhEndSite("Other", parent=hips))
+
+        assert bvh.nodes == (hips, tip)
+        assert bvh.node_index == {"Hips": 0, "Tip": 1}
 
 
 class TestFrameSlicing:
@@ -2556,6 +2580,16 @@ class TestFramesToSpatialCoordsStandalone:
         standalone = frames_to_node_positions(bvh_example, centered="world")
         method = bvh_example.node_positions(centered="world")
         np.testing.assert_allclose(standalone, method, atol=1e-10)
+
+    @pytest.mark.parametrize("as_type", [tuple, list])
+    def test_node_list_with_arrays_matches_bvh_method(self, bvh_example, as_type):
+        """``bvh.nodes`` (a tuple) and a list of the same nodes both pose."""
+        standalone = frames_to_node_positions(
+            as_type(bvh_example.nodes),
+            root_pos=bvh_example.root_pos,
+            joint_angles=bvh_example.joint_angles,
+        )
+        np.testing.assert_allclose(standalone, bvh_example.node_positions(), atol=1e-10)
 
     def test_node_list_without_arrays_raises(self, bvh_example):
         """Passing node list without root_pos/joint_angles raises."""

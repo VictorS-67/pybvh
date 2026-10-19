@@ -140,7 +140,7 @@ def _build_rest_pose(bvh: Bvh) -> npt.NDArray[np.float64]:
 class Bvh:
     """Container for BVH motion-capture data.
 
-    The hierarchy is stored as a list of ``BvhNode`` objects (one per
+    The hierarchy is stored as a tuple of ``BvhNode`` objects (one per
     joint / end-site).  Motion data is stored as two structured arrays:
 
     - ``root_pos``:     shape ``(F, 3)``    — root translation per frame
@@ -152,8 +152,11 @@ class Bvh:
 
     Attributes
     ----------
-    nodes : list of BvhNode
+    nodes : tuple of BvhNode
         Skeleton hierarchy in depth-first order, as a file lists it.
+        The constructor takes a list or a tuple and keeps a tuple of its
+        own, so a later edit to the list it was given leaves the clip as
+        it was.
         The constructor checks that the tree is wired both ways: the
         depth-first walk of ``children`` from ``nodes[0]`` must visit
         exactly ``nodes``, in order, and each node's ``parent`` must be
@@ -198,7 +201,7 @@ class Bvh:
 
     def __init__(
         self,
-        nodes: list[BvhNode] | None = None,
+        nodes: list[BvhNode] | tuple[BvhNode, ...] | None = None,
         root_pos: npt.ArrayLike | None = None,
         joint_angles: npt.ArrayLike | None = None,
         frame_time: float = 0,
@@ -226,8 +229,8 @@ class Bvh:
 
         if nodes is None:
             nodes = [BvhRoot()]
-        if (not isinstance(nodes, list)) or any(not isinstance(x, BvhNode) for x in nodes):
-            raise ValueError("nodes should be a list of BvhNode class/subclasse objects")
+        if not isinstance(nodes, (list, tuple)) or any(not isinstance(x, BvhNode) for x in nodes):
+            raise ValueError("nodes should be a list or tuple of BvhNode objects")
         if len(nodes) == 0:
             raise ValueError("nodes must hold at least one node, the root.")
         # The root's type is checked before the walk, which asks every
@@ -235,7 +238,10 @@ class Bvh:
         if not isinstance(nodes[0], BvhRoot):
             raise ValueError("The first element of nodes should be a BvhRoot object")
         _check_node_tree(nodes)
-        self._nodes = nodes
+        # A tuple of the clip's own: neither an edit to the caller's list
+        # nor one through ``bvh.nodes`` can change the skeleton behind the
+        # indexes and the derived values.
+        self._nodes: tuple[BvhNode, ...] = tuple(nodes)
         self.frame_time = frame_time
         self.source_path = source_path
 
@@ -285,7 +291,7 @@ class Bvh:
             self._validate_and_set_lr_mapping(lr_mapping)
 
     @property
-    def nodes(self) -> list[BvhNode]:
+    def nodes(self) -> tuple[BvhNode, ...]:
         """Skeleton hierarchy, one node per joint and end site.
 
         In depth-first order as the file lists it: ``nodes[0]`` is the
@@ -299,14 +305,15 @@ class Bvh:
         The clip owns these nodes and has frozen them: assigning a
         node's ``name``, ``offset``, ``parent``, ``children`` or channels
         raises ``AttributeError``, and ``nodes`` itself cannot be
-        assigned. Change the skeleton through the methods that edit it
+        assigned, nor edited in place, being a tuple (``list(bvh.nodes)``
+        gives a list). Change the skeleton through the methods that edit it
         (:meth:`scale`, :meth:`retarget`, :meth:`extract_joints`,
         :meth:`change_euler_order`), or edit it as a table and build a new
         clip: ``table = nodes_to_table(bvh.nodes)``, edit the rows, then
         ``Bvh(nodes=nodes_from_table(table), root_pos=bvh.root_pos,
         joint_angles=bvh.joint_angles, frame_time=bvh.frame_time)``. The
-        methods swap in a new list of new nodes, even with
-        ``inplace=True``, so a list or node taken before the call keeps
+        methods swap in a new tuple of new nodes, even with
+        ``inplace=True``, so a tuple or node taken before the call keeps
         the old skeleton.
         """
         return self._nodes
@@ -756,7 +763,7 @@ class Bvh:
         self,
         root_pos: npt.NDArray[np.float64],
         joint_angles: npt.NDArray[np.float64],
-        nodes: list[BvhNode] | None = None,
+        nodes: list[BvhNode] | tuple[BvhNode, ...] | None = None,
     ) -> Bvh:
         """Build a clip from new primary state and this clip's settings.
 
@@ -833,7 +840,7 @@ class Bvh:
         for node in self.nodes:
             node._freeze()
 
-    def _replace_skeleton(self, nodes: list[BvhNode]) -> None:
+    def _replace_skeleton(self, nodes: Sequence[BvhNode]) -> None:
         """Swap in a new skeleton: the one way a clip's skeleton changes
         after construction.
 
@@ -846,7 +853,7 @@ class Bvh:
         values. The new nodes keep the joint layout of ``joint_angles``.
         """
         _check_node_tree(nodes)
-        self._nodes = nodes
+        self._nodes = tuple(nodes)
         self._freeze_skeleton()
         self._derived.skeleton_changed()
 

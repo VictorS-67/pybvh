@@ -11,6 +11,7 @@ can build.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
@@ -34,7 +35,7 @@ class _FkTopologyFields(NamedTuple):
 class FkTopology(_FkTopologyFields):
     """A skeleton's topology as plain arrays — everything forward kinematics reads.
 
-    The array-signature counterpart of a node tree: :func:`frames_to_node_positions` accepts one of these in place of a :class:`~pybvh.Bvh` or a ``list[BvhNode]``, so a caller holding only arrays (a data loader reading a preprocessed dataset, an augmentation step that has no source file open) can run forward kinematics without reconstructing node objects.
+    The array-signature counterpart of a node tree: :func:`frames_to_node_positions` accepts one of these in place of a :class:`~pybvh.Bvh` or a node list such as :attr:`~pybvh.Bvh.nodes`, so a caller holding only arrays (a data loader reading a preprocessed dataset, an augmentation step that has no source file open) can run forward kinematics without reconstructing node objects.
 
     This is an **FK input bundle, not a skeleton descriptor**: it carries what the FK loop reads and nothing else — no names, no orientation axes, no channel layout. Every field is independently serializable (three arrays and a list of strings), so a preprocessing step can store the four values in whatever container it already uses; the type itself is not a serialization format. For anything else about a skeleton, keep the :class:`~pybvh.Bvh`.
 
@@ -153,12 +154,12 @@ class FkTopology(_FkTopologyFields):
         return type(self)(**merged)  # type: ignore[arg-type]
 
     @classmethod
-    def from_nodes(cls, nodes: list[BvhNode]) -> FkTopology:
+    def from_nodes(cls, nodes: Sequence[BvhNode]) -> FkTopology:
         """Derive a topology from a node tree.
 
         Parameters
         ----------
-        nodes : list of BvhNode
+        nodes : sequence of BvhNode
             Nodes in an order where every parent precedes its children —
             the depth-first order of :attr:`Bvh.nodes`, for instance.
 
@@ -295,7 +296,7 @@ def _validate_fk_topology(
 
 
 def frames_to_node_positions(
-    skeleton: Bvh | list[BvhNode] | FkTopology,
+    skeleton: Bvh | list[BvhNode] | tuple[BvhNode, ...] | FkTopology,
     root_pos: npt.ArrayLike | None = None,
     joint_angles: npt.ArrayLike | None = None,
     centered: str = "world",
@@ -306,7 +307,7 @@ def frames_to_node_positions(
 
     Parameters
     ----------
-    skeleton : Bvh or list of BvhNode or FkTopology
+    skeleton : Bvh or list or tuple of BvhNode or FkTopology
         The skeleton to pose. Pass an :class:`FkTopology` to run forward
         kinematics from arrays alone, with no node objects — see
         :attr:`Bvh.fk_topology` for producing one.
@@ -524,7 +525,7 @@ def _ground_plane_offset(
 
 
 def _resolve_topology(
-    skeleton: Bvh | list[BvhNode] | FkTopology,
+    skeleton: Bvh | list[BvhNode] | tuple[BvhNode, ...] | FkTopology,
 ) -> tuple[FkTopology, Bvh | None]:
     """Resolve any accepted skeleton form into an :class:`FkTopology`.
 
@@ -544,8 +545,15 @@ def _resolve_topology(
         return skeleton, None
     if isinstance(skeleton, Bvh):
         return FkTopology.from_nodes(skeleton.nodes), skeleton
-    if isinstance(skeleton, list):
-        if not all(isinstance(n, BvhNode) for n in skeleton):
-            raise ValueError("The list must contain BvhNode objects.")
-        return FkTopology.from_nodes(skeleton), None
-    raise ValueError("skeleton must be a Bvh object, a list of BvhNode objects, or an FkTopology.")
+    # A local of the node-list type: mypy narrows ``skeleton`` by
+    # ``tuple`` back to its declared union, FkTopology (a NamedTuple)
+    # included, though that case has returned above.
+    nodes: list[BvhNode] | tuple[BvhNode, ...] = skeleton
+    if not isinstance(nodes, (list, tuple)):
+        raise ValueError(
+            "skeleton must be a Bvh object, a list or tuple of BvhNode objects "
+            "(bvh.nodes), or an FkTopology."
+        )
+    if not all(isinstance(n, BvhNode) for n in nodes):
+        raise ValueError("The node list must contain BvhNode objects.")
+    return FkTopology.from_nodes(nodes), None

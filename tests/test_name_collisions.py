@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pybvh import Bvh, df_to_bvh, read_bvh_file, write_bvh_file
+from pybvh import Bvh, df_to_bvh, nodes_from_table, read_bvh_file, write_bvh_file
 from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhRoot
 from pybvh.bvhplot._from_bvh import get_skeleton_lines
 
@@ -548,10 +548,16 @@ class TestMirrorWithRepeatedEndSiteNames:
 
     def test_unequal_end_site_counts_still_raise(self, two_tips_rig):
         """The domain error survives the move into the shared resolver."""
-        lonely = [n for n in two_tips_rig.nodes if n.name == "RightHand"][0]
-        lonely.children = lonely.children[:1]
+        table = two_tips_rig.to_node_table()
+        del table[-1]  # RightHand's second end site
+        lopsided = Bvh(
+            nodes_from_table(table),
+            two_tips_rig.root_pos,
+            two_tips_rig.joint_angles,
+            two_tips_rig.frame_time,
+        )
         with pytest.raises(ValueError, match="Cannot pair end sites"):
-            two_tips_rig.mirror(lateral_axis="x")
+            lopsided.mirror(lateral_axis="x")
 
 
 # =============================================================================

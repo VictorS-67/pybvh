@@ -714,37 +714,82 @@ class Bvh:
         self._derived.user_replaced_motion()
 
     def copy(self) -> Bvh:
-        """Return an independent deep copy.
+        """Return an independent copy.
 
-        Everything is copied: the node hierarchy, ``root_pos`` and
-        ``joint_angles``, ``frame_time``, ``source_path``, a manual
-        ``world_up`` and the L/R mapping. Editing either clip afterwards,
-        its arrays or its nodes, never affects the other.
+        The node hierarchy, ``root_pos`` and ``joint_angles``,
+        ``frame_time``, ``source_path``, a manual ``world_up``, the warn
+        preference and a user-set L/R mapping are copied. Editing either
+        clip afterwards, its arrays or its nodes, never affects the other.
+        Values the clip computes from these (forward-kinematics positions,
+        the floor height, an inferred world up) are not copied: the copy
+        computes them again on first read.
 
         Returns
         -------
         Bvh
         """
-        return copy.deepcopy(self)
-
-    def _copy_skeleton(self) -> Bvh:
-        """Deep-copy the hierarchy and metadata into a zero-frame Bvh.
-
-        Copies ``nodes`` (deeply), ``frame_time``, ``source_path``, the
-        ``world_up`` override, and the L/R mapping — but not the motion
-        arrays. Frame-producing operations (slicing, concatenation,
-        resampling) use this instead of :meth:`copy` so full motion arrays
-        aren't deep-copied only to be overwritten immediately.
-        """
-        new_bvh = Bvh(
-            nodes=copy.deepcopy(self.nodes),
-            frame_time=self.frame_time,
-            source_path=self.source_path,
-            warn_on_disagreement=self._warn_on_world_up_disagreement,
+        return self._derive_clip(
+            root_pos=self._root_pos.copy(), joint_angles=self._joint_angles.copy()
         )
-        new_bvh._world_up_override = self._world_up_override
-        new_bvh._lr_mapping_setting = copy.deepcopy(self._lr_mapping_setting)
+
+    def _derive_clip(
+        self,
+        root_pos: npt.NDArray[np.float64],
+        joint_angles: npt.NDArray[np.float64],
+        nodes: list[BvhNode] | None = None,
+    ) -> Bvh:
+        """Build a clip from new primary state and this clip's settings.
+
+        The one way pybvh derives a clip (ADR 0003): the result carries what
+        :meth:`__getstate__` lists, with the given motion and skeleton
+        (default: a deep copy of this one's), and none of this clip's
+        derived state. The arrays are taken as they are, not copied; the
+        caller hands over arrays no other clip holds.
+        """
+        state = self.__getstate__()
+        state["nodes"] = copy.deepcopy(self.nodes) if nodes is None else nodes
+        state["root_pos"] = root_pos
+        state["joint_angles"] = joint_angles
+        setting = state["lr_mapping_setting"]
+        if isinstance(setting, dict):
+            state["lr_mapping_setting"] = dict(setting)
+        new_bvh = type(self).__new__(type(self))
+        new_bvh.__setstate__(state)
         return new_bvh
+
+    def __getstate__(self) -> dict[str, Any]:
+        """What a pickle and every derived clip carry (ADR 0003).
+
+        The primary state (skeleton, motion, frame time, source path) and
+        the user's settings (world-up override, warn preference, L/R
+        choice); never a derived value, which the rebuilt clip computes
+        again on first read.
+        """
+        return {
+            "nodes": self.nodes,
+            "root_pos": self._root_pos,
+            "joint_angles": self._joint_angles,
+            "frame_time": self.frame_time,
+            "source_path": self.source_path,
+            "world_up_override": self._world_up_override,
+            "warn_on_disagreement": self._warn_on_world_up_disagreement,
+            "lr_mapping_setting": self._lr_mapping_setting,
+        }
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        # Built with no frames, so the constructor infers no world up;
+        # the motion is assigned after, and the settings last.
+        Bvh.__init__(
+            self,
+            nodes=state["nodes"],
+            frame_time=state["frame_time"],
+            source_path=state["source_path"],
+            warn_on_disagreement=state["warn_on_disagreement"],
+        )
+        self.root_pos = state["root_pos"]
+        self.joint_angles = state["joint_angles"]
+        self._world_up_override = state["world_up_override"]
+        self._lr_mapping_setting = state["lr_mapping_setting"]
 
     def _freeze_skeleton(self) -> None:
         """Freeze the channels of every node, so they cannot drift away
@@ -2459,10 +2504,10 @@ class Bvh:
         Bvh
             New Bvh object with the sliced frames and same skeleton.
         """
-        new_bvh = self._copy_skeleton()
         s = slice(start, end, step)
-        new_bvh.root_pos = self.root_pos[s].copy()
-        new_bvh.joint_angles = self.joint_angles[s].copy()
+        new_bvh = self._derive_clip(
+            root_pos=self._root_pos[s].copy(), joint_angles=self._joint_angles[s].copy()
+        )
         # Adjust frame frequency if step changes the sampling rate
         if step is not None and abs(step) != 1:
             new_bvh.frame_time = self.frame_time * abs(step)
@@ -2516,9 +2561,10 @@ class Bvh:
                 stacklevel=user_stacklevel(),
             )
 
-        new_bvh = self._copy_skeleton()
-        new_bvh.root_pos = np.concatenate([self.root_pos, other.root_pos], axis=0)
-        new_bvh.joint_angles = np.concatenate([self.joint_angles, other.joint_angles], axis=0)
+        new_bvh = self._derive_clip(
+            root_pos=np.concatenate([self.root_pos, other.root_pos], axis=0),
+            joint_angles=np.concatenate([self.joint_angles, other.joint_angles], axis=0),
+        )
         if self.source_path != other.source_path:
             new_bvh.source_path = None
         return new_bvh
@@ -2613,9 +2659,7 @@ class Bvh:
             rotations.quat_to_rotmat(new_quats), self.euler_orders
         )
 
-        new_bvh = self._copy_skeleton()
-        new_bvh.root_pos = new_root_pos
-        new_bvh.joint_angles = new_angles
+        new_bvh = self._derive_clip(root_pos=new_root_pos, joint_angles=new_angles)
         new_bvh.frame_time = new_freq
         return new_bvh
 

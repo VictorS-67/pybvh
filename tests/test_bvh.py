@@ -6,6 +6,7 @@ Run with: python -m pytest tests/test_bvh.py -v
 """
 
 import copy
+import pickle
 import re
 import sys
 import tempfile
@@ -86,7 +87,7 @@ def standard_skeleton():
 @pytest.fixture
 def zero_frame_clip():
     """A root, a joint and an end site with no motion, the way `Bvh()` and
-    `_copy_skeleton()` hold a skeleton: every frame array has length 0."""
+    an empty slice (`bvh[0:0]`) hold a skeleton: every frame array has length 0."""
     end = BvhEndSite("EndSiteHand", offset=[0.0, 1.0, 0.0])
     hand = BvhJoint("Hand", offset=[0.0, 1.0, 0.0], rot_channels=["X", "Y", "Z"], children=[end])
     end.parent = hand
@@ -2155,7 +2156,7 @@ class TestRestPose:
 
     def test_rest_pose_positions_zero_frame_bvh(self, bvh_example):
         """rest_pose_positions works on a Bvh with no motion data."""
-        skeleton_only = bvh_example._copy_skeleton()
+        skeleton_only = bvh_example[0:0]
         assert skeleton_only.frame_count == 0
         rest = skeleton_only.rest_pose_positions()
         np.testing.assert_allclose(rest, bvh_example.rest_pose_positions(), atol=1e-10)
@@ -2765,6 +2766,56 @@ class TestSkeletonCopyMetadata:
         sliced = bvh_example[0:5]
         assert sliced.lr_mapping == bvh_example.lr_mapping
         assert sliced._lr_mapping_source == "user"
+
+
+class TestWhatACopyCarries:
+    """A copy and a pickle carry the primary state and the user's settings,
+    never a derived value (ADR 0003)."""
+
+    def test_a_copy_computes_fk_when_read_and_not_before(self, bvh_example, computations):
+        expected = bvh_example.node_positions()
+        duplicate = bvh_example.copy()
+        assert computations.fk == 1
+        np.testing.assert_array_equal(duplicate.node_positions(), expected)
+        assert computations.fk == 2
+
+    def test_a_pickle_round_trip_equals_the_source(self, bvh_example):
+        bvh_example.world_up = "+x"
+        bvh_example.lr_mapping = {"LeftArm": "RightArm"}
+        back = pickle.loads(pickle.dumps(bvh_example))
+        assert back == bvh_example
+        assert back.world_up == "+x"
+        assert back.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
+        assert back.source_path == bvh_example.source_path
+
+    def test_a_pickle_keeps_a_cleared_lr_mapping_cleared(self, bvh_example):
+        bvh_example.lr_mapping = None
+        assert pickle.loads(pickle.dumps(bvh_example)).lr_mapping is None
+
+    def test_a_pickle_keeps_the_warn_preference(self):
+        """bvh_test3's frame 0 and rest pose disagree: inferring warns
+        unless the clip was loaded quiet."""
+        quiet = read_bvh_file(
+            Path(__file__).parent.parent / "bvh_data" / "bvh_test3.bvh",
+            warn_on_world_up_disagreement=False,
+        )
+        back = pickle.loads(pickle.dumps(quiet))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert back.world_up_inferred == quiet.world_up
+
+    def test_a_pickle_holds_no_fk_array(self, bvh_example):
+        before = pickle.dumps(bvh_example)
+        bvh_example.node_positions()
+        _ = bvh_example.floor_height
+        assert pickle.dumps(bvh_example) == before
+
+    def test_an_unpickled_clip_computes_fk_when_read(self, bvh_example, computations):
+        expected = bvh_example.node_positions()
+        back = pickle.loads(pickle.dumps(bvh_example))
+        assert computations.fk == 1
+        np.testing.assert_array_equal(back.node_positions(), expected)
+        assert computations.fk == 2
 
 
 # =============================================================================

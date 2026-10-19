@@ -63,9 +63,19 @@ def _with_offsets(bvh, offsets):
     A clip's nodes are frozen, so a changed skeleton is a new clip, built
     from the node table.
     """
+    return _with_column(bvh, "offset", offsets)
+
+
+def _with_names(bvh, names):
+    """*bvh* rebuilt with new node names, in ``nodes`` order."""
+    return _with_column(bvh, "name", names)
+
+
+def _with_column(bvh, key, values):
+    """*bvh* rebuilt with one column of its node table replaced."""
     table = nodes_to_table(bvh.nodes)
-    for row, offset in zip(table, offsets, strict=True):
-        row["offset"] = offset
+    for row, value in zip(table, values, strict=True):
+        row[key] = value
     return Bvh(
         nodes=nodes_from_table(table),
         root_pos=bvh.root_pos,
@@ -1712,8 +1722,9 @@ class TestFrameSlicing:
 
     def test_concat_mismatched_names_raises(self, bvh_example):
         """Concat with different joint names should raise."""
-        other = bvh_example.copy()
-        other.nodes[1]._name = "DifferentName"
+        names = [node.name for node in bvh_example.nodes]
+        names[1] = "DifferentName"
+        other = _with_names(bvh_example, names)
         with pytest.raises(ValueError, match="name mismatch"):
             bvh_example + other
 
@@ -1837,10 +1848,8 @@ class TestSkeletonRetargeting:
     def test_retarget_with_prefix_mapping(self, bvh_example):
         """Mapping with prefixed names should copy offsets correctly."""
         # Create a reference with prefixed names
-        ref = bvh_example.copy()
-        ref.scale(3.0, inplace=True)
-        for node in ref.nodes:
-            node._name = "prefix:" + node.name
+        scaled = bvh_example.scale(3.0)
+        ref = _with_names(scaled, ["prefix:" + node.name for node in scaled.nodes])
 
         # Build mapping: self name → prefixed name
         mapping = {n.name: "prefix:" + n.name for n in bvh_example.nodes}
@@ -1851,11 +1860,9 @@ class TestSkeletonRetargeting:
 
     def test_retarget_lenient_unmapped(self, bvh_example):
         """Unmapped joints keep their original offsets in lenient mode."""
-        ref = bvh_example.copy()
-        ref.scale(5.0, inplace=True)
+        scaled = bvh_example.scale(5.0)
         # Rename all ref nodes so nothing matches by name
-        for node in ref.nodes:
-            node._name = "ref_" + node.name
+        ref = _with_names(scaled, ["ref_" + node.name for node in scaled.nodes])
         # Only map the root
         mapping = {bvh_example.root.name: "ref_" + bvh_example.root.name}
         result = bvh_example.retarget(ref, name_mapping=mapping, strict=False)
@@ -1866,9 +1873,10 @@ class TestSkeletonRetargeting:
 
     def test_retarget_strict_unmapped_raises(self, bvh_example):
         """Strict mode should raise when a joint has no match."""
-        ref = bvh_example.copy()
         # Remove one node name from ref to create a mismatch
-        ref.nodes[1]._name = "NONEXISTENT"
+        names = [node.name for node in bvh_example.nodes]
+        names[1] = "NONEXISTENT"
+        ref = _with_names(bvh_example, names)
         with pytest.raises(ValueError, match="not found"):
             bvh_example.retarget(ref, strict=True)
 
@@ -6202,9 +6210,7 @@ class TestAutoDetectLRPairs:
         """Skeleton with no L/R naming returns empty list."""
         from pybvh.transforms import auto_detect_lr_pairs
 
-        root = BvhRoot()
-        root._frozen = False
-        bvh = Bvh(nodes=[root])
+        bvh = Bvh(nodes=[BvhRoot()])
         assert auto_detect_lr_pairs(bvh) == []
 
 
@@ -7315,11 +7321,15 @@ class TestMirrorValidationCarryOver:
 
         bvh = make_pos_y_up_bvh()
         # Drop the left leg's end site so L/R end-site counts disagree
-        nodes = [n for n in bvh.nodes if n.name != "LeftFoot"]
-        left_leg = next(n for n in nodes if n.name == "LeftLeg")
-        left_leg._children = [c for c in left_leg.children if c.name != "LeftFoot"]
+        table = nodes_to_table(bvh.nodes)
+        dropped = bvh.node_index["LeftFoot"]
+        assert bvh.nodes[dropped].is_end_site()
+        del table[dropped]
+        for row in table:
+            if row["parent"] is not None and row["parent"] > dropped:
+                row["parent"] -= 1
         lopsided = Bvh(
-            nodes=nodes,
+            nodes=nodes_from_table(table),
             root_pos=bvh.root_pos.copy(),
             joint_angles=bvh.joint_angles.copy(),
             frame_time=bvh.frame_time,

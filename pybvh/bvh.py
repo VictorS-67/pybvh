@@ -143,8 +143,11 @@ class Bvh:
         exactly ``nodes``, in order, and each node's ``parent`` must be
         the node it was reached from; ``ValueError`` otherwise. To build
         a tree from plain data, :func:`~pybvh.nodes_from_table` wires it.
+        The constructor freezes every node it is given (see
+        :mod:`pybvh.bvhnode`), and ``nodes`` cannot be assigned: a new
+        skeleton goes to a new ``Bvh``.
     root : BvhRoot
-        The root node (``nodes[0]``).
+        The root node (``nodes[0]``), read-only.
     root_pos : ndarray, shape (F, 3)
         Root position per frame.
     joint_angles : ndarray, shape (F, J, 3)
@@ -210,11 +213,16 @@ class Bvh:
 
         if nodes is None:
             nodes = [BvhRoot()]
-        self.nodes = nodes
+        if (not isinstance(nodes, list)) or any(not isinstance(x, BvhNode) for x in nodes):
+            raise ValueError("nodes should be a list of BvhNode class/subclasse objects")
+        if len(nodes) == 0:
+            raise ValueError("nodes must hold at least one node, the root.")
         # The root's type is checked before the walk, which asks every
         # node its kind; a bare BvhNode cannot answer that.
-        self.root = self.nodes[0]  # type: ignore[assignment]
-        _check_node_tree(self.nodes)
+        if not isinstance(nodes[0], BvhRoot):
+            raise ValueError("The first element of nodes should be a BvhRoot object")
+        _check_node_tree(nodes)
+        self._nodes = nodes
         self.frame_time = frame_time
         self.source_path = source_path
 
@@ -277,28 +285,20 @@ class Bvh:
         *J* that indexes :attr:`joint_angles`; :attr:`node_index` and
         :attr:`joint_index` map names to each.
 
-        Returns the live list, not a copy. Change the skeleton through
-        the methods that edit it (:meth:`scale`, :meth:`retarget`,
-        :meth:`extract_joints`, :meth:`change_euler_order`) rather than
-        by editing its nodes in place. Those methods swap in a new list
-        of new nodes, even with ``inplace=True``, so a list or node taken
-        before the call keeps the old skeleton. Assigning replaces the list; the
-        setter only checks that the value is a non-empty list of
-        ``BvhNode`` (``ValueError`` otherwise). The tree wiring is
-        checked when a ``Bvh`` is constructed, not on assignment, so a
-        new skeleton goes to the constructor, built with
-        :func:`~pybvh.nodes_from_table` if it starts as plain data.
+        The clip owns these nodes and has frozen them: assigning a
+        node's ``name``, ``offset``, ``parent``, ``children`` or channels
+        raises ``AttributeError``, and ``nodes`` itself cannot be
+        assigned. Change the skeleton through the methods that edit it
+        (:meth:`scale`, :meth:`retarget`, :meth:`extract_joints`,
+        :meth:`change_euler_order`), or edit it as a table and build a new
+        clip: ``table = nodes_to_table(bvh.nodes)``, edit the rows, then
+        ``Bvh(nodes=nodes_from_table(table), root_pos=bvh.root_pos,
+        joint_angles=bvh.joint_angles, frame_time=bvh.frame_time)``. The
+        methods swap in a new list of new nodes, even with
+        ``inplace=True``, so a list or node taken before the call keeps
+        the old skeleton.
         """
         return self._nodes
-
-    @nodes.setter
-    def nodes(self, value: list[BvhNode]) -> None:
-        if (not isinstance(value, list)) or any([not isinstance(x, BvhNode) for x in value]):
-            raise ValueError("nodes should be a list of BvhNode class/subclasse objects")
-        if len(value) == 0:
-            raise ValueError("nodes must hold at least one node, the root.")
-        self._nodes = value
-        self._derived.skeleton_changed()
 
     @property
     def frame_time(self) -> float:
@@ -398,16 +398,10 @@ class Bvh:
 
         The one node with position channels: its translation per frame is
         :attr:`root_pos`, and its rotation is joint 0 of
-        :attr:`joint_angles`. Assigning anything but a
-        :class:`~pybvh.bvhnode.BvhRoot` raises ``ValueError``.
+        :attr:`joint_angles`. Read-only: the root is whatever ``nodes``
+        starts with.
         """
-        return self._root
-
-    @root.setter
-    def root(self, value: BvhRoot) -> None:
-        if not isinstance(value, BvhRoot):
-            raise ValueError("The first element of nodes should be a BvhRoot object")
-        self._root = value
+        return self._nodes[0]  # type: ignore[return-value]
 
     @property
     def _euler_column_names(self) -> list[str]:
@@ -792,11 +786,10 @@ class Bvh:
         self._lr_mapping_setting = state["lr_mapping_setting"]
 
     def _freeze_skeleton(self) -> None:
-        """Freeze the channels of every node, so they cannot drift away
-        from ``joint_angles``."""
+        """Freeze every node the clip owns, so its skeleton cannot change
+        under ``joint_angles`` and the derived values."""
         for node in self.nodes:
-            if hasattr(node, "_frozen"):
-                node._frozen = True
+            node._freeze()
 
     def _replace_skeleton(self, nodes: list[BvhNode]) -> None:
         """Swap in a new skeleton: the one way a clip's skeleton changes
@@ -811,8 +804,7 @@ class Bvh:
         values. The new nodes keep the joint layout of ``joint_angles``.
         """
         _check_node_tree(nodes)
-        self.nodes = nodes
-        self.root = nodes[0]  # type: ignore[assignment]
+        self._nodes = nodes
         self._freeze_skeleton()
         self._derived.skeleton_changed()
 

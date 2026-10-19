@@ -346,6 +346,9 @@ def nodes_from_table(table: Sequence[Mapping[str, Any]]) -> list[BvhNode]:
         parent = _table_parent(entry, i, nodes)
         node = _node_from_entry(entry, i, parent)
         if parent is not None:
+            # The parent is a node built here, not yet owned by a Bvh, so its
+            # children are still a list (an owned node's are a tuple).
+            assert isinstance(parent.children, list)
             parent.children.append(node)
         nodes.append(node)
     _check_table_order(nodes)

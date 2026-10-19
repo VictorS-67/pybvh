@@ -6,6 +6,16 @@ carries its name, its rest offset from its parent and links to its parent
 and children; the motion itself lives in the :class:`~pybvh.bvh.Bvh` that
 holds the nodes. Trees are usually built by the reader or by
 :func:`~pybvh.nodes_from_table`, which wire both directions of every link.
+
+A node is mutable until a :class:`~pybvh.bvh.Bvh` owns it: the ``Bvh``
+constructor freezes every node it is given. From then on, assigning its
+``name``, ``offset``, ``parent``, ``children`` or channels raises
+``AttributeError`` naming the way to change a skeleton
+(:func:`~pybvh.nodes_to_table`, edit the table,
+:func:`~pybvh.nodes_from_table`, a new ``Bvh``), ``offset`` is a read-only
+array and ``children`` a tuple. A clip's derived values (forward
+kinematics, indexes, floor height) are computed from its skeleton, so the
+skeleton cannot change under them.
 """
 
 from __future__ import annotations
@@ -14,6 +24,19 @@ from typing import TypeGuard
 
 import numpy as np
 import numpy.typing as npt
+
+
+def _frozen_error(node: BvhNode, attribute: str) -> AttributeError:
+    """The refusal of an edit to a node a :class:`~pybvh.bvh.Bvh` owns."""
+    return AttributeError(
+        f"{attribute} of node {node.name!r} cannot be changed: a Bvh owns "
+        f"this node, and the skeleton of a Bvh is frozen. To change it, edit "
+        f"the skeleton as a table and build a new clip: "
+        f"table = pybvh.nodes_to_table(bvh.nodes), edit the rows, then "
+        f"pybvh.Bvh(nodes=pybvh.nodes_from_table(table), "
+        f"root_pos=bvh.root_pos, joint_angles=bvh.joint_angles, "
+        f"frame_time=bvh.frame_time)."
+    )
 
 
 class BvhNode:
@@ -39,6 +62,7 @@ class BvhNode:
         offset: list[float] | npt.NDArray[np.float64] | None = None,
         parent: BvhNode | None = None,
     ) -> None:
+        self._frozen = False
         self.name = name
         self.offset = offset if offset is not None else [0.0, 0.0, 0.0]  # type: ignore[assignment]
         self.parent = parent
@@ -53,12 +77,15 @@ class BvhNode:
         identity and position, never by name. Lookups by name do exist
         (``Bvh.index``, ``Bvh.node_index``, ``Bvh.joint_index``,
         retargeting); ``node_index`` keeps the last node of a repeated
-        name. Assigning anything but a ``str`` raises ``ValueError``.
+        name. Assigning anything but a ``str`` raises ``ValueError``,
+        and assigning on a node a ``Bvh`` owns raises ``AttributeError``.
         """
         return self._name
 
     @name.setter
     def name(self, value: str) -> None:
+        if self._frozen:
+            raise _frozen_error(self, "name")
         if not isinstance(value, str):
             raise ValueError("name should be a string type")
         self._name = value
@@ -71,11 +98,21 @@ class BvhNode:
         ``root_pos``). Assigning accepts any sequence of three finite
         numbers and stores it as a new float64 array; NaN, infinity, a
         ``None`` component or a wrong length raise ``ValueError``.
+
+        Once a ``Bvh`` owns the node, assigning raises ``AttributeError``
+        and the array returned is read-only: writing into it raises
+        ``ValueError``. ``offset.copy()`` is a writable copy.
         """
+        if self._frozen:
+            # A view of the read-only array: unlike the array itself, which
+            # owns its data, a view cannot be made writeable again.
+            return self._offset.view()
         return self._offset
 
     @offset.setter
     def offset(self, value: list[float] | npt.NDArray[np.float64]) -> None:
+        if self._frozen:
+            raise _frozen_error(self, "offset")
         try:
             offset_arr = np.array(value, dtype=np.float64)
         except (TypeError, ValueError) as e:
@@ -102,16 +139,31 @@ class BvhNode:
         Assigning anything but ``None`` or a :class:`BvhNode` raises
         ``ValueError``. Setting the parent does not add this node to the
         parent's ``children``: each direction of the link is set on its
-        own.
+        own. Assigning on a node a ``Bvh`` owns raises ``AttributeError``.
         """
         return self._parent
 
     @parent.setter
     def parent(self, value: BvhNode | None) -> None:
+        if self._frozen:
+            raise _frozen_error(self, "parent")
         # parent needs to be either None or an instance of BvhNode
         if value is not None and not isinstance(value, BvhNode):
             raise ValueError("parent should either be None or a BvhNode class/subclasse object")
         self._parent = value
+
+    def _freeze(self) -> None:
+        """Refuse every later edit: a :class:`~pybvh.bvh.Bvh` calls this on
+        each node it takes. Nothing unfreezes a node."""
+        self._frozen = True
+        self._offset.flags.writeable = False
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        # copy.deepcopy and pickle rebuild a node from its __dict__, and the
+        # offset array they rebuild is writable: a frozen node's must not be.
+        self.__dict__.update(state)
+        if self._frozen:
+            self._offset.flags.writeable = False
 
     def __str__(self) -> str:
         return f"{self.name}"
@@ -192,8 +244,8 @@ class BvhJoint(BvhNode):
         3-element array of positional offset values.
     rot_channels : list of str
         Rotation channel order as a permutation of ``['X', 'Y', 'Z']``.
-    children : list of BvhNode
-        Child nodes in the hierarchy.
+    children : list or tuple of BvhNode
+        Child nodes in the hierarchy; a tuple once a ``Bvh`` owns the node.
     parent : BvhNode or None
         Parent node, or None if this is a root.
     """
@@ -209,7 +261,6 @@ class BvhJoint(BvhNode):
         # inheritance
         super().__init__(name, offset, parent)
 
-        self._frozen = False
         self.rot_channels = rot_channels if rot_channels is not None else ["Z", "Y", "X"]  # type: ignore[assignment]
         self.children = children if children is not None else []
 
@@ -225,18 +276,17 @@ class BvhJoint(BvhNode):
         one-letter strings, a permutation of ``'XYZ'`` either way, and
         stores a new list; anything else raises ``ValueError``.
 
-        Frozen by the :class:`~pybvh.bvh.Bvh` constructor, which freezes
-        every node it is given, because the stored angles are only
-        meaningful in their own order: assigning then raises
-        ``AttributeError``, and ``Bvh.change_euler_order`` converts the
-        angles and the order together. A joint that reaches a ``Bvh`` only
-        through ``Bvh.nodes`` assignment is not frozen.
+        Frozen by the :class:`~pybvh.bvh.Bvh` constructor with the rest of
+        the node: assigning then raises ``AttributeError``, and
+        ``Bvh.change_euler_order`` converts the angles and the order
+        together, since the stored angles are only meaningful in their own
+        order.
         """
         return self._rot_channels
 
     @rot_channels.setter
     def rot_channels(self, value: list[str] | str) -> None:
-        if getattr(self, "_frozen", False):
+        if self._frozen:
             raise AttributeError(
                 "rot_channels is frozen. Use "
                 "Bvh.change_euler_order(order, joint=joint_name) or "
@@ -245,20 +295,29 @@ class BvhJoint(BvhNode):
         self._rot_channels = self._check_channels(value)
 
     @property
-    def children(self) -> list[BvhNode]:
+    def children(self) -> list[BvhNode] | tuple[BvhNode, ...]:
         """The joints and end sites directly below this one, in file order.
 
-        Assigning anything but a list of :class:`BvhNode` raises
-        ``ValueError``. Like ``parent``, it sets one direction of the
-        link only: the children's ``parent`` is left as it was.
+        A list until a ``Bvh`` owns the node, so a tree can be built by
+        appending to it; a tuple from then on. Assigning anything but a
+        list of :class:`BvhNode` raises ``ValueError``, and assigning on a
+        node a ``Bvh`` owns raises ``AttributeError``. Like ``parent``, it
+        sets one direction of the link only: the children's ``parent`` is
+        left as it was.
         """
         return self._children
 
     @children.setter
     def children(self, value: list[BvhNode]) -> None:
+        if self._frozen:
+            raise _frozen_error(self, "children")
         if (not isinstance(value, list)) or any([not isinstance(x, BvhNode) for x in value]):
             raise ValueError("children should be a list of BvhNode class/subclasse objects")
-        self._children = value
+        self._children: list[BvhNode] | tuple[BvhNode, ...] = value
+
+    def _freeze(self) -> None:
+        super()._freeze()
+        self._children = tuple(self._children)
 
     def __str__(self) -> str:
         return f"JOINT {self.name}"
@@ -334,8 +393,8 @@ class BvhRoot(BvhJoint):
         Position channel order as a permutation of ``['X', 'Y', 'Z']``.
     rot_channels : list of str
         Rotation channel order as a permutation of ``['X', 'Y', 'Z']``.
-    children : list of BvhNode
-        Child nodes in the hierarchy.
+    children : list or tuple of BvhNode
+        Child nodes in the hierarchy; a tuple once a ``Bvh`` owns the node.
     parent : BvhNode or None
         Parent node, or None.
     """
@@ -369,7 +428,7 @@ class BvhRoot(BvhJoint):
 
     @pos_channels.setter
     def pos_channels(self, value: list[str] | str) -> None:
-        if getattr(self, "_frozen", False):
+        if self._frozen:
             raise AttributeError("pos_channels is frozen after construction and cannot be changed.")
         self._pos_channels = self._check_channels(value)
 

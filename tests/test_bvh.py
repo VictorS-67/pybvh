@@ -57,6 +57,28 @@ from synthetic_bvh import (
 # =============================================================================
 
 
+def _with_offsets(bvh, offsets):
+    """*bvh* rebuilt on new offsets, ``(N, 3)`` in ``nodes`` order.
+
+    A clip's nodes are frozen, so a changed skeleton is a new clip, built
+    from the node table.
+    """
+    table = nodes_to_table(bvh.nodes)
+    for row, offset in zip(table, offsets, strict=True):
+        row["offset"] = offset
+    return Bvh(
+        nodes=nodes_from_table(table),
+        root_pos=bvh.root_pos,
+        joint_angles=bvh.joint_angles,
+        frame_time=bvh.frame_time,
+        world_up=bvh.world_up,
+    )
+
+
+def _offsets(bvh):
+    return np.array([node.offset for node in bvh.nodes])
+
+
 @pytest.fixture
 def bvh_example_path():
     """Path to the example BVH file."""
@@ -1012,11 +1034,14 @@ class TestEdgeCases:
         assert bvh.frame_count == 0
         assert len(bvh.nodes) == 1  # Default root
 
-    def test_nodes_setter_validates(self):
-        """Setting nodes to invalid value should raise ValueError."""
-        bvh = Bvh()
-        with pytest.raises(ValueError):
-            bvh.nodes = "not a list"
+    def test_constructor_validates_nodes(self):
+        """A node list that is not a list of BvhNode raises ValueError."""
+        with pytest.raises(ValueError, match="list of BvhNode"):
+            Bvh(nodes="not a list")
+        with pytest.raises(ValueError, match="at least one node"):
+            Bvh(nodes=[])
+        with pytest.raises(ValueError, match="BvhRoot"):
+            Bvh(nodes=[BvhJoint("Hips")])
 
 
 # =============================================================================
@@ -1429,6 +1454,94 @@ class TestChannelProtection:
                     node.rot_channels = ["X", "Y", "Z"]
 
 
+# The way every refusal names: edit the skeleton as a table, build a new clip.
+_THE_WAY = r"nodes_to_table.*Bvh\(nodes=pybvh\.nodes_from_table"
+
+
+class TestOwnedSkeletonIsFrozen:
+    """A node a Bvh owns refuses every edit, and says how to make it."""
+
+    def test_offset_edit_raises(self, bvh_example):
+        """Bug 2 of #112: the edit left forward kinematics stale."""
+        bvh = bvh_example
+        before = bvh.node_positions()[0, 1].copy()
+        with pytest.raises(AttributeError, match=f"offset of node 'Spine'.*{_THE_WAY}"):
+            bvh.nodes[1].offset = bvh.nodes[1].offset + 10.0
+        assert (bvh.node_positions()[0, 1] == before).all()
+
+    def test_rename_raises(self, bvh_example):
+        """Bug 3 of #112: the rename left the name index stale."""
+        bvh = bvh_example
+        with pytest.raises(AttributeError, match=f"name of node 'Spine'.*{_THE_WAY}"):
+            bvh.nodes[1].name = "Torso"
+        assert "Spine" in bvh.node_index
+
+    @pytest.mark.parametrize("attribute, value", [("parent", None), ("children", [])])
+    def test_assignment_names_the_way(self, bvh_example, attribute, value):
+        node = bvh_example.nodes[1]
+        with pytest.raises(AttributeError, match=f"{attribute} of node 'Spine'.*{_THE_WAY}"):
+            setattr(node, attribute, value)
+
+    def test_offset_is_read_only(self, bvh_example):
+        node = bvh_example.nodes[1]
+        with pytest.raises(ValueError, match="read-only"):
+            node.offset[0] += 1
+        with pytest.raises(ValueError, match="cannot set WRITEABLE flag"):
+            node.offset.flags.writeable = True
+
+    def test_a_copied_or_unpickled_node_stays_frozen(self, bvh_example):
+        import pickle
+
+        for node in (
+            copy.deepcopy(bvh_example).nodes[1],
+            copy.deepcopy(bvh_example.nodes)[1],
+            pickle.loads(pickle.dumps(bvh_example.nodes))[1],
+        ):
+            with pytest.raises(AttributeError, match=_THE_WAY):
+                node.offset = [0, 0, 0]
+            with pytest.raises(ValueError, match="read-only"):
+                node.offset[0] += 1
+
+    def test_children_is_a_tuple(self, bvh_example):
+        node = bvh_example.nodes[1]
+        assert node.children == (bvh_example.nodes[2],)
+        with pytest.raises(AttributeError, match="'tuple' object has no attribute 'append'"):
+            node.children.append(BvhEndSite("Tip", parent=node))
+
+    def test_a_skeleton_built_by_hand_is_editable_until_owned(self):
+        """The sister libraries' rigs set parent, children and offset, then construct."""
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels="ZYX")
+        leg = BvhJoint("Leg", offset=[0, 0, 0], rot_channels="ZYX", parent=hips)
+        tip = BvhEndSite("Tip", offset=[0, -1, 0], parent=leg)
+        hips.children.append(leg)
+        leg.children.append(tip)
+        offset = list(leg.offset)
+        offset[1] -= 5
+        leg.offset = offset
+        leg.offset[0] += 1
+        leg.name = "LeftLeg"
+
+        bvh = Bvh(
+            nodes=[hips, leg, tip], root_pos=np.zeros((1, 3)), joint_angles=np.zeros((1, 2, 3))
+        )
+
+        np.testing.assert_array_equal(bvh.rest_pose_positions()[2], [1, -6, 0])
+        assert bvh.node_index["LeftLeg"] == 1
+        with pytest.raises(AttributeError, match=f"offset of node 'LeftLeg'.*{_THE_WAY}"):
+            leg.offset = [0, 0, 0]
+
+    def test_nodes_and_root_cannot_be_assigned(self, bvh_example):
+        """Bug 4 of #112: assigning nodes left the index and the root behind."""
+        bvh = bvh_example
+        sub = bvh.extract_joints(["Hips", "Spine"])
+        with pytest.raises(AttributeError):
+            bvh.nodes = sub.nodes
+        with pytest.raises(AttributeError):
+            bvh.root = sub.root
+        assert len(bvh.nodes) == len(bvh.node_index) == 29
+        assert bvh.root is bvh.nodes[0]
+
+
 class TestFrameSlicing:
     """Tests for frame slicing (bvh[a:b:c]), concatenation (a + b), and resample."""
 
@@ -1507,8 +1620,8 @@ class TestFrameSlicing:
             def is_end_site(self):
                 return False
 
-        other = bvh_example.copy()
-        joint = other.nodes[1]
+        nodes = nodes_from_table(nodes_to_table(bvh_example.nodes))
+        joint = nodes[1]
         reordered = ["X", "Y", "Z"]
         assert reordered != joint.rot_channels
         custom = CustomJoint(joint.name, joint.offset, joint.parent, reordered, joint.children)
@@ -1516,7 +1629,13 @@ class TestFrameSlicing:
         siblings[siblings.index(joint)] = custom
         for child in joint.children:
             child.parent = custom
-        other.nodes[1] = custom
+        nodes[1] = custom
+        other = Bvh(
+            nodes=nodes,
+            root_pos=bvh_example.root_pos,
+            joint_angles=bvh_example.joint_angles,
+            frame_time=bvh_example.frame_time,
+        )
         with pytest.raises(ValueError, match="Rotation order mismatch"):
             bvh_example + other
 
@@ -2270,13 +2389,6 @@ class TestRestPoseCache:
             edited.rest_pose_positions(), _rest_pose_by_fk(edited), atol=1e-10
         )
 
-    def test_follows_a_new_node_list(self, bvh_example, bvh_test2):
-        bvh_example.rest_pose_positions()
-        bvh_example.nodes = bvh_test2.nodes
-        np.testing.assert_allclose(
-            bvh_example.rest_pose_positions(), bvh_test2.rest_pose_positions(), atol=1e-10
-        )
-
     def test_a_write_into_the_result_leaves_the_clip_unchanged(self, bvh_example):
         rest = bvh_example.rest_pose_positions()
         expected = rest.copy()
@@ -2461,11 +2573,10 @@ class TestFramesToSpatialCoordsStandalone:
 
     def test_duplicate_joint_names_fk_unaffected(self, bvh_example):
         """Topology is keyed by node identity: duplicate names can't corrupt FK."""
-        from copy import deepcopy
-
-        nodes = deepcopy(bvh_example.nodes)
-        for node in nodes:
-            node.name = "same_name"
+        table = nodes_to_table(bvh_example.nodes)
+        for row in table:
+            row["name"] = "same_name"
+        nodes = nodes_from_table(table)
         result = frames_to_node_positions(
             nodes, root_pos=bvh_example.root_pos, joint_angles=bvh_example.joint_angles
         )
@@ -2688,15 +2799,15 @@ class TestEqualityHierarchy:
         assert bvh_example == bvh_example.copy()
 
     def test_offset_difference_detected(self, bvh_example):
-        other = bvh_example.copy()
-        other.nodes[2].offset = other.nodes[2].offset + 1.0
-        assert bvh_example != other
+        offsets = _offsets(bvh_example)
+        offsets[2] += 1.0
+        assert bvh_example != _with_offsets(bvh_example, offsets)
 
     def test_end_site_offset_difference_detected(self, bvh_example):
-        other = bvh_example.copy()
-        end_idx = next(i for i, n in enumerate(other.nodes) if n.is_end_site())
-        other.nodes[end_idx].offset = other.nodes[end_idx].offset + 1.0
-        assert bvh_example != other
+        offsets = _offsets(bvh_example)
+        end_idx = next(i for i, n in enumerate(bvh_example.nodes) if n.is_end_site())
+        offsets[end_idx] += 1.0
+        assert bvh_example != _with_offsets(bvh_example, offsets)
 
 
 # =============================================================================
@@ -5905,9 +6016,7 @@ class TestMatchesHierarchy:
 
     def test_atol_relaxes_offset_check(self, bvh_example):
         # Perturb offsets within atol and verify the looser check accepts.
-        nudged = bvh_example.copy()
-        for node in nudged.nodes:
-            node.offset = node.offset + 1e-8
+        nudged = _with_offsets(bvh_example, _offsets(bvh_example) + 1e-8)
         assert bvh_example.matches_hierarchy(nudged, atol=1e-6)
         assert not bvh_example.matches_hierarchy(nudged, atol=1e-10)
 
@@ -7066,17 +7175,8 @@ class TestParsedAxisProperties:
         assert (bvh_example.rest_up is None) == (bvh_example.rest_up_axis is None)
 
     def test_rest_up_axis_is_none_for_a_degenerate_rest_pose(self):
-        source = make_pos_y_up_bvh()
-        table = nodes_to_table(source.nodes)
-        for entry in table:
-            entry["offset"] = np.zeros(3)
-        bvh = Bvh(
-            nodes=nodes_from_table(table),
-            root_pos=source.root_pos,
-            joint_angles=source.joint_angles,
-            frame_time=source.frame_time,
-            world_up="+y",
-        )
+        bvh = make_pos_y_up_bvh()
+        bvh = _with_offsets(bvh, np.zeros((len(bvh.nodes), 3)))
         assert bvh.rest_up is None
         assert bvh.rest_up_axis is None
         # forward stays defined — it falls back rather than returning None

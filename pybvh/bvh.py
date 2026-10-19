@@ -280,15 +280,17 @@ class Bvh:
             self.root_pos = np.empty((0, 3), dtype=np.float64)
             self.joint_angles = np.empty((0, 0, 3), dtype=np.float64)
 
-        self._freeze_skeleton()
-
         if world_up != "auto":
             self._world_up_override = _validate_axis_string(world_up)
-        else:
-            self._settle_world_up()
-
         if lr_mapping is not None:
             self._validate_and_set_lr_mapping(lr_mapping)
+
+        # Frozen only once every check has passed: a Bvh(...) that raises
+        # owns nothing, so the caller's nodes stay editable for a retry.
+        self._freeze_skeleton()
+
+        if world_up == "auto":
+            self._settle_world_up()
 
     @property
     def nodes(self) -> tuple[BvhNode, ...]:

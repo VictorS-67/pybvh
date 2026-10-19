@@ -1594,6 +1594,39 @@ class TestOwnedSkeletonIsFrozen:
         with pytest.raises(AttributeError, match=f"offset of node 'LeftLeg'.*{_THE_WAY}"):
             leg.offset = [0, 0, 0]
 
+    @pytest.mark.parametrize(
+        "bad_argument",
+        [
+            {"world_up": "up"},
+            {"lr_mapping": {"Nope": "Leg"}},
+            {"lr_mapping": [("Hips", "Leg")]},
+            {"joint_angles": np.zeros((2, 2, 3))},
+            {"joint_angles": np.zeros((1, 3, 3))},
+        ],
+    )
+    def test_a_failed_construction_leaves_the_nodes_editable(self, bad_argument):
+        """A typo in a Bvh(...) call, then an edit of the nodes: a notebook sequence."""
+        hips = BvhRoot("Hips", offset=[0, 0, 0], rot_channels="ZYX")
+        leg = BvhJoint("Leg", offset=[0, -1, 0], rot_channels="ZYX", parent=hips)
+        tip = BvhEndSite("Tip", offset=[0, -1, 0], parent=leg)
+        hips.children.append(leg)
+        leg.children.append(tip)
+        arguments = {"root_pos": np.zeros((1, 3)), "joint_angles": np.zeros((1, 2, 3))}
+
+        with pytest.raises((ValueError, TypeError)):
+            Bvh(nodes=[hips, leg, tip], **{**arguments, **bad_argument})
+
+        leg.offset = [0, -2, 0]
+        leg.offset[0] += 1
+        leg.name = "LeftLeg"
+        leg.rot_channels = "XYZ"
+        leg.children.append(BvhEndSite("Toe", offset=[0, 0, 1], parent=leg))
+        leg.children.pop()
+        bvh = Bvh(nodes=[hips, leg, tip], **arguments)
+        np.testing.assert_array_equal(bvh.rest_pose_positions()[1], [1, -2, 0])
+        with pytest.raises(AttributeError, match=f"offset of node 'LeftLeg'.*{_THE_WAY}"):
+            leg.offset = [0, 0, 0]
+
     def test_nodes_and_root_cannot_be_assigned(self, bvh_example):
         """Bug 4 of #112: assigning nodes left the index and the root behind."""
         bvh = bvh_example

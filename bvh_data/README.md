@@ -18,8 +18,7 @@ pybvh's own bundled test fixtures: small clips and a reference skeleton exercise
 
 | File | What it is for |
 |---|---|
-| `bvh_example.bvh` | The tests' default clip: an anger clip from the DIEM-A dataset, Z-up at 30 fps, with four different Euler orders across its joints. |
-| `bvh_test1.bvh` | A byte-identical copy of `bvh_example.bvh`; the tutorials, the gallery, the README's hero animation and several tests load it under this name. |
+| `bvh_test1.bvh` | The tests' default clip, which the tutorials, the gallery and the README's hero animation load too: an anger clip from the DIEM-A dataset, Z-up at 30 fps, with four different Euler orders across its joints. |
 | `bvh_test2.bvh` | Y-up at 120 fps, one Euler order (`YXZ`) on every joint, and a root turned so the character faces −Z while its rest pose faces +Z: the regression clip for `camera="front"`. |
 | `bvh_test3.bvh` | A large skeleton (60 joints, mixed Euler orders) whose rest pose is Y-up while its animation is Z-up, so reading it warns that the two disagree: the clip for world-up inference and `reorient_rest_up`. |
-| `standard_skeleton.bvh` | The node names of `bvh_example.bvh` with other bone lengths and one Euler order, as a single frame at rest: the reference skeleton `retarget` maps onto. |
+| `standard_skeleton.bvh` | The node names of `bvh_test1.bvh` with other bone lengths and one Euler order, as a single frame at rest: the reference skeleton `retarget` maps onto. |

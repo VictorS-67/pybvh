@@ -530,7 +530,7 @@ class TestConcatenatingClipsOfTwoRates:
 def test_harmonize_names_the_line_of_its_call():
     from pybvh.batch import harmonize
 
-    reference = read_bvh_file(BVH_DIR / "bvh_example.bvh")
+    reference = read_bvh_file(BVH_DIR / "bvh_test1.bvh")
     other_skeleton = read_bvh_file(BVH_DIR / "bvh_test2.bvh")
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")

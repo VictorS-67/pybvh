@@ -31,7 +31,7 @@ BVH_DIR = Path(__file__).parent.parent / "bvh_data"
 
 @pytest.fixture
 def bvh_example():
-    return read_bvh_file(BVH_DIR / "bvh_example.bvh")
+    return read_bvh_file(BVH_DIR / "bvh_test1.bvh")
 
 
 @pytest.fixture

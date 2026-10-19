@@ -601,7 +601,7 @@ class TestNodeLrPairs:
 
         from pybvh import read_bvh_file
 
-        bvh = read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_example.bvh")
+        bvh = read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_test1.bvh")
         pairs = bvh.node_lr_pairs
         assert pairs
         for left, right in pairs:

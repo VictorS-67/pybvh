@@ -25,7 +25,7 @@ from pybvh import read_bvh_file, rotations
 
 @pytest.fixture
 def bvh_example():
-    return read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_example.bvh")
+    return read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_test1.bvh")
 
 
 # =============================================================================
@@ -2286,7 +2286,7 @@ class TestSlerpArcChoice:
         self,
     ):
         """Bvh.resample depends on the default; a motion must never detour."""
-        bvh = read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_example.bvh")
+        bvh = read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_test1.bvh")
         resampled = bvh.resample(bvh.fps * 2.0)
         _, q = resampled.to_quat()
         # a doubled frame rate can only interpolate between existing poses,

@@ -549,6 +549,10 @@ def rest_pose(
     Returns
     -------
     fig : matplotlib.figure.Figure
+        The figure holding the axes. For an *ax* inside a SubFigure,
+        the root Figure, which can be saved and shown; the SubFigure
+        is ``ax.get_figure()``, and only it takes the style's
+        background, so the caller's other panels keep their colors.
     ax : Axes or list[Axes]
         Single axes when one skeleton, list when multiple.
     """
@@ -689,6 +693,10 @@ def frame(
     Returns
     -------
     fig : matplotlib.figure.Figure
+        The figure holding the axes. For an *ax* inside a SubFigure,
+        the root Figure, which can be saved and shown; the SubFigure
+        is ``ax.get_figure()``, and only it takes the style's
+        background, so the caller's other panels keep their colors.
     ax : Axes or list[Axes]
         Single axes when one skeleton, list when multiple.
         With ``backend="vedo"``: an ``(H, W, 3)`` uint8 RGB image
@@ -783,6 +791,10 @@ def sequence(
     Returns
     -------
     fig : matplotlib.figure.Figure
+        The figure holding the axes. For an *ax* inside a SubFigure,
+        the root Figure, which can be saved and shown; the SubFigure
+        is ``ax.get_figure()``, and only it takes the style's
+        background, so the caller's other panels keep their colors.
     ax : matplotlib.axes.Axes
     """
     if isinstance(bvh, list):
@@ -1511,6 +1523,10 @@ def trajectory(
     Returns
     -------
     fig : matplotlib.figure.Figure
+        The figure holding the axes. For an *ax* inside a SubFigure,
+        the root Figure, which can be saved and shown; the SubFigure
+        is ``ax.get_figure()``, and only it takes the style's
+        background, so the caller's other panels keep their colors.
     ax : matplotlib.axes.Axes
     """
     clips = as_clip_list(bvh)

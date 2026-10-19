@@ -22,6 +22,7 @@ from ._warnings import user_stacklevel
 from .bvh import Bvh
 from .bvhnode import BvhNode
 from .signal import box_filter_smooth
+from .signal import finite_difference as _finite_difference
 from .tools import _axis_to_vector, _compute_forward_at, _facing_basis
 
 _EPS = 1e-12
@@ -40,43 +41,17 @@ def _validate_stencil_pad(stencil: str, pad: str) -> None:
 
 
 def _finite_difference_min_frames(order: int, stencil: str, pad: str) -> int:
-    """Minimum frames for ``order`` repeated applications of the stencil."""
+    """Fewest frames a clip needs for an ``order``-th derivative.
+
+    A policy about clips, stricter than what
+    :func:`pybvh.signal.finite_difference` needs to compute: every
+    combination must leave at least one frame the stencil defines, and
+    ``"central"`` with ``pad="edge"`` at least one central rather than
+    one-sided difference.
+    """
     if stencil == "forward":
         return order + 1
     return 2 * order + 1 if pad == "none" else 3
-
-
-def _finite_difference(
-    arr: npt.NDArray[np.float64],
-    dt: float,
-    order: int,
-    stencil: str,
-    pad: str,
-) -> npt.NDArray[np.float64]:
-    """Apply the chosen stencil ``order`` times along axis 0.
-
-    The single derivative convention of the kinematics ladder
-    (velocity → acceleration → jerk) and ``root_trajectory``:
-    ``"central"`` is repeated :func:`numpy.gradient` (one-sided at the
-    boundaries), ``"forward"`` is repeated one-step differences.
-    ``pad="edge"`` keeps the input length (forward replicates its last
-    valid value ``order`` times); ``pad="none"`` drops the boundary
-    frames the repeated stencil cannot define — ``order`` from each end
-    for central, ``order`` from the tail for forward.
-    """
-    out = np.asarray(arr, dtype=np.float64)
-    if stencil == "central":
-        for _ in range(order):
-            out = np.gradient(out, dt, axis=0)
-        return out if pad == "edge" else out[order:-order]
-
-    # stencil == "forward"
-    for _ in range(order):
-        out = (out[1:] - out[:-1]) / dt
-    if pad == "edge":
-        tail = np.repeat(out[-1:], order, axis=0)
-        out = np.concatenate([out, tail], axis=0)
-    return out
 
 
 def _non_end_site_indices(bvh: Bvh) -> list[int]:
@@ -115,7 +90,8 @@ def node_velocities(
 ) -> npt.NDArray[np.float64]:
     """Compute per-node position velocities (joints + end sites).
 
-    Two orthogonal choices:
+    Differentiates through :func:`pybvh.signal.finite_difference`, with
+    two orthogonal choices:
 
     * ``stencil`` picks the finite-difference method — central
       (second-order accurate, symmetric) or forward (first-order,
@@ -201,7 +177,7 @@ def node_velocities(
         coords = bvh.node_positions(centered=centered)
 
     dt = 1.0 if in_frames else bvh.frame_time
-    return _finite_difference(coords, dt, 1, stencil, pad)
+    return _finite_difference(coords, dt, stencil=stencil, pad=pad)
 
 
 def joint_velocities(
@@ -245,7 +221,9 @@ def node_accelerations(
 ) -> npt.NDArray[np.float64]:
     """Compute per-node position accelerations (joints + end sites).
 
-    Applies the chosen ``stencil`` twice to the input positions.
+    Applies the chosen ``stencil`` twice to the input positions and pads
+    or crops once, at the end:
+    :func:`pybvh.signal.finite_difference` with ``order=2``.
 
     Parameters
     ----------
@@ -321,7 +299,7 @@ def node_accelerations(
         coords = bvh.node_positions(centered=centered)
 
     dt = 1.0 if in_frames else bvh.frame_time
-    return _finite_difference(coords, dt, 2, stencil, pad)
+    return _finite_difference(coords, dt, order=2, stencil=stencil, pad=pad)
 
 
 def joint_accelerations(
@@ -462,7 +440,7 @@ def node_speed_derivative(
     )
     speed = np.linalg.norm(vel, axis=-1)
     dt = 1.0 if in_frames else bvh.frame_time
-    return _finite_difference(speed, dt, 1, stencil, pad)
+    return _finite_difference(speed, dt, stencil=stencil, pad=pad)
 
 
 def joint_speed_derivative(
@@ -748,8 +726,8 @@ def root_trajectory(
 
     dt = bvh.frame_time
     heading_unwrapped = np.unwrap(heading)
-    ground_vel = _finite_difference(ground_pos, dt, 1, stencil, pad)
-    heading_vel = _finite_difference(heading_unwrapped, dt, 1, stencil, pad)
+    ground_vel = _finite_difference(ground_pos, dt, stencil=stencil, pad=pad)
+    heading_vel = _finite_difference(heading_unwrapped, dt, stencil=stencil, pad=pad)
     if pad == "edge":
         base_aligned = base  # (F, 4)
     elif stencil == "central":
@@ -2255,10 +2233,12 @@ def node_jerk(
 ) -> npt.NDArray[np.float64]:
     """Compute per-node position jerk (third derivative) — ``(F, N, 3)``.
 
-    Applies the chosen ``stencil`` three times to the positions, the
-    next rung of the velocity → acceleration → jerk ladder. The jerk
-    *magnitude* ``np.linalg.norm(node_jerk(...), axis=-1)`` is the usual
-    smoothness signal.
+    Applies the chosen ``stencil`` three times to the positions and pads
+    or crops once, at the end (:func:`pybvh.signal.finite_difference`
+    with ``order=3``), the next rung of the velocity → acceleration →
+    jerk ladder. The jerk *magnitude*
+    ``np.linalg.norm(node_jerk(...), axis=-1)`` is the usual smoothness
+    signal.
 
     Parameters
     ----------
@@ -2310,7 +2290,7 @@ def node_jerk(
     if coords is None:
         coords = bvh.node_positions(centered=centered)
     dt = 1.0 if in_frames else bvh.frame_time
-    return _finite_difference(coords, dt, 3, stencil, pad)
+    return _finite_difference(coords, dt, order=3, stencil=stencil, pad=pad)
 
 
 def joint_jerk(

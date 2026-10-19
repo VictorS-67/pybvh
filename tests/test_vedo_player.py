@@ -117,7 +117,7 @@ class TestCamera:
         top row of buttons: the feet used to reach behind the bar."""
         from pybvh.bvhplot._vedo_offscreen import _vtk_backend
 
-        bvh = read_bvh_file("bvh_data/bvh_example.bvh")
+        bvh = read_bvh_file("bvh_data/bvh_test1.bvh")
         coords = bvh.node_positions()
         in_place = make_scene([bvh], [coords], "front", None)
         monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)

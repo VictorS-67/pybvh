@@ -7,6 +7,123 @@ from synthetic_bvh import make_pos_y_up_bvh
 from pybvh import analysis, signal
 
 # ----------------------------------------------------------------
+#  finite_difference at higher orders
+# ----------------------------------------------------------------
+
+
+def test_finite_difference_forward_edge_tail_repeats_last_valid_value():
+    # t**3 at dt=1: first differences 1, 7, 19, 37, 61; second 6, 12, 18, 24.
+    cube = np.arange(6.0) ** 3
+    second = signal.finite_difference(cube, 1.0, order=2, stencil="forward", pad="edge")
+    # Padded once, at the end: the last valid value fills the last two
+    # samples, where padding after each pass would leave 0 there.
+    np.testing.assert_array_equal(second, [6.0, 12.0, 18.0, 24.0, 24.0, 24.0])
+
+
+@pytest.mark.parametrize("order", [1, 2, 3])
+def test_finite_difference_orders_match_their_definitions(order):
+    rng = np.random.default_rng(2)
+    arr = rng.normal(size=(15, 4))
+    dt = 0.25
+
+    repeated_gradient = arr
+    for _ in range(order):
+        repeated_gradient = np.gradient(repeated_gradient, dt, axis=0)
+    np.testing.assert_allclose(
+        signal.finite_difference(arr, dt, order=order, stencil="central", pad="edge"),
+        repeated_gradient,
+    )
+    np.testing.assert_allclose(
+        signal.finite_difference(arr, dt, order=order, stencil="central", pad="none"),
+        repeated_gradient[order:-order],
+    )
+
+    forward = np.diff(arr, n=order, axis=0) / dt**order
+    np.testing.assert_allclose(
+        signal.finite_difference(arr, dt, order=order, stencil="forward", pad="none"),
+        forward,
+    )
+    forward_edge = signal.finite_difference(arr, dt, order=order, stencil="forward", pad="edge")
+    assert forward_edge.shape == arr.shape
+    np.testing.assert_allclose(forward_edge[: len(forward)], forward)
+    np.testing.assert_allclose(forward_edge[len(forward) :], np.repeat(forward[-1:], order, axis=0))
+
+
+@pytest.mark.parametrize("stencil", ["central", "forward"])
+@pytest.mark.parametrize("pad", ["edge", "none"])
+@pytest.mark.parametrize("order", [2, 3])
+@pytest.mark.parametrize("axis", [1, -1])
+def test_finite_difference_higher_orders_follow_axis(stencil, pad, order, axis):
+    rng = np.random.default_rng(3)
+    along_first = rng.normal(size=(12, 2, 3))
+    moved = np.moveaxis(along_first, 0, axis)
+    expected = signal.finite_difference(along_first, 0.1, order=order, stencil=stencil, pad=pad)
+    out = signal.finite_difference(moved, 0.1, order=order, stencil=stencil, pad=pad, axis=axis)
+    np.testing.assert_array_equal(out, np.moveaxis(expected, 0, axis))
+
+
+def test_finite_difference_order_must_be_a_positive_int():
+    arr = np.zeros((10, 3))
+    with pytest.raises(ValueError, match="order must be at least 1, got 0"):
+        signal.finite_difference(arr, 0.1, order=0)
+    with pytest.raises(TypeError, match="order must be an int, got bool True"):
+        signal.finite_difference(arr, 0.1, order=True)
+    with pytest.raises(TypeError, match="order must be an int, got float 2.0"):
+        signal.finite_difference(arr, 0.1, order=2.0)
+    np.testing.assert_array_equal(
+        signal.finite_difference(arr, 0.1, order=np.int64(2)),
+        signal.finite_difference(arr, 0.1, order=2),
+    )
+
+
+@pytest.mark.parametrize("dtype", [np.uint8, np.uint64])
+def test_finite_difference_accepts_unsigned_numpy_orders(dtype):
+    # t**2 at dt=1: central first derivative 1, 2, 4, 6, 7; second 1, 1.5, 2, 1.5, 1.
+    square = np.arange(5.0) ** 2
+    out = signal.finite_difference(square, 1.0, order=dtype(2), pad="none")
+    np.testing.assert_array_equal(out, [2.0])
+
+
+@pytest.mark.parametrize(
+    "stencil, pad, order, min_samples, shape_at_min",
+    [
+        ("central", "edge", 1, 2, (2,)),
+        ("central", "none", 1, 2, (0,)),
+        ("central", "edge", 3, 2, (2,)),
+        ("central", "none", 3, 2, (0,)),
+        ("forward", "edge", 1, 2, (2,)),
+        ("forward", "edge", 3, 4, (4,)),
+    ],
+)
+def test_finite_difference_minimum_samples(stencil, pad, order, min_samples, shape_at_min):
+    arr = np.arange(min_samples, dtype=float) ** 2
+    out = signal.finite_difference(arr, 1.0, order=order, stencil=stencil, pad=pad)
+    assert out.shape == shape_at_min
+    with pytest.raises(
+        ValueError,
+        match=f"requires at least {min_samples} samples along axis 0 \\(have {min_samples - 1}\\)",
+    ):
+        signal.finite_difference(arr[:-1], 1.0, order=order, stencil=stencil, pad=pad)
+
+
+@pytest.mark.parametrize("order", [1, 3])
+def test_finite_difference_forward_none_too_short_is_empty(order):
+    pair = np.array([1.0, 4.0])
+    for arr in (pair, pair[:1]):
+        out = signal.finite_difference(arr, 1.0, order=order, stencil="forward", pad="none")
+        assert out.shape == (max(len(arr) - order, 0),)
+
+
+def test_finite_difference_short_inputs_keep_their_order_one_results():
+    pair = np.array([1.0, 4.0])
+    # Two samples under the central stencil: both ends one-sided.
+    np.testing.assert_array_equal(signal.finite_difference(pair, 0.5), [6.0, 6.0])
+    assert signal.finite_difference(pair, 0.5, pad="none").shape == (0,)
+    single = pair[:1]
+    assert signal.finite_difference(single, 0.5, stencil="forward", pad="none").shape == (0,)
+
+
+# ----------------------------------------------------------------
 #  temporal_stats
 # ----------------------------------------------------------------
 

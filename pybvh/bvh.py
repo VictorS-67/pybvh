@@ -2783,21 +2783,15 @@ class Bvh:
 
         new_nodes = nodes_from_table(rows)
 
-        # --- Build new joint_angles by selecting kept columns ---
-        new_joint_angles = self.joint_angles[:, kept_old_j_indices, :]
-
-        new_bvh = Bvh(
+        # Selecting the kept columns makes a new array.
+        new_bvh = self._derive_clip(
+            root_pos=self._root_pos.copy(),
+            joint_angles=self._joint_angles[:, kept_old_j_indices, :],
             nodes=new_nodes,
-            root_pos=self.root_pos.copy(),
-            joint_angles=new_joint_angles.copy(),
-            frame_time=self.frame_time,
-            source_path=self.source_path,
-            warn_on_disagreement=self._warn_on_world_up_disagreement,
         )
-        new_bvh._world_up_override = self._world_up_override
-        # A user-set L/R mapping survives, filtered to pairs whose joints
-        # are both kept. Name-detected mappings are re-derived by the
-        # constructor from the reduced skeleton.
+        # A user-set L/R mapping keeps the pairs whose joints are both kept;
+        # with none left, the pairs are detected from the kept names, as
+        # they are when the user set none.
         user_mapping = self._lr_mapping_setting
         if isinstance(user_mapping, dict):
             kept_pairs = {
@@ -2805,8 +2799,7 @@ class Bvh:
                 for left, right in user_mapping.items()
                 if left in keep_set and right in keep_set
             }
-            if kept_pairs:
-                new_bvh._validate_and_set_lr_mapping(kept_pairs)
+            new_bvh._lr_mapping_setting = kept_pairs or "names"
         return new_bvh
 
     def _find_end_site_offset(self, node: BvhNode) -> npt.NDArray[np.float64]:

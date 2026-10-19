@@ -1819,6 +1819,19 @@ class TestJointSubsetting:
         sub.write(tmp_path / "chain.bvh")
         assert sub.matches_hierarchy(read_bvh_file(tmp_path / "chain.bvh"))
 
+    def test_an_override_is_kept_without_inferring(self, computations):
+        """bvh_test3's frame 0 and rest pose disagree, so inferring its world
+        up warns; with the axis set by the user there is nothing to infer,
+        on the clip or on the joints extracted from it."""
+        b3 = read_bvh_file(
+            Path(__file__).parent.parent / "bvh_data" / "bvh_test3.bvh", world_up="+y"
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            sub = b3.extract_joints(["Hips", "Spine", "Spine1"])
+            assert sub.world_up == "+y"
+        assert computations.world_up == 0
+
 
 # =============================================================================
 # Test: File round-trip for all BVH files
@@ -6855,6 +6868,21 @@ class TestExtractJointsMetadata:
         sub = bvh.extract_joints(keep)
         assert sub._lr_mapping_source == "user"
         assert sub.lr_mapping == {"LeftUpLeg": "RightUpLeg", "RightUpLeg": "LeftUpLeg"}
+
+    def test_name_detected_pairs_are_detected_on_the_kept_joints(self, bvh_example):
+        assert bvh_example.lr_mapping["LeftArm"] == "RightArm"
+        sub = bvh_example.extract_joints(["Hips", "LeftArm", "RightUpLeg", "LeftUpLeg"])
+        assert sub.lr_mapping == {"LeftUpLeg": "RightUpLeg", "RightUpLeg": "LeftUpLeg"}
+
+    def test_a_user_mapping_with_no_kept_pair_gives_the_name_detected_pairs(self, bvh_example):
+        bvh_example.lr_mapping = {"LeftArm": "RightArm"}
+        sub = bvh_example.extract_joints(["Hips", "LeftArm", "RightUpLeg", "LeftUpLeg"])
+        assert sub.lr_mapping == {"LeftUpLeg": "RightUpLeg", "RightUpLeg": "LeftUpLeg"}
+
+    def test_a_cleared_mapping_stays_cleared(self, bvh_example):
+        bvh_example.lr_mapping = None
+        sub = bvh_example.extract_joints(["Hips", "RightUpLeg", "LeftUpLeg"])
+        assert sub.lr_mapping is None
 
 
 class TestSliceConcatArePrivate:

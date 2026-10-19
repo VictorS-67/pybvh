@@ -473,6 +473,59 @@ class TestReorientWorldUp:
         assert result.world_up == "+z"
 
 
+def _reorient(bvh, new_up, inplace):
+    """Reorient ``bvh``, in place or not, and return the reoriented clip."""
+    result = bvh.reorient_world_up(new_up, inplace=inplace)
+    return bvh if inplace else result
+
+
+@pytest.mark.parametrize("inplace", [False, True], ids=["copy", "inplace"])
+class TestReorientWorldUpRotatesTheGuess:
+    """Rotating the world turns the guessed up with it (round 1 of the
+    review of #113): clearing the override after ``reorient_world_up``
+    gives the axis the reoriented frames show, not the one from before
+    the rotation."""
+
+    def test_clearing_the_override_gives_the_rotated_guess(self, inplace):
+        bvh = read_bvh_file(EXAMPLE)  # guesses '+z'
+        reoriented = _reorient(bvh, "+y", inplace)
+        reoriented.world_up = "auto"
+        assert reoriented.world_up == "+y"
+        assert reoriented.world_up_inferred == "+y"
+
+    def test_the_floor_follows_the_rotated_guess(self, inplace):
+        bvh = read_bvh_file(EXAMPLE)
+        reoriented = _reorient(bvh, "+y", inplace)
+        floor_along_new_up = reoriented.floor_height
+        reoriented.world_up = "auto"
+        assert reoriented.floor_height == pytest.approx(floor_along_new_up)
+
+    def test_a_guess_under_an_override_turns_too(self, inplace):
+        # The guess '+z' is made at load, then overridden by a wrong '+x';
+        # turning '+x' onto '+z' carries the guessed '+z' onto '-x'.
+        bvh = read_bvh_file(EXAMPLE)
+        bvh.world_up = "+x"
+        reoriented = _reorient(bvh, "+z", inplace)
+        reoriented.world_up = "auto"
+        assert reoriented.world_up == "-x"
+        assert reoriented.world_up_inferred == "-x"
+
+    def test_an_override_with_no_guess_yet_guesses_from_the_new_frames(self, inplace):
+        bvh = read_bvh_file(EXAMPLE, world_up="+x")  # nothing guessed
+        reoriented = _reorient(bvh, "+z", inplace)
+        reoriented.world_up = "auto"
+        assert reoriented.world_up == "-x"
+        assert reoriented.world_up_inferred == "-x"
+
+    def test_the_guess_is_not_made_again(self, inplace, computations):
+        bvh = read_bvh_file(EXAMPLE)
+        reoriented = _reorient(bvh, "+y", inplace)
+        guesses = computations.world_up
+        reoriented.world_up = "auto"
+        _ = reoriented.world_up
+        assert computations.world_up == guesses
+
+
 # ========================================================================
 #  Feature 4: reorient_rest_up
 # ========================================================================

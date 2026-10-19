@@ -1091,7 +1091,9 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     -------
     Bvh or None
         The reoriented copy, or None when ``inplace=True``. Its
-        ``world_up`` is *new_up*.
+        ``world_up`` is *new_up*, set as an override. The guessed axis
+        turns with the frames, so assigning ``'auto'`` afterwards gives
+        the axis the rotated frames show.
     """
     old_up = _validate_axis_string(bvh.world_up)
     new_up = _validate_axis_string(new_up)
@@ -1102,6 +1104,7 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
         return None if inplace else target
 
     R = _axis_aligned_rotation(old_up, new_up)
+    target._rotate_world_up_guess(R)
 
     # 1. Rotate root positions
     target._set_motion(root_pos=(R @ target.root_pos.T).T)

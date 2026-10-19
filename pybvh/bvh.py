@@ -55,6 +55,7 @@ from .tools import (
     _validate_frame_time,
     parse_axis,
 )
+from .tools import get_main_direction as _get_main_direction
 
 
 def _unique_labels(names: Sequence[str]) -> list[str]:
@@ -836,6 +837,24 @@ class Bvh:
         if self.frame_count > 0 and len(self.nodes) > 1:
             _ = self.world_up
 
+    def _rotate_world_up_guess(self, rotation: npt.NDArray[np.float64]) -> None:
+        """Turn the guessed world up, inferred or inherited, by an
+        axis-aligned ``rotation`` of the whole scene.
+
+        ``reorient_world_up`` rotates every frame and offset by
+        ``rotation``, so the axis guessed before is, exactly, the axis
+        those frames would be guessed to have now; turning it keeps the
+        guess made once (ADR 0003, decision 3). A clip that has guessed
+        nothing is left to guess from its new frames.
+        """
+        derived = self._derived
+        for name in ("inferred_world_up", "inherited_world_up"):
+            guess = getattr(derived, name)
+            if guess is not None:
+                turned = _get_main_direction(rotation @ _axis_to_vector(guess))
+                assert turned is not None  # a rotation keeps a unit vector unit
+                setattr(derived, name, turned)
+
     def _freeze_skeleton(self) -> None:
         """Freeze every node the clip owns, so its skeleton cannot change
         under ``joint_angles`` and the derived values."""
@@ -890,7 +909,9 @@ class Bvh:
         - **Set**: an axis you assigned, or passed as ``world_up=`` at
           load, or the target of :meth:`reorient_world_up`. It is kept
           until you assign another, and every clip derived from this one
-          keeps it set.
+          keeps it set. :meth:`reorient_world_up` also turns the guessed
+          axis with the frames, so clearing its axis gives the one the
+          rotated frames show.
         - **Inferred**: guessed from this clip's own first frame, for a
           clip read from a file or built from arrays. It is guessed again
           when you assign :attr:`root_pos`, :attr:`joint_angles` or frames

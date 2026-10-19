@@ -43,7 +43,8 @@ _CLEARED_BY: Final[dict[str, frozenset[_Change]]] = {
     # The guessed world up, inferred here or inherited from the clip this
     # one was derived from, outlives pybvh's own edits: none of them
     # changes which way is up but reorient_world_up, which sets the axis
-    # as an override (ADR 0003, decision 3).
+    # as an override and turns the guess with the frames (ADR 0003,
+    # decision 3).
     "inferred_world_up": frozenset({_Change.USER_REPLACED_MOTION}),
     "inherited_world_up": frozenset({_Change.USER_REPLACED_MOTION}),
 }

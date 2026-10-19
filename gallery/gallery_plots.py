@@ -209,8 +209,8 @@ def walk_clip_gif(bvh, path="feature_gallery_walk.gif", fps=25):
 
 def ghost_trace_gif(bvh, path="feature_gallery_ghost.gif", fps=20):
     # ghosts and the floor trace both answer "where has this motion been", so
-    # this one takes the travelling walk clip rather than the in-place test
-    # clip. Same resample-to-GIF-rate reasoning as motion_clip_gif.
+    # this one takes the walk clip, whose steady locomotion reads best that
+    # way. Same resample-to-GIF-rate reasoning as motion_clip_gif.
     clip = bvh.resample(fps)
     return str(
         clip.render(

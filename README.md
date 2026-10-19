@@ -7,7 +7,7 @@
 
 A lightweight Python library for reading, writing, and manipulating BVH motion capture files. Built for researchers and developers working with skeletal animation and motion data.
 
-![A skeleton walks in place while one hand's path is traced behind it — pybvh renders motion and extracts analyzable trajectories from it](https://raw.githubusercontent.com/VictorS-67/pybvh/main/docs/assets/hand-trajectory.gif)
+![A skeleton moves across the frame while one hand's path is traced behind it — pybvh renders motion and extracts analyzable trajectories from it](https://raw.githubusercontent.com/VictorS-67/pybvh/main/docs/assets/hand-trajectory.gif)
 
 **[Documentation](https://victors-67.github.io/pybvh/)** · [Quick Start](https://victors-67.github.io/pybvh/getting-started/quickstart/) · [Feature Gallery](https://victors-67.github.io/pybvh/gallery/) — every feature, one picture each · [Find a function](https://victors-67.github.io/pybvh/api/) · [Tutorials](https://victors-67.github.io/pybvh/tutorials/)
 

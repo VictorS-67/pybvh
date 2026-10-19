@@ -312,7 +312,7 @@ print(f"Noisy    root position (frame 0): {noisy_pos.root_pos[0]}")
 # %% [markdown]
 # `perturb_speed()` changes motion speed by resampling the clip. A factor of 2.0 makes the clip twice as fast (the motion takes half the time); a factor of 0.5 makes it twice as slow.
 #
-# A subtlety to watch: speed perturbation changes the **frame count** (clip duration in frames) but **not the frame rate** (fps). A 75-frame 30 fps clip with factor=2 becomes a ~38-frame 30 fps clip, not a 75-frame 60 fps clip. `frame_time` is preserved.
+# A subtlety to watch: speed perturbation changes the **frame count** (clip duration in frames) but **not the frame rate** (fps). A 126-frame 30 fps clip with factor=2 becomes a 63-frame 30 fps clip, not a 126-frame 60 fps clip. `frame_time` is preserved.
 #
 # Under the hood, `perturb_speed` uses `bvh.resample()`, which uses quaternion SLERP for rotations — smooth interpolation regardless of Euler representation (see Tutorial 3 on SLERP).
 

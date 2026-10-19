@@ -65,10 +65,10 @@ for i, line in enumerate(lines):
         break
 
 # %% [markdown]
-# You can see the tree structure in the HIERARCHY: the root joint (Hips) contains child joints (Spine), each with their own `OFFSET` (bone vector from parent) and `CHANNELS` (which axes are animated). Notice how the OFFSET of the SPINE is `0.00000 0.00000 4.45283`? It means that at rest pose (when all joint angles are 0; usually an A-pose or a T-pose), the SPINE's distance from its parent ROOT is, in each direction:
+# You can see the tree structure in the HIERARCHY: the root joint (Hips) contains child joints (Spine), each with their own `OFFSET` (bone vector from parent) and `CHANNELS` (which axes are animated). Notice how the OFFSET of the SPINE is `0.00000 0.00000 4.17032`? It means that at rest pose (when all joint angles are 0; usually an A-pose or a T-pose), the SPINE's distance from its parent ROOT is, in each direction:
 # - x-axis: `0.00000`
 # - y-axis: `0.00000`
-# - z-axis: `4.45283`
+# - z-axis: `4.17032`
 #
 # So we can safely assume that the Z-axis in this file is the upward direction.
 #

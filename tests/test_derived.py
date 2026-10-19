@@ -5,7 +5,7 @@ world up, and one method per change to those inputs. Each change must clear
 exactly the values computed from what changed, and nothing else: a value left
 in place after its input changed is stale, and a value cleared needlessly is a
 recomputation every caller pays for. The expected rows below are ADR 0003's
-table as it stands until the guessed world up is inherited (#112).
+table.
 """
 
 from __future__ import annotations
@@ -19,17 +19,21 @@ ALL_VALUES = {
     "node_positions",
     "rest_pose_positions",
     "floor_height",
-    "guessed_world_up",
+    "inferred_world_up",
+    "inherited_world_up",
     "node_index",
     "joint_index",
     "names_lr_mapping",
 }
-MOTION_DEPENDENTS = {"node_positions", "guessed_world_up", "floor_height"}
+MOTION_DEPENDENTS = {"node_positions", "floor_height"}
+# The guessed world up, inferred on the clip or inherited from the clip it
+# was derived from, survives every change but the user replacing the motion.
+GUESSED_WORLD_UP = {"inferred_world_up", "inherited_world_up"}
 
 CLEARED_BY = {
-    "skeleton_changed": ALL_VALUES,
+    "skeleton_changed": ALL_VALUES - GUESSED_WORLD_UP,
     "motion_changed": MOTION_DEPENDENTS,
-    "user_replaced_motion": MOTION_DEPENDENTS,
+    "user_replaced_motion": MOTION_DEPENDENTS | GUESSED_WORLD_UP,
     "world_up_changed": {"floor_height"},
 }
 
@@ -39,7 +43,8 @@ def _filled() -> DerivedState:
     derived.node_positions = np.zeros((2, 3, 3))
     derived.rest_pose_positions = np.zeros((3, 3))
     derived.floor_height = 1.5
-    derived.guessed_world_up = "+y"
+    derived.inferred_world_up = "+y"
+    derived.inherited_world_up = "+z"
     derived.node_index = {"Hips": 0, "Spine": 1, "EndSite": 2}
     derived.joint_index = {"Hips": 0, "Spine": 1}
     derived.names_lr_mapping = {"LeftArm": "RightArm"}

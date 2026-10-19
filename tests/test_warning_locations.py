@@ -205,7 +205,8 @@ class TestWarnGuard:
 
 class TestWorldUpDisagreement:
     """The rest pose and the first frame of ``bvh_test3`` disagree on
-    which way is up, which every inference of ``world_up`` reports."""
+    which way is up, which every guess of ``world_up`` reports: at load,
+    after the user assigns motion, and in ``world_up_inferred``."""
 
     def test_reading_the_file_names_the_read_call(self):
         with warnings.catch_warnings(record=True) as caught:
@@ -215,14 +216,17 @@ class TestWorldUpDisagreement:
         warning = _the_warning(caught, DISAGREEMENT)
         assert (warning.filename, warning.lineno) == (__file__, line)
 
-    def test_a_slice_names_the_line_that_asks_for_its_up_axis(self):
+    def test_a_slice_names_the_line_that_takes_it(self):
+        """Assigning motion clears the guess; a slice taken after that has
+        its source guess first, so that it inherits the source's axis."""
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             clip = read_bvh_file(TEST3)
+        clip.joint_angles = clip.joint_angles
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             line = _line_after_this_one()
-            _ = clip[0:10].world_up
+            _ = clip[0:10]
         warning = _the_warning(caught, DISAGREEMENT)
         assert (warning.filename, warning.lineno) == (__file__, line)
 
@@ -235,15 +239,17 @@ class TestWorldUpDisagreement:
             _ = clip.world_up_inferred
         assert _the_warning(caught, DISAGREEMENT).filename == __file__
 
-    def test_an_edited_clip_names_the_line_that_reads_its_up_axis(self):
+    def test_a_clip_whose_motion_was_assigned_names_the_line_that_reads_its_up_axis(self):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             clip = read_bvh_file(TEST3)
-        clip.translate_root(np.array([1.0, 0.0, 0.0]), inplace=True)
+        clip.root_pos = clip.root_pos + np.array([1.0, 0.0, 0.0])
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
+            line = _line_after_this_one()
             _ = clip.world_up
-        assert _the_warning(caught, DISAGREEMENT).filename == __file__
+        warning = _the_warning(caught, DISAGREEMENT)
+        assert (warning.filename, warning.lineno) == (__file__, line)
 
     @pytest.mark.parametrize("parallel", [False, True])
     def test_reading_a_directory_names_the_read_call(self, tmp_path, parallel):

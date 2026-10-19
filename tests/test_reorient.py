@@ -180,12 +180,20 @@ def _disagreement_warnings(caught: list[warnings.WarningMessage]) -> int:
     return sum(1 for x in caught if "rest pose suggests world up" in str(x.message).lower())
 
 
+def _guess_again(bvh):
+    """Assign the clip's motion back, which makes it guess its world up
+    again from its own first frame, and read the guess."""
+    bvh.joint_angles = bvh.joint_angles
+    return bvh.world_up
+
+
 class TestWorldUpWarningPreference:
     """``warn_on_world_up_disagreement`` holds for the clip's lifetime.
 
     bvh_test3's rest pose and first frame disagree on world up, so every
-    fresh inference on it (or on anything derived from it) is a chance
-    to warn.
+    fresh guess on it is a chance to warn. A derived clip inherits the
+    guess instead of making one, so the tests on derived clips assign
+    their motion first (``_guess_again``), which makes them guess.
     """
 
     @pytest.fixture
@@ -195,7 +203,7 @@ class TestWorldUpWarningPreference:
     def test_slice_stays_silent(self, silenced):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            _ = silenced[0:10].world_up
+            _guess_again(silenced[0:10])
         assert _disagreement_warnings(w) == 0
 
     def test_copy_stays_silent(self, silenced):
@@ -209,20 +217,20 @@ class TestWorldUpWarningPreference:
     def test_scale_stays_silent(self, silenced):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            _ = silenced.scale(2.0).world_up
+            _guess_again(silenced.scale(2.0))
         assert _disagreement_warnings(w) == 0
 
     def test_mirror_stays_silent(self, silenced):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            _ = silenced.mirror().world_up
+            _guess_again(silenced.mirror())
         assert _disagreement_warnings(w) == 0
 
     def test_inplace_transform_stays_silent(self, silenced):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             silenced.translate_root(np.array([1.0, 0.0, 0.0]), inplace=True)
-            _ = silenced.world_up
+            _guess_again(silenced)
         assert _disagreement_warnings(w) == 0
 
     def test_extract_joints_stays_silent(self, silenced):
@@ -231,7 +239,7 @@ class TestWorldUpWarningPreference:
             spine = silenced.extract_joints(
                 ["Hips", "Spine", "Spine1", "Spine2", "Spine3", "Neck", "Head"]
             )
-            _ = spine.world_up
+            _guess_again(spine)
         assert _disagreement_warnings(w) == 0
 
     def test_world_up_inferred_stays_silent(self, silenced):
@@ -245,9 +253,9 @@ class TestWorldUpWarningPreference:
             loud = read_bvh_file(TEST3)
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            _ = (silenced + loud).world_up
+            _guess_again(silenced + loud)
             assert _disagreement_warnings(w) == 0
-            _ = (loud + silenced).world_up
+            _guess_again(loud + silenced)
             assert _disagreement_warnings(w) == 1
 
     def test_clip_rebuilt_from_its_data_starts_from_the_default(self, silenced):
@@ -264,21 +272,22 @@ class TestWorldUpWarningPreference:
             clips = read_bvh_directory(BVH_DIR, warn_on_world_up_disagreement=False)
             assert any(c.source_path == TEST3 for c in clips)
             for clip in clips:
-                _ = clip[0:10].world_up
+                _guess_again(clip[0:10])
         assert _disagreement_warnings(w) == 0
 
-    def test_default_warns_once_per_inference(self):
+    def test_default_warns_once_per_guess(self):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             bvh = read_bvh_file(TEST3)
-            _ = bvh.world_up  # cached at load: no second inference
+            _ = bvh.world_up  # guessed at load: no second guess
             assert _disagreement_warnings(w) == 1
-            _ = bvh[0:10].world_up
-            assert _disagreement_warnings(w) == 2
+            _ = bvh[0:10].world_up  # inherited
             bvh.translate_root(np.array([1.0, 0.0, 0.0]), inplace=True)
+            _ = bvh.world_up  # kept by pybvh's own edits
+            assert _disagreement_warnings(w) == 1
+            _guess_again(bvh)
             _ = bvh.world_up
-            _ = bvh.world_up
-            assert _disagreement_warnings(w) == 3
+            assert _disagreement_warnings(w) == 2
 
     def test_each_inference_site_keeps_its_own_warning_location(self):
         # Under the "default" filter Python shows a warning once per
@@ -287,7 +296,7 @@ class TestWorldUpWarningPreference:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("default")
             bvh = read_bvh_file(TEST3)
-            _ = bvh[0:10].world_up
+            _guess_again(bvh)
             _ = bvh.world_up_inferred
         locations = {
             (x.filename, x.lineno)

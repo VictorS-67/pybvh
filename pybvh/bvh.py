@@ -210,17 +210,14 @@ class Bvh:
         # The derived state exists before any property setter runs, so the
         # setters can report their change unconditionally. Each value in it
         # is computed on first read, except the guessed world up, which is
-        # inferred below so that a clip read from a file has its world up
+        # guessed below so that a clip read from a file has its world up
         # (and any disagreement warning) at once.
         self._derived = _DerivedState()
         self._world_up_override: str | None = None
         # The warn preference lives on the instance, not only in this
-        # call, because the guessed world up is cleared on every motion
-        # edit and is not carried to derived clips: each re-inference
-        # must still see what the caller asked for at load. Each inference
-        # site calls ``_infer_world_up`` itself rather than through a
-        # shared wrapper, so its warnings keep pointing at that site and
-        # are not collapsed into one location by the "default" filter.
+        # call, because the guess starts again when the user assigns
+        # motion, and world_up_inferred guesses afresh on every read: each
+        # of those must still see what the caller asked for at load.
         self._warn_on_world_up_disagreement = warn_on_disagreement
         # The user's L/R choice: a mapping they set (one direction, left to
         # right), None once they cleared it, or "names" (the default) for
@@ -281,10 +278,8 @@ class Bvh:
 
         if world_up != "auto":
             self._world_up_override = _validate_axis_string(world_up)
-        elif self.frame_count > 0 and len(self.nodes) > 1:
-            self._derived.guessed_world_up = _infer_world_up(
-                self, warn=self._warn_on_world_up_disagreement
-            )
+        else:
+            self._settle_world_up()
 
         if lr_mapping is not None:
             self._validate_and_set_lr_mapping(lr_mapping)
@@ -744,9 +739,10 @@ class Bvh:
         ``frame_time``, ``source_path``, a manual ``world_up``, the warn
         preference and a user-set L/R mapping are copied. Editing either
         clip afterwards, its arrays or its nodes, never affects the other.
-        Values the clip computes from these (forward-kinematics positions,
-        the floor height, an inferred world up) are not copied: the copy
-        computes them again on first read.
+        A guessed world up is inherited (see :attr:`world_up`). Values the
+        clip computes from these (forward-kinematics positions, the floor
+        height) are not copied: the copy computes them again on first
+        read.
 
         Returns
         -------
@@ -784,11 +780,14 @@ class Bvh:
     def __getstate__(self) -> dict[str, Any]:
         """What a pickle and every derived clip carry (ADR 0003).
 
-        The primary state (skeleton, motion, frame time, source path) and
-        the user's settings (world-up override, warn preference, L/R
-        choice); never a derived value, which the rebuilt clip computes
+        The primary state (skeleton, motion, frame time, source path), the
+        user's settings (world-up override, warn preference, L/R choice)
+        and the world up this clip guessed, which the rebuilt clip
+        inherits; never a derived value, which the rebuilt clip computes
         again on first read.
         """
+        self._settle_world_up()
+        derived = self._derived
         return {
             "nodes": self.nodes,
             "root_pos": self._root_pos,
@@ -796,13 +795,14 @@ class Bvh:
             "frame_time": self.frame_time,
             "source_path": self.source_path,
             "world_up_override": self._world_up_override,
+            "world_up_guess": derived.inherited_world_up or derived.inferred_world_up,
             "warn_on_disagreement": self._warn_on_world_up_disagreement,
             "lr_mapping_setting": self._lr_mapping_setting,
         }
 
     def __setstate__(self, state: dict[str, Any]) -> None:
-        # Built with no frames, so the constructor infers no world up;
-        # the motion is assigned after, and the settings last.
+        # Built with no frames, so the constructor guesses no world up;
+        # the motion is assigned after, then the settings and the guess.
         Bvh.__init__(
             self,
             nodes=state["nodes"],
@@ -813,6 +813,19 @@ class Bvh:
         self._set_motion(root_pos=state["root_pos"], joint_angles=state["joint_angles"])
         self._world_up_override = state["world_up_override"]
         self._lr_mapping_setting = state["lr_mapping_setting"]
+        self._derived.inherited_world_up = state["world_up_guess"]
+
+    def _settle_world_up(self) -> None:
+        """Guess world up now, unless it is set or already guessed.
+
+        A clip with motion guesses at load, and before a clip is derived
+        from it, so that the guess is made once, on the source, and
+        inherited from there (ADR 0003). A clip with no frames or a lone
+        root is left to guess on first read: it has no frame to guess
+        from, and a lone root warns that it falls back to ``'+y'``.
+        """
+        if self.frame_count > 0 and len(self.nodes) > 1:
+            _ = self.world_up
 
     def _freeze_skeleton(self) -> None:
         """Freeze every node the clip owns, so its skeleton cannot change
@@ -857,11 +870,36 @@ class Bvh:
         """Gravity axis of the BVH coordinate system.
 
         Returned as a signed axis string (``'+y'``, ``'-z'``, etc.).
-        Constant per file. Auto-detected from the first animation frame's
+        Constant per file. Guessed from the first animation frame's
         head-above-hips direction, with rest-pose topology as fallback.
         Issues a ``UserWarning`` if the first frame and rest pose disagree,
         unless the clip (or the clip it derives from) was loaded with
         ``warn_on_world_up_disagreement=False``.
+
+        A clip's world up is in one of three states:
+
+        - **Set**: an axis you assigned, or passed as ``world_up=`` at
+          load, or the target of :meth:`reorient_world_up`. It is kept
+          until you assign another, and every clip derived from this one
+          keeps it set.
+        - **Inferred**: guessed from this clip's own first frame, for a
+          clip read from a file or built from arrays. It is guessed again
+          when you assign :attr:`root_pos`, :attr:`joint_angles` or frames
+          (``bvh[i] = other``), the one change that replaces the
+          recording, and never by an edit pybvh makes.
+        - **Inherited**: a clip pybvh derives from this one reports the
+          axis guessed here, without guessing from its own frames:
+          ``copy()``, slicing, ``a + b`` and ``a += b`` (from ``a``),
+          :meth:`resample`, the transforms, :meth:`retarget`,
+          :meth:`extract_joints` and a pickle. Cutting, resampling or
+          transforming a clip does not change which way is up, though a
+          slice whose first frame is a crouch or a fall would be guessed
+          differently on its own. Assigning motion to the derived clip
+          guesses again, as for an inferred axis.
+
+        :attr:`world_up_inferred` always guesses from this clip's own
+        motion: where it differs from ``world_up`` and you set no axis,
+        the axis was inherited.
 
         The detection specifics, since they decide which answer you get:
         "head" is the first **exact** lowercase name match among
@@ -881,24 +919,22 @@ class Bvh:
 
             >>> bvh.world_up = '+y'
 
-        The override is preserved through ``copy()``, frame slicing
-        (``bvh[a:b]``), and transforms that don't change the world
-        coordinate system (``mirror``, ``rotate_vertical``, ``scale``,
-        ``translate_root``). ``retarget()`` re-infers from the new skeleton.
-
         Assign ``'auto'`` or ``None`` to clear a previous override and
-        return to auto-detection.
+        return to the guessed axis, inferred or inherited.
 
         Note: BVH files do not store a world-up field, so manual overrides
         are lost on write→read round trips and must be re-applied.
         """
         if self._world_up_override is not None:
             return self._world_up_override
-        guessed = self._derived.guessed_world_up
-        if guessed is None:
-            guessed = _infer_world_up(self, warn=self._warn_on_world_up_disagreement)
-            self._derived.guessed_world_up = guessed
-        return guessed
+        derived = self._derived
+        if derived.inherited_world_up is not None:
+            return derived.inherited_world_up
+        if derived.inferred_world_up is None:
+            derived.inferred_world_up = _infer_world_up(
+                self, warn=self._warn_on_world_up_disagreement
+            )
+        return derived.inferred_world_up
 
     @world_up.setter
     def world_up(self, value: str | None) -> None:
@@ -915,12 +951,15 @@ class Bvh:
         Useful for auditing whether a manual ``bvh.world_up = '+x'``
         override was necessary, or for diagnosing skeletons whose
         animation and rest-pose conventions disagree. Always runs the
-        inference fresh; doesn't consult or write the cache. Warns on a
-        disagreement as :attr:`world_up` does, and is silenced the same
-        way (``warn_on_world_up_disagreement=False`` at load).
+        inference fresh on this clip's own motion, and neither reads nor
+        changes the axis :attr:`world_up` reports, so on a clip that
+        inherited its world up it shows what a guess of its own would
+        have been. Warns on a disagreement as :attr:`world_up` does, and
+        is silenced the same way (``warn_on_world_up_disagreement=False``
+        at load).
 
-        Compare against :attr:`world_up` to see whether an override is
-        in effect:
+        Compare against :attr:`world_up` to see whether an override, or
+        an inherited axis, is in effect:
 
             >>> bvh.world_up_inferred  # '+y'  (auto's guess)
             >>> bvh.world_up           # '+z'  (user override)
@@ -2042,6 +2081,9 @@ class Bvh:
         Returns
         -------
         None or Bvh
+            The result keeps this clip's world up, set or guessed: a new
+            skeleton does not change which way is up, so it is not guessed
+            again from the new offsets (see :attr:`world_up`).
         """
         try:
             new_skel_nodes = new_skeleton.nodes
@@ -2698,7 +2740,8 @@ class Bvh:
 
         ``source_path``, a manual ``world_up`` override, and a user-set
         ``lr_mapping`` (filtered to pairs whose joints are both kept) are
-        preserved on the result.
+        preserved on the result. A guessed world up is inherited, not
+        guessed again from the kept joints (see :attr:`world_up`).
 
         Parameters
         ----------

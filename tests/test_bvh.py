@@ -2982,6 +2982,161 @@ class TestWhatACopyCarries:
         assert computations.fk == 2
 
 
+def _in_place(edit):
+    """A derivation that edits the clip in place and returns it."""
+
+    def derive(bvh):
+        edit(bvh)
+        return bvh
+
+    return derive
+
+
+class TestInheritedWorldUp:
+    """A clip pybvh derives reports the world up of the clip it came from;
+    only the user assigning motion guesses again (ADR 0003, decision 3)."""
+
+    @pytest.fixture
+    def tilted(self):
+        """bvh_test3 with its body tilted 45 degrees about x from frame 5 on.
+
+        Frame 0 stands along '+z', so the clip guesses '+z'. From frame 5
+        the head-hips direction is ambiguous, so a clip starting there,
+        guessing from its own first frame, falls back to its rest pose's
+        '+y'. Loaded quiet: bvh_test3's frame 0 and rest pose disagree.
+        """
+        clip = read_bvh_file(BVH_DATA_DIR / "bvh_test3.bvh", warn_on_world_up_disagreement=False)
+        root_pos, rotmats = clip.to_rotmat()
+        tilt = euler_to_rotmat(np.radians([45.0, 0.0, 0.0]), "XYZ")
+        rotmats[5:, 0] = tilt @ rotmats[5:, 0]
+        return clip.from_rotmat(root_pos, rotmats)
+
+    def test_a_slice_reports_its_sources_axis(self, tilted):
+        sliced = tilted[5:]
+        assert sliced.world_up_inferred == "+y"
+        assert sliced.world_up == "+z"
+
+    DERIVATIONS = {
+        **TestWhatACopyCarries.DERIVATIONS,
+        "extract_joints_subset": lambda b: b.extract_joints(["Hips", "Spine", "Spine1"]),
+        "translate_root": lambda b: b.translate_root([1.0, 2.0, 3.0]),
+        "add_rotation_noise": lambda b: b.add_rotation_noise(0.01, rng=np.random.default_rng(0)),
+        "add_position_noise": lambda b: b.add_position_noise(0.1, rng=np.random.default_rng(0)),
+        "drop_frames": lambda b: b.drop_frames(0.2, rng=np.random.default_rng(0)),
+        "rotate_vertical": lambda b: b.rotate_vertical(30.0, degrees=True),
+        "reorient_rest_up": lambda b: b.reorient_rest_up("+z"),
+        "reorient_rest_forward": lambda b: b.reorient_rest_forward("+x"),
+        "rotate_vertical_in_place": _in_place(
+            lambda b: b.rotate_vertical(30.0, degrees=True, inplace=True)
+        ),
+        "scale_in_place": _in_place(lambda b: b.scale(2.0, inplace=True)),
+        "mirror_in_place": _in_place(lambda b: b.mirror(inplace=True)),
+        "reorient_rest_up_in_place": _in_place(lambda b: b.reorient_rest_up("+z", inplace=True)),
+        "change_euler_order_in_place": _in_place(
+            lambda b: b.change_euler_order("XYZ", inplace=True)
+        ),
+        "iadd": _in_place(lambda b: b.__iadd__(b[0:5])),
+    }
+
+    @pytest.mark.parametrize("derive", DERIVATIONS.values(), ids=DERIVATIONS.keys())
+    def test_every_derived_clip_reports_it_without_guessing(self, tilted, derive, computations):
+        source = tilted[5:]
+        guessed = computations.world_up
+        assert derive(source).world_up == "+z"
+        assert computations.world_up == guessed
+
+    def test_a_plus_b_takes_as_axis(self, tilted):
+        a = tilted[5:]
+        b = tilted[5:]
+        b.joint_angles = b.joint_angles
+        assert b.world_up == "+y"
+        assert (a + b).world_up == "+z"
+        assert (b + a).world_up == "+y"
+
+    def test_a_iadd_b_keeps_as_axis(self, tilted):
+        a = tilted[5:]
+        b = tilted[5:]
+        b.joint_angles = b.joint_angles
+        a += b
+        b += tilted[5:]
+        assert a.world_up == "+z"
+        assert b.world_up == "+y"
+
+    ASSIGNMENTS = {
+        "root_pos": lambda b: setattr(b, "root_pos", b.root_pos),
+        "joint_angles": lambda b: setattr(b, "joint_angles", b.joint_angles),
+        "setitem": lambda b: b.__setitem__(0, b[1]),
+    }
+
+    @pytest.mark.parametrize("assign", ASSIGNMENTS.values(), ids=ASSIGNMENTS.keys())
+    def test_assigning_motion_guesses_again(self, tilted, assign):
+        sliced = tilted[5:]
+        assign(sliced)
+        assert sliced.world_up == "+y"
+
+    @pytest.mark.parametrize("assign", ASSIGNMENTS.values(), ids=ASSIGNMENTS.keys())
+    def test_assigning_motion_keeps_an_override(self, tilted, assign, computations):
+        sliced = tilted[5:]
+        sliced.world_up = "-x"
+        guessed = computations.world_up
+        assign(sliced)
+        assert sliced.world_up == "-x"
+        assert computations.world_up == guessed
+
+    def test_reorient_world_up_sets_its_axis_as_an_override(self, tilted):
+        turned = tilted[5:].reorient_world_up("+x")
+        turned.joint_angles = turned.joint_angles
+        assert turned.world_up == "+x"
+
+    def test_a_source_whose_motion_was_assigned_guesses_once_for_both(self, tilted, computations):
+        """The guess the source makes is the one its derived clip reports,
+        also when the source makes it only at derivation."""
+        tilted.joint_angles = tilted.joint_angles
+        guessed = computations.world_up
+        sliced = tilted[5:]
+        assert sliced.world_up == "+z"
+        assert tilted.world_up == "+z"
+        assert computations.world_up == guessed + 1
+
+    def test_a_clip_that_warned_at_load_does_not_warn_again(self):
+        """bvh_test3's frame 0 and rest pose disagree: the guess at load
+        warns, and its derived clips report that guess without warning."""
+        with pytest.warns(UserWarning, match="Rest pose suggests"):
+            clip = read_bvh_file(BVH_DATA_DIR / "bvh_test3.bvh")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert clip.copy().world_up == "+z"
+            assert clip[10:].world_up == "+z"
+            assert clip.change_euler_order("XYZ").world_up == "+z"
+            clip.change_euler_order("XYZ", inplace=True)
+            assert clip.world_up == "+z"
+
+    def test_harmonize_guesses_at_most_once_per_clip(self, computations):
+        """Both clips stand along '+z', so the world-up stage reads world up
+        and applies nothing, and the rest stages read it again on their own
+        results."""
+        clips = [read_bvh_file(BVH_DATA_DIR / name) for name in ("bvh_test1.bvh", "bvh_test4.bvh")]
+        for clip in clips:
+            clip.joint_angles = clip.joint_angles
+        guessed = computations.world_up
+        from pybvh.batch import harmonize
+
+        _, report = harmonize(
+            clips,
+            reference=clips[0],
+            target_fps=60.0,
+            target_world_up="+z",
+            target_rest_up="+y",
+            target_rest_forward="+x",
+            target_euler_order="XYZ",
+            return_report=True,
+        )
+        assert [sorted(stages) for stages in report.applied_stages] == [
+            ["euler_order", "resample", "rest_forward", "rest_up", "retarget"]
+        ] * 2
+        assert computations.world_up == guessed + len(clips)
+
+
 # =============================================================================
 # Test: concat + slice round-trip
 # =============================================================================
@@ -6204,16 +6359,13 @@ class TestBvhIAdd:
         assert id(bvh) == original_id
         assert len(bvh) == 2 * bvh_example.frame_count
 
-    def test_iadd_infers_world_up_again(self, bvh_example, computations):
+    def test_iadd_keeps_the_guessed_world_up(self, bvh_example, computations):
         bvh = bvh_example.copy()
-        _ = bvh.world_up
-        inferred = computations.world_up
-        _ = bvh.world_up
-        assert computations.world_up == inferred
+        guessed = bvh.world_up
+        counted = computations.world_up
         bvh += bvh_example
-        _ = bvh.world_up
-        _ = bvh.world_up
-        assert computations.world_up == inferred + 1
+        assert bvh.world_up == guessed
+        assert computations.world_up == counted
 
     def test_iadd_non_bvh_raises_type_error(self, bvh_example):
         bvh = bvh_example.copy()

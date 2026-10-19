@@ -7,10 +7,7 @@ stale; ``Bvh`` keeps the code that computes them, fills an empty value on
 read, and reports every change of an input to its :class:`DerivedState`.
 
 The table :data:`_CLEARED_BY` is the one place that says which change
-clears which value. Until the guessed world up is inherited by derived
-clips (#112), it is cleared like the other motion dependents; ADR 0003
-records the row it ends on, cleared only when the user replaces the
-motion.
+clears which value.
 """
 
 from __future__ import annotations
@@ -42,10 +39,13 @@ _CLEARED_BY: Final[dict[str, frozenset[_Change]]] = {
     "names_lr_mapping": frozenset({_Change.SKELETON}),
     "rest_pose_positions": frozenset({_Change.SKELETON}),
     "node_positions": _SKELETON_OR_MOTION,
-    # ADR 0003 ends this row at USER_REPLACED_MOTION alone, once derived
-    # clips inherit the guess.
-    "guessed_world_up": _SKELETON_OR_MOTION,
     "floor_height": _SKELETON_OR_MOTION | {_Change.WORLD_UP_OVERRIDE},
+    # The guessed world up, inferred here or inherited from the clip this
+    # one was derived from, outlives pybvh's own edits: none of them
+    # changes which way is up but reorient_world_up, which sets the axis
+    # as an override (ADR 0003, decision 3).
+    "inferred_world_up": frozenset({_Change.USER_REPLACED_MOTION}),
+    "inherited_world_up": frozenset({_Change.USER_REPLACED_MOTION}),
 }
 
 
@@ -63,8 +63,12 @@ class DerivedState:
         ``(N, 3)``. Stored read-only, as ``node_positions`` is.
     floor_height : float or None
         The scene ground, along world up (``Bvh.floor_height``).
-    guessed_world_up : str or None
-        The world up inferred from the motion, used when the user set none.
+    inferred_world_up : str or None
+        The world up guessed from this clip's own motion, used when the
+        user set none and the clip inherited none.
+    inherited_world_up : str or None
+        The world up of the clip this one was derived from, guessed there,
+        used when the user set none.
     node_index, joint_index : dict or None
         Node name to its index in ``nodes``; joint name to its index in
         ``joint_angles`` axis 1.
@@ -79,7 +83,8 @@ class DerivedState:
         "_node_positions",
         "_rest_pose_positions",
         "floor_height",
-        "guessed_world_up",
+        "inferred_world_up",
+        "inherited_world_up",
         "node_index",
         "joint_index",
         "names_lr_mapping",
@@ -89,7 +94,8 @@ class DerivedState:
         self._node_positions: npt.NDArray[np.float64] | None = None
         self._rest_pose_positions: npt.NDArray[np.float64] | None = None
         self.floor_height: float | None = None
-        self.guessed_world_up: str | None = None
+        self.inferred_world_up: str | None = None
+        self.inherited_world_up: str | None = None
         self.node_index: dict[str, int] | None = None
         self.joint_index: dict[str, int] | None = None
         self.names_lr_mapping: dict[str, str] | None = None

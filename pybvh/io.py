@@ -45,18 +45,18 @@ def read_bvh_file(
         If True (default) and ``world_up="auto"``, emit a ``UserWarning``
         when rest-pose and first-frame inferences disagree. The setting
         is kept on the returned clip for its lifetime, not spent at
-        load: ``world_up`` is inferred again whenever the motion changes
-        (an in-place transform, a ``root_pos`` / ``joint_angles``
-        assignment), and each of those inferences follows it, as does
-        :attr:`Bvh.world_up_inferred`. Clips that a :class:`Bvh`
-        operation derives from this one (slices, ``copy()``, transformed
-        copies, ``extract_joints``, ``resample``) inherit it; a
+        load: ``world_up`` is inferred again when you assign the motion
+        (``root_pos``, ``joint_angles`` or frames), and each of those
+        inferences follows it, as does :attr:`Bvh.world_up_inferred`.
+        Clips that a :class:`Bvh` operation derives from this one
+        (slices, ``copy()``, transformed copies, ``extract_joints``,
+        ``resample``) inherit it along with the world up itself; a
         concatenation ``a + b`` follows ``a``, as it does for
         ``frame_time``. A clip rebuilt from its data
         (:func:`~pybvh.df_to_bvh`, :meth:`Bvh.from_df`) is a new clip,
         like one read from a file, and starts from the default. The
         alternative, a one-shot suppression of the load-time inference
-        only, would re-warn on the first slice or motion edit of a clip
+        only, would re-warn on the first motion assignment of a clip
         you asked to keep quiet.
     lr_mapping : dict or None, optional
         Explicit left/right joint pair mapping

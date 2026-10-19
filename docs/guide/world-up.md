@@ -11,7 +11,7 @@ BVH files don't declare which axis is "up". Different software uses different co
 
 ## Auto-detection
 
-`Bvh.__init__` eagerly infers `world_up` by checking which axis the head is above the hips in frame 0. If frame 0 isn't informative (ambiguous axis dominance, missing joints), it falls back to rest-pose topology (bone offsets from Hips toward Head/Neck/Spine). The result is a signed axis string like `'+y'` or `'+z'`.
+When a clip is read from a file or built from arrays, `Bvh.__init__` guesses `world_up` by checking which axis the head is above the hips in frame 0. If frame 0 isn't informative (ambiguous axis dominance, missing joints), it falls back to rest-pose topology (bone offsets from Hips toward Head/Neck/Spine). The result is a signed axis string like `'+y'` or `'+z'`.
 
 ```python
 bvh = pybvh.read_bvh_file("walk.bvh")
@@ -20,9 +20,31 @@ bvh.world_up  # '+z' (auto-detected)
 
 ## The disagreement warning
 
-Some BVH files author the rest pose in one convention and animate in another. For example, a Blender export where the rest pose skeleton points along Y but the animation plays in Z-up world space. When this happens, pybvh emits a `UserWarning` and trusts the animation data (frame 0) over the rest pose.
+Some BVH files author the rest pose in one convention and animate in another. For example, a Blender export where the rest pose skeleton points along Y but the animation plays in Z-up world space. When this happens, pybvh emits a `UserWarning` at load and trusts the animation data (frame 0) over the rest pose. The clips derived from it inherit its axis (next section) and do not warn again.
 
 This affects roughly 5% of files in the wild. If you see the warning, check whether `world_up` matches your expectation and override manually if needed.
+
+## Set, inferred or inherited
+
+A clip's world up is in one of three states:
+
+- **Set**: you assigned it (`bvh.world_up = '+y'`), passed `world_up=` at load, or the clip is the result of `reorient_world_up`. It stays until you assign another axis.
+- **Inferred**: guessed from the clip's own first frame, as above. A clip read from a file, or built with `Bvh(...)`, `Bvh.from_df` or `df_to_bvh`, starts here.
+- **Inherited**: a clip pybvh derives from another reports its source's axis without guessing from its own frames. That covers `copy()`, slicing (`bvh[a:b]`), `a + b` and `a += b` (from `a`), `resample`, every transform (`mirror`, `scale`, `rotate_vertical`, `translate_root`, the noise functions, the reorientations), `retarget`, `change_euler_order`, `extract_joints` and a clip loaded from a pickle. A set axis travels the same way: the derived clip has it set too.
+
+Cutting, resampling or transforming a clip does not change which way gravity points, but a fresh guess on the derived clip could: a slice whose first frame is a crouch, a fall or a lying pose is ambiguous on its own and would fall back to the rest pose, where its source was not. Inheriting the answer makes every derived clip agree with its source, and makes the guess on the source the only one.
+
+```python
+bvh = pybvh.read_bvh_file("walk.bvh")   # inferred from frame 0: '+z'
+clip = bvh[200:260]                       # inherited: '+z', whatever frame 200 shows
+clip.world_up_inferred                    # what a guess from clip's own frames would give
+```
+
+`world_up_inferred` always runs the heuristic on the clip's own motion and changes nothing, so comparing it with `world_up` shows whether an axis was set or inherited. To have a derived clip use its own guess instead, assign it: `clip.world_up = clip.world_up_inferred` (the axis is then set).
+
+### When the guess starts again
+
+Only when the recording itself is replaced: assigning `root_pos`, `joint_angles` or frames (`bvh[i] = other`), or loading new motion with `from_rotmat`, `from_6d`, `from_quat` or `from_axisangle`. The clip then guesses again from its new first frame, whether its axis was inferred or inherited, and the clips derived from it afterwards inherit the new guess. None of these clears a set axis.
 
 ## Manual override
 
@@ -32,7 +54,7 @@ bvh.world_up = '+y'  # override auto-detection
 
 Validated input -- only accepts `{+x, -x, +y, -y, +z, -z}`. Anything else raises `ValueError`.
 
-The override propagates through `copy()`, frame slicing (`bvh[a:b]`), `mirror()`, `scale()`, `rotate_vertical()`, `translate_root()`, and `extract_joints()`. Assign `"auto"` (or `None`) to clear the override and return to auto-detection. `retarget()` re-infers from the new skeleton. Note that BVH files have no world-up field, so manual overrides are lost on write/read round trips and must be re-applied.
+The override is a set axis, so it propagates to every clip derived from this one, `retarget()` included: new bone lengths do not change which way is up. Assign `"auto"` (or `None`) to clear the override and return to the guessed axis, inferred or inherited. A pickle keeps the override, but BVH files have no world-up field, so manual overrides are lost on write/read round trips and must be re-applied.
 
 ## forward_at(frame)
 

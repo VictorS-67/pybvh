@@ -31,13 +31,20 @@ class _Change(Enum):
     WORLD_UP_OVERRIDE = auto()
 
 
-_MOTION_CHANGES: Final = frozenset({_Change.SKELETON, _Change.MOTION, _Change.USER_REPLACED_MOTION})
+_SKELETON_OR_MOTION: Final = frozenset(
+    {_Change.SKELETON, _Change.MOTION, _Change.USER_REPLACED_MOTION}
+)
 
 # Each derived value, and the changes that clear it.
 _CLEARED_BY: Final[dict[str, frozenset[_Change]]] = {
-    "node_positions": _MOTION_CHANGES,
-    "guessed_world_up": _MOTION_CHANGES,
-    "floor_height": _MOTION_CHANGES | {_Change.WORLD_UP_OVERRIDE},
+    "node_index": frozenset({_Change.SKELETON}),
+    "joint_index": frozenset({_Change.SKELETON}),
+    "names_lr_mapping": frozenset({_Change.SKELETON}),
+    "node_positions": _SKELETON_OR_MOTION,
+    # ADR 0003 ends this row at USER_REPLACED_MOTION alone, once derived
+    # clips inherit the guess.
+    "guessed_world_up": _SKELETON_OR_MOTION,
+    "floor_height": _SKELETON_OR_MOTION | {_Change.WORLD_UP_OVERRIDE},
 }
 
 
@@ -54,12 +61,32 @@ class DerivedState:
         The scene ground, along world up (``Bvh.floor_height``).
     guessed_world_up : str or None
         The world up inferred from the motion, used when the user set none.
+    node_index, joint_index : dict or None
+        Node name to its index in ``nodes``; joint name to its index in
+        ``joint_angles`` axis 1.
+    names_lr_mapping : dict or None
+        The L/R pairs detected from the joint names, one direction (left to
+        right); ``{}`` when the names give none.
     """
+
+    # Slots make a name in _CLEARED_BY that is not a field raise on the
+    # first change instead of setting a stray attribute.
+    __slots__ = (
+        "_node_positions",
+        "floor_height",
+        "guessed_world_up",
+        "node_index",
+        "joint_index",
+        "names_lr_mapping",
+    )
 
     def __init__(self) -> None:
         self._node_positions: npt.NDArray[np.float64] | None = None
         self.floor_height: float | None = None
         self.guessed_world_up: str | None = None
+        self.node_index: dict[str, int] | None = None
+        self.joint_index: dict[str, int] | None = None
+        self.names_lr_mapping: dict[str, str] | None = None
 
     @property
     def node_positions(self) -> npt.NDArray[np.float64] | None:

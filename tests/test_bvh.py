@@ -6050,6 +6050,20 @@ class TestLRMappingProperty:
         assert bvh.lr_mapping is None
         assert bvh._lr_mapping_source is None
 
+    def test_a_skeleton_change_keeps_the_users_choice(self, bvh_example):
+        """The user's mapping, and a mapping they cleared, are settings: a
+        skeleton change detects nothing from the names in their place."""
+        new_skeleton = bvh_example.scale(2.0)
+        cleared = bvh_example.copy()
+        cleared.lr_mapping = None
+        cleared.retarget(new_skeleton, inplace=True)
+        assert cleared.lr_mapping is None
+
+        chosen = bvh_example.copy()
+        chosen.lr_mapping = {"LeftArm": "RightArm"}
+        chosen.retarget(new_skeleton, inplace=True)
+        assert chosen.lr_mapping == {"LeftArm": "RightArm", "RightArm": "LeftArm"}
+
     def test_setter_rejects_empty_dict(self, bvh_example):
         bvh = bvh_example.copy()
         with pytest.raises(ValueError, match="at least one pair"):

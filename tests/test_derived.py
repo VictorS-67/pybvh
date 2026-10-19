@@ -15,7 +15,14 @@ import pytest
 
 from pybvh._derived import DerivedState
 
-ALL_VALUES = {"node_positions", "floor_height", "guessed_world_up"}
+ALL_VALUES = {
+    "node_positions",
+    "floor_height",
+    "guessed_world_up",
+    "node_index",
+    "joint_index",
+    "names_lr_mapping",
+}
 MOTION_DEPENDENTS = {"node_positions", "guessed_world_up", "floor_height"}
 
 CLEARED_BY = {
@@ -31,6 +38,9 @@ def _filled() -> DerivedState:
     derived.node_positions = np.zeros((2, 3, 3))
     derived.floor_height = 1.5
     derived.guessed_world_up = "+y"
+    derived.node_index = {"Hips": 0, "Spine": 1, "EndSite": 2}
+    derived.joint_index = {"Hips": 0, "Spine": 1}
+    derived.names_lr_mapping = {"LeftArm": "RightArm"}
     return derived
 
 

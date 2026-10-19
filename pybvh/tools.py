@@ -400,7 +400,7 @@ def _try_suffix_partner(
 def _detect_lr_mapping_by_names(bvh: Bvh) -> dict[str, str]:
     """Internal: detect L/R joint pairs by extended name heuristics.
 
-    Called at ``Bvh.__init__`` to populate ``bvh.lr_mapping`` eagerly.
+    Called by ``Bvh`` on first use of its L/R mapping, when the user set none.
     Rules tried most-specific-first so delimited suffixes win over bare
     substring matches:
 

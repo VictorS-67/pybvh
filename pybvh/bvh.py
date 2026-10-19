@@ -193,8 +193,10 @@ class Bvh:
         # shared wrapper, so its warnings keep pointing at that site and
         # are not collapsed into one location by the "default" filter.
         self._warn_on_world_up_disagreement = warn_on_disagreement
-        self._lr_mapping: dict[str, str] | None = None
-        self._lr_mapping_source: str | None = None  # 'names' | 'user' | None
+        # The user's L/R choice: a mapping they set (one direction, left to
+        # right), None once they cleared it, or "names" (the default) for
+        # the pairs detected from the joint names.
+        self._lr_mapping_setting: dict[str, str] | Literal["names"] | None = "names"
 
         if nodes is None:
             nodes = [BvhRoot()]
@@ -241,11 +243,6 @@ class Bvh:
             self.root_pos = np.empty((0, 3), dtype=np.float64)
             self.joint_angles = np.empty((0, 0, 3), dtype=np.float64)
 
-        # node name → integer index into the spatial-coordinate array
-        self._create_node_index()
-        # joint name → integer index into joint_angles axis 1
-        self._create_joint_index()
-
         # Freeze channel attributes on all nodes to prevent
         # desynchronization with joint_angles
         for node in self.nodes:
@@ -259,19 +256,8 @@ class Bvh:
                 self, warn=self._warn_on_world_up_disagreement
             )
 
-        # L/R pair mapping — cached. Depends on names + topology only, so
-        # no runtime invalidation hooks are needed (no pybvh operation
-        # mutates names on an existing Bvh). See also the `lr_mapping`
-        # property docstring.
         if lr_mapping is not None:
-            # B3 — explicit user mapping at construction time
-            self._validate_and_set_lr_mapping(lr_mapping, source="user")
-        elif len(self.nodes) > 1:
-            # Strategy A — eager name-based detection
-            names_mapping = _detect_lr_mapping_by_names(self)
-            if names_mapping:
-                self._lr_mapping = names_mapping
-                self._lr_mapping_source = "names"
+            self._validate_and_set_lr_mapping(lr_mapping)
 
     @property
     def nodes(self) -> list[BvhNode]:
@@ -748,8 +734,7 @@ class Bvh:
             warn_on_disagreement=self._warn_on_world_up_disagreement,
         )
         new_bvh._world_up_override = self._world_up_override
-        new_bvh._lr_mapping = copy.deepcopy(self._lr_mapping)
-        new_bvh._lr_mapping_source = self._lr_mapping_source
+        new_bvh._lr_mapping_setting = copy.deepcopy(self._lr_mapping_setting)
         return new_bvh
 
     # ------------------------------------------------------------------
@@ -994,7 +979,7 @@ class Bvh:
         ``mapping['RightArm'] == 'LeftArm'``. Useful for mirroring-based
         data augmentation, where a lookup can come from either side.
 
-        Detection at construction time runs the extended name heuristic
+        Detection, run on first use, applies the extended name heuristic
         (`Left`/`Right` substring, `L`/`R` prefix, `.L`/`.R` suffix,
         `_l`/`_r` suffix, Mixamo `mixamorig:` namespace, numbered `.001`
         duplicates). Skeletons with conventions the heuristic can't parse
@@ -1028,10 +1013,33 @@ class Bvh:
     @lr_mapping.setter
     def lr_mapping(self, value: dict[str, str] | None) -> None:
         if value is None:
-            self._lr_mapping = None
-            self._lr_mapping_source = None
+            self._lr_mapping_setting = None
             return
-        self._validate_and_set_lr_mapping(value, source="user")
+        self._validate_and_set_lr_mapping(value)
+
+    @property
+    def _lr_mapping(self) -> dict[str, str] | None:
+        """The L/R mapping in effect, one direction (left to right), or None.
+
+        The user's mapping when they set one; otherwise the pairs detected
+        from the joint names, ``None`` when the names give none or the user
+        cleared the mapping.
+        """
+        setting = self._lr_mapping_setting
+        if setting != "names":
+            return setting
+        detected = self._derived.names_lr_mapping
+        if detected is None:
+            detected = _detect_lr_mapping_by_names(self)
+            self._derived.names_lr_mapping = detected
+        return detected or None
+
+    @property
+    def _lr_mapping_source(self) -> Literal["names", "user"] | None:
+        """Where the mapping in effect comes from; ``None`` when there is none."""
+        if isinstance(self._lr_mapping_setting, dict):
+            return "user"
+        return "names" if self._lr_mapping is not None else None
 
     @property
     def has_lr_geometry(self) -> bool:
@@ -1148,12 +1156,8 @@ class Bvh:
         pairs, _mismatches = _resolve_node_lr_pairs(self, self._lr_mapping)
         return pairs
 
-    def _validate_and_set_lr_mapping(
-        self,
-        mapping: dict[str, str],
-        source: str,
-    ) -> None:
-        """Validate an lr_mapping dict and set the cache.
+    def _validate_and_set_lr_mapping(self, mapping: dict[str, str]) -> None:
+        """Validate the user's lr_mapping dict and make it the mapping in effect.
 
         Validation: both names must exist in ``joint_names``; no
         self-pairs; no duplicate names on either side of a pair.
@@ -1193,8 +1197,7 @@ class Bvh:
         # produced by the public `lr_mapping` property — this keeps
         # every internal consumer that iterates `_lr_mapping.items()`
         # working with one (left, right) tuple per pair.
-        self._lr_mapping = canonical
-        self._lr_mapping_source = source
+        self._lr_mapping_setting = canonical
 
     def forward_at(
         self,
@@ -1630,14 +1633,6 @@ class Bvh:
         """
         return nodes_to_table(self.nodes)
 
-    def _create_node_index(self) -> None:
-        """Build ``node_index`` mapping node name to its index in ``nodes``."""
-        self._node_index = {node.name: i for i, node in enumerate(self.nodes)}
-
-    def _create_joint_index(self) -> None:
-        """Build ``joint_index`` mapping joint name to its index in ``joint_angles`` axis 1."""
-        self._joint_index = {name: i for i, name in enumerate(self.joint_names)}
-
     @property
     def node_index(self) -> dict[str, int]:
         """Mapping from node name to its integer index in ``nodes``.
@@ -1663,7 +1658,11 @@ class Bvh:
         dict
             ``{node_name: int}`` for every node (joints and end sites).
         """
-        return self._node_index
+        index = self._derived.node_index
+        if index is None:
+            index = {node.name: i for i, node in enumerate(self.nodes)}
+            self._derived.node_index = index
+        return index
 
     @property
     def joint_index(self) -> dict[str, int]:
@@ -1688,7 +1687,11 @@ class Bvh:
             ``{joint_name: int}`` for every non-end-site joint.
             Values cover ``range(joint_count)``.
         """
-        return self._joint_index
+        index = self._derived.joint_index
+        if index is None:
+            index = {name: i for i, name in enumerate(self.joint_names)}
+            self._derived.joint_index = index
+        return index
 
     def index(self, name: str, space: Literal["joint", "node"]) -> int:
         """Look up the integer index for ``name`` in the requested index space.
@@ -1722,9 +1725,9 @@ class Bvh:
             If ``space`` is not ``'joint'`` or ``'node'``.
         """
         if space == "joint":
-            return self._joint_index[name]
+            return self.joint_index[name]
         if space == "node":
-            return self._node_index[name]
+            return self.node_index[name]
         raise ValueError(f"space must be 'joint' or 'node', got {space!r}")
 
     @property
@@ -2694,14 +2697,15 @@ class Bvh:
         # A user-set L/R mapping survives, filtered to pairs whose joints
         # are both kept. Name-detected mappings are re-derived by the
         # constructor from the reduced skeleton.
-        if self._lr_mapping_source == "user" and self._lr_mapping:
+        user_mapping = self._lr_mapping_setting
+        if isinstance(user_mapping, dict):
             kept_pairs = {
                 left: right
-                for left, right in self._lr_mapping.items()
+                for left, right in user_mapping.items()
                 if left in keep_set and right in keep_set
             }
             if kept_pairs:
-                new_bvh._validate_and_set_lr_mapping(kept_pairs, source="user")
+                new_bvh._validate_and_set_lr_mapping(kept_pairs)
         return new_bvh
 
     def _find_end_site_offset(self, node: BvhNode) -> npt.NDArray[np.float64]:

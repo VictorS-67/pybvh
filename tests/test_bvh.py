@@ -2476,7 +2476,7 @@ _SKELETON_EDITS = {
 }
 
 
-class TestRestPoseCache:
+class TestRestPoseDerivedState:
     """The rest pose is computed once per skeleton (ADR 0003)."""
 
     def test_computed_once_across_its_readers(self, bvh_example_path, computations):

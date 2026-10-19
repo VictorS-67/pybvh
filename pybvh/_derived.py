@@ -140,7 +140,7 @@ class DerivedState:
 
 
 def _read_only(value: npt.NDArray[np.float64] | None) -> npt.NDArray[np.float64] | None:
-    """Mark a cached array read-only, so a write raises where it is made."""
+    """Mark a derived array read-only, so a write raises where it is made."""
     if value is not None:
         value.flags.writeable = False
     return value

@@ -1637,6 +1637,29 @@ class TestOwnedSkeletonIsFrozen:
         with pytest.raises(AttributeError, match=f"offset of node 'LeftLeg'.*{_THE_WAY}"):
             leg.offset = [0, 0, 0]
 
+    def test_a_warning_raised_as_an_error_leaves_the_nodes_editable(self):
+        """Under warnings-as-errors, the world-up disagreement of bvh_test3's
+        motion makes the constructor raise: it owns nothing then either."""
+        source = read_bvh_file(
+            Path(__file__).parent.parent / "bvh_data" / "bvh_test3.bvh",
+            warn_on_world_up_disagreement=False,
+        )
+        nodes = nodes_from_table(nodes_to_table(source.nodes))
+        motion = {"root_pos": source.root_pos, "joint_angles": source.joint_angles}
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with pytest.raises(UserWarning, match="world up"):
+                Bvh(nodes=nodes, **motion)
+
+        nodes[1].offset = nodes[1].offset * 2
+        nodes[1].name = "Renamed"
+        with pytest.warns(UserWarning, match="world up"):
+            bvh = Bvh(nodes=nodes, **motion)
+        assert bvh.nodes[1].name == "Renamed"
+        with pytest.raises(AttributeError, match=f"offset of node 'Renamed'.*{_THE_WAY}"):
+            nodes[1].offset = [0, 0, 0]
+
     def test_nodes_and_root_cannot_be_assigned(self, bvh_example):
         """Bug 4 of #112: assigning nodes left the index and the root behind."""
         bvh = bvh_example

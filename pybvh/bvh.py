@@ -286,12 +286,15 @@ class Bvh:
         if lr_mapping is not None:
             self._validate_and_set_lr_mapping(lr_mapping)
 
-        # Frozen only once every check has passed: a Bvh(...) that raises
-        # owns nothing, so the caller's nodes stay editable for a retry.
-        self._freeze_skeleton()
-
         if world_up == "auto":
             self._settle_world_up()
+
+        # Frozen last, once nothing can raise: a Bvh(...) that raises owns
+        # nothing, so the caller's nodes stay editable for a retry. That
+        # includes the guess above, whose disagreement warning raises
+        # under warnings-as-errors; it reads the same node objects either
+        # way.
+        self._freeze_skeleton()
 
     @property
     def nodes(self) -> tuple[BvhNode, ...]:

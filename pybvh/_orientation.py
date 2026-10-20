@@ -660,9 +660,10 @@ def _warn_world_up_disagreement(rest_up: str, frame_up: str) -> None:
     # A strong signal that the file authored its rest pose in one
     # convention and animates in another.
     warnings.warn(
-        f"Rest pose suggests world up is {rest_up!r} but the first "
-        f"animation frame's head-hips direction is closer to "
-        f"{frame_up!r}. Using {frame_up!r} from the animation data. "
+        f"Rest pose suggests world up is {rest_up!r} but at the first "
+        f"animation frame the direction from the root to the head joint "
+        f"(else the neck, chest or spine) is closer to {frame_up!r}. "
+        f"Using {frame_up!r} from the animation data. "
         f"If this is wrong for your file, set it explicitly via "
         f"`bvh.world_up = '<axis>'`. `bvh.orientation_report` shows the "
         f"source of each axis.",

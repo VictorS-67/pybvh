@@ -282,6 +282,17 @@ class TestWorldUpWarningPreference:
         with pytest.warns(UserWarning, match="Rest pose suggests world up"):
             build()
 
+    def test_the_warning_names_the_joint_the_guess_reads(self):
+        # The guess reads the root's direction to the first joint named
+        # head, else neck, chest or spine, not a head-to-hips direction.
+        with pytest.warns(UserWarning, match="Rest pose suggests world up") as caught:
+            read_bvh_file(TEST3)
+        message = next(str(x.message) for x in caught if "Rest pose suggests" in str(x.message))
+        assert (
+            "the direction from the root to the head joint (else the neck, chest or spine)"
+            in message
+        )
+
     def test_read_bvh_directory_loads_silently(self):
         from pybvh import read_bvh_directory
 

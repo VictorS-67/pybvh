@@ -9,9 +9,30 @@ BVH files don't declare which axis is "up". Different software uses different co
 - **`rotate_vertical()`** -- which axis to rotate around
 - **`root_trajectory()`** -- projecting the root path onto the ground plane
 
+## Two frames: the skeleton's and the world's
+
+A BVH file says which way is up in two places: the rest pose, the skeleton with every rotation zero, written in the file's coordinates, and the motion, which places that skeleton in the world frame by frame. pybvh reads each orientation fact from one of the two, and never combines an axis of one with an axis of the other:
+
+| Frame | Read from | Facts |
+|---|---|---|
+| The skeleton's own frame | the rest pose alone, never `world_up` or the motion | `rest_up`, rest left, `rest_forward` |
+| The world frame | the motion, against `world_up` | `world_up`, the facing (`forward_at`, `left_at`, `facing_frame`), the heading (`root_trajectory`) |
+
+The rest pose's coordinates are not world coordinates: only the root rotation of a frame says how the skeleton stands in the world at that frame, and it is the one thing that carries a skeleton fact into the world (the heading is the root rotation applied to `rest_forward`). On a clean file the two frames agree, rest up is world up, and the distinction changes no value. On a file whose rest pose is authored in another convention than its motion, it does. The bundled `bvh_test3.bvh` animates z-up with a rest pose authored y-up:
+
+```python
+b3 = pybvh.read_bvh_file("bvh_data/bvh_test3.bvh")   # warns: rest pose and first frame disagree
+b3.world_up        # '+z' — read from the motion
+b3.rest_up         # '+y' — the rest pose was authored y-up
+b3.rest_forward    # '+z' — the rest pose's own facing: its left '+x' × its up '+y'
+b3.forward_at(0)   # '+y' — where the body faces in the world at frame 0
+```
+
+`rest_forward` lies along world up here, and that is correct: it is a direction in the skeleton's frame, and the root rotation turns it onto the ground on every frame.
+
 ## Auto-detection
 
-When a clip is read from a file or built from arrays, `Bvh.__init__` guesses `world_up` by checking which axis the head is above the hips in frame 0. If frame 0 isn't informative (ambiguous axis dominance, missing joints), it falls back to rest-pose topology (bone offsets from Hips toward Head/Neck/Spine). The result is a signed axis string like `'+y'` or `'+z'`.
+When a clip is read from a file or built from arrays, `Bvh.__init__` guesses `world_up` from frame 0: the direction from the root to the head (the first node named `head`, else `neck`, `chest` or `spine`, the node `rest_up` reads too), snapped to its main axis when its largest component is more than twice the second. When frame 0 cannot decide (no such joint, no frames, or a crouched, lying or leaning first pose), the skeleton's own up, `rest_up`, stands in: a guess that assumes the rest pose is authored upright. When the rest pose is degenerate too, pybvh warns and falls back to `'+y'`. The result is a signed axis string like `'+y'` or `'+z'`, and `bvh.orientation_report.world_up_source` says which of the three gave it (`"first_frame"`, `"rest_up"`, `"default"`; see [The orientation report](#the-orientation-report)).
 
 ```python
 bvh = pybvh.read_bvh_file("walk.bvh")
@@ -20,9 +41,9 @@ bvh.world_up  # '+z' (auto-detected)
 
 ## The disagreement warning
 
-Some BVH files author the rest pose in one convention and animate in another. For example, a Blender export where the rest pose skeleton points along Y but the animation plays in Z-up world space. When this happens, pybvh emits a `UserWarning` at load and trusts the animation data (frame 0) over the rest pose. The clips derived from it inherit its axis (next section) and do not warn again.
+Some BVH files author the rest pose in one convention and animate in another. For example, a Blender export where the rest pose skeleton points along Y but the animation plays in Z-up world space. When the first frame and the rest pose name different axes, pybvh emits a `UserWarning`, once per guess (at load, for a clip read from a file), and trusts the animation data (frame 0) over the rest pose. The clips derived from it inherit its axis (next section) and do not warn again.
 
-This affects roughly 5% of files in the wild. If you see the warning, check whether `world_up` matches your expectation and override manually if needed.
+In the maintainer's corpus of 23,020 clips, 75 have a rest up other than the world up guessed for them: 51 rest poses authored in another convention than their motion, and 24 clips whose first frame is not upright, so that the guess itself is wrong. If you see the warning, check whether `world_up` matches your expectation and override it if needed.
 
 ## Set, inferred or inherited
 
@@ -37,10 +58,11 @@ Cutting, resampling or transforming a clip does not change which way gravity poi
 ```python
 bvh = pybvh.read_bvh_file("walk.bvh")   # inferred from frame 0: '+z'
 clip = bvh[200:260]                       # inherited: '+z', whatever frame 200 shows
+clip.orientation_report.world_up_inherited   # True; world_up_source is the source's, 'first_frame'
 clip.world_up_inferred                    # what a guess from clip's own frames would give
 ```
 
-`world_up_inferred` always runs the heuristic on the clip's own motion and changes nothing, so comparing it with `world_up` shows whether an axis was set or inherited. To have a derived clip use its own guess instead, assign it: `clip.world_up = clip.world_up_inferred` (the axis is then set).
+The report tells the three states apart: `world_up_source` is `"set"` for a set axis and otherwise names what the guess was read from, and `world_up_inherited` is `True` for a guess made on the clip this one was derived from. `world_up_inferred` always runs the heuristic on the clip's own motion and changes nothing. To have a derived clip use its own guess instead, assign it: `clip.world_up = clip.world_up_inferred` (the axis is then set).
 
 ### When the guess starts again
 
@@ -56,6 +78,39 @@ Validated input -- only accepts `{+x, -x, +y, -y, +z, -z}`. Anything else raises
 
 The override is a set axis, so it propagates to every clip derived from this one, `retarget()` included: new bone lengths do not change which way is up. Assign `"auto"` (or `None`) to clear the override and return to the guessed axis, inferred or inherited. A pickle keeps the override, but BVH files have no world-up field, so manual overrides are lost on write/read round trips and must be re-applied.
 
+## The orientation report
+
+`world_up`, `rest_up` and `rest_forward` always answer, a default included, so their value alone cannot say whether it was measured. `bvh.orientation_report` can: it returns a frozen `OrientationReport` holding each clip-level orientation fact beside how it was obtained.
+
+```python
+report = b3.orientation_report
+# OrientationReport(rest_up='+y', rest_up_source='named_joint', rest_left='+x',
+#                   rest_forward='+z', rest_forward_source='lr_geometry',
+#                   world_up='+z', world_up_source='first_frame',
+#                   world_up_inherited=False, lr_mapping_source='names')
+```
+
+| Field | Values | Says |
+|---|---|---|
+| `rest_up_source` | `"named_joint"`, `"largest_spread"`, `None` | rest up read from a joint named head, neck, chest or spine; else from the axis along which the rest pose spreads most; `None` when the rest pose carries no direction |
+| `rest_left` | a signed axis or `None` | the skeleton's own left (next sections) |
+| `rest_forward_source` | `"lr_geometry"`, `"default"` | rest forward measured as rest left × rest up, or the house default for a rest pose without usable L/R geometry |
+| `world_up_source` | `"set"`, `"first_frame"`, `"rest_up"`, `"default"` | world up set by you, guessed from frame 0, guessed from rest up because frame 0 could not decide, or the house `'+y'` |
+| `world_up_inherited` | `bool` | the guess was made on the clip this one was derived from |
+| `lr_mapping_source` | `"set"`, `"names"`, `None` | the L/R mapping set by you, detected from joint names, or absent |
+
+Reading the sources is how a pipeline tells a measurement from a default without parsing warnings:
+
+```python
+report = bvh.orientation_report
+if report.world_up_source in ("rest_up", "default"):
+    ...  # frame 0 could not decide world up: check it, or set it
+if report.rest_forward_source == "default":
+    ...  # no usable L/R geometry: rest_forward and the heading are a house default
+```
+
+Reading the report never warns. A warning about a default fires when the defaulted fact itself is read (`world_up`, once per guess; `rest_forward`; the facing), and points to the report. The report is computed once and kept until the skeleton changes, `world_up` or `lr_mapping` is assigned, or the motion is assigned. Facts that change from frame to frame are not in it: `forward_at`, `left_at` and `facing_frame` carry them, and `facing_frame().valid` marks the frames whose facing could not be measured.
+
 ## forward_at(frame)
 
 Returns the character's world-space facing direction at a given frame as a signed axis string:
@@ -65,11 +120,11 @@ bvh.forward_at(0)   # '-z' (facing direction at frame 0)
 bvh.forward_at(60)  # '+x' (character has turned by frame 60)
 ```
 
-Derived from actual joint positions: L/R joint pairs are averaged in world space to find the lateral axis, then crossed with `world_up` to produce the forward vector. This tracks the character's real facing as they rotate through the animation, not just rest-pose topology.
+Derived from actual joint positions: L/R joint pairs are averaged in world space to find the leftward direction, measured against `world_up`, and forward is that leftward crossed with `world_up`. This tracks the character's real facing as they rotate through the animation, not the rest pose.
 
 Used internally by bvhplot's camera auto-orientation and follow mode.
 
-`forward_at()` reads the L/R pair list from `bvh.lr_mapping`. If your skeleton's joint names don't follow the expected conventions (`Left*`/`Right*`, `.L`/`.R`, `_l`/`_r`, `mixamorig:` namespace, `.001` numbered duplicates), `bvh.lr_mapping` will be `None`, and `forward_at()` falls back to an arbitrary horizontal axis. To get a meaningful forward, set the mapping explicitly — see the [Augmentation guide](augmentation.md#lr-pair-detection) for the override patterns.
+`forward_at()` reads the L/R pair list from `bvh.lr_mapping`. If your skeleton's joint names don't follow the expected conventions (`Left*`/`Right*`, `.L`/`.R`, `_l`/`_r`, `mixamorig:` namespace, `.001` numbered duplicates), `bvh.lr_mapping` will be `None` (`orientation_report.lr_mapping_source` is `None`), and `forward_at()` falls back to a house default, an arbitrary-but-stable horizontal axis for `world_up`, with a warning. To get a meaningful forward, set the mapping explicitly — see the [Augmentation guide](augmentation.md#lr-pair-detection) for the override patterns.
 
 ## left_at(frame)
 
@@ -91,7 +146,7 @@ The triple drawn on a pose:
 
 ![The orientation triple drawn as three arrows on a skeleton: world_up in blue, forward_at in red, left_at in green](../gallery/img/orientation-triad.png)
 
-`left_at()` shares the L/R pair machinery with `forward_at()`, so the same `bvh.lr_mapping` caveats apply.
+`left_at()` shares the L/R pair machinery with `forward_at()`, so the same `bvh.lr_mapping` caveats apply. The two always form a right-handed triple with `world_up`, on every frame: `left_at` never returns world up.
 
 ### coords= (skip per-call FK)
 
@@ -103,33 +158,76 @@ forwards = [bvh.forward_at(f, coords=coords) for f in range(bvh.frame_count)]
 lefts    = [bvh.left_at(f,    coords=coords) for f in range(bvh.frame_count)]
 ```
 
+`coords` holds the clip's frames, one row per frame: a frame whose leftward cannot be read falls back to the root's heading at that frame (next section).
+
 ## facing_frame() — the continuous basis
 
-`forward_at()` / `left_at()` snap the facing direction to the nearest of the six signed world axes — useful for canonicalization checks, but lossy: through a gentle turn the label stays constant while the true facing rotates. `bvh.facing_frame()` returns the same construction *before* the snap, as a `FacingFrame(forward, left, up, valid)` named tuple: three `(F, 3)` unit-vector arrays — a per-frame orthonormal right-handed basis (`forward × left = up`) — plus a `(F,)` bool array that is `False` on frames whose basis is the constant fallback rather than a measurement:
+`forward_at()` / `left_at()` snap the facing direction to the nearest of the six signed world axes — useful for canonicalization checks, but lossy: through a gentle turn the label stays constant while the true facing rotates. `bvh.facing_frame()` returns the same construction *before* the snap, as a `FacingFrame(forward, left, up, valid)` named tuple: three `(F, 3)` unit-vector arrays — a per-frame orthonormal right-handed basis (`forward × left = up`) — plus a `(F,)` bool array that is `False` on frames whose basis is a fallback rather than a measurement:
 
 ```python
-frame = bvh.facing_frame()        # or bvh.facing_frame(coords=coords)
+frame = bvh.facing_frame()        # or bvh.facing_frame(coords=coords), one row per clip frame
 frame.forward[120]                # continuous facing vector at frame 120
-frame.valid[120]                  # False if that vector is the fallback
+frame.valid[120]                  # False if that vector is a fallback
 ```
 
-This is a yaw-only, gravity-aligned *facing* frame: `up` is always exactly `world_up`, so the basis only rotates about the vertical — it is deliberately not a pelvis orientation (no roll/pitch), and distinct from `root_trajectory()`'s heading, which is a second facing estimate built differently (the root bone's rotation applied to the rest forward — it inherits pelvis twist and is not a direction of travel). Frames with no usable L/R direction fall back to the same chain as `forward_at()` and are flagged in `valid`; see [`analysis.facing_frame`](../api/analysis.md#pybvh.analysis.facing_frame) for the full policy.
+This is a yaw-only, gravity-aligned *facing* frame: `up` is always exactly `world_up`, so the basis only rotates about the vertical — it is deliberately not a pelvis orientation (no roll/pitch), and distinct from `root_trajectory()`'s heading, which is a second facing estimate built differently (the root bone's rotation applied to the rest forward — it inherits pelvis twist and is not a direction of travel). See [`analysis.facing_frame`](../api/analysis.md#pybvh.analysis.facing_frame) for the full policy.
 
-## Rest-pose axes: rest_up and rest_forward
+### When a frame's facing cannot be measured
 
-`world_up` and `forward_at(frame)` are *animation*-derived — they read the actual joint positions at playback time. `rest_up` and `rest_forward` are *topology*-derived — they read only the rest-pose offsets, independent of any animation data:
+One chain gives every frame its leftward, measured against `world_up`, and the facing is built from it:
+
+1. the frame's own leftward, from its L/R pairs;
+2. where that cannot be read (the L/R pairs line up with world up: the body lies on its side), the root's heading at that frame turned a quarter turn about up, when `rest_forward` is measured and the heading can be read;
+3. otherwise the house default, an arbitrary-but-stable horizontal axis for `world_up`.
+
+Forward is always left × up, so the basis is right-handed with world up on every frame, fallback frames included, and `valid` is `False` on the frames of steps 2 and 3. A frame that falls to the house default warns, naming the frame; on a skeleton with no L/R pairs at all every frame does, and the warning names the skeleton.
+
+## Rest-pose axes: rest_up, rest left and rest_forward
+
+`world_up` and `forward_at(frame)` are read from the motion. `rest_up`, rest left and `rest_forward` are the skeleton's own frame: read from the rest pose alone, never from `world_up` or the animation:
 
 ```python
-bvh.rest_up       # '+y' — skeleton's topological up axis
-bvh.rest_forward  # '+z' — skeleton's topological forward axis
+bvh.rest_up                         # '+y' — the skeleton's own up
+bvh.orientation_report.rest_left    # '+x' — the skeleton's own left
+bvh.rest_forward                    # '+z' — the direction the rest pose faces: rest left × rest up
 ```
+
+- **`rest_up`** is the main axis from the root to the first node named `head`, else `neck`, `chest` or `spine`; without one, the axis along which the rest pose spreads most (`rest_up_source` says which).
+- **Rest left** averages the left-minus-right rest positions of the L/R pairs, removes the `rest_up` component and snaps the rest to an axis. `mirror` reflects along it. It is in the report only.
+- **`rest_forward`** is rest left × rest up. Without usable L/R geometry (no pairs, or pairs that lie along rest up) it is the house default for rest up (`'+y'` gives `'+z'`, `'+z'` gives `'+x'`, `'+x'` gives `'+y'`), reading it warns, `has_lr_geometry` is `False` and `rest_forward_source` is `"default"`.
 
 On a clean BVH file, `rest_up == world_up` and `rest_forward` matches `forward_at(0)` when the root rotation at frame 0 is identity. When they disagree:
 
-- `rest_up != world_up` — the file was authored with the rest pose in one up convention and animated in another (the case that triggers the `UserWarning` at load time; fix with `reorient_rest_up`).
+- `rest_up != world_up` — the file was authored with the rest pose in one up convention and animated in another (the case that triggers the disagreement warning; fix with `reorient_rest_up`). `rest_forward` is then a direction in the rest pose's convention and may lie along world up, as on `bvh_test3.bvh` above.
 - `rest_forward != forward_at(0)` — the character simply starts the animation facing a different direction from their rest pose. This is normal; `forward_at(0)` is what the viewer sees.
 
-Both properties are read-only. To actually change them, call the corresponding `reorient_*` method (see "Reorienting data" below) which rotates the rest-pose offsets and compensates joint rotations so FK positions are unchanged.
+All three are read-only. To actually change `rest_up` or `rest_forward`, call the corresponding `reorient_*` method (see "Reorienting data" below) which rotates the rest-pose offsets and compensates joint rotations so FK positions are unchanged.
+
+## The heading
+
+`root_trajectory()` reports the root's heading as a `(sin, cos)` pair: the root rotation of each frame applied to `rest_forward`, projected on the ground plane of `world_up`. The root rotation is what carries the skeleton's own forward into the world, so the heading follows the body whichever convention the rest pose was authored in: on `bvh_test3.bvh` it lies a median 2.3° from the measured facing (`facing_frame().forward`).
+
+On a frame where the root's forward stands along world up, its projection on the ground is too short to have a direction, and the heading is `NaN` there rather than an arbitrary angle:
+
+```python
+import numpy as np
+from pybvh import rotations
+
+bvh = pybvh.read_bvh_file("bvh_data/bvh_test1.bvh")   # world up '+z', rest forward '+y'
+bvh.world_up = "+z"   # set it: assigning the motion below would guess world up again, from the tilted frame
+tilt = np.array([[1.0, 0, 0], [0, 0, -1], [0, 1, 0]])   # turns '+y' onto '+z'
+angles = bvh.joint_angles.copy()
+angles[:, 0] = rotations.rotmat_to_euler(
+    np.broadcast_to(tilt, (bvh.frame_count, 3, 3)), bvh.nodes[0].rot_channels)
+bvh.joint_angles = angles
+bvh.root_trajectory()[:3, 2:4]   # NaN: the root faces straight up
+```
+
+With `include_velocities=True`, the `NaN` reaches only the `heading_vel` samples whose stencil reads that frame (with the default central stencil, the frames either side). Code that feeds the columns to a model or a sum masks the rows (`np.isnan(traj[:, 2])`) or fills them. For a facing that is never `NaN`, read `facing_frame()`, whose `valid` flags its fallback frames.
+
+## mirror works in the skeleton's frame
+
+`mirror` reflects the skeleton's offsets across its own sagittal plane, along rest left, and the motion follows by the same reflection. It never reads `world_up`, so the result is a valid mirror whatever world up says, a wrong guess included. Pass `lateral='x'` (or `'y'`, `'z'`) to choose the axis yourself.
 
 ## Negative up axes
 
@@ -156,7 +254,7 @@ bvh_fixed = bvh.reorient_rest_up('+y')  # FK positions unchanged, rest pose rota
 bvh_fwd = bvh.reorient_rest_forward('+z')  # FK positions unchanged
 ```
 
-All three are restricted to axis-aligned rotations (multiples of 90 degrees) for lossless transformation.
+`reorient_rest_forward` turns the rest pose about `rest_up`, in the skeleton's own frame: `rest_up` is the same afterwards and `rest_forward` is the target, which is named in the rest pose's frame and must not be parallel to `rest_up`. All three are restricted to axis-aligned rotations (multiples of 90 degrees) for lossless transformation.
 
 ## Quick reference
 
@@ -169,6 +267,10 @@ bvh = pybvh.read_bvh_file("walk.bvh")
 bvh.world_up           # '+z' (auto-detected)
 bvh.forward_at(0)      # '-z' (facing direction at frame 0)
 bvh.world_up = '+y'    # manual metadata override
+
+# How each orientation fact was obtained
+bvh.orientation_report.world_up_source      # 'set', 'first_frame', 'rest_up' or 'default'
+bvh.orientation_report.rest_forward_source  # 'lr_geometry' or 'default'
 
 # Suppress disagreement warning for bulk processing
 clips = pybvh.read_bvh_directory("dataset/", warn_on_world_up_disagreement=False)

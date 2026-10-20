@@ -214,23 +214,6 @@ def parse_axis(axis: str, *, allow_unsigned: bool = False) -> Axis:
     return Axis(index, sign, _axis_to_vector(normalized))
 
 
-def _signed_rotation_delta_around_axis(
-    v_from: npt.NDArray[np.float64],
-    v_to: npt.NDArray[np.float64],
-    axis_vec: npt.NDArray[np.float64],
-) -> float:
-    """Signed angle (degrees) rotating ``v_from`` to ``v_to`` around ``axis_vec``.
-
-    Positive = counter-clockwise when viewed from the direction of
-    ``axis_vec``. Both input vectors are assumed unit-length and already
-    in the plane perpendicular to ``axis_vec``. The scalar form of the
-    delta math bvhplot's follow camera runs vectorized.
-    """
-    cos_a = float(np.clip(np.dot(v_from, v_to), -1.0, 1.0))
-    sin_a = float(np.dot(np.cross(v_from, v_to), axis_vec))
-    return float(np.degrees(np.arctan2(sin_a, cos_a)))
-
-
 def _validate_axis_string(value: object, *, allow_unsigned: bool = False) -> str:
     """Validate and normalize a signed axis string.
 

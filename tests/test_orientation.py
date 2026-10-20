@@ -27,7 +27,7 @@ from pybvh._orientation import (
     _RestUp,
     _root_heading_units,
     _up_marker_index,
-    _warn_facing_defaulted,
+    _warn_facing_defaulted_at_frames,
     _WorldUpGuess,
 )
 
@@ -352,7 +352,7 @@ class TestFacingChain:
         # joints sit on the midline), and when the heading cannot stand in,
         # whether it lies along world up or rest forward is itself a default.
         with pytest.warns(UserWarning) as record:
-            _warn_facing_defaulted("+y", [0, 1])
+            _warn_facing_defaulted_at_frames("+y", [0, 1])
         message = str(record[0].message)
         assert "At frames 0, 1" in message
         for cause in ("line up with world_up", "coincide", "rest_forward is itself a default"):

@@ -659,7 +659,7 @@ def _warn_world_up_defaulted() -> None:
     """Warn that world up is the house default, not a measurement."""
     # Neither the animation nor the rest pose said anything, so '+y' is
     # invented, not measured, and the returned string cannot say so; the
-    # same silent substitution _warn_facing_defaulted warns about.
+    # same silent substitution _warn_facing_defaulted_no_pairs warns about.
     warnings.warn(
         f"Could not infer a world up axis: this skeleton has no "
         f"recognizable head/neck/chest/spine joint to read the first "
@@ -1054,42 +1054,50 @@ def _facing_labels(forward: npt.NDArray[np.float64], world_up: str) -> tuple[str
     return forward_label, left_label
 
 
-def _warn_facing_defaulted(world_up: str, frames: Sequence[int] | None) -> None:
-    """Warn that some facing rows carry the house default, not a measurement.
-
-    *frames* names the clip frames of those rows; an empty sequence
-    means the skeleton has no L/R pairs at all, so every row defaults,
-    and ``None`` that the rows are a pose with no clip frame.
-    """
+def _warn_facing_defaulted_no_pairs(world_up: str) -> None:
+    """Warn that every facing row carries the house default: the skeleton
+    has no L/R pairs to read a facing from."""
     fallback = _FALLBACK_FORWARD[world_up[1]]
     # The returned axis is a house default, not a measurement, and the
     # return type cannot say so, the same silent substitution
     # _infer_world_up warns about. Python's default filter shows this once
     # per line of the user's code, so a loop over frames stays quiet.
-    if frames is not None and len(frames) == 0:
-        message = (
-            f"No usable left/right geometry on this skeleton, so its facing "
-            f"direction cannot be measured; falling back to {fallback!r}, the "
-            f"arbitrary-but-stable horizontal axis for world_up={world_up!r}. "
-            f"The facing (forward_at, left_at, facing_frame) is a default "
-            f"here, not a property of this file. Set `bvh.lr_mapping = {{...}}` "
-            f"to fix it; `bvh.orientation_report.lr_mapping_source` says where "
-            f"the L/R mapping comes from, None when there is none."
-        )
-    else:
-        if frames is None:
-            where = "On the pose given"
-        else:
-            shown = ", ".join(str(f) for f in frames[:5])
-            more = f" and {len(frames) - 5} more" if len(frames) > 5 else ""
-            where = f"At frame{'s' if len(frames) > 1 else ''} {shown}{more}"
-        message = (
-            f"{where}, the facing direction cannot be measured: the left/right "
-            f"joints give no direction on the ground (they line up with "
-            f"world_up={world_up!r}, a body on its side, or coincide), and the "
-            f"root's heading cannot stand in (it lies along world_up too, or "
-            f"rest_forward is itself a default). Falling back to {fallback!r}, "
-            f"the arbitrary-but-stable horizontal axis for that up. "
-            f"`facing_frame().valid` is False on such frames."
-        )
-    warnings.warn(message, UserWarning, stacklevel=user_stacklevel())
+    warnings.warn(
+        f"No usable left/right geometry on this skeleton, so its facing "
+        f"direction cannot be measured; falling back to {fallback!r}, the "
+        f"arbitrary-but-stable horizontal axis for world_up={world_up!r}. "
+        f"The facing (forward_at, left_at, facing_frame) is a default "
+        f"here, not a property of this file. Set `bvh.lr_mapping = {{...}}` "
+        f"to fix it; `bvh.orientation_report.lr_mapping_source` says where "
+        f"the L/R mapping comes from, None when there is none.",
+        UserWarning,
+        stacklevel=user_stacklevel(),
+    )
+
+
+def _warn_facing_defaulted_at_frames(world_up: str, frames: Sequence[int]) -> None:
+    """Warn that the facing rows of clip *frames* carry the house default."""
+    shown = ", ".join(str(f) for f in frames[:5])
+    more = f" and {len(frames) - 5} more" if len(frames) > 5 else ""
+    _warn_rows_facing_defaulted(world_up, f"At frame{'s' if len(frames) > 1 else ''} {shown}{more}")
+
+
+def _warn_facing_defaulted_on_pose(world_up: str) -> None:
+    """Warn that the facing of a pose with no clip frame is the house default."""
+    _warn_rows_facing_defaulted(world_up, "On the pose given")
+
+
+def _warn_rows_facing_defaulted(world_up: str, where: str) -> None:
+    """The warning of the two above, for the rows *where* names."""
+    fallback = _FALLBACK_FORWARD[world_up[1]]
+    warnings.warn(
+        f"{where}, the facing direction cannot be measured: the left/right "
+        f"joints give no direction on the ground (they line up with "
+        f"world_up={world_up!r}, a body on its side, or coincide), and the "
+        f"root's heading cannot stand in (it lies along world_up too, or "
+        f"rest_forward is itself a default). Falling back to {fallback!r}, "
+        f"the arbitrary-but-stable horizontal axis for that up. "
+        f"`facing_frame().valid` is False on such frames.",
+        UserWarning,
+        stacklevel=user_stacklevel(),
+    )

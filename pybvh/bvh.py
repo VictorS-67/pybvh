@@ -40,7 +40,9 @@ from ._orientation import (
     _LrMappingSource,
     _resolve_lr_pairs,
     _resolve_node_lr_pairs,
-    _warn_facing_defaulted,
+    _warn_facing_defaulted_at_frames,
+    _warn_facing_defaulted_no_pairs,
+    _warn_facing_defaulted_on_pose,
     _warn_rest_forward_defaulted,
     _warn_world_up_defaulted,
     _warn_world_up_disagreement,
@@ -1805,12 +1807,12 @@ class Bvh:
         )
         if defaulted.any():
             if lr_pairs.shape[0] == 0:
-                named: list[int] | None = []
+                _warn_facing_defaulted_no_pairs(world_up)
             elif frames is None:
-                named = None
+                _warn_facing_defaulted_on_pose(world_up)
             else:
                 named = np.arange(self.frame_count)[frames][defaulted].tolist()
-            _warn_facing_defaulted(world_up, named)
+                _warn_facing_defaulted_at_frames(world_up, named)
         return forward, left, up, valid
 
     def _root_rotmats(self, frames: Sequence[int] | slice = slice(None)) -> npt.NDArray[np.float64]:

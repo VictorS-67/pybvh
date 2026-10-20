@@ -35,9 +35,7 @@ from ._orientation import (
     _facing_basis,
     _facing_labels,
     _facing_lr_pairs,
-    _infer_rest_forward,
     _infer_rest_left,
-    _infer_rest_up,
     _infer_world_up,
     _iter_unique_lr_pairs,
     _resolve_lr_pairs,
@@ -1037,6 +1035,9 @@ class Bvh:
                 turned = _get_main_direction(rotation @ _axis_to_vector(guess.axis))
                 assert turned is not None  # a rotation keeps a unit vector unit
                 setattr(derived, name, guess._replace(axis=turned))
+        # The turned guess is the world up every value measured along it
+        # now reads, as a new override is.
+        derived.world_up_changed()
 
     def _freeze_skeleton(self) -> None:
         """Freeze every node the clip owns, so its skeleton cannot change
@@ -1085,7 +1086,11 @@ class Bvh:
         head-above-hips direction, with rest-pose topology as fallback.
         Issues a ``UserWarning`` if the first frame and rest pose disagree,
         unless the clip (or the clip it derives from) was loaded with
-        ``warn_on_world_up_disagreement=False``.
+        ``warn_on_world_up_disagreement=False``, and one if nothing says
+        which way is up; each warning is given once per guess, on the
+        first read of the axis that guess gave (at load, for a clip read
+        from a file). :attr:`orientation_report` says which state below
+        the axis is in and what a guess was read from.
 
         A clip's world up is in one of three states:
 
@@ -1140,16 +1145,17 @@ class Bvh:
         Note: BVH files do not store a world-up field, so manual overrides
         are lost on write→read round trips and must be re-applied.
         """
-        if self._world_up_override is not None:
-            return self._world_up_override
+        report = self.orientation_report
         derived = self._derived
-        if derived.inherited_world_up is not None:
-            return derived.inherited_world_up.axis
-        if derived.inferred_world_up is None:
-            guess = self._guess_world_up()
-            self._warn_about_world_up_guess(guess, self.rest_up)
-            derived.inferred_world_up = guess
-        return derived.inferred_world_up.axis
+        # A guess of this clip's own warns on the first read of the axis it
+        # gave, once; an inherited guess warned on the clip it was made on.
+        guessed_here = report.world_up_source != "set" and not report.world_up_inherited
+        if guessed_here and not derived.world_up_guess_announced:
+            guess = derived.inferred_world_up
+            assert guess is not None  # the report read world up from it
+            self._warn_about_world_up_guess(guess, report.rest_up)
+            derived.world_up_guess_announced = True
+        return report.world_up
 
     @world_up.setter
     def world_up(self, value: str | None) -> None:
@@ -1225,7 +1231,7 @@ class Bvh:
     def rest_forward_axis(self) -> Axis:
         """:attr:`rest_forward` parsed into numeric form — ``Axis(index, sign, vector)``.
 
-        Never ``None``: :attr:`rest_forward` always resolves, because it falls back to an arbitrary-but-stable axis perpendicular to :attr:`rest_up` when the skeleton carries no usable L/R geometry. That fallback is indistinguishable here from a measured result; :attr:`has_lr_geometry` tells them apart.
+        Never ``None``: :attr:`rest_forward` always resolves, because it falls back to an arbitrary-but-stable axis perpendicular to :attr:`rest_up` when the skeleton carries no usable L/R geometry. That fallback is indistinguishable here from a measured result; :attr:`orientation_report` (``rest_forward_source``) and :attr:`has_lr_geometry` tell them apart.
 
         See Also
         --------
@@ -1313,8 +1319,9 @@ class Bvh:
         always answer, a default included, so their return value alone
         cannot say which it was: this can.
 
-        Read without a warning: the warnings about a default fire when
-        the defaulted fact itself is read. Computed on first read and
+        Read without a warning: a warning about a default fires when the
+        defaulted fact itself is read (:attr:`world_up`, once per guess;
+        :attr:`rest_forward`; the facing), and each points here. Computed on first read and
         kept until the skeleton changes, :attr:`world_up` or
         :attr:`lr_mapping` is assigned, or the motion is assigned
         (:attr:`root_pos`, :attr:`joint_angles`, ``bvh[i] = other``),
@@ -1338,22 +1345,24 @@ class Bvh:
         """Gather the report's inputs and build it."""
         derived = self._derived
         world_up_inherited = False
+        world_up_source: Literal["set", "first_frame", "rest_up", "default"]
         if self._world_up_override is not None:
             world_up, world_up_source = self._world_up_override, "set"
+        elif derived.inherited_world_up is not None:
+            world_up, world_up_source = derived.inherited_world_up
+            world_up_inherited = True
         else:
-            # Guessing here, rather than through the world_up property,
-            # would leave the guess's warnings to its first reader.
-            _ = self.world_up
-            guess = derived.inherited_world_up or derived.inferred_world_up
-            assert guess is not None  # reading world_up made or kept one
-            world_up, world_up_source = guess
-            world_up_inherited = derived.inherited_world_up is not None
+            # Guessed silently: the guess's warnings are world_up's to give
+            # when the axis is read, not this report's.
+            if derived.inferred_world_up is None:
+                derived.inferred_world_up = self._guess_world_up()
+            world_up, world_up_source = derived.inferred_world_up
         return _build_orientation_report(
             [node.name for node in self.nodes],
             self._rest_pose(),
             _resolve_lr_pairs(self._lr_mapping, self.node_index),
             world_up,
-            world_up_source,  # type: ignore[arg-type]
+            world_up_source,
             world_up_inherited,
             self._lr_mapping_source(),
         )
@@ -1373,8 +1382,9 @@ class Bvh:
         node order, named ``head``, else ``neck``, ``chest`` or
         ``spine`` (whole name, any case), skipping one that sits at the
         root; without such a node, the axis along which the rest pose
-        spreads most. The animation is never read. :attr:`world_up`'s
-        guess reads the same node.
+        spreads most (:attr:`orientation_report` says which, in
+        ``rest_up_source``). The animation is never read.
+        :attr:`world_up`'s guess reads the same node.
 
         Contrast with :attr:`world_up`, which is *animation*-derived
         (inferred from the first frame's head-above-hips direction). On
@@ -1389,7 +1399,7 @@ class Bvh:
             when the rest pose is degenerate (single-node skeletons or
             all-zero offsets) and carries no directional information.
         """
-        return _infer_rest_up([node.name for node in self.nodes], self._rest_pose())
+        return self.orientation_report.rest_up
 
     @property
     def rest_forward(self) -> str:
@@ -1412,7 +1422,8 @@ class Bvh:
 
         Without usable L/R geometry (no pairs, or pairs that lie along
         rest up) it is a house default for rest up, arbitrary but
-        stable, and reading it warns; :attr:`has_lr_geometry` tells the
+        stable, and reading it warns; :attr:`orientation_report`
+        (``rest_forward_source``) and :attr:`has_lr_geometry` tell the
         two apart.
 
         Use this to check whether a skeleton's rest-pose facing matches
@@ -1425,19 +1436,18 @@ class Bvh:
             Signed axis string (e.g. ``'+z'``, ``'-x'``), perpendicular to
             :attr:`rest_up`.
         """
-        rest_up = self.rest_up
-        rest_left = self._rest_left_of(self._lr_mapping)
-        forward = _infer_rest_forward(rest_left, rest_up)
-        if rest_left is None:
-            _warn_rest_forward_defaulted(forward, rest_up)
-        return forward
+        report = self.orientation_report
+        if report.rest_forward_source == "default":
+            _warn_rest_forward_defaulted(report.rest_forward, report.rest_up)
+        return report.rest_forward
 
     def _rest_left_of(self, mapping: dict[str, str] | None) -> str | None:
         """The rest pose's left for the pairs of *mapping*, against rest up.
 
-        ``None`` without a usable one. :attr:`rest_forward` reads it for
-        the clip's own mapping, :func:`~pybvh.transforms.mirror` for the
-        mapping it mirrors with.
+        ``None`` without a usable one. :func:`~pybvh.transforms.mirror`
+        reads it for the mapping it mirrors with, which may be another
+        than the clip's own; :attr:`orientation_report` holds the rest
+        left of the clip's own mapping.
         """
         pairs = _resolve_lr_pairs(mapping, self.node_index)
         return _infer_rest_left(self._rest_pose(), pairs, self.rest_up)
@@ -1470,7 +1480,8 @@ class Bvh:
 
             >>> bvh = read_bvh_file('weird.bvh', lr_mapping={...})
 
-        Consumers: ``mirror()``, ``rest_forward``, ``has_lr_geometry``,
+        Consumers: ``mirror()``, ``orientation_report`` (and so
+        ``rest_forward`` and ``has_lr_geometry``),
         ``forward_at()``, ``left_at()``, ``facing_frame()``.
 
         Note: BVH files don't store L/R pair info, so user-set mappings
@@ -1521,8 +1532,9 @@ class Bvh:
         ``True`` when the skeleton's L/R joint pairs give a lateral axis
         in the rest pose that does not lie along :attr:`rest_up`, i.e.
         when :attr:`rest_forward` is **measured** from this skeleton
-        rather than a house default. It is ``False`` exactly when
-        reading :attr:`rest_forward` emits the fallback ``UserWarning``.
+        rather than a house default: ``orientation_report.rest_forward_source
+        == "lr_geometry"``. It is ``False`` exactly when reading
+        :attr:`rest_forward` emits the fallback ``UserWarning``.
         Like :attr:`rest_forward`, it reads the rest pose alone, never
         :attr:`world_up`.
 
@@ -1556,7 +1568,7 @@ class Bvh:
         rest_forward : The axis whose fallback this reports.
         lr_mapping : The pairs the measurement is derived from.
         """
-        return self._rest_left_of(self._lr_mapping) is not None
+        return self.orientation_report.rest_forward_source == "lr_geometry"
 
     @property
     def lr_pairs(self) -> list[tuple[int, int]] | None:
@@ -1768,12 +1780,12 @@ class Bvh:
         heading stage is skipped. Returns ``(forward, left, up, valid)``.
         """
         world_up = self.world_up
+        report = self.orientation_report
         lr_pairs = _facing_lr_pairs(self)
         root_rotmats = rest_forward = None
         if frames is not None and lr_pairs.shape[0] > 0:
-            rest_left = self._rest_left_of(self._lr_mapping)
-            if rest_left is not None:
-                rest_forward = _infer_rest_forward(rest_left, self.rest_up)
+            if report.rest_forward_source == "lr_geometry":
+                rest_forward = report.rest_forward
                 root_order = self.nodes[0].rot_channels  # type: ignore[attr-defined]
                 root_rotmats = rotations.euler_to_rotmat(self.joint_angles[frames, 0], root_order)
         forward, left, up, valid, defaulted = _facing_basis(

@@ -21,6 +21,7 @@ ALL_VALUES = {
     "floor_height",
     "inferred_world_up",
     "inherited_world_up",
+    "world_up_guess_announced",
     "node_index",
     "joint_index",
     "names_lr_mapping",
@@ -28,8 +29,9 @@ ALL_VALUES = {
 }
 MOTION_DEPENDENTS = {"node_positions", "floor_height"}
 # The guessed world up, inferred on the clip or inherited from the clip it
-# was derived from, survives every change but the user replacing the motion.
-GUESSED_WORLD_UP = {"inferred_world_up", "inherited_world_up"}
+# was derived from, and whether world_up warned about it, survive every
+# change but the user replacing the motion.
+GUESSED_WORLD_UP = {"inferred_world_up", "inherited_world_up", "world_up_guess_announced"}
 
 # The orientation report reads the skeleton, world up and the L/R mapping
 # setting, and none of pybvh's own motion writes (ADR 0004).
@@ -51,6 +53,7 @@ def _filled() -> DerivedState:
     derived.floor_height = 1.5
     derived.inferred_world_up = "+y"
     derived.inherited_world_up = "+z"
+    derived.world_up_guess_announced = True
     derived.node_index = {"Hips": 0, "Spine": 1, "EndSite": 2}
     derived.joint_index = {"Hips": 0, "Spine": 1}
     derived.names_lr_mapping = {"LeftArm": "RightArm"}

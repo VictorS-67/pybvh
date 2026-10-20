@@ -5,7 +5,8 @@ left, rest forward), the world up axis inferred from a clip's first frame,
 the left/right joint pairs found by name and their resolution into
 joint-space and node-space index pairs, and the per-frame leftward,
 forward and facing basis, with the house default for a skeleton that
-carries no left/right information.
+carries no left/right information; and :class:`OrientationReport`, which
+says for each clip-level fact whether it was set, measured or defaulted.
 :class:`~pybvh.bvh.Bvh` exposes their results as ``world_up``,
 ``rest_up``, ``rest_forward``, ``lr_mapping``, ``lr_pairs``,
 ``forward_at``, ``left_at`` and ``facing_frame``; ``transforms``,
@@ -71,12 +72,14 @@ if TYPE_CHECKING:
 #           ├──→ Bvh._facing_basis ──→ analysis.facing_frame
 #           └──→ _facing_labels (the snap) ──→ Bvh.forward_at / Bvh.left_at
 #
-# Public surface: `Bvh.world_up` (property + setter), `Bvh.rest_up`,
+# Public surface: `Bvh.orientation_report` (OrientationReport: each fact
+# below with its source), `Bvh.world_up` (property + setter), `Bvh.rest_up`,
 # `Bvh.rest_forward`, `Bvh.has_lr_geometry`, the parsed `Bvh.world_up_axis` /
 # `Bvh.rest_forward_axis` / `Bvh.rest_up_axis` properties,
 # `Bvh.forward_at(frame=0)` / `Bvh.left_at(frame=0)` (methods), and — via
-# `analysis.facing_frame` — the continuous vector basis. Everything here is
-# underscore-prefixed and intended for internal use by pybvh modules.
+# `analysis.facing_frame` — the continuous vector basis. Everything here but
+# OrientationReport is underscore-prefixed and intended for internal use by
+# pybvh modules.
 # ---------------------------------------------------------------------------
 
 # Arbitrary-but-stable forward per up axis (rest up for rest forward, world up
@@ -556,8 +559,8 @@ def _warn_rest_forward_defaulted(rest_forward: str, rest_up: str | None) -> None
         f"{rest_forward!r}, the arbitrary-but-stable axis for {keyed_on}. "
         f"rest_forward, rest_forward_axis and the heading root_trajectory "
         f"builds on it are a default here, not a property of this file. "
-        f"Set `bvh.lr_mapping = {{...}}` to fix it, or check "
-        f"`bvh.has_lr_geometry` to detect it.",
+        f"Set `bvh.lr_mapping = {{...}}` to fix it; "
+        f"`bvh.orientation_report.rest_forward_source` is 'default' here.",
         UserWarning,
         stacklevel=user_stacklevel(),
     )
@@ -1053,7 +1056,8 @@ def _warn_facing_defaulted(world_up: str, frames: Sequence[int] | None) -> None:
             f"arbitrary-but-stable horizontal axis for world_up={world_up!r}. "
             f"The facing (forward_at, left_at, facing_frame) is a default "
             f"here, not a property of this file. Set `bvh.lr_mapping = {{...}}` "
-            f"to fix it, or check `bvh.has_lr_geometry` to detect it."
+            f"to fix it; `bvh.orientation_report.lr_mapping_source` says where "
+            f"the L/R mapping comes from, None when there is none."
         )
     else:
         if frames is None:

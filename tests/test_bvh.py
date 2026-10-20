@@ -8227,6 +8227,66 @@ class TestOrientationReportLifecycle:
         bvh_example.lr_mapping = mapping
         assert bvh_example.has_lr_geometry is True
 
+    def test_harmonize_computes_it_once_per_clip(self, bvh_example, computations):
+        """harmonize reads each clip's rest up and rest forward to compare
+        them with its targets, and the rest reorientation reads them again:
+        one report per clip serves every read."""
+        from pybvh.batch import harmonize
+
+        clips = [bvh_example[0:20], bvh_example[20:40], bvh_example.scale(2.0)]
+        assert (bvh_example.rest_up, bvh_example.rest_forward) == ("+z", "+y")
+        computed = computations.report
+        harmonize(clips, target_rest_up="+z", target_rest_forward="+x")
+        assert computations.report == computed + len(clips)
+
+
+class TestOrientationWarnings:
+    """Each warning fires when its defaulted fact is read, never when the
+    report is filled, and points to the report."""
+
+    _NO_PAIRS = (
+        "HIERARCHY\nROOT Hips\n{\n\tOFFSET 0 0 0\n"
+        "\tCHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation\n"
+        "\tJOINT Head\n\t{\n\t\tOFFSET 0 10 0\n\t\tCHANNELS 3 Zrotation Yrotation Xrotation\n"
+        "\t\tEnd Site\n\t\t{\n\t\t\tOFFSET 0 5 0\n\t\t}\n\t}\n}\n"
+        "MOTION\nFrames: 2\nFrame Time: 0.033333\n"
+        "0 90 0 0 0 0 0 0 0\n0 90 0 0 0 0 0 0 0\n"
+    )
+
+    def test_reading_rest_up_without_pairs_does_not_warn_about_facing(self, tmp_path):
+        path = tmp_path / "no_pairs.bvh"
+        path.write_text(self._NO_PAIRS)
+        bvh = read_bvh_file(path)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert bvh.rest_up == "+y"
+            assert bvh.orientation_report.rest_forward_source == "default"
+            assert bvh.has_lr_geometry is False
+        with pytest.warns(UserWarning, match="orientation_report"):
+            _ = bvh.rest_forward
+
+    def test_the_world_up_guess_warns_when_world_up_is_read(self):
+        bvh = _read_quietly(_TEST3)
+        bvh.joint_angles = bvh.joint_angles  # guesses again on the next read
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert bvh.rest_up == "+y"
+            assert bvh.orientation_report.world_up_source == "first_frame"
+        with pytest.warns(UserWarning, match="Rest pose suggests world up") as caught:
+            assert bvh.world_up == "+z"
+        assert "orientation_report" in str(caught[0].message)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert bvh.world_up == "+z"  # once per guess
+
+    def test_a_defaulted_world_up_warns_when_world_up_is_read(self):
+        bvh = Bvh()  # a lone root: nothing says which way is up
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert bvh.orientation_report.world_up_source == "default"
+        with pytest.warns(UserWarning, match="orientation_report"):
+            assert bvh.world_up == "+y"
+
 
 class TestHasLrGeometry:
     """Bvh.has_lr_geometry — did rest_forward measure, or fall back?"""
@@ -8254,7 +8314,7 @@ class TestHasLrGeometry:
         bvh.lr_mapping = None
         with pytest.warns(UserWarning, match="cannot be measured"):
             _ = bvh.rest_forward
-        with pytest.warns(UserWarning, match="has_lr_geometry"):
+        with pytest.warns(UserWarning, match="orientation_report"):
             bvh.left_at(0)
 
     def test_a_measured_facing_warns_about_nothing(self, bvh_example):
@@ -8328,7 +8388,7 @@ class TestHasLrGeometry:
         unmapped = bvh_example.copy()
         unmapped.lr_mapping = None
         assert unmapped.has_lr_geometry is False
-        with pytest.warns(UserWarning, match="has_lr_geometry"):
+        with pytest.warns(UserWarning, match="orientation_report"):
             _ = unmapped.rest_forward
 
         assert bvh_example.has_lr_geometry is True

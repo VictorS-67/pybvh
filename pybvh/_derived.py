@@ -51,6 +51,9 @@ _CLEARED_BY: Final[dict[str, frozenset[_Change]]] = {
     # decision 3).
     "inferred_world_up": frozenset({_Change.USER_REPLACED_MOTION}),
     "inherited_world_up": frozenset({_Change.USER_REPLACED_MOTION}),
+    # Whether Bvh.world_up has warned about the guess inferred here (it
+    # warns once per guess), so it goes with that guess.
+    "world_up_guess_announced": frozenset({_Change.USER_REPLACED_MOTION}),
     # Read from the rest pose, the L/R mapping in effect and world up, set
     # or guessed (ADR 0004); pybvh's own motion writes change none of them.
     "orientation_report": frozenset(
@@ -84,6 +87,9 @@ class DerivedState:
     inherited_world_up : _WorldUpGuess or None
         The world up of the clip this one was derived from, guessed there,
         with the source of that guess, used when the user set none.
+    world_up_guess_announced : bool or None
+        True once ``Bvh.world_up`` has given the warnings about the guess
+        inferred here, which it gives once per guess.
     node_index, joint_index : dict or None
         Node name to its index in ``nodes``; joint name to its index in
         ``joint_angles`` axis 1.
@@ -103,6 +109,7 @@ class DerivedState:
         "floor_height",
         "inferred_world_up",
         "inherited_world_up",
+        "world_up_guess_announced",
         "node_index",
         "joint_index",
         "names_lr_mapping",
@@ -115,6 +122,7 @@ class DerivedState:
         self.floor_height: float | None = None
         self.inferred_world_up: _WorldUpGuess | None = None
         self.inherited_world_up: _WorldUpGuess | None = None
+        self.world_up_guess_announced: bool | None = None
         self.node_index: dict[str, int] | None = None
         self.joint_index: dict[str, int] | None = None
         self.names_lr_mapping: dict[str, str] | None = None
@@ -150,7 +158,8 @@ class DerivedState:
         self._clear(_Change.USER_REPLACED_MOTION)
 
     def world_up_changed(self) -> None:
-        """The user set or cleared the world-up override."""
+        """The user set or cleared the world-up override, or
+        ``reorient_world_up`` turned the guessed axis with the frames."""
         self._clear(_Change.WORLD_UP_OVERRIDE)
 
     def lr_mapping_changed(self) -> None:

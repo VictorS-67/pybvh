@@ -100,7 +100,7 @@ def make_array_view(
         rest_coords=rest_coords,
         rest_up=up,
         lr_pairs=LR_PAIRS.copy(),
-        forward_axis="+z",
+        initial_forward="+z",
         bone_chains=list(BONE_CHAINS),
         root_heading=root_heading,
     )
@@ -144,7 +144,7 @@ def make_bare_view(
         rest_coords=np.asarray(rest_coords, dtype=np.float64),
         rest_up=rest_up,
         lr_pairs=np.zeros((0, 2), dtype=np.intp),
-        forward_axis="+z",
+        initial_forward="+z",
         bone_chains=["spine"] * len(bones),
         root_heading=np.tile([1.0, 0.0], (n_frames, 1)),
     )

@@ -196,7 +196,7 @@ def _draw_floor_mpl(
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
     up = viewport.up_index
-    ground = list(viewport.ground_axes)
+    ground = list(viewport.ground_indices)
     y = viewport.floor_height
     palette = floor_palette(style)
 
@@ -457,7 +457,7 @@ def sequence_mpl(
     _apply_axes_style(ax, style)
     ax.computed_zorder = False
 
-    ax.view_init(elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis)
+    ax.view_init(elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_letter)
 
     # The figure shows the sampled poses, not the clip: frame those.
     # Overlay layouts re-center heights, so the world floor does not
@@ -593,7 +593,7 @@ def frame_mpl(
         _draw_pose(ax_i, frame_data, view, style, colors)
 
         _set_axis_limits(ax_i, viewport.lo, viewport.hi)
-        ax_i.view_init(elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_axis)
+        ax_i.view_init(elev=view.elevation, azim=view.azimuth, vertical_axis=view.up_letter)
         if style.axes == "full":
             ax_i.set_xlabel("x")
             ax_i.set_ylabel("y")
@@ -694,7 +694,7 @@ def _setup_animated_panel(
     # longer cancel — the aspect ends up paired with the wrong axis limits,
     # which scales one screen direction against the others and stretches the
     # skeleton. Invisible on a z-up rig, where the roll is the identity.
-    ax.view_init(elev=viewport.elevation, azim=viewport.azimuth, vertical_axis=viewport.up_axis)
+    ax.view_init(elev=viewport.elevation, azim=viewport.azimuth, vertical_axis=viewport.up_letter)
     _set_span_limits(ax, viewport.lo, viewport.hi)
 
     if style.axes == "full":
@@ -948,7 +948,7 @@ def _make_orbit_update_fn(
             ax.view_init(
                 elev=viewport.elevation,
                 azim=viewport.azimuth_at(frame),
-                vertical_axis=viewport.up_axis,
+                vertical_axis=viewport.up_letter,
             )
         return artists
 

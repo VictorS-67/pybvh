@@ -370,9 +370,9 @@ class Viewport(GroundFrame):
         still turns a full-extent plane into a backdrop wall.
 
         Corners run ``(lo, lo), (hi, lo), (hi, hi), (lo, hi)`` over the
-        two :attr:`ground_axes`, so opposite corners are 0 and 2.
+        two :attr:`ground_indices`, so opposite corners are 0 and 2.
         """
-        first, second = self.ground_axes
+        first, second = self.ground_indices
         if clip_to_box:
             a_lo, a_hi = float(self.lo[first]), float(self.hi[first])
             b_lo, b_hi = float(self.lo[second]), float(self.hi[second])
@@ -433,7 +433,7 @@ class Viewport(GroundFrame):
         azimuths = np.array([self.azimuth]) if self.azimuths is None else self.azimuths
         return np.stack(
             [
-                build_view_matrix(float(azimuth), self.elevation, self.up_axis)
+                build_view_matrix(float(azimuth), self.elevation, self.up_letter)
                 for azimuth in azimuths
             ]
         )
@@ -903,13 +903,13 @@ def _gaussian_smooth_held_ends(
 def build_view_matrix(
     azimuth_deg: float,
     elevation_deg: float,
-    up_axis: str,
+    up_letter: str,
 ) -> npt.NDArray[np.float64]:
     """Build a 3x3 rotation that maps world coordinates to view coordinates.
 
     Uses the same look-at camera math as matplotlib's ``view_init``
     so that both backends produce identical views for the same
-    (azimuth, elevation, up_axis) parameters.
+    (azimuth, elevation, up_letter) parameters.
 
     View coordinate convention: x = right on screen, y = up on screen,
     z = out of screen (toward viewer).
@@ -920,7 +920,7 @@ def build_view_matrix(
         Azimuth rotation in degrees.
     elevation_deg : float
         Elevation rotation in degrees.
-    up_axis : str
+    up_letter : str
         ``'x'``, ``'y'``, or ``'z'``.
 
     Returns
@@ -929,7 +929,7 @@ def build_view_matrix(
     """
     az = np.radians(azimuth_deg)
     el = np.radians(elevation_deg)
-    axis_idx = UP_AXIS_INDEX.get(up_axis, 2)
+    axis_idx = UP_AXIS_INDEX.get(up_letter, 2)
 
     # Eye direction from spherical coordinates, rolled to match
     # vertical axis (same as matplotlib's _roll_to_vertical).

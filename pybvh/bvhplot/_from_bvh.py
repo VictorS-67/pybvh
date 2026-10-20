@@ -178,7 +178,9 @@ def make_scene(
 
     views: list[SkeletonView] = []
     for i, (b, coords) in enumerate(zip(bvh_list, coords_list)):
-        azimuth, elevation, up_axis, forward_axis = _camera_angles_and_forward(b, coords[0], camera)
+        azimuth, elevation, up_axis, initial_forward = _camera_angles_and_forward(
+            b, coords[0], camera
+        )
         up_idx = UP_AXIS_INDEX.get(up_axis, 2)
         up_sign = float(b.up_axis.sign)
         bones = get_skeleton_lines(b)
@@ -219,7 +221,7 @@ def make_scene(
                 rest_coords=b._rest_pose(),
                 rest_up=b.rest_up,
                 lr_pairs=_facing_lr_pairs(b),
-                forward_axis=forward_axis,
+                initial_forward=initial_forward,
                 bone_chains=_chain_per_bone(get_bone_chains(b), len(bones)),
                 root_heading=root_heading,
                 coords_in_rest_unit=clip_frames is not None,
@@ -296,7 +298,7 @@ def get_camera_angles(
     ref_frame: npt.NDArray[np.float64],
     camera: str | tuple[float, float] = "front",
 ) -> tuple[float, float, str]:
-    """Resolve a camera specification to (azimuth, elevation, up_axis).
+    """Resolve a camera specification to (azimuth, elevation, up_letter).
 
     Thin view of :func:`_camera_angles_and_forward`, which also returns
     the forward axis the azimuth was derived from.
@@ -319,11 +321,11 @@ def get_camera_angles(
         Azimuth angle in degrees.
     elevation : float
         Elevation angle in degrees.
-    up_axis : str
+    up_letter : str
         Single character: ``'x'``, ``'y'``, or ``'z'``.
     """
-    azimuth, elevation, up_axis, _ = _camera_angles_and_forward(bvh, ref_frame, camera)
-    return azimuth, elevation, up_axis
+    azimuth, elevation, up_letter, _ = _camera_angles_and_forward(bvh, ref_frame, camera)
+    return azimuth, elevation, up_letter
 
 
 def _camera_angles_and_forward(
@@ -333,7 +335,7 @@ def _camera_angles_and_forward(
 ) -> tuple[float, float, str, str]:
     """:func:`get_camera_angles` plus the signed forward axis string.
 
-    ``forward_axis`` (e.g. ``'+y'``) is the character's facing at
+    The forward string (e.g. ``'+y'``) is the character's facing at
     *ref_frame* snapped to the dominant signed world axis
     (:func:`~pybvh._orientation._compute_forward_at`: leftward from the L/R
     joint geometry, crossed with up, then snapped). When that geometry
@@ -341,9 +343,9 @@ def _camera_angles_and_forward(
     back to the rest-pose leftward and then to a fixed per-up-axis
     default, so the string is always one of the six axes, never the
     continuous direction. It is the fact the ``"front"`` preset turns
-    into an azimuth; :func:`make_scene` keeps it on the view so lateral
-    spacing and the camera never disagree about which way the skeleton
-    faces.
+    into an azimuth; :func:`make_scene` keeps it on the view, as
+    ``initial_forward``, so lateral spacing and the camera never
+    disagree about which way the skeleton faces.
     """
     from .._orientation import _compute_forward_at
     from ..tools import extract_sign

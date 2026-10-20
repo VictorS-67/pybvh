@@ -77,7 +77,7 @@ def _draw_floor_opencv(
     import cv2
 
     up = viewport.up_index
-    ground = list(viewport.ground_axes)
+    ground = list(viewport.ground_indices)
     ext = viewport.floor_reach
     y = viewport.floor_height
     palette = floor_palette(style)
@@ -455,7 +455,7 @@ def _generate_frames(
         if style.axes == "full":
             for s, viewport in enumerate(viewports):
                 _draw_axis_indicator(
-                    img, viewport.view_matrix(f), viewport.up_axis, panel_w // ss, h, panel_idx=s
+                    img, viewport.view_matrix(f), viewport.up_letter, panel_w // ss, h, panel_idx=s
                 )
 
         yield img
@@ -685,7 +685,7 @@ def _render_gif(
 def _draw_axis_indicator(
     img: npt.NDArray[np.uint8],
     view_matrix: npt.NDArray[np.float64],
-    up_axis: str,
+    up_letter: str,
     panel_w: int,
     h: int,
     panel_idx: int = 0,

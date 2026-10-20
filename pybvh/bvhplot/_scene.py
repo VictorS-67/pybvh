@@ -60,14 +60,14 @@ class GroundFrame:
     floor_height: float
 
     @property
-    def up_axis(self) -> str:
+    def up_letter(self) -> str:
         """The up axis letter, ``'x'``, ``'y'`` or ``'z'``, sign dropped."""
         return self.up[1]
 
     @property
     def up_index(self) -> int:
         """The up coordinate's column in a ``(..., 3)`` position array."""
-        return UP_AXIS_INDEX[self.up_axis]
+        return UP_AXIS_INDEX[self.up_letter]
 
     @property
     def up_sign(self) -> float:
@@ -82,7 +82,7 @@ class GroundFrame:
         return _axis_vector(self.up)
 
     @property
-    def ground_axes(self) -> tuple[int, int]:
+    def ground_indices(self) -> tuple[int, int]:
         """The columns of the two ground coordinates, in ``x, y, z``
         order with the up axis removed (``(0, 2)`` for a y-up rig)."""
         first, second = (i for i in range(3) if i != self.up_index)
@@ -144,15 +144,17 @@ class SkeletonView(GroundFrame):
       signed rotation about the up vector: for ``+y`` up, a positive
       rotation about ``+y`` decreases it. Orientation-derived and
       continuous; ``None`` when the coords are not the clip's.
-    - ``forward_axis`` is a different quantity: the facing of coordinate
-      row 0 (not necessarily clip frame 0) computed from the L/R joint
-      geometry and snapped to the dominant signed axis, the value the
-      ``"front"`` camera preset is derived from. Follow-camera math
-      never reads it; it reads ``coords``, ``lr_pairs``, ``up_vector``
-      and ``frame_time`` directly.
+    - ``initial_forward`` is a different quantity: the snapped facing
+      of the view's first shown row, ``coords[0]``, not of clip frame
+      0 (a view of a clip's frames 40 onward holds the facing at frame
+      40). It is computed from the L/R joint geometry and snapped to
+      the dominant signed axis, the value the ``"front"`` camera
+      preset is derived from. Follow-camera math never reads it; it
+      reads ``coords``, ``lr_pairs``, ``up_vector`` and ``frame_time``
+      directly.
     - ``up`` is the one statement of which way is up: a signed axis
       string (``'+y'``, ``'-z'``), the form :attr:`Bvh.world_up` and
-      ``forward_axis`` use. The letter (``up_axis``), the column
+      ``initial_forward`` use. The letter (``up_letter``), the column
       (``up_index``), the sign (``up_sign``) and the unit vector
       (``up_vector``) are derived from it, so they cannot disagree.
       The alternative, storing the vector, would admit an off-axis or
@@ -207,7 +209,7 @@ class SkeletonView(GroundFrame):
     lr_pairs: npt.NDArray[
         np.intp
     ]  # (P, 2) joint L/R pairs in node index space, the facing geometry's; (0, 2) if none
-    forward_axis: str  # snapped facing of coords row 0, e.g. '+y'
+    initial_forward: str  # snapped facing of the first shown row, coords[0], e.g. '+y'
     bone_chains: list[str]  # chain name per bone, parallel to ``bones``
     root_heading: npt.NDArray[np.float64] | None  # (F, 2) [sin, cos] or None
     coords_in_rest_unit: bool = False  # coords posed from this rest pose: unit ratio exactly 1
@@ -222,15 +224,15 @@ class SkeletonView(GroundFrame):
         num_frames, num_nodes = coords.shape[:2]
 
         # rest_up may also be None, unknown; body_size measures without it.
-        signed_axes = {"up": self.up, "forward_axis": self.forward_axis}
+        signed_axes = {"up": self.up, "initial_forward": self.initial_forward}
         if self.rest_up is not None:
             signed_axes["rest_up"] = self.rest_up
         for name, value in signed_axes.items():
             if value not in _SIGNED_AXES:
                 raise ValueError(f"{name} must be one of {', '.join(_SIGNED_AXES)}, got {value!r}.")
-        if self.forward_axis[1] == self.up[1]:
+        if self.initial_forward[1] == self.up[1]:
             raise ValueError(
-                f"forward_axis {self.forward_axis!r} lies along the up "
+                f"initial_forward {self.initial_forward!r} lies along the up "
                 f"axis {self.up!r}; forward is a ground direction."
             )
 
@@ -282,11 +284,11 @@ class SkeletonView(GroundFrame):
         self._protect_arrays()
 
     @property
-    def forward_vector(self) -> npt.NDArray[np.float64]:
-        """The unit vector of ``forward_axis``, shape ``(3,)``.
+    def initial_forward_vector(self) -> npt.NDArray[np.float64]:
+        """The unit vector of ``initial_forward``, shape ``(3,)``.
 
         A fresh array on every access."""
-        return _axis_vector(self.forward_axis)
+        return _axis_vector(self.initial_forward)
 
     @property
     def body_size(self) -> float:
@@ -784,7 +786,7 @@ class Scene:
         draw each view in its own axes and never need it. View ``k``
         moves by ``k × spacing`` toward the first skeleton's own left:
         ``up × forward`` of the first view, with ``forward`` its
-        ``forward_axis`` (the facing of its first frame, snapped to an
+        ``initial_forward`` (the facing of its first shown frame, snapped to an
         axis). Seen from the ``"front"`` camera that is the viewer's
         right, so the skeletons read left to right in the order given,
         on every rig. The alternative it replaces, a fixed world axis
@@ -793,7 +795,7 @@ class Scene:
         ``+z``, but the right of the same character facing ``-z`` or
         turned ``-y``-up. In a Scene made from a Bvh, a facing that
         cannot be measured on the first frame (no left/right joint
-        pairs, or pairs lying along up) leaves ``forward_axis`` at the
+        pairs, or pairs lying along up) leaves ``initial_forward`` at the
         fallback the ``"front"`` camera also faces (the rest pose's
         facing, then a fixed default per up axis, with a warning), so
         the next skeleton still lands on the front camera's right,
@@ -819,7 +821,7 @@ class Scene:
         if len(self.views) <= 1:
             return self
         first = measured_on.views[0]
-        leftward = np.cross(first.up_vector, first.forward_vector)
+        leftward = np.cross(first.up_vector, first.initial_forward_vector)
 
         if spacing == "auto":
             along_leftward = first.coords @ leftward

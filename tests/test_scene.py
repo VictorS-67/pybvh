@@ -28,6 +28,7 @@ from pybvh.bvhplot._from_bvh import (
     make_scene,
 )
 from pybvh.bvhplot._scene import Scene, SkeletonView
+from pybvh.bvhplot._viewport import Viewport
 
 BVH_PATH = "bvh_data/cmu_12_01_walk.bvh"
 
@@ -63,7 +64,7 @@ class TestMakeScene:
         az, el, up = get_camera_angles(bvh, coords[0], "front")
         assert view.azimuth == az
         assert view.elevation == el
-        assert view.up_axis == up
+        assert view.up_letter == up
 
     def test_labels_assigned_per_view(self, bvh, coords):
         scene = make_scene([bvh, bvh], [coords, coords], "front", ["a", "b"])
@@ -97,14 +98,38 @@ class TestViewCarriesSkeletonFacts:
         assert view.up_index == bvh.up_axis.index
         assert view.up_sign == bvh.up_axis.sign
         np.testing.assert_array_equal(view.up_vector, bvh.up_axis.vector)
-        assert view.forward_axis == bvh.forward_at(0)
+        assert view.initial_forward == bvh.forward_at(0)
+
+    def test_initial_forward_is_the_first_shown_rows_facing(self):
+        """The facing of the coords' first row, not of clip frame 0:
+        bvh_test1 turns from '+x' to '-y' by frame 40."""
+        clip = read_bvh_file("bvh_data/bvh_test1.bvh")
+        view = make_scene([clip], [clip.node_positions()[40:]], "front", None).views[0]
+        assert (clip.forward_at(0), clip.forward_at(40)) == ("+x", "-y")
+        assert view.initial_forward == "-y"
+
+    def test_initial_forward_vector_is_the_unit_vector_of_initial_forward(self):
+        view = dataclasses.replace(make_array_view(), initial_forward="-x")
+        assert view.initial_forward_vector.dtype == np.float64
+        np.testing.assert_array_equal(view.initial_forward_vector, [-1.0, 0.0, 0.0])
 
     def test_a_view_states_its_up_axis_once(self):
         """One signed string is the field; the letter, column, sign and
         vector are read from it, so no view can hold two up axes."""
         names = {f.name for f in dataclasses.fields(SkeletonView)}
         assert "up" in names
-        assert not names & {"up_axis", "up_index", "up_sign", "up_vector"}
+        assert not names & {"up_letter", "up_index", "up_sign", "up_vector"}
+
+    @pytest.mark.parametrize("cls", [SkeletonView, Viewport])
+    def test_no_name_ends_in_axis(self, cls):
+        """A pybvh name ending in ``_axis`` holds an :class:`~pybvh.Axis`.
+        A view and a viewport hold axis strings, letters and column
+        indices, none of them an ``Axis``, so none of their names may
+        end so."""
+        names = {f.name for f in dataclasses.fields(cls)} | {
+            name for name in dir(cls) if not name.startswith("__")
+        }
+        assert sorted(name for name in names if name.endswith("_axis")) == []
 
     @pytest.mark.parametrize(
         "up, letter, index, sign, vector",
@@ -119,8 +144,8 @@ class TestViewCarriesSkeletonFacts:
     )
     def test_up_forms_are_derived_from_the_signed_string(self, up, letter, index, sign, vector):
         forward = "+x" if letter != "x" else "+y"
-        view = dataclasses.replace(make_array_view(), up=up, forward_axis=forward)
-        assert view.up_axis == letter
+        view = dataclasses.replace(make_array_view(), up=up, initial_forward=forward)
+        assert view.up_letter == letter
         assert view.up_index == index
         assert view.up_sign == sign
         assert view.up_vector.dtype == np.float64
@@ -264,7 +289,7 @@ def _turned_view(rotation: np.ndarray, up: str, forward: str) -> SkeletonView:
         rest_coords=view.rest_coords @ rotation.T,
         up=up,
         rest_up=up,
-        forward_axis=forward,
+        initial_forward=forward,
         floor_height=floor,
     )
 
@@ -338,7 +363,7 @@ class TestSceneMethods:
     def test_spread_moves_later_views_along_the_lateral_axis(self, bvh, coords):
         scene = make_scene([bvh, bvh], [coords, coords], "front", None)
         first = scene.views[0]
-        fwd_idx = {"x": 0, "y": 1, "z": 2}[first.forward_axis[1]]
+        fwd_idx = parse_axis(first.initial_forward).index
         lat_idx = next(i for i in range(3) if i != first.up_index and i != fwd_idx)
         spread = scene.spread(3.0)
         np.testing.assert_array_equal(spread.views[0].coords, coords)
@@ -353,7 +378,7 @@ class TestSceneMethods:
     def test_spread_auto_uses_the_first_views_lateral_extent(self, bvh, coords):
         scene = make_scene([bvh, bvh], [coords, coords], "front", None)
         first = scene.views[0]
-        fwd_idx = {"x": 0, "y": 1, "z": 2}[first.forward_axis[1]]
+        fwd_idx = parse_axis(first.initial_forward).index
         lat_idx = next(i for i in range(3) if i != first.up_index and i != fwd_idx)
         width = float(np.ptp(coords[..., lat_idx]))
         spread = scene.spread("auto")
@@ -505,7 +530,7 @@ class TestSceneMethods:
         )
         with fallback_warning:
             scene = make_scene([clip, clip], [coords, coords], "front", None)
-        assert (scene.views[0].up, scene.views[0].forward_axis) == (up, forward)
+        assert (scene.views[0].up, scene.views[0].initial_forward) == (up, forward)
         spread = scene.spread(3.0)
 
         # Any view angle: the fit moves the eye along the view, never sideways.
@@ -624,7 +649,7 @@ class TestSizeMatched:
             rest_coords=turned(view.rest_coords),
             up="+z",
             rest_up="+z",
-            forward_axis="-y",
+            initial_forward="-y",
         )
 
     @pytest.mark.parametrize("up", ["+y", "-y", "+z"])
@@ -874,7 +899,7 @@ class TestBodySize:
         in another: the stick person's rest pose stands along y while
         the clip is z up. Its z extent is its depth (zero here), not
         its height."""
-        view = dataclasses.replace(make_array_view(), up="+z", forward_axis="+x", rest_up="+y")
+        view = dataclasses.replace(make_array_view(), up="+z", initial_forward="+x", rest_up="+y")
         assert view.body_size == pytest.approx(1.8)
 
     def test_is_in_the_unit_of_the_coords(self):
@@ -1010,8 +1035,8 @@ class TestViewIsCheckedAtConstruction:
             (dict(up="+Y"), "up must be one of"),
             (dict(up="up"), "up must be one of"),
             (dict(rest_up="y"), "rest_up must be one of"),
-            (dict(forward_axis="z"), "forward_axis must be one of"),
-            (dict(forward_axis="-y"), "lies along the up axis"),
+            (dict(initial_forward="z"), "initial_forward must be one of"),
+            (dict(initial_forward="-y"), "lies along the up axis"),
             (dict(node_names=["only"]), "node_names has 1 entries"),
             (dict(rest_coords=np.zeros((4, 3))), "rest_coords must have shape"),
             (dict(bone_chains=["spine"]), "bone_chains has 1 entries"),

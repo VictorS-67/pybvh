@@ -442,7 +442,7 @@ class TestK3d:
         up = viewport.up_index
         for path, view in zip(built.trail_paths, pair.spread("auto").views):
             np.testing.assert_allclose(path[:, up], viewport.floor_height)
-            ground = list(viewport.ground_axes)
+            ground = list(viewport.ground_indices)
             np.testing.assert_allclose(path[:, ground], view.coords[:, 0][:, ground], rtol=1e-6)
         grid = np.asarray(built.plot.grid).reshape(2, 3)
         assert grid[0, up] == pytest.approx(
@@ -480,7 +480,7 @@ class TestK3d:
         up = viewport.up_index
         corners = np.asarray(built.floor.vertices).reshape(-1, 3)
         expected = viewport.floor_quad()
-        ground = list(viewport.ground_axes)
+        ground = list(viewport.ground_indices)
         np.testing.assert_allclose(corners[:, ground], expected[:, ground], rtol=1e-6)
         # a hair below the ground, and so below the trail
         below = viewport.floor_height - FLOOR_EPSILON * viewport.half_span
@@ -500,7 +500,7 @@ class TestK3d:
         indices = np.asarray(built.floor.indices).reshape(-1, 2).astype(int)
         assert len(indices) == 2 * FLOOR_GRID_LINES
         expected = viewport.floor_quad()
-        for axis in viewport.ground_axes:
+        for axis in viewport.ground_indices:
             assert vertices[:, axis].min() == pytest.approx(expected[:, axis].min(), rel=1e-6)
             assert vertices[:, axis].max() == pytest.approx(expected[:, axis].max(), rel=1e-6)
         # every line runs from one edge of the plane to the opposite one
@@ -727,7 +727,7 @@ class TestEveryBackendDrawsTheViewportsFloor:
         expected = viewport.floor_quad()
         up = viewport.up_index
 
-        for axis in viewport.ground_axes:
+        for axis in viewport.ground_indices:
             assert corners[:, axis].min() == pytest.approx(expected[:, axis].min(), rel=1e-5), (
                 backend
             )

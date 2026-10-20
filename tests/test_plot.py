@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pybvh import Bvh, bvhplot, nodes_from_table, nodes_to_table, read_bvh_file
+from pybvh import Bvh, bvhplot, nodes_from_table, nodes_to_table, parse_axis, read_bvh_file
 from pybvh.analysis import root_trajectory
 from pybvh.bvhplot import _k3d, _opencv, _vedo
 from pybvh.bvhplot._from_bvh import (
@@ -1805,12 +1805,10 @@ class TestSceneSpacing:
 
     def test_offset_along_lateral_axis(self, two_bvhs, two_coords):
         """Offset must be along the axis that is neither up nor forward."""
-        from pybvh.bvhplot._scene import UP_AXIS_INDEX
-
         scene = self._scene(two_bvhs, two_coords)
         first = scene.views[0]
         up_idx = first.up_index
-        fwd_idx = UP_AXIS_INDEX[first.forward_axis[1]]
+        fwd_idx = parse_axis(first.initial_forward).index
         lat_idx = next(i for i in range(3) if i != up_idx and i != fwd_idx)
 
         result = scene.spread(2.0)

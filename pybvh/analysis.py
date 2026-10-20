@@ -795,15 +795,15 @@ def facing_frame(
     ``forward × left = up``.
 
     Fallback policy (shared by :meth:`Bvh.forward_at` and
-    :meth:`Bvh.left_at`): a frame with no usable L/R direction — the
-    skeleton has no ``lr_mapping``, or the frame's horizontal
-    ``(left - right)`` average nearly vanishes or lies along
-    ``world_up`` (norm below ``1e-6``, the body on its side) — takes the
-    root's heading at that frame (the one :func:`root_trajectory`
-    returns) as its forward, when :attr:`Bvh.rest_forward` is measured
-    and that heading is readable; otherwise the arbitrary-but-stable
-    per-up-axis default (``'+z'`` for a ``y``-up world), with a
-    ``UserWarning`` that names the frames. Every row keeps
+    :meth:`Bvh.left_at`): a frame whose horizontal ``(left - right)``
+    average nearly vanishes or lies along ``world_up`` (norm below
+    ``1e-6``, the body on its side) takes the root's heading at that
+    frame (the one :func:`root_trajectory` returns) as its forward, when
+    :attr:`Bvh.rest_forward` is measured and that heading is readable;
+    otherwise the arbitrary-but-stable per-up-axis default (``'+z'`` for
+    a ``y``-up world), with a ``UserWarning`` that names the frames. A
+    skeleton with no ``lr_mapping`` takes that default on every frame,
+    with a warning that names the skeleton. Every row keeps
     ``forward = left × up``, so the triple stays orthonormal and
     right-handed, and ``left`` is never ``world_up``. The ``valid``
     field reports exactly those frames: ``False`` on every fallback row,

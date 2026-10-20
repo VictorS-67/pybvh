@@ -581,9 +581,9 @@ class _WorldUpGuess(NamedTuple):
     source: Literal["first_frame", "rest_up", "default"]
 
 
-# How much the largest component of frame 0's marker-above-root direction
-# must exceed the second for the frame to decide world up; below it the
-# pose is crouched, lying or leaning, and the frame is ambiguous.
+# Frame 0 decides world up when the largest component of its
+# marker-above-root direction is at least this many times the second; below
+# it the pose is crouched, lying or leaning, and the frame is ambiguous.
 _FIRST_FRAME_DOMINANCE = 2.0
 
 
@@ -596,7 +596,7 @@ def _infer_world_up(
 
     The direction from the root to the up marker (:func:`_up_marker_index`,
     the node rest up reads) at frame 0, snapped to its main axis, when
-    its largest component is more than twice the second. Otherwise (no
+    its largest component is at least twice the second. Otherwise (no
     frame, no marker, an ambiguous frame-0 pose) the skeleton's own up
     (:func:`_infer_rest_up`) stands in, and without one the house up
     ``'+y'``. Returns the guess silently: the reader of world up warns

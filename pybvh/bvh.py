@@ -1125,7 +1125,7 @@ class Bvh:
         does not match), skipping one that sits at the root in the rest
         pose; "hips" is always the root node whatever it is called; and
         the frame-0 reading is accepted only when its largest component
-        exceeds twice the second-largest
+        is at least twice the second-largest
         — a crouched, lying or leaning first frame is treated as
         ambiguous and silently defers to :attr:`rest_up`. When the rest
         pose is degenerate too, the property warns and returns ``'+y'``.

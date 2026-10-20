@@ -1197,11 +1197,9 @@ class TestSceneIsCheckedAtConstruction:
 # module map names it. bvhplot keeps them behind a module boundary: the
 # router and _from_bvh are the Bvh-facing layer, and only the router imports
 # _from_bvh; every other module draws or computes from the Scene and takes
-# nothing from the core at runtime, except the viewport, which may take
-# array kernels.
+# nothing from the core at runtime.
 _CORE_MODULES = {
     "_derived",
-    "_orientation",
     "analysis",
     "batch",
     "bvh",
@@ -1214,19 +1212,16 @@ _CORE_MODULES = {
     "transforms",
 }
 # The rest of pybvh knows no clip, so any bvhplot module may import it: the
-# array-pure math, the signed-axis vocabulary and the input validators, and
-# the helper that points a warning at the user's line. That they stay so is
-# not checked here: a Bvh import added to one of them would reach bvhplot
-# through it unseen.
-_NOT_CORE = {"_warnings", "geometry", "rotations", "signal", "tools"}
+# array-pure math, the orientation computed from plain data, the signed-axis
+# vocabulary and the input validators, and the helper that points a warning
+# at the user's line. That they stay so is not checked here: a Bvh import
+# added to one of them would reach bvhplot through it unseen.
+_NOT_CORE = {"_orientation", "_warnings", "geometry", "rotations", "signal", "tools"}
 _ROUTER = "__init__"
 _BVH_READER = "_from_bvh"
 # No plotting library may be imported here: the pure-data modules, and the
 # playback state machine, which the viewer drives.
 _PURE_DATA = ["_scene", "_viewport", "_style", "_from_bvh", "_playback"]
-# Array-pure kernels the viewport may take from pybvh._orientation: they take
-# arrays, never a Bvh.
-_VIEWPORT_KERNELS = {"_leftward_units_from_pairs"}
 
 
 def _bvhplot_modules() -> list[str]:
@@ -1242,8 +1237,6 @@ def _bvhplot_modules() -> list[str]:
 
 # Everything except the router and the Bvh reader.
 _BEHIND_THE_BOUNDARY = [name for name in _bvhplot_modules() if name not in (_ROUTER, _BVH_READER)]
-# ... of which the viewport alone may take array kernels from the core.
-_CORE_FREE = [name for name in _BEHIND_THE_BOUNDARY if name != "_viewport"]
 
 
 def _is_core_module(dotted: str, level: int) -> bool:
@@ -1728,11 +1721,12 @@ class TestSceneIsPureData:
         assert not (_CORE_MODULES & _NOT_CORE)
         assert modules == _CORE_MODULES | _NOT_CORE
 
-    @pytest.mark.parametrize("module_name", _CORE_FREE)
+    @pytest.mark.parametrize("module_name", _BEHIND_THE_BOUNDARY)
     def test_takes_nothing_from_the_core_at_runtime(self, module_name):
         """A backend consumes a Scene and a Style; it never reaches into
-        Bvh, orientation or analysis, and neither do the Scene's and the
-        Style's own modules. Type-only imports are allowed."""
+        Bvh, analysis or transforms, and neither do the Scene's, the
+        viewport's and the Style's own modules. Type-only imports are
+        allowed."""
         offenders = _core_imports_in_source(_module_source(module_name))
         assert offenders == [], f"{module_name} imports core modules at runtime: {offenders}"
 
@@ -1757,14 +1751,3 @@ class TestSceneIsPureData:
         Style, never a Bvh."""
         offenders = _sibling_imports_in_source(_module_source(module_name), _BVH_READER)
         assert offenders == [], f"{module_name} imports {_BVH_READER} at lines {offenders}"
-
-    def test_viewport_takes_only_array_kernels_from_the_core(self):
-        """The viewport is computed at draw time from a view: the only
-        things it may import from the core are kernels that take arrays,
-        never a Bvh."""
-        offenders = [
-            (line, func, names)
-            for line, func, names in _core_imports_in_source(_module_source("_viewport"))
-            if not set(names) <= _VIEWPORT_KERNELS
-        ]
-        assert offenders == [], f"_viewport imports more than array kernels: {offenders}"

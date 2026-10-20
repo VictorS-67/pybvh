@@ -50,7 +50,7 @@ bvhplot (`pybvh/bvhplot/`) splits at its Scene: the router and `_from_bvh` read 
 | `__init__` (the router) | the public functions; preparing the user's `Bvh` (timing, resampling, world-up checks, rest pose); choosing a backend; arranging a comparison | draw |
 | `_from_bvh` | turning a `Bvh` into a Scene: views, bones, camera presets, bone chains | get imported by any module but the router |
 | `_scene` | the Scene and its views, checked read-only data, and the operations that change a Scene | import a plotting library or the core |
-| `_viewport` | the geometry of one 3D picture: framing, floor, camera, schedule, projection | import a plotting library, or take more than array kernels from the core |
+| `_viewport` | the geometry of one 3D picture: framing, floor, camera, schedule, projection | import a plotting library or the core |
 | `_style` | `Style`, its presets and palettes, the ghost and trace conventions | import a plotting library |
 | `_colors` | the color resolution that needs matplotlib's color parser | |
 | `_playback` | the viewer's playback state machine | import a rendering library |

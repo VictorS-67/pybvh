@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 import numpy.typing as npt
 
+from .._orientation import _leftward_units_from_pairs
 from ..tools import parse_axis
 from ._scene import GroundFrame
 
@@ -830,8 +831,6 @@ def compute_follow_azimuths(
         unless frame 0's left-to-right axis cannot be measured (the
         camera is then fixed, and needs no rate).
     """
-    from .._orientation import _leftward_units_from_pairs
-
     num_frames = view.coords.shape[0]
     leftward, valid = _leftward_units_from_pairs(view.coords, view.lr_pairs, view.up_vector)
     if not valid[0]:

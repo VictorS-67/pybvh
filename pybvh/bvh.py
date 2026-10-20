@@ -37,6 +37,7 @@ from ._orientation import (
     _infer_rest_left,
     _infer_world_up,
     _iter_unique_lr_pairs,
+    _LrMappingSource,
     _resolve_lr_pairs,
     _resolve_node_lr_pairs,
     _warn_facing_defaulted,
@@ -1344,29 +1345,28 @@ class Bvh:
         """Gather the report's inputs and build it."""
         derived = self._derived
         world_up_inherited = False
-        world_up_source: Literal["set", "first_frame", "rest_up", "default"]
+        world_up: str | _WorldUpGuess
         if self._world_up_override is not None:
-            world_up, world_up_source = self._world_up_override, "set"
+            world_up = self._world_up_override
         elif derived.inherited_world_up is not None:
-            world_up, world_up_source = derived.inherited_world_up
+            world_up = derived.inherited_world_up
             world_up_inherited = True
         else:
             # Guessed silently: the guess's warnings are world_up's to give
             # when the axis is read, not this report's.
             if derived.inferred_world_up is None:
                 derived.inferred_world_up = self._guess_world_up()
-            world_up, world_up_source = derived.inferred_world_up
+            world_up = derived.inferred_world_up
         return _build_orientation_report(
             self._node_names(),
             self._rest_pose(),
             self._facing_lr_pairs(),
             world_up,
-            world_up_source,
             world_up_inherited,
             self._lr_mapping_source(),
         )
 
-    def _lr_mapping_source(self) -> Literal["set", "names"] | None:
+    def _lr_mapping_source(self) -> _LrMappingSource | None:
         """Where the L/R mapping in effect comes from, ``None`` without one."""
         setting = self._lr_mapping_setting
         if isinstance(setting, dict):

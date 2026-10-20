@@ -89,6 +89,13 @@ _FALLBACK_FORWARD = {"y": "+z", "z": "+x", "x": "+y"}
 # telling first.
 _UP_BODY_PARTS = ("head", "neck", "chest", "spine")
 
+# What each orientation fact was read from, as OrientationReport names it.
+_RestUpSource = Literal["named_joint", "largest_spread"]
+_RestForwardSource = Literal["lr_geometry", "default"]
+_WorldUpGuessSource = Literal["first_frame", "rest_up", "default"]
+_WorldUpSource = Literal["set", _WorldUpGuessSource]
+_LrMappingSource = Literal["set", "names"]
+
 
 def _up_marker_index(
     node_names: Sequence[str],
@@ -130,11 +137,23 @@ def _up_marker_index(
 _MIN_REST_SPREAD = 1e-6
 
 
+class _RestUp(NamedTuple):
+    """The skeleton's own up and what it was read from.
+
+    ``source`` is ``"named_joint"`` (the up marker,
+    :func:`_up_marker_index`) or ``"largest_spread"`` (no marker: the
+    axis along which the rest pose spreads most).
+    """
+
+    axis: str
+    source: _RestUpSource
+
+
 def _infer_rest_up(
     node_names: Sequence[str],
     rest_positions: npt.NDArray[np.float64],
-) -> str | None:
-    """The skeleton's own up, read from the rest pose alone.
+) -> _RestUp | None:
+    """The skeleton's own up, read from the rest pose alone, with its source.
 
     The main axis from the root to the node :func:`_up_marker_index`
     finds; without one, the axis along which the rest pose spreads most,
@@ -149,14 +168,18 @@ def _infer_rest_up(
 
     Returns
     -------
-    str or None
-        Signed axis string (e.g. ``'+z'``), or ``None`` when the rest pose
-        carries no direction (a single node, or every node at one point).
+    _RestUp or None
+        The signed axis string (e.g. ``'+z'``) and its source, or ``None``
+        when the rest pose carries no direction (a single node, or every
+        node at one point).
     """
     local = rest_positions - rest_positions[0]
     marker = _up_marker_index(node_names, rest_positions)
     if marker is not None:
-        return get_main_direction(local[marker])
+        axis = get_main_direction(local[marker])
+        # The marker is chosen for having a direction from the root.
+        assert axis is not None
+        return _RestUp(axis, "named_joint")
 
     spread = np.ptp(local, axis=0)
     if float(np.max(spread)) < _MIN_REST_SPREAD:
@@ -164,7 +187,7 @@ def _infer_rest_up(
     up_idx = int(np.argmax(spread))
     # The sign of the mean: the side of the root most of the body lies on.
     sign = "+" if np.mean(local[:, up_idx]) >= 0 else "-"
-    return sign + "xyz"[up_idx]
+    return _RestUp(sign + "xyz"[up_idx], "largest_spread")
 
 
 # ---------------------------------------------------------------------------
@@ -499,7 +522,7 @@ def _infer_rest_left(
     lr_pairs : array_like of shape (P, 2)
         ``(left_idx, right_idx)`` rows into the N axis.
     rest_up : str or None
-        The skeleton's own up, as :func:`_infer_rest_up` gives it.
+        The skeleton's own up, the axis :func:`_infer_rest_up` gives.
 
     Returns
     -------
@@ -578,7 +601,7 @@ class _WorldUpGuess(NamedTuple):
     """
 
     axis: str
-    source: Literal["first_frame", "rest_up", "default"]
+    source: _WorldUpGuessSource
 
 
 # Frame 0 decides world up when the largest component of its
@@ -628,7 +651,7 @@ def _infer_world_up(
 
     rest_up = _infer_rest_up(node_names, rest_positions)
     if rest_up is not None:
-        return _WorldUpGuess(rest_up, "rest_up")
+        return _WorldUpGuess(rest_up.axis, "rest_up")
     return _WorldUpGuess(_HOUSE_UP, "default")
 
 
@@ -759,24 +782,23 @@ class OrientationReport:
     """
 
     rest_up: str | None
-    rest_up_source: Literal["named_joint", "largest_spread"] | None
+    rest_up_source: _RestUpSource | None
     rest_left: str | None
     rest_forward: str
-    rest_forward_source: Literal["lr_geometry", "default"]
+    rest_forward_source: _RestForwardSource
     world_up: str
-    world_up_source: Literal["set", "first_frame", "rest_up", "default"]
+    world_up_source: _WorldUpSource
     world_up_inherited: bool
-    lr_mapping_source: Literal["set", "names"] | None
+    lr_mapping_source: _LrMappingSource | None
 
 
 def _build_orientation_report(
     node_names: Sequence[str],
     rest_positions: npt.NDArray[np.float64],
     lr_pairs: npt.ArrayLike,
-    world_up: str,
-    world_up_source: Literal["set", "first_frame", "rest_up", "default"],
+    world_up: str | _WorldUpGuess,
     world_up_inherited: bool,
-    lr_mapping_source: Literal["set", "names"] | None,
+    lr_mapping_source: _LrMappingSource | None,
 ) -> OrientationReport:
     """Read the skeleton's own frame from the rest pose, beside world up.
 
@@ -789,29 +811,36 @@ def _build_orientation_report(
     lr_pairs : array_like of shape (P, 2)
         ``(left_idx, right_idx)`` rows into the N axis, the pairs of the
         L/R mapping in effect.
-    world_up, world_up_source, world_up_inherited, lr_mapping_source
-        Passed through as the report's fields: world up is settled by the
-        caller (an axis the user set, or a guess,
-        :func:`_infer_world_up`), and the mapping's source is the
-        caller's setting.
+    world_up : str or _WorldUpGuess
+        World up as the caller settled it: a signed axis string the user
+        set (reported as ``"set"``), or the guess it stands on
+        (:func:`_infer_world_up`), whose source is reported.
+    world_up_inherited : bool
+        Whether that guess was made on the clip this one was derived
+        from; False for an axis the user set.
+    lr_mapping_source : {"set", "names"} or None
+        The source of the L/R mapping *lr_pairs* come from, the caller's
+        setting.
 
     Returns
     -------
     OrientationReport
     """
+    world_up_source: _WorldUpSource
+    if isinstance(world_up, _WorldUpGuess):
+        world_up_axis, world_up_source = world_up
+    else:
+        world_up_axis, world_up_source = world_up, "set"
     rest_up = _infer_rest_up(node_names, rest_positions)
-    rest_up_source: Literal["named_joint", "largest_spread"] | None = None
-    if rest_up is not None:
-        named = _up_marker_index(node_names, rest_positions) is not None
-        rest_up_source = "named_joint" if named else "largest_spread"
-    rest_left = _infer_rest_left(rest_positions, lr_pairs, rest_up)
+    rest_up_axis = None if rest_up is None else rest_up.axis
+    rest_left = _infer_rest_left(rest_positions, lr_pairs, rest_up_axis)
     return OrientationReport(
-        rest_up=rest_up,
-        rest_up_source=rest_up_source,
+        rest_up=rest_up_axis,
+        rest_up_source=None if rest_up is None else rest_up.source,
         rest_left=rest_left,
-        rest_forward=_infer_rest_forward(rest_left, rest_up),
+        rest_forward=_infer_rest_forward(rest_left, rest_up_axis),
         rest_forward_source="lr_geometry" if rest_left is not None else "default",
-        world_up=world_up,
+        world_up=world_up_axis,
         world_up_source=world_up_source,
         world_up_inherited=world_up_inherited,
         lr_mapping_source=lr_mapping_source,

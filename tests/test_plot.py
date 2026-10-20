@@ -1552,19 +1552,16 @@ class TestComputeFollowAzimuths:
         assert az[0] == pytest.approx(-20.0)
 
     def test_matches_per_frame_reference(self, bvh_example):
-        """The schedule is the per-frame heading change of the tools
+        """The schedule is the per-frame heading change of the scalar
         helpers it vectorizes, unwrapped, then averaged frame by frame
         under a Gaussian of FOLLOW_SIGMA seconds reaching
         FOLLOW_TRUNCATE standard deviations, over the clip extended by
         point reflection about its end frames."""
         import math
 
+        from pybvh._orientation import _world_leftward_unit_at_frame
         from pybvh.bvhplot._viewport import FOLLOW_SIGMA, FOLLOW_TRUNCATE, compute_follow_azimuths
-        from pybvh.tools import (
-            _axis_to_vector,
-            _signed_rotation_delta_around_axis,
-            _world_leftward_unit_at_frame,
-        )
+        from pybvh.tools import _axis_to_vector, _signed_rotation_delta_around_axis
 
         coords = bvh_example.node_positions()
         base_azim = 160.0

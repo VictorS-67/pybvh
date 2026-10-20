@@ -28,6 +28,16 @@ import numpy.typing as npt
 
 from . import rotations
 from ._derived import DerivedState as _DerivedState
+from ._orientation import (
+    _compute_forward_at,
+    _compute_left_at,
+    _detect_lr_mapping_by_names,
+    _facing_is_measured,
+    _infer_world_up,
+    _iter_unique_lr_pairs,
+    _resolve_node_lr_pairs,
+    _rest_upward,
+)
 from ._warnings import user_stacklevel
 
 # Re-exported: pybvh.bvh has long served every node class, end sites included.
@@ -48,14 +58,6 @@ from .spatial_coord import (
 from .tools import (
     Axis,
     _axis_to_vector,
-    _compute_forward_at,
-    _compute_left_at,
-    _detect_lr_mapping_by_names,
-    _facing_is_measured,
-    _infer_world_up,
-    _iter_unique_lr_pairs,
-    _resolve_node_lr_pairs,
-    _rest_upward,
     _validate_axis_string,
     _validate_fps,
     _validate_frame_time,

@@ -828,7 +828,7 @@ def compute_follow_azimuths(
         unless frame 0's left-to-right axis cannot be measured (the
         camera is then fixed, and needs no rate).
     """
-    from ..tools import _leftward_units_from_pairs
+    from .._orientation import _leftward_units_from_pairs
 
     num_frames = view.coords.shape[0]
     leftward, valid = _leftward_units_from_pairs(view.coords, view.lr_pairs, view.up_vector)

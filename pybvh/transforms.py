@@ -22,16 +22,18 @@ import numpy as np
 import numpy.typing as npt
 
 from . import rotations
-from .bvhnode import BvhJoint
-from .tools import (
-    _AXIS_CHAR_TO_IDX,
-    _axis_aligned_rotation,
-    _axis_index_sign,
+from ._orientation import (
     _compute_forward_at,
     _resolve_lr_pairs,
     _resolve_node_lr_pairs,
     _rest_leftward,
     _rest_upward,
+)
+from .bvhnode import BvhJoint
+from .tools import (
+    _AXIS_CHAR_TO_IDX,
+    _axis_aligned_rotation,
+    _axis_index_sign,
     _validate_axis_string,
 )
 

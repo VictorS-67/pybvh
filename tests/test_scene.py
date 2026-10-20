@@ -19,6 +19,7 @@ from synthetic_bvh import (
 from synthetic_scene import make_array_scene, make_array_view, make_bare_view
 
 from pybvh import bvhplot, parse_axis, read_bvh_file
+from pybvh._orientation import _resolve_lr_pairs
 from pybvh.analysis import root_trajectory
 from pybvh.bvhplot._from_bvh import (
     get_bone_chains,
@@ -27,7 +28,6 @@ from pybvh.bvhplot._from_bvh import (
     make_scene,
 )
 from pybvh.bvhplot._scene import Scene, SkeletonView
-from pybvh.tools import _resolve_lr_pairs
 
 BVH_PATH = "bvh_data/cmu_12_01_walk.bvh"
 
@@ -139,7 +139,7 @@ class TestViewCarriesSkeletonFacts:
 
     def test_lr_pairs_are_the_facing_geometrys_joint_pairs(self, bvh, coords):
         """The pairs the follow camera averages: joints only, resolved the
-        way tools resolves them, so follow azimuths match the Bvh path."""
+        way _orientation resolves them, so follow azimuths match the Bvh path."""
         view = make_scene([bvh], [coords], "front", None).views[0]
         expected = _resolve_lr_pairs(bvh.lr_mapping, bvh.node_index)
         assert view.lr_pairs.dtype == np.intp
@@ -1176,6 +1176,7 @@ class TestSceneIsCheckedAtConstruction:
 # array kernels.
 _CORE_MODULES = {
     "_derived",
+    "_orientation",
     "analysis",
     "batch",
     "bvh",
@@ -1198,7 +1199,7 @@ _BVH_READER = "_from_bvh"
 # No plotting library may be imported here: the pure-data modules, and the
 # playback state machine, which the viewer drives.
 _PURE_DATA = ["_scene", "_viewport", "_style", "_from_bvh", "_playback"]
-# Array-pure kernels the viewport may take from pybvh.tools: they take
+# Array-pure kernels the viewport may take from pybvh._orientation: they take
 # arrays, never a Bvh.
 _VIEWPORT_KERNELS = {"_leftward_units_from_pairs"}
 

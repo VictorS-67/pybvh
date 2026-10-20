@@ -18,12 +18,13 @@ import numpy as np
 import numpy.typing as npt
 
 from . import geometry, rotations
+from ._orientation import _compute_forward_at, _facing_basis
 from ._warnings import user_stacklevel
 from .bvh import Bvh
 from .bvhnode import BvhNode
 from .signal import box_filter_smooth
 from .signal import finite_difference as _finite_difference
-from .tools import _axis_to_vector, _compute_forward_at, _facing_basis
+from .tools import _axis_to_vector
 
 _EPS = 1e-12
 
@@ -626,7 +627,7 @@ def root_trajectory(
 
     The heading reference is the **rest-pose forward direction** —
     derived from the skeleton's L/R lateral geometry crossed with
-    ``world_up`` (see :func:`pybvh.tools._compute_forward_at`).  This
+    ``world_up`` (see :func:`pybvh._orientation._compute_forward_at`).  This
     means "heading = rest-pose forward" at any frame whose root
     rotation is identity, regardless of what rotation the clip
     starts with.

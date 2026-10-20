@@ -118,7 +118,8 @@ class TestRootTrajectoryHeadingRestForward:
 
     def _expected_rest_heading(self, bvh):
         """Derive ground-truth heading from rest-pose forward + world_up."""
-        from pybvh.tools import _axis_to_vector, _compute_forward_at
+        from pybvh._orientation import _compute_forward_at
+        from pybvh.tools import _axis_to_vector
 
         rest_coords = bvh.rest_pose_positions()
         fwd_axis = _compute_forward_at(bvh, rest_coords, bvh.world_up)
@@ -1581,7 +1582,7 @@ class TestFacingFrame:
     def test_left_matches_per_frame_scalar_helper(self, cmu_walk):
         """The vectorized basis must agree with the single-frame leftward
         helper the axis-string snappers consume."""
-        from pybvh.tools import _world_leftward_unit_at_frame
+        from pybvh._orientation import _world_leftward_unit_at_frame
 
         coords = cmu_walk.node_positions()
         frame = cmu_walk.facing_frame(coords=coords)
@@ -1611,7 +1612,7 @@ class TestFacingFrame:
     def test_coords_passthrough_is_used(self, cmu_walk):
         """coords= must actually feed the computation: passing L/R-swapped
         positions flips leftward, hence forward."""
-        from pybvh.tools import _resolve_lr_pairs
+        from pybvh._orientation import _resolve_lr_pairs
 
         coords = cmu_walk.node_positions()
         baseline = cmu_walk.facing_frame(coords=coords)
@@ -1647,7 +1648,8 @@ class TestFacingFrame:
         """Frames whose horizontal (left - right) average vanishes get the
         constant fallback basis; the fallback's snap agrees with
         forward_at on the same degenerate frame. Other frames unchanged."""
-        from pybvh.tools import _resolve_lr_pairs, get_main_direction
+        from pybvh._orientation import _resolve_lr_pairs
+        from pybvh.tools import get_main_direction
 
         coords = cmu_walk.node_positions()
         baseline = cmu_walk.facing_frame(coords=coords)

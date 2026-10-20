@@ -5538,7 +5538,7 @@ class TestAxisDetection:
     def test_rest_up_matches_internal(self, bvh_example):
         """The public property must return the same value as the internal
         helper for every fixture; catches accidental divergence."""
-        from pybvh.tools import _rest_upward
+        from pybvh._orientation import _rest_upward
 
         assert bvh_example.rest_up == _rest_upward(bvh_example)
 
@@ -6226,7 +6226,7 @@ class TestMirror:
 
     def test_spatial_coords_reflected(self, bvh_example):
         """Gold-standard test: FK positions should be reflected."""
-        from pybvh.tools import _rest_leftward
+        from pybvh._orientation import _rest_leftward
         from pybvh.transforms import mirror
 
         lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_leftward(bvh_example)[1]]
@@ -6259,7 +6259,7 @@ class TestMirror:
                 )
 
     def test_root_pos_lateral_negated(self, bvh_example):
-        from pybvh.tools import _rest_leftward
+        from pybvh._orientation import _rest_leftward
         from pybvh.transforms import mirror
 
         lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_leftward(bvh_example)[1]]
@@ -6395,8 +6395,8 @@ class TestMirrorAngles:
 
     def _get_mirror_metadata(self, bvh):
         """Extract metadata needed for mirror_angles from a Bvh."""
+        from pybvh._orientation import _iter_unique_lr_pairs, _rest_leftward
         from pybvh.bvhnode import BvhJoint
-        from pybvh.tools import _iter_unique_lr_pairs, _rest_leftward
 
         lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_leftward(bvh)[1]]
 
@@ -6587,7 +6587,7 @@ class TestAutoDetectLRPairs:
 
     def test_works_with_mirror_angles(self, bvh_example):
         """Index pairs should be directly usable with mirror_angles."""
-        from pybvh.tools import _rest_leftward
+        from pybvh._orientation import _rest_leftward
         from pybvh.transforms import auto_detect_lr_pairs, mirror_angles
 
         pairs = auto_detect_lr_pairs(bvh_example)
@@ -7235,7 +7235,7 @@ class TestLRMappingNoneConsumerBehavior:
     """Tests that internal helpers handle lr_mapping=None gracefully."""
 
     def test_rest_leftward_returns_none_on_nameless(self):
-        from pybvh.tools import _rest_leftward
+        from pybvh._orientation import _rest_leftward
 
         bvh = make_nameless_lr_bvh()
         assert bvh.lr_mapping is None
@@ -7243,7 +7243,7 @@ class TestLRMappingNoneConsumerBehavior:
 
     def test_rest_leftward_explicit_mapping_works(self):
         """_rest_leftward accepts an explicit mapping that overrides the cache."""
-        from pybvh.tools import _rest_leftward
+        from pybvh._orientation import _rest_leftward
 
         bvh = make_nameless_lr_bvh()
         # Even though bvh.lr_mapping is None, an explicit mapping computes
@@ -7252,7 +7252,7 @@ class TestLRMappingNoneConsumerBehavior:
 
     def test_compute_forward_at_fallback_on_nameless(self):
         """_compute_forward_at returns a valid axis when no L/R data exists."""
-        from pybvh.tools import _compute_forward_at
+        from pybvh._orientation import _compute_forward_at
 
         bvh = make_nameless_lr_bvh()
         frame_coords = bvh.node_positions(frame=0)
@@ -7403,37 +7403,37 @@ class TestOrderLRPair:
     """Verify _order_lr_pair correctly identifies the left side across conventions."""
 
     def test_substring_left_is_left(self):
-        from pybvh.tools import _order_lr_pair
+        from pybvh._orientation import _order_lr_pair
 
         assert _order_lr_pair("LeftArm", "RightArm") == ("LeftArm", "RightArm")
         assert _order_lr_pair("RightArm", "LeftArm") == ("LeftArm", "RightArm")
 
     def test_dot_suffix(self):
-        from pybvh.tools import _order_lr_pair
+        from pybvh._orientation import _order_lr_pair
 
         assert _order_lr_pair("arm.L", "arm.R") == ("arm.L", "arm.R")
         assert _order_lr_pair("arm.R", "arm.L") == ("arm.L", "arm.R")
 
     def test_lowercase_dot_suffix(self):
-        from pybvh.tools import _order_lr_pair
+        from pybvh._orientation import _order_lr_pair
 
         assert _order_lr_pair("arm.l", "arm.r") == ("arm.l", "arm.r")
         assert _order_lr_pair("arm.r", "arm.l") == ("arm.l", "arm.r")
 
     def test_underscore_suffix(self):
-        from pybvh.tools import _order_lr_pair
+        from pybvh._orientation import _order_lr_pair
 
         assert _order_lr_pair("arm_l", "arm_r") == ("arm_l", "arm_r")
         assert _order_lr_pair("arm_r", "arm_l") == ("arm_l", "arm_r")
 
     def test_dot_word_suffix(self):
-        from pybvh.tools import _order_lr_pair
+        from pybvh._orientation import _order_lr_pair
 
         assert _order_lr_pair("arm.Left", "arm.Right") == ("arm.Left", "arm.Right")
         assert _order_lr_pair("arm.Right", "arm.Left") == ("arm.Left", "arm.Right")
 
     def test_prefix_fallback(self):
-        from pybvh.tools import _order_lr_pair
+        from pybvh._orientation import _order_lr_pair
 
         assert _order_lr_pair("LArm", "RArm") == ("LArm", "RArm")
         assert _order_lr_pair("RArm", "LArm") == ("LArm", "RArm")

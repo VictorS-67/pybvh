@@ -257,7 +257,6 @@ pybvh.tools.Axis
 pybvh.tools.extract_sign
 pybvh.tools.get_main_direction
 pybvh.tools.parse_axis
-pybvh.tools.user_stacklevel
 
 pybvh.transforms.BvhJoint
 pybvh.transforms.add_position_noise

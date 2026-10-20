@@ -173,8 +173,8 @@ def make_scene(
     This is the scene ground, not the reference ``foot_contacts``
     measures clearance against; see :attr:`Bvh.floor_height`.
     """
+    from .._orientation import _facing_lr_pairs
     from ..analysis import root_trajectory
-    from ..tools import _facing_lr_pairs
 
     views: list[SkeletonView] = []
     for i, (b, coords) in enumerate(zip(bvh_list, coords_list)):
@@ -335,7 +335,7 @@ def _camera_angles_and_forward(
 
     ``forward_axis`` (e.g. ``'+y'``) is the character's facing at
     *ref_frame* snapped to the dominant signed world axis
-    (:func:`~pybvh.tools._compute_forward_at`: leftward from the L/R
+    (:func:`~pybvh._orientation._compute_forward_at`: leftward from the L/R
     joint geometry, crossed with up, then snapped). When that geometry
     is degenerate (leftward parallel to up, or no L/R pairs) it falls
     back to the rest-pose leftward and then to a fixed per-up-axis
@@ -345,7 +345,8 @@ def _camera_angles_and_forward(
     spacing and the camera never disagree about which way the skeleton
     faces.
     """
-    from ..tools import _compute_forward_at, extract_sign
+    from .._orientation import _compute_forward_at
+    from ..tools import extract_sign
 
     # World up comes from the Bvh property (auto-detected with manual
     # override). Forward is computed from the given reference frame's

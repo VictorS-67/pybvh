@@ -22,12 +22,8 @@ from synthetic_bvh import (
 )
 
 from pybvh import Bvh, read_bvh_file, transforms
-from pybvh.tools import (
-    _axis_aligned_rotation,
-    _axis_to_vector,
-    _compute_forward_at,
-    _rest_upward,
-)
+from pybvh._orientation import _compute_forward_at, _rest_upward
+from pybvh.tools import _axis_aligned_rotation, _axis_to_vector
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
 EXAMPLE = str(BVH_DIR / "bvh_test1.bvh")

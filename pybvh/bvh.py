@@ -483,8 +483,9 @@ class Bvh:
 
         The transforms, ``a += b`` and the rebuild of a derived clip write
         here and report that the motion changed. The public setters report
-        that the user replaced the motion, the one change that starts the
-        world-up guess again (ADR 0003).
+        that the user replaced the motion, which starts the world-up guess
+        again (ADR 0003), as setting the L/R mapping does for a guess of the
+        clip's own (ADR 0004).
         """
         if root_pos is not None:
             self._root_pos = _checked_root_pos(root_pos)
@@ -1107,7 +1108,12 @@ class Bvh:
           clip read from a file or built from arrays. It is guessed again
           when you assign :attr:`root_pos`, :attr:`joint_angles` or frames
           (``bvh[i] = other``), the one change that replaces the
-          recording, and never by an edit pybvh makes.
+          recording, and never by an edit pybvh makes. Setting
+          :attr:`lr_mapping` guesses it again too: on a rig with no head,
+          neck, chest or spine joint the guess falls back to
+          :attr:`rest_up`, which is read from the legs of the mapping, so
+          the clip gets the axis that mapping passed at load gives. A guess
+          from the first frame comes out the same, and does not warn again.
         - **Inherited**: a clip pybvh derives from this one reports the
           axis guessed here, without guessing from its own frames:
           ``copy()``, slicing, ``a + b`` and ``a += b`` (from ``a``),
@@ -1116,7 +1122,8 @@ class Bvh:
           transforming a clip does not change which way is up, though a
           slice whose first frame is a crouch or a fall would be guessed
           differently on its own. Assigning motion to the derived clip
-          guesses again, as for an inferred axis.
+          guesses again, as for an inferred axis; setting
+          :attr:`lr_mapping` on it does not.
 
         :attr:`world_up_inferred` always guesses from this clip's own
         motion: where it differs from ``world_up`` and you set no axis,
@@ -1510,7 +1517,13 @@ class Bvh:
 
         Consumers: ``mirror()``, ``orientation_report`` (and so
         ``rest_forward`` and ``has_lr_geometry``),
-        ``forward_at()``, ``left_at()``, ``facing_frame()``.
+        ``forward_at()``, ``left_at()``, ``facing_frame()``. On a rig with
+        no head, neck, chest or spine joint, ``rest_up`` is read from the
+        legs of the mapping, and so is the world up guessed from it: setting
+        the mapping guesses the clip's own :attr:`world_up` again, and its
+        :attr:`floor_height` with it, as passing it at load would have. A
+        world up set, or inherited from the clip this one was derived from,
+        stays (see :attr:`world_up`).
 
         Note: BVH files don't store L/R pair info, so user-set mappings
         are lost on ``bvh.write()`` round-trips — same wart as

@@ -8236,6 +8236,68 @@ class TestRestUpAcrossRigConventions:
             assert clip.world_up_inferred == "+z"
 
 
+class TestSettingTheMappingGuessesWorldUpAgain:
+    """A clip with no up marker guesses world up from its rest up, which on
+    such a rig is read from the legs of the L/R mapping in effect: setting
+    the mapping starts the clip's own guess again (ADR 0003)."""
+
+    @staticmethod
+    def _nameless(tmp_path):
+        """bvh_test3 with every node renamed ``J<index>``, written and read
+        back so that it guesses world up from its own frames, and the
+        original pairs under the new names."""
+        plain = _read_quietly(_TEST3)
+        names = iter(range(len(plain.nodes)))
+        renamed = {node.name: f"J{next(names)}" for node in plain.nodes}
+        path = tmp_path / "nameless.bvh"
+        _renamed(plain, renamed.__getitem__).write(path)
+        pairs = {renamed[left]: renamed[right] for left, right in plain.lr_mapping.items()}
+        return path, pairs
+
+    def test_a_mapping_set_after_load_gives_the_world_up_of_a_mapping_given_at_load(self, tmp_path):
+        # Without pairs, rest up is the largest spread, -x along the arms of
+        # the T-pose, and world up is guessed from it; with the legs, +y.
+        path, pairs = self._nameless(tmp_path)
+        clip = _read_quietly(path)
+        assert clip.world_up == "-x"
+
+        clip.lr_mapping = pairs
+
+        given_at_load = _read_quietly(path, lr_mapping=pairs)
+        assert given_at_load.world_up == "+y"
+        assert clip.orientation_report == given_at_load.orientation_report
+        assert clip.world_up == "+y"
+        assert clip.floor_height == given_at_load.floor_height
+
+    @pytest.mark.parametrize(
+        "mapping", [None, {"LeftUpLeg": "RightUpLeg"}], ids=["cleared", "legs alone"]
+    )
+    def test_a_guess_from_the_first_frame_stays_and_does_not_warn_again(self, mapping):
+        # bvh_test3's head stands along +z at frame 0, along +y in the rest
+        # pose: world up warned about the disagreement on load.
+        clip = _read_quietly(_TEST3)
+        assert clip.world_up == "+z"
+
+        clip.lr_mapping = mapping
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert clip.world_up == "+z"
+        assert clip.orientation_report.world_up_source == "first_frame"
+
+    def test_an_inherited_guess_stays(self, tmp_path):
+        # The derived clip keeps the -x its source guessed without pairs,
+        # as it keeps every other inherited guess.
+        path, pairs = self._nameless(tmp_path)
+        part = _read_quietly(path)[0:10]
+
+        part.lr_mapping = pairs
+
+        report = part.orientation_report
+        assert (report.world_up, report.world_up_inherited) == ("-x", True)
+        assert report.rest_up == "+y"
+
+
 class TestOrientationReportLifecycle:
     """One derived value, computed once and cleared by exactly the changes
     it depends on (ADR 0003's table, ADR 0004's row)."""

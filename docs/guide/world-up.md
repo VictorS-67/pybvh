@@ -66,7 +66,9 @@ The report tells the three states apart: `world_up_source` is `"set"` for a set 
 
 ### When the guess starts again
 
-Only when the recording itself is replaced: assigning `root_pos`, `joint_angles` or frames (`bvh[i] = other`), or loading new motion with `from_rotmat`, `from_6d`, `from_quat` or `from_axisangle`. The clip then guesses again from its new first frame, whether its axis was inferred or inherited, and the clips derived from it afterwards inherit the new guess. None of these clears a set axis.
+When the recording itself is replaced: assigning `root_pos`, `joint_angles` or frames (`bvh[i] = other`), or loading new motion with `from_rotmat`, `from_6d`, `from_quat` or `from_axisangle`. The clip then guesses again from its new first frame, whether its axis was inferred or inherited, and the clips derived from it afterwards inherit the new guess. None of these clears a set axis.
+
+And, for a guess the clip made itself, when you set `lr_mapping`. On a rig with no head, neck, chest or spine joint the guess falls back to `rest_up`, which is read from the legs of the mapping, so the clip guesses again and gets the axis that mapping passed at load gives; `floor_height` is measured again along it. A guess from the first frame comes out the same and does not warn again. An inherited guess stays, as does a set axis.
 
 ## Manual override
 

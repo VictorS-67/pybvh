@@ -43,16 +43,25 @@ _CLEARED_BY: Final[dict[str, frozenset[_Change]]] = {
     "names_lr_mapping": frozenset({_Change.SKELETON}),
     "rest_pose_positions": frozenset({_Change.SKELETON}),
     "node_positions": _SKELETON_OR_MOTION,
-    "floor_height": _SKELETON_OR_MOTION | {_Change.WORLD_UP_OVERRIDE},
+    # Measured along world up, so cleared when the axis set or guessed may change.
+    "floor_height": _SKELETON_OR_MOTION | {_Change.WORLD_UP_OVERRIDE, _Change.LR_MAPPING_SETTING},
     # The guessed world up, inferred here or inherited from the clip this
     # one was derived from, outlives pybvh's own edits: none of them
     # changes which way is up but reorient_world_up, which sets the axis
     # as an override and turns the guess with the frames (ADR 0003,
-    # decision 3).
-    "inferred_world_up": frozenset({_Change.USER_REPLACED_MOTION}),
+    # decision 3). The user setting the L/R mapping starts the clip's own
+    # guess again: on a rig with no up marker it is read from rest up,
+    # which is read from the legs of the mapping. A guess from the first
+    # frame or the house default does not read the mapping, so the guess
+    # made again is the same one. The inherited guess stays, as it does
+    # through a skeleton change: copy(nodes=), extract_joints and
+    # unpickling set the mapping on a clip that has just inherited it.
+    "inferred_world_up": frozenset({_Change.USER_REPLACED_MOTION, _Change.LR_MAPPING_SETTING}),
     "inherited_world_up": frozenset({_Change.USER_REPLACED_MOTION}),
     # Whether Bvh.world_up has warned about the guess inferred here (it
-    # warns once per guess), so it goes with that guess.
+    # warns once per guess), so it goes with a guess the motion replaced.
+    # A mapping change keeps it: the guess it can change, read from rest
+    # up, never warns, and any other is guessed the same again.
     "world_up_guess_announced": frozenset({_Change.USER_REPLACED_MOTION}),
     # Read from the rest pose, the L/R mapping in effect and world up, set
     # or guessed (ADR 0004); pybvh's own motion writes change none of them.

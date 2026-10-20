@@ -32,6 +32,10 @@ MOTION_DEPENDENTS = {"node_positions", "floor_height"}
 # was derived from, and whether world_up warned about it, survive every
 # change but the user replacing the motion.
 GUESSED_WORLD_UP = {"inferred_world_up", "inherited_world_up", "world_up_guess_announced"}
+# But the user setting the L/R mapping starts the clip's own guess again
+# (rest up, which it may be read from, reads the mapping), and with it the
+# floor measured along it; not the inherited guess or the warning.
+GUESSED_HERE = {"inferred_world_up", "floor_height"}
 
 # The orientation report reads the skeleton, world up and the L/R mapping
 # setting, and none of pybvh's own motion writes (ADR 0004).
@@ -42,7 +46,7 @@ CLEARED_BY = {
     "motion_changed": MOTION_DEPENDENTS,
     "user_replaced_motion": MOTION_DEPENDENTS | GUESSED_WORLD_UP | REPORT,
     "world_up_changed": {"floor_height"} | REPORT,
-    "lr_mapping_changed": REPORT,
+    "lr_mapping_changed": GUESSED_HERE | REPORT,
 }
 
 

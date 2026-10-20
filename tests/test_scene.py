@@ -1214,8 +1214,8 @@ _CORE_MODULES = {
 # The rest of pybvh knows no clip, so any bvhplot module may import it: the
 # array-pure math, the orientation computed from plain data, the signed-axis
 # vocabulary and the input validators, and the helper that points a warning
-# at the user's line. That they stay so is not checked here: a Bvh import
-# added to one of them would reach bvhplot through it unseen.
+# at the user's line. TestNotCoreModulesStayClipFree checks that none of them
+# imports the core at runtime, so no core import reaches bvhplot through one.
 _NOT_CORE = {"_orientation", "_warnings", "geometry", "rotations", "signal", "tools"}
 _ROUTER = "__init__"
 _BVH_READER = "_from_bvh"
@@ -1239,11 +1239,14 @@ def _bvhplot_modules() -> list[str]:
 _BEHIND_THE_BOUNDARY = [name for name in _bvhplot_modules() if name not in (_ROUTER, _BVH_READER)]
 
 
-def _is_core_module(dotted: str, level: int) -> bool:
+def _is_core_module(dotted: str, level: int, package_level: int = 2) -> bool:
     """Is the module ``from <dots><dotted> import`` / ``import <dotted>``
     names a core module, or the package root (which exports only core
-    names such as ``Bvh``)? Level 1 is a bvhplot sibling: never core.
-    An explicit ``__init__`` component is the package root spelled out."""
+    names such as ``Bvh``)? ``package_level`` is the number of dots that
+    reach pybvh's root from the importing module: 2 from a bvhplot
+    module, whose level 1 is a sibling and never core; 1 from a module
+    of pybvh itself. An explicit ``__init__`` component is the package
+    root spelled out."""
     parts = [p for p in dotted.split(".") if p and p != "__init__"]
     if level == 0:
         return (
@@ -1251,7 +1254,7 @@ def _is_core_module(dotted: str, level: int) -> bool:
             and parts[0] == "pybvh"
             and (len(parts) == 1 or parts[1] in _CORE_MODULES)
         )
-    if level == 2:
+    if level == package_level:
         return not parts or parts[0] in _CORE_MODULES
     return False
 
@@ -1321,14 +1324,18 @@ def _is_type_checking_test(test: ast.expr, guard_names: set[str]) -> bool:
     )
 
 
-def _core_imports_in_source(source: str) -> list[tuple[int, str | None, list[str]]]:
+def _core_imports_in_source(
+    source: str, package_level: int = 2
+) -> list[tuple[int, str | None, list[str]]]:
     """Every runtime import of a core module in ``source``: (line,
     innermost enclosing function or None, imported names).
 
     Sees both statement forms (``import pybvh.analysis``, ``from ..analysis
     import x``) and package-root imports (``from pybvh import Bvh``,
     ``from .. import analysis``). Only the body of an ``if TYPE_CHECKING:``
-    block is type-only; its ``else`` branch runs and is inspected."""
+    block is type-only; its ``else`` branch runs and is inspected.
+    ``package_level`` is as :func:`_is_core_module` reads it: 2 for a
+    bvhplot module's source, 1 for a module of pybvh itself."""
     tree = ast.parse(source)
     guard_names = _typing_guard_names(tree)
     found: list[tuple[int, str | None, list[str]]] = []
@@ -1343,7 +1350,7 @@ def _core_imports_in_source(source: str) -> list[tuple[int, str | None, list[str
             elif type_only:
                 continue
             elif isinstance(node, ast.ImportFrom):
-                if _is_core_module(node.module or "", node.level):
+                if _is_core_module(node.module or "", node.level, package_level):
                     found.append((node.lineno, func, [a.name for a in node.names]))
             elif isinstance(node, ast.Import):
                 names = [a.name for a in node.names if _is_core_module(a.name, 0)]
@@ -1431,6 +1438,12 @@ def _router_imports_in_source(
 
 def _module_source(module_name: str) -> str:
     package_dir = pathlib.Path(bvhplot.__file__).parent
+    return (package_dir / f"{module_name}.py").read_text()
+
+
+def _pybvh_module_source(module_name: str) -> str:
+    """The source of a module at pybvh's top level, beside bvhplot."""
+    package_dir = pathlib.Path(bvhplot.__file__).parent.parent
     return (package_dir / f"{module_name}.py").read_text()
 
 
@@ -1554,6 +1567,42 @@ class TestCoreImportGuard:
             (3, "inner", ["pybvh.analysis"]),
             (4, "outer", ["analysis"]),
         ]
+
+
+class TestCoreImportGuardAtThePackageTop:
+    """The same guard read from a module of pybvh itself, one level up,
+    where ``from .`` is the package root and ``from .bvh`` the core."""
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "from .bvh import Bvh",
+            "from .analysis import root_trajectory",
+            "from . import transforms",
+            "from . import Bvh",
+            "from .__init__ import Bvh",
+            "from pybvh.bvh import Bvh",
+            "import pybvh",
+            "import pybvh.analysis",
+        ],
+    )
+    def test_flags_every_spelling_of_a_core_import(self, line):
+        found = _core_imports_in_source(line, package_level=1)
+        assert [(lineno, func) for lineno, func, _ in found] == [(1, None)]
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "from .tools import parse_axis",
+            "from ._warnings import user_stacklevel",
+            "from .signal import finite_difference",
+            "import pybvh.rotations",
+            "import numpy as np",
+            "from typing import TYPE_CHECKING",
+        ],
+    )
+    def test_passes_non_core_imports(self, line):
+        assert _core_imports_in_source(line, package_level=1) == []
 
 
 class TestSiblingImportGuard:
@@ -1751,3 +1800,28 @@ class TestSceneIsPureData:
         Style, never a Bvh."""
         offenders = _sibling_imports_in_source(_module_source(module_name), _BVH_READER)
         assert offenders == [], f"{module_name} imports {_BVH_READER} at lines {offenders}"
+
+
+class TestNotCoreModulesStayClipFree:
+    """The modules counted as not core are imported freely behind the
+    boundary, so a core import in one of them would reach bvhplot unseen
+    by the checks above. Type-only imports are allowed."""
+
+    @pytest.mark.parametrize("module_name", sorted(_NOT_CORE))
+    def test_takes_nothing_from_the_core_at_runtime(self, module_name):
+        offenders = _core_imports_in_source(_pybvh_module_source(module_name), package_level=1)
+        assert offenders == [], f"{module_name} imports core modules at runtime: {offenders}"
+
+    @pytest.mark.parametrize("module_name", sorted(_NOT_CORE))
+    def test_a_planted_core_import_is_flagged(self, module_name):
+        """The check on each module's real source, with a core import
+        planted at module level and one inside a function: what it
+        finds there is exactly what was planted."""
+        source = _pybvh_module_source(module_name)
+        planted_line = len(source.splitlines()) + 2
+        planted = source + "\nfrom .bvh import Bvh\ndef _planted():\n    from . import analysis\n"
+        found = _core_imports_in_source(planted, package_level=1)
+        assert found == [
+            (planted_line, None, ["Bvh"]),
+            (planted_line + 2, "_planted", ["analysis"]),
+        ]

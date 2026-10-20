@@ -631,7 +631,12 @@ def root_trajectory(
     frame carries it into the world, and the heading is its projection
     on the ground. At a frame whose root rotation is identity the
     heading is therefore rest forward's own ground direction, whatever
-    rotation the clip starts with.
+    rotation the clip starts with. When rest forward is the house
+    default (no usable left/right geometry; reading it warns), the
+    heading is still built on it: its angle is then measured from an
+    arbitrary axis, but its rate of turn (``heading_vel``) is the
+    root's own. :func:`facing_frame` chooses otherwise for its fallback,
+    which takes no heading from a defaulted rest forward.
 
     The heading is **orientation-derived** — the root bone's rotation
     applied to the rest forward, projected to the ground plane — not
@@ -798,8 +803,10 @@ def facing_frame(
     average nearly vanishes or lies along ``world_up`` (norm below
     ``1e-6``, the body on its side) takes the root's heading at that
     frame (the one :func:`root_trajectory` returns) as its forward, when
-    :attr:`Bvh.rest_forward` is measured and that heading is readable;
-    otherwise the arbitrary-but-stable per-up-axis default (``'+z'`` for
+    :attr:`Bvh.rest_forward` is measured and that heading is readable
+    (:func:`root_trajectory` builds a heading on a defaulted rest
+    forward too, for its rate of turn; as a facing it would offer a
+    guessed direction as a measured one); otherwise the arbitrary-but-stable per-up-axis default (``'+z'`` for
     a ``y``-up world), with a ``UserWarning`` that names the frames. A
     skeleton with no ``lr_mapping`` takes that default on every frame,
     with a warning that names the skeleton. Every row keeps

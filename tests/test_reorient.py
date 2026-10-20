@@ -22,7 +22,6 @@ from synthetic_bvh import (
 )
 
 from pybvh import Bvh, nodes_from_table, read_bvh_file, transforms
-from pybvh._orientation import _compute_forward_at
 from pybvh.rotations import _axis_aligned_rotation
 from pybvh.tools import _axis_to_vector
 
@@ -331,6 +330,19 @@ class TestWorldUpWarningPreference:
 
 
 class TestAxisAlignedRotation:
+    @pytest.mark.parametrize("about", ["+y", "-y"])
+    def test_a_half_turn_about_the_axis_given(self, about):
+        R = _axis_aligned_rotation(
+            _axis_to_vector("+z"), _axis_to_vector("-z"), about=_axis_to_vector(about)
+        )
+        npt.assert_array_equal(R, np.diag([-1.0, 1.0, -1.0]))
+
+    def test_about_must_be_perpendicular_to_both(self):
+        with pytest.raises(ValueError, match="perpendicular"):
+            _axis_aligned_rotation(
+                _axis_to_vector("+z"), _axis_to_vector("+x"), about=_axis_to_vector("+x")
+            )
+
     @pytest.mark.parametrize(
         "from_ax,to_ax",
         [
@@ -627,11 +639,10 @@ class TestReorientRestForward:
         bvh = make_pos_y_up_bvh()
         coords_before = bvh.node_positions()
         # Get current forward, pick a different one
-        rest = bvh.rest_pose_positions()
-        current_fwd = _compute_forward_at(bvh, rest, bvh.world_up)
+        current_fwd = bvh.rest_forward
         # Pick target that's perpendicular to up and different from current
         candidates = ["+x", "-x", "+z", "-z"]
-        target = [c for c in candidates if c != current_fwd and c[1] != bvh.world_up[1]][0]
+        target = [c for c in candidates if c != current_fwd and c[1] != bvh.rest_up[1]][0]
         result = transforms.reorient_rest_forward(bvh, target)
         coords_after = result.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
@@ -639,10 +650,9 @@ class TestReorientRestForward:
     def test_fk_invariance_with_rotation(self):
         bvh = make_pos_y_up_rotating_bvh()
         coords_before = bvh.node_positions()
-        rest = bvh.rest_pose_positions()
-        current_fwd = _compute_forward_at(bvh, rest, bvh.world_up)
+        current_fwd = bvh.rest_forward
         candidates = ["+x", "-x", "+z", "-z"]
-        target = [c for c in candidates if c != current_fwd and c[1] != bvh.world_up[1]][0]
+        target = [c for c in candidates if c != current_fwd and c[1] != bvh.rest_up[1]][0]
         result = transforms.reorient_rest_forward(bvh, target)
         coords_after = result.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
@@ -652,12 +662,28 @@ class TestReorientRestForward:
         with pytest.raises(ValueError, match="parallel"):
             transforms.reorient_rest_forward(bvh, "+y")
 
+    @pytest.mark.parametrize("target", ["+x", "-x", "+z", "-z"])
+    def test_turns_about_rest_up(self, target):
+        """On bvh_test3 rest up is +y and world up +z: the rest pose turns
+        about its own up, whatever world up is, and the posed positions
+        stay where they were."""
+        bvh = read_bvh_file(TEST3, warn_on_world_up_disagreement=False)
+        assert (bvh.rest_up, bvh.world_up, bvh.rest_forward) == ("+y", "+z", "+z")
+        result = transforms.reorient_rest_forward(bvh, target)
+        assert result.rest_up == "+y"
+        assert result.rest_forward == target
+        npt.assert_allclose(result.node_positions(), bvh.node_positions(), atol=1e-9)
+
+    def test_refuses_a_target_along_rest_up_not_world_up(self):
+        bvh = read_bvh_file(TEST3, warn_on_world_up_disagreement=False)
+        with pytest.raises(ValueError, match="rest_up"):
+            transforms.reorient_rest_forward(bvh, "-y")
+
     def test_inplace(self):
         bvh = make_pos_y_up_bvh()
-        rest = bvh.rest_pose_positions()
-        current_fwd = _compute_forward_at(bvh, rest, bvh.world_up)
+        current_fwd = bvh.rest_forward
         candidates = ["+x", "-x", "+z", "-z"]
-        target = [c for c in candidates if c != current_fwd and c[1] != bvh.world_up[1]][0]
+        target = [c for c in candidates if c != current_fwd and c[1] != bvh.rest_up[1]][0]
         coords_before = bvh.node_positions()
         result = transforms.reorient_rest_forward(bvh, target, inplace=True)
         assert result is None
@@ -666,10 +692,9 @@ class TestReorientRestForward:
 
     def test_bvh_method_wrapper(self):
         bvh = make_pos_y_up_bvh()
-        rest = bvh.rest_pose_positions()
-        current_fwd = _compute_forward_at(bvh, rest, bvh.world_up)
+        current_fwd = bvh.rest_forward
         candidates = ["+x", "-x", "+z", "-z"]
-        target = [c for c in candidates if c != current_fwd and c[1] != bvh.world_up[1]][0]
+        target = [c for c in candidates if c != current_fwd and c[1] != bvh.rest_up[1]][0]
         coords_before = bvh.node_positions()
         result = bvh.reorient_rest_forward(target)
         coords_after = result.node_positions()

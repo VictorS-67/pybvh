@@ -23,7 +23,6 @@ import numpy.typing as npt
 
 from . import rotations
 from ._orientation import (
-    _compute_forward_at,
     _resolve_lr_pairs,
 )
 from .bvhnode import BvhJoint
@@ -1174,15 +1173,18 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
     ``new_forward``, compensating all joint rotations so FK positions are
     unchanged.
 
-    The rotation is around the world up axis (a rotation in the ground
-    plane).  ``new_forward`` must not be parallel to ``world_up``.
+    The rotation is about the rest pose's own up,
+    :attr:`~pybvh.bvh.Bvh.rest_up`: the rest pose turns in its own frame,
+    whatever :attr:`~pybvh.bvh.Bvh.world_up` is, so ``rest_up`` is the
+    same afterwards and :attr:`~pybvh.bvh.Bvh.rest_forward` is
+    ``new_forward``. ``new_forward`` must not be parallel to ``rest_up``.
 
     Parameters
     ----------
     bvh : Bvh
-        Input motion. Its rest-pose forward is computed from the rest
-        pose and its ``world_up``, as
-        :attr:`~pybvh.bvh.Bvh.rest_forward` reports it.
+        Input motion. Its rest-pose forward and up are read from the rest
+        pose, as :attr:`~pybvh.bvh.Bvh.rest_forward` and
+        :attr:`~pybvh.bvh.Bvh.rest_up` report them.
     new_forward : str
         Target rest-pose forward axis, e.g. ``'+y'`` or ``'-z'``.
     inplace : bool, optional
@@ -1199,24 +1201,32 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
     Raises
     ------
     ValueError
-        If ``new_forward`` is parallel to ``world_up``.
+        If the rest pose is degenerate (no up axis can be inferred), or
+        ``new_forward`` is parallel to ``rest_up``.
     """
     new_forward = _validate_axis_string(new_forward)
-    up_idx = bvh.world_up_axis.index
-    fwd_idx = _AXIS_CHAR_TO_IDX[new_forward[1]]
-    if up_idx == fwd_idx:
+    rest_up = bvh.rest_up
+    if rest_up is None:
         raise ValueError(
-            f"new_forward ({new_forward}) cannot be parallel to world_up ({bvh.world_up})"
+            "Cannot infer the skeleton's rest-pose up axis to turn about: "
+            "the rest pose is degenerate (all joint offsets are zero or "
+            "there are too few joints)."
         )
+    if rest_up[1] == new_forward[1]:
+        raise ValueError(f"new_forward ({new_forward}) cannot be parallel to rest_up ({rest_up})")
 
-    # Determine current rest-pose forward from topology
-    rest_coords = bvh._rest_pose()
-    current_fwd = _compute_forward_at(bvh, rest_coords, bvh.world_up)
+    current_fwd = bvh.rest_forward
 
     target = bvh if inplace else bvh.copy()
 
     if current_fwd == new_forward:
         return None if inplace else target
+
+    R = rotations._axis_aligned_rotation(
+        _axis_to_vector(current_fwd), _axis_to_vector(new_forward), about=_axis_to_vector(rest_up)
+    )
+    _reorient_rest(target, R)
+    return None if inplace else target
 
     R = rotations._axis_aligned_rotation(_axis_to_vector(current_fwd), _axis_to_vector(new_forward))
     _reorient_rest(target, R)

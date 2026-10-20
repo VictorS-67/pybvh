@@ -7441,11 +7441,11 @@ class TestReorientRestForwardSemanticDelta:
         can't derive forward — confirm the failure is intentional."""
         bvh = make_nameless_lr_bvh()
         # Whatever happens, it should not silently produce wrong data —
-        # either it raises, or it uses the arbitrary-direction fallback
-        # from _compute_forward_at. The behavior here is: succeed with
-        # the arbitrary-horizontal fallback because _compute_forward_at
-        # returns a valid axis when rest_lateral is None. This is the
-        # documented behavior, not a bug.
+        # either it raises, or it turns from the house default that
+        # rest_forward falls back to, with a warning. The behavior here
+        # is: succeed from that default, which is a valid axis when the
+        # rest pose has no rest left. This is the documented behavior,
+        # not a bug.
         try:
             result = bvh.reorient_rest_forward("+z")
             assert result.frame_count == bvh.frame_count

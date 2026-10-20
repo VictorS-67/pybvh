@@ -97,6 +97,44 @@ _WorldUpSource = Literal["set", _WorldUpGuessSource]
 _LrMappingSource = Literal["set", "names"]
 
 
+# ---------------------------------------------------------------------------
+# Joint names (pure string logic), read by the up marker and L/R detection
+# ---------------------------------------------------------------------------
+
+_NUMBER_SUFFIX_RE = re.compile(r"\.\d+$")
+
+# A word of a name: a capitalized or lowercase run of letters, a run of
+# capitals not followed by a lowercase letter (an acronym, or a name in
+# capitals), or a run of digits. Anything else separates words.
+_NAME_WORD_RE = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
+
+
+def _split_name(name: str) -> tuple[str, str, str]:
+    """Split a joint name into its namespace, its base and its number suffix.
+
+    The one normalization of joint names: a ``foo:`` namespace (Mixamo's
+    ``mixamorig:``) and a trailing ``.NNN`` suffix (Blender's ``.001``
+    duplicates) are not part of the name. Returns ``(namespace, base,
+    suffix)``, the namespace with its colon, each ``''`` when absent, so
+    ``namespace + base + suffix == name``.
+    """
+    before_colon, colon, after_namespace = name.rpartition(":")
+    base = _NUMBER_SUFFIX_RE.sub("", after_namespace)
+    return before_colon + colon, base, after_namespace[len(base) :]
+
+
+def _name_words(name: str) -> set[str]:
+    """The words of a joint name's base, lowercased.
+
+    Words are split at anything not a letter or a digit, at a lowercase
+    letter followed by a capital, and between letters and digits:
+    ``Bip01 Head`` gives ``bip``, ``01``, ``head``; ``HeadTop_End`` gives
+    ``head``, ``top``, ``end``; ``Forehead`` gives ``forehead`` alone.
+    """
+    _, base, _ = _split_name(name)
+    return {word.lower() for word in _NAME_WORD_RE.findall(base)}
+
+
 class _RestSkeleton(NamedTuple):
     """A skeleton in its rest pose, as the plain data its own frame is read from.
 
@@ -110,6 +148,8 @@ class _RestSkeleton(NamedTuple):
         repeat.
     rest_positions : ndarray of shape (N, 3)
         The rest pose's node positions, in the same order.
+    is_end_site : ndarray of shape (N,), bool
+        Which nodes are end sites.
     lr_pairs : ndarray of shape (P, 2)
         ``(left_idx, right_idx)`` rows into the N axis: the joint pairs of
         the L/R mapping in effect.
@@ -117,6 +157,7 @@ class _RestSkeleton(NamedTuple):
 
     node_names: Sequence[str]
     rest_positions: npt.NDArray[np.float64]
+    is_end_site: npt.NDArray[np.bool_]
     lr_pairs: npt.NDArray[np.intp]
 
 
@@ -124,10 +165,17 @@ def _up_marker_index(skeleton: _RestSkeleton) -> int | None:
     """The node whose direction from the root says which way is up.
 
     The one body-part lookup for "up", shared by the rest up and the
-    world-up guess so the two read the same node: the first node, in node
-    order, named ``head``, else ``neck``, ``chest`` or ``spine`` (whole
-    name, any case, so ``mixamorig:Head`` does not match). A node whose
-    rest position coincides with the root's carries no direction and is
+    world-up guess so the two read the same node: the first joint, in node
+    order, whose name holds ``head`` as a word, else ``neck``, ``chest``
+    or ``spine``, in any case, after its namespace and number suffix
+    (:func:`_name_words`). So ``Head``, ``mixamorig:Head``, ``Bip01
+    Head``, ``CC_Base_Head``, ``J_Bip_C_Head`` and ``HeadTop_End`` (a
+    joint at the top of the head) are heads, and ``Forehead`` is not. The
+    alternative, the whole name alone, misses every rig whose convention
+    prefixes its joints; a substring match would take ``Forehead``. End
+    sites are not looked up: an end site's name is generated from its
+    parent's and names no body part of its own. A joint whose rest
+    position coincides with the root's carries no direction and is
     skipped, the root itself included.
 
     Parameters
@@ -141,11 +189,14 @@ def _up_marker_index(skeleton: _RestSkeleton) -> int | None:
         The node's index, or ``None`` when no node qualifies.
     """
     local = skeleton.rest_positions - skeleton.rest_positions[0]
-    lowered = [name.lower() for name in skeleton.node_names]
+    words = [
+        set() if end_site else _name_words(name)
+        for name, end_site in zip(skeleton.node_names, skeleton.is_end_site)
+    ]
     for part in _UP_BODY_PARTS:
         # The first node of a repeated name, by position in the walk.
-        for idx, name in enumerate(lowered):
-            if name == part and get_main_direction(local[idx]) is not None:
+        for idx, name_words in enumerate(words):
+            if part in name_words and get_main_direction(local[idx]) is not None:
                 return idx
     return None
 
@@ -206,25 +257,6 @@ def _infer_rest_up(skeleton: _RestSkeleton) -> _RestUp | None:
 # ---------------------------------------------------------------------------
 # L/R name-detection heuristics (pure string logic on joint names)
 # ---------------------------------------------------------------------------
-
-_NUMBER_SUFFIX_RE = re.compile(r"\.\d+$")
-
-
-def _strip_number_suffix(name: str) -> str:
-    """Strip trailing ``.NNN`` suffix like Blender's ``.001`` duplicates."""
-    return _NUMBER_SUFFIX_RE.sub("", name)
-
-
-def _strip_namespace_prefix(name: str) -> tuple[str, str]:
-    """Strip a ``foo:`` namespace prefix (Mixamo and similar).
-
-    Returns ``(prefix, base)``. If no namespace, prefix is empty.
-    """
-    if ":" in name:
-        prefix, _, base = name.rpartition(":")
-        return prefix + ":", base
-    return "", name
-
 
 _SUFFIX_LR_TABLE = [
     # (left_suffix, right_suffix) — matched against the trailing substring
@@ -301,10 +333,7 @@ def _detect_lr_mapping_by_names(joint_names: Sequence[str]) -> dict[str, str]:
 
         partner: str | None = None
 
-        # Decompose name for suffix rule: strip namespace and number suffix
-        ns_prefix, after_ns = _strip_namespace_prefix(name)
-        base = _strip_number_suffix(after_ns)
-        number_suffix = after_ns[len(base) :]  # e.g. '.001' or ''
+        ns_prefix, base, number_suffix = _split_name(name)
 
         # Strategy 1: delimited suffix (most specific)
         partner = _try_suffix_partner(base, names, ns_prefix, number_suffix)
@@ -360,22 +389,17 @@ def _order_lr_pair(a: str, b: str) -> tuple[str, str]:
             return (a, b)
         if kw in b:
             return (b, a)
-    # Normalize for suffix check: strip namespace + number suffix
-    _, a_after = _strip_namespace_prefix(a)
-    _, b_after = _strip_namespace_prefix(b)
-    a_base = _strip_number_suffix(a_after)
-    b_base = _strip_number_suffix(b_after)
+    _, a_base, _ = _split_name(a)
+    _, b_base, _ = _split_name(b)
     for left_suf, _right_suf in _SUFFIX_LR_TABLE:
         if a_base.endswith(left_suf):
             return (a, b)
         if b_base.endswith(left_suf):
             return (b, a)
     # Fallback: "L" prefix → left
-    a_prefix_check = _strip_number_suffix(a_after)
-    b_prefix_check = _strip_number_suffix(b_after)
-    if a_prefix_check.startswith("L") and (len(a_prefix_check) < 2 or a_prefix_check[1].isupper()):
+    if a_base.startswith("L") and (len(a_base) < 2 or a_base[1].isupper()):
         return (a, b)
-    if b_prefix_check.startswith("L") and (len(b_prefix_check) < 2 or b_prefix_check[1].isupper()):
+    if b_base.startswith("L") and (len(b_base) < 2 or b_base[1].isupper()):
         return (b, a)
     return (a, b)
 
@@ -748,8 +772,10 @@ class OrientationReport:
         rest pose carries no direction (a single node, or every node at
         one point).
     rest_up_source : {"named_joint", "largest_spread"} or None
-        ``"named_joint"``: the main axis from the root to the first node
-        named ``head``, else ``neck``, ``chest`` or ``spine``.
+        ``"named_joint"``: the main axis from the root to the first
+        joint whose name holds ``head`` as a word, else ``neck``,
+        ``chest`` or ``spine`` (``Head``, ``mixamorig:Head``, ``Bip01
+        Head``; not ``Forehead``).
         ``"largest_spread"``: no such node, so the axis along which the
         rest pose spreads most, signed by the side most of the body lies
         on. ``None`` with ``rest_up``.

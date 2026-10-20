@@ -8024,6 +8024,8 @@ class TestParsedAxisProperties:
 #  The orientation report (ADR 0004)
 # ========================================================================
 
+_TEST1 = Path(__file__).parent.parent / "bvh_data" / "bvh_test1.bvh"
+_TEST2 = Path(__file__).parent.parent / "bvh_data" / "bvh_test2.bvh"
 _TEST3 = Path(__file__).parent.parent / "bvh_data" / "bvh_test3.bvh"
 
 
@@ -8132,6 +8134,52 @@ class TestOrientationReport:
         assert_same_axis(bvh.rest_up_axis, parse_axis(report.rest_up))
         assert_same_axis(bvh.rest_forward_axis, parse_axis(report.rest_forward))
         assert bvh.has_lr_geometry is True
+
+
+def _renamed(bvh, rename):
+    """*bvh* with every node renamed by *rename*, through ``copy(nodes=)``."""
+    table = bvh.to_node_table()
+    for row in table:
+        row["name"] = rename(row["name"])
+    return bvh.copy(nodes=table)
+
+
+# Each bundled clip's skeleton frame, read from its head: (rest up, rest left,
+# rest forward), rest forward = rest left x rest up.
+_SKELETON_FRAMES = [
+    (_TEST1, ("+z", "-x", "+y")),
+    (_TEST2, ("+y", "+x", "+z")),
+    (_TEST3, ("+y", "+x", "+z")),
+]
+
+
+class TestRestUpAcrossRigConventions:
+    """Rest up read from a head, neck, chest or spine however the rig's
+    convention names it."""
+
+    @pytest.mark.parametrize("prefix", ["mixamorig:", "Bip01 "])
+    @pytest.mark.parametrize(("path", "frame"), _SKELETON_FRAMES)
+    def test_a_rig_prefix_keeps_the_skeleton_frame(self, path, frame, prefix):
+        clip = _renamed(_read_quietly(path), lambda name: prefix + name)
+        report = clip.orientation_report
+        assert (report.rest_up, report.rest_left, report.rest_forward) == frame
+        assert report.rest_up_source == "named_joint"
+
+    def test_a_namespaced_clip_faces_where_its_plain_twin_does(self):
+        # bvh_test2's hips sit mid-body: read from the largest spread, its
+        # rest up was -y and it faced -z, turning every heading by a half
+        # turn.
+        clip = _renamed(_read_quietly(_TEST2), lambda name: "mixamorig:" + name)
+        clip.world_up = "+y"
+        assert clip.rest_forward == "+z"
+
+    def test_the_world_up_guess_reads_the_same_head(self):
+        # bvh_test3's first frame stands along +z, its rest pose along +y:
+        # only the head at frame 0 says +z.
+        clip = _renamed(_read_quietly(_TEST3), lambda name: "mixamorig:" + name)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)  # the disagreement
+            assert clip.world_up_inferred == "+z"
 
 
 class TestOrientationReportLifecycle:

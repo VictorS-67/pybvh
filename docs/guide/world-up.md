@@ -32,7 +32,7 @@ b3.forward_at(0)   # '+y' — where the body faces in the world at frame 0
 
 ## Auto-detection
 
-When a clip is read from a file or built from arrays, `Bvh.__init__` guesses `world_up` from frame 0: the direction from the root to the head (the first node named `head`, else `neck`, `chest` or `spine`, the node `rest_up` reads too), snapped to its main axis when its largest component is at least twice the second. When frame 0 cannot decide (no such joint, no frames, or a crouched, lying or leaning first pose), the skeleton's own up, `rest_up`, stands in: a guess that assumes the rest pose is authored upright. When the rest pose is degenerate too, pybvh warns and falls back to `'+y'`. The result is a signed axis string like `'+y'` or `'+z'`, and `bvh.orientation_report.world_up_source` says which of the three gave it (`"first_frame"`, `"rest_up"`, `"default"`; see [The orientation report](#the-orientation-report)).
+When a clip is read from a file or built from arrays, `Bvh.__init__` guesses `world_up` from frame 0: the direction from the root to the head (the first joint whose name holds `head` as a word, else `neck`, `chest` or `spine`, the joint `rest_up` reads too), snapped to its main axis when its largest component is at least twice the second. When frame 0 cannot decide (no such joint, no frames, or a crouched, lying or leaning first pose), the skeleton's own up, `rest_up`, stands in: a guess that assumes the rest pose is authored upright. When the rest pose is degenerate too, pybvh warns and falls back to `'+y'`. The result is a signed axis string like `'+y'` or `'+z'`, and `bvh.orientation_report.world_up_source` says which of the three gave it (`"first_frame"`, `"rest_up"`, `"default"`; see [The orientation report](#the-orientation-report)).
 
 ```python
 bvh = pybvh.read_bvh_file("walk.bvh")
@@ -92,7 +92,7 @@ report = b3.orientation_report
 
 | Field | Values | Says |
 |---|---|---|
-| `rest_up_source` | `"named_joint"`, `"largest_spread"`, `None` | rest up read from a joint named head, neck, chest or spine; else from the axis along which the rest pose spreads most; `None` when the rest pose carries no direction |
+| `rest_up_source` | `"named_joint"`, `"largest_spread"`, `None` | rest up read from a joint named for the head, neck, chest or spine; else from the axis along which the rest pose spreads most; `None` when the rest pose carries no direction |
 | `rest_left` | a signed axis or `None` | the skeleton's own left (next sections) |
 | `rest_forward_source` | `"lr_geometry"`, `"default"` | rest forward measured as rest left × rest up, or the house default for a rest pose without usable L/R geometry |
 | `world_up_source` | `"set"`, `"first_frame"`, `"rest_up"`, `"default"` | world up set by you, guessed from frame 0, guessed from rest up because frame 0 could not decide, or the house `'+y'` |
@@ -192,7 +192,7 @@ bvh.orientation_report.rest_left    # '+x' — the skeleton's own left
 bvh.rest_forward                    # '+z' — the direction the rest pose faces: rest left × rest up
 ```
 
-- **`rest_up`** is the main axis from the root to the first node named `head`, else `neck`, `chest` or `spine`; without one, the axis along which the rest pose spreads most (`rest_up_source` says which).
+- **`rest_up`** is the main axis from the root to the first joint whose name holds `head` as a word, else `neck`, `chest` or `spine`, in any case and after a `foo:` namespace or a `.001` suffix: `Head`, `mixamorig:Head`, `Bip01 Head`, `CC_Base_Head` and `J_Bip_C_Head` are heads, `Forehead` is not. Without one, the axis along which the rest pose spreads most (`rest_up_source` says which).
 - **Rest left** averages the left-minus-right rest positions of the L/R pairs, removes the `rest_up` component and snaps the rest to an axis. `mirror` reflects along it. It is in the report only.
 - **`rest_forward`** is rest left × rest up. Without usable L/R geometry (no pairs, or pairs that lie along rest up) it is the house default for rest up (`'+y'` gives `'+z'`, `'+z'` gives `'+x'`, `'+x'` gives `'+y'`), reading it warns, `has_lr_geometry` is `False` and `rest_forward_source` is `"default"`.
 

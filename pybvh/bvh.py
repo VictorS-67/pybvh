@@ -1199,7 +1199,12 @@ class Bvh:
 
     def _rest_skeleton(self) -> _RestSkeleton:
         """The skeleton in its rest pose, as the orientation module reads it."""
-        return _RestSkeleton(self._node_names(), self._rest_pose(), self._facing_lr_pairs())
+        return _RestSkeleton(
+            self._node_names(),
+            self._rest_pose(),
+            self.fk_topology.joint_idx < 0,
+            self._facing_lr_pairs(),
+        )
 
     def _warn_about_world_up_guess(self, guess: _WorldUpGuess, rest_up: str | None) -> None:
         """Warn when *guess* is the house default, or when it disagrees with
@@ -1382,13 +1387,17 @@ class Bvh:
     def rest_up(self) -> str | None:
         """The skeleton's own up axis, read from the rest pose alone.
 
-        Read-only. The main axis from the root to the first node, in
-        node order, named ``head``, else ``neck``, ``chest`` or
-        ``spine`` (whole name, any case), skipping one that sits at the
-        root; without such a node, the axis along which the rest pose
-        spreads most (:attr:`orientation_report` says which, in
-        ``rest_up_source``). The animation is never read.
-        :attr:`world_up`'s guess reads the same node.
+        Read-only. The main axis from the root to the first joint, in
+        node order, whose name holds ``head`` as a word, else ``neck``,
+        ``chest`` or ``spine``, in any case and after a ``foo:``
+        namespace or a ``.001`` suffix: ``Head``, ``mixamorig:Head``,
+        ``Bip01 Head`` and ``CC_Base_Head`` are heads, ``Forehead`` is
+        not. A joint that sits at the root is skipped, and end sites,
+        whose names are generated, are not read. Without such a joint,
+        the axis along which the rest pose spreads most
+        (:attr:`orientation_report` says which, in ``rest_up_source``).
+        The animation is never read. :attr:`world_up`'s guess reads the
+        same joint.
 
         Contrast with :attr:`world_up`, which is *animation*-derived
         (inferred from the first frame's head-above-hips direction). On

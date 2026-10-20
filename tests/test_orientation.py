@@ -46,10 +46,16 @@ _REST = np.array(
 )
 
 
-def _skeleton(names, rest, lr_pairs=()):
-    """The rest skeleton the module reads, from names, positions and pairs."""
+def _skeleton(names, rest, lr_pairs=(), end_sites=()):
+    """The rest skeleton the module reads, from names, positions, pairs and
+    the indices of the end sites."""
+    is_end_site = np.zeros(len(names), dtype=bool)
+    is_end_site[list(end_sites)] = True
     return _RestSkeleton(
-        names, np.asarray(rest, dtype=float), np.asarray(lr_pairs, dtype=np.intp).reshape(-1, 2)
+        names,
+        np.asarray(rest, dtype=float),
+        is_end_site,
+        np.asarray(lr_pairs, dtype=np.intp).reshape(-1, 2),
     )
 
 
@@ -69,10 +75,34 @@ class TestUpMarker:
         rest = np.array([[1.0, 2.0, 3.0], [1.0, 2.0, 3.0], [1.0, 9.0, 3.0]])
         assert _up_marker_index(_skeleton(names, rest)) == 2
 
-    def test_names_match_whole_and_ignore_case(self):
-        names = ["Hips", "mixamorig:Head", "SPINE"]
+    @pytest.mark.parametrize(
+        "head",
+        ["mixamorig:Head", "Bip01 Head", "CC_Base_Head", "J_Bip_C_Head", "Head.001", "HEAD"],
+    )
+    def test_a_head_named_in_a_rig_convention_comes_before_the_spine(self, head):
+        names = ["Hips", "Spine", head]
+        rest = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, -3.0], [0.0, 9.0, 0.0]])
+        assert _up_marker_index(_skeleton(names, rest)) == 2
+
+    def test_a_part_matches_as_a_whole_word_of_the_name(self):
+        # "Forehead" holds "head" but is another word; "SPINE" is the
+        # spine in capitals.
+        names = ["Hips", "Forehead", "SPINE"]
         rest = np.array([[0.0, 0.0, 0.0], [0.0, 9.0, 0.0], [0.0, 0.0, -3.0]])
         assert _up_marker_index(_skeleton(names, rest)) == 2
+
+    def test_a_joint_above_the_head_is_a_head(self):
+        # Mixamo's HeadTop_End is a joint at the top of the head.
+        names = ["Hips", "Spine", "HeadTop_End"]
+        rest = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, -3.0], [0.0, 9.0, 0.0]])
+        assert _up_marker_index(_skeleton(names, rest)) == 2
+
+    def test_an_end_site_is_never_the_marker(self):
+        # An end site's name is generated from its parent's ('EndSite' +
+        # the parent's name), so it names no body part of its own.
+        names = ["Hips", "Spine", "EndSiteHead"]
+        rest = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, -3.0], [0.0, 9.0, 0.0]])
+        assert _up_marker_index(_skeleton(names, rest, end_sites=[2])) == 1
 
     def test_none_without_a_named_part(self):
         assert _up_marker_index(_skeleton(["Root", "A", "B"], _REST[:3])) is None

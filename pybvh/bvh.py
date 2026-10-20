@@ -1199,10 +1199,12 @@ class Bvh:
 
     def _rest_skeleton(self) -> _RestSkeleton:
         """The skeleton in its rest pose, as the orientation module reads it."""
+        topology = self.fk_topology
         return _RestSkeleton(
             self._node_names(),
             self._rest_pose(),
-            self.fk_topology.joint_idx < 0,
+            topology.parent_idx,
+            topology.joint_idx < 0,
             self._facing_lr_pairs(),
         )
 
@@ -1394,10 +1396,13 @@ class Bvh:
         ``Bip01 Head`` and ``CC_Base_Head`` are heads, ``Forehead`` is
         not. A joint that sits at the root is skipped, and end sites,
         whose names are generated, are not read. Without such a joint,
-        the axis along which the rest pose spreads most
-        (:attr:`orientation_report` says which, in ``rest_up_source``).
-        The animation is never read. :attr:`world_up`'s guess reads the
-        same joint.
+        the axis opposite the legs: the pair of :attr:`lr_pairs` nearest
+        the root, read from the node it hangs from to the far ends of
+        its two chains. Without a pair either, the axis along which the
+        rest pose spreads most, a weak reading: a T-pose wider than tall
+        spreads most along its arms. :attr:`orientation_report` says
+        which, in ``rest_up_source``. The animation is never read.
+        :attr:`world_up`'s guess reads the same joint.
 
         Contrast with :attr:`world_up`, which is *animation*-derived
         (inferred from the first frame's head-above-hips direction). On

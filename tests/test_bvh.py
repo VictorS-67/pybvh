@@ -8173,6 +8173,18 @@ class TestRestUpAcrossRigConventions:
         clip.world_up = "+y"
         assert clip.rest_forward == "+z"
 
+    @pytest.mark.parametrize(("path", "frame"), _SKELETON_FRAMES)
+    def test_without_a_named_joint_rest_up_comes_from_the_legs(self, path, frame):
+        # Every name but the L/R ones (which keep the pairs) made
+        # meaningless, so no joint names a head, neck, chest or spine.
+        def rename(name):
+            return name if "Left" in name or "Right" in name else "Bone"
+
+        clip = _renamed(_read_quietly(path), rename)
+        report = clip.orientation_report
+        assert (report.rest_up, report.rest_left, report.rest_forward) == frame
+        assert report.rest_up_source == "leg_pair"
+
     def test_the_world_up_guess_reads_the_same_head(self):
         # bvh_test3's first frame stands along +z, its rest pose along +y:
         # only the head at frame 0 says +z.

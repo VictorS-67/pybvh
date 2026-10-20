@@ -46,17 +46,40 @@ _REST = np.array(
 )
 
 
-def _skeleton(names, rest, lr_pairs=(), end_sites=()):
-    """The rest skeleton the module reads, from names, positions, pairs and
-    the indices of the end sites."""
+def _skeleton(names, rest, lr_pairs=(), end_sites=(), parents=None):
+    """The rest skeleton the module reads, from names, positions, pairs, the
+    indices of the end sites and each node's parent (by default, every node
+    a child of the root)."""
     is_end_site = np.zeros(len(names), dtype=bool)
     is_end_site[list(end_sites)] = True
+    if parents is None:
+        parents = [-1] + [0] * (len(names) - 1)
     return _RestSkeleton(
         names,
         np.asarray(rest, dtype=float),
+        np.asarray(parents, dtype=np.intp),
         is_end_site,
         np.asarray(lr_pairs, dtype=np.intp).reshape(-1, 2),
     )
+
+
+# A T-pose wider than tall, standing along +y with its hips at the root and
+# nothing named for a body part: arms 20 across, 17 from feet to crown.
+_NAMELESS_NAMES = ["Root", "Waist", "Crown", "LeftArm", "RightArm"]
+_NAMELESS_NAMES += ["LeftLeg", "LeftFoot", "RightLeg", "RightFoot"]
+_NAMELESS_REST = [
+    [0.0, 0.0, 0.0],
+    [0.0, 5.0, 0.0],
+    [0.0, 8.0, 0.0],
+    [10.0, 6.0, 0.0],
+    [-10.0, 6.0, 0.0],
+    [2.0, -1.0, 0.0],
+    [2.0, -9.0, 1.0],
+    [-2.0, -1.0, 0.0],
+    [-2.0, -9.0, 1.0],
+]
+_NAMELESS_PARENTS = [-1, 0, 1, 1, 1, 0, 5, 0, 7]
+_NAMELESS_PAIRS = [[3, 4], [5, 7]]  # the arms, then the legs
 
 
 class TestUpMarker:
@@ -119,7 +142,34 @@ class TestRestUp:
         rest = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, -4.0], [0.0, 9.0, 0.0]])
         assert _infer_rest_up(_skeleton(names, rest)) == _RestUp("-z", "named_joint")
 
-    def test_largest_spread_without_a_named_part(self):
+    def test_opposite_the_legs_without_a_named_part(self):
+        # The largest spread would say x, the arm span; the legs hang from
+        # the root (the arms from the waist) and their far ends, the feet,
+        # lie along -y from it.
+        skeleton = _skeleton(
+            _NAMELESS_NAMES, _NAMELESS_REST, _NAMELESS_PAIRS, parents=_NAMELESS_PARENTS
+        )
+        assert _infer_rest_up(skeleton) == _RestUp("+y", "leg_pair")
+
+    def test_the_legs_below_a_root_on_the_floor(self):
+        # Root -> Hips -> legs, the root on the floor under the hips: the
+        # legs are the pair nearest the root, read from the hips they hang
+        # from, since the feet lie level with the root (a little forward,
+        # along +z).
+        names = ["Root", "Hips", "Waist", "LeftLeg", "LeftFoot", "RightLeg", "RightFoot"]
+        rest = [
+            [0.0, 0.0, 0.0],
+            [0.0, 9.0, 0.0],
+            [0.0, 14.0, 0.0],
+            [2.0, 8.0, 0.0],
+            [2.0, 0.0, 1.0],
+            [-2.0, 8.0, 0.0],
+            [-2.0, 0.0, 1.0],
+        ]
+        skeleton = _skeleton(names, rest, [[3, 5]], parents=[-1, 0, 1, 1, 3, 1, 5])
+        assert _infer_rest_up(skeleton) == _RestUp("+y", "leg_pair")
+
+    def test_largest_spread_without_a_named_part_or_pairs(self):
         rest = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 7.0]])
         assert _infer_rest_up(_skeleton(["Root", "A", "B"], rest)) == _RestUp(
             "+z", "largest_spread"
@@ -160,7 +210,14 @@ class TestWorldUpGuess:
     def test_without_frames_rest_up(self):
         assert _infer_world_up(_skeleton(_NAMES, _REST), None) == ("+y", "rest_up")
 
-    def test_without_a_named_part_rest_up_from_the_largest_spread(self):
+    def test_without_a_named_part_rest_up_from_the_leg_pair(self):
+        skeleton = _skeleton(
+            _NAMELESS_NAMES, _NAMELESS_REST, _NAMELESS_PAIRS, parents=_NAMELESS_PARENTS
+        )
+        frame0 = np.asarray(_NAMELESS_REST)[:, [0, 2, 1]]
+        assert _infer_world_up(skeleton, frame0) == ("+y", "rest_up")
+
+    def test_without_a_named_part_or_pairs_rest_up_from_the_largest_spread(self):
         rest = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 7.0]])
         frame0 = rest[:, [2, 1, 0]]
         assert _infer_world_up(_skeleton(["Root", "A", "B"], rest), frame0) == ("+z", "rest_up")
@@ -448,11 +505,13 @@ class TestReport:
             False,
         )
 
-    def test_rest_up_from_the_largest_spread(self):
-        names = ["Root", "A", "LeftHand", "RightHand"]
-        rest = np.array([[0.0, 0.0, 0.0], [0.0, 9.0, 0.0], [2.0, 4.0, 0.0], [-2.0, 4.0, 0.0]])
-        report = _build_orientation_report(_skeleton(names, rest, [[2, 3]]), "+y", False, "set")
-        assert (report.rest_up, report.rest_up_source) == ("+y", "largest_spread")
+    def test_rest_up_from_the_leg_pair(self):
+        skeleton = _skeleton(
+            _NAMELESS_NAMES, _NAMELESS_REST, _NAMELESS_PAIRS, parents=_NAMELESS_PARENTS
+        )
+        report = _build_orientation_report(skeleton, "+y", False, "set")
+        assert (report.rest_up, report.rest_up_source) == ("+y", "leg_pair")
+        # Left +x (both pairs' left sides lie along +x) x up +y.
         assert (report.rest_forward, report.rest_forward_source) == ("+z", "lr_geometry")
 
     def test_rest_forward_defaulted_without_pairs(self):

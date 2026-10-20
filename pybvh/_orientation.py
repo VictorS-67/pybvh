@@ -90,7 +90,7 @@ _FALLBACK_FORWARD = {"y": "+z", "z": "+x", "x": "+y"}
 _UP_BODY_PARTS = ("head", "neck", "chest", "spine")
 
 # What each orientation fact was read from, as OrientationReport names it.
-_RestUpSource = Literal["named_joint", "largest_spread"]
+_RestUpSource = Literal["named_joint", "leg_pair", "largest_spread"]
 _RestForwardSource = Literal["lr_geometry", "default"]
 _WorldUpGuessSource = Literal["first_frame", "rest_up", "default"]
 _WorldUpSource = Literal["set", _WorldUpGuessSource]
@@ -148,6 +148,9 @@ class _RestSkeleton(NamedTuple):
         repeat.
     rest_positions : ndarray of shape (N, 3)
         The rest pose's node positions, in the same order.
+    parent_idx : ndarray of shape (N,)
+        Each node's parent index, ``-1`` for the root; a parent comes
+        before its children.
     is_end_site : ndarray of shape (N,), bool
         Which nodes are end sites.
     lr_pairs : ndarray of shape (P, 2)
@@ -157,6 +160,7 @@ class _RestSkeleton(NamedTuple):
 
     node_names: Sequence[str]
     rest_positions: npt.NDArray[np.float64]
+    parent_idx: npt.NDArray[np.intp]
     is_end_site: npt.NDArray[np.bool_]
     lr_pairs: npt.NDArray[np.intp]
 
@@ -210,25 +214,93 @@ class _RestUp(NamedTuple):
     """The skeleton's own up and what it was read from.
 
     ``source`` is ``"named_joint"`` (the up marker,
-    :func:`_up_marker_index`) or ``"largest_spread"`` (no marker: the
-    axis along which the rest pose spreads most).
+    :func:`_up_marker_index`), ``"leg_pair"`` (no marker: opposite the
+    legs, :func:`_up_from_leg_pair`) or ``"largest_spread"`` (neither:
+    the axis along which the rest pose spreads most).
     """
 
     axis: str
     source: _RestUpSource
 
 
+def _subtree_mask(parent_idx: npt.NDArray[np.intp], top: int) -> npt.NDArray[np.bool_]:
+    """Which nodes are *top* or below it, for parents that precede children."""
+    inside = np.zeros(len(parent_idx), dtype=bool)
+    inside[top] = True
+    # One pass in node order: a node is inside when its parent is.
+    for node in range(top + 1, len(parent_idx)):
+        inside[node] = inside[parent_idx[node]]
+    return inside
+
+
+def _common_ancestor(parent_idx: npt.NDArray[np.intp], a: int, b: int) -> int:
+    """The nearest node that is *a* or above it and *b* or above it."""
+    above_a = {a}
+    while parent_idx[a] >= 0:
+        a = int(parent_idx[a])
+        above_a.add(a)
+    while b not in above_a:
+        b = int(parent_idx[b])
+    return b
+
+
+def _up_from_leg_pair(skeleton: _RestSkeleton) -> str | None:
+    """Rest up opposite the legs: the L/R pair that hangs from the root.
+
+    The legs are the L/R pair nearest the root in the tree, the fewest
+    bones from the root to the deeper of its two joints, the first in
+    the mapping's order on a tie: so they are found whether they are
+    the root's children (``Hips`` -> ``LeftUpLeg``) or hang from a node
+    below it (``Root`` -> ``Hips`` -> legs). Each leg's far end is the
+    node below it, end sites included, farthest from the node the pair
+    hangs from (the two joints' nearest common ancestor), and up is the
+    main axis from the middle of the two far ends to that node. Read
+    from the node the pair hangs from, not from the root: a root on the
+    floor under the hips sits level with the feet.
+
+    Returns
+    -------
+    str or None
+        The signed axis string, or ``None`` without a pair, or when the
+        far ends coincide with the node the pair hangs from.
+    """
+    pairs = skeleton.lr_pairs
+    if pairs.shape[0] == 0:
+        return None
+    parent_idx = skeleton.parent_idx
+    depth = np.zeros(len(parent_idx), dtype=np.intp)
+    # Parents precede children, so one pass in node order reads each depth.
+    for node in range(1, len(parent_idx)):
+        depth[node] = depth[parent_idx[node]] + 1
+    # argmin keeps the first pair of the smallest depth.
+    left, right = (int(i) for i in pairs[np.argmin(depth[pairs].max(axis=1))])
+
+    positions = skeleton.rest_positions
+    hip = positions[_common_ancestor(parent_idx, left, right)]
+    far_ends = []
+    for leg in (left, right):
+        below = np.flatnonzero(_subtree_mask(parent_idx, leg))
+        distances = np.linalg.norm(positions[below] - hip, axis=1)
+        far_ends.append(positions[below[np.argmax(distances)]])
+    return get_main_direction(hip - np.mean(far_ends, axis=0))
+
+
 def _infer_rest_up(skeleton: _RestSkeleton) -> _RestUp | None:
     """The skeleton's own up, read from the rest pose alone, with its source.
 
     The main axis from the root to the node :func:`_up_marker_index`
-    finds; without one, the axis along which the rest pose spreads most,
-    signed by the side its nodes lie on.
+    finds; without one, the axis opposite the legs, the L/R pair that
+    hangs from the root (:func:`_up_from_leg_pair`); without a pair, the
+    axis along which the rest pose spreads most, signed by the side its
+    nodes lie on. The largest spread is the weakest reading: a T-pose
+    wider than tall spreads most along its arms, and hips mid-body put
+    as much of it below the root as above.
 
     Parameters
     ----------
     skeleton : _RestSkeleton
-        The node names and the rest pose.
+        The skeleton in its rest pose, with the pairs of the L/R mapping
+        in effect.
 
     Returns
     -------
@@ -244,6 +316,10 @@ def _infer_rest_up(skeleton: _RestSkeleton) -> _RestUp | None:
         # The marker is chosen for having a direction from the root.
         assert axis is not None
         return _RestUp(axis, "named_joint")
+
+    leg_pair_up = _up_from_leg_pair(skeleton)
+    if leg_pair_up is not None:
+        return _RestUp(leg_pair_up, "leg_pair")
 
     spread = np.ptp(local, axis=0)
     if float(np.max(spread)) < _MIN_REST_SPREAD:
@@ -771,14 +847,18 @@ class OrientationReport:
         The skeleton's own up, a signed axis string, ``None`` when the
         rest pose carries no direction (a single node, or every node at
         one point).
-    rest_up_source : {"named_joint", "largest_spread"} or None
+    rest_up_source : {"named_joint", "leg_pair", "largest_spread"} or None
         ``"named_joint"``: the main axis from the root to the first
         joint whose name holds ``head`` as a word, else ``neck``,
         ``chest`` or ``spine`` (``Head``, ``mixamorig:Head``, ``Bip01
         Head``; not ``Forehead``).
-        ``"largest_spread"``: no such node, so the axis along which the
-        rest pose spreads most, signed by the side most of the body lies
-        on. ``None`` with ``rest_up``.
+        ``"leg_pair"``: no such joint, so the axis opposite the legs:
+        from the far ends of the L/R pair nearest the root to the node
+        that pair hangs from. ``"largest_spread"``: no L/R pair either,
+        so the axis along which the rest pose spreads most, signed by
+        the side most of the body lies on, a weak reading (wrong in axis
+        on a T-pose wider than tall, in sign when the hips sit
+        mid-body). ``None`` with ``rest_up``.
     rest_left : str or None
         The skeleton's own left: the left-minus-right rest positions of
         the L/R pairs, averaged, with the ``rest_up`` component removed,

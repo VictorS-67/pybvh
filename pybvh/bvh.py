@@ -28,6 +28,28 @@ import numpy.typing as npt
 
 from . import rotations
 from ._derived import DerivedState as _DerivedState
+from ._orientation import (
+    OrientationReport,
+    _build_orientation_report,
+    _detect_lr_mapping_by_names,
+    _facing_basis,
+    _facing_labels,
+    _infer_rest_up_and_left,
+    _infer_world_up,
+    _iter_unique_lr_pairs,
+    _LrMappingSource,
+    _resolve_lr_pairs,
+    _resolve_node_lr_pairs,
+    _RestSkeleton,
+    _warn_facing_defaulted_at_frames,
+    _warn_facing_defaulted_no_pairs,
+    _warn_facing_defaulted_on_pose,
+    _warn_rest_forward_defaulted,
+    _warn_world_up_defaulted,
+    _warn_world_up_disagreement,
+    _world_up_disagrees,
+    _WorldUpGuess,
+)
 from ._warnings import user_stacklevel
 
 # Re-exported: pybvh.bvh has long served every node class, end sites included.
@@ -48,14 +70,6 @@ from .spatial_coord import (
 from .tools import (
     Axis,
     _axis_to_vector,
-    _compute_forward_at,
-    _compute_left_at,
-    _detect_lr_mapping_by_names,
-    _facing_is_measured,
-    _infer_world_up,
-    _iter_unique_lr_pairs,
-    _resolve_node_lr_pairs,
-    _rest_upward,
     _validate_axis_string,
     _validate_fps,
     _validate_frame_time,
@@ -257,7 +271,7 @@ class Bvh:
         world_up: str = "auto",
         lr_mapping: dict[str, str] | None = None,
         source_path: str | None = None,
-        warn_on_disagreement: bool = True,
+        warn_on_world_up_disagreement: bool = True,
     ) -> None:
         # The derived state exists before any property setter runs, so the
         # setters can report their change unconditionally. Each value in it
@@ -270,7 +284,7 @@ class Bvh:
         # call, because the guess starts again when the user assigns
         # motion, and world_up_inferred guesses afresh on every read: each
         # of those must still see what the caller asked for at load.
-        self._warn_on_world_up_disagreement = warn_on_disagreement
+        self._warn_on_world_up_disagreement = warn_on_world_up_disagreement
         # The user's L/R choice: a mapping they set (one direction, left to
         # right), None once they cleared it, or "names" (the default) for
         # the pairs detected from the joint names.
@@ -469,8 +483,9 @@ class Bvh:
 
         The transforms, ``a += b`` and the rebuild of a derived clip write
         here and report that the motion changed. The public setters report
-        that the user replaced the motion, the one change that starts the
-        world-up guess again (ADR 0003).
+        that the user replaced the motion, which starts the world-up guess
+        again (ADR 0003), as setting the L/R mapping does for a guess of the
+        clip's own (ADR 0004).
         """
         if root_pos is not None:
             self._root_pos = _checked_root_pos(root_pos)
@@ -920,7 +935,7 @@ class Bvh:
             nodes=new_nodes,
         )
         if isinstance(setting, dict):
-            edited._lr_mapping_setting = setting
+            edited._set_lr_mapping_setting(setting)
         return edited
 
     def _derive_clip(
@@ -959,6 +974,7 @@ class Bvh:
         """
         self._settle_world_up()
         derived = self._derived
+        guess = derived.inherited_world_up or derived.inferred_world_up
         return {
             "nodes": self.nodes,
             "root_pos": self._root_pos,
@@ -966,8 +982,11 @@ class Bvh:
             "frame_time": self.frame_time,
             "source_path": self.source_path,
             "world_up_override": self._world_up_override,
-            "world_up_guess": derived.inherited_world_up or derived.inferred_world_up,
-            "warn_on_disagreement": self._warn_on_world_up_disagreement,
+            # The guess's source travels with it, so the rebuilt clip
+            # reports how the axis it inherits was obtained. A plain
+            # (axis, source) pair: a pickle names no private class.
+            "world_up_guess": None if guess is None else tuple(guess),
+            "warn_on_world_up_disagreement": self._warn_on_world_up_disagreement,
             "lr_mapping_setting": self._lr_mapping_setting,
         }
 
@@ -979,7 +998,7 @@ class Bvh:
             nodes=state["nodes"],
             frame_time=state["frame_time"],
             source_path=state["source_path"],
-            warn_on_disagreement=state["warn_on_disagreement"],
+            warn_on_world_up_disagreement=state["warn_on_world_up_disagreement"],
         )
         self._set_motion(root_pos=state["root_pos"], joint_angles=state["joint_angles"])
         # A clip built without motion holds (0, 0, 3) angles whatever its
@@ -987,8 +1006,9 @@ class Bvh:
         if self._joint_angles.shape[:2] != (0, 0):
             self._check_motion_fits_skeleton()
         self._world_up_override = state["world_up_override"]
-        self._lr_mapping_setting = state["lr_mapping_setting"]
-        self._derived.inherited_world_up = state["world_up_guess"]
+        self._set_lr_mapping_setting(state["lr_mapping_setting"])
+        guess = state["world_up_guess"]
+        self._derived.inherited_world_up = None if guess is None else _WorldUpGuess(*guess)
 
     def _settle_world_up(self) -> None:
         """Guess world up now, unless it is set or already guessed.
@@ -1016,9 +1036,12 @@ class Bvh:
         for name in ("inferred_world_up", "inherited_world_up"):
             guess = getattr(derived, name)
             if guess is not None:
-                turned = _get_main_direction(rotation @ _axis_to_vector(guess))
+                turned = _get_main_direction(rotation @ _axis_to_vector(guess.axis))
                 assert turned is not None  # a rotation keeps a unit vector unit
-                setattr(derived, name, turned)
+                setattr(derived, name, guess._replace(axis=turned))
+        # The turned guess is the world up every value measured along it
+        # now reads, as a new override is.
+        derived.world_up_changed()
 
     def _freeze_skeleton(self) -> None:
         """Freeze every node the clip owns, so its skeleton cannot change
@@ -1067,7 +1090,11 @@ class Bvh:
         head-above-hips direction, with rest-pose topology as fallback.
         Issues a ``UserWarning`` if the first frame and rest pose disagree,
         unless the clip (or the clip it derives from) was loaded with
-        ``warn_on_world_up_disagreement=False``.
+        ``warn_on_world_up_disagreement=False``, and one if nothing says
+        which way is up; each warning is given once per guess, on the
+        first read of the axis that guess gave (at load, for a clip read
+        from a file). :attr:`orientation_report` says which state below
+        the axis is in and what a guess was read from.
 
         A clip's world up is in one of three states:
 
@@ -1081,7 +1108,12 @@ class Bvh:
           clip read from a file or built from arrays. It is guessed again
           when you assign :attr:`root_pos`, :attr:`joint_angles` or frames
           (``bvh[i] = other``), the one change that replaces the
-          recording, and never by an edit pybvh makes.
+          recording, and never by an edit pybvh makes. Setting
+          :attr:`lr_mapping` guesses it again too: on a rig with no head,
+          neck, chest or spine joint the guess falls back to
+          :attr:`rest_up`, which is read from the legs of the mapping, so
+          the clip gets the axis that mapping passed at load gives. A guess
+          from the first frame comes out the same, and does not warn again.
         - **Inherited**: a clip pybvh derives from this one reports the
           axis guessed here, without guessing from its own frames:
           ``copy()``, slicing, ``a + b`` and ``a += b`` (from ``a``),
@@ -1090,22 +1122,27 @@ class Bvh:
           transforming a clip does not change which way is up, though a
           slice whose first frame is a crouch or a fall would be guessed
           differently on its own. Assigning motion to the derived clip
-          guesses again, as for an inferred axis.
+          guesses again, as for an inferred axis; setting
+          :attr:`lr_mapping` on it does not.
 
         :attr:`world_up_inferred` always guesses from this clip's own
         motion: where it differs from ``world_up`` and you set no axis,
         the axis was inherited.
 
         The detection specifics, since they decide which answer you get:
-        "head" is the first **exact** lowercase name match among
-        ``head``, ``neck``, ``chest``, ``spine`` (so a namespaced
-        ``mixamorig:Head`` does not match), "hips" is always the root
-        node whatever it is called, and the frame-0 reading is accepted
-        only when its largest component exceeds twice the second-largest
-        — a crouched, lying or leaning first frame is treated as
-        ambiguous and silently defers to :attr:`rest_up`. When the rest
-        pose is degenerate too, the property warns and returns ``'+y'``.
-        Use :attr:`world_up_inferred` to see what the heuristic picks
+        "head" is the joint :attr:`rest_up` reads, the first in node
+        order whose name holds ``head`` as a word, else ``neck``,
+        ``chest`` or ``spine``, in any case and after a ``foo:``
+        namespace or a ``.001`` suffix (``mixamorig:Head`` and ``Bip01
+        Head`` match, ``Forehead`` does not; end sites are not read),
+        skipping one that sits at the root in the rest pose; "hips" is
+        always the root node whatever it is called; and the frame-0
+        reading is accepted only when its largest component is at least
+        twice the second-largest — a crouched, lying or leaning first
+        frame is treated as ambiguous and silently defers to
+        :attr:`rest_up`. When the rest pose is degenerate too, the
+        property warns and returns ``'+y'``. Use
+        :attr:`world_up_inferred` to see what the heuristic picks
         while an override is in effect.
 
         Can be overridden manually via the setter when auto-detection
@@ -1120,16 +1157,17 @@ class Bvh:
         Note: BVH files do not store a world-up field, so manual overrides
         are lost on write→read round trips and must be re-applied.
         """
-        if self._world_up_override is not None:
-            return self._world_up_override
+        report = self.orientation_report
         derived = self._derived
-        if derived.inherited_world_up is not None:
-            return derived.inherited_world_up
-        if derived.inferred_world_up is None:
-            derived.inferred_world_up = _infer_world_up(
-                self, warn=self._warn_on_world_up_disagreement
-            )
-        return derived.inferred_world_up
+        # A guess of this clip's own warns on the first read of the axis it
+        # gave, once; an inherited guess warned on the clip it was made on.
+        guessed_here = report.world_up_source != "set" and not report.world_up_inherited
+        if guessed_here and not derived.world_up_guess_announced:
+            guess = derived.inferred_world_up
+            assert guess is not None  # the report read world up from it
+            self._warn_about_world_up_guess(guess, report.rest_up)
+            derived.world_up_guess_announced = True
+        return report.world_up
 
     @world_up.setter
     def world_up(self, value: str | None) -> None:
@@ -1159,10 +1197,38 @@ class Bvh:
             >>> bvh.world_up_inferred  # '+y'  (auto's guess)
             >>> bvh.world_up           # '+z'  (user override)
         """
-        return _infer_world_up(self, warn=self._warn_on_world_up_disagreement)
+        guess = self._guess_world_up()
+        self._warn_about_world_up_guess(guess, self.rest_up)
+        return guess.axis
+
+    def _guess_world_up(self) -> _WorldUpGuess:
+        """Guess world up from this clip's own first frame and rest pose."""
+        frame0 = self.node_positions(frame=0) if self.frame_count > 0 else None
+        return _infer_world_up(self._rest_skeleton(), frame0)
+
+    def _rest_skeleton(self) -> _RestSkeleton:
+        """The skeleton in its rest pose, as the orientation module reads it."""
+        topology = self.fk_topology
+        return _RestSkeleton(
+            self._node_names(),
+            self._rest_pose(),
+            topology.parent_idx,
+            topology.joint_idx < 0,
+            self._facing_lr_pairs(),
+        )
+
+    def _warn_about_world_up_guess(self, guess: _WorldUpGuess, rest_up: str | None) -> None:
+        """Warn when *guess* is the house default, or when it disagrees with
+        *rest_up* and the clip was not loaded with
+        ``warn_on_world_up_disagreement=False``."""
+        if guess.source == "default":
+            _warn_world_up_defaulted()
+        elif self._warn_on_world_up_disagreement and _world_up_disagrees(guess, rest_up):
+            assert rest_up is not None  # a disagreement needs a rest up
+            _warn_world_up_disagreement(rest_up, guess.axis)
 
     @property
-    def up_axis(self) -> Axis:
+    def world_up_axis(self) -> Axis:
         """:attr:`world_up` parsed into numeric form — ``Axis(index, sign, vector)``.
 
         The three fields are the machine-usable views of the same signed axis string (always derived from the resolved :attr:`world_up`, so manual overrides are respected):
@@ -1174,26 +1240,26 @@ class Bvh:
         Example — up-positive heights of every node in every frame:
 
             >>> coords = bvh.node_positions()
-            >>> heights = coords[:, :, bvh.up_axis.index] * bvh.up_axis.sign
+            >>> heights = coords[:, :, bvh.world_up_axis.index] * bvh.world_up_axis.sign
 
         See Also
         --------
         world_up : The signed axis string this is parsed from (settable).
-        forward_axis, rest_up_axis : The other two parsed axis properties.
+        rest_forward_axis, rest_up_axis : The other two parsed axis properties.
         floor_height : The scene ground level along this axis, in raw (unsigned) coordinates.
         """
         return parse_axis(self.world_up)
 
     @property
-    def forward_axis(self) -> Axis:
+    def rest_forward_axis(self) -> Axis:
         """:attr:`rest_forward` parsed into numeric form — ``Axis(index, sign, vector)``.
 
-        Never ``None``: :attr:`rest_forward` always resolves, because forward is defined relative to :attr:`world_up` and falls back to an arbitrary-but-stable horizontal axis when the skeleton carries no usable L/R geometry. That fallback is indistinguishable here from a measured result — see :attr:`rest_forward` for the chain.
+        Never ``None``: :attr:`rest_forward` always resolves, because it falls back to an arbitrary-but-stable axis perpendicular to :attr:`rest_up` when the skeleton carries no usable L/R geometry. That fallback is indistinguishable here from a measured result; :attr:`orientation_report` (``rest_forward_source``) and :attr:`has_lr_geometry` tell them apart.
 
         See Also
         --------
         rest_forward : The signed axis string this is parsed from.
-        up_axis, rest_up_axis : The other two parsed axis properties.
+        world_up_axis, rest_up_axis : The other two parsed axis properties.
         """
         return parse_axis(self.rest_forward)
 
@@ -1203,12 +1269,12 @@ class Bvh:
 
         ``None`` exactly when :attr:`rest_up` is ``None`` — a degenerate rest pose (single-node skeleton, or all joints coincident) that carries no directional information. Each parsed axis property mirrors the nullability of the string it parses, so ``bvh.rest_up is None`` and ``bvh.rest_up_axis is None`` always agree.
 
-        Note this is the *topological* up axis. For the world vertical — animation-derived, and always defined — use :attr:`up_axis`.
+        Note this is the skeleton's own up axis, read from the rest pose alone. For the world vertical — animation-derived, and always defined — use :attr:`world_up_axis`.
 
         See Also
         --------
         rest_up : The signed axis string this is parsed from.
-        up_axis, forward_axis : The other two parsed axis properties.
+        world_up_axis, rest_forward_axis : The other two parsed axis properties.
         """
         rest_up = self.rest_up
         return None if rest_up is None else parse_axis(rest_up)
@@ -1266,14 +1332,88 @@ class Bvh:
         return floor
 
     @property
-    def rest_up(self) -> str | None:
-        """Skeleton's topological up axis, derived from the rest pose only.
+    def orientation_report(self) -> OrientationReport:
+        """Each orientation fact of the clip, and how it was obtained.
 
-        Read-only. Inspects rest-pose joint offsets (``"head"``,
-        ``"neck"``, ``"chest"``, ``"spine"`` in priority order; falls
-        back to the axis with the largest offset spread) and returns
-        the dominant signed axis. Pose-independent — the animation
-        data is never touched.
+        Whether :attr:`rest_up`, :attr:`rest_forward` and
+        :attr:`world_up` were set, measured or defaulted, and how, with
+        the rest pose's left and the source of the L/R mapping; see
+        :class:`~pybvh.OrientationReport` for each field. Those members
+        always answer, a default included, so their return value alone
+        cannot say which it was: this can.
+
+        Read without a warning: a warning about a default fires when the
+        defaulted fact itself is read (:attr:`world_up`, once per guess;
+        :attr:`rest_forward`; the facing), and each points here. Computed on first read and
+        kept until the skeleton changes, :attr:`world_up` or
+        :attr:`lr_mapping` is assigned, or the motion is assigned
+        (:attr:`root_pos`, :attr:`joint_angles`, ``bvh[i] = other``),
+        which guesses world up again.
+
+        Examples
+        --------
+        >>> report = bvh.orientation_report
+        >>> if report.rest_forward_source == "default":
+        ...     ...  # no usable L/R geometry: rest_forward is a house default
+        >>> report.world_up, report.world_up_source
+        ('+y', 'first_frame')
+        """
+        report = self._derived.orientation_report
+        if report is None:
+            report = self._read_orientation()
+            self._derived.orientation_report = report
+        return report
+
+    def _read_orientation(self) -> OrientationReport:
+        """Gather the report's inputs and build it."""
+        derived = self._derived
+        world_up_inherited = False
+        world_up: str | _WorldUpGuess
+        if self._world_up_override is not None:
+            world_up = self._world_up_override
+        elif derived.inherited_world_up is not None:
+            world_up = derived.inherited_world_up
+            world_up_inherited = True
+        else:
+            # Guessed silently: the guess's warnings are world_up's to give
+            # when the axis is read, not this report's.
+            if derived.inferred_world_up is None:
+                derived.inferred_world_up = self._guess_world_up()
+            world_up = derived.inferred_world_up
+        return _build_orientation_report(
+            self._rest_skeleton(),
+            world_up,
+            world_up_inherited,
+            self._lr_mapping_source(),
+        )
+
+    def _lr_mapping_source(self) -> _LrMappingSource | None:
+        """Where the L/R mapping in effect comes from, ``None`` without one."""
+        setting = self._lr_mapping_setting
+        if isinstance(setting, dict):
+            return "set"
+        return "names" if setting == "names" and self._lr_mapping is not None else None
+
+    @property
+    def rest_up(self) -> str | None:
+        """The skeleton's own up axis, read from the rest pose alone.
+
+        Read-only. The main axis from the root to the first joint, in
+        node order, whose name holds ``head`` as a word, else ``neck``,
+        ``chest`` or ``spine``, in any case and after a ``foo:``
+        namespace or a ``.001`` suffix: ``Head``, ``mixamorig:Head``,
+        ``Bip01 Head`` and ``CC_Base_Head`` are heads, ``Forehead`` is
+        not. A joint that sits at the root is skipped, and end sites,
+        whose names are generated, are not read. Without such a joint,
+        the axis opposite the legs: the first pair of :attr:`lr_pairs`
+        split across two branches of the pelvis (the first node down
+        from the root with more than one child), read from the pelvis
+        to the far ends of those branches. Without such a pair either,
+        the axis along which the rest pose spreads most, a weak reading:
+        a T-pose wider than tall spreads most along its arms.
+        :attr:`orientation_report` says
+        which, in ``rest_up_source``. The animation is never read.
+        :attr:`world_up`'s guess reads the same joint.
 
         Contrast with :attr:`world_up`, which is *animation*-derived
         (inferred from the first frame's head-above-hips direction). On
@@ -1288,17 +1428,32 @@ class Bvh:
             when the rest pose is degenerate (single-node skeletons or
             all-zero offsets) and carries no directional information.
         """
-        return _rest_upward(self)
+        return self.orientation_report.rest_up
 
     @property
     def rest_forward(self) -> str:
-        """Skeleton's topological forward axis, derived from the rest pose only.
+        """The direction the rest pose faces, in the skeleton's own frame.
 
-        Read-only. Computes forward from the rest-pose L/R lateral
-        geometry crossed with :attr:`world_up`. Pose-independent — the
-        animation data is never touched. Complements :attr:`rest_up`
-        (rest-pose up axis) and parallels :meth:`forward_at` (animation-
-        derived forward at a given frame).
+        Read-only. ``rest left × rest up``, where rest left is the rest
+        pose's L/R geometry (the pairs of :attr:`lr_mapping`) measured
+        against :attr:`rest_up`. Read from the rest pose alone, like
+        :attr:`rest_up`: never from :attr:`world_up` or the animation.
+        The rest pose is the skeleton with every rotation zero, so this
+        is a direction in the skeleton's frame, not in the world; the
+        root rotation of a frame carries it into the world, which is
+        what the heading of :func:`~pybvh.analysis.root_trajectory`
+        reads. On a clean file, where rest up is world up, it is also
+        what :meth:`forward_at` measures on the rest pose's own
+        positions. On a file whose rest pose is authored in another
+        convention than its motion it may lie along world up:
+        ``bvh_test3.bvh`` (world up ``'+z'``, rest up ``'+y'``) faces
+        ``'+z'``.
+
+        Without usable L/R geometry (no pairs, or pairs that lie along
+        rest up) it is a house default for rest up, arbitrary but
+        stable, and reading it warns; :attr:`orientation_report`
+        (``rest_forward_source``) and :attr:`has_lr_geometry` tell the
+        two apart.
 
         Use this to check whether a skeleton's rest-pose facing matches
         a dataset convention without having to call
@@ -1307,9 +1462,30 @@ class Bvh:
         Returns
         -------
         str
-            Signed axis string (e.g. ``'+z'``, ``'-x'``).
+            Signed axis string (e.g. ``'+z'``, ``'-x'``), perpendicular to
+            :attr:`rest_up`.
         """
-        return _compute_forward_at(self, self._rest_pose(), self.world_up)
+        report = self.orientation_report
+        if report.rest_forward_source == "default":
+            _warn_rest_forward_defaulted(report.rest_forward, report.rest_up)
+        return report.rest_forward
+
+    def _rest_left_of(self, mapping: dict[str, str] | None) -> str | None:
+        """The rest pose's left for the pairs of *mapping*, against rest up.
+
+        ``None`` without a usable one. :func:`~pybvh.transforms.mirror`
+        reads it for the mapping it mirrors with, which may be another
+        than the clip's own; :attr:`orientation_report` holds the rest
+        left of the clip's own mapping. Rest up is read with the same
+        pairs, as it would be with *mapping* set: on a rig without a
+        named up joint it comes from them.
+        """
+        pairs = _resolve_lr_pairs(mapping, self.node_index)
+        skeleton = self._rest_skeleton()._replace(
+            lr_pairs=np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
+        )
+        _rest_up, rest_left = _infer_rest_up_and_left(skeleton)
+        return rest_left
 
     @property
     def lr_mapping(self) -> dict[str, str] | None:
@@ -1339,9 +1515,15 @@ class Bvh:
 
             >>> bvh = read_bvh_file('weird.bvh', lr_mapping={...})
 
-        Consumers: ``mirror()``, ``forward_at()``, ``facing_frame()``,
-        ``_rest_leftward``, ``_compute_forward_at``,
-        ``reorient_rest_forward``.
+        Consumers: ``mirror()``, ``orientation_report`` (and so
+        ``rest_forward`` and ``has_lr_geometry``),
+        ``forward_at()``, ``left_at()``, ``facing_frame()``. On a rig with
+        no head, neck, chest or spine joint, ``rest_up`` is read from the
+        legs of the mapping, and so is the world up guessed from it: setting
+        the mapping guesses the clip's own :attr:`world_up` again, and its
+        :attr:`floor_height` with it, as passing it at load would have. A
+        world up set, or inherited from the clip this one was derived from,
+        stays (see :attr:`world_up`).
 
         Note: BVH files don't store L/R pair info, so user-set mappings
         are lost on ``bvh.write()`` round-trips — same wart as
@@ -1358,9 +1540,14 @@ class Bvh:
     @lr_mapping.setter
     def lr_mapping(self, value: dict[str, str] | None) -> None:
         if value is None:
-            self._lr_mapping_setting = None
+            self._set_lr_mapping_setting(None)
             return
         self._validate_and_set_lr_mapping(value)
+
+    def _set_lr_mapping_setting(self, setting: dict[str, str] | Literal["names"] | None) -> None:
+        """Make *setting* the user's L/R choice, and report the change."""
+        self._lr_mapping_setting = setting
+        self._derived.lr_mapping_changed()
 
     @property
     def _lr_mapping(self) -> dict[str, str] | None:
@@ -1375,7 +1562,7 @@ class Bvh:
             return setting
         detected = self._derived.names_lr_mapping
         if detected is None:
-            detected = _detect_lr_mapping_by_names(self)
+            detected = _detect_lr_mapping_by_names(self.joint_names)
             self._derived.names_lr_mapping = detected
         return detected or None
 
@@ -1384,37 +1571,31 @@ class Bvh:
         """Whether the rest pose carries usable left/right direction.
 
         ``True`` when the skeleton's L/R joint pairs give a lateral axis
-        that is neither degenerate nor parallel to :attr:`world_up` —
-        i.e. when the orientation properties are **measuring** this
-        skeleton rather than falling back to a default. The check walks
-        the same chain :attr:`rest_forward` computes with, so it is
-        ``False`` exactly when deriving a facing from the rest pose
-        emits the fallback ``UserWarning``. In particular, on a file
-        whose rest-pose and animation up axes disagree (the case
-        :attr:`world_up` inference warns about), an L/R axis parallel
-        to :attr:`world_up` is unusable and reports ``False`` even
-        though the pairs themselves exist.
+        in the rest pose that does not lie along :attr:`rest_up`, i.e.
+        when :attr:`rest_forward` is **measured** from this skeleton
+        rather than a house default: ``orientation_report.rest_forward_source
+        == "lr_geometry"``. It is ``False`` exactly when reading
+        :attr:`rest_forward` emits the fallback ``UserWarning``.
+        Like :attr:`rest_forward`, it reads the rest pose alone, never
+        :attr:`world_up`.
 
         This is the check :attr:`rest_forward` (and so
-        :attr:`forward_axis`, :meth:`forward_at`, :meth:`left_at` and
-        ``facing_frame``) cannot express in its own return value. Those
-        always yield an axis: with no usable L/R geometry they return an
-        arbitrary-but-stable horizontal axis chosen from
-        :attr:`world_up` alone, which is indistinguishable from a
-        measured result. When it matters whether a facing was derived
-        from the data — comparing a skeleton against a dataset
-        convention, say, where a fallback would "match" every time —
-        check this first.
+        :attr:`rest_forward_axis`) cannot express in its own return
+        value: with no usable L/R geometry it returns an
+        arbitrary-but-stable axis chosen from :attr:`rest_up` alone,
+        which is indistinguishable from a measured result. When it
+        matters whether a facing was derived from the data — comparing
+        a skeleton against a dataset convention, say, where a fallback
+        would "match" every time — check this first.
 
         Assigning :attr:`lr_mapping` explicitly is what fixes a ``False``
         on a skeleton whose joints simply are not named recognizably.
 
-        This property describes the *rest-pose* chain. The per-frame
+        This property describes the *rest pose*. The per-frame
         :meth:`forward_at` / :meth:`facing_frame` measure each frame's
-        coordinates first and only fall back to this chain on frames
-        where that fails, so on a skeleton with zero rest offsets but
-        animated L/R separation they can still measure while this
-        reports ``False``.
+        coordinates first and fall back only on frames where that
+        fails, so on a skeleton with zero rest offsets but animated L/R
+        separation they can still measure while this reports ``False``.
 
         Examples
         --------
@@ -1428,28 +1609,27 @@ class Bvh:
         rest_forward : The axis whose fallback this reports.
         lr_mapping : The pairs the measurement is derived from.
         """
-        return _facing_is_measured(self, self.world_up)
+        return self.orientation_report.rest_forward_source == "lr_geometry"
 
     @property
     def lr_pairs(self) -> list[tuple[int, int]] | None:
         """Left/right joint pairs as index tuples in ``joint_angles`` space.
 
-        Index-space counterpart of :attr:`lr_mapping`, derived from the
-        same cache.  Returns ``None`` when no mapping is available
-        (matches the ``lr_mapping`` sentinel — one "no pairs" convention
-        across both surfaces).
+        Index-space counterpart of :attr:`lr_mapping`: one
+        ``(left, right)`` tuple per pair, in mapping order, resolved as
+        :func:`~pybvh.transforms.mirror` resolves its pairs. Returns
+        ``None`` when no mapping is available (matches the
+        ``lr_mapping`` sentinel — one "no pairs" convention across both
+        surfaces); ``bvh.lr_pairs or []`` gives a list either way.
 
         Useful for graph construction and array-level ops that index
-        joints by position rather than by name.
+        joints by position rather than by name, such as
+        :func:`~pybvh.transforms.mirror_angles`.
         """
-        if self._lr_mapping is None:
+        mapping = self._lr_mapping
+        if mapping is None:
             return None
-        j_name2idx = self.joint_index
-        pairs: list[tuple[int, int]] = []
-        for left, right in self._lr_mapping.items():
-            if left in j_name2idx and right in j_name2idx:
-                pairs.append((j_name2idx[left], j_name2idx[right]))
-        return pairs
+        return _resolve_lr_pairs(mapping, self.joint_index)
 
     @property
     def node_lr_pairs(self) -> list[tuple[int, int]] | None:
@@ -1491,12 +1671,42 @@ class Bvh:
         """
         if self._lr_mapping is None:
             return None
-        pairs, _mismatches = _resolve_node_lr_pairs(self, self._lr_mapping)
+        pairs, _mismatches = self._node_lr_pairs_of(self._lr_mapping)
         return pairs
+
+    def _node_lr_pairs_of(
+        self, mapping: dict[str, str] | None
+    ) -> tuple[list[tuple[int, int]], list[tuple[str, int, str, int]]]:
+        """*mapping* resolved in ``nodes`` index space, and its end-site mismatches.
+
+        What :attr:`node_lr_pairs` and :func:`~pybvh.transforms.mirror`
+        read, each with its own policy on a mismatch.
+        """
+        topology = self.fk_topology
+        return _resolve_node_lr_pairs(
+            mapping,
+            self._node_names(),
+            topology.parent_idx,
+            topology.joint_idx < 0,
+        )
+
+    def _facing_lr_pairs(self) -> npt.NDArray[np.intp]:
+        """The L/R pairs the rest left and the facing read, in ``nodes`` index space.
+
+        Joint pairs only, as :attr:`lr_mapping` names them, resolved into
+        ``nodes`` index space so they index :meth:`node_positions` output.
+        End sites are not included: that is :attr:`node_lr_pairs`' job,
+        for mirroring positions, not for reading the facing. An ``(P, 2)``
+        int array, ``(0, 2)`` without an L/R mapping, so array code needs
+        no ``None`` branch. bvhplot stores it on its ``SkeletonView``, so
+        the follow camera needs no ``Bvh``.
+        """
+        pairs = _resolve_lr_pairs(self._lr_mapping, self.node_index)
+        return np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
 
     def _validate_and_set_lr_mapping(self, mapping: dict[str, str]) -> None:
         """Validate the user's lr_mapping dict and make it the mapping in effect."""
-        self._lr_mapping_setting = _validated_lr_mapping(mapping, self.joint_names)
+        self._set_lr_mapping_setting(_validated_lr_mapping(mapping, self.joint_names))
 
     def forward_at(
         self,
@@ -1515,18 +1725,24 @@ class Bvh:
         This is the snapped classification — the continuous facing
         vector is quantized to the nearest of the six signed world
         axes. See :meth:`facing_frame` for the continuous per-frame
-        basis as unit vectors.
+        basis as unit vectors, and for the fallback when the frame's
+        left/right axis cannot be read (the root's heading at that
+        frame, then a house default, which warns).
 
         Parameters
         ----------
         frame : int, optional
             Frame index (default 0). Must be within the animation range.
         coords : ndarray, shape (F, N, 3), optional
-            Pre-computed spatial coordinates for all frames. When
-            provided, skips the per-call forward kinematics — useful for
-            computing facing direction across many frames in a hot loop
-            (e.g. dataset uniformity diagnostics). The selected frame's
-            slice is taken via ``coords[frame]``.
+            Pre-computed spatial coordinates for all frames, as
+            :meth:`node_positions` returns them. When provided, skips
+            the per-call forward kinematics — useful for computing
+            facing direction across many frames in a hot loop (e.g.
+            dataset uniformity diagnostics). The selected frame's slice
+            is taken via ``coords[frame]``, which must hold clip frame
+            ``frame``'s positions: where its left/right axis cannot be
+            read, the fallback reads the clip's root rotation at
+            ``frame``, whatever ``coords`` holds.
 
         Returns
         -------
@@ -1540,11 +1756,7 @@ class Bvh:
             frames at once).
         left_at : Leftward direction.
         """
-        if coords is None:
-            frame_coords = self.node_positions(frame=frame)
-        else:
-            frame_coords = coords[frame]
-        return _compute_forward_at(self, frame_coords, self.world_up)
+        return self._facing_labels_at(frame, coords)[0]
 
     def left_at(
         self,
@@ -1565,16 +1777,23 @@ class Bvh:
         hip twist and shoulder rotation as the character moves.
 
         This is the snapped classification — see :meth:`facing_frame`
-        for the continuous per-frame basis as unit vectors.
+        for the continuous per-frame basis as unit vectors, and its
+        fallback. The label is ``world_up × forward_at(frame)``, so it is
+        never world up itself, even on a frame whose left/right axis is
+        vertical.
 
         Parameters
         ----------
         frame : int, optional
             Frame index (default 0). Must be within the animation range.
         coords : ndarray, shape (F, N, 3), optional
-            Pre-computed spatial coordinates for all frames. When
-            provided, skips the per-call forward kinematics. The selected
-            frame's slice is taken via ``coords[frame]``.
+            Pre-computed spatial coordinates for all frames, as
+            :meth:`node_positions` returns them. When provided, skips
+            the per-call forward kinematics. The selected frame's slice
+            is taken via ``coords[frame]``, which must hold clip frame
+            ``frame``'s positions: where its left/right axis cannot be
+            read, the fallback reads the clip's root rotation at
+            ``frame``, whatever ``coords`` holds.
 
         Returns
         -------
@@ -1589,11 +1808,68 @@ class Bvh:
             frames at once).
         world_up : World vertical axis.
         """
+        return self._facing_labels_at(frame, coords)[1]
+
+    def _facing_labels_at(
+        self, frame: int, coords: npt.NDArray[np.float64] | None
+    ) -> tuple[str, str]:
+        """The snapped ``(forward, left)`` labels at clip frame *frame*."""
         if coords is None:
             frame_coords = self.node_positions(frame=frame)
         else:
             frame_coords = coords[frame]
-        return _compute_left_at(self, frame_coords, self.world_up)
+        frame = range(self.frame_count)[frame]  # as the warning names it
+        forward, _, _, _ = self._facing_at(frame_coords[np.newaxis], [frame])
+        return _facing_labels(forward[0], self.world_up)
+
+    def _facing_at(
+        self,
+        coords: npt.NDArray[np.float64],
+        frames: Sequence[int] | slice | None,
+    ) -> tuple[
+        npt.NDArray[np.float64],
+        npt.NDArray[np.float64],
+        npt.NDArray[np.float64],
+        npt.NDArray[np.bool_],
+    ]:
+        """The facing chain on *coords*, whose rows are the clip's *frames*.
+
+        Gathers the chain's inputs (the facing L/R pairs, world up and,
+        when rest forward is measured, the root's heading at *frames*),
+        runs it, and warns when a row carries the house default. With
+        *frames* ``None`` the rows are a pose with no clip frame, and the
+        heading stage is skipped. Returns ``(forward, left, up, valid)``.
+        """
+        world_up = self.world_up
+        report = self.orientation_report
+        lr_pairs = self._facing_lr_pairs()
+        root_rotmats = rest_forward = None
+        if frames is not None and lr_pairs.shape[0] > 0:
+            if report.rest_forward_source == "lr_geometry":
+                rest_forward = report.rest_forward
+                root_rotmats = self._root_rotmats(frames)
+        forward, left, up, valid, defaulted = _facing_basis(
+            coords, lr_pairs, world_up, root_rotmats, rest_forward
+        )
+        if defaulted.any():
+            if lr_pairs.shape[0] == 0:
+                _warn_facing_defaulted_no_pairs(world_up)
+            elif frames is None:
+                _warn_facing_defaulted_on_pose(world_up)
+            else:
+                named = np.arange(self.frame_count)[frames][defaulted].tolist()
+                _warn_facing_defaulted_at_frames(world_up, named)
+        return forward, left, up, valid
+
+    def _root_rotmats(self, frames: Sequence[int] | slice = slice(None)) -> npt.NDArray[np.float64]:
+        """The root's rotation matrix at each of *frames*, shape ``(F, 3, 3)``.
+
+        What carries a direction of the skeleton's own frame into the
+        world at a frame (ADR 0004): the root's heading and the facing
+        chain's heading stage read it.
+        """
+        root_order = self.nodes[0].rot_channels  # type: ignore[attr-defined]
+        return rotations.euler_to_rotmat(self.joint_angles[frames, 0], root_order)
 
     def facing_frame(
         self,
@@ -1752,7 +2028,7 @@ class Bvh:
                 root_pos=self.root_pos[actual],
                 joint_angles=self.joint_angles[actual],
                 centered="first",
-                up=self.world_up,
+                world_up=self.world_up,
             )
         return frames_to_node_positions(
             self,
@@ -2084,6 +2360,10 @@ class Bvh:
         list of str
         """
         return [n.name for n in self.nodes if not n.is_end_site()]
+
+    def _node_names(self) -> list[str]:
+        """Every node's name, in node order, end sites included; names may repeat."""
+        return [node.name for node in self.nodes]
 
     @property
     def joint_count(self) -> int:
@@ -3015,7 +3295,7 @@ class Bvh:
                 for left, right in user_mapping.items()
                 if left in keep_set and right in keep_set
             }
-            new_bvh._lr_mapping_setting = kept_pairs or "names"
+            new_bvh._set_lr_mapping_setting(kept_pairs or "names")
         return new_bvh
 
     def _find_end_site_offset(self, node: BvhNode) -> npt.NDArray[np.float64]:
@@ -3141,7 +3421,7 @@ class Bvh:
 
     def root_trajectory(
         self,
-        up_axis: str | None = None,
+        world_up: str | None = None,
         include_velocities: bool = False,
         stencil: str = "central",
         pad: str = "edge",
@@ -3152,7 +3432,7 @@ class Bvh:
 
         return analysis.root_trajectory(
             self,
-            up_axis=up_axis,
+            world_up=world_up,
             include_velocities=include_velocities,
             stencil=stencil,
             pad=pad,
@@ -3868,7 +4148,7 @@ class Bvh:
         self,
         angle: float,
         *,
-        up_axis: str | None = ...,
+        world_up: str | None = ...,
         degrees: bool = ...,
         pivot: str | npt.ArrayLike = ...,
         inplace: Literal[True],
@@ -3877,7 +4157,7 @@ class Bvh:
     def rotate_vertical(
         self,
         angle: float,
-        up_axis: str | None = ...,
+        world_up: str | None = ...,
         degrees: bool = ...,
         pivot: str | npt.ArrayLike = ...,
         inplace: Literal[False] = ...,
@@ -3885,7 +4165,7 @@ class Bvh:
     def rotate_vertical(
         self,
         angle: float,
-        up_axis: str | None = None,
+        world_up: str | None = None,
         degrees: bool = False,
         pivot: str | npt.ArrayLike = "origin",
         inplace: bool = False,
@@ -3894,7 +4174,7 @@ class Bvh:
         from . import transforms
 
         return transforms.rotate_vertical(
-            self, angle, up_axis=up_axis, degrees=degrees, pivot=pivot, inplace=inplace
+            self, angle, world_up=world_up, degrees=degrees, pivot=pivot, inplace=inplace
         )  # type: ignore[call-overload, return-value]
 
     @overload
@@ -3902,28 +4182,26 @@ class Bvh:
         self,
         *,
         lr_mapping: dict[str, str] | None = ...,
-        lateral_axis: str | None = ...,
+        lateral: str | None = ...,
         inplace: Literal[True],
     ) -> None: ...
     @overload
     def mirror(
         self,
         lr_mapping: dict[str, str] | None = ...,
-        lateral_axis: str | None = ...,
+        lateral: str | None = ...,
         inplace: Literal[False] = ...,
     ) -> Bvh: ...
     def mirror(
         self,
         lr_mapping: dict[str, str] | None = None,
-        lateral_axis: str | None = None,
+        lateral: str | None = None,
         inplace: bool = False,
     ) -> Bvh | None:
         """Mirror motion across the lateral plane.  See :func:`pybvh.transforms.mirror`."""
         from . import transforms
 
-        return transforms.mirror(
-            self, lr_mapping=lr_mapping, lateral_axis=lateral_axis, inplace=inplace
-        )  # type: ignore[call-overload, return-value]
+        return transforms.mirror(self, lr_mapping=lr_mapping, lateral=lateral, inplace=inplace)  # type: ignore[call-overload, return-value]
 
     def random_translate_root(
         self,
@@ -3938,7 +4216,7 @@ class Bvh:
     def random_rotate_vertical(
         self,
         angle_range: tuple[float, float] = (-np.pi, np.pi),
-        up_axis: str | None = None,
+        world_up: str | None = None,
         degrees: bool = False,
         pivot: str | npt.ArrayLike = "origin",
         rng: np.random.Generator | None = None,
@@ -3947,7 +4225,7 @@ class Bvh:
         from . import transforms
 
         return transforms.random_rotate_vertical(
-            self, angle_range=angle_range, up_axis=up_axis, degrees=degrees, pivot=pivot, rng=rng
+            self, angle_range=angle_range, world_up=world_up, degrees=degrees, pivot=pivot, rng=rng
         )
 
     def random_perturb_speed(

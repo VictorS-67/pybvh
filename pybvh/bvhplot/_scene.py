@@ -2,8 +2,9 @@
 
 Pure data: :class:`SkeletonView`, :class:`Scene`, the operations that
 change a Scene, and the helper that aligns frame counts. No plotting library
-imports and no imports from the pybvh core; a Scene is built from a
-:class:`~pybvh.bvh.Bvh` in :mod:`._from_bvh`, or from plain arrays.
+imports and no imports from the pybvh core; signed axes are read with the
+axis vocabulary of :mod:`pybvh.tools`, which knows no clip. A Scene is built
+from a :class:`~pybvh.bvh.Bvh` in :mod:`._from_bvh`, or from plain arrays.
 """
 
 from __future__ import annotations
@@ -17,9 +18,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .._warnings import user_stacklevel
-
-UP_AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
-_SIGNED_AXES = ("+x", "-x", "+y", "-y", "+z", "-z")
+from ..tools import _VALID_AXIS_STRINGS, parse_axis
 
 # Which measure a view's body size took (SkeletonView.body_size_measure).
 BodySizeMeasure = Literal["rest height", "rest extent", "clip extent", "default"]
@@ -30,16 +29,6 @@ REST_POSE_MEASURES: tuple[BodySizeMeasure, ...] = ("rest height", "rest extent")
 # unit of its coords: nothing to measure, a stand-in so that nothing
 # drawn on it has size zero.
 DEFAULT_BODY_SIZE = 1.0
-
-
-def _axis_vector(signed_axis: str) -> npt.NDArray[np.float64]:
-    """The unit vector of a signed axis string, ``'-z'`` -> ``[0, 0, -1]``.
-
-    A fresh array on every call."""
-    sign = -1.0 if signed_axis[0] == "-" else 1.0
-    vector = np.zeros(3, dtype=np.float64)
-    vector[UP_AXIS_INDEX[signed_axis[1]]] = sign
-    return vector
 
 
 # ---------------------------------------------------------------------------
@@ -60,29 +49,29 @@ class GroundFrame:
     floor_height: float
 
     @property
-    def up_axis(self) -> str:
+    def up_letter(self) -> str:
         """The up axis letter, ``'x'``, ``'y'`` or ``'z'``, sign dropped."""
-        return self.up[1]
+        return "xyz"[self.up_index]
 
     @property
     def up_index(self) -> int:
         """The up coordinate's column in a ``(..., 3)`` position array."""
-        return UP_AXIS_INDEX[self.up_axis]
+        return parse_axis(self.up).index
 
     @property
     def up_sign(self) -> float:
         """``+1.0`` for ``'+y'``, ``-1.0`` for ``'-y'``."""
-        return -1.0 if self.up[0] == "-" else 1.0
+        return parse_axis(self.up).sign
 
     @property
     def up_vector(self) -> npt.NDArray[np.float64]:
         """The unit vector pointing up, sign included, shape ``(3,)``.
 
         A fresh array on every access."""
-        return _axis_vector(self.up)
+        return parse_axis(self.up).vector
 
     @property
-    def ground_axes(self) -> tuple[int, int]:
+    def ground_indices(self) -> tuple[int, int]:
         """The columns of the two ground coordinates, in ``x, y, z``
         order with the up axis removed (``(0, 2)`` for a y-up rig)."""
         first, second = (i for i in range(3) if i != self.up_index)
@@ -143,16 +132,23 @@ class SkeletonView(GroundFrame):
       (``(x, z)`` for a y-up rig). It is a ground-plane angle, not a
       signed rotation about the up vector: for ``+y`` up, a positive
       rotation about ``+y`` decreases it. Orientation-derived and
-      continuous; ``None`` when the coords are not the clip's.
-    - ``forward_axis`` is a different quantity: the facing of coordinate
-      row 0 (not necessarily clip frame 0) computed from the L/R joint
-      geometry and snapped to the dominant signed axis, the value the
-      ``"front"`` camera preset is derived from. Follow-camera math
-      never reads it; it reads ``coords``, ``lr_pairs``, ``up_vector``
-      and ``frame_time`` directly.
+      continuous; ``NaN`` on a row whose heading cannot be read (the
+      root's forward stands along up), which draws no facing arrow;
+      ``None`` when the coords are not the clip's.
+    - ``initial_forward`` is a different quantity: the snapped facing
+      of the view's first shown row, ``coords[0]``, not of clip frame
+      0 (a view of a clip's frames 40 onward holds the facing at frame
+      40). It is read by the facing chain
+      :meth:`~pybvh.bvh.Bvh.forward_at` reads (the L/R joint
+      geometry; where it is degenerate, the root's heading at the
+      row's clip frame when the coords are the clip's, then the house
+      default) and snapped to the dominant signed axis, the value the
+      ``"front"`` camera preset is derived from. Follow-camera math never reads it; it
+      reads ``coords``, ``lr_pairs``, ``up_vector`` and ``frame_time``
+      directly.
     - ``up`` is the one statement of which way is up: a signed axis
       string (``'+y'``, ``'-z'``), the form :attr:`Bvh.world_up` and
-      ``forward_axis`` use. The letter (``up_axis``), the column
+      ``initial_forward`` use. The letter (``up_letter``), the column
       (``up_index``), the sign (``up_sign``) and the unit vector
       (``up_vector``) are derived from it, so they cannot disagree.
       The alternative, storing the vector, would admit an off-axis or
@@ -207,7 +203,7 @@ class SkeletonView(GroundFrame):
     lr_pairs: npt.NDArray[
         np.intp
     ]  # (P, 2) joint L/R pairs in node index space, the facing geometry's; (0, 2) if none
-    forward_axis: str  # snapped facing of coords row 0, e.g. '+y'
+    initial_forward: str  # snapped facing of the first shown row, coords[0], e.g. '+y'
     bone_chains: list[str]  # chain name per bone, parallel to ``bones``
     root_heading: npt.NDArray[np.float64] | None  # (F, 2) [sin, cos] or None
     coords_in_rest_unit: bool = False  # coords posed from this rest pose: unit ratio exactly 1
@@ -222,15 +218,17 @@ class SkeletonView(GroundFrame):
         num_frames, num_nodes = coords.shape[:2]
 
         # rest_up may also be None, unknown; body_size measures without it.
-        signed_axes = {"up": self.up, "forward_axis": self.forward_axis}
+        signed_axes = {"up": self.up, "initial_forward": self.initial_forward}
         if self.rest_up is not None:
             signed_axes["rest_up"] = self.rest_up
         for name, value in signed_axes.items():
-            if value not in _SIGNED_AXES:
-                raise ValueError(f"{name} must be one of {', '.join(_SIGNED_AXES)}, got {value!r}.")
-        if self.forward_axis[1] == self.up[1]:
+            if value not in _VALID_AXIS_STRINGS:
+                raise ValueError(
+                    f"{name} must be one of {', '.join(sorted(_VALID_AXIS_STRINGS))}, got {value!r}."
+                )
+        if self.initial_forward[1] == self.up[1]:
             raise ValueError(
-                f"forward_axis {self.forward_axis!r} lies along the up "
+                f"initial_forward {self.initial_forward!r} lies along the up "
                 f"axis {self.up!r}; forward is a ground direction."
             )
 
@@ -282,11 +280,11 @@ class SkeletonView(GroundFrame):
         self._protect_arrays()
 
     @property
-    def forward_vector(self) -> npt.NDArray[np.float64]:
-        """The unit vector of ``forward_axis``, shape ``(3,)``.
+    def initial_forward_vector(self) -> npt.NDArray[np.float64]:
+        """The unit vector of ``initial_forward``, shape ``(3,)``.
 
         A fresh array on every access."""
-        return _axis_vector(self.forward_axis)
+        return parse_axis(self.initial_forward).vector
 
     @property
     def body_size(self) -> float:
@@ -362,7 +360,7 @@ class SkeletonView(GroundFrame):
         if coords_per_rest_unit is not None:
             rest_extents = np.ptp(self.rest_coords, axis=0) * coords_per_rest_unit
             if self.rest_up is not None:
-                rest_height = float(rest_extents[UP_AXIS_INDEX[self.rest_up[1]]])
+                rest_height = float(rest_extents[parse_axis(self.rest_up).index])
                 if rest_height > 0.0:
                     return rest_height, "rest height"
             widest_rest_extent = float(rest_extents.max())
@@ -784,7 +782,7 @@ class Scene:
         draw each view in its own axes and never need it. View ``k``
         moves by ``k × spacing`` toward the first skeleton's own left:
         ``up × forward`` of the first view, with ``forward`` its
-        ``forward_axis`` (the facing of its first frame, snapped to an
+        ``initial_forward`` (the facing of its first shown frame, snapped to an
         axis). Seen from the ``"front"`` camera that is the viewer's
         right, so the skeletons read left to right in the order given,
         on every rig. The alternative it replaces, a fixed world axis
@@ -793,11 +791,11 @@ class Scene:
         ``+z``, but the right of the same character facing ``-z`` or
         turned ``-y``-up. In a Scene made from a Bvh, a facing that
         cannot be measured on the first frame (no left/right joint
-        pairs, or pairs lying along up) leaves ``forward_axis`` at the
-        fallback the ``"front"`` camera also faces (the rest pose's
-        facing, then a fixed default per up axis, with a warning), so
-        the next skeleton still lands on the front camera's right,
-        whichever side of the body that is.
+        pairs, or pairs lying along up) leaves ``initial_forward`` at the
+        facing chain's fallback (:func:`~pybvh.analysis.facing_frame`),
+        which the ``"front"`` camera also faces, so the next skeleton
+        still lands on the front camera's right, whichever side of the
+        body that is.
 
         ``"auto"`` spaces by 1.2 × the first view's extent along that
         direction (at least 0.1 scene units); a float is used
@@ -819,7 +817,7 @@ class Scene:
         if len(self.views) <= 1:
             return self
         first = measured_on.views[0]
-        leftward = np.cross(first.up_vector, first.forward_vector)
+        leftward = np.cross(first.up_vector, first.initial_forward_vector)
 
         if spacing == "auto":
             along_leftward = first.coords @ leftward

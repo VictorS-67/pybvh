@@ -27,12 +27,16 @@ class Computations:
         Every call of ``analysis._compute_floor_height``.
     rest_pose : int
         Every call of ``_build_rest_pose`` made by ``Bvh``.
+    report : int
+        Every call of ``_build_orientation_report`` made by ``Bvh``: each
+        computation of the orientation report, the rest-pose axes in it.
     """
 
     fk: int = 0
     world_up: int = 0
     floor_height: int = 0
     rest_pose: int = 0
+    report: int = 0
 
 
 @pytest.fixture
@@ -49,6 +53,7 @@ def computations(monkeypatch):
     real_infer = pybvh.bvh._infer_world_up
     real_floor = pybvh.analysis._compute_floor_height
     real_rest = pybvh.bvh._build_rest_pose
+    real_report = pybvh.bvh._build_orientation_report
 
     def counted_fk(*args, **kwargs):
         if np.ndim(kwargs.get("root_pos")) == 2:
@@ -67,8 +72,13 @@ def computations(monkeypatch):
         counts.rest_pose += 1
         return real_rest(*args, **kwargs)
 
+    def counted_report(*args, **kwargs):
+        counts.report += 1
+        return real_report(*args, **kwargs)
+
     monkeypatch.setattr(pybvh.bvh, "frames_to_node_positions", counted_fk)
     monkeypatch.setattr(pybvh.bvh, "_infer_world_up", counted_infer)
     monkeypatch.setattr(pybvh.analysis, "_compute_floor_height", counted_floor)
     monkeypatch.setattr(pybvh.bvh, "_build_rest_pose", counted_rest)
+    monkeypatch.setattr(pybvh.bvh, "_build_orientation_report", counted_report)
     return counts

@@ -117,12 +117,8 @@ class TestRootTrajectoryHeadingRestForward:
         return float(np.arctan2(traj[0, 2], traj[0, 3]))  # atan2(sin, cos)
 
     def _expected_rest_heading(self, bvh):
-        """Derive ground-truth heading from rest-pose forward + world_up."""
-        from pybvh.tools import _axis_to_vector, _compute_forward_at
-
-        rest_coords = bvh.rest_pose_positions()
-        fwd_axis = _compute_forward_at(bvh, rest_coords, bvh.world_up)
-        fwd_vec = _axis_to_vector(fwd_axis)
+        """Derive ground-truth heading from rest forward + world_up."""
+        fwd_vec = bvh.rest_forward_axis.vector
         up_idx = {"x": 0, "y": 1, "z": 2}[bvh.world_up[1]]
         ga = [i for i in range(3) if i != up_idx]
         return float(np.arctan2(fwd_vec[ga[1]], fwd_vec[ga[0]]))
@@ -174,6 +170,64 @@ class TestRootTrajectoryHeadingRestForward:
         h_last = float(np.arctan2(traj[-1, 2], traj[-1, 3]))
         delta = abs((h_last - h0 + np.pi) % (2 * np.pi) - np.pi)
         np.testing.assert_allclose(delta, np.pi / 2, atol=1e-2)
+
+
+def _tilt_root(bvh, frames):
+    """Turn the root of *bvh* at *frames* so that rest forward +y points along +z.
+
+    World up is set to the clip's own ``'+z'`` first: replacing the motion
+    clears the guess, and a tilted first frame would guess another.
+    """
+    from pybvh import rotations
+
+    bvh.world_up = "+z"
+
+    tilt = np.array([[1.0, 0, 0], [0, 0, -1], [0, 1, 0]])  # turns +y onto +z
+    angles = bvh.joint_angles.copy()
+    order = bvh.nodes[0].rot_channels
+    count = np.arange(bvh.frame_count)[frames].size
+    angles[frames, 0] = rotations.rotmat_to_euler(np.broadcast_to(tilt, (count, 3, 3)), order)
+    bvh.joint_angles = angles
+
+
+class TestRootTrajectoryHeadingUnreadable:
+    """#114 reproduction 3: a root whose forward stands along world up has
+    no heading, and says so with NaN instead of an arbitrary angle."""
+
+    def test_nan_on_every_frame_whose_root_forward_points_up(self, bvh_example):
+        assert (bvh_example.world_up, bvh_example.rest_forward) == ("+z", "+y")
+        _tilt_root(bvh_example, slice(None))
+        traj = analysis.root_trajectory(bvh_example)
+        assert np.isnan(traj[:, 2:4]).all()
+        assert np.isfinite(traj[:, 0:2]).all()
+
+    def test_only_the_tilted_frame_is_nan(self, bvh_example):
+        _tilt_root(bvh_example, [10])
+        heading = analysis.root_trajectory(bvh_example)[:, 2:4]
+        assert np.isnan(heading[10]).all()
+        assert np.isfinite(np.delete(heading, 10, axis=0)).all()
+
+    def test_nan_spreads_into_the_neighbouring_velocity_samples_only(self, bvh_example):
+        _tilt_root(bvh_example, [10])
+        traj = analysis.root_trajectory(bvh_example, include_velocities=True)
+        heading_vel = traj[:, 6]
+        # The central difference at frame f reads frames f - 1 and f + 1.
+        assert np.flatnonzero(np.isnan(heading_vel)).tolist() == [9, 11]
+        assert np.isfinite(traj[:, 4:6]).all()
+
+
+class TestRootTrajectoryHeadingFollowsTheBody:
+    def test_bvh_test3_heading_within_a_few_degrees_of_the_facing(self):
+        # Rest pose authored y-up in a z-up clip: the heading reads the
+        # skeleton's own forward, which the root carries into the world.
+        bvh = read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_test3.bvh")
+        heading = analysis.root_trajectory(bvh)[:, 2:4]  # [sin, cos] on the (x, y) ground
+        heading_angle = np.arctan2(heading[:, 0], heading[:, 1])
+        facing = bvh.facing_frame()
+        assert facing.valid.all()
+        facing_angle = np.arctan2(facing.forward[:, 1], facing.forward[:, 0])
+        gap = np.degrees(np.abs((heading_angle - facing_angle + np.pi) % (2 * np.pi) - np.pi))
+        assert np.median(gap) < 5.0
 
 
 class TestRootTrajectoryIncludeVelocities:
@@ -836,7 +890,7 @@ class TestFootContactsFloorEstimation:
         the two conventions."""
         feet = bvh_example.auto_detect_foot_joints()
         idx = [bvh_example.node_index[n] for n in feet]
-        up = bvh_example.up_axis
+        up = bvh_example.world_up_axis
         coords = bvh_example.node_positions().copy()
         coords[5, idx, up.index] = -100.0 * up.sign  # one spurious low frame
 
@@ -1307,7 +1361,7 @@ class TestContactReferenceIsIndependentOfTheSceneGround:
         from pybvh.analysis import _floor_from_coords
 
         _, info = cmu_walk.foot_contacts(return_info=True)
-        up_idx, up_sign, _ = cmu_walk.up_axis
+        up_idx, up_sign, _ = cmu_walk.world_up_axis
         coords = cmu_walk.node_positions()
         feet = [cmu_walk.node_index[n] for n in cmu_walk.auto_detect_foot_joints()]
         assert info["floor"] == pytest.approx(_floor_from_coords(coords, feet, up_idx, up_sign))
@@ -1578,17 +1632,14 @@ class TestFacingFrame:
         expected = np.tile(_axis_to_vector(cmu_walk.world_up), (cmu_walk.frame_count, 1))
         np.testing.assert_array_equal(frame.up, expected)
 
-    def test_left_matches_per_frame_scalar_helper(self, cmu_walk):
-        """The vectorized basis must agree with the single-frame leftward
-        helper the axis-string snappers consume."""
-        from pybvh.tools import _world_leftward_unit_at_frame
+    def test_left_snap_matches_left_at(self, cmu_walk):
+        """facing_frame is the pre-snap form of left_at too."""
+        from pybvh.tools import get_main_direction
 
         coords = cmu_walk.node_positions()
         frame = cmu_walk.facing_frame(coords=coords)
-        for f in range(cmu_walk.frame_count):
-            leftward = _world_leftward_unit_at_frame(cmu_walk, coords[f], cmu_walk.world_up)
-            assert leftward is not None
-            np.testing.assert_allclose(frame.left[f], leftward, atol=1e-12)
+        for f in range(0, cmu_walk.frame_count, 25):
+            assert get_main_direction(frame.left[f]) == cmu_walk.left_at(f, coords=coords)
 
     def test_forward_snap_matches_forward_at(self, cmu_walk):
         """facing_frame is the pre-snap form of forward_at: snapping its
@@ -1611,7 +1662,7 @@ class TestFacingFrame:
     def test_coords_passthrough_is_used(self, cmu_walk):
         """coords= must actually feed the computation: passing L/R-swapped
         positions flips leftward, hence forward."""
-        from pybvh.tools import _resolve_lr_pairs
+        from pybvh._orientation import _resolve_lr_pairs
 
         coords = cmu_walk.node_positions()
         baseline = cmu_walk.facing_frame(coords=coords)
@@ -1647,7 +1698,8 @@ class TestFacingFrame:
         """Frames whose horizontal (left - right) average vanishes get the
         constant fallback basis; the fallback's snap agrees with
         forward_at on the same degenerate frame. Other frames unchanged."""
-        from pybvh.tools import _resolve_lr_pairs, get_main_direction
+        from pybvh._orientation import _resolve_lr_pairs
+        from pybvh.tools import get_main_direction
 
         coords = cmu_walk.node_positions()
         baseline = cmu_walk.facing_frame(coords=coords)
@@ -1667,6 +1719,11 @@ class TestFacingFrame:
         # valid is the per-frame report of exactly that fallback
         assert not frame.valid[3]
         assert frame.valid[2] and frame.valid[4]
+        # The fallback is the root's heading at that frame.
+        sin, cos = cmu_walk.root_trajectory()[3, 2:4]
+        up_idx = "xyz".index(cmu_walk.world_up[1])
+        a, b = [i for i in range(3) if i != up_idx]
+        np.testing.assert_allclose(frame.forward[3, [a, b]], [cos, sin], atol=1e-12)
 
     def test_single_frame_and_empty_clip_shapes(self, cmu_walk):
         one = cmu_walk[0:1].facing_frame()
@@ -1685,3 +1742,10 @@ class TestFacingFrame:
         joint_shaped = cmu_walk.node_positions()[:, :3, :]
         with pytest.raises(ValueError, match="node-shaped"):
             cmu_walk.facing_frame(coords=joint_shaped)
+
+    def test_coords_of_another_frame_count_rejected(self, cmu_walk):
+        """The fallback reads the root's rotation at each row's frame, so
+        the rows must be the clip's frames."""
+        some_frames = cmu_walk.node_positions()[:10]
+        with pytest.raises(ValueError, match="one row per clip frame"):
+            cmu_walk.facing_frame(coords=some_frames)

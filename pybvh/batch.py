@@ -281,8 +281,8 @@ def harmonize(
 
     The ordering matters: world-up is "heaviest" (touches everything),
     rest-up modifies only rest-pose offsets (leaving world frame intact),
-    and rest-forward is a further rotation of those same offsets around
-    the vertical. Euler-order re-expression runs last because it only
+    and rest-forward is a further rotation of those same offsets about
+    rest up, which is the target one by then. Euler-order re-expression runs last because it only
     rewrites channel layout, not geometry.
 
     Any of the ``reference`` / ``target_*`` kwargs may be ``None`` to

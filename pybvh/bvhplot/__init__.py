@@ -1510,7 +1510,9 @@ def trajectory(
         If True, overlay small arrowheads along each skeleton's path
         showing the character's facing direction at ~10 evenly-spaced
         frames.  Arrows use the same color as the trajectory line and
-        are sized at ~8 % of the path's span.  Default False.
+        are sized at ~8 % of the path's span.  The direction is
+        :func:`~pybvh.analysis.root_trajectory`'s heading; a frame
+        where it is ``NaN`` (unreadable) gets no arrow.  Default False.
     tight : bool, optional
         If False (default), the axis range matches the full horizontal
         extent of the skeleton across all joints and frames — the same

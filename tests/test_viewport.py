@@ -145,7 +145,7 @@ class TestClipFraming:
 
     def test_a_rotating_camera_squares_the_ground_off(self, view):
         viewport = make_viewport([view], framing="clip", motion="turntable")
-        first, second = viewport.ground_axes
+        first, second = viewport.ground_indices
         spans = viewport.hi - viewport.lo
         assert spans[first] == pytest.approx(spans[second])
 
@@ -386,7 +386,7 @@ class TestCamera:
         for frame in (0, 5, 23):
             np.testing.assert_array_equal(
                 viewport.view_matrix(frame),
-                build_view_matrix(viewport.azimuth_at(frame), view.elevation, view.up_axis),
+                build_view_matrix(viewport.azimuth_at(frame), view.elevation, view.up_letter),
             )
 
     def test_a_fixed_camera_has_one_matrix_for_every_frame(self, view):
@@ -611,7 +611,7 @@ class TestFloor:
     def test_a_square_of_the_stated_extent_around_the_centre(self, view, framing, motion):
         viewport = make_viewport([view], framing=framing, motion=motion)
         quad = viewport.floor_quad()
-        ground = list(viewport.ground_axes)
+        ground = list(viewport.ground_indices)
         sides = quad[2, ground] - quad[0, ground]
         np.testing.assert_allclose(sides, 2 * FLOOR_EXTENT * viewport.half_span)
         np.testing.assert_allclose((quad[0, ground] + quad[2, ground]) / 2, viewport.center[ground])
@@ -628,9 +628,9 @@ class TestFloor:
         """(lo, lo), (hi, lo), (hi, hi), (lo, hi) over the ground axes
         in x, y, z order, whatever the up axis and its sign."""
         forward = "+x" if up[1] != "x" else "+y"
-        turned = dataclasses.replace(view, up=up, forward_axis=forward, floor_height=-0.25)
+        turned = dataclasses.replace(view, up=up, initial_forward=forward, floor_height=-0.25)
         viewport = make_viewport([turned], include_floor=False)
-        assert viewport.ground_axes == (first, second)
+        assert viewport.ground_indices == (first, second)
         quad = viewport.floor_quad()
         reach = FLOOR_EXTENT * viewport.half_span
         a_lo = viewport.center[first] - reach
@@ -651,7 +651,7 @@ class TestFloor:
     def test_clipped_to_the_framing_box(self, view):
         viewport = make_viewport([view], framing="clip")
         quad = viewport.floor_quad(clip_to_box=True)
-        ground = list(viewport.ground_axes)
+        ground = list(viewport.ground_indices)
         np.testing.assert_array_equal(quad[0, ground], viewport.lo[ground])
         np.testing.assert_array_equal(quad[2, ground], viewport.hi[ground])
         np.testing.assert_array_equal(quad[:, viewport.up_index], view.floor_height)
@@ -842,9 +842,30 @@ class TestViewportValue:
         viewport = make_viewport([view], projection="ortho")
         assert isinstance(viewport, Viewport)
         assert viewport.up == "+y"
-        assert viewport.up_axis == "y"
-        assert viewport.ground_axes == (0, 2)
+        assert viewport.up_letter == "y"
+        assert viewport.ground_indices == (0, 2)
         assert viewport.projection == "ortho"
+
+    @pytest.mark.parametrize(
+        "read",
+        [
+            lambda viewport: viewport.up_letter,
+            lambda viewport: viewport.up_index,
+            lambda viewport: viewport.up_sign,
+            lambda viewport: viewport.view_matrix(0),
+        ],
+        ids=["up_letter", "up_index", "up_sign", "view_matrix"],
+    )
+    def test_an_up_that_is_not_an_axis_raises(self, view, read):
+        """An up that names no axis raises with the axis parser's
+        message wherever it is read, rather than standing for z."""
+        viewport = dataclasses.replace(make_viewport([view]), up="+w")
+        with pytest.raises(ValueError, match="Axis must be one of"):
+            read(viewport)
+
+    def test_a_view_matrix_for_a_letter_that_is_not_an_axis_raises(self):
+        with pytest.raises(ValueError, match="Axis must be one of"):
+            build_view_matrix(-20.0, 20.0, "w")
 
     @pytest.mark.parametrize(
         "options, message",

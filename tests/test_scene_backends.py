@@ -134,6 +134,33 @@ class TestMatplotlib:
         finally:
             plt.close(fig)
 
+    def test_no_facing_arrow_where_the_heading_is_nan(self):
+        """A frame whose heading cannot be read (NaN in root_trajectory)
+        gets no arrow; the frames around it keep theirs."""
+        import dataclasses
+
+        from matplotlib.quiver import Quiver
+
+        from pybvh.bvhplot._matplotlib import trajectory_mpl
+        from pybvh.bvhplot._scene import Scene
+
+        view = synthetic_scene.make_array_view(n_frames=4)
+        heading = np.tile([1.0, 0.0], (4, 1))
+        heading[2] = np.nan
+        unreadable = dataclasses.replace(view, root_heading=heading)
+        fig, ax = trajectory_mpl(Scene(views=[unreadable]), Style("paper"), facing_arrows=True)
+        try:
+            (arrows,) = [c for c in ax.collections if isinstance(c, Quiver)]
+            roots = view.coords[:, 0][:, [0, 2]]
+            drawn = sorted(
+                int(np.flatnonzero(np.all(np.isclose(roots, start), axis=1))[0])
+                for start in arrows.get_offsets()
+            )
+            assert drawn == [0, 1, 3]
+            assert np.isfinite(arrows.U).all() and np.isfinite(arrows.V).all()
+        finally:
+            plt.close(fig)
+
 
 class TestOpenCV:
     def test_render_with_every_option(self, scene, tmp_path):
@@ -442,7 +469,7 @@ class TestK3d:
         up = viewport.up_index
         for path, view in zip(built.trail_paths, pair.spread("auto").views):
             np.testing.assert_allclose(path[:, up], viewport.floor_height)
-            ground = list(viewport.ground_axes)
+            ground = list(viewport.ground_indices)
             np.testing.assert_allclose(path[:, ground], view.coords[:, 0][:, ground], rtol=1e-6)
         grid = np.asarray(built.plot.grid).reshape(2, 3)
         assert grid[0, up] == pytest.approx(
@@ -480,7 +507,7 @@ class TestK3d:
         up = viewport.up_index
         corners = np.asarray(built.floor.vertices).reshape(-1, 3)
         expected = viewport.floor_quad()
-        ground = list(viewport.ground_axes)
+        ground = list(viewport.ground_indices)
         np.testing.assert_allclose(corners[:, ground], expected[:, ground], rtol=1e-6)
         # a hair below the ground, and so below the trail
         below = viewport.floor_height - FLOOR_EPSILON * viewport.half_span
@@ -500,7 +527,7 @@ class TestK3d:
         indices = np.asarray(built.floor.indices).reshape(-1, 2).astype(int)
         assert len(indices) == 2 * FLOOR_GRID_LINES
         expected = viewport.floor_quad()
-        for axis in viewport.ground_axes:
+        for axis in viewport.ground_indices:
             assert vertices[:, axis].min() == pytest.approx(expected[:, axis].min(), rel=1e-6)
             assert vertices[:, axis].max() == pytest.approx(expected[:, axis].max(), rel=1e-6)
         # every line runs from one edge of the plane to the opposite one
@@ -727,7 +754,7 @@ class TestEveryBackendDrawsTheViewportsFloor:
         expected = viewport.floor_quad()
         up = viewport.up_index
 
-        for axis in viewport.ground_axes:
+        for axis in viewport.ground_indices:
             assert corners[:, axis].min() == pytest.approx(expected[:, axis].min(), rel=1e-5), (
                 backend
             )

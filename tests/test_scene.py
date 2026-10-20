@@ -8,6 +8,7 @@ import copy
 import dataclasses
 import pathlib
 import pickle
+import warnings
 
 import numpy as np
 import pytest
@@ -19,6 +20,7 @@ from synthetic_bvh import (
 from synthetic_scene import make_array_scene, make_array_view, make_bare_view
 
 from pybvh import bvhplot, parse_axis, read_bvh_file
+from pybvh._orientation import _resolve_lr_pairs
 from pybvh.analysis import root_trajectory
 from pybvh.bvhplot._from_bvh import (
     get_bone_chains,
@@ -27,7 +29,8 @@ from pybvh.bvhplot._from_bvh import (
     make_scene,
 )
 from pybvh.bvhplot._scene import Scene, SkeletonView
-from pybvh.tools import _resolve_lr_pairs
+from pybvh.bvhplot._viewport import Viewport
+from pybvh.rotations import rotmat_to_euler
 
 BVH_PATH = "bvh_data/cmu_12_01_walk.bvh"
 
@@ -63,7 +66,7 @@ class TestMakeScene:
         az, el, up = get_camera_angles(bvh, coords[0], "front")
         assert view.azimuth == az
         assert view.elevation == el
-        assert view.up_axis == up
+        assert view.up_letter == up
 
     def test_labels_assigned_per_view(self, bvh, coords):
         scene = make_scene([bvh, bvh], [coords, coords], "front", ["a", "b"])
@@ -94,17 +97,41 @@ class TestViewCarriesSkeletonFacts:
     def test_orientation_facts(self, bvh, coords):
         view = make_scene([bvh], [coords], "front", None).views[0]
         assert view.up == bvh.world_up
-        assert view.up_index == bvh.up_axis.index
-        assert view.up_sign == bvh.up_axis.sign
-        np.testing.assert_array_equal(view.up_vector, bvh.up_axis.vector)
-        assert view.forward_axis == bvh.forward_at(0)
+        assert view.up_index == bvh.world_up_axis.index
+        assert view.up_sign == bvh.world_up_axis.sign
+        np.testing.assert_array_equal(view.up_vector, bvh.world_up_axis.vector)
+        assert view.initial_forward == bvh.forward_at(0)
+
+    def test_initial_forward_is_the_first_shown_rows_facing(self):
+        """The facing of the coords' first row, not of clip frame 0:
+        bvh_test1 turns from '+x' to '-y' by frame 40."""
+        clip = read_bvh_file("bvh_data/bvh_test1.bvh")
+        view = make_scene([clip], [clip.node_positions()[40:]], "front", None).views[0]
+        assert (clip.forward_at(0), clip.forward_at(40)) == ("+x", "-y")
+        assert view.initial_forward == "-y"
+
+    def test_initial_forward_vector_is_the_unit_vector_of_initial_forward(self):
+        view = dataclasses.replace(make_array_view(), initial_forward="-x")
+        assert view.initial_forward_vector.dtype == np.float64
+        np.testing.assert_array_equal(view.initial_forward_vector, [-1.0, 0.0, 0.0])
 
     def test_a_view_states_its_up_axis_once(self):
         """One signed string is the field; the letter, column, sign and
         vector are read from it, so no view can hold two up axes."""
         names = {f.name for f in dataclasses.fields(SkeletonView)}
         assert "up" in names
-        assert not names & {"up_axis", "up_index", "up_sign", "up_vector"}
+        assert not names & {"up_letter", "up_index", "up_sign", "up_vector"}
+
+    @pytest.mark.parametrize("cls", [SkeletonView, Viewport])
+    def test_no_name_ends_in_axis(self, cls):
+        """A pybvh name ending in ``_axis`` holds an :class:`~pybvh.Axis`.
+        A view and a viewport hold axis strings, letters and column
+        indices, none of them an ``Axis``, so none of their names may
+        end so."""
+        names = {f.name for f in dataclasses.fields(cls)} | {
+            name for name in dir(cls) if not name.startswith("__")
+        }
+        assert sorted(name for name in names if name.endswith("_axis")) == []
 
     @pytest.mark.parametrize(
         "up, letter, index, sign, vector",
@@ -119,8 +146,8 @@ class TestViewCarriesSkeletonFacts:
     )
     def test_up_forms_are_derived_from_the_signed_string(self, up, letter, index, sign, vector):
         forward = "+x" if letter != "x" else "+y"
-        view = dataclasses.replace(make_array_view(), up=up, forward_axis=forward)
-        assert view.up_axis == letter
+        view = dataclasses.replace(make_array_view(), up=up, initial_forward=forward)
+        assert view.up_letter == letter
         assert view.up_index == index
         assert view.up_sign == sign
         assert view.up_vector.dtype == np.float64
@@ -139,7 +166,7 @@ class TestViewCarriesSkeletonFacts:
 
     def test_lr_pairs_are_the_facing_geometrys_joint_pairs(self, bvh, coords):
         """The pairs the follow camera averages: joints only, resolved the
-        way tools resolves them, so follow azimuths match the Bvh path."""
+        way _orientation resolves them, so follow azimuths match the Bvh path."""
         view = make_scene([bvh], [coords], "front", None).views[0]
         expected = _resolve_lr_pairs(bvh.lr_mapping, bvh.node_index)
         assert view.lr_pairs.dtype == np.intp
@@ -264,7 +291,7 @@ def _turned_view(rotation: np.ndarray, up: str, forward: str) -> SkeletonView:
         rest_coords=view.rest_coords @ rotation.T,
         up=up,
         rest_up=up,
-        forward_axis=forward,
+        initial_forward=forward,
         floor_height=floor,
     )
 
@@ -274,6 +301,37 @@ def _without_lr_pairs(clip):
     be measured."""
     clip.lr_mapping = None
     return clip
+
+
+class TestInitialForwardOnAFrameLyingOnItsSide:
+    """The first shown row's facing reads the facing chain as forward_at
+    does: on a clip frame whose left/right axis is vertical, the root's
+    heading at that frame; a pose with no clip frame has none to read."""
+
+    @pytest.fixture
+    def lying(self):
+        clip = read_bvh_file("bvh_data/bvh_test1.bvh")  # rest up +z, rest forward +y
+        angles = np.zeros_like(clip.joint_angles)  # every frame the rest pose...
+        turn = np.array([[1.0, 0, 0], [0, 0, -1], [0, 1, 0]])  # ...turned +y onto +z about x
+        angles[:, 0] = rotmat_to_euler(turn, clip.nodes[0].rot_channels)
+        clip.joint_angles = angles
+        clip.world_up = "-x"  # along the rest pose's left/right axis, which the turn keeps
+        return clip
+
+    @pytest.mark.parametrize("frames", [3, None])
+    def test_a_clip_frame_takes_the_root_heading(self, lying, frames):
+        # The root turns rest forward +y onto +z, on the ground of -x; the
+        # house default for an x up would be +y.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            view = bvhplot._prepare(lying, frames, "world", "front").views[0]
+        assert view.initial_forward == "+z"
+
+    def test_a_pose_with_no_clip_frame_takes_the_default(self, lying):
+        pose = lying.node_positions()[3:4]
+        with pytest.warns(UserWarning, match="On the pose given"):
+            view = bvhplot._prepare(lying, pose, "world", "front").views[0]
+        assert view.initial_forward == "+y"
 
 
 class TestSceneMethods:
@@ -338,7 +396,7 @@ class TestSceneMethods:
     def test_spread_moves_later_views_along_the_lateral_axis(self, bvh, coords):
         scene = make_scene([bvh, bvh], [coords, coords], "front", None)
         first = scene.views[0]
-        fwd_idx = {"x": 0, "y": 1, "z": 2}[first.forward_axis[1]]
+        fwd_idx = parse_axis(first.initial_forward).index
         lat_idx = next(i for i in range(3) if i != first.up_index and i != fwd_idx)
         spread = scene.spread(3.0)
         np.testing.assert_array_equal(spread.views[0].coords, coords)
@@ -353,7 +411,7 @@ class TestSceneMethods:
     def test_spread_auto_uses_the_first_views_lateral_extent(self, bvh, coords):
         scene = make_scene([bvh, bvh], [coords, coords], "front", None)
         first = scene.views[0]
-        fwd_idx = {"x": 0, "y": 1, "z": 2}[first.forward_axis[1]]
+        fwd_idx = parse_axis(first.initial_forward).index
         lat_idx = next(i for i in range(3) if i != first.up_index and i != fwd_idx)
         width = float(np.ptp(coords[..., lat_idx]))
         spread = scene.spread("auto")
@@ -505,7 +563,7 @@ class TestSceneMethods:
         )
         with fallback_warning:
             scene = make_scene([clip, clip], [coords, coords], "front", None)
-        assert (scene.views[0].up, scene.views[0].forward_axis) == (up, forward)
+        assert (scene.views[0].up, scene.views[0].initial_forward) == (up, forward)
         spread = scene.spread(3.0)
 
         # Any view angle: the fit moves the eye along the view, never sideways.
@@ -624,7 +682,7 @@ class TestSizeMatched:
             rest_coords=turned(view.rest_coords),
             up="+z",
             rest_up="+z",
-            forward_axis="-y",
+            initial_forward="-y",
         )
 
     @pytest.mark.parametrize("up", ["+y", "-y", "+z"])
@@ -874,7 +932,7 @@ class TestBodySize:
         in another: the stick person's rest pose stands along y while
         the clip is z up. Its z extent is its depth (zero here), not
         its height."""
-        view = dataclasses.replace(make_array_view(), up="+z", forward_axis="+x", rest_up="+y")
+        view = dataclasses.replace(make_array_view(), up="+z", initial_forward="+x", rest_up="+y")
         assert view.body_size == pytest.approx(1.8)
 
     def test_is_in_the_unit_of_the_coords(self):
@@ -1010,8 +1068,8 @@ class TestViewIsCheckedAtConstruction:
             (dict(up="+Y"), "up must be one of"),
             (dict(up="up"), "up must be one of"),
             (dict(rest_up="y"), "rest_up must be one of"),
-            (dict(forward_axis="z"), "forward_axis must be one of"),
-            (dict(forward_axis="-y"), "lies along the up axis"),
+            (dict(initial_forward="z"), "initial_forward must be one of"),
+            (dict(initial_forward="-y"), "lies along the up axis"),
             (dict(node_names=["only"]), "node_names has 1 entries"),
             (dict(rest_coords=np.zeros((4, 3))), "rest_coords must have shape"),
             (dict(bone_chains=["spine"]), "bone_chains has 1 entries"),
@@ -1172,8 +1230,7 @@ class TestSceneIsCheckedAtConstruction:
 # module map names it. bvhplot keeps them behind a module boundary: the
 # router and _from_bvh are the Bvh-facing layer, and only the router imports
 # _from_bvh; every other module draws or computes from the Scene and takes
-# nothing from the core at runtime, except the viewport, which may take
-# array kernels.
+# nothing from the core at runtime.
 _CORE_MODULES = {
     "_derived",
     "analysis",
@@ -1185,22 +1242,19 @@ _CORE_MODULES = {
     "io",
     "node_tree",
     "spatial_coord",
-    "tools",
     "transforms",
 }
 # The rest of pybvh knows no clip, so any bvhplot module may import it: the
-# array-pure math and the helper that points a warning at the user's line.
-# That they stay so is not checked here: a Bvh import added to one of them
-# would reach bvhplot through it unseen.
-_NOT_CORE = {"_warnings", "geometry", "rotations", "signal"}
+# array-pure math, the orientation computed from plain data, the signed-axis
+# vocabulary and the input validators, and the helper that points a warning
+# at the user's line. TestNotCoreModulesStayClipFree checks that none of them
+# imports the core at runtime, so no core import reaches bvhplot through one.
+_NOT_CORE = {"_orientation", "_warnings", "geometry", "rotations", "signal", "tools"}
 _ROUTER = "__init__"
 _BVH_READER = "_from_bvh"
 # No plotting library may be imported here: the pure-data modules, and the
 # playback state machine, which the viewer drives.
 _PURE_DATA = ["_scene", "_viewport", "_style", "_from_bvh", "_playback"]
-# Array-pure kernels the viewport may take from pybvh.tools: they take
-# arrays, never a Bvh.
-_VIEWPORT_KERNELS = {"_leftward_units_from_pairs"}
 
 
 def _bvhplot_modules() -> list[str]:
@@ -1216,15 +1270,26 @@ def _bvhplot_modules() -> list[str]:
 
 # Everything except the router and the Bvh reader.
 _BEHIND_THE_BOUNDARY = [name for name in _bvhplot_modules() if name not in (_ROUTER, _BVH_READER)]
-# ... of which the viewport alone may take array kernels from the core.
-_CORE_FREE = [name for name in _BEHIND_THE_BOUNDARY if name != "_viewport"]
 
 
-def _is_core_module(dotted: str, level: int) -> bool:
+def _is_package_root(dotted: str, level: int, package_level: int = 2) -> bool:
+    """Is the module ``from <dots><dotted> import`` names pybvh's root
+    (``from pybvh import``, ``from .. import`` from bvhplot, ``from .
+    import`` from pybvh itself)? Its arguments are as
+    :func:`_is_core_module` reads them."""
+    parts = [p for p in dotted.split(".") if p and p != "__init__"]
+    return (level == 0 and parts == ["pybvh"]) or (level == package_level and not parts)
+
+
+def _is_core_module(dotted: str, level: int, package_level: int = 2) -> bool:
     """Is the module ``from <dots><dotted> import`` / ``import <dotted>``
     names a core module, or the package root (which exports only core
-    names such as ``Bvh``)? Level 1 is a bvhplot sibling: never core.
-    An explicit ``__init__`` component is the package root spelled out."""
+    names such as ``Bvh``)? ``package_level`` is the number of dots that
+    reach pybvh's root from the importing module: 2 from a bvhplot
+    module, whose level 1 is a sibling and never core; 1 from a module
+    of pybvh itself. An explicit ``__init__`` component is the package
+    root spelled out. A ``from`` import of the root is read name by name
+    instead, by :func:`_core_imports_in_source`."""
     parts = [p for p in dotted.split(".") if p and p != "__init__"]
     if level == 0:
         return (
@@ -1232,7 +1297,7 @@ def _is_core_module(dotted: str, level: int) -> bool:
             and parts[0] == "pybvh"
             and (len(parts) == 1 or parts[1] in _CORE_MODULES)
         )
-    if level == 2:
+    if level == package_level:
         return not parts or parts[0] in _CORE_MODULES
     return False
 
@@ -1302,14 +1367,24 @@ def _is_type_checking_test(test: ast.expr, guard_names: set[str]) -> bool:
     )
 
 
-def _core_imports_in_source(source: str) -> list[tuple[int, str | None, list[str]]]:
+def _core_imports_in_source(
+    source: str, package_level: int = 2
+) -> list[tuple[int, str | None, list[str]]]:
     """Every runtime import of a core module in ``source``: (line,
     innermost enclosing function or None, imported names).
 
-    Sees both statement forms (``import pybvh.tools``, ``from ..tools
+    Sees both statement forms (``import pybvh.analysis``, ``from ..analysis
     import x``) and package-root imports (``from pybvh import Bvh``,
-    ``from .. import tools``). Only the body of an ``if TYPE_CHECKING:``
-    block is type-only; its ``else`` branch runs and is inspected."""
+    ``from .. import analysis``). A ``from`` import of the root is read
+    by the names it takes: a not-core module (``from .. import
+    rotations``) is that module, as ``from ..rotations import x`` is;
+    any other name is the core's, a core module or a name the root's
+    ``__init__`` exports, and only those names are reported. ``import
+    pybvh`` binds the root itself and is flagged. Only the body of an
+    ``if TYPE_CHECKING:`` block is type-only; its ``else`` branch runs
+    and is inspected. ``package_level`` is as :func:`_is_core_module`
+    reads it: 2 for a bvhplot module's source, 1 for a module of pybvh
+    itself."""
     tree = ast.parse(source)
     guard_names = _typing_guard_names(tree)
     found: list[tuple[int, str | None, list[str]]] = []
@@ -1324,7 +1399,12 @@ def _core_imports_in_source(source: str) -> list[tuple[int, str | None, list[str
             elif type_only:
                 continue
             elif isinstance(node, ast.ImportFrom):
-                if _is_core_module(node.module or "", node.level):
+                module = node.module or ""
+                if _is_package_root(module, node.level, package_level):
+                    names = [a.name for a in node.names if a.name not in _NOT_CORE]
+                    if names:
+                        found.append((node.lineno, func, names))
+                elif _is_core_module(module, node.level, package_level):
                     found.append((node.lineno, func, [a.name for a in node.names]))
             elif isinstance(node, ast.Import):
                 names = [a.name for a in node.names if _is_core_module(a.name, 0)]
@@ -1415,6 +1495,12 @@ def _module_source(module_name: str) -> str:
     return (package_dir / f"{module_name}.py").read_text()
 
 
+def _pybvh_module_source(module_name: str) -> str:
+    """The source of a module at pybvh's top level, beside bvhplot."""
+    package_dir = pathlib.Path(bvhplot.__file__).parent.parent
+    return (package_dir / f"{module_name}.py").read_text()
+
+
 class TestCoreImportGuard:
     """The guard itself, against small sources: a checker that misses a
     spelling proves nothing about the modules it passes."""
@@ -1423,12 +1509,12 @@ class TestCoreImportGuard:
         "line",
         [
             "from ..bvh import Bvh",
-            "from ..tools import _compute_forward_at",
-            "from .. import tools",
+            "from ..analysis import root_trajectory",
+            "from .. import transforms",
             "from .. import Bvh, analysis",
-            "from pybvh.tools import extract_sign",
+            "from pybvh.transforms import mirror",
             "from pybvh import Bvh",
-            "import pybvh.tools",
+            "import pybvh.analysis",
             "import pybvh.analysis as analysis",
             "import pybvh",
             "from pybvh.__init__ import Bvh",
@@ -1447,8 +1533,8 @@ class TestCoreImportGuard:
         ],
     )
     def test_a_guard_that_may_have_been_overwritten_is_runtime(self, prelude):
-        found = _core_imports_in_source(prelude + "    import pybvh.tools\n")
-        assert [names for _, _, names in found] == [["pybvh.tools"]]
+        found = _core_imports_in_source(prelude + "    import pybvh.analysis\n")
+        assert [names for _, _, names in found] == [["pybvh.analysis"]]
 
     def test_a_guard_name_rebound_by_an_except_clause_is_runtime(self):
         source = (
@@ -1457,7 +1543,7 @@ class TestCoreImportGuard:
             "    pass\n"
             "except ValueError as TYPE_CHECKING:\n"
             "    if TYPE_CHECKING:\n"
-            "        import pybvh.tools\n"
+            "        import pybvh.analysis\n"
         )
         assert [lineno for lineno, _, _ in _core_imports_in_source(source)] == [6]
 
@@ -1467,13 +1553,25 @@ class TestCoreImportGuard:
             "from ._scene import Scene",
             "from . import _colors",
             "from ..bvhplot._scene import Scene",
+            "from ..tools import parse_axis",
+            "import pybvh.tools",
             "import numpy as np",
             "import matplotlib.pyplot as plt",
             "from typing import TYPE_CHECKING",
+            "from ..rotations import euler_to_rotmat",
+            "from .. import rotations",
+            "from .. import rotations as r",
+            "from .. import _orientation, tools",
+            "from pybvh import rotations",
         ],
     )
     def test_passes_non_core_imports(self, line):
         assert _core_imports_in_source(line) == []
+
+    def test_a_root_import_flags_only_the_names_that_are_not_not_core_modules(self):
+        assert _core_imports_in_source("from .. import rotations, analysis") == [
+            (1, None, ["analysis"])
+        ]
 
     def test_type_checking_body_is_type_only_but_its_else_is_not(self):
         source = (
@@ -1481,9 +1579,9 @@ class TestCoreImportGuard:
             "if TYPE_CHECKING:\n"
             "    from ..bvh import Bvh\n"
             "else:\n"
-            "    from ..tools import extract_sign\n"
+            "    from ..analysis import root_trajectory\n"
         )
-        assert _core_imports_in_source(source) == [(5, None, ["extract_sign"])]
+        assert _core_imports_in_source(source) == [(5, None, ["root_trajectory"])]
 
     def test_qualified_type_checking_guard_is_recognised(self):
         source = "import typing\nif typing.TYPE_CHECKING:\n    from ..bvh import Bvh\n"
@@ -1494,44 +1592,90 @@ class TestCoreImportGuard:
             "from types import SimpleNamespace\n"
             "flags = SimpleNamespace(TYPE_CHECKING=True)\n"
             "if flags.TYPE_CHECKING:\n"
-            "    import pybvh.tools\n"
+            "    import pybvh.analysis\n"
         )
-        assert _core_imports_in_source(source) == [(4, None, ["pybvh.tools"])]
+        assert _core_imports_in_source(source) == [(4, None, ["pybvh.analysis"])]
 
     @pytest.mark.parametrize(
         "source",
         [
             # bare guard with no typing import behind it
-            "if TYPE_CHECKING:\n    import pybvh.tools\n",
+            "if TYPE_CHECKING:\n    import pybvh.analysis\n",
             # rebound after the import
             "from typing import TYPE_CHECKING\nTYPE_CHECKING = True\n"
-            "if TYPE_CHECKING:\n    import pybvh.tools\n",
+            "if TYPE_CHECKING:\n    import pybvh.analysis\n",
             # `typing` is not the typing module
             "from types import SimpleNamespace\n"
             "typing = SimpleNamespace(TYPE_CHECKING=True)\n"
-            "if typing.TYPE_CHECKING:\n    import pybvh.tools\n",
+            "if typing.TYPE_CHECKING:\n    import pybvh.analysis\n",
             # shadowed by a parameter
             "from typing import TYPE_CHECKING\n"
             "def f(TYPE_CHECKING):\n"
-            "    if TYPE_CHECKING:\n        import pybvh.tools\n",
+            "    if TYPE_CHECKING:\n        import pybvh.analysis\n",
             # aliased import is not recognised, so its block is runtime
-            "import typing as t\nif t.TYPE_CHECKING:\n    import pybvh.tools\n",
+            "import typing as t\nif t.TYPE_CHECKING:\n    import pybvh.analysis\n",
         ],
     )
     def test_a_shadowed_or_unbound_guard_is_a_runtime_condition(self, source):
         found = _core_imports_in_source(source)
-        assert [names for _, _, names in found] == [["pybvh.tools"]]
+        assert [names for _, _, names in found] == [["pybvh.analysis"]]
 
     def test_reports_the_innermost_enclosing_function(self):
         source = (
             "def outer():\n"
             "    def inner():\n"
-            "        import pybvh.tools\n"
+            "        import pybvh.analysis\n"
             "    from .. import analysis\n"
         )
         assert _core_imports_in_source(source) == [
-            (3, "inner", ["pybvh.tools"]),
+            (3, "inner", ["pybvh.analysis"]),
             (4, "outer", ["analysis"]),
+        ]
+
+
+class TestCoreImportGuardAtThePackageTop:
+    """The same guard read from a module of pybvh itself, one level up,
+    where ``from .`` is the package root and ``from .bvh`` the core."""
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "from .bvh import Bvh",
+            "from .analysis import root_trajectory",
+            "from . import transforms",
+            "from . import Bvh",
+            "from .__init__ import Bvh",
+            "from pybvh.bvh import Bvh",
+            "import pybvh",
+            "import pybvh.analysis",
+        ],
+    )
+    def test_flags_every_spelling_of_a_core_import(self, line):
+        found = _core_imports_in_source(line, package_level=1)
+        assert [(lineno, func) for lineno, func, _ in found] == [(1, None)]
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "from .tools import parse_axis",
+            "from ._warnings import user_stacklevel",
+            "from .signal import finite_difference",
+            "import pybvh.rotations",
+            "import numpy as np",
+            "from typing import TYPE_CHECKING",
+            "from .rotations import euler_to_rotmat",
+            "from . import rotations",
+            "from . import rotations as r",
+            "from . import _orientation, tools",
+            "from pybvh import rotations",
+        ],
+    )
+    def test_passes_non_core_imports(self, line):
+        assert _core_imports_in_source(line, package_level=1) == []
+
+    def test_a_root_import_flags_only_the_names_that_are_not_not_core_modules(self):
+        assert _core_imports_in_source("from . import rotations, analysis", package_level=1) == [
+            (1, None, ["analysis"])
         ]
 
 
@@ -1700,11 +1844,12 @@ class TestSceneIsPureData:
         assert not (_CORE_MODULES & _NOT_CORE)
         assert modules == _CORE_MODULES | _NOT_CORE
 
-    @pytest.mark.parametrize("module_name", _CORE_FREE)
+    @pytest.mark.parametrize("module_name", _BEHIND_THE_BOUNDARY)
     def test_takes_nothing_from_the_core_at_runtime(self, module_name):
         """A backend consumes a Scene and a Style; it never reaches into
-        Bvh, tools or analysis, and neither do the Scene's and the
-        Style's own modules. Type-only imports are allowed."""
+        Bvh, analysis or transforms, and neither do the Scene's, the
+        viewport's and the Style's own modules. Type-only imports are
+        allowed."""
         offenders = _core_imports_in_source(_module_source(module_name))
         assert offenders == [], f"{module_name} imports core modules at runtime: {offenders}"
 
@@ -1730,13 +1875,27 @@ class TestSceneIsPureData:
         offenders = _sibling_imports_in_source(_module_source(module_name), _BVH_READER)
         assert offenders == [], f"{module_name} imports {_BVH_READER} at lines {offenders}"
 
-    def test_viewport_takes_only_array_kernels_from_the_core(self):
-        """The viewport is computed at draw time from a view: the only
-        things it may import from the core are kernels that take arrays,
-        never a Bvh."""
-        offenders = [
-            (line, func, names)
-            for line, func, names in _core_imports_in_source(_module_source("_viewport"))
-            if not set(names) <= _VIEWPORT_KERNELS
+
+class TestNotCoreModulesStayClipFree:
+    """The modules counted as not core are imported freely behind the
+    boundary, so a core import in one of them would reach bvhplot unseen
+    by the checks above. Type-only imports are allowed."""
+
+    @pytest.mark.parametrize("module_name", sorted(_NOT_CORE))
+    def test_takes_nothing_from_the_core_at_runtime(self, module_name):
+        offenders = _core_imports_in_source(_pybvh_module_source(module_name), package_level=1)
+        assert offenders == [], f"{module_name} imports core modules at runtime: {offenders}"
+
+    @pytest.mark.parametrize("module_name", sorted(_NOT_CORE))
+    def test_a_planted_core_import_is_flagged(self, module_name):
+        """The check on each module's real source, with a core import
+        planted at module level and one inside a function: what it
+        finds there is exactly what was planted."""
+        source = _pybvh_module_source(module_name)
+        planted_line = len(source.splitlines()) + 2
+        planted = source + "\nfrom .bvh import Bvh\ndef _planted():\n    from . import analysis\n"
+        found = _core_imports_in_source(planted, package_level=1)
+        assert found == [
+            (planted_line, None, ["Bvh"]),
+            (planted_line + 2, "_planted", ["analysis"]),
         ]
-        assert offenders == [], f"_viewport imports more than array kernels: {offenders}"

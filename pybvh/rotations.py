@@ -1540,3 +1540,54 @@ def mean_rotation(R: npt.ArrayLike) -> npt.NDArray[np.float64]:
     D[..., 1, 1] = 1.0
     D[..., 2, 2] = np.linalg.det(U @ Vt)
     return U @ D @ Vt
+
+
+def _axis_aligned_rotation(
+    from_vec: npt.NDArray[np.float64],
+    to_vec: npt.NDArray[np.float64],
+    about: npt.NDArray[np.float64] | None = None,
+) -> npt.NDArray[np.float64]:
+    """3x3 rotation matrix turning signed unit axis ``from_vec`` onto ``to_vec``.
+
+    Only for axis-aligned unit vectors (one entry ``±1``, the others 0,
+    as :func:`pybvh.tools._axis_to_vector` gives them). Returns exact
+    matrices (entries 0, 1 or -1) for lossless coordinate transforms.
+    Between two different axes the turn is the 90-degree one about the
+    axis perpendicular to both. Between the two signs of one axis it is
+    the half turn about ``about`` when given, else about the next axis
+    in the cycle X, Y, Z.
+
+    Parameters
+    ----------
+    from_vec, to_vec : ndarray of shape (3,)
+        Signed unit axis vectors, e.g. ``[0, 1, 0]`` and ``[0, 0, -1]``.
+    about : ndarray of shape (3,), optional
+        A signed unit axis vector perpendicular to both, to turn about.
+        A 90-degree turn is about it already; it decides the half turn.
+        Not checked: the one caller passes rest up, to which both axes
+        are perpendicular.
+
+    Returns
+    -------
+    R : ndarray of shape (3, 3)
+        Orthogonal rotation matrix with ``det = +1``.
+    """
+    if np.allclose(from_vec, to_vec):
+        return np.eye(3, dtype=np.float64)
+
+    if np.allclose(from_vec, -to_vec):
+        # 180-degree rotation around a perpendicular axis
+        if about is not None:
+            perp_axis = "XYZ"[int(np.argmax(np.abs(about)))]
+        else:
+            from_idx = int(np.argmax(np.abs(from_vec)))
+            perp_axis = "XYZ"[(from_idx + 1) % 3]
+        R = _elementary_rotmat(np.pi, perp_axis)
+        return np.round(R).astype(np.float64)
+
+    # 90-degree rotation: cross product gives the rotation axis and sign
+    cross = np.cross(from_vec, to_vec)
+    rot_idx = int(np.argmax(np.abs(cross)))
+    rot_sign = np.sign(cross[rot_idx])
+    R = _elementary_rotmat(rot_sign * np.pi / 2, "XYZ"[rot_idx])
+    return np.round(R).astype(np.float64)

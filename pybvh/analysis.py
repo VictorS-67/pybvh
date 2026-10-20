@@ -18,12 +18,13 @@ import numpy as np
 import numpy.typing as npt
 
 from . import geometry, rotations
+from ._orientation import _root_heading_units
 from ._warnings import user_stacklevel
 from .bvh import Bvh
 from .bvhnode import BvhNode
 from .signal import box_filter_smooth
 from .signal import finite_difference as _finite_difference
-from .tools import _axis_to_vector, _compute_forward_at, _facing_basis
+from .tools import _axis_to_vector
 
 _EPS = 1e-12
 
@@ -612,7 +613,7 @@ def angular_velocities(
 
 def root_trajectory(
     bvh: Bvh,
-    up_axis: str | None = None,
+    world_up: str | None = None,
     include_velocities: bool = False,
     stencil: str = "central",
     pad: str = "edge",
@@ -624,27 +625,48 @@ def root_trajectory(
     ``sin``/``cos`` pair).  Optionally appends ground-plane and
     heading velocities.
 
-    The heading reference is the **rest-pose forward direction** —
-    derived from the skeleton's L/R lateral geometry crossed with
-    ``world_up`` (see :func:`pybvh.tools._compute_forward_at`).  This
-    means "heading = rest-pose forward" at any frame whose root
-    rotation is identity, regardless of what rotation the clip
-    starts with.
+    The heading reference is :attr:`~pybvh.bvh.Bvh.rest_forward`, the
+    direction the rest pose faces in the skeleton's own frame (rest left
+    × rest up, read from the rest pose alone). The root rotation of each
+    frame carries it into the world, and the heading is its projection
+    on the ground. At a frame whose root rotation is identity the
+    heading is therefore rest forward's own ground direction, whatever
+    rotation the clip starts with. When rest forward is the house
+    default (no usable left/right geometry; reading it warns), the
+    heading is still built on it, and both the heading and its rate of
+    turn (``heading_vel``) depend on that guessed reference whenever
+    the root pitches or rolls: a tilted root's forward projects on the
+    ground at an angle, and turns there at a rate, that differ with the
+    forward it starts from. On a defaulted rest forward they are
+    reliable only for a root that turns about world up alone.
+    :func:`facing_frame` chooses otherwise for its fallback, which takes
+    no heading from a defaulted rest forward.
 
     The heading is **orientation-derived** — the root bone's rotation
     applied to the rest forward, projected to the ground plane — not
     the direction of travel (a side-stepping character keeps its
     heading). It therefore inherits pelvis twist, and its ground-plane
-    projection shrinks toward numerical ambiguity when the character
-    bends far forward; :func:`facing_frame` is the whole-body, yaw-only
-    alternative that avoids both. For the direction of motion,
-    differentiate the ground position (the ``ground_*_vel`` columns).
+    projection shrinks when the character bends far forward;
+    :func:`facing_frame` is the whole-body, yaw-only alternative that
+    avoids both. For the direction of motion, differentiate the ground
+    position (the ``ground_*_vel`` columns).
+
+    On a frame where that projection is too short to read (the root's
+    forward stands along world up, norm below ``1e-6``) the heading is
+    undefined, and its ``heading_sin`` and ``heading_cos`` are ``NaN``,
+    the :mod:`pybvh.geometry` policy for values the motion makes
+    undefined, rather than an arbitrary angle. With
+    ``include_velocities=True`` the ``NaN`` spreads into the
+    ``heading_vel`` samples whose finite-difference stencil reads that
+    frame (with the default central stencil, the frames either side of
+    it); the heading is unwrapped over the readable frames only, so no
+    other sample is affected. The ground columns are always finite.
 
     Parameters
     ----------
     bvh : Bvh
         Input motion.
-    up_axis : str or None, optional
+    world_up : str or None, optional
         Signed axis string (e.g. ``'+y'``, ``'+z'``). If None,
         uses ``bvh.world_up``.
     include_velocities : bool, optional
@@ -680,26 +702,17 @@ def root_trajectory(
         the natural ``x, y, z`` order with the up axis removed).
     """
     # Resolve up axis (honors bvh.world_up by default)
-    up_str = bvh.world_up if up_axis is None else up_axis
+    up_str = bvh.world_up if world_up is None else world_up
     up_idx = {"x": 0, "y": 1, "z": 2}[up_str[1]]
     ground_axes = [i for i in range(3) if i != up_idx]
 
-    # Rest-pose forward direction — independent of animation start
-    rest_coords = bvh._rest_pose()
-    fwd_axis = _compute_forward_at(bvh, rest_coords, up_str)
-    fwd_rest = _axis_to_vector(fwd_axis)  # (3,) unit vector
-
-    # Root rotation over time
-    root_joint = bvh.nodes[0]
-    root_angles = bvh.joint_angles[:, 0]
-    root_order = root_joint.rot_channels  # type: ignore[attr-defined]
-    R_root = rotations.euler_to_rotmat(root_angles, root_order)
-
-    # World-space forward at each frame = R_root @ rest_forward
-    fwd_world = np.einsum("fij,j->fi", R_root, fwd_rest)  # (F, 3)
+    # Rest forward, in the skeleton's own frame: the root rotation is what
+    # carries it into the world, frame by frame.
+    # (F, 3), NaN rows
+    fwd_ground = _root_heading_units(bvh._root_rotmats(), bvh.rest_forward, up_str)
 
     ground_pos = bvh.root_pos[:, ground_axes]  # (F, 2)
-    heading = np.arctan2(fwd_world[:, ground_axes[1]], fwd_world[:, ground_axes[0]])  # (F,)
+    heading = np.arctan2(fwd_ground[:, ground_axes[1]], fwd_ground[:, ground_axes[0]])  # (F,)
 
     base = np.column_stack(
         [
@@ -725,7 +738,12 @@ def root_trajectory(
         )
 
     dt = bvh.frame_time
-    heading_unwrapped = np.unwrap(heading)
+    # Unwrapped over the readable frames only: np.unwrap carries a NaN
+    # into every later sample, and a NaN heading should reach only the
+    # velocity samples whose stencil reads it.
+    readable = ~np.isnan(heading)
+    heading_unwrapped = heading.copy()
+    heading_unwrapped[readable] = np.unwrap(heading[readable])
     ground_vel = _finite_difference(ground_pos, dt, stencil=stencil, pad=pad)
     heading_vel = _finite_difference(heading_unwrapped, dt, stencil=stencil, pad=pad)
     if pad == "edge":
@@ -784,23 +802,27 @@ def facing_frame(
     ``left = up × forward`` (re-orthogonalized). The triple satisfies
     ``forward × left = up``.
 
-    Fallback policy (mirrors :meth:`Bvh.forward_at`): frames with no
-    usable L/R direction — the skeleton has no ``lr_mapping``, or the
-    frame's horizontal ``(left - right)`` average nearly vanishes /
-    is nearly parallel to ``world_up`` (norm below ``1e-6``) — receive
-    a constant fallback basis instead: forward from the rest-pose
-    leftward crossed with ``world_up``, or the arbitrary-but-stable
-    per-up-axis default (``'+z'`` for a ``y``-up world) when no
-    rest-pose L/R geometry exists either; ``left = up × forward``
-    keeps the triple orthonormal. The ``valid`` field reports exactly
-    those frames: ``False`` where the basis is the fallback, not a
-    measurement (all-``False`` when the skeleton has no L/R pairs at
-    all — the per-frame refinement of :attr:`Bvh.has_lr_geometry`).
-    The fallback rows still carry the usable constant basis rather
-    than ``nan``, so rendering-style consumers can ignore ``valid``;
-    anything *measuring* facing should mask by it. The bvhplot follow
-    camera does: it takes no heading from such frames, and interpolates
-    across them from the measured frames around them.
+    Fallback policy (shared by :meth:`Bvh.forward_at` and
+    :meth:`Bvh.left_at`): a frame whose horizontal ``(left - right)``
+    average nearly vanishes or lies along ``world_up`` (norm below
+    ``1e-6``, the body on its side) takes the root's heading at that
+    frame (the one :func:`root_trajectory` returns) as its forward, when
+    :attr:`Bvh.rest_forward` is measured and that heading is readable
+    (:func:`root_trajectory` builds a heading on a defaulted rest
+    forward too, for its rate of turn; as a facing it would offer a
+    guessed direction as a measured one); otherwise the arbitrary-but-stable per-up-axis default (``'+z'`` for
+    a ``y``-up world), with a ``UserWarning`` that names the frames. A
+    skeleton with no ``lr_mapping`` takes that default on every frame,
+    with a warning that names the skeleton. Every row keeps
+    ``forward = left × up``, so the triple stays orthonormal and
+    right-handed, and ``left`` is never ``world_up``. The ``valid``
+    field reports exactly those frames: ``False`` on every fallback row,
+    heading or default (all-``False`` when the skeleton has no L/R pairs
+    at all). The fallback rows still carry a usable basis rather than
+    ``nan``, so rendering-style consumers can ignore ``valid``; anything
+    *measuring* facing should mask by it. The bvhplot follow camera
+    does: it takes no heading from such frames, and interpolates across
+    them from the measured frames around them.
 
     Parameters
     ----------
@@ -808,8 +830,9 @@ def facing_frame(
         Input motion.
     coords : ndarray, shape (F, N, 3), optional
         Pre-computed spatial coordinates for all frames (as returned
-        by ``Bvh.node_positions()``). When provided, skips the
-        per-call forward kinematics.
+        by ``Bvh.node_positions()``): one row per clip frame, since the
+        fallback reads the root's rotation at each. When provided,
+        skips the per-call forward kinematics.
 
     Returns
     -------
@@ -817,8 +840,14 @@ def facing_frame(
         Named tuple ``(forward, left, up, valid)``: three ``(F, 3)``
         float64 arrays of per-frame unit vectors forming a
         right-handed orthonormal basis, and a ``(F,)`` bool array,
-        ``False`` on frames whose basis is the constant fallback
-        rather than a measurement (see the fallback policy above).
+        ``False`` on frames whose basis is a fallback rather than a
+        measurement (see the fallback policy above).
+
+    Raises
+    ------
+    ValueError
+        If ``coords`` is not node-shaped, or does not hold one row per
+        clip frame.
 
     See Also
     --------
@@ -832,7 +861,14 @@ def facing_frame(
     else:
         coords = np.asarray(coords, dtype=np.float64)
     _validate_node_coords(bvh, coords)
-    forward, left, up, valid = _facing_basis(bvh, coords, bvh.world_up)
+    if coords.shape[0] != bvh.frame_count:
+        raise ValueError(
+            f"coords must hold one row per clip frame ({bvh.frame_count}), as "
+            f"node_positions() returns them, since a frame whose left/right "
+            f"axis cannot be read falls back to the root's heading at that "
+            f"frame; got {coords.shape[0]} rows."
+        )
+    forward, left, up, valid = bvh._facing_at(coords, slice(None))
     return FacingFrame(forward, left, up, valid)
 
 
@@ -1336,7 +1372,7 @@ def _contacts_core(
     if coords is None:
         coords = bvh.node_positions()
 
-    up_idx, up_sign, _ = bvh.up_axis
+    up_idx, up_sign, _ = bvh.world_up_axis
 
     joint_coords = coords[:, joint_indices, :]  # (F, num_joints, 3)
     num_joints = len(joint_names)
@@ -1543,7 +1579,7 @@ def auto_detect_foot_joints(bvh: Bvh) -> list[str]:
 
     An empty result is a *report*, not an error: this function never raises on footless rigs. The contact detectors are where emptiness becomes fatal — :func:`foot_contacts` and :func:`ground_contacts` both raise ``ValueError`` when handed an empty joint list, so a silent ``[]`` cannot flow into a zero-column contact array.
     """
-    up_idx, up_sign, _ = bvh.up_axis
+    up_idx, up_sign, _ = bvh.world_up_axis
 
     # Step 1: substring match
     matched = [
@@ -1812,7 +1848,7 @@ def _compute_floor_height(bvh: Bvh) -> float:
     :attr:`Bvh.floor_height` for the convention and the alternatives it
     was chosen over.
     """
-    up_idx, up_sign, _ = bvh.up_axis
+    up_idx, up_sign, _ = bvh.world_up_axis
     coords = bvh.node_positions()  # (F, N, 3), world
     return _floor_from_coords(coords, list(range(coords.shape[1])), up_idx, up_sign)
 

@@ -128,7 +128,7 @@ Up axis, facing direction, L/R pairs, and the reorientation family (see the [Wor
     options:
       heading_level: 3
 
-::: pybvh.bvh.Bvh.up_axis
+::: pybvh.bvh.Bvh.world_up_axis
     options:
       heading_level: 3
 
@@ -137,6 +137,14 @@ Up axis, facing direction, L/R pairs, and the reorientation family (see the [Wor
       heading_level: 3
 
 ::: pybvh.tools.parse_axis
+    options:
+      heading_level: 3
+
+::: pybvh.bvh.Bvh.orientation_report
+    options:
+      heading_level: 3
+
+::: pybvh.OrientationReport
     options:
       heading_level: 3
 
@@ -152,7 +160,7 @@ Up axis, facing direction, L/R pairs, and the reorientation family (see the [Wor
     options:
       heading_level: 3
 
-::: pybvh.bvh.Bvh.forward_axis
+::: pybvh.bvh.Bvh.rest_forward_axis
     options:
       heading_level: 3
 

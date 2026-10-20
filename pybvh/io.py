@@ -149,7 +149,7 @@ def _bvh_from_parsed(
         world_up=world_up,
         lr_mapping=lr_mapping,
         source_path=str(filepath),
-        warn_on_disagreement=warn_on_world_up_disagreement,
+        warn_on_world_up_disagreement=warn_on_world_up_disagreement,
     )
 
 

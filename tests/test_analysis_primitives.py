@@ -1182,7 +1182,7 @@ def test_floor_height_ignores_one_glitched_frame():
     coords = bvh.node_positions()
     glitched = coords.copy()
     glitched[4, bvh.node_index["LeftToeBase"], 2] -= 500.0
-    up_idx, up_sign, _ = bvh.up_axis
+    up_idx, up_sign, _ = bvh.world_up_axis
     estimate = analysis._floor_from_coords(glitched, list(range(coords.shape[1])), up_idx, up_sign)
     assert estimate == pytest.approx(clean, abs=1e-9)
     # ... while the true minimum would follow it all the way down.

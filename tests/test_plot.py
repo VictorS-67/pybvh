@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pybvh import Bvh, bvhplot, nodes_from_table, nodes_to_table, read_bvh_file
+from pybvh import Bvh, bvhplot, nodes_from_table, nodes_to_table, parse_axis, read_bvh_file
 from pybvh.analysis import root_trajectory
 from pybvh.bvhplot import _k3d, _opencv, _vedo
 from pybvh.bvhplot._from_bvh import (
@@ -1552,7 +1552,7 @@ class TestComputeFollowAzimuths:
         assert az[0] == pytest.approx(-20.0)
 
     def test_matches_per_frame_reference(self, bvh_example):
-        """The schedule is the per-frame heading change of the tools
+        """The schedule is the per-frame heading change of the scalar
         helpers it vectorizes, unwrapped, then averaged frame by frame
         under a Gaussian of FOLLOW_SIGMA seconds reaching
         FOLLOW_TRUNCATE standard deviations, over the clip extended by
@@ -1560,24 +1560,22 @@ class TestComputeFollowAzimuths:
         import math
 
         from pybvh.bvhplot._viewport import FOLLOW_SIGMA, FOLLOW_TRUNCATE, compute_follow_azimuths
-        from pybvh.tools import (
-            _axis_to_vector,
-            _signed_rotation_delta_around_axis,
-            _world_leftward_unit_at_frame,
-        )
+        from pybvh.tools import _axis_to_vector
 
         coords = bvh_example.node_positions()
         base_azim = 160.0
         vec = compute_follow_azimuths(_view(bvh_example, coords), base_azim)
 
         up_vec = _axis_to_vector(bvh_example.world_up)
-        left_0 = _world_leftward_unit_at_frame(bvh_example, coords[0], bvh_example.world_up)
-        assert left_0 is not None
+        facing = bvh_example.facing_frame(coords=coords)
+        assert facing.valid.all()
+        left_0 = facing.left[0]
         changes = []
         for f in range(coords.shape[0]):
-            left_f = _world_leftward_unit_at_frame(bvh_example, coords[f], bvh_example.world_up)
-            assert left_f is not None
-            changes.append(_signed_rotation_delta_around_axis(left_0, left_f, up_vec))
+            # The signed angle turning left_0 onto this frame's left about up.
+            cos_a = float(np.clip(left_0 @ facing.left[f], -1.0, 1.0))
+            sin_a = float(np.cross(left_0, facing.left[f]) @ up_vec)
+            changes.append(math.degrees(math.atan2(sin_a, cos_a)))
         change = np.unwrap(changes, period=360.0)
 
         last = len(change) - 1
@@ -1662,6 +1660,45 @@ class TestComputeFollowAzimuths:
 # =============================================================================
 # match_fps
 # =============================================================================
+
+
+class TestHeadingChange:
+    """The follow camera's heading change since frame 0, about up."""
+
+    @staticmethod
+    def _leftward(degrees, up_index=2):
+        """Unit leftward rows at *degrees* counterclockwise about +up."""
+        a, b = [i for i in range(3) if i != up_index]
+        rows = np.zeros((len(degrees), 3))
+        rows[:, a] = np.cos(np.radians(degrees))
+        rows[:, b] = np.sin(np.radians(degrees))
+        return rows
+
+    def test_signed_and_unwrapped(self):
+        from pybvh.bvhplot._viewport import _heading_change
+
+        # Counterclockwise seen from +z is positive; 190 is past the
+        # wrap at 180 and stays 190, and the turn back is negative.
+        degrees = [0.0, 90.0, 170.0, 190.0, 270.0, 200.0]
+        leftward = self._leftward(degrees)
+        change = _heading_change(leftward, np.ones(6, dtype=bool), np.array([0.0, 0.0, 1.0]))
+        np.testing.assert_allclose(change, degrees, atol=1e-9)
+
+    def test_signed_about_the_up_given(self):
+        from pybvh.bvhplot._viewport import _heading_change
+
+        leftward = self._leftward([0.0, 30.0])
+        change = _heading_change(leftward, np.ones(2, dtype=bool), np.array([0.0, 0.0, -1.0]))
+        np.testing.assert_allclose(change, [0.0, -30.0], atol=1e-9)
+
+    def test_invalid_frames_are_interpolated(self):
+        from pybvh.bvhplot._viewport import _heading_change
+
+        leftward = self._leftward([0.0, 40.0, 0.0, 80.0])
+        leftward[2] = 0.0  # no direction on this frame
+        valid = np.array([True, True, False, True])
+        change = _heading_change(leftward, valid, np.array([0.0, 0.0, 1.0]))
+        np.testing.assert_allclose(change, [0.0, 40.0, 60.0, 80.0], atol=1e-9)
 
 
 class TestMatchFps:
@@ -1808,12 +1845,10 @@ class TestSceneSpacing:
 
     def test_offset_along_lateral_axis(self, two_bvhs, two_coords):
         """Offset must be along the axis that is neither up nor forward."""
-        from pybvh.bvhplot._scene import UP_AXIS_INDEX
-
         scene = self._scene(two_bvhs, two_coords)
         first = scene.views[0]
         up_idx = first.up_index
-        fwd_idx = UP_AXIS_INDEX[first.forward_axis[1]]
+        fwd_idx = parse_axis(first.initial_forward).index
         lat_idx = next(i for i in range(3) if i != up_idx and i != fwd_idx)
 
         result = scene.spread(2.0)

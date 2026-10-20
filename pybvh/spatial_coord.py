@@ -300,7 +300,7 @@ def frames_to_node_positions(
     root_pos: npt.ArrayLike | None = None,
     joint_angles: npt.ArrayLike | None = None,
     centered: str = "world",
-    up: str | None = None,
+    world_up: str | None = None,
 ) -> npt.NDArray[np.float64]:
     """
     Return spatial coordinates of all nodes for one or multiple frames.
@@ -326,9 +326,10 @@ def frames_to_node_positions(
         ``"world"``  – root at its actual position.
         ``"skeleton"`` – root at origin in every frame.
         ``"first"`` – ground-plane centering: the first frame's root
-        position is subtracted in the two non-``up`` axes only, so the
-        motion starts above the origin at its original height.
-    up : str or None, optional
+        position is subtracted in the two axes other than ``world_up``
+        only, so the motion starts above the origin at its original
+        height.
+    world_up : str or None, optional
         Signed world-up axis string (e.g. ``'+y'``) — only read by
         ``centered="first"``, to decide which coordinate is left
         untouched. Defaults to the skeleton's own ``world_up`` when
@@ -350,8 +351,8 @@ def frames_to_node_positions(
         If *centered* is not one of the three modes; if *root_pos* /
         *joint_angles* are omitted for a skeleton that carries no motion;
         if they disagree on frame count or on the joint count the skeleton
-        declares; or if ``centered="first"`` is requested without an
-        ``up`` axis and the skeleton cannot supply one.
+        declares; or if ``centered="first"`` is requested without a
+        ``world_up`` and the skeleton cannot supply one.
 
     Notes
     -----
@@ -419,17 +420,18 @@ def frames_to_node_positions(
         )
 
     if centered == "first":
-        if up is None:
+        if world_up is None:
             if source_bvh is None:
                 raise ValueError(
                     "centered='first' needs an up axis to know which "
                     "coordinate to leave untouched, and a skeleton passed as "
                     "a node list or an FkTopology carries no gravity "
-                    "direction. Pass `up=` explicitly (e.g. up='+z'), or "
-                    "pass the Bvh itself so its `world_up` is used."
+                    "direction. Pass `world_up=` explicitly (e.g. "
+                    "world_up='+z'), or pass the Bvh itself so its "
+                    "`world_up` is used."
                 )
-            up = source_bvh.world_up
-        up = _validate_axis_string(up)
+            world_up = source_bvh.world_up
+        world_up = _validate_axis_string(world_up)
 
     positions = _run_forward_kinematics(
         topology, root_pos_arr, joint_angles_arr, skel_centered=(centered == "skeleton")
@@ -438,8 +440,8 @@ def frames_to_node_positions(
     # "first" centering: subtract the first frame's root position in the
     # two non-up axes only — the up coordinate stays in world units.
     if centered == "first" and positions.shape[0] > 0:
-        assert up is not None  # mypy: set above whenever centered == "first"
-        positions -= _ground_plane_offset(root_pos_arr[0], up)
+        assert world_up is not None  # mypy: set above whenever centered == "first"
+        positions -= _ground_plane_offset(root_pos_arr[0], world_up)
 
     # Return (N, 3) for single frame, (F, N, 3) for multiple
     if single_frame:

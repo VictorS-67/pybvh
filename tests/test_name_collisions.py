@@ -523,7 +523,7 @@ def two_tips_rig():
 class TestMirrorWithRepeatedEndSiteNames:
     def test_mirror_reflects_every_tip(self, two_tips_rig):
         """A symmetric rig mirrors back onto itself — every end site swapped."""
-        mirrored = two_tips_rig.mirror(lateral_axis="x")
+        mirrored = two_tips_rig.mirror(lateral="x")
         for original, result in zip(two_tips_rig.nodes, mirrored.nodes):
             np.testing.assert_allclose(
                 result.offset,
@@ -539,14 +539,14 @@ class TestMirrorWithRepeatedEndSiteNames:
         unswapped end site returns to its original value regardless — a
         round-trip assertion passes on the broken implementation too.
         """
-        twice = two_tips_rig.mirror(lateral_axis="x").mirror(lateral_axis="x")
+        twice = two_tips_rig.mirror(lateral="x").mirror(lateral="x")
         for original, result in zip(two_tips_rig.nodes, twice.nodes):
             np.testing.assert_allclose(result.offset, original.offset, atol=1e-12)
 
     def test_unequal_end_site_counts_still_raise(self):
         """The domain error survives the move into the shared resolver."""
         with pytest.raises(ValueError, match="Cannot pair end sites"):
-            _tips_rig(right_tips=1).mirror(lateral_axis="x")
+            _tips_rig(right_tips=1).mirror(lateral="x")
 
 
 # =============================================================================

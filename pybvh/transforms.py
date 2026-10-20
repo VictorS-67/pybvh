@@ -22,16 +22,14 @@ import numpy as np
 import numpy.typing as npt
 
 from . import rotations
+from ._orientation import (
+    _resolve_lr_pairs,
+)
 from .bvhnode import BvhJoint
 from .tools import (
     _AXIS_CHAR_TO_IDX,
-    _axis_aligned_rotation,
     _axis_index_sign,
-    _compute_forward_at,
-    _resolve_lr_pairs,
-    _resolve_node_lr_pairs,
-    _rest_leftward,
-    _rest_upward,
+    _axis_to_vector,
     _validate_axis_string,
 )
 
@@ -562,7 +560,7 @@ def rotate_vertical(
     bvh: Bvh,
     angle: float,
     *,
-    up_axis: str | None = ...,
+    world_up: str | None = ...,
     degrees: bool = ...,
     pivot: str | npt.ArrayLike = ...,
     inplace: Literal[True],
@@ -571,7 +569,7 @@ def rotate_vertical(
 def rotate_vertical(
     bvh: Bvh,
     angle: float,
-    up_axis: str | None = ...,
+    world_up: str | None = ...,
     degrees: bool = ...,
     pivot: str | npt.ArrayLike = ...,
     inplace: Literal[False] = ...,
@@ -579,7 +577,7 @@ def rotate_vertical(
 def rotate_vertical(
     bvh: Bvh,
     angle: float,
-    up_axis: str | None = None,
+    world_up: str | None = None,
     degrees: bool = False,
     pivot: str | npt.ArrayLike = "origin",
     inplace: bool = False,
@@ -597,7 +595,7 @@ def rotate_vertical(
     angle : float
         Rotation angle in radians (positive = counter-clockwise
         when viewed from above). Pass ``degrees=True`` for degrees.
-    up_axis : str or None
+    world_up : str or None
         Signed axis string (e.g. ``'+y'``).  Auto-detected if None.
     degrees : bool, optional
         If True, interpret ``angle`` in degrees. Default False (radians).
@@ -639,10 +637,10 @@ def rotate_vertical(
 
     # Determine up axis — use the Bvh's world_up property so manual
     # overrides are respected.
-    if up_axis is None:
+    if world_up is None:
         axis_str = target.world_up
     else:
-        axis_str = _validate_axis_string(up_axis)
+        axis_str = _validate_axis_string(world_up)
     up_idx, up_sign = _axis_index_sign(axis_str)
 
     root_order = "".join(target.root.rot_channels)
@@ -665,7 +663,7 @@ def rotate_vertical(
 def random_rotate_vertical(
     bvh: Bvh,
     angle_range: tuple[float, float] = (-np.pi, np.pi),
-    up_axis: str | None = None,
+    world_up: str | None = None,
     degrees: bool = False,
     pivot: str | npt.ArrayLike = "origin",
     rng: np.random.Generator | None = None,
@@ -679,7 +677,7 @@ def random_rotate_vertical(
     angle_range : tuple of (low, high)
         Angle sampling range in radians (default full circle,
         ``(-π, π)``), or in degrees if ``degrees=True``.
-    up_axis : str or None
+    world_up : str or None
         Signed axis string.  Auto-detected if None.
     degrees : bool, optional
         If True, interpret ``angle_range`` in degrees. Default False
@@ -698,7 +696,7 @@ def random_rotate_vertical(
         rng = np.random.default_rng()
     angle = float(rng.uniform(angle_range[0], angle_range[1]))
     return rotate_vertical(  # type: ignore[return-value]
-        bvh, angle, up_axis=up_axis, degrees=degrees, pivot=pivot
+        bvh, angle, world_up=world_up, degrees=degrees, pivot=pivot
     )
 
 
@@ -772,7 +770,7 @@ def mirror_angles(
     --------
     >>> angles = bvh.joint_angles
     >>> pos = bvh.root_pos
-    >>> pairs = transforms.auto_detect_lr_pairs(bvh)
+    >>> pairs = bvh.lr_pairs
     >>> lat_idx = {'x': 0, 'y': 1, 'z': 2}[bvh.left_at(frame=0)[1]]
     >>> channels = [n.rot_channels for n in bvh.nodes if not n.is_end_site()]
     >>> new_angles, new_pos = mirror_angles(
@@ -822,46 +820,25 @@ def mirror_angles(
 # =========================================================================
 
 
-def auto_detect_lr_pairs(bvh: Bvh) -> list[tuple[int, int]]:
-    """Auto-detect left/right joint pairs as index tuples.
-
-    Converts the joint name pairs of :attr:`Bvh.lr_mapping` to index
-    pairs in ``joint_angles`` index space (axis 1 of
-    ``bvh.joint_angles``).
-
-    Parameters
-    ----------
-    bvh : Bvh
-        Input BVH with named joints.
-
-    Returns
-    -------
-    list of (int, int)
-        ``[(left_idx, right_idx), ...]`` in ``joint_angles`` index
-        space.  Empty if no pairs found.
-    """
-    return _resolve_lr_pairs(bvh.lr_mapping, bvh.joint_index)
-
-
 @overload
 def mirror(
     bvh: Bvh,
     *,
     lr_mapping: dict[str, str] | None = ...,
-    lateral_axis: str | None = ...,
+    lateral: str | None = ...,
     inplace: Literal[True],
 ) -> None: ...
 @overload
 def mirror(
     bvh: Bvh,
     lr_mapping: dict[str, str] | None = ...,
-    lateral_axis: str | None = ...,
+    lateral: str | None = ...,
     inplace: Literal[False] = ...,
 ) -> Bvh: ...
 def mirror(
     bvh: Bvh,
     lr_mapping: dict[str, str] | None = None,
-    lateral_axis: str | None = None,
+    lateral: str | None = None,
     inplace: bool = False,
 ) -> Bvh | None:
     """Mirror (reflect) the motion across the lateral plane.
@@ -877,16 +854,20 @@ def mirror(
     lr_mapping : dict or None
         ``{"LeftArm": "RightArm", ...}``.  Defaults to
         :attr:`Bvh.lr_mapping` (auto-detected or user-set).
-    lateral_axis : str or None
+    lateral : str or None
         Axis perpendicular to the mirror plane, e.g. ``'x'`` or
         ``'+x'`` (the sign is irrelevant for mirroring).
         **Auto-detected if None**, and the detection is usually the
-        right thing to use: it averages the left-minus-right rest-pose
-        offsets over the L/R joint pairs and takes the dominant axis, so
-        it measures how *this* skeleton is actually built rather than
-        assuming a convention. Pass an explicit axis only to override
-        that, or when the detection raises because the L/R offsets are
-        degenerate (parallel to the up axis, or zero).
+        right thing to use: it reads the skeleton's own left, the
+        left-minus-right rest-pose positions averaged over the L/R joint
+        pairs with the :attr:`~pybvh.bvh.Bvh.rest_up` component removed,
+        so it measures how *this* skeleton is actually built rather than
+        assuming a convention, and never reads ``world_up``. Rest up is
+        read as it would be with *lr_mapping* set on the clip: on a rig
+        without a named up joint, from the legs among its pairs. Pass an
+        explicit axis only to override that, or when the detection
+        raises because the L/R offsets are degenerate (parallel to
+        ``rest_up``, or zero).
     inplace : bool, optional
         If True, modify *bvh* and return None.
         With True, the skeleton is replaced, not edited: a node taken from
@@ -928,23 +909,24 @@ def mirror(
     lr_j_pairs = _resolve_lr_pairs(lr_mapping, j_name2idx, strict=explicit_mapping)
 
     # --- Detect lateral axis ---
-    # Mirror is a topology operation (swap L/R joints, negate the lateral
-    # component), so we use the rest-pose leftward axis derived from the
-    # L/R mapping above. Pass the explicit mapping so we use the same
-    # pairs. Only the axis letter is consumed; the sign doesn't matter
+    # Mirror is a skeleton operation (swap L/R joints, negate the lateral
+    # component), so it reflects along rest left: the skeleton's own
+    # left, read from the rest pose against rest up and never against
+    # world up (ADR 0004), for the pairs of the mapping above. Only the
+    # axis letter is consumed; the sign doesn't matter
     # for mirroring (reflecting across the plane perpendicular to the
     # axis is the same operation whether the axis points left or right).
-    if lateral_axis is None:
-        rest_left = _rest_leftward(target, mapping=lr_mapping)
+    if lateral is None:
+        rest_left = target._rest_left_of(lr_mapping)
         if rest_left is None:
             raise ValueError(
                 "Cannot infer lateral axis from L/R mapping: averaged "
-                "left-to-right offsets are degenerate (parallel to up "
-                "axis or zero). Pass `lateral_axis=` explicitly."
+                "left-to-right offsets are degenerate (parallel to the "
+                "rest pose's up, rest_up, or zero). Pass `lateral=` explicitly."
             )
         lateral_char = rest_left[1]
     else:
-        lateral_char = _validate_axis_string(lateral_axis, allow_unsigned=True)[1]
+        lateral_char = _validate_axis_string(lateral, allow_unsigned=True)[1]
     lateral_idx = _AXIS_CHAR_TO_IDX[lateral_char]
 
     # Build node-index pairs for offset swapping (includes end sites).
@@ -952,7 +934,7 @@ def mirror(
     # unpairable joint: the property drops its end sites, mirror refuses,
     # because swapping some of a joint's tips and not others produces a
     # skeleton that is wrong rather than incomplete.
-    lr_node_pairs, end_site_mismatches = _resolve_node_lr_pairs(target, lr_mapping)
+    lr_node_pairs, end_site_mismatches = target._node_lr_pairs_of(lr_mapping)
     if end_site_mismatches:
         left_name, num_left, right_name, num_right = end_site_mismatches[0]
         raise ValueError(
@@ -1103,7 +1085,7 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     if old_up == new_up:
         return None if inplace else target
 
-    R = _axis_aligned_rotation(old_up, new_up)
+    R = rotations._axis_aligned_rotation(_axis_to_vector(old_up), _axis_to_vector(new_up))
     target._rotate_world_up_guess(R)
 
     # 1. Rotate root positions
@@ -1126,12 +1108,24 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     return None if inplace else target
 
 
+def _required_rest_up(bvh: Bvh) -> str:
+    """*bvh*'s rest up, for a rest reorientation, which cannot turn without it."""
+    rest_up = bvh.rest_up
+    if rest_up is None:
+        raise ValueError(
+            "Cannot infer the skeleton's rest-pose up axis: the rest "
+            "pose is degenerate (all joint offsets are zero or there "
+            "are too few joints)."
+        )
+    return rest_up
+
+
 @overload
 def reorient_rest_up(bvh: Bvh, new_up: str, *, inplace: Literal[True]) -> None: ...
 @overload
 def reorient_rest_up(bvh: Bvh, new_up: str, inplace: Literal[False] = ...) -> Bvh: ...
 def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None:
-    """Rotate the skeleton's rest-pose offsets so its topological up aligns
+    """Rotate the skeleton's rest-pose offsets so its own up (rest up) aligns
     with ``new_up``, compensating all joint rotations so that FK positions
     are unchanged.
 
@@ -1167,13 +1161,7 @@ def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None
     ValueError
         If the rest pose is degenerate (no up axis can be inferred).
     """
-    current_rest_up = _rest_upward(bvh)
-    if current_rest_up is None:
-        raise ValueError(
-            "Cannot infer the skeleton's rest-pose up axis: the rest "
-            "pose is degenerate (all joint offsets are zero or there "
-            "are too few joints)."
-        )
+    current_rest_up = _required_rest_up(bvh)
     new_up = _validate_axis_string(new_up)
 
     target = bvh if inplace else bvh.copy()
@@ -1181,7 +1169,8 @@ def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None
     if current_rest_up == new_up:
         return None if inplace else target
 
-    _reorient_rest(target, _axis_aligned_rotation(current_rest_up, new_up))
+    R = rotations._axis_aligned_rotation(_axis_to_vector(current_rest_up), _axis_to_vector(new_up))
+    _reorient_rest(target, R)
     return None if inplace else target
 
 
@@ -1194,15 +1183,18 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
     ``new_forward``, compensating all joint rotations so FK positions are
     unchanged.
 
-    The rotation is around the world up axis (a rotation in the ground
-    plane).  ``new_forward`` must not be parallel to ``world_up``.
+    The rotation is about the rest pose's own up,
+    :attr:`~pybvh.bvh.Bvh.rest_up`: the rest pose turns in its own frame,
+    whatever :attr:`~pybvh.bvh.Bvh.world_up` is, so ``rest_up`` is the
+    same afterwards and :attr:`~pybvh.bvh.Bvh.rest_forward` is
+    ``new_forward``. ``new_forward`` must not be parallel to ``rest_up``.
 
     Parameters
     ----------
     bvh : Bvh
-        Input motion. Its rest-pose forward is computed from the rest
-        pose and its ``world_up``, as
-        :attr:`~pybvh.bvh.Bvh.rest_forward` reports it.
+        Input motion. Its rest-pose forward and up are read from the rest
+        pose, as :attr:`~pybvh.bvh.Bvh.rest_forward` and
+        :attr:`~pybvh.bvh.Bvh.rest_up` report them.
     new_forward : str
         Target rest-pose forward axis, e.g. ``'+y'`` or ``'-z'``.
     inplace : bool, optional
@@ -1219,24 +1211,23 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
     Raises
     ------
     ValueError
-        If ``new_forward`` is parallel to ``world_up``.
+        If the rest pose is degenerate (no up axis can be inferred), or
+        ``new_forward`` is parallel to ``rest_up``.
     """
     new_forward = _validate_axis_string(new_forward)
-    up_idx = bvh.up_axis.index
-    fwd_idx = _AXIS_CHAR_TO_IDX[new_forward[1]]
-    if up_idx == fwd_idx:
-        raise ValueError(
-            f"new_forward ({new_forward}) cannot be parallel to world_up ({bvh.world_up})"
-        )
+    rest_up = _required_rest_up(bvh)
+    if rest_up[1] == new_forward[1]:
+        raise ValueError(f"new_forward ({new_forward}) cannot be parallel to rest_up ({rest_up})")
 
-    # Determine current rest-pose forward from topology
-    rest_coords = bvh._rest_pose()
-    current_fwd = _compute_forward_at(bvh, rest_coords, bvh.world_up)
+    current_fwd = bvh.rest_forward
 
     target = bvh if inplace else bvh.copy()
 
     if current_fwd == new_forward:
         return None if inplace else target
 
-    _reorient_rest(target, _axis_aligned_rotation(current_fwd, new_forward))
+    R = rotations._axis_aligned_rotation(
+        _axis_to_vector(current_fwd), _axis_to_vector(new_forward), about=_axis_to_vector(rest_up)
+    )
+    _reorient_rest(target, R)
     return None if inplace else target

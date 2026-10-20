@@ -1,11 +1,11 @@
 """Tests for the lifecycle of a clip's derived state (`pybvh._derived`).
 
-The module holds every value a `Bvh` computes from its skeleton, motion or
-world up, and one method per change to those inputs. Each change must clear
+The module holds every value a `Bvh` computes from its skeleton, motion,
+world up or L/R mapping setting, and one method per change to those inputs. Each change must clear
 exactly the values computed from what changed, and nothing else: a value left
 in place after its input changed is stale, and a value cleared needlessly is a
 recomputation every caller pays for. The expected rows below are ADR 0003's
-table.
+table, with ADR 0004's row for the orientation report.
 """
 
 from __future__ import annotations
@@ -21,20 +21,32 @@ ALL_VALUES = {
     "floor_height",
     "inferred_world_up",
     "inherited_world_up",
+    "world_up_guess_announced",
     "node_index",
     "joint_index",
     "names_lr_mapping",
+    "orientation_report",
 }
 MOTION_DEPENDENTS = {"node_positions", "floor_height"}
 # The guessed world up, inferred on the clip or inherited from the clip it
-# was derived from, survives every change but the user replacing the motion.
-GUESSED_WORLD_UP = {"inferred_world_up", "inherited_world_up"}
+# was derived from, and whether world_up warned about it, survive every
+# change but the user replacing the motion.
+GUESSED_WORLD_UP = {"inferred_world_up", "inherited_world_up", "world_up_guess_announced"}
+# But the user setting the L/R mapping starts the clip's own guess again
+# (rest up, which it may be read from, reads the mapping), and with it the
+# floor measured along it; not the inherited guess or the warning.
+GUESSED_HERE = {"inferred_world_up", "floor_height"}
+
+# The orientation report reads the skeleton, world up and the L/R mapping
+# setting, and none of pybvh's own motion writes (ADR 0004).
+REPORT = {"orientation_report"}
 
 CLEARED_BY = {
     "skeleton_changed": ALL_VALUES - GUESSED_WORLD_UP,
     "motion_changed": MOTION_DEPENDENTS,
-    "user_replaced_motion": MOTION_DEPENDENTS | GUESSED_WORLD_UP,
-    "world_up_changed": {"floor_height"},
+    "user_replaced_motion": MOTION_DEPENDENTS | GUESSED_WORLD_UP | REPORT,
+    "world_up_changed": {"floor_height"} | REPORT,
+    "lr_mapping_changed": GUESSED_HERE | REPORT,
 }
 
 
@@ -45,9 +57,11 @@ def _filled() -> DerivedState:
     derived.floor_height = 1.5
     derived.inferred_world_up = "+y"
     derived.inherited_world_up = "+z"
+    derived.world_up_guess_announced = True
     derived.node_index = {"Hips": 0, "Spine": 1, "EndSite": 2}
     derived.joint_index = {"Hips": 0, "Spine": 1}
     derived.names_lr_mapping = {"LeftArm": "RightArm"}
+    derived.orientation_report = object()  # type: ignore[assignment]
     return derived
 
 

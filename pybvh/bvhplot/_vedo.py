@@ -28,7 +28,7 @@ from ._colors import (
     skeleton_color_255,
 )
 from ._playback import PlaybackClock
-from ._scene import UP_AXIS_INDEX, Scene
+from ._scene import Scene
 from ._style import JOINT_DISC_MARGIN_PX, Style, bone_width_px
 from ._vedo_capsules import (
     CapsuleSkeleton,
@@ -273,7 +273,7 @@ class _VedoPlayer:
         self.coords_list = [v.coords for v in scene.views]
         self.labels = scene.labels
         self.skeleton_lines_list = [v.bones for v in scene.views]
-        self.up_axis = self.viewport.up_axis
+        self.up_letter = self.viewport.up_letter
         self.use_high = quality == "high"
 
         self.n_skeletons = scene.num_skeletons
@@ -365,7 +365,7 @@ class _VedoPlayer:
 
         coords_list = self.coords_list
         n_skeletons = self.n_skeletons
-        up_idx = UP_AXIS_INDEX.get(self.up_axis, 2)
+        up_idx = self.viewport.up_index
         line_width_px = bone_width_px(self.style.bone_width)
         point_size_px = 2 * (line_width_px + JOINT_DISC_MARGIN_PX)
 
@@ -389,11 +389,11 @@ class _VedoPlayer:
                 # vedo rotates about the world origin, so a grid that
                 # is placed first swings away from where it was put.
                 floor = Grid(s=[side, side], res=(30, 30))
-                if self.up_axis == "y":
+                if self.up_letter == "y":
                     floor.rotate_x(90)
-                elif self.up_axis == "x":
+                elif self.up_letter == "x":
                     floor.rotate_y(90)
-                # up_axis='z': Grid defaults to XY plane, no rotation
+                # up_letter='z': Grid defaults to XY plane, no rotation
                 floor.pos(*floor_pos)
                 floor.lw(1).alpha(0.6)
                 floor.c(vedo_color(palette["grid"])).lighting("off")

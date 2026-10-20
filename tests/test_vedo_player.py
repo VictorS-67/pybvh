@@ -288,7 +288,7 @@ class TestGridFloor:
                     rest_coords=view.rest_coords[..., order],
                     rest_up=up,
                     up=up,
-                    forward_axis=forward,
+                    initial_forward=forward,
                     root_heading=None,
                     floor_height=float(heights.min()),
                 )
@@ -312,7 +312,7 @@ class TestGridFloor:
             # the scene is not centred on the origin, or this proves nothing
             assert np.abs(viewport.center).max() > 0.2
             expected = viewport.floor_quad()
-            for axis in viewport.ground_axes:
+            for axis in viewport.ground_indices:
                 assert vertices[:, axis].min() == pytest.approx(expected[:, axis].min(), rel=1e-5)
                 assert vertices[:, axis].max() == pytest.approx(expected[:, axis].max(), rel=1e-5)
             np.testing.assert_allclose(

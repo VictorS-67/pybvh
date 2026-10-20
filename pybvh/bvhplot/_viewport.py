@@ -3,9 +3,10 @@ lies, where the camera stands and how it moves.
 
 One :class:`Viewport` is computed from the view or views a picture
 shows, and every backend translates its numbers into its toolkit's
-calls. Pure numpy. No plotting library imports; the one thing taken
-from the pybvh core is the array-pure facing kernel the follow camera
-runs.
+calls. Pure numpy. No plotting library imports and nothing from the
+pybvh core: signed axes are read with the axis vocabulary of
+:mod:`pybvh.tools`, and the per-frame leftward the follow camera turns
+with comes from :mod:`pybvh._orientation`, two modules that know no clip.
 """
 
 from __future__ import annotations
@@ -18,7 +19,9 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 import numpy.typing as npt
 
-from ._scene import UP_AXIS_INDEX, GroundFrame
+from .._orientation import _leftward_units_from_pairs
+from ..tools import parse_axis
+from ._scene import GroundFrame
 
 if TYPE_CHECKING:
     from ._scene import SkeletonView
@@ -370,9 +373,9 @@ class Viewport(GroundFrame):
         still turns a full-extent plane into a backdrop wall.
 
         Corners run ``(lo, lo), (hi, lo), (hi, hi), (lo, hi)`` over the
-        two :attr:`ground_axes`, so opposite corners are 0 and 2.
+        two :attr:`ground_indices`, so opposite corners are 0 and 2.
         """
-        first, second = self.ground_axes
+        first, second = self.ground_indices
         if clip_to_box:
             a_lo, a_hi = float(self.lo[first]), float(self.hi[first])
             b_lo, b_hi = float(self.lo[second]), float(self.hi[second])
@@ -433,7 +436,7 @@ class Viewport(GroundFrame):
         azimuths = np.array([self.azimuth]) if self.azimuths is None else self.azimuths
         return np.stack(
             [
-                build_view_matrix(float(azimuth), self.elevation, self.up_axis)
+                build_view_matrix(float(azimuth), self.elevation, self.up_letter)
                 for azimuth in azimuths
             ]
         )
@@ -828,8 +831,6 @@ def compute_follow_azimuths(
         unless frame 0's left-to-right axis cannot be measured (the
         camera is then fixed, and needs no rate).
     """
-    from ..tools import _leftward_units_from_pairs
-
     num_frames = view.coords.shape[0]
     leftward, valid = _leftward_units_from_pairs(view.coords, view.lr_pairs, view.up_vector)
     if not valid[0]:
@@ -903,13 +904,13 @@ def _gaussian_smooth_held_ends(
 def build_view_matrix(
     azimuth_deg: float,
     elevation_deg: float,
-    up_axis: str,
+    up_letter: str,
 ) -> npt.NDArray[np.float64]:
     """Build a 3x3 rotation that maps world coordinates to view coordinates.
 
     Uses the same look-at camera math as matplotlib's ``view_init``
     so that both backends produce identical views for the same
-    (azimuth, elevation, up_axis) parameters.
+    (azimuth, elevation, up_letter) parameters.
 
     View coordinate convention: x = right on screen, y = up on screen,
     z = out of screen (toward viewer).
@@ -920,7 +921,7 @@ def build_view_matrix(
         Azimuth rotation in degrees.
     elevation_deg : float
         Elevation rotation in degrees.
-    up_axis : str
+    up_letter : str
         ``'x'``, ``'y'``, or ``'z'``.
 
     Returns
@@ -929,7 +930,7 @@ def build_view_matrix(
     """
     az = np.radians(azimuth_deg)
     el = np.radians(elevation_deg)
-    axis_idx = UP_AXIS_INDEX.get(up_axis, 2)
+    axis_idx = parse_axis(up_letter, allow_unsigned=True).index
 
     # Eye direction from spherical coordinates, rolled to match
     # vertical axis (same as matplotlib's _roll_to_vertical).

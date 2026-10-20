@@ -72,7 +72,7 @@ def _vtk_backend():
 
 def _attach_projected_shadow(
     mesh: object,
-    up_axis: str,
+    up_letter: str,
     shadow_height: float,
 ) -> None:
     """Attach a projected (flattened-copy) shadow to a vedo mesh.
@@ -82,7 +82,7 @@ def _attach_projected_shadow(
     never appear side by side in pybvh code outside this module.
     """
     mesh.add_shadow(  # type: ignore[attr-defined]
-        up_axis, shadow_height, c=_SHADOW_GRAY, alpha=1
+        up_letter, shadow_height, c=_SHADOW_GRAY, alpha=1
     )
 
 
@@ -114,7 +114,7 @@ def _build_offscreen(
             # Shadows must exist BEFORE the mesh joins the plotter —
             # vedo registers a mesh's shadow sub-objects at add time.
             if style.shadow and style.floor is not None:
-                _attach_projected_shadow(mesh, viewport.up_axis, shadow_height(viewport))
+                _attach_projected_shadow(mesh, viewport.up_letter, shadow_height(viewport))
             plt += mesh
         capsules.append(capsule)
 

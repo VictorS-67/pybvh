@@ -259,7 +259,7 @@ class Bvh:
         world_up: str = "auto",
         lr_mapping: dict[str, str] | None = None,
         source_path: str | None = None,
-        warn_on_disagreement: bool = True,
+        warn_on_world_up_disagreement: bool = True,
     ) -> None:
         # The derived state exists before any property setter runs, so the
         # setters can report their change unconditionally. Each value in it
@@ -272,7 +272,7 @@ class Bvh:
         # call, because the guess starts again when the user assigns
         # motion, and world_up_inferred guesses afresh on every read: each
         # of those must still see what the caller asked for at load.
-        self._warn_on_world_up_disagreement = warn_on_disagreement
+        self._warn_on_world_up_disagreement = warn_on_world_up_disagreement
         # The user's L/R choice: a mapping they set (one direction, left to
         # right), None once they cleared it, or "names" (the default) for
         # the pairs detected from the joint names.
@@ -969,7 +969,7 @@ class Bvh:
             "source_path": self.source_path,
             "world_up_override": self._world_up_override,
             "world_up_guess": derived.inherited_world_up or derived.inferred_world_up,
-            "warn_on_disagreement": self._warn_on_world_up_disagreement,
+            "warn_on_world_up_disagreement": self._warn_on_world_up_disagreement,
             "lr_mapping_setting": self._lr_mapping_setting,
         }
 
@@ -981,7 +981,7 @@ class Bvh:
             nodes=state["nodes"],
             frame_time=state["frame_time"],
             source_path=state["source_path"],
-            warn_on_disagreement=state["warn_on_disagreement"],
+            warn_on_world_up_disagreement=state["warn_on_world_up_disagreement"],
         )
         self._set_motion(root_pos=state["root_pos"], joint_angles=state["joint_angles"])
         # A clip built without motion holds (0, 0, 3) angles whatever its

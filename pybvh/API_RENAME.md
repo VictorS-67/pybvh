@@ -16,6 +16,7 @@ Migration: grep for the old name in the left column, replace with the right colu
 | `transforms.rotate_vertical(bvh, angle, up_axis=)`, `transforms.random_rotate_vertical(bvh, up_axis=)` and their `Bvh` methods | `world_up=` | Same. |
 | `frames_to_node_positions(..., up=)` | `world_up=` | Same. |
 | `transforms.mirror(bvh, lateral_axis=)`, `Bvh.mirror(lateral_axis=)` | `lateral=` | The value is a string (`'x'`, `'+x'`), not an `Axis`. |
+| `Bvh(..., warn_on_disagreement=)` | `warn_on_world_up_disagreement=` | One flag, one name: the readers already called it this. |
 
 ---
 

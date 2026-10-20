@@ -21,7 +21,7 @@ from synthetic_bvh import (
     make_pos_z_up_bvh,
 )
 
-from pybvh import Bvh, read_bvh_file, transforms
+from pybvh import Bvh, nodes_from_table, read_bvh_file, transforms
 from pybvh._orientation import _compute_forward_at, _rest_upward
 from pybvh.tools import _axis_aligned_rotation, _axis_to_vector
 
@@ -259,6 +259,23 @@ class TestWorldUpWarningPreference:
         frame = pd.DataFrame(silenced.to_df_dict())
         with pytest.warns(UserWarning, match="Rest pose suggests world up"):
             Bvh.from_df(silenced.nodes, frame)
+
+    def test_the_constructor_takes_the_readers_name(self, silenced):
+        def build(**flag):
+            return Bvh(
+                nodes=nodes_from_table(silenced.to_node_table()),
+                root_pos=silenced.root_pos,
+                joint_angles=silenced.joint_angles,
+                frame_time=silenced.frame_time,
+                **flag,
+            )
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            build(warn_on_world_up_disagreement=False)
+        assert _disagreement_warnings(w) == 0
+        with pytest.warns(UserWarning, match="Rest pose suggests world up"):
+            build()
 
     def test_read_bvh_directory_loads_silently(self):
         from pybvh import read_bvh_directory

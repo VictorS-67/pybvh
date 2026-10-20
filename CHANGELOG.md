@@ -27,6 +27,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 | `bvh.up_axis` and `bvh.forward_axis`, the `Axis` forms of `world_up` and `rest_forward` | `bvh.world_up_axis` and `bvh.rest_forward_axis`, named after the string each parses, as `rest_up_axis` already was. A name ending in `_axis` is now always an `Axis`: the string parameters that ended in `_axis` are renamed below | Rename the attribute; the value is the same `Axis(index, sign, vector)`. |
 | `up_axis=` (a signed axis string) on `analysis.root_trajectory`, `transforms.rotate_vertical`, `transforms.random_rotate_vertical` and their `Bvh` methods, and `up=` on `frames_to_node_positions` | `world_up=` on all five, as on `read_bvh_file` and `Bvh(...)` | Rename the keyword; the value and its default (the clip's `world_up`) are the same. A call that passed it positionally is unaffected. |
 | `mirror(lateral_axis=)`, on `transforms.mirror` and `Bvh.mirror` | `mirror(lateral=)` | Rename the keyword; it takes the same `'x'`, `'+x'` or `'-x'`. A call that passed it positionally is unaffected. |
+| `Bvh(..., warn_on_disagreement=)` | `Bvh(..., warn_on_world_up_disagreement=)`, the name `read_bvh_file`, `read_bvh_directory` and `Bvh.from_file` already used for the same flag, which gates only the world-up disagreement warning | Rename the keyword where you build a `Bvh` yourself; calls through the readers are unaffected. |
 
 ### Added
 

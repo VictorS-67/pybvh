@@ -3,10 +3,10 @@ lies, where the camera stands and how it moves.
 
 One :class:`Viewport` is computed from the view or views a picture
 shows, and every backend translates its numbers into its toolkit's
-calls. Pure numpy. No plotting library imports; signed axes are read
-with the axis vocabulary of :mod:`pybvh.tools`, which knows no clip, and
-the one thing taken from the pybvh core is the array-pure facing kernel
-the follow camera runs.
+calls. Pure numpy. No plotting library imports and nothing from the
+pybvh core: signed axes are read with the axis vocabulary of
+:mod:`pybvh.tools`, and the per-frame leftward the follow camera turns
+with comes from :mod:`pybvh._orientation`, two modules that know no clip.
 """
 
 from __future__ import annotations

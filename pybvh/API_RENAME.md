@@ -12,6 +12,9 @@ Migration: grep for the old name in the left column, replace with the right colu
 |---|---|---|
 | `Bvh.up_axis` | `Bvh.world_up_axis` | The same `Axis(index, sign, vector)`, named after `world_up`, the string it parses. |
 | `Bvh.forward_axis` | `Bvh.rest_forward_axis` | The same `Axis`, named after `rest_forward`, as `rest_up_axis` is after `rest_up`. |
+| `analysis.root_trajectory(bvh, up_axis=)`, `Bvh.root_trajectory(up_axis=)` | `world_up=` | A signed axis string naming world up is `world_up`, as on `read_bvh_file`; a name ending in `_axis` is an `Axis`. |
+| `transforms.rotate_vertical(bvh, angle, up_axis=)`, `transforms.random_rotate_vertical(bvh, up_axis=)` and their `Bvh` methods | `world_up=` | Same. |
+| `frames_to_node_positions(..., up=)` | `world_up=` | Same. |
 
 ---
 

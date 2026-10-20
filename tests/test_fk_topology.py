@@ -195,7 +195,7 @@ class TestForwardKinematicsFromArrays:
 # =============================================================================
 
 
-class TestFirstCenteringUpAxis:
+class TestFirstCenteringWorldUp:
     """`centered='first'` never guesses a gravity direction."""
 
     def test_bvh_supplies_its_own_world_up(self, bvh_example):
@@ -218,14 +218,14 @@ class TestFirstCenteringUpAxis:
                 bvh_example.nodes, bvh_example.root_pos, bvh_example.joint_angles, centered="first"
             )
 
-    def test_explicit_up_is_honoured(self, bvh_example, topology):
+    def test_explicit_world_up_is_honoured(self, bvh_example, topology):
         np.testing.assert_allclose(
             frames_to_node_positions(
                 topology,
                 bvh_example.root_pos,
                 bvh_example.joint_angles,
                 centered="first",
-                up=bvh_example.world_up,
+                world_up=bvh_example.world_up,
             ),
             bvh_example.node_positions(centered="first"),
         )

@@ -1754,7 +1754,7 @@ class Bvh:
                 root_pos=self.root_pos[actual],
                 joint_angles=self.joint_angles[actual],
                 centered="first",
-                up=self.world_up,
+                world_up=self.world_up,
             )
         return frames_to_node_positions(
             self,
@@ -3143,7 +3143,7 @@ class Bvh:
 
     def root_trajectory(
         self,
-        up_axis: str | None = None,
+        world_up: str | None = None,
         include_velocities: bool = False,
         stencil: str = "central",
         pad: str = "edge",
@@ -3154,7 +3154,7 @@ class Bvh:
 
         return analysis.root_trajectory(
             self,
-            up_axis=up_axis,
+            world_up=world_up,
             include_velocities=include_velocities,
             stencil=stencil,
             pad=pad,
@@ -3870,7 +3870,7 @@ class Bvh:
         self,
         angle: float,
         *,
-        up_axis: str | None = ...,
+        world_up: str | None = ...,
         degrees: bool = ...,
         pivot: str | npt.ArrayLike = ...,
         inplace: Literal[True],
@@ -3879,7 +3879,7 @@ class Bvh:
     def rotate_vertical(
         self,
         angle: float,
-        up_axis: str | None = ...,
+        world_up: str | None = ...,
         degrees: bool = ...,
         pivot: str | npt.ArrayLike = ...,
         inplace: Literal[False] = ...,
@@ -3887,7 +3887,7 @@ class Bvh:
     def rotate_vertical(
         self,
         angle: float,
-        up_axis: str | None = None,
+        world_up: str | None = None,
         degrees: bool = False,
         pivot: str | npt.ArrayLike = "origin",
         inplace: bool = False,
@@ -3896,7 +3896,7 @@ class Bvh:
         from . import transforms
 
         return transforms.rotate_vertical(
-            self, angle, up_axis=up_axis, degrees=degrees, pivot=pivot, inplace=inplace
+            self, angle, world_up=world_up, degrees=degrees, pivot=pivot, inplace=inplace
         )  # type: ignore[call-overload, return-value]
 
     @overload
@@ -3940,7 +3940,7 @@ class Bvh:
     def random_rotate_vertical(
         self,
         angle_range: tuple[float, float] = (-np.pi, np.pi),
-        up_axis: str | None = None,
+        world_up: str | None = None,
         degrees: bool = False,
         pivot: str | npt.ArrayLike = "origin",
         rng: np.random.Generator | None = None,
@@ -3949,7 +3949,7 @@ class Bvh:
         from . import transforms
 
         return transforms.random_rotate_vertical(
-            self, angle_range=angle_range, up_axis=up_axis, degrees=degrees, pivot=pivot, rng=rng
+            self, angle_range=angle_range, world_up=world_up, degrees=degrees, pivot=pivot, rng=rng
         )
 
     def random_perturb_speed(

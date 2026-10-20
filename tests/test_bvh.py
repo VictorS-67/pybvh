@@ -31,6 +31,7 @@ from pybvh import (
     parse_axis,
     read_bvh_directory,
     read_bvh_file,
+    transforms,
 )
 from pybvh.analysis import foot_contacts
 from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhNode, BvhRoot
@@ -2835,18 +2836,18 @@ class TestFramesToSpatialCoordsStandalone:
         np.testing.assert_allclose(result, expected, atol=1e-12)
 
     def test_first_centering_is_ground_plane_only(self, bvh_example):
-        """centered='first' zeroes the horizontal axes only, per the up param."""
+        """centered='first' zeroes the horizontal axes only, per world_up."""
         for up in ("+y", "-z", "+x"):
             up_idx = {"x": 0, "y": 1, "z": 2}[up[1]]
             world = frames_to_node_positions(bvh_example, centered="world")
-            first = frames_to_node_positions(bvh_example, centered="first", up=up)
+            first = frames_to_node_positions(bvh_example, centered="first", world_up=up)
             expected_offset = bvh_example.root_pos[0].copy()
             expected_offset[up_idx] = 0.0
             np.testing.assert_allclose(first, world - expected_offset, atol=1e-12)
 
     def test_first_centering_invalid_up_raises(self, bvh_example):
         with pytest.raises(ValueError, match="Axis"):
-            frames_to_node_positions(bvh_example, centered="first", up="up")
+            frames_to_node_positions(bvh_example, centered="first", world_up="up")
 
 
 # =============================================================================
@@ -3117,7 +3118,7 @@ class TestNodePositionsCache:
         bvh_example.node_positions()  # populate cache
         for centered in ("world", "skeleton", "first"):
             expected = frames_to_node_positions(
-                bvh_example, centered=centered, up=bvh_example.world_up
+                bvh_example, centered=centered, world_up=bvh_example.world_up
             )
             served = bvh_example.node_positions(centered=centered)
             np.testing.assert_allclose(served, expected, atol=1e-12)
@@ -5218,10 +5219,10 @@ class TestRootTrajectory:
         sin_sq_plus_cos_sq = traj[:, 2] ** 2 + traj[:, 3] ** 2
         np.testing.assert_allclose(sin_sq_plus_cos_sq, 1.0, atol=1e-10)
 
-    def test_explicit_up_axis(self, bvh_example):
-        """Explicit up_axis should produce same result as auto-detect."""
+    def test_explicit_world_up(self, bvh_example):
+        """An explicit world_up should produce the same result as auto-detect."""
         traj_auto = bvh_example.root_trajectory()
-        traj_explicit = bvh_example.root_trajectory(up_axis=bvh_example.world_up)
+        traj_explicit = bvh_example.root_trajectory(world_up=bvh_example.world_up)
         np.testing.assert_allclose(traj_auto, traj_explicit, atol=1e-10)
 
     def test_on_all_test_files(self, bvh_example, bvh_test2, bvh_test3):
@@ -5984,6 +5985,32 @@ class TestRotateVertical:
         np.testing.assert_allclose(r_func.root_pos, r_meth.root_pos, atol=1e-10)
         np.testing.assert_allclose(r_func.joint_angles, r_meth.joint_angles, atol=1e-10)
 
+    @pytest.mark.parametrize(
+        "turn",
+        [
+            lambda bvh, **kw: transforms.rotate_vertical(bvh, np.pi / 3, **kw),
+            lambda bvh, **kw: bvh.rotate_vertical(np.pi / 3, **kw),
+            lambda bvh, **kw: transforms.random_rotate_vertical(
+                bvh, rng=np.random.default_rng(5), **kw
+            ),
+            lambda bvh, **kw: bvh.random_rotate_vertical(rng=np.random.default_rng(5), **kw),
+        ],
+        ids=["rotate_vertical", "Bvh.rotate_vertical", "random_rotate_vertical", "Bvh.random"],
+    )
+    def test_world_up_names_the_axis_turned_about(self, bvh_example, turn):
+        # the clip's own world up is the default; another axis given as
+        # world_up= is the one the root turns about, so the root's
+        # coordinate along it is kept and the other two move
+        own = turn(bvh_example, world_up=bvh_example.world_up)
+        np.testing.assert_allclose(own.root_pos, turn(bvh_example).root_pos, atol=1e-12)
+        other = "+x" if bvh_example.world_up[1] != "x" else "+y"
+        index = "xyz".index(other[1])
+        turned = turn(bvh_example, world_up=other)
+        np.testing.assert_allclose(
+            turned.root_pos[:, index], bvh_example.root_pos[:, index], atol=1e-9
+        )
+        assert not np.allclose(turned.root_pos, bvh_example.root_pos)
+
 
 class TestRotateVerticalPivot:
     """Tests for rotate_vertical(pivot=)."""
@@ -6370,7 +6397,7 @@ class TestRotateAnglesVertical:
             up_idx=1,
             root_order=root_order,
         )
-        bvh_result = rotate_vertical(bvh_example, angle=np.radians(73.0), up_axis="+y")
+        bvh_result = rotate_vertical(bvh_example, angle=np.radians(73.0), world_up="+y")
         np.testing.assert_allclose(new_pos, bvh_result.root_pos, atol=1e-10)
         np.testing.assert_allclose(new_angles, bvh_result.joint_angles, atol=1e-10)
 

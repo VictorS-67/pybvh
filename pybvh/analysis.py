@@ -613,7 +613,7 @@ def angular_velocities(
 
 def root_trajectory(
     bvh: Bvh,
-    up_axis: str | None = None,
+    world_up: str | None = None,
     include_velocities: bool = False,
     stencil: str = "central",
     pad: str = "edge",
@@ -645,7 +645,7 @@ def root_trajectory(
     ----------
     bvh : Bvh
         Input motion.
-    up_axis : str or None, optional
+    world_up : str or None, optional
         Signed axis string (e.g. ``'+y'``, ``'+z'``). If None,
         uses ``bvh.world_up``.
     include_velocities : bool, optional
@@ -681,7 +681,7 @@ def root_trajectory(
         the natural ``x, y, z`` order with the up axis removed).
     """
     # Resolve up axis (honors bvh.world_up by default)
-    up_str = bvh.world_up if up_axis is None else up_axis
+    up_str = bvh.world_up if world_up is None else world_up
     up_idx = {"x": 0, "y": 1, "z": 2}[up_str[1]]
     ground_axes = [i for i in range(3) if i != up_idx]
 

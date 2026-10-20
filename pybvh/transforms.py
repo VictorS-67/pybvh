@@ -564,7 +564,7 @@ def rotate_vertical(
     bvh: Bvh,
     angle: float,
     *,
-    up_axis: str | None = ...,
+    world_up: str | None = ...,
     degrees: bool = ...,
     pivot: str | npt.ArrayLike = ...,
     inplace: Literal[True],
@@ -573,7 +573,7 @@ def rotate_vertical(
 def rotate_vertical(
     bvh: Bvh,
     angle: float,
-    up_axis: str | None = ...,
+    world_up: str | None = ...,
     degrees: bool = ...,
     pivot: str | npt.ArrayLike = ...,
     inplace: Literal[False] = ...,
@@ -581,7 +581,7 @@ def rotate_vertical(
 def rotate_vertical(
     bvh: Bvh,
     angle: float,
-    up_axis: str | None = None,
+    world_up: str | None = None,
     degrees: bool = False,
     pivot: str | npt.ArrayLike = "origin",
     inplace: bool = False,
@@ -599,7 +599,7 @@ def rotate_vertical(
     angle : float
         Rotation angle in radians (positive = counter-clockwise
         when viewed from above). Pass ``degrees=True`` for degrees.
-    up_axis : str or None
+    world_up : str or None
         Signed axis string (e.g. ``'+y'``).  Auto-detected if None.
     degrees : bool, optional
         If True, interpret ``angle`` in degrees. Default False (radians).
@@ -641,10 +641,10 @@ def rotate_vertical(
 
     # Determine up axis — use the Bvh's world_up property so manual
     # overrides are respected.
-    if up_axis is None:
+    if world_up is None:
         axis_str = target.world_up
     else:
-        axis_str = _validate_axis_string(up_axis)
+        axis_str = _validate_axis_string(world_up)
     up_idx, up_sign = _axis_index_sign(axis_str)
 
     root_order = "".join(target.root.rot_channels)
@@ -667,7 +667,7 @@ def rotate_vertical(
 def random_rotate_vertical(
     bvh: Bvh,
     angle_range: tuple[float, float] = (-np.pi, np.pi),
-    up_axis: str | None = None,
+    world_up: str | None = None,
     degrees: bool = False,
     pivot: str | npt.ArrayLike = "origin",
     rng: np.random.Generator | None = None,
@@ -681,7 +681,7 @@ def random_rotate_vertical(
     angle_range : tuple of (low, high)
         Angle sampling range in radians (default full circle,
         ``(-π, π)``), or in degrees if ``degrees=True``.
-    up_axis : str or None
+    world_up : str or None
         Signed axis string.  Auto-detected if None.
     degrees : bool, optional
         If True, interpret ``angle_range`` in degrees. Default False
@@ -700,7 +700,7 @@ def random_rotate_vertical(
         rng = np.random.default_rng()
     angle = float(rng.uniform(angle_range[0], angle_range[1]))
     return rotate_vertical(  # type: ignore[return-value]
-        bvh, angle, up_axis=up_axis, degrees=degrees, pivot=pivot
+        bvh, angle, world_up=world_up, degrees=degrees, pivot=pivot
     )
 
 

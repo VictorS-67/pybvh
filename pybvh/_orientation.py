@@ -125,6 +125,11 @@ def _up_marker_index(
     return None
 
 
+# The smallest extent a rest pose must have along some axis to say which way
+# is up; below it every node is taken to sit at one point.
+_MIN_REST_SPREAD = 1e-6
+
+
 def _infer_rest_up(
     node_names: Sequence[str],
     rest_positions: npt.NDArray[np.float64],
@@ -154,7 +159,7 @@ def _infer_rest_up(
         return get_main_direction(local[marker])
 
     spread = np.ptp(local, axis=0)
-    if float(np.max(spread)) < 1e-6:
+    if float(np.max(spread)) < _MIN_REST_SPREAD:
         return None  # degenerate rest pose: all joints coincide
     up_idx = int(np.argmax(spread))
     # The sign of the mean: the side of the root most of the body lies on.
@@ -614,7 +619,9 @@ def _infer_world_up(
     if frame0_positions is not None and marker is not None:
         marker_above_root = frame0_positions[marker] - frame0_positions[0]
         second, largest = np.sort(np.abs(marker_above_root))[-2:]
-        if largest >= _FIRST_FRAME_DOMINANCE * second and largest >= 1e-6:
+        if largest >= _FIRST_FRAME_DOMINANCE * second:
+            # None when the marker sits at the root at frame 0: the
+            # shortest length read as a direction is get_main_direction's.
             frame_up = get_main_direction(marker_above_root)
             if frame_up is not None:
                 return _WorldUpGuess(frame_up, "first_frame")

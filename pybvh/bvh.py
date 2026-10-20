@@ -35,6 +35,7 @@ from ._orientation import (
     _facing_is_measured,
     _infer_world_up,
     _iter_unique_lr_pairs,
+    _resolve_lr_pairs,
     _resolve_node_lr_pairs,
     _rest_upward,
 )
@@ -1436,22 +1437,21 @@ class Bvh:
     def lr_pairs(self) -> list[tuple[int, int]] | None:
         """Left/right joint pairs as index tuples in ``joint_angles`` space.
 
-        Index-space counterpart of :attr:`lr_mapping`, derived from the
-        same cache.  Returns ``None`` when no mapping is available
-        (matches the ``lr_mapping`` sentinel — one "no pairs" convention
-        across both surfaces).
+        Index-space counterpart of :attr:`lr_mapping`: one
+        ``(left, right)`` tuple per pair, in mapping order, resolved as
+        :func:`~pybvh.transforms.mirror` resolves its pairs. Returns
+        ``None`` when no mapping is available (matches the
+        ``lr_mapping`` sentinel — one "no pairs" convention across both
+        surfaces); ``bvh.lr_pairs or []`` gives a list either way.
 
         Useful for graph construction and array-level ops that index
-        joints by position rather than by name.
+        joints by position rather than by name, such as
+        :func:`~pybvh.transforms.mirror_angles`.
         """
-        if self._lr_mapping is None:
+        mapping = self._lr_mapping
+        if mapping is None:
             return None
-        j_name2idx = self.joint_index
-        pairs: list[tuple[int, int]] = []
-        for left, right in self._lr_mapping.items():
-            if left in j_name2idx and right in j_name2idx:
-                pairs.append((j_name2idx[left], j_name2idx[right]))
-        return pairs
+        return _resolve_lr_pairs(mapping, self.joint_index)
 
     @property
     def node_lr_pairs(self) -> list[tuple[int, int]] | None:

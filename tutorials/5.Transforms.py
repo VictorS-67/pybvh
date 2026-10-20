@@ -88,7 +88,7 @@ for left, right in mapping.items():
     print(f"  {left:20s} <-> {right}")
 
 # %% [markdown]
-# `bvh.lr_mapping` was introduced in Tutorial 1 — the auto-detected dict of L/R joint names. `mirror()` reads it to know which joints to swap. For tensor pipelines that need `(left_idx, right_idx)` index tuples instead of names, `transforms.auto_detect_lr_pairs(bvh)` returns that form.
+# `bvh.lr_mapping` was introduced in Tutorial 1 — the auto-detected dict of L/R joint names. `mirror()` reads it to know which joints to swap. For tensor pipelines that need `(left_idx, right_idx)` index tuples instead of names, `bvh.lr_pairs` returns that form.
 
 # %% [markdown]
 # ## Applying the mirror

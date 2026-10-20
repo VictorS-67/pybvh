@@ -28,6 +28,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 | `up_axis=` (a signed axis string) on `analysis.root_trajectory`, `transforms.rotate_vertical`, `transforms.random_rotate_vertical` and their `Bvh` methods, and `up=` on `frames_to_node_positions` | `world_up=` on all five, as on `read_bvh_file` and `Bvh(...)` | Rename the keyword; the value and its default (the clip's `world_up`) are the same. A call that passed it positionally is unaffected. |
 | `mirror(lateral_axis=)`, on `transforms.mirror` and `Bvh.mirror` | `mirror(lateral=)` | Rename the keyword; it takes the same `'x'`, `'+x'` or `'-x'`. A call that passed it positionally is unaffected. |
 | `Bvh(..., warn_on_disagreement=)` | `Bvh(..., warn_on_world_up_disagreement=)`, the name `read_bvh_file`, `read_bvh_directory` and `Bvh.from_file` already used for the same flag, which gates only the world-up disagreement warning | Rename the keyword where you build a `Bvh` yourself; calls through the readers are unaffected. |
+| `transforms.auto_detect_lr_pairs(bvh)` returned the L/R mapping as `joint_angles` index pairs, `[]` when there were none | Removed: `bvh.lr_pairs` gives the same pairs, `None` when there are none, as `bvh.lr_mapping` does. Two public names held one fact under two "no pairs" conventions | Use `bvh.lr_pairs or []` where a list is needed, as for `mirror_angles`. |
 
 ### Added
 

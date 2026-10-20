@@ -13,8 +13,8 @@ from pybvh import transforms
 bvh_mirrored = transforms.mirror(bvh)
 
 # Or explicit
-mapping = bvh.lr_mapping                      # name pairs (or None)
-pairs = transforms.auto_detect_lr_pairs(bvh)  # index pairs
+mapping = bvh.lr_mapping  # name pairs (or None)
+pairs = bvh.lr_pairs      # index pairs (or None)
 ```
 
 ![Original and mirrored skeleton side by side: the pose is reflected and every Left/Right joint pair has swapped data](../gallery/img/mirror.png)
@@ -128,7 +128,7 @@ new_angles, new_pos = rotate_angles_vertical(
     up_idx=1, root_order="ZYX")   # same pivot= as the Bvh-level twin
 
 # Mirror with index pairs
-pairs = transforms.auto_detect_lr_pairs(bvh)
+pairs = bvh.lr_pairs or []
 rot_ch = [n.rot_channels for n in bvh.nodes if not n.is_end_site()]
 m_angles, m_pos = mirror_angles(
     bvh.joint_angles, bvh.root_pos, pairs, lateral_idx=0, rot_channels=rot_ch)

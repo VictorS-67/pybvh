@@ -774,7 +774,7 @@ def mirror_angles(
     --------
     >>> angles = bvh.joint_angles
     >>> pos = bvh.root_pos
-    >>> pairs = transforms.auto_detect_lr_pairs(bvh)
+    >>> pairs = bvh.lr_pairs
     >>> lat_idx = {'x': 0, 'y': 1, 'z': 2}[bvh.left_at(frame=0)[1]]
     >>> channels = [n.rot_channels for n in bvh.nodes if not n.is_end_site()]
     >>> new_angles, new_pos = mirror_angles(
@@ -822,27 +822,6 @@ def mirror_angles(
 # =========================================================================
 # 6.1  Left-Right Mirroring
 # =========================================================================
-
-
-def auto_detect_lr_pairs(bvh: Bvh) -> list[tuple[int, int]]:
-    """Auto-detect left/right joint pairs as index tuples.
-
-    Converts the joint name pairs of :attr:`Bvh.lr_mapping` to index
-    pairs in ``joint_angles`` index space (axis 1 of
-    ``bvh.joint_angles``).
-
-    Parameters
-    ----------
-    bvh : Bvh
-        Input BVH with named joints.
-
-    Returns
-    -------
-    list of (int, int)
-        ``[(left_idx, right_idx), ...]`` in ``joint_angles`` index
-        space.  Empty if no pairs found.
-    """
-    return _resolve_lr_pairs(bvh.lr_mapping, bvh.joint_index)
 
 
 @overload

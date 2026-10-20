@@ -17,6 +17,7 @@ Migration: grep for the old name in the left column, replace with the right colu
 | `frames_to_node_positions(..., up=)` | `world_up=` | Same. |
 | `transforms.mirror(bvh, lateral_axis=)`, `Bvh.mirror(lateral_axis=)` | `lateral=` | The value is a string (`'x'`, `'+x'`), not an `Axis`. |
 | `Bvh(..., warn_on_disagreement=)` | `warn_on_world_up_disagreement=` | One flag, one name: the readers already called it this. |
+| `transforms.auto_detect_lr_pairs(bvh)` | *(removed)* — `bvh.lr_pairs or []` | The same index pairs; `bvh.lr_pairs` is `None`, not `[]`, when there are none, as v0.8.0 made `bvh.lr_mapping` for the removed `auto_detect_lr_mapping`. |
 
 ---
 

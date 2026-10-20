@@ -336,7 +336,7 @@ def _resolve_lr_pairs(
     """Resolve an L/R name mapping to ``(left_idx, right_idx)`` pairs.
 
     The single pair-resolution loop shared by every L/R consumer
-    (``mirror``, ``auto_detect_lr_pairs``, the orientation heuristics).
+    (``mirror``, ``Bvh.lr_pairs``, the orientation heuristics).
     Symmetric mappings (the public form of ``Bvh.lr_mapping``) are
     deduplicated to one tuple per pair via :func:`_iter_unique_lr_pairs`.
 

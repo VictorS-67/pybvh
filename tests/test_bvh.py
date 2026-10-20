@@ -6580,44 +6580,47 @@ class TestEulerOrders:
 
 
 # =============================================================================
-# auto_detect_lr_pairs
+# Bvh.lr_pairs
 # =============================================================================
 
 
-class TestAutoDetectLRPairs:
-    """Tests for auto_detect_lr_pairs returning index tuples."""
+class TestLrPairs:
+    """Bvh.lr_pairs: the L/R mapping as index pairs in joint_angles space."""
 
     def test_returns_list_of_tuples(self, bvh_example):
-        from pybvh.transforms import auto_detect_lr_pairs
-
-        pairs = auto_detect_lr_pairs(bvh_example)
+        pairs = bvh_example.lr_pairs
         assert isinstance(pairs, list)
         assert all(isinstance(p, tuple) and len(p) == 2 for p in pairs)
 
     def test_indices_are_valid(self, bvh_example):
-        from pybvh.transforms import auto_detect_lr_pairs
-
-        pairs = auto_detect_lr_pairs(bvh_example)
         J = bvh_example.joint_count
-        for left, right in pairs:
+        for left, right in bvh_example.lr_pairs:
             assert 0 <= left < J
             assert 0 <= right < J
             assert left != right
 
     def test_consistent_with_name_mapping(self, bvh_example):
-        from pybvh.transforms import auto_detect_lr_pairs
-
-        pairs = auto_detect_lr_pairs(bvh_example)
+        pairs = bvh_example.lr_pairs
         mapping = bvh_example.lr_mapping
         # mapping is symmetric (each pair counted twice); pairs is one entry per pair.
         assert len(pairs) * 2 == len(mapping)
+        names = bvh_example.joint_names
+        assert all(mapping[names[left]] == names[right] for left, right in pairs)
+
+    def test_follows_a_mapping_the_user_set(self, bvh_example):
+        bvh_example.lr_mapping = {"LeftArm": "RightArm", "LeftUpLeg": "RightUpLeg"}
+        index = bvh_example.joint_index
+        assert bvh_example.lr_pairs == [
+            (index["LeftArm"], index["RightArm"]),
+            (index["LeftUpLeg"], index["RightUpLeg"]),
+        ]
 
     def test_works_with_mirror_angles(self, bvh_example):
         """Index pairs should be directly usable with mirror_angles."""
         from pybvh._orientation import _rest_leftward
-        from pybvh.transforms import auto_detect_lr_pairs, mirror_angles
+        from pybvh.transforms import mirror_angles
 
-        pairs = auto_detect_lr_pairs(bvh_example)
+        pairs = bvh_example.lr_pairs
         lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_leftward(bvh_example)[1]]
         rot_ch = [list(n.rot_channels) for n in bvh_example.nodes if not n.is_end_site()]
         # Should not raise
@@ -6639,12 +6642,15 @@ class TestAutoDetectLRPairs:
         np.testing.assert_allclose(r_pos, bvh_example.root_pos, atol=1e-10)
         np.testing.assert_allclose(r_angles, bvh_example.joint_angles, atol=1e-10)
 
-    def test_no_pairs_skeleton(self):
-        """Skeleton with no L/R naming returns empty list."""
-        from pybvh.transforms import auto_detect_lr_pairs
+    def test_none_without_a_mapping(self, bvh_example):
+        """No L/R naming, or a cleared mapping, is None, as lr_mapping is."""
+        assert Bvh(nodes=[BvhRoot()]).lr_pairs is None
+        bvh_example.lr_mapping = None
+        assert bvh_example.lr_pairs is None
 
-        bvh = Bvh(nodes=[BvhRoot()])
-        assert auto_detect_lr_pairs(bvh) == []
+    def test_the_transforms_function_is_gone(self):
+        # one public name for one fact: `bvh.lr_pairs or []` replaces it
+        assert not hasattr(transforms, "auto_detect_lr_pairs")
 
 
 # =============================================================================

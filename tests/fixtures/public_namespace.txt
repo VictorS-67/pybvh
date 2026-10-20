@@ -261,7 +261,6 @@ pybvh.tools.parse_axis
 pybvh.transforms.BvhJoint
 pybvh.transforms.add_position_noise
 pybvh.transforms.add_rotation_noise
-pybvh.transforms.auto_detect_lr_pairs
 pybvh.transforms.drop_frames
 pybvh.transforms.mirror
 pybvh.transforms.mirror_angles

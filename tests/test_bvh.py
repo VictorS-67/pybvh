@@ -7534,48 +7534,30 @@ class TestMirrorNumericalRoundTripExtendedA:
 
 
 # =============================================================================
-# Item 2 — _order_lr_pair direction correctness across conventions
+# Item 2 — the detected pair's left side, across conventions
 # =============================================================================
 
 
-class TestOrderLRPair:
-    """Verify _order_lr_pair correctly identifies the left side across conventions."""
+class TestDetectedLeftSide:
+    """The detected mapping keys each pair by its left joint, whichever
+    of the two names comes first."""
 
-    def test_substring_left_is_left(self):
-        from pybvh._orientation import _order_lr_pair
+    @pytest.mark.parametrize(
+        ("left", "right"),
+        [
+            ("LeftArm", "RightArm"),
+            ("arm.L", "arm.R"),
+            ("arm.l", "arm.r"),
+            ("arm_l", "arm_r"),
+            ("arm.Left", "arm.Right"),
+            ("LArm", "RArm"),
+        ],
+    )
+    def test_left_is_the_key_in_either_order(self, left, right):
+        from pybvh._orientation import _detect_lr_mapping_by_names
 
-        assert _order_lr_pair("LeftArm", "RightArm") == ("LeftArm", "RightArm")
-        assert _order_lr_pair("RightArm", "LeftArm") == ("LeftArm", "RightArm")
-
-    def test_dot_suffix(self):
-        from pybvh._orientation import _order_lr_pair
-
-        assert _order_lr_pair("arm.L", "arm.R") == ("arm.L", "arm.R")
-        assert _order_lr_pair("arm.R", "arm.L") == ("arm.L", "arm.R")
-
-    def test_lowercase_dot_suffix(self):
-        from pybvh._orientation import _order_lr_pair
-
-        assert _order_lr_pair("arm.l", "arm.r") == ("arm.l", "arm.r")
-        assert _order_lr_pair("arm.r", "arm.l") == ("arm.l", "arm.r")
-
-    def test_underscore_suffix(self):
-        from pybvh._orientation import _order_lr_pair
-
-        assert _order_lr_pair("arm_l", "arm_r") == ("arm_l", "arm_r")
-        assert _order_lr_pair("arm_r", "arm_l") == ("arm_l", "arm_r")
-
-    def test_dot_word_suffix(self):
-        from pybvh._orientation import _order_lr_pair
-
-        assert _order_lr_pair("arm.Left", "arm.Right") == ("arm.Left", "arm.Right")
-        assert _order_lr_pair("arm.Right", "arm.Left") == ("arm.Left", "arm.Right")
-
-    def test_prefix_fallback(self):
-        from pybvh._orientation import _order_lr_pair
-
-        assert _order_lr_pair("LArm", "RArm") == ("LArm", "RArm")
-        assert _order_lr_pair("RArm", "LArm") == ("LArm", "RArm")
+        assert _detect_lr_mapping_by_names([left, right]) == {left: right}
+        assert _detect_lr_mapping_by_names([right, left]) == {left: right}
 
 
 # =============================================================================

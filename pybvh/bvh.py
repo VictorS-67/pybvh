@@ -1396,11 +1396,13 @@ class Bvh:
         ``Bip01 Head`` and ``CC_Base_Head`` are heads, ``Forehead`` is
         not. A joint that sits at the root is skipped, and end sites,
         whose names are generated, are not read. Without such a joint,
-        the axis opposite the legs: the pair of :attr:`lr_pairs` nearest
-        the root, read from the node it hangs from to the far ends of
-        its two chains. Without a pair either, the axis along which the
-        rest pose spreads most, a weak reading: a T-pose wider than tall
-        spreads most along its arms. :attr:`orientation_report` says
+        the axis opposite the legs: the first pair of :attr:`lr_pairs`
+        split across two branches of the pelvis (the first node down
+        from the root with more than one child), read from the pelvis
+        to the far ends of those branches. Without such a pair either,
+        the axis along which the rest pose spreads most, a weak reading:
+        a T-pose wider than tall spreads most along its arms.
+        :attr:`orientation_report` says
         which, in ``rest_up_source``. The animation is never read.
         :attr:`world_up`'s guess reads the same joint.
 

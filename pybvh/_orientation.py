@@ -223,63 +223,76 @@ class _RestUp(NamedTuple):
     source: _RestUpSource
 
 
-def _subtree_mask(parent_idx: npt.NDArray[np.intp], top: int) -> npt.NDArray[np.bool_]:
-    """Which nodes are *top* or below it, for parents that precede children."""
-    inside = np.zeros(len(parent_idx), dtype=bool)
-    inside[top] = True
-    # One pass in node order: a node is inside when its parent is.
-    for node in range(top + 1, len(parent_idx)):
-        inside[node] = inside[parent_idx[node]]
-    return inside
+def _pelvis_branches(skeleton: _RestSkeleton) -> tuple[int, npt.NDArray[np.intp]] | None:
+    """The node the legs hang from, and which of its branches each node is in.
 
+    The pelvis is the first node, walking down from the root while a node
+    has a single joint child, with two or more joint children: the root
+    itself on a usual rig (``Hips`` -> legs and spine), ``Hips`` on a
+    ``Root`` -> ``Hips`` -> legs rig. End sites are not counted as children:
+    no joint of a pair lies below one.
 
-def _common_ancestor(parent_idx: npt.NDArray[np.intp], a: int, b: int) -> int:
-    """The nearest node that is *a* or above it and *b* or above it."""
-    above_a = {a}
-    while parent_idx[a] >= 0:
-        a = int(parent_idx[a])
-        above_a.add(a)
-    while b not in above_a:
-        b = int(parent_idx[b])
-    return b
+    Returns
+    -------
+    tuple of (int, ndarray of shape (N,)) or None
+        The pelvis's index, and for each node the index of the pelvis's
+        child whose subtree holds it (``-1`` for the pelvis and the nodes
+        above it); ``None`` when the walk ends without a branch.
+    """
+    parent_idx = skeleton.parent_idx
+    joint_children: list[list[int]] = [[] for _ in parent_idx]
+    for node in range(1, len(parent_idx)):
+        if not skeleton.is_end_site[node]:
+            joint_children[parent_idx[node]].append(node)
+    pelvis = 0
+    while len(joint_children[pelvis]) == 1:
+        pelvis = joint_children[pelvis][0]
+    if len(joint_children[pelvis]) < 2:
+        return None
+    branch = np.full(len(parent_idx), -1, dtype=np.intp)
+    # Parents precede children, so one pass in node order hands each node
+    # its parent's branch; a child of the pelvis starts its own.
+    for node in range(pelvis + 1, len(parent_idx)):
+        parent = parent_idx[node]
+        branch[node] = node if parent == pelvis else branch[parent]
+    return pelvis, branch
 
 
 def _up_from_leg_pair(skeleton: _RestSkeleton) -> str | None:
-    """Rest up opposite the legs: the L/R pair that hangs from the root.
+    """Rest up opposite the legs: the L/R pair split across the pelvis.
 
-    The legs are the L/R pair nearest the root in the tree, the fewest
-    bones from the root to the deeper of its two joints, the first in
-    the mapping's order on a tie: so they are found whether they are
-    the root's children (``Hips`` -> ``LeftUpLeg``) or hang from a node
-    below it (``Root`` -> ``Hips`` -> legs). Each leg's far end is the
-    node below it, end sites included, farthest from the node the pair
-    hangs from (the two joints' nearest common ancestor), and up is the
-    main axis from the middle of the two far ends to that node. Read
-    from the node the pair hangs from, not from the root: a root on the
-    floor under the hips sits level with the feet.
+    The legs are the first L/R pair, in the mapping's order, whose two
+    joints lie in two different branches of the pelvis
+    (:func:`_pelvis_branches`), so a pair of arms, both below the spine,
+    is never read as the legs, and the legs are found whichever of their
+    joints the mapping names. Each leg's far end is the node of its
+    branch, end sites included, farthest from the pelvis, and up is the
+    main axis from the middle of the two far ends to the pelvis. Read from
+    the pelvis, not from the root: a root on the floor under the hips sits
+    level with the feet.
 
     Returns
     -------
     str or None
-        The signed axis string, or ``None`` without a pair, or when the
-        far ends coincide with the node the pair hangs from.
+        The signed axis string, or ``None`` without a pair split across
+        the pelvis, or when the far ends coincide with the pelvis.
     """
-    pairs = skeleton.lr_pairs
-    if pairs.shape[0] == 0:
+    found = _pelvis_branches(skeleton)
+    if found is None:
         return None
-    parent_idx = skeleton.parent_idx
-    depth = np.zeros(len(parent_idx), dtype=np.intp)
-    # Parents precede children, so one pass in node order reads each depth.
-    for node in range(1, len(parent_idx)):
-        depth[node] = depth[parent_idx[node]] + 1
-    # argmin keeps the first pair of the smallest depth.
-    left, right = (int(i) for i in pairs[np.argmin(depth[pairs].max(axis=1))])
+    pelvis, branch = found
+    for left, right in skeleton.lr_pairs:
+        left_branch, right_branch = int(branch[left]), int(branch[right])
+        if left_branch >= 0 and right_branch >= 0 and left_branch != right_branch:
+            break
+    else:
+        return None
 
     positions = skeleton.rest_positions
-    hip = positions[_common_ancestor(parent_idx, left, right)]
+    hip = positions[pelvis]
     far_ends = []
-    for leg in (left, right):
-        below = np.flatnonzero(_subtree_mask(parent_idx, leg))
+    for leg in (left_branch, right_branch):
+        below = np.flatnonzero(branch == leg)
         distances = np.linalg.norm(positions[below] - hip, axis=1)
         far_ends.append(positions[below[np.argmax(distances)]])
     return get_main_direction(hip - np.mean(far_ends, axis=0))
@@ -289,8 +302,8 @@ def _infer_rest_up(skeleton: _RestSkeleton) -> _RestUp | None:
     """The skeleton's own up, read from the rest pose alone, with its source.
 
     The main axis from the root to the node :func:`_up_marker_index`
-    finds; without one, the axis opposite the legs, the L/R pair that
-    hangs from the root (:func:`_up_from_leg_pair`); without a pair, the
+    finds; without one, the axis opposite the legs, the L/R pair split
+    across the pelvis (:func:`_up_from_leg_pair`); without such a pair, the
     axis along which the rest pose spreads most, signed by the side its
     nodes lie on. The largest spread is the weakest reading: a T-pose
     wider than tall spreads most along its arms, and hips mid-body put
@@ -853,8 +866,10 @@ class OrientationReport:
         ``chest`` or ``spine`` (``Head``, ``mixamorig:Head``, ``Bip01
         Head``; not ``Forehead``).
         ``"leg_pair"``: no such joint, so the axis opposite the legs:
-        from the far ends of the L/R pair nearest the root to the node
-        that pair hangs from. ``"largest_spread"``: no L/R pair either,
+        from the far ends of the two branches of the pelvis (the first
+        node down from the root with more than one child) that an L/R
+        pair is split across, to the pelvis. ``"largest_spread"``: no
+        such pair either,
         so the axis along which the rest pose spreads most, signed by
         the side most of the body lies on, a weak reading (wrong in axis
         on a T-pose wider than tall, in sign when the hips sit

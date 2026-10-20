@@ -8185,6 +8185,18 @@ class TestRestUpAcrossRigConventions:
         assert (report.rest_up, report.rest_left, report.rest_forward) == frame
         assert report.rest_up_source == "leg_pair"
 
+    def test_a_mapping_of_the_arms_alone_is_not_read_as_the_legs(self):
+        # Both arms hang below the spine, one branch of the hips: rest up
+        # falls back to the largest spread, as 0.9.0 read it, labelled.
+        clip = _read_quietly(_TEST1)
+        clip.world_up = "+z"
+        clip.lr_mapping = {"LeftArm": "RightArm"}
+        names = iter(range(len(clip.nodes)))
+        clip = _renamed(clip, lambda name: f"J{next(names)}")
+        report = clip.orientation_report
+        assert (report.rest_up, report.rest_up_source) == ("+z", "largest_spread")
+        assert report.rest_forward == "+y"
+
     def test_the_world_up_guess_reads_the_same_head(self):
         # bvh_test3's first frame stands along +z, its rest pose along +y:
         # only the head at frame 0 says +z.

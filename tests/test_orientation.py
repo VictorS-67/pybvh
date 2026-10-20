@@ -169,6 +169,21 @@ class TestRestUp:
         skeleton = _skeleton(names, rest, [[3, 5]], parents=[-1, 0, 1, 1, 3, 1, 5])
         assert _infer_rest_up(skeleton) == _RestUp("+y", "leg_pair")
 
+    def test_a_mapping_of_the_arms_alone_names_no_legs(self):
+        # Both arms hang from the waist, one branch of the hips: no pair
+        # splits across the hips' branches, so the largest spread answers
+        # (the arm span, x), labelled as such.
+        skeleton = _skeleton(_NAMELESS_NAMES, _NAMELESS_REST, [[3, 4]], parents=_NAMELESS_PARENTS)
+        assert _infer_rest_up(skeleton) == _RestUp("+x", "largest_spread")
+
+    def test_the_legs_whichever_pair_comes_first(self):
+        # The arms first, then the feet, both pairs two bones from the root:
+        # the feet split across the hips' branches, the arms do not.
+        skeleton = _skeleton(
+            _NAMELESS_NAMES, _NAMELESS_REST, [[3, 4], [6, 8]], parents=_NAMELESS_PARENTS
+        )
+        assert _infer_rest_up(skeleton) == _RestUp("+y", "leg_pair")
+
     def test_largest_spread_without_a_named_part_or_pairs(self):
         rest = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 7.0]])
         assert _infer_rest_up(_skeleton(["Root", "A", "B"], rest)) == _RestUp(

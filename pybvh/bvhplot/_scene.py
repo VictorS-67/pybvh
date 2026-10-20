@@ -789,10 +789,10 @@ class Scene:
         turned ``-y``-up. In a Scene made from a Bvh, a facing that
         cannot be measured on the first frame (no left/right joint
         pairs, or pairs lying along up) leaves ``initial_forward`` at the
-        fallback the ``"front"`` camera also faces (the rest pose's
-        facing, then a fixed default per up axis, with a warning), so
-        the next skeleton still lands on the front camera's right,
-        whichever side of the body that is.
+        facing chain's fallback (:func:`~pybvh.analysis.facing_frame`),
+        which the ``"front"`` camera also faces, so the next skeleton
+        still lands on the front camera's right, whichever side of the
+        body that is.
 
         ``"auto"`` spaces by 1.2 × the first view's extent along that
         direction (at least 0.1 scene units); a float is used

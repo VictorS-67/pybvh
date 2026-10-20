@@ -35,7 +35,8 @@ from pybvh import (
 )
 from pybvh.analysis import foot_contacts
 from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhNode, BvhRoot
-from pybvh.rotations import euler_to_rotmat
+from pybvh.rotations import euler_to_rotmat, rotmat_to_euler
+from pybvh.tools import get_main_direction
 from pybvh.transforms import reorient_rest_forward, reorient_rest_up, reorient_world_up
 
 sys.path.insert(0, str(Path(__file__).parent))  # for synthetic_bvh
@@ -7335,13 +7336,11 @@ class TestLRMappingNoneConsumerBehavior:
         np.testing.assert_allclose(coords_m[:, j2], coords[:, j3] * reflect, atol=1e-9)
         np.testing.assert_allclose(coords_m[:, j3], coords[:, j2] * reflect, atol=1e-9)
 
-    def test_compute_forward_at_fallback_on_nameless(self):
-        """_compute_forward_at returns a valid axis when no L/R data exists."""
-        from pybvh._orientation import _compute_forward_at
-
+    def test_forward_at_falls_back_on_nameless(self):
+        """forward_at returns the house default when no L/R data exists."""
         bvh = make_nameless_lr_bvh()
-        frame_coords = bvh.node_positions(frame=0)
-        forward = _compute_forward_at(bvh, frame_coords, bvh.world_up)
+        with pytest.warns(UserWarning, match="No usable left/right geometry on this skeleton"):
+            forward = bvh.forward_at(0)
         # Should fall back to an arbitrary-horizontal axis, not raise
         assert forward in ("+x", "-x", "+y", "-y", "+z", "-z")
         assert forward[1] != bvh.world_up[1]  # orthogonal to up
@@ -7420,6 +7419,59 @@ class TestForwardAtWithExtendedA:
         bvh = make_namespace_lr_bvh()
         fwd = bvh.forward_at(0)
         assert fwd in ("+x", "-x", "+y", "-y", "+z", "-z")
+
+
+_AXIS_VECTORS = {
+    "+x": [1, 0, 0],
+    "-x": [-1, 0, 0],
+    "+y": [0, 1, 0],
+    "-y": [0, -1, 0],
+    "+z": [0, 0, 1],
+    "-z": [0, 0, -1],
+}
+
+
+class TestFacingOnAFrameLyingOnItsSide:
+    """#114 reproduction 1: a frame whose left/right axis is vertical."""
+
+    @pytest.fixture
+    def lying(self):
+        bvh = read_bvh_file(BVH_DATA_DIR / "bvh_test1.bvh")
+        bvh.world_up = "-x"  # along the rest pose's left/right axis
+        return bvh, bvh.rest_pose_positions()[np.newaxis]
+
+    def test_left_at_is_never_world_up(self, lying):
+        bvh, rest = lying
+        assert bvh.left_at(0, coords=rest)[1] != "x"
+
+    def test_forward_left_and_up_are_right_handed(self, lying):
+        bvh, rest = lying
+        forward, left = bvh.forward_at(0, coords=rest), bvh.left_at(0, coords=rest)
+        np.testing.assert_array_equal(
+            np.cross(_AXIS_VECTORS[forward], _AXIS_VECTORS[left]), _AXIS_VECTORS[bvh.world_up]
+        )
+
+    def test_the_frame_falls_back_to_the_root_heading_without_warning(self, lying):
+        bvh, rest = lying
+        # The root's heading at frame 0, on the ground of world up -x.
+        heading = bvh.root_trajectory()[0, 2:4]  # [sin, cos] on (y, z)
+        expected = get_main_direction(np.array([0.0, heading[1], heading[0]]))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert bvh.forward_at(0, coords=rest) == expected
+
+    def test_the_default_warning_names_the_frame(self, lying):
+        bvh, rest = lying
+        # A root rotation that stands rest forward (+y) along world up -x:
+        # the heading is unreadable too, so frame 0 takes the house default.
+        tilt = np.array([[0.0, 1, 0], [-1, 0, 0], [0, 0, 1]])  # turns +y onto -x
+        angles = bvh.joint_angles.copy()
+        angles[0, 0] = rotmat_to_euler(tilt, bvh.nodes[0].rot_channels)
+        bvh.joint_angles = angles
+        bvh.world_up = "-x"
+        with pytest.warns(UserWarning, match="At frame 0, the facing direction cannot"):
+            forward = bvh.forward_at(0, coords=rest)
+        assert forward == "+y"  # the house default for an x up
 
 
 class TestReorientRestForwardSemanticDelta:

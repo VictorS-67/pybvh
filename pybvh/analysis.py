@@ -18,7 +18,7 @@ import numpy as np
 import numpy.typing as npt
 
 from . import geometry, rotations
-from ._orientation import _facing_basis, _root_heading_units
+from ._orientation import _root_heading_units
 from ._warnings import user_stacklevel
 from .bvh import Bvh
 from .bvhnode import BvhNode
@@ -794,23 +794,25 @@ def facing_frame(
     ``left = up × forward`` (re-orthogonalized). The triple satisfies
     ``forward × left = up``.
 
-    Fallback policy (mirrors :meth:`Bvh.forward_at`): frames with no
-    usable L/R direction — the skeleton has no ``lr_mapping``, or the
-    frame's horizontal ``(left - right)`` average nearly vanishes /
-    is nearly parallel to ``world_up`` (norm below ``1e-6``) — receive
-    a constant fallback basis instead: forward from the rest-pose
-    leftward crossed with ``world_up``, or the arbitrary-but-stable
-    per-up-axis default (``'+z'`` for a ``y``-up world) when no
-    rest-pose L/R geometry exists either; ``left = up × forward``
-    keeps the triple orthonormal. The ``valid`` field reports exactly
-    those frames: ``False`` where the basis is the fallback, not a
-    measurement (all-``False`` when the skeleton has no L/R pairs at
-    all — the per-frame refinement of :attr:`Bvh.has_lr_geometry`).
-    The fallback rows still carry the usable constant basis rather
-    than ``nan``, so rendering-style consumers can ignore ``valid``;
-    anything *measuring* facing should mask by it. The bvhplot follow
-    camera does: it takes no heading from such frames, and interpolates
-    across them from the measured frames around them.
+    Fallback policy (shared by :meth:`Bvh.forward_at` and
+    :meth:`Bvh.left_at`): a frame with no usable L/R direction — the
+    skeleton has no ``lr_mapping``, or the frame's horizontal
+    ``(left - right)`` average nearly vanishes or lies along
+    ``world_up`` (norm below ``1e-6``, the body on its side) — takes the
+    root's heading at that frame (the one :func:`root_trajectory`
+    returns) as its forward, when :attr:`Bvh.rest_forward` is measured
+    and that heading is readable; otherwise the arbitrary-but-stable
+    per-up-axis default (``'+z'`` for a ``y``-up world), with a
+    ``UserWarning`` that names the frames. Every row keeps
+    ``forward = left × up``, so the triple stays orthonormal and
+    right-handed, and ``left`` is never ``world_up``. The ``valid``
+    field reports exactly those frames: ``False`` on every fallback row,
+    heading or default (all-``False`` when the skeleton has no L/R pairs
+    at all). The fallback rows still carry a usable basis rather than
+    ``nan``, so rendering-style consumers can ignore ``valid``; anything
+    *measuring* facing should mask by it. The bvhplot follow camera
+    does: it takes no heading from such frames, and interpolates across
+    them from the measured frames around them.
 
     Parameters
     ----------
@@ -818,8 +820,9 @@ def facing_frame(
         Input motion.
     coords : ndarray, shape (F, N, 3), optional
         Pre-computed spatial coordinates for all frames (as returned
-        by ``Bvh.node_positions()``). When provided, skips the
-        per-call forward kinematics.
+        by ``Bvh.node_positions()``): one row per clip frame, since the
+        fallback reads the root's rotation at each. When provided,
+        skips the per-call forward kinematics.
 
     Returns
     -------
@@ -827,8 +830,14 @@ def facing_frame(
         Named tuple ``(forward, left, up, valid)``: three ``(F, 3)``
         float64 arrays of per-frame unit vectors forming a
         right-handed orthonormal basis, and a ``(F,)`` bool array,
-        ``False`` on frames whose basis is the constant fallback
-        rather than a measurement (see the fallback policy above).
+        ``False`` on frames whose basis is a fallback rather than a
+        measurement (see the fallback policy above).
+
+    Raises
+    ------
+    ValueError
+        If ``coords`` is not node-shaped, or does not hold one row per
+        clip frame.
 
     See Also
     --------
@@ -842,7 +851,14 @@ def facing_frame(
     else:
         coords = np.asarray(coords, dtype=np.float64)
     _validate_node_coords(bvh, coords)
-    forward, left, up, valid = _facing_basis(bvh, coords, bvh.world_up)
+    if coords.shape[0] != bvh.frame_count:
+        raise ValueError(
+            f"coords must hold one row per clip frame ({bvh.frame_count}), as "
+            f"node_positions() returns them, since a frame whose left/right "
+            f"axis cannot be read falls back to the root's heading at that "
+            f"frame; got {coords.shape[0]} rows."
+        )
+    forward, left, up, valid = bvh._facing_basis(coords, slice(None))
     return FacingFrame(forward, left, up, valid)
 
 

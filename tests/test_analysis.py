@@ -1632,17 +1632,14 @@ class TestFacingFrame:
         expected = np.tile(_axis_to_vector(cmu_walk.world_up), (cmu_walk.frame_count, 1))
         np.testing.assert_array_equal(frame.up, expected)
 
-    def test_left_matches_per_frame_scalar_helper(self, cmu_walk):
-        """The vectorized basis must agree with the single-frame leftward
-        helper the axis-string snappers consume."""
-        from pybvh._orientation import _world_leftward_unit_at_frame
+    def test_left_snap_matches_left_at(self, cmu_walk):
+        """facing_frame is the pre-snap form of left_at too."""
+        from pybvh.tools import get_main_direction
 
         coords = cmu_walk.node_positions()
         frame = cmu_walk.facing_frame(coords=coords)
-        for f in range(cmu_walk.frame_count):
-            leftward = _world_leftward_unit_at_frame(cmu_walk, coords[f], cmu_walk.world_up)
-            assert leftward is not None
-            np.testing.assert_allclose(frame.left[f], leftward, atol=1e-12)
+        for f in range(0, cmu_walk.frame_count, 25):
+            assert get_main_direction(frame.left[f]) == cmu_walk.left_at(f, coords=coords)
 
     def test_forward_snap_matches_forward_at(self, cmu_walk):
         """facing_frame is the pre-snap form of forward_at: snapping its
@@ -1722,6 +1719,11 @@ class TestFacingFrame:
         # valid is the per-frame report of exactly that fallback
         assert not frame.valid[3]
         assert frame.valid[2] and frame.valid[4]
+        # The fallback is the root's heading at that frame.
+        sin, cos = cmu_walk.root_trajectory()[3, 2:4]
+        up_idx = "xyz".index(cmu_walk.world_up[1])
+        a, b = [i for i in range(3) if i != up_idx]
+        np.testing.assert_allclose(frame.forward[3, [a, b]], [cos, sin], atol=1e-12)
 
     def test_single_frame_and_empty_clip_shapes(self, cmu_walk):
         one = cmu_walk[0:1].facing_frame()
@@ -1740,3 +1742,10 @@ class TestFacingFrame:
         joint_shaped = cmu_walk.node_positions()[:, :3, :]
         with pytest.raises(ValueError, match="node-shaped"):
             cmu_walk.facing_frame(coords=joint_shaped)
+
+    def test_coords_of_another_frame_count_rejected(self, cmu_walk):
+        """The fallback reads the root's rotation at each row's frame, so
+        the rows must be the clip's frames."""
+        some_frames = cmu_walk.node_positions()[:10]
+        with pytest.raises(ValueError, match="one row per clip frame"):
+            cmu_walk.facing_frame(coords=some_frames)

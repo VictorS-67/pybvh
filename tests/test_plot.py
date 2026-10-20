@@ -1559,7 +1559,6 @@ class TestComputeFollowAzimuths:
         point reflection about its end frames."""
         import math
 
-        from pybvh._orientation import _world_leftward_unit_at_frame
         from pybvh.bvhplot._viewport import FOLLOW_SIGMA, FOLLOW_TRUNCATE, compute_follow_azimuths
         from pybvh.tools import _axis_to_vector, _signed_rotation_delta_around_axis
 
@@ -1568,13 +1567,12 @@ class TestComputeFollowAzimuths:
         vec = compute_follow_azimuths(_view(bvh_example, coords), base_azim)
 
         up_vec = _axis_to_vector(bvh_example.world_up)
-        left_0 = _world_leftward_unit_at_frame(bvh_example, coords[0], bvh_example.world_up)
-        assert left_0 is not None
+        facing = bvh_example.facing_frame(coords=coords)
+        assert facing.valid.all()
+        left_0 = facing.left[0]
         changes = []
         for f in range(coords.shape[0]):
-            left_f = _world_leftward_unit_at_frame(bvh_example, coords[f], bvh_example.world_up)
-            assert left_f is not None
-            changes.append(_signed_rotation_delta_around_axis(left_0, left_f, up_vec))
+            changes.append(_signed_rotation_delta_around_axis(left_0, facing.left[f], up_vec))
         change = np.unwrap(changes, period=360.0)
 
         last = len(change) - 1

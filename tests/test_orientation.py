@@ -11,6 +11,8 @@ import numpy as np
 
 from pybvh._orientation import (
     _detect_lr_mapping_by_names,
+    _facing_basis,
+    _facing_labels,
     _infer_rest_forward,
     _infer_rest_left,
     _infer_rest_up,
@@ -212,3 +214,95 @@ class TestRootHeading:
         # The same root under a z-up world: rest forward +y stays +y.
         heading = _root_heading_units(np.eye(3)[np.newaxis], "+y", "+z")
         np.testing.assert_allclose(heading, [[0.0, 1.0, 0.0]], atol=1e-12)
+
+
+class TestFacingChain:
+    """One chain per frame: the frame's leftward, else the root's heading at
+    that frame, else the house default; forward is always left x up."""
+
+    _PAIRS = np.array([[3, 4]])  # LeftHand, RightHand
+
+    def test_a_pose_with_a_known_left_up_and_forward(self):
+        forward, left, up, valid, defaulted = _facing_basis(_REST[np.newaxis], self._PAIRS, "+y")
+        np.testing.assert_allclose(left, [[1.0, 0.0, 0.0]], atol=1e-12)
+        np.testing.assert_allclose(forward, [[0.0, 0.0, 1.0]], atol=1e-12)
+        np.testing.assert_array_equal(up, [[0.0, 1.0, 0.0]])
+        assert valid.tolist() == [True]
+        assert defaulted.tolist() == [False]
+
+    def test_a_vertical_left_right_axis_falls_back_to_the_root_heading(self):
+        # World up along the arms: the frame's left/right axis is vertical,
+        # like a body lying on its side. The root, turned a quarter turn
+        # about +y, carries rest forward +x onto -z.
+        quarter_turn = _about([0, 1, 0], 90)[np.newaxis]
+        forward, left, up, valid, defaulted = _facing_basis(
+            _REST[np.newaxis], self._PAIRS, "+x", quarter_turn, "+x"
+        )
+        np.testing.assert_allclose(forward, [[0.0, 0.0, -1.0]], atol=1e-12)
+        np.testing.assert_allclose(left, [[0.0, 1.0, 0.0]], atol=1e-12)  # +x cross -z
+        assert valid.tolist() == [False]
+        assert defaulted.tolist() == [False]
+
+    def test_then_the_house_default_when_the_heading_is_unreadable_too(self):
+        # Rest forward +x under an identity root stays along world up +x:
+        # no heading to read. Without the inputs the stage is skipped.
+        for heading_inputs in ((np.eye(3)[np.newaxis], "+x"), (None, None)):
+            forward, left, up, valid, defaulted = _facing_basis(
+                _REST[np.newaxis], self._PAIRS, "+x", *heading_inputs
+            )
+            # The house default for an x-up world faces +y; left = up x forward.
+            np.testing.assert_array_equal(forward, [[0.0, 1.0, 0.0]])
+            np.testing.assert_array_equal(left, [[0.0, 0.0, 1.0]])
+            assert valid.tolist() == [False]
+            assert defaulted.tolist() == [True]
+
+    def test_left_is_never_world_up(self):
+        # #114 reproduction 1, on arrays: the left/right axis along world up.
+        _, left, up, _, _ = _facing_basis(_REST[np.newaxis], self._PAIRS, "-x")
+        assert abs(float(left[0] @ up[0])) < 1e-12
+
+    def test_no_pairs_every_row_defaults(self):
+        coords = np.stack([_REST, _REST])
+        forward, left, _, valid, defaulted = _facing_basis(
+            coords, np.empty((0, 2), dtype=np.intp), "+y"
+        )
+        np.testing.assert_array_equal(forward, np.tile([0.0, 0.0, 1.0], (2, 1)))
+        np.testing.assert_array_equal(left, np.tile([1.0, 0.0, 0.0], (2, 1)))
+        assert not valid.any() and defaulted.all()
+
+    def test_forward_cross_left_is_up_on_every_row(self):
+        # One row of each stage, measured, from the heading and defaulted,
+        # under each of the six world ups.
+        turned = _REST @ _about([0, 1, 0], 30).T
+        for world_up in ("+x", "-x", "+y", "-y", "+z", "-z"):
+            up_idx = "xyz".index(world_up[1])
+            tipped = _REST.copy()  # the hands one above the other along up
+            tipped[3], tipped[4] = np.eye(3)[up_idx] * 9.0, np.eye(3)[up_idx]
+            coords = np.stack([turned, tipped, tipped])
+            # Rest forward is the axis after up: row 1's root turns it 40
+            # degrees about up, row 2's stands it along up.
+            ahead, side = np.eye(3)[(up_idx + 1) % 3], np.eye(3)[(up_idx + 2) % 3]
+            turn = _about(np.eye(3)[up_idx], 40)
+            rotmats = np.stack([np.eye(3), turn, _about(side, 90)])
+            forward, left, up, valid, defaulted = _facing_basis(
+                coords, self._PAIRS, world_up, rotmats, "+" + "xyz"[(up_idx + 1) % 3]
+            )
+            assert valid.tolist() == [True, False, False]
+            assert defaulted.tolist() == [False, False, True]
+            np.testing.assert_allclose(forward[1], turn @ ahead, atol=1e-12)
+            np.testing.assert_allclose(np.cross(forward, left), up, atol=1e-12)
+            np.testing.assert_allclose(np.linalg.norm(forward, axis=1), 1.0, atol=1e-12)
+
+
+class TestFacingLabels:
+    """The snapped labels of one facing row: forward, and left = up x forward."""
+
+    def test_a_row_snaps_to_its_nearest_axes(self):
+        assert _facing_labels(np.array([0.2, 0.0, 0.98]), "+y") == ("+z", "+x")
+        assert _facing_labels(np.array([-0.9, 0.1, 0.0]), "+z") == ("-x", "-y")
+
+    def test_a_diagonal_row_gives_a_right_handed_pair(self):
+        forward, left = _facing_labels(np.array([1.0, 0.0, 1.0]) / np.sqrt(2), "+y")
+        up = np.array([0.0, 1.0, 0.0])
+        vectors = {"+x": [1, 0, 0], "-x": [-1, 0, 0], "+z": [0, 0, 1], "-z": [0, 0, -1]}
+        np.testing.assert_array_equal(np.cross(vectors[forward], vectors[left]), up)

@@ -335,24 +335,27 @@ def _camera_angles_and_forward(
 
     The forward string (e.g. ``'+y'``) is the character's facing at
     *ref_frame* snapped to the dominant signed world axis
-    (:func:`~pybvh._orientation._compute_forward_at`: leftward from the L/R
-    joint geometry, crossed with up, then snapped). When that geometry
-    is degenerate (leftward parallel to up, or no L/R pairs) it falls
-    back to the rest-pose leftward and then to a fixed per-up-axis
-    default, so the string is always one of the six axes, never the
-    continuous direction. It is the fact the ``"front"`` preset turns
+    (the facing chain of :mod:`pybvh._orientation`: leftward from the
+    L/R joint geometry, crossed with up, then snapped). When that
+    geometry is degenerate (leftward parallel to up, or no L/R pairs)
+    it falls back to a fixed per-up-axis default, since a pose that
+    names no clip frame has no root heading to fall back to, so the
+    string is always one of the six axes, never the continuous
+    direction. It is the fact the ``"front"`` preset turns
     into an azimuth; :func:`make_scene` keeps it on the view, as
     ``initial_forward``, so lateral spacing and the camera never
     disagree about which way the skeleton faces.
     """
-    from .._orientation import _compute_forward_at
+    from .._orientation import _facing_labels
 
     # World up comes from the Bvh property (auto-detected with manual
     # override). Forward is computed from the given reference frame's
     # actual joint positions, so it tracks the character's orientation
-    # as the animation plays (not just the rest-pose topology).
+    # as the animation plays (not just the rest-pose topology). The pose
+    # names no clip frame, so the chain has no root heading to read.
     up_ax = bvh.world_up
-    forward_ax = _compute_forward_at(bvh, ref_frame, up_ax)
+    forward_row, _, _, _ = bvh._facing_basis(ref_frame[np.newaxis], None)
+    forward_ax, _ = _facing_labels(forward_row[0], up_ax)
     up_char = up_ax[1]  # 'y'
     up_positive = extract_sign(up_ax)
     fwd_char = forward_ax[1]

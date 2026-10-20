@@ -29,9 +29,10 @@ import numpy.typing as npt
 from . import rotations
 from ._derived import DerivedState as _DerivedState
 from ._orientation import (
-    _compute_forward_at,
-    _compute_left_at,
     _detect_lr_mapping_by_names,
+    _facing_basis,
+    _facing_labels,
+    _facing_lr_pairs,
     _infer_rest_forward,
     _infer_rest_left,
     _infer_rest_up,
@@ -39,6 +40,7 @@ from ._orientation import (
     _iter_unique_lr_pairs,
     _resolve_lr_pairs,
     _resolve_node_lr_pairs,
+    _warn_facing_defaulted,
     _warn_rest_forward_defaulted,
 )
 from ._warnings import user_stacklevel
@@ -1560,7 +1562,9 @@ class Bvh:
         This is the snapped classification — the continuous facing
         vector is quantized to the nearest of the six signed world
         axes. See :meth:`facing_frame` for the continuous per-frame
-        basis as unit vectors.
+        basis as unit vectors, and for the fallback when the frame's
+        left/right axis cannot be read (the root's heading at that
+        frame, then a house default, which warns).
 
         Parameters
         ----------
@@ -1571,7 +1575,8 @@ class Bvh:
             provided, skips the per-call forward kinematics — useful for
             computing facing direction across many frames in a hot loop
             (e.g. dataset uniformity diagnostics). The selected frame's
-            slice is taken via ``coords[frame]``.
+            slice is taken via ``coords[frame]``; the fallback reads the
+            clip's root rotation at ``frame``.
 
         Returns
         -------
@@ -1585,11 +1590,7 @@ class Bvh:
             frames at once).
         left_at : Leftward direction.
         """
-        if coords is None:
-            frame_coords = self.node_positions(frame=frame)
-        else:
-            frame_coords = coords[frame]
-        return _compute_forward_at(self, frame_coords, self.world_up)
+        return self._facing_labels_at(frame, coords)[0]
 
     def left_at(
         self,
@@ -1610,7 +1611,10 @@ class Bvh:
         hip twist and shoulder rotation as the character moves.
 
         This is the snapped classification — see :meth:`facing_frame`
-        for the continuous per-frame basis as unit vectors.
+        for the continuous per-frame basis as unit vectors, and its
+        fallback. The label is ``world_up × forward_at(frame)``, so it is
+        never world up itself, even on a frame whose left/right axis is
+        vertical.
 
         Parameters
         ----------
@@ -1619,7 +1623,8 @@ class Bvh:
         coords : ndarray, shape (F, N, 3), optional
             Pre-computed spatial coordinates for all frames. When
             provided, skips the per-call forward kinematics. The selected
-            frame's slice is taken via ``coords[frame]``.
+            frame's slice is taken via ``coords[frame]``; the fallback
+            reads the clip's root rotation at ``frame``.
 
         Returns
         -------
@@ -1634,11 +1639,59 @@ class Bvh:
             frames at once).
         world_up : World vertical axis.
         """
+        return self._facing_labels_at(frame, coords)[1]
+
+    def _facing_labels_at(
+        self, frame: int, coords: npt.NDArray[np.float64] | None
+    ) -> tuple[str, str]:
+        """The snapped ``(forward, left)`` labels at clip frame *frame*."""
         if coords is None:
             frame_coords = self.node_positions(frame=frame)
         else:
             frame_coords = coords[frame]
-        return _compute_left_at(self, frame_coords, self.world_up)
+        frame = range(self.frame_count)[frame]  # as the warning names it
+        forward, _, _, _ = self._facing_basis(frame_coords[np.newaxis], [frame])
+        return _facing_labels(forward[0], self.world_up)
+
+    def _facing_basis(
+        self,
+        coords: npt.NDArray[np.float64],
+        frames: Sequence[int] | slice | None,
+    ) -> tuple[
+        npt.NDArray[np.float64],
+        npt.NDArray[np.float64],
+        npt.NDArray[np.float64],
+        npt.NDArray[np.bool_],
+    ]:
+        """The facing chain on *coords*, whose rows are the clip's *frames*.
+
+        Gathers the chain's inputs (the facing L/R pairs, world up and,
+        when rest forward is measured, the root's heading at *frames*),
+        runs it, and warns when a row carries the house default. With
+        *frames* ``None`` the rows are a pose with no clip frame, and the
+        heading stage is skipped. Returns ``(forward, left, up, valid)``.
+        """
+        world_up = self.world_up
+        lr_pairs = _facing_lr_pairs(self)
+        root_rotmats = rest_forward = None
+        if frames is not None and lr_pairs.shape[0] > 0:
+            rest_left = self._rest_left_of(self._lr_mapping)
+            if rest_left is not None:
+                rest_forward = _infer_rest_forward(rest_left, self.rest_up)
+                root_order = self.nodes[0].rot_channels  # type: ignore[attr-defined]
+                root_rotmats = rotations.euler_to_rotmat(self.joint_angles[frames, 0], root_order)
+        forward, left, up, valid, defaulted = _facing_basis(
+            coords, lr_pairs, world_up, root_rotmats, rest_forward
+        )
+        if defaulted.any():
+            if lr_pairs.shape[0] == 0:
+                named: list[int] | None = []
+            elif frames is None:
+                named = None
+            else:
+                named = np.arange(self.frame_count)[frames][defaulted].tolist()
+            _warn_facing_defaulted(world_up, named)
+        return forward, left, up, valid
 
     def facing_frame(
         self,

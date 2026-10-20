@@ -1191,7 +1191,7 @@ class Bvh:
     def _guess_world_up(self) -> _WorldUpGuess:
         """Guess world up from this clip's own first frame and rest pose."""
         frame0 = self.node_positions(frame=0) if self.frame_count > 0 else None
-        return _infer_world_up([node.name for node in self.nodes], self._rest_pose(), frame0)
+        return _infer_world_up(self._node_names(), self._rest_pose(), frame0)
 
     def _warn_about_world_up_guess(self, guess: _WorldUpGuess, rest_up: str | None) -> None:
         """Warn when *guess* is the house default, or when it disagrees with
@@ -1357,7 +1357,7 @@ class Bvh:
                 derived.inferred_world_up = self._guess_world_up()
             world_up, world_up_source = derived.inferred_world_up
         return _build_orientation_report(
-            [node.name for node in self.nodes],
+            self._node_names(),
             self._rest_pose(),
             self._facing_lr_pairs(),
             world_up,
@@ -1643,7 +1643,7 @@ class Bvh:
         topology = self.fk_topology
         return _resolve_node_lr_pairs(
             mapping,
-            [node.name for node in self.nodes],
+            self._node_names(),
             topology.parent_idx,
             topology.joint_idx < 0,
         )
@@ -2312,6 +2312,10 @@ class Bvh:
         list of str
         """
         return [n.name for n in self.nodes if not n.is_end_site()]
+
+    def _node_names(self) -> list[str]:
+        """Every node's name, in node order, end sites included; names may repeat."""
+        return [node.name for node in self.nodes]
 
     @property
     def joint_count(self) -> int:

@@ -214,7 +214,7 @@ def make_scene(
                 up=b.world_up,
                 floor_height=floor_height,
                 frame_time=float(b.frame_time),
-                node_names=[node.name for node in b.nodes],
+                node_names=b._node_names(),
                 rest_coords=b._rest_pose(),
                 rest_up=b.rest_up,
                 lr_pairs=b._facing_lr_pairs(),

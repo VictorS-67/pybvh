@@ -1694,12 +1694,15 @@ class Bvh:
         frame : int, optional
             Frame index (default 0). Must be within the animation range.
         coords : ndarray, shape (F, N, 3), optional
-            Pre-computed spatial coordinates for all frames. When
-            provided, skips the per-call forward kinematics — useful for
-            computing facing direction across many frames in a hot loop
-            (e.g. dataset uniformity diagnostics). The selected frame's
-            slice is taken via ``coords[frame]``; the fallback reads the
-            clip's root rotation at ``frame``.
+            Pre-computed spatial coordinates for all frames, as
+            :meth:`node_positions` returns them. When provided, skips
+            the per-call forward kinematics — useful for computing
+            facing direction across many frames in a hot loop (e.g.
+            dataset uniformity diagnostics). The selected frame's slice
+            is taken via ``coords[frame]``, which must hold clip frame
+            ``frame``'s positions: where its left/right axis cannot be
+            read, the fallback reads the clip's root rotation at
+            ``frame``, whatever ``coords`` holds.
 
         Returns
         -------
@@ -1744,10 +1747,13 @@ class Bvh:
         frame : int, optional
             Frame index (default 0). Must be within the animation range.
         coords : ndarray, shape (F, N, 3), optional
-            Pre-computed spatial coordinates for all frames. When
-            provided, skips the per-call forward kinematics. The selected
-            frame's slice is taken via ``coords[frame]``; the fallback
-            reads the clip's root rotation at ``frame``.
+            Pre-computed spatial coordinates for all frames, as
+            :meth:`node_positions` returns them. When provided, skips
+            the per-call forward kinematics. The selected frame's slice
+            is taken via ``coords[frame]``, which must hold clip frame
+            ``frame``'s positions: where its left/right axis cannot be
+            read, the fallback reads the clip's root rotation at
+            ``frame``, whatever ``coords`` holds.
 
         Returns
         -------

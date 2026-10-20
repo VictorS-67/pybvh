@@ -1272,6 +1272,15 @@ def _bvhplot_modules() -> list[str]:
 _BEHIND_THE_BOUNDARY = [name for name in _bvhplot_modules() if name not in (_ROUTER, _BVH_READER)]
 
 
+def _is_package_root(dotted: str, level: int, package_level: int = 2) -> bool:
+    """Is the module ``from <dots><dotted> import`` names pybvh's root
+    (``from pybvh import``, ``from .. import`` from bvhplot, ``from .
+    import`` from pybvh itself)? Its arguments are as
+    :func:`_is_core_module` reads them."""
+    parts = [p for p in dotted.split(".") if p and p != "__init__"]
+    return (level == 0 and parts == ["pybvh"]) or (level == package_level and not parts)
+
+
 def _is_core_module(dotted: str, level: int, package_level: int = 2) -> bool:
     """Is the module ``from <dots><dotted> import`` / ``import <dotted>``
     names a core module, or the package root (which exports only core
@@ -1279,7 +1288,8 @@ def _is_core_module(dotted: str, level: int, package_level: int = 2) -> bool:
     reach pybvh's root from the importing module: 2 from a bvhplot
     module, whose level 1 is a sibling and never core; 1 from a module
     of pybvh itself. An explicit ``__init__`` component is the package
-    root spelled out."""
+    root spelled out. A ``from`` import of the root is read name by name
+    instead, by :func:`_core_imports_in_source`."""
     parts = [p for p in dotted.split(".") if p and p != "__init__"]
     if level == 0:
         return (
@@ -1365,10 +1375,16 @@ def _core_imports_in_source(
 
     Sees both statement forms (``import pybvh.analysis``, ``from ..analysis
     import x``) and package-root imports (``from pybvh import Bvh``,
-    ``from .. import analysis``). Only the body of an ``if TYPE_CHECKING:``
-    block is type-only; its ``else`` branch runs and is inspected.
-    ``package_level`` is as :func:`_is_core_module` reads it: 2 for a
-    bvhplot module's source, 1 for a module of pybvh itself."""
+    ``from .. import analysis``). A ``from`` import of the root is read
+    by the names it takes: a not-core module (``from .. import
+    rotations``) is that module, as ``from ..rotations import x`` is;
+    any other name is the core's, a core module or a name the root's
+    ``__init__`` exports, and only those names are reported. ``import
+    pybvh`` binds the root itself and is flagged. Only the body of an
+    ``if TYPE_CHECKING:`` block is type-only; its ``else`` branch runs
+    and is inspected. ``package_level`` is as :func:`_is_core_module`
+    reads it: 2 for a bvhplot module's source, 1 for a module of pybvh
+    itself."""
     tree = ast.parse(source)
     guard_names = _typing_guard_names(tree)
     found: list[tuple[int, str | None, list[str]]] = []
@@ -1383,7 +1399,12 @@ def _core_imports_in_source(
             elif type_only:
                 continue
             elif isinstance(node, ast.ImportFrom):
-                if _is_core_module(node.module or "", node.level, package_level):
+                module = node.module or ""
+                if _is_package_root(module, node.level, package_level):
+                    names = [a.name for a in node.names if a.name not in _NOT_CORE]
+                    if names:
+                        found.append((node.lineno, func, names))
+                elif _is_core_module(module, node.level, package_level):
                     found.append((node.lineno, func, [a.name for a in node.names]))
             elif isinstance(node, ast.Import):
                 names = [a.name for a in node.names if _is_core_module(a.name, 0)]
@@ -1537,10 +1558,20 @@ class TestCoreImportGuard:
             "import numpy as np",
             "import matplotlib.pyplot as plt",
             "from typing import TYPE_CHECKING",
+            "from ..rotations import euler_to_rotmat",
+            "from .. import rotations",
+            "from .. import rotations as r",
+            "from .. import _orientation, tools",
+            "from pybvh import rotations",
         ],
     )
     def test_passes_non_core_imports(self, line):
         assert _core_imports_in_source(line) == []
+
+    def test_a_root_import_flags_only_the_names_that_are_not_not_core_modules(self):
+        assert _core_imports_in_source("from .. import rotations, analysis") == [
+            (1, None, ["analysis"])
+        ]
 
     def test_type_checking_body_is_type_only_but_its_else_is_not(self):
         source = (
@@ -1632,10 +1663,20 @@ class TestCoreImportGuardAtThePackageTop:
             "import pybvh.rotations",
             "import numpy as np",
             "from typing import TYPE_CHECKING",
+            "from .rotations import euler_to_rotmat",
+            "from . import rotations",
+            "from . import rotations as r",
+            "from . import _orientation, tools",
+            "from pybvh import rotations",
         ],
     )
     def test_passes_non_core_imports(self, line):
         assert _core_imports_in_source(line, package_level=1) == []
+
+    def test_a_root_import_flags_only_the_names_that_are_not_not_core_modules(self):
+        assert _core_imports_in_source("from . import rotations, analysis", package_level=1) == [
+            (1, None, ["analysis"])
+        ]
 
 
 class TestSiblingImportGuard:

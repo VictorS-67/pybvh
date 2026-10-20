@@ -8165,6 +8165,15 @@ class TestRestUpAcrossRigConventions:
         assert (report.rest_up, report.rest_left, report.rest_forward) == frame
         assert report.rest_up_source == "named_joint"
 
+    def test_a_namespaced_clip_mirrors_as_its_plain_twin_does(self):
+        # mirror reflects along rest left, measured against rest up: read
+        # from the largest spread, bvh_test3's rest up was -x and it was
+        # mirrored across z.
+        plain = _read_quietly(_TEST3)
+        clip = _renamed(plain, lambda name: "mixamorig:" + name)
+        np.testing.assert_allclose(clip.mirror().root_pos, plain.mirror().root_pos)
+        np.testing.assert_allclose(clip.mirror().joint_angles, plain.mirror().joint_angles)
+
     def test_a_namespaced_clip_faces_where_its_plain_twin_does(self):
         # bvh_test2's hips sit mid-body: read from the largest spread, its
         # rest up was -y and it faced -z, turning every heading by a half

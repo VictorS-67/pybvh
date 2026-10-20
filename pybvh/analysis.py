@@ -633,10 +633,14 @@ def root_trajectory(
     heading is therefore rest forward's own ground direction, whatever
     rotation the clip starts with. When rest forward is the house
     default (no usable left/right geometry; reading it warns), the
-    heading is still built on it: its angle is then measured from an
-    arbitrary axis, but its rate of turn (``heading_vel``) is the
-    root's own. :func:`facing_frame` chooses otherwise for its fallback,
-    which takes no heading from a defaulted rest forward.
+    heading is still built on it, and both the heading and its rate of
+    turn (``heading_vel``) depend on that guessed reference whenever
+    the root pitches or rolls: a tilted root's forward projects on the
+    ground at an angle, and turns there at a rate, that differ with the
+    forward it starts from. On a defaulted rest forward they are
+    reliable only for a root that turns about world up alone.
+    :func:`facing_frame` chooses otherwise for its fallback, which takes
+    no heading from a defaulted rest forward.
 
     The heading is **orientation-derived** — the root bone's rotation
     applied to the rest forward, projected to the ground plane — not

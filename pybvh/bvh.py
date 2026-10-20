@@ -1210,7 +1210,7 @@ class Bvh:
 
         ``None`` exactly when :attr:`rest_up` is ``None`` — a degenerate rest pose (single-node skeleton, or all joints coincident) that carries no directional information. Each parsed axis property mirrors the nullability of the string it parses, so ``bvh.rest_up is None`` and ``bvh.rest_up_axis is None`` always agree.
 
-        Note this is the *topological* up axis. For the world vertical — animation-derived, and always defined — use :attr:`world_up_axis`.
+        Note this is the skeleton's own up axis, read from the rest pose alone. For the world vertical — animation-derived, and always defined — use :attr:`world_up_axis`.
 
         See Also
         --------

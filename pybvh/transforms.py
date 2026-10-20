@@ -1109,7 +1109,7 @@ def reorient_rest_up(bvh: Bvh, new_up: str, *, inplace: Literal[True]) -> None: 
 @overload
 def reorient_rest_up(bvh: Bvh, new_up: str, inplace: Literal[False] = ...) -> Bvh: ...
 def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None:
-    """Rotate the skeleton's rest-pose offsets so its topological up aligns
+    """Rotate the skeleton's rest-pose offsets so its own up (rest up) aligns
     with ``new_up``, compensating all joint rotations so that FK positions
     are unchanged.
 

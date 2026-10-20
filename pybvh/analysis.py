@@ -1337,7 +1337,7 @@ def _contacts_core(
     if coords is None:
         coords = bvh.node_positions()
 
-    up_idx, up_sign, _ = bvh.up_axis
+    up_idx, up_sign, _ = bvh.world_up_axis
 
     joint_coords = coords[:, joint_indices, :]  # (F, num_joints, 3)
     num_joints = len(joint_names)
@@ -1544,7 +1544,7 @@ def auto_detect_foot_joints(bvh: Bvh) -> list[str]:
 
     An empty result is a *report*, not an error: this function never raises on footless rigs. The contact detectors are where emptiness becomes fatal — :func:`foot_contacts` and :func:`ground_contacts` both raise ``ValueError`` when handed an empty joint list, so a silent ``[]`` cannot flow into a zero-column contact array.
     """
-    up_idx, up_sign, _ = bvh.up_axis
+    up_idx, up_sign, _ = bvh.world_up_axis
 
     # Step 1: substring match
     matched = [
@@ -1813,7 +1813,7 @@ def _compute_floor_height(bvh: Bvh) -> float:
     :attr:`Bvh.floor_height` for the convention and the alternatives it
     was chosen over.
     """
-    up_idx, up_sign, _ = bvh.up_axis
+    up_idx, up_sign, _ = bvh.world_up_axis
     coords = bvh.node_positions()  # (F, N, 3), world
     return _floor_from_coords(coords, list(range(coords.shape[1])), up_idx, up_sign)
 

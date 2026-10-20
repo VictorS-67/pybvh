@@ -151,7 +151,7 @@ _AXIS_CHAR_TO_IDX = {"x": 0, "y": 1, "z": 2}
 Axis = namedtuple("Axis", ["index", "sign", "vector"])
 Axis.__doc__ = """A signed coordinate axis parsed into machine-usable form.
 
-The parsed counterpart of pybvh's signed axis strings (``'+y'``, ``'-z'``), produced by :func:`pybvh.parse_axis` and returned by :attr:`Bvh.up_axis`, :attr:`Bvh.forward_axis` and :attr:`Bvh.rest_up_axis`.
+The parsed counterpart of pybvh's signed axis strings (``'+y'``, ``'-z'``), produced by :func:`pybvh.parse_axis` and returned by :attr:`Bvh.world_up_axis`, :attr:`Bvh.rest_forward_axis` and :attr:`Bvh.rest_up_axis`.
 
 Fields: ``index`` (int, 0/1/2 — the axis's column in any ``(..., 3)`` coordinate array), ``sign`` (float, ``+1.0`` / ``-1.0`` — multiply by it to make the coordinate positive along the axis direction), ``vector`` (float64 ``(3,)`` unit vector along the axis, sign included).
 
@@ -171,7 +171,7 @@ def _axis_to_vector(ax: str) -> npt.NDArray[np.float64]:
 def _axis_index_sign(ax: str) -> tuple[int, float]:
     """Split a signed axis string ('-z') into ``(coordinate index, sign)``.
 
-    The scalar companion of :func:`_axis_to_vector`: ``index`` selects the coordinate column, ``sign`` (``+1.0`` / ``-1.0``) restores the direction, so ``coords[..., index] * sign`` is the up-positive height. The single parsing implementation behind :attr:`Bvh.up_axis` and the internal up-axis consumers.
+    The scalar companion of :func:`_axis_to_vector`: ``index`` selects the coordinate column, ``sign`` (``+1.0`` / ``-1.0``) restores the direction, so ``coords[..., index] * sign`` is the up-positive height. The single parsing implementation behind :attr:`Bvh.world_up_axis` and the internal up-axis consumers.
     """
     return _AXIS_CHAR_TO_IDX[ax[1]], 1.0 if ax[0] == "+" else -1.0
 
@@ -179,7 +179,7 @@ def _axis_index_sign(ax: str) -> tuple[int, float]:
 def parse_axis(axis: str, *, allow_unsigned: bool = False) -> Axis:
     """Parse a signed axis string into an :class:`Axis`.
 
-    The public form of the parser behind :attr:`Bvh.up_axis` and friends,
+    The public form of the parser behind :attr:`Bvh.world_up_axis` and friends,
     for code that holds an axis string of its own — a dataset convention
     from a config file, or one of the axis strings pybvh returns.
 

@@ -1,8 +1,17 @@
 # pybvh API Rename — Complete Reference
 
-This file is the complete old → new rename ledger. The **v0.8.1 section comes first**, then the v0.8.0 sections (module split, signal utilities, normalization move, rotation-helper consolidation, end sites, analysis/geometry, transforms, `Bvh` surface, bvhplot); the v0.6.0 rename wave follows. **Old names are removed outright** — there is no deprecation cycle. Because pybvh has no known production consumers beyond pybvh-ml (which has been briefed separately), shipping wrappers that would be removed one release later wasn't worth the maintenance tax. Old names will raise `AttributeError` on the `Bvh` class / `ImportError` at module level.
+This file is the complete old → new rename ledger. The **v0.10.0 section comes first**, then the v0.8.1 section, then the v0.8.0 sections (module split, signal utilities, normalization move, rotation-helper consolidation, end sites, analysis/geometry, transforms, `Bvh` surface, bvhplot); the v0.6.0 rename wave follows. **Old names are removed outright** — there is no deprecation cycle. Because pybvh has no known production consumers beyond pybvh-ml (which has been briefed separately), shipping wrappers that would be removed one release later wasn't worth the maintenance tax. Old names will raise `AttributeError` on the `Bvh` class / `ImportError` at module level.
 
 Migration: grep for the old name in the left column, replace with the right column.
+
+---
+
+## v0.10.0 — orientation names: `_axis` means an `Axis`, a world-up string is `world_up`
+
+| Old | New | Notes |
+|---|---|---|
+| `Bvh.up_axis` | `Bvh.world_up_axis` | The same `Axis(index, sign, vector)`, named after `world_up`, the string it parses. |
+| `Bvh.forward_axis` | `Bvh.rest_forward_axis` | The same `Axis`, named after `rest_forward`, as `rest_up_axis` is after `rest_up`. |
 
 ---
 

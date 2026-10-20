@@ -5999,7 +5999,7 @@ class TestRotateVerticalPivot:
     def test_root_pivot_holds_the_first_frame_in_place(self, bvh_example):
         from pybvh.transforms import rotate_vertical
 
-        up = bvh_example.up_axis.index
+        up = bvh_example.world_up_axis.index
         start = bvh_example.root_pos[0]
         assert np.linalg.norm(np.delete(start, up)) > 1e-6, (
             "fixture must start away from the vertical axis for this to bite"
@@ -6014,7 +6014,7 @@ class TestRotateVerticalPivot:
         """The identity the docstring promises for already-centered pipelines."""
         from pybvh.transforms import rotate_vertical, translate_root
 
-        up = bvh_example.up_axis.index
+        up = bvh_example.world_up_axis.index
         offset = bvh_example.root_pos[0].copy()
         offset[up] = 0.0
 
@@ -6027,7 +6027,7 @@ class TestRotateVerticalPivot:
     def test_explicit_point_is_the_fixed_point(self, bvh_example):
         from pybvh.transforms import rotate_vertical
 
-        up = bvh_example.up_axis.index
+        up = bvh_example.world_up_axis.index
         point = np.zeros(3)
         point[(up + 1) % 3] = 12.0
         point[(up + 2) % 3] = -5.0
@@ -6050,7 +6050,7 @@ class TestRotateVerticalPivot:
     def test_heights_are_untouched_by_any_pivot(self, bvh_example):
         from pybvh.transforms import rotate_vertical
 
-        up = bvh_example.up_axis.index
+        up = bvh_example.world_up_axis.index
         point = [3.0, 3.0, 3.0]
         rotated = rotate_vertical(bvh_example, angle=0.4, pivot=point)
         np.testing.assert_array_equal(rotated.root_pos[:, up], bvh_example.root_pos[:, up])
@@ -6058,7 +6058,7 @@ class TestRotateVerticalPivot:
     def test_up_component_of_an_explicit_pivot_is_ignored(self, bvh_example):
         from pybvh.transforms import rotate_vertical
 
-        up = bvh_example.up_axis.index
+        up = bvh_example.world_up_axis.index
         ground = np.array([2.0, 2.0, 2.0])
         ground[up] = 0.0
         raised = np.array([2.0, 2.0, 2.0])
@@ -6077,8 +6077,8 @@ class TestRotateVerticalPivot:
     def test_array_level_matches_bvh_level(self, bvh_example):
         from pybvh.transforms import rotate_angles_vertical, rotate_vertical
 
-        up_idx = bvh_example.up_axis.index
-        up_sign = bvh_example.up_axis.sign
+        up_idx = bvh_example.world_up_axis.index
+        up_sign = bvh_example.world_up_axis.sign
         order = "".join(bvh_example.root.rot_channels)
         angles, pos = rotate_angles_vertical(
             bvh_example.joint_angles,
@@ -7763,8 +7763,8 @@ class TestRotateVerticalDegreesCarryOver:
         np.testing.assert_allclose(by_deg.root_pos, by_rad.root_pos, atol=1e-12)
 
 
-class TestUpAxisProperty:
-    """Bvh.up_axis — world_up parsed into UpAxis(index, sign, vector)."""
+class TestWorldUpAxisProperty:
+    """Bvh.world_up_axis — world_up parsed into Axis(index, sign, vector)."""
 
     @pytest.mark.parametrize(
         "factory, index, sign",
@@ -7776,7 +7776,7 @@ class TestUpAxisProperty:
         ],
     )
     def test_synthetic_rigs(self, factory, index, sign):
-        up = factory().up_axis
+        up = factory().world_up_axis
         assert up.index == index
         assert up.sign == sign
         expected = np.zeros(3)
@@ -7787,7 +7787,7 @@ class TestUpAxisProperty:
     def test_agrees_with_every_override_string(self, axis):
         bvh = make_pos_y_up_bvh()
         bvh.world_up = axis
-        up = bvh.up_axis
+        up = bvh.world_up_axis
         assert up.index == {"x": 0, "y": 1, "z": 2}[axis[1]]
         assert up.sign == (1.0 if axis[0] == "+" else -1.0)
         # vector is exactly the parsed string: one nonzero entry, sign included
@@ -7797,18 +7797,18 @@ class TestUpAxisProperty:
     def test_override_and_clear_via_auto(self):
         bvh = make_pos_y_up_bvh()
         bvh.world_up = "-x"
-        assert (bvh.up_axis.index, bvh.up_axis.sign) == (0, -1.0)
+        assert (bvh.world_up_axis.index, bvh.world_up_axis.sign) == (0, -1.0)
         bvh.world_up = "auto"
-        assert (bvh.up_axis.index, bvh.up_axis.sign) == (1, 1.0)
+        assert (bvh.world_up_axis.index, bvh.world_up_axis.sign) == (1, 1.0)
 
     def test_vector_is_fresh_copy_per_access(self):
         bvh = make_pos_y_up_bvh()
-        vec = bvh.up_axis.vector
+        vec = bvh.world_up_axis.vector
         vec[:] = 99.0
-        np.testing.assert_array_equal(bvh.up_axis.vector, [0.0, 1.0, 0.0])
+        np.testing.assert_array_equal(bvh.world_up_axis.vector, [0.0, 1.0, 0.0])
 
     def test_namedtuple_unpacking(self):
-        index, sign, vector = make_pos_z_up_bvh().up_axis
+        index, sign, vector = make_pos_z_up_bvh().world_up_axis
         assert index == 2
         assert sign == 1.0
         np.testing.assert_array_equal(vector, [0.0, 0.0, 1.0])
@@ -7861,11 +7861,11 @@ class TestParseAxis:
 
 
 class TestParsedAxisProperties:
-    """up_axis / forward_axis / rest_up_axis — parsed views of the strings."""
+    """world_up_axis / rest_forward_axis / rest_up_axis — parsed views of the strings."""
 
     def test_each_property_parses_its_own_string(self, bvh_example):
-        assert_same_axis(bvh_example.up_axis, parse_axis(bvh_example.world_up))
-        assert_same_axis(bvh_example.forward_axis, parse_axis(bvh_example.rest_forward))
+        assert_same_axis(bvh_example.world_up_axis, parse_axis(bvh_example.world_up))
+        assert_same_axis(bvh_example.rest_forward_axis, parse_axis(bvh_example.rest_forward))
         assert_same_axis(bvh_example.rest_up_axis, parse_axis(bvh_example.rest_up))
 
     def test_rest_up_axis_mirrors_rest_up_nullability(self, bvh_example):
@@ -7879,12 +7879,18 @@ class TestParsedAxisProperties:
         assert bvh.rest_up is None
         assert bvh.rest_up_axis is None
         # forward stays defined — it falls back rather than returning None
-        assert bvh.forward_axis is not None
+        assert bvh.rest_forward_axis is not None
 
-    def test_up_axis_follows_a_world_up_override(self):
+    def test_world_up_axis_follows_a_world_up_override(self):
         bvh = make_pos_y_up_bvh()
         bvh.world_up = "-x"
-        assert_same_axis(bvh.up_axis, parse_axis("-x"))
+        assert_same_axis(bvh.world_up_axis, parse_axis("-x"))
+
+    @pytest.mark.parametrize("old", ["up_axis", "forward_axis"])
+    def test_a_name_ending_in_axis_is_an_axis(self, old):
+        # v0.10.0 named each parsed axis after the string it parses;
+        # the old names are gone, with no alias left behind
+        assert not hasattr(Bvh, old)
 
 
 class TestHasLrGeometry:

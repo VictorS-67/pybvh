@@ -837,7 +837,7 @@ class TestFootContactsFloorEstimation:
         the two conventions."""
         feet = bvh_example.auto_detect_foot_joints()
         idx = [bvh_example.node_index[n] for n in feet]
-        up = bvh_example.up_axis
+        up = bvh_example.world_up_axis
         coords = bvh_example.node_positions().copy()
         coords[5, idx, up.index] = -100.0 * up.sign  # one spurious low frame
 
@@ -1308,7 +1308,7 @@ class TestContactReferenceIsIndependentOfTheSceneGround:
         from pybvh.analysis import _floor_from_coords
 
         _, info = cmu_walk.foot_contacts(return_info=True)
-        up_idx, up_sign, _ = cmu_walk.up_axis
+        up_idx, up_sign, _ = cmu_walk.world_up_axis
         coords = cmu_walk.node_positions()
         feet = [cmu_walk.node_index[n] for n in cmu_walk.auto_detect_foot_joints()]
         assert info["floor"] == pytest.approx(_floor_from_coords(coords, feet, up_idx, up_sign))

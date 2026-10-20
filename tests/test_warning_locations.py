@@ -379,12 +379,12 @@ class TestFacingFallback:
         "query",
         [
             lambda clip: clip.rest_forward,
-            lambda clip: clip.forward_axis,
+            lambda clip: clip.rest_forward_axis,
             lambda clip: clip.forward_at(0),
             lambda clip: clip.left_at(0),
             lambda clip: clip.facing_frame(),
         ],
-        ids=["rest_forward", "forward_axis", "forward_at", "left_at", "facing_frame"],
+        ids=["rest_forward", "rest_forward_axis", "forward_at", "left_at", "facing_frame"],
     )
     def test_each_facing_query_names_its_caller(self, clip, query):
         with warnings.catch_warnings(record=True) as caught:

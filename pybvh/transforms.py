@@ -1224,7 +1224,7 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
         If ``new_forward`` is parallel to ``world_up``.
     """
     new_forward = _validate_axis_string(new_forward)
-    up_idx = bvh.up_axis.index
+    up_idx = bvh.world_up_axis.index
     fwd_idx = _AXIS_CHAR_TO_IDX[new_forward[1]]
     if up_idx == fwd_idx:
         raise ValueError(

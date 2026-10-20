@@ -95,9 +95,9 @@ class TestViewCarriesSkeletonFacts:
     def test_orientation_facts(self, bvh, coords):
         view = make_scene([bvh], [coords], "front", None).views[0]
         assert view.up == bvh.world_up
-        assert view.up_index == bvh.up_axis.index
-        assert view.up_sign == bvh.up_axis.sign
-        np.testing.assert_array_equal(view.up_vector, bvh.up_axis.vector)
+        assert view.up_index == bvh.world_up_axis.index
+        assert view.up_sign == bvh.world_up_axis.sign
+        np.testing.assert_array_equal(view.up_vector, bvh.world_up_axis.vector)
         assert view.initial_forward == bvh.forward_at(0)
 
     def test_initial_forward_is_the_first_shown_rows_facing(self):

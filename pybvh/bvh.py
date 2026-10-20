@@ -1164,7 +1164,7 @@ class Bvh:
         return _infer_world_up(self, warn=self._warn_on_world_up_disagreement)
 
     @property
-    def up_axis(self) -> Axis:
+    def world_up_axis(self) -> Axis:
         """:attr:`world_up` parsed into numeric form — ``Axis(index, sign, vector)``.
 
         The three fields are the machine-usable views of the same signed axis string (always derived from the resolved :attr:`world_up`, so manual overrides are respected):
@@ -1176,18 +1176,18 @@ class Bvh:
         Example — up-positive heights of every node in every frame:
 
             >>> coords = bvh.node_positions()
-            >>> heights = coords[:, :, bvh.up_axis.index] * bvh.up_axis.sign
+            >>> heights = coords[:, :, bvh.world_up_axis.index] * bvh.world_up_axis.sign
 
         See Also
         --------
         world_up : The signed axis string this is parsed from (settable).
-        forward_axis, rest_up_axis : The other two parsed axis properties.
+        rest_forward_axis, rest_up_axis : The other two parsed axis properties.
         floor_height : The scene ground level along this axis, in raw (unsigned) coordinates.
         """
         return parse_axis(self.world_up)
 
     @property
-    def forward_axis(self) -> Axis:
+    def rest_forward_axis(self) -> Axis:
         """:attr:`rest_forward` parsed into numeric form — ``Axis(index, sign, vector)``.
 
         Never ``None``: :attr:`rest_forward` always resolves, because forward is defined relative to :attr:`world_up` and falls back to an arbitrary-but-stable horizontal axis when the skeleton carries no usable L/R geometry. That fallback is indistinguishable here from a measured result — see :attr:`rest_forward` for the chain.
@@ -1195,7 +1195,7 @@ class Bvh:
         See Also
         --------
         rest_forward : The signed axis string this is parsed from.
-        up_axis, rest_up_axis : The other two parsed axis properties.
+        world_up_axis, rest_up_axis : The other two parsed axis properties.
         """
         return parse_axis(self.rest_forward)
 
@@ -1205,12 +1205,12 @@ class Bvh:
 
         ``None`` exactly when :attr:`rest_up` is ``None`` — a degenerate rest pose (single-node skeleton, or all joints coincident) that carries no directional information. Each parsed axis property mirrors the nullability of the string it parses, so ``bvh.rest_up is None`` and ``bvh.rest_up_axis is None`` always agree.
 
-        Note this is the *topological* up axis. For the world vertical — animation-derived, and always defined — use :attr:`up_axis`.
+        Note this is the *topological* up axis. For the world vertical — animation-derived, and always defined — use :attr:`world_up_axis`.
 
         See Also
         --------
         rest_up : The signed axis string this is parsed from.
-        up_axis, forward_axis : The other two parsed axis properties.
+        world_up_axis, rest_forward_axis : The other two parsed axis properties.
         """
         rest_up = self.rest_up
         return None if rest_up is None else parse_axis(rest_up)
@@ -1398,7 +1398,7 @@ class Bvh:
         though the pairs themselves exist.
 
         This is the check :attr:`rest_forward` (and so
-        :attr:`forward_axis`, :meth:`forward_at`, :meth:`left_at` and
+        :attr:`rest_forward_axis`, :meth:`forward_at`, :meth:`left_at` and
         ``facing_frame``) cannot express in its own return value. Those
         always yield an axis: with no usable L/R geometry they return an
         arbitrary-but-stable horizontal axis chosen from

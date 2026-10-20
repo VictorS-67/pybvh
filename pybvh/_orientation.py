@@ -82,7 +82,7 @@ if TYPE_CHECKING:
 #       _infer_world_up ──→ Bvh.world_up (property)
 #
 # Public surface: `Bvh.world_up` (property + setter), the parsed
-# `Bvh.up_axis` / `Bvh.forward_axis` / `Bvh.rest_up_axis` properties,
+# `Bvh.world_up_axis` / `Bvh.rest_forward_axis` / `Bvh.rest_up_axis` properties,
 # `Bvh.forward_at(frame=0)` / `Bvh.left_at(frame=0)` (methods), and — via
 # `analysis.facing_frame` — the continuous vector basis. Everything here is
 # underscore-prefixed and intended for internal use by pybvh modules.
@@ -786,7 +786,7 @@ def _fallback_forward_vector(
         f"No usable left/right geometry on this skeleton, so its facing "
         f"direction cannot be measured; falling back to {fallback!r}, the "
         f"arbitrary-but-stable horizontal axis for world_up={world_up!r}. "
-        f"Anything derived from facing (rest_forward, forward_axis, "
+        f"Anything derived from facing (rest_forward, rest_forward_axis, "
         f"forward_at, left_at, facing_frame) is a default here, not a "
         f"property of this file. Set `bvh.lr_mapping = {{...}}` to fix it, "
         f"or check `bvh.has_lr_geometry` to detect it.",

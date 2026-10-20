@@ -193,7 +193,7 @@ def parse_axis(axis: str, *, allow_unsigned: bool = False) -> Axis:
         positive direction. Default False — a bare letter states no
         direction, and defaulting it to positive invents one the caller
         did not ask for. Use it only where the sign is genuinely
-        irrelevant, as for ``mirror``'s ``lateral_axis``.
+        irrelevant, as for ``mirror``'s ``lateral``.
 
     Returns
     -------
@@ -240,7 +240,7 @@ def _validate_axis_string(value: object, *, allow_unsigned: bool = False) -> str
     axis char). With ``allow_unsigned=True``, a bare axis char
     ('x'/'y'/'z') is also accepted and normalized to its positive form —
     for parameters where the sign is irrelevant (e.g. ``mirror``'s
-    ``lateral_axis``). Returns the normalized form. Raises ValueError
+    ``lateral``). Returns the normalized form. Raises ValueError
     on any other input.
     """
     normalized = value.lower() if isinstance(value, str) else value

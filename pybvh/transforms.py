@@ -850,20 +850,20 @@ def mirror(
     bvh: Bvh,
     *,
     lr_mapping: dict[str, str] | None = ...,
-    lateral_axis: str | None = ...,
+    lateral: str | None = ...,
     inplace: Literal[True],
 ) -> None: ...
 @overload
 def mirror(
     bvh: Bvh,
     lr_mapping: dict[str, str] | None = ...,
-    lateral_axis: str | None = ...,
+    lateral: str | None = ...,
     inplace: Literal[False] = ...,
 ) -> Bvh: ...
 def mirror(
     bvh: Bvh,
     lr_mapping: dict[str, str] | None = None,
-    lateral_axis: str | None = None,
+    lateral: str | None = None,
     inplace: bool = False,
 ) -> Bvh | None:
     """Mirror (reflect) the motion across the lateral plane.
@@ -879,7 +879,7 @@ def mirror(
     lr_mapping : dict or None
         ``{"LeftArm": "RightArm", ...}``.  Defaults to
         :attr:`Bvh.lr_mapping` (auto-detected or user-set).
-    lateral_axis : str or None
+    lateral : str or None
         Axis perpendicular to the mirror plane, e.g. ``'x'`` or
         ``'+x'`` (the sign is irrelevant for mirroring).
         **Auto-detected if None**, and the detection is usually the
@@ -936,17 +936,17 @@ def mirror(
     # pairs. Only the axis letter is consumed; the sign doesn't matter
     # for mirroring (reflecting across the plane perpendicular to the
     # axis is the same operation whether the axis points left or right).
-    if lateral_axis is None:
+    if lateral is None:
         rest_left = _rest_leftward(target, mapping=lr_mapping)
         if rest_left is None:
             raise ValueError(
                 "Cannot infer lateral axis from L/R mapping: averaged "
                 "left-to-right offsets are degenerate (parallel to up "
-                "axis or zero). Pass `lateral_axis=` explicitly."
+                "axis or zero). Pass `lateral=` explicitly."
             )
         lateral_char = rest_left[1]
     else:
-        lateral_char = _validate_axis_string(lateral_axis, allow_unsigned=True)[1]
+        lateral_char = _validate_axis_string(lateral, allow_unsigned=True)[1]
     lateral_idx = _AXIS_CHAR_TO_IDX[lateral_char]
 
     # Build node-index pairs for offset swapping (includes end sites).

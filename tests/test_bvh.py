@@ -7769,17 +7769,23 @@ class TestMirrorValidationCarryOver:
             world_up="+y",
         )
         with pytest.raises(ValueError, match="end site"):
-            lopsided.mirror(lr_mapping={"LeftLeg": "RightLeg"}, lateral_axis="x")
+            lopsided.mirror(lr_mapping={"LeftLeg": "RightLeg"}, lateral="x")
 
-    def test_unsigned_lateral_axis_accepted(self, bvh_example):
+    def test_unsigned_lateral_accepted(self, bvh_example):
         # sign is irrelevant for mirroring: 'x', '+x', '-x' agree
-        unsigned = bvh_example.mirror(lateral_axis="x")
-        plus = bvh_example.mirror(lateral_axis="+x")
-        minus = bvh_example.mirror(lateral_axis="-x")
+        unsigned = bvh_example.mirror(lateral="x")
+        plus = bvh_example.mirror(lateral="+x")
+        minus = bvh_example.mirror(lateral="-x")
         np.testing.assert_allclose(unsigned.joint_angles, plus.joint_angles)
         np.testing.assert_allclose(unsigned.joint_angles, minus.joint_angles)
         np.testing.assert_allclose(unsigned.root_pos, plus.root_pos)
         np.testing.assert_allclose(unsigned.root_pos, minus.root_pos)
+
+    def test_lateral_given_to_the_function_matches_the_method(self, bvh_example):
+        function = transforms.mirror(bvh_example, lateral="x")
+        method = bvh_example.mirror(lateral="x")
+        np.testing.assert_allclose(function.joint_angles, method.joint_angles)
+        np.testing.assert_allclose(function.root_pos, method.root_pos)
 
 
 class TestRotateVerticalDegreesCarryOver:

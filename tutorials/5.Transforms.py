@@ -93,7 +93,7 @@ for left, right in mapping.items():
 # %% [markdown]
 # ## Applying the mirror
 #
-# With pairs detected, `mirror()` handles the flip and the swap in one call. The lateral axis is auto-detected from the skeleton topology (you can override it with `lateral_axis='x'` / `'y'` / `'z'` if needed).
+# With pairs detected, `mirror()` handles the flip and the swap in one call. The lateral axis is auto-detected from the skeleton topology (you can override it with `lateral='x'` / `'y'` / `'z'` if needed).
 
 # %%
 mirrored = bvh.mirror()

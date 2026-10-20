@@ -3904,28 +3904,26 @@ class Bvh:
         self,
         *,
         lr_mapping: dict[str, str] | None = ...,
-        lateral_axis: str | None = ...,
+        lateral: str | None = ...,
         inplace: Literal[True],
     ) -> None: ...
     @overload
     def mirror(
         self,
         lr_mapping: dict[str, str] | None = ...,
-        lateral_axis: str | None = ...,
+        lateral: str | None = ...,
         inplace: Literal[False] = ...,
     ) -> Bvh: ...
     def mirror(
         self,
         lr_mapping: dict[str, str] | None = None,
-        lateral_axis: str | None = None,
+        lateral: str | None = None,
         inplace: bool = False,
     ) -> Bvh | None:
         """Mirror motion across the lateral plane.  See :func:`pybvh.transforms.mirror`."""
         from . import transforms
 
-        return transforms.mirror(
-            self, lr_mapping=lr_mapping, lateral_axis=lateral_axis, inplace=inplace
-        )  # type: ignore[call-overload, return-value]
+        return transforms.mirror(self, lr_mapping=lr_mapping, lateral=lateral, inplace=inplace)  # type: ignore[call-overload, return-value]
 
     def random_translate_root(
         self,

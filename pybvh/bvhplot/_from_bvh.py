@@ -14,7 +14,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpy.typing as npt
 
-from ._scene import UP_AXIS_INDEX, Scene, SkeletonView
+from ..tools import extract_sign, parse_axis
+from ._scene import Scene, SkeletonView
 
 if TYPE_CHECKING:
     from ..bvh import Bvh
@@ -178,11 +179,8 @@ def make_scene(
 
     views: list[SkeletonView] = []
     for i, (b, coords) in enumerate(zip(bvh_list, coords_list)):
-        azimuth, elevation, up_axis, initial_forward = _camera_angles_and_forward(
-            b, coords[0], camera
-        )
-        up_idx = UP_AXIS_INDEX.get(up_axis, 2)
-        up_sign = float(b.up_axis.sign)
+        azimuth, elevation, _, initial_forward = _camera_angles_and_forward(b, coords[0], camera)
+        up = parse_axis(b.world_up)
         bones = get_skeleton_lines(b)
 
         if clip_frames is None:
@@ -205,8 +203,8 @@ def make_scene(
             # The ground is the signed-lowest point: the coordinate
             # minimum for a positive up axis, the MAXIMUM for a
             # negative one (where larger values point downward).
-            extreme = coords[..., up_idx]
-            floor_height = float(extreme.min() if up_sign > 0 else extreme.max())
+            extreme = coords[..., up.index]
+            floor_height = float(extreme.min() if up.sign > 0 else extreme.max())
         views.append(
             SkeletonView(
                 coords=coords,
@@ -348,7 +346,6 @@ def _camera_angles_and_forward(
     disagree about which way the skeleton faces.
     """
     from .._orientation import _compute_forward_at
-    from ..tools import extract_sign
 
     # World up comes from the Bvh property (auto-detected with manual
     # override). Forward is computed from the given reference frame's

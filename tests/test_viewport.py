@@ -847,6 +847,27 @@ class TestViewportValue:
         assert viewport.projection == "ortho"
 
     @pytest.mark.parametrize(
+        "read",
+        [
+            lambda viewport: viewport.up_letter,
+            lambda viewport: viewport.up_index,
+            lambda viewport: viewport.up_sign,
+            lambda viewport: viewport.view_matrix(0),
+        ],
+        ids=["up_letter", "up_index", "up_sign", "view_matrix"],
+    )
+    def test_an_up_that_is_not_an_axis_raises(self, view, read):
+        """An up that names no axis raises with the axis parser's
+        message wherever it is read, rather than standing for z."""
+        viewport = dataclasses.replace(make_viewport([view]), up="+w")
+        with pytest.raises(ValueError, match="Axis must be one of"):
+            read(viewport)
+
+    def test_a_view_matrix_for_a_letter_that_is_not_an_axis_raises(self):
+        with pytest.raises(ValueError, match="Axis must be one of"):
+            build_view_matrix(-20.0, 20.0, "w")
+
+    @pytest.mark.parametrize(
         "options, message",
         [
             (dict(framing="cube"), "Unknown framing"),

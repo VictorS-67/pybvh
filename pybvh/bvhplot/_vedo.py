@@ -28,7 +28,7 @@ from ._colors import (
     skeleton_color_255,
 )
 from ._playback import PlaybackClock
-from ._scene import UP_AXIS_INDEX, Scene
+from ._scene import Scene
 from ._style import JOINT_DISC_MARGIN_PX, Style, bone_width_px
 from ._vedo_capsules import (
     CapsuleSkeleton,
@@ -365,7 +365,7 @@ class _VedoPlayer:
 
         coords_list = self.coords_list
         n_skeletons = self.n_skeletons
-        up_idx = UP_AXIS_INDEX.get(self.up_letter, 2)
+        up_idx = self.viewport.up_index
         line_width_px = bone_width_px(self.style.bone_width)
         point_size_px = 2 * (line_width_px + JOINT_DISC_MARGIN_PX)
 

@@ -2,8 +2,9 @@
 
 Pure data: :class:`SkeletonView`, :class:`Scene`, the operations that
 change a Scene, and the helper that aligns frame counts. No plotting library
-imports and no imports from the pybvh core; a Scene is built from a
-:class:`~pybvh.bvh.Bvh` in :mod:`._from_bvh`, or from plain arrays.
+imports and no imports from the pybvh core; signed axes are read with the
+axis vocabulary of :mod:`pybvh.tools`, which knows no clip. A Scene is built
+from a :class:`~pybvh.bvh.Bvh` in :mod:`._from_bvh`, or from plain arrays.
 """
 
 from __future__ import annotations
@@ -17,9 +18,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .._warnings import user_stacklevel
-
-UP_AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
-_SIGNED_AXES = ("+x", "-x", "+y", "-y", "+z", "-z")
+from ..tools import _VALID_AXIS_STRINGS, parse_axis
 
 # Which measure a view's body size took (SkeletonView.body_size_measure).
 BodySizeMeasure = Literal["rest height", "rest extent", "clip extent", "default"]
@@ -30,16 +29,6 @@ REST_POSE_MEASURES: tuple[BodySizeMeasure, ...] = ("rest height", "rest extent")
 # unit of its coords: nothing to measure, a stand-in so that nothing
 # drawn on it has size zero.
 DEFAULT_BODY_SIZE = 1.0
-
-
-def _axis_vector(signed_axis: str) -> npt.NDArray[np.float64]:
-    """The unit vector of a signed axis string, ``'-z'`` -> ``[0, 0, -1]``.
-
-    A fresh array on every call."""
-    sign = -1.0 if signed_axis[0] == "-" else 1.0
-    vector = np.zeros(3, dtype=np.float64)
-    vector[UP_AXIS_INDEX[signed_axis[1]]] = sign
-    return vector
 
 
 # ---------------------------------------------------------------------------
@@ -62,24 +51,24 @@ class GroundFrame:
     @property
     def up_letter(self) -> str:
         """The up axis letter, ``'x'``, ``'y'`` or ``'z'``, sign dropped."""
-        return self.up[1]
+        return "xyz"[self.up_index]
 
     @property
     def up_index(self) -> int:
         """The up coordinate's column in a ``(..., 3)`` position array."""
-        return UP_AXIS_INDEX[self.up_letter]
+        return parse_axis(self.up).index
 
     @property
     def up_sign(self) -> float:
         """``+1.0`` for ``'+y'``, ``-1.0`` for ``'-y'``."""
-        return -1.0 if self.up[0] == "-" else 1.0
+        return parse_axis(self.up).sign
 
     @property
     def up_vector(self) -> npt.NDArray[np.float64]:
         """The unit vector pointing up, sign included, shape ``(3,)``.
 
         A fresh array on every access."""
-        return _axis_vector(self.up)
+        return parse_axis(self.up).vector
 
     @property
     def ground_indices(self) -> tuple[int, int]:
@@ -228,8 +217,10 @@ class SkeletonView(GroundFrame):
         if self.rest_up is not None:
             signed_axes["rest_up"] = self.rest_up
         for name, value in signed_axes.items():
-            if value not in _SIGNED_AXES:
-                raise ValueError(f"{name} must be one of {', '.join(_SIGNED_AXES)}, got {value!r}.")
+            if value not in _VALID_AXIS_STRINGS:
+                raise ValueError(
+                    f"{name} must be one of {', '.join(sorted(_VALID_AXIS_STRINGS))}, got {value!r}."
+                )
         if self.initial_forward[1] == self.up[1]:
             raise ValueError(
                 f"initial_forward {self.initial_forward!r} lies along the up "
@@ -288,7 +279,7 @@ class SkeletonView(GroundFrame):
         """The unit vector of ``initial_forward``, shape ``(3,)``.
 
         A fresh array on every access."""
-        return _axis_vector(self.initial_forward)
+        return parse_axis(self.initial_forward).vector
 
     @property
     def body_size(self) -> float:
@@ -364,7 +355,7 @@ class SkeletonView(GroundFrame):
         if coords_per_rest_unit is not None:
             rest_extents = np.ptp(self.rest_coords, axis=0) * coords_per_rest_unit
             if self.rest_up is not None:
-                rest_height = float(rest_extents[UP_AXIS_INDEX[self.rest_up[1]]])
+                rest_height = float(rest_extents[parse_axis(self.rest_up).index])
                 if rest_height > 0.0:
                     return rest_height, "rest height"
             widest_rest_extent = float(rest_extents.max())

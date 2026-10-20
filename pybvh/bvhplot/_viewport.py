@@ -3,9 +3,10 @@ lies, where the camera stands and how it moves.
 
 One :class:`Viewport` is computed from the view or views a picture
 shows, and every backend translates its numbers into its toolkit's
-calls. Pure numpy. No plotting library imports; the one thing taken
-from the pybvh core is the array-pure facing kernel the follow camera
-runs.
+calls. Pure numpy. No plotting library imports; signed axes are read
+with the axis vocabulary of :mod:`pybvh.tools`, which knows no clip, and
+the one thing taken from the pybvh core is the array-pure facing kernel
+the follow camera runs.
 """
 
 from __future__ import annotations
@@ -18,7 +19,8 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 import numpy.typing as npt
 
-from ._scene import UP_AXIS_INDEX, GroundFrame
+from ..tools import parse_axis
+from ._scene import GroundFrame
 
 if TYPE_CHECKING:
     from ._scene import SkeletonView
@@ -929,7 +931,7 @@ def build_view_matrix(
     """
     az = np.radians(azimuth_deg)
     el = np.radians(elevation_deg)
-    axis_idx = UP_AXIS_INDEX.get(up_letter, 2)
+    axis_idx = parse_axis(up_letter, allow_unsigned=True).index
 
     # Eye direction from spherical coordinates, rolled to match
     # vertical axis (same as matplotlib's _roll_to_vertical).

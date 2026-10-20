@@ -1211,14 +1211,14 @@ _CORE_MODULES = {
     "io",
     "node_tree",
     "spatial_coord",
-    "tools",
     "transforms",
 }
 # The rest of pybvh knows no clip, so any bvhplot module may import it: the
-# array-pure math and the helper that points a warning at the user's line.
-# That they stay so is not checked here: a Bvh import added to one of them
-# would reach bvhplot through it unseen.
-_NOT_CORE = {"_warnings", "geometry", "rotations", "signal"}
+# array-pure math, the signed-axis vocabulary and the input validators, and
+# the helper that points a warning at the user's line. That they stay so is
+# not checked here: a Bvh import added to one of them would reach bvhplot
+# through it unseen.
+_NOT_CORE = {"_warnings", "geometry", "rotations", "signal", "tools"}
 _ROUTER = "__init__"
 _BVH_READER = "_from_bvh"
 # No plotting library may be imported here: the pure-data modules, and the
@@ -1332,9 +1332,9 @@ def _core_imports_in_source(source: str) -> list[tuple[int, str | None, list[str
     """Every runtime import of a core module in ``source``: (line,
     innermost enclosing function or None, imported names).
 
-    Sees both statement forms (``import pybvh.tools``, ``from ..tools
+    Sees both statement forms (``import pybvh.analysis``, ``from ..analysis
     import x``) and package-root imports (``from pybvh import Bvh``,
-    ``from .. import tools``). Only the body of an ``if TYPE_CHECKING:``
+    ``from .. import analysis``). Only the body of an ``if TYPE_CHECKING:``
     block is type-only; its ``else`` branch runs and is inspected."""
     tree = ast.parse(source)
     guard_names = _typing_guard_names(tree)
@@ -1449,12 +1449,12 @@ class TestCoreImportGuard:
         "line",
         [
             "from ..bvh import Bvh",
-            "from ..tools import _compute_forward_at",
-            "from .. import tools",
+            "from ..analysis import root_trajectory",
+            "from .. import transforms",
             "from .. import Bvh, analysis",
-            "from pybvh.tools import extract_sign",
+            "from pybvh.transforms import mirror",
             "from pybvh import Bvh",
-            "import pybvh.tools",
+            "import pybvh.analysis",
             "import pybvh.analysis as analysis",
             "import pybvh",
             "from pybvh.__init__ import Bvh",
@@ -1473,8 +1473,8 @@ class TestCoreImportGuard:
         ],
     )
     def test_a_guard_that_may_have_been_overwritten_is_runtime(self, prelude):
-        found = _core_imports_in_source(prelude + "    import pybvh.tools\n")
-        assert [names for _, _, names in found] == [["pybvh.tools"]]
+        found = _core_imports_in_source(prelude + "    import pybvh.analysis\n")
+        assert [names for _, _, names in found] == [["pybvh.analysis"]]
 
     def test_a_guard_name_rebound_by_an_except_clause_is_runtime(self):
         source = (
@@ -1483,7 +1483,7 @@ class TestCoreImportGuard:
             "    pass\n"
             "except ValueError as TYPE_CHECKING:\n"
             "    if TYPE_CHECKING:\n"
-            "        import pybvh.tools\n"
+            "        import pybvh.analysis\n"
         )
         assert [lineno for lineno, _, _ in _core_imports_in_source(source)] == [6]
 
@@ -1493,6 +1493,8 @@ class TestCoreImportGuard:
             "from ._scene import Scene",
             "from . import _colors",
             "from ..bvhplot._scene import Scene",
+            "from ..tools import parse_axis",
+            "import pybvh.tools",
             "import numpy as np",
             "import matplotlib.pyplot as plt",
             "from typing import TYPE_CHECKING",
@@ -1507,9 +1509,9 @@ class TestCoreImportGuard:
             "if TYPE_CHECKING:\n"
             "    from ..bvh import Bvh\n"
             "else:\n"
-            "    from ..tools import extract_sign\n"
+            "    from ..analysis import root_trajectory\n"
         )
-        assert _core_imports_in_source(source) == [(5, None, ["extract_sign"])]
+        assert _core_imports_in_source(source) == [(5, None, ["root_trajectory"])]
 
     def test_qualified_type_checking_guard_is_recognised(self):
         source = "import typing\nif typing.TYPE_CHECKING:\n    from ..bvh import Bvh\n"
@@ -1520,43 +1522,43 @@ class TestCoreImportGuard:
             "from types import SimpleNamespace\n"
             "flags = SimpleNamespace(TYPE_CHECKING=True)\n"
             "if flags.TYPE_CHECKING:\n"
-            "    import pybvh.tools\n"
+            "    import pybvh.analysis\n"
         )
-        assert _core_imports_in_source(source) == [(4, None, ["pybvh.tools"])]
+        assert _core_imports_in_source(source) == [(4, None, ["pybvh.analysis"])]
 
     @pytest.mark.parametrize(
         "source",
         [
             # bare guard with no typing import behind it
-            "if TYPE_CHECKING:\n    import pybvh.tools\n",
+            "if TYPE_CHECKING:\n    import pybvh.analysis\n",
             # rebound after the import
             "from typing import TYPE_CHECKING\nTYPE_CHECKING = True\n"
-            "if TYPE_CHECKING:\n    import pybvh.tools\n",
+            "if TYPE_CHECKING:\n    import pybvh.analysis\n",
             # `typing` is not the typing module
             "from types import SimpleNamespace\n"
             "typing = SimpleNamespace(TYPE_CHECKING=True)\n"
-            "if typing.TYPE_CHECKING:\n    import pybvh.tools\n",
+            "if typing.TYPE_CHECKING:\n    import pybvh.analysis\n",
             # shadowed by a parameter
             "from typing import TYPE_CHECKING\n"
             "def f(TYPE_CHECKING):\n"
-            "    if TYPE_CHECKING:\n        import pybvh.tools\n",
+            "    if TYPE_CHECKING:\n        import pybvh.analysis\n",
             # aliased import is not recognised, so its block is runtime
-            "import typing as t\nif t.TYPE_CHECKING:\n    import pybvh.tools\n",
+            "import typing as t\nif t.TYPE_CHECKING:\n    import pybvh.analysis\n",
         ],
     )
     def test_a_shadowed_or_unbound_guard_is_a_runtime_condition(self, source):
         found = _core_imports_in_source(source)
-        assert [names for _, _, names in found] == [["pybvh.tools"]]
+        assert [names for _, _, names in found] == [["pybvh.analysis"]]
 
     def test_reports_the_innermost_enclosing_function(self):
         source = (
             "def outer():\n"
             "    def inner():\n"
-            "        import pybvh.tools\n"
+            "        import pybvh.analysis\n"
             "    from .. import analysis\n"
         )
         assert _core_imports_in_source(source) == [
-            (3, "inner", ["pybvh.tools"]),
+            (3, "inner", ["pybvh.analysis"]),
             (4, "outer", ["analysis"]),
         ]
 
@@ -1729,7 +1731,7 @@ class TestSceneIsPureData:
     @pytest.mark.parametrize("module_name", _CORE_FREE)
     def test_takes_nothing_from_the_core_at_runtime(self, module_name):
         """A backend consumes a Scene and a Style; it never reaches into
-        Bvh, tools or analysis, and neither do the Scene's and the
+        Bvh, orientation or analysis, and neither do the Scene's and the
         Style's own modules. Type-only imports are allowed."""
         offenders = _core_imports_in_source(_module_source(module_name))
         assert offenders == [], f"{module_name} imports core modules at runtime: {offenders}"

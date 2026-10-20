@@ -858,12 +858,14 @@ def mirror(
         Axis perpendicular to the mirror plane, e.g. ``'x'`` or
         ``'+x'`` (the sign is irrelevant for mirroring).
         **Auto-detected if None**, and the detection is usually the
-        right thing to use: it averages the left-minus-right rest-pose
-        offsets over the L/R joint pairs and takes the dominant axis, so
-        it measures how *this* skeleton is actually built rather than
-        assuming a convention. Pass an explicit axis only to override
-        that, or when the detection raises because the L/R offsets are
-        degenerate (parallel to the up axis, or zero).
+        right thing to use: it reads the skeleton's own left, the
+        left-minus-right rest-pose positions averaged over the L/R joint
+        pairs with the :attr:`~pybvh.bvh.Bvh.rest_up` component removed,
+        so it measures how *this* skeleton is actually built rather than
+        assuming a convention, and never reads ``world_up``. Pass an
+        explicit axis only to override that, or when the detection
+        raises because the L/R offsets are degenerate (parallel to
+        ``rest_up``, or zero).
     inplace : bool, optional
         If True, modify *bvh* and return None.
         With True, the skeleton is replaced, not edited: a node taken from
@@ -917,8 +919,8 @@ def mirror(
         if rest_left is None:
             raise ValueError(
                 "Cannot infer lateral axis from L/R mapping: averaged "
-                "left-to-right offsets are degenerate (parallel to up "
-                "axis or zero). Pass `lateral=` explicitly."
+                "left-to-right offsets are degenerate (parallel to the "
+                "rest pose's up, rest_up, or zero). Pass `lateral=` explicitly."
             )
         lateral_char = rest_left[1]
     else:

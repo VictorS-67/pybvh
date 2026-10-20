@@ -21,16 +21,13 @@ import re
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, NamedTuple
+from typing import Literal, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
 
 from ._warnings import user_stacklevel
 from .tools import _AXIS_CHAR_TO_IDX, _axis_to_vector, get_main_direction
-
-if TYPE_CHECKING:
-    from .bvh import Bvh
 
 # ===========================================================================
 # ORIENTATION HELPERS (internal)
@@ -59,7 +56,7 @@ if TYPE_CHECKING:
 #
 # The facing chain, per frame, one up throughout (→ = "used by"):
 #
-#     _facing_lr_pairs ──→ bvhplot SkeletonView.lr_pairs
+#     Bvh._facing_lr_pairs ──→ bvhplot SkeletonView.lr_pairs
 #           │                       │
 #           ▼                       ▼
 #     _leftward_units_from_pairs ── the ONLY place the per-frame leftward
@@ -811,24 +808,6 @@ def _build_orientation_report(
         world_up_inherited=world_up_inherited,
         lr_mapping_source=lr_mapping_source,
     )
-
-
-def _facing_lr_pairs(bvh: Bvh) -> npt.NDArray[np.intp]:
-    """The L/R pairs the facing construction averages, in node index space.
-
-    Joint pairs only, as :attr:`Bvh.lr_mapping` names them, resolved into
-    ``nodes`` index space so they index ``node_positions()`` output. End
-    sites are not included: that is :attr:`Bvh.node_lr_pairs`' job, for
-    mirroring positions, not for reading the facing. Returns an ``(P, 2)``
-    int array, ``(0, 2)`` when the rig has no L/R mapping, so array code
-    needs no ``None`` branch.
-
-    What :func:`_leftward_units_from_pairs` and :func:`_facing_basis`
-    read. bvhplot stores this array on its ``SkeletonView`` so the
-    follow camera needs no Bvh.
-    """
-    pairs = _resolve_lr_pairs(bvh.lr_mapping, bvh.node_index)
-    return np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
 
 
 def _leftward_units_from_pairs(

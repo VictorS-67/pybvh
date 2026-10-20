@@ -174,7 +174,6 @@ def make_scene(
     This is the scene ground, not the reference ``foot_contacts``
     measures clearance against; see :attr:`Bvh.floor_height`.
     """
-    from .._orientation import _facing_lr_pairs
     from ..analysis import root_trajectory
 
     views: list[SkeletonView] = []
@@ -218,7 +217,7 @@ def make_scene(
                 node_names=[node.name for node in b.nodes],
                 rest_coords=b._rest_pose(),
                 rest_up=b.rest_up,
-                lr_pairs=_facing_lr_pairs(b),
+                lr_pairs=b._facing_lr_pairs(),
                 initial_forward=initial_forward,
                 bone_chains=_chain_per_bone(get_bone_chains(b), len(bones)),
                 root_heading=root_heading,

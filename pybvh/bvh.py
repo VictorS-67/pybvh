@@ -34,7 +34,6 @@ from ._orientation import (
     _detect_lr_mapping_by_names,
     _facing_basis,
     _facing_labels,
-    _facing_lr_pairs,
     _infer_rest_left,
     _infer_world_up,
     _iter_unique_lr_pairs,
@@ -1360,7 +1359,7 @@ class Bvh:
         return _build_orientation_report(
             [node.name for node in self.nodes],
             self._rest_pose(),
-            _resolve_lr_pairs(self._lr_mapping, self.node_index),
+            self._facing_lr_pairs(),
             world_up,
             world_up_source,
             world_up_inherited,
@@ -1649,6 +1648,20 @@ class Bvh:
             topology.joint_idx < 0,
         )
 
+    def _facing_lr_pairs(self) -> npt.NDArray[np.intp]:
+        """The L/R pairs the rest left and the facing read, in ``nodes`` index space.
+
+        Joint pairs only, as :attr:`lr_mapping` names them, resolved into
+        ``nodes`` index space so they index :meth:`node_positions` output.
+        End sites are not included: that is :attr:`node_lr_pairs`' job,
+        for mirroring positions, not for reading the facing. An ``(P, 2)``
+        int array, ``(0, 2)`` without an L/R mapping, so array code needs
+        no ``None`` branch. bvhplot stores it on its ``SkeletonView``, so
+        the follow camera needs no ``Bvh``.
+        """
+        pairs = _resolve_lr_pairs(self._lr_mapping, self.node_index)
+        return np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
+
     def _validate_and_set_lr_mapping(self, mapping: dict[str, str]) -> None:
         """Validate the user's lr_mapping dict and make it the mapping in effect."""
         self._set_lr_mapping_setting(_validated_lr_mapping(mapping, self.joint_names))
@@ -1781,7 +1794,7 @@ class Bvh:
         """
         world_up = self.world_up
         report = self.orientation_report
-        lr_pairs = _facing_lr_pairs(self)
+        lr_pairs = self._facing_lr_pairs()
         root_rotmats = rest_forward = None
         if frames is not None and lr_pairs.shape[0] > 0:
             if report.rest_forward_source == "lr_geometry":

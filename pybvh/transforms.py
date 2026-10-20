@@ -1106,6 +1106,18 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     return None if inplace else target
 
 
+def _required_rest_up(bvh: Bvh) -> str:
+    """*bvh*'s rest up, for a rest reorientation, which cannot turn without it."""
+    rest_up = bvh.rest_up
+    if rest_up is None:
+        raise ValueError(
+            "Cannot infer the skeleton's rest-pose up axis: the rest "
+            "pose is degenerate (all joint offsets are zero or there "
+            "are too few joints)."
+        )
+    return rest_up
+
+
 @overload
 def reorient_rest_up(bvh: Bvh, new_up: str, *, inplace: Literal[True]) -> None: ...
 @overload
@@ -1147,13 +1159,7 @@ def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None
     ValueError
         If the rest pose is degenerate (no up axis can be inferred).
     """
-    current_rest_up = bvh.rest_up
-    if current_rest_up is None:
-        raise ValueError(
-            "Cannot infer the skeleton's rest-pose up axis: the rest "
-            "pose is degenerate (all joint offsets are zero or there "
-            "are too few joints)."
-        )
+    current_rest_up = _required_rest_up(bvh)
     new_up = _validate_axis_string(new_up)
 
     target = bvh if inplace else bvh.copy()
@@ -1207,13 +1213,7 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
         ``new_forward`` is parallel to ``rest_up``.
     """
     new_forward = _validate_axis_string(new_forward)
-    rest_up = bvh.rest_up
-    if rest_up is None:
-        raise ValueError(
-            "Cannot infer the skeleton's rest-pose up axis to turn about: "
-            "the rest pose is degenerate (all joint offsets are zero or "
-            "there are too few joints)."
-        )
+    rest_up = _required_rest_up(bvh)
     if rest_up[1] == new_forward[1]:
         raise ValueError(f"new_forward ({new_forward}) cannot be parallel to rest_up ({rest_up})")
 

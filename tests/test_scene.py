@@ -8,6 +8,7 @@ import copy
 import dataclasses
 import pathlib
 import pickle
+import warnings
 
 import numpy as np
 import pytest
@@ -29,6 +30,7 @@ from pybvh.bvhplot._from_bvh import (
 )
 from pybvh.bvhplot._scene import Scene, SkeletonView
 from pybvh.bvhplot._viewport import Viewport
+from pybvh.rotations import rotmat_to_euler
 
 BVH_PATH = "bvh_data/cmu_12_01_walk.bvh"
 
@@ -299,6 +301,37 @@ def _without_lr_pairs(clip):
     be measured."""
     clip.lr_mapping = None
     return clip
+
+
+class TestInitialForwardOnAFrameLyingOnItsSide:
+    """The first shown row's facing reads the facing chain as forward_at
+    does: on a clip frame whose left/right axis is vertical, the root's
+    heading at that frame; a pose with no clip frame has none to read."""
+
+    @pytest.fixture
+    def lying(self):
+        clip = read_bvh_file("bvh_data/bvh_test1.bvh")  # rest up +z, rest forward +y
+        angles = np.zeros_like(clip.joint_angles)  # every frame the rest pose...
+        turn = np.array([[1.0, 0, 0], [0, 0, -1], [0, 1, 0]])  # ...turned +y onto +z about x
+        angles[:, 0] = rotmat_to_euler(turn, clip.nodes[0].rot_channels)
+        clip.joint_angles = angles
+        clip.world_up = "-x"  # along the rest pose's left/right axis, which the turn keeps
+        return clip
+
+    @pytest.mark.parametrize("frames", [3, None])
+    def test_a_clip_frame_takes_the_root_heading(self, lying, frames):
+        # The root turns rest forward +y onto +z, on the ground of -x; the
+        # house default for an x up would be +y.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            view = bvhplot._prepare(lying, frames, "world", "front").views[0]
+        assert view.initial_forward == "+z"
+
+    def test_a_pose_with_no_clip_frame_takes_the_default(self, lying):
+        pose = lying.node_positions()[3:4]
+        with pytest.warns(UserWarning, match="On the pose given"):
+            view = bvhplot._prepare(lying, pose, "world", "front").views[0]
+        assert view.initial_forward == "+y"
 
 
 class TestSceneMethods:

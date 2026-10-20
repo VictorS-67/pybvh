@@ -138,9 +138,12 @@ class SkeletonView(GroundFrame):
     - ``initial_forward`` is a different quantity: the snapped facing
       of the view's first shown row, ``coords[0]``, not of clip frame
       0 (a view of a clip's frames 40 onward holds the facing at frame
-      40). It is computed from the L/R joint geometry and snapped to
-      the dominant signed axis, the value the ``"front"`` camera
-      preset is derived from. Follow-camera math never reads it; it
+      40). It is read by the facing chain
+      :meth:`~pybvh.bvh.Bvh.forward_at` reads (the L/R joint
+      geometry; where it is degenerate, the root's heading at the
+      row's clip frame when the coords are the clip's, then the house
+      default) and snapped to the dominant signed axis, the value the
+      ``"front"`` camera preset is derived from. Follow-camera math never reads it; it
       reads ``coords``, ``lr_pairs``, ``up_vector`` and ``frame_time``
       directly.
     - ``up`` is the one statement of which way is up: a signed axis

@@ -138,9 +138,11 @@ def make_scene(
     heading), so the views are complete once this returns.
 
     ``clip_frames`` says which frames of the clip the coords are, so
-    the clip-derived, frame-indexed facts can be aligned to them. Root
-    heading (the ``[sin, cos]`` columns of
-    :func:`~pybvh.analysis.root_trajectory`) is the only one today. An
+    the clip-derived, frame-indexed facts can be aligned to them: the
+    root heading (the ``[sin, cos]`` columns of
+    :func:`~pybvh.analysis.root_trajectory`), and the root's heading at
+    the first shown row, which ``initial_forward`` falls back to where
+    that row's left/right joints give no facing. An
     ``int`` names the single clip frame the coords hold (NumPy
     semantics, negative from the end) and requires one-row coords; a
     ``slice`` selects the frames, and the result is truncated or
@@ -149,7 +151,8 @@ def make_scene(
     The default ``None`` means the coords are not the clip's (a rest
     pose, a caller-supplied array, a transformed copy) and no clip frame
     corresponds to them; ``root_heading`` is then ``None`` rather than
-    a number that would be wrong. The default is the safe one on
+    a number that would be wrong, and ``initial_forward`` reads no
+    heading. The default is the safe one on
     purpose: a caller has to vouch for the coords' provenance to get
     frame-indexed clip facts attached to them. Coords vouched for as
     the clip's frames were posed from the skeleton's rest pose, so the
@@ -178,7 +181,18 @@ def make_scene(
 
     views: list[SkeletonView] = []
     for i, (b, coords) in enumerate(zip(bvh_list, coords_list)):
-        azimuth, elevation, _, initial_forward = _camera_angles_and_forward(b, coords[0], camera)
+        # The clip frame of the first shown row, whose facing may fall back
+        # to the root's heading there; None for coords that are no clip's.
+        first_frame: int | None
+        if clip_frames is None:
+            first_frame = None
+        elif isinstance(clip_frames, slice):
+            first_frame = range(b.frame_count)[clip_frames][0]
+        else:
+            first_frame = range(b.frame_count)[clip_frames]
+        azimuth, elevation, _, initial_forward = _camera_angles_and_forward(
+            b, coords[0], camera, first_frame
+        )
         up = parse_axis(b.world_up)
         bones = get_skeleton_lines(b)
 
@@ -329,19 +343,21 @@ def _camera_angles_and_forward(
     bvh: Bvh,
     ref_frame: npt.NDArray[np.float64],
     camera: str | tuple[float, float],
+    clip_frame: int | None = None,
 ) -> tuple[float, float, str, str]:
     """:func:`get_camera_angles` plus the signed forward axis string.
 
     The forward string (e.g. ``'+y'``) is the character's facing at
-    *ref_frame* snapped to the dominant signed world axis
-    (the facing chain of :mod:`pybvh._orientation`: leftward from the
-    L/R joint geometry, crossed with up, then snapped). When that
-    geometry is degenerate (leftward parallel to up, or no L/R pairs)
-    it falls back to a fixed per-up-axis default, since a pose that
-    names no clip frame has no root heading to fall back to, so the
+    *ref_frame* snapped to the dominant signed world axis, read by the
+    facing chain :meth:`~pybvh.bvh.Bvh.forward_at` reads: leftward from
+    the L/R joint geometry, crossed with up; where that is degenerate
+    (leftward parallel to up, or no L/R pairs), the root's heading at
+    *clip_frame*, the clip frame *ref_frame* is; then a fixed per-up-axis
+    default. A pose that names no clip frame (*clip_frame* ``None``)
+    has no root heading, and goes from the joints to the default. The
     string is always one of the six axes, never the continuous
-    direction. It is the fact the ``"front"`` preset turns
-    into an azimuth; :func:`make_scene` keeps it on the view, as
+    direction. It is the fact the ``"front"`` preset turns into an
+    azimuth; :func:`make_scene` keeps it on the view, as
     ``initial_forward``, so lateral spacing and the camera never
     disagree about which way the skeleton faces.
     """
@@ -350,10 +366,10 @@ def _camera_angles_and_forward(
     # World up comes from the Bvh property (auto-detected with manual
     # override). Forward is computed from the given reference frame's
     # actual joint positions, so it tracks the character's orientation
-    # as the animation plays (not just the rest-pose topology). The pose
-    # names no clip frame, so the chain has no root heading to read.
+    # as the animation plays (not just the rest-pose topology).
     up_ax = bvh.world_up
-    forward_row, _, _, _ = bvh._facing_at(ref_frame[np.newaxis], None)
+    frames = None if clip_frame is None else [clip_frame]
+    forward_row, _, _, _ = bvh._facing_at(ref_frame[np.newaxis], frames)
     forward_ax, _ = _facing_labels(forward_row[0], up_ax)
     up_char = up_ax[1]  # 'y'
     up_positive = extract_sign(up_ax)

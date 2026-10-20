@@ -227,7 +227,7 @@ bvh.root_trajectory()[:3, 2:4]   # NaN: the root faces straight up
 
 When `rest_forward` is the house default (no usable L/R geometry; reading it warns), `root_trajectory()` still builds the heading on it, and both the heading and its rate of turn (`heading_vel`) depend on that guessed reference whenever the root pitches or rolls: a tilted root's forward projects on the ground at an angle, and turns there at a rate, that differ with the forward it starts from. On a defaulted `rest_forward` they are reliable only for a root that turns about world up alone. The facing chain takes no heading from such a `rest_forward` (step 2 above), so a facing never offers a guessed direction as a measured one.
 
-With `include_velocities=True`, the `NaN` reaches only the `heading_vel` samples whose stencil reads that frame (with the default central stencil, the frames either side). Code that feeds the columns to a model or a sum masks the rows (`np.isnan(traj[:, 2])`) or fills them. For a facing that is never `NaN`, read `facing_frame()`, whose `valid` flags its fallback frames.
+With `include_velocities=True`, the `NaN` reaches only the `heading_vel` samples whose stencil reads that frame (with the default central stencil, the frames either side). Code that feeds the columns to a model or a sum masks every row holding a `NaN` in any column (`np.isnan(traj).any(axis=1)`, since a heading velocity next to an unreadable heading is `NaN` while its own heading is not) or fills them. For a facing that is never `NaN`, read `facing_frame()`, whose `valid` flags its fallback frames.
 
 ## mirror works in the skeleton's frame
 

@@ -858,7 +858,7 @@ def facing_frame(
             f"axis cannot be read falls back to the root's heading at that "
             f"frame; got {coords.shape[0]} rows."
         )
-    forward, left, up, valid = bvh._facing_basis(coords, slice(None))
+    forward, left, up, valid = bvh._facing_at(coords, slice(None))
     return FacingFrame(forward, left, up, valid)
 
 

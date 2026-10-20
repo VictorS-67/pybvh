@@ -353,7 +353,7 @@ def _camera_angles_and_forward(
     # as the animation plays (not just the rest-pose topology). The pose
     # names no clip frame, so the chain has no root heading to read.
     up_ax = bvh.world_up
-    forward_row, _, _, _ = bvh._facing_basis(ref_frame[np.newaxis], None)
+    forward_row, _, _, _ = bvh._facing_at(ref_frame[np.newaxis], None)
     forward_ax, _ = _facing_labels(forward_row[0], up_ax)
     up_char = up_ax[1]  # 'y'
     up_positive = extract_sign(up_ax)

@@ -66,7 +66,7 @@ from .tools import _AXIS_CHAR_TO_IDX, _axis_to_vector, get_main_direction
 #     _facing_basis: the frame's leftward, else the root's heading at that
 #           │        frame (_root_heading_units), else the house default
 #           │        (_fallback_leftward); forward = left × up
-#           ├──→ Bvh._facing_basis ──→ analysis.facing_frame
+#           ├──→ Bvh._facing_at ──→ analysis.facing_frame
 #           └──→ _facing_labels (the snap) ──→ Bvh.forward_at / Bvh.left_at
 #
 # Public surface: `Bvh.orientation_report` (OrientationReport: each fact

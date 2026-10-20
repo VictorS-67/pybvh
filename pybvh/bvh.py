@@ -1771,10 +1771,10 @@ class Bvh:
         else:
             frame_coords = coords[frame]
         frame = range(self.frame_count)[frame]  # as the warning names it
-        forward, _, _, _ = self._facing_basis(frame_coords[np.newaxis], [frame])
+        forward, _, _, _ = self._facing_at(frame_coords[np.newaxis], [frame])
         return _facing_labels(forward[0], self.world_up)
 
-    def _facing_basis(
+    def _facing_at(
         self,
         coords: npt.NDArray[np.float64],
         frames: Sequence[int] | slice | None,

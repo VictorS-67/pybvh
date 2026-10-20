@@ -97,10 +97,30 @@ _WorldUpSource = Literal["set", _WorldUpGuessSource]
 _LrMappingSource = Literal["set", "names"]
 
 
-def _up_marker_index(
-    node_names: Sequence[str],
-    rest_positions: npt.NDArray[np.float64],
-) -> int | None:
+class _RestSkeleton(NamedTuple):
+    """A skeleton in its rest pose, as the plain data its own frame is read from.
+
+    ``Bvh`` gathers it; rest up, the world-up guess and the orientation
+    report read it.
+
+    Attributes
+    ----------
+    node_names : sequence of str
+        Every node's name, in node order (end sites included); names may
+        repeat.
+    rest_positions : ndarray of shape (N, 3)
+        The rest pose's node positions, in the same order.
+    lr_pairs : ndarray of shape (P, 2)
+        ``(left_idx, right_idx)`` rows into the N axis: the joint pairs of
+        the L/R mapping in effect.
+    """
+
+    node_names: Sequence[str]
+    rest_positions: npt.NDArray[np.float64]
+    lr_pairs: npt.NDArray[np.intp]
+
+
+def _up_marker_index(skeleton: _RestSkeleton) -> int | None:
     """The node whose direction from the root says which way is up.
 
     The one body-part lookup for "up", shared by the rest up and the
@@ -112,18 +132,16 @@ def _up_marker_index(
 
     Parameters
     ----------
-    node_names : sequence of str
-        Every node's name, in node order (end sites included).
-    rest_positions : ndarray of shape (N, 3)
-        The rest pose's node positions, in the same order.
+    skeleton : _RestSkeleton
+        The node names and the rest pose.
 
     Returns
     -------
     int or None
         The node's index, or ``None`` when no node qualifies.
     """
-    local = rest_positions - rest_positions[0]
-    lowered = [name.lower() for name in node_names]
+    local = skeleton.rest_positions - skeleton.rest_positions[0]
+    lowered = [name.lower() for name in skeleton.node_names]
     for part in _UP_BODY_PARTS:
         # The first node of a repeated name, by position in the walk.
         for idx, name in enumerate(lowered):
@@ -149,10 +167,7 @@ class _RestUp(NamedTuple):
     source: _RestUpSource
 
 
-def _infer_rest_up(
-    node_names: Sequence[str],
-    rest_positions: npt.NDArray[np.float64],
-) -> _RestUp | None:
+def _infer_rest_up(skeleton: _RestSkeleton) -> _RestUp | None:
     """The skeleton's own up, read from the rest pose alone, with its source.
 
     The main axis from the root to the node :func:`_up_marker_index`
@@ -161,10 +176,8 @@ def _infer_rest_up(
 
     Parameters
     ----------
-    node_names : sequence of str
-        Every node's name, in node order (end sites included).
-    rest_positions : ndarray of shape (N, 3)
-        The rest pose's node positions, in the same order.
+    skeleton : _RestSkeleton
+        The node names and the rest pose.
 
     Returns
     -------
@@ -173,8 +186,8 @@ def _infer_rest_up(
         when the rest pose carries no direction (a single node, or every
         node at one point).
     """
-    local = rest_positions - rest_positions[0]
-    marker = _up_marker_index(node_names, rest_positions)
+    local = skeleton.rest_positions - skeleton.rest_positions[0]
+    marker = _up_marker_index(skeleton)
     if marker is not None:
         axis = get_main_direction(local[marker])
         # The marker is chosen for having a direction from the root.
@@ -611,8 +624,7 @@ _FIRST_FRAME_DOMINANCE = 2.0
 
 
 def _infer_world_up(
-    node_names: Sequence[str],
-    rest_positions: npt.NDArray[np.float64],
+    skeleton: _RestSkeleton,
     frame0_positions: npt.NDArray[np.float64] | None,
 ) -> _WorldUpGuess:
     """Guess world up from a clip's first frame, with its source.
@@ -627,10 +639,8 @@ def _infer_world_up(
 
     Parameters
     ----------
-    node_names : sequence of str
-        Every node's name, in node order (end sites included).
-    rest_positions : ndarray of shape (N, 3)
-        The rest pose's node positions.
+    skeleton : _RestSkeleton
+        The skeleton the clip animates, in its rest pose.
     frame0_positions : ndarray of shape (N, 3) or None
         The node positions at frame 0, ``None`` for a clip without frames.
 
@@ -638,7 +648,7 @@ def _infer_world_up(
     -------
     _WorldUpGuess
     """
-    marker = _up_marker_index(node_names, rest_positions)
+    marker = _up_marker_index(skeleton)
     if frame0_positions is not None and marker is not None:
         marker_above_root = frame0_positions[marker] - frame0_positions[0]
         second, largest = np.sort(np.abs(marker_above_root))[-2:]
@@ -649,7 +659,7 @@ def _infer_world_up(
             if frame_up is not None:
                 return _WorldUpGuess(frame_up, "first_frame")
 
-    rest_up = _infer_rest_up(node_names, rest_positions)
+    rest_up = _infer_rest_up(skeleton)
     if rest_up is not None:
         return _WorldUpGuess(rest_up.axis, "rest_up")
     return _WorldUpGuess(_HOUSE_UP, "default")
@@ -793,9 +803,7 @@ class OrientationReport:
 
 
 def _build_orientation_report(
-    node_names: Sequence[str],
-    rest_positions: npt.NDArray[np.float64],
-    lr_pairs: npt.ArrayLike,
+    skeleton: _RestSkeleton,
     world_up: str | _WorldUpGuess,
     world_up_inherited: bool,
     lr_mapping_source: _LrMappingSource | None,
@@ -804,13 +812,9 @@ def _build_orientation_report(
 
     Parameters
     ----------
-    node_names : sequence of str
-        Every node's name, in node order (end sites included).
-    rest_positions : ndarray of shape (N, 3)
-        The rest pose's node positions.
-    lr_pairs : array_like of shape (P, 2)
-        ``(left_idx, right_idx)`` rows into the N axis, the pairs of the
-        L/R mapping in effect.
+    skeleton : _RestSkeleton
+        The skeleton in its rest pose, with the pairs of the L/R mapping
+        in effect.
     world_up : str or _WorldUpGuess
         World up as the caller settled it: a signed axis string the user
         set (reported as ``"set"``), or the guess it stands on
@@ -819,8 +823,8 @@ def _build_orientation_report(
         Whether that guess was made on the clip this one was derived
         from; False for an axis the user set.
     lr_mapping_source : {"set", "names"} or None
-        The source of the L/R mapping *lr_pairs* come from, the caller's
-        setting.
+        The source of the L/R mapping the skeleton's pairs come from, the
+        caller's setting.
 
     Returns
     -------
@@ -831,9 +835,9 @@ def _build_orientation_report(
         world_up_axis, world_up_source = world_up
     else:
         world_up_axis, world_up_source = world_up, "set"
-    rest_up = _infer_rest_up(node_names, rest_positions)
+    rest_up = _infer_rest_up(skeleton)
     rest_up_axis = None if rest_up is None else rest_up.axis
-    rest_left = _infer_rest_left(rest_positions, lr_pairs, rest_up_axis)
+    rest_left = _infer_rest_left(skeleton.rest_positions, skeleton.lr_pairs, rest_up_axis)
     return OrientationReport(
         rest_up=rest_up_axis,
         rest_up_source=None if rest_up is None else rest_up.source,

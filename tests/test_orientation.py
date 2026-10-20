@@ -24,6 +24,7 @@ from pybvh._orientation import (
     _infer_world_up,
     _resolve_lr_pairs,
     _resolve_node_lr_pairs,
+    _RestSkeleton,
     _RestUp,
     _root_heading_units,
     _up_marker_index,
@@ -45,49 +46,58 @@ _REST = np.array(
 )
 
 
+def _skeleton(names, rest, lr_pairs=()):
+    """The rest skeleton the module reads, from names, positions and pairs."""
+    return _RestSkeleton(
+        names, np.asarray(rest, dtype=float), np.asarray(lr_pairs, dtype=np.intp).reshape(-1, 2)
+    )
+
+
 class TestUpMarker:
     """The one body-part lookup for "up", shared by rest up and world up."""
 
     def test_head_comes_before_the_spine(self):
-        assert _up_marker_index(_NAMES, _REST) == 2
+        assert _up_marker_index(_skeleton(_NAMES, _REST)) == 2
 
     def test_the_first_node_of_a_repeated_name(self):
         names = ["Hips", "Head", "Head"]
         rest = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 4.0], [0.0, 9.0, 0.0]])
-        assert _up_marker_index(names, rest) == 1
+        assert _up_marker_index(_skeleton(names, rest)) == 1
 
     def test_a_node_at_the_root_is_skipped(self):
         names = ["Hips", "Head", "Neck"]
         rest = np.array([[1.0, 2.0, 3.0], [1.0, 2.0, 3.0], [1.0, 9.0, 3.0]])
-        assert _up_marker_index(names, rest) == 2
+        assert _up_marker_index(_skeleton(names, rest)) == 2
 
     def test_names_match_whole_and_ignore_case(self):
         names = ["Hips", "mixamorig:Head", "SPINE"]
         rest = np.array([[0.0, 0.0, 0.0], [0.0, 9.0, 0.0], [0.0, 0.0, -3.0]])
-        assert _up_marker_index(names, rest) == 2
+        assert _up_marker_index(_skeleton(names, rest)) == 2
 
     def test_none_without_a_named_part(self):
-        assert _up_marker_index(["Root", "A", "B"], _REST[:3]) is None
+        assert _up_marker_index(_skeleton(["Root", "A", "B"], _REST[:3])) is None
 
 
 class TestRestUp:
     """Rest up read from the rest pose alone, with what it was read from."""
 
     def test_read_from_the_named_part(self):
-        assert _infer_rest_up(_NAMES, _REST) == _RestUp("+y", "named_joint")
+        assert _infer_rest_up(_skeleton(_NAMES, _REST)) == _RestUp("+y", "named_joint")
 
     def test_read_from_the_first_of_two_heads(self):
         names = ["Hips", "Head", "Head"]
         rest = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, -4.0], [0.0, 9.0, 0.0]])
-        assert _infer_rest_up(names, rest) == _RestUp("-z", "named_joint")
+        assert _infer_rest_up(_skeleton(names, rest)) == _RestUp("-z", "named_joint")
 
     def test_largest_spread_without_a_named_part(self):
         rest = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 7.0]])
-        assert _infer_rest_up(["Root", "A", "B"], rest) == _RestUp("+z", "largest_spread")
+        assert _infer_rest_up(_skeleton(["Root", "A", "B"], rest)) == _RestUp(
+            "+z", "largest_spread"
+        )
 
     def test_none_on_a_degenerate_rest_pose(self):
-        assert _infer_rest_up(["Root"], np.zeros((1, 3))) is None
-        assert _infer_rest_up(["Root", "Head"], np.ones((2, 3))) is None
+        assert _infer_rest_up(_skeleton(["Root"], np.zeros((1, 3)))) is None
+        assert _infer_rest_up(_skeleton(["Root", "Head"], np.ones((2, 3)))) is None
 
 
 class TestWorldUpGuess:
@@ -104,29 +114,29 @@ class TestWorldUpGuess:
     def test_read_from_the_first_frame(self):
         # The T-pose lying on its back: the head along +z from the root.
         frame0 = _REST[:, [0, 2, 1]]
-        assert _infer_world_up(_NAMES, _REST, frame0) == ("+z", "first_frame")
+        assert _infer_world_up(_skeleton(_NAMES, _REST), frame0) == ("+z", "first_frame")
 
     def test_a_first_frame_in_any_convention_wins_over_rest_up(self):
         frame0 = _REST.copy()
         frame0[:, 1] *= -1  # upside down
-        assert _infer_world_up(_NAMES, _REST, frame0) == ("-y", "first_frame")
+        assert _infer_world_up(_skeleton(_NAMES, _REST), frame0) == ("-y", "first_frame")
 
     def test_an_ambiguous_first_frame_defers_to_rest_up(self):
         # The head 45 degrees off the vertical: no axis dominates twice over.
         frame0 = _REST.copy()
         frame0[2] = [5.0, 5.0, 0.0]
-        assert _infer_world_up(_NAMES, _REST, frame0) == ("+y", "rest_up")
+        assert _infer_world_up(_skeleton(_NAMES, _REST), frame0) == ("+y", "rest_up")
 
     def test_without_frames_rest_up(self):
-        assert _infer_world_up(_NAMES, _REST, None) == ("+y", "rest_up")
+        assert _infer_world_up(_skeleton(_NAMES, _REST), None) == ("+y", "rest_up")
 
     def test_without_a_named_part_rest_up_from_the_largest_spread(self):
         rest = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 7.0]])
         frame0 = rest[:, [2, 1, 0]]
-        assert _infer_world_up(["Root", "A", "B"], rest, frame0) == ("+z", "rest_up")
+        assert _infer_world_up(_skeleton(["Root", "A", "B"], rest), frame0) == ("+z", "rest_up")
 
     def test_the_house_default_when_nothing_says_which_way_is_up(self):
-        assert _infer_world_up(["Root", "Tail"], np.zeros((2, 3)), np.zeros((2, 3))) == (
+        assert _infer_world_up(_skeleton(["Root", "Tail"], np.zeros((2, 3))), np.zeros((2, 3))) == (
             "+y",
             "default",
         )
@@ -381,7 +391,10 @@ class TestReport:
 
     def test_a_measured_skeleton(self):
         report = _build_orientation_report(
-            _NAMES, _REST, self._PAIRS, _WorldUpGuess("+z", "first_frame"), False, "names"
+            _skeleton(_NAMES, _REST, self._PAIRS),
+            _WorldUpGuess("+z", "first_frame"),
+            False,
+            "names",
         )
         assert report == OrientationReport(
             rest_up="+y",
@@ -396,7 +409,9 @@ class TestReport:
         )
 
     def test_an_axis_the_user_set(self):
-        report = _build_orientation_report(_NAMES, _REST, self._PAIRS, "-z", False, "set")
+        report = _build_orientation_report(
+            _skeleton(_NAMES, _REST, self._PAIRS), "-z", False, "set"
+        )
         assert (report.world_up, report.world_up_source, report.world_up_inherited) == (
             "-z",
             "set",
@@ -406,15 +421,13 @@ class TestReport:
     def test_rest_up_from_the_largest_spread(self):
         names = ["Root", "A", "LeftHand", "RightHand"]
         rest = np.array([[0.0, 0.0, 0.0], [0.0, 9.0, 0.0], [2.0, 4.0, 0.0], [-2.0, 4.0, 0.0]])
-        report = _build_orientation_report(names, rest, [[2, 3]], "+y", False, "set")
+        report = _build_orientation_report(_skeleton(names, rest, [[2, 3]]), "+y", False, "set")
         assert (report.rest_up, report.rest_up_source) == ("+y", "largest_spread")
         assert (report.rest_forward, report.rest_forward_source) == ("+z", "lr_geometry")
 
     def test_rest_forward_defaulted_without_pairs(self):
         report = _build_orientation_report(
-            _NAMES,
-            _REST,
-            np.empty((0, 2), dtype=np.intp),
+            _skeleton(_NAMES, _REST),
             _WorldUpGuess("+y", "rest_up"),
             True,
             None,
@@ -425,9 +438,7 @@ class TestReport:
 
     def test_nothing_measured_on_a_degenerate_rest_pose(self):
         report = _build_orientation_report(
-            ["Root"],
-            np.zeros((1, 3)),
-            np.empty((0, 2), dtype=np.intp),
+            _skeleton(["Root"], np.zeros((1, 3))),
             _WorldUpGuess("+y", "default"),
             False,
             None,

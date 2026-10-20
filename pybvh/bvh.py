@@ -40,6 +40,7 @@ from ._orientation import (
     _LrMappingSource,
     _resolve_lr_pairs,
     _resolve_node_lr_pairs,
+    _RestSkeleton,
     _warn_facing_defaulted_at_frames,
     _warn_facing_defaulted_no_pairs,
     _warn_facing_defaulted_on_pose,
@@ -1194,7 +1195,11 @@ class Bvh:
     def _guess_world_up(self) -> _WorldUpGuess:
         """Guess world up from this clip's own first frame and rest pose."""
         frame0 = self.node_positions(frame=0) if self.frame_count > 0 else None
-        return _infer_world_up(self._node_names(), self._rest_pose(), frame0)
+        return _infer_world_up(self._rest_skeleton(), frame0)
+
+    def _rest_skeleton(self) -> _RestSkeleton:
+        """The skeleton in its rest pose, as the orientation module reads it."""
+        return _RestSkeleton(self._node_names(), self._rest_pose(), self._facing_lr_pairs())
 
     def _warn_about_world_up_guess(self, guess: _WorldUpGuess, rest_up: str | None) -> None:
         """Warn when *guess* is the house default, or when it disagrees with
@@ -1360,9 +1365,7 @@ class Bvh:
                 derived.inferred_world_up = self._guess_world_up()
             world_up = derived.inferred_world_up
         return _build_orientation_report(
-            self._node_names(),
-            self._rest_pose(),
-            self._facing_lr_pairs(),
+            self._rest_skeleton(),
             world_up,
             world_up_inherited,
             self._lr_mapping_source(),

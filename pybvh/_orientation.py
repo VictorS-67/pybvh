@@ -942,7 +942,8 @@ def _facing_basis(
 
     One chain gives each row a leftward measured against world up: the
     frame's own leftward (:func:`_leftward_units_from_pairs`); where that
-    is unreadable (the left/right axis vertical, the body on its side),
+    is unreadable (the left/right axis vertical, the body on its side, or
+    the pairs coinciding),
     the root's heading at that frame turned a quarter turn about up
     (``left = up × heading``); where that is unreadable too, or not
     given, the house default (:func:`_fallback_leftward`). Then
@@ -1047,9 +1048,11 @@ def _warn_facing_defaulted(world_up: str, frames: Sequence[int] | None) -> None:
             where = f"At frame{'s' if len(frames) > 1 else ''} {shown}{more}"
         message = (
             f"{where}, the facing direction cannot be measured: the left/right "
-            f"joints line up with world_up={world_up!r} (the body on its side), "
-            f"and the root's heading gives no ground direction either. Falling "
-            f"back to {fallback!r}, the arbitrary-but-stable horizontal axis "
-            f"for that up. `facing_frame().valid` is False on such frames."
+            f"joints give no direction on the ground (they line up with "
+            f"world_up={world_up!r}, a body on its side, or coincide), and the "
+            f"root's heading cannot stand in (it lies along world_up too, or "
+            f"rest_forward is itself a default). Falling back to {fallback!r}, "
+            f"the arbitrary-but-stable horizontal axis for that up. "
+            f"`facing_frame().valid` is False on such frames."
         )
     warnings.warn(message, UserWarning, stacklevel=user_stacklevel())

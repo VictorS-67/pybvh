@@ -26,6 +26,7 @@ from pybvh._orientation import (
     _resolve_node_lr_pairs,
     _root_heading_units,
     _up_marker_index,
+    _warn_facing_defaulted,
 )
 
 # A small T-pose standing along +y, its arms along x, facing +z: the root at
@@ -340,6 +341,18 @@ class TestFacingChain:
             np.testing.assert_allclose(forward[1], turn @ ahead, atol=1e-12)
             np.testing.assert_allclose(np.cross(forward, left), up, atol=1e-12)
             np.testing.assert_allclose(np.linalg.norm(forward, axis=1), 1.0, atol=1e-12)
+
+    def test_the_frame_warning_names_every_cause_of_a_default(self):
+        # A frame defaults when its pairs give no ground direction, whether
+        # they line up with world up or coincide (a rig whose left and right
+        # joints sit on the midline), and when the heading cannot stand in,
+        # whether it lies along world up or rest forward is itself a default.
+        with pytest.warns(UserWarning) as record:
+            _warn_facing_defaulted("+y", [0, 1])
+        message = str(record[0].message)
+        assert "At frames 0, 1" in message
+        for cause in ("line up with world_up", "coincide", "rest_forward is itself a default"):
+            assert cause in message
 
 
 class TestFacingLabels:

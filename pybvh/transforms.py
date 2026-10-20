@@ -1227,7 +1227,3 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
     )
     _reorient_rest(target, R)
     return None if inplace else target
-
-    R = rotations._axis_aligned_rotation(_axis_to_vector(current_fwd), _axis_to_vector(new_forward))
-    _reorient_rest(target, R)
-    return None if inplace else target

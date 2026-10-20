@@ -49,7 +49,7 @@ _Avoid_: hierarchy dict (the name-keyed form removed in v0.10.0)
 The skeleton as arrays for forward kinematics: offsets, parent indices, joint columns and Euler orders. An FK input bundle, with no names and no orientation.
 
 **Rest pose**:
-The skeleton with every rotation zero, positions the summed offsets. Rest up and rest forward are read from it.
+The skeleton with every rotation zero, positions the summed offsets. Rest up, rest left and rest forward are read from it alone: its coordinates are the skeleton's own frame, not the world's.
 _Avoid_: T-pose, bind pose
 
 **Bone chain**:
@@ -79,7 +79,7 @@ The `(F, J, 3)` array of Euler angles, in radians, each joint in its Euler order
 The `(F, 3)` translation of the root, always `(X, Y, Z)`.
 
 **Animation**:
-The motion as distinct from the rest pose: what world up and forward are inferred from.
+The motion as distinct from the rest pose: what world up, the facing and the heading are read from.
 
 **Centered**:
 How the root position is treated when posing: `"world"` keeps the file's coordinates, `"skeleton"` pins the root at the origin, `"first"` subtracts the first frame's root position in the two ground axes only.
@@ -106,24 +106,34 @@ Left and right counterparts detected from names (`lr_mapping`), as index pairs i
 
 ### Orientation
 
+Orientation facts belong to one of two frames, and no fact combines an axis of one with an axis of the other (ADR 0004). The `rest_*` facts are the skeleton's own frame, read from the rest pose alone; world up, the facing and the heading are the world's, read from the motion. The root rotation is what maps a skeleton fact into the world, on each frame.
+
+Names follow one rule: a name ending in `_axis` holds an `Axis`, and a signed axis string naming world up is called `world_up`.
+
 **Axis string**:
 A signed axis such as `'+y'` or `'-z'`, the form every orientation property speaks; `parse_axis` turns it into an `Axis(index, sign, vector)`.
 
 **World up**:
-The signed axis that points against gravity in the animation, inferred from the first frame with the rest pose as fallback and inherited by every clip derived from the clip. Settable, and a set value is kept until the user changes it.
+The signed axis that points against gravity in the animation, guessed from the first frame, else from rest up as a labelled guess, and inherited by every clip derived from the clip. Settable, and a set value is kept until the user changes it.
 _Avoid_: vertical axis
 
 **Rest up**:
-The up axis read from the rest pose alone. It agrees with world up on a clean file and differs on one whose rest pose was authored in another convention.
+The skeleton's own up, read from the rest pose alone. It agrees with world up on a clean file and differs on one whose rest pose was authored in another convention than its motion.
+
+**Rest left**:
+The skeleton's own left, read from the rest pose's L/R geometry against rest up: the axis `mirror` reflects along.
 
 **Rest forward**:
-The direction the rest pose faces, from its L/R geometry crossed with up.
+The direction the rest pose faces in the skeleton's own frame: rest left × rest up. Not a direction in the world; the heading is where it meets the world.
 
 **Facing**:
-The horizontal direction the whole body points at a frame: `facing_frame()` gives the continuous `(forward, left, up)` basis, `forward_at` and `left_at` snap it to axis labels.
+The horizontal direction the whole body points at a frame, in the world: the frame's own leftward against world up, else the root's heading at that frame, else the house default, with forward = left × up. `facing_frame()` gives the continuous `(forward, left, up)` basis, its `valid` false on the fallback rows; `forward_at` and `left_at` snap it to axis labels.
 
 **Heading**:
-The root's own orientation projected on the ground: the root rotation applied to the rest forward, as `root_trajectory` reports it. Not the direction of travel, and not the facing: a side-stepping character keeps its heading.
+The root's own orientation projected on the ground: the root rotation applied to rest forward, as `root_trajectory` reports it, `NaN` on a frame where that projection is too short to read. Not the direction of travel, and not the facing: a side-stepping character keeps its heading.
+
+**Orientation report**:
+How each orientation fact of a clip was obtained, set, measured or defaulted, beside its value (`bvh.orientation_report`, an `OrientationReport`). Per-frame facts are not in it: a facing basis marks its fallback rows itself.
 
 **Reorientation**:
 Changing a clip's world up, rest up or rest forward to a target; the three-axis step of harmonize, which applies them in that order.

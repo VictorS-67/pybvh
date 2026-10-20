@@ -127,7 +127,7 @@ The skeleton's own left, read from the rest pose's L/R geometry against rest up:
 The direction the rest pose faces in the skeleton's own frame: rest left × rest up. Not a direction in the world; the heading is where it meets the world.
 
 **Facing**:
-The horizontal direction the whole body points at a frame, in the world: the frame's own leftward against world up, else the root's heading at that frame, else the house default, with forward = left × up. `facing_frame()` gives the continuous `(forward, left, up)` basis, its `valid` false on the fallback rows; `forward_at` and `left_at` snap it to axis labels.
+The horizontal direction the whole body points at a frame, in the world: the frame's own leftward against world up, else the root's heading at that frame when rest forward is measured, else the house default, with forward = left × up. `facing_frame()` gives the continuous `(forward, left, up)` basis, its `valid` false on the fallback rows; `forward_at` and `left_at` snap it to axis labels.
 
 **Heading**:
 The root's own orientation projected on the ground: the root rotation applied to rest forward, as `root_trajectory` reports it, `NaN` on a frame where that projection is too short to read. Not the direction of travel, and not the facing: a side-stepping character keeps its heading.

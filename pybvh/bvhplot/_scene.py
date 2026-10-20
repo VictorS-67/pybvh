@@ -132,7 +132,9 @@ class SkeletonView(GroundFrame):
       (``(x, z)`` for a y-up rig). It is a ground-plane angle, not a
       signed rotation about the up vector: for ``+y`` up, a positive
       rotation about ``+y`` decreases it. Orientation-derived and
-      continuous; ``None`` when the coords are not the clip's.
+      continuous; ``NaN`` on a row whose heading cannot be read (the
+      root's forward stands along up), which draws no facing arrow;
+      ``None`` when the coords are not the clip's.
     - ``initial_forward`` is a different quantity: the snapped facing
       of the view's first shown row, ``coords[0]``, not of clip frame
       0 (a view of a clip's frames 40 onward holds the facing at frame

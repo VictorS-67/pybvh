@@ -1143,6 +1143,8 @@ def trajectory_mpl(
             facing_cos = view.root_heading[:, 1]  # x-component (h0)
             step = max(1, F_plot // 10)
             idx = np.arange(0, F_plot, step)
+            # A frame whose heading cannot be read (NaN) gets no arrow.
+            idx = idx[np.isfinite(facing_sin[idx]) & np.isfinite(facing_cos[idx])]
             # Arrow length: 8 % of the larger ground-plane span.  Using
             # the larger span (not each axis independently) keeps arrows
             # visually proportionate on highly asymmetric paths.

@@ -755,12 +755,64 @@ def _leftward_units_from_pairs(
     right_idx = lr_pairs[:, 1]
 
     leftward = np.mean(coords[:, left_idx] - coords[:, right_idx], axis=1)
-    # Project onto plane perpendicular to world_up
-    leftward = leftward - (leftward @ up_vec)[:, np.newaxis] * up_vec
-    norms = np.linalg.norm(leftward, axis=1)
-    valid = norms >= 1e-6
-    leftward[valid] /= norms[valid, np.newaxis]
-    return leftward, valid
+    return _ground_units(leftward, up_vec)
+
+
+# The shortest a direction projected on the ground may be and still be read,
+# for the leftward and the heading alike.
+_MIN_GROUND_NORM = 1e-6
+
+
+def _ground_units(
+    vectors: npt.NDArray[np.float64],
+    up_vec: npt.NDArray[np.float64],
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.bool_]]:
+    """*vectors* projected on the ground (the plane normal to *up_vec*), as units.
+
+    Returns the projected rows, normalised where they are readable, and
+    ``valid``, ``False`` on the rows whose projection is shorter than
+    ``_MIN_GROUND_NORM`` (a vector along up, or zero); those rows are
+    left as projected and carry no direction.
+    """
+    projected = vectors - (vectors @ up_vec)[:, np.newaxis] * up_vec
+    norms = np.linalg.norm(projected, axis=1)
+    valid = norms >= _MIN_GROUND_NORM
+    projected[valid] /= norms[valid, np.newaxis]
+    return projected, valid
+
+
+def _root_heading_units(
+    root_rotmats: npt.NDArray[np.float64],
+    rest_forward: str,
+    world_up: str,
+) -> npt.NDArray[np.float64]:
+    """The root's heading per frame: rest forward carried into the world.
+
+    The root rotation of each frame applied to *rest_forward* (a
+    direction in the skeleton's own frame), projected on the ground of
+    *world_up* and normalised. Where that projection is too short to read
+    (the root's forward stands along world up) the row is ``NaN``, the
+    :mod:`pybvh.geometry` policy for a degenerate input: a number there
+    would be an arbitrary angle.
+
+    Parameters
+    ----------
+    root_rotmats : ndarray of shape (F, 3, 3)
+        The root's rotation matrix per frame.
+    rest_forward : str
+        Signed axis string, the direction the rest pose faces.
+    world_up : str
+        Signed axis string for the world vertical axis.
+
+    Returns
+    -------
+    ndarray of shape (F, 3)
+        Unit ground vectors, ``NaN`` on the unreadable rows.
+    """
+    forward = np.einsum("fij,j->fi", root_rotmats, _axis_to_vector(rest_forward))
+    heading, valid = _ground_units(forward, _axis_to_vector(world_up))
+    heading[~valid] = np.nan
+    return heading
 
 
 def _world_leftward_unit_at_frame(

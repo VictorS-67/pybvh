@@ -172,6 +172,64 @@ class TestRootTrajectoryHeadingRestForward:
         np.testing.assert_allclose(delta, np.pi / 2, atol=1e-2)
 
 
+def _tilt_root(bvh, frames):
+    """Turn the root of *bvh* at *frames* so that rest forward +y points along +z.
+
+    World up is set to the clip's own ``'+z'`` first: replacing the motion
+    clears the guess, and a tilted first frame would guess another.
+    """
+    from pybvh import rotations
+
+    bvh.world_up = "+z"
+
+    tilt = np.array([[1.0, 0, 0], [0, 0, -1], [0, 1, 0]])  # turns +y onto +z
+    angles = bvh.joint_angles.copy()
+    order = bvh.nodes[0].rot_channels
+    count = np.arange(bvh.frame_count)[frames].size
+    angles[frames, 0] = rotations.rotmat_to_euler(np.broadcast_to(tilt, (count, 3, 3)), order)
+    bvh.joint_angles = angles
+
+
+class TestRootTrajectoryHeadingUnreadable:
+    """#114 reproduction 3: a root whose forward stands along world up has
+    no heading, and says so with NaN instead of an arbitrary angle."""
+
+    def test_nan_on_every_frame_whose_root_forward_points_up(self, bvh_example):
+        assert (bvh_example.world_up, bvh_example.rest_forward) == ("+z", "+y")
+        _tilt_root(bvh_example, slice(None))
+        traj = analysis.root_trajectory(bvh_example)
+        assert np.isnan(traj[:, 2:4]).all()
+        assert np.isfinite(traj[:, 0:2]).all()
+
+    def test_only_the_tilted_frame_is_nan(self, bvh_example):
+        _tilt_root(bvh_example, [10])
+        heading = analysis.root_trajectory(bvh_example)[:, 2:4]
+        assert np.isnan(heading[10]).all()
+        assert np.isfinite(np.delete(heading, 10, axis=0)).all()
+
+    def test_nan_spreads_into_the_neighbouring_velocity_samples_only(self, bvh_example):
+        _tilt_root(bvh_example, [10])
+        traj = analysis.root_trajectory(bvh_example, include_velocities=True)
+        heading_vel = traj[:, 6]
+        # The central difference at frame f reads frames f - 1 and f + 1.
+        assert np.flatnonzero(np.isnan(heading_vel)).tolist() == [9, 11]
+        assert np.isfinite(traj[:, 4:6]).all()
+
+
+class TestRootTrajectoryHeadingFollowsTheBody:
+    def test_bvh_test3_heading_within_a_few_degrees_of_the_facing(self):
+        # Rest pose authored y-up in a z-up clip: the heading reads the
+        # skeleton's own forward, which the root carries into the world.
+        bvh = read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_test3.bvh")
+        heading = analysis.root_trajectory(bvh)[:, 2:4]  # [sin, cos] on the (x, y) ground
+        heading_angle = np.arctan2(heading[:, 0], heading[:, 1])
+        facing = bvh.facing_frame()
+        assert facing.valid.all()
+        facing_angle = np.arctan2(facing.forward[:, 1], facing.forward[:, 0])
+        gap = np.degrees(np.abs((heading_angle - facing_angle + np.pi) % (2 * np.pi) - np.pi))
+        assert np.median(gap) < 5.0
+
+
 class TestRootTrajectoryIncludeVelocities:
     """Phase 1: new include_velocities parameter + pad kwarg."""
 

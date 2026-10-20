@@ -134,6 +134,33 @@ class TestMatplotlib:
         finally:
             plt.close(fig)
 
+    def test_no_facing_arrow_where_the_heading_is_nan(self):
+        """A frame whose heading cannot be read (NaN in root_trajectory)
+        gets no arrow; the frames around it keep theirs."""
+        import dataclasses
+
+        from matplotlib.quiver import Quiver
+
+        from pybvh.bvhplot._matplotlib import trajectory_mpl
+        from pybvh.bvhplot._scene import Scene
+
+        view = synthetic_scene.make_array_view(n_frames=4)
+        heading = np.tile([1.0, 0.0], (4, 1))
+        heading[2] = np.nan
+        unreadable = dataclasses.replace(view, root_heading=heading)
+        fig, ax = trajectory_mpl(Scene(views=[unreadable]), Style("paper"), facing_arrows=True)
+        try:
+            (arrows,) = [c for c in ax.collections if isinstance(c, Quiver)]
+            roots = view.coords[:, 0][:, [0, 2]]
+            drawn = sorted(
+                int(np.flatnonzero(np.all(np.isclose(roots, start), axis=1))[0])
+                for start in arrows.get_offsets()
+            )
+            assert drawn == [0, 1, 3]
+            assert np.isfinite(arrows.U).all() and np.isfinite(arrows.V).all()
+        finally:
+            plt.close(fig)
+
 
 class TestOpenCV:
     def test_render_with_every_option(self, scene, tmp_path):

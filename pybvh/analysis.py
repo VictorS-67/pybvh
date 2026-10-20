@@ -18,7 +18,7 @@ import numpy as np
 import numpy.typing as npt
 
 from . import geometry, rotations
-from ._orientation import _facing_basis
+from ._orientation import _facing_basis, _root_heading_units
 from ._warnings import user_stacklevel
 from .bvh import Bvh
 from .bvhnode import BvhNode
@@ -637,10 +637,21 @@ def root_trajectory(
     applied to the rest forward, projected to the ground plane — not
     the direction of travel (a side-stepping character keeps its
     heading). It therefore inherits pelvis twist, and its ground-plane
-    projection shrinks toward numerical ambiguity when the character
-    bends far forward; :func:`facing_frame` is the whole-body, yaw-only
-    alternative that avoids both. For the direction of motion,
-    differentiate the ground position (the ``ground_*_vel`` columns).
+    projection shrinks when the character bends far forward;
+    :func:`facing_frame` is the whole-body, yaw-only alternative that
+    avoids both. For the direction of motion, differentiate the ground
+    position (the ``ground_*_vel`` columns).
+
+    On a frame where that projection is too short to read (the root's
+    forward stands along world up, norm below ``1e-6``) the heading is
+    undefined, and its ``heading_sin`` and ``heading_cos`` are ``NaN``,
+    the :mod:`pybvh.geometry` policy for values the motion makes
+    undefined, rather than an arbitrary angle. With
+    ``include_velocities=True`` the ``NaN`` spreads into the
+    ``heading_vel`` samples whose finite-difference stencil reads that
+    frame (with the default central stencil, the frames either side of
+    it); the heading is unwrapped over the readable frames only, so no
+    other sample is affected. The ground columns are always finite.
 
     Parameters
     ----------
@@ -688,19 +699,12 @@ def root_trajectory(
 
     # Rest forward, in the skeleton's own frame: the root rotation is what
     # carries it into the world, frame by frame.
-    fwd_rest = bvh.rest_forward_axis.vector  # (3,) unit vector
-
-    # Root rotation over time
-    root_joint = bvh.nodes[0]
-    root_angles = bvh.joint_angles[:, 0]
-    root_order = root_joint.rot_channels  # type: ignore[attr-defined]
-    R_root = rotations.euler_to_rotmat(root_angles, root_order)
-
-    # World-space forward at each frame = R_root @ rest_forward
-    fwd_world = np.einsum("fij,j->fi", R_root, fwd_rest)  # (F, 3)
+    root_order = bvh.nodes[0].rot_channels  # type: ignore[attr-defined]
+    R_root = rotations.euler_to_rotmat(bvh.joint_angles[:, 0], root_order)
+    fwd_ground = _root_heading_units(R_root, bvh.rest_forward, up_str)  # (F, 3), NaN rows
 
     ground_pos = bvh.root_pos[:, ground_axes]  # (F, 2)
-    heading = np.arctan2(fwd_world[:, ground_axes[1]], fwd_world[:, ground_axes[0]])  # (F,)
+    heading = np.arctan2(fwd_ground[:, ground_axes[1]], fwd_ground[:, ground_axes[0]])  # (F,)
 
     base = np.column_stack(
         [
@@ -726,7 +730,12 @@ def root_trajectory(
         )
 
     dt = bvh.frame_time
-    heading_unwrapped = np.unwrap(heading)
+    # Unwrapped over the readable frames only: np.unwrap carries a NaN
+    # into every later sample, and a NaN heading should reach only the
+    # velocity samples whose stencil reads it.
+    readable = ~np.isnan(heading)
+    heading_unwrapped = heading.copy()
+    heading_unwrapped[readable] = np.unwrap(heading[readable])
     ground_vel = _finite_difference(ground_pos, dt, stencil=stencil, pad=pad)
     heading_vel = _finite_difference(heading_unwrapped, dt, stencil=stencil, pad=pad)
     if pad == "edge":

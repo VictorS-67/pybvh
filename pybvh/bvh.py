@@ -1799,8 +1799,7 @@ class Bvh:
         if frames is not None and lr_pairs.shape[0] > 0:
             if report.rest_forward_source == "lr_geometry":
                 rest_forward = report.rest_forward
-                root_order = self.nodes[0].rot_channels  # type: ignore[attr-defined]
-                root_rotmats = rotations.euler_to_rotmat(self.joint_angles[frames, 0], root_order)
+                root_rotmats = self._root_rotmats(frames)
         forward, left, up, valid, defaulted = _facing_basis(
             coords, lr_pairs, world_up, root_rotmats, rest_forward
         )
@@ -1813,6 +1812,16 @@ class Bvh:
                 named = np.arange(self.frame_count)[frames][defaulted].tolist()
             _warn_facing_defaulted(world_up, named)
         return forward, left, up, valid
+
+    def _root_rotmats(self, frames: Sequence[int] | slice = slice(None)) -> npt.NDArray[np.float64]:
+        """The root's rotation matrix at each of *frames*, shape ``(F, 3, 3)``.
+
+        What carries a direction of the skeleton's own frame into the
+        world at a frame (ADR 0004): the root's heading and the facing
+        chain's heading stage read it.
+        """
+        root_order = self.nodes[0].rot_channels  # type: ignore[attr-defined]
+        return rotations.euler_to_rotmat(self.joint_angles[frames, 0], root_order)
 
     def facing_frame(
         self,

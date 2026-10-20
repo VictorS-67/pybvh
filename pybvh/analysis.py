@@ -699,9 +699,8 @@ def root_trajectory(
 
     # Rest forward, in the skeleton's own frame: the root rotation is what
     # carries it into the world, frame by frame.
-    root_order = bvh.nodes[0].rot_channels  # type: ignore[attr-defined]
-    R_root = rotations.euler_to_rotmat(bvh.joint_angles[:, 0], root_order)
-    fwd_ground = _root_heading_units(R_root, bvh.rest_forward, up_str)  # (F, 3), NaN rows
+    # (F, 3), NaN rows
+    fwd_ground = _root_heading_units(bvh._root_rotmats(), bvh.rest_forward, up_str)
 
     ground_pos = bvh.root_pos[:, ground_axes]  # (F, 2)
     heading = np.arctan2(fwd_ground[:, ground_axes[1]], fwd_ground[:, ground_axes[0]])  # (F,)

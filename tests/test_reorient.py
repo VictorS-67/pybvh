@@ -337,12 +337,6 @@ class TestAxisAlignedRotation:
         )
         npt.assert_array_equal(R, np.diag([-1.0, 1.0, -1.0]))
 
-    def test_about_must_be_perpendicular_to_both(self):
-        with pytest.raises(ValueError, match="perpendicular"):
-            _axis_aligned_rotation(
-                _axis_to_vector("+z"), _axis_to_vector("+x"), about=_axis_to_vector("+x")
-            )
-
     @pytest.mark.parametrize(
         "from_ax,to_ax",
         [

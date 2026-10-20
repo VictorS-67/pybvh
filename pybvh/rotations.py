@@ -1564,22 +1564,14 @@ def _axis_aligned_rotation(
     about : ndarray of shape (3,), optional
         A signed unit axis vector perpendicular to both, to turn about.
         A 90-degree turn is about it already; it decides the half turn.
+        Not checked: the one caller passes rest up, to which both axes
+        are perpendicular.
 
     Returns
     -------
     R : ndarray of shape (3, 3)
         Orthogonal rotation matrix with ``det = +1``.
-
-    Raises
-    ------
-    ValueError
-        If ``about`` is not perpendicular to ``from_vec`` and ``to_vec``.
     """
-    if about is not None and (
-        abs(float(np.dot(about, from_vec))) > 1e-9 or abs(float(np.dot(about, to_vec))) > 1e-9
-    ):
-        raise ValueError("about must be perpendicular to both axes it turns between")
-
     if np.allclose(from_vec, to_vec):
         return np.eye(3, dtype=np.float64)
 

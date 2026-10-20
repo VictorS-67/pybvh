@@ -228,7 +228,7 @@ def _try_suffix_partner(
     return None
 
 
-def _detect_lr_mapping_by_names(bvh: Bvh) -> dict[str, str]:
+def _detect_lr_mapping_by_names(joint_names: Sequence[str]) -> dict[str, str]:
     """Internal: detect L/R joint pairs by extended name heuristics.
 
     Called by ``Bvh`` on first use of its L/R mapping, when the user set none.
@@ -253,12 +253,17 @@ def _detect_lr_mapping_by_names(bvh: Bvh) -> dict[str, str]:
 
     Returns ``{}`` if no pairs detected. See ``bvh.lr_mapping`` for the
     public API that wraps this function.
+
+    Parameters
+    ----------
+    joint_names : sequence of str
+        The joints' names (end sites excluded), in joint order.
     """
-    joint_names = set(bvh.joint_names)
+    names = set(joint_names)
     mapping: dict[str, str] = {}
     seen: set[str] = set()
 
-    for name in bvh.joint_names:
+    for name in joint_names:
         if name in seen:
             continue
 
@@ -270,7 +275,7 @@ def _detect_lr_mapping_by_names(bvh: Bvh) -> dict[str, str]:
         number_suffix = after_ns[len(base) :]  # e.g. '.001' or ''
 
         # Strategy 1: delimited suffix (most specific)
-        partner = _try_suffix_partner(base, joint_names, ns_prefix, number_suffix)
+        partner = _try_suffix_partner(base, names, ns_prefix, number_suffix)
 
         # Strategy 2: "left"/"right" substring (case-insensitive)
         # Work on the post-namespace base (no number suffix) so Mixamo
@@ -282,14 +287,14 @@ def _detect_lr_mapping_by_names(bvh: Bvh) -> dict[str, str]:
                     base.replace("Left", "Right").replace("left", "right").replace("LEFT", "RIGHT")
                 )
                 candidate = ns_prefix + partner_base + number_suffix
-                if candidate in joint_names:
+                if candidate in names:
                     partner = candidate
             elif "right" in lower:
                 partner_base = (
                     base.replace("Right", "Left").replace("right", "left").replace("RIGHT", "LEFT")
                 )
                 candidate = ns_prefix + partner_base + number_suffix
-                if candidate in joint_names:
+                if candidate in names:
                     partner = candidate
 
         # Strategy 3: "L" / "R" prefix followed by uppercase
@@ -297,12 +302,12 @@ def _detect_lr_mapping_by_names(bvh: Bvh) -> dict[str, str]:
             if base[0] == "L" and base[1].isupper():
                 partner_base = "R" + base[1:]
                 candidate = ns_prefix + partner_base + number_suffix
-                if candidate in joint_names:
+                if candidate in names:
                     partner = candidate
             elif base[0] == "R" and base[1].isupper():
                 partner_base = "L" + base[1:]
                 candidate = ns_prefix + partner_base + number_suffix
-                if candidate in joint_names:
+                if candidate in names:
                     partner = candidate
 
         if partner is not None and partner not in seen:
@@ -401,8 +406,10 @@ def _resolve_lr_pairs(
 
 
 def _resolve_node_lr_pairs(
-    bvh: Bvh,
     mapping: dict[str, str] | None,
+    node_names: Sequence[str],
+    parent_idx: npt.NDArray[np.intp],
+    is_end_site: npt.NDArray[np.bool_],
 ) -> tuple[list[tuple[int, int]], list[tuple[str, int, str, int]]]:
     """Resolve an L/R name mapping to ``nodes``-space pairs, end sites included.
 
@@ -413,10 +420,15 @@ def _resolve_node_lr_pairs(
 
     Parameters
     ----------
-    bvh : Bvh
-        Skeleton whose ``nodes`` index space the result points into.
     mapping : dict or None
         L/R name mapping.  ``None`` or empty resolves to ``([], [])``.
+    node_names : sequence of str
+        Every node's name, in node order (depth first, as
+        :attr:`Bvh.nodes`), end sites included.
+    parent_idx : ndarray of shape (N,)
+        Each node's parent index, ``-1`` for the root.
+    is_end_site : ndarray of shape (N,), bool
+        Which nodes are end sites.
 
     Returns
     -------
@@ -435,15 +447,20 @@ def _resolve_node_lr_pairs(
     -----
     Joint names are looked up among joints only — an end site whose
     generated display name collides with a joint's cannot shadow it — and
-    the end sites themselves are resolved by object identity, since two
-    end sites under one joint are given the same generated name and a
-    name lookup would return one of them twice.
+    a joint's end sites are found by position, as the end-site children
+    of that joint in node order, since two end sites under one joint
+    carry the same generated name.
     """
     if not mapping:
         return [], []
 
-    node_position = {id(node): i for i, node in enumerate(bvh.nodes)}
-    joint_by_name = {node.name: node for node in bvh.nodes if not node.is_end_site()}
+    joint_by_name: dict[str, int] = {}
+    end_sites_of: dict[int, list[int]] = {}
+    for i, name in enumerate(node_names):
+        if is_end_site[i]:
+            end_sites_of.setdefault(int(parent_idx[i]), []).append(i)
+        else:
+            joint_by_name[name] = i
 
     joint_pairs: list[tuple[int, int]] = []
     end_site_pairs: list[tuple[int, int]] = []
@@ -454,15 +471,14 @@ def _resolve_node_lr_pairs(
         right_joint = joint_by_name.get(right_name)
         if left_joint is None or right_joint is None:
             continue
-        joint_pairs.append((node_position[id(left_joint)], node_position[id(right_joint)]))
+        joint_pairs.append((left_joint, right_joint))
 
-        left_ends = [c for c in left_joint.children if c.is_end_site()]  # type: ignore[attr-defined]
-        right_ends = [c for c in right_joint.children if c.is_end_site()]  # type: ignore[attr-defined]
+        left_ends = end_sites_of.get(left_joint, [])
+        right_ends = end_sites_of.get(right_joint, [])
         if len(left_ends) != len(right_ends):
             mismatches.append((left_name, len(left_ends), right_name, len(right_ends)))
             continue
-        for left_end, right_end in zip(left_ends, right_ends):
-            end_site_pairs.append((node_position[id(left_end)], node_position[id(right_end)]))
+        end_site_pairs.extend(zip(left_ends, right_ends))
 
     return joint_pairs + end_site_pairs, mismatches
 

@@ -1381,7 +1381,7 @@ class Bvh:
             return setting
         detected = self._derived.names_lr_mapping
         if detected is None:
-            detected = _detect_lr_mapping_by_names(self)
+            detected = _detect_lr_mapping_by_names(self.joint_names)
             self._derived.names_lr_mapping = detected
         return detected or None
 
@@ -1496,8 +1496,24 @@ class Bvh:
         """
         if self._lr_mapping is None:
             return None
-        pairs, _mismatches = _resolve_node_lr_pairs(self, self._lr_mapping)
+        pairs, _mismatches = self._node_lr_pairs_of(self._lr_mapping)
         return pairs
+
+    def _node_lr_pairs_of(
+        self, mapping: dict[str, str] | None
+    ) -> tuple[list[tuple[int, int]], list[tuple[str, int, str, int]]]:
+        """*mapping* resolved in ``nodes`` index space, and its end-site mismatches.
+
+        What :attr:`node_lr_pairs` and :func:`~pybvh.transforms.mirror`
+        read, each with its own policy on a mismatch.
+        """
+        topology = self.fk_topology
+        return _resolve_node_lr_pairs(
+            mapping,
+            [node.name for node in self.nodes],
+            topology.parent_idx,
+            topology.joint_idx < 0,
+        )
 
     def _validate_and_set_lr_mapping(self, mapping: dict[str, str]) -> None:
         """Validate the user's lr_mapping dict and make it the mapping in effect."""

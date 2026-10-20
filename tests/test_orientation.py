@@ -9,7 +9,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from pybvh._orientation import _infer_rest_up, _up_marker_index
+from pybvh._orientation import (
+    _detect_lr_mapping_by_names,
+    _infer_rest_up,
+    _resolve_lr_pairs,
+    _resolve_node_lr_pairs,
+    _up_marker_index,
+)
 
 # A small T-pose standing along +y, its arms along x, facing +z: the root at
 # the origin, a spine and a head above it, a left and a right hand.
@@ -66,3 +72,60 @@ class TestRestUp:
     def test_none_on_a_degenerate_rest_pose(self):
         assert _infer_rest_up(["Root"], np.zeros((1, 3))) is None
         assert _infer_rest_up(["Root", "Head"], np.ones((2, 3))) is None
+
+
+class TestLrMappingFromNames:
+    def test_pairs_by_each_naming_rule(self):
+        names = ["Hips", "LeftArm", "RightArm", "leg.L", "leg.R", "LFoot", "RFoot", "Spine"]
+        assert _detect_lr_mapping_by_names(names) == {
+            "LeftArm": "RightArm",
+            "leg.L": "leg.R",
+            "LFoot": "RFoot",
+        }
+
+    def test_a_side_without_its_partner_is_not_paired(self):
+        assert _detect_lr_mapping_by_names(["Hips", "LeftLeg", "OtherLeg"]) == {}
+
+
+class TestLrPairs:
+    # Hips, then a left and a right arm, the left with one end site and
+    # the right with one, then a left and a right hand whose end-site
+    # counts differ (two on the left, one on the right).
+    _NODES = [
+        ("Hips", -1, False),
+        ("LeftArm", 0, False),
+        ("EndSiteLeftArm", 1, True),
+        ("RightArm", 0, False),
+        ("EndSiteRightArm", 3, True),
+        ("LeftHand", 0, False),
+        ("EndSiteLeftHand", 5, True),
+        ("EndSiteLeftHand", 5, True),
+        ("RightHand", 0, False),
+        ("EndSiteRightHand", 8, True),
+    ]
+    _MAPPING = {"LeftArm": "RightArm", "LeftHand": "RightHand"}
+
+    def _resolve(self, mapping):
+        names = [name for name, _, _ in self._NODES]
+        parent_idx = np.array([parent for _, parent, _ in self._NODES])
+        is_end_site = np.array([end for _, _, end in self._NODES])
+        return _resolve_node_lr_pairs(mapping, names, parent_idx, is_end_site)
+
+    def test_joint_space_pairs_follow_the_mapping(self):
+        joint_index = {"Hips": 0, "LeftArm": 1, "RightArm": 2, "LeftHand": 3, "RightHand": 4}
+        assert _resolve_lr_pairs(self._MAPPING, joint_index) == [(1, 2), (3, 4)]
+
+    def test_node_space_pairs_joints_first_then_their_end_sites(self):
+        pairs, _ = self._resolve(self._MAPPING)
+        assert pairs == [(1, 3), (5, 8), (2, 4)]
+
+    def test_an_end_site_mismatch_is_reported_not_decided(self):
+        _, mismatches = self._resolve(self._MAPPING)
+        assert mismatches == [("LeftHand", 2, "RightHand", 1)]
+
+    def test_a_symmetric_mapping_gives_each_pair_once(self):
+        symmetric = {**self._MAPPING, **{r: left for left, r in self._MAPPING.items()}}
+        assert self._resolve(symmetric) == self._resolve(self._MAPPING)
+
+    def test_no_mapping_no_pairs(self):
+        assert self._resolve(None) == ([], [])

@@ -25,7 +25,6 @@ from . import rotations
 from ._orientation import (
     _compute_forward_at,
     _resolve_lr_pairs,
-    _resolve_node_lr_pairs,
     _rest_leftward,
 )
 from .bvhnode import BvhJoint
@@ -932,7 +931,7 @@ def mirror(
     # unpairable joint: the property drops its end sites, mirror refuses,
     # because swapping some of a joint's tips and not others produces a
     # skeleton that is wrong rather than incomplete.
-    lr_node_pairs, end_site_mismatches = _resolve_node_lr_pairs(target, lr_mapping)
+    lr_node_pairs, end_site_mismatches = target._node_lr_pairs_of(lr_mapping)
     if end_site_mismatches:
         left_name, num_left, right_name, num_right = end_site_mismatches[0]
         raise ValueError(

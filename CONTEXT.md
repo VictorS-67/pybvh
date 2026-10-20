@@ -17,7 +17,7 @@ node_tree   tools   geometry     the tree · signed axes and validators · posit
 bvhnode   rotations   signal   _warnings   _derived
 ```
 
-Every run-time import at module level points down this picture: a layer depends on nothing above it. Imports for type annotations only, under `TYPE_CHECKING`, are exempt: `spatial_coord` names `Bvh` that way. `rotations`, `signal`, `geometry`, `tools`, `_orientation` and `FkTopology` know no clip: they take arrays, which lets a consumer pose and measure motion with no `Bvh` in hand, a data loader at train time for instance. Two kinds of import point up, and each sits inside the function that needs it, never at module level: a `Bvh` method that wraps another module's function, and the one function in `spatial_coord` that tells a `Bvh` from the other skeleton forms.
+Every run-time import at module level points down this picture: a layer depends on nothing above it. Imports for type annotations only, under `TYPE_CHECKING`, are exempt: `spatial_coord` names `Bvh` that way, and `_derived` the report types of `_orientation`. `rotations`, `signal`, `geometry`, `tools`, `_orientation` and `FkTopology` know no clip: they take arrays, which lets a consumer pose and measure motion with no `Bvh` in hand, a data loader at train time for instance. Two kinds of import point up, and each sits inside the function that needs it, never at module level: a `Bvh` method that wraps another module's function, and the one function in `spatial_coord` that tells a `Bvh` from the other skeleton forms.
 
 ## 2. The module map
 

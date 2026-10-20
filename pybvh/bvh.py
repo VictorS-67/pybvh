@@ -1123,17 +1123,19 @@ class Bvh:
         the axis was inherited.
 
         The detection specifics, since they decide which answer you get:
-        "head" is the node :attr:`rest_up` reads, the first node in node
-        order named ``head``, else ``neck``, ``chest`` or ``spine`` (a
-        whole-name match in any case, so a namespaced ``mixamorig:Head``
-        does not match), skipping one that sits at the root in the rest
-        pose; "hips" is always the root node whatever it is called; and
-        the frame-0 reading is accepted only when its largest component
-        is at least twice the second-largest
-        — a crouched, lying or leaning first frame is treated as
-        ambiguous and silently defers to :attr:`rest_up`. When the rest
-        pose is degenerate too, the property warns and returns ``'+y'``.
-        Use :attr:`world_up_inferred` to see what the heuristic picks
+        "head" is the joint :attr:`rest_up` reads, the first in node
+        order whose name holds ``head`` as a word, else ``neck``,
+        ``chest`` or ``spine``, in any case and after a ``foo:``
+        namespace or a ``.001`` suffix (``mixamorig:Head`` and ``Bip01
+        Head`` match, ``Forehead`` does not; end sites are not read),
+        skipping one that sits at the root in the rest pose; "hips" is
+        always the root node whatever it is called; and the frame-0
+        reading is accepted only when its largest component is at least
+        twice the second-largest — a crouched, lying or leaning first
+        frame is treated as ambiguous and silently defers to
+        :attr:`rest_up`. When the rest pose is degenerate too, the
+        property warns and returns ``'+y'``. Use
+        :attr:`world_up_inferred` to see what the heuristic picks
         while an override is in effect.
 
         Can be overridden manually via the setter when auto-detection

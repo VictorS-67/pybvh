@@ -1,8 +1,8 @@
 """The lifecycle of a clip's derived state (ADR 0003).
 
 A :class:`~pybvh.bvh.Bvh` computes some values from its inputs (its
-skeleton, its motion and its world-up override) and keeps them until an
-input changes. This module holds those values and knows when each one is
+skeleton, its motion, its world-up override and its L/R mapping setting)
+and keeps them until an input changes. This module holds those values and knows when each one is
 stale; ``Bvh`` keeps the code that computes them, fills an empty value on
 read, and reports every change of an input to its :class:`DerivedState`.
 
@@ -19,7 +19,7 @@ import numpy as np
 import numpy.typing as npt
 
 if TYPE_CHECKING:
-    from ._orientation import _WorldUpGuess
+    from ._orientation import OrientationReport, _WorldUpGuess
 
 
 class _Change(Enum):
@@ -29,6 +29,7 @@ class _Change(Enum):
     MOTION = auto()
     USER_REPLACED_MOTION = auto()
     WORLD_UP_OVERRIDE = auto()
+    LR_MAPPING_SETTING = auto()
 
 
 _SKELETON_OR_MOTION: Final = frozenset(
@@ -50,6 +51,16 @@ _CLEARED_BY: Final[dict[str, frozenset[_Change]]] = {
     # decision 3).
     "inferred_world_up": frozenset({_Change.USER_REPLACED_MOTION}),
     "inherited_world_up": frozenset({_Change.USER_REPLACED_MOTION}),
+    # Read from the rest pose, the L/R mapping in effect and world up, set
+    # or guessed (ADR 0004); pybvh's own motion writes change none of them.
+    "orientation_report": frozenset(
+        {
+            _Change.SKELETON,
+            _Change.USER_REPLACED_MOTION,
+            _Change.WORLD_UP_OVERRIDE,
+            _Change.LR_MAPPING_SETTING,
+        }
+    ),
 }
 
 
@@ -79,6 +90,9 @@ class DerivedState:
     names_lr_mapping : dict or None
         The L/R pairs detected from the joint names, one direction (left to
         right); ``{}`` when the names give none.
+    orientation_report : OrientationReport or None
+        Each orientation fact of the clip with its source
+        (``Bvh.orientation_report``).
     """
 
     # Slots make a name in _CLEARED_BY that is not a field raise on the
@@ -92,6 +106,7 @@ class DerivedState:
         "node_index",
         "joint_index",
         "names_lr_mapping",
+        "orientation_report",
     )
 
     def __init__(self) -> None:
@@ -103,6 +118,7 @@ class DerivedState:
         self.node_index: dict[str, int] | None = None
         self.joint_index: dict[str, int] | None = None
         self.names_lr_mapping: dict[str, str] | None = None
+        self.orientation_report: OrientationReport | None = None
 
     @property
     def node_positions(self) -> npt.NDArray[np.float64] | None:
@@ -136,6 +152,10 @@ class DerivedState:
     def world_up_changed(self) -> None:
         """The user set or cleared the world-up override."""
         self._clear(_Change.WORLD_UP_OVERRIDE)
+
+    def lr_mapping_changed(self) -> None:
+        """The user set or cleared the L/R mapping (``Bvh.lr_mapping``)."""
+        self._clear(_Change.LR_MAPPING_SETTING)
 
     def _clear(self, change: _Change) -> None:
         for name, changes in _CLEARED_BY.items():

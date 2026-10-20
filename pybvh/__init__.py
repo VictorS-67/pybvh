@@ -25,6 +25,7 @@ from . import io as io
 from . import rotations as rotations
 from . import signal as signal
 from . import transforms as transforms
+from ._orientation import OrientationReport as OrientationReport
 from .analysis import relative_scale_factor as relative_scale_factor
 from .batch import HarmonizeReport as HarmonizeReport
 from .batch import batch_to_numpy as batch_to_numpy

@@ -29,6 +29,8 @@ import numpy.typing as npt
 from . import rotations
 from ._derived import DerivedState as _DerivedState
 from ._orientation import (
+    OrientationReport,
+    _build_orientation_report,
     _detect_lr_mapping_by_names,
     _facing_basis,
     _facing_labels,
@@ -931,7 +933,7 @@ class Bvh:
             nodes=new_nodes,
         )
         if isinstance(setting, dict):
-            edited._lr_mapping_setting = setting
+            edited._set_lr_mapping_setting(setting)
         return edited
 
     def _derive_clip(
@@ -1002,7 +1004,7 @@ class Bvh:
         if self._joint_angles.shape[:2] != (0, 0):
             self._check_motion_fits_skeleton()
         self._world_up_override = state["world_up_override"]
-        self._lr_mapping_setting = state["lr_mapping_setting"]
+        self._set_lr_mapping_setting(state["lr_mapping_setting"])
         guess = state["world_up_guess"]
         self._derived.inherited_world_up = None if guess is None else _WorldUpGuess(*guess)
 
@@ -1301,6 +1303,69 @@ class Bvh:
         return floor
 
     @property
+    def orientation_report(self) -> OrientationReport:
+        """Each orientation fact of the clip, and how it was obtained.
+
+        Whether :attr:`rest_up`, :attr:`rest_forward` and
+        :attr:`world_up` were set, measured or defaulted, and how, with
+        the rest pose's left and the source of the L/R mapping; see
+        :class:`~pybvh.OrientationReport` for each field. Those members
+        always answer, a default included, so their return value alone
+        cannot say which it was: this can.
+
+        Read without a warning: the warnings about a default fire when
+        the defaulted fact itself is read. Computed on first read and
+        kept until the skeleton changes, :attr:`world_up` or
+        :attr:`lr_mapping` is assigned, or the motion is assigned
+        (:attr:`root_pos`, :attr:`joint_angles`, ``bvh[i] = other``),
+        which guesses world up again.
+
+        Examples
+        --------
+        >>> report = bvh.orientation_report
+        >>> if report.rest_forward_source == "default":
+        ...     ...  # no usable L/R geometry: rest_forward is a house default
+        >>> report.world_up, report.world_up_source
+        ('+y', 'first_frame')
+        """
+        report = self._derived.orientation_report
+        if report is None:
+            report = self._read_orientation()
+            self._derived.orientation_report = report
+        return report
+
+    def _read_orientation(self) -> OrientationReport:
+        """Gather the report's inputs and build it."""
+        derived = self._derived
+        world_up_inherited = False
+        if self._world_up_override is not None:
+            world_up, world_up_source = self._world_up_override, "set"
+        else:
+            # Guessing here, rather than through the world_up property,
+            # would leave the guess's warnings to its first reader.
+            _ = self.world_up
+            guess = derived.inherited_world_up or derived.inferred_world_up
+            assert guess is not None  # reading world_up made or kept one
+            world_up, world_up_source = guess
+            world_up_inherited = derived.inherited_world_up is not None
+        return _build_orientation_report(
+            [node.name for node in self.nodes],
+            self._rest_pose(),
+            _resolve_lr_pairs(self._lr_mapping, self.node_index),
+            world_up,
+            world_up_source,  # type: ignore[arg-type]
+            world_up_inherited,
+            self._lr_mapping_source(),
+        )
+
+    def _lr_mapping_source(self) -> Literal["set", "names"] | None:
+        """Where the L/R mapping in effect comes from, ``None`` without one."""
+        setting = self._lr_mapping_setting
+        if isinstance(setting, dict):
+            return "set"
+        return "names" if setting == "names" and self._lr_mapping is not None else None
+
+    @property
     def rest_up(self) -> str | None:
         """The skeleton's own up axis, read from the rest pose alone.
 
@@ -1423,9 +1488,14 @@ class Bvh:
     @lr_mapping.setter
     def lr_mapping(self, value: dict[str, str] | None) -> None:
         if value is None:
-            self._lr_mapping_setting = None
+            self._set_lr_mapping_setting(None)
             return
         self._validate_and_set_lr_mapping(value)
+
+    def _set_lr_mapping_setting(self, setting: dict[str, str] | Literal["names"] | None) -> None:
+        """Make *setting* the user's L/R choice, and report the change."""
+        self._lr_mapping_setting = setting
+        self._derived.lr_mapping_changed()
 
     @property
     def _lr_mapping(self) -> dict[str, str] | None:
@@ -1569,7 +1639,7 @@ class Bvh:
 
     def _validate_and_set_lr_mapping(self, mapping: dict[str, str]) -> None:
         """Validate the user's lr_mapping dict and make it the mapping in effect."""
-        self._lr_mapping_setting = _validated_lr_mapping(mapping, self.joint_names)
+        self._set_lr_mapping_setting(_validated_lr_mapping(mapping, self.joint_names))
 
     def forward_at(
         self,
@@ -3139,7 +3209,7 @@ class Bvh:
                 for left, right in user_mapping.items()
                 if left in keep_set and right in keep_set
             }
-            new_bvh._lr_mapping_setting = kept_pairs or "names"
+            new_bvh._set_lr_mapping_setting(kept_pairs or "names")
         return new_bvh
 
     def _find_end_site_offset(self, node: BvhNode) -> npt.NDArray[np.float64]:

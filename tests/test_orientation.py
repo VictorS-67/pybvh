@@ -13,6 +13,8 @@ import numpy as np
 import pytest
 
 from pybvh._orientation import (
+    OrientationReport,
+    _build_orientation_report,
     _detect_lr_mapping_by_names,
     _facing_basis,
     _facing_labels,
@@ -352,3 +354,55 @@ class TestFacingLabels:
         up = np.array([0.0, 1.0, 0.0])
         vectors = {"+x": [1, 0, 0], "-x": [-1, 0, 0], "+z": [0, 0, 1], "-z": [0, 0, -1]}
         np.testing.assert_array_equal(np.cross(vectors[forward], vectors[left]), up)
+
+
+class TestReport:
+    """The skeleton's own frame read from the rest pose, beside a world up
+    the caller settled, each fact with its source."""
+
+    _PAIRS = np.array([[3, 4]])  # LeftHand, RightHand
+
+    def test_a_measured_skeleton(self):
+        report = _build_orientation_report(
+            _NAMES, _REST, self._PAIRS, "+z", "first_frame", False, "names"
+        )
+        assert report == OrientationReport(
+            rest_up="+y",
+            rest_up_source="named_joint",
+            rest_left="+x",
+            rest_forward="+z",
+            rest_forward_source="lr_geometry",
+            world_up="+z",
+            world_up_source="first_frame",
+            world_up_inherited=False,
+            lr_mapping_source="names",
+        )
+
+    def test_rest_up_from_the_largest_spread(self):
+        names = ["Root", "A", "LeftHand", "RightHand"]
+        rest = np.array([[0.0, 0.0, 0.0], [0.0, 9.0, 0.0], [2.0, 4.0, 0.0], [-2.0, 4.0, 0.0]])
+        report = _build_orientation_report(names, rest, [[2, 3]], "+y", "set", False, "set")
+        assert (report.rest_up, report.rest_up_source) == ("+y", "largest_spread")
+        assert (report.rest_forward, report.rest_forward_source) == ("+z", "lr_geometry")
+
+    def test_rest_forward_defaulted_without_pairs(self):
+        report = _build_orientation_report(
+            _NAMES, _REST, np.empty((0, 2), dtype=np.intp), "+y", "rest_up", True, None
+        )
+        assert report.rest_left is None
+        # The house default for rest up +y.
+        assert (report.rest_forward, report.rest_forward_source) == ("+z", "default")
+
+    def test_nothing_measured_on_a_degenerate_rest_pose(self):
+        report = _build_orientation_report(
+            ["Root"],
+            np.zeros((1, 3)),
+            np.empty((0, 2), dtype=np.intp),
+            "+y",
+            "default",
+            False,
+            None,
+        )
+        assert (report.rest_up, report.rest_up_source, report.rest_left) == (None, None, None)
+        # The house default keyed on the house up '+y'.
+        assert (report.rest_forward, report.rest_forward_source) == ("+z", "default")

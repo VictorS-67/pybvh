@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 import warnings
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 import numpy as np
@@ -669,6 +670,144 @@ def _world_up_disagrees(guess: _WorldUpGuess, rest_up: str | None) -> bool:
     Only the axis letter counts: a sign flip alone is not a disagreement.
     """
     return guess.source == "first_frame" and rest_up is not None and rest_up[1] != guess.axis[1]
+
+
+# ---------------------------------------------------------------------------
+# The orientation report: every clip-level fact, with how it was obtained
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class OrientationReport:
+    """How each orientation fact of a clip was obtained.
+
+    Returned by :attr:`Bvh.orientation_report <pybvh.bvh.Bvh.orientation_report>`.
+    ``rest_up``, ``rest_forward`` and ``world_up`` are the values the
+    members of the same names return; each ``*_source`` says whether the
+    value was set, measured or defaulted, and how, so a default never
+    passes for a measurement (``rest_forward`` and ``world_up`` always
+    answer, whatever the clip carries). Frozen: a clip's report is
+    replaced, never edited, when what it was read from changes.
+
+    The facts belong to two frames (ADR 0004). The *skeleton's own
+    frame* is read from the rest pose alone, the skeleton with every
+    rotation zero, and never from world up: ``rest_up``, ``rest_left``,
+    ``rest_forward``. The *world frame* is read from the motion:
+    ``world_up``. The root rotation of a frame is what carries a
+    skeleton fact into the world. Per-frame facts (the facing at a
+    frame) are not here: :meth:`~pybvh.bvh.Bvh.forward_at`,
+    :meth:`~pybvh.bvh.Bvh.left_at` and
+    :meth:`~pybvh.bvh.Bvh.facing_frame` carry them, with
+    ``FacingFrame.valid`` as the per-frame mark.
+
+    Attributes
+    ----------
+    rest_up : str or None
+        The skeleton's own up, a signed axis string, ``None`` when the
+        rest pose carries no direction (a single node, or every node at
+        one point).
+    rest_up_source : {"named_joint", "largest_spread"} or None
+        ``"named_joint"``: the main axis from the root to the first node
+        named ``head``, else ``neck``, ``chest`` or ``spine``.
+        ``"largest_spread"``: no such node, so the axis along which the
+        rest pose spreads most, signed by the side most of the body lies
+        on. ``None`` with ``rest_up``.
+    rest_left : str or None
+        The skeleton's own left: the left-minus-right rest positions of
+        the L/R pairs, averaged, with the ``rest_up`` component removed,
+        snapped to an axis. ``None`` without pairs, without ``rest_up``,
+        or when the pairs lie along ``rest_up``.
+    rest_forward : str
+        The direction the rest pose faces in the skeleton's own frame.
+    rest_forward_source : {"lr_geometry", "default"}
+        ``"lr_geometry"``: ``rest_left × rest_up``, measured.
+        ``"default"``: no ``rest_left``, so the house default for
+        ``rest_up`` (``'+y'`` gives ``'+z'``, ``'+z'`` gives ``'+x'``,
+        ``'+x'`` gives ``'+y'``; ``'+z'`` without a ``rest_up``),
+        arbitrary but stable.
+    world_up : str
+        The world's vertical, a signed axis string.
+    world_up_source : {"set", "first_frame", "rest_up", "default"}
+        ``"set"``: assigned by the user, passed as ``world_up=`` at load,
+        or the target of ``reorient_world_up``. ``"first_frame"``:
+        guessed from the direction of the ``rest_up`` node above the
+        root at frame 0. ``"rest_up"``: the first frame could not decide
+        (no frames, no such node, or a crouched, lying or leaning first
+        pose), so the skeleton's own up stands in, a guess that assumes
+        the rest pose is authored upright in the world.
+        ``"default"``: neither said anything, so the house up ``'+y'``.
+    world_up_inherited : bool
+        True when the guess was made on the clip this one was derived
+        from (a slice, a copy, a transformed clip, a pickle) and taken
+        over as it was: ``world_up_source`` is then the source of that
+        original guess. False for an axis set by the user and for a
+        guess made on this clip's own frames.
+    lr_mapping_source : {"set", "names"} or None
+        Where the L/R mapping the rest left is read from comes from:
+        ``"set"`` by the user (``bvh.lr_mapping = {...}`` or
+        ``lr_mapping=`` at load), ``"names"`` detected from the joint
+        names, ``None`` when there is none (the names give no pairs, or
+        the user cleared the mapping).
+    """
+
+    rest_up: str | None
+    rest_up_source: Literal["named_joint", "largest_spread"] | None
+    rest_left: str | None
+    rest_forward: str
+    rest_forward_source: Literal["lr_geometry", "default"]
+    world_up: str
+    world_up_source: Literal["set", "first_frame", "rest_up", "default"]
+    world_up_inherited: bool
+    lr_mapping_source: Literal["set", "names"] | None
+
+
+def _build_orientation_report(
+    node_names: Sequence[str],
+    rest_positions: npt.NDArray[np.float64],
+    lr_pairs: npt.ArrayLike,
+    world_up: str,
+    world_up_source: Literal["set", "first_frame", "rest_up", "default"],
+    world_up_inherited: bool,
+    lr_mapping_source: Literal["set", "names"] | None,
+) -> OrientationReport:
+    """Read the skeleton's own frame from the rest pose, beside world up.
+
+    Parameters
+    ----------
+    node_names : sequence of str
+        Every node's name, in node order (end sites included).
+    rest_positions : ndarray of shape (N, 3)
+        The rest pose's node positions.
+    lr_pairs : array_like of shape (P, 2)
+        ``(left_idx, right_idx)`` rows into the N axis, the pairs of the
+        L/R mapping in effect.
+    world_up, world_up_source, world_up_inherited, lr_mapping_source
+        Passed through as the report's fields: world up is settled by the
+        caller (an axis the user set, or a guess,
+        :func:`_infer_world_up`), and the mapping's source is the
+        caller's setting.
+
+    Returns
+    -------
+    OrientationReport
+    """
+    rest_up = _infer_rest_up(node_names, rest_positions)
+    rest_up_source: Literal["named_joint", "largest_spread"] | None = None
+    if rest_up is not None:
+        named = _up_marker_index(node_names, rest_positions) is not None
+        rest_up_source = "named_joint" if named else "largest_spread"
+    rest_left = _infer_rest_left(rest_positions, lr_pairs, rest_up)
+    return OrientationReport(
+        rest_up=rest_up,
+        rest_up_source=rest_up_source,
+        rest_left=rest_left,
+        rest_forward=_infer_rest_forward(rest_left, rest_up),
+        rest_forward_source="lr_geometry" if rest_left is not None else "default",
+        world_up=world_up,
+        world_up_source=world_up_source,
+        world_up_inherited=world_up_inherited,
+        lr_mapping_source=lr_mapping_source,
+    )
 
 
 def _facing_lr_pairs(bvh: Bvh) -> npt.NDArray[np.intp]:

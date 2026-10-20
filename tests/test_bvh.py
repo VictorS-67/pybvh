@@ -6,6 +6,7 @@ Run with: python -m pytest tests/test_bvh.py -v
 """
 
 import copy
+import dataclasses
 import pickle
 import re
 import sys
@@ -23,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from pybvh import (
     Axis,
     Bvh,
+    OrientationReport,
     batch_to_numpy,
     df_to_bvh,
     frames_to_node_positions,
@@ -8034,6 +8036,196 @@ class TestParsedAxisProperties:
         # v0.10.0 named each parsed axis after the string it parses;
         # the old names are gone, with no alias left behind
         assert not hasattr(Bvh, old)
+
+
+# ========================================================================
+#  The orientation report (ADR 0004)
+# ========================================================================
+
+_TEST3 = Path(__file__).parent.parent / "bvh_data" / "bvh_test3.bvh"
+
+
+def _read_quietly(path, **kwargs):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        return read_bvh_file(path, **kwargs)
+
+
+class TestOrientationReport:
+    """Each orientation fact of a clip, with whether it was set, measured
+    or defaulted, and how."""
+
+    def test_a_rest_pose_authored_in_another_convention(self):
+        # bvh_test3: the rest pose stands along +y with its left along +x,
+        # while its first frame stands along +z.
+        report = _read_quietly(_TEST3).orientation_report
+        assert report == OrientationReport(
+            rest_up="+y",
+            rest_up_source="named_joint",
+            rest_left="+x",
+            rest_forward="+z",
+            rest_forward_source="lr_geometry",
+            world_up="+z",
+            world_up_source="first_frame",
+            world_up_inherited=False,
+            lr_mapping_source="names",
+        )
+
+    def test_is_frozen(self, bvh_example):
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            bvh_example.orientation_report.world_up = "+x"  # type: ignore[misc]
+
+    def test_a_set_world_up_and_a_set_mapping(self, bvh_example):
+        bvh_example.world_up = "-x"
+        bvh_example.lr_mapping = {"LeftUpLeg": "RightUpLeg"}
+        report = bvh_example.orientation_report
+        assert (report.world_up, report.world_up_source, report.world_up_inherited) == (
+            "-x",
+            "set",
+            False,
+        )
+        assert report.lr_mapping_source == "set"
+
+    def test_a_cleared_mapping_leaves_rest_forward_defaulted(self, bvh_example):
+        bvh_example.lr_mapping = None
+        report = bvh_example.orientation_report
+        assert report.lr_mapping_source is None
+        assert report.rest_left is None
+        # bvh_test1's rest pose stands along +z: the house default for it.
+        assert (report.rest_up, report.rest_forward) == ("+z", "+x")
+        assert report.rest_forward_source == "default"
+
+    def test_rest_up_from_the_largest_spread_without_a_named_joint(self):
+        # A chain along +z named nothing the up lookup knows, with motion
+        # whose first frame cannot decide (no marker): rest up stands in
+        # for world up.
+        nodes = nodes_from_table(
+            [
+                {
+                    "name": "Root",
+                    "parent": None,
+                    "offset": [0.0, 0.0, 0.0],
+                    "pos_channels": ["X", "Y", "Z"],
+                    "rot_channels": ["Z", "Y", "X"],
+                },
+                {
+                    "name": "A",
+                    "parent": 0,
+                    "offset": [0.0, 0.0, 5.0],
+                    "rot_channels": ["Z", "Y", "X"],
+                },
+                {"name": "B", "parent": 1, "offset": [0.0, 0.0, 5.0]},
+            ]
+        )
+        bvh = Bvh(nodes=nodes, root_pos=np.zeros((2, 3)), joint_angles=np.zeros((2, 2, 3)))
+        report = bvh.orientation_report
+        assert (report.rest_up, report.rest_up_source) == ("+z", "largest_spread")
+        assert (report.world_up, report.world_up_source) == ("+z", "rest_up")
+
+    def test_an_inherited_guess_keeps_its_source(self, bvh_example):
+        for derived in (
+            bvh_example[0:10],
+            bvh_example.copy(),
+            bvh_example.scale(2.0),
+            pickle.loads(pickle.dumps(bvh_example)),
+        ):
+            report = derived.orientation_report
+            assert (report.world_up, report.world_up_source, report.world_up_inherited) == (
+                bvh_example.world_up,
+                "first_frame",
+                True,
+            )
+
+    def test_assigning_motion_makes_the_guess_the_clips_own(self, bvh_example):
+        part = bvh_example[0:10]
+        part.joint_angles = part.joint_angles
+        assert part.orientation_report.world_up_inherited is False
+
+    def test_the_members_read_it(self):
+        bvh = _read_quietly(_TEST3)
+        report = bvh.orientation_report
+        assert bvh.rest_up == report.rest_up
+        assert bvh.rest_forward == report.rest_forward
+        assert bvh.world_up == report.world_up
+        assert_same_axis(bvh.rest_up_axis, parse_axis(report.rest_up))
+        assert_same_axis(bvh.rest_forward_axis, parse_axis(report.rest_forward))
+        assert bvh.has_lr_geometry is True
+
+
+class TestOrientationReportLifecycle:
+    """One derived value, computed once and cleared by exactly the changes
+    it depends on (ADR 0003's table, ADR 0004's row)."""
+
+    def _read_every_fact(self, bvh):
+        _ = (
+            bvh.orientation_report,
+            bvh.rest_up,
+            bvh.rest_up_axis,
+            bvh.rest_forward,
+            bvh.rest_forward_axis,
+            bvh.world_up,
+            bvh.world_up_axis,
+            bvh.has_lr_geometry,
+            bvh.forward_at(0),
+            bvh.left_at(0),
+        )
+
+    def test_computed_once_across_its_members(self, bvh_example_path, computations):
+        bvh = read_bvh_file(bvh_example_path)
+        self._read_every_fact(bvh)
+        self._read_every_fact(bvh)
+        assert computations.report == 1
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            lambda b: b.reorient_rest_up("+y", inplace=True),
+            lambda b: setattr(b, "world_up", "+x"),
+            lambda b: setattr(b, "joint_angles", b.joint_angles),
+            lambda b: setattr(b, "root_pos", b.root_pos),
+            lambda b: setattr(b, "lr_mapping", None),
+            lambda b: setattr(b, "lr_mapping", {"LeftUpLeg": "RightUpLeg"}),
+        ],
+        ids=[
+            "skeleton",
+            "world up set",
+            "joint_angles assigned",
+            "root_pos assigned",
+            "mapping cleared",
+            "mapping set",
+        ],
+    )
+    def test_computed_again_after_each_clearing_change(self, bvh_example, computations, change):
+        self._read_every_fact(bvh_example)
+        computed = computations.report
+        change(bvh_example)
+        self._read_every_fact(bvh_example)
+        assert computations.report == computed + 1
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            lambda b: b.translate_root(np.array([1.0, 0.0, 0.0]), inplace=True),
+            lambda b: b.rotate_vertical(30.0, inplace=True),
+            lambda b: setattr(b, "frame_time", b.frame_time / 2),
+            lambda b: b.node_positions(),
+        ],
+        ids=["translate_root", "rotate_vertical", "frame_time", "node_positions"],
+    )
+    def test_kept_by_the_other_changes(self, bvh_example, computations, change):
+        self._read_every_fact(bvh_example)
+        computed = computations.report
+        change(bvh_example)
+        self._read_every_fact(bvh_example)
+        assert computations.report == computed
+
+    def test_a_new_mapping_changes_the_facts(self, bvh_example):
+        assert bvh_example.has_lr_geometry is True
+        mapping = bvh_example.lr_mapping
+        bvh_example.lr_mapping = None
+        assert bvh_example.has_lr_geometry is False
+        bvh_example.lr_mapping = mapping
+        assert bvh_example.has_lr_geometry is True
 
 
 class TestHasLrGeometry:

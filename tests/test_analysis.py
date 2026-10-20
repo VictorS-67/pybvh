@@ -117,13 +117,8 @@ class TestRootTrajectoryHeadingRestForward:
         return float(np.arctan2(traj[0, 2], traj[0, 3]))  # atan2(sin, cos)
 
     def _expected_rest_heading(self, bvh):
-        """Derive ground-truth heading from rest-pose forward + world_up."""
-        from pybvh._orientation import _compute_forward_at
-        from pybvh.tools import _axis_to_vector
-
-        rest_coords = bvh.rest_pose_positions()
-        fwd_axis = _compute_forward_at(bvh, rest_coords, bvh.world_up)
-        fwd_vec = _axis_to_vector(fwd_axis)
+        """Derive ground-truth heading from rest forward + world_up."""
+        fwd_vec = bvh.rest_forward_axis.vector
         up_idx = {"x": 0, "y": 1, "z": 2}[bvh.world_up[1]]
         ga = [i for i in range(3) if i != up_idx]
         return float(np.arctan2(fwd_vec[ga[1]], fwd_vec[ga[0]]))

@@ -32,12 +32,14 @@ from ._orientation import (
     _compute_forward_at,
     _compute_left_at,
     _detect_lr_mapping_by_names,
-    _facing_is_measured,
+    _infer_rest_forward,
+    _infer_rest_left,
     _infer_rest_up,
     _infer_world_up,
     _iter_unique_lr_pairs,
     _resolve_lr_pairs,
     _resolve_node_lr_pairs,
+    _warn_rest_forward_defaulted,
 )
 from ._warnings import user_stacklevel
 
@@ -1193,7 +1195,7 @@ class Bvh:
     def rest_forward_axis(self) -> Axis:
         """:attr:`rest_forward` parsed into numeric form — ``Axis(index, sign, vector)``.
 
-        Never ``None``: :attr:`rest_forward` always resolves, because forward is defined relative to :attr:`world_up` and falls back to an arbitrary-but-stable horizontal axis when the skeleton carries no usable L/R geometry. That fallback is indistinguishable here from a measured result — see :attr:`rest_forward` for the chain.
+        Never ``None``: :attr:`rest_forward` always resolves, because it falls back to an arbitrary-but-stable axis perpendicular to :attr:`rest_up` when the skeleton carries no usable L/R geometry. That fallback is indistinguishable here from a measured result; :attr:`has_lr_geometry` tells them apart.
 
         See Also
         --------
@@ -1298,13 +1300,27 @@ class Bvh:
 
     @property
     def rest_forward(self) -> str:
-        """Skeleton's topological forward axis, derived from the rest pose only.
+        """The direction the rest pose faces, in the skeleton's own frame.
 
-        Read-only. Computes forward from the rest-pose L/R lateral
-        geometry crossed with :attr:`world_up`. Pose-independent — the
-        animation data is never touched. Complements :attr:`rest_up`
-        (rest-pose up axis) and parallels :meth:`forward_at` (animation-
-        derived forward at a given frame).
+        Read-only. ``rest left × rest up``, where rest left is the rest
+        pose's L/R geometry (the pairs of :attr:`lr_mapping`) measured
+        against :attr:`rest_up`. Read from the rest pose alone, like
+        :attr:`rest_up`: never from :attr:`world_up` or the animation.
+        The rest pose is the skeleton with every rotation zero, so this
+        is a direction in the skeleton's frame, not in the world; the
+        root rotation of a frame carries it into the world, which is
+        what the heading of :func:`~pybvh.analysis.root_trajectory`
+        reads. On a clean file, where rest up is world up, it is also
+        what :meth:`forward_at` measures on the rest pose's own
+        positions. On a file whose rest pose is authored in another
+        convention than its motion it may lie along world up:
+        ``bvh_test3.bvh`` (world up ``'+z'``, rest up ``'+y'``) faces
+        ``'+z'``.
+
+        Without usable L/R geometry (no pairs, or pairs that lie along
+        rest up) it is a house default for rest up, arbitrary but
+        stable, and reading it warns; :attr:`has_lr_geometry` tells the
+        two apart.
 
         Use this to check whether a skeleton's rest-pose facing matches
         a dataset convention without having to call
@@ -1313,9 +1329,25 @@ class Bvh:
         Returns
         -------
         str
-            Signed axis string (e.g. ``'+z'``, ``'-x'``).
+            Signed axis string (e.g. ``'+z'``, ``'-x'``), perpendicular to
+            :attr:`rest_up`.
         """
-        return _compute_forward_at(self, self._rest_pose(), self.world_up)
+        rest_up = self.rest_up
+        rest_left = self._rest_left_of(self._lr_mapping)
+        forward = _infer_rest_forward(rest_left, rest_up)
+        if rest_left is None:
+            _warn_rest_forward_defaulted(forward, rest_up)
+        return forward
+
+    def _rest_left_of(self, mapping: dict[str, str] | None) -> str | None:
+        """The rest pose's left for the pairs of *mapping*, against rest up.
+
+        ``None`` without a usable one. :attr:`rest_forward` reads it for
+        the clip's own mapping, :func:`~pybvh.transforms.mirror` for the
+        mapping it mirrors with.
+        """
+        pairs = _resolve_lr_pairs(mapping, self.node_index)
+        return _infer_rest_left(self._rest_pose(), pairs, self.rest_up)
 
     @property
     def lr_mapping(self) -> dict[str, str] | None:
@@ -1345,9 +1377,8 @@ class Bvh:
 
             >>> bvh = read_bvh_file('weird.bvh', lr_mapping={...})
 
-        Consumers: ``mirror()``, ``forward_at()``, ``facing_frame()``,
-        ``_rest_leftward``, ``_compute_forward_at``,
-        ``reorient_rest_forward``.
+        Consumers: ``mirror()``, ``rest_forward``, ``has_lr_geometry``,
+        ``forward_at()``, ``left_at()``, ``facing_frame()``.
 
         Note: BVH files don't store L/R pair info, so user-set mappings
         are lost on ``bvh.write()`` round-trips — same wart as
@@ -1390,37 +1421,30 @@ class Bvh:
         """Whether the rest pose carries usable left/right direction.
 
         ``True`` when the skeleton's L/R joint pairs give a lateral axis
-        that is neither degenerate nor parallel to :attr:`world_up` —
-        i.e. when the orientation properties are **measuring** this
-        skeleton rather than falling back to a default. The check walks
-        the same chain :attr:`rest_forward` computes with, so it is
-        ``False`` exactly when deriving a facing from the rest pose
-        emits the fallback ``UserWarning``. In particular, on a file
-        whose rest-pose and animation up axes disagree (the case
-        :attr:`world_up` inference warns about), an L/R axis parallel
-        to :attr:`world_up` is unusable and reports ``False`` even
-        though the pairs themselves exist.
+        in the rest pose that does not lie along :attr:`rest_up`, i.e.
+        when :attr:`rest_forward` is **measured** from this skeleton
+        rather than a house default. It is ``False`` exactly when
+        reading :attr:`rest_forward` emits the fallback ``UserWarning``.
+        Like :attr:`rest_forward`, it reads the rest pose alone, never
+        :attr:`world_up`.
 
         This is the check :attr:`rest_forward` (and so
-        :attr:`rest_forward_axis`, :meth:`forward_at`, :meth:`left_at` and
-        ``facing_frame``) cannot express in its own return value. Those
-        always yield an axis: with no usable L/R geometry they return an
-        arbitrary-but-stable horizontal axis chosen from
-        :attr:`world_up` alone, which is indistinguishable from a
-        measured result. When it matters whether a facing was derived
-        from the data — comparing a skeleton against a dataset
-        convention, say, where a fallback would "match" every time —
-        check this first.
+        :attr:`rest_forward_axis`) cannot express in its own return
+        value: with no usable L/R geometry it returns an
+        arbitrary-but-stable axis chosen from :attr:`rest_up` alone,
+        which is indistinguishable from a measured result. When it
+        matters whether a facing was derived from the data — comparing
+        a skeleton against a dataset convention, say, where a fallback
+        would "match" every time — check this first.
 
         Assigning :attr:`lr_mapping` explicitly is what fixes a ``False``
         on a skeleton whose joints simply are not named recognizably.
 
-        This property describes the *rest-pose* chain. The per-frame
+        This property describes the *rest pose*. The per-frame
         :meth:`forward_at` / :meth:`facing_frame` measure each frame's
-        coordinates first and only fall back to this chain on frames
-        where that fails, so on a skeleton with zero rest offsets but
-        animated L/R separation they can still measure while this
-        reports ``False``.
+        coordinates first and fall back only on frames where that
+        fails, so on a skeleton with zero rest offsets but animated L/R
+        separation they can still measure while this reports ``False``.
 
         Examples
         --------
@@ -1434,7 +1458,7 @@ class Bvh:
         rest_forward : The axis whose fallback this reports.
         lr_mapping : The pairs the measurement is derived from.
         """
-        return _facing_is_measured(self, self.world_up)
+        return self._rest_left_of(self._lr_mapping) is not None
 
     @property
     def lr_pairs(self) -> list[tuple[int, int]] | None:

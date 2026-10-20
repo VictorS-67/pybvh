@@ -11,6 +11,8 @@ import numpy as np
 
 from pybvh._orientation import (
     _detect_lr_mapping_by_names,
+    _infer_rest_forward,
+    _infer_rest_left,
     _infer_rest_up,
     _resolve_lr_pairs,
     _resolve_node_lr_pairs,
@@ -129,3 +131,45 @@ class TestLrPairs:
 
     def test_no_mapping_no_pairs(self):
         assert self._resolve(None) == ([], [])
+
+
+class TestRestLeft:
+    """The skeleton's own left: the L/R geometry measured against rest up."""
+
+    _PAIRS = np.array([[3, 4]])  # LeftHand, RightHand
+
+    def test_from_the_pairs_at_rest(self):
+        assert _infer_rest_left(_REST, self._PAIRS, "+y") == "+x"
+
+    def test_measured_against_rest_up_not_any_other_axis(self):
+        # The left hand sits much higher than the right: the up component
+        # is removed before the axis is read.
+        rest = _REST.copy()
+        rest[3] = [1.0, 20.0, 0.0]
+        assert _infer_rest_left(rest, self._PAIRS, "+y") == "+x"
+
+    def test_none_when_the_pairs_lie_along_rest_up(self):
+        rest = _REST.copy()
+        rest[3], rest[4] = [0.0, 9.0, 0.0], [0.0, 1.0, 0.0]
+        assert _infer_rest_left(rest, self._PAIRS, "+y") is None
+
+    def test_none_without_pairs_or_without_rest_up(self):
+        assert _infer_rest_left(_REST, np.empty((0, 2), dtype=np.intp), "+y") is None
+        assert _infer_rest_left(_REST, self._PAIRS, None) is None
+
+
+class TestRestForward:
+    """Rest forward = rest left x rest up, never read against world up."""
+
+    def test_left_cross_up(self):
+        assert _infer_rest_forward("+x", "+y") == "+z"
+        assert _infer_rest_forward("-x", "+z") == "+y"
+        assert _infer_rest_forward("+z", "+y") == "-x"
+
+    def test_the_house_default_is_keyed_on_rest_up(self):
+        assert _infer_rest_forward(None, "+y") == "+z"
+        assert _infer_rest_forward(None, "-z") == "+x"
+        assert _infer_rest_forward(None, "+x") == "+y"
+
+    def test_the_house_default_without_rest_up_reads_the_house_up(self):
+        assert _infer_rest_forward(None, None) == "+z"

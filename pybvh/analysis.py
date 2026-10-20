@@ -18,7 +18,7 @@ import numpy as np
 import numpy.typing as npt
 
 from . import geometry, rotations
-from ._orientation import _compute_forward_at, _facing_basis
+from ._orientation import _facing_basis
 from ._warnings import user_stacklevel
 from .bvh import Bvh
 from .bvhnode import BvhNode
@@ -625,12 +625,13 @@ def root_trajectory(
     ``sin``/``cos`` pair).  Optionally appends ground-plane and
     heading velocities.
 
-    The heading reference is the **rest-pose forward direction** —
-    derived from the skeleton's L/R lateral geometry crossed with
-    ``world_up`` (see :func:`pybvh._orientation._compute_forward_at`).  This
-    means "heading = rest-pose forward" at any frame whose root
-    rotation is identity, regardless of what rotation the clip
-    starts with.
+    The heading reference is :attr:`~pybvh.bvh.Bvh.rest_forward`, the
+    direction the rest pose faces in the skeleton's own frame (rest left
+    × rest up, read from the rest pose alone). The root rotation of each
+    frame carries it into the world, and the heading is its projection
+    on the ground. At a frame whose root rotation is identity the
+    heading is therefore rest forward's own ground direction, whatever
+    rotation the clip starts with.
 
     The heading is **orientation-derived** — the root bone's rotation
     applied to the rest forward, projected to the ground plane — not
@@ -685,10 +686,9 @@ def root_trajectory(
     up_idx = {"x": 0, "y": 1, "z": 2}[up_str[1]]
     ground_axes = [i for i in range(3) if i != up_idx]
 
-    # Rest-pose forward direction — independent of animation start
-    rest_coords = bvh._rest_pose()
-    fwd_axis = _compute_forward_at(bvh, rest_coords, up_str)
-    fwd_rest = _axis_to_vector(fwd_axis)  # (3,) unit vector
+    # Rest forward, in the skeleton's own frame: the root rotation is what
+    # carries it into the world, frame by frame.
+    fwd_rest = bvh.rest_forward_axis.vector  # (3,) unit vector
 
     # Root rotation over time
     root_joint = bvh.nodes[0]

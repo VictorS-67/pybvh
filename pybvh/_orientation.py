@@ -1,10 +1,11 @@
 """The orientation a skeleton's geometry implies.
 
-The world up axis inferred from a clip's first frame, the rest pose's up
-and left axes, the left/right joint pairs found by name and their
-resolution into joint-space and node-space index pairs, and the per-frame
-leftward, forward and facing basis built on them, with the house default
-for a skeleton that carries no left/right information.
+The skeleton's own frame read from the rest pose alone (rest up, rest
+left, rest forward), the world up axis inferred from a clip's first frame,
+the left/right joint pairs found by name and their resolution into
+joint-space and node-space index pairs, and the per-frame leftward,
+forward and facing basis, with the house default for a skeleton that
+carries no left/right information.
 :class:`~pybvh.bvh.Bvh` exposes their results as ``world_up``,
 ``rest_up``, ``rest_forward``, ``lr_mapping``, ``lr_pairs``,
 ``forward_at``, ``left_at`` and ``facing_frame``; ``transforms``,
@@ -33,64 +34,54 @@ if TYPE_CHECKING:
 # ORIENTATION HELPERS (internal)
 # ===========================================================================
 #
-# This module replaces the old monolithic `get_forw_up_axis()` function with
-# a set of single-purpose helpers. They cover three distinct concepts that
-# the old function conflated:
+# The facts belong to two frames, and no function combines an axis of one
+# with an axis of the other (ADR 0004):
 #
-#   1. WORLD UP — gravity axis of the BVH coordinate system. Constant per
-#      file. Auto-detected from the first animation frame with rest-pose
-#      topology as fallback.
-#   2. TOPOLOGICAL LATERAL/UP — the character's own L/R and vertical axes
-#      in rest pose. Used by mirror and the rest-pose reorientations;
-#      independent of the animation.
-#   3. FRAME-SPECIFIC FORWARD — the direction the character is *actually*
-#      facing in world space at a given frame, derived from live joint
-#      positions. Used for camera placement in visualizations.
+#   1. THE SKELETON'S OWN FRAME — read from the rest pose alone, never from
+#      world up, on plain data (node names, rest positions, L/R pairs):
+#      _up_marker_index → _infer_rest_up; _infer_rest_left (the L/R pairs
+#      against rest up); _infer_rest_forward (rest left × rest up, or the
+#      house default keyed on rest up). Used by mirror, the rest
+#      reorientations and root_trajectory's heading, where the root
+#      rotation carries rest forward into the world.
+#   2. THE WORLD FRAME — world up, guessed from the first frame through the
+#      same up marker (_infer_world_up), and the facing at a frame, read
+#      from that frame's joint positions against world up.
 #
-# Layer diagram (→ = "used by", top = primitives, bottom = public API):
+# The L/R mapping is detected from joint names and resolved into index
+# pairs (_detect_lr_mapping_by_names, _resolve_lr_pairs,
+# _resolve_node_lr_pairs), also on plain data. Bvh gathers every input.
 #
-#     _axis_to_vector (tools)        _validate_axis_string (tools)
-#           │                               │
-#           ├──────────┐                    │
-#           ▼          ▼                    ▼
-#     Bvh._rest_   _resolve_          [Bvh.world_up setter]
-#      pose        lr_pairs
-#           │          │
-#           ├──────────┤
-#           ▼          ▼
-#      _infer_rest_up, _rest_leftward
-#           │          │       │
-#           │          │       └──→ used by transforms.mirror()
-#           │          ▼
-#           │    _facing_lr_pairs ──→ bvhplot SkeletonView.lr_pairs
-#           │          │                       │
-#           │          ▼                       ▼
-#           │    _leftward_units_from_pairs ── the ONLY place the per-frame
-#           │      │   (array kernel)          leftward geometry is computed;
-#           │      │        │             ──→ bvhplot follow-mode azimuths
-#           │      ▼        │                  read it through the view
-#           │    _world_leftward_units (Bvh-reading resolver over the kernel)
-#           │      │        ▼
-#           │      │   _world_leftward_unit_at_frame (1-frame view)
-#           │      │        │
-#           │      │        ▼
-#           │      │   _compute_forward_at, ──→ Bvh.forward_at /
-#           │      │   _compute_left_at         Bvh.left_at
-#           │      ▼     (axis-string snap)
-#           │  _facing_basis ──→ analysis.facing_frame
-#           │     (+ _fallback_forward_vector, shared with the
-#           ▼      axis-string snappers)
-#       _infer_world_up ──→ Bvh.world_up (property)
+# The facing chain, per frame (→ = "used by"):
 #
-# Public surface: `Bvh.world_up` (property + setter), the parsed
-# `Bvh.world_up_axis` / `Bvh.rest_forward_axis` / `Bvh.rest_up_axis` properties,
+#     _facing_lr_pairs ──→ bvhplot SkeletonView.lr_pairs
+#           │                       │
+#           ▼                       ▼
+#     _leftward_units_from_pairs ── the ONLY place the per-frame leftward
+#           │   (array kernel)      geometry is computed; bvhplot
+#           │                       follow-mode azimuths read it too
+#           ▼
+#     _world_leftward_units (Bvh-reading resolver over the kernel)
+#           │        └──→ _world_leftward_unit_at_frame (1-frame view)
+#           │                   │
+#           │                   ▼
+#           │             _compute_forward_at, ──→ Bvh.forward_at /
+#           │             _compute_left_at         Bvh.left_at
+#           ▼               (axis-string snap)
+#     _facing_basis ──→ analysis.facing_frame
+#        (+ _fallback_forward_vector, shared with the axis-string snappers)
+#
+# Public surface: `Bvh.world_up` (property + setter), `Bvh.rest_up`,
+# `Bvh.rest_forward`, `Bvh.has_lr_geometry`, the parsed `Bvh.world_up_axis` /
+# `Bvh.rest_forward_axis` / `Bvh.rest_up_axis` properties,
 # `Bvh.forward_at(frame=0)` / `Bvh.left_at(frame=0)` (methods), and — via
 # `analysis.facing_frame` — the continuous vector basis. Everything here is
 # underscore-prefixed and intended for internal use by pybvh modules.
 # ---------------------------------------------------------------------------
 
-# Arbitrary-but-stable horizontal forward per up axis, used when a
-# skeleton carries no L/R orientation information at all.
+# Arbitrary-but-stable forward per up axis (rest up for rest forward, world up
+# for the per-frame facing), used when a skeleton carries no usable L/R
+# orientation information.
 _FALLBACK_FORWARD = {"y": "+z", "z": "+x", "x": "+y"}
 
 
@@ -483,58 +474,93 @@ def _resolve_node_lr_pairs(
     return joint_pairs + end_site_pairs, mismatches
 
 
-def _rest_leftward(
-    bvh: Bvh,
-    mapping: dict[str, str] | None = None,
+def _infer_rest_left(
+    rest_positions: npt.NDArray[np.float64],
+    lr_pairs: npt.ArrayLike,
+    rest_up: str | None,
 ) -> str | None:
-    """Infer the skeleton's leftward axis from rest-pose L/R symmetry.
+    """The skeleton's own left, read from the rest pose alone.
 
-    Averages the left-minus-right rest-pose positions across all
-    matching L/R joint pairs, projects onto the horizontal plane, and
-    returns the dominant signed axis — a vector pointing from the
-    character's right toward their left. Convention matches the public
-    :meth:`Bvh.left_at` method (``up × forward``) via the right-hand
-    rule. Used by :func:`~pybvh.transforms.mirror`, which needs a stable
-    topological orientation reference.
+    Averages the left-minus-right rest positions over the L/R pairs,
+    removes the component along rest up and snaps the rest to the
+    nearest signed axis: the direction from the skeleton's right toward
+    its left, in its own frame. :func:`~pybvh.transforms.mirror`
+    reflects along it, and rest forward is built from it.
 
     Parameters
     ----------
-    bvh : Bvh
-        The skeleton.
-    mapping : dict or None
-        If provided, pair up joints according to this explicit mapping
-        instead of reading ``bvh.lr_mapping``. Useful when the caller
-        wants to compute leftward for a mapping that isn't cached on
-        the object.
+    rest_positions : ndarray of shape (N, 3)
+        The rest pose's node positions.
+    lr_pairs : array_like of shape (P, 2)
+        ``(left_idx, right_idx)`` rows into the N axis.
+    rest_up : str or None
+        The skeleton's own up, as :func:`_infer_rest_up` gives it.
 
     Returns
     -------
     str or None
-        Signed axis string (e.g. ``'-x'``) pointing toward the
-        character's left, or ``None`` if no L/R pairs are available or
-        the averaged offset is degenerate.
+        Signed axis string (e.g. ``'-x'``), or ``None`` when there is no
+        rest up, no pair, or the averaged offset lies along rest up.
     """
-    up_ax = bvh.rest_up
-    if up_ax is None:
+    if rest_up is None:
         return None
-    up_idx = _AXIS_CHAR_TO_IDX[up_ax[1]]
-
-    if mapping is None:
-        mapping = bvh.lr_mapping
-    pairs = _resolve_lr_pairs(mapping, bvh.node_index)
-    if not pairs:
+    pairs = np.asarray(lr_pairs, dtype=np.intp).reshape(-1, 2)
+    if pairs.shape[0] == 0:
         return None
 
-    rest = bvh._rest_pose()  # (N, 3)
-    left_idx = [li for li, _ in pairs]
-    right_idx = [ri for _, ri in pairs]
-    avg_leftward = np.mean(rest[left_idx] - rest[right_idx], axis=0)
-    avg_leftward[up_idx] = 0.0  # project to ground plane
+    avg_leftward = np.mean(rest_positions[pairs[:, 0]] - rest_positions[pairs[:, 1]], axis=0)
+    avg_leftward[_AXIS_CHAR_TO_IDX[rest_up[1]]] = 0.0
+    # With the up component removed, the snap can only land on a lateral
+    # axis, or find nothing left to read.
+    return get_main_direction(avg_leftward)
 
-    leftward_ax = get_main_direction(avg_leftward)
-    if leftward_ax is None or leftward_ax[1] == up_ax[1]:
-        return None
-    return leftward_ax
+
+# The up axis the house defaults are keyed on when a skeleton has none: the
+# same '+y' the world-up guess falls back to.
+_HOUSE_UP = "+y"
+
+
+def _infer_rest_forward(rest_left: str | None, rest_up: str | None) -> str:
+    """The direction the rest pose faces in the skeleton's own frame.
+
+    ``rest_left × rest_up`` when both exist. Without a rest left (no
+    usable L/R geometry) it is the house default for rest up,
+    arbitrary but stable and perpendicular to it; without a rest up
+    either, the default for ``'+y'``. Never read against world up: the
+    rest pose's coordinates are the skeleton's frame, and only a root
+    rotation places them in the world (ADR 0004).
+
+    The default is returned silently; the caller that hands it on as a
+    fact warns (:func:`_warn_rest_forward_defaulted`).
+    """
+    if rest_left is None or rest_up is None:
+        return _FALLBACK_FORWARD[(rest_up or _HOUSE_UP)[1]]
+    forward = get_main_direction(
+        np.cross(_axis_to_vector(rest_left), _axis_to_vector(rest_up))  # type: ignore[arg-type]  # NumPy 2.2's stub types a float cross product as floating, not float64
+    )
+    # Rest left is perpendicular to rest up by construction, so the cross
+    # product is a unit axis.
+    assert forward is not None
+    return forward
+
+
+def _warn_rest_forward_defaulted(rest_forward: str, rest_up: str | None) -> None:
+    """Warn that :attr:`Bvh.rest_forward` is the house default, not a measurement."""
+    keyed_on = f"rest up {rest_up!r}" if rest_up is not None else f"the house up {_HOUSE_UP!r}"
+    # The returned axis is a house default and its type cannot say so,
+    # the same silent substitution _infer_world_up warns about. Python's
+    # default filter shows this once per line of the user's code.
+    warnings.warn(
+        f"No usable left/right geometry in this skeleton's rest pose, so "
+        f"the direction it faces cannot be measured; falling back to "
+        f"{rest_forward!r}, the arbitrary-but-stable axis for {keyed_on}. "
+        f"rest_forward, rest_forward_axis and the heading root_trajectory "
+        f"builds on it are a default here, not a property of this file. "
+        f"Set `bvh.lr_mapping = {{...}}` to fix it, or check "
+        f"`bvh.has_lr_geometry` to detect it.",
+        UserWarning,
+        stacklevel=user_stacklevel(),
+    )
 
 
 def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
@@ -761,18 +787,16 @@ def _rest_forward_from_topology(
 ) -> npt.NDArray[np.float64] | None:
     """Forward measured from the topological rest leftward, or ``None``.
 
-    The middle step of the facing fallback chain: :func:`_rest_leftward`
+    The middle step of the facing fallback chain: the rest left
     (the L/R axis measured against the *rest-pose* up) crossed with
     ``world_up``. Returns ``None`` when there is no usable rest leftward,
     or when it is (anti)parallel to ``world_up`` — possible when
     rest-pose topology and ``world_up`` disagree — i.e. exactly the
     cases where the caller must fall through to the arbitrary
-    ``_FALLBACK_FORWARD`` default. Shared by
-    :func:`_fallback_forward_vector` (which does the falling through)
-    and :func:`_facing_is_measured` (which reports it), so the warning
-    and the predicate cannot disagree about what counts as measured.
+    ``_FALLBACK_FORWARD`` default, which :func:`_fallback_forward_vector`
+    does.
     """
-    rest_left = _rest_leftward(bvh)
+    rest_left = bvh._rest_left_of(bvh._lr_mapping)
     if rest_left is None:
         return None
     forward = np.cross(_axis_to_vector(rest_left), _axis_to_vector(world_up))
@@ -781,24 +805,6 @@ def _rest_forward_from_topology(
     if float(np.linalg.norm(forward)) < 1e-6:
         return None
     return forward  # type: ignore[return-value]  # NumPy 2.2's stub types a float cross product as floating, not float64
-
-
-def _facing_is_measured(bvh: Bvh, world_up: str) -> bool:
-    """Whether the rest-pose facing chain measures this skeleton.
-
-    ``True`` exactly when :attr:`Bvh.rest_forward` derives from the
-    skeleton's L/R geometry — either the rest-pose L/R offsets give a
-    usable leftward against ``world_up`` directly, or the topological
-    rest leftward crossed with ``world_up`` does. ``False`` exactly when
-    that chain bottoms out in the warned ``_FALLBACK_FORWARD`` house
-    default. The implementation walks the same two measuring steps
-    :func:`_compute_forward_at` walks on the rest pose, so the predicate
-    tracks the fallback by construction rather than by parallel logic.
-    """
-    rest_leftward = _world_leftward_unit_at_frame(bvh, bvh._rest_pose(), world_up)
-    if rest_leftward is not None:
-        return True
-    return _rest_forward_from_topology(bvh, world_up) is not None
 
 
 def _fallback_forward_vector(
@@ -828,9 +834,8 @@ def _fallback_forward_vector(
         f"No usable left/right geometry on this skeleton, so its facing "
         f"direction cannot be measured; falling back to {fallback!r}, the "
         f"arbitrary-but-stable horizontal axis for world_up={world_up!r}. "
-        f"Anything derived from facing (rest_forward, rest_forward_axis, "
-        f"forward_at, left_at, facing_frame) is a default here, not a "
-        f"property of this file. Set `bvh.lr_mapping = {{...}}` to fix it, "
+        f"The facing (forward_at, left_at, facing_frame) is a default "
+        f"here, not a property of this file. Set `bvh.lr_mapping = {{...}}` to fix it, "
         f"or check `bvh.has_lr_geometry` to detect it.",
         UserWarning,
         stacklevel=user_stacklevel(),
@@ -981,7 +986,7 @@ def _compute_left_at(
         assert left_ax is not None
         return left_ax
 
-    rest_left = _rest_leftward(bvh)
+    rest_left = bvh._rest_left_of(bvh._lr_mapping)
     if rest_left is not None:
         return rest_left
 

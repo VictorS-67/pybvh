@@ -25,7 +25,6 @@ from . import rotations
 from ._orientation import (
     _compute_forward_at,
     _resolve_lr_pairs,
-    _rest_leftward,
 )
 from .bvhnode import BvhJoint
 from .tools import (
@@ -907,14 +906,15 @@ def mirror(
     lr_j_pairs = _resolve_lr_pairs(lr_mapping, j_name2idx, strict=explicit_mapping)
 
     # --- Detect lateral axis ---
-    # Mirror is a topology operation (swap L/R joints, negate the lateral
-    # component), so we use the rest-pose leftward axis derived from the
-    # L/R mapping above. Pass the explicit mapping so we use the same
-    # pairs. Only the axis letter is consumed; the sign doesn't matter
+    # Mirror is a skeleton operation (swap L/R joints, negate the lateral
+    # component), so it reflects along rest left: the skeleton's own
+    # left, read from the rest pose against rest up and never against
+    # world up (ADR 0004), for the pairs of the mapping above. Only the
+    # axis letter is consumed; the sign doesn't matter
     # for mirroring (reflecting across the plane perpendicular to the
     # axis is the same operation whether the axis points left or right).
     if lateral is None:
-        rest_left = _rest_leftward(target, mapping=lr_mapping)
+        rest_left = target._rest_left_of(lr_mapping)
         if rest_left is None:
             raise ValueError(
                 "Cannot infer lateral axis from L/R mapping: averaged "

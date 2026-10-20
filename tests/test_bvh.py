@@ -58,6 +58,13 @@ from synthetic_bvh import (
 # =============================================================================
 
 
+def _lateral_index(bvh):
+    """The column ``mirror`` reflects: rest left's, the axis that is
+    neither rest up nor rest forward (rest forward = rest left x rest up)."""
+    used = {bvh.rest_up_axis.index, bvh.rest_forward_axis.index}
+    return ({0, 1, 2} - used).pop()
+
+
 def _with_offsets(bvh, offsets):
     """*bvh* rebuilt on new offsets, ``(N, 3)`` in ``nodes`` order.
 
@@ -5597,6 +5604,23 @@ class TestAxisDetection:
         modified.joint_angles = ja
         assert modified.rest_forward == before
 
+    def test_rest_forward_of_a_rest_pose_authored_in_another_convention(self, bvh_test3):
+        """bvh_test3's rest pose stands along +y with its left along +x,
+        while its motion is z-up: it faces +z in its own frame, along
+        world up, not -y, the direction of its feet."""
+        bvh = bvh_test3
+        assert bvh.world_up == "+z"
+        assert bvh.rest_up == "+y"
+        assert bvh.rest_forward == "+z"
+        assert bvh.has_lr_geometry is True
+
+    def test_rest_forward_never_reads_world_up(self, bvh_example):
+        before = bvh_example.rest_forward
+        for world_up in ("+x", "-x", "+y", "-y", "-z"):
+            clip = bvh_example.copy()
+            clip.world_up = world_up
+            assert clip.rest_forward == before
+
     def test_rest_forward_matches_forward_at_on_neutral_root(self, bvh_example):
         """When the animation's root rotation is identity, the
         animation-derived forward_at(0) should match the pose-derived
@@ -6245,6 +6269,18 @@ class TestLRMappingSymmetric:
 class TestMirror:
     """Tests for mirror transform."""
 
+    @pytest.mark.parametrize("sign", ["+", "-"])
+    def test_a_world_up_along_rest_left_mirrors_the_same(self, bvh_example, sign):
+        """mirror reflects along rest left, read from the rest pose alone, so
+        a world up set (or guessed) along that axis changes nothing: the
+        positions are exactly those mirrored under the right world up."""
+        lateral = "xyz"[_lateral_index(bvh_example)]
+        wrong_up = bvh_example.copy()
+        wrong_up.world_up = sign + lateral
+        np.testing.assert_array_equal(
+            wrong_up.mirror().node_positions(), bvh_example.mirror().node_positions()
+        )
+
     def test_mirror_of_mirror_identity(self, bvh_example):
         from pybvh.transforms import mirror
 
@@ -6271,10 +6307,9 @@ class TestMirror:
 
     def test_spatial_coords_reflected(self, bvh_example):
         """Gold-standard test: FK positions should be reflected."""
-        from pybvh._orientation import _rest_leftward
         from pybvh.transforms import mirror
 
-        lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_leftward(bvh_example)[1]]
+        lateral_idx = _lateral_index(bvh_example)
 
         coords_orig = bvh_example.node_positions(centered="skeleton")
         result = mirror(bvh_example)
@@ -6304,10 +6339,9 @@ class TestMirror:
                 )
 
     def test_root_pos_lateral_negated(self, bvh_example):
-        from pybvh._orientation import _rest_leftward
         from pybvh.transforms import mirror
 
-        lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_leftward(bvh_example)[1]]
+        lateral_idx = _lateral_index(bvh_example)
         result = mirror(bvh_example)
         np.testing.assert_allclose(
             result.root_pos[:, lateral_idx], -bvh_example.root_pos[:, lateral_idx], atol=1e-10
@@ -6440,10 +6474,10 @@ class TestMirrorAngles:
 
     def _get_mirror_metadata(self, bvh):
         """Extract metadata needed for mirror_angles from a Bvh."""
-        from pybvh._orientation import _iter_unique_lr_pairs, _rest_leftward
+        from pybvh._orientation import _iter_unique_lr_pairs
         from pybvh.bvhnode import BvhJoint
 
-        lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_leftward(bvh)[1]]
+        lateral_idx = _lateral_index(bvh)
 
         mapping = bvh.lr_mapping
         joints = [n for n in bvh.nodes if isinstance(n, BvhJoint)]
@@ -6635,11 +6669,10 @@ class TestLrPairs:
 
     def test_works_with_mirror_angles(self, bvh_example):
         """Index pairs should be directly usable with mirror_angles."""
-        from pybvh._orientation import _rest_leftward
         from pybvh.transforms import mirror_angles
 
         pairs = bvh_example.lr_pairs
-        lateral_idx = {"x": 0, "y": 1, "z": 2}[_rest_leftward(bvh_example)[1]]
+        lateral_idx = _lateral_index(bvh_example)
         rot_ch = [list(n.rot_channels) for n in bvh_example.nodes if not n.is_end_site()]
         # Should not raise
         m_angles, m_pos = mirror_angles(
@@ -7285,21 +7318,22 @@ class TestLRMappingKwarg:
 class TestLRMappingNoneConsumerBehavior:
     """Tests that internal helpers handle lr_mapping=None gracefully."""
 
-    def test_rest_leftward_returns_none_on_nameless(self):
-        from pybvh._orientation import _rest_leftward
-
+    def test_no_rest_left_on_nameless(self):
         bvh = make_nameless_lr_bvh()
         assert bvh.lr_mapping is None
-        assert _rest_leftward(bvh) is None
+        assert bvh.has_lr_geometry is False
 
-    def test_rest_leftward_explicit_mapping_works(self):
-        """_rest_leftward accepts an explicit mapping that overrides the cache."""
-        from pybvh._orientation import _rest_leftward
-
+    def test_mirror_reads_rest_left_for_an_explicit_mapping(self):
+        """mirror(lr_mapping=) measures rest left with the pairs it is given."""
         bvh = make_nameless_lr_bvh()
-        # Even though bvh.lr_mapping is None, an explicit mapping computes
-        lat = _rest_leftward(bvh, mapping={"J2": "J3"})
-        assert lat in ("+x", "-x", "+y", "-y", "+z", "-z")
+        # Even though bvh.lr_mapping is None, an explicit mapping mirrors
+        # along the rig's lateral axis (x, built so in synthetic_bvh).
+        mirrored = bvh.mirror(lr_mapping={"J2": "J3"})
+        reflect = np.array([-1.0, 1.0, 1.0])
+        coords, coords_m = bvh.node_positions(), mirrored.node_positions()
+        j2, j3 = bvh.node_index["J2"], bvh.node_index["J3"]
+        np.testing.assert_allclose(coords_m[:, j2], coords[:, j3] * reflect, atol=1e-9)
+        np.testing.assert_allclose(coords_m[:, j3], coords[:, j2] * reflect, atol=1e-9)
 
     def test_compute_forward_at_fallback_on_nameless(self):
         """_compute_forward_at returns a valid axis when no L/R data exists."""
@@ -7995,11 +8029,9 @@ class TestHasLrGeometry:
         assert bvh.rest_forward == measured_forward
 
     # A skeleton whose rest pose is authored y-up (head along +y, arms
-    # along ±z) but whose animation is z-up (root X-rotated 90°): the
-    # L/R lateral axis exists and is usable against the REST up, yet is
-    # parallel to the resolved world_up, so the facing chain bottoms out
-    # in the house default anyway. The predicate must track the chain's
-    # actual decision, not merely whether L/R pairs exist.
+    # along ±z) but whose animation is z-up (root X-rotated 90°): its
+    # L/R axis lies along world up, but rest forward is read in the
+    # skeleton's own frame, against rest up, where the axis is usable.
     _LATERAL_PARALLEL_TO_WORLD_UP = (
         "HIERARCHY\n"
         "ROOT Hips\n{\n"
@@ -8036,20 +8068,24 @@ class TestHasLrGeometry:
             warnings.simplefilter("ignore", UserWarning)
             return read_bvh_file(path)
 
-    def test_false_when_the_lateral_axis_is_parallel_to_world_up(self, tmp_path):
+    def test_true_when_the_lateral_axis_lies_along_world_up(self, tmp_path):
         bvh = self._lateral_parallel_bvh(tmp_path)
         assert bvh.world_up == "+z"
         assert bvh.rest_up == "+y"
-        assert bvh.lr_mapping is not None  # the pairs exist...
-        assert bvh.has_lr_geometry is False  # ...but cannot give a facing
+        assert bvh.has_lr_geometry is True
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            # rest left +z, crossed with rest up +y
+            assert bvh.rest_forward == "-x"
 
-    def test_the_predicate_agrees_with_the_fallback_warning(self, bvh_example, tmp_path):
-        """False exactly when deriving a facing warns — the docstring's
+    def test_the_predicate_agrees_with_the_fallback_warning(self, bvh_example):
+        """False exactly when reading rest_forward warns — the docstring's
         contract, and the property's whole reason to exist."""
-        divergent = self._lateral_parallel_bvh(tmp_path)
-        assert divergent.has_lr_geometry is False
+        unmapped = bvh_example.copy()
+        unmapped.lr_mapping = None
+        assert unmapped.has_lr_geometry is False
         with pytest.warns(UserWarning, match="has_lr_geometry"):
-            assert divergent.rest_forward == "+x"  # z-up house default
+            _ = unmapped.rest_forward
 
         assert bvh_example.has_lr_geometry is True
         with warnings.catch_warnings():

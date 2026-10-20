@@ -18,8 +18,6 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
-from .rotations import _elementary_rotmat
-
 
 def _validate_bvh_path(filepath: str | Path) -> Path:
     """Validate that a filepath exists and points to a .bvh file.
@@ -252,43 +250,3 @@ def _validate_axis_string(value: object, *, allow_unsigned: bool = False) -> str
             expected = expected + sorted(_AXIS_CHAR_TO_IDX)
         raise ValueError(f"Axis must be one of {expected}, got {value!r}")
     return normalized  # type: ignore[return-value]
-
-
-def _axis_aligned_rotation(
-    from_ax: str,
-    to_ax: str,
-) -> npt.NDArray[np.float64]:
-    """3x3 rotation matrix mapping signed axis ``from_ax`` to ``to_ax``.
-
-    Only works for axis-aligned unit vectors.  Returns exact matrices
-    (entries are 0, 1, or -1) for lossless coordinate transforms.
-
-    Parameters
-    ----------
-    from_ax, to_ax : str
-        Signed axis strings, e.g. ``'+y'``, ``'-z'``.
-
-    Returns
-    -------
-    R : ndarray of shape (3, 3)
-        Orthogonal rotation matrix with ``det = +1``.
-    """
-    from_vec = _axis_to_vector(from_ax)
-    to_vec = _axis_to_vector(to_ax)
-
-    if np.allclose(from_vec, to_vec):
-        return np.eye(3, dtype=np.float64)
-
-    if np.allclose(from_vec, -to_vec):
-        # 180-degree rotation around a perpendicular axis
-        from_idx = _AXIS_CHAR_TO_IDX[from_ax[1]]
-        perp_axis = "XYZ"[(from_idx + 1) % 3]
-        R = _elementary_rotmat(np.pi, perp_axis)
-        return np.round(R).astype(np.float64)
-
-    # 90-degree rotation: cross product gives the rotation axis and sign
-    cross = np.cross(from_vec, to_vec)
-    rot_idx = int(np.argmax(np.abs(cross)))
-    rot_sign = np.sign(cross[rot_idx])
-    R = _elementary_rotmat(rot_sign * np.pi / 2, "XYZ"[rot_idx])
-    return np.round(R).astype(np.float64)

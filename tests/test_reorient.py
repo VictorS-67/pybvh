@@ -23,11 +23,17 @@ from synthetic_bvh import (
 
 from pybvh import Bvh, nodes_from_table, read_bvh_file, transforms
 from pybvh._orientation import _compute_forward_at, _rest_upward
-from pybvh.tools import _axis_aligned_rotation, _axis_to_vector
+from pybvh.rotations import _axis_aligned_rotation
+from pybvh.tools import _axis_to_vector
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
 EXAMPLE = str(BVH_DIR / "bvh_test1.bvh")
 TEST3 = str(BVH_DIR / "bvh_test3.bvh")  # disagreement file
+
+
+def _turn(from_ax, to_ax):
+    """The axis-aligned rotation between two signed axis strings."""
+    return _axis_aligned_rotation(_axis_to_vector(from_ax), _axis_to_vector(to_ax))
 
 
 # ========================================================================
@@ -320,7 +326,7 @@ class TestWorldUpWarningPreference:
 
 
 # ========================================================================
-#  Helper: _axis_aligned_rotation
+#  Helper: rotations._axis_aligned_rotation
 # ========================================================================
 
 
@@ -341,14 +347,14 @@ class TestAxisAlignedRotation:
         ],
     )
     def test_maps_axis_correctly(self, from_ax, to_ax):
-        R = _axis_aligned_rotation(from_ax, to_ax)
+        R = _turn(from_ax, to_ax)
         result = R @ _axis_to_vector(from_ax)
         expected = _axis_to_vector(to_ax)
         npt.assert_allclose(result, expected, atol=1e-14)
 
     @pytest.mark.parametrize("ax", ["+x", "+y", "+z", "-x", "-y", "-z"])
     def test_identity_for_same_axis(self, ax):
-        R = _axis_aligned_rotation(ax, ax)
+        R = _turn(ax, ax)
         npt.assert_allclose(R, np.eye(3), atol=1e-14)
 
     @pytest.mark.parametrize(
@@ -360,7 +366,7 @@ class TestAxisAlignedRotation:
         ],
     )
     def test_det_is_one(self, from_ax, to_ax):
-        R = _axis_aligned_rotation(from_ax, to_ax)
+        R = _turn(from_ax, to_ax)
         assert abs(np.linalg.det(R) - 1.0) < 1e-14
 
     @pytest.mark.parametrize(
@@ -372,7 +378,7 @@ class TestAxisAlignedRotation:
         ],
     )
     def test_entries_are_exact_integers(self, from_ax, to_ax):
-        R = _axis_aligned_rotation(from_ax, to_ax)
+        R = _turn(from_ax, to_ax)
         npt.assert_array_equal(R, R.astype(int))
 
 
@@ -396,7 +402,7 @@ class TestReorientWorldUp:
     def test_fk_positions_rotated(self):
         """FK positions in new system = R @ FK positions in old system."""
         bvh = make_pos_y_up_bvh()
-        R = _axis_aligned_rotation("+y", "+z")
+        R = _turn("+y", "+z")
         coords_old = bvh.node_positions()
         result = transforms.reorient_world_up(bvh, "+z")
         coords_new = result.node_positions()
@@ -407,7 +413,7 @@ class TestReorientWorldUp:
     def test_fk_positions_rotated_with_animation(self):
         """Same test with rotating BVH (non-zero root angles)."""
         bvh = make_pos_y_up_rotating_bvh()
-        R = _axis_aligned_rotation("+y", "+z")
+        R = _turn("+y", "+z")
         coords_old = bvh.node_positions()
         result = transforms.reorient_world_up(bvh, "+z")
         coords_new = result.node_positions()
@@ -427,7 +433,7 @@ class TestReorientWorldUp:
     def test_180_degree_rotation(self):
         """+Y -> -Y: FK Y and X should be negated."""
         bvh = make_pos_y_up_bvh()
-        R = _axis_aligned_rotation("+y", "-y")
+        R = _turn("+y", "-y")
         coords_old = bvh.node_positions()
         result = transforms.reorient_world_up(bvh, "-y")
         coords_new = result.node_positions()
@@ -438,7 +444,7 @@ class TestReorientWorldUp:
     def test_negative_axes(self):
         """-Z -> +Y reorientation."""
         bvh = make_neg_z_up_bvh()
-        R = _axis_aligned_rotation("-z", "+y")
+        R = _turn("-z", "+y")
         coords_old = bvh.node_positions()
         result = transforms.reorient_world_up(bvh, "+y")
         coords_new = result.node_positions()
@@ -449,7 +455,7 @@ class TestReorientWorldUp:
     def test_inplace(self):
         bvh = make_pos_y_up_bvh()
         coords_before = bvh.node_positions()
-        R = _axis_aligned_rotation("+y", "+z")
+        R = _turn("+y", "+z")
         result = transforms.reorient_world_up(bvh, "+z", inplace=True)
         assert result is None
         assert bvh.world_up == "+z"
@@ -472,7 +478,7 @@ class TestReorientWorldUp:
     def test_real_file(self):
         """Reorient a real BVH file (+z -> +y)."""
         bvh = read_bvh_file(EXAMPLE)
-        R = _axis_aligned_rotation(bvh.world_up, "+y")
+        R = _turn(bvh.world_up, "+y")
         coords_old = bvh.node_positions()
         result = transforms.reorient_world_up(bvh, "+y")
         coords_new = result.node_positions()
@@ -682,7 +688,7 @@ class TestReorientHeterogeneousEulerOrders:
         from synthetic_bvh import make_heterogeneous_euler_bvh
 
         bvh = make_heterogeneous_euler_bvh()
-        R = _axis_aligned_rotation(bvh.world_up, "+z")
+        R = _turn(bvh.world_up, "+z")
         coords_old = bvh.node_positions()
         result = transforms.reorient_world_up(bvh, "+z")
         coords_new = result.node_positions()

@@ -32,8 +32,8 @@ from ._orientation import (
 from .bvhnode import BvhJoint
 from .tools import (
     _AXIS_CHAR_TO_IDX,
-    _axis_aligned_rotation,
     _axis_index_sign,
+    _axis_to_vector,
     _validate_axis_string,
 )
 
@@ -1084,7 +1084,7 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     if old_up == new_up:
         return None if inplace else target
 
-    R = _axis_aligned_rotation(old_up, new_up)
+    R = rotations._axis_aligned_rotation(_axis_to_vector(old_up), _axis_to_vector(new_up))
     target._rotate_world_up_guess(R)
 
     # 1. Rotate root positions
@@ -1162,7 +1162,8 @@ def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None
     if current_rest_up == new_up:
         return None if inplace else target
 
-    _reorient_rest(target, _axis_aligned_rotation(current_rest_up, new_up))
+    R = rotations._axis_aligned_rotation(_axis_to_vector(current_rest_up), _axis_to_vector(new_up))
+    _reorient_rest(target, R)
     return None if inplace else target
 
 
@@ -1219,5 +1220,6 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
     if current_fwd == new_forward:
         return None if inplace else target
 
-    _reorient_rest(target, _axis_aligned_rotation(current_fwd, new_forward))
+    R = rotations._axis_aligned_rotation(_axis_to_vector(current_fwd), _axis_to_vector(new_forward))
+    _reorient_rest(target, R)
     return None if inplace else target

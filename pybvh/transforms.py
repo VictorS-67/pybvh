@@ -27,7 +27,6 @@ from ._orientation import (
     _resolve_lr_pairs,
     _resolve_node_lr_pairs,
     _rest_leftward,
-    _rest_upward,
 )
 from .bvhnode import BvhJoint
 from .tools import (
@@ -1148,7 +1147,7 @@ def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None
     ValueError
         If the rest pose is degenerate (no up axis can be inferred).
     """
-    current_rest_up = _rest_upward(bvh)
+    current_rest_up = bvh.rest_up
     if current_rest_up is None:
         raise ValueError(
             "Cannot infer the skeleton's rest-pose up axis: the rest "

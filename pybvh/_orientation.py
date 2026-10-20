@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 import warnings
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -57,7 +58,7 @@ if TYPE_CHECKING:
 #           │          │
 #           ├──────────┤
 #           ▼          ▼
-#       _rest_upward, _rest_leftward
+#      _infer_rest_up, _rest_leftward
 #           │          │       │
 #           │          │       └──→ used by transforms.mirror()
 #           │          ▼
@@ -93,51 +94,81 @@ if TYPE_CHECKING:
 _FALLBACK_FORWARD = {"y": "+z", "z": "+x", "x": "+y"}
 
 
-def _rest_upward(bvh: Bvh) -> str | None:
-    """Infer the skeleton's topological up axis from the rest pose.
+# The body parts whose direction from the root says which way is up, most
+# telling first.
+_UP_BODY_PARTS = ("head", "neck", "chest", "spine")
 
-    Uses the same heuristic the old get_forw_up_axis used: iterate named
-    body parts ("head", "neck", "chest", "spine") in priority order and
-    check which axis their rest-pose cumulative offset dominates. Falls
-    back to the axis with the largest spread across all joints.
+
+def _up_marker_index(
+    node_names: Sequence[str],
+    rest_positions: npt.NDArray[np.float64],
+) -> int | None:
+    """The node whose direction from the root says which way is up.
+
+    The one body-part lookup for "up", shared by the rest up and the
+    world-up guess so the two read the same node: the first node, in node
+    order, named ``head``, else ``neck``, ``chest`` or ``spine`` (whole
+    name, any case, so ``mixamorig:Head`` does not match). A node whose
+    rest position coincides with the root's carries no direction and is
+    skipped, the root itself included.
 
     Parameters
     ----------
-    bvh : Bvh
-        The skeleton.
+    node_names : sequence of str
+        Every node's name, in node order (end sites included).
+    rest_positions : ndarray of shape (N, 3)
+        The rest pose's node positions, in the same order.
+
+    Returns
+    -------
+    int or None
+        The node's index, or ``None`` when no node qualifies.
+    """
+    local = rest_positions - rest_positions[0]
+    lowered = [name.lower() for name in node_names]
+    for part in _UP_BODY_PARTS:
+        # The first node of a repeated name, by position in the walk.
+        for idx, name in enumerate(lowered):
+            if name == part and get_main_direction(local[idx]) is not None:
+                return idx
+    return None
+
+
+def _infer_rest_up(
+    node_names: Sequence[str],
+    rest_positions: npt.NDArray[np.float64],
+) -> str | None:
+    """The skeleton's own up, read from the rest pose alone.
+
+    The main axis from the root to the node :func:`_up_marker_index`
+    finds; without one, the axis along which the rest pose spreads most,
+    signed by the side its nodes lie on.
+
+    Parameters
+    ----------
+    node_names : sequence of str
+        Every node's name, in node order (end sites included).
+    rest_positions : ndarray of shape (N, 3)
+        The rest pose's node positions, in the same order.
 
     Returns
     -------
     str or None
-        Signed axis string (e.g. '+z'), or ``None`` when the rest pose
-        carries no directional information (single-node skeletons or
-        all-zero offsets).
+        Signed axis string (e.g. ``'+z'``), or ``None`` when the rest pose
+        carries no direction (a single node, or every node at one point).
     """
-    if len(bvh.nodes) < 2:
-        return None
+    local = rest_positions - rest_positions[0]
+    marker = _up_marker_index(node_names, rest_positions)
+    if marker is not None:
+        return get_main_direction(local[marker])
 
-    rest = bvh._rest_pose()  # (N, 3)
-    local_coord = rest - rest[0]  # root at origin
-
-    up_body_parts = ["head", "neck", "chest", "spine"]
-    for part_name in up_body_parts:
-        # Indexed by position in the walk, not by name: a name lookup
-        # would read a same-named node's coordinate instead of this one's.
-        for idx, joint in enumerate(bvh.nodes):
-            if joint.name.lower() == part_name:
-                coord = local_coord[idx]
-                direction = get_main_direction(coord)
-                if direction is not None:
-                    return direction
-
-    # Fallback: axis with largest spread across all joints
-    spread = np.ptp(local_coord, axis=0)
+    spread = np.ptp(local, axis=0)
     if float(np.max(spread)) < 1e-6:
         return None  # degenerate rest pose: all joints coincide
-    up_idx_fallback = int(np.argmax(spread))
-    # Use the mean to determine sign (positive mean = positive axis direction)
-    sign = "+" if np.mean(local_coord[:, up_idx_fallback]) >= 0 else "-"
-    return sign + "xyz"[up_idx_fallback]
+    up_idx = int(np.argmax(spread))
+    # The sign of the mean: the side of the root most of the body lies on.
+    sign = "+" if np.mean(local[:, up_idx]) >= 0 else "-"
+    return sign + "xyz"[up_idx]
 
 
 # ---------------------------------------------------------------------------
@@ -467,7 +498,7 @@ def _rest_leftward(
         character's left, or ``None`` if no L/R pairs are available or
         the averaged offset is degenerate.
     """
-    up_ax = _rest_upward(bvh)
+    up_ax = bvh.rest_up
     if up_ax is None:
         return None
     up_idx = _AXIS_CHAR_TO_IDX[up_ax[1]]
@@ -525,7 +556,9 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
     """
     # Compute rest-pose topology once; used both as fallback and as the
     # reference to compare against when emitting the disagreement warning.
-    rest_up = _rest_upward(bvh)
+    node_names = [node.name for node in bvh.nodes]
+    rest = bvh._rest_pose()
+    rest_up = _infer_rest_up(node_names, rest)
 
     def fallback() -> str:
         """The rest-pose axis, or the house default when there is none."""
@@ -552,18 +585,11 @@ def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
     if bvh.frame_count == 0:
         return fallback()
 
-    # Try to find a "head-ish" and "hips-ish" joint in the skeleton.
-    # Priority: head -> neck -> last joint in spine chain.
-    name_lookup = {n.name.lower(): i for i, n in enumerate(bvh.nodes)}
-    head_idx = None
-    for candidate in ("head", "neck", "chest", "spine"):
-        if candidate in name_lookup:
-            head_idx = name_lookup[candidate]
-            break
-    # Hips = the root (index 0)
+    # The node rest up reads ("head-ish"), against the root ("hips").
+    head_idx = _up_marker_index(node_names, rest)
     hips_idx = 0
 
-    if head_idx is None or head_idx == hips_idx:
+    if head_idx is None:
         return fallback()
 
     frame0 = bvh.node_positions(frame=0)

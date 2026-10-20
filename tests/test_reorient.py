@@ -22,7 +22,7 @@ from synthetic_bvh import (
 )
 
 from pybvh import Bvh, nodes_from_table, read_bvh_file, transforms
-from pybvh._orientation import _compute_forward_at, _rest_upward
+from pybvh._orientation import _compute_forward_at
 from pybvh.rotations import _axis_aligned_rotation
 from pybvh.tools import _axis_to_vector
 
@@ -570,7 +570,7 @@ class TestReorientRestUp:
     def test_rest_up_changes(self):
         bvh = make_pos_z_up_bvh()
         result = transforms.reorient_rest_up(bvh, "+y")
-        assert _rest_upward(result) == "+y"
+        assert result.rest_up == "+y"
 
     def test_root_pos_unchanged(self):
         bvh = make_pos_z_up_bvh()
@@ -599,7 +599,7 @@ class TestReorientRestUp:
         result = transforms.reorient_rest_up(bvh, "+y")
         coords_after = result.node_positions()
         npt.assert_allclose(coords_before, coords_after, atol=1e-10)
-        assert _rest_upward(result) == "+y"
+        assert result.rest_up == "+y"
 
     def test_inplace(self):
         bvh = make_pos_z_up_bvh()
@@ -726,5 +726,5 @@ class TestDisagreementFixture:
         bvh = make_disagreement_bvh()
         assert bvh.frame_count > 0
         # Rest-pose topology should be +Z up (offsets along Z)
-        rest_up = _rest_upward(bvh)
+        rest_up = bvh.rest_up
         assert rest_up[1] == "z"

@@ -5536,12 +5536,30 @@ class TestAxisDetection:
     def test_rest_up_is_valid_axis(self, bvh_example):
         assert bvh_example.rest_up in ("+x", "-x", "+y", "-y", "+z", "-z")
 
-    def test_rest_up_matches_internal(self, bvh_example):
-        """The public property must return the same value as the internal
-        helper for every fixture; catches accidental divergence."""
-        from pybvh._orientation import _rest_upward
-
-        assert bvh_example.rest_up == _rest_upward(bvh_example)
+    def test_two_heads_rest_up_and_world_up_read_the_first(self, tmp_path):
+        """Node names may repeat: the first node named Head, in node
+        order, is the one both rest up and the world-up guess read."""
+        text = (
+            "HIERARCHY\nROOT Hips\n{\n"
+            "\tOFFSET 0.0 0.0 0.0\n"
+            "\tCHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation\n"
+            "\tJOINT Head\n\t{\n"
+            "\t\tOFFSET 0.0 0.0 4.0\n"
+            "\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+            "\t\tEnd Site\n\t\t{\n\t\t\tOFFSET 0.0 0.0 1.0\n\t\t}\n\t}\n"
+            "\tJOINT Head\n\t{\n"
+            "\t\tOFFSET 0.0 9.0 0.0\n"
+            "\t\tCHANNELS 3 Zrotation Xrotation Yrotation\n"
+            "\t\tEnd Site\n\t\t{\n\t\t\tOFFSET 0.0 1.0 0.0\n\t\t}\n\t}\n"
+            "}\nMOTION\nFrames: 1\nFrame Time: 0.033333\n" + " ".join(["0.0"] * 12) + "\n"
+        )
+        path = tmp_path / "two_heads.bvh"
+        path.write_text(text)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)  # no disagreement
+            bvh = read_bvh_file(path)
+            assert bvh.rest_up == "+z"
+            assert bvh.world_up == "+z"
 
     def test_rest_up_is_animation_independent(self, bvh_example):
         """rest_up is topology-derived — shuffling animation data must

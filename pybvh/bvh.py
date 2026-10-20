@@ -33,11 +33,11 @@ from ._orientation import (
     _compute_left_at,
     _detect_lr_mapping_by_names,
     _facing_is_measured,
+    _infer_rest_up,
     _infer_world_up,
     _iter_unique_lr_pairs,
     _resolve_lr_pairs,
     _resolve_node_lr_pairs,
-    _rest_upward,
 )
 from ._warnings import user_stacklevel
 
@@ -1100,11 +1100,13 @@ class Bvh:
         the axis was inherited.
 
         The detection specifics, since they decide which answer you get:
-        "head" is the first **exact** lowercase name match among
-        ``head``, ``neck``, ``chest``, ``spine`` (so a namespaced
-        ``mixamorig:Head`` does not match), "hips" is always the root
-        node whatever it is called, and the frame-0 reading is accepted
-        only when its largest component exceeds twice the second-largest
+        "head" is the node :attr:`rest_up` reads, the first node in node
+        order named ``head``, else ``neck``, ``chest`` or ``spine`` (a
+        whole-name match in any case, so a namespaced ``mixamorig:Head``
+        does not match), skipping one that sits at the root in the rest
+        pose; "hips" is always the root node whatever it is called; and
+        the frame-0 reading is accepted only when its largest component
+        exceeds twice the second-largest
         — a crouched, lying or leaning first frame is treated as
         ambiguous and silently defers to :attr:`rest_up`. When the rest
         pose is degenerate too, the property warns and returns ``'+y'``.
@@ -1270,13 +1272,14 @@ class Bvh:
 
     @property
     def rest_up(self) -> str | None:
-        """Skeleton's topological up axis, derived from the rest pose only.
+        """The skeleton's own up axis, read from the rest pose alone.
 
-        Read-only. Inspects rest-pose joint offsets (``"head"``,
-        ``"neck"``, ``"chest"``, ``"spine"`` in priority order; falls
-        back to the axis with the largest offset spread) and returns
-        the dominant signed axis. Pose-independent — the animation
-        data is never touched.
+        Read-only. The main axis from the root to the first node, in
+        node order, named ``head``, else ``neck``, ``chest`` or
+        ``spine`` (whole name, any case), skipping one that sits at the
+        root; without such a node, the axis along which the rest pose
+        spreads most. The animation is never read. :attr:`world_up`'s
+        guess reads the same node.
 
         Contrast with :attr:`world_up`, which is *animation*-derived
         (inferred from the first frame's head-above-hips direction). On
@@ -1291,7 +1294,7 @@ class Bvh:
             when the rest pose is degenerate (single-node skeletons or
             all-zero offsets) and carries no directional information.
         """
-        return _rest_upward(self)
+        return _infer_rest_up([node.name for node in self.nodes], self._rest_pose())
 
     @property
     def rest_forward(self) -> str:

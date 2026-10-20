@@ -39,8 +39,9 @@ from .tools import _AXIS_CHAR_TO_IDX, _axis_to_vector, get_main_direction
 #   1. THE SKELETON'S OWN FRAME — read from the rest pose alone, never from
 #      world up, on plain data (node names, rest positions, L/R pairs):
 #      _up_marker_index → _infer_rest_up; _infer_rest_left (the L/R pairs
-#      against rest up); _infer_rest_forward (rest left × rest up, or the
-#      house default keyed on rest up). Used by mirror, the rest
+#      against rest up), read together with one set of pairs by
+#      _infer_rest_up_and_left; _infer_rest_forward (rest left × rest up,
+#      or the house default keyed on rest up). Used by mirror, the rest
 #      reorientations and root_trajectory's heading, where the root
 #      rotation carries rest forward into the world.
 #   2. THE WORLD FRAME — world up, guessed from the first frame through the
@@ -669,6 +670,27 @@ def _infer_rest_left(
     return get_main_direction(avg_leftward)
 
 
+def _infer_rest_up_and_left(skeleton: _RestSkeleton) -> tuple[_RestUp | None, str | None]:
+    """Rest up and rest left, both read with the skeleton's own L/R pairs.
+
+    Without a named up joint, rest up is read from the pairs (the leg
+    pair), so a rest left measured with one mapping's pairs against the
+    rest up of another's mixes two skeletons' frames. Every reader of
+    rest left goes through here: the orientation report with the pairs of
+    the mapping in effect, :func:`~pybvh.transforms.mirror` with those
+    of the mapping it mirrors with.
+
+    Returns
+    -------
+    tuple of (_RestUp or None, str or None)
+        :func:`_infer_rest_up`'s reading and :func:`_infer_rest_left`'s
+        against its axis.
+    """
+    rest_up = _infer_rest_up(skeleton)
+    rest_up_axis = None if rest_up is None else rest_up.axis
+    return rest_up, _infer_rest_left(skeleton.rest_positions, skeleton.lr_pairs, rest_up_axis)
+
+
 # The up axis the house defaults are keyed on when a skeleton has none: the
 # same '+y' the world-up guess falls back to.
 _HOUSE_UP = "+y"
@@ -956,9 +978,8 @@ def _build_orientation_report(
         world_up_axis, world_up_source = world_up
     else:
         world_up_axis, world_up_source = world_up, "set"
-    rest_up = _infer_rest_up(skeleton)
+    rest_up, rest_left = _infer_rest_up_and_left(skeleton)
     rest_up_axis = None if rest_up is None else rest_up.axis
-    rest_left = _infer_rest_left(skeleton.rest_positions, skeleton.lr_pairs, rest_up_axis)
     return OrientationReport(
         rest_up=rest_up_axis,
         rest_up_source=None if rest_up is None else rest_up.source,

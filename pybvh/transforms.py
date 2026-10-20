@@ -862,7 +862,9 @@ def mirror(
         left-minus-right rest-pose positions averaged over the L/R joint
         pairs with the :attr:`~pybvh.bvh.Bvh.rest_up` component removed,
         so it measures how *this* skeleton is actually built rather than
-        assuming a convention, and never reads ``world_up``. Pass an
+        assuming a convention, and never reads ``world_up``. Rest up is
+        read as it would be with *lr_mapping* set on the clip: on a rig
+        without a named up joint, from the legs among its pairs. Pass an
         explicit axis only to override that, or when the detection
         raises because the L/R offsets are degenerate (parallel to
         ``rest_up``, or zero).

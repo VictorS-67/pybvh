@@ -8206,6 +8206,27 @@ class TestRestUpAcrossRigConventions:
         assert (report.rest_up, report.rest_up_source) == ("+z", "largest_spread")
         assert report.rest_forward == "+y"
 
+    def test_a_mapping_passed_to_mirror_reads_rest_up_as_the_set_one_does(self):
+        # Every name made meaningless, so the clip finds no pairs of its own
+        # and no head: its rest up is the largest spread (-x, along the arms
+        # of the T-pose). The mapping passed to mirror holds the legs, from
+        # which rest up is +y; reflected along rest left against -x, the
+        # clip was mirrored across z.
+        plain = _read_quietly(_TEST3)
+        names = iter(range(len(plain.nodes)))
+        renamed = {node.name: f"J{next(names)}" for node in plain.nodes}
+        clip = _renamed(plain, renamed.__getitem__)
+        pairs = {renamed[left]: renamed[right] for left, right in plain.lr_mapping.items()}
+        assert clip.lr_mapping is None
+
+        passed = clip.mirror(lr_mapping=pairs)
+        clip.lr_mapping = pairs
+        set_then_mirrored = clip.mirror()
+
+        np.testing.assert_allclose(passed.root_pos[0], [-1.4015, 0.2202, 34.6818])
+        np.testing.assert_allclose(passed.root_pos, set_then_mirrored.root_pos)
+        np.testing.assert_allclose(passed.node_positions(), set_then_mirrored.node_positions())
+
     def test_the_world_up_guess_reads_the_same_head(self):
         # bvh_test3's first frame stands along +z, its rest pose along +y:
         # only the head at frame 0 says +z.

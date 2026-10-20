@@ -34,7 +34,7 @@ from ._orientation import (
     _detect_lr_mapping_by_names,
     _facing_basis,
     _facing_labels,
-    _infer_rest_left,
+    _infer_rest_up_and_left,
     _infer_world_up,
     _iter_unique_lr_pairs,
     _LrMappingSource,
@@ -1469,10 +1469,16 @@ class Bvh:
         ``None`` without a usable one. :func:`~pybvh.transforms.mirror`
         reads it for the mapping it mirrors with, which may be another
         than the clip's own; :attr:`orientation_report` holds the rest
-        left of the clip's own mapping.
+        left of the clip's own mapping. Rest up is read with the same
+        pairs, as it would be with *mapping* set: on a rig without a
+        named up joint it comes from them.
         """
         pairs = _resolve_lr_pairs(mapping, self.node_index)
-        return _infer_rest_left(self._rest_pose(), pairs, self.rest_up)
+        skeleton = self._rest_skeleton()._replace(
+            lr_pairs=np.asarray(pairs, dtype=np.intp).reshape(-1, 2)
+        )
+        _rest_up, rest_left = _infer_rest_up_and_left(skeleton)
+        return rest_left
 
     @property
     def lr_mapping(self) -> dict[str, str] | None:

@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 import warnings
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
@@ -562,106 +562,113 @@ def _warn_rest_forward_defaulted(rest_forward: str, rest_up: str | None) -> None
     )
 
 
-def _infer_world_up(bvh: Bvh, warn: bool = True) -> str:
-    """Infer the world vertical axis from the first animation frame.
+class _WorldUpGuess(NamedTuple):
+    """A guessed world up and what it was read from.
 
-    Uses frame 0's head-above-hips direction as the primary source (this
-    reflects the actual world-space orientation at playback time, not
-    just the rest-pose topology). Falls back to rest-pose topology if:
-      - there are no animation frames
-      - the first frame's head-hips direction is ambiguous (no dominant
-        component clearly larger than the others)
-      - the relevant joints are not present
+    ``source`` is ``"first_frame"`` (the up marker above the root at
+    frame 0), ``"rest_up"`` (the first frame could not decide, so the
+    skeleton's own up stands in) or ``"default"`` (neither said
+    anything: the house up).
+    """
 
-    Issues a UserWarning when the first-frame inference succeeds but
-    disagrees with the rest-pose topology (i.e. a different dominant
-    axis) — this is a strong signal that the BVH file authored its rest
-    pose in one convention and animates in another.
+    axis: str
+    source: Literal["first_frame", "rest_up", "default"]
+
+
+# How much the largest component of frame 0's marker-above-root direction
+# must exceed the second for the frame to decide world up; below it the
+# pose is crouched, lying or leaning, and the frame is ambiguous.
+_FIRST_FRAME_DOMINANCE = 2.0
+
+
+def _infer_world_up(
+    node_names: Sequence[str],
+    rest_positions: npt.NDArray[np.float64],
+    frame0_positions: npt.NDArray[np.float64] | None,
+) -> _WorldUpGuess:
+    """Guess world up from a clip's first frame, with its source.
+
+    The direction from the root to the up marker (:func:`_up_marker_index`,
+    the node rest up reads) at frame 0, snapped to its main axis, when
+    its largest component is more than twice the second. Otherwise (no
+    frame, no marker, an ambiguous frame-0 pose) the skeleton's own up
+    (:func:`_infer_rest_up`) stands in, and without one the house up
+    ``'+y'``. Returns the guess silently: the reader of world up warns
+    (:func:`_warn_world_up_defaulted`, :func:`_warn_world_up_disagreement`).
 
     Parameters
     ----------
-    bvh : Bvh
-        The skeleton with populated animation data.
-    warn : bool, optional
-        Whether to warn when the first frame and the rest pose disagree
-        on the up axis (default True). Only the axis letter is compared,
-        so a sign flip alone (rest pose ``'+y'``, first frame ``'-y'``)
-        never warns. It gates only that warning: the warning that the
-        axis fell back to the invented ``'+y'`` is always issued, because
-        that result is a guess the returned string cannot flag.
+    node_names : sequence of str
+        Every node's name, in node order (end sites included).
+    rest_positions : ndarray of shape (N, 3)
+        The rest pose's node positions.
+    frame0_positions : ndarray of shape (N, 3) or None
+        The node positions at frame 0, ``None`` for a clip without frames.
 
     Returns
     -------
-    str
-        Signed axis string (e.g. '+y').
+    _WorldUpGuess
     """
-    # Compute rest-pose topology once; used both as fallback and as the
-    # reference to compare against when emitting the disagreement warning.
-    node_names = [node.name for node in bvh.nodes]
-    rest = bvh._rest_pose()
-    rest_up = _infer_rest_up(node_names, rest)
+    marker = _up_marker_index(node_names, rest_positions)
+    if frame0_positions is not None and marker is not None:
+        marker_above_root = frame0_positions[marker] - frame0_positions[0]
+        second, largest = np.sort(np.abs(marker_above_root))[-2:]
+        if largest >= _FIRST_FRAME_DOMINANCE * second and largest >= 1e-6:
+            frame_up = get_main_direction(marker_above_root)
+            if frame_up is not None:
+                return _WorldUpGuess(frame_up, "first_frame")
 
-    def fallback() -> str:
-        """The rest-pose axis, or the house default when there is none."""
-        if rest_up is not None:
-            return rest_up
-        # Neither the animation nor the rest pose said anything, so '+y'
-        # is invented, not measured, and the returned string cannot say
-        # so — same silent substitution _warn_facing_defaulted warns
-        # about, same treatment.
-        warnings.warn(
-            "Could not infer a world up axis: this skeleton has no "
-            "recognizable head/neck/chest/spine joint to read the first "
-            "frame from, and its rest pose is degenerate (single node, or "
-            "all offsets coincident). Falling back to '+y', the house "
-            "default — anything derived from up (floor_height, "
-            "foot_contacts, facing, ground-plane projections) rests on a "
-            "guess here. Set `bvh.world_up = '<axis>'` to fix it.",
-            UserWarning,
-            stacklevel=user_stacklevel(),
-        )
-        return "+y"
+    rest_up = _infer_rest_up(node_names, rest_positions)
+    if rest_up is not None:
+        return _WorldUpGuess(rest_up, "rest_up")
+    return _WorldUpGuess(_HOUSE_UP, "default")
 
-    # Need animation frames to do first-frame inference
-    if bvh.frame_count == 0:
-        return fallback()
 
-    # The node rest up reads ("head-ish"), against the root ("hips").
-    head_idx = _up_marker_index(node_names, rest)
-    hips_idx = 0
+def _warn_world_up_defaulted() -> None:
+    """Warn that world up is the house default, not a measurement."""
+    # Neither the animation nor the rest pose said anything, so '+y' is
+    # invented, not measured, and the returned string cannot say so; the
+    # same silent substitution _warn_facing_defaulted warns about.
+    warnings.warn(
+        f"Could not infer a world up axis: this skeleton has no "
+        f"recognizable head/neck/chest/spine joint to read the first "
+        f"frame from, and its rest pose is degenerate (single node, or "
+        f"all offsets coincident). Falling back to {_HOUSE_UP!r}, the house "
+        f"default — anything derived from up (floor_height, "
+        f"foot_contacts, facing, ground-plane projections) rests on a "
+        f"guess here. Set `bvh.world_up = '<axis>'` to fix it; "
+        f"`bvh.orientation_report.world_up_source` is 'default' here.",
+        UserWarning,
+        stacklevel=user_stacklevel(),
+    )
 
-    if head_idx is None:
-        return fallback()
 
-    frame0 = bvh.node_positions(frame=0)
-    head_hips = frame0[head_idx] - frame0[hips_idx]
+def _warn_world_up_disagreement(rest_up: str, frame_up: str) -> None:
+    """Warn that the rest pose and the first frame disagree on world up.
 
-    # Check for a clear dominant axis: the largest component must be
-    # strictly larger than the second-largest (ratio > 2). Otherwise
-    # the pose is ambiguous (character crouched / lying / leaning).
-    abs_components = np.abs(head_hips)
-    sorted_abs = np.sort(abs_components)
-    if sorted_abs[-1] < 2.0 * sorted_abs[-2] or sorted_abs[-1] < 1e-6:
-        return fallback()
+    Only the axis letter is compared by the caller, so a sign flip alone
+    (rest pose ``'+y'``, first frame ``'-y'``) never warns.
+    """
+    # A strong signal that the file authored its rest pose in one
+    # convention and animates in another.
+    warnings.warn(
+        f"Rest pose suggests world up is {rest_up!r} but the first "
+        f"animation frame's head-hips direction is closer to "
+        f"{frame_up!r}. Using {frame_up!r} from the animation data. "
+        f"If this is wrong for your file, set it explicitly via "
+        f"`bvh.world_up = '<axis>'`. `bvh.orientation_report` shows the "
+        f"source of each axis.",
+        UserWarning,
+        stacklevel=user_stacklevel(),
+    )
 
-    # Clear winner from animation data
-    frame_up = get_main_direction(head_hips)
-    if frame_up is None:
-        return fallback()
 
-    # Warn if rest-pose topology disagrees (different dominant axis)
-    if warn and rest_up is not None and rest_up[1] != frame_up[1]:
-        warnings.warn(
-            f"Rest pose suggests world up is {rest_up!r} but the first "
-            f"animation frame's head-hips direction is closer to "
-            f"{frame_up!r}. Using {frame_up!r} from the animation data. "
-            f"If this is wrong for your file, set it explicitly via "
-            f"`bvh.world_up = '<axis>'`.",
-            UserWarning,
-            stacklevel=user_stacklevel(),
-        )
+def _world_up_disagrees(guess: _WorldUpGuess, rest_up: str | None) -> bool:
+    """Whether a first-frame guess names another axis than rest up.
 
-    return frame_up
+    Only the axis letter counts: a sign flip alone is not a disagreement.
+    """
+    return guess.source == "first_frame" and rest_up is not None and rest_up[1] != guess.axis[1]
 
 
 def _facing_lr_pairs(bvh: Bvh) -> npt.NDArray[np.intp]:

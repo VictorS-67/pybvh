@@ -7,7 +7,10 @@ same facts through ``Bvh`` live with the members that read them.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
+import pytest
 
 from pybvh._orientation import (
     _detect_lr_mapping_by_names,
@@ -16,6 +19,7 @@ from pybvh._orientation import (
     _infer_rest_forward,
     _infer_rest_left,
     _infer_rest_up,
+    _infer_world_up,
     _resolve_lr_pairs,
     _resolve_node_lr_pairs,
     _root_heading_units,
@@ -77,6 +81,48 @@ class TestRestUp:
     def test_none_on_a_degenerate_rest_pose(self):
         assert _infer_rest_up(["Root"], np.zeros((1, 3))) is None
         assert _infer_rest_up(["Root", "Head"], np.ones((2, 3))) is None
+
+
+class TestWorldUpGuess:
+    """World up guessed from frame 0's up marker above the root, else from
+    rest up, else the house default, each with its source; never a
+    warning, which is the reader's to give."""
+
+    @pytest.fixture(autouse=True)
+    def _silent(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            yield
+
+    def test_read_from_the_first_frame(self):
+        # The T-pose lying on its back: the head along +z from the root.
+        frame0 = _REST[:, [0, 2, 1]]
+        assert _infer_world_up(_NAMES, _REST, frame0) == ("+z", "first_frame")
+
+    def test_a_first_frame_in_any_convention_wins_over_rest_up(self):
+        frame0 = _REST.copy()
+        frame0[:, 1] *= -1  # upside down
+        assert _infer_world_up(_NAMES, _REST, frame0) == ("-y", "first_frame")
+
+    def test_an_ambiguous_first_frame_defers_to_rest_up(self):
+        # The head 45 degrees off the vertical: no axis dominates twice over.
+        frame0 = _REST.copy()
+        frame0[2] = [5.0, 5.0, 0.0]
+        assert _infer_world_up(_NAMES, _REST, frame0) == ("+y", "rest_up")
+
+    def test_without_frames_rest_up(self):
+        assert _infer_world_up(_NAMES, _REST, None) == ("+y", "rest_up")
+
+    def test_without_a_named_part_rest_up_from_the_largest_spread(self):
+        rest = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 7.0]])
+        frame0 = rest[:, [2, 1, 0]]
+        assert _infer_world_up(["Root", "A", "B"], rest, frame0) == ("+z", "rest_up")
+
+    def test_the_house_default_when_nothing_says_which_way_is_up(self):
+        assert _infer_world_up(["Root", "Tail"], np.zeros((2, 3)), np.zeros((2, 3))) == (
+            "+y",
+            "default",
+        )
 
 
 class TestLrMappingFromNames:

@@ -42,6 +42,10 @@ from ._orientation import (
     _resolve_node_lr_pairs,
     _warn_facing_defaulted,
     _warn_rest_forward_defaulted,
+    _warn_world_up_defaulted,
+    _warn_world_up_disagreement,
+    _world_up_disagrees,
+    _WorldUpGuess,
 )
 from ._warnings import user_stacklevel
 
@@ -966,6 +970,7 @@ class Bvh:
         """
         self._settle_world_up()
         derived = self._derived
+        guess = derived.inherited_world_up or derived.inferred_world_up
         return {
             "nodes": self.nodes,
             "root_pos": self._root_pos,
@@ -973,7 +978,10 @@ class Bvh:
             "frame_time": self.frame_time,
             "source_path": self.source_path,
             "world_up_override": self._world_up_override,
-            "world_up_guess": derived.inherited_world_up or derived.inferred_world_up,
+            # The guess's source travels with it, so the rebuilt clip
+            # reports how the axis it inherits was obtained. A plain
+            # (axis, source) pair: a pickle names no private class.
+            "world_up_guess": None if guess is None else tuple(guess),
             "warn_on_world_up_disagreement": self._warn_on_world_up_disagreement,
             "lr_mapping_setting": self._lr_mapping_setting,
         }
@@ -995,7 +1003,8 @@ class Bvh:
             self._check_motion_fits_skeleton()
         self._world_up_override = state["world_up_override"]
         self._lr_mapping_setting = state["lr_mapping_setting"]
-        self._derived.inherited_world_up = state["world_up_guess"]
+        guess = state["world_up_guess"]
+        self._derived.inherited_world_up = None if guess is None else _WorldUpGuess(*guess)
 
     def _settle_world_up(self) -> None:
         """Guess world up now, unless it is set or already guessed.
@@ -1023,9 +1032,9 @@ class Bvh:
         for name in ("inferred_world_up", "inherited_world_up"):
             guess = getattr(derived, name)
             if guess is not None:
-                turned = _get_main_direction(rotation @ _axis_to_vector(guess))
+                turned = _get_main_direction(rotation @ _axis_to_vector(guess.axis))
                 assert turned is not None  # a rotation keeps a unit vector unit
-                setattr(derived, name, turned)
+                setattr(derived, name, guess._replace(axis=turned))
 
     def _freeze_skeleton(self) -> None:
         """Freeze every node the clip owns, so its skeleton cannot change
@@ -1133,12 +1142,12 @@ class Bvh:
             return self._world_up_override
         derived = self._derived
         if derived.inherited_world_up is not None:
-            return derived.inherited_world_up
+            return derived.inherited_world_up.axis
         if derived.inferred_world_up is None:
-            derived.inferred_world_up = _infer_world_up(
-                self, warn=self._warn_on_world_up_disagreement
-            )
-        return derived.inferred_world_up
+            guess = self._guess_world_up()
+            self._warn_about_world_up_guess(guess, self.rest_up)
+            derived.inferred_world_up = guess
+        return derived.inferred_world_up.axis
 
     @world_up.setter
     def world_up(self, value: str | None) -> None:
@@ -1168,7 +1177,24 @@ class Bvh:
             >>> bvh.world_up_inferred  # '+y'  (auto's guess)
             >>> bvh.world_up           # '+z'  (user override)
         """
-        return _infer_world_up(self, warn=self._warn_on_world_up_disagreement)
+        guess = self._guess_world_up()
+        self._warn_about_world_up_guess(guess, self.rest_up)
+        return guess.axis
+
+    def _guess_world_up(self) -> _WorldUpGuess:
+        """Guess world up from this clip's own first frame and rest pose."""
+        frame0 = self.node_positions(frame=0) if self.frame_count > 0 else None
+        return _infer_world_up([node.name for node in self.nodes], self._rest_pose(), frame0)
+
+    def _warn_about_world_up_guess(self, guess: _WorldUpGuess, rest_up: str | None) -> None:
+        """Warn when *guess* is the house default, or when it disagrees with
+        *rest_up* and the clip was not loaded with
+        ``warn_on_world_up_disagreement=False``."""
+        if guess.source == "default":
+            _warn_world_up_defaulted()
+        elif self._warn_on_world_up_disagreement and _world_up_disagrees(guess, rest_up):
+            assert rest_up is not None  # a disagreement needs a rest up
+            _warn_world_up_disagreement(rest_up, guess.axis)
 
     @property
     def world_up_axis(self) -> Axis:

@@ -13,10 +13,13 @@ clears which value.
 from __future__ import annotations
 
 from enum import Enum, auto
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import numpy as np
 import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from ._orientation import _WorldUpGuess
 
 
 class _Change(Enum):
@@ -64,12 +67,12 @@ class DerivedState:
         ``(N, 3)``. Stored read-only, as ``node_positions`` is.
     floor_height : float or None
         The scene ground, along world up (``Bvh.floor_height``).
-    inferred_world_up : str or None
-        The world up guessed from this clip's own motion, used when the
-        user set none and the clip inherited none.
-    inherited_world_up : str or None
+    inferred_world_up : _WorldUpGuess or None
+        The world up guessed from this clip's own motion, with its source,
+        used when the user set none and the clip inherited none.
+    inherited_world_up : _WorldUpGuess or None
         The world up of the clip this one was derived from, guessed there,
-        used when the user set none.
+        with the source of that guess, used when the user set none.
     node_index, joint_index : dict or None
         Node name to its index in ``nodes``; joint name to its index in
         ``joint_angles`` axis 1.
@@ -95,8 +98,8 @@ class DerivedState:
         self._node_positions: npt.NDArray[np.float64] | None = None
         self._rest_pose_positions: npt.NDArray[np.float64] | None = None
         self.floor_height: float | None = None
-        self.inferred_world_up: str | None = None
-        self.inherited_world_up: str | None = None
+        self.inferred_world_up: _WorldUpGuess | None = None
+        self.inherited_world_up: _WorldUpGuess | None = None
         self.node_index: dict[str, int] | None = None
         self.joint_index: dict[str, int] | None = None
         self.names_lr_mapping: dict[str, str] | None = None

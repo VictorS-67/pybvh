@@ -180,7 +180,7 @@ def make_scene(
     from ..analysis import root_trajectory
 
     views: list[SkeletonView] = []
-    for i, (b, coords) in enumerate(zip(bvh_list, coords_list)):
+    for i, (b, coords) in enumerate(zip(bvh_list, coords_list, strict=True)):
         # The clip frame of the first shown row, whose facing may fall back
         # to the root's heading there; None for coords that are no clip's.
         first_frame: int | None

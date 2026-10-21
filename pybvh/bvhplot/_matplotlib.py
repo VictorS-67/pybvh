@@ -574,7 +574,7 @@ def frame_mpl(
 
     _set_panel_background(axs_flat[0], style.background)
 
-    for i, (view, ax_i) in enumerate(zip(scene.views, axs_flat)):
+    for i, (view, ax_i) in enumerate(zip(scene.views, axs_flat, strict=True)):
         frame_data = view.coords[0]  # (N, 3) — first frame
 
         _apply_axes_style(ax_i, style)
@@ -729,7 +729,7 @@ def _setup_render_extras(
     trace_lines: list = []  # per skeleton: Line3D or None
     n = scene.num_skeletons
 
-    for i, (view, viewport, ax) in enumerate(zip(scene.views, viewports, axs_flat)):
+    for i, (view, viewport, ax) in enumerate(zip(scene.views, viewports, axs_flat, strict=True)):
         slots = []
         if ghost > 0:
             colors = bone_colors_for_view(view, style, i, n)
@@ -772,7 +772,8 @@ def _wrap_update_with_extras(
     every pass as the first.
     """
     trace_paths = [
-        viewport.ground_path(view.coords[:, 0]) for view, viewport in zip(scene.views, viewports)
+        viewport.ground_path(view.coords[:, 0])
+        for view, viewport in zip(scene.views, viewports, strict=True)
     ]
     empty = np.empty((0, 2, 3))
 
@@ -780,7 +781,7 @@ def _wrap_update_with_extras(
         artists = base_update(f)
         pass_start = scene.pass_start(f)
         for view, bones, slots, trace, path in zip(
-            scene.views, bones_arrays, ghost_slots, trace_lines, trace_paths
+            scene.views, bones_arrays, ghost_slots, trace_lines, trace_paths, strict=True
         ):
             for collection, lag in slots:
                 gf = f - lag
@@ -869,7 +870,7 @@ def render_mpl(
     bone_collections: list[Line3DCollection] = []
     joint_scatters: list = []
     for i, (view, viewport, bones, ax) in enumerate(
-        zip(scene.views, viewports, bones_arrays, axs_flat)
+        zip(scene.views, viewports, bones_arrays, axs_flat, strict=True)
     ):
         collection, joint_scatter = _setup_animated_panel(ax, view, viewport, style, bones, i, n)
         bone_collections.append(collection)
@@ -944,7 +945,7 @@ def _make_orbit_update_fn(
 
     def update(frame):
         artists = base_update(frame)
-        for viewport, ax in zip(viewports, axs_flat):
+        for viewport, ax in zip(viewports, axs_flat, strict=True):
             ax.view_init(
                 elev=viewport.elevation,
                 azim=viewport.azimuth_at(frame),
@@ -991,7 +992,7 @@ def play_mpl(
     bone_collections: list[Line3DCollection] = []
     joint_scatters: list = []
     for i, (view, viewport, bones, ax) in enumerate(
-        zip(scene.views, viewports, bones_arrays, axs_flat)
+        zip(scene.views, viewports, bones_arrays, axs_flat, strict=True)
     ):
         collection, joint_scatter = _setup_animated_panel(ax, view, viewport, style, bones, i, n)
         bone_collections.append(collection)
@@ -1266,7 +1267,7 @@ def _make_update_fn(
 
     def update(f: int) -> list[Any]:
         for coords, bones, collection, scatter in zip(
-            coords_list, bones_arrays, bone_collections, scatters
+            coords_list, bones_arrays, bone_collections, scatters, strict=True
         ):
             frame_data = coords[f]
             collection.set_segments(frame_data[bones])

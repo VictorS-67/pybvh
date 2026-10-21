@@ -111,7 +111,7 @@ def _build_plot(
         # Build k3d objects for each skeleton
         skeleton_objects: list[tuple[Any, Any]] = []
 
-        for s, (view, coords) in enumerate(zip(scene.views, coords_f32)):
+        for s, (view, coords) in enumerate(zip(scene.views, coords_f32, strict=True)):
             frame0 = coords[0]
 
             # Build indices array for k3d.lines: pairs of [start, end]

@@ -993,7 +993,7 @@ def ortho_project(
 
     scales = [
         (extent * FIT_FRACTION) / (2.0 * half)
-        for extent, half in zip((w, h), view_half)
+        for extent, half in zip((w, h), view_half, strict=True)
         if half > 1e-8
     ]
     scale = min(scales) if scales else 1.0

@@ -139,6 +139,6 @@ def node_colors_255(
     n_nodes = view.coords.shape[1]
     out = np.empty((n_nodes, 3), dtype=np.uint8)
     out[:] = spine
-    for (_parent, child), color in zip(view.bones, bone_rgb):
+    for (_parent, child), color in zip(view.bones, bone_rgb, strict=True):
         out[child] = color
     return out

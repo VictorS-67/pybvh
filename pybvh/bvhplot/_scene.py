@@ -601,7 +601,7 @@ class Scene:
         if len(offsets) != len(self.views):
             raise ValueError(f"Expected {len(self.views)} offsets, got {len(offsets)}.")
         views = []
-        for v, off in zip(self.views, offsets):
+        for v, off in zip(self.views, offsets, strict=True):
             off = np.asarray(off, dtype=np.float64).reshape(3)
             views.append(
                 dataclasses.replace(
@@ -655,7 +655,7 @@ class Scene:
             raise ValueError(f"Expected {len(self.views)} factors, got {len(factors)}.")
         measured_on = self._measurement_scene(measured_on)
         views = []
-        for v, pivot_view, factor in zip(self.views, measured_on.views, factors):
+        for v, pivot_view, factor in zip(self.views, measured_on.views, factors, strict=True):
             factor = float(factor)
             if not (np.isfinite(factor) and factor > 0.0):
                 raise ValueError(f"A scale factor must be a positive number, got {factor!r}.")

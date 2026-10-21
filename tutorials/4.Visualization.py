@@ -121,7 +121,7 @@ frame_num = 20
 
 fig, axes = plt.subplots(1, 3, figsize=(15, 4), subplot_kw={"projection": "3d"})
 
-for ax, angle in zip(axes, ["front", "side", "top"]):
+for ax, angle in zip(axes, ["front", "side", "top"], strict=True):
     bvh.plot_frame(frame=frame_num, camera=angle, ax=ax)
     ax.set_title(f"Camera: {angle}")
 
@@ -187,7 +187,7 @@ styles = [
 ]
 titles = ["floor='checker'", "floor=None", "axes='full'"]
 
-for ax, style, title in zip(axes, styles, titles):
+for ax, style, title in zip(axes, styles, titles, strict=True):
     bvh.plot_frame(frame=30, style=style, ax=ax)
     ax.set_title(title)
 
@@ -261,7 +261,7 @@ plt.show()
 # Side-by-side frame plots — axis tick values reveal the centering difference
 fig, axes = plt.subplots(1, 3, figsize=(16, 5), subplot_kw={"projection": "3d"})
 
-for ax, mode in zip(axes, ["world", "first", "skeleton"]):
+for ax, mode in zip(axes, ["world", "first", "skeleton"], strict=True):
     bvh.plot_frame(frame=30, centered=mode, ax=ax)
     ax.set_title(f'centered="{mode}"')
 

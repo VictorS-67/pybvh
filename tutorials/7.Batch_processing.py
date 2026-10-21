@@ -245,10 +245,14 @@ with warnings.catch_warnings():
     )
 
 print(f"Kept {len(report.kept_indices)} / dropped {len(report.dropped_indices)}")
-for idx, src, stages in zip(report.kept_indices, report.kept_sources, report.applied_stages):
+for idx, src, stages in zip(
+    report.kept_indices, report.kept_sources, report.applied_stages, strict=True
+):
     src_name = Path(src).name if src else f"<index {idx}>"
     print(f"  {src_name}: {stages}")
-for idx, src, reason in zip(report.dropped_indices, report.dropped_sources, report.drop_reasons):
+for idx, src, reason in zip(
+    report.dropped_indices, report.dropped_sources, report.drop_reasons, strict=True
+):
     src_name = Path(src).name if src else f"<index {idx}>"
     print(f"  DROPPED {src_name}: {reason}")
 

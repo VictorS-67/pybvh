@@ -220,6 +220,7 @@ for ax, contacts, title in zip(
     axes,
     [contacts_vel, contacts_ht, contacts_comb],
     ["velocity", "height", "combined (default)"],
+    strict=True,
 ):
     ax.imshow(contacts.T, aspect="auto", cmap="Greys", interpolation="nearest")
     ax.set_yticks(range(len(foot_names)))

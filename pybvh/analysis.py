@@ -1930,7 +1930,7 @@ def _true_runs(col: npt.NDArray[np.bool_]) -> list[tuple[int, int]]:
     breaks = np.flatnonzero(np.diff(idx) > 1)
     starts = np.concatenate([[idx[0]], idx[breaks + 1]])
     ends = np.concatenate([idx[breaks], [idx[-1]]]) + 1
-    return list(zip(starts.tolist(), ends.tolist()))
+    return list(zip(starts.tolist(), ends.tolist(), strict=True))
 
 
 def _hysteresis_mask(

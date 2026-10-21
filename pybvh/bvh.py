@@ -123,7 +123,7 @@ def _motion_column_names(nodes: Sequence[BvhNode], mode: str) -> list[str]:
             raise ValueError(f"nodes[0] must be the BvhRoot, got {type(root).__name__}")
         labels = _unique_labels([joint.name for joint in joints])
         names = [f"{labels[0]}_{ax}_pos" for ax in root.pos_channels]
-        for label, joint in zip(labels, joints):
+        for label, joint in zip(labels, joints, strict=True):
             names.extend(f"{label}_{ax}_rot" for ax in joint.rot_channels)
         return names
     if mode == "coordinates":
@@ -602,7 +602,7 @@ class Bvh:
             return False
         if len(self.nodes) != len(other.nodes):
             return False
-        for n1, n2 in zip(self.nodes, other.nodes):
+        for n1, n2 in zip(self.nodes, other.nodes, strict=True):
             if n1.name != n2.name:
                 return False
             if n1.is_end_site() != n2.is_end_site():
@@ -2193,7 +2193,7 @@ class Bvh:
         result: dict[str, npt.NDArray[np.float64]] = {
             "time": np.arange(self.frame_count, dtype=np.float64) * self.frame_time
         }
-        result.update(zip(columns, flat.T))
+        result.update(zip(columns, flat.T, strict=True))
         return result
 
     def to_node_table(self) -> list[dict[str, Any]]:
@@ -3020,7 +3020,7 @@ class Bvh:
         """
         if len(self.nodes) != len(other.nodes):
             raise ValueError(f"Node count mismatch: {len(self.nodes)} vs {len(other.nodes)}")
-        for n1, n2 in zip(self.nodes, other.nodes):
+        for n1, n2 in zip(self.nodes, other.nodes, strict=True):
             if n1.name != n2.name:
                 raise ValueError(f"Node name mismatch: '{n1.name}' vs '{n2.name}'")
             if n1.is_end_site() != n2.is_end_site():

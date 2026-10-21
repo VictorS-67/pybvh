@@ -443,6 +443,12 @@ def _hierarchy_mismatch_message(ref: Bvh, bvh: Bvh, ref_idx: int, idx: int) -> s
                 f"Skeleton hierarchy mismatch between {ref_label} and "
                 f"{div_label}: node {j} is '{n1.name}' vs '{n2.name}'."
             )
+        if n1.is_end_site() != n2.is_end_site():
+            kinds = ["an end site" if n.is_end_site() else "a joint" for n in (n1, n2)]
+            return (
+                f"Skeleton hierarchy mismatch between {ref_label} and "
+                f"{div_label}: node '{n1.name}' is {kinds[0]} vs {kinds[1]}."
+            )
         p1 = n1.parent.name if n1.parent is not None else None
         p2 = n2.parent.name if n2.parent is not None else None
         if p1 != p2:

@@ -100,6 +100,26 @@ def _offsets(bvh):
     return np.array([node.offset for node in bvh.nodes])
 
 
+def _leaf_as_joint_and_as_end_site():
+    """Two clips alike in names, parents and offsets, whose leaf ``Tip`` is
+    a joint without children in the first and an end site in the second."""
+
+    def clip(tip_is_joint):
+        root = BvhRoot("Hips", [0.0, 0.0, 0.0], "XYZ", "ZYX")
+        tip_class = BvhJoint if tip_is_joint else BvhEndSite
+        tip = tip_class("Tip", [0.0, 1.0, 0.0], parent=root)
+        root.children = [tip]
+        joints = 2 if tip_is_joint else 1
+        return Bvh(
+            nodes=[root, tip],
+            root_pos=np.zeros((3, 3)),
+            joint_angles=np.zeros((3, joints, 3)),
+            frame_time=0.1,
+        )
+
+    return clip(True), clip(False)
+
+
 @pytest.fixture
 def bvh_example_path():
     """Path to the example BVH file."""
@@ -1848,6 +1868,17 @@ class TestFrameSlicing:
         other = _with_names(bvh_example, names)
         with pytest.raises(ValueError, match="name mismatch"):
             bvh_example + other
+
+    def test_concat_of_a_childless_joint_and_an_end_site_raises(self):
+        """A leaf that is a joint in one clip and an end site in the other."""
+        with_joint, with_end_site = _leaf_as_joint_and_as_end_site()
+        with pytest.raises(ValueError, match="Node kind mismatch for 'Tip'"):
+            with_joint + with_end_site
+
+    def test_iadd_of_a_childless_joint_and_an_end_site_raises(self):
+        with_joint, with_end_site = _leaf_as_joint_and_as_end_site()
+        with pytest.raises(ValueError, match="Node kind mismatch for 'Tip'"):
+            with_joint += with_end_site
 
     def test_concat_mismatched_channels_raises(self, bvh_example):
         """Concat with different rotation orders should raise."""
@@ -4461,6 +4492,11 @@ class TestBatchProcessing:
             with pytest.raises(ValueError, match="Skeleton hierarchy mismatch"):
                 batch_to_numpy([all_bvhs[0], mixed[0]])
 
+    def test_batch_to_numpy_names_a_node_that_is_a_joint_in_one_clip_only(self):
+        with_joint, with_end_site = _leaf_as_joint_and_as_end_site()
+        with pytest.raises(ValueError, match="node 'Tip' is a joint vs an end site"):
+            batch_to_numpy([with_joint, with_end_site])
+
     def test_batch_to_numpy_without_root_pos(self, bvh_dir):
         """include_root_pos=False should omit 3 columns."""
         bvhs = read_bvh_directory(bvh_dir, pattern="bvh_test1.bvh")
@@ -4703,6 +4739,15 @@ class TestHarmonize:
         clips = [bvh_example, bvh_test2]
         with pytest.raises(ValueError, match="incompatible topology"):
             harmonize(clips, reference=bvh_example, on_incompatible="raise")
+
+    def test_drops_a_clip_with_an_end_site_where_the_reference_has_a_joint(self):
+        from pybvh.batch import harmonize
+
+        with_joint, with_end_site = _leaf_as_joint_and_as_end_site()
+        _, report = harmonize(
+            [with_joint, with_end_site], reference=with_joint, verbose=False, return_report=True
+        )
+        assert report.dropped_indices == [1]
 
     def test_verbose_summary_is_single_warning(self, bvh_example, bvh_test2):
         """One summary warning at end of call, not one per dropped clip."""
@@ -6817,6 +6862,11 @@ class TestMatchesHierarchy:
         assert not bvh_example.matches_hierarchy("not a bvh")
         assert not bvh_example.matches_hierarchy(None)
 
+    def test_a_childless_joint_does_not_match_an_end_site(self):
+        with_joint, with_end_site = _leaf_as_joint_and_as_end_site()
+        assert not with_joint.matches_hierarchy(with_end_site)
+        assert not with_end_site.matches_hierarchy(with_joint)
+
 
 class TestMatchesChannels:
     """Tests for Bvh.matches_channels."""
@@ -7086,6 +7136,13 @@ class TestBvhSetItemErrors:
         bvh_same_len = bvh_example.copy()
         with pytest.raises(ValueError):
             bvh_same_len[0:10] = donor
+
+    def test_end_site_where_the_clip_has_a_childless_joint_raises(self):
+        # The donor's joint angles are one joint narrower, which NumPy would
+        # broadcast into the clip's.
+        with_joint, with_end_site = _leaf_as_joint_and_as_end_site()
+        with pytest.raises(ValueError, match="Node kind mismatch for 'Tip': joint vs end site"):
+            with_joint[0:3] = with_end_site
 
     def test_int_out_of_range(self, bvh_example):
         bvh = bvh_example.copy()

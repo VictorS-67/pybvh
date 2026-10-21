@@ -524,7 +524,7 @@ class TestMirrorWithRepeatedEndSiteNames:
     def test_mirror_reflects_every_tip(self, two_tips_rig):
         """A symmetric rig mirrors back onto itself — every end site swapped."""
         mirrored = two_tips_rig.mirror(lateral="x")
-        for original, result in zip(two_tips_rig.nodes, mirrored.nodes):
+        for original, result in zip(two_tips_rig.nodes, mirrored.nodes, strict=True):
             np.testing.assert_allclose(
                 result.offset,
                 original.offset,
@@ -540,7 +540,7 @@ class TestMirrorWithRepeatedEndSiteNames:
         round-trip assertion passes on the broken implementation too.
         """
         twice = two_tips_rig.mirror(lateral="x").mirror(lateral="x")
-        for original, result in zip(two_tips_rig.nodes, twice.nodes):
+        for original, result in zip(two_tips_rig.nodes, twice.nodes, strict=True):
             np.testing.assert_allclose(result.offset, original.offset, atol=1e-12)
 
     def test_unequal_end_site_counts_still_raise(self):

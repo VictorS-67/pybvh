@@ -116,7 +116,7 @@ class TestNodesToTable:
         table = nodes_to_table(_two_end_sites_rig())
         expected = _two_end_sites_table()
         assert len(table) == len(expected)
-        for entry, want in zip(table, expected):
+        for entry, want in zip(table, expected, strict=True):
             assert list(entry) == list(want)
             for key in want:
                 if key == "offset":
@@ -137,7 +137,7 @@ class TestNodesToTable:
         assert len(table) == len(bvh_example.nodes)
         assert table[0]["parent"] is None
         assert "pos_channels" in table[0]
-        for entry, node in zip(table[1:], bvh_example.nodes[1:]):
+        for entry, node in zip(table[1:], bvh_example.nodes[1:], strict=True):
             assert entry["parent"] == bvh_example.nodes.index(node.parent)
             assert "pos_channels" not in entry
             assert ("rot_channels" in entry) == (not node.is_end_site())

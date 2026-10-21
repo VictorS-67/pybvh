@@ -413,7 +413,9 @@ class TestColors:
         p = _vedo._VedoPlayer(labelled_pair, Style("paper"), 30.0, quality="high")
         try:
             labels = {o.text(): o for o in p.plt.objects if isinstance(o, vedo.Text2D)}
-            for name, trail, rgb in zip(["walk", "mirror"], p._trail_actors, [self.BLUE, self.RED]):
+            for name, trail, rgb in zip(
+                ["walk", "mirror"], p._trail_actors, [self.BLUE, self.RED], strict=True
+            ):
                 expected = np.asarray(rgb) / 255
                 np.testing.assert_allclose(labels[name].properties.GetColor(), expected)
                 np.testing.assert_allclose(trail.properties.GetColor(), expected)
@@ -460,7 +462,7 @@ class TestColorModes:
         style = Style("paper", color_mode="chains")
         p = self._player(pair, style, "high", monkeypatch)
         try:
-            for capsule, view in zip(p._capsules, pair.views):
+            for capsule, view in zip(p._capsules, pair.views, strict=True):
                 assert _rows(capsule.bones_mesh.pointcolors) == set(self._chain_rgb(style, view))
         finally:
             p.plt.close()
@@ -579,7 +581,7 @@ def _slider_box(slider, renderer):
                 x0, x1, y0, y1, _, _ = drawn.GetCell(cell).GetBounds()
                 boxes.append((x0, x1, y0, y1))
     assert boxes, "the slider drew nothing"
-    x0s, x1s, y0s, y1s = zip(*boxes)
+    x0s, x1s, y0s, y1s = zip(*boxes, strict=True)
     return (min(x0s), max(x1s), min(y0s), max(y1s))
 
 

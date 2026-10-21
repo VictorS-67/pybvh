@@ -422,7 +422,7 @@ def fig_skeleton_ops(bvhs, labels, frame):
     palette = ["tab:blue", "tab:red", "tab:green", "tab:purple"]
     cursor = 0.0
     all_pts = []
-    for k, (b, lab) in enumerate(zip(bvhs, labels)):
+    for k, (b, lab) in enumerate(zip(bvhs, labels, strict=True)):
         P = b.node_positions()[frame].copy()
         P[:, up_idx] -= P[:, up_idx].min()  # feet on a shared floor
         P[:, row_axis] -= P[:, row_axis].min() - cursor
@@ -577,7 +577,7 @@ def fig_inter_joint_distance(bvh, frame, a, b, value, title):
     P = bvh.node_positions()[frame]
     draw_skeleton(ax, bvh, P)
     pa, pb = P[idx(bvh, a)], P[idx(bvh, b)]
-    ax.plot(*zip(pa, pb), "o--", color="tab:red", lw=2)
+    ax.plot(*zip(pa, pb, strict=True), "o--", color="tab:red", lw=2)
     ax.text(*((pa + pb) / 2), f"  {value:.1f}", color="tab:red", fontsize=11)
     set_equal_3d(ax, P)
     plt.tight_layout()
@@ -588,8 +588,8 @@ def fig_joint_angle(bvh, frame, a, vertex, b, value, title):
     P = bvh.node_positions()[frame]
     draw_skeleton(ax, bvh, P)
     A, V, B = P[idx(bvh, a)], P[idx(bvh, vertex)], P[idx(bvh, b)]
-    ax.plot(*zip(V, A), "-o", color="tab:red", lw=3)
-    ax.plot(*zip(V, B), "-o", color="tab:red", lw=3)
+    ax.plot(*zip(V, A, strict=True), "-o", color="tab:red", lw=3)
+    ax.plot(*zip(V, B, strict=True), "-o", color="tab:red", lw=3)
     arc = _arc(V, A, B)
     ax.plot(arc[:, 0], arc[:, 1], arc[:, 2], color="tab:orange", lw=3)
     ax.text(*V, f"  {value:.0f}°", color="tab:orange", fontsize=12)
@@ -603,7 +603,7 @@ def fig_segment_axis_angle(bvh, frame, a, b, value, title):
     P = bvh.node_positions()[frame]
     draw_skeleton(ax, bvh, P)
     s0, s1 = P[idx(bvh, a)], P[idx(bvh, b)]
-    ax.plot(*zip(s0, s1), "-o", color="tab:red", lw=3)
+    ax.plot(*zip(s0, s1, strict=True), "-o", color="tab:red", lw=3)
     ax.quiver(*s0, *(UP * 15), color="tab:blue", lw=2.5, arrow_length_ratio=0.2)
     seg = (s1 - s0) / np.linalg.norm(s1 - s0)
     arc = _arc(s0, s0 + UP, s0 + seg)
@@ -620,7 +620,7 @@ def fig_triangle_area(bvh, frame, a, b, c, value, title):
     draw_skeleton(ax, bvh, P)
     tri = np.array([P[idx(bvh, a)], P[idx(bvh, b)], P[idx(bvh, c)]])
     ax.add_collection3d(Poly3DCollection([tri], alpha=0.35, facecolor="tab:purple"))
-    ax.plot(*zip(*np.vstack([tri, tri[0]])), color="tab:purple", lw=2)
+    ax.plot(*zip(*np.vstack([tri, tri[0]]), strict=True), color="tab:purple", lw=2)
     ax.text(*tri.mean(0), f"  area={value:.0f}", color="tab:purple", fontsize=11)
     set_equal_3d(ax, P)
     plt.tight_layout()
@@ -638,7 +638,7 @@ def fig_point_to_plane_segment_synthetic():
     ax.plot_surface(gx, gy, np.zeros_like(gx), alpha=0.25, color="tab:blue")
     foot = pt - geometry.point_to_plane_distance(pt, pp, n) * n
     ax.scatter(*pt, color="tab:red", s=50)
-    ax.plot(*zip(pt, foot), "--", color="tab:red", lw=2)
+    ax.plot(*zip(pt, foot, strict=True), "--", color="tab:red", lw=2)
     ax.text(*pt, f"  d={geometry.point_to_plane_distance(pt, pp, n):.2f}", color="tab:red")
     ax.set_xlabel("x")
     ax.set_ylabel("y")
@@ -649,11 +649,11 @@ def fig_point_to_plane_segment_synthetic():
     ax.set_title("point_to_segment_distance")
     sa, sb = np.array([0.0, 0, 0]), np.array([3.0, 0, 0])
     q = np.array([1.0, 2.0, 0.0])
-    ax.plot(*zip(sa, sb), "-o", color="tab:blue", lw=3)
+    ax.plot(*zip(sa, sb, strict=True), "-o", color="tab:blue", lw=3)
     t = np.clip(np.dot(q - sa, sb - sa) / np.dot(sb - sa, sb - sa), 0, 1)
     near = sa + t * (sb - sa)
     ax.scatter(*q, color="tab:red", s=50)
-    ax.plot(*zip(q, near), "--", color="tab:red", lw=2)
+    ax.plot(*zip(q, near, strict=True), "--", color="tab:red", lw=2)
     ax.text(*q, f"  d={geometry.point_to_segment_distance(q, sa, sb):.2f}", color="tab:red")
     ax.set_xlabel("x")
     ax.set_ylabel("y")
@@ -680,7 +680,7 @@ def fig_point_to_plane_segment_skeleton(
     )
     ax.plot_surface(gx, gy, np.full_like(gx, floor), alpha=0.18, color="tab:blue")
     ax.scatter(*foot, color="tab:red", s=45)
-    ax.plot(*zip(foot, [foot[0], foot[1], floor]), "--", color="tab:red", lw=2)
+    ax.plot(*zip(foot, [foot[0], foot[1], floor], strict=True), "--", color="tab:red", lw=2)
     ax.set_title(f"point_to_plane: {toe} clearance = {clearance:.1f}")
     set_equal_3d(ax, Pk)
     set_view(ax, elev=0, azim=60)
@@ -690,12 +690,12 @@ def fig_point_to_plane_segment_skeleton(
     hips, neck = idx(bvh, axis_a), idx(bvh, axis_b)
     draw_skeleton(ax, bvh, Pk)
     h = Pk[idx(bvh, hand)]
-    ax.plot(*zip(Pk[hips], Pk[neck]), "-o", color="tab:green", lw=3)  # torso axis
+    ax.plot(*zip(Pk[hips], Pk[neck], strict=True), "-o", color="tab:green", lw=3)  # torso axis
     axis_vec = Pk[neck] - Pk[hips]
     proj = np.clip(np.dot(h - Pk[hips], axis_vec) / np.dot(axis_vec, axis_vec), 0, 1)
     nearest = Pk[hips] + proj * axis_vec
     ax.scatter(*h, color="tab:red", s=45)
-    ax.plot(*zip(h, nearest), "--", color="tab:red", lw=2)
+    ax.plot(*zip(h, nearest, strict=True), "--", color="tab:red", lw=2)
     ax.set_title(f"point_to_segment: hand reach from torso = {reach:.1f}")
     set_equal_3d(ax, Pk)
     set_view(ax, azim=185)
@@ -715,7 +715,7 @@ def fig_bounding_volumes(bvh, frame, box, sph, ell):
     draw_skeleton(ax, bvh, P, joints=True)
     corners, E = box_edges(box.min[frame], box.max[frame])
     for i, j in E:
-        ax.plot(*zip(corners[i], corners[j]), color="tab:green", lw=1.5)
+        ax.plot(*zip(corners[i], corners[j], strict=True), color="tab:green", lw=1.5)
     set_equal_3d(ax, P)
 
     ax = fig.add_subplot(132, projection="3d")
@@ -753,7 +753,7 @@ def fig_com(bvh, com_all, disp, frame=50):
     ref = com_all[0]  # default reference: the first-frame CoM
     ax.scatter(*com_all[frame], color="k", s=60, label="CoM (this frame)")
     ax.scatter(*ref, color="tab:red", s=60, marker="x", label="start CoM (frame 0, ref)")
-    ax.plot(*zip(com_all[frame], ref), "--", color="k", lw=1.5)
+    ax.plot(*zip(com_all[frame], ref, strict=True), "--", color="k", lw=1.5)
     ax.text(*((com_all[frame] + ref) / 2), f" {disp[frame]:.1f}", fontsize=11)
     ax.legend(loc="upper left", fontsize=8)
     set_equal_3d(ax, np.vstack([p, com_all, ref]))
@@ -784,7 +784,9 @@ def fig_verticality(bvh, frame, value):
 def fig_path_directness(traj, path_length, directness, title):
     fig, ax = new3d(title)
     ax.plot(traj[:, 0], traj[:, 1], traj[:, 2], color="tab:blue", lw=2, label="path")
-    ax.plot(*zip(traj[0], traj[-1]), "--", color="tab:red", lw=2, label="start→end chord")
+    ax.plot(
+        *zip(traj[0], traj[-1], strict=True), "--", color="tab:red", lw=2, label="start→end chord"
+    )
     ax.scatter(*traj[0], color="g", s=40)
     ax.scatter(*traj[-1], color="r", s=40)
     ax.text2D(
@@ -860,7 +862,7 @@ def fig_ground_path(bvh, joint, gp_result):
     ax.plot(shadow[:, 0], shadow[:, 1], shadow[:, 2], color="tab:gray", lw=2, label="ground shadow")
     ax.add_collection3d(Poly3DCollection([shadow], alpha=0.2, facecolor="tab:orange"))
     for k in range(0, F, 10):
-        ax.plot(*zip(traj[k], shadow[k]), color="0.85", lw=0.6)
+        ax.plot(*zip(traj[k], shadow[k], strict=True), color="0.85", lw=0.6)
     ax.text2D(
         0.02,
         0.95,
@@ -910,6 +912,7 @@ def fig_jerk_ladder(frames, speed, acc, jerk, title):
         [speed, acc, jerk],
         ["speed", "‖accel‖", "‖jerk‖"],
         ["tab:blue", "tab:orange", "tab:red"],
+        strict=True,
     ):
         a.plot(frames, y, color=c)
         a.set_ylabel(lab)
@@ -954,7 +957,7 @@ def fig_smoothness_profiles(smooth, jerky, sparc, fs):
 
 def fig_smoothness_bars(scores):
     fig, axs = plt.subplots(2, 4, figsize=(14, 5))
-    for m, ax in zip(scores, axs.ravel()):
+    for m, ax in zip(scores, axs.ravel(), strict=True):
         vals = scores[m]  # [smooth, jerky], precomputed in the cell
         ax.bar(["smooth", "jerky"], vals, color=["tab:green", "tab:red"])
         ax.set_title(m, fontsize=9)
@@ -1019,7 +1022,7 @@ def fig_zero_crossings_active(t, speed, zc, active):
     g = (thr - speed[j]) / (speed[j + 1] - speed[j])
     edges = (t[j] + g * (t[j + 1] - t[j])).tolist()
     bounds = ([t[0]] if above[0] else []) + edges + ([t[-1]] if above[-1] else [])
-    for lo, hi in zip(bounds[0::2], bounds[1::2]):
+    for lo, hi in zip(bounds[0::2], bounds[1::2], strict=True):
         a2.axvspan(lo, hi, color="tab:green", alpha=0.25)
     a2.set(title=f"active_duration = {active:.2f} s", xlabel="time (s)", ylabel="speed")
     a2.legend(fontsize=8)
@@ -1132,7 +1135,7 @@ def fig_skeleton_size(bvh, feet, value):
     draw_skeleton(ax, bvh, rest, joints=True)
     root = rest[0]
     for fname in feet:
-        ax.plot(*zip(root, rest[idx(bvh, fname)]), "-o", color="tab:red", lw=2)
+        ax.plot(*zip(root, rest[idx(bvh, fname)], strict=True), "-o", color="tab:red", lw=2)
     ax.text(*root, f"  size = {value:.1f}", fontsize=11, color="tab:red")
     set_equal_3d(ax, rest)
     plt.tight_layout()
@@ -1197,7 +1200,7 @@ def fig_se3_exp(twist):
 def fig_screw_interpolate(frames, ts):
     fig, ax = new3d("screw_interpolate: T₀ → T₁ along a screw")
     frames = np.asarray(frames)
-    for T, t in zip(frames, ts):
+    for T, t in zip(frames, ts, strict=True):
         draw_triad(ax, T, length=0.35, alpha=0.45 + 0.4 * t)
     # dense origin path between the endpoints — the screw arc the frames ride
     path = rotations.screw_interpolate(frames[0], frames[-1], np.linspace(ts[0], ts[-1], 60))[
@@ -1217,7 +1220,7 @@ def fig_relative_transform(bvh, frame, twist):
     upper = np.stack([P[idx(bvh, "RightArm")], P[idx(bvh, "RightForeArm")]])
     fore = np.stack([P[idx(bvh, "RightForeArm")], P[idx(bvh, "RightHand")]])
     for s in (upper, fore):
-        ax.plot(*zip(s[0], s[1]), "-o", lw=3)
+        ax.plot(*zip(s[0], s[1], strict=True), "-o", lw=3)
     ax.text2D(
         0.02,
         0.92,

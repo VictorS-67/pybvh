@@ -120,13 +120,15 @@ def test_se3_pure_translation():
 # ---------- screw interpolation ----------
 def test_screw_interpolate_vs_pytransform3d():
     d = _load("se3_screw_interp")
-    out = np.array([rot.screw_interpolate(a, b, t) for a, b, t in zip(d["T0"], d["T1"], d["t"])])
+    out = np.array(
+        [rot.screw_interpolate(a, b, t) for a, b, t in zip(d["T0"], d["T1"], d["t"], strict=True)]
+    )
     np.testing.assert_allclose(out, d["interp"], atol=1e-9)
 
 
 def test_screw_interpolate_endpoints():
     d = _load("se3_screw_interp")
-    for a, b, t in zip(d["T0"], d["T1"], d["t"]):
+    for a, b, t in zip(d["T0"], d["T1"], d["t"], strict=True):
         if t == 0.0:
             np.testing.assert_allclose(rot.screw_interpolate(a, b, 0.0), a, atol=1e-9)
         elif t == 1.0:

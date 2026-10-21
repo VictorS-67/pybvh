@@ -101,7 +101,7 @@ def test_jupytext_pair_in_sync(ipynb):
         f"{len(nb_cells)} in {ipynb.name} — run `jupytext --sync "
         f"tutorials/*.ipynb`"
     )
-    for i, (pc, nc) in enumerate(zip(py_cells, nb_cells)):
+    for i, (pc, nc) in enumerate(zip(py_cells, nb_cells, strict=True)):
         assert pc == nc, (
             f"cell {i} differs between {py.name} and {ipynb.name} — run "
             f"`jupytext --sync tutorials/*.ipynb`"

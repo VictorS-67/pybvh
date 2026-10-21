@@ -623,7 +623,7 @@ class TestFrame:
         long, short = bvh_example, bvh_example[0:50]
         bvhplot.frame([long, short], -3)
         (scene,) = drawn
-        for view, clip in zip(scene.views, (long, short)):
+        for view, clip in zip(scene.views, (long, short), strict=True):
             third_from_end = len(clip) - 3
             assert_view_shows(view, clip, slice(third_from_end, third_from_end + 1))
 
@@ -1865,7 +1865,7 @@ class TestSceneSpacing:
 
         scene = self._scene(two_bvhs, two_coords)
         result = scene.spread(3.0)
-        for before, after in zip(scene.views, result.views):
+        for before, after in zip(scene.views, result.views, strict=True):
             shift = after.coords[0, 0] - before.coords[0, 0]
             np.testing.assert_allclose(
                 make_viewport([after]).center, make_viewport([before]).center + shift
@@ -2054,7 +2054,7 @@ class TestMatchSize:
         self._draw(entry_point, backend, clips, tmp_path, match_size=True)
         plain, matched = scenes
         assert matched.labels == plain.labels == ["walk", "test2"]
-        for plain_view, matched_view in zip(plain.views, matched.views):
+        for plain_view, matched_view in zip(plain.views, matched.views, strict=True):
             np.testing.assert_array_equal(matched_view.coords, plain_view.coords)
             np.testing.assert_array_equal(matched_view.rest_coords, plain_view.rest_coords)
 
@@ -2186,7 +2186,7 @@ class TestSpreadInOneScene:
         draw_through("play", "vedo", twins, tmp_path, centered=centered)
         draw_through("render", "vedo", twins, tmp_path, centered=centered)
         played, rendered = scenes
-        for played_view, rendered_view in zip(played.views, rendered.views):
+        for played_view, rendered_view in zip(played.views, rendered.views, strict=True):
             np.testing.assert_array_equal(rendered_view.coords, played_view.coords)
 
     @pytest.mark.parametrize("entry_point, backend, module, function", SINGLE_SCENE)
@@ -2215,7 +2215,7 @@ class TestSpreadInOneScene:
         draw_through(entry_point, backend, twins, tmp_path, centered="first")
         draw_through(entry_point, backend, twins, tmp_path, centered="first", spacing=2.0)
         plain, spaced = scenes
-        for plain_view, spaced_view in zip(plain.views, spaced.views):
+        for plain_view, spaced_view in zip(plain.views, spaced.views, strict=True):
             np.testing.assert_array_equal(spaced_view.coords, plain_view.coords)
 
     @pytest.mark.parametrize("entry_point", ["play", "frame", "render"])
@@ -2315,7 +2315,7 @@ class TestSpreadInOneScene:
         f = 60
         played, still = self._matched_pair(walk_and_hundredfold, reached, tmp_path, "world", f)
         assert still.labels == played.labels == [None, "×0.01"]
-        for played_view, still_view in zip(played.views, still.views):
+        for played_view, still_view in zip(played.views, still.views, strict=True):
             np.testing.assert_allclose(still_view.coords[0], played_view.coords[f], atol=1e-9)
 
     def test_a_matched_still_centred_first_is_the_viewers_frame_recentred(
@@ -2329,7 +2329,7 @@ class TestSpreadInOneScene:
         f = 60
         played, still = self._matched_pair(walk_and_hundredfold, reached, tmp_path, "first", f)
         for clip, factor, played_view, still_view in zip(
-            walk_and_hundredfold, [1.0, 0.01], played.views, still.views
+            walk_and_hundredfold, [1.0, 0.01], played.views, still.views, strict=True
         ):
             travel = clip.root_pos[f] - clip.root_pos[0]
             travel[played_view.up_index] = 0.0
@@ -2373,7 +2373,7 @@ class TestSpreadInOneScene:
         reached(_vedo_offscreen, "frame_vedo")
         bvhplot.frame(twins, 3, backend="vedo", centered="first")
         assert len(whole_clip_scenes) == 1
-        assert all(a is b for a, b in zip(whole_clip_scenes[0], twins))
+        assert all(a is b for a, b in zip(whole_clip_scenes[0], twins, strict=True))
 
 
 # Each public function that draws into a caller's ax=, with the axes

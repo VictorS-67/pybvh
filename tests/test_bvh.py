@@ -1835,7 +1835,7 @@ class TestFrameSlicing:
         """Sliced Bvh has the same skeleton."""
         sliced = bvh_example[0:5]
         assert len(sliced.nodes) == len(bvh_example.nodes)
-        for n1, n2 in zip(sliced.nodes, bvh_example.nodes):
+        for n1, n2 in zip(sliced.nodes, bvh_example.nodes, strict=True):
             assert n1.name == n2.name
 
     def test_slice_frames_empty_result(self, bvh_example):
@@ -1985,7 +1985,7 @@ class TestSkeletonRetargeting:
         ref = bvh_example.copy()
         ref.scale(2.0, inplace=True)
         result = bvh_example.retarget(ref)
-        for n1, n2 in zip(result.nodes, ref.nodes):
+        for n1, n2 in zip(result.nodes, ref.nodes, strict=True):
             np.testing.assert_array_equal(n1.offset, n2.offset)
 
     def test_retarget_with_identity_mapping(self, bvh_example):
@@ -1994,7 +1994,7 @@ class TestSkeletonRetargeting:
         ref.scale(2.0, inplace=True)
         mapping = {n.name: n.name for n in bvh_example.nodes}
         result = bvh_example.retarget(ref, name_mapping=mapping)
-        for n1, n2 in zip(result.nodes, ref.nodes):
+        for n1, n2 in zip(result.nodes, ref.nodes, strict=True):
             np.testing.assert_array_equal(n1.offset, n2.offset)
 
     def test_retarget_with_prefix_mapping(self, bvh_example):
@@ -2007,7 +2007,7 @@ class TestSkeletonRetargeting:
         mapping = {n.name: "prefix:" + n.name for n in bvh_example.nodes}
         result = bvh_example.retarget(ref, name_mapping=mapping)
 
-        for n_result, n_ref in zip(result.nodes, ref.nodes):
+        for n_result, n_ref in zip(result.nodes, ref.nodes, strict=True):
             np.testing.assert_array_equal(n_result.offset, n_ref.offset)
 
     def test_retarget_lenient_unmapped(self, bvh_example):
@@ -2293,7 +2293,7 @@ class TestFileRoundTripAllFiles:
     def test_roundtrip_preserves_rotation_orders(self, bvh_test3, tmp_path):
         """For bvh_test3, verify each joint's rot_channels match after roundtrip."""
         bvh2 = self._roundtrip(bvh_test3, tmp_path)
-        for n1, n2 in zip(bvh_test3.nodes, bvh2.nodes):
+        for n1, n2 in zip(bvh_test3.nodes, bvh2.nodes, strict=True):
             if not n1.is_end_site():
                 assert n1.rot_channels == n2.rot_channels, (
                     f"rot_channels mismatch for {n1.name}: {n1.rot_channels} vs {n2.rot_channels}"
@@ -2302,7 +2302,7 @@ class TestFileRoundTripAllFiles:
     def test_roundtrip_preserves_hierarchy(self, bvh_test3, tmp_path):
         """Verify parent-child relationships match after roundtrip."""
         bvh2 = self._roundtrip(bvh_test3, tmp_path)
-        for n1, n2 in zip(bvh_test3.nodes, bvh2.nodes):
+        for n1, n2 in zip(bvh_test3.nodes, bvh2.nodes, strict=True):
             assert n1.name == n2.name
             parent1 = n1.parent.name if n1.parent is not None else None
             parent2 = n2.parent.name if n2.parent is not None else None
@@ -2481,7 +2481,7 @@ class TestScaleSkeleton:
         """scale=2.0 should double all offsets."""
         original_offsets = [n.offset.copy() for n in bvh_example.nodes]
         result = bvh_example.scale(2.0)
-        for orig_off, node in zip(original_offsets, result.nodes):
+        for orig_off, node in zip(original_offsets, result.nodes, strict=True):
             np.testing.assert_allclose(node.offset, orig_off * 2.0, atol=1e-10)
 
     def test_scale_uniform_preserves_angles(self, bvh_example):
@@ -2509,7 +2509,7 @@ class TestScaleSkeleton:
         original_offsets = [n.offset.copy() for n in bvh.nodes]
         ret = bvh.scale(2.0, inplace=True)
         assert ret is None
-        for orig_off, node in zip(original_offsets, bvh.nodes):
+        for orig_off, node in zip(original_offsets, bvh.nodes, strict=True):
             np.testing.assert_allclose(node.offset, orig_off * 2.0, atol=1e-10)
 
     def test_scale_inplace_false(self, bvh_example):
@@ -2519,7 +2519,7 @@ class TestScaleSkeleton:
         assert isinstance(result, Bvh)
         assert result is not bvh_example
         # Original unchanged
-        for orig_off, node in zip(original_offsets, bvh_example.nodes):
+        for orig_off, node in zip(original_offsets, bvh_example.nodes, strict=True):
             np.testing.assert_allclose(node.offset, orig_off, atol=1e-10)
 
     def test_scale_invalid_raises(self, bvh_example):
@@ -2531,14 +2531,14 @@ class TestScaleSkeleton:
         """scale=-1.0 should negate all offsets."""
         original_offsets = [n.offset.copy() for n in bvh_example.nodes]
         result = bvh_example.scale(-1.0)
-        for orig_off, node in zip(original_offsets, result.nodes):
+        for orig_off, node in zip(original_offsets, result.nodes, strict=True):
             np.testing.assert_allclose(node.offset, -orig_off, atol=1e-10)
 
     def test_scale_by_one_noop(self, bvh_example):
         """scale=1.0 should leave offsets unchanged."""
         original_offsets = [n.offset.copy() for n in bvh_example.nodes]
         result = bvh_example.scale(1.0)
-        for orig_off, node in zip(original_offsets, result.nodes):
+        for orig_off, node in zip(original_offsets, result.nodes, strict=True):
             np.testing.assert_allclose(node.offset, orig_off, atol=1e-10)
 
     def test_scale_zero(self, bvh_example):
@@ -3884,8 +3884,8 @@ class TestSkeletonEditsReplaceTheSkeleton:
 
         result = self._apply(edit, bvh_example, inplace)
 
-        assert not any(new is old for new, old in zip(result.nodes, held))
-        for node, offset, order in zip(held, offsets, channels):
+        assert not any(new is old for new, old in zip(result.nodes, held, strict=True))
+        for node, offset, order in zip(held, offsets, channels, strict=True):
             np.testing.assert_array_equal(node.offset, offset)
             if order is not None:
                 assert node.rot_channels == order
@@ -3924,7 +3924,7 @@ class TestRetargetFailsWhole:
         with pytest.raises(ValueError, match="strict=True"):
             bvh_example.retarget(reference, strict=True, inplace=True)
 
-        for node, offset in zip(bvh_example.nodes, before):
+        for node, offset in zip(bvh_example.nodes, before, strict=True):
             np.testing.assert_array_equal(node.offset, offset)
 
 
@@ -4158,7 +4158,7 @@ class TestRetargetEdgeCases:
     def test_empty_mapping(self, bvh_example, standard_skeleton):
         """name_mapping={} should match by name."""
         result = bvh_example.retarget(standard_skeleton, name_mapping={})
-        for n_result, n_ref in zip(result.nodes, standard_skeleton.nodes):
+        for n_result, n_ref in zip(result.nodes, standard_skeleton.nodes, strict=True):
             np.testing.assert_array_equal(n_result.offset, n_ref.offset)
 
     def test_partial_mapping(self, bvh_example, standard_skeleton):
@@ -4172,7 +4172,7 @@ class TestRetargetEdgeCases:
         """Use standard_skeleton as reference (same joint names but different offsets)."""
         result = bvh_example.retarget(standard_skeleton)
         # Offsets should come from the reference
-        for n_result, n_ref in zip(result.nodes, standard_skeleton.nodes):
+        for n_result, n_ref in zip(result.nodes, standard_skeleton.nodes, strict=True):
             np.testing.assert_array_equal(n_result.offset, n_ref.offset)
         # Motion data should be preserved
         np.testing.assert_array_equal(result.root_pos, bvh_example.root_pos)
@@ -4408,7 +4408,7 @@ class TestBatchProcessing:
         seq = read_bvh_directory(bvh_dir, sort=True)
         par = read_bvh_directory(bvh_dir, sort=True, parallel=True)
         assert len(seq) == len(par)
-        for s, p in zip(seq, par):
+        for s, p in zip(seq, par, strict=True):
             assert s.frame_count == p.frame_count
             np.testing.assert_array_equal(s.root_pos, p.root_pos)
 

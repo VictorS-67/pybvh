@@ -436,7 +436,7 @@ def test_velocity_reductions_batch_equals_python_loop():
     batched = analysis.velocity_reductions(speeds, fs)
     for k in range(speeds.shape[1]):
         single = analysis.velocity_reductions(speeds[:, k], fs)
-        for field_batched, field_single in zip(batched, single):
+        for field_batched, field_single in zip(batched, single, strict=True):
             assert field_batched.shape == (5,)
             np.testing.assert_allclose(field_batched[k], field_single, rtol=1e-12)
 
@@ -573,7 +573,7 @@ def test_kinetic_energy_masses_dict_matches_ordered_array():
     bvh = make_pos_y_up_bvh()
     names = bvh.joint_names
     masses_arr = np.arange(1, len(names) + 1, dtype=float)
-    masses_dict = {n: float(m) for n, m in zip(names, masses_arr)}
+    masses_dict = {n: float(m) for n, m in zip(names, masses_arr, strict=True)}
     # name-keyed dict is order-independent: shuffle it, result is unchanged
     shuffled = dict(reversed(list(masses_dict.items())))
     np.testing.assert_allclose(

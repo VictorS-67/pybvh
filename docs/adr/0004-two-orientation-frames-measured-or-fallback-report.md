@@ -10,7 +10,7 @@ What a clip says about which way is up, left and forward comes from two sources:
 
 **3. A report says, for each orientation fact of the clip, whether it was set, measured or defaulted.** `bvh.orientation_report` returns a frozen `pybvh.OrientationReport`: `rest_up` with `rest_up_source` (`"named_joint"`, `"leg_pair"`, `"largest_spread"`, `None`), `rest_left`, `rest_forward` with `rest_forward_source` (`"lr_geometry"`, `"default"`), `world_up` with `world_up_source` (`"set"`, `"first_frame"`, `"rest_up"`, `"default"`) and `world_up_inherited`, and `lr_mapping_source` (`"set"`, `"names"`, `None`). The existing members read from it; `has_lr_geometry` is `rest_forward_source == "lr_geometry"`. Per-frame facts are not in it: `forward_at`, `left_at` and `facing_frame` carry them, with `valid` as the per-frame mark. The orientation warnings that exist stay and fire when the defaulted fact is read, never when the report is filled: world up defaulted and the rest pose and the first frame disagreeing on world up, once per guess, and the facing defaulted, which splits along the two frames into rest forward defaulted (read from `rest_forward`) and the facing defaulted on a skeleton with no L/R pairs or on frames whose leftward and heading are both unreadable (read from `forward_at`, `left_at`, `facing_frame`). Each points to the report, except the one about frames, which names them and points to `FacingFrame.valid`, since the report holds no per-frame fact.
 
-**4. World up guessed from rest up stays, as a labelled guess.** When the first frame cannot decide world up, it is still guessed from rest up, the one place a skeleton fact reaches the world without a root rotation. It is a guess, not a combination of axes, and the report labels it `world_up_source == "rest_up"`.
+**4. World up guessed from rest up stays, as a labelled guess.** When the first frame cannot decide world up, it is still guessed from rest up, the one place a skeleton fact reaches the world without a root rotation. It is a guess, not a combination of axes, and the report labels it `world_up_source == "rest_up"`. When the root rotation of frame 0 carries rest up onto another axis, `world_up` warns and keeps the guess (ADR 0005).
 
 ## Why
 
@@ -22,7 +22,7 @@ What a clip says about which way is up, left and forward comes from two sources:
 
 **A fallback standing in for a measurement must be distinguishable** (`CODING_STANDARDS.md`). Through v0.9.0 three fallbacks were silent (world up from rest up, rest up from the largest spread, `left_at` from the rest pose) and the others were signalled three different ways (a warning, `has_lr_geometry`, `FacingFrame.valid`). One report covers every clip-level fact in one place, and the per-frame facts keep the one per-frame signal they already had.
 
-**The rest-up guess for world up is the best evidence left.** When the first frame cannot decide, the alternative is the house default `+y`, which is no evidence at all, while rest up is world up on 22,945 of the 23,020 corpus clips. Improving the first-frame rule itself is a separate change (#115).
+**The rest-up guess for world up is the best evidence left.** When the first frame cannot decide, the alternative is the house default `+y`, which is no evidence at all, while rest up is world up on 22,945 of the 23,020 corpus clips. Rules that read more than the first frame were measured and rejected (ADR 0005).
 
 ## How it sits with ADR 0003
 

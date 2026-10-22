@@ -53,7 +53,7 @@ def _blend_bgr(
     alpha: float,
 ) -> tuple[int, int, int]:
     """Emulate alpha compositing (cv2 has none) by pre-blending."""
-    return tuple(int(f * alpha + b * (1.0 - alpha)) for f, b in zip(fg, bg))  # type: ignore[return-value]
+    return tuple(int(f * alpha + b * (1.0 - alpha)) for f, b in zip(fg, bg, strict=True))  # type: ignore[return-value]
 
 
 def _draw_floor_opencv(

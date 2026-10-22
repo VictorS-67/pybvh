@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import numpy as np
 import pytest
 
@@ -171,8 +173,8 @@ class TestCapsuleSizing:
         radii, _ = adaptive_radii(rest, bones, 1.0, rest)
         idx = bvh_hands.node_index
         chain = ["RightHandPinky", "RightHandPinky1", "RightHandPinky2", "RightHandPinky3"]
-        along = [radii[(idx[a], idx[b])] for a, b in zip(chain, chain[1:])]
-        assert all(later < earlier for earlier, later in zip(along, along[1:])), along
+        along = [radii[(idx[a], idx[b])] for a, b in pairwise(chain)]
+        assert all(later < earlier for earlier, later in pairwise(along)), along
 
     def test_taper_cannot_touch_an_uncrowded_chain(self, monkeypatch):
         """The taper rides on the crowding cap, which is inf when nothing

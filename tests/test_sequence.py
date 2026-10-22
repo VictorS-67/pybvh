@@ -187,7 +187,7 @@ class TestTurntablePeriod:
         default = self._render(clip, tmp_path)
         timed = self._render(clip, tmp_path, turntable_period=0.6)
         assert len(timed) == len(default) == 6
-        for mine, theirs in zip(timed, default):
+        for mine, theirs in zip(timed, default, strict=True):
             np.testing.assert_array_equal(mine, theirs)
 
     def test_a_clip_without_a_rate_is_timed_by_fps(self, bvh, tmp_path):
@@ -263,7 +263,7 @@ class TestTurntablePeriod:
         plain = self._render(clip, tmp_path, turntable_period=1.2)
         following = self._render(clip, tmp_path, turntable_period=1.2, follow=True)
         assert len(following) == len(plain) == 12
-        for mine, theirs in zip(following, plain):
+        for mine, theirs in zip(following, plain, strict=True):
             np.testing.assert_array_equal(mine, theirs)
 
     def test_a_period_of_two_frames_or_less_is_rejected(self, bvh, tmp_path):

@@ -128,7 +128,7 @@ class TestMatplotlib:
             directions = np.stack([arrows.U, arrows.V], axis=1)
             directions /= np.linalg.norm(directions, axis=1, keepdims=True)
             assert len(directions) > 1
-            for start, direction in zip(arrows.get_offsets(), directions):
+            for start, direction in zip(arrows.get_offsets(), directions, strict=True):
                 (drawn_at,) = np.flatnonzero(np.all(np.isclose(roots, start), axis=1))
                 np.testing.assert_allclose(direction, plot_directions[drawn_at], atol=1e-12)
         finally:
@@ -467,7 +467,7 @@ class TestK3d:
         built = _build_plot(pair.spread("auto"), Style("paper"))
         viewport = built.viewport
         up = viewport.up_index
-        for path, view in zip(built.trail_paths, pair.spread("auto").views):
+        for path, view in zip(built.trail_paths, pair.spread("auto").views, strict=True):
             np.testing.assert_allclose(path[:, up], viewport.floor_height)
             ground = list(viewport.ground_indices)
             np.testing.assert_allclose(path[:, ground], view.coords[:, 0][:, ground], rtol=1e-6)
@@ -565,7 +565,7 @@ class TestK3d:
         built = _build_plot(pair.spread("auto"), Style("paper"))
         assert len(built.skeletons) == 2
         assert len(built.trails) == 2
-        for path, view in zip(built.trail_paths, pair.spread("auto").views):
+        for path, view in zip(built.trail_paths, pair.spread("auto").views, strict=True):
             assert path.shape == (view.coords.shape[0], 3)
 
     @staticmethod
@@ -596,7 +596,7 @@ class TestK3d:
         scene = pair.spread("auto")
         built, slider = self._play_and_grab_slider(scene, monkeypatch)
         slider.value = 7
-        for (lines, points), view in zip(built.skeletons, scene.views):
+        for (lines, points), view in zip(built.skeletons, scene.views, strict=True):
             expected = view.coords[7].astype(np.float32)
             np.testing.assert_array_equal(lines.vertices, expected)
             np.testing.assert_array_equal(points.positions, expected)
@@ -607,7 +607,7 @@ class TestK3d:
         scene = pair.spread("auto")
         built, slider = self._play_and_grab_slider(scene, monkeypatch)
         slider.value = 7
-        for trail, path in zip(built.trails, built.trail_paths):
+        for trail, path in zip(built.trails, built.trail_paths, strict=True):
             drawn = np.asarray(trail.vertices)
             np.testing.assert_array_equal(drawn[:8], path[:8])
             np.testing.assert_array_equal(drawn[8:], np.broadcast_to(path[7], drawn[8:].shape))
@@ -1049,7 +1049,7 @@ def _body_sizes(backend, scene, monkeypatch):
         built = _build_plot(scene, Style("paper"))
         return [
             np.array([lines.width, points.point_size, trail.width])
-            for (lines, points), trail in zip(built.skeletons, built.trails)
+            for (lines, points), trail in zip(built.skeletons, built.trails, strict=True)
         ]
     return [np.array([capsule.base_radius]) for capsule in _capsules(backend, scene, monkeypatch)]
 

@@ -850,7 +850,7 @@ class TestLoopedScene:
         looped = scene.looped(12)
         assert looped.num_frames == 12
         shown = [0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 1]
-        for view, original in zip(looped.views, scene.views):
+        for view, original in zip(looped.views, scene.views, strict=True):
             np.testing.assert_array_equal(view.coords, original.coords[shown])
             np.testing.assert_array_equal(view.root_heading, original.root_heading[shown])
             assert view.frame_time == original.frame_time

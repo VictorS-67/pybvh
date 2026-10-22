@@ -196,7 +196,7 @@ def _up_marker_index(skeleton: _RestSkeleton) -> int | None:
     local = skeleton.rest_positions - skeleton.rest_positions[0]
     words = [
         set() if end_site else _name_words(name)
-        for name, end_site in zip(skeleton.node_names, skeleton.is_end_site)
+        for name, end_site in zip(skeleton.node_names, skeleton.is_end_site, strict=True)
     ]
     for part in _UP_BODY_PARTS:
         # The first node of a repeated name, by position in the walk.
@@ -624,7 +624,7 @@ def _resolve_node_lr_pairs(
         if len(left_ends) != len(right_ends):
             mismatches.append((left_name, len(left_ends), right_name, len(right_ends)))
             continue
-        end_site_pairs.extend(zip(left_ends, right_ends))
+        end_site_pairs.extend(zip(left_ends, right_ends, strict=True))
 
     return joint_pairs + end_site_pairs, mismatches
 

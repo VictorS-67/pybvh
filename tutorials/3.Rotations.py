@@ -456,7 +456,7 @@ print("\nThe angles look completely different, but they represent the same rotat
 bvh_unified = bvh.change_euler_order("XYZ", inplace=False)
 
 print("Right arms joints — orders before vs after:")
-for orig, new in zip(bvh.nodes[9:13], bvh_unified.nodes[9:13]):
+for orig, new in zip(bvh.nodes[9:13], bvh_unified.nodes[9:13], strict=True):
     print(f"  {orig.name:15s}  {orig.rot_channels} -> {new.rot_channels}")
 
 # Verify the physical motion is preserved

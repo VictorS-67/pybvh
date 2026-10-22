@@ -230,7 +230,7 @@ def _render_vedo_frames(
 
         def frames_bgr():
             for f in range(scene.num_frames):
-                for capsule, view in zip(capsules, scene.views):
+                for capsule, view in zip(capsules, scene.views, strict=True):
                     capsule.update(view.coords[f])
                     if style.shadow and style.floor is not None:
                         for mesh in capsule.actors:

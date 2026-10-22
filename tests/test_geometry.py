@@ -327,7 +327,7 @@ def test_pointset_kernels_vectorize_over_frames(kernel):
     first = batched[0] if isinstance(batched, tuple) else batched
     assert first.shape[0] == 11  # leading frame axis preserved
     if isinstance(batched, tuple):
-        for field_batched, field_single in zip(batched, per_frame):
+        for field_batched, field_single in zip(batched, per_frame, strict=True):
             np.testing.assert_allclose(field_batched[7], field_single)
     else:
         np.testing.assert_allclose(batched[7], per_frame)

@@ -123,7 +123,7 @@ def _motion_column_names(nodes: Sequence[BvhNode], mode: str) -> list[str]:
             raise ValueError(f"nodes[0] must be the BvhRoot, got {type(root).__name__}")
         labels = _unique_labels([joint.name for joint in joints])
         names = [f"{labels[0]}_{ax}_pos" for ax in root.pos_channels]
-        for label, joint in zip(labels, joints):
+        for label, joint in zip(labels, joints, strict=True):
             names.extend(f"{label}_{ax}_rot" for ax in joint.rot_channels)
         return names
     if mode == "coordinates":
@@ -560,7 +560,8 @@ class Bvh:
         """Whether ``self`` and ``other`` share the same skeleton hierarchy.
 
         Hierarchy is defined as: same node names in topological order
-        (including end sites), same parent-child structure, and — when
+        (including end sites), each node of the same kind (a joint or an
+        end site), same parent-child structure, and — when
         ``match_offsets=True`` (default) — same rest-pose offsets within
         ``atol``. Motion data, Euler rotation orders, and frame timing
         are NOT compared.
@@ -601,8 +602,10 @@ class Bvh:
             return False
         if len(self.nodes) != len(other.nodes):
             return False
-        for n1, n2 in zip(self.nodes, other.nodes):
+        for n1, n2 in zip(self.nodes, other.nodes, strict=True):
             if n1.name != n2.name:
+                return False
+            if n1.is_end_site() != n2.is_end_site():
                 return False
             parent1 = n1.parent.name if n1.parent is not None else None
             parent2 = n2.parent.name if n2.parent is not None else None
@@ -2190,7 +2193,7 @@ class Bvh:
         result: dict[str, npt.NDArray[np.float64]] = {
             "time": np.arange(self.frame_count, dtype=np.float64) * self.frame_time
         }
-        result.update(zip(columns, flat.T))
+        result.update(zip(columns, flat.T, strict=True))
         return result
 
     def to_node_table(self) -> list[dict[str, Any]]:
@@ -3011,15 +3014,18 @@ class Bvh:
     def _check_same_skeleton(self, other: Bvh) -> None:
         """Raise ValueError if ``other`` has a different skeleton topology.
 
-        Compares node count, per-node names, and per-joint rotation
-        orders (end sites excluded since they have no rotation channels).
+        Compares node count, per-node names and kinds (joint or end site),
+        and per-joint rotation orders.
         Shared by ``__add__``, ``__iadd__``, and ``__setitem__``.
         """
         if len(self.nodes) != len(other.nodes):
             raise ValueError(f"Node count mismatch: {len(self.nodes)} vs {len(other.nodes)}")
-        for n1, n2 in zip(self.nodes, other.nodes):
+        for n1, n2 in zip(self.nodes, other.nodes, strict=True):
             if n1.name != n2.name:
                 raise ValueError(f"Node name mismatch: '{n1.name}' vs '{n2.name}'")
+            if n1.is_end_site() != n2.is_end_site():
+                kinds = ["end site" if n.is_end_site() else "joint" for n in (n1, n2)]
+                raise ValueError(f"Node kind mismatch for '{n1.name}': {kinds[0]} vs {kinds[1]}")
             if _is_joint(n1) and _is_joint(n2):
                 if n1.rot_channels != n2.rot_channels:
                     raise ValueError(

@@ -129,7 +129,7 @@ def test_accepts(message):
 def test_rejects(message, expected):
     problems = message_problems(message)
     assert len(problems) == len(expected), problems
-    for problem, fragment in zip(problems, expected):
+    for problem, fragment in zip(problems, expected, strict=True):
         assert fragment in problem
 
 

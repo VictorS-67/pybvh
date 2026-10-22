@@ -180,7 +180,7 @@ def read_bvh_directory(
             parsed_files = map(_parse_or_error, files)
 
         clips = []
-        for path, parsed in zip(files, parsed_files):
+        for path, parsed in zip(files, parsed_files, strict=True):
             try:
                 if isinstance(parsed, Exception):
                     raise parsed
@@ -437,11 +437,17 @@ def _hierarchy_mismatch_message(ref: Bvh, bvh: Bvh, ref_idx: int, idx: int) -> s
             f"{div_label}: node count {len(ref.nodes)} vs {len(bvh.nodes)}."
         )
 
-    for j, (n1, n2) in enumerate(zip(ref.nodes, bvh.nodes)):
+    for j, (n1, n2) in enumerate(zip(ref.nodes, bvh.nodes, strict=True)):
         if n1.name != n2.name:
             return (
                 f"Skeleton hierarchy mismatch between {ref_label} and "
                 f"{div_label}: node {j} is '{n1.name}' vs '{n2.name}'."
+            )
+        if n1.is_end_site() != n2.is_end_site():
+            kinds = ["an end site" if n.is_end_site() else "a joint" for n in (n1, n2)]
+            return (
+                f"Skeleton hierarchy mismatch between {ref_label} and "
+                f"{div_label}: node '{n1.name}' is {kinds[0]} vs {kinds[1]}."
             )
         p1 = n1.parent.name if n1.parent is not None else None
         p2 = n2.parent.name if n2.parent is not None else None
@@ -475,7 +481,7 @@ def _channel_mismatch_message(
     joint_names = ref.joint_names
 
     first_diff = next(
-        (j for j, (a, b) in enumerate(zip(ref_orders, orders)) if a != b),
+        (j for j, (a, b) in enumerate(zip(ref_orders, orders, strict=True)) if a != b),
         None,
     )
 

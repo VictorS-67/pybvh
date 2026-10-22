@@ -826,7 +826,7 @@ class TestSeveralViews:
         scene = make_array_scene(n_frames=12, n_skeletons=2).spread(2.0)
         viewports = panel_viewports(scene.views, framing="clip")
         assert len(viewports) == 2
-        for viewport, v in zip(viewports, scene.views):
+        for viewport, v in zip(viewports, scene.views, strict=True):
             alone = make_viewport([v], framing="clip")
             np.testing.assert_array_equal(viewport.lo, alone.lo)
             np.testing.assert_array_equal(viewport.hi, alone.hi)

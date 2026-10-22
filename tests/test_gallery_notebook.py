@@ -64,7 +64,7 @@ def test_jupytext_pair_in_sync():
         f"cell count differs: {len(py_cells)} in .py vs {len(nb_cells)} in "
         f".ipynb — run `jupytext --sync gallery/feature_gallery.ipynb`"
     )
-    for i, (pc, nc) in enumerate(zip(py_cells, nb_cells)):
+    for i, (pc, nc) in enumerate(zip(py_cells, nb_cells, strict=True)):
         assert pc == nc, (
             f"cell {i} differs between feature_gallery.py and .ipynb — "
             f"run `jupytext --sync gallery/feature_gallery.ipynb`"

@@ -758,6 +758,19 @@ class _WorldUpGuess(NamedTuple):
 _FIRST_FRAME_DOMINANCE = 2.0
 
 
+def _dominant_axis(direction: npt.NDArray[np.float64]) -> str | None:
+    """*direction*'s main axis, when its largest component is at least
+    ``_FIRST_FRAME_DOMINANCE`` times the second; ``None`` otherwise, and
+    for a direction too short to read (:func:`get_main_direction`'s
+    threshold)."""
+    second, largest = np.sort(np.abs(direction))[-2:]
+    # Written as a failed acceptance, not as `largest < ...`, so that a NaN
+    # component (a NaN root position written by the user) does not decide.
+    if not largest >= _FIRST_FRAME_DOMINANCE * second:
+        return None
+    return get_main_direction(direction)
+
+
 def _infer_world_up(
     skeleton: _RestSkeleton,
     frame0_positions: npt.NDArray[np.float64] | None,
@@ -770,7 +783,8 @@ def _infer_world_up(
     frame, no marker, an ambiguous frame-0 pose) the skeleton's own up
     (:func:`_infer_rest_up`) stands in, and without one the house up
     ``'+y'``. Returns the guess silently: the reader of world up warns
-    (:func:`_warn_world_up_defaulted`, :func:`_warn_world_up_disagreement`).
+    (:func:`_warn_world_up_defaulted`, :func:`_warn_world_up_disagreement`,
+    :func:`_warn_rest_up_contradicted_by_root`).
 
     Parameters
     ----------
@@ -785,14 +799,9 @@ def _infer_world_up(
     """
     marker = _up_marker_index(skeleton)
     if frame0_positions is not None and marker is not None:
-        marker_above_root = frame0_positions[marker] - frame0_positions[0]
-        second, largest = np.sort(np.abs(marker_above_root))[-2:]
-        if largest >= _FIRST_FRAME_DOMINANCE * second:
-            # None when the marker sits at the root at frame 0: the
-            # shortest length read as a direction is get_main_direction's.
-            frame_up = get_main_direction(marker_above_root)
-            if frame_up is not None:
-                return _WorldUpGuess(frame_up, "first_frame")
+        frame_up = _dominant_axis(frame0_positions[marker] - frame0_positions[0])
+        if frame_up is not None:
+            return _WorldUpGuess(frame_up, "first_frame")
 
     rest_up = _infer_rest_up(skeleton)
     if rest_up is not None:
@@ -825,14 +834,19 @@ def _warn_world_up_disagreement(rest_up: str, frame_up: str) -> None:
     Only the axis letter is compared by the caller, so a sign flip alone
     (rest pose ``'+y'``, first frame ``'-y'``) never warns.
     """
-    # A strong signal that the file authored its rest pose in one
-    # convention and animates in another.
+    # Two causes give it: a rest pose authored in another convention than
+    # the motion, where frame 0 is right, and a first frame that is not
+    # upright, where the rest pose's axis may be. The guess cannot tell
+    # them apart, so the warning names both.
     warnings.warn(
         f"Rest pose suggests world up is {rest_up!r} but at the first "
         f"animation frame the direction from the root to the head joint "
         f"(else the neck, chest or spine) is closer to {frame_up!r}. "
-        f"Using {frame_up!r} from the animation data. "
-        f"If this is wrong for your file, set it explicitly via "
+        f"Using {frame_up!r} from the animation data. Either the rest pose "
+        f"is authored in another convention than the motion, and "
+        f"{frame_up!r} is right, or the first frame is not upright (the "
+        f"performer lies, kneels or bows), and {rest_up!r} may be. "
+        f"If {frame_up!r} is wrong for your file, set it explicitly via "
         f"`bvh.world_up = '<axis>'`. `bvh.orientation_report` shows the "
         f"source of each axis.",
         UserWarning,
@@ -846,6 +860,65 @@ def _world_up_disagrees(guess: _WorldUpGuess, rest_up: str | None) -> bool:
     Only the axis letter counts: a sign flip alone is not a disagreement.
     """
     return guess.source == "first_frame" and rest_up is not None and rest_up[1] != guess.axis[1]
+
+
+def _root_contradicts_rest_up(
+    guess: _WorldUpGuess, root_rotation: npt.NDArray[np.float64] | None
+) -> str | None:
+    """The axis frame 0's root rotation carries rest up onto, when a guess
+    that fell back on rest up names another axis.
+
+    The root rotation is what carries a fact of the skeleton's own frame
+    into the world (ADR 0004); the rest-up fallback skips it. Rest up
+    carried by it is snapped as frame 0's head direction is
+    (:func:`_dominant_axis`), and only the axis letter is compared, as in
+    :func:`_world_up_disagrees`. A disagreement says the rest pose may be
+    authored in another convention than the motion; it is a warning, not
+    a better guess, since a pelvis tilted at frame 0 reads a horizontal
+    axis as confidently.
+
+    Parameters
+    ----------
+    guess : _WorldUpGuess
+        The clip's guess; only a ``"rest_up"`` one is read.
+    root_rotation : ndarray of shape (3, 3) or None
+        The root's rotation matrix at frame 0, ``None`` for a clip
+        without frames.
+
+    Returns
+    -------
+    str or None
+        The carried axis, or ``None`` when the guess did not fall back on
+        rest up, the carried direction does not decide, or it names rest
+        up's own axis.
+    """
+    if guess.source != "rest_up" or root_rotation is None:
+        return None
+    carried = _dominant_axis(root_rotation @ _axis_to_vector(guess.axis))
+    if carried is None or carried[1] == guess.axis[1]:
+        return None
+    return carried
+
+
+def _warn_rest_up_contradicted_by_root(rest_up: str, carried: str) -> None:
+    """Warn that world up fell back on rest up while the root rotation of
+    frame 0 carries rest up onto another axis."""
+    # The fallback is otherwise silent: the report's "rest_up" source is
+    # its only trace, and on a rest pose authored in another convention
+    # than the motion it is wrong.
+    warnings.warn(
+        f"World up fell back on the rest pose's up {rest_up!r}: at the "
+        f"first animation frame the direction from the root to the head "
+        f"joint (else the neck, chest or spine) does not decide it. But "
+        f"the root's rotation at that frame carries the rest pose's up "
+        f"onto {carried!r}, so the rest pose may be authored in another "
+        f"convention than the motion, and world up may be {carried!r}. "
+        f"Check the clip and set it explicitly via "
+        f"`bvh.world_up = '<axis>'`; `bvh.orientation_report.world_up_source` "
+        f"is 'rest_up' here.",
+        UserWarning,
+        stacklevel=user_stacklevel(),
+    )
 
 
 # ---------------------------------------------------------------------------

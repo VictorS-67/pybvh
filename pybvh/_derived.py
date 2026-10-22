@@ -13,7 +13,7 @@ clears which value.
 from __future__ import annotations
 
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Final
 
 import numpy as np
 import numpy.typing as npt
@@ -58,10 +58,11 @@ _CLEARED_BY: Final[dict[str, frozenset[_Change]]] = {
     # unpickling set the mapping on a clip that has just inherited it.
     "inferred_world_up": frozenset({_Change.USER_REPLACED_MOTION, _Change.LR_MAPPING_SETTING}),
     "inherited_world_up": frozenset({_Change.USER_REPLACED_MOTION}),
-    # Whether Bvh.world_up has warned about the guess inferred here (it
-    # warns once per guess), so it goes with a guess the motion replaced.
-    # A mapping change keeps it: the guess it can change, read from rest
-    # up, never warns, and any other is guessed the same again.
+    # The guess inferred here that Bvh.world_up has warned about (it warns
+    # once per guess), so it goes with a guess the motion replaced. A
+    # mapping change keeps it: the guess made again after it warns only
+    # where it differs from this one, which a rest-up guess read from the
+    # new legs can.
     "world_up_guess_announced": frozenset({_Change.USER_REPLACED_MOTION}),
     # Read from the rest pose, the L/R mapping in effect and world up, set
     # or guessed (ADR 0004); pybvh's own motion writes change none of them.
@@ -96,10 +97,10 @@ class DerivedState:
     inherited_world_up : _WorldUpGuess or None
         The world up of the clip this one was derived from, guessed there,
         with the source of that guess, used when the user set none.
-    world_up_guess_announced : True or None
-        True once ``Bvh.world_up`` has given the warnings about the guess
-        inferred here, which it gives once per guess; ``None`` until then,
-        the empty value of every slot here, so it is never False.
+    world_up_guess_announced : _WorldUpGuess or None
+        The guess inferred here that ``Bvh.world_up`` last gave its
+        warnings about, which it gives once per guess; ``None`` until
+        then.
     node_index, joint_index : dict or None
         Node name to its index in ``nodes``; joint name to its index in
         ``joint_angles`` axis 1.
@@ -132,7 +133,7 @@ class DerivedState:
         self.floor_height: float | None = None
         self.inferred_world_up: _WorldUpGuess | None = None
         self.inherited_world_up: _WorldUpGuess | None = None
-        self.world_up_guess_announced: Literal[True] | None = None
+        self.world_up_guess_announced: _WorldUpGuess | None = None
         self.node_index: dict[str, int] | None = None
         self.joint_index: dict[str, int] | None = None
         self.names_lr_mapping: dict[str, str] | None = None

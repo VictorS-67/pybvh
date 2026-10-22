@@ -21,7 +21,7 @@ from synthetic_bvh import (
     make_pos_z_up_bvh,
 )
 
-from pybvh import Bvh, nodes_from_table, read_bvh_file, transforms
+from pybvh import Bvh, nodes_from_table, read_bvh_file, rotations, transforms
 from pybvh.rotations import _axis_aligned_rotation
 from pybvh.tools import _axis_to_vector
 
@@ -318,6 +318,17 @@ class TestWorldUpWarningPreference:
             _ = bvh.world_up
             assert _disagreement_warnings(w) == 2
 
+    def test_a_turned_guess_does_not_warn_again(self):
+        # reorient_world_up turns the guess instead of making a new one,
+        # so clearing its override shows that guess without warning again.
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            bvh = read_bvh_file(TEST3)
+            bvh.reorient_world_up("+y", inplace=True)
+            bvh.world_up = "auto"
+            assert bvh.world_up == "+y"
+        assert _disagreement_warnings(w) == 1
+
     def test_each_inference_site_keeps_its_own_warning_location(self):
         # Under the "default" filter Python shows a warning once per
         # location, so warnings attributed to one shared line would
@@ -333,6 +344,145 @@ class TestWorldUpWarningPreference:
             if "rest pose suggests world up" in str(x.message).lower()
         }
         assert len(locations) == 3
+
+
+# ========================================================================
+#  The rest-up fallback warns when the root rotation contradicts it
+# ========================================================================
+
+
+def _bend_spine_at_first_frame(bvh, degrees=50.0):
+    """Bend *bvh*'s spine at frame 0 about the rest pose's x axis, so that
+    the head's direction from the root no longer decides world up while
+    the root keeps its rotation; the next read of world up guesses again.
+
+    50° leaves the largest component of the head's direction under twice
+    the second on bvh_test1 and bvh_test3, whose rest left is along x.
+    """
+    joints = [node for node in bvh.nodes if not node.is_end_site()]
+    spine = [joint.name for joint in joints].index("Spine")
+    order = joints[spine].rot_channels
+    bend = rotations.axisangle_to_rotmat(np.radians(degrees) * np.array([1.0, 0.0, 0.0]))
+    angles = bvh.joint_angles.copy()
+    angles[0, spine] = rotations.rotmat_to_euler(
+        rotations.euler_to_rotmat(angles[0, spine], order) @ bend, order
+    )
+    bvh.joint_angles = angles
+    return bvh
+
+
+def _world_up_warnings(caught: list[warnings.WarningMessage]) -> list[str]:
+    return [str(x.message) for x in caught if "world up" in str(x.message).lower()]
+
+
+class TestRestUpFallbackWarning:
+    """When frame 0 cannot decide, rest up stands in; if the root rotation
+    of frame 0 carries rest up onto another axis, the rest pose may be
+    authored in another convention than the motion, and pybvh says so
+    while keeping the guess."""
+
+    @staticmethod
+    def _load(path, **flag):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return read_bvh_file(path, **flag)
+
+    def test_a_rest_pose_in_another_convention_warns_and_keeps_the_guess(self):
+        # bvh_test3's rest pose is +y up, its motion +z up.
+        bvh = _bend_spine_at_first_frame(self._load(TEST3))
+        with pytest.warns(UserWarning, match="another convention") as caught:
+            assert bvh.world_up == "+y"
+        assert bvh.orientation_report.world_up_source == "rest_up"
+        message = next(m for m in _world_up_warnings(caught) if "another convention" in m)
+        assert "'+y'" in message and "'+z'" in message
+
+    def test_a_rest_pose_in_the_motions_convention_stays_silent(self):
+        bvh = _bend_spine_at_first_frame(self._load(EXAMPLE))
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            assert bvh.world_up == "+z"
+        assert bvh.orientation_report.world_up_source == "rest_up"
+        assert _world_up_warnings(w) == []
+
+    def test_the_load_flag_silences_it(self):
+        bvh = _bend_spine_at_first_frame(self._load(TEST3, warn_on_world_up_disagreement=False))
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            assert bvh.world_up == "+y"
+        assert _world_up_warnings(w) == []
+
+    def test_world_up_inferred_warns_too(self):
+        bvh = _bend_spine_at_first_frame(self._load(TEST3))
+        bvh.world_up = "+z"
+        with pytest.warns(UserWarning, match="another convention"):
+            assert bvh.world_up_inferred == "+y"
+
+    def test_a_root_that_does_not_decide_stays_silent(self):
+        # bvh_test3's root turned 35° further about x at frame 0: the head
+        # and the carried rest up both lie about halfway between y and z.
+        bvh = self._load(TEST3)
+        order = bvh.nodes[0].rot_channels
+        tilt = rotations.axisangle_to_rotmat(np.radians(35.0) * np.array([1.0, 0.0, 0.0]))
+        angles = bvh.joint_angles.copy()
+        angles[0, 0] = rotations.rotmat_to_euler(
+            tilt @ rotations.euler_to_rotmat(angles[0, 0], order), order
+        )
+        bvh.joint_angles = angles
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            assert bvh.world_up == "+y"
+        assert bvh.orientation_report.world_up_source == "rest_up"
+        assert _world_up_warnings(w) == []
+
+    def test_a_mapping_that_changes_the_fallback_warns(self):
+        # Every joint renamed J<index>: no up marker, so world up falls
+        # back on rest up, read from the spread of the T-pose without a
+        # mapping and from the legs with one.
+        source = self._load(TEST3)
+        table = source.to_node_table()
+        renamed = {row["name"]: f"J{index}" for index, row in enumerate(table)}
+        for row in table:
+            row["name"] = renamed[row["name"]]
+        mapping = {renamed[a]: renamed[b] for a, b in source.lr_mapping.items()}
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            bvh = Bvh(
+                nodes=nodes_from_table(table),
+                root_pos=source.root_pos,
+                joint_angles=source.joint_angles,
+                frame_time=source.frame_time,
+            )
+            assert bvh.world_up == "-x"
+        assert _world_up_warnings(w) == []
+        bvh.lr_mapping = mapping
+        with pytest.warns(UserWarning, match="another convention"):
+            assert bvh.world_up == "+y"
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            bvh.lr_mapping = mapping
+            _ = bvh.world_up  # the same guess again: no second warning
+        assert _world_up_warnings(w) == []
+
+    def test_a_first_frame_holding_nan_falls_back_on_rest_up(self):
+        bvh = self._load(EXAMPLE)
+        root_pos = bvh.root_pos.copy()
+        root_pos[0, 0] = np.nan
+        bvh.root_pos = root_pos
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            assert bvh.world_up == "+z"
+        assert bvh.orientation_report.world_up_source == "rest_up"
+
+
+def test_the_disagreement_warning_names_both_causes():
+    # A rest pose in another convention than the motion, or a first frame
+    # that is not upright: on the maintainer's corpus the second is the
+    # common one.
+    with pytest.warns(UserWarning, match="Rest pose suggests world up") as caught:
+        read_bvh_file(TEST3)
+    message = next(str(x.message) for x in caught if "Rest pose suggests" in str(x.message))
+    assert "another convention" in message
+    assert "not upright" in message
 
 
 # ========================================================================

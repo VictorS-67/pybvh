@@ -29,12 +29,12 @@ ALL_VALUES = {
 }
 MOTION_DEPENDENTS = {"node_positions", "floor_height"}
 # The guessed world up, inferred on the clip or inherited from the clip it
-# was derived from, and whether world_up warned about it, survive every
+# was derived from, and the guess world_up warned about, survive every
 # change but the user replacing the motion.
 GUESSED_WORLD_UP = {"inferred_world_up", "inherited_world_up", "world_up_guess_announced"}
 # But the user setting the L/R mapping starts the clip's own guess again
 # (rest up, which it may be read from, reads the mapping), and with it the
-# floor measured along it; not the inherited guess or the warning.
+# floor measured along it; not the inherited guess or the guess warned about.
 GUESSED_HERE = {"inferred_world_up", "floor_height"}
 
 # The orientation report reads the skeleton, world up and the L/R mapping
@@ -57,7 +57,7 @@ def _filled() -> DerivedState:
     derived.floor_height = 1.5
     derived.inferred_world_up = "+y"
     derived.inherited_world_up = "+z"
-    derived.world_up_guess_announced = True
+    derived.world_up_guess_announced = "+y"
     derived.node_index = {"Hips": 0, "Spine": 1, "EndSite": 2}
     derived.joint_index = {"Hips": 0, "Spine": 1}
     derived.names_lr_mapping = {"LeftArm": "RightArm"}

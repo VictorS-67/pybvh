@@ -32,18 +32,23 @@ b3.forward_at(0)   # '+y' — where the body faces in the world at frame 0
 
 ## Auto-detection
 
-When a clip is read from a file or built from arrays, `Bvh.__init__` guesses `world_up` from frame 0: the direction from the root to the head (the first joint whose name holds `head` as a word, else `neck`, `chest` or `spine`, the joint `rest_up` reads too), snapped to its main axis when its largest component is at least twice the second. When frame 0 cannot decide (no such joint, no frames, or a crouched, lying or leaning first pose), the skeleton's own up, `rest_up`, stands in: a guess that assumes the rest pose is authored upright. When the rest pose is degenerate too, pybvh warns and falls back to `'+y'`. The result is a signed axis string like `'+y'` or `'+z'`, and `bvh.orientation_report.world_up_source` says which of the three gave it (`"first_frame"`, `"rest_up"`, `"default"`; see [The orientation report](#the-orientation-report)).
+When a clip is read from a file or built from arrays, `Bvh.__init__` guesses `world_up` from frame 0: the direction from the root to the head (the first joint whose name holds `head` as a word, else `neck`, `chest` or `spine`, the joint `rest_up` reads too), snapped to its main axis when its largest component is at least twice the second. When frame 0 cannot decide (no such joint, no frames, or a crouched, lying or leaning first pose), the skeleton's own up, `rest_up`, stands in: a guess that assumes the rest pose is authored upright. If the root's rotation at frame 0 carries `rest_up` onto another axis, pybvh warns that the rest pose may be authored in another convention, and keeps the guess (next section). When the rest pose is degenerate too, pybvh warns and falls back to `'+y'`. The result is a signed axis string like `'+y'` or `'+z'`, and `bvh.orientation_report.world_up_source` says which of the three gave it (`"first_frame"`, `"rest_up"`, `"default"`; see [The orientation report](#the-orientation-report)).
 
 ```python
 bvh = pybvh.read_bvh_file("walk.bvh")
 bvh.world_up  # '+z' (auto-detected)
 ```
 
-## The disagreement warning
+## The disagreement warnings
 
-Some BVH files author the rest pose in one convention and animate in another. For example, a Blender export where the rest pose skeleton points along Y but the animation plays in Z-up world space. When the first frame and the rest pose name different axes, pybvh emits a `UserWarning`, once per guess (at load, for a clip read from a file), and trusts the animation data (frame 0) over the rest pose. The clips derived from it inherit its axis (next section) and do not warn again.
+Some BVH files author the rest pose in one convention and animate in another. For example, a Blender export where the rest pose skeleton points along Y but the animation plays in Z-up world space. pybvh cannot always tell such a file from one whose first frame is not upright, so it keeps its guess and warns in two cases, each a `UserWarning` raised once per guess (at load, for a clip read from a file). The clips derived from a clip inherit its axis (next section) and do not warn again.
 
-In the maintainer's corpus of 23,020 clips, 75 have a rest up other than the world up guessed for them: 51 rest poses authored in another convention than their motion, and 24 clips whose first frame is not upright, so that the guess itself is wrong. If you see the warning, check whether `world_up` matches your expectation and override it if needed.
+- **The first frame and the rest pose name different axes.** pybvh trusts the animation data (frame 0) over the rest pose. Either the rest pose is authored in another convention, and frame 0 is right, or the first frame is not upright (the performer lies, kneels or bows at the start), and the rest pose's axis may be.
+- **The first frame cannot decide, and the root contradicts the rest pose.** `rest_up` stands in, but the root's rotation at frame 0 carries it onto another axis, snapped the same way as frame 0's head direction: the rest pose may be authored in another convention, and world up may be that other axis.
+
+`warn_on_world_up_disagreement=False` at load silences both. Without the warnings, the report says the same: a pipeline that loads many clips can mark for a check every clip whose `orientation_report.world_up` names another axis letter than its `rest_up`, or whose `world_up_source` is `"rest_up"`.
+
+In the maintainer's corpus of 23,020 clips, whose rest poses and motion share their convention except on `bvh_test3.bvh`, the first warning fires on 75 clips: on 68 of the 69 whose true up could be confirmed, the first frame is not upright and the guess is wrong; the 69th is `bvh_test3.bvh`, where the guess is right. On an older export of one of its datasets, whose rest poses are authored `+y` for a `+z` motion, the first warning fires on almost every clip, and the second catches 31 of the 38 clips the rest-up fallback guesses wrong. Some clips lie flat for their whole recording; no guess from the head or the root finds their up, and only setting `world_up` does. If you see a warning, check whether `world_up` matches your expectation and override it if needed.
 
 ## Set, inferred or inherited
 

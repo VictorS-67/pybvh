@@ -406,6 +406,23 @@ class TestRestUpFallbackWarning:
         with pytest.warns(UserWarning, match="another convention"):
             assert bvh.world_up_inferred == "+y"
 
+    def test_a_root_that_does_not_decide_stays_silent(self):
+        # bvh_test3's root turned 35° further about x at frame 0: the head
+        # and the carried rest up both lie about halfway between y and z.
+        bvh = self._load(TEST3)
+        order = bvh.nodes[0].rot_channels
+        tilt = rotations.axisangle_to_rotmat(np.radians(35.0) * np.array([1.0, 0.0, 0.0]))
+        angles = bvh.joint_angles.copy()
+        angles[0, 0] = rotations.rotmat_to_euler(
+            tilt @ rotations.euler_to_rotmat(angles[0, 0], order), order
+        )
+        bvh.joint_angles = angles
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            assert bvh.world_up == "+y"
+        assert bvh.orientation_report.world_up_source == "rest_up"
+        assert _world_up_warnings(w) == []
+
     def test_a_mapping_that_changes_the_fallback_warns(self):
         # Every joint renamed J<index>: no up marker, so world up falls
         # back on rest up, read from the spread of the T-pose without a

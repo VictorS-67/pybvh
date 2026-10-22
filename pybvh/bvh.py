@@ -41,10 +41,12 @@ from ._orientation import (
     _resolve_lr_pairs,
     _resolve_node_lr_pairs,
     _RestSkeleton,
+    _root_contradicts_rest_up,
     _warn_facing_defaulted_at_frames,
     _warn_facing_defaulted_no_pairs,
     _warn_facing_defaulted_on_pose,
     _warn_rest_forward_defaulted,
+    _warn_rest_up_contradicted_by_root,
     _warn_world_up_defaulted,
     _warn_world_up_disagreement,
     _world_up_disagrees,
@@ -1142,9 +1144,12 @@ class Bvh:
         always the root node whatever it is called; and the frame-0
         reading is accepted only when its largest component is at least
         twice the second-largest — a crouched, lying or leaning first
-        frame is treated as ambiguous and silently defers to
-        :attr:`rest_up`. When the rest pose is degenerate too, the
-        property warns and returns ``'+y'``. Use
+        frame is treated as ambiguous and defers to :attr:`rest_up`,
+        with a warning when the root's rotation at frame 0 carries
+        :attr:`rest_up` onto another axis, since the rest pose may then
+        be authored in another convention than the motion. When the
+        rest pose is degenerate too, the property warns and returns
+        ``'+y'``. Use
         :attr:`world_up_inferred` to see what the heuristic picks
         while an override is in effect.
 
@@ -1221,14 +1226,22 @@ class Bvh:
         )
 
     def _warn_about_world_up_guess(self, guess: _WorldUpGuess, rest_up: str | None) -> None:
-        """Warn when *guess* is the house default, or when it disagrees with
-        *rest_up* and the clip was not loaded with
-        ``warn_on_world_up_disagreement=False``."""
+        """Warn when *guess* is the house default; and, unless the clip was
+        loaded with ``warn_on_world_up_disagreement=False``, when it
+        disagrees with *rest_up*, or when it fell back on rest up and the
+        root rotation of frame 0 carries rest up onto another axis."""
         if guess.source == "default":
             _warn_world_up_defaulted()
-        elif self._warn_on_world_up_disagreement and _world_up_disagrees(guess, rest_up):
+        elif not self._warn_on_world_up_disagreement:
+            return
+        elif _world_up_disagrees(guess, rest_up):
             assert rest_up is not None  # a disagreement needs a rest up
             _warn_world_up_disagreement(rest_up, guess.axis)
+        else:
+            root_rotation = self._root_rotmats([0])[0] if self.frame_count > 0 else None
+            carried = _root_contradicts_rest_up(guess, root_rotation)
+            if carried is not None:
+                _warn_rest_up_contradicted_by_root(guess.axis, carried)
 
     @property
     def world_up_axis(self) -> Axis:

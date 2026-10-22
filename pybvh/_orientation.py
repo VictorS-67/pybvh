@@ -764,7 +764,9 @@ def _dominant_axis(direction: npt.NDArray[np.float64]) -> str | None:
     for a direction too short to read (:func:`get_main_direction`'s
     threshold)."""
     second, largest = np.sort(np.abs(direction))[-2:]
-    if largest < _FIRST_FRAME_DOMINANCE * second:
+    # Written as a failed acceptance, not as `largest < ...`, so that a NaN
+    # component (a NaN root position written by the user) does not decide.
+    if not largest >= _FIRST_FRAME_DOMINANCE * second:
         return None
     return get_main_direction(direction)
 

@@ -406,6 +406,16 @@ class TestRestUpFallbackWarning:
         with pytest.warns(UserWarning, match="another convention"):
             assert bvh.world_up_inferred == "+y"
 
+    def test_a_first_frame_holding_nan_falls_back_on_rest_up(self):
+        bvh = self._load(EXAMPLE)
+        root_pos = bvh.root_pos.copy()
+        root_pos[0, 0] = np.nan
+        bvh.root_pos = root_pos
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            assert bvh.world_up == "+z"
+        assert bvh.orientation_report.world_up_source == "rest_up"
+
 
 def test_the_disagreement_warning_names_both_causes():
     # A rest pose in another convention than the motion, or a first frame

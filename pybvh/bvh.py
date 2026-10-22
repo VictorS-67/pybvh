@@ -1034,11 +1034,13 @@ class Bvh:
         ``reorient_world_up`` rotates every frame and offset by
         ``rotation``, so the axis guessed before is, exactly, the axis
         those frames would be guessed to have now; turning it keeps the
-        guess made once (ADR 0003, decision 3). A clip that has guessed
-        nothing is left to guess from its new frames.
+        guess made once (ADR 0003, decision 3), and the guess
+        :attr:`world_up` warned about turns with it, so the turned guess
+        does not warn again. A clip that has guessed nothing is left to
+        guess from its new frames.
         """
         derived = self._derived
-        for name in ("inferred_world_up", "inherited_world_up"):
+        for name in ("inferred_world_up", "inherited_world_up", "world_up_guess_announced"):
             guess = getattr(derived, name)
             if guess is not None:
                 turned = _get_main_direction(rotation @ _axis_to_vector(guess.axis))

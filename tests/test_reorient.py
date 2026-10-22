@@ -318,6 +318,17 @@ class TestWorldUpWarningPreference:
             _ = bvh.world_up
             assert _disagreement_warnings(w) == 2
 
+    def test_a_turned_guess_does_not_warn_again(self):
+        # reorient_world_up turns the guess instead of making a new one,
+        # so clearing its override shows that guess without warning again.
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            bvh = read_bvh_file(TEST3)
+            bvh.reorient_world_up("+y", inplace=True)
+            bvh.world_up = "auto"
+            assert bvh.world_up == "+y"
+        assert _disagreement_warnings(w) == 1
+
     def test_each_inference_site_keeps_its_own_warning_location(self):
         # Under the "default" filter Python shows a warning once per
         # location, so warnings attributed to one shared line would

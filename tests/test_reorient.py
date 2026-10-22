@@ -406,6 +406,35 @@ class TestRestUpFallbackWarning:
         with pytest.warns(UserWarning, match="another convention"):
             assert bvh.world_up_inferred == "+y"
 
+    def test_a_mapping_that_changes_the_fallback_warns(self):
+        # Every joint renamed J<index>: no up marker, so world up falls
+        # back on rest up, read from the spread of the T-pose without a
+        # mapping and from the legs with one.
+        source = self._load(TEST3)
+        table = source.to_node_table()
+        renamed = {row["name"]: f"J{index}" for index, row in enumerate(table)}
+        for row in table:
+            row["name"] = renamed[row["name"]]
+        mapping = {renamed[a]: renamed[b] for a, b in source.lr_mapping.items()}
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            bvh = Bvh(
+                nodes=nodes_from_table(table),
+                root_pos=source.root_pos,
+                joint_angles=source.joint_angles,
+                frame_time=source.frame_time,
+            )
+            assert bvh.world_up == "-x"
+        assert _world_up_warnings(w) == []
+        bvh.lr_mapping = mapping
+        with pytest.warns(UserWarning, match="another convention"):
+            assert bvh.world_up == "+y"
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            bvh.lr_mapping = mapping
+            _ = bvh.world_up  # the same guess again: no second warning
+        assert _world_up_warnings(w) == []
+
     def test_a_first_frame_holding_nan_falls_back_on_rest_up(self):
         bvh = self._load(EXAMPLE)
         root_pos = bvh.root_pos.copy()

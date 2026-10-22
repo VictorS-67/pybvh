@@ -1170,11 +1170,11 @@ class Bvh:
         # A guess of this clip's own warns on the first read of the axis it
         # gave, once; an inherited guess warned on the clip it was made on.
         guessed_here = report.world_up_source != "set" and not report.world_up_inherited
-        if guessed_here and not derived.world_up_guess_announced:
+        if guessed_here and derived.world_up_guess_announced != derived.inferred_world_up:
             guess = derived.inferred_world_up
             assert guess is not None  # the report read world up from it
             self._warn_about_world_up_guess(guess, report.rest_up)
-            derived.world_up_guess_announced = True
+            derived.world_up_guess_announced = guess
         return report.world_up
 
     @world_up.setter

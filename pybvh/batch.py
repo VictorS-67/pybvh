@@ -17,6 +17,7 @@ from ._warnings import user_stacklevel
 from .bvh import Bvh
 from .features import to_feature_array
 from .io import _bvh_from_parsed, _extract_bvh_file_info, _ParsedBvh
+from .node_tree import _channel_difference, _hierarchy_difference, _NodeTreeDifference
 
 
 @dataclass
@@ -354,10 +355,18 @@ def harmonize(
     report = HarmonizeReport()
     out: list[Bvh] = []
     for i, b in enumerate(clips):
-        if reference is not None and not reference.matches_hierarchy(b, match_offsets=False):
+        difference = (
+            None
+            if reference is None
+            else _hierarchy_difference(reference.nodes, b.nodes, atol=None)
+        )
+        if difference is not None:
             reason = "topology mismatch with reference"
             if on_incompatible == "raise":
-                raise ValueError(f"Clip at index {i} has incompatible topology with reference.")
+                raise ValueError(
+                    f"Clip at index {i} has incompatible topology with reference: "
+                    f"{difference.message}."
+                )
             report.dropped_indices.append(i)
             report.dropped_sources.append(b.source_path)
             report.drop_reasons.append(reason)
@@ -426,80 +435,31 @@ def _clip_label(bvh: Bvh, idx: int) -> str:
     return f"index {idx}"
 
 
-def _hierarchy_mismatch_message(ref: Bvh, bvh: Bvh, ref_idx: int, idx: int) -> str:
-    """Build a diagnostic for a matches_hierarchy failure."""
-    ref_label = _clip_label(ref, ref_idx)
-    div_label = _clip_label(bvh, idx)
-
-    if len(ref.nodes) != len(bvh.nodes):
-        return (
-            f"Skeleton hierarchy mismatch between {ref_label} and "
-            f"{div_label}: node count {len(ref.nodes)} vs {len(bvh.nodes)}."
-        )
-
-    for j, (n1, n2) in enumerate(zip(ref.nodes, bvh.nodes, strict=True)):
-        if n1.name != n2.name:
-            return (
-                f"Skeleton hierarchy mismatch between {ref_label} and "
-                f"{div_label}: node {j} is '{n1.name}' vs '{n2.name}'."
-            )
-        if n1.is_end_site() != n2.is_end_site():
-            kinds = ["an end site" if n.is_end_site() else "a joint" for n in (n1, n2)]
-            return (
-                f"Skeleton hierarchy mismatch between {ref_label} and "
-                f"{div_label}: node '{n1.name}' is {kinds[0]} vs {kinds[1]}."
-            )
-        p1 = n1.parent.name if n1.parent is not None else None
-        p2 = n2.parent.name if n2.parent is not None else None
-        if p1 != p2:
-            return (
-                f"Skeleton hierarchy mismatch between {ref_label} and "
-                f"{div_label}: node '{n1.name}' parent is "
-                f"{p1!r} vs {p2!r}."
-            )
-        if not np.allclose(n1.offset, n2.offset, atol=1e-6):
-            return (
-                f"Skeleton hierarchy mismatch between {ref_label} and "
-                f"{div_label}: rest offset for '{n1.name}' differs "
-                f"({list(n1.offset)} vs {list(n2.offset)}). "
-                f"Pre-harmonize bone proportions via "
-                f"harmonize(clips, reference=ref)."
-            )
-
-    return f"Skeleton hierarchy mismatch between {ref_label} and {div_label}."
+def _hierarchy_mismatch_message(
+    difference: _NodeTreeDifference, ref: Bvh, bvh: Bvh, ref_idx: int, idx: int
+) -> str:
+    """The diagnostic of a ``matches_hierarchy`` failure: *difference*,
+    between the two clips named."""
+    message = (
+        f"Skeleton hierarchy mismatch between {_clip_label(ref, ref_idx)} and "
+        f"{_clip_label(bvh, idx)}: {difference.message}."
+    )
+    if difference.kind == "offset":
+        message += " Pre-harmonize bone proportions via harmonize(clips, reference=ref)."
+    return message
 
 
 def _channel_mismatch_message(
-    ref: Bvh, bvh: Bvh, ref_idx: int, idx: int, representation: str
+    difference: _NodeTreeDifference, ref: Bvh, bvh: Bvh, ref_idx: int, idx: int, representation: str
 ) -> str:
-    """Build a diagnostic for a matches_channels failure."""
-    ref_label = _clip_label(ref, ref_idx)
-    div_label = _clip_label(bvh, idx)
-
-    ref_orders = ref.euler_orders
-    orders = bvh.euler_orders
-    joint_names = ref.joint_names
-
-    first_diff = next(
-        (j for j, (a, b) in enumerate(zip(ref_orders, orders, strict=True)) if a != b),
-        None,
-    )
-
-    if first_diff is None:
-        # Channel mismatch but not in Euler orders — must be root position channels.
-        return (
-            f"Root position-channel mismatch between {ref_label} and "
-            f"{div_label}: {ref.root.pos_channels} vs "
-            f"{bvh.root.pos_channels}."
-        )
-
+    """The diagnostic of a ``matches_channels`` failure: *difference*,
+    between the two clips named, with the way to harmonize them."""
     return (
-        f"Rotation-channel mismatch between {ref_label} and {div_label} "
-        f"(joint '{joint_names[first_diff]}': '{ref_orders[first_diff]}' vs "
-        f"'{orders[first_diff]}'). For representation='{representation}', "
-        f"mismatched Euler orders corrupt the concatenated tensor's channel "
-        f"layout — pre-harmonize the dataset with "
-        f"harmonize(clips, target_euler_order='<ORDER>'). For "
+        f"Rotation-channel mismatch between {_clip_label(ref, ref_idx)} and "
+        f"{_clip_label(bvh, idx)} ({difference.message}). For "
+        f"representation='{representation}', mismatched Euler orders corrupt "
+        f"the concatenated tensor's channel layout — pre-harmonize the dataset "
+        f"with harmonize(clips, target_euler_order='<ORDER>'). For "
         f"representation='6d' / 'quat' / 'rotmat', the tensor is "
         f"order-agnostic and this check is skipped."
     )
@@ -557,10 +517,15 @@ def batch_to_numpy(
     # Validate skeleton compatibility
     ref = bvh_list[0]
     for i, bvh in enumerate(bvh_list[1:], start=1):
-        if not ref.matches_hierarchy(bvh):
-            raise ValueError(_hierarchy_mismatch_message(ref, bvh, 0, i))
-        if channel_layout_matters and not ref.matches_channels(bvh):
-            raise ValueError(_channel_mismatch_message(ref, bvh, 0, i, representation))
+        difference = _hierarchy_difference(ref.nodes, bvh.nodes)
+        if difference is not None:
+            raise ValueError(_hierarchy_mismatch_message(difference, ref, bvh, 0, i))
+        if channel_layout_matters:
+            difference = _channel_difference(ref.nodes, bvh.nodes)
+            if difference is not None:
+                raise ValueError(
+                    _channel_mismatch_message(difference, ref, bvh, 0, i, representation)
+                )
 
     # Per-clip extraction delegates to the features module — one place
     # owns the flat (F, D) layout, the valid-representation set, and its

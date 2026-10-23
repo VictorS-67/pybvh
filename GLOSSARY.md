@@ -36,7 +36,7 @@ _Avoid_: rotation order
 The tree of nodes with their names and offsets, as the HIERARCHY section declares it. `matches_hierarchy` compares exactly that.
 
 **Topology**:
-A hierarchy together with its channel layout. Two clips with the same topology share the same joint-angle columns.
+A hierarchy together with its channel layout. Two clips with the same topology share the same joint-angle columns; `matches_topology` compares it, and `a + b`, `a += b` and `a[i:j] = b` require it.
 
 **Skeleton**:
 The everyday word for the hierarchy a clip carries beside its motion; use hierarchy and topology where the exact comparison matters.

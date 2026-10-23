@@ -726,8 +726,13 @@ class Bvh:
         """Concatenate two Bvh clips with the same skeleton.
 
         Returns a new Bvh with frames from ``self`` followed by ``other``.
-        Raises ``ValueError`` if the skeletons are incompatible and warns
-        on ``frame_time`` mismatch (``self``'s frame time wins).
+        Raises ``ValueError`` unless the two share their topology
+        (:meth:`matches_topology`: names, node kinds, parents, rest
+        offsets within ``1e-6``, rotation orders), since ``other``'s
+        motion is written onto ``self``'s bones; to join motion recorded
+        on other bones on purpose, put it on this skeleton first,
+        ``self + other.copy(nodes=self.to_node_table())``. Warns on
+        ``frame_time`` mismatch (``self``'s frame time wins).
         """
         if not isinstance(other, Bvh):
             return NotImplemented  # type: ignore[return-value]
@@ -760,7 +765,8 @@ class Bvh:
     def __setitem__(self, key: int | slice, value: Bvh) -> None:
         """Splice frames from another Bvh into ``self`` in place.
 
-        The skeleton of ``value`` must match ``self``, ``value.frame_time``
+        The skeleton of ``value`` must match ``self``'s topology, as for
+        ``a + b`` (:meth:`matches_topology`), ``value.frame_time``
         must equal ``self.frame_time`` (raises ``ValueError`` otherwise —
         use :meth:`resample` first if they differ), and the slice length
         must equal ``value.frame_count``. Integer keys require
@@ -3026,26 +3032,28 @@ class Bvh:
         return new_bvh
 
     def _check_same_skeleton(self, other: Bvh) -> None:
-        """Raise ValueError if ``other`` has a different skeleton topology.
+        """Raise ``ValueError`` unless ``other`` has this clip's topology.
 
-        Compares node count, per-node names and kinds (joint or end site),
-        and per-joint rotation orders.
-        Shared by ``__add__``, ``__iadd__``, and ``__setitem__``.
+        The hierarchy (names, node kinds, parents, rest offsets within
+        ``1e-6``) and the channel layout (each joint's rotation order),
+        as :meth:`matches_topology` compares them: ``+``, ``+=`` and slice
+        assignment write ``other``'s motion onto this clip's bones, which
+        would silently change it where the two skeletons differ. The
+        error names the first difference.
         """
-        if len(self.nodes) != len(other.nodes):
-            raise ValueError(f"Node count mismatch: {len(self.nodes)} vs {len(other.nodes)}")
-        for n1, n2 in zip(self.nodes, other.nodes, strict=True):
-            if n1.name != n2.name:
-                raise ValueError(f"Node name mismatch: '{n1.name}' vs '{n2.name}'")
-            if n1.is_end_site() != n2.is_end_site():
-                kinds = ["end site" if n.is_end_site() else "joint" for n in (n1, n2)]
-                raise ValueError(f"Node kind mismatch for '{n1.name}': {kinds[0]} vs {kinds[1]}")
-            if _is_joint(n1) and _is_joint(n2):
-                if n1.rot_channels != n2.rot_channels:
-                    raise ValueError(
-                        f"Rotation order mismatch for '{n1.name}': "
-                        f"{n1.rot_channels} vs {n2.rot_channels}"
-                    )
+        difference = _hierarchy_difference(self.nodes, other.nodes) or _channel_difference(
+            self.nodes, other.nodes
+        )
+        if difference is None:
+            return
+        message = f"Cannot join clips whose skeletons differ: {difference.message}."
+        if difference.kind == "offset":
+            message += (
+                " To put the other clip's motion on this clip's bones on purpose, "
+                "join other.copy(nodes=self.to_node_table()) instead, after "
+                "scaling the whole clip if the two are in different units."
+            )
+        raise ValueError(message)
 
     def _concat(self, other: Bvh) -> Bvh:
         """Implementation of ``self + other`` (see :meth:`__add__`).
@@ -3053,8 +3061,9 @@ class Bvh:
         Parameters
         ----------
         other : Bvh
-            Must have the same skeleton (same node names and rotation
-            orders).
+            Must have the same topology (:meth:`matches_topology`): the
+            same names, node kinds, parents, rest offsets within ``1e-6``
+            and rotation orders.
 
         Returns
         -------
@@ -3064,8 +3073,8 @@ class Bvh:
         Raises
         ------
         ValueError
-            If skeletons are incompatible (different node count, names,
-            or rotation orders).
+            If the topologies differ; the message names the first
+            difference.
         """
         self._check_same_skeleton(other)
 

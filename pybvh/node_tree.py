@@ -9,8 +9,8 @@ the one place a node tree is built, for the parser,
 constructed, and ``Bvh.copy`` and ``df_to_bvh`` on a node list they take
 over. ``_hierarchy_difference`` and ``_channel_difference`` are the one
 comparison of two trees: the first way they differ, worded once, which
-``Bvh.matches_hierarchy``, ``matches_channels``, ``matches_topology``
-and ``batch`` all read.
+``Bvh.matches_hierarchy``, ``matches_channels``, ``matches_topology``,
+``+``, ``+=``, slice assignment and ``batch`` all read.
 """
 
 from __future__ import annotations
@@ -152,8 +152,8 @@ def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
 #              _channel_difference
 #
 # Bvh.matches_hierarchy, matches_channels and matches_topology ask whether
-# there is a difference; batch puts its clip labels around it. Each
-# difference is worded here, once.
+# there is a difference; +, += and slice assignment raise with it; batch puts
+# its clip labels around it. Each difference is worded here, once.
 
 # How far two rest offsets may be apart, per component and in the file's
 # unit, for two skeletons to share a rest pose: above the writer's rounding

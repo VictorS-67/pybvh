@@ -100,6 +100,32 @@ def _offsets(bvh):
     return np.array([node.offset for node in bvh.nodes])
 
 
+def _clip_from_parents(parents, names=None, offsets=None):
+    """A clip of joints named *names* (``J0``, ``J1``, ... by default),
+    each wired to the node at its index in *parents* (``None`` for the
+    root), with the given offsets (``[0, 1, 0]`` each by default)."""
+    names = names or [f"J{i}" for i in range(len(parents))]
+    offsets = offsets or [[0.0, 1.0, 0.0]] * len(parents)
+    table = [
+        {
+            "name": names[0],
+            "parent": None,
+            "offset": offsets[0],
+            "pos_channels": "XYZ",
+            "rot_channels": "ZYX",
+        }
+    ] + [
+        {"name": names[i], "parent": parents[i], "offset": offsets[i], "rot_channels": "ZYX"}
+        for i in range(1, len(parents))
+    ]
+    return Bvh(
+        nodes=nodes_from_table(table),
+        root_pos=np.zeros((2, 3)),
+        joint_angles=np.zeros((2, len(parents), 3)),
+        frame_time=0.1,
+    )
+
+
 def _leaf_as_joint_and_as_end_site():
     """Two clips alike in names, parents and offsets, whose leaf ``Tip`` is
     a joint without children in the first and an end site in the second."""
@@ -3100,6 +3126,12 @@ class TestEqualityHierarchy:
         offsets[end_idx] += 1.0
         assert bvh_example != _with_offsets(bvh_example, offsets)
 
+    def test_equality_compares_offsets_exactly(self, bvh_example):
+        offsets = _offsets(bvh_example)
+        k, axis = np.unravel_index(np.argmax(np.abs(offsets)), offsets.shape)
+        offsets[k, axis] += 1e-9
+        assert bvh_example != _with_offsets(bvh_example, offsets)
+
 
 # =============================================================================
 # Test: world-frame FK cache
@@ -4492,6 +4524,23 @@ class TestBatchProcessing:
             with pytest.raises(ValueError, match="Skeleton hierarchy mismatch"):
                 batch_to_numpy([all_bvhs[0], mixed[0]])
 
+    def test_batch_to_numpy_names_the_parent_that_differs(self):
+        chain = _clip_from_parents([None, 0, 1])
+        fork = _clip_from_parents([None, 0, 0])
+        with pytest.raises(
+            ValueError,
+            match=r"Skeleton hierarchy mismatch between index 0 and index 1: the parent of node 'J2'",
+        ):
+            batch_to_numpy([chain, fork])
+
+    def test_batch_to_numpy_names_the_rotation_order_that_differs(self, bvh_example):
+        other = bvh_example.change_euler_order("XYZ", joint="Hips")
+        with pytest.raises(
+            ValueError,
+            match=r"Rotation-channel mismatch between index 0 .* \(joint 'Hips' rotates in order",
+        ):
+            batch_to_numpy([bvh_example, other])
+
     def test_batch_to_numpy_names_a_node_that_is_a_joint_in_one_clip_only(self):
         with_joint, with_end_site = _leaf_as_joint_and_as_end_site()
         with pytest.raises(ValueError, match="node 'Tip' is a joint vs an end site"):
@@ -4739,6 +4788,16 @@ class TestHarmonize:
         clips = [bvh_example, bvh_test2]
         with pytest.raises(ValueError, match="incompatible topology"):
             harmonize(clips, reference=bvh_example, on_incompatible="raise")
+
+    def test_raise_incompatible_names_the_difference(self):
+        from pybvh.batch import harmonize
+
+        chain = _clip_from_parents([None, 0, 1])
+        fork = _clip_from_parents([None, 0, 0])
+        with pytest.raises(
+            ValueError, match="incompatible topology with reference: the parent of node 'J2'"
+        ):
+            harmonize([chain, fork], reference=chain, on_incompatible="raise")
 
     def test_drops_a_clip_with_an_end_site_where_the_reference_has_a_joint(self):
         from pybvh.batch import harmonize
@@ -6866,6 +6925,24 @@ class TestMatchesHierarchy:
         with_joint, with_end_site = _leaf_as_joint_and_as_end_site()
         assert not with_joint.matches_hierarchy(with_end_site)
         assert not with_end_site.matches_hierarchy(with_joint)
+
+    def test_the_offset_tolerance_is_absolute(self, bvh_example):
+        # 1e-4 off on an offset some ten units long: within NumPy's default
+        # relative tolerance, not within the absolute 1e-6.
+        offsets = _offsets(bvh_example)
+        k, axis = np.unravel_index(np.argmax(np.abs(offsets)), offsets.shape)
+        assert abs(offsets[k, axis]) > 10.0
+        offsets[k, axis] += 1e-4
+        assert not bvh_example.matches_hierarchy(_with_offsets(bvh_example, offsets))
+
+    def test_a_parent_is_a_node_not_a_name(self):
+        # J2 hangs from the second "X" in one clip and from the first in
+        # the other: the parents' names agree, the parents do not.
+        names = ["Hips", "X", "X", "Y"]
+        chain = _clip_from_parents([None, 0, 1, 2], names=names)
+        fork = _clip_from_parents([None, 0, 1, 1], names=names)
+        assert not chain.matches_hierarchy(fork)
+        assert not chain.matches_hierarchy(fork, match_offsets=False)
 
 
 class TestMatchesChannels:

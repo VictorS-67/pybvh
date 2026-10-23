@@ -7,17 +7,20 @@ the one place a node tree is built, for the parser,
 ``Bvh.extract_joints``. ``_check_node_list`` is the test
 :class:`~pybvh.Bvh` runs on the nodes it is given when it is
 constructed, and ``Bvh.copy`` and ``df_to_bvh`` on a node list they take
-over.
+over. ``_hierarchy_difference`` and ``_channel_difference`` are the one
+comparison of two trees: the first way they differ, worded once, which
+``Bvh.matches_hierarchy``, ``matches_channels``, ``matches_topology``
+and ``batch`` all read.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
-from typing import Any, cast
+from typing import Any, Literal, NamedTuple, cast
 
 import numpy as np
 
-from .bvhnode import BvhEndSite, BvhJoint, BvhNode, BvhRoot
+from .bvhnode import BvhEndSite, BvhJoint, BvhNode, BvhRoot, _is_joint
 
 
 def _walk_depth_first(root: BvhNode) -> Iterator[tuple[BvhNode, BvhNode | None]]:
@@ -133,6 +136,115 @@ def _check_node_tree(nodes: Sequence[BvhNode]) -> None:
             f"{describe(unreached.parent)}. Every node must be listed in "
             f"its parent's children."
         )
+
+
+# ---------------------------------------------------------------------------------------------
+# Two node trees compared
+# ---------------------------------------------------------------------------------------------
+#
+# The kinds of sameness two skeletons can share, each a check of its own:
+#
+#   graph      the node count, and per node its name, its kind (joint or end
+#              site) and its parent: _hierarchy_difference(atol=None)
+#   rest pose  the graph, and each rest offset within an absolute tolerance:
+#              _hierarchy_difference(atol=...), atol=0 for exact
+#   channels   the joint count, and each joint's rotation order:
+#              _channel_difference
+#
+# Bvh.matches_hierarchy, matches_channels and matches_topology ask whether
+# there is a difference; batch puts its clip labels around it. Each
+# difference is worded here, once.
+
+# How far two rest offsets may be apart, per component and in the file's
+# unit, for two skeletons to share a rest pose: above the writer's rounding
+# to six decimals (at most 5e-7), far below a skeleton calibrated again or a
+# change of unit. Absolute only: a relative tolerance would let a long bone
+# drift further than a short one.
+_OFFSET_ATOL = 1e-6
+
+_DifferenceKind = Literal[
+    "node_count", "name", "node_kind", "parent", "offset", "joint_count", "rotation_order"
+]
+
+
+class _NodeTreeDifference(NamedTuple):
+    """The first way two node trees differ: what differs, and a clause that
+    says it, naming the node (``"node 'Tip' is a joint vs an end site"``)."""
+
+    kind: _DifferenceKind
+    message: str
+
+
+def _parent_positions(nodes: Sequence[BvhNode]) -> list[int | None]:
+    """Each node's parent as its position in *nodes*, ``None`` for the root."""
+    position = {id(node): i for i, node in enumerate(nodes)}
+    return [None if node.parent is None else position[id(node.parent)] for node in nodes]
+
+
+def _hierarchy_difference(
+    ours: Sequence[BvhNode], theirs: Sequence[BvhNode], atol: float | None = _OFFSET_ATOL
+) -> _NodeTreeDifference | None:
+    """The first difference between two node trees' hierarchies, or ``None``.
+
+    Node by node, in order: the node count, then each node's name, its
+    kind (a joint or an end site), its parent, and, unless *atol* is
+    ``None``, its rest offset. A parent is compared by its position in
+    the list, not by its name: names may repeat, so a parent of the same
+    name may be another node. Offsets are compared per component within
+    the absolute *atol*, with no relative tolerance, so ``atol=0`` is
+    exact. ``atol=None`` compares the graph alone.
+
+    Both lists are valid trees in depth-first order
+    (:func:`_check_node_tree`), as the nodes of every ``Bvh`` are.
+    """
+    if len(ours) != len(theirs):
+        return _NodeTreeDifference("node_count", f"node count {len(ours)} vs {len(theirs)}")
+    our_parents, their_parents = _parent_positions(ours), _parent_positions(theirs)
+    for i, (a, b) in enumerate(zip(ours, theirs, strict=True)):
+        if a.name != b.name:
+            return _NodeTreeDifference("name", f"node {i} is named {a.name!r} vs {b.name!r}")
+        if a.is_end_site() != b.is_end_site():
+            kinds = ["an end site" if node.is_end_site() else "a joint" for node in (a, b)]
+            return _NodeTreeDifference("node_kind", f"node {a.name!r} is {kinds[0]} vs {kinds[1]}")
+        if our_parents[i] != their_parents[i]:
+            labels = [
+                "none" if parent is None else f"nodes[{parent}] ({nodes[parent].name!r})"
+                for parent, nodes in ((our_parents[i], ours), (their_parents[i], theirs))
+            ]
+            return _NodeTreeDifference(
+                "parent", f"the parent of node {a.name!r} is {labels[0]} vs {labels[1]}"
+            )
+        if atol is not None and not np.all(np.abs(a.offset - b.offset) <= atol):
+            return _NodeTreeDifference(
+                "offset",
+                f"the rest offset of {a.name!r} is {a.offset.tolist()} vs {b.offset.tolist()}",
+            )
+    return None
+
+
+def _channel_difference(
+    ours: Sequence[BvhNode], theirs: Sequence[BvhNode]
+) -> _NodeTreeDifference | None:
+    """The first difference between two node trees' channel layouts, or ``None``.
+
+    The joint count, then each joint's rotation order, joint by joint in
+    node order (the order of ``joint_angles``' columns). The root's
+    position channels are not compared: a ``Bvh`` accepts only ``XYZ``.
+    """
+    our_joints = [node for node in ours if _is_joint(node)]
+    their_joints = [node for node in theirs if _is_joint(node)]
+    if len(our_joints) != len(their_joints):
+        return _NodeTreeDifference(
+            "joint_count", f"joint count {len(our_joints)} vs {len(their_joints)}"
+        )
+    for a, b in zip(our_joints, their_joints, strict=True):
+        if tuple(a.rot_channels) != tuple(b.rot_channels):
+            return _NodeTreeDifference(
+                "rotation_order",
+                f"joint {a.name!r} rotates in order {''.join(a.rot_channels)!r} "
+                f"vs {''.join(b.rot_channels)!r}",
+            )
+    return None
 
 
 # ---------------------------------------------------------------------------------------------

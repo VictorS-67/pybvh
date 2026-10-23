@@ -58,8 +58,11 @@ from ._warnings import user_stacklevel
 from .bvhnode import BvhEndSite as BvhEndSite
 from .bvhnode import BvhJoint, BvhNode, BvhRoot, _is_joint
 from .node_tree import (
+    _OFFSET_ATOL,
+    _channel_difference,
     _check_node_list,
     _check_node_tree,
+    _hierarchy_difference,
     _nodes_from_table_or_list,
     nodes_from_table,
     nodes_to_table,
@@ -541,7 +544,8 @@ class Bvh:
         """Full-content equality: skeleton, channel layout, timing, motion.
 
         Hierarchy (names, parents, offsets, end sites) is compared via
-        :meth:`matches_hierarchy` with ``atol=0``, channel layout via
+        :meth:`matches_hierarchy` with ``atol=0``, so offsets must be
+        equal exactly, channel layout via
         :meth:`matches_channels`. ``source_path`` is ignored.
         """
         if not isinstance(other, Bvh):
@@ -558,15 +562,18 @@ class Bvh:
             return False
         return True
 
-    def matches_hierarchy(self, other: Bvh, match_offsets: bool = True, atol: float = 1e-6) -> bool:
+    def matches_hierarchy(
+        self, other: Bvh, match_offsets: bool = True, atol: float = _OFFSET_ATOL
+    ) -> bool:
         """Whether ``self`` and ``other`` share the same skeleton hierarchy.
 
         Hierarchy is defined as: same node names in topological order
         (including end sites), each node of the same kind (a joint or an
-        end site), same parent-child structure, and — when
-        ``match_offsets=True`` (default) — same rest-pose offsets within
-        ``atol``. Motion data, Euler rotation orders, and frame timing
-        are NOT compared.
+        end site), each node's parent the node at the same position (not
+        merely a node of the same name, since names may repeat), and —
+        when ``match_offsets=True`` (default) — same rest-pose offsets,
+        each component within the absolute ``atol``. Motion data, Euler
+        rotation orders, and frame timing are NOT compared.
 
         Use this when you need to know that two clips describe the same
         skeleton in the same rest pose — e.g. before batching to a
@@ -588,8 +595,10 @@ class Bvh:
             ``atol``. If False, ignore offsets and check only the
             skeleton graph (names + parent structure).
         atol : float, optional
-            Absolute tolerance for offset comparison (default ``1e-6``).
-            Ignored when ``match_offsets=False``.
+            Absolute tolerance for each offset component, in the file's
+            length unit (default ``1e-6``, above the writer's rounding to
+            six decimals). No relative tolerance is added, so ``atol=0``
+            is exact. Ignored when ``match_offsets=False``.
 
         Returns
         -------
@@ -602,26 +611,18 @@ class Bvh:
         """
         if not isinstance(other, Bvh):
             return False
-        if len(self.nodes) != len(other.nodes):
-            return False
-        for n1, n2 in zip(self.nodes, other.nodes, strict=True):
-            if n1.name != n2.name:
-                return False
-            if n1.is_end_site() != n2.is_end_site():
-                return False
-            parent1 = n1.parent.name if n1.parent is not None else None
-            parent2 = n2.parent.name if n2.parent is not None else None
-            if parent1 != parent2:
-                return False
-            if match_offsets and not np.allclose(n1.offset, n2.offset, atol=atol):
-                return False
-        return True
+        difference = _hierarchy_difference(
+            self.nodes, other.nodes, atol=atol if match_offsets else None
+        )
+        return difference is None
 
     def matches_channels(self, other: Bvh) -> bool:
         """Whether ``self`` and ``other`` share the same channel layout.
 
-        Compares per-joint Euler rotation orders and the root's
-        position-channel order. This is a *serialization* property:
+        Compares per-joint Euler rotation orders, joint by joint in node
+        order. The root's position channels are always ``XYZ`` (the
+        constructor accepts no other order), so they cannot differ. This
+        is a *serialization* property:
         clips with identical underlying rotations but different stored
         Euler orders have different channel layouts.
 
@@ -646,9 +647,7 @@ class Bvh:
         """
         if not isinstance(other, Bvh):
             return False
-        if self.root.pos_channels != other.root.pos_channels:
-            return False
-        return self.euler_orders == other.euler_orders
+        return _channel_difference(self.nodes, other.nodes) is None
 
     def matches_topology(self, other: Bvh) -> bool:
         """Whether ``self`` and ``other`` share both hierarchy and channel layout.
@@ -678,7 +677,7 @@ class Bvh:
         See Also
         --------
         matches_hierarchy : The hierarchy half (joints, parents, offsets).
-        matches_channels : The channel-layout half (Euler orders, root pos channels).
+        matches_channels : The channel-layout half (per-joint Euler orders).
         """
         return self.matches_hierarchy(other) and self.matches_channels(other)
 

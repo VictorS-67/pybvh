@@ -1432,9 +1432,10 @@ class TestGroundContacts:
         with pytest.raises(TypeError, match="float"):
             analysis.ground_contacts(cmu_walk, [1.5])
 
-    def test_unknown_name_raises(self, cmu_walk):
-        with pytest.raises(ValueError, match="not found in skeleton"):
-            analysis.ground_contacts(cmu_walk, ["NotAJoint"])
+    @pytest.mark.parametrize("detector", [analysis.foot_contacts, analysis.ground_contacts])
+    def test_unknown_name_raises_on_both_detectors(self, cmu_walk, detector):
+        with pytest.raises(ValueError, match="'NotAJoint' not found in skeleton"):
+            detector(cmu_walk, ["LeftFoot", "NotAJoint"])
 
     def test_column_order_matches_input_order(self, cmu_walk):
         feet = cmu_walk.auto_detect_foot_joints()

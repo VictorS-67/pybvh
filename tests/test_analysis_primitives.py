@@ -877,30 +877,60 @@ def test_hysteresis_holds_a_contact_through_the_band_and_drops_a_shallow_dip():
     np.testing.assert_array_equal(got[:, 0], [0, 1, 1, 1, 1, 0, 0, 0, 0, 0])
 
 
-def test_otsu_finds_valley_on_bimodal():
+# The default height threshold on make_contact_rig: 0.013 x its skeleton scale, 10.
+RIG_HEIGHT_MARGIN = 0.013 * 10.0
+
+
+def _adaptive_height_contacts(height):
+    return _height_contacts(height, height_threshold=None, adaptive=True, hysteresis=0.0)
+
+
+def test_adaptive_splits_a_bimodal_signal_and_keeps_the_default_on_a_unimodal_one():
+    # One call, two feet. LeftFoot stands at 1.5 margins and swings at 6: the
+    # split between the two clusters labels its whole stance. RightFoot hovers
+    # at 1.5 margins with no swing: no convincing split, so it keeps the default
+    # threshold, and only its frames below one margin are contacts.
     rng = np.random.default_rng(0)
-    v = np.concatenate([rng.normal(0.0, 0.05, 200), rng.normal(2.0, 0.05, 200)])
-    thr, strength = analysis._otsu_threshold(v)
-    assert thr is not None and 0.3 < thr < 1.7 and strength > 0.6
+    m = RIG_HEIGHT_MARGIN
+    height = np.empty((400, 2))
+    height[:200, 0] = rng.normal(1.5 * m, 0.02 * m, 200)
+    height[200:, 0] = rng.normal(6.0 * m, 0.02 * m, 200)
+    height[:, 1] = rng.normal(1.5 * m, 0.2 * m, 400)
+    got = _adaptive_height_contacts(height)
+    np.testing.assert_array_equal(got[:, 0], np.arange(400) < 200)
+    np.testing.assert_array_equal(got[:, 1], height[:, 1] < m)
+    assert 0 < got[:, 1].sum() < 20  # the default does label a few frames
 
 
-def test_otsu_fallback_on_unimodal_and_edges():
+def test_adaptive_keeps_the_default_on_a_flat_signal():
+    # A foot held still: one value, no split to find.
+    flat = np.full(100, 1.5 * RIG_HEIGHT_MARGIN)
+    bvh = make_contact_rig(flat.size)
+    c, info = bvh.foot_contacts(
+        foot_joints=["LeftFoot"],
+        method="height",
+        coords=contact_coords(bvh, flat),
+        floor=0.0,
+        adaptive=True,
+        return_info=True,
+    )
+    assert not c.any()
+    assert info["height_threshold"] == pytest.approx(RIG_HEIGHT_MARGIN)
+
+
+def test_adaptive_split_is_clamped_to_four_times_the_default():
+    # Stance spread from 3 to 5 margins, swing at 100: the split between the
+    # clusters lies near 50 margins, and is clamped to 4. Only the stance frames
+    # below 4 margins are contacts: a rejected split (1 margin) would label none,
+    # an unclamped one all of the stance.
+    m = RIG_HEIGHT_MARGIN
     rng = np.random.default_rng(1)
-    assert analysis._otsu_threshold(rng.normal(1.0, 0.1, 300))[0] is None  # unimodal
-    assert analysis._otsu_threshold(np.zeros(50))[0] is None  # zero variance
-    assert analysis._otsu_threshold(np.array([1.0, 2.0, 3.0]))[0] is None  # < 8 samples
-
-
-def test_resolve_adaptive_per_foot_fallback_and_clamp():
-    rng = np.random.default_rng(2)
-    sig = np.empty((400, 2))
-    sig[:, 0] = np.concatenate([rng.normal(0, 0.02, 200), rng.normal(1.0, 0.02, 200)])
-    sig[:, 1] = rng.normal(0.5, 0.1, 400)  # unimodal -> fallback
-    base = 0.05
-    thr, used = analysis._resolve_adaptive(sig, base)
-    assert used[0] and not used[1]
-    np.testing.assert_allclose(thr[1], base)  # fallback
-    assert 0.25 * base <= thr[0] <= 4.0 * base  # clamped
+    height = np.concatenate(
+        [np.linspace(3.0 * m, 5.0 * m, 200), rng.normal(100 * m, 0.02 * m, 200)]
+    )
+    got = _adaptive_height_contacts(height)
+    np.testing.assert_array_equal(got[:, 0], height < 4.0 * m)
+    assert 50 < got[:, 0].sum() < 150
 
 
 def test_detect_contacts_recovers_plant_lift_two_feet():

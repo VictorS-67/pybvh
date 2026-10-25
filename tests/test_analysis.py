@@ -18,7 +18,9 @@ from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhRoot
 
 sys.path.insert(0, str(Path(__file__).parent))
 from synthetic_bvh import (
+    contact_coords,
     make_clip_bvh,
+    make_contact_rig,
     make_neg_y_up_bvh,
     make_neg_z_up_bvh,
     make_pos_y_up_bvh,
@@ -933,56 +935,50 @@ class TestFootContactsDurationFilters:
     """min_contact_duration / min_gap_duration: morphological open + close
     specified in seconds, fps-independent."""
 
-    def test_helper_removes_short_true_runs(self):
-        from pybvh.analysis import _filter_short_runs
+    FRAME_TIME = 0.1  # a duration of 0.3 s is 3 frames
 
-        mask = np.array(
-            [[False, True, True, False, True, False, False, True, True, True, True, False]]
-        ).T  # interior True runs of 2, 1, 4
-        filtered = _filter_short_runs(mask, min_run=3, value=True)
-        expected = np.array(
-            [[False, False, False, False, False, False, False, True, True, True, True, False]]
-        ).T  # only the 4-run survives
-        np.testing.assert_array_equal(filtered, expected)
+    @classmethod
+    def _filtered(cls, pattern, **durations):
+        """Contacts of a foot whose raw labels are ``pattern`` ("X" contact, "_" not).
 
-    def test_helper_exempts_open_boundary_runs(self):
-        from pybvh.analysis import _filter_short_runs
+        The height signal is 0 where the pattern says contact and 3 elsewhere, against an explicit floor of 0 and a threshold of 1, with no hysteresis, so the raw mask is the pattern and only the duration filters act on it.
+        """
+        raw = np.array([c == "X" for c in pattern])
+        bvh = make_contact_rig(raw.size, frame_time=cls.FRAME_TIME)
+        c = bvh.foot_contacts(
+            foot_joints=["LeftFoot"],
+            method="height",
+            coords=contact_coords(bvh, np.where(raw, 0.0, 3.0)),
+            floor=0.0,
+            height_threshold=1.0,
+            hysteresis=0.0,
+            **durations,
+        )
+        return "".join("X" if v else "_" for v in c[:, 0])
 
+    def test_min_contact_duration_removes_shorter_interior_runs(self):
+        # Interior contact runs of 2, 1 and 4 frames against 3: only the 4-run survives.
+        got = self._filtered("_XX_X__XXXX_", min_contact_duration=0.3, min_gap_duration=0.0)
+        assert got == "_______XXXX_"
+
+    def test_runs_open_at_the_clip_edges_are_not_filtered(self):
         # A run touching frame 0 or the last frame is truncated by the clip, so
-        # its length is only a lower bound -> exempt from the short-run filter.
-        contacts = np.array([[True, False, False, False, False, True]]).T  # 1-frame at each end
-        np.testing.assert_array_equal(  # open: boundary contacts kept
-            _filter_short_runs(contacts, min_run=3, value=True), contacts
-        )
-        gaps = np.array([[False, True, True, True, True, False]]).T  # 1-frame gap at each end
-        np.testing.assert_array_equal(  # close: boundary gaps not filled
-            _filter_short_runs(gaps, min_run=3, value=False), gaps
-        )
+        # its length is only a lower bound: a one-frame contact there is kept...
+        got = self._filtered("X____X", min_contact_duration=0.3, min_gap_duration=0.0)
+        assert got == "X____X"
+        # ... and a one-frame gap there is not filled.
+        got = self._filtered("_XXXX_", min_contact_duration=0.0, min_gap_duration=0.3)
+        assert got == "_XXXX_"
 
-    def test_helper_fills_short_false_gaps(self):
-        from pybvh.analysis import _filter_short_runs
+    def test_min_gap_duration_fills_shorter_gaps_only(self):
+        # A gap of 2 frames against 3 is filled; a gap of exactly 3 is not.
+        got = self._filtered("_XX__XXX___XX_", min_contact_duration=0.0, min_gap_duration=0.3)
+        assert got == "_XXXXXXX___XX_"
 
-        # True True False False True True True → gap of 2 in the middle
-        mask = np.array([[True, True, False, False, True, True, True]]).T
-        filled = _filter_short_runs(mask, min_run=3, value=False)
-        # Gap of 2 < 3 → filled
-        expected = np.array([[True, True, True, True, True, True, True]]).T
-        np.testing.assert_array_equal(filled, expected)
-
-    def test_helper_keeps_long_false_gaps(self):
-        from pybvh.analysis import _filter_short_runs
-
-        mask = np.array([[True, False, False, False, True]]).T
-        filled = _filter_short_runs(mask, min_run=3, value=False)
-        # Gap of 3 == min_run → NOT filled (must be strictly shorter)
-        np.testing.assert_array_equal(filled, mask)
-
-    def test_helper_minrun_one_is_identity(self):
-        from pybvh.analysis import _filter_short_runs
-
-        mask = np.array([[True, False, True, True, False, True]]).T
-        np.testing.assert_array_equal(_filter_short_runs(mask, 1, value=True), mask)
-        np.testing.assert_array_equal(_filter_short_runs(mask, 1, value=False), mask)
+    def test_a_one_frame_duration_filters_nothing(self):
+        # 0.1 s at 0.1 s a frame is one frame: no run is shorter than that.
+        pattern = "_X_XX_X__X_"
+        assert self._filtered(pattern, min_contact_duration=0.1, min_gap_duration=0.1) == pattern
 
     def test_zero_duration_disables_filtering(self, bvh_example):
         """Explicit 0.0 disables both filters (raw per-frame output)."""
@@ -1084,9 +1080,9 @@ class TestFootContactsFrameRateRobustness:
     @staticmethod
     def _runs_sec(contacts, fps):
         """Half-open (onset, offset) times in seconds of column-0 runs."""
-        from pybvh.analysis import _true_runs
-
-        return [(s / fps, e / fps) for s, e in _true_runs(contacts[:, 0] > 0.5)]
+        edges = np.diff(np.concatenate([[0], contacts[:, 0] > 0.5, [0]]).astype(int))
+        onsets, offsets = np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)
+        return [(s / fps, e / fps) for s, e in zip(onsets, offsets, strict=True)]
 
     def test_same_motion_same_labels_across_frame_rates(self):
         """Swing -> jittery stance -> swing gives the same segmentation at
@@ -1183,7 +1179,7 @@ class TestFootContactsFrameRateRobustness:
         """Guards the position-smoothing failure mode: edge-replicated
         *positions* would fake ~0 speed at the clip edges and invent
         boundary contacts; replicated *displacements* preserve the speed.
-        Also exercises the _release_open_runs boundary interaction."""
+        Also exercises the release of contact runs open at the clip edges."""
 
         def sculpt(t):
             swing_in = 5.0 * t
@@ -1327,7 +1323,7 @@ class TestFootContactsPinnedGolden:
 class TestContactReferenceIsIndependentOfTheSceneGround:
     """The contact reference belongs to the query; the scene ground to the clip.
 
-    ``foot_contacts`` measures clearance at joint *centres*, so its reference must be the level those joints reach — estimated per call, over the joints in use. :attr:`Bvh.floor_height` is measured over all nodes and sits a toe length lower on any rig with toe end sites. The two must never be substituted for one another, in either direction: these tests pin that no contact path computes the scene ground, and that a scene ground already computed, even an absurd one, changes no contact.
+    ``foot_contacts`` measures clearance at joint *centres*, so its reference must be the level those joints reach — estimated per call, over the joints in use. :attr:`Bvh.floor_height` is measured over all nodes and sits a toe length lower on any rig with toe end sites. The two must never be substituted for one another, in either direction: these tests pin that no contact path computes the scene ground, and that a scene ground already computed changes no contact.
     """
 
     @pytest.fixture
@@ -1340,32 +1336,32 @@ class TestContactReferenceIsIndependentOfTheSceneGround:
         cmu_walk.foot_contacts(coords=cmu_walk.node_positions())
         assert computations.floor_height == 0
 
-    def test_reading_floor_height_first_does_not_change_contacts(self, cmu_walk, monkeypatch):
+    @pytest.mark.parametrize("method", ["combined", "height"])
+    def test_reading_floor_height_first_does_not_change_contacts(self, cmu_walk, method):
         """The bug the shared cache would cause: contacts depending on
-        whether anything happened to read the scene ground beforehand."""
-        cold = cmu_walk.foot_contacts()
+        whether anything happened to read the scene ground beforehand.
+
+        On this walk the scene ground sits a toe length below the feet, so
+        a detector that took it as its reference would label fewer contacts
+        under the default method and none under ``method="height"``.
+        """
+        cold = cmu_walk.foot_contacts(method=method)
 
         warm = read_bvh_file(CMU_WALK_PATH)
         _ = warm.floor_height  # fill the scene ground
-        np.testing.assert_array_equal(warm.foot_contacts(), cold)
-
-        absurd = read_bvh_file(CMU_WALK_PATH)
-        monkeypatch.setattr(analysis, "_compute_floor_height", lambda bvh: 1e4)
-        assert absurd.floor_height == 1e4  # the clip now holds an absurd ground
-        np.testing.assert_array_equal(absurd.foot_contacts(), cold)
+        np.testing.assert_array_equal(warm.foot_contacts(method=method), cold)
 
     def test_reference_is_the_tested_feet_not_the_scene_ground(self, cmu_walk):
-        """On a rig with toe end sites the two are measurably different, and
-        ``info["floor"]`` is the feet's own level."""
-        from pybvh.analysis import _floor_from_coords
-
+        """On a rig with end sites below the feet the two are measurably
+        different, and ``info["floor"]`` is the feet's own level."""
+        rig = make_contact_rig(10)  # still: feet at y = -8, their end sites at -9
+        _, info = rig.foot_contacts(foot_joints=["LeftFoot", "RightFoot"], return_info=True)
+        assert info["floor"] == pytest.approx(-8.0)
+        assert rig.floor_height == pytest.approx(-9.0)
+        # On the walk too the scene ground lies strictly below it: the toe end
+        # sites reach under the toe joints whose centres the detector compares.
         _, info = cmu_walk.foot_contacts(return_info=True)
-        up_idx, up_sign, _ = cmu_walk.world_up_axis
-        coords = cmu_walk.node_positions()
-        feet = [cmu_walk.node_index[n] for n in cmu_walk.auto_detect_foot_joints()]
-        assert info["floor"] == pytest.approx(_floor_from_coords(coords, feet, up_idx, up_sign))
-        # The scene ground lies strictly below it: the toe end sites reach
-        # under the toe joints whose centres the detector compares.
+        up_sign = cmu_walk.world_up_axis.sign
         assert cmu_walk.floor_height * up_sign < info["floor"] * up_sign
 
 

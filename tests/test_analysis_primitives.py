@@ -12,7 +12,10 @@ import re
 import numpy as np
 import pytest
 from synthetic_bvh import (
+    CONTACT_FEET,
+    contact_coords,
     make_clip_bvh,
+    make_contact_rig,
     make_neg_y_up_bvh,
     make_pos_y_up_bvh,
     make_pos_y_up_rotating_bvh,
@@ -828,91 +831,140 @@ def test_lagged_covariance_centers_lag0_and_bounds():
 
 
 # ----------------------------------------------------------------
-#  foot_contacts detection core (hysteresis / Otsu / confidence /
-#  timing refinement / diagnostics) — pure-signal oracles
+#  foot_contacts detection (hysteresis / Otsu / confidence / timing
+#  refinement / diagnostics), signals driven through coords=
 # ----------------------------------------------------------------
 
 
-def test_hysteresis_mask_equals_single_threshold_at_zero_band():
-    sig = np.array([[5.0, 0.5], [1.5, 3.0], [0.2, 0.1]])
-    np.testing.assert_array_equal(analysis._hysteresis_mask(sig, 1.0, 1.0), sig < 1.0)
+def _height_contacts(height, **settings):
+    """Contacts of ``make_contact_rig``'s feet when only their height signal decides.
 
-
-def test_hysteresis_keeps_strong_runs_and_drops_weak_only():
-    # contact = LOW signal; low=1, high=2
-    sig = np.array(
-        [
-            [5.0, 5.0],
-            [1.5, 1.5],  # weak (between 1 and 2)
-            [0.5, 5.0],  # col0 strong here; col1 back high
-            [1.5, 5.0],  # weak
-            [5.0, 5.0],
-        ]
+    ``height`` is ``(F,)`` for LeftFoot or ``(F, k)`` for the first ``k``
+    feet. The floor is pinned at 0, so the clearance is the height itself;
+    the threshold is 1 and the duration filters are off unless ``settings``
+    says otherwise.
+    """
+    height = np.asarray(height, dtype=np.float64)
+    bvh = make_contact_rig(height.shape[0])
+    k = 1 if height.ndim == 1 else height.shape[1]
+    kwargs = {
+        "method": "height",
+        "floor": 0.0,
+        "height_threshold": 1.0,
+        "min_contact_duration": 0.0,
+        "min_gap_duration": 0.0,
+        **settings,
+    }
+    return bvh.foot_contacts(
+        foot_joints=list(CONTACT_FEET[:k]), coords=contact_coords(bvh, height), **kwargs
     )
-    got = analysis._hysteresis_mask(sig, 1.0, 2.0)
-    expected = np.array(
-        [
-            [False, False],
-            [True, False],  # col0 run rows1-3 contains a strong frame -> kept
-            [True, False],
-            [True, False],
-            [False, False],  # col1 isolated weak-only frame -> dropped
-        ]
-    )
-    np.testing.assert_array_equal(got, expected)
 
 
-def test_otsu_finds_valley_on_bimodal():
+def test_zero_hysteresis_is_the_single_threshold():
+    height = np.array([3.0, 0.5, 1.5, 0.2, 0.9, 1.1, 3.0, 3.0])
+    got = _height_contacts(height, hysteresis=0.0)
+    np.testing.assert_array_equal(got[:, 0], [0, 1, 0, 1, 1, 0, 0, 0])  # height < 1
+
+
+def test_hysteresis_holds_a_contact_through_the_band_and_drops_a_shallow_dip():
+    # threshold 1, band 0.5: a frame is weak below 1.5 and strong below 0.5. A
+    # weak run is a contact only if it holds a strong frame.
+    height = np.array([3.0, 0.2, 0.2, 1.2, 0.2, 3.0, 3.0, 0.8, 3.0, 3.0])
+    got = _height_contacts(height, hysteresis=0.5)
+    # Frame 3 rises above the threshold but stays in the band, inside a run
+    # with strong frames: still a contact. Frame 7 dips below the threshold but
+    # never below the band: not one.
+    np.testing.assert_array_equal(got[:, 0], [0, 1, 1, 1, 1, 0, 0, 0, 0, 0])
+
+
+# The default height threshold on make_contact_rig: 0.013 x its skeleton scale, 10.
+RIG_HEIGHT_MARGIN = 0.013 * 10.0
+
+
+def _adaptive_height_contacts(height):
+    return _height_contacts(height, height_threshold=None, adaptive=True, hysteresis=0.0)
+
+
+def test_adaptive_splits_a_bimodal_signal_and_keeps_the_default_on_a_unimodal_one():
+    # One call, two feet. LeftFoot stands at 1.5 margins and swings at 6: the
+    # split between the two clusters labels its whole stance. RightFoot hovers
+    # at 1.5 margins with no swing: no convincing split, so it keeps the default
+    # threshold, and only its frames below one margin are contacts.
     rng = np.random.default_rng(0)
-    v = np.concatenate([rng.normal(0.0, 0.05, 200), rng.normal(2.0, 0.05, 200)])
-    thr, strength = analysis._otsu_threshold(v)
-    assert thr is not None and 0.3 < thr < 1.7 and strength > 0.6
+    m = RIG_HEIGHT_MARGIN
+    height = np.empty((400, 2))
+    height[:200, 0] = rng.normal(1.5 * m, 0.02 * m, 200)
+    height[200:, 0] = rng.normal(6.0 * m, 0.02 * m, 200)
+    height[:, 1] = rng.normal(1.5 * m, 0.2 * m, 400)
+    got = _adaptive_height_contacts(height)
+    np.testing.assert_array_equal(got[:, 0], np.arange(400) < 200)
+    np.testing.assert_array_equal(got[:, 1], height[:, 1] < m)
+    assert 0 < got[:, 1].sum() < 20  # the default does label a few frames
 
 
-def test_otsu_fallback_on_unimodal_and_edges():
+def test_adaptive_keeps_the_default_on_a_flat_signal():
+    # A foot held still: one value, no split to find.
+    flat = np.full(100, 1.5 * RIG_HEIGHT_MARGIN)
+    bvh = make_contact_rig(flat.size)
+    c, info = bvh.foot_contacts(
+        foot_joints=["LeftFoot"],
+        method="height",
+        coords=contact_coords(bvh, flat),
+        floor=0.0,
+        adaptive=True,
+        return_info=True,
+    )
+    assert not c.any()
+    assert info["height_threshold"] == pytest.approx(RIG_HEIGHT_MARGIN)
+
+
+def test_adaptive_split_is_clamped_to_four_times_the_default():
+    # Stance spread from 3 to 5 margins, swing at 100: the split between the
+    # clusters lies near 50 margins, and is clamped to 4. Only the stance frames
+    # below 4 margins are contacts: a rejected split (1 margin) would label none,
+    # an unclamped one all of the stance.
+    m = RIG_HEIGHT_MARGIN
     rng = np.random.default_rng(1)
-    assert analysis._otsu_threshold(rng.normal(1.0, 0.1, 300))[0] is None  # unimodal
-    assert analysis._otsu_threshold(np.zeros(50))[0] is None  # zero variance
-    assert analysis._otsu_threshold(np.array([1.0, 2.0, 3.0]))[0] is None  # < 8 samples
-
-
-def test_resolve_adaptive_per_foot_fallback_and_clamp():
-    rng = np.random.default_rng(2)
-    sig = np.empty((400, 2))
-    sig[:, 0] = np.concatenate([rng.normal(0, 0.02, 200), rng.normal(1.0, 0.02, 200)])
-    sig[:, 1] = rng.normal(0.5, 0.1, 400)  # unimodal -> fallback
-    base = 0.05
-    thr, used = analysis._resolve_adaptive(sig, base)
-    assert used[0] and not used[1]
-    np.testing.assert_allclose(thr[1], base)  # fallback
-    assert 0.25 * base <= thr[0] <= 4.0 * base  # clamped
-
-
-def test_detect_contacts_recovers_plant_lift_two_feet():
-    F = 10
-    speed = np.full((F, 2), 5.0)
-    clearance = np.full((F, 2), 5.0)
-    speed[3:7, 0] = 0.1
-    clearance[3:7, 0] = 0.1
-    speed[1:4, 1] = 0.1
-    clearance[1:4, 1] = 0.1
-    mask, _ = analysis._detect_contacts(
-        speed, clearance, method="combined", vel_threshold=1.0, height_threshold=1.0, hysteresis=0.0
+    height = np.concatenate(
+        [np.linspace(3.0 * m, 5.0 * m, 200), rng.normal(100 * m, 0.02 * m, 200)]
     )
-    expected = np.zeros((F, 2), bool)
-    expected[3:7, 0] = True
-    expected[1:4, 1] = True
-    np.testing.assert_array_equal(mask, expected)
+    got = _adaptive_height_contacts(height)
+    np.testing.assert_array_equal(got[:, 0], height < 4.0 * m)
+    assert 50 < got[:, 0].sum() < 150
 
 
-def test_contact_confidence_combined_formula():
-    speed = np.array([[5.0], [0.5], [0.5], [5.0]])
-    clearance = speed.copy()
-    _, conf = analysis._detect_contacts(
-        speed, clearance, method="combined", vel_threshold=1.0, height_threshold=1.0, hysteresis=0.0
+def test_confidence_is_the_margin_below_the_thresholds_times_the_agreement():
+    # One frame a second, so the speed is the step along x: 5, 5, 0.5, 0.5, 5, 5
+    # (frame 0 takes frame 1's), against a threshold of 2. The foot stays at
+    # height 0.5, below the height threshold of 1 throughout, so the contacts
+    # are frames 2 and 3.
+    bvh = make_contact_rig(6, frame_time=1.0)
+    coords = contact_coords(bvh, np.full(6, 0.5), x=np.array([0.0, 5.0, 5.5, 6.0, 11.0, 16.0]))
+    unfiltered = {"hysteresis": 0.0, "min_contact_duration": 0.0, "min_gap_duration": 0.0}
+    c, info = bvh.foot_contacts(
+        foot_joints=["LeftFoot"],
+        coords=coords,
+        vel_threshold=2.0,
+        height_threshold=1.0,
+        floor=0.0,
+        return_info=True,
+        **unfiltered,
     )
-    # contact rows 1,2: margin=(1-0.5)/1=0.5 per signal; masks identical -> agreement 1
-    np.testing.assert_allclose(conf, np.sqrt(0.5 * 1.0))
+    np.testing.assert_array_equal(c[:, 0], [0, 0, 1, 1, 0, 0])
+    # On those frames the speed sits 3/4 of its threshold below it and the
+    # height 1/2 of its own: margin 5/8, their mean. The velocity mask agrees
+    # with the height mask (true everywhere) on 2 frames of 6.
+    np.testing.assert_allclose(info["confidence"], [np.sqrt(5 / 8 * 2 / 6)])
+    # The velocity method alone has no agreement term: its own margin.
+    _, info = bvh.foot_contacts(
+        foot_joints=["LeftFoot"],
+        method="velocity",
+        coords=coords,
+        vel_threshold=2.0,
+        return_info=True,
+        **unfiltered,
+    )
+    np.testing.assert_allclose(info["confidence"], [0.75])
 
 
 def test_foot_contacts_detects_bouncing_root_dwell():
@@ -933,73 +985,26 @@ def test_foot_contacts_detects_bouncing_root_dwell():
 # --- boundary-aware hysteresis release (open runs trimmed to raw support) ---
 
 
-def test_release_open_runs_trims_truncated_swing():
-    # filled run reaches the last frame, but raw support ends earlier: the
-    # trailing band is speculative (a swing cut off by the clip) -> dropped.
-    F = 8
-    mask = np.zeros((F, 1), bool)
-    mask[2:8, 0] = True  # filled run [2,8) touches end
-    raw = np.zeros((F, 1), bool)
-    raw[2:5, 0] = True  # raw lift at frame 5
-    out = analysis._release_open_runs(mask, raw)
-    expected = np.zeros((F, 1), bool)
-    expected[2:5, 0] = True
-    np.testing.assert_array_equal(out, expected)
+@pytest.mark.parametrize("edge", ["end", "start"])
+def test_hysteresis_releases_a_run_open_at_the_clip_edge_at_the_raw_lift(edge):
+    # threshold 1, band 0.5. A contact run that rises into the band at the clip
+    # edge never leaves the band, so the band alone would hold it to the edge;
+    # it ends instead at the last frame below the threshold itself (frame 5).
+    height = np.array([3.0, 3.0, 0.1, 0.1, 0.1, 0.8, 1.2, 1.4])
+    expected = np.array([0, 0, 1, 1, 1, 1, 0, 0])
+    if edge == "start":
+        height, expected = height[::-1], expected[::-1]
+    got = _height_contacts(height, hysteresis=0.5)
+    np.testing.assert_array_equal(got[:, 0], expected)
 
 
-def test_release_open_runs_trims_leading_band():
-    # symmetric at the start: a run touching frame 0 trims to where raw begins.
-    F = 8
-    mask = np.zeros((F, 1), bool)
-    mask[0:6, 0] = True
-    raw = np.zeros((F, 1), bool)
-    raw[3:6, 0] = True
-    out = analysis._release_open_runs(mask, raw)
-    expected = np.zeros((F, 1), bool)
-    expected[3:6, 0] = True
-    np.testing.assert_array_equal(out, expected)
-
-
-def test_release_open_runs_leaves_closed_and_supported_runs():
-    # col0: interior run (touches neither edge) -> untouched even with no raw.
-    # col1: boundary run raw-supported to the edge -> untouched.
-    # col2: planted the whole clip (raw all true) -> untouched.
-    F = 10
-    mask = np.zeros((F, 3), bool)
-    raw = np.zeros((F, 3), bool)
-    mask[3:6, 0] = True
-    mask[7:10, 1] = True
-    raw[7:10, 1] = True
-    mask[:, 2] = True
-    raw[:, 2] = True
-    out = analysis._release_open_runs(mask, raw)
-    np.testing.assert_array_equal(out, mask)
-
-
-def test_detect_contacts_releases_open_swing_under_hysteresis():
-    # thr=1, band +-0.5 -> low=0.5 high=1.5 raw=<1. A deep contact rising into
-    # the band at the clip end: the latch must release at the raw lift, not hold.
-    F = 8
-    speed = np.array([5, 5, 0.1, 0.1, 0.1, 0.8, 1.2, 1.4]).reshape(F, 1)
-    mask, _ = analysis._detect_contacts(
-        speed, None, method="velocity", vel_threshold=1.0, height_threshold=None, hysteresis=0.5
-    )
-    expected = np.zeros((F, 1), bool)
-    expected[2:6, 0] = True  # released at frame 6
-    np.testing.assert_array_equal(mask, expected)
-
-
-def test_detect_contacts_keeps_genuine_boundary_contact():
-    # control: signal stays in deep contact to the last frame -> raw supports the
-    # edge, nothing is trimmed.
-    F = 8
-    speed = np.array([5, 5, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]).reshape(F, 1)
-    mask, _ = analysis._detect_contacts(
-        speed, None, method="velocity", vel_threshold=1.0, height_threshold=None, hysteresis=0.5
-    )
-    expected = np.zeros((F, 1), bool)
-    expected[2:8, 0] = True
-    np.testing.assert_array_equal(mask, expected)
+def test_hysteresis_keeps_open_runs_the_raw_threshold_supports():
+    # Below the threshold to the last frame, or for the whole clip: nothing to release.
+    height = np.full((8, 2), 0.1)
+    height[:2, 0] = 3.0
+    got = _height_contacts(height, hysteresis=0.5)
+    np.testing.assert_array_equal(got[:, 0], [0, 0, 1, 1, 1, 1, 1, 1])
+    np.testing.assert_array_equal(got[:, 1], np.ones(8))
 
 
 def test_foot_contacts_releases_foot_lifting_at_clip_end():
@@ -1027,66 +1032,89 @@ def test_foot_contacts_releases_foot_lifting_at_clip_end():
 
 
 def test_contact_diagnostics_skate_airborne_height():
-    F = 6
-    mask = np.zeros((F, 2), bool)
-    mask[1:4, 0] = True
-    mask[2:5, 1] = True
-    foot_coords = np.zeros((F, 2, 3))
-    foot_coords[2:5, 1, 0] = [0.0, 1.5, 3.0]  # foot1 slides 3 in x during contact
-    clearance = np.zeros((F, 2))  # all on the floor
-    diag = analysis._contact_diagnostics(mask, foot_coords, clearance, up_idx=2, scale=10.0)
-    np.testing.assert_allclose(diag["foot_skate"]["max"][0], 0.0)
-    np.testing.assert_allclose(diag["foot_skate"]["max"][1], 3.0 / 10.0)
-    np.testing.assert_allclose(diag["airborne_fraction"], 2 / 6)  # rows 0,5 have no contact
-    np.testing.assert_allclose(diag["height_at_contact"], [0.0, 0.0])
+    # LeftFoot is planted on frames 1-3 at height 0.4; RightFoot on frames 2-4
+    # at height 0, sliding 3 units along x as it stands.
+    height = np.array([[5, 5], [0.4, 5], [0.4, 0], [0.4, 0], [5, 0], [5, 5]], dtype=float)
+    x = np.zeros((6, 2))
+    x[3:, 1] = [1.5, 3.0, 3.0]
+    bvh = make_contact_rig(6)
+    c, info = bvh.foot_contacts(
+        foot_joints=list(CONTACT_FEET),
+        method="height",
+        coords=contact_coords(bvh, height, x=x),
+        floor=0.0,
+        height_threshold=1.0,
+        hysteresis=0.0,
+        min_contact_duration=0.0,
+        min_gap_duration=0.0,
+        return_info=True,
+    )
+    np.testing.assert_array_equal(c, height < 1.0)
+    # The skate is the drift over a contact run, over the skeleton scale (10).
+    np.testing.assert_allclose(info["foot_skate"]["max"], [0.0, 3.0 / 10.0])
+    np.testing.assert_allclose(info["foot_skate"]["mean"], [0.0, 3.0 / 10.0])
+    np.testing.assert_allclose(info["airborne_fraction"], 2 / 6)  # frames 0 and 5
+    np.testing.assert_allclose(info["height_at_contact"], [0.4, 0.0])
 
 
 # ----------------------------------------------------------------
-#  Velocity-informed height threshold + floor_height
+#  Stance calibration of the height threshold + floor_height
 # ----------------------------------------------------------------
 
 
-def test_velocity_informed_height_reduces_to_margin_on_floor():
-    F, margin = 20, 1.0
-    clearance = np.zeros((F, 1))
-    clearance[10:, 0] = 10.0  # stance on floor, swing high
-    speed = np.zeros((F, 1))
-    speed[10:, 0] = 5.0  # slow then fast
-    thr = analysis._velocity_informed_height(clearance, speed, 1.0, margin)
-    np.testing.assert_allclose(thr, [margin])  # contact_h≈0 -> margin
+def _stance_and_swing(stance_level):
+    """Height and x of a foot that stands for 20 frames, then swings for 20.
+
+    At one frame a second, so that a step of a few height margins is still
+    slow against the default speed threshold (1.2 u/s on the contact rig).
+    The stance sits at ``stance_level`` above the floor, except two frames
+    0.6 margins higher, two 1.4 margins higher and three lifted 3 margins
+    (slow, but out of contact under either reading of the threshold). The
+    swing is 10 margins up and travels 5 units a frame. Returns
+    ``(height, x, in_stance)``, ``in_stance`` the frames within one margin
+    of the stance level.
+    """
+    m = RIG_HEIGHT_MARGIN
+    above = np.zeros(40)
+    above[[5, 6]] = 0.6 * m
+    above[[12, 13]] = 1.4 * m
+    above[[16, 17, 18]] = 3.0 * m
+    above[20:] = 10.0 * m
+    x = np.where(np.arange(40) < 20, 0.0, 5.0 * (np.arange(40) - 19))
+    return stance_level + above, x, above < m
 
 
-def test_velocity_informed_height_calibrates_to_hover():
-    F, margin, h0 = 20, 1.0, 5.0
-    clearance = np.full((F, 1), h0)
-    clearance[10:, 0] = h0 + 5 * margin
-    speed = np.zeros((F, 1))
-    speed[10:, 0] = 5.0
-    thr = analysis._velocity_informed_height(clearance, speed, 1.0, margin)
-    np.testing.assert_allclose(thr, [h0 + margin])  # lifts to the hover level
+def test_stance_calibration_sets_each_foot_threshold_one_margin_above_its_stance():
+    # LeftFoot stands 5 margins above the floor (a retargeted foot that
+    # hovers), RightFoot on it. Each foot's threshold is set one margin above
+    # its own stance level, the median of its height over its slow frames.
+    m = RIG_HEIGHT_MARGIN
+    left, x, in_stance = _stance_and_swing(5.0 * m)
+    right, _, _ = _stance_and_swing(0.0)
+    bvh = make_contact_rig(40, frame_time=1.0)
+    coords = contact_coords(bvh, np.column_stack([left, right]), x=np.column_stack([x, x]))
+    kwargs = {"foot_joints": list(CONTACT_FEET), "coords": coords, "floor": 0.0, "hysteresis": 0.0}
+    got = bvh.foot_contacts(height_reference="velocity", **kwargs)
+    np.testing.assert_array_equal(got[:, 0], in_stance)
+    np.testing.assert_array_equal(got[:, 1], in_stance)
+    # Anchored to the floor instead, the hovering foot never reads as low enough.
+    fixed = bvh.foot_contacts(height_reference="floor", **kwargs)
+    assert not fixed[:, 0].any()
+    np.testing.assert_array_equal(fixed[:, 1], in_stance)
 
 
-def test_velocity_informed_height_guard_rejects_held_airborne():
-    F, margin = 20, 1.0
-    clearance = np.full((F, 1), 8.0)  # flat high, no swing
-    speed = np.zeros((F, 1))  # all slow (held still)
-    thr = analysis._velocity_informed_height(clearance, speed, 1.0, margin)
-    np.testing.assert_allclose(thr, [margin])  # guard -> fixed -> rejected
-
-
-def test_velocity_informed_height_per_foot_and_no_slow():
-    F, margin = 20, 1.0
-    clearance = np.zeros((F, 2))
-    clearance[:, 0] = 5.0  # foot0 hovers at 5
-    clearance[10:, 0] = 10.0
-    clearance[10:, 1] = 10.0  # foot1 reaches floor
-    speed = np.zeros((F, 2))
-    speed[10:, :] = 5.0
-    thr = analysis._velocity_informed_height(clearance, speed, 1.0, margin)
-    np.testing.assert_allclose(thr, [5 + margin, 0 + margin])  # distinct per foot
-    # never slow -> fixed margin
-    thr2 = analysis._velocity_informed_height(np.zeros((F, 1)), np.full((F, 1), 5.0), 1.0, margin)
-    np.testing.assert_allclose(thr2, [margin])
+def test_stance_calibration_falls_back_to_the_margin_without_a_slow_frame():
+    # A foot that never slows down has no stance to calibrate against.
+    m = RIG_HEIGHT_MARGIN
+    height = np.where(np.arange(40) < 20, 5.0 * m, 15.0 * m)
+    bvh = make_contact_rig(40, frame_time=1.0)
+    _, info = bvh.foot_contacts(
+        foot_joints=["LeftFoot"],
+        coords=contact_coords(bvh, height, x=5.0 * np.arange(40)),
+        floor=0.0,
+        return_info=True,
+    )
+    assert info["height_threshold"] == pytest.approx(m)
 
 
 def test_floor_height_cache_invalidates_on_mutation():
@@ -1101,6 +1129,32 @@ def test_floor_height_is_over_all_nodes():
     coords = bvh.node_positions()
     expected = float(np.percentile(coords[:, :, 1].min(axis=1), 2.0))  # all-nodes min, +y
     np.testing.assert_allclose(bvh.floor_height, expected)
+
+
+def test_default_thresholds_scale_with_the_mean_rest_distance_to_the_joints():
+    # Joints 10 and 20 from the root at rest: the skeleton scale is their mean,
+    # 15, so the default speed threshold is 0.12 x 15 = 1.8 u/s and the default
+    # height threshold 0.013 x 15 = 0.195.
+    bvh = make_contact_rig(6, frame_time=1.0, foot_offsets=((-6.0, -8.0, 0.0), (0.0, -20.0, 0.0)))
+    joints = list(CONTACT_FEET)
+    unfiltered = {"hysteresis": 0.0, "min_contact_duration": 0.0, "min_gap_duration": 0.0}
+    # At one frame a second the speed is the step: 1.7, 1.7, 1.9, 1.9, 1.7
+    # (frame 0 takes frame 1's).
+    x = np.cumsum([0.0, 1.7, 1.7, 1.9, 1.9, 1.7])
+    xs = np.column_stack([x, x])
+    c = bvh.ground_contacts(
+        joints, method="velocity", coords=contact_coords(bvh, np.zeros((6, 2)), x=xs), **unfiltered
+    )
+    np.testing.assert_array_equal(c, np.column_stack([[1, 1, 1, 0, 0, 1]] * 2))
+    h = np.array([0.18, 0.21, 0.18, 0.21, 0.18, 0.21])
+    c = bvh.ground_contacts(
+        joints,
+        method="height",
+        coords=contact_coords(bvh, np.column_stack([h, h])),
+        floor=0.0,
+        **unfiltered,
+    )
+    np.testing.assert_array_equal(c, np.column_stack([[1, 0, 1, 0, 1, 0]] * 2))
 
 
 def _make_toed_skeleton(toe_tip_drop=2.0, hand_height=None, n_frames=10) -> Bvh:
@@ -1179,19 +1233,12 @@ def test_floor_height_ignores_one_glitched_frame():
     """
     bvh = _make_toed_skeleton(n_frames=100)
     clean = bvh.floor_height
-    coords = bvh.node_positions()
-    glitched = coords.copy()
-    glitched[4, bvh.node_index["LeftToeBase"], 2] -= 500.0
-    up_idx, up_sign, _ = bvh.world_up_axis
-    estimate = analysis._floor_from_coords(glitched, list(range(coords.shape[1])), up_idx, up_sign)
-    assert estimate == pytest.approx(clean, abs=1e-9)
-    # ... while the true minimum would follow it all the way down.
-    assert (
-        analysis._floor_from_coords(
-            glitched, list(range(coords.shape[1])), up_idx, up_sign, percentile=0.0
-        )
-        < clean - 400.0
-    )
+    root_pos = bvh.root_pos.copy()
+    root_pos[4, 2] -= 500.0  # the whole body drops 500 units for one frame
+    bvh.root_pos = root_pos
+    assert bvh.floor_height == pytest.approx(clean, abs=1e-9)
+    # ... while the true minimum follows it all the way down.
+    assert bvh.node_positions()[:, :, 2].min() < clean - 400.0
 
 
 def test_floor_height_negative_up_raw_coords_and_copy():
@@ -1209,7 +1256,7 @@ def _hover_clip(hover_frac, swing_frac=0.3):
     bvh = make_pos_y_up_bvh()
     feet = ["LeftFoot", "RightFoot"]
     fidx = [bvh.index(n, space="node") for n in feet]
-    scale = analysis._skeleton_scale(bvh.rest_pose_positions(), fidx)
+    scale = analysis.skeleton_size(bvh, feet)
     coords = bvh.node_positions().copy()
     F = bvh.frame_count
     half = F // 2
@@ -1257,7 +1304,7 @@ def test_height_reference_rejects_held_airborne_foot():
     bvh = make_pos_y_up_bvh()
     feet = ["LeftFoot", "RightFoot"]
     fidx = [bvh.index(n, space="node") for n in feet]
-    scale = analysis._skeleton_scale(bvh.rest_pose_positions(), fidx)
+    scale = analysis.skeleton_size(bvh, feet)
     coords = bvh.node_positions().copy()
     F = bvh.frame_count
     base = coords[0, fidx[0], 1]

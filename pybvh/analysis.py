@@ -1108,24 +1108,11 @@ def foot_contacts(
     ground_contacts : The same detection engine for arbitrary (non-foot) joint sets — hands, knees, props.
     auto_detect_foot_joints : The detection used when ``foot_joints`` is None.
     """
-    if foot_joints is None:
-        foot_joints = auto_detect_foot_joints(bvh)
-        if not foot_joints:
-            raise ValueError(
-                "Could not auto-detect foot joints. Please provide "
-                "foot_joints explicitly (e.g. ['LeftFoot', 'RightFoot'])."
-            )
-
-    foot_indices: list[int] = []
-    for name in foot_joints:
-        if name not in bvh.node_index:
-            raise ValueError(f"Joint {name!r} not found in skeleton.")
-        foot_indices.append(bvh.node_index[name])
-
+    joint_names, joint_indices = _resolve_contact_joints(bvh, foot_joints)
     return _contacts_core(
         bvh,
-        list(foot_joints),
-        foot_indices,
+        joint_names,
+        joint_indices,
         method=method,
         coords=coords,
         vel_threshold=vel_threshold,
@@ -1260,6 +1247,42 @@ def ground_contacts(
     --------
     foot_contacts : The foot-specialized entry point (auto-detection, rest-pose sanity check, ``height_reference="velocity"`` default).
     """
+    joint_names, joint_indices = _resolve_contact_joints(bvh, joints)
+    return _contacts_core(
+        bvh,
+        joint_names,
+        joint_indices,
+        method=method,
+        coords=coords,
+        vel_threshold=vel_threshold,
+        vel_smooth_duration=vel_smooth_duration,
+        height_threshold=height_threshold,
+        floor=floor,
+        min_contact_duration=min_contact_duration,
+        min_gap_duration=min_gap_duration,
+        hysteresis=hysteresis,
+        adaptive=adaptive,
+        height_reference=height_reference,
+        return_info=return_info,
+        check_rest_height=False,
+    )
+
+
+def _resolve_contact_joints(
+    bvh: Bvh, joints: Sequence[str | int] | None
+) -> tuple[list[str], list[int]]:
+    """Resolve a detector's joint argument into parallel node names and node indices.
+
+    ``None`` auto-detects the feet (:func:`foot_contacts`' default). Entries are node names or node indices, negative indices counting from the end as in NumPy; the names returned for indices are the nodes' own. An empty list passes through: the detector refuses it.
+    """
+    if joints is None:
+        joints = auto_detect_foot_joints(bvh)
+        if not joints:
+            raise ValueError(
+                "Could not auto-detect foot joints. Please provide "
+                "foot_joints explicitly (e.g. ['LeftFoot', 'RightFoot'])."
+            )
+
     num_nodes = len(bvh.nodes)
     joint_names: list[str] = []
     joint_indices: list[int] = []
@@ -1289,25 +1312,7 @@ def ground_contacts(
                 "joints entries must be node names (str) or node indices "
                 f"(int), got {type(joint).__name__}"
             )
-
-    return _contacts_core(
-        bvh,
-        joint_names,
-        joint_indices,
-        method=method,
-        coords=coords,
-        vel_threshold=vel_threshold,
-        vel_smooth_duration=vel_smooth_duration,
-        height_threshold=height_threshold,
-        floor=floor,
-        min_contact_duration=min_contact_duration,
-        min_gap_duration=min_gap_duration,
-        hysteresis=hysteresis,
-        adaptive=adaptive,
-        height_reference=height_reference,
-        return_info=return_info,
-        check_rest_height=False,
-    )
+    return joint_names, joint_indices
 
 
 def _contacts_core(

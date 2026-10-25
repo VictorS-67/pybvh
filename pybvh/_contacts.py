@@ -521,20 +521,6 @@ def _optional_read_only(array: npt.NDArray[_A] | None) -> npt.NDArray[_A] | None
     return None if array is None else _read_only(array)
 
 
-def _rest_distance_to_root(
-    joint_rest: npt.NDArray[np.float64],
-    root_rest: npt.NDArray[np.float64],
-) -> float | None:
-    """Mean rest-pose distance from the root to the joints, or None when it measures nothing.
-
-    ``joint_rest`` is ``(n_joints, 3)``, ``root_rest`` ``(3,)``. The distance is Euclidean, so it does not depend on the rest pose's orientation, and only the joints given contribute, so finger or spine subdivision leaves it alone: on the feet it is roughly half a humanoid's height, and it scales linearly with the whole skeleton. ``None`` when no joint is given or every joint sits on the root. The one measurement behind :func:`pybvh.analysis.skeleton_size`, which raises on ``None``, and the skeleton scale of the contact detectors' default thresholds, which use ``1.0`` in its place.
-    """
-    dists = [float(np.linalg.norm(position - root_rest)) for position in joint_rest]
-    if not dists or max(dists) <= 0:
-        return None
-    return float(np.mean(dists))
-
-
 def _skeleton_scale(
     joint_rest: npt.NDArray[np.float64],
     root_rest: npt.NDArray[np.float64],
@@ -543,7 +529,7 @@ def _skeleton_scale(
 
     The mean rest-pose distance from the root to the tested joints, :func:`pybvh.analysis.skeleton_size`'s measurement, with ``True``. Where it measures nothing (every joint sits on the root) the scale is ``1.0``, with ``False``, so the thresholds don't collapse to zero: the public ``skeleton_size`` raises instead of fabricating, but a threshold scale must exist even where a measurement does not, and the report says it stood in.
     """
-    distance = _rest_distance_to_root(joint_rest, root_rest)
+    distance = geometry._mean_distance_to_root(joint_rest, root_rest)
     return (1.0, False) if distance is None else (distance, True)
 
 

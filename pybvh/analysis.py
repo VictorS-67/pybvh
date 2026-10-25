@@ -1584,7 +1584,7 @@ def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
             raise ValueError(f"skeleton_size: joint names {unknown} not found in skeleton.")
     rest_coords = bvh._rest_pose()
     foot_indices = [bvh.node_index[name] for name in foot_joints]
-    distance = _contacts._rest_distance_to_root(rest_coords[foot_indices], rest_coords[0])
+    distance = geometry._mean_distance_to_root(rest_coords[foot_indices], rest_coords[0])
     if distance is None:
         raise ValueError(
             "skeleton_size: every foot joint coincides with the root in the "

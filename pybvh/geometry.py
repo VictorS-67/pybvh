@@ -780,7 +780,7 @@ def _floor_level(
     """
     heights_signed = positions[:, :, up_idx] * up_sign
     min_per_frame = heights_signed.min(axis=1)
-    return float(float(np.percentile(min_per_frame, percentile)) * up_sign)
+    return float(np.percentile(min_per_frame, percentile)) * up_sign
 
 
 def _mean_distance_to_root(

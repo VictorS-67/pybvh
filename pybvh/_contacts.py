@@ -868,7 +868,7 @@ def _detect_contacts(
     ) -> npt.NDArray[np.bool_]:
         # The method reads this signal, so the caller computed it and its threshold.
         assert sig is not None and thr is not None
-        if hysteresis and hysteresis > 0:
+        if hysteresis > 0:
             mask = _hysteresis_mask(sig, thr * (1.0 - hysteresis), thr * (1.0 + hysteresis))
             # Don't let the band latch extrapolate a contact across an open clip
             # edge (e.g. a foot cut off mid-swing held "planted" to the last frame).

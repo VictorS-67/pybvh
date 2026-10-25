@@ -1130,7 +1130,8 @@ def foot_contacts(
     auto_detect_foot_joints : The detection used when ``foot_joints`` is None.
     """
     # ground_contacts takes node indices too; foot_contacts takes names only.
-    for joint in foot_joints or ():
+    # Tested against None: a NumPy array of names has no truth value.
+    for joint in foot_joints if foot_joints is not None else ():
         if not isinstance(joint, str):
             raise TypeError(
                 f"foot_joints takes joint names (str), got {type(joint).__name__} {joint!r}; "

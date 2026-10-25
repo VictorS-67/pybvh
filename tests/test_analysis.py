@@ -1701,6 +1701,20 @@ def test_foot_contacts_takes_joint_names_not_node_indices(detect):
         detect(rig, foot_joints=[left, "RightFoot"], coords=coords)
 
 
+@pytest.mark.parametrize(
+    "detect",
+    [analysis.foot_contacts, Bvh.foot_contacts],
+    ids=["analysis.foot_contacts", "Bvh.foot_contacts"],
+)
+def test_foot_contacts_takes_a_numpy_array_of_joint_names(detect):
+    rig, coords = _still_rig()
+    names = ["LeftFoot", "RightFoot"]
+    np.testing.assert_array_equal(
+        detect(rig, foot_joints=np.array(names), coords=coords),
+        detect(rig, foot_joints=names, coords=coords),
+    )
+
+
 class TestWhatACallMayPassOnAClip:
     """On the CMU walk, a setting the method does not read and an invalid value raise, where they used to pass."""
 

@@ -855,11 +855,11 @@ class TestFootContactsFloorEstimation:
         _, report = bvh.foot_contacts(
             method="height", foot_joints=["LeftLeg", "RightLeg"], return_info=True
         )
-        assert report.floor == pytest.approx(-5.0, abs=0.1)
+        assert report.contact_reference == pytest.approx(-5.0, abs=0.1)
 
     def test_explicit_float_is_honored(self, bvh_example):
         _, report = bvh_example.foot_contacts(method="height", floor=42.0, return_info=True)
-        assert report.floor == pytest.approx(42.0)
+        assert report.contact_reference == pytest.approx(42.0)
 
     def test_auto_tracks_clip_offset(self):
         bvh = make_pos_y_up_bvh().copy()
@@ -870,17 +870,17 @@ class TestFootContactsFloorEstimation:
         _, report = bvh.foot_contacts(
             method="height", foot_joints=["LeftLeg", "RightLeg"], return_info=True
         )
-        assert report.floor == pytest.approx(45.0, abs=0.1)
+        assert report.contact_reference == pytest.approx(45.0, abs=0.1)
 
     def test_negative_up_floor_reported_in_raw_coords(self):
-        """For world_up='-y' a foot whose raw y ≈ 5 should yield floor≈5."""
+        """For world_up='-y' a foot whose raw y ≈ 5 should yield a contact reference ≈ 5."""
         bvh = make_neg_y_up_bvh().copy()
         bvh.root_pos = np.zeros_like(bvh.root_pos)
         bvh.joint_angles = np.zeros_like(bvh.joint_angles)
         _, report = bvh.foot_contacts(
             method="height", foot_joints=["LeftLeg", "RightLeg"], return_info=True
         )
-        assert report.floor == pytest.approx(5.0, abs=0.1)
+        assert report.contact_reference == pytest.approx(5.0, abs=0.1)
 
     def test_invalid_floor_string_raises(self, bvh_example):
         with pytest.raises(ValueError, match="floor"):
@@ -904,8 +904,8 @@ class TestFootContactsFloorEstimation:
 
         heights = coords[:, idx, up.index] * up.sign
         true_min = heights.min(axis=1).min()
-        assert report_min.floor * up.sign == pytest.approx(true_min)
-        assert report_auto.floor * up.sign > true_min + 50.0
+        assert report_min.contact_reference * up.sign == pytest.approx(true_min)
+        assert report_auto.contact_reference * up.sign > true_min + 50.0
 
     def test_floor_min_is_below_the_auto_estimate_and_ignores_the_scene_ground(
         self, bvh_example, computations
@@ -916,11 +916,11 @@ class TestFootContactsFloorEstimation:
         _, report_min = bvh.foot_contacts(floor="min", return_info=True)
         _, report_auto = bvh.foot_contacts(return_info=True)
         assert computations.floor_height == 0
-        assert report_min.floor <= report_auto.floor + 1e-12
+        assert report_min.contact_reference <= report_auto.contact_reference + 1e-12
 
         _ = bvh.floor_height  # fill the scene ground
         _, report_min2 = bvh.foot_contacts(floor="min", return_info=True)
-        assert report_min2.floor == pytest.approx(report_min.floor)
+        assert report_min2.contact_reference == pytest.approx(report_min.contact_reference)
 
     def test_auto_floor_estimated_from_coords_in_use(self):
         """floor='auto' estimates from the coords handed in, shifted coords
@@ -929,7 +929,9 @@ class TestFootContactsFloorEstimation:
         _, report_world = bvh.foot_contacts(method="height", return_info=True)
         coords = bvh.node_positions() + np.array([0.0, 0.0, 25.0])  # +z up
         _, report = bvh.foot_contacts(method="height", coords=coords, return_info=True)
-        assert report.floor == pytest.approx(report_world.floor + 25.0, abs=1e-9)
+        assert report.contact_reference == pytest.approx(
+            report_world.contact_reference + 25.0, abs=1e-9
+        )
 
 
 class TestFootContactsDurationFilters:
@@ -1291,7 +1293,7 @@ class TestContactReport:
         np.testing.assert_allclose(report.speed[:, 0], per_frame / rig.frame_time)
         np.testing.assert_allclose(report.speed[:, 1], 0.0)
         np.testing.assert_allclose(report.clearance, height + 0.5)
-        assert report.floor == -0.5
+        assert report.contact_reference == -0.5
         assert report.speed.shape == report.clearance.shape == (6, 2)
 
     def test_the_velocity_method_has_no_height_test(self):
@@ -1307,7 +1309,7 @@ class TestContactReport:
         for name in (
             "height_threshold",
             "height_threshold_source",
-            "floor",
+            "contact_reference",
             "clearance",
             "height_reference",
             "height_at_contact",
@@ -1366,7 +1368,7 @@ class TestContactReport:
             foot_joints=["LeftFoot"], coords=contact_coords(rig, np.zeros(6)), return_info=True
         )
         with pytest.raises(dataclasses.FrozenInstanceError):
-            report.floor = 0.0
+            report.contact_reference = 0.0
         for name in ("vel_threshold", "height_threshold", "speed", "clearance", "confidence"):
             with pytest.raises(ValueError, match="read-only"):
                 getattr(report, name)[0] = 1.0
@@ -1833,16 +1835,16 @@ class TestContactReferenceIsIndependentOfTheSceneGround:
 
     def test_reference_is_the_tested_feet_not_the_scene_ground(self, cmu_walk):
         """On a rig with end sites below the feet the two are measurably
-        different, and ``report.floor`` is the feet's own level."""
+        different, and ``report.contact_reference`` is the feet's own level."""
         rig = make_contact_rig(10)  # still: feet at y = -8, their end sites at -9
         _, report = rig.foot_contacts(foot_joints=["LeftFoot", "RightFoot"], return_info=True)
-        assert report.floor == pytest.approx(-8.0)
+        assert report.contact_reference == pytest.approx(-8.0)
         assert rig.floor_height == pytest.approx(-9.0)
         # On the walk too the scene ground lies strictly below it: the toe end
         # sites reach under the toe joints whose centres the detector compares.
         _, report = cmu_walk.foot_contacts(return_info=True)
         up_sign = cmu_walk.world_up_axis.sign
-        assert cmu_walk.floor_height * up_sign < report.floor * up_sign
+        assert cmu_walk.floor_height * up_sign < report.contact_reference * up_sign
 
     def test_over_every_node_the_reference_is_the_scene_ground(self, cmu_walk, computations):
         """The two quantities differ in the nodes they are estimated over, not in the
@@ -1853,7 +1855,7 @@ class TestContactReferenceIsIndependentOfTheSceneGround:
             every_node, method="height", height_threshold=1.0, return_info=True
         )
         assert computations.floor_height == 0
-        assert report.floor == cmu_walk.floor_height
+        assert report.contact_reference == cmu_walk.floor_height
 
 
 class TestGroundContacts:
@@ -1960,8 +1962,8 @@ class TestGroundContacts:
         _, cold_report = analysis.ground_contacts(cmu_walk, feet, return_info=True)
         _ = cmu_walk.floor_height
         _, warm_report = analysis.ground_contacts(cmu_walk, feet, return_info=True)
-        assert warm_report.floor == cold_report.floor
-        assert warm_report.floor != cmu_walk.floor_height
+        assert warm_report.contact_reference == cold_report.contact_reference
+        assert warm_report.contact_reference != cmu_walk.floor_height
         assert computations.floor_height == 1
 
     def test_arm_set_skips_rest_height_sanity_check(self, cmu_walk):

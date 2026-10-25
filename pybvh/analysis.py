@@ -1025,7 +1025,8 @@ def foot_contacts(
         exact, but a single glitched-low frame drags it down; the two
         diverge on clips with marker noise or long airborne phases.
         Pass a float to pin it explicitly (e.g. ``floor=0.0`` when the
-        rig is already ground-aligned).
+        rig is already ground-aligned). The level applied is reported as
+        the report's ``contact_reference`` (``return_info=True``).
 
         This reference is **not** :attr:`Bvh.floor_height`, and passing
         that in is usually wrong here. The scene ground is measured over
@@ -1088,7 +1089,7 @@ def foot_contacts(
         If True, return ``(contacts, report)``, where ``report`` is a
         :class:`~pybvh.ContactReport`: the joints, the method and the
         settings applied, each joint's thresholds, the skeleton scale, the
-        contact reference (``floor``), the ``speed`` and ``clearance``
+        contact reference (``contact_reference``), the ``speed`` and ``clearance``
         signals the thresholds were compared against, each joint's
         ``confidence`` and the unsupervised quality diagnostics
         (``foot_skate_mean`` / ``foot_skate_max``, ``airborne_fraction``,

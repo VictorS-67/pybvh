@@ -251,7 +251,7 @@ class ContactReport:
     adaptive : bool
         Whether Otsu's split was asked for (``adaptive=True``); the threshold sources say where it stood.
     floor_setting : {"auto", "min"} or float, or None
-        The ``floor`` setting applied: ``"auto"`` (the default) or ``"min"``, the estimate the contact reference ``floor`` came from, or the level given. ``None`` under ``method="velocity"``.
+        The ``floor`` setting applied: ``"auto"`` (the default) or ``"min"``, the estimate ``contact_reference`` came from, or the level given. ``None`` under ``method="velocity"``.
     skeleton_scale : float
         The scale the default thresholds are written in and the foot skate is divided by: the mean rest distance from the root to the tested joints. Reported whether or not a threshold was derived from it, since the diagnostics always use it.
     skeleton_scale_measured : bool
@@ -266,10 +266,10 @@ class ContactReport:
         The clearance threshold applied to each joint, in world units; ``None`` under ``method="velocity"``.
     height_threshold_source : tuple of str, or None
         Where each joint's ``height_threshold`` came from: ``"given"``, ``"margin"`` (the default, ``0.013 × skeleton_scale``), ``"stance"`` (``height_reference="velocity"``: the joint's clearance over its slow frames, plus the margin), ``"otsu"`` and ``"otsu_clamped"`` (``adaptive=True`` where the height threshold is split, the bounds as for the speed). A split rejected, or a stance calibration that finds no swing above the stance level, reads ``"margin"``. ``None`` where ``height_threshold`` is.
-    floor : float or None
+    contact_reference : float or None
         The contact reference, along the raw ``world_up`` axis: the level the clearance is measured from, estimated over the tested joints (``floor="auto"`` or ``"min"``) or given. Never the scene ground, :attr:`Bvh.floor_height <pybvh.bvh.Bvh.floor_height>` (ADR 0002). ``None`` under ``method="velocity"``.
     clearance : ndarray, shape (F, n_joints), or None
-        Each joint's height above ``floor``, positive up, the signal compared against ``height_threshold``. ``None`` under ``method="velocity"``.
+        Each joint's height above ``contact_reference``, positive up, the signal compared against ``height_threshold``. ``None`` under ``method="velocity"``.
     confidence : ndarray, shape (n_joints,)
         Each joint's detection decisiveness in ``[0, 1]`` (not a probability): how far, on average over the frames its thresholds mark as contact, its signals sit below their thresholds, as a fraction of each threshold, and under ``method="combined"`` the geometric mean of that with the fraction of frames where the two tests agree. It is measured before ``min_contact_duration`` and ``min_gap_duration`` act, so a joint whose only marked run is too short to count still has a confidence above ``0`` though it is never in contact. ``0.0`` for a joint its thresholds never mark.
     foot_skate_mean, foot_skate_max : ndarray, shape (n_joints,)
@@ -297,7 +297,7 @@ class ContactReport:
     speed: npt.NDArray[np.float64] | None
     height_threshold: npt.NDArray[np.float64] | None
     height_threshold_source: tuple[_HeightSource, ...] | None
-    floor: float | None
+    contact_reference: float | None
     clearance: npt.NDArray[np.float64] | None
     confidence: npt.NDArray[np.float64]
     foot_skate_mean: npt.NDArray[np.float64]
@@ -482,7 +482,7 @@ def _contacts_from_positions(
         speed=_optional_read_only(speed if F >= 2 else None),
         height_threshold=None if height_thr_used is None else _per_joint(height_thr_used, n_joints),
         height_threshold_source=height_source,
-        floor=None if floor_raw is None else float(floor_raw),
+        contact_reference=None if floor_raw is None else float(floor_raw),
         clearance=_optional_read_only(clearance),
         confidence=_read_only(confidence),
         foot_skate_mean=_read_only(skate_mean),

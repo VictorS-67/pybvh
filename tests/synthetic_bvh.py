@@ -425,3 +425,65 @@ def make_disagreement_bvh() -> Bvh:
     # The auto-detection picked +Y from animation; rest-pose says +Z
     # Don't override — let auto-detection stand
     return bvh
+
+
+# ---------------------------------------------------------------------------
+#  Contact rig: rest geometry chosen, motion driven through ``coords=``
+# ---------------------------------------------------------------------------
+
+CONTACT_FEET = ("LeftFoot", "RightFoot")
+
+
+def make_contact_rig(
+    n_frames: int,
+    frame_time: float = FRAME_TIME,
+    foot_offsets: tuple[tuple[float, float, float], ...] = ((-6.0, -8.0, 0.0), (6.0, -8.0, 0.0)),
+) -> Bvh:
+    """+Y up rig of a root and two foot joints, built from a node table.
+
+    The joints are ``LeftFoot`` and ``RightFoot``, children of the root at
+    ``foot_offsets``, each with an end site one unit below it. Their rest
+    distance from the root is the norm of their offset, 10 for both by
+    default, so the skeleton scale the contact detectors set their default
+    thresholds from is the mean of those norms. The motion is zero; drive
+    the feet with :func:`contact_coords`.
+    """
+    from pybvh import nodes_from_table
+
+    table: list[dict] = [{"name": "Hips", "offset": [0.0, 0.0, 0.0], "rot_channels": "ZYX"}]
+    for name, offset in zip(CONTACT_FEET, foot_offsets, strict=True):
+        table.append({"name": name, "parent": 0, "offset": list(offset), "rot_channels": "ZYX"})
+        table.append({"parent": len(table) - 1, "offset": [0.0, -1.0, 0.0]})
+    nodes = nodes_from_table(table)
+    n_joints = sum(1 for n in nodes if not n.is_end_site())
+    bvh = Bvh(
+        nodes=nodes,
+        root_pos=np.zeros((n_frames, 3)),
+        joint_angles=np.zeros((n_frames, n_joints, 3)),
+        frame_time=frame_time,
+    )
+    bvh.world_up = "+y"
+    return bvh
+
+
+def contact_coords(
+    bvh: Bvh,
+    height: np.ndarray,
+    x: np.ndarray | None = None,
+) -> np.ndarray:
+    """``coords=`` for :func:`make_contact_rig`: the feet follow given signals.
+
+    ``height`` (the +y coordinate) and ``x`` are ``(F,)`` for ``LeftFoot``
+    alone or ``(F, k)`` for the first ``k`` feet of ``CONTACT_FEET``; ``x``
+    defaults to 0 (a foot that does not travel). Every other node sits at
+    the origin, which no detector reads when given the feet.
+    """
+    height = np.asarray(height, dtype=np.float64).reshape(bvh.frame_count, -1)
+    x = np.zeros_like(height) if x is None else np.asarray(x, dtype=np.float64)
+    x = x.reshape(height.shape)
+    coords = np.zeros((bvh.frame_count, len(bvh.nodes), 3))
+    for k in range(height.shape[1]):
+        i = bvh.node_index[CONTACT_FEET[k]]
+        coords[:, i, 0] = x[:, k]
+        coords[:, i, 1] = height[:, k]
+    return coords

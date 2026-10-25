@@ -13,11 +13,12 @@ features    dataframe            a clip as one array · a DataFrame as a clip
 analysis    io    transforms     descriptors · the file · a clip in, a clip out
 bvh                              the clip: skeleton and motion
 spatial_coord   _orientation     forward kinematics · what a clip implies about up, left and forward
+_contacts                        contact detection on plain arrays
 node_tree   tools   geometry     the tree · signed axes and validators · position kernels
 bvhnode   rotations   signal   _warnings   _derived
 ```
 
-Every run-time import at module level points down this picture: a layer depends on nothing above it. Imports for type annotations only, under `TYPE_CHECKING`, are exempt: `spatial_coord` names `Bvh` that way, and `_derived` the report types of `_orientation`. `rotations`, `signal`, `geometry`, `tools`, `_orientation` and `FkTopology` know no clip: they take arrays, which lets a consumer pose and measure motion with no `Bvh` in hand, a data loader at train time for instance. Two kinds of import point up, and each sits inside the function that needs it, never at module level: a `Bvh` method that wraps another module's function, and the one function in `spatial_coord` that tells a `Bvh` from the other skeleton forms.
+Every run-time import at module level points down this picture: a layer depends on nothing above it. Imports for type annotations only, under `TYPE_CHECKING`, are exempt: `spatial_coord` names `Bvh` that way, and `_derived` the report types of `_orientation`. `rotations`, `signal`, `geometry`, `tools`, `_orientation`, `_contacts` and `FkTopology` know no clip: they take arrays, which lets a consumer pose and measure motion with no `Bvh` in hand, a data loader at train time for instance. Two kinds of import point up, and each sits inside the function that needs it, never at module level: a `Bvh` method that wraps another module's function, and the one function in `spatial_coord` that tells a `Bvh` from the other skeleton forms.
 
 ## 2. The module map
 
@@ -38,6 +39,7 @@ Every run-time import at module level points down this picture: a layer depends 
 | `_derived` | a clip's derived state: the values themselves, and the table of which change to the skeleton, the motion or the world up clears which value (ADR 0003) | compute a value: `bvh` computes each one and fills it on read |
 | `signal` | array-pure signal kernels | know a clip |
 | `geometry` | array-pure position descriptors | know a clip, or differentiate other than through `signal` |
+| `_contacts` | contact detection from plain data (the tested joints' positions, their and the root's rest positions, the frame time, the up axis, the settings): the signals, the thresholds, the labels, the confidence and the diagnostics | import a `Bvh`: `analysis.foot_contacts` and `ground_contacts` read the clip and run the checks that name it |
 | `analysis` | the descriptors of a clip, as functions taking the `Bvh` first, and the array kernels behind the dynamics descriptors | assemble an export array |
 | `features` | the flat feature array and its column layout | compute a descriptor: it calls `analysis` |
 | `transforms` | spatial transforms and augmentation, on a clip and on raw arrays, and the reorientations | |
@@ -63,7 +65,7 @@ bvhplot (`pybvh/bvhplot/`) splits at its Scene: the router and `_from_bvh` read 
 - **One implementation per concern.** A node tree is built only by `node_tree` (the parser, `df_to_bvh` and `extract_joints` all go through it), so the checks are made in one place. The Euler-to-matrix conversion is only in `rotations`, and what a clip implies about orientation is computed only in `_orientation`, which `transforms`, `analysis`, `batch` and bvhplot call, directly or through `Bvh`, rather than keep their own. Skeleton topology has one derivation, `FkTopology.from_nodes`: forward kinematics runs on its result, `Bvh.fk_topology` returns it, and the edges and the bones bvhplot draws are views of that, so they cannot disagree with the geometry forward kinematics produces.
 - **Units change at the boundary.** The angles a `Bvh` holds are radians; the conversion from and to the degrees of a file or a DataFrame happens where those are read or written (`io`, `dataframe`, `Bvh.to_df_dict`).
 - **Descriptors, assembly and datasets are three modules.** `analysis` computes descriptors, `features` packs one clip's into an array, `batch` stacks clips and delegates each clip to `features`, so the column layout has one owner whether one clip or a dataset is exported.
-- **The scene ground and the contact reference are two quantities**, both in `analysis` and never substituted for one another: ADR 0002.
+- **The scene ground and the contact reference are two quantities**, never substituted for one another: ADR 0002. One kernel of `geometry` estimates both, over the points it is given: `analysis` passes it every node for the scene ground, `_contacts` the joints it tests.
 - **The skeleton's frame and the world's are two frames.** The rest pose's facts are never read against world up, only a frame's root rotation carries them into the world, and `mirror` works in the skeleton's frame: ADR 0004.
 - **bvhplot draws from a Scene, never from a `Bvh`.** Only the router and `_from_bvh` read a `Bvh`; `_viewport` computes each 3D picture's geometry from the Scene's views once (the 2D `trajectory` plot, matplotlib only, is framed by `_matplotlib`); a backend translates Scene, Style and viewport into its toolkit's calls. So every backend computes floor, framing and camera by the same rules: once per panel where it draws each skeleton in its own panel (matplotlib, OpenCV), once over all the views where it draws them in one scene (k3d, vedo), with one exception, the overlay `sequence`, which re-centers its sampled poses and takes its floor from their lowest point. Each backend can be tested from a Scene built from arrays (`tests/synthetic_scene.py`). The import guards in `tests/test_scene.py` pin the boundary and state what they cannot see. bvhplot's scope against pybvh-blender is `pybvh/bvhplot/CHARTER.md`; the vedo shadows are ADR 0001.
 

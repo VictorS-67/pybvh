@@ -1245,11 +1245,20 @@ _CORE_MODULES = {
     "transforms",
 }
 # The rest of pybvh knows no clip, so any bvhplot module may import it: the
-# array-pure math, the orientation computed from plain data, the signed-axis
-# vocabulary and the input validators, and the helper that points a warning
-# at the user's line. TestNotCoreModulesStayClipFree checks that none of them
-# imports the core at runtime, so no core import reaches bvhplot through one.
-_NOT_CORE = {"_orientation", "_warnings", "geometry", "rotations", "signal", "tools"}
+# array-pure math, the orientation and the contact detection computed from
+# plain data, the signed-axis vocabulary and the input validators, and the
+# helper that points a warning at the user's line.
+# TestNotCoreModulesStayClipFree checks that none of them imports the core at
+# runtime, so no core import reaches bvhplot through one.
+_NOT_CORE = {
+    "_contacts",
+    "_orientation",
+    "_warnings",
+    "geometry",
+    "rotations",
+    "signal",
+    "tools",
+}
 _ROUTER = "__init__"
 _BVH_READER = "_from_bvh"
 # No plotting library may be imported here: the pure-data modules, and the

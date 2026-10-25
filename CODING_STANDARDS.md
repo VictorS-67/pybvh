@@ -55,7 +55,7 @@ Non-negotiable across every change to the codebase:
 - Fidelity is tested as a round trip: file, DataFrame, each rotation representation, Euler order conversion and back.
 - **weak-assertion.** A test checks its case tightly enough to fail when the behaviour breaks: the result the behaviour names, not a fragment of it or a proxy for its effect. Numerical assertions use `np.testing.assert_allclose` with a tolerance chosen for the precision at stake; a file round trip uses `atol=1e-5` because of the `%.6f` formatting.
 - **test-gap.** Every behaviour a change adds or alters (an edge case, a backend, a mode, a path) that a real exporter or an everyday call reaches is pinned by a test that runs its case and asserts it; a theoretical input gets none (speculative-generality, above).
-- A frozen reference (`tests/fixtures/*.npz`, the pixel baselines) is regenerated only deliberately, in its own commit, with the reason in the message.
+- A frozen reference (`tests/fixtures/*.npz`, the pixel baselines) is regenerated only deliberately, in its own commit, with the reason in the message. When the change alters the reference's shape, so that the suite cannot pass between the change and the regeneration, the reference is regenerated in the commit that makes the change, and its message quotes a check of every old value against its new place.
 - Every commit leaves the suite green (`CONTRIBUTING.md`).
 
 ## Docs

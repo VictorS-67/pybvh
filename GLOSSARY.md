@@ -172,13 +172,19 @@ Where a clip's geometry bottoms out: the robust 2nd percentile of the per-frame 
 _Avoid_: floor (alone), ground level
 
 **Contact reference**:
-The ground level a contact detector estimates per call over the joints it tests (`floor="auto"`, returned as `info["floor"]`). Never the scene ground; the two differ by about a toe length (ADR 0002).
+The ground level a contact detector estimates per call over the joints it tests (`floor="auto"`, reported as the contact report's `contact_reference`). Never the scene ground; the two differ by about a toe length (ADR 0002).
 
 **Contact**:
 A frame in which a joint is planted, from velocity and height thresholds: `foot_contacts` on the detected feet, `ground_contacts` on any joint set.
 
+**Contact report**:
+What one contact detection applied and compared, returned with the contacts by `return_info=True` (`ContactReport`): the method and settings, each joint's thresholds, the skeleton scale, the contact reference, the speed and clearance signals, and the diagnostics. Every field present, `None` where the method does not use it; per-joint values `(n_joints,)`, never averaged.
+
+**Threshold source**:
+Where one joint's contact threshold came from, in the contact report (`vel_threshold_source`, `height_threshold_source`): given by the caller, the default scaled by the skeleton scale (`"scale"`, `"margin"`), the stance calibration (`"stance"`), Otsu's split (`"otsu"`), or a bound standing in for a split outside it (`"otsu_clamped"`). A fallback reads as what stands in, never as the method that failed. Beside it, `skeleton_scale_measured` says whether the skeleton scale was measured or `1.0` stood in.
+
 **Gait parameters**:
-Cadence, stride length and walking pace, from contacts and the root's ground path.
+The eight fields of `GaitParameters`, from contacts and the root's ground path: `cadence`, `walking_pace`, `stride_length`, `stride_cv`, `step_length`, `stance_fraction`, `double_support_fraction` and `asymmetry`. `gait_parameters` computes them in one pass; `cadence` and `stride_length` are its projections, and `walking_pace` is also computed alone from the root path.
 
 **Smoothness**:
 A metric on a speed profile: SPARC, dimensionless jerk and the others `smoothness(metric=)` dispatches to.

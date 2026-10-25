@@ -11,7 +11,7 @@ References used:
 - scipy.spatial.transform.Rotation  (rotation conversions)
 - pytransform3d                      (SE(3) exp/log/interp — added when those land)
 
-One fixture is different in kind: `foot_contacts_pinned.npz` is a BEHAVIOR PIN of pybvh's own `foot_contacts` (no external reference). It is excluded from the default run above and regenerates only via an explicit flag, in the `pybvh` env — see `gen_foot_contacts` for the re-baselining warning:
+One fixture is different in kind: `foot_contacts_pinned.npz` is a BEHAVIOR PIN of pybvh's own contact detection, `foot_contacts` and `ground_contacts` (no external reference). It is excluded from the default run above and regenerates only via an explicit flag, in the `pybvh` env — see `gen_foot_contacts` for the re-baselining warning:
 
     conda run -n pybvh python tests/fixtures/generate_fixtures.py --foot-contacts-pin
 
@@ -22,6 +22,7 @@ One fixture is different in kind: `foot_contacts_pinned.npz` is a BEHAVIOR PIN o
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import sys
@@ -285,55 +286,101 @@ def gen_smoothness() -> None:
 
 
 # ----------------------------------------------------------------------------
-# foot_contacts behavior pin (self-referential golden — no external reference)
+# contact detection behavior pin (self-referential golden — no external
+# reference)
 # ----------------------------------------------------------------------------
 
-# The nine pinned parameterizations. Each builder takes a FRESH Bvh of the
-# CMU walk clip and returns the kwargs for one foot_contacts call (always
-# with return_info=True). tests/test_analysis.py imports this list and
-# replays the exact same calls against the fixture, so the pinned calls and
-# the replayed calls cannot drift apart.
+# The pinned runs. Each builder takes a FRESH Bvh of the CMU walk clip and
+# returns the detector it calls (a bound foot_contacts or ground_contacts, of
+# that clip or of a clip cut from it) and the kwargs for the call;
+# call_pinned_run adds return_info=True. tests/test_analysis.py imports this
+# list and replays the exact same calls against the fixture, so the pinned
+# calls and the replayed calls cannot drift apart. New runs are appended:
+# a run's index is its key prefix in the fixture.
 
 
 def _run_default(bvh):
-    return {}
+    return bvh.foot_contacts, {}
 
 
 def _run_explicit_feet_reversed(bvh):
     # Reversed auto-detection: pins column order = foot_joints order, and
     # that explicit foot_joints bypasses the floor cache.
-    return {"foot_joints": list(reversed(bvh.auto_detect_foot_joints()))}
+    return bvh.foot_contacts, {"foot_joints": list(reversed(bvh.auto_detect_foot_joints()))}
 
 
 def _run_method_velocity(bvh):
-    return {"method": "velocity"}
+    return bvh.foot_contacts, {"method": "velocity"}
 
 
 def _run_method_height_floor0(bvh):
-    return {"method": "height", "floor": 0.0}
+    return bvh.foot_contacts, {"method": "height", "floor": 0.0}
 
 
 def _run_height_reference_floor(bvh):
-    return {"height_reference": "floor"}
+    return bvh.foot_contacts, {"height_reference": "floor"}
 
 
 def _run_adaptive(bvh):
-    return {"adaptive": True}
+    return bvh.foot_contacts, {"adaptive": True}
 
 
 def _run_coords_centered_first(bvh):
-    return {"coords": bvh.node_positions(centered="first")}
+    return bvh.foot_contacts, {"coords": bvh.node_positions(centered="first")}
 
 
 def _run_no_morphology(bvh):
-    return {"hysteresis": 0.0, "min_contact_duration": 0.0, "min_gap_duration": 0.0}
+    return bvh.foot_contacts, {
+        "hysteresis": 0.0,
+        "min_contact_duration": 0.0,
+        "min_gap_duration": 0.0,
+    }
 
 
 def _run_explicit_thresholds(bvh):
     # Explicit floats near the clip's auto-calibrated defaults (so the labels
-    # stay meaningful); pins that "skeleton_scale" is ABSENT from info when no
-    # auto-calibration ran (the conditional-key logic).
-    return {"vel_threshold": 2.0, "height_threshold": 0.5}
+    # stay meaningful); pins that the report's skeleton_scale is reported
+    # though no threshold was derived from it, since the foot skate uses it.
+    return bvh.foot_contacts, {"vel_threshold": 2.0, "height_threshold": 0.5}
+
+
+def _run_ground_contacts_by_name(bvh):
+    # ground_contacts under its own defaults (height_reference="floor", no
+    # rest-height check), on the ankles: joints named, not auto-detected.
+    return bvh.ground_contacts, {"joints": ["LeftFoot", "RightFoot"]}
+
+
+def _run_ground_contacts_by_index(bvh):
+    # The toe tips as node indices: end sites, found by their place in the
+    # tree (an end site's name is generated), and mapped back to names in
+    # the report's joints.
+    toes = [bvh.nodes[bvh.node_index[name]] for name in bvh.auto_detect_foot_joints()]
+    tips = [next(i for i, node in enumerate(bvh.nodes) if node.parent is toe) for toe in toes]
+    return bvh.ground_contacts, {"joints": tips}
+
+
+def _run_method_height_floor_min(bvh):
+    # Under the default method the stance calibration absorbs the floor's
+    # level and the contacts equal the default run's; under "height" they
+    # depend on it.
+    return bvh.foot_contacts, {"method": "height", "floor": "min"}
+
+
+def _run_method_height_adaptive(bvh):
+    return bvh.foot_contacts, {"method": "height", "adaptive": True}
+
+
+def _run_method_height_adaptive_first_second(bvh):
+    # Over the whole walk the height split falls back to the margin on both
+    # feet (the run above); over its first second it is accepted on the right
+    # foot and falls back on the left, so one call pins both outcomes.
+    first_second = bvh[: round(1.0 / bvh.frame_time)]
+    return first_second.foot_contacts, {"method": "height", "adaptive": True}
+
+
+def _run_one_frame(bvh):
+    # A one-frame clip, as a pose file is: no speed can be measured.
+    return bvh[0].foot_contacts, {}
 
 
 FOOT_CONTACT_RUNS = [
@@ -346,18 +393,24 @@ FOOT_CONTACT_RUNS = [
     ("coords_centered_first", _run_coords_centered_first),
     ("no_morphology", _run_no_morphology),
     ("explicit_thresholds", _run_explicit_thresholds),
+    ("ground_contacts_by_name", _run_ground_contacts_by_name),
+    ("ground_contacts_by_index", _run_ground_contacts_by_index),
+    ("method_height_floor_min", _run_method_height_floor_min),
+    ("method_height_adaptive", _run_method_height_adaptive),
+    ("one_frame", _run_one_frame),
+    ("method_height_adaptive_first_second", _run_method_height_adaptive_first_second),
 ]
 
 
-def flatten_info(info: dict, prefix: str = "") -> dict:
-    """Flatten foot_contacts' info dict into ``{"key" | "key/subkey": leaf}`` (recursing into nested dicts such as ``foot_skate``), the exact view the pin fixture stores and the pin tests compare."""
-    flat: dict = {}
-    for key, value in info.items():
-        if isinstance(value, dict):
-            flat.update(flatten_info(value, f"{prefix}{key}/"))
-        else:
-            flat[prefix + key] = value
-    return flat
+def call_pinned_run(build, bvh) -> tuple:
+    """Make one pinned call: the detector ``build`` names, with its kwargs and ``return_info=True``; returns ``(contacts, report)``."""
+    detector, kwargs = build(bvh)
+    return detector(return_info=True, **kwargs)
+
+
+def report_fields(report) -> dict:
+    """A ``ContactReport`` as ``{field: value}``, every field included, ``None`` ones too: the view the pin fixture stores and the pin tests compare."""
+    return {field.name: getattr(report, field.name) for field in dataclasses.fields(report)}
 
 
 def gen_foot_contacts() -> None:
@@ -365,8 +418,9 @@ def gen_foot_contacts() -> None:
     # !! BEHAVIOR PIN — regenerating RE-BASELINES it !!
     #
     # Unlike every other fixture in this file, this one has NO external
-    # reference: it freezes pybvh's OWN foot_contacts output (contacts +
-    # the full info dict) so a refactor can be proven bit-identical.
+    # reference: it freezes pybvh's OWN contact detection output
+    # (foot_contacts and ground_contacts: contacts + the full report) so
+    # a refactor can be proven bit-identical.
     # The committed .npz must come from the PRE-refactor tree. If the
     # pin test fails after a code change, the change altered behavior —
     # rerunning this generator does not "fix" that, it silently erases
@@ -382,12 +436,17 @@ def gen_foot_contacts() -> None:
     for i, (_name, build) in enumerate(FOOT_CONTACT_RUNS, start=1):
         # Fresh Bvh per run: no floor-cache state carries over between runs.
         bvh = read_bvh_file(bvh_path)
-        contacts, info = bvh.foot_contacts(return_info=True, **build(bvh))
-        flat = flatten_info(info)
+        contacts, report = call_pinned_run(build, bvh)
+        fields = report_fields(report)
         arrays[f"run{i}/contacts"] = contacts
-        arrays[f"run{i}/__keys__"] = np.array(sorted(flat))
-        for key, value in flat.items():
-            arrays[f"run{i}/{key}"] = np.asarray(value)
+        arrays[f"run{i}/__keys__"] = np.array(sorted(fields))
+        # An npz holds no None: the None fields are listed, the others stored.
+        arrays[f"run{i}/__none__"] = np.array(
+            sorted(key for key, value in fields.items() if value is None), dtype=str
+        )
+        for key, value in fields.items():
+            if value is not None:
+                arrays[f"run{i}/{key}"] = np.asarray(value)
     _save(
         "foot_contacts_pinned",
         {

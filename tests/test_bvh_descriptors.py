@@ -276,12 +276,16 @@ def test_range_of_motion_wrapper_matches_kernel():
 def test_ground_contacts_wrapper_matches_module():
     walk = read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "cmu_12_01_walk.bvh")
     feet = walk.auto_detect_foot_joints()
-    got, got_info = walk.ground_contacts(feet, return_info=True)
-    ref, ref_info = analysis.ground_contacts(walk, feet, return_info=True)
+    got, got_report = walk.ground_contacts(feet, return_info=True)
+    ref, ref_report = analysis.ground_contacts(walk, feet, return_info=True)
     np.testing.assert_array_equal(got, ref)
-    assert got_info["joints"] == ref_info["joints"]
-    # keyword passthrough: a non-default parameterization delegates too
+    assert got_report.joints == ref_report.joints
+    # keyword passthrough: a non-default parameterization delegates too. The
+    # contact reference is the tested joints' own minimum, not the scene
+    # ground (floor_height), which sits below them and leaves every frame
+    # airborne, so the comparison would hold on all-zero arrays.
+    got = walk.ground_contacts(feet, method="height", floor="min")
     np.testing.assert_array_equal(
-        walk.ground_contacts(feet, method="height", floor=walk.floor_height),
-        analysis.ground_contacts(walk, feet, method="height", floor=walk.floor_height),
+        got, analysis.ground_contacts(walk, feet, method="height", floor="min")
     )
+    assert not np.array_equal(got, walk.ground_contacts(feet, method="height"))

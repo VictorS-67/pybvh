@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from . import geometry
+    from ._contacts import ContactReport
 
 import numpy as np
 import numpy.typing as npt
@@ -1330,12 +1331,13 @@ class Bvh:
 
         A *persistently* misplaced node — one that sits below the ground in most
         frames, not just a few — will drag this down; the percentile absorbs
-        transient glitches, not systematic ones. Pass an explicit ``floor=`` to
-        the contact detectors if that ever bites.
+        transient glitches, not systematic ones. Contact detection does not
+        move with it: the detectors measure against a reference of their own.
 
         This is **not** the reference :func:`~pybvh.analysis.foot_contacts`
         compares foot clearance against. That one is estimated per call, over
-        the joints being tested, and is returned as ``info["floor"]``. The two
+        the joints being tested, and is reported as the ``contact_reference``
+        of its :class:`~pybvh.ContactReport` (``return_info=True``). The two
         answer different questions — this one belongs to the clip, that one to
         the query — and they differ by roughly a toe length on any rig with toe
         end sites. Passing this value in as ``foot_contacts(floor=...)`` will
@@ -3475,15 +3477,15 @@ class Bvh:
         method: str = ...,
         coords: npt.NDArray[np.float64] | None = ...,
         *,
-        vel_threshold: float | None = ...,
-        vel_smooth_duration: float = ...,
-        height_threshold: float | None = ...,
-        floor: float | str = ...,
+        vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+        vel_smooth_duration: float | None = ...,
+        height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+        floor: float | str | None = ...,
         min_contact_duration: float = ...,
         min_gap_duration: float = ...,
         hysteresis: float = ...,
         adaptive: bool = ...,
-        height_reference: str = ...,
+        height_reference: str | None = ...,
         return_info: Literal[False] = ...,
     ) -> npt.NDArray[np.float64]: ...
     @overload
@@ -3493,17 +3495,17 @@ class Bvh:
         method: str = ...,
         coords: npt.NDArray[np.float64] | None = ...,
         *,
-        vel_threshold: float | None = ...,
-        vel_smooth_duration: float = ...,
-        height_threshold: float | None = ...,
-        floor: float | str = ...,
+        vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+        vel_smooth_duration: float | None = ...,
+        height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+        floor: float | str | None = ...,
         min_contact_duration: float = ...,
         min_gap_duration: float = ...,
         hysteresis: float = ...,
         adaptive: bool = ...,
-        height_reference: str = ...,
+        height_reference: str | None = ...,
         return_info: Literal[True],
-    ) -> tuple[npt.NDArray[np.float64], dict]: ...
+    ) -> tuple[npt.NDArray[np.float64], ContactReport]: ...
     @overload
     def foot_contacts(
         self,
@@ -3511,34 +3513,34 @@ class Bvh:
         method: str = ...,
         coords: npt.NDArray[np.float64] | None = ...,
         *,
-        vel_threshold: float | None = ...,
-        vel_smooth_duration: float = ...,
-        height_threshold: float | None = ...,
-        floor: float | str = ...,
+        vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+        vel_smooth_duration: float | None = ...,
+        height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+        floor: float | str | None = ...,
         min_contact_duration: float = ...,
         min_gap_duration: float = ...,
         hysteresis: float = ...,
         adaptive: bool = ...,
-        height_reference: str = ...,
+        height_reference: str | None = ...,
         return_info: bool,
-    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]: ...
+    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], ContactReport]: ...
     def foot_contacts(
         self,
         foot_joints: list[str] | None = None,
         method: str = "combined",
         coords: npt.NDArray[np.float64] | None = None,
         *,
-        vel_threshold: float | None = None,
-        vel_smooth_duration: float = 1.0 / 30.0,
-        height_threshold: float | None = None,
-        floor: float | str = "auto",
+        vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = None,
+        vel_smooth_duration: float | None = None,
+        height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = None,
+        floor: float | str | None = None,
         min_contact_duration: float = 0.1,
         min_gap_duration: float = 0.1,
         hysteresis: float = 0.25,
         adaptive: bool = False,
-        height_reference: str = "velocity",
+        height_reference: str | None = None,
         return_info: bool = False,
-    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
+    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], ContactReport]:
         """Detect foot contact labels.  See :func:`pybvh.analysis.foot_contacts`."""
         from . import analysis
 
@@ -3566,15 +3568,15 @@ class Bvh:
         method: str = ...,
         coords: npt.NDArray[np.float64] | None = ...,
         *,
-        vel_threshold: float | None = ...,
-        vel_smooth_duration: float = ...,
-        height_threshold: float | None = ...,
-        floor: float | str = ...,
+        vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+        vel_smooth_duration: float | None = ...,
+        height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+        floor: float | str | None = ...,
         min_contact_duration: float = ...,
         min_gap_duration: float = ...,
         hysteresis: float = ...,
         adaptive: bool = ...,
-        height_reference: str = ...,
+        height_reference: str | None = ...,
         return_info: Literal[False] = ...,
     ) -> npt.NDArray[np.float64]: ...
     @overload
@@ -3584,17 +3586,17 @@ class Bvh:
         method: str = ...,
         coords: npt.NDArray[np.float64] | None = ...,
         *,
-        vel_threshold: float | None = ...,
-        vel_smooth_duration: float = ...,
-        height_threshold: float | None = ...,
-        floor: float | str = ...,
+        vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+        vel_smooth_duration: float | None = ...,
+        height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+        floor: float | str | None = ...,
         min_contact_duration: float = ...,
         min_gap_duration: float = ...,
         hysteresis: float = ...,
         adaptive: bool = ...,
-        height_reference: str = ...,
+        height_reference: str | None = ...,
         return_info: Literal[True],
-    ) -> tuple[npt.NDArray[np.float64], dict]: ...
+    ) -> tuple[npt.NDArray[np.float64], ContactReport]: ...
     @overload
     def ground_contacts(
         self,
@@ -3602,34 +3604,34 @@ class Bvh:
         method: str = ...,
         coords: npt.NDArray[np.float64] | None = ...,
         *,
-        vel_threshold: float | None = ...,
-        vel_smooth_duration: float = ...,
-        height_threshold: float | None = ...,
-        floor: float | str = ...,
+        vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+        vel_smooth_duration: float | None = ...,
+        height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+        floor: float | str | None = ...,
         min_contact_duration: float = ...,
         min_gap_duration: float = ...,
         hysteresis: float = ...,
         adaptive: bool = ...,
-        height_reference: str = ...,
+        height_reference: str | None = ...,
         return_info: bool,
-    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]: ...
+    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], ContactReport]: ...
     def ground_contacts(
         self,
         joints: Sequence[str | int],
         method: str = "combined",
         coords: npt.NDArray[np.float64] | None = None,
         *,
-        vel_threshold: float | None = None,
-        vel_smooth_duration: float = 1.0 / 30.0,
-        height_threshold: float | None = None,
-        floor: float | str = "auto",
+        vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = None,
+        vel_smooth_duration: float | None = None,
+        height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = None,
+        floor: float | str | None = None,
         min_contact_duration: float = 0.1,
         min_gap_duration: float = 0.1,
         hysteresis: float = 0.25,
         adaptive: bool = False,
-        height_reference: str = "floor",
+        height_reference: str | None = None,
         return_info: bool = False,
-    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
+    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], ContactReport]:
         """Detect ground contacts for an arbitrary joint set.  See :func:`pybvh.analysis.ground_contacts`."""
         from . import analysis
 

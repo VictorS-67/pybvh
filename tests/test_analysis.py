@@ -26,12 +26,12 @@ from synthetic_bvh import (
     make_pos_z_up_bvh,
 )
 
-# The foot_contacts behavior-pin run spec is shared with the fixture
+# The contact detection behavior-pin run spec is shared with the fixture
 # generator, so the calls replayed here are exactly the calls that produced
 # the committed fixture (importing it regenerates nothing — the reference
 # libraries only load inside the gen_* functions that need them).
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
-from generate_fixtures import FOOT_CONTACT_RUNS, flatten_info
+from generate_fixtures import FOOT_CONTACT_RUNS, call_pinned_run, flatten_info
 
 # ============================================================================
 # Fixtures
@@ -1265,9 +1265,9 @@ FOOT_PIN_PATH = Path(__file__).parent / "fixtures" / "foot_contacts_pinned.npz"
 
 
 class TestFootContactsPinnedGolden:
-    """Bit-exact pin of foot_contacts on the CMU walk clip.
+    """Bit-exact pin of foot_contacts and ground_contacts on the CMU walk clip.
 
-    The committed fixture freezes contacts + the FULL info dict (exact key sets included) for the nine parameterizations in ``FOOT_CONTACT_RUNS``. Contact labels, key sets, and non-float fields are compared bit-exactly; derived float info fields to ``rtol=1e-10`` — exact equality on those only holds in the environment that generated the pin (cross numpy/BLAS/platform noise is ~1e-15), while the tolerance stays ~5 orders below any behavioral change. This is the identity gate any refactor of the contacts machinery must pass. If it fails, the code change altered behavior; do NOT regenerate the fixture to make it pass (that re-baselines the pin and erases the evidence).
+    The committed fixture freezes contacts + the FULL info dict (exact key sets included) for every run in ``FOOT_CONTACT_RUNS``, each a call to the detector it names on the clip or on a clip cut from it. Contact labels, key sets, and non-float fields are compared bit-exactly; derived float info fields to ``rtol=1e-10`` — exact equality on those only holds in the environment that generated the pin (cross numpy/BLAS/platform noise is ~1e-15), while the tolerance stays ~5 orders below any behavioral change. This is the identity gate any refactor of the contacts machinery must pass. If it fails, the code change altered behavior; do NOT regenerate the fixture to make it pass (that re-baselines the pin and erases the evidence).
     """
 
     @pytest.fixture(scope="class")
@@ -1288,8 +1288,7 @@ class TestFootContactsPinnedGolden:
         _, build = FOOT_CONTACT_RUNS[run_idx - 1]
         # Fresh Bvh per run: no floor-cache state carries over, mirroring
         # exactly how the fixture was generated.
-        bvh = read_bvh_file(CMU_WALK_PATH)
-        contacts, info = bvh.foot_contacts(return_info=True, **build(bvh))
+        contacts, info = call_pinned_run(build, read_bvh_file(CMU_WALK_PATH))
 
         np.testing.assert_array_equal(
             contacts,
@@ -1320,8 +1319,8 @@ class TestFootContactsPinnedGolden:
                     got, want, err_msg=f"run{run_idx} ({run_name}): info[{key!r}] changed"
                 )
 
-        # The reported reference is the feet's own: no run computes the
-        # scene ground.
+        # The reported reference is the tested joints' own: no run computes
+        # the scene ground.
         assert computations.floor_height == 0
 
 

@@ -1057,19 +1057,28 @@ def foot_contacts(
         flicker (it cannot invent contacts). Set to ``0.0`` for the plain
         single-threshold behaviour.
     adaptive : bool, keyword-only, optional
-        If True, derive each foot's thresholds from its own signal
-        distribution (Otsu's bimodal split between the stance and swing
-        clusters) instead of the fixed scale fraction, falling back to the
-        fixed default for any foot whose signal is not convincingly
-        bimodal (e.g. standing, or a foot that never clearly swings).
-        Default ``False``; recommended for known-locomotion clips where the
-        fixed threshold under- or over-detects.  :func:`gait_parameters`
-        enables this by default — calling it declares the clip is
-        locomotion.  ``adaptive=True`` raises where it has no threshold to
-        derive: every threshold the method reads given, or, under
-        ``"combined"`` with ``height_reference="velocity"``, a
-        ``vel_threshold`` given (the height threshold is then calibrated on
-        the stance frames, not split).
+        If True, split a threshold left to derive from each foot's own
+        signal (Otsu's bimodal split between the stance and swing
+        clusters) instead of taking the fixed scale fraction.  What it
+        splits depends on the method: under ``"velocity"`` the speed
+        threshold, under ``"height"`` the height threshold, and under
+        ``"combined"`` the speed threshold, with the height threshold too
+        only under ``height_reference="floor"``.  Under ``"combined"`` with
+        ``height_reference="velocity"`` (the default here, and so in
+        :func:`gait_parameters`) it derives only the speed threshold: the
+        height threshold is calibrated on the frames that threshold calls
+        slow, never split.  A split is kept within ``[0.25, 4]`` × the
+        fixed default, and a foot whose signal is not convincingly bimodal
+        (e.g. standing, or a foot that never clearly swings) keeps the
+        default; the report's ``vel_threshold_source`` and
+        ``height_threshold_source`` say which (``"otsu"``,
+        ``"otsu_clamped"``, or the default's own source).  Default
+        ``False``; recommended for known-locomotion clips where the fixed
+        threshold under- or over-detects.  :func:`gait_parameters` enables
+        this by default — calling it declares the clip is locomotion.
+        ``adaptive=True`` raises where it has no threshold to derive: every
+        threshold the method reads given, or, under ``"combined"`` with
+        ``height_reference="velocity"``, a ``vel_threshold`` given.
     height_reference : {"velocity", "floor"} or None, keyword-only, optional
         How the default ``height_threshold`` is anchored (only used with ``method="combined"`` when ``height_threshold`` is None).
         ``"velocity"`` (what ``None``, the default, means): per-foot stance-median calibration — each foot's threshold is set from the median of its clearance over the frames where that foot is slow (speed below ``vel_threshold``, default ``0.12 × skeleton_scale`` u/s), so retargeted mocap whose feet hover above the estimated floor still detects stance; on rigs whose feet reach the floor this reduces to the ``"floor"`` margin.
@@ -2915,10 +2924,10 @@ def gait_parameters(
         Pre-computed contact labels (column order matching ``foot_joints``);
         otherwise :func:`foot_contacts` is run with ``adaptive=True`` —
         gait input is locomotion by definition, which is the documented
-        precondition for the adaptive per-foot thresholds (the fixed
-        defaults under-detect stance on retargeted mocap whose feet hover
-        above the estimated floor).  Pass explicit ``contacts`` for full
-        control over the detection.
+        precondition for ``adaptive``.  Under :func:`foot_contacts`'
+        defaults it splits each foot's speed threshold only; the height
+        threshold is calibrated on the frames that threshold calls slow.
+        Pass explicit ``contacts`` for full control over the detection.
 
     Returns
     -------
@@ -2943,9 +2952,11 @@ def gait_parameters(
     if contacts is None:
         # adaptive=True: calling gait_parameters *is* the declaration that the
         # clip is locomotion — exactly the precondition foot_contacts documents
-        # for its adaptive thresholds.  The fixed thresholds under-detect
-        # stance on retargeted mocap whose feet hover above the floor, which
-        # yields impossible gait numbers (double_support = 0 on a plain walk).
+        # for adaptive.  Under the default height_reference="velocity" it
+        # splits the speed threshold only, and the height threshold is
+        # calibrated on the frames that threshold calls slow.  The fixed speed
+        # threshold under-detects stance on the bundled walk, which yields
+        # impossible gait numbers (double_support = 0 on a plain walk).
         contacts = foot_contacts(bvh, foot_joints=foot_joints, coords=node_pos, adaptive=True)
     contacts = np.asarray(contacts, dtype=np.float64)
 

@@ -28,6 +28,16 @@ _FloorEstimate = Literal["auto", "min"]
 _DEFAULT_VEL_SMOOTH_DURATION = 1.0 / 30.0
 _DEFAULT_FLOOR: _FloorEstimate = "auto"
 
+# The default thresholds, as fractions of the skeleton scale: the speed, per
+# second, and the clearance margin above the contact reference.
+_VEL_THRESHOLD_FRACTION = 0.12
+_HEIGHT_MARGIN_FRACTION = 0.013
+# Otsu's split is kept within these multiples of the default it replaces.
+_SPLIT_LOWER_BOUND, _SPLIT_UPPER_BOUND = 0.25, 4.0
+# The percentile of the per-frame lowest joint the contact reference is read
+# at, by floor estimate.
+_FLOOR_PERCENTILE: dict[_FloorEstimate, float] = {"auto": 2.0, "min": 0.0}
+
 _METHODS_READING_VELOCITY = ("velocity", "combined")
 _METHODS_READING_HEIGHT = ("height", "combined")
 
@@ -373,7 +383,7 @@ def _contacts_from_positions(
             vel_thr_used = settings.vel_threshold
             vel_source = _each_joint("given", n_joints)
         else:
-            base = 0.12 * scale  # 12% of root-to-foot rest distance per second
+            base = _VEL_THRESHOLD_FRACTION * scale  # of the rest distance, per second
             if settings.adaptive and F >= 2:
                 vel_thr_used, vel_source = _resolve_adaptive(speed, base, "scale")
             else:
@@ -389,9 +399,8 @@ def _contacts_from_positions(
             # use, over the joints being tested — never from the scene
             # ground (Bvh.floor_height), which is measured over ALL nodes
             # and would sit an end site's length below these joints.
-            percentile = 0.0 if settings.floor == "min" else 2.0
             floor_raw = geometry._floor_level(
-                joint_positions, up_idx, up_sign, percentile=percentile
+                joint_positions, up_idx, up_sign, percentile=_FLOOR_PERCENTILE[settings.floor]
             )
         else:
             floor_raw = float(settings.floor)
@@ -401,7 +410,7 @@ def _contacts_from_positions(
             height_thr_used = settings.height_threshold
             height_source = _each_joint("given", n_joints)
         else:
-            base = 0.013 * scale  # ~1.3% of root-to-foot rest distance above floor
+            base = _HEIGHT_MARGIN_FRACTION * scale  # of the rest distance, above the floor
             # A speed signal exists exactly when method is "combined" here.
             if speed is not None and settings.height_reference == "velocity":
                 # Calibrate the height threshold per joint to its own stance
@@ -766,7 +775,7 @@ def _resolve_adaptive(
     n_joints = signal.shape[1]
     thr = np.full(n_joints, float(base))
     sources: list[_Fallback | _SplitSource] = [fallback] * n_joints
-    lo, hi = 0.25 * base, 4.0 * base
+    lo, hi = _SPLIT_LOWER_BOUND * base, _SPLIT_UPPER_BOUND * base
     for i in range(n_joints):
         t, _ = _otsu_threshold(signal[:, i])
         if t is not None:

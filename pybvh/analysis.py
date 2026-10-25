@@ -1482,9 +1482,7 @@ def _contacts_core(
             # ground (Bvh.floor_height), which is measured over ALL nodes
             # and would sit an end site's length below these joints.
             percentile = 0.0 if settings.floor == "min" else 2.0
-            floor_raw = _floor_from_coords(
-                coords, joint_indices, up_idx, up_sign, percentile=percentile
-            )
+            floor_raw = geometry._floor_level(joint_coords, up_idx, up_sign, percentile=percentile)
         else:
             floor_raw = float(settings.floor)
         floor_signed = floor_raw * up_sign
@@ -1569,7 +1567,7 @@ def _contacts_core(
     diag_scale = scale if scale is not None else _skeleton_scale(rest_coords, joint_indices)
     if clearance is None:  # method="velocity": derive a clearance for diagnostics
         h = joint_coords[:, :, up_idx] * up_sign
-        clearance = h - _estimate_floor(h)
+        clearance = h - geometry._floor_level(joint_coords, up_idx, up_sign) * up_sign
     info.update(_contact_diagnostics(mask, joint_coords, clearance, up_idx, diag_scale))
     return contacts, info
 
@@ -1840,48 +1838,12 @@ def relative_scale_factor(
     return float(np.sum(reference * target) / denom)
 
 
-def _estimate_floor(
-    heights_signed: npt.NDArray[np.float64],
-    percentile: float = 2.0,
-) -> float:
-    """Estimate a ground level from a window of height samples.
-
-    Works in the up-positive (sign-corrected) coordinate. The level is
-    the low percentile of the per-frame *minimum* height — robust to
-    the case where the sampled points never reach the ground
-    simultaneously (one foot always up) and to occasional spurious low
-    frames.
-    """
-    min_per_frame = heights_signed.min(axis=1)
-    return float(np.percentile(min_per_frame, percentile))
-
-
-def _floor_from_coords(
-    coords: npt.NDArray[np.float64],
-    node_indices: list[int],
-    up_idx: int,
-    up_sign: float,
-    percentile: float = 2.0,
-) -> float:
-    """Ground level in raw world coordinates, over the given nodes.
-
-    Pure array core with two callers that pass deliberately different
-    node sets: :func:`_compute_floor_height` passes *all* nodes (the
-    scene ground, cached as :attr:`Bvh.floor_height`), while the contact
-    detectors pass the joints they are testing (the reference their
-    clearance is measured against). ``percentile=0.0`` gives the true
-    minimum (``floor="min"``).
-    """
-    heights_signed = coords[:, node_indices, up_idx] * up_sign
-    return float(_estimate_floor(heights_signed, percentile) * up_sign)
-
-
 def _compute_floor_height(bvh: Bvh) -> float:
     """Scene ground level in raw world coordinates.
 
     Backs the cached :attr:`Bvh.floor_height`: the 2nd-percentile of the
     per-frame minimum height over **all** nodes (see
-    :func:`_estimate_floor`), signed back into the raw up axis. All
+    :func:`pybvh.geometry._floor_level`), signed back into the raw up axis. All
     nodes, not the feet — the ground is where the motion's geometry
     bottoms out, whichever body part gets there. See
     :attr:`Bvh.floor_height` for the convention and the alternatives it
@@ -1889,7 +1851,7 @@ def _compute_floor_height(bvh: Bvh) -> float:
     """
     up_idx, up_sign, _ = bvh.world_up_axis
     coords = bvh.node_positions()  # (F, N, 3), world
-    return _floor_from_coords(coords, list(range(coords.shape[1])), up_idx, up_sign)
+    return geometry._floor_level(coords, up_idx, up_sign)
 
 
 def _run_extents(

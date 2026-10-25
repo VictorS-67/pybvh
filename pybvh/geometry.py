@@ -766,6 +766,23 @@ def ground_path(
     return GroundPath(path_length(ground), area)
 
 
+def _floor_level(
+    positions: npt.NDArray[np.float64],
+    up_idx: int,
+    up_sign: float,
+    percentile: float = 2.0,
+) -> float:
+    """The level where a set of points' motion bottoms out, in raw world coordinates.
+
+    ``positions`` is ``(F, N, 3)``. The heights along the up axis (``up_idx``, signed by ``up_sign`` so that up is positive) are reduced over the points, to each frame's lowest, and then over time, to a low ``percentile`` of those minima: robust to points that never reach the ground together (one foot always up) and to a few spurious low frames. ``percentile=0.0`` gives the true minimum. The level is signed back into the raw up axis.
+
+    One kernel for two quantities that differ only in the points they pass (ADR 0002): the scene ground (``Bvh.floor_height``) passes every node, a contact detector's reference the joints it tests.
+    """
+    heights_signed = positions[:, :, up_idx] * up_sign
+    min_per_frame = heights_signed.min(axis=1)
+    return float(float(np.percentile(min_per_frame, percentile)) * up_sign)
+
+
 # ----------------------------------------------------------------
 #  Pose-level operations
 # ----------------------------------------------------------------

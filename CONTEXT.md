@@ -28,7 +28,7 @@ Every run-time import at module level points down this picture: a layer depends 
 | `io` | the `.bvh` text: parsing and writing, and the conversion from and to the degrees a file stores | build a node tree itself: `node_tree` does |
 | `dataframe` | a `Bvh` built from a pandas DataFrame, the inverse of `Bvh.to_df_dict` | import pandas at run time |
 | `bvhnode` | the node classes, each node's own fields and checks | know the tree as a whole, or any motion |
-| `node_tree` | the tree as a whole: the one builder, and the check `Bvh` runs on a finished tree | import anything but `bvhnode` |
+| `node_tree` | the tree as a whole: the one builder, the check `Bvh` runs on a finished tree, and the one comparison of two trees | import anything but `bvhnode` |
 | `bvh` | one clip's state, validated, and the computation of its derived state, whose lifecycle `_derived` holds; the skeleton and frame edits, each skeleton edit a new frozen skeleton swapped in; its angles in the other rotation representations | compute a descriptor, a transform, a picture or an orientation fact, or read or write a file: those methods wrap their module's function, and the orientation members hand `_orientation` the clip's data |
 | `rotations` | every rotation representation and conversion, interpolation, SE(3), and the one Euler-to-matrix conversion | know a node or a clip |
 | `spatial_coord` | forward kinematics, and `FkTopology`, the arrays it reads | keep rotation math of its own |

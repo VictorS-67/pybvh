@@ -4,8 +4,8 @@ Test-first approach: all bug-catching tests should FAIL before the corresponding
 fix is applied, and PASS after.  Fixture self-tests (TestSyntheticFixtures) should
 PASS immediately.
 
-Groups follow the plan at:
-  /home/victor/.claude/plans/logical-wibbling-cook.md
+Each test class is one group, one fix of the audit; the letter and number
+some class docstrings open with (``D3``, ``H2``) are the audit's own labels.
 """
 
 from __future__ import annotations

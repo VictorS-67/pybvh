@@ -100,6 +100,32 @@ def _offsets(bvh):
     return np.array([node.offset for node in bvh.nodes])
 
 
+def _clip_from_parents(parents, names=None, offsets=None):
+    """A clip of joints named *names* (``J0``, ``J1``, ... by default),
+    each wired to the node at its index in *parents* (``None`` for the
+    root), with the given offsets (``[0, 1, 0]`` each by default)."""
+    names = names or [f"J{i}" for i in range(len(parents))]
+    offsets = offsets or [[0.0, 1.0, 0.0]] * len(parents)
+    table = [
+        {
+            "name": names[0],
+            "parent": None,
+            "offset": offsets[0],
+            "pos_channels": "XYZ",
+            "rot_channels": "ZYX",
+        }
+    ] + [
+        {"name": names[i], "parent": parents[i], "offset": offsets[i], "rot_channels": "ZYX"}
+        for i in range(1, len(parents))
+    ]
+    return Bvh(
+        nodes=nodes_from_table(table),
+        root_pos=np.zeros((2, 3)),
+        joint_angles=np.zeros((2, len(parents), 3)),
+        frame_time=0.1,
+    )
+
+
 def _leaf_as_joint_and_as_end_site():
     """Two clips alike in names, parents and offsets, whose leaf ``Tip`` is
     a joint without children in the first and an end site in the second."""
@@ -1866,25 +1892,50 @@ class TestFrameSlicing:
         names = [node.name for node in bvh_example.nodes]
         names[1] = "DifferentName"
         other = _with_names(bvh_example, names)
-        with pytest.raises(ValueError, match="name mismatch"):
+        with pytest.raises(ValueError, match="node 1 is named"):
             bvh_example + other
 
     def test_concat_of_a_childless_joint_and_an_end_site_raises(self):
         """A leaf that is a joint in one clip and an end site in the other."""
         with_joint, with_end_site = _leaf_as_joint_and_as_end_site()
-        with pytest.raises(ValueError, match="Node kind mismatch for 'Tip'"):
+        with pytest.raises(ValueError, match="node 'Tip' is a joint vs an end site"):
             with_joint + with_end_site
 
     def test_iadd_of_a_childless_joint_and_an_end_site_raises(self):
         with_joint, with_end_site = _leaf_as_joint_and_as_end_site()
-        with pytest.raises(ValueError, match="Node kind mismatch for 'Tip'"):
+        with pytest.raises(ValueError, match="node 'Tip' is a joint vs an end site"):
             with_joint += with_end_site
 
     def test_concat_mismatched_channels_raises(self, bvh_example):
         """Concat with different rotation orders should raise."""
         other = bvh_example.change_euler_order("XYZ")
-        with pytest.raises(ValueError, match="Rotation order mismatch"):
+        with pytest.raises(ValueError, match="rotates in order"):
             bvh_example + other
+
+    def test_concat_of_clips_whose_parents_differ_raises(self):
+        # The same names and kinds in the same order, but J2 hangs from J1
+        # in one clip and from the root in the other.
+        chain = _clip_from_parents([None, 0, 1])
+        fork = _clip_from_parents([None, 0, 0])
+        with pytest.raises(
+            ValueError,
+            match=r"the parent of node 'J2' is nodes\[1\] \('J1'\) vs nodes\[0\] \('J0'\)",
+        ):
+            chain + fork
+        with pytest.raises(ValueError, match="the parent of node 'J2'"):
+            chain += fork
+        with pytest.raises(ValueError, match="the parent of node 'J2'"):
+            chain[0:2] = fork
+
+    def test_concat_of_clips_whose_offsets_differ_raises_and_names_the_way_on(self, bvh_example):
+        other = bvh_example.scale(2.0)
+        with pytest.raises(ValueError, match="the rest offset of") as caught:
+            bvh_example + other
+        assert "other.copy(nodes=self.to_node_table())" in str(caught.value)
+        with pytest.raises(ValueError, match="the rest offset of"):
+            bvh_example.copy()[0:3] = other[0:3]
+        joined = bvh_example + other.copy(nodes=bvh_example.to_node_table())
+        assert joined.frame_count == 2 * bvh_example.frame_count
 
     def test_concat_checks_rotation_order_of_custom_joint_class(self, bvh_example):
         """A node class of the caller's own that is not an end site counts as a joint.
@@ -1920,7 +1971,7 @@ class TestFrameSlicing:
             joint_angles=bvh_example.joint_angles,
             frame_time=bvh_example.frame_time,
         )
-        with pytest.raises(ValueError, match="Rotation order mismatch"):
+        with pytest.raises(ValueError, match="rotates in order"):
             bvh_example + other
 
     def test_concat_mismatched_frequency_warns(self, bvh_example):
@@ -3098,6 +3149,12 @@ class TestEqualityHierarchy:
         offsets = _offsets(bvh_example)
         end_idx = next(i for i, n in enumerate(bvh_example.nodes) if n.is_end_site())
         offsets[end_idx] += 1.0
+        assert bvh_example != _with_offsets(bvh_example, offsets)
+
+    def test_equality_compares_offsets_exactly(self, bvh_example):
+        offsets = _offsets(bvh_example)
+        k, axis = np.unravel_index(np.argmax(np.abs(offsets)), offsets.shape)
+        offsets[k, axis] += 1e-9
         assert bvh_example != _with_offsets(bvh_example, offsets)
 
 
@@ -4492,6 +4549,23 @@ class TestBatchProcessing:
             with pytest.raises(ValueError, match="Skeleton hierarchy mismatch"):
                 batch_to_numpy([all_bvhs[0], mixed[0]])
 
+    def test_batch_to_numpy_names_the_parent_that_differs(self):
+        chain = _clip_from_parents([None, 0, 1])
+        fork = _clip_from_parents([None, 0, 0])
+        with pytest.raises(
+            ValueError,
+            match=r"Skeleton hierarchy mismatch between index 0 and index 1: the parent of node 'J2'",
+        ):
+            batch_to_numpy([chain, fork])
+
+    def test_batch_to_numpy_names_the_rotation_order_that_differs(self, bvh_example):
+        other = bvh_example.change_euler_order("XYZ", joint="Hips")
+        with pytest.raises(
+            ValueError,
+            match=r"Rotation-channel mismatch between index 0 .* \(joint 'Hips' rotates in order",
+        ):
+            batch_to_numpy([bvh_example, other])
+
     def test_batch_to_numpy_names_a_node_that_is_a_joint_in_one_clip_only(self):
         with_joint, with_end_site = _leaf_as_joint_and_as_end_site()
         with pytest.raises(ValueError, match="node 'Tip' is a joint vs an end site"):
@@ -4739,6 +4813,16 @@ class TestHarmonize:
         clips = [bvh_example, bvh_test2]
         with pytest.raises(ValueError, match="incompatible topology"):
             harmonize(clips, reference=bvh_example, on_incompatible="raise")
+
+    def test_raise_incompatible_names_the_difference(self):
+        from pybvh.batch import harmonize
+
+        chain = _clip_from_parents([None, 0, 1])
+        fork = _clip_from_parents([None, 0, 0])
+        with pytest.raises(
+            ValueError, match="incompatible topology with reference: the parent of node 'J2'"
+        ):
+            harmonize([chain, fork], reference=chain, on_incompatible="raise")
 
     def test_drops_a_clip_with_an_end_site_where_the_reference_has_a_joint(self):
         from pybvh.batch import harmonize
@@ -6867,6 +6951,24 @@ class TestMatchesHierarchy:
         assert not with_joint.matches_hierarchy(with_end_site)
         assert not with_end_site.matches_hierarchy(with_joint)
 
+    def test_the_offset_tolerance_is_absolute(self, bvh_example):
+        # 1e-4 off on an offset some ten units long: within NumPy's default
+        # relative tolerance, not within the absolute 1e-6.
+        offsets = _offsets(bvh_example)
+        k, axis = np.unravel_index(np.argmax(np.abs(offsets)), offsets.shape)
+        assert abs(offsets[k, axis]) > 10.0
+        offsets[k, axis] += 1e-4
+        assert not bvh_example.matches_hierarchy(_with_offsets(bvh_example, offsets))
+
+    def test_a_parent_is_a_node_not_a_name(self):
+        # J2 hangs from the second "X" in one clip and from the first in
+        # the other: the parents' names agree, the parents do not.
+        names = ["Hips", "X", "X", "Y"]
+        chain = _clip_from_parents([None, 0, 1, 2], names=names)
+        fork = _clip_from_parents([None, 0, 1, 1], names=names)
+        assert not chain.matches_hierarchy(fork)
+        assert not chain.matches_hierarchy(fork, match_offsets=False)
+
 
 class TestMatchesChannels:
     """Tests for Bvh.matches_channels."""
@@ -7141,7 +7243,7 @@ class TestBvhSetItemErrors:
         # The donor's joint angles are one joint narrower, which NumPy would
         # broadcast into the clip's.
         with_joint, with_end_site = _leaf_as_joint_and_as_end_site()
-        with pytest.raises(ValueError, match="Node kind mismatch for 'Tip': joint vs end site"):
+        with pytest.raises(ValueError, match="node 'Tip' is a joint vs an end site"):
             with_joint[0:3] = with_end_site
 
     def test_int_out_of_range(self, bvh_example):

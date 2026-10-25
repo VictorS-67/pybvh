@@ -1259,7 +1259,7 @@ def ground_contacts(
 
     Returns
     -------
-    ndarray of shape ``(F, num_joints)``, or tuple ``(ndarray, ContactReport)`` when ``return_info=True``.
+    ndarray of shape ``(F, n_joints)``, or tuple ``(ndarray, ContactReport)`` when ``return_info=True``.
         Binary contact labels (1.0 = contact); columns follow ``joints`` order.
 
     Raises
@@ -1539,9 +1539,10 @@ def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
     plausible metre-scale humanoid, ``nan`` poisons everything scaled by
     it) would be indistinguishable from, or worse than, a measurement.
     Catch the error and choose your own scale if a total function is
-    needed. (``foot_contacts``' *internal* threshold scale keeps a
-    private ``1.0`` fallback for degenerate rigs — a threshold must
-    exist even where a measurement does not.)
+    needed. (The contact detectors' skeleton scale uses ``1.0`` in its
+    place on such a rig, since a threshold must exist even where a
+    measurement does not, and their :class:`~pybvh.ContactReport` says
+    so: ``skeleton_scale_measured`` is ``False``.)
 
     Parameters
     ----------

@@ -1701,10 +1701,10 @@ def test_foot_contacts_takes_joint_names_not_node_indices(detect):
         detect(rig, foot_joints=[left, "RightFoot"], coords=coords)
 
 
-class TestWhatACallMayPassReproductions:
-    """Reproductions 1 and 4 of #123, on the CMU walk, now raise."""
+class TestWhatACallMayPassOnAClip:
+    """On the CMU walk, a setting the method does not read and an invalid value raise, where they used to pass."""
 
-    def test_reproduction_1_a_setting_the_method_does_not_read(self):
+    def test_a_height_setting_under_the_velocity_method_is_refused(self):
         bvh = read_bvh_file(CMU_WALK_PATH)
         with pytest.raises(ValueError, match=r"^height_threshold is not read by method='velocity'"):
             bvh.foot_contacts(method="velocity", height_threshold=0.5, floor=-100.0)
@@ -1717,7 +1717,7 @@ class TestWhatACallMayPassReproductions:
             ({"vel_threshold": 0.0}, "vel_threshold must be finite and > 0"),
         ],
     )
-    def test_reproduction_4_an_invalid_value(self, settings, refusal):
+    def test_an_invalid_hysteresis_duration_or_threshold_is_refused(self, settings, refusal):
         bvh = read_bvh_file(CMU_WALK_PATH)
         with pytest.raises(ValueError, match=rf"^{refusal}"):
             bvh.foot_contacts(**settings)

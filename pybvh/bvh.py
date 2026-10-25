@@ -1330,8 +1330,8 @@ class Bvh:
 
         A *persistently* misplaced node — one that sits below the ground in most
         frames, not just a few — will drag this down; the percentile absorbs
-        transient glitches, not systematic ones. Pass an explicit ``floor=`` to
-        the contact detectors if that ever bites.
+        transient glitches, not systematic ones. Contact detection does not
+        move with it: the detectors measure against a reference of their own.
 
         This is **not** the reference :func:`~pybvh.analysis.foot_contacts`
         compares foot clearance against. That one is estimated per call, over

@@ -178,7 +178,7 @@ The ground level a contact detector estimates per call over the joints it tests 
 A frame in which a joint is planted, from velocity and height thresholds: `foot_contacts` on the detected feet, `ground_contacts` on any joint set.
 
 **Gait parameters**:
-Cadence, stride length and walking pace, from contacts and the root's ground path.
+The eight fields of `GaitParameters`, from contacts and the root's ground path: `cadence`, `walking_pace`, `stride_length`, `stride_cv`, `step_length`, `stance_fraction`, `double_support_fraction` and `asymmetry`. `gait_parameters` computes them in one pass; `cadence` and `stride_length` are its projections, and `walking_pace` is also computed alone from the root path.
 
 **Smoothness**:
 A metric on a speed profile: SPARC, dimensionless jerk and the others `smoothness(metric=)` dispatches to.

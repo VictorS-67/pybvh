@@ -3470,14 +3470,6 @@ def gait_parameters(
       while ``step_length`` excludes it — the two are not the 2:1 pair a
       clinical report would use on curved or wide-stance gait.
 
-    Two fields pick one convention among published ones. ``stride_cv``
-    is a **within-foot** CV: each foot's deviations from its *own* mean
-    stride are pooled, and their std is divided by the overall mean —
-    so a steady but asymmetric gait reads as low-variability, with the
-    L/R difference reported separately in ``asymmetry``. The plain
-    pooled CV (``std / mean`` over all strides regardless of foot), the
-    other common definition, folds as
-
     Parameters
     ----------
     bvh : Bvh

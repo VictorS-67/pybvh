@@ -35,7 +35,7 @@ Every bvhplot backend that draws a ground plane takes it from the `Scene` (which
 
 Cutting the cache also removes a latent order-dependence: with two definitions sharing one slot, contact output would have depended on whether anything happened to read `floor_height` first. `test_reading_floor_height_first_does_not_change_contacts` pins that it cannot.
 
-A *persistently* misplaced node — below the ground in most frames, not just a few — now drags the scene ground down, where the feet-only estimate ignored it. The 2nd percentile absorbs transient glitches, not systematic ones; no such case appeared in the 406-clip sweep, and the escape hatch is the explicit `floor=` argument the detectors already take. Documented in `Bvh.floor_height` rather than guarded with a special case.
+A *persistently* misplaced node — below the ground in most frames, not just a few — now drags the scene ground down, where the feet-only estimate ignored it. The 2nd percentile absorbs transient glitches, not systematic ones; no such case appeared in the 406-clip sweep, and the escape hatch is the explicit `floor=` argument the detectors already take. Documented in `Bvh.floor_height` rather than guarded with a special case. *(Amended in v0.10.0: the detectors' `floor=` is no escape hatch for the scene ground, which they never read. Such a node moves the drawn ground; it moves the contacts only if it is one of the joints tested, over which their reference is estimated.)*
 
 ## Considered and rejected: sinking the vedo plane by the capsule radius
 

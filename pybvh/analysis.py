@@ -1321,7 +1321,8 @@ def _resolve_contact_joints(
                 "Could not auto-detect foot joints. Please provide "
                 "foot_joints explicitly (e.g. ['LeftFoot', 'RightFoot'])."
             )
-    if not joints:
+    # By length: a NumPy index array has no truth value.
+    if len(joints) == 0:
         raise ValueError(
             "contact detection needs at least one joint; got an empty "
             "joint list. (auto_detect_foot_joints returns [] on footless "

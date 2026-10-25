@@ -1892,6 +1892,17 @@ class TestGroundContacts:
         _, report = analysis.ground_contacts(cmu_walk, [negative, feet[1]], return_info=True)
         assert report.joints == tuple(feet)
 
+    def test_numpy_index_array_gives_the_contacts_of_its_list(self, cmu_walk):
+        feet = [cmu_walk.node_index[name] for name in cmu_walk.auto_detect_foot_joints()]
+        np.testing.assert_array_equal(
+            analysis.ground_contacts(cmu_walk, np.array(feet)),
+            analysis.ground_contacts(cmu_walk, feet),
+        )
+
+    def test_empty_numpy_index_array_raises_the_empty_joint_error(self, cmu_walk):
+        with pytest.raises(ValueError, match="needs at least one joint"):
+            analysis.ground_contacts(cmu_walk, np.array([], dtype=int))
+
     def test_out_of_range_index_raises(self, cmu_walk):
         num_nodes = len(cmu_walk.nodes)
         with pytest.raises(IndexError, match="out of range"):

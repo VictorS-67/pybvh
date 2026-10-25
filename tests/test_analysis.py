@@ -1252,7 +1252,26 @@ class TestContactReport:
         )
         np.testing.assert_array_equal(report.vel_threshold, [3.0, 3.0])
         np.testing.assert_array_equal(report.height_threshold, [0.5, 0.5])
-        assert report.skeleton_scale is None  # no threshold was derived from it
+        # No threshold was derived from the scale, but the foot skate is divided by it.
+        assert report.skeleton_scale_measured is True
+
+    @pytest.mark.parametrize(
+        ("settings", "adaptive", "floor_setting"),
+        [
+            ({}, False, "auto"),
+            ({"adaptive": True}, True, "auto"),
+            ({"method": "height", "floor": "min"}, False, "min"),
+            ({"method": "height", "floor": -0.5}, False, -0.5),
+            ({"method": "velocity", "adaptive": True}, True, None),
+        ],
+    )
+    def test_the_adaptive_and_floor_settings_applied_are_reported(
+        self, settings, adaptive, floor_setting
+    ):
+        walk = read_bvh_file(CMU_WALK_PATH)
+        _, report = walk.foot_contacts(return_info=True, **settings)
+        assert report.adaptive is adaptive
+        assert report.floor_setting == floor_setting
 
     def test_the_signals_are_the_ones_the_thresholds_were_compared_against(self):
         # LeftFoot rises 1 unit a frame from frame 2 and travels 2 units a
@@ -1463,10 +1482,30 @@ class TestThresholdSources:
         _, report = walk.ground_contacts(["Hips"], return_info=True)
         assert report.skeleton_scale == 1.0
         assert report.skeleton_scale_measured is False
-        # Every threshold given: no scale was used, measured or not.
+        # Every threshold given: the foot skate is still divided by the
+        # scale, which is reported, measured or standing in.
         _, report = walk.foot_contacts(vel_threshold=2.0, height_threshold=0.5, return_info=True)
-        assert report.skeleton_scale is None
-        assert report.skeleton_scale_measured is None
+        assert report.skeleton_scale == pytest.approx(16.709, abs=1e-3)
+        assert report.skeleton_scale_measured is True
+        _, report = walk.ground_contacts(
+            ["Hips"], vel_threshold=5.0, height_threshold=2.0, return_info=True
+        )
+        assert report.skeleton_scale == 1.0
+        assert report.skeleton_scale_measured is False
+
+    def test_the_foot_skate_is_divided_by_the_scale_reported_with_thresholds_given(self):
+        # The default thresholds passed back give the default's foot skate,
+        # divided by the same scale.
+        walk = read_bvh_file(CMU_WALK_PATH)
+        _, derived = walk.foot_contacts(height_reference="floor", return_info=True)
+        _, given = walk.foot_contacts(
+            vel_threshold=derived.vel_threshold,
+            height_threshold=derived.height_threshold,
+            return_info=True,
+        )
+        assert given.skeleton_scale == derived.skeleton_scale
+        assert given.foot_skate_max.max() > 0
+        np.testing.assert_allclose(given.foot_skate_max, derived.foot_skate_max, rtol=1e-12)
 
 
 # Each public contact detector, called on the two feet of make_contact_rig:

@@ -238,10 +238,14 @@ class ContactReport:
         The duration filters applied, in seconds.
     hysteresis : float
         The hysteresis band applied, as a fraction of each threshold.
-    skeleton_scale : float or None
-        The scale the default thresholds are written in (the mean rest distance from the root to the tested joints); ``None`` where no threshold was derived from it, every threshold the method reads being given.
-    skeleton_scale_measured : bool or None
-        Whether ``skeleton_scale`` was measured: ``False`` where every tested joint sits on the root, which leaves no distance to measure, and ``1.0`` stands in (``ground_contacts(["Hips"])`` on a clip rooted at the hips); ``None`` where ``skeleton_scale`` is.
+    adaptive : bool
+        Whether Otsu's split was asked for (``adaptive=True``); the threshold sources say where it stood.
+    floor_setting : {"auto", "min"} or float, or None
+        The ``floor`` setting applied: ``"auto"`` (the default) or ``"min"``, the estimate the contact reference ``floor`` came from, or the level given. ``None`` under ``method="velocity"``.
+    skeleton_scale : float
+        The scale the default thresholds are written in and the foot skate is divided by: the mean rest distance from the root to the tested joints. Reported whether or not a threshold was derived from it, since the diagnostics always use it.
+    skeleton_scale_measured : bool
+        Whether ``skeleton_scale`` was measured: ``False`` where every tested joint sits on the root, which leaves no distance to measure, and ``1.0`` stands in (``ground_contacts(["Hips"])`` on a clip rooted at the hips).
     vel_threshold : ndarray, shape (n_joints,), or None
         The speed threshold applied to each joint, in units per second; ``None`` under ``method="height"``.
     vel_threshold_source : tuple of str, or None
@@ -274,8 +278,10 @@ class ContactReport:
     min_contact_duration: float
     min_gap_duration: float
     hysteresis: float
-    skeleton_scale: float | None
-    skeleton_scale_measured: bool | None
+    adaptive: bool
+    floor_setting: float | _FloorEstimate | None
+    skeleton_scale: float
+    skeleton_scale_measured: bool
     vel_threshold: npt.NDArray[np.float64] | None
     vel_threshold_source: tuple[_VelocitySource, ...] | None
     speed: npt.NDArray[np.float64] | None
@@ -331,14 +337,9 @@ def _contacts_from_positions(
     num_joints = len(joint_names)
     F = joint_positions.shape[0]
 
-    needs_scale = (settings.reads_velocity and settings.vel_threshold is None) or (
-        settings.reads_height and settings.height_threshold is None
-    )
-
-    scale: float | None = None
-    scale_measured: bool | None = None
-    if needs_scale:
-        scale, scale_measured = _skeleton_scale(joint_rest, root_rest)
+    # The scale the default thresholds are written in and the report's foot
+    # skate is divided by.
+    scale, scale_measured = _skeleton_scale(joint_rest, root_rest)
 
     # ---- Signals (F, num_joints), threshold resolution ----
     speed = None
@@ -372,7 +373,6 @@ def _contacts_from_positions(
             vel_thr_used = settings.vel_threshold
             vel_source = _each_joint("given", num_joints)
         else:
-            assert scale is not None
             base = 0.12 * scale  # 12% of root-to-foot rest distance per second
             if settings.adaptive and F >= 2:
                 vel_thr_used, vel_source = _resolve_adaptive(speed, base, "scale")
@@ -401,7 +401,6 @@ def _contacts_from_positions(
             height_thr_used = settings.height_threshold
             height_source = _each_joint("given", num_joints)
         else:
-            assert scale is not None
             base = 0.013 * scale  # ~1.3% of root-to-foot rest distance above floor
             # A speed signal exists exactly when method is "combined" here.
             if speed is not None and settings.height_reference == "velocity":
@@ -449,9 +448,8 @@ def _contacts_from_positions(
     if not return_info:
         return contacts
 
-    diag_scale = scale if scale is not None else _skeleton_scale(joint_rest, root_rest)[0]
     skate_mean, skate_max, airborne, height_at_contact = _contact_diagnostics(
-        mask, joint_positions, clearance, up_idx, diag_scale
+        mask, joint_positions, clearance, up_idx, scale
     )
     height_reference_applied = settings.method == "combined" and settings.height_threshold is None
     report = ContactReport(
@@ -465,7 +463,9 @@ def _contacts_from_positions(
         min_contact_duration=float(settings.min_contact_duration),
         min_gap_duration=float(settings.min_gap_duration),
         hysteresis=float(settings.hysteresis),
-        skeleton_scale=None if scale is None else float(scale),
+        adaptive=settings.adaptive,
+        floor_setting=settings.floor if settings.reads_height else None,
+        skeleton_scale=float(scale),
         skeleton_scale_measured=scale_measured,
         vel_threshold=None if vel_thr_used is None else _per_joint(vel_thr_used, num_joints),
         vel_threshold_source=vel_source,

@@ -271,7 +271,7 @@ class ContactReport:
     clearance : ndarray, shape (F, n_joints), or None
         Each joint's height above ``floor``, positive up, the signal compared against ``height_threshold``. ``None`` under ``method="velocity"``.
     confidence : ndarray, shape (n_joints,)
-        Each joint's detection decisiveness in ``[0, 1]`` (not a probability): how far, on average over its contact frames, its signals sit below their thresholds, as a fraction of each threshold, and under ``method="combined"`` the geometric mean of that with the fraction of frames where the two tests agree. ``0.0`` for a joint never in contact.
+        Each joint's detection decisiveness in ``[0, 1]`` (not a probability): how far, on average over the frames its thresholds mark as contact, its signals sit below their thresholds, as a fraction of each threshold, and under ``method="combined"`` the geometric mean of that with the fraction of frames where the two tests agree. It is measured before ``min_contact_duration`` and ``min_gap_duration`` act, so a joint whose only marked run is too short to count still has a confidence above ``0`` though it is never in contact. ``0.0`` for a joint its thresholds never mark.
     foot_skate_mean, foot_skate_max : ndarray, shape (n_joints,)
         The mean and the largest, over each joint's contact runs of two frames or more, of how far the joint drifts horizontally within the run, divided by the skeleton scale; a planted joint should be near ``0``. ``0.0`` for a joint with no such run.
     airborne_fraction : float
@@ -826,10 +826,11 @@ def _contact_confidence(
 ) -> npt.NDArray[np.float64]:
     """Per-joint detection confidence in ``[0, 1]`` (decisiveness, not probability).
 
-    ``margin`` = mean over contact frames of how far each active signal sits
-    below its threshold; ``agreement`` (combined only) = fraction of frames the
-    velocity and height masks concur. ``confidence = sqrt(margin*agreement)``
-    for combined, ``margin`` otherwise. Zero when a joint never contacts.
+    ``margin`` = mean over the frames of ``mask`` (the thresholds' contacts,
+    before the duration filters) of how far each active signal sits below its
+    threshold; ``agreement`` (combined only) = fraction of frames the velocity
+    and height masks concur. ``confidence = sqrt(margin*agreement)`` for
+    combined, ``margin`` otherwise. Zero when ``mask`` marks no frame.
     """
     margins = []
     if vel_mask is not None:

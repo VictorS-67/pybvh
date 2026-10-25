@@ -967,6 +967,27 @@ def test_confidence_is_the_margin_below_the_thresholds_times_the_agreement():
     np.testing.assert_allclose(report.confidence, [0.75])
 
 
+def test_confidence_is_measured_before_the_duration_filters():
+    # One frame on the floor among frames at twice the threshold: the threshold
+    # marks it, its margin is 1, and the minimum contact duration then drops the
+    # one-frame run. The report keeps the margin of the frame it marked.
+    height = np.array([2.0, 2.0, 2.0, 0.0, 2.0, 2.0, 2.0])
+    bvh = make_contact_rig(height.size)
+    contacts, report = bvh.foot_contacts(
+        foot_joints=["LeftFoot"],
+        method="height",
+        coords=contact_coords(bvh, height),
+        floor=0.0,
+        height_threshold=1.0,
+        hysteresis=0.0,
+        min_contact_duration=1.0,
+        min_gap_duration=0.0,
+        return_info=True,
+    )
+    assert not contacts.any()
+    np.testing.assert_allclose(report.confidence, [1.0])
+
+
 def test_foot_contacts_detects_bouncing_root_dwell():
     # Feet dwell low (contact) on known frames and lift between -> the height
     # method must recover the dwells. Drive the foot trajectory via `coords`.

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal, TypeVar
+from typing import Final, Literal, TypeVar, cast, get_args
 
 import numpy as np
 import numpy.typing as npt
@@ -17,11 +17,16 @@ import numpy.typing as npt
 from . import geometry
 from .signal import box_filter_smooth
 
+# The choices of the settings that name one, as the entry points document them.
+_Method = Literal["combined", "velocity", "height"]
+_HeightReference = Literal["velocity", "floor"]
+_FloorEstimate = Literal["auto", "min"]
+
 # The defaults of the settings that some method does not read: the entry
 # points' keywords default to None, so that a setting given is told from one
-# left out, and gather() puts these in place.
+# left out, and _ContactSettings puts these in place.
 _DEFAULT_VEL_SMOOTH_DURATION = 1.0 / 30.0
-_DEFAULT_FLOOR = "auto"
+_DEFAULT_FLOOR: _FloorEstimate = "auto"
 
 _METHODS_READING_VELOCITY = ("velocity", "combined")
 _METHODS_READING_HEIGHT = ("height", "combined")
@@ -36,27 +41,16 @@ _HeightSource = Literal["given", "margin", "stance", "otsu", "otsu_clamped"]
 _Fallback = TypeVar("_Fallback", Literal["scale"], Literal["margin"])
 
 
-@dataclass(frozen=True, kw_only=True)
 class _ContactSettings:
-    """The settings of one contact detection, gathered once at the detector's entry point.
+    """The settings of one contact detection, checked once at the detector's entry point.
 
-    :func:`pybvh.analysis.foot_contacts` and :func:`pybvh.analysis.ground_contacts` declare these settings as keywords and document them; they build this object from them with :meth:`gather`, which validates the call and puts the defaults in place, and what lies below the entry points receives it instead of the keywords. The fields are the entry points' parameters of the same names, with every default resolved.
+    :func:`pybvh.analysis.foot_contacts` and :func:`pybvh.analysis.ground_contacts` declare these settings as keywords and document them; they pass them on here, and what lies below the entry points receives this object instead of the keywords. Construction checks the call and puts the defaults in place: each attribute is the entry points' parameter of the same name with its default resolved, and it is :data:`~typing.Final`, so nothing below the entry points rebinds it.
+
+    ``default_height_reference`` is the detector's own default for ``height_reference``: ``"velocity"`` for :func:`pybvh.analysis.foot_contacts`, ``"floor"`` for :func:`pybvh.analysis.ground_contacts`. ``n_joints`` is the number of joints tested, the length a threshold given per joint must have; a threshold given is kept as a float or as a read-only ``(n_joints,)`` array.
     """
 
-    method: str
-    vel_threshold: float | npt.NDArray[np.float64] | None
-    vel_smooth_duration: float
-    height_threshold: float | npt.NDArray[np.float64] | None
-    floor: float | str
-    min_contact_duration: float
-    min_gap_duration: float
-    hysteresis: float
-    adaptive: bool
-    height_reference: str
-
-    @classmethod
-    def gather(
-        cls,
+    def __init__(
+        self,
         *,
         method: str,
         vel_threshold: _ThresholdArg | None,
@@ -68,108 +62,44 @@ class _ContactSettings:
         hysteresis: float,
         adaptive: bool,
         height_reference: str | None,
-        default_height_reference: str,
-        num_joints: int,
-    ) -> _ContactSettings:
-        """The settings of one call, checked, with each setting left at ``None`` given its default.
-
-        ``default_height_reference`` is the detector's own default for ``height_reference``: ``"velocity"`` for :func:`pybvh.analysis.foot_contacts`, ``"floor"`` for :func:`pybvh.analysis.ground_contacts`. ``num_joints`` is the number of joints tested, the length a threshold given per joint must have; a threshold given is kept as a float or as a read-only ``(num_joints,)`` array.
-        """
-        if method not in ("velocity", "height", "combined"):
-            raise ValueError(
-                f"Unknown method {method!r}. Choose 'combined', 'velocity', or 'height'."
-            )
-        reads_velocity = method in _METHODS_READING_VELOCITY
-        reads_height = method in _METHODS_READING_HEIGHT
-        if not reads_height:
-            for name, value in (
-                ("height_threshold", height_threshold),
-                ("floor", floor),
-                ("height_reference", height_reference),
-            ):
-                if value is not None:
-                    raise ValueError(
-                        f"{name} is not read by method={method!r}, which runs no height test; "
-                        "drop it, or choose method='combined' or 'height'."
-                    )
-        if not reads_velocity:
-            for name, value in (
-                ("vel_threshold", vel_threshold),
-                ("vel_smooth_duration", vel_smooth_duration),
-            ):
-                if value is not None:
-                    raise ValueError(
-                        f"{name} is not read by method={method!r}, which runs no speed test; "
-                        "drop it, or choose method='combined' or 'velocity'."
-                    )
-            if height_reference is not None:
-                raise ValueError(
-                    f"height_reference is not read by method={method!r}: it anchors the "
-                    "height threshold to the speed test, which only method='combined' runs."
-                )
-        if height_reference is not None and height_threshold is not None:
-            raise ValueError(
-                f"height_reference is not read by method={method!r} with a height_threshold "
-                "given: it anchors only a height threshold the detector derives."
-            )
-        if height_reference is None:
-            height_reference = default_height_reference
-        if height_reference not in ("velocity", "floor"):
-            raise ValueError(
-                f"height_reference must be 'velocity' or 'floor', got {height_reference!r}"
-            )
-        if floor is None:
-            floor = _DEFAULT_FLOOR
-        if isinstance(floor, str) and floor not in ("auto", "min"):
-            raise ValueError(f"floor must be 'auto', 'min' or a float, got {floor!r}")
-        if vel_smooth_duration is None:
-            vel_smooth_duration = _DEFAULT_VEL_SMOOTH_DURATION
-        for name, duration in (
-            ("vel_smooth_duration", vel_smooth_duration),
-            ("min_contact_duration", min_contact_duration),
-            ("min_gap_duration", min_gap_duration),
-        ):
-            if not duration >= 0:
-                raise ValueError(f"{name} must be >= 0 (seconds), got {duration}")
-        if not 0 <= hysteresis < 1:
-            raise ValueError(f"hysteresis must be in [0, 1), got {hysteresis}")
-        vel_threshold_checked = _checked_threshold("vel_threshold", vel_threshold, num_joints)
-        height_threshold_checked = _checked_threshold(
-            "height_threshold", height_threshold, num_joints
-        )
-        if adaptive:
-            # Under combined with height_reference="velocity" the stance
-            # calibration, not Otsu's split, derives the height threshold.
-            stance_calibrated = method == "combined" and height_reference == "velocity"
-            splits_speed = reads_velocity and vel_threshold is None
-            splits_height = reads_height and height_threshold is None and not stance_calibrated
-            if not (splits_speed or splits_height):
-                reasons = []
-                if reads_velocity:
-                    reasons.append("vel_threshold is given")
-                if reads_height:
-                    reasons.append(
-                        "height_threshold is given"
-                        if height_threshold is not None
-                        else "the height threshold is calibrated on the stance frames "
-                        "(height_reference='velocity'), not split"
-                    )
-                raise ValueError(
-                    f"adaptive=True derives no threshold under method={method!r}: "
-                    f"{' and '.join(reasons)}; drop adaptive=True."
-                )
-        return cls(
-            method=method,
-            vel_threshold=vel_threshold_checked,
+        default_height_reference: _HeightReference,
+        n_joints: int,
+    ) -> None:
+        self.method: Final = _checked_method(method)
+        _refuse_unread_settings(
+            self.method,
+            reads_velocity=self.reads_velocity,
+            reads_height=self.reads_height,
+            vel_threshold=vel_threshold,
             vel_smooth_duration=vel_smooth_duration,
-            height_threshold=height_threshold_checked,
+            height_threshold=height_threshold,
             floor=floor,
-            min_contact_duration=min_contact_duration,
-            min_gap_duration=min_gap_duration,
-            hysteresis=hysteresis,
-            adaptive=adaptive,
             height_reference=height_reference,
         )
+        self.height_reference: Final = _checked_height_reference(
+            default_height_reference if height_reference is None else height_reference
+        )
+        self.floor: Final = _checked_floor(_DEFAULT_FLOOR if floor is None else floor)
+        self.vel_smooth_duration: Final = (
+            _DEFAULT_VEL_SMOOTH_DURATION if vel_smooth_duration is None else vel_smooth_duration
+        )
+        self.min_contact_duration: Final = min_contact_duration
+        self.min_gap_duration: Final = min_gap_duration
+        _check_durations(
+            vel_smooth_duration=self.vel_smooth_duration,
+            min_contact_duration=min_contact_duration,
+            min_gap_duration=min_gap_duration,
+        )
+        if not 0 <= hysteresis < 1:
+            raise ValueError(f"hysteresis must be in [0, 1), got {hysteresis}")
+        self.hysteresis: Final = hysteresis
+        self.vel_threshold: Final = _checked_threshold("vel_threshold", vel_threshold, n_joints)
+        self.height_threshold: Final = _checked_threshold(
+            "height_threshold", height_threshold, n_joints
+        )
+        if adaptive:
+            self._check_adaptive_derives_a_threshold()
+        self.adaptive: Final = adaptive
 
     @property
     def reads_velocity(self) -> bool:
@@ -180,6 +110,109 @@ class _ContactSettings:
     def reads_height(self) -> bool:
         """Whether the method tests the joints' clearance above the contact reference."""
         return self.method in _METHODS_READING_HEIGHT
+
+    def _check_adaptive_derives_a_threshold(self) -> None:
+        """Refuse ``adaptive=True`` where every threshold the method reads is given or stance-calibrated."""
+        # Under combined with height_reference="velocity" the stance
+        # calibration, not Otsu's split, derives the height threshold.
+        stance_calibrated = self.method == "combined" and self.height_reference == "velocity"
+        splits_speed = self.reads_velocity and self.vel_threshold is None
+        splits_height = (
+            self.reads_height and self.height_threshold is None and not stance_calibrated
+        )
+        if splits_speed or splits_height:
+            return
+        reasons = []
+        if self.reads_velocity:
+            reasons.append("vel_threshold is given")
+        if self.reads_height:
+            reasons.append(
+                "height_threshold is given"
+                if self.height_threshold is not None
+                else "the height threshold is calibrated on the stance frames "
+                "(height_reference='velocity'), not split"
+            )
+        raise ValueError(
+            f"adaptive=True derives no threshold under method={self.method!r}: "
+            f"{' and '.join(reasons)}; drop adaptive=True."
+        )
+
+
+def _checked_method(method: str) -> _Method:
+    """``method``, refused unless it is one of the detectors' methods."""
+    if method not in get_args(_Method):
+        raise ValueError(f"Unknown method {method!r}. Choose 'combined', 'velocity', or 'height'.")
+    return cast(_Method, method)
+
+
+def _checked_height_reference(height_reference: str) -> _HeightReference:
+    """``height_reference``, refused unless it is ``"velocity"`` or ``"floor"``."""
+    if height_reference not in get_args(_HeightReference):
+        raise ValueError(
+            f"height_reference must be 'velocity' or 'floor', got {height_reference!r}"
+        )
+    return cast(_HeightReference, height_reference)
+
+
+def _checked_floor(floor: float | str) -> float | _FloorEstimate:
+    """``floor``, refused unless it is ``"auto"``, ``"min"`` or a float."""
+    if isinstance(floor, str):
+        if floor not in get_args(_FloorEstimate):
+            raise ValueError(f"floor must be 'auto', 'min' or a float, got {floor!r}")
+        return cast(_FloorEstimate, floor)
+    return floor
+
+
+def _refuse_unread_settings(
+    method: _Method,
+    *,
+    reads_velocity: bool,
+    reads_height: bool,
+    vel_threshold: _ThresholdArg | None,
+    vel_smooth_duration: float | None,
+    height_threshold: _ThresholdArg | None,
+    floor: float | str | None,
+    height_reference: str | None,
+) -> None:
+    """Refuse a setting given that ``method`` does not read: its default ``None`` tells it left out."""
+    if not reads_height:
+        for name, value in (
+            ("height_threshold", height_threshold),
+            ("floor", floor),
+            ("height_reference", height_reference),
+        ):
+            if value is not None:
+                raise ValueError(
+                    f"{name} is not read by method={method!r}, which runs no height test; "
+                    "drop it, or choose method='combined' or 'height'."
+                )
+    if not reads_velocity:
+        for name, value in (
+            ("vel_threshold", vel_threshold),
+            ("vel_smooth_duration", vel_smooth_duration),
+        ):
+            if value is not None:
+                raise ValueError(
+                    f"{name} is not read by method={method!r}, which runs no speed test; "
+                    "drop it, or choose method='combined' or 'velocity'."
+                )
+        if height_reference is not None:
+            raise ValueError(
+                f"height_reference is not read by method={method!r}: it anchors the "
+                "height threshold to the speed test, which only method='combined' runs."
+            )
+    if height_reference is not None and height_threshold is not None:
+        raise ValueError(
+            f"height_reference is not read by method={method!r} with a height_threshold "
+            "given: it anchors only a height threshold the detector derives."
+        )
+
+
+def _check_durations(**durations: float) -> None:
+    """Refuse a duration (seconds) below zero; each keyword names its setting."""
+    for name, duration in durations.items():
+        if not duration >= 0:
+            raise ValueError(f"{name} must be >= 0 (seconds), got {duration}")
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)

@@ -1137,7 +1137,7 @@ def foot_contacts(
                 "to name the node at node-space index i, pass bvh.nodes[i].name"
             )
     joint_names, joint_indices = _resolve_contact_joints(bvh, foot_joints)
-    settings = _contacts._ContactSettings.gather(
+    settings = _contacts._ContactSettings(
         method=method,
         vel_threshold=vel_threshold,
         vel_smooth_duration=vel_smooth_duration,
@@ -1149,7 +1149,7 @@ def foot_contacts(
         adaptive=adaptive,
         height_reference=height_reference,
         default_height_reference="velocity",
-        num_joints=len(joint_names),
+        n_joints=len(joint_names),
     )
     return _contacts_on_clip(
         bvh,
@@ -1282,7 +1282,7 @@ def ground_contacts(
     foot_contacts : The foot-specialized entry point (auto-detection, rest-pose sanity check, ``height_reference="velocity"`` default).
     """
     joint_names, joint_indices = _resolve_contact_joints(bvh, joints)
-    settings = _contacts._ContactSettings.gather(
+    settings = _contacts._ContactSettings(
         method=method,
         vel_threshold=vel_threshold,
         vel_smooth_duration=vel_smooth_duration,
@@ -1294,7 +1294,7 @@ def ground_contacts(
         adaptive=adaptive,
         height_reference=height_reference,
         default_height_reference="floor",
-        num_joints=len(joint_names),
+        n_joints=len(joint_names),
     )
     return _contacts_on_clip(
         bvh,

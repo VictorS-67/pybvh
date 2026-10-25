@@ -22,6 +22,9 @@ from .signal import box_filter_smooth
 _DEFAULT_VEL_SMOOTH_DURATION = 1.0 / 30.0
 _DEFAULT_FLOOR = "auto"
 
+_METHODS_READING_VELOCITY = ("velocity", "combined")
+_METHODS_READING_HEIGHT = ("height", "combined")
+
 
 @dataclass(frozen=True, kw_only=True)
 class _ContactSettings:
@@ -65,6 +68,39 @@ class _ContactSettings:
             raise ValueError(
                 f"Unknown method {method!r}. Choose 'combined', 'velocity', or 'height'."
             )
+        reads_velocity = method in _METHODS_READING_VELOCITY
+        reads_height = method in _METHODS_READING_HEIGHT
+        if not reads_height:
+            for name, value in (
+                ("height_threshold", height_threshold),
+                ("floor", floor),
+                ("height_reference", height_reference),
+            ):
+                if value is not None:
+                    raise ValueError(
+                        f"{name} is not read by method={method!r}, which runs no height test; "
+                        "drop it, or choose method='combined' or 'height'."
+                    )
+        if not reads_velocity:
+            for name, value in (
+                ("vel_threshold", vel_threshold),
+                ("vel_smooth_duration", vel_smooth_duration),
+            ):
+                if value is not None:
+                    raise ValueError(
+                        f"{name} is not read by method={method!r}, which runs no speed test; "
+                        "drop it, or choose method='combined' or 'velocity'."
+                    )
+            if height_reference is not None:
+                raise ValueError(
+                    f"height_reference is not read by method={method!r}: it anchors the "
+                    "height threshold to the speed test, which only method='combined' runs."
+                )
+        if height_reference is not None and height_threshold is not None:
+            raise ValueError(
+                f"height_reference is not read by method={method!r} with a height_threshold "
+                "given: it anchors only a height threshold the detector derives."
+            )
         if height_reference is None:
             height_reference = default_height_reference
         if height_reference not in ("velocity", "floor"):
@@ -81,6 +117,27 @@ class _ContactSettings:
             raise ValueError(
                 f"vel_smooth_duration must be >= 0 (seconds), got {vel_smooth_duration}"
             )
+        if adaptive:
+            # Under combined with height_reference="velocity" the stance
+            # calibration, not Otsu's split, derives the height threshold.
+            stance_calibrated = method == "combined" and height_reference == "velocity"
+            splits_speed = reads_velocity and vel_threshold is None
+            splits_height = reads_height and height_threshold is None and not stance_calibrated
+            if not (splits_speed or splits_height):
+                reasons = []
+                if reads_velocity:
+                    reasons.append("vel_threshold is given")
+                if reads_height:
+                    reasons.append(
+                        "height_threshold is given"
+                        if height_threshold is not None
+                        else "the height threshold is calibrated on the stance frames "
+                        "(height_reference='velocity'), not split"
+                    )
+                raise ValueError(
+                    f"adaptive=True derives no threshold under method={method!r}: "
+                    f"{' and '.join(reasons)}; drop adaptive=True."
+                )
         return cls(
             method=method,
             vel_threshold=vel_threshold,
@@ -97,12 +154,12 @@ class _ContactSettings:
     @property
     def reads_velocity(self) -> bool:
         """Whether the method tests the joints' speed."""
-        return self.method in ("velocity", "combined")
+        return self.method in _METHODS_READING_VELOCITY
 
     @property
     def reads_height(self) -> bool:
         """Whether the method tests the joints' clearance above the contact reference."""
-        return self.method in ("height", "combined")
+        return self.method in _METHODS_READING_HEIGHT
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)

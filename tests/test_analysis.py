@@ -1350,6 +1350,112 @@ class TestContactReport:
                 getattr(report, name)[0] = 1.0
 
 
+# Each public contact detector, called on the two feet of make_contact_rig:
+# the analysis function and its Bvh wrapper, for foot_contacts and
+# ground_contacts. What a call may pass is checked the same way by all four.
+_RIG_FEET = ["LeftFoot", "RightFoot"]
+CONTACT_DETECTORS = {
+    "analysis.foot_contacts": lambda bvh, **kw: analysis.foot_contacts(bvh, _RIG_FEET, **kw),
+    "Bvh.foot_contacts": lambda bvh, **kw: bvh.foot_contacts(_RIG_FEET, **kw),
+    "analysis.ground_contacts": lambda bvh, **kw: analysis.ground_contacts(bvh, _RIG_FEET, **kw),
+    "Bvh.ground_contacts": lambda bvh, **kw: bvh.ground_contacts(_RIG_FEET, **kw),
+}
+
+
+def _still_rig():
+    """A six-frame rig whose two feet stand still on y = 0, with its ``coords=``."""
+    rig = make_contact_rig(6)
+    return rig, contact_coords(rig, np.zeros((6, 2)))
+
+
+@pytest.mark.parametrize("detect", CONTACT_DETECTORS.values(), ids=CONTACT_DETECTORS.keys())
+class TestWhatACallMayPass:
+    """A call to a contact detector is checked once, where its settings are gathered: a setting the chosen method does not read is refused, naming the setting and the method."""
+
+    @pytest.mark.parametrize(
+        ("method", "setting", "value"),
+        [
+            ("velocity", "height_threshold", 0.5),
+            ("velocity", "floor", 0.0),
+            ("velocity", "floor", "min"),
+            ("velocity", "height_reference", "floor"),
+            ("height", "vel_threshold", 2.0),
+            ("height", "vel_smooth_duration", 0.0),
+            ("height", "height_reference", "velocity"),
+        ],
+    )
+    def test_a_setting_the_method_does_not_read_is_refused(self, detect, method, setting, value):
+        rig, coords = _still_rig()
+        with pytest.raises(ValueError, match=rf"^{setting} is not read by method='{method}'"):
+            detect(rig, method=method, coords=coords, **{setting: value})
+
+    def test_height_reference_is_refused_with_a_height_threshold_given(self, detect):
+        # height_reference anchors a derived height threshold only.
+        rig, coords = _still_rig()
+        with pytest.raises(
+            ValueError,
+            match=r"^height_reference is not read by method='combined' with a height_threshold given",
+        ):
+            detect(rig, coords=coords, height_threshold=0.5, height_reference="floor")
+
+    @pytest.mark.parametrize(
+        ("method", "given"),
+        [
+            ("velocity", {"vel_threshold": 2.0}),
+            ("height", {"height_threshold": 0.5}),
+            ("combined", {"vel_threshold": 2.0, "height_threshold": 0.5}),
+            # The stance calibration, not Otsu's split, derives the height
+            # threshold under height_reference="velocity".
+            ("combined", {"vel_threshold": 2.0, "height_reference": "velocity"}),
+        ],
+    )
+    def test_adaptive_is_refused_where_it_derives_no_threshold(self, detect, method, given):
+        rig, coords = _still_rig()
+        with pytest.raises(
+            ValueError, match=rf"^adaptive=True derives no threshold under method='{method}'"
+        ):
+            detect(rig, method=method, coords=coords, adaptive=True, **given)
+
+    @pytest.mark.parametrize(
+        "settings",
+        [
+            {"method": "velocity", "vel_threshold": 2.0, "vel_smooth_duration": 0.0},
+            {"method": "velocity", "adaptive": True},
+            {"method": "height", "height_threshold": 0.5, "floor": "min"},
+            {"method": "height", "floor": 0.0, "adaptive": True},
+            {"vel_threshold": 2.0, "height_threshold": 0.5, "floor": 0.0},
+            {"height_reference": "floor", "vel_smooth_duration": 0.0, "adaptive": True},
+        ],
+    )
+    def test_the_settings_the_method_reads_are_accepted(self, detect, settings):
+        # The rig's feet stand still on y = 0, in contact under every threshold.
+        rig, coords = _still_rig()
+        np.testing.assert_array_equal(detect(rig, coords=coords, **settings), np.ones((6, 2)))
+
+
+def test_adaptive_derives_the_height_threshold_of_ground_contacts_beside_a_given_speed_threshold():
+    # ground_contacts' own height_reference is "floor", where adaptive=True
+    # splits the height signal; a vel_threshold given leaves it that one.
+    rig, coords = _still_rig()
+    _, report = rig.ground_contacts(
+        _RIG_FEET, coords=coords, vel_threshold=2.0, adaptive=True, return_info=True
+    )
+    assert report.adaptive_used_height is not None
+    with pytest.raises(
+        ValueError, match=r"^adaptive=True derives no threshold under method='combined'"
+    ):
+        rig.foot_contacts(_RIG_FEET, coords=coords, vel_threshold=2.0, adaptive=True)
+
+
+class TestWhatACallMayPassReproductions:
+    """Reproductions 1 and 4 of #123, on the CMU walk, now raise."""
+
+    def test_reproduction_1_a_setting_the_method_does_not_read(self):
+        bvh = read_bvh_file(CMU_WALK_PATH)
+        with pytest.raises(ValueError, match=r"^height_threshold is not read by method='velocity'"):
+            bvh.foot_contacts(method="velocity", height_threshold=0.5, floor=-100.0)
+
+
 class TestFootContactsPinnedGolden:
     """Bit-exact pin of foot_contacts and ground_contacts on the CMU walk clip.
 

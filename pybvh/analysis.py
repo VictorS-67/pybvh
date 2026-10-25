@@ -955,6 +955,8 @@ def foot_contacts(
     ``method="velocity"`` and ``method="height"`` remain available as
     single-signal escape hatches.
 
+    Each method reads its own settings, and a setting given that the chosen method does not read raises a ``ValueError`` instead of being ignored: ``method="velocity"`` reads ``vel_threshold`` and ``vel_smooth_duration``; ``method="height"`` reads ``height_threshold`` and ``floor``; ``method="combined"`` reads all four, and ``height_reference`` when ``height_threshold`` is not given. Every method reads ``min_contact_duration``, ``min_gap_duration`` and ``hysteresis``, and ``adaptive`` where it leaves a threshold to derive. The settings some method does not read default to ``None``, which stands for the default named under each.
+
     Parameters
     ----------
     bvh : Bvh
@@ -1055,7 +1057,11 @@ def foot_contacts(
         Default ``False``; recommended for known-locomotion clips where the
         fixed threshold under- or over-detects.  :func:`gait_parameters`
         enables this by default — calling it declares the clip is
-        locomotion.
+        locomotion.  ``adaptive=True`` raises where it has no threshold to
+        derive: every threshold the method reads given, or, under
+        ``"combined"`` with ``height_reference="velocity"``, a
+        ``vel_threshold`` given (the height threshold is then calibrated on
+        the stance frames, not split).
     height_reference : {"velocity", "floor"} or None, keyword-only, optional
         How the default ``height_threshold`` is anchored (only used with ``method="combined"`` when ``height_threshold`` is None).
         ``"velocity"`` (what ``None``, the default, means): per-foot stance-median calibration — each foot's threshold is set from the median of its clearance over the frames where that foot is slow (speed below ``vel_threshold``, default ``0.12 × skeleton_scale`` u/s), so retargeted mocap whose feet hover above the estimated floor still detects stance; on rigs whose feet reach the floor this reduces to the ``"floor"`` margin.
@@ -1087,6 +1093,7 @@ def foot_contacts(
     ------
     ValueError
         - If ``method`` or ``height_reference`` is unknown.
+        - If a setting is given that ``method`` does not read: ``height_threshold``, ``floor`` or ``height_reference`` under ``"velocity"``; ``vel_threshold``, ``vel_smooth_duration`` or ``height_reference`` under ``"height"``; ``height_reference`` with a ``height_threshold`` given; ``adaptive=True`` with no threshold to derive.
         - If ``floor`` is a string other than ``"auto"`` or ``"min"``.
         - If no foot joints can be found or any named joint is
           missing from the skeleton.
@@ -1217,7 +1224,7 @@ def ground_contacts(
     coords : ndarray, shape (F, N, 3), optional
         Pre-computed **world-frame** positions (or a constant translation thereof), as in :func:`foot_contacts`.
     vel_threshold, vel_smooth_duration, height_threshold, floor, min_contact_duration, min_gap_duration, hysteresis, adaptive : keyword-only, optional
-        Same meaning and defaults as in :func:`foot_contacts`. The auto thresholds scale by the mean rest-pose distance from the root to the **given** joints (the same skeleton-scale rule, applied to this joint set) — so the defaults stay proportionate for short chains like hands. Mind the ``floor="auto"`` warning above.
+        Same meaning and defaults as in :func:`foot_contacts`, read by the same methods (a setting given that the method does not read raises). The auto thresholds scale by the mean rest-pose distance from the root to the **given** joints (the same skeleton-scale rule, applied to this joint set) — so the defaults stay proportionate for short chains like hands. Mind the ``floor="auto"`` warning above.
     height_reference : {"floor", "velocity"} or None, keyword-only, optional
         ``None`` (default) means ``"floor"``: the fixed ``0.013 × skeleton_scale`` margin above the floor. ``"velocity"`` enables :func:`foot_contacts`' per-joint stance calibration; only use it when the joints ground regularly enough to have stance statistics.
     return_info : bool, keyword-only, optional
@@ -1232,6 +1239,7 @@ def ground_contacts(
     ------
     ValueError
         - If ``method`` or ``height_reference`` is unknown.
+        - If a setting is given that ``method`` does not read, as in :func:`foot_contacts`.
         - If ``floor`` is a string other than ``"auto"`` or ``"min"``.
         - If ``joints`` is empty — contact detection needs at least one joint.
         - If a joint name is not in the skeleton.

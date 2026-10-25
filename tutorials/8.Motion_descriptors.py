@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.19.1
+#       jupytext_version: 1.19.5
 #   kernelspec:
 #     display_name: pybvh
 #     language: python
@@ -136,11 +136,11 @@ plt.show()
 # %% [markdown]
 # # Gait
 #
-# From foot contacts plus the root's ground-plane path, pybvh estimates cadence (steps per second), stride length, and walking pace. The foot joints are auto-detected from skeleton topology (pass `foot_joints=[...]` to override). `gait_parameters()` measures the full spatiotemporal set in one pass — `cadence` and `stride_length` are one-line projections of it. Every gait function accepts a pre-computed `contacts=` array, so one `foot_contacts()` run can feed the whole family (underdetermined values come back as `nan`).
+# From foot contacts plus the root's ground-plane path, pybvh estimates cadence (steps per second), stride length, and walking pace. The foot joints are auto-detected from skeleton topology (pass `foot_joints=[...]` to override). `gait_parameters()` measures the full spatiotemporal set in one pass — `cadence` and `stride_length` are one-line projections of it. Every gait function accepts a pre-computed `contacts=` array, so one `foot_contacts()` run can feed the whole family (underdetermined values come back as `nan`). Called without `contacts=`, they detect the contacts themselves with `foot_contacts(adaptive=True)`, so precompute them with the same setting to get the same numbers: contacts from the default thresholds are other contacts, and give other gait values.
 
 # %%
 print("detected feet:", analysis.auto_detect_foot_joints(bvh))
-contacts = bvh.foot_contacts()
+contacts = bvh.foot_contacts(adaptive=True)  # what gait_parameters() runs on its own
 
 print(f"cadence       = {bvh.cadence(contacts=contacts):.3f} steps/s")
 print(f"stride length = {bvh.stride_length(contacts=contacts):.3f}")

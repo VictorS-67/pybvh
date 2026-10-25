@@ -339,8 +339,8 @@ def _run_no_morphology(bvh):
 
 def _run_explicit_thresholds(bvh):
     # Explicit floats near the clip's auto-calibrated defaults (so the labels
-    # stay meaningful); pins that the report's skeleton_scale is None when no
-    # auto-calibration ran (the conditional-key logic).
+    # stay meaningful); pins that the report's skeleton_scale is reported
+    # though no threshold was derived from it, since the foot skate uses it.
     return bvh.foot_contacts, {"vel_threshold": 2.0, "height_threshold": 0.5}
 
 

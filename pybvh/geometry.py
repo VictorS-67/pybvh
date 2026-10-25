@@ -780,7 +780,21 @@ def _floor_level(
     """
     heights_signed = positions[:, :, up_idx] * up_sign
     min_per_frame = heights_signed.min(axis=1)
-    return float(float(np.percentile(min_per_frame, percentile)) * up_sign)
+    return float(np.percentile(min_per_frame, percentile)) * up_sign
+
+
+def _mean_distance_to_root(
+    points: npt.NDArray[np.float64],
+    root: npt.NDArray[np.float64],
+) -> float | None:
+    """Mean distance from ``root`` to ``points``, or ``None`` when it measures nothing.
+
+    ``points`` is ``(N, 3)``, ``root`` ``(3,)``; callers pass the rest pose, the tested joints and the root. The distance is Euclidean, so it does not depend on the rest pose's orientation, and only the points given contribute, so finger or spine subdivision leaves it alone: on the feet it is roughly half a humanoid's height, and it scales linearly with the whole skeleton. ``None`` when no point is given or every point sits on the root. The one measurement behind :func:`pybvh.analysis.skeleton_size`, which raises on ``None``, and the skeleton scale of the contact detectors, which use ``1.0`` in its place.
+    """
+    dists = [float(np.linalg.norm(position - root)) for position in points]
+    if not dists or max(dists) <= 0:
+        return None
+    return float(np.mean(dists))
 
 
 # ----------------------------------------------------------------

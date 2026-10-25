@@ -1111,12 +1111,12 @@ def foot_contacts(
     ValueError
         - If ``method`` or ``height_reference`` is unknown.
         - If a setting is given that ``method`` does not read: ``height_threshold``, ``floor`` or ``height_reference`` under ``"velocity"``; ``vel_threshold``, ``vel_smooth_duration`` or ``height_reference`` under ``"height"``; ``height_reference`` with a ``height_threshold`` given; ``adaptive=True`` with no threshold to derive.
-        - If ``floor`` is a string other than ``"auto"`` or ``"min"``.
+        - If ``floor`` is a string other than ``"auto"`` or ``"min"``, or a float that is not finite.
         - If no foot joints can be found or any named joint is
           missing from the skeleton.
         - If ``foot_joints`` is explicitly an empty list — contact
           detection needs at least one joint.
-        - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
+        - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative or not finite, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
         - When the height signal is involved and ``bvh.world_up`` is
           inconsistent with rest-pose geometry (feet above hips).
         - If ``frame_time == 0`` and the velocity signal (units/second)
@@ -1137,7 +1137,7 @@ def foot_contacts(
                 "to name the node at node-space index i, pass bvh.nodes[i].name"
             )
     joint_names, joint_indices = _resolve_contact_joints(bvh, foot_joints)
-    settings = _contacts._ContactSettings.gather(
+    settings = _contacts._ContactSettings(
         method=method,
         vel_threshold=vel_threshold,
         vel_smooth_duration=vel_smooth_duration,
@@ -1149,7 +1149,7 @@ def foot_contacts(
         adaptive=adaptive,
         height_reference=height_reference,
         default_height_reference="velocity",
-        num_joints=len(joint_names),
+        n_joints=len(joint_names),
     )
     return _contacts_on_clip(
         bvh,
@@ -1259,7 +1259,7 @@ def ground_contacts(
 
     Returns
     -------
-    ndarray of shape ``(F, num_joints)``, or tuple ``(ndarray, ContactReport)`` when ``return_info=True``.
+    ndarray of shape ``(F, n_joints)``, or tuple ``(ndarray, ContactReport)`` when ``return_info=True``.
         Binary contact labels (1.0 = contact); columns follow ``joints`` order.
 
     Raises
@@ -1267,10 +1267,10 @@ def ground_contacts(
     ValueError
         - If ``method`` or ``height_reference`` is unknown.
         - If a setting is given that ``method`` does not read, as in :func:`foot_contacts`.
-        - If ``floor`` is a string other than ``"auto"`` or ``"min"``.
+        - If ``floor`` is a string other than ``"auto"`` or ``"min"``, or a float that is not finite.
         - If ``joints`` is empty — contact detection needs at least one joint.
         - If a joint name is not in the skeleton.
-        - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
+        - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative or not finite, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
         - If ``frame_time == 0`` and the velocity signal (units/second) or a nonzero duration filter needs a time base.
     TypeError
         If a ``joints`` entry is neither a str nor an int (``bool`` is rejected explicitly — ``True``/``False`` silently indexing nodes 1/0 would be a trap).
@@ -1282,7 +1282,7 @@ def ground_contacts(
     foot_contacts : The foot-specialized entry point (auto-detection, rest-pose sanity check, ``height_reference="velocity"`` default).
     """
     joint_names, joint_indices = _resolve_contact_joints(bvh, joints)
-    settings = _contacts._ContactSettings.gather(
+    settings = _contacts._ContactSettings(
         method=method,
         vel_threshold=vel_threshold,
         vel_smooth_duration=vel_smooth_duration,
@@ -1294,7 +1294,7 @@ def ground_contacts(
         adaptive=adaptive,
         height_reference=height_reference,
         default_height_reference="floor",
-        num_joints=len(joint_names),
+        n_joints=len(joint_names),
     )
     return _contacts_on_clip(
         bvh,
@@ -1312,7 +1312,7 @@ def _resolve_contact_joints(
 ) -> tuple[list[str], list[int]]:
     """Resolve a detector's joint argument into parallel node names and node indices.
 
-    ``None`` auto-detects the feet (:func:`foot_contacts`' default). Entries are node names or node indices, negative indices counting from the end as in NumPy; the names returned for indices are the nodes' own. An empty list passes through: the detector refuses it.
+    ``None`` auto-detects the feet (:func:`foot_contacts`' default). Entries are node names or node indices, negative indices counting from the end as in NumPy; the names returned for indices are the nodes' own. An empty list is refused here, before the settings are checked, since a threshold per joint is checked against the joints resolved.
     """
     if joints is None:
         joints = auto_detect_foot_joints(bvh)
@@ -1321,6 +1321,12 @@ def _resolve_contact_joints(
                 "Could not auto-detect foot joints. Please provide "
                 "foot_joints explicitly (e.g. ['LeftFoot', 'RightFoot'])."
             )
+    if not joints:
+        raise ValueError(
+            "contact detection needs at least one joint; got an empty "
+            "joint list. (auto_detect_foot_joints returns [] on footless "
+            "rigs — pass joints explicitly.)"
+        )
 
     num_nodes = len(bvh.nodes)
     joint_names: list[str] = []
@@ -1366,7 +1372,7 @@ def _contacts_on_clip(
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """The clip's part of :func:`foot_contacts` and :func:`ground_contacts`, around the detector on plain arrays.
 
-    Both entry points resolve their joint arguments with :func:`_resolve_contact_joints` into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip, and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet.
+    Both entry points resolve their joint arguments with :func:`_resolve_contact_joints` into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet.
     """
     if bvh.frame_time == 0:
         if settings.reads_velocity:
@@ -1382,13 +1388,6 @@ def _contacts_on_clip(
                 "filters with min_contact_duration=0.0 and "
                 "min_gap_duration=0.0."
             )
-
-    if not joint_indices:
-        raise ValueError(
-            "contact detection needs at least one joint; got an empty "
-            "joint list. (auto_detect_foot_joints returns [] on footless "
-            "rigs — pass joints explicitly.)"
-        )
 
     if coords is None:
         coords = bvh.node_positions()
@@ -1540,9 +1539,10 @@ def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
     plausible metre-scale humanoid, ``nan`` poisons everything scaled by
     it) would be indistinguishable from, or worse than, a measurement.
     Catch the error and choose your own scale if a total function is
-    needed. (``foot_contacts``' *internal* threshold scale keeps a
-    private ``1.0`` fallback for degenerate rigs — a threshold must
-    exist even where a measurement does not.)
+    needed. (The contact detectors' skeleton scale uses ``1.0`` in its
+    place on such a rig, since a threshold must exist even where a
+    measurement does not, and their :class:`~pybvh.ContactReport` says
+    so: ``skeleton_scale_measured`` is ``False``.)
 
     Parameters
     ----------
@@ -1585,7 +1585,7 @@ def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
             raise ValueError(f"skeleton_size: joint names {unknown} not found in skeleton.")
     rest_coords = bvh._rest_pose()
     foot_indices = [bvh.node_index[name] for name in foot_joints]
-    distance = _contacts._rest_distance_to_root(rest_coords[foot_indices], rest_coords[0])
+    distance = geometry._mean_distance_to_root(rest_coords[foot_indices], rest_coords[0])
     if distance is None:
         raise ValueError(
             "skeleton_size: every foot joint coincides with the root in the "

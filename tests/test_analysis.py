@@ -1252,7 +1252,26 @@ class TestContactReport:
         )
         np.testing.assert_array_equal(report.vel_threshold, [3.0, 3.0])
         np.testing.assert_array_equal(report.height_threshold, [0.5, 0.5])
-        assert report.skeleton_scale is None  # no threshold was derived from it
+        # No threshold was derived from the scale, but the foot skate is divided by it.
+        assert report.skeleton_scale_measured is True
+
+    @pytest.mark.parametrize(
+        ("settings", "adaptive", "floor_setting"),
+        [
+            ({}, False, "auto"),
+            ({"adaptive": True}, True, "auto"),
+            ({"method": "height", "floor": "min"}, False, "min"),
+            ({"method": "height", "floor": -0.5}, False, -0.5),
+            ({"method": "velocity", "adaptive": True}, True, None),
+        ],
+    )
+    def test_the_adaptive_and_floor_settings_applied_are_reported(
+        self, settings, adaptive, floor_setting
+    ):
+        walk = read_bvh_file(CMU_WALK_PATH)
+        _, report = walk.foot_contacts(return_info=True, **settings)
+        assert report.adaptive is adaptive
+        assert report.floor_setting == floor_setting
 
     def test_the_signals_are_the_ones_the_thresholds_were_compared_against(self):
         # LeftFoot rises 1 unit a frame from frame 2 and travels 2 units a
@@ -1463,10 +1482,30 @@ class TestThresholdSources:
         _, report = walk.ground_contacts(["Hips"], return_info=True)
         assert report.skeleton_scale == 1.0
         assert report.skeleton_scale_measured is False
-        # Every threshold given: no scale was used, measured or not.
+        # Every threshold given: the foot skate is still divided by the
+        # scale, which is reported, measured or standing in.
         _, report = walk.foot_contacts(vel_threshold=2.0, height_threshold=0.5, return_info=True)
-        assert report.skeleton_scale is None
-        assert report.skeleton_scale_measured is None
+        assert report.skeleton_scale == pytest.approx(16.709, abs=1e-3)
+        assert report.skeleton_scale_measured is True
+        _, report = walk.ground_contacts(
+            ["Hips"], vel_threshold=5.0, height_threshold=2.0, return_info=True
+        )
+        assert report.skeleton_scale == 1.0
+        assert report.skeleton_scale_measured is False
+
+    def test_the_foot_skate_is_divided_by_the_scale_reported_with_thresholds_given(self):
+        # The default thresholds passed back give the default's foot skate,
+        # divided by the same scale.
+        walk = read_bvh_file(CMU_WALK_PATH)
+        _, derived = walk.foot_contacts(height_reference="floor", return_info=True)
+        _, given = walk.foot_contacts(
+            vel_threshold=derived.vel_threshold,
+            height_threshold=derived.height_threshold,
+            return_info=True,
+        )
+        assert given.skeleton_scale == derived.skeleton_scale
+        assert given.foot_skate_max.max() > 0
+        np.testing.assert_allclose(given.foot_skate_max, derived.foot_skate_max, rtol=1e-12)
 
 
 # Each public contact detector, called on the two feet of make_contact_rig:
@@ -1560,10 +1599,17 @@ class TestWhatACallMayPass:
     @pytest.mark.parametrize(
         "setting", ["vel_smooth_duration", "min_contact_duration", "min_gap_duration"]
     )
-    def test_a_negative_duration_is_refused(self, detect, setting):
+    @pytest.mark.parametrize("value", [-0.1, np.inf, np.nan])
+    def test_a_duration_not_finite_and_non_negative_is_refused(self, detect, setting, value):
         rig, coords = _still_rig()
-        with pytest.raises(ValueError, match=rf"^{setting} must be >= 0"):
-            detect(rig, coords=coords, **{setting: -0.1})
+        with pytest.raises(ValueError, match=rf"^{setting} must be finite and >= 0"):
+            detect(rig, coords=coords, **{setting: value})
+
+    @pytest.mark.parametrize("value", [np.inf, -np.inf, np.nan])
+    def test_a_floor_not_finite_is_refused(self, detect, value):
+        rig, coords = _still_rig()
+        with pytest.raises(ValueError, match=r"^floor must be 'auto', 'min' or a finite float"):
+            detect(rig, method="height", coords=coords, floor=value)
 
     @pytest.mark.parametrize("setting", ["vel_threshold", "height_threshold"])
     @pytest.mark.parametrize("value", [0.0, -1.0, np.inf, np.nan])
@@ -1655,10 +1701,10 @@ def test_foot_contacts_takes_joint_names_not_node_indices(detect):
         detect(rig, foot_joints=[left, "RightFoot"], coords=coords)
 
 
-class TestWhatACallMayPassReproductions:
-    """Reproductions 1 and 4 of #123, on the CMU walk, now raise."""
+class TestWhatACallMayPassOnAClip:
+    """On the CMU walk, a setting the method does not read and an invalid value raise, where they used to pass."""
 
-    def test_reproduction_1_a_setting_the_method_does_not_read(self):
+    def test_a_height_setting_under_the_velocity_method_is_refused(self):
         bvh = read_bvh_file(CMU_WALK_PATH)
         with pytest.raises(ValueError, match=r"^height_threshold is not read by method='velocity'"):
             bvh.foot_contacts(method="velocity", height_threshold=0.5, floor=-100.0)
@@ -1667,11 +1713,11 @@ class TestWhatACallMayPassReproductions:
         ("settings", "refusal"),
         [
             ({"hysteresis": -1.0}, "hysteresis must be in"),
-            ({"min_contact_duration": -1.0}, "min_contact_duration must be >= 0"),
+            ({"min_contact_duration": -1.0}, "min_contact_duration must be finite and >= 0"),
             ({"vel_threshold": 0.0}, "vel_threshold must be finite and > 0"),
         ],
     )
-    def test_reproduction_4_an_invalid_value(self, settings, refusal):
+    def test_an_invalid_hysteresis_duration_or_threshold_is_refused(self, settings, refusal):
         bvh = read_bvh_file(CMU_WALK_PATH)
         with pytest.raises(ValueError, match=rf"^{refusal}"):
             bvh.foot_contacts(**settings)
@@ -1999,6 +2045,26 @@ class TestFootlessRigContract:
     def test_explicit_empty_list_raises_on_ground_contacts(self):
         bvh = make_pos_y_up_bvh()
         with pytest.raises(ValueError, match="at least one joint"):
+            analysis.ground_contacts(bvh, [])
+
+    @pytest.mark.parametrize(
+        "detect", [analysis.foot_contacts, analysis.ground_contacts], ids=["foot", "ground"]
+    )
+    @pytest.mark.parametrize(
+        "settings",
+        [{"vel_threshold": [1.0, 2.0]}, {"method": "velocity", "floor": 0.0}],
+        ids=["threshold_per_joint", "setting_not_read"],
+    )
+    def test_an_empty_list_is_refused_before_the_settings(self, detect, settings):
+        # Before the per-joint length or the setting the method does not read.
+        bvh = make_pos_y_up_bvh()
+        with pytest.raises(ValueError, match="^contact detection needs at least one joint"):
+            detect(bvh, [], **settings)
+
+    def test_an_empty_list_is_refused_before_a_zero_frame_time(self):
+        bvh = make_pos_y_up_bvh()
+        bvh.frame_time = 0.0
+        with pytest.raises(ValueError, match="^contact detection needs at least one joint"):
             analysis.ground_contacts(bvh, [])
 
 

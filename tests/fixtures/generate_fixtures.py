@@ -22,6 +22,7 @@ One fixture is different in kind: `foot_contacts_pinned.npz` is a BEHAVIOR PIN o
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import sys
@@ -338,7 +339,7 @@ def _run_no_morphology(bvh):
 
 def _run_explicit_thresholds(bvh):
     # Explicit floats near the clip's auto-calibrated defaults (so the labels
-    # stay meaningful); pins that "skeleton_scale" is ABSENT from info when no
+    # stay meaningful); pins that the report's skeleton_scale is None when no
     # auto-calibration ran (the conditional-key logic).
     return bvh.foot_contacts, {"vel_threshold": 2.0, "height_threshold": 0.5}
 
@@ -352,7 +353,7 @@ def _run_ground_contacts_by_name(bvh):
 def _run_ground_contacts_by_index(bvh):
     # The toe tips as node indices: end sites, found by their place in the
     # tree (an end site's name is generated), and mapped back to names in
-    # info["joints"].
+    # the report's joints.
     toes = [bvh.nodes[bvh.node_index[name]] for name in bvh.auto_detect_foot_joints()]
     tips = [next(i for i, node in enumerate(bvh.nodes) if node.parent is toe) for toe in toes]
     return bvh.ground_contacts, {"joints": tips}
@@ -401,21 +402,15 @@ FOOT_CONTACT_RUNS = [
 ]
 
 
-def call_pinned_run(build, bvh) -> tuple[np.ndarray, dict]:
-    """Make one pinned call: the detector ``build`` names, with its kwargs and ``return_info=True``; returns ``(contacts, info)``."""
+def call_pinned_run(build, bvh) -> tuple:
+    """Make one pinned call: the detector ``build`` names, with its kwargs and ``return_info=True``; returns ``(contacts, report)``."""
     detector, kwargs = build(bvh)
     return detector(return_info=True, **kwargs)
 
 
-def flatten_info(info: dict, prefix: str = "") -> dict:
-    """Flatten a contact detector's info dict into ``{"key" | "key/subkey": leaf}`` (recursing into nested dicts such as ``foot_skate``), the exact view the pin fixture stores and the pin tests compare."""
-    flat: dict = {}
-    for key, value in info.items():
-        if isinstance(value, dict):
-            flat.update(flatten_info(value, f"{prefix}{key}/"))
-        else:
-            flat[prefix + key] = value
-    return flat
+def report_fields(report) -> dict:
+    """A ``ContactReport`` as ``{field: value}``, every field included, ``None`` ones too: the view the pin fixture stores and the pin tests compare."""
+    return {field.name: getattr(report, field.name) for field in dataclasses.fields(report)}
 
 
 def gen_foot_contacts() -> None:
@@ -424,7 +419,7 @@ def gen_foot_contacts() -> None:
     #
     # Unlike every other fixture in this file, this one has NO external
     # reference: it freezes pybvh's OWN contact detection output
-    # (foot_contacts and ground_contacts: contacts + the full info dict) so
+    # (foot_contacts and ground_contacts: contacts + the full report) so
     # a refactor can be proven bit-identical.
     # The committed .npz must come from the PRE-refactor tree. If the
     # pin test fails after a code change, the change altered behavior —
@@ -441,12 +436,17 @@ def gen_foot_contacts() -> None:
     for i, (_name, build) in enumerate(FOOT_CONTACT_RUNS, start=1):
         # Fresh Bvh per run: no floor-cache state carries over between runs.
         bvh = read_bvh_file(bvh_path)
-        contacts, info = call_pinned_run(build, bvh)
-        flat = flatten_info(info)
+        contacts, report = call_pinned_run(build, bvh)
+        fields = report_fields(report)
         arrays[f"run{i}/contacts"] = contacts
-        arrays[f"run{i}/__keys__"] = np.array(sorted(flat))
-        for key, value in flat.items():
-            arrays[f"run{i}/{key}"] = np.asarray(value)
+        arrays[f"run{i}/__keys__"] = np.array(sorted(fields))
+        # An npz holds no None: the None fields are listed, the others stored.
+        arrays[f"run{i}/__none__"] = np.array(
+            sorted(key for key, value in fields.items() if value is None), dtype=str
+        )
+        for key, value in fields.items():
+            if value is not None:
+                arrays[f"run{i}/{key}"] = np.asarray(value)
     _save(
         "foot_contacts_pinned",
         {

@@ -911,7 +911,7 @@ def foot_contacts(
     adaptive: bool = ...,
     height_reference: str = ...,
     return_info: Literal[True],
-) -> tuple[npt.NDArray[np.float64], dict]: ...
+) -> tuple[npt.NDArray[np.float64], _contacts.ContactReport]: ...
 @overload
 def foot_contacts(
     bvh: Bvh,
@@ -929,7 +929,7 @@ def foot_contacts(
     adaptive: bool = ...,
     height_reference: str = ...,
     return_info: bool,
-) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]: ...
+) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]: ...
 def foot_contacts(
     bvh: Bvh,
     foot_joints: list[str] | None = None,
@@ -946,7 +946,7 @@ def foot_contacts(
     adaptive: bool = False,
     height_reference: str = "velocity",
     return_info: bool = False,
-) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
+) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """Detect binary foot contact labels per frame.
 
     The default combines a velocity check (foot not moving) **and** a
@@ -1062,25 +1062,21 @@ def foot_contacts(
         ``"floor"``: the fixed ``0.013 × skeleton_scale`` margin above the estimated floor — no per-foot calibration.
         The stance calibration presumes the joints contact the ground regularly; for arbitrary (non-foot) joint sets, :func:`ground_contacts` defaults to ``"floor"`` for exactly that reason.
     return_info : bool, keyword-only, optional
-        If True, return ``(contacts, info)`` where ``info`` holds the
-        detected joints, method, thresholds actually applied, estimated
-        floor, skeleton scale, the ``hysteresis`` band, a per-foot
-        ``confidence`` in ``[0, 1]`` (detection decisiveness), and
-        unsupervised quality diagnostics: ``foot_skate`` (``mean``/``max``
-        horizontal drift of a planted foot, ÷ skeleton scale — should be
-        ~0), ``airborne_fraction`` (frames with no foot down — a
-        false-negative signal), and ``height_at_contact`` (mean clearance
-        during contact, per foot). With ``adaptive=True`` it also reports
-        per-foot thresholds and ``adaptive_used_*`` flags.
-        ``"skeleton_scale"`` is only present when auto-calibration ran.
-        The velocity-smoothing span is echoed as ``vel_smooth_duration``,
-        with the effective window in frames as ``vel_smooth_frames``
-        (present whenever the velocity signal was computed).
+        If True, return ``(contacts, report)``, where ``report`` is a
+        :class:`~pybvh.ContactReport`: the joints, the method and the
+        settings applied, each joint's thresholds, the skeleton scale, the
+        contact reference (``floor``), the ``speed`` and ``clearance``
+        signals the thresholds were compared against, each joint's
+        ``confidence`` and the unsupervised quality diagnostics
+        (``foot_skate_mean`` / ``foot_skate_max``, ``airborne_fraction``,
+        ``height_at_contact``). Every field is present, ``None`` where the
+        method does not use it; a per-joint value is ``(n_joints,)``, one
+        joint or several.
 
     Returns
     -------
     ndarray of shape ``(F, num_foot_joints)``, or
-    tuple ``(ndarray, dict)`` when ``return_info=True``.
+    tuple ``(ndarray, ContactReport)`` when ``return_info=True``.
         Binary contact labels (1.0 = contact, 0.0 = no contact).
         For ``"velocity"``/``"combined"``, frame 0 is propagated from
         frame 1 because velocity is undefined at frame 0.  Column
@@ -1166,7 +1162,7 @@ def ground_contacts(
     adaptive: bool = ...,
     height_reference: str = ...,
     return_info: Literal[True],
-) -> tuple[npt.NDArray[np.float64], dict]: ...
+) -> tuple[npt.NDArray[np.float64], _contacts.ContactReport]: ...
 @overload
 def ground_contacts(
     bvh: Bvh,
@@ -1184,7 +1180,7 @@ def ground_contacts(
     adaptive: bool = ...,
     height_reference: str = ...,
     return_info: bool,
-) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]: ...
+) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]: ...
 def ground_contacts(
     bvh: Bvh,
     joints: Sequence[str | int],
@@ -1201,7 +1197,7 @@ def ground_contacts(
     adaptive: bool = False,
     height_reference: str = "floor",
     return_info: bool = False,
-) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
+) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """Detect ground-contact labels for an arbitrary set of joints.
 
     The same detection engine as :func:`foot_contacts` — velocity and/or clearance-above-floor thresholding with hysteresis and duration filters — but for any joint set: hands during floor work, knees in a crawl, a prop bone. Because the joints are not assumed to be feet, two foot-specific behaviors are dropped: there is no rest-pose "feet below hips" sanity check, and ``height_reference`` defaults to ``"floor"`` instead of :func:`foot_contacts`' ``"velocity"`` — the per-joint stance calibration behind ``"velocity"`` presumes regular ground contact, which feet in locomotion have and a hand that touches the floor twice does not.
@@ -1224,11 +1220,11 @@ def ground_contacts(
     height_reference : {"floor", "velocity"}, keyword-only, optional
         Default ``"floor"`` — the fixed ``0.013 × skeleton_scale`` margin above the floor. ``"velocity"`` enables :func:`foot_contacts`' per-joint stance calibration; only use it when the joints ground regularly enough to have stance statistics.
     return_info : bool, keyword-only, optional
-        As in :func:`foot_contacts`; ``info["joints"]`` always holds the resolved **names** (indices are mapped back through ``bvh.nodes``).
+        As in :func:`foot_contacts`; the report's ``joints`` always holds the resolved **names** (indices are mapped back through ``bvh.nodes``).
 
     Returns
     -------
-    ndarray of shape ``(F, num_joints)``, or tuple ``(ndarray, dict)`` when ``return_info=True``.
+    ndarray of shape ``(F, num_joints)``, or tuple ``(ndarray, ContactReport)`` when ``return_info=True``.
         Binary contact labels (1.0 = contact); columns follow ``joints`` order.
 
     Raises
@@ -1329,7 +1325,7 @@ def _contacts_on_clip(
     coords: npt.NDArray[np.float64] | None,
     return_info: bool,
     check_rest_height: bool,
-) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
+) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """The clip's part of :func:`foot_contacts` and :func:`ground_contacts`, around the detector on plain arrays.
 
     Both entry points resolve their joint arguments with :func:`_resolve_contact_joints` into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip, and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet.

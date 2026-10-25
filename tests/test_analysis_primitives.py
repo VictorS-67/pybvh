@@ -906,7 +906,7 @@ def test_adaptive_keeps_the_default_on_a_flat_signal():
     # A foot held still: one value, no split to find.
     flat = np.full(100, 1.5 * RIG_HEIGHT_MARGIN)
     bvh = make_contact_rig(flat.size)
-    c, info = bvh.foot_contacts(
+    c, report = bvh.foot_contacts(
         foot_joints=["LeftFoot"],
         method="height",
         coords=contact_coords(bvh, flat),
@@ -915,7 +915,7 @@ def test_adaptive_keeps_the_default_on_a_flat_signal():
         return_info=True,
     )
     assert not c.any()
-    assert info["height_threshold"] == pytest.approx(RIG_HEIGHT_MARGIN)
+    np.testing.assert_allclose(report.height_threshold, [RIG_HEIGHT_MARGIN])
 
 
 def test_adaptive_split_is_clamped_to_four_times_the_default():
@@ -941,7 +941,7 @@ def test_confidence_is_the_margin_below_the_thresholds_times_the_agreement():
     bvh = make_contact_rig(6, frame_time=1.0)
     coords = contact_coords(bvh, np.full(6, 0.5), x=np.array([0.0, 5.0, 5.5, 6.0, 11.0, 16.0]))
     unfiltered = {"hysteresis": 0.0, "min_contact_duration": 0.0, "min_gap_duration": 0.0}
-    c, info = bvh.foot_contacts(
+    c, report = bvh.foot_contacts(
         foot_joints=["LeftFoot"],
         coords=coords,
         vel_threshold=2.0,
@@ -954,9 +954,9 @@ def test_confidence_is_the_margin_below_the_thresholds_times_the_agreement():
     # On those frames the speed sits 3/4 of its threshold below it and the
     # height 1/2 of its own: margin 5/8, their mean. The velocity mask agrees
     # with the height mask (true everywhere) on 2 frames of 6.
-    np.testing.assert_allclose(info["confidence"], [np.sqrt(5 / 8 * 2 / 6)])
+    np.testing.assert_allclose(report.confidence, [np.sqrt(5 / 8 * 2 / 6)])
     # The velocity method alone has no agreement term: its own margin.
-    _, info = bvh.foot_contacts(
+    _, report = bvh.foot_contacts(
         foot_joints=["LeftFoot"],
         method="velocity",
         coords=coords,
@@ -964,7 +964,7 @@ def test_confidence_is_the_margin_below_the_thresholds_times_the_agreement():
         return_info=True,
         **unfiltered,
     )
-    np.testing.assert_allclose(info["confidence"], [0.75])
+    np.testing.assert_allclose(report.confidence, [0.75])
 
 
 def test_foot_contacts_detects_bouncing_root_dwell():
@@ -1038,7 +1038,7 @@ def test_contact_diagnostics_skate_airborne_height():
     x = np.zeros((6, 2))
     x[3:, 1] = [1.5, 3.0, 3.0]
     bvh = make_contact_rig(6)
-    c, info = bvh.foot_contacts(
+    c, report = bvh.foot_contacts(
         foot_joints=list(CONTACT_FEET),
         method="height",
         coords=contact_coords(bvh, height, x=x),
@@ -1051,10 +1051,10 @@ def test_contact_diagnostics_skate_airborne_height():
     )
     np.testing.assert_array_equal(c, height < 1.0)
     # The skate is the drift over a contact run, over the skeleton scale (10).
-    np.testing.assert_allclose(info["foot_skate"]["max"], [0.0, 3.0 / 10.0])
-    np.testing.assert_allclose(info["foot_skate"]["mean"], [0.0, 3.0 / 10.0])
-    np.testing.assert_allclose(info["airborne_fraction"], 2 / 6)  # frames 0 and 5
-    np.testing.assert_allclose(info["height_at_contact"], [0.4, 0.0])
+    np.testing.assert_allclose(report.foot_skate_max, [0.0, 3.0 / 10.0])
+    np.testing.assert_allclose(report.foot_skate_mean, [0.0, 3.0 / 10.0])
+    np.testing.assert_allclose(report.airborne_fraction, 2 / 6)  # frames 0 and 5
+    np.testing.assert_allclose(report.height_at_contact, [0.4, 0.0])
 
 
 # ----------------------------------------------------------------
@@ -1108,13 +1108,13 @@ def test_stance_calibration_falls_back_to_the_margin_without_a_slow_frame():
     m = RIG_HEIGHT_MARGIN
     height = np.where(np.arange(40) < 20, 5.0 * m, 15.0 * m)
     bvh = make_contact_rig(40, frame_time=1.0)
-    _, info = bvh.foot_contacts(
+    _, report = bvh.foot_contacts(
         foot_joints=["LeftFoot"],
         coords=contact_coords(bvh, height, x=5.0 * np.arange(40)),
         floor=0.0,
         return_info=True,
     )
-    assert info["height_threshold"] == pytest.approx(m)
+    np.testing.assert_allclose(report.height_threshold, [m])
 
 
 def test_floor_height_cache_invalidates_on_mutation():

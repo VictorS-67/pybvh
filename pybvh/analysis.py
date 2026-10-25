@@ -962,7 +962,8 @@ def foot_contacts(
     bvh : Bvh
         Input motion.
     foot_joints : list of str or None, optional
-        Explicit foot joints (recommended). If None, falls back to
+        Explicit foot joints by name (recommended); unlike
+        :func:`ground_contacts`, no node indices. If None, falls back to
         :func:`auto_detect_foot_joints` which matches ``"foot"``/
         ``"toe"`` substrings then filters by skeletal topology.
     method : {"combined", "velocity", "height"}, optional
@@ -1111,12 +1112,21 @@ def foot_contacts(
           inconsistent with rest-pose geometry (feet above hips).
         - If ``frame_time == 0`` and the velocity signal (units/second)
           or a nonzero duration filter needs a time base.
+    TypeError
+        If a ``foot_joints`` entry is not a joint name (``str``): a node-space index ``i`` is named by ``bvh.nodes[i].name``.
 
     See Also
     --------
     ground_contacts : The same detection engine for arbitrary (non-foot) joint sets — hands, knees, props.
     auto_detect_foot_joints : The detection used when ``foot_joints`` is None.
     """
+    # ground_contacts takes node indices too; foot_contacts takes names only.
+    for joint in foot_joints or ():
+        if not isinstance(joint, str):
+            raise TypeError(
+                f"foot_joints takes joint names (str), got {type(joint).__name__} {joint!r}; "
+                "to name the node at node-space index i, pass bvh.nodes[i].name"
+            )
     joint_names, joint_indices = _resolve_contact_joints(bvh, foot_joints)
     settings = _contacts._ContactSettings.gather(
         method=method,

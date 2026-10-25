@@ -1514,6 +1514,23 @@ def test_adaptive_derives_the_height_threshold_of_ground_contacts_beside_a_given
         rig.foot_contacts(_RIG_FEET, coords=coords, vel_threshold=2.0, adaptive=True)
 
 
+@pytest.mark.parametrize(
+    "detect",
+    [analysis.foot_contacts, Bvh.foot_contacts],
+    ids=["analysis.foot_contacts", "Bvh.foot_contacts"],
+)
+def test_foot_contacts_takes_joint_names_not_node_indices(detect):
+    # ground_contacts takes node indices; foot_contacts takes names, and the
+    # refusal says how to name the node at an index.
+    rig, coords = _still_rig()
+    left = rig.node_index["LeftFoot"]
+    with pytest.raises(
+        TypeError,
+        match=rf"^foot_joints takes joint names \(str\), got int {left}; .*index i, pass bvh\.nodes\[i\]\.name$",
+    ):
+        detect(rig, foot_joints=[left, "RightFoot"], coords=coords)
+
+
 class TestWhatACallMayPassReproductions:
     """Reproductions 1 and 4 of #123, on the CMU walk, now raise."""
 

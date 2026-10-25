@@ -12,6 +12,7 @@ from __future__ import annotations
 import warnings
 from collections import namedtuple
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, Literal, TypeVar, overload
 
 import numpy as np
@@ -1109,12 +1110,8 @@ def foot_contacts(
     auto_detect_foot_joints : The detection used when ``foot_joints`` is None.
     """
     joint_names, joint_indices = _resolve_contact_joints(bvh, foot_joints)
-    return _contacts_core(
-        bvh,
-        joint_names,
-        joint_indices,
+    settings = _ContactSettings(
         method=method,
-        coords=coords,
         vel_threshold=vel_threshold,
         vel_smooth_duration=vel_smooth_duration,
         height_threshold=height_threshold,
@@ -1124,6 +1121,13 @@ def foot_contacts(
         hysteresis=hysteresis,
         adaptive=adaptive,
         height_reference=height_reference,
+    )
+    return _contacts_core(
+        bvh,
+        joint_names,
+        joint_indices,
+        settings,
+        coords=coords,
         return_info=return_info,
         check_rest_height=True,
     )
@@ -1248,12 +1252,8 @@ def ground_contacts(
     foot_contacts : The foot-specialized entry point (auto-detection, rest-pose sanity check, ``height_reference="velocity"`` default).
     """
     joint_names, joint_indices = _resolve_contact_joints(bvh, joints)
-    return _contacts_core(
-        bvh,
-        joint_names,
-        joint_indices,
+    settings = _ContactSettings(
         method=method,
-        coords=coords,
         vel_threshold=vel_threshold,
         vel_smooth_duration=vel_smooth_duration,
         height_threshold=height_threshold,
@@ -1263,6 +1263,13 @@ def ground_contacts(
         hysteresis=hysteresis,
         adaptive=adaptive,
         height_reference=height_reference,
+    )
+    return _contacts_core(
+        bvh,
+        joint_names,
+        joint_indices,
+        settings,
+        coords=coords,
         return_info=return_info,
         check_rest_height=False,
     )
@@ -1315,51 +1322,73 @@ def _resolve_contact_joints(
     return joint_names, joint_indices
 
 
+@dataclass(frozen=True, kw_only=True)
+class _ContactSettings:
+    """The settings of one contact detection, gathered once at the detector's entry point.
+
+    :func:`foot_contacts` and :func:`ground_contacts` declare these settings as keywords, document them and give their defaults; they build this object from them, and what lies below the entry points receives it instead of the keywords. Construction validates the values, so the detector works with settings already checked. The fields are the entry points' parameters of the same names.
+    """
+
+    method: str
+    vel_threshold: float | None
+    vel_smooth_duration: float
+    height_threshold: float | None
+    floor: float | str
+    min_contact_duration: float
+    min_gap_duration: float
+    hysteresis: float
+    adaptive: bool
+    height_reference: str
+
+    def __post_init__(self) -> None:
+        if self.method not in ("velocity", "height", "combined"):
+            raise ValueError(
+                f"Unknown method {self.method!r}. Choose 'combined', 'velocity', or 'height'."
+            )
+        if self.height_reference not in ("velocity", "floor"):
+            raise ValueError(
+                f"height_reference must be 'velocity' or 'floor', got {self.height_reference!r}"
+            )
+        if isinstance(self.floor, str) and self.floor not in ("auto", "min"):
+            raise ValueError(f"floor must be 'auto', 'min' or a float, got {self.floor!r}")
+        if self.vel_smooth_duration < 0:
+            raise ValueError(
+                f"vel_smooth_duration must be >= 0 (seconds), got {self.vel_smooth_duration}"
+            )
+
+    @property
+    def reads_velocity(self) -> bool:
+        """Whether the method tests the joints' speed."""
+        return self.method in ("velocity", "combined")
+
+    @property
+    def reads_height(self) -> bool:
+        """Whether the method tests the joints' clearance above the contact reference."""
+        return self.method in ("height", "combined")
+
+
 def _contacts_core(
     bvh: Bvh,
     joint_names: list[str],
     joint_indices: list[int],
+    settings: _ContactSettings,
     *,
-    method: str,
     coords: npt.NDArray[np.float64] | None,
-    vel_threshold: float | None,
-    vel_smooth_duration: float,
-    height_threshold: float | None,
-    floor: float | str,
-    min_contact_duration: float,
-    min_gap_duration: float,
-    hysteresis: float,
-    adaptive: bool,
-    height_reference: str,
     return_info: bool,
     check_rest_height: bool,
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
     """Shared contact-detection engine behind :func:`foot_contacts` and :func:`ground_contacts`.
 
-    Both entry points resolve their joint arguments into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists and delegate here. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet.
+    Both entry points resolve their joint arguments with :func:`_resolve_contact_joints` into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists, gather their settings into a :class:`_ContactSettings`, and delegate here. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet.
     """
-    if method not in ("velocity", "height", "combined"):
-        raise ValueError(f"Unknown method {method!r}. Choose 'combined', 'velocity', or 'height'.")
-
-    if height_reference not in ("velocity", "floor"):
-        raise ValueError(
-            f"height_reference must be 'velocity' or 'floor', got {height_reference!r}"
-        )
-
-    if isinstance(floor, str) and floor not in ("auto", "min"):
-        raise ValueError(f"floor must be 'auto', 'min' or a float, got {floor!r}")
-
-    if vel_smooth_duration < 0:
-        raise ValueError(f"vel_smooth_duration must be >= 0 (seconds), got {vel_smooth_duration}")
-
     if bvh.frame_time == 0:
-        if method in ("velocity", "combined"):
+        if settings.reads_velocity:
             raise ValueError(
                 "frame_time is 0; cannot compute the units/second foot "
                 "speed. Set bvh.frame_time to the clip's real sampling "
                 "period."
             )
-        if min_contact_duration > 0 or min_gap_duration > 0:
+        if settings.min_contact_duration > 0 or settings.min_gap_duration > 0:
             raise ValueError(
                 "frame_time is 0; cannot convert the duration filters "
                 "(seconds) to frames. Set bvh.frame_time, or disable the "
@@ -1383,11 +1412,8 @@ def _contacts_core(
     num_joints = len(joint_names)
     F = bvh.frame_count
 
-    needs_vel = method in ("velocity", "combined")
-    needs_height = method in ("height", "combined")
-
-    needs_scale = (needs_vel and vel_threshold is None) or (
-        needs_height and height_threshold is None
+    needs_scale = (settings.reads_velocity and settings.vel_threshold is None) or (
+        settings.reads_height and settings.height_threshold is None
     )
     rest_coords = bvh._rest_pose()
 
@@ -1396,7 +1422,7 @@ def _contacts_core(
         scale = _skeleton_scale(rest_coords, joint_indices)
 
     # ---- Sanity check for the height signal (feet-presuming entry only) ----
-    if needs_height and check_rest_height:
+    if settings.reads_height and check_rest_height:
         rest_foot_height = rest_coords[joint_indices, up_idx].mean() * up_sign
         rest_hip_height = rest_coords[0, up_idx] * up_sign
         if rest_foot_height > rest_hip_height:
@@ -1419,7 +1445,7 @@ def _contacts_core(
     height_adaptive_used = None
     vel_smooth_frames = None
 
-    if needs_vel:
+    if settings.reads_velocity:
         if F < 2:
             # No motion info — treat as "no velocity evidence against contact"
             # (speed 0 < any positive threshold) so combined falls back to height.
@@ -1431,48 +1457,50 @@ def _contacts_core(
             # the displacement *vectors* (norm-of-mean) cancels the
             # high-frequency jitter that adjacent-frame differencing picks up
             # at high fps.  Window is 1 at <= 30 fps — the raw signal, exactly.
-            vel_smooth_frames = min(F - 1, max(1, round(vel_smooth_duration / bvh.frame_time)))
+            vel_smooth_frames = min(
+                F - 1, max(1, round(settings.vel_smooth_duration / bvh.frame_time))
+            )
             if vel_smooth_frames > 1:
                 disp = box_filter_smooth(disp, vel_smooth_frames, axis=0)
             sp = np.linalg.norm(disp, axis=-1) / bvh.frame_time  # (F-1, nj), u/s
             speed = np.concatenate([sp[0:1], sp], axis=0)  # frame-0 propagated
-        if vel_threshold is not None:
-            vel_thr_used = vel_threshold
+        if settings.vel_threshold is not None:
+            vel_thr_used = settings.vel_threshold
         else:
             assert scale is not None
             base = 0.12 * scale  # 12% of root-to-foot rest distance per second
-            if adaptive and F >= 2:
+            if settings.adaptive and F >= 2:
                 vel_thr_used, vel_adaptive_used = _resolve_adaptive(speed, base)
             else:
                 vel_thr_used = base
 
-    if needs_height:
+    if settings.reads_height:
         heights_signed = joint_coords[:, :, up_idx] * up_sign  # up-positive
-        if isinstance(floor, str):
+        if isinstance(settings.floor, str):
             # "auto"/"min": the reference is estimated from the coords in
             # use, over the joints being tested — never from the scene
             # ground (Bvh.floor_height), which is measured over ALL nodes
             # and would sit an end site's length below these joints.
-            percentile = 0.0 if floor == "min" else 2.0
+            percentile = 0.0 if settings.floor == "min" else 2.0
             floor_raw = _floor_from_coords(
                 coords, joint_indices, up_idx, up_sign, percentile=percentile
             )
         else:
-            floor_raw = float(floor)
+            floor_raw = float(settings.floor)
         floor_signed = floor_raw * up_sign
         clearance = heights_signed - floor_signed
-        if height_threshold is not None:
-            height_thr_used = height_threshold
+        if settings.height_threshold is not None:
+            height_thr_used = settings.height_threshold
         else:
             assert scale is not None
             base = 0.013 * scale  # ~1.3% of root-to-foot rest distance above floor
             # A speed signal exists exactly when method is "combined" here.
-            if speed is not None and height_reference == "velocity":
+            if speed is not None and settings.height_reference == "velocity":
                 # Calibrate the height threshold per foot to its own stance
                 # level (handles retargeting hover); reduces to `base` on rigs
                 # where the foot reaches the floor.
                 height_thr_used = _velocity_informed_height(clearance, speed, vel_thr_used, base)
-            elif adaptive:
+            elif settings.adaptive:
                 height_thr_used, height_adaptive_used = _resolve_adaptive(clearance, base)
             else:
                 height_thr_used = base
@@ -1480,17 +1508,23 @@ def _contacts_core(
     mask, confidence = _detect_contacts(
         speed,
         clearance,
-        method=method,
+        method=settings.method,
         vel_threshold=vel_thr_used,
         height_threshold=height_thr_used,
-        hysteresis=hysteresis,
+        hysteresis=settings.hysteresis,
     )
 
     # ---- Morphological duration filters (time → frames) ----
     # frame_time == 0 with nonzero durations was rejected up front.
     dt = bvh.frame_time
-    min_contact_frames = max(1, round(min_contact_duration / dt)) if min_contact_duration > 0 else 1
-    min_gap_frames = max(1, round(min_gap_duration / dt)) if min_gap_duration > 0 else 1
+    min_contact_frames = (
+        max(1, round(settings.min_contact_duration / dt))
+        if settings.min_contact_duration > 0
+        else 1
+    )
+    min_gap_frames = (
+        max(1, round(settings.min_gap_duration / dt)) if settings.min_gap_duration > 0 else 1
+    )
 
     if min_contact_frames > 1:
         mask = _filter_short_runs(mask, min_contact_frames, value=True)
@@ -1504,12 +1538,12 @@ def _contacts_core(
 
     info: dict = {
         "joints": list(joint_names),
-        "method": method,
-        "min_contact_duration": float(min_contact_duration),
-        "min_gap_duration": float(min_gap_duration),
-        "hysteresis": float(hysteresis),
-        "vel_smooth_duration": float(vel_smooth_duration),
-        "height_reference": height_reference,
+        "method": settings.method,
+        "min_contact_duration": float(settings.min_contact_duration),
+        "min_gap_duration": float(settings.min_gap_duration),
+        "hysteresis": float(settings.hysteresis),
+        "vel_smooth_duration": float(settings.vel_smooth_duration),
+        "height_reference": settings.height_reference,
         "confidence": confidence,
     }
     if scale is not None:

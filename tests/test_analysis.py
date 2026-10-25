@@ -1179,7 +1179,7 @@ class TestFootContactsFrameRateRobustness:
         """Guards the position-smoothing failure mode: edge-replicated
         *positions* would fake ~0 speed at the clip edges and invent
         boundary contacts; replicated *displacements* preserve the speed.
-        Also exercises the _release_open_runs boundary interaction."""
+        Also exercises the release of contact runs open at the clip edges."""
 
         def sculpt(t):
             swing_in = 5.0 * t

@@ -12,7 +12,10 @@ import re
 import numpy as np
 import pytest
 from synthetic_bvh import (
+    CONTACT_FEET,
+    contact_coords,
     make_clip_bvh,
+    make_contact_rig,
     make_neg_y_up_bvh,
     make_pos_y_up_bvh,
     make_pos_y_up_rotating_bvh,
@@ -828,38 +831,50 @@ def test_lagged_covariance_centers_lag0_and_bounds():
 
 
 # ----------------------------------------------------------------
-#  foot_contacts detection core (hysteresis / Otsu / confidence /
-#  timing refinement / diagnostics) — pure-signal oracles
+#  foot_contacts detection (hysteresis / Otsu / confidence / timing
+#  refinement / diagnostics), signals driven through coords=
 # ----------------------------------------------------------------
 
 
-def test_hysteresis_mask_equals_single_threshold_at_zero_band():
-    sig = np.array([[5.0, 0.5], [1.5, 3.0], [0.2, 0.1]])
-    np.testing.assert_array_equal(analysis._hysteresis_mask(sig, 1.0, 1.0), sig < 1.0)
+def _height_contacts(height, **settings):
+    """Contacts of ``make_contact_rig``'s feet when only their height signal decides.
+
+    ``height`` is ``(F,)`` for LeftFoot or ``(F, k)`` for the first ``k``
+    feet. The floor is pinned at 0, so the clearance is the height itself;
+    the threshold is 1 and the duration filters are off unless ``settings``
+    says otherwise.
+    """
+    height = np.asarray(height, dtype=np.float64)
+    bvh = make_contact_rig(height.shape[0])
+    k = 1 if height.ndim == 1 else height.shape[1]
+    kwargs = {
+        "method": "height",
+        "floor": 0.0,
+        "height_threshold": 1.0,
+        "min_contact_duration": 0.0,
+        "min_gap_duration": 0.0,
+        **settings,
+    }
+    return bvh.foot_contacts(
+        foot_joints=list(CONTACT_FEET[:k]), coords=contact_coords(bvh, height), **kwargs
+    )
 
 
-def test_hysteresis_keeps_strong_runs_and_drops_weak_only():
-    # contact = LOW signal; low=1, high=2
-    sig = np.array(
-        [
-            [5.0, 5.0],
-            [1.5, 1.5],  # weak (between 1 and 2)
-            [0.5, 5.0],  # col0 strong here; col1 back high
-            [1.5, 5.0],  # weak
-            [5.0, 5.0],
-        ]
-    )
-    got = analysis._hysteresis_mask(sig, 1.0, 2.0)
-    expected = np.array(
-        [
-            [False, False],
-            [True, False],  # col0 run rows1-3 contains a strong frame -> kept
-            [True, False],
-            [True, False],
-            [False, False],  # col1 isolated weak-only frame -> dropped
-        ]
-    )
-    np.testing.assert_array_equal(got, expected)
+def test_zero_hysteresis_is_the_single_threshold():
+    height = np.array([3.0, 0.5, 1.5, 0.2, 0.9, 1.1, 3.0, 3.0])
+    got = _height_contacts(height, hysteresis=0.0)
+    np.testing.assert_array_equal(got[:, 0], [0, 1, 0, 1, 1, 0, 0, 0])  # height < 1
+
+
+def test_hysteresis_holds_a_contact_through_the_band_and_drops_a_shallow_dip():
+    # threshold 1, band 0.5: a frame is weak below 1.5 and strong below 0.5. A
+    # weak run is a contact only if it holds a strong frame.
+    height = np.array([3.0, 0.2, 0.2, 1.2, 0.2, 3.0, 3.0, 0.8, 3.0, 3.0])
+    got = _height_contacts(height, hysteresis=0.5)
+    # Frame 3 rises above the threshold but stays in the band, inside a run
+    # with strong frames: still a contact. Frame 7 dips below the threshold but
+    # never below the band: not one.
+    np.testing.assert_array_equal(got[:, 0], [0, 1, 1, 1, 1, 0, 0, 0, 0, 0])
 
 
 def test_otsu_finds_valley_on_bimodal():
@@ -933,73 +948,26 @@ def test_foot_contacts_detects_bouncing_root_dwell():
 # --- boundary-aware hysteresis release (open runs trimmed to raw support) ---
 
 
-def test_release_open_runs_trims_truncated_swing():
-    # filled run reaches the last frame, but raw support ends earlier: the
-    # trailing band is speculative (a swing cut off by the clip) -> dropped.
-    F = 8
-    mask = np.zeros((F, 1), bool)
-    mask[2:8, 0] = True  # filled run [2,8) touches end
-    raw = np.zeros((F, 1), bool)
-    raw[2:5, 0] = True  # raw lift at frame 5
-    out = analysis._release_open_runs(mask, raw)
-    expected = np.zeros((F, 1), bool)
-    expected[2:5, 0] = True
-    np.testing.assert_array_equal(out, expected)
+@pytest.mark.parametrize("edge", ["end", "start"])
+def test_hysteresis_releases_a_run_open_at_the_clip_edge_at_the_raw_lift(edge):
+    # threshold 1, band 0.5. A contact run that rises into the band at the clip
+    # edge never leaves the band, so the band alone would hold it to the edge;
+    # it ends instead at the last frame below the threshold itself (frame 5).
+    height = np.array([3.0, 3.0, 0.1, 0.1, 0.1, 0.8, 1.2, 1.4])
+    expected = np.array([0, 0, 1, 1, 1, 1, 0, 0])
+    if edge == "start":
+        height, expected = height[::-1], expected[::-1]
+    got = _height_contacts(height, hysteresis=0.5)
+    np.testing.assert_array_equal(got[:, 0], expected)
 
 
-def test_release_open_runs_trims_leading_band():
-    # symmetric at the start: a run touching frame 0 trims to where raw begins.
-    F = 8
-    mask = np.zeros((F, 1), bool)
-    mask[0:6, 0] = True
-    raw = np.zeros((F, 1), bool)
-    raw[3:6, 0] = True
-    out = analysis._release_open_runs(mask, raw)
-    expected = np.zeros((F, 1), bool)
-    expected[3:6, 0] = True
-    np.testing.assert_array_equal(out, expected)
-
-
-def test_release_open_runs_leaves_closed_and_supported_runs():
-    # col0: interior run (touches neither edge) -> untouched even with no raw.
-    # col1: boundary run raw-supported to the edge -> untouched.
-    # col2: planted the whole clip (raw all true) -> untouched.
-    F = 10
-    mask = np.zeros((F, 3), bool)
-    raw = np.zeros((F, 3), bool)
-    mask[3:6, 0] = True
-    mask[7:10, 1] = True
-    raw[7:10, 1] = True
-    mask[:, 2] = True
-    raw[:, 2] = True
-    out = analysis._release_open_runs(mask, raw)
-    np.testing.assert_array_equal(out, mask)
-
-
-def test_detect_contacts_releases_open_swing_under_hysteresis():
-    # thr=1, band +-0.5 -> low=0.5 high=1.5 raw=<1. A deep contact rising into
-    # the band at the clip end: the latch must release at the raw lift, not hold.
-    F = 8
-    speed = np.array([5, 5, 0.1, 0.1, 0.1, 0.8, 1.2, 1.4]).reshape(F, 1)
-    mask, _ = analysis._detect_contacts(
-        speed, None, method="velocity", vel_threshold=1.0, height_threshold=None, hysteresis=0.5
-    )
-    expected = np.zeros((F, 1), bool)
-    expected[2:6, 0] = True  # released at frame 6
-    np.testing.assert_array_equal(mask, expected)
-
-
-def test_detect_contacts_keeps_genuine_boundary_contact():
-    # control: signal stays in deep contact to the last frame -> raw supports the
-    # edge, nothing is trimmed.
-    F = 8
-    speed = np.array([5, 5, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]).reshape(F, 1)
-    mask, _ = analysis._detect_contacts(
-        speed, None, method="velocity", vel_threshold=1.0, height_threshold=None, hysteresis=0.5
-    )
-    expected = np.zeros((F, 1), bool)
-    expected[2:8, 0] = True
-    np.testing.assert_array_equal(mask, expected)
+def test_hysteresis_keeps_open_runs_the_raw_threshold_supports():
+    # Below the threshold to the last frame, or for the whole clip: nothing to release.
+    height = np.full((8, 2), 0.1)
+    height[:2, 0] = 3.0
+    got = _height_contacts(height, hysteresis=0.5)
+    np.testing.assert_array_equal(got[:, 0], [0, 0, 1, 1, 1, 1, 1, 1])
+    np.testing.assert_array_equal(got[:, 1], np.ones(8))
 
 
 def test_foot_contacts_releases_foot_lifting_at_clip_end():

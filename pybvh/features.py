@@ -10,7 +10,8 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
-from .analysis import _validate_stencil_pad, foot_contacts, joint_velocities
+from .analysis import _validate_stencil_pad, joint_velocities
+from .analysis import foot_contacts as _foot_contacts
 from .bvh import Bvh
 from .rotations import REPRESENTATION_CHANNELS as _REPRESENTATION_WIDTHS
 from .spatial_coord import _ground_plane_offset
@@ -230,7 +231,7 @@ def to_feature_array(
     # distort the foot-speed signal, so in that mode let it compute its
     # own world FK (served by the Bvh cache).
     if include_foot_contacts:
-        contacts = foot_contacts(
+        contacts = _foot_contacts(
             bvh, foot_joints=foot_joints, coords=coords if centered != "skeleton" else None
         )
         parts.append(contacts)

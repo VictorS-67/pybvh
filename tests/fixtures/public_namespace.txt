@@ -173,7 +173,6 @@ pybvh.dataframe.df_to_bvh
 
 pybvh.features.Bvh
 pybvh.features.feature_array_layout
-pybvh.features.foot_contacts
 pybvh.features.joint_velocities
 pybvh.features.to_feature_array
 

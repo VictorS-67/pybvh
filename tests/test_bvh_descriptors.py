@@ -280,8 +280,12 @@ def test_ground_contacts_wrapper_matches_module():
     ref, ref_info = analysis.ground_contacts(walk, feet, return_info=True)
     np.testing.assert_array_equal(got, ref)
     assert got_info["joints"] == ref_info["joints"]
-    # keyword passthrough: a non-default parameterization delegates too
+    # keyword passthrough: a non-default parameterization delegates too. The
+    # contact reference is the tested joints' own minimum, not the scene
+    # ground (floor_height), which sits below them and leaves every frame
+    # airborne, so the comparison would hold on all-zero arrays.
+    got = walk.ground_contacts(feet, method="height", floor="min")
     np.testing.assert_array_equal(
-        walk.ground_contacts(feet, method="height", floor=walk.floor_height),
-        analysis.ground_contacts(walk, feet, method="height", floor=walk.floor_height),
+        got, analysis.ground_contacts(walk, feet, method="height", floor="min")
     )
+    assert not np.array_equal(got, walk.ground_contacts(feet, method="height"))

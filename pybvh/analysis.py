@@ -1041,7 +1041,7 @@ def foot_contacts(
         exceeds the velocity threshold even though the physical foot
         is planted.  Set to ``0.0`` to disable.
     hysteresis : float, keyword-only, optional
-        Schmitt-trigger band fraction (default ``0.25``). A frame enters
+        Schmitt-trigger band fraction, in ``[0, 1)`` (default ``0.25``). A frame enters
         swing only when its signal rises above ``threshold*(1+hysteresis)``
         and a contact is kept only if it ever drops below
         ``threshold*(1-hysteresis)`` — so an isolated dip near the
@@ -1099,7 +1099,7 @@ def foot_contacts(
           missing from the skeleton.
         - If ``foot_joints`` is explicitly an empty list — contact
           detection needs at least one joint.
-        - If ``vel_smooth_duration`` is negative.
+        - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
         - When the height signal is involved and ``bvh.world_up`` is
           inconsistent with rest-pose geometry (feet above hips).
         - If ``frame_time == 0`` and the velocity signal (units/second)
@@ -1243,7 +1243,7 @@ def ground_contacts(
         - If ``floor`` is a string other than ``"auto"`` or ``"min"``.
         - If ``joints`` is empty — contact detection needs at least one joint.
         - If a joint name is not in the skeleton.
-        - If ``vel_smooth_duration`` is negative.
+        - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
         - If ``frame_time == 0`` and the velocity signal (units/second) or a nonzero duration filter needs a time base.
     TypeError
         If a ``joints`` entry is neither a str nor an int (``bool`` is rejected explicitly — ``True``/``False`` silently indexing nodes 1/0 would be a trap).

@@ -113,10 +113,24 @@ class _ContactSettings:
             raise ValueError(f"floor must be 'auto', 'min' or a float, got {floor!r}")
         if vel_smooth_duration is None:
             vel_smooth_duration = _DEFAULT_VEL_SMOOTH_DURATION
-        if vel_smooth_duration < 0:
-            raise ValueError(
-                f"vel_smooth_duration must be >= 0 (seconds), got {vel_smooth_duration}"
-            )
+        for name, duration in (
+            ("vel_smooth_duration", vel_smooth_duration),
+            ("min_contact_duration", min_contact_duration),
+            ("min_gap_duration", min_gap_duration),
+        ):
+            if not duration >= 0:
+                raise ValueError(f"{name} must be >= 0 (seconds), got {duration}")
+        if not 0 <= hysteresis < 1:
+            raise ValueError(f"hysteresis must be in [0, 1), got {hysteresis}")
+        for name, threshold in (
+            ("vel_threshold", vel_threshold),
+            ("height_threshold", height_threshold),
+        ):
+            if threshold is None:
+                continue
+            values = np.asarray(threshold, dtype=np.float64)
+            if not np.all(np.isfinite(values) & (values > 0)):
+                raise ValueError(f"{name} must be finite and > 0, got {threshold}")
         if adaptive:
             # Under combined with height_reference="velocity" the stance
             # calibration, not Otsu's split, derives the height threshold.

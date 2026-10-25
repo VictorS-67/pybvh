@@ -1432,6 +1432,27 @@ class TestWhatACallMayPass:
         rig, coords = _still_rig()
         np.testing.assert_array_equal(detect(rig, coords=coords, **settings), np.ones((6, 2)))
 
+    @pytest.mark.parametrize("value", [-0.25, 1.0, 1.5])
+    def test_a_hysteresis_outside_zero_to_one_is_refused(self, detect, value):
+        rig, coords = _still_rig()
+        with pytest.raises(ValueError, match=r"^hysteresis must be in \[0, 1\)"):
+            detect(rig, coords=coords, hysteresis=value)
+
+    @pytest.mark.parametrize(
+        "setting", ["vel_smooth_duration", "min_contact_duration", "min_gap_duration"]
+    )
+    def test_a_negative_duration_is_refused(self, detect, setting):
+        rig, coords = _still_rig()
+        with pytest.raises(ValueError, match=rf"^{setting} must be >= 0"):
+            detect(rig, coords=coords, **{setting: -0.1})
+
+    @pytest.mark.parametrize("setting", ["vel_threshold", "height_threshold"])
+    @pytest.mark.parametrize("value", [0.0, -1.0, np.inf, np.nan])
+    def test_a_threshold_not_finite_and_positive_is_refused(self, detect, setting, value):
+        rig, coords = _still_rig()
+        with pytest.raises(ValueError, match=rf"^{setting} must be finite and > 0"):
+            detect(rig, coords=coords, **{setting: value})
+
 
 def test_adaptive_derives_the_height_threshold_of_ground_contacts_beside_a_given_speed_threshold():
     # ground_contacts' own height_reference is "floor", where adaptive=True
@@ -1454,6 +1475,19 @@ class TestWhatACallMayPassReproductions:
         bvh = read_bvh_file(CMU_WALK_PATH)
         with pytest.raises(ValueError, match=r"^height_threshold is not read by method='velocity'"):
             bvh.foot_contacts(method="velocity", height_threshold=0.5, floor=-100.0)
+
+    @pytest.mark.parametrize(
+        ("settings", "refusal"),
+        [
+            ({"hysteresis": -1.0}, "hysteresis must be in"),
+            ({"min_contact_duration": -1.0}, "min_contact_duration must be >= 0"),
+            ({"vel_threshold": 0.0}, "vel_threshold must be finite and > 0"),
+        ],
+    )
+    def test_reproduction_4_an_invalid_value(self, settings, refusal):
+        bvh = read_bvh_file(CMU_WALK_PATH)
+        with pytest.raises(ValueError, match=rf"^{refusal}"):
+            bvh.foot_contacts(**settings)
 
 
 class TestFootContactsPinnedGolden:

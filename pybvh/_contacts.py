@@ -7,6 +7,7 @@ The contact reference is estimated here, over the tested joints, with :func:`pyb
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -16,18 +17,30 @@ import numpy.typing as npt
 from . import geometry
 from .signal import box_filter_smooth
 
+# The defaults of the settings that some method does not read: the entry
+# points' keywords default to None, so that a setting given is told from one
+# left out, and gather() puts these in place.
+_DEFAULT_VEL_SMOOTH_DURATION = 1.0 / 30.0
+_DEFAULT_FLOOR = "auto"
+
+_METHODS_READING_VELOCITY = ("velocity", "combined")
+_METHODS_READING_HEIGHT = ("height", "combined")
+
+# A threshold as a caller gives it: one value for every joint, or one per joint.
+_ThresholdArg = float | Sequence[float] | npt.NDArray[np.float64]
+
 
 @dataclass(frozen=True, kw_only=True)
 class _ContactSettings:
     """The settings of one contact detection, gathered once at the detector's entry point.
 
-    :func:`pybvh.analysis.foot_contacts` and :func:`pybvh.analysis.ground_contacts` declare these settings as keywords, document them and give their defaults; they build this object from them, and what lies below the entry points receives it instead of the keywords. Construction validates the values, so the detector works with settings already checked. The fields are the entry points' parameters of the same names.
+    :func:`pybvh.analysis.foot_contacts` and :func:`pybvh.analysis.ground_contacts` declare these settings as keywords and document them; they build this object from them with :meth:`gather`, which validates the call and puts the defaults in place, and what lies below the entry points receives it instead of the keywords. The fields are the entry points' parameters of the same names, with every default resolved.
     """
 
     method: str
-    vel_threshold: float | None
+    vel_threshold: float | npt.NDArray[np.float64] | None
     vel_smooth_duration: float
-    height_threshold: float | None
+    height_threshold: float | npt.NDArray[np.float64] | None
     floor: float | str
     min_contact_duration: float
     min_gap_duration: float
@@ -35,31 +48,132 @@ class _ContactSettings:
     adaptive: bool
     height_reference: str
 
-    def __post_init__(self) -> None:
-        if self.method not in ("velocity", "height", "combined"):
+    @classmethod
+    def gather(
+        cls,
+        *,
+        method: str,
+        vel_threshold: _ThresholdArg | None,
+        vel_smooth_duration: float | None,
+        height_threshold: _ThresholdArg | None,
+        floor: float | str | None,
+        min_contact_duration: float,
+        min_gap_duration: float,
+        hysteresis: float,
+        adaptive: bool,
+        height_reference: str | None,
+        default_height_reference: str,
+        num_joints: int,
+    ) -> _ContactSettings:
+        """The settings of one call, checked, with each setting left at ``None`` given its default.
+
+        ``default_height_reference`` is the detector's own default for ``height_reference``: ``"velocity"`` for :func:`pybvh.analysis.foot_contacts`, ``"floor"`` for :func:`pybvh.analysis.ground_contacts`. ``num_joints`` is the number of joints tested, the length a threshold given per joint must have; a threshold given is kept as a float or as a read-only ``(num_joints,)`` array.
+        """
+        if method not in ("velocity", "height", "combined"):
             raise ValueError(
-                f"Unknown method {self.method!r}. Choose 'combined', 'velocity', or 'height'."
+                f"Unknown method {method!r}. Choose 'combined', 'velocity', or 'height'."
             )
-        if self.height_reference not in ("velocity", "floor"):
+        reads_velocity = method in _METHODS_READING_VELOCITY
+        reads_height = method in _METHODS_READING_HEIGHT
+        if not reads_height:
+            for name, value in (
+                ("height_threshold", height_threshold),
+                ("floor", floor),
+                ("height_reference", height_reference),
+            ):
+                if value is not None:
+                    raise ValueError(
+                        f"{name} is not read by method={method!r}, which runs no height test; "
+                        "drop it, or choose method='combined' or 'height'."
+                    )
+        if not reads_velocity:
+            for name, value in (
+                ("vel_threshold", vel_threshold),
+                ("vel_smooth_duration", vel_smooth_duration),
+            ):
+                if value is not None:
+                    raise ValueError(
+                        f"{name} is not read by method={method!r}, which runs no speed test; "
+                        "drop it, or choose method='combined' or 'velocity'."
+                    )
+            if height_reference is not None:
+                raise ValueError(
+                    f"height_reference is not read by method={method!r}: it anchors the "
+                    "height threshold to the speed test, which only method='combined' runs."
+                )
+        if height_reference is not None and height_threshold is not None:
             raise ValueError(
-                f"height_reference must be 'velocity' or 'floor', got {self.height_reference!r}"
+                f"height_reference is not read by method={method!r} with a height_threshold "
+                "given: it anchors only a height threshold the detector derives."
             )
-        if isinstance(self.floor, str) and self.floor not in ("auto", "min"):
-            raise ValueError(f"floor must be 'auto', 'min' or a float, got {self.floor!r}")
-        if self.vel_smooth_duration < 0:
+        if height_reference is None:
+            height_reference = default_height_reference
+        if height_reference not in ("velocity", "floor"):
             raise ValueError(
-                f"vel_smooth_duration must be >= 0 (seconds), got {self.vel_smooth_duration}"
+                f"height_reference must be 'velocity' or 'floor', got {height_reference!r}"
             )
+        if floor is None:
+            floor = _DEFAULT_FLOOR
+        if isinstance(floor, str) and floor not in ("auto", "min"):
+            raise ValueError(f"floor must be 'auto', 'min' or a float, got {floor!r}")
+        if vel_smooth_duration is None:
+            vel_smooth_duration = _DEFAULT_VEL_SMOOTH_DURATION
+        for name, duration in (
+            ("vel_smooth_duration", vel_smooth_duration),
+            ("min_contact_duration", min_contact_duration),
+            ("min_gap_duration", min_gap_duration),
+        ):
+            if not duration >= 0:
+                raise ValueError(f"{name} must be >= 0 (seconds), got {duration}")
+        if not 0 <= hysteresis < 1:
+            raise ValueError(f"hysteresis must be in [0, 1), got {hysteresis}")
+        vel_threshold_checked = _checked_threshold("vel_threshold", vel_threshold, num_joints)
+        height_threshold_checked = _checked_threshold(
+            "height_threshold", height_threshold, num_joints
+        )
+        if adaptive:
+            # Under combined with height_reference="velocity" the stance
+            # calibration, not Otsu's split, derives the height threshold.
+            stance_calibrated = method == "combined" and height_reference == "velocity"
+            splits_speed = reads_velocity and vel_threshold is None
+            splits_height = reads_height and height_threshold is None and not stance_calibrated
+            if not (splits_speed or splits_height):
+                reasons = []
+                if reads_velocity:
+                    reasons.append("vel_threshold is given")
+                if reads_height:
+                    reasons.append(
+                        "height_threshold is given"
+                        if height_threshold is not None
+                        else "the height threshold is calibrated on the stance frames "
+                        "(height_reference='velocity'), not split"
+                    )
+                raise ValueError(
+                    f"adaptive=True derives no threshold under method={method!r}: "
+                    f"{' and '.join(reasons)}; drop adaptive=True."
+                )
+        return cls(
+            method=method,
+            vel_threshold=vel_threshold_checked,
+            vel_smooth_duration=vel_smooth_duration,
+            height_threshold=height_threshold_checked,
+            floor=floor,
+            min_contact_duration=min_contact_duration,
+            min_gap_duration=min_gap_duration,
+            hysteresis=hysteresis,
+            adaptive=adaptive,
+            height_reference=height_reference,
+        )
 
     @property
     def reads_velocity(self) -> bool:
         """Whether the method tests the joints' speed."""
-        return self.method in ("velocity", "combined")
+        return self.method in _METHODS_READING_VELOCITY
 
     @property
     def reads_height(self) -> bool:
         """Whether the method tests the joints' clearance above the contact reference."""
-        return self.method in ("height", "combined")
+        return self.method in _METHODS_READING_HEIGHT
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)
@@ -131,6 +245,26 @@ class ContactReport:
     foot_skate_max: npt.NDArray[np.float64]
     airborne_fraction: float
     height_at_contact: npt.NDArray[np.float64] | None
+
+
+def _checked_threshold(
+    name: str, threshold: _ThresholdArg | None, num_joints: int
+) -> float | npt.NDArray[np.float64] | None:
+    """A threshold given, checked: a float, a read-only ``(num_joints,)`` array, or ``None`` when not given."""
+    if threshold is None:
+        return None
+    values = np.array(threshold, dtype=np.float64)
+    if values.ndim != 0 and values.shape != (num_joints,):
+        raise ValueError(
+            f"{name} must be a scalar or one value per joint ({num_joints},), "
+            f"got shape {values.shape}"
+        )
+    if not np.all(np.isfinite(values) & (values > 0)):
+        raise ValueError(f"{name} must be finite and > 0, got {threshold}")
+    if values.ndim == 0:
+        return float(values)
+    values.flags.writeable = False  # np.array copied it: the caller's array stays theirs
+    return values
 
 
 def _contacts_from_positions(

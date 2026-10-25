@@ -883,15 +883,15 @@ def foot_contacts(
     method: str = ...,
     coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: float | None = ...,
-    vel_smooth_duration: float = ...,
-    height_threshold: float | None = ...,
-    floor: float | str = ...,
+    vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+    vel_smooth_duration: float | None = ...,
+    height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+    floor: float | str | None = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
     hysteresis: float = ...,
     adaptive: bool = ...,
-    height_reference: str = ...,
+    height_reference: str | None = ...,
     return_info: Literal[False] = ...,
 ) -> npt.NDArray[np.float64]: ...
 @overload
@@ -901,15 +901,15 @@ def foot_contacts(
     method: str = ...,
     coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: float | None = ...,
-    vel_smooth_duration: float = ...,
-    height_threshold: float | None = ...,
-    floor: float | str = ...,
+    vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+    vel_smooth_duration: float | None = ...,
+    height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+    floor: float | str | None = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
     hysteresis: float = ...,
     adaptive: bool = ...,
-    height_reference: str = ...,
+    height_reference: str | None = ...,
     return_info: Literal[True],
 ) -> tuple[npt.NDArray[np.float64], _contacts.ContactReport]: ...
 @overload
@@ -919,15 +919,15 @@ def foot_contacts(
     method: str = ...,
     coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: float | None = ...,
-    vel_smooth_duration: float = ...,
-    height_threshold: float | None = ...,
-    floor: float | str = ...,
+    vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+    vel_smooth_duration: float | None = ...,
+    height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+    floor: float | str | None = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
     hysteresis: float = ...,
     adaptive: bool = ...,
-    height_reference: str = ...,
+    height_reference: str | None = ...,
     return_info: bool,
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]: ...
 def foot_contacts(
@@ -936,15 +936,15 @@ def foot_contacts(
     method: str = "combined",
     coords: npt.NDArray[np.float64] | None = None,
     *,
-    vel_threshold: float | None = None,
-    vel_smooth_duration: float = 1.0 / 30.0,
-    height_threshold: float | None = None,
-    floor: float | str = "auto",
+    vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = None,
+    vel_smooth_duration: float | None = None,
+    height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = None,
+    floor: float | str | None = None,
     min_contact_duration: float = 0.1,
     min_gap_duration: float = 0.1,
     hysteresis: float = 0.25,
     adaptive: bool = False,
-    height_reference: str = "velocity",
+    height_reference: str | None = None,
     return_info: bool = False,
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """Detect binary foot contact labels per frame.
@@ -955,12 +955,15 @@ def foot_contacts(
     ``method="velocity"`` and ``method="height"`` remain available as
     single-signal escape hatches.
 
+    Each method reads its own settings, and a setting given that the chosen method does not read raises a ``ValueError`` instead of being ignored: ``method="velocity"`` reads ``vel_threshold`` and ``vel_smooth_duration``; ``method="height"`` reads ``height_threshold`` and ``floor``; ``method="combined"`` reads all four, and ``height_reference`` when ``height_threshold`` is not given. Every method reads ``min_contact_duration``, ``min_gap_duration`` and ``hysteresis``, and ``adaptive`` where it leaves a threshold to derive. The settings some method does not read default to ``None``, which stands for the default named under each.
+
     Parameters
     ----------
     bvh : Bvh
         Input motion.
     foot_joints : list of str or None, optional
-        Explicit foot joints (recommended). If None, falls back to
+        Explicit foot joints by name (recommended); unlike
+        :func:`ground_contacts`, no node indices. If None, falls back to
         :func:`auto_detect_foot_joints` which matches ``"foot"``/
         ``"toe"`` substrings then filters by skeletal topology.
     method : {"combined", "velocity", "height"}, optional
@@ -974,8 +977,11 @@ def foot_contacts(
         ``centered="first"`` output) — per-frame centerings such as
         ``centered="skeleton"`` distort the foot-speed signal.  If
         None, world-frame positions are computed internally.
-    vel_threshold : float or None, keyword-only, optional
-        Speed threshold in world units **per second**.  Defaults to
+    vel_threshold : float, array_like of shape (n_joints,), or None, keyword-only, optional
+        Speed threshold in world units **per second**, finite and above
+        zero: one value for every joint, or one per joint in the order of
+        the contacts' columns, such as a :class:`~pybvh.ContactReport`'s
+        ``vel_threshold`` passed back.  ``None`` (default) derives it:
         ``0.12 × skeleton_scale`` u/s where ``skeleton_scale`` is the
         mean rest-pose distance from the root to the foot joints
         (equivalent to the pre-v0.8 ``0.004 × skeleton_scale`` per
@@ -983,7 +989,7 @@ def foot_contacts(
         skeletons, and unaffected by finger/spine subdivision (unlike
         a median-bone-length reference, which shrinks when a skeleton
         has many short finger bones).
-    vel_smooth_duration : float, keyword-only, optional
+    vel_smooth_duration : float or None, keyword-only, optional
         Physical time span (seconds) the foot-speed estimator is
         conditioned over before thresholding.  Displacement vectors are
         box-averaged over ``max(1, round(vel_smooth_duration /
@@ -994,21 +1000,25 @@ def foot_contacts(
         differencing at 120 fps picks up high-frequency jitter that
         30 fps differencing averages out, splitting genuine stance
         phases.  Averaging the vectors (norm-of-mean, not
-        mean-of-norms) lets oscillatory jitter cancel.  Default
-        ``1/30`` s — a 1-frame no-op at ≤ 30 fps (labels identical to
+        mean-of-norms) lets oscillatory jitter cancel.  ``None``
+        (default) means ``1/30`` s — a 1-frame no-op at ≤ 30 fps (labels identical to
         the raw signal there), 4 frames at 120 fps.  Set ``0.0`` to
         disable (raw adjacent-frame differencing).  Trade-off: a
         single-frame glitch smears over up to one window (~33 ms), the
         same timescale the duration filters already treat as noise.
         Applies to the velocity signal only; the height signal is
         position-level and is never smoothed.
-    height_threshold : float or None, keyword-only, optional
-        Clearance above the estimated floor, in world units.  Defaults
-        to ``0.013 × skeleton_scale``.  A foot is "low enough" when
+    height_threshold : float, array_like of shape (n_joints,), or None, keyword-only, optional
+        Clearance above the estimated floor, in world units, finite and
+        above zero: one value for every joint, or one per joint, as
+        ``vel_threshold``.  ``None`` (default) derives it: the
+        ``0.013 × skeleton_scale`` margin, anchored as
+        ``height_reference`` says under ``method="combined"``, or split
+        by ``adaptive``.  A foot is "low enough" when
         ``foot_height − floor < height_threshold``.
-    floor : float, ``"auto"`` or ``"min"``, keyword-only, optional
+    floor : float, ``"auto"``, ``"min"`` or None, keyword-only, optional
         Height of the reference the clearance is measured against, along
-        the raw ``world_up`` axis.  ``"auto"`` (default) estimates it as
+        the raw ``world_up`` axis.  ``"auto"`` (what ``None``, the default, means) estimates it as
         the 2nd percentile of the per-frame minimum foot height — robust
         to occasional spurious low frames — over the ``coords`` and the
         feet actually in use.  ``"min"`` uses the true minimum instead —
@@ -1039,7 +1049,7 @@ def foot_contacts(
         exceeds the velocity threshold even though the physical foot
         is planted.  Set to ``0.0`` to disable.
     hysteresis : float, keyword-only, optional
-        Schmitt-trigger band fraction (default ``0.25``). A frame enters
+        Schmitt-trigger band fraction, in ``[0, 1)`` (default ``0.25``). A frame enters
         swing only when its signal rises above ``threshold*(1+hysteresis)``
         and a contact is kept only if it ever drops below
         ``threshold*(1-hysteresis)`` — so an isolated dip near the
@@ -1055,10 +1065,14 @@ def foot_contacts(
         Default ``False``; recommended for known-locomotion clips where the
         fixed threshold under- or over-detects.  :func:`gait_parameters`
         enables this by default — calling it declares the clip is
-        locomotion.
-    height_reference : {"velocity", "floor"}, keyword-only, optional
+        locomotion.  ``adaptive=True`` raises where it has no threshold to
+        derive: every threshold the method reads given, or, under
+        ``"combined"`` with ``height_reference="velocity"``, a
+        ``vel_threshold`` given (the height threshold is then calibrated on
+        the stance frames, not split).
+    height_reference : {"velocity", "floor"} or None, keyword-only, optional
         How the default ``height_threshold`` is anchored (only used with ``method="combined"`` when ``height_threshold`` is None).
-        ``"velocity"`` (default): per-foot stance-median calibration — each foot's threshold is set from the median of its clearance over the frames where that foot is slow (speed below ``vel_threshold``, default ``0.12 × skeleton_scale`` u/s), so retargeted mocap whose feet hover above the estimated floor still detects stance; on rigs whose feet reach the floor this reduces to the ``"floor"`` margin.
+        ``"velocity"`` (what ``None``, the default, means): per-foot stance-median calibration — each foot's threshold is set from the median of its clearance over the frames where that foot is slow (speed below ``vel_threshold``, default ``0.12 × skeleton_scale`` u/s), so retargeted mocap whose feet hover above the estimated floor still detects stance; on rigs whose feet reach the floor this reduces to the ``"floor"`` margin.
         ``"floor"``: the fixed ``0.013 × skeleton_scale`` margin above the estimated floor — no per-foot calibration.
         The stance calibration presumes the joints contact the ground regularly; for arbitrary (non-foot) joint sets, :func:`ground_contacts` defaults to ``"floor"`` for exactly that reason.
     return_info : bool, keyword-only, optional
@@ -1087,24 +1101,34 @@ def foot_contacts(
     ------
     ValueError
         - If ``method`` or ``height_reference`` is unknown.
+        - If a setting is given that ``method`` does not read: ``height_threshold``, ``floor`` or ``height_reference`` under ``"velocity"``; ``vel_threshold``, ``vel_smooth_duration`` or ``height_reference`` under ``"height"``; ``height_reference`` with a ``height_threshold`` given; ``adaptive=True`` with no threshold to derive.
         - If ``floor`` is a string other than ``"auto"`` or ``"min"``.
         - If no foot joints can be found or any named joint is
           missing from the skeleton.
         - If ``foot_joints`` is explicitly an empty list — contact
           detection needs at least one joint.
-        - If ``vel_smooth_duration`` is negative.
+        - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
         - When the height signal is involved and ``bvh.world_up`` is
           inconsistent with rest-pose geometry (feet above hips).
         - If ``frame_time == 0`` and the velocity signal (units/second)
           or a nonzero duration filter needs a time base.
+    TypeError
+        If a ``foot_joints`` entry is not a joint name (``str``): a node-space index ``i`` is named by ``bvh.nodes[i].name``.
 
     See Also
     --------
     ground_contacts : The same detection engine for arbitrary (non-foot) joint sets — hands, knees, props.
     auto_detect_foot_joints : The detection used when ``foot_joints`` is None.
     """
+    # ground_contacts takes node indices too; foot_contacts takes names only.
+    for joint in foot_joints or ():
+        if not isinstance(joint, str):
+            raise TypeError(
+                f"foot_joints takes joint names (str), got {type(joint).__name__} {joint!r}; "
+                "to name the node at node-space index i, pass bvh.nodes[i].name"
+            )
     joint_names, joint_indices = _resolve_contact_joints(bvh, foot_joints)
-    settings = _contacts._ContactSettings(
+    settings = _contacts._ContactSettings.gather(
         method=method,
         vel_threshold=vel_threshold,
         vel_smooth_duration=vel_smooth_duration,
@@ -1115,6 +1139,8 @@ def foot_contacts(
         hysteresis=hysteresis,
         adaptive=adaptive,
         height_reference=height_reference,
+        default_height_reference="velocity",
+        num_joints=len(joint_names),
     )
     return _contacts_on_clip(
         bvh,
@@ -1134,15 +1160,15 @@ def ground_contacts(
     method: str = ...,
     coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: float | None = ...,
-    vel_smooth_duration: float = ...,
-    height_threshold: float | None = ...,
-    floor: float | str = ...,
+    vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+    vel_smooth_duration: float | None = ...,
+    height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+    floor: float | str | None = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
     hysteresis: float = ...,
     adaptive: bool = ...,
-    height_reference: str = ...,
+    height_reference: str | None = ...,
     return_info: Literal[False] = ...,
 ) -> npt.NDArray[np.float64]: ...
 @overload
@@ -1152,15 +1178,15 @@ def ground_contacts(
     method: str = ...,
     coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: float | None = ...,
-    vel_smooth_duration: float = ...,
-    height_threshold: float | None = ...,
-    floor: float | str = ...,
+    vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+    vel_smooth_duration: float | None = ...,
+    height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+    floor: float | str | None = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
     hysteresis: float = ...,
     adaptive: bool = ...,
-    height_reference: str = ...,
+    height_reference: str | None = ...,
     return_info: Literal[True],
 ) -> tuple[npt.NDArray[np.float64], _contacts.ContactReport]: ...
 @overload
@@ -1170,15 +1196,15 @@ def ground_contacts(
     method: str = ...,
     coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: float | None = ...,
-    vel_smooth_duration: float = ...,
-    height_threshold: float | None = ...,
-    floor: float | str = ...,
+    vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+    vel_smooth_duration: float | None = ...,
+    height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
+    floor: float | str | None = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
     hysteresis: float = ...,
     adaptive: bool = ...,
-    height_reference: str = ...,
+    height_reference: str | None = ...,
     return_info: bool,
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]: ...
 def ground_contacts(
@@ -1187,15 +1213,15 @@ def ground_contacts(
     method: str = "combined",
     coords: npt.NDArray[np.float64] | None = None,
     *,
-    vel_threshold: float | None = None,
-    vel_smooth_duration: float = 1.0 / 30.0,
-    height_threshold: float | None = None,
-    floor: float | str = "auto",
+    vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = None,
+    vel_smooth_duration: float | None = None,
+    height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = None,
+    floor: float | str | None = None,
     min_contact_duration: float = 0.1,
     min_gap_duration: float = 0.1,
     hysteresis: float = 0.25,
     adaptive: bool = False,
-    height_reference: str = "floor",
+    height_reference: str | None = None,
     return_info: bool = False,
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """Detect ground-contact labels for an arbitrary set of joints.
@@ -1216,9 +1242,9 @@ def ground_contacts(
     coords : ndarray, shape (F, N, 3), optional
         Pre-computed **world-frame** positions (or a constant translation thereof), as in :func:`foot_contacts`.
     vel_threshold, vel_smooth_duration, height_threshold, floor, min_contact_duration, min_gap_duration, hysteresis, adaptive : keyword-only, optional
-        Same meaning and defaults as in :func:`foot_contacts`. The auto thresholds scale by the mean rest-pose distance from the root to the **given** joints (the same skeleton-scale rule, applied to this joint set) — so the defaults stay proportionate for short chains like hands. Mind the ``floor="auto"`` warning above.
-    height_reference : {"floor", "velocity"}, keyword-only, optional
-        Default ``"floor"`` — the fixed ``0.013 × skeleton_scale`` margin above the floor. ``"velocity"`` enables :func:`foot_contacts`' per-joint stance calibration; only use it when the joints ground regularly enough to have stance statistics.
+        Same meaning and defaults as in :func:`foot_contacts`, read by the same methods (a setting given that the method does not read raises). The auto thresholds scale by the mean rest-pose distance from the root to the **given** joints (the same skeleton-scale rule, applied to this joint set) — so the defaults stay proportionate for short chains like hands. Mind the ``floor="auto"`` warning above.
+    height_reference : {"floor", "velocity"} or None, keyword-only, optional
+        ``None`` (default) means ``"floor"``: the fixed ``0.013 × skeleton_scale`` margin above the floor. ``"velocity"`` enables :func:`foot_contacts`' per-joint stance calibration; only use it when the joints ground regularly enough to have stance statistics.
     return_info : bool, keyword-only, optional
         As in :func:`foot_contacts`; the report's ``joints`` always holds the resolved **names** (indices are mapped back through ``bvh.nodes``).
 
@@ -1231,10 +1257,11 @@ def ground_contacts(
     ------
     ValueError
         - If ``method`` or ``height_reference`` is unknown.
+        - If a setting is given that ``method`` does not read, as in :func:`foot_contacts`.
         - If ``floor`` is a string other than ``"auto"`` or ``"min"``.
         - If ``joints`` is empty — contact detection needs at least one joint.
         - If a joint name is not in the skeleton.
-        - If ``vel_smooth_duration`` is negative.
+        - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
         - If ``frame_time == 0`` and the velocity signal (units/second) or a nonzero duration filter needs a time base.
     TypeError
         If a ``joints`` entry is neither a str nor an int (``bool`` is rejected explicitly — ``True``/``False`` silently indexing nodes 1/0 would be a trap).
@@ -1246,7 +1273,7 @@ def ground_contacts(
     foot_contacts : The foot-specialized entry point (auto-detection, rest-pose sanity check, ``height_reference="velocity"`` default).
     """
     joint_names, joint_indices = _resolve_contact_joints(bvh, joints)
-    settings = _contacts._ContactSettings(
+    settings = _contacts._ContactSettings.gather(
         method=method,
         vel_threshold=vel_threshold,
         vel_smooth_duration=vel_smooth_duration,
@@ -1257,6 +1284,8 @@ def ground_contacts(
         hysteresis=hysteresis,
         adaptive=adaptive,
         height_reference=height_reference,
+        default_height_reference="floor",
+        num_joints=len(joint_names),
     )
     return _contacts_on_clip(
         bvh,

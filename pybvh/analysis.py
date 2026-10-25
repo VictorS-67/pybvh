@@ -1674,29 +1674,30 @@ def auto_detect_foot_joints(bvh: Bvh) -> list[str]:
     return [n.name for n in most_distal]
 
 
+def _rest_distance_to_root(
+    joint_rest: npt.NDArray[np.float64],
+    root_rest: npt.NDArray[np.float64],
+) -> float | None:
+    """Mean rest-pose distance from the root to the joints, or None when it measures nothing.
+
+    ``joint_rest`` is ``(n_joints, 3)``, ``root_rest`` ``(3,)``. The distance is Euclidean, so it does not depend on the rest pose's orientation, and only the joints given contribute, so finger or spine subdivision leaves it alone: on the feet it is roughly half a humanoid's height, and it scales linearly with the whole skeleton. ``None`` when no joint is given or every joint sits on the root. The one measurement behind :func:`skeleton_size`, which raises on ``None``, and the skeleton scale of the contact detectors' default thresholds, which use ``1.0`` in its place.
+    """
+    dists = [float(np.linalg.norm(position - root_rest)) for position in joint_rest]
+    if not dists or max(dists) <= 0:
+        return None
+    return float(np.mean(dists))
+
+
 def _skeleton_scale(
     rest_coords: npt.NDArray[np.float64],
     foot_indices: list[int],
 ) -> float:
-    """Scale reference for ``foot_contacts`` thresholds.
+    """Scale reference for the contact detectors' default thresholds.
 
-    Defined as the mean Euclidean rest-pose distance from the root
-    (index 0) to the foot joints.  Independent of rest-pose
-    orientation (no axis projection) and unaffected by finger/spine
-    subdivision, because only the leg chain contributes.
-
-    For a humanoid this is roughly half of skeleton height; the
-    absolute value matters less than the fact that it scales linearly
-    with the whole skeleton.
+    The mean rest-pose distance from the root (index 0) to the tested joints, :func:`skeleton_size`'s measurement. Where it measures nothing (every joint sits on the root) the scale is ``1.0``, so the thresholds don't collapse to zero: the public :func:`skeleton_size` raises instead of fabricating, but a threshold scale must exist even where a measurement does not.
     """
-    root = rest_coords[0]
-    dists = [float(np.linalg.norm(rest_coords[i] - root)) for i in foot_indices]
-    # Fallback: if all feet sit on the root (degenerate rig), use 1.0 so
-    # thresholds don't collapse to zero.  Callers should not hit this in
-    # practice — auto-detection requires tip descendants.  Deliberately
-    # private: the public `skeleton_size` raises instead of fabricating,
-    # but a threshold scale must exist even where a measurement does not.
-    return float(np.mean(dists)) if dists and max(dists) > 0 else 1.0
+    distance = _rest_distance_to_root(rest_coords[foot_indices], rest_coords[0])
+    return 1.0 if distance is None else distance
 
 
 def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
@@ -1760,16 +1761,15 @@ def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
             raise ValueError(f"skeleton_size: joint names {unknown} not found in skeleton.")
     rest_coords = bvh._rest_pose()
     foot_indices = [bvh.node_index[name] for name in foot_joints]
-    root = rest_coords[0]
-    dists = [float(np.linalg.norm(rest_coords[i] - root)) for i in foot_indices]
-    if not dists or max(dists) <= 0:
+    distance = _rest_distance_to_root(rest_coords[foot_indices], rest_coords[0])
+    if distance is None:
         raise ValueError(
             "skeleton_size: every foot joint coincides with the root in the "
             "rest pose, so this skeleton has no measurable size. Pass "
             "different foot_joints=, or catch this error and choose your "
             "own scale."
         )
-    return float(np.mean(dists))
+    return distance
 
 
 def relative_scale_factor(

@@ -16,12 +16,18 @@ import numpy.typing as npt
 from . import geometry
 from .signal import box_filter_smooth
 
+# The defaults of the settings that some method does not read: the entry
+# points' keywords default to None, so that a setting given is told from one
+# left out, and gather() puts these in place.
+_DEFAULT_VEL_SMOOTH_DURATION = 1.0 / 30.0
+_DEFAULT_FLOOR = "auto"
+
 
 @dataclass(frozen=True, kw_only=True)
 class _ContactSettings:
     """The settings of one contact detection, gathered once at the detector's entry point.
 
-    :func:`pybvh.analysis.foot_contacts` and :func:`pybvh.analysis.ground_contacts` declare these settings as keywords, document them and give their defaults; they build this object from them, and what lies below the entry points receives it instead of the keywords. Construction validates the values, so the detector works with settings already checked. The fields are the entry points' parameters of the same names.
+    :func:`pybvh.analysis.foot_contacts` and :func:`pybvh.analysis.ground_contacts` declare these settings as keywords and document them; they build this object from them with :meth:`gather`, which validates the call and puts the defaults in place, and what lies below the entry points receives it instead of the keywords. The fields are the entry points' parameters of the same names, with every default resolved.
     """
 
     method: str
@@ -35,21 +41,58 @@ class _ContactSettings:
     adaptive: bool
     height_reference: str
 
-    def __post_init__(self) -> None:
-        if self.method not in ("velocity", "height", "combined"):
+    @classmethod
+    def gather(
+        cls,
+        *,
+        method: str,
+        vel_threshold: float | None,
+        vel_smooth_duration: float | None,
+        height_threshold: float | None,
+        floor: float | str | None,
+        min_contact_duration: float,
+        min_gap_duration: float,
+        hysteresis: float,
+        adaptive: bool,
+        height_reference: str | None,
+        default_height_reference: str,
+    ) -> _ContactSettings:
+        """The settings of one call, checked, with each setting left at ``None`` given its default.
+
+        ``default_height_reference`` is the detector's own default for ``height_reference``: ``"velocity"`` for :func:`pybvh.analysis.foot_contacts`, ``"floor"`` for :func:`pybvh.analysis.ground_contacts`.
+        """
+        if method not in ("velocity", "height", "combined"):
             raise ValueError(
-                f"Unknown method {self.method!r}. Choose 'combined', 'velocity', or 'height'."
+                f"Unknown method {method!r}. Choose 'combined', 'velocity', or 'height'."
             )
-        if self.height_reference not in ("velocity", "floor"):
+        if height_reference is None:
+            height_reference = default_height_reference
+        if height_reference not in ("velocity", "floor"):
             raise ValueError(
-                f"height_reference must be 'velocity' or 'floor', got {self.height_reference!r}"
+                f"height_reference must be 'velocity' or 'floor', got {height_reference!r}"
             )
-        if isinstance(self.floor, str) and self.floor not in ("auto", "min"):
-            raise ValueError(f"floor must be 'auto', 'min' or a float, got {self.floor!r}")
-        if self.vel_smooth_duration < 0:
+        if floor is None:
+            floor = _DEFAULT_FLOOR
+        if isinstance(floor, str) and floor not in ("auto", "min"):
+            raise ValueError(f"floor must be 'auto', 'min' or a float, got {floor!r}")
+        if vel_smooth_duration is None:
+            vel_smooth_duration = _DEFAULT_VEL_SMOOTH_DURATION
+        if vel_smooth_duration < 0:
             raise ValueError(
-                f"vel_smooth_duration must be >= 0 (seconds), got {self.vel_smooth_duration}"
+                f"vel_smooth_duration must be >= 0 (seconds), got {vel_smooth_duration}"
             )
+        return cls(
+            method=method,
+            vel_threshold=vel_threshold,
+            vel_smooth_duration=vel_smooth_duration,
+            height_threshold=height_threshold,
+            floor=floor,
+            min_contact_duration=min_contact_duration,
+            min_gap_duration=min_gap_duration,
+            hysteresis=hysteresis,
+            adaptive=adaptive,
+            height_reference=height_reference,
+        )
 
     @property
     def reads_velocity(self) -> bool:

@@ -1207,19 +1207,12 @@ def test_floor_height_ignores_one_glitched_frame():
     """
     bvh = _make_toed_skeleton(n_frames=100)
     clean = bvh.floor_height
-    coords = bvh.node_positions()
-    glitched = coords.copy()
-    glitched[4, bvh.node_index["LeftToeBase"], 2] -= 500.0
-    up_idx, up_sign, _ = bvh.world_up_axis
-    estimate = analysis._floor_from_coords(glitched, list(range(coords.shape[1])), up_idx, up_sign)
-    assert estimate == pytest.approx(clean, abs=1e-9)
-    # ... while the true minimum would follow it all the way down.
-    assert (
-        analysis._floor_from_coords(
-            glitched, list(range(coords.shape[1])), up_idx, up_sign, percentile=0.0
-        )
-        < clean - 400.0
-    )
+    root_pos = bvh.root_pos.copy()
+    root_pos[4, 2] -= 500.0  # the whole body drops 500 units for one frame
+    bvh.root_pos = root_pos
+    assert bvh.floor_height == pytest.approx(clean, abs=1e-9)
+    # ... while the true minimum follows it all the way down.
+    assert bvh.node_positions()[:, :, 2].min() < clean - 400.0
 
 
 def test_floor_height_negative_up_raw_coords_and_copy():

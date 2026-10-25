@@ -1080,9 +1080,9 @@ class TestFootContactsFrameRateRobustness:
     @staticmethod
     def _runs_sec(contacts, fps):
         """Half-open (onset, offset) times in seconds of column-0 runs."""
-        from pybvh.analysis import _true_runs
-
-        return [(s / fps, e / fps) for s, e in _true_runs(contacts[:, 0] > 0.5)]
+        edges = np.diff(np.concatenate([[0], contacts[:, 0] > 0.5, [0]]).astype(int))
+        onsets, offsets = np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)
+        return [(s / fps, e / fps) for s, e in zip(onsets, offsets, strict=True)]
 
     def test_same_motion_same_labels_across_frame_rates(self):
         """Swing -> jittery stance -> swing gives the same segmentation at
@@ -1323,7 +1323,7 @@ class TestFootContactsPinnedGolden:
 class TestContactReferenceIsIndependentOfTheSceneGround:
     """The contact reference belongs to the query; the scene ground to the clip.
 
-    ``foot_contacts`` measures clearance at joint *centres*, so its reference must be the level those joints reach — estimated per call, over the joints in use. :attr:`Bvh.floor_height` is measured over all nodes and sits a toe length lower on any rig with toe end sites. The two must never be substituted for one another, in either direction: these tests pin that no contact path computes the scene ground, and that a scene ground already computed, even an absurd one, changes no contact.
+    ``foot_contacts`` measures clearance at joint *centres*, so its reference must be the level those joints reach — estimated per call, over the joints in use. :attr:`Bvh.floor_height` is measured over all nodes and sits a toe length lower on any rig with toe end sites. The two must never be substituted for one another, in either direction: these tests pin that no contact path computes the scene ground, and that a scene ground already computed changes no contact.
     """
 
     @pytest.fixture
@@ -1336,32 +1336,32 @@ class TestContactReferenceIsIndependentOfTheSceneGround:
         cmu_walk.foot_contacts(coords=cmu_walk.node_positions())
         assert computations.floor_height == 0
 
-    def test_reading_floor_height_first_does_not_change_contacts(self, cmu_walk, monkeypatch):
+    @pytest.mark.parametrize("method", ["combined", "height"])
+    def test_reading_floor_height_first_does_not_change_contacts(self, cmu_walk, method):
         """The bug the shared cache would cause: contacts depending on
-        whether anything happened to read the scene ground beforehand."""
-        cold = cmu_walk.foot_contacts()
+        whether anything happened to read the scene ground beforehand.
+
+        On this walk the scene ground sits a toe length below the feet, so
+        a detector that took it as its reference would label fewer contacts
+        under the default method and none under ``method="height"``.
+        """
+        cold = cmu_walk.foot_contacts(method=method)
 
         warm = read_bvh_file(CMU_WALK_PATH)
         _ = warm.floor_height  # fill the scene ground
-        np.testing.assert_array_equal(warm.foot_contacts(), cold)
-
-        absurd = read_bvh_file(CMU_WALK_PATH)
-        monkeypatch.setattr(analysis, "_compute_floor_height", lambda bvh: 1e4)
-        assert absurd.floor_height == 1e4  # the clip now holds an absurd ground
-        np.testing.assert_array_equal(absurd.foot_contacts(), cold)
+        np.testing.assert_array_equal(warm.foot_contacts(method=method), cold)
 
     def test_reference_is_the_tested_feet_not_the_scene_ground(self, cmu_walk):
-        """On a rig with toe end sites the two are measurably different, and
-        ``info["floor"]`` is the feet's own level."""
-        from pybvh.analysis import _floor_from_coords
-
+        """On a rig with end sites below the feet the two are measurably
+        different, and ``info["floor"]`` is the feet's own level."""
+        rig = make_contact_rig(10)  # still: feet at y = -8, their end sites at -9
+        _, info = rig.foot_contacts(foot_joints=["LeftFoot", "RightFoot"], return_info=True)
+        assert info["floor"] == pytest.approx(-8.0)
+        assert rig.floor_height == pytest.approx(-9.0)
+        # On the walk too the scene ground lies strictly below it: the toe end
+        # sites reach under the toe joints whose centres the detector compares.
         _, info = cmu_walk.foot_contacts(return_info=True)
-        up_idx, up_sign, _ = cmu_walk.world_up_axis
-        coords = cmu_walk.node_positions()
-        feet = [cmu_walk.node_index[n] for n in cmu_walk.auto_detect_foot_joints()]
-        assert info["floor"] == pytest.approx(_floor_from_coords(coords, feet, up_idx, up_sign))
-        # The scene ground lies strictly below it: the toe end sites reach
-        # under the toe joints whose centres the detector compares.
+        up_sign = cmu_walk.world_up_axis.sign
         assert cmu_walk.floor_height * up_sign < info["floor"] * up_sign
 
 

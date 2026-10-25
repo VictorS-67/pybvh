@@ -1560,10 +1560,17 @@ class TestWhatACallMayPass:
     @pytest.mark.parametrize(
         "setting", ["vel_smooth_duration", "min_contact_duration", "min_gap_duration"]
     )
-    def test_a_negative_duration_is_refused(self, detect, setting):
+    @pytest.mark.parametrize("value", [-0.1, np.inf, np.nan])
+    def test_a_duration_not_finite_and_non_negative_is_refused(self, detect, setting, value):
         rig, coords = _still_rig()
-        with pytest.raises(ValueError, match=rf"^{setting} must be >= 0"):
-            detect(rig, coords=coords, **{setting: -0.1})
+        with pytest.raises(ValueError, match=rf"^{setting} must be finite and >= 0"):
+            detect(rig, coords=coords, **{setting: value})
+
+    @pytest.mark.parametrize("value", [np.inf, -np.inf, np.nan])
+    def test_a_floor_not_finite_is_refused(self, detect, value):
+        rig, coords = _still_rig()
+        with pytest.raises(ValueError, match=r"^floor must be 'auto', 'min' or a finite float"):
+            detect(rig, method="height", coords=coords, floor=value)
 
     @pytest.mark.parametrize("setting", ["vel_threshold", "height_threshold"])
     @pytest.mark.parametrize("value", [0.0, -1.0, np.inf, np.nan])
@@ -1667,7 +1674,7 @@ class TestWhatACallMayPassReproductions:
         ("settings", "refusal"),
         [
             ({"hysteresis": -1.0}, "hysteresis must be in"),
-            ({"min_contact_duration": -1.0}, "min_contact_duration must be >= 0"),
+            ({"min_contact_duration": -1.0}, "min_contact_duration must be finite and >= 0"),
             ({"vel_threshold": 0.0}, "vel_threshold must be finite and > 0"),
         ],
     )

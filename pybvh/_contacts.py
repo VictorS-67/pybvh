@@ -155,12 +155,13 @@ def _checked_height_reference(height_reference: str) -> _HeightReference:
 
 
 def _checked_floor(floor: float | str) -> float | _FloorEstimate:
-    """``floor``, refused unless it is ``"auto"``, ``"min"`` or a float."""
+    """``floor``, refused unless it is ``"auto"``, ``"min"`` or a finite float."""
     if isinstance(floor, str):
-        if floor not in get_args(_FloorEstimate):
-            raise ValueError(f"floor must be 'auto', 'min' or a float, got {floor!r}")
-        return cast(_FloorEstimate, floor)
-    return floor
+        if floor in get_args(_FloorEstimate):
+            return cast(_FloorEstimate, floor)
+    elif np.isfinite(floor):
+        return floor
+    raise ValueError(f"floor must be 'auto', 'min' or a finite float, got {floor!r}")
 
 
 def _refuse_unread_settings(
@@ -209,10 +210,10 @@ def _refuse_unread_settings(
 
 
 def _check_durations(**durations: float) -> None:
-    """Refuse a duration (seconds) below zero; each keyword names its setting."""
+    """Refuse a duration (seconds) not finite or below zero; each keyword names its setting."""
     for name, duration in durations.items():
-        if not duration >= 0:
-            raise ValueError(f"{name} must be >= 0 (seconds), got {duration}")
+        if not (np.isfinite(duration) and duration >= 0):
+            raise ValueError(f"{name} must be finite and >= 0 (seconds), got {duration}")
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)

@@ -1111,12 +1111,12 @@ def foot_contacts(
     ValueError
         - If ``method`` or ``height_reference`` is unknown.
         - If a setting is given that ``method`` does not read: ``height_threshold``, ``floor`` or ``height_reference`` under ``"velocity"``; ``vel_threshold``, ``vel_smooth_duration`` or ``height_reference`` under ``"height"``; ``height_reference`` with a ``height_threshold`` given; ``adaptive=True`` with no threshold to derive.
-        - If ``floor`` is a string other than ``"auto"`` or ``"min"``.
+        - If ``floor`` is a string other than ``"auto"`` or ``"min"``, or a float that is not finite.
         - If no foot joints can be found or any named joint is
           missing from the skeleton.
         - If ``foot_joints`` is explicitly an empty list — contact
           detection needs at least one joint.
-        - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
+        - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative or not finite, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
         - When the height signal is involved and ``bvh.world_up`` is
           inconsistent with rest-pose geometry (feet above hips).
         - If ``frame_time == 0`` and the velocity signal (units/second)
@@ -1267,10 +1267,10 @@ def ground_contacts(
     ValueError
         - If ``method`` or ``height_reference`` is unknown.
         - If a setting is given that ``method`` does not read, as in :func:`foot_contacts`.
-        - If ``floor`` is a string other than ``"auto"`` or ``"min"``.
+        - If ``floor`` is a string other than ``"auto"`` or ``"min"``, or a float that is not finite.
         - If ``joints`` is empty — contact detection needs at least one joint.
         - If a joint name is not in the skeleton.
-        - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
+        - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative or not finite, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
         - If ``frame_time == 0`` and the velocity signal (units/second) or a nonzero duration filter needs a time base.
     TypeError
         If a ``joints`` entry is neither a str nor an int (``bool`` is rejected explicitly — ``True``/``False`` silently indexing nodes 1/0 would be a trap).

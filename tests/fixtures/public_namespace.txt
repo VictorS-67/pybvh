@@ -78,7 +78,6 @@ pybvh.analysis.active_duration
 pybvh.analysis.active_segments
 pybvh.analysis.angular_velocities
 pybvh.analysis.auto_detect_foot_joints
-pybvh.analysis.box_filter_smooth
 pybvh.analysis.cadence
 pybvh.analysis.cov3dj
 pybvh.analysis.dimensionless_jerk

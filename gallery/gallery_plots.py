@@ -17,7 +17,7 @@ import numpy as np
 from matplotlib import animation
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-from pybvh import analysis, geometry, rotations, signal, tools
+from pybvh import _contacts, analysis, geometry, rotations, signal, tools
 from pybvh.bvhplot import get_skeleton_lines
 
 # Clips are committed to the repo and served to the docs page, where they
@@ -507,7 +507,7 @@ def fig_foot_contacts_signals(bvh, foot_joints, foot=0):
         (a2, clearance[:, foot], float(hthr.flat[foot % hthr.size]), "clearance above floor (u)"),
     ]
     for a, sig, thr, ylab in panels:
-        for s, e in analysis._true_runs(planted):
+        for s, e in _contacts._true_runs(planted):
             a.axvspan(t[s], t[e - 1], color="tab:green", alpha=0.18)
         a.plot(t, sig, color="tab:blue")
         a.axhline(thr, ls="--", color="k", lw=1, label=f"threshold = {thr:.2f}")

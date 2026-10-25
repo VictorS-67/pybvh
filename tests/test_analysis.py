@@ -1364,6 +1364,17 @@ class TestContactReferenceIsIndependentOfTheSceneGround:
         up_sign = cmu_walk.world_up_axis.sign
         assert cmu_walk.floor_height * up_sign < info["floor"] * up_sign
 
+    def test_over_every_node_the_reference_is_the_scene_ground(self, cmu_walk, computations):
+        """The two quantities differ in the nodes they are estimated over, not in the
+        estimate: tested over every node, the contact reference is the scene ground,
+        to the bit, and the detector still computes no scene ground to get it."""
+        every_node = list(range(len(cmu_walk.nodes)))
+        _, info = cmu_walk.ground_contacts(
+            every_node, method="height", height_threshold=1.0, return_info=True
+        )
+        assert computations.floor_height == 0
+        assert info["floor"] == cmu_walk.floor_height
+
 
 class TestGroundContacts:
     """analysis.ground_contacts — the contact engine for arbitrary joint sets (round-3 request).

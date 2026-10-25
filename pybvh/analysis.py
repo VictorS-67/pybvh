@@ -883,9 +883,9 @@ def foot_contacts(
     method: str = ...,
     coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: float | None = ...,
+    vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
     vel_smooth_duration: float | None = ...,
-    height_threshold: float | None = ...,
+    height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
     floor: float | str | None = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
@@ -901,9 +901,9 @@ def foot_contacts(
     method: str = ...,
     coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: float | None = ...,
+    vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
     vel_smooth_duration: float | None = ...,
-    height_threshold: float | None = ...,
+    height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
     floor: float | str | None = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
@@ -919,9 +919,9 @@ def foot_contacts(
     method: str = ...,
     coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: float | None = ...,
+    vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
     vel_smooth_duration: float | None = ...,
-    height_threshold: float | None = ...,
+    height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
     floor: float | str | None = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
@@ -936,9 +936,9 @@ def foot_contacts(
     method: str = "combined",
     coords: npt.NDArray[np.float64] | None = None,
     *,
-    vel_threshold: float | None = None,
+    vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = None,
     vel_smooth_duration: float | None = None,
-    height_threshold: float | None = None,
+    height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = None,
     floor: float | str | None = None,
     min_contact_duration: float = 0.1,
     min_gap_duration: float = 0.1,
@@ -976,8 +976,11 @@ def foot_contacts(
         ``centered="first"`` output) — per-frame centerings such as
         ``centered="skeleton"`` distort the foot-speed signal.  If
         None, world-frame positions are computed internally.
-    vel_threshold : float or None, keyword-only, optional
-        Speed threshold in world units **per second**.  Defaults to
+    vel_threshold : float, array_like of shape (n_joints,), or None, keyword-only, optional
+        Speed threshold in world units **per second**, finite and above
+        zero: one value for every joint, or one per joint in the order of
+        the contacts' columns, such as a :class:`~pybvh.ContactReport`'s
+        ``vel_threshold`` passed back.  ``None`` (default) derives it:
         ``0.12 × skeleton_scale`` u/s where ``skeleton_scale`` is the
         mean rest-pose distance from the root to the foot joints
         (equivalent to the pre-v0.8 ``0.004 × skeleton_scale`` per
@@ -1004,9 +1007,13 @@ def foot_contacts(
         same timescale the duration filters already treat as noise.
         Applies to the velocity signal only; the height signal is
         position-level and is never smoothed.
-    height_threshold : float or None, keyword-only, optional
-        Clearance above the estimated floor, in world units.  Defaults
-        to ``0.013 × skeleton_scale``.  A foot is "low enough" when
+    height_threshold : float, array_like of shape (n_joints,), or None, keyword-only, optional
+        Clearance above the estimated floor, in world units, finite and
+        above zero: one value for every joint, or one per joint, as
+        ``vel_threshold``.  ``None`` (default) derives it: the
+        ``0.013 × skeleton_scale`` margin, anchored as
+        ``height_reference`` says under ``method="combined"``, or split
+        by ``adaptive``.  A foot is "low enough" when
         ``foot_height − floor < height_threshold``.
     floor : float, ``"auto"``, ``"min"`` or None, keyword-only, optional
         Height of the reference the clearance is measured against, along
@@ -1123,6 +1130,7 @@ def foot_contacts(
         adaptive=adaptive,
         height_reference=height_reference,
         default_height_reference="velocity",
+        num_joints=len(joint_names),
     )
     return _contacts_on_clip(
         bvh,
@@ -1142,9 +1150,9 @@ def ground_contacts(
     method: str = ...,
     coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: float | None = ...,
+    vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
     vel_smooth_duration: float | None = ...,
-    height_threshold: float | None = ...,
+    height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
     floor: float | str | None = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
@@ -1160,9 +1168,9 @@ def ground_contacts(
     method: str = ...,
     coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: float | None = ...,
+    vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
     vel_smooth_duration: float | None = ...,
-    height_threshold: float | None = ...,
+    height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
     floor: float | str | None = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
@@ -1178,9 +1186,9 @@ def ground_contacts(
     method: str = ...,
     coords: npt.NDArray[np.float64] | None = ...,
     *,
-    vel_threshold: float | None = ...,
+    vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
     vel_smooth_duration: float | None = ...,
-    height_threshold: float | None = ...,
+    height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
     floor: float | str | None = ...,
     min_contact_duration: float = ...,
     min_gap_duration: float = ...,
@@ -1195,9 +1203,9 @@ def ground_contacts(
     method: str = "combined",
     coords: npt.NDArray[np.float64] | None = None,
     *,
-    vel_threshold: float | None = None,
+    vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = None,
     vel_smooth_duration: float | None = None,
-    height_threshold: float | None = None,
+    height_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = None,
     floor: float | str | None = None,
     min_contact_duration: float = 0.1,
     min_gap_duration: float = 0.1,
@@ -1267,6 +1275,7 @@ def ground_contacts(
         adaptive=adaptive,
         height_reference=height_reference,
         default_height_reference="floor",
+        num_joints=len(joint_names),
     )
     return _contacts_on_clip(
         bvh,

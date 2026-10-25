@@ -7,6 +7,7 @@ The contact reference is estimated here, over the tested joints, with :func:`pyb
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -25,6 +26,9 @@ _DEFAULT_FLOOR = "auto"
 _METHODS_READING_VELOCITY = ("velocity", "combined")
 _METHODS_READING_HEIGHT = ("height", "combined")
 
+# A threshold as a caller gives it: one value for every joint, or one per joint.
+_ThresholdArg = float | Sequence[float] | npt.NDArray[np.float64]
+
 
 @dataclass(frozen=True, kw_only=True)
 class _ContactSettings:
@@ -34,9 +38,9 @@ class _ContactSettings:
     """
 
     method: str
-    vel_threshold: float | None
+    vel_threshold: float | npt.NDArray[np.float64] | None
     vel_smooth_duration: float
-    height_threshold: float | None
+    height_threshold: float | npt.NDArray[np.float64] | None
     floor: float | str
     min_contact_duration: float
     min_gap_duration: float
@@ -49,9 +53,9 @@ class _ContactSettings:
         cls,
         *,
         method: str,
-        vel_threshold: float | None,
+        vel_threshold: _ThresholdArg | None,
         vel_smooth_duration: float | None,
-        height_threshold: float | None,
+        height_threshold: _ThresholdArg | None,
         floor: float | str | None,
         min_contact_duration: float,
         min_gap_duration: float,
@@ -59,10 +63,11 @@ class _ContactSettings:
         adaptive: bool,
         height_reference: str | None,
         default_height_reference: str,
+        num_joints: int,
     ) -> _ContactSettings:
         """The settings of one call, checked, with each setting left at ``None`` given its default.
 
-        ``default_height_reference`` is the detector's own default for ``height_reference``: ``"velocity"`` for :func:`pybvh.analysis.foot_contacts`, ``"floor"`` for :func:`pybvh.analysis.ground_contacts`.
+        ``default_height_reference`` is the detector's own default for ``height_reference``: ``"velocity"`` for :func:`pybvh.analysis.foot_contacts`, ``"floor"`` for :func:`pybvh.analysis.ground_contacts`. ``num_joints`` is the number of joints tested, the length a threshold given per joint must have; a threshold given is kept as a float or as a read-only ``(num_joints,)`` array.
         """
         if method not in ("velocity", "height", "combined"):
             raise ValueError(
@@ -122,15 +127,10 @@ class _ContactSettings:
                 raise ValueError(f"{name} must be >= 0 (seconds), got {duration}")
         if not 0 <= hysteresis < 1:
             raise ValueError(f"hysteresis must be in [0, 1), got {hysteresis}")
-        for name, threshold in (
-            ("vel_threshold", vel_threshold),
-            ("height_threshold", height_threshold),
-        ):
-            if threshold is None:
-                continue
-            values = np.asarray(threshold, dtype=np.float64)
-            if not np.all(np.isfinite(values) & (values > 0)):
-                raise ValueError(f"{name} must be finite and > 0, got {threshold}")
+        vel_threshold_checked = _checked_threshold("vel_threshold", vel_threshold, num_joints)
+        height_threshold_checked = _checked_threshold(
+            "height_threshold", height_threshold, num_joints
+        )
         if adaptive:
             # Under combined with height_reference="velocity" the stance
             # calibration, not Otsu's split, derives the height threshold.
@@ -154,9 +154,9 @@ class _ContactSettings:
                 )
         return cls(
             method=method,
-            vel_threshold=vel_threshold,
+            vel_threshold=vel_threshold_checked,
             vel_smooth_duration=vel_smooth_duration,
-            height_threshold=height_threshold,
+            height_threshold=height_threshold_checked,
             floor=floor,
             min_contact_duration=min_contact_duration,
             min_gap_duration=min_gap_duration,
@@ -245,6 +245,26 @@ class ContactReport:
     foot_skate_max: npt.NDArray[np.float64]
     airborne_fraction: float
     height_at_contact: npt.NDArray[np.float64] | None
+
+
+def _checked_threshold(
+    name: str, threshold: _ThresholdArg | None, num_joints: int
+) -> float | npt.NDArray[np.float64] | None:
+    """A threshold given, checked: a float, a read-only ``(num_joints,)`` array, or ``None`` when not given."""
+    if threshold is None:
+        return None
+    values = np.array(threshold, dtype=np.float64)
+    if values.ndim != 0 and values.shape != (num_joints,):
+        raise ValueError(
+            f"{name} must be a scalar or one value per joint ({num_joints},), "
+            f"got shape {values.shape}"
+        )
+    if not np.all(np.isfinite(values) & (values > 0)):
+        raise ValueError(f"{name} must be finite and > 0, got {threshold}")
+    if values.ndim == 0:
+        return float(values)
+    values.flags.writeable = False  # np.array copied it: the caller's array stays theirs
+    return values
 
 
 def _contacts_from_positions(

@@ -1453,6 +1453,52 @@ class TestWhatACallMayPass:
         with pytest.raises(ValueError, match=rf"^{setting} must be finite and > 0"):
             detect(rig, coords=coords, **{setting: value})
 
+    def test_a_speed_threshold_per_joint_is_applied_per_joint(self, detect):
+        # Both feet travel 1 unit a frame along x, 30 u/s at 30 fps: above
+        # LeftFoot's 10 u/s (and its band's top, 12.5), below RightFoot's
+        # 100 u/s (and its band's bottom, 75).
+        rig = make_contact_rig(6)
+        x = np.repeat(np.arange(6.0)[:, None], 2, axis=1)
+        coords = contact_coords(rig, np.zeros((6, 2)), x)
+        contacts, report = detect(
+            rig, method="velocity", coords=coords, vel_threshold=[10.0, 100.0], return_info=True
+        )
+        np.testing.assert_array_equal(contacts, [[0.0, 1.0]] * 6)
+        np.testing.assert_array_equal(report.vel_threshold, [10.0, 100.0])
+
+    def test_a_height_threshold_per_joint_is_applied_per_joint(self, detect):
+        # Both feet stand 1 unit above the floor given: above LeftFoot's 0.5
+        # (and its band's top, 0.625), below RightFoot's 2 (and its band's
+        # bottom, 1.5).
+        rig = make_contact_rig(6)
+        coords = contact_coords(rig, np.ones((6, 2)))
+        contacts, report = detect(
+            rig,
+            method="height",
+            coords=coords,
+            floor=0.0,
+            height_threshold=np.array([0.5, 2.0]),
+            return_info=True,
+        )
+        np.testing.assert_array_equal(contacts, [[0.0, 1.0]] * 6)
+        np.testing.assert_array_equal(report.height_threshold, [0.5, 2.0])
+
+    def test_a_constant_threshold_per_joint_gives_the_scalars_contacts(self, detect):
+        walk = read_bvh_file(CMU_WALK_PATH)
+        scalar = detect(walk, vel_threshold=2.0, height_threshold=0.5)
+        per_joint = detect(walk, vel_threshold=[2.0, 2.0], height_threshold=(0.5, 0.5))
+        assert 0 < scalar.mean() < 1  # both phases occur
+        np.testing.assert_array_equal(per_joint, scalar)
+
+    @pytest.mark.parametrize("setting", ["vel_threshold", "height_threshold"])
+    @pytest.mark.parametrize("value", [[1.0], [1.0, 1.0, 1.0], [[1.0, 1.0]]])
+    def test_a_threshold_of_another_length_than_the_joints_is_refused(self, detect, setting, value):
+        rig, coords = _still_rig()
+        with pytest.raises(
+            ValueError, match=rf"^{setting} must be a scalar or one value per joint \(2,\)"
+        ):
+            detect(rig, coords=coords, **{setting: value})
+
 
 def test_adaptive_derives_the_height_threshold_of_ground_contacts_beside_a_given_speed_threshold():
     # ground_contacts' own height_reference is "floor", where adaptive=True

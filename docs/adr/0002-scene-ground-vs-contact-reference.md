@@ -25,13 +25,13 @@ The feet were also a biased proxy for the ground. Over 406 clips sampled from th
 Two quantities, computed independently, named for what they are:
 
 - `Bvh.floor_height` — all nodes, robust 2nd percentile, cached on the `Bvh`, invalidated on motion reassignment. Nothing else fills or reads that cache. *(Amended in v0.10.0: it is also rebuilt after a skeleton or world-up change, under the one lifecycle of ADR 0003; what it measures is unchanged.)*
-- The contact reference — the joints in the call, estimated fresh every call, reported as `info["floor"]`.
+- The contact reference — the joints in the call, estimated fresh every call, reported as `info["floor"]`. *(Amended in v0.10.0: reported as the `floor` field of the `ContactReport` that `return_info=True` returns, which replaced the `info` dict.)*
 
 Every bvhplot backend that draws a ground plane takes it from the `Scene` (which takes it from `Bvh.floor_height`), so the three local floor rules that had grown up in `_common.py`, `_vedo.py` and `_k3d.py` cannot drift apart again. k3d is the stated exception: it draws no `Style.floor` plane, and snaps its root trail to k3d's own cubic grid, which is the surface a viewer actually sees there. *(Amended in v0.10.0: the exception is gone. k3d draws the floor and lays its trail on the scene ground like every other backend, and the bottom face of its grid is put just under the ground (2% of a half-span below it) so that the surface a viewer sees there is, to the eye, the ground. Every backend now takes the plane from the viewport, which takes it from the `Scene`.)*
 
 ## Consequences
 
-`Bvh.floor_height` returns a lower number than it did before v0.9.0 — a median 1% of the clip span, up to 6.6%. Contact detection is unchanged, bit for bit: `tests/fixtures/foot_contacts_pinned.npz` (nine parameterizations, contacts plus every `info` key) passes without regeneration, and that is the acceptance criterion for any future change in this area.
+`Bvh.floor_height` returns a lower number than it did before v0.9.0 — a median 1% of the clip span, up to 6.6%. Contact detection is unchanged, bit for bit: `tests/fixtures/foot_contacts_pinned.npz` (nine parameterizations, contacts plus every `info` key) passes without regeneration, and that is the acceptance criterion for any future change in this area. *(Amended in v0.10.0, when the `ContactReport` replaced the `info` dict and the pin grew to fifteen runs, `ground_contacts` among them: the contacts arrays of every pinned run pass without regeneration; the report half may be regenerated only through a mapping checked against the old values.)*
 
 Cutting the cache also removes a latent order-dependence: with two definitions sharing one slot, contact output would have depended on whether anything happened to read `floor_height` first. `test_reading_floor_height_first_does_not_change_contacts` pins that it cannot.
 

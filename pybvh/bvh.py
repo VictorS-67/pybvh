@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from . import geometry
+    from ._contacts import ContactReport
 
 import numpy as np
 import numpy.typing as npt
@@ -1335,7 +1336,8 @@ class Bvh:
 
         This is **not** the reference :func:`~pybvh.analysis.foot_contacts`
         compares foot clearance against. That one is estimated per call, over
-        the joints being tested, and is returned as ``info["floor"]``. The two
+        the joints being tested, and is reported as the ``floor`` of its
+        :class:`~pybvh.ContactReport` (``return_info=True``). The two
         answer different questions — this one belongs to the clip, that one to
         the query — and they differ by roughly a toe length on any rig with toe
         end sites. Passing this value in as ``foot_contacts(floor=...)`` will
@@ -3503,7 +3505,7 @@ class Bvh:
         adaptive: bool = ...,
         height_reference: str = ...,
         return_info: Literal[True],
-    ) -> tuple[npt.NDArray[np.float64], dict]: ...
+    ) -> tuple[npt.NDArray[np.float64], ContactReport]: ...
     @overload
     def foot_contacts(
         self,
@@ -3521,7 +3523,7 @@ class Bvh:
         adaptive: bool = ...,
         height_reference: str = ...,
         return_info: bool,
-    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]: ...
+    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], ContactReport]: ...
     def foot_contacts(
         self,
         foot_joints: list[str] | None = None,
@@ -3538,7 +3540,7 @@ class Bvh:
         adaptive: bool = False,
         height_reference: str = "velocity",
         return_info: bool = False,
-    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
+    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], ContactReport]:
         """Detect foot contact labels.  See :func:`pybvh.analysis.foot_contacts`."""
         from . import analysis
 
@@ -3594,7 +3596,7 @@ class Bvh:
         adaptive: bool = ...,
         height_reference: str = ...,
         return_info: Literal[True],
-    ) -> tuple[npt.NDArray[np.float64], dict]: ...
+    ) -> tuple[npt.NDArray[np.float64], ContactReport]: ...
     @overload
     def ground_contacts(
         self,
@@ -3612,7 +3614,7 @@ class Bvh:
         adaptive: bool = ...,
         height_reference: str = ...,
         return_info: bool,
-    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]: ...
+    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], ContactReport]: ...
     def ground_contacts(
         self,
         joints: Sequence[str | int],
@@ -3629,7 +3631,7 @@ class Bvh:
         adaptive: bool = False,
         height_reference: str = "floor",
         return_info: bool = False,
-    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], dict]:
+    ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], ContactReport]:
         """Detect ground contacts for an arbitrary joint set.  See :func:`pybvh.analysis.ground_contacts`."""
         from . import analysis
 

@@ -6,6 +6,7 @@ remediation phase; tests should fail against the pre-v3 implementation
 and turn green as the phases land.
 """
 
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -13,7 +14,7 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from pybvh import Bvh, analysis, features, read_bvh_file
+from pybvh import Bvh, ContactReport, analysis, features, read_bvh_file
 from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhRoot
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -33,7 +34,7 @@ from synthetic_bvh import (
 # the committed fixture (importing it regenerates nothing — the reference
 # libraries only load inside the gen_* functions that need them).
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
-from generate_fixtures import FOOT_CONTACT_RUNS, call_pinned_run, flatten_info
+from generate_fixtures import FOOT_CONTACT_RUNS, call_pinned_run, report_fields
 
 # ============================================================================
 # Fixtures
@@ -851,14 +852,14 @@ class TestFootContactsFloorEstimation:
         bvh = make_pos_y_up_bvh().copy()
         bvh.root_pos = np.zeros_like(bvh.root_pos)
         bvh.joint_angles = np.zeros_like(bvh.joint_angles)  # feet at y = -5 throughout
-        _, info = bvh.foot_contacts(
+        _, report = bvh.foot_contacts(
             method="height", foot_joints=["LeftLeg", "RightLeg"], return_info=True
         )
-        assert info["floor"] == pytest.approx(-5.0, abs=0.1)
+        assert report.floor == pytest.approx(-5.0, abs=0.1)
 
     def test_explicit_float_is_honored(self, bvh_example):
-        _, info = bvh_example.foot_contacts(method="height", floor=42.0, return_info=True)
-        assert info["floor"] == pytest.approx(42.0)
+        _, report = bvh_example.foot_contacts(method="height", floor=42.0, return_info=True)
+        assert report.floor == pytest.approx(42.0)
 
     def test_auto_tracks_clip_offset(self):
         bvh = make_pos_y_up_bvh().copy()
@@ -866,20 +867,20 @@ class TestFootContactsFloorEstimation:
         rp[:, 1] = 50  # lift skeleton 50 units along +y
         bvh.root_pos = rp
         bvh.joint_angles = np.zeros_like(bvh.joint_angles)  # feet at y = 50 - 5 = 45
-        _, info = bvh.foot_contacts(
+        _, report = bvh.foot_contacts(
             method="height", foot_joints=["LeftLeg", "RightLeg"], return_info=True
         )
-        assert info["floor"] == pytest.approx(45.0, abs=0.1)
+        assert report.floor == pytest.approx(45.0, abs=0.1)
 
     def test_negative_up_floor_reported_in_raw_coords(self):
         """For world_up='-y' a foot whose raw y ≈ 5 should yield floor≈5."""
         bvh = make_neg_y_up_bvh().copy()
         bvh.root_pos = np.zeros_like(bvh.root_pos)
         bvh.joint_angles = np.zeros_like(bvh.joint_angles)
-        _, info = bvh.foot_contacts(
+        _, report = bvh.foot_contacts(
             method="height", foot_joints=["LeftLeg", "RightLeg"], return_info=True
         )
-        assert info["floor"] == pytest.approx(5.0, abs=0.1)
+        assert report.floor == pytest.approx(5.0, abs=0.1)
 
     def test_invalid_floor_string_raises(self, bvh_example):
         with pytest.raises(ValueError, match="floor"):
@@ -896,15 +897,15 @@ class TestFootContactsFloorEstimation:
         coords = bvh_example.node_positions().copy()
         coords[5, idx, up.index] = -100.0 * up.sign  # one spurious low frame
 
-        _, info_auto = bvh_example.foot_contacts(method="height", coords=coords, return_info=True)
-        _, info_min = bvh_example.foot_contacts(
+        _, report_auto = bvh_example.foot_contacts(method="height", coords=coords, return_info=True)
+        _, report_min = bvh_example.foot_contacts(
             method="height", coords=coords, floor="min", return_info=True
         )
 
         heights = coords[:, idx, up.index] * up.sign
         true_min = heights.min(axis=1).min()
-        assert info_min["floor"] * up.sign == pytest.approx(true_min)
-        assert info_auto["floor"] * up.sign > true_min + 50.0
+        assert report_min.floor * up.sign == pytest.approx(true_min)
+        assert report_auto.floor * up.sign > true_min + 50.0
 
     def test_floor_min_is_below_the_auto_estimate_and_ignores_the_scene_ground(
         self, bvh_example, computations
@@ -912,23 +913,23 @@ class TestFootContactsFloorEstimation:
         """ "min" is the true minimum of the feet's own heights, computed
         fresh every call and never through the scene ground."""
         bvh = bvh_example.copy()
-        _, info_min = bvh.foot_contacts(floor="min", return_info=True)
-        _, info_auto = bvh.foot_contacts(return_info=True)
+        _, report_min = bvh.foot_contacts(floor="min", return_info=True)
+        _, report_auto = bvh.foot_contacts(return_info=True)
         assert computations.floor_height == 0
-        assert info_min["floor"] <= info_auto["floor"] + 1e-12
+        assert report_min.floor <= report_auto.floor + 1e-12
 
         _ = bvh.floor_height  # fill the scene ground
-        _, info_min2 = bvh.foot_contacts(floor="min", return_info=True)
-        assert info_min2["floor"] == pytest.approx(info_min["floor"])
+        _, report_min2 = bvh.foot_contacts(floor="min", return_info=True)
+        assert report_min2.floor == pytest.approx(report_min.floor)
 
     def test_auto_floor_estimated_from_coords_in_use(self):
         """floor='auto' estimates from the coords handed in, shifted coords
         included — never from the scene ground."""
         bvh = _make_ik_helper_skeleton()  # feet auto-detectable
-        _, info_world = bvh.foot_contacts(method="height", return_info=True)
+        _, report_world = bvh.foot_contacts(method="height", return_info=True)
         coords = bvh.node_positions() + np.array([0.0, 0.0, 25.0])  # +z up
-        _, info = bvh.foot_contacts(method="height", coords=coords, return_info=True)
-        assert info["floor"] == pytest.approx(info_world["floor"] + 25.0, abs=1e-9)
+        _, report = bvh.foot_contacts(method="height", coords=coords, return_info=True)
+        assert report.floor == pytest.approx(report_world.floor + 25.0, abs=1e-9)
 
 
 class TestFootContactsDurationFilters:
@@ -1023,7 +1024,7 @@ class TestFootContactsDurationFilters:
         bvh_120 = bvh_30.copy()
         bvh_120.frame_time = bvh_30.frame_time / 4
         # Pin filters to 0 so we're testing the threshold only
-        c_30, info = bvh_30.foot_contacts(
+        c_30, report = bvh_30.foot_contacts(
             method="velocity",
             foot_joints=["LeftLeg", "RightLeg"],
             min_contact_duration=0.0,
@@ -1031,7 +1032,7 @@ class TestFootContactsDurationFilters:
             vel_smooth_duration=0.0,
             return_info=True,
         )
-        thr_30 = info["vel_threshold"]  # default, u/s
+        thr_30 = report.vel_threshold  # default, u/s
         c_120_scaled = bvh_120.foot_contacts(
             method="velocity",
             foot_joints=["LeftLeg", "RightLeg"],
@@ -1047,12 +1048,12 @@ class TestFootContactsDurationFilters:
         default (0.12·scale u/s) equals the old default (0.004·scale
         per frame), so 30 fps clips get identical labels."""
         bvh = make_pos_y_up_bvh()  # frame_time = 1/30
-        _, info = bvh.foot_contacts(
+        _, report = bvh.foot_contacts(
             method="velocity", foot_joints=["LeftLeg", "RightLeg"], return_info=True
         )
-        scale = info["skeleton_scale"]
-        np.testing.assert_allclose(info["vel_threshold"], 0.12 * scale)
-        np.testing.assert_allclose(info["vel_threshold"] * bvh.frame_time, 0.004 * scale)
+        scale = report.skeleton_scale
+        np.testing.assert_allclose(report.vel_threshold, 0.12 * scale)
+        np.testing.assert_allclose(report.vel_threshold * bvh.frame_time, 0.004 * scale)
 
 
 class TestFootContactsFrameRateRobustness:
@@ -1160,20 +1161,20 @@ class TestFootContactsFrameRateRobustness:
         with pytest.raises(ValueError, match="vel_smooth_duration"):
             bvh.foot_contacts(foot_joints=["LeftLeg", "RightLeg"], vel_smooth_duration=-0.1)
 
-    def test_info_records_vel_smoothing(self):
+    def test_report_records_vel_smoothing(self):
         bvh_30 = make_pos_y_up_bvh()  # frame_time = 1/30
-        _, info = bvh_30.foot_contacts(
+        _, report = bvh_30.foot_contacts(
             method="velocity", foot_joints=["LeftLeg", "RightLeg"], return_info=True
         )
-        assert info["vel_smooth_duration"] == pytest.approx(1.0 / 30.0)
-        assert info["vel_smooth_frames"] == 1
+        assert report.vel_smooth_duration == pytest.approx(1.0 / 30.0)
+        assert report.vel_smooth_frames == 1
 
         bvh_120 = bvh_30.copy()
         bvh_120.frame_time = 1.0 / 120.0
-        _, info = bvh_120.foot_contacts(
+        _, report = bvh_120.foot_contacts(
             method="velocity", foot_joints=["LeftLeg", "RightLeg"], return_info=True
         )
-        assert info["vel_smooth_frames"] == 4
+        assert report.vel_smooth_frames == 4
 
     def test_no_spurious_contact_at_clip_boundaries(self):
         """Guards the position-smoothing failure mode: edge-replicated
@@ -1197,59 +1198,22 @@ class TestFootContactsFrameRateRobustness:
 
 
 class TestFootContactsReturnInfo:
-    """return_info=True returns (contacts, info) with a stable schema."""
+    """``return_info=True`` returns ``(contacts, report)`` and leaves the contacts as they are."""
 
-    def test_returns_tuple(self, bvh_example):
-        result = bvh_example.foot_contacts(return_info=True)
-        assert isinstance(result, tuple) and len(result) == 2
+    def test_returns_the_contacts_and_a_report(self, bvh_example):
+        contacts, report = bvh_example.foot_contacts(return_info=True)
+        assert isinstance(report, ContactReport)
+        np.testing.assert_array_equal(contacts, bvh_example.foot_contacts())
 
-    def test_ndarray_unchanged_when_return_info_false(self, bvh_example):
-        plain = bvh_example.foot_contacts()
-        with_info = bvh_example.foot_contacts(return_info=True)[0]
-        np.testing.assert_array_equal(plain, with_info)
+    def test_joints_match_the_columns(self, bvh_example):
+        contacts, report = bvh_example.foot_contacts(return_info=True)
+        assert report.joints == tuple(bvh_example.auto_detect_foot_joints())
+        assert len(report.joints) == contacts.shape[1]
 
-    def test_info_keys_for_combined_method(self, bvh_example):
-        _, info = bvh_example.foot_contacts(method="combined", return_info=True)
-        for key in (
-            "joints",
-            "method",
-            "min_contact_duration",
-            "min_gap_duration",
-            "vel_smooth_duration",
-            "skeleton_scale",
-            "vel_threshold",
-            "height_threshold",
-            "floor",
-        ):
-            assert key in info, f"missing key {key!r}"
-
-    def test_info_omits_skeleton_scale_when_both_thresholds_explicit(self, bvh_example):
-        """skeleton_scale is only in info when auto-calibration ran."""
-        _, info = bvh_example.foot_contacts(
-            method="combined", vel_threshold=0.1, height_threshold=0.5, return_info=True
-        )
-        assert "skeleton_scale" not in info
-
-    def test_info_omits_height_keys_for_velocity_method(self, bvh_example):
-        _, info = bvh_example.foot_contacts(method="velocity", return_info=True)
-        assert "vel_threshold" in info
-        assert "height_threshold" not in info
-        assert "floor" not in info
-
-    def test_info_omits_vel_key_for_height_method(self, bvh_example):
-        _, info = bvh_example.foot_contacts(method="height", return_info=True)
-        assert "vel_threshold" not in info
-        assert "height_threshold" in info
-        assert "floor" in info
-
-    def test_joints_matches_column_order(self, bvh_example):
-        contacts, info = bvh_example.foot_contacts(return_info=True)
-        assert len(info["joints"]) == contacts.shape[1]
-
-    def test_info_records_method_used(self, bvh_example):
+    def test_report_records_the_method_used(self, bvh_example):
         for m in ("combined", "velocity", "height"):
-            _, info = bvh_example.foot_contacts(method=m, return_info=True)
-            assert info["method"] == m
+            _, report = bvh_example.foot_contacts(method=m, return_info=True)
+            assert report.method == m
 
 
 # ============================================================================
@@ -1260,10 +1224,136 @@ CMU_WALK_PATH = Path(__file__).parent.parent / "bvh_data" / "cmu_12_01_walk.bvh"
 FOOT_PIN_PATH = Path(__file__).parent / "fixtures" / "foot_contacts_pinned.npz"
 
 
+class TestContactReport:
+    """``return_info=True`` returns ``(contacts, report)``, a :class:`~pybvh.ContactReport` whose fields are always present (``None`` where the method does not use them) and whose per-joint values are ``(n_joints,)``."""
+
+    def test_thresholds_are_per_joint_for_two_joints_and_for_one(self):
+        # Reproduction 2 of #123. The expected values are the per-foot values
+        # the info dict gave on 57735bc (with one joint, its mean of one).
+        bvh = read_bvh_file(CMU_WALK_PATH)
+        _, report = bvh.foot_contacts(return_info=True)
+        assert isinstance(report, ContactReport)
+        np.testing.assert_allclose(report.height_threshold, [0.51629899, 0.5034662], rtol=1e-7)
+        np.testing.assert_allclose(report.vel_threshold, [2.005110207169224] * 2, rtol=1e-12)
+
+        _, report = bvh.foot_contacts(foot_joints=["LeftToeBase"], return_info=True)
+        np.testing.assert_allclose(report.height_threshold, [0.48349764688295865], rtol=1e-12)
+        np.testing.assert_allclose(report.vel_threshold, [2.0175858745080864], rtol=1e-12)
+
+    def test_a_scalar_threshold_given_is_reported_per_joint(self):
+        rig = make_contact_rig(6)
+        _, report = rig.foot_contacts(
+            foot_joints=["LeftFoot", "RightFoot"],
+            coords=contact_coords(rig, np.zeros((6, 2))),
+            vel_threshold=3.0,
+            height_threshold=0.5,
+            floor=0.0,
+            return_info=True,
+        )
+        np.testing.assert_array_equal(report.vel_threshold, [3.0, 3.0])
+        np.testing.assert_array_equal(report.height_threshold, [0.5, 0.5])
+        assert report.skeleton_scale is None  # no threshold was derived from it
+
+    def test_the_signals_are_the_ones_the_thresholds_were_compared_against(self):
+        # LeftFoot rises 1 unit a frame from frame 2 and travels 2 units a
+        # frame along x from frame 3; RightFoot stays on y = 0.25. At 30 fps
+        # the speed is not smoothed (a one-frame window), and frame 0 takes
+        # frame 1's speed.
+        rig = make_contact_rig(6)
+        height = np.array([[0, 0.25], [0, 0.25], [1, 0.25], [2, 0.25], [3, 0.25], [4, 0.25]])
+        x = np.array([[0, 0], [0, 0], [0, 0], [2, 0], [4, 0], [6, 0]], dtype=float)
+        _, report = rig.foot_contacts(
+            foot_joints=["LeftFoot", "RightFoot"],
+            coords=contact_coords(rig, height, x),
+            floor=-0.5,
+            return_info=True,
+        )
+        per_frame = np.array([0, 0, 1, np.sqrt(5), np.sqrt(5), np.sqrt(5)])
+        np.testing.assert_allclose(report.speed[:, 0], per_frame / rig.frame_time)
+        np.testing.assert_allclose(report.speed[:, 1], 0.0)
+        np.testing.assert_allclose(report.clearance, height + 0.5)
+        assert report.floor == -0.5
+        assert report.speed.shape == report.clearance.shape == (6, 2)
+
+    def test_the_velocity_method_has_no_height_test(self):
+        rig = make_contact_rig(6)
+        _, report = rig.foot_contacts(
+            foot_joints=["LeftFoot", "RightFoot"],
+            method="velocity",
+            coords=contact_coords(rig, np.zeros((6, 2))),
+            return_info=True,
+        )
+        assert report.speed.shape == (6, 2)
+        assert report.vel_threshold.shape == (2,)
+        for name in (
+            "height_threshold",
+            "adaptive_used_height",
+            "floor",
+            "clearance",
+            "height_reference",
+            "height_at_contact",
+        ):
+            assert getattr(report, name) is None, name
+        # The diagnostics that need no clearance are still measured.
+        np.testing.assert_array_equal(report.foot_skate_max, [0.0, 0.0])
+        assert report.airborne_fraction == 0.0
+
+    def test_the_height_method_has_no_speed_test(self):
+        rig = make_contact_rig(6)
+        _, report = rig.foot_contacts(
+            foot_joints=["LeftFoot", "RightFoot"],
+            method="height",
+            coords=contact_coords(rig, np.zeros((6, 2))),
+            floor=0.0,
+            return_info=True,
+        )
+        assert report.clearance.shape == (6, 2)
+        for name in (
+            "vel_threshold",
+            "adaptive_used_velocity",
+            "speed",
+            "vel_smooth_duration",
+            "vel_smooth_frames",
+            "height_reference",
+        ):
+            assert getattr(report, name) is None, name
+
+    def test_height_reference_is_reported_only_where_it_anchors_the_height_threshold(self):
+        rig = make_contact_rig(6)
+        kwargs = {"foot_joints": ["LeftFoot"], "coords": contact_coords(rig, np.zeros(6))}
+        _, report = rig.foot_contacts(height_reference="floor", return_info=True, **kwargs)
+        assert report.height_reference == "floor"
+        _, report = rig.foot_contacts(height_threshold=0.5, return_info=True, **kwargs)
+        assert report.height_reference is None
+
+    def test_a_one_frame_clip_has_no_speed(self):
+        # Reproduction 5 of #123: the speed was all zeros, reported as if
+        # measured. The velocity threshold is still resolved; nothing was
+        # compared against it, so combined labels by height alone.
+        bvh = read_bvh_file(CMU_WALK_PATH)[0]
+        contacts, report = bvh.foot_contacts(return_info=True)
+        assert report.speed is None
+        assert report.vel_smooth_frames is None
+        assert report.vel_threshold.shape == (2,)
+        assert report.clearance.shape == (1, 2)
+        np.testing.assert_array_equal(contacts, bvh.foot_contacts(method="height"))
+
+    def test_the_report_is_frozen_and_its_arrays_read_only(self):
+        rig = make_contact_rig(6)
+        _, report = rig.foot_contacts(
+            foot_joints=["LeftFoot"], coords=contact_coords(rig, np.zeros(6)), return_info=True
+        )
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            report.floor = 0.0
+        for name in ("vel_threshold", "height_threshold", "speed", "clearance", "confidence"):
+            with pytest.raises(ValueError, match="read-only"):
+                getattr(report, name)[0] = 1.0
+
+
 class TestFootContactsPinnedGolden:
     """Bit-exact pin of foot_contacts and ground_contacts on the CMU walk clip.
 
-    The committed fixture freezes contacts + the FULL info dict (exact key sets included) for every run in ``FOOT_CONTACT_RUNS``, each a call to the detector it names on the clip or on a clip cut from it. Contact labels, key sets, and non-float fields are compared bit-exactly; derived float info fields to ``rtol=1e-10`` — exact equality on those only holds in the environment that generated the pin (cross numpy/BLAS/platform noise is ~1e-15), while the tolerance stays ~5 orders below any behavioral change. This is the identity gate any refactor of the contacts machinery must pass. If it fails, the code change altered behavior; do NOT regenerate the fixture to make it pass (that re-baselines the pin and erases the evidence).
+    The committed fixture freezes contacts + every field of the ``ContactReport`` (which fields are ``None`` included) for every run in ``FOOT_CONTACT_RUNS``, each a call to the detector it names on the clip or on a clip cut from it. Contact labels, the field set, the ``None`` fields and non-float fields are compared bit-exactly; derived float fields to ``rtol=1e-10`` — exact equality on those only holds in the environment that generated the pin (cross numpy/BLAS/platform noise is ~1e-15), while the tolerance stays ~5 orders below any behavioral change. This is the identity gate any refactor of the contacts machinery must pass. If it fails, the code change altered behavior; do NOT regenerate the fixture to make it pass (that re-baselines the pin and erases the evidence). The contacts arrays are never regenerated; the report half only through a mapping checked against the old values (ADR 0002).
     """
 
     @pytest.fixture(scope="class")
@@ -1284,7 +1374,7 @@ class TestFootContactsPinnedGolden:
         _, build = FOOT_CONTACT_RUNS[run_idx - 1]
         # Fresh Bvh per run: no floor-cache state carries over, mirroring
         # exactly how the fixture was generated.
-        contacts, info = call_pinned_run(build, read_bvh_file(CMU_WALK_PATH))
+        contacts, report = call_pinned_run(build, read_bvh_file(CMU_WALK_PATH))
 
         np.testing.assert_array_equal(
             contacts,
@@ -1292,11 +1382,14 @@ class TestFootContactsPinnedGolden:
             err_msg=f"run{run_idx} ({run_name}): contacts changed",
         )
 
-        flat = flatten_info(info)
+        fields = report_fields(report)
         pinned_keys = pin[f"run{run_idx}/__keys__"].tolist()
-        assert sorted(flat) == pinned_keys, f"run{run_idx} ({run_name}): info key set changed"
-        for key in pinned_keys:
-            got = np.asarray(flat[key])
+        assert sorted(fields) == pinned_keys, f"run{run_idx} ({run_name}): report fields changed"
+        pinned_none = pin[f"run{run_idx}/__none__"].tolist()
+        none = sorted(key for key, value in fields.items() if value is None)
+        assert none == pinned_none, f"run{run_idx} ({run_name}): the None fields changed"
+        for key in sorted(set(pinned_keys) - set(pinned_none)):
+            got = np.asarray(fields[key])
             want = pin[f"run{run_idx}/{key}"]
             if np.issubdtype(got.dtype, np.floating):
                 # Derived float fields (confidence, foot_skate, …) drift by
@@ -1308,11 +1401,11 @@ class TestFootContactsPinnedGolden:
                     want,
                     rtol=1e-10,
                     atol=1e-13,
-                    err_msg=f"run{run_idx} ({run_name}): info[{key!r}] changed",
+                    err_msg=f"run{run_idx} ({run_name}): report.{key} changed",
                 )
             else:
                 np.testing.assert_array_equal(
-                    got, want, err_msg=f"run{run_idx} ({run_name}): info[{key!r}] changed"
+                    got, want, err_msg=f"run{run_idx} ({run_name}): report.{key} changed"
                 )
 
         # The reported reference is the tested joints' own: no run computes
@@ -1353,27 +1446,27 @@ class TestContactReferenceIsIndependentOfTheSceneGround:
 
     def test_reference_is_the_tested_feet_not_the_scene_ground(self, cmu_walk):
         """On a rig with end sites below the feet the two are measurably
-        different, and ``info["floor"]`` is the feet's own level."""
+        different, and ``report.floor`` is the feet's own level."""
         rig = make_contact_rig(10)  # still: feet at y = -8, their end sites at -9
-        _, info = rig.foot_contacts(foot_joints=["LeftFoot", "RightFoot"], return_info=True)
-        assert info["floor"] == pytest.approx(-8.0)
+        _, report = rig.foot_contacts(foot_joints=["LeftFoot", "RightFoot"], return_info=True)
+        assert report.floor == pytest.approx(-8.0)
         assert rig.floor_height == pytest.approx(-9.0)
         # On the walk too the scene ground lies strictly below it: the toe end
         # sites reach under the toe joints whose centres the detector compares.
-        _, info = cmu_walk.foot_contacts(return_info=True)
+        _, report = cmu_walk.foot_contacts(return_info=True)
         up_sign = cmu_walk.world_up_axis.sign
-        assert cmu_walk.floor_height * up_sign < info["floor"] * up_sign
+        assert cmu_walk.floor_height * up_sign < report.floor * up_sign
 
     def test_over_every_node_the_reference_is_the_scene_ground(self, cmu_walk, computations):
         """The two quantities differ in the nodes they are estimated over, not in the
         estimate: tested over every node, the contact reference is the scene ground,
         to the bit, and the detector still computes no scene ground to get it."""
         every_node = list(range(len(cmu_walk.nodes)))
-        _, info = cmu_walk.ground_contacts(
+        _, report = cmu_walk.ground_contacts(
             every_node, method="height", height_threshold=1.0, return_info=True
         )
         assert computations.floor_height == 0
-        assert info["floor"] == cmu_walk.floor_height
+        assert report.floor == cmu_walk.floor_height
 
 
 class TestGroundContacts:
@@ -1388,46 +1481,43 @@ class TestGroundContacts:
 
     def test_equivalent_to_foot_contacts_on_feet(self, cmu_walk):
         # On actual feet with foot_contacts' height_reference, the two entry
-        # points are the same computation: contacts AND full info must match.
+        # points are the same computation: contacts AND full report must match.
         feet = cmu_walk.auto_detect_foot_joints()
-        ref_contacts, ref_info = analysis.foot_contacts(
+        ref_contacts, ref_report = analysis.foot_contacts(
             cmu_walk, foot_joints=feet, return_info=True
         )
-        got_contacts, got_info = analysis.ground_contacts(
+        got_contacts, got_report = analysis.ground_contacts(
             cmu_walk, feet, height_reference="velocity", return_info=True
         )
         np.testing.assert_array_equal(got_contacts, ref_contacts)
-        ref_flat = flatten_info(ref_info)
-        got_flat = flatten_info(got_info)
-        assert sorted(got_flat) == sorted(ref_flat)
-        for key in ref_flat:
+        for field in dataclasses.fields(ContactReport):
             np.testing.assert_array_equal(
-                np.asarray(got_flat[key]),
-                np.asarray(ref_flat[key]),
-                err_msg=f"info[{key!r}] differs",
+                getattr(got_report, field.name),
+                getattr(ref_report, field.name),
+                err_msg=f"report.{field.name} differs",
             )
 
     def test_int_str_mixed_equivalence(self, cmu_walk):
         feet = cmu_walk.auto_detect_foot_joints()
         indices = [cmu_walk.node_index[name] for name in feet]
-        by_name, info_name = analysis.ground_contacts(cmu_walk, feet, return_info=True)
-        by_index, info_index = analysis.ground_contacts(cmu_walk, indices, return_info=True)
-        by_mixed, info_mixed = analysis.ground_contacts(
+        by_name, report_name = analysis.ground_contacts(cmu_walk, feet, return_info=True)
+        by_index, report_index = analysis.ground_contacts(cmu_walk, indices, return_info=True)
+        by_mixed, report_mixed = analysis.ground_contacts(
             cmu_walk, [feet[0], indices[1]], return_info=True
         )
         np.testing.assert_array_equal(by_index, by_name)
         np.testing.assert_array_equal(by_mixed, by_name)
-        # indices are mapped back to names for the info dict
-        assert info_name["joints"] == feet
-        assert info_index["joints"] == feet
-        assert info_mixed["joints"] == feet
+        # indices are mapped back to names for the report
+        assert report_name.joints == tuple(feet)
+        assert report_index.joints == tuple(feet)
+        assert report_mixed.joints == tuple(feet)
 
     def test_negative_index_resolves_numpy_style(self, cmu_walk):
         feet = cmu_walk.auto_detect_foot_joints()
         num_nodes = len(cmu_walk.nodes)
         negative = cmu_walk.node_index[feet[0]] - num_nodes
-        _, info = analysis.ground_contacts(cmu_walk, [negative, feet[1]], return_info=True)
-        assert info["joints"] == feet
+        _, report = analysis.ground_contacts(cmu_walk, [negative, feet[1]], return_info=True)
+        assert report.joints == tuple(feet)
 
     def test_out_of_range_index_raises(self, cmu_walk):
         num_nodes = len(cmu_walk.nodes)
@@ -1451,15 +1541,17 @@ class TestGroundContacts:
     def test_column_order_matches_input_order(self, cmu_walk):
         feet = cmu_walk.auto_detect_foot_joints()
         forward, _ = analysis.ground_contacts(cmu_walk, feet, return_info=True)
-        reordered, info = analysis.ground_contacts(cmu_walk, list(reversed(feet)), return_info=True)
+        reordered, report = analysis.ground_contacts(
+            cmu_walk, list(reversed(feet)), return_info=True
+        )
         np.testing.assert_array_equal(reordered, forward[:, ::-1])
-        assert info["joints"] == list(reversed(feet))
+        assert report.joints == tuple(reversed(feet))
 
     def test_default_height_reference_is_floor(self, cmu_walk):
         feet = cmu_walk.auto_detect_foot_joints()
-        default_contacts, info = analysis.ground_contacts(cmu_walk, feet, return_info=True)
+        default_contacts, report = analysis.ground_contacts(cmu_walk, feet, return_info=True)
         explicit = analysis.ground_contacts(cmu_walk, feet, height_reference="floor")
-        assert info["height_reference"] == "floor"
+        assert report.height_reference == "floor"
         np.testing.assert_array_equal(default_contacts, explicit)
 
     def test_never_computes_or_reads_the_scene_ground(self, cmu_walk, computations):
@@ -1467,11 +1559,11 @@ class TestGroundContacts:
         analysis.ground_contacts(cmu_walk, feet)  # auto floor, default coords
         assert computations.floor_height == 0
         # ... and a scene ground already computed is never served either
-        _, cold_info = analysis.ground_contacts(cmu_walk, feet, return_info=True)
+        _, cold_report = analysis.ground_contacts(cmu_walk, feet, return_info=True)
         _ = cmu_walk.floor_height
-        _, warm_info = analysis.ground_contacts(cmu_walk, feet, return_info=True)
-        assert warm_info["floor"] == cold_info["floor"]
-        assert warm_info["floor"] != cmu_walk.floor_height
+        _, warm_report = analysis.ground_contacts(cmu_walk, feet, return_info=True)
+        assert warm_report.floor == cold_report.floor
+        assert warm_report.floor != cmu_walk.floor_height
         assert computations.floor_height == 1
 
     def test_arm_set_skips_rest_height_sanity_check(self, cmu_walk):
@@ -1486,31 +1578,25 @@ class TestGroundContacts:
 
     def test_end_site_index_allowed(self, cmu_walk):
         toe_tip = cmu_walk.node_index["EndSiteLeftToeBase"]
-        contacts, info = analysis.ground_contacts(
+        contacts, report = analysis.ground_contacts(
             cmu_walk, [toe_tip], height_reference="velocity", return_info=True
         )
-        assert info["joints"] == ["EndSiteLeftToeBase"]
+        assert report.joints == ("EndSiteLeftToeBase",)
         assert contacts.shape == (cmu_walk.frame_count, 1)
         assert contacts.any()  # the toe tip does ground during a walk
 
-    def test_return_info_keys(self, cmu_walk):
+    def test_report_under_its_defaults(self, cmu_walk):
         feet = cmu_walk.auto_detect_foot_joints()
-        _, info = analysis.ground_contacts(cmu_walk, feet, return_info=True)
-        for key in (
-            "joints",
-            "method",
-            "min_contact_duration",
-            "min_gap_duration",
-            "hysteresis",
-            "vel_smooth_duration",
-            "height_reference",
-            "confidence",
-            "skeleton_scale",
-            "vel_threshold",
-            "height_threshold",
-            "floor",
-        ):
-            assert key in info, f"missing key {key!r}"
+        _, report = analysis.ground_contacts(cmu_walk, feet, return_info=True)
+        assert report.method == "combined"
+        assert report.height_reference == "floor"
+        assert (report.min_contact_duration, report.min_gap_duration) == (0.1, 0.1)
+        assert report.hysteresis == 0.25
+        assert report.vel_smooth_duration == pytest.approx(1.0 / 30.0)
+        # Under "floor" every joint's height threshold is the one margin.
+        np.testing.assert_allclose(report.height_threshold, [0.013 * report.skeleton_scale] * 2)
+        np.testing.assert_allclose(report.vel_threshold, [0.12 * report.skeleton_scale] * 2)
+        assert report.speed.shape == report.clearance.shape == (cmu_walk.frame_count, 2)
 
     def test_frame_time_zero_raises(self):
         bvh = make_pos_y_up_bvh()
@@ -1523,17 +1609,16 @@ class TestGroundContacts:
         # (elif adaptive) branch of the height-threshold chain; it must match
         # foot_contacts under the same parameterization.
         feet = cmu_walk.auto_detect_foot_joints()
-        got_contacts, got_info = analysis.ground_contacts(
+        got_contacts, got_report = analysis.ground_contacts(
             cmu_walk, feet, adaptive=True, return_info=True
         )
-        ref_contacts, ref_info = analysis.foot_contacts(
+        ref_contacts, ref_report = analysis.foot_contacts(
             cmu_walk, foot_joints=feet, adaptive=True, height_reference="floor", return_info=True
         )
         np.testing.assert_array_equal(got_contacts, ref_contacts)
-        assert "adaptive_used_height" in got_info
+        assert got_report.adaptive_used_height is not None
         np.testing.assert_array_equal(
-            np.asarray(got_info["adaptive_used_height"]),
-            np.asarray(ref_info["adaptive_used_height"]),
+            got_report.adaptive_used_height, ref_report.adaptive_used_height
         )
 
 

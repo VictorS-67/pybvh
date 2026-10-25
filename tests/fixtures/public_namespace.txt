@@ -6,6 +6,7 @@
 
 pybvh.Axis
 pybvh.Bvh
+pybvh.ContactReport
 pybvh.FkTopology
 pybvh.HarmonizeReport
 pybvh.OrientationReport
@@ -37,6 +38,7 @@ pybvh.transforms
 pybvh.write_bvh_file
 from pybvh import * binds Axis
 from pybvh import * binds Bvh
+from pybvh import * binds ContactReport
 from pybvh import * binds FkTopology
 from pybvh import * binds HarmonizeReport
 from pybvh import * binds OrientationReport

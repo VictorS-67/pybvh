@@ -482,29 +482,14 @@ def fig_resample(bvh, resampled, joint="RightForeArm", channel=0):
 
 def fig_foot_contacts_signals(bvh, foot_joints, foot=0):
     """The two signals foot_contacts thresholds, with the detected stance spans."""
-    contacts, info = bvh.foot_contacts(foot_joints=foot_joints, adaptive=True, return_info=True)
+    contacts, report = bvh.foot_contacts(foot_joints=foot_joints, adaptive=True, return_info=True)
     dt = bvh.frame_time
-    fidx = [idx(bvh, f) for f in foot_joints]
-    fc = bvh.node_positions()[:, fidx, :]
-    # reconstruct the detector's own signals (same math as foot_contacts)
-    disp = np.diff(fc, axis=0)
-    w = int(info.get("vel_smooth_frames", 1) or 1)
-    if w > 1:
-        disp = signal.box_filter_smooth(disp, w, axis=0)
-    sp = np.linalg.norm(disp, axis=-1) / dt
-    speed = np.concatenate([sp[:1], sp], axis=0)
-    up_sign = 1 if bvh.world_up[0] == "+" else -1
-    up_idx = {"x": 0, "y": 1, "z": 2}[bvh.world_up[1]]
-    clearance = fc[:, :, up_idx] * up_sign - info["floor"] * up_sign
-    vthr = np.atleast_1d(info.get("vel_threshold_per_foot", info["vel_threshold"]))
-    hthr = np.atleast_1d(info.get("height_threshold_per_foot", info["height_threshold"]))
-
     t = np.arange(bvh.frame_count) * dt
     planted = contacts[:, foot] > 0.5
     fig, (a1, a2) = plt.subplots(2, 1, figsize=(10, 5.5), sharex=True)
     panels = [
-        (a1, speed[:, foot], float(vthr.flat[foot % vthr.size]), "foot speed (u/s)"),
-        (a2, clearance[:, foot], float(hthr.flat[foot % hthr.size]), "clearance above floor (u)"),
+        (a1, report.speed[:, foot], report.vel_threshold[foot], "foot speed (u/s)"),
+        (a2, report.clearance[:, foot], report.height_threshold[foot], "clearance above floor (u)"),
     ]
     for a, sig, thr, ylab in panels:
         for s, e in _contacts._true_runs(planted):

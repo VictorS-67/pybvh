@@ -52,6 +52,10 @@ Ground-plane root features and binary contact labels — the contact signals are
     options:
       heading_level: 3
 
+::: pybvh.ContactReport
+    options:
+      heading_level: 3
+
 ::: pybvh.analysis.auto_detect_foot_joints
     options:
       heading_level: 3

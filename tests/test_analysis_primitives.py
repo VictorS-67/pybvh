@@ -1131,6 +1131,32 @@ def test_floor_height_is_over_all_nodes():
     np.testing.assert_allclose(bvh.floor_height, expected)
 
 
+def test_default_thresholds_scale_with_the_mean_rest_distance_to_the_joints():
+    # Joints 10 and 20 from the root at rest: the skeleton scale is their mean,
+    # 15, so the default speed threshold is 0.12 x 15 = 1.8 u/s and the default
+    # height threshold 0.013 x 15 = 0.195.
+    bvh = make_contact_rig(6, frame_time=1.0, foot_offsets=((-6.0, -8.0, 0.0), (0.0, -20.0, 0.0)))
+    joints = list(CONTACT_FEET)
+    unfiltered = {"hysteresis": 0.0, "min_contact_duration": 0.0, "min_gap_duration": 0.0}
+    # At one frame a second the speed is the step: 1.7, 1.7, 1.9, 1.9, 1.7
+    # (frame 0 takes frame 1's).
+    x = np.cumsum([0.0, 1.7, 1.7, 1.9, 1.9, 1.7])
+    xs = np.column_stack([x, x])
+    c = bvh.ground_contacts(
+        joints, method="velocity", coords=contact_coords(bvh, np.zeros((6, 2)), x=xs), **unfiltered
+    )
+    np.testing.assert_array_equal(c, np.column_stack([[1, 1, 1, 0, 0, 1]] * 2))
+    h = np.array([0.18, 0.21, 0.18, 0.21, 0.18, 0.21])
+    c = bvh.ground_contacts(
+        joints,
+        method="height",
+        coords=contact_coords(bvh, np.column_stack([h, h])),
+        floor=0.0,
+        **unfiltered,
+    )
+    np.testing.assert_array_equal(c, np.column_stack([[1, 0, 1, 0, 1, 0]] * 2))
+
+
 def _make_toed_skeleton(toe_tip_drop=2.0, hand_height=None, n_frames=10) -> Bvh:
     """+z-up rig with detectable toe joints and an end site below them.
 

@@ -369,6 +369,14 @@ def _run_method_height_adaptive(bvh):
     return bvh.foot_contacts, {"method": "height", "adaptive": True}
 
 
+def _run_method_height_adaptive_first_second(bvh):
+    # Over the whole walk the height split falls back to the margin on both
+    # feet (the run above); over its first second it is accepted on the right
+    # foot and falls back on the left, so one call pins both outcomes.
+    first_second = bvh[: round(1.0 / bvh.frame_time)]
+    return first_second.foot_contacts, {"method": "height", "adaptive": True}
+
+
 def _run_one_frame(bvh):
     # A one-frame clip, as a pose file is: no speed can be measured.
     return bvh[0].foot_contacts, {}
@@ -389,6 +397,7 @@ FOOT_CONTACT_RUNS = [
     ("method_height_floor_min", _run_method_height_floor_min),
     ("method_height_adaptive", _run_method_height_adaptive),
     ("one_frame", _run_one_frame),
+    ("method_height_adaptive_first_second", _run_method_height_adaptive_first_second),
 ]
 
 

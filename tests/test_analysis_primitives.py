@@ -1058,51 +1058,63 @@ def test_contact_diagnostics_skate_airborne_height():
 
 
 # ----------------------------------------------------------------
-#  Velocity-informed height threshold + floor_height
+#  Stance calibration of the height threshold + floor_height
 # ----------------------------------------------------------------
 
 
-def test_velocity_informed_height_reduces_to_margin_on_floor():
-    F, margin = 20, 1.0
-    clearance = np.zeros((F, 1))
-    clearance[10:, 0] = 10.0  # stance on floor, swing high
-    speed = np.zeros((F, 1))
-    speed[10:, 0] = 5.0  # slow then fast
-    thr = analysis._velocity_informed_height(clearance, speed, 1.0, margin)
-    np.testing.assert_allclose(thr, [margin])  # contact_h≈0 -> margin
+def _stance_and_swing(stance_level):
+    """Height and x of a foot that stands for 20 frames, then swings for 20.
+
+    At one frame a second, so that a step of a few height margins is still
+    slow against the default speed threshold (1.2 u/s on the contact rig).
+    The stance sits at ``stance_level`` above the floor, except two frames
+    0.6 margins higher, two 1.4 margins higher and three lifted 3 margins
+    (slow, but out of contact under either reading of the threshold). The
+    swing is 10 margins up and travels 5 units a frame. Returns
+    ``(height, x, in_stance)``, ``in_stance`` the frames within one margin
+    of the stance level.
+    """
+    m = RIG_HEIGHT_MARGIN
+    above = np.zeros(40)
+    above[[5, 6]] = 0.6 * m
+    above[[12, 13]] = 1.4 * m
+    above[[16, 17, 18]] = 3.0 * m
+    above[20:] = 10.0 * m
+    x = np.where(np.arange(40) < 20, 0.0, 5.0 * (np.arange(40) - 19))
+    return stance_level + above, x, above < m
 
 
-def test_velocity_informed_height_calibrates_to_hover():
-    F, margin, h0 = 20, 1.0, 5.0
-    clearance = np.full((F, 1), h0)
-    clearance[10:, 0] = h0 + 5 * margin
-    speed = np.zeros((F, 1))
-    speed[10:, 0] = 5.0
-    thr = analysis._velocity_informed_height(clearance, speed, 1.0, margin)
-    np.testing.assert_allclose(thr, [h0 + margin])  # lifts to the hover level
+def test_stance_calibration_sets_each_foot_threshold_one_margin_above_its_stance():
+    # LeftFoot stands 5 margins above the floor (a retargeted foot that
+    # hovers), RightFoot on it. Each foot's threshold is set one margin above
+    # its own stance level, the median of its height over its slow frames.
+    m = RIG_HEIGHT_MARGIN
+    left, x, in_stance = _stance_and_swing(5.0 * m)
+    right, _, _ = _stance_and_swing(0.0)
+    bvh = make_contact_rig(40, frame_time=1.0)
+    coords = contact_coords(bvh, np.column_stack([left, right]), x=np.column_stack([x, x]))
+    kwargs = {"foot_joints": list(CONTACT_FEET), "coords": coords, "floor": 0.0, "hysteresis": 0.0}
+    got = bvh.foot_contacts(height_reference="velocity", **kwargs)
+    np.testing.assert_array_equal(got[:, 0], in_stance)
+    np.testing.assert_array_equal(got[:, 1], in_stance)
+    # Anchored to the floor instead, the hovering foot never reads as low enough.
+    fixed = bvh.foot_contacts(height_reference="floor", **kwargs)
+    assert not fixed[:, 0].any()
+    np.testing.assert_array_equal(fixed[:, 1], in_stance)
 
 
-def test_velocity_informed_height_guard_rejects_held_airborne():
-    F, margin = 20, 1.0
-    clearance = np.full((F, 1), 8.0)  # flat high, no swing
-    speed = np.zeros((F, 1))  # all slow (held still)
-    thr = analysis._velocity_informed_height(clearance, speed, 1.0, margin)
-    np.testing.assert_allclose(thr, [margin])  # guard -> fixed -> rejected
-
-
-def test_velocity_informed_height_per_foot_and_no_slow():
-    F, margin = 20, 1.0
-    clearance = np.zeros((F, 2))
-    clearance[:, 0] = 5.0  # foot0 hovers at 5
-    clearance[10:, 0] = 10.0
-    clearance[10:, 1] = 10.0  # foot1 reaches floor
-    speed = np.zeros((F, 2))
-    speed[10:, :] = 5.0
-    thr = analysis._velocity_informed_height(clearance, speed, 1.0, margin)
-    np.testing.assert_allclose(thr, [5 + margin, 0 + margin])  # distinct per foot
-    # never slow -> fixed margin
-    thr2 = analysis._velocity_informed_height(np.zeros((F, 1)), np.full((F, 1), 5.0), 1.0, margin)
-    np.testing.assert_allclose(thr2, [margin])
+def test_stance_calibration_falls_back_to_the_margin_without_a_slow_frame():
+    # A foot that never slows down has no stance to calibrate against.
+    m = RIG_HEIGHT_MARGIN
+    height = np.where(np.arange(40) < 20, 5.0 * m, 15.0 * m)
+    bvh = make_contact_rig(40, frame_time=1.0)
+    _, info = bvh.foot_contacts(
+        foot_joints=["LeftFoot"],
+        coords=contact_coords(bvh, height, x=5.0 * np.arange(40)),
+        floor=0.0,
+        return_info=True,
+    )
+    assert info["height_threshold"] == pytest.approx(m)
 
 
 def test_floor_height_cache_invalidates_on_mutation():
@@ -1225,7 +1237,7 @@ def _hover_clip(hover_frac, swing_frac=0.3):
     bvh = make_pos_y_up_bvh()
     feet = ["LeftFoot", "RightFoot"]
     fidx = [bvh.index(n, space="node") for n in feet]
-    scale = analysis._skeleton_scale(bvh.rest_pose_positions(), fidx)
+    scale = analysis.skeleton_size(bvh, feet)
     coords = bvh.node_positions().copy()
     F = bvh.frame_count
     half = F // 2
@@ -1273,7 +1285,7 @@ def test_height_reference_rejects_held_airborne_foot():
     bvh = make_pos_y_up_bvh()
     feet = ["LeftFoot", "RightFoot"]
     fidx = [bvh.index(n, space="node") for n in feet]
-    scale = analysis._skeleton_scale(bvh.rest_pose_positions(), fidx)
+    scale = analysis.skeleton_size(bvh, feet)
     coords = bvh.node_positions().copy()
     F = bvh.frame_count
     base = coords[0, fidx[0], 1]

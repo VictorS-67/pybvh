@@ -933,31 +933,38 @@ def test_adaptive_split_is_clamped_to_four_times_the_default():
     assert 50 < got[:, 0].sum() < 150
 
 
-def test_detect_contacts_recovers_plant_lift_two_feet():
-    F = 10
-    speed = np.full((F, 2), 5.0)
-    clearance = np.full((F, 2), 5.0)
-    speed[3:7, 0] = 0.1
-    clearance[3:7, 0] = 0.1
-    speed[1:4, 1] = 0.1
-    clearance[1:4, 1] = 0.1
-    mask, _ = analysis._detect_contacts(
-        speed, clearance, method="combined", vel_threshold=1.0, height_threshold=1.0, hysteresis=0.0
+def test_confidence_is_the_margin_below_the_thresholds_times_the_agreement():
+    # One frame a second, so the speed is the step along x: 5, 5, 0.5, 0.5, 5, 5
+    # (frame 0 takes frame 1's), against a threshold of 2. The foot stays at
+    # height 0.5, below the height threshold of 1 throughout, so the contacts
+    # are frames 2 and 3.
+    bvh = make_contact_rig(6, frame_time=1.0)
+    coords = contact_coords(bvh, np.full(6, 0.5), x=np.array([0.0, 5.0, 5.5, 6.0, 11.0, 16.0]))
+    unfiltered = {"hysteresis": 0.0, "min_contact_duration": 0.0, "min_gap_duration": 0.0}
+    c, info = bvh.foot_contacts(
+        foot_joints=["LeftFoot"],
+        coords=coords,
+        vel_threshold=2.0,
+        height_threshold=1.0,
+        floor=0.0,
+        return_info=True,
+        **unfiltered,
     )
-    expected = np.zeros((F, 2), bool)
-    expected[3:7, 0] = True
-    expected[1:4, 1] = True
-    np.testing.assert_array_equal(mask, expected)
-
-
-def test_contact_confidence_combined_formula():
-    speed = np.array([[5.0], [0.5], [0.5], [5.0]])
-    clearance = speed.copy()
-    _, conf = analysis._detect_contacts(
-        speed, clearance, method="combined", vel_threshold=1.0, height_threshold=1.0, hysteresis=0.0
+    np.testing.assert_array_equal(c[:, 0], [0, 0, 1, 1, 0, 0])
+    # On those frames the speed sits 3/4 of its threshold below it and the
+    # height 1/2 of its own: margin 5/8, their mean. The velocity mask agrees
+    # with the height mask (true everywhere) on 2 frames of 6.
+    np.testing.assert_allclose(info["confidence"], [np.sqrt(5 / 8 * 2 / 6)])
+    # The velocity method alone has no agreement term: its own margin.
+    _, info = bvh.foot_contacts(
+        foot_joints=["LeftFoot"],
+        method="velocity",
+        coords=coords,
+        vel_threshold=2.0,
+        return_info=True,
+        **unfiltered,
     )
-    # contact rows 1,2: margin=(1-0.5)/1=0.5 per signal; masks identical -> agreement 1
-    np.testing.assert_allclose(conf, np.sqrt(0.5 * 1.0))
+    np.testing.assert_allclose(info["confidence"], [0.75])
 
 
 def test_foot_contacts_detects_bouncing_root_dwell():
@@ -1025,18 +1032,29 @@ def test_foot_contacts_releases_foot_lifting_at_clip_end():
 
 
 def test_contact_diagnostics_skate_airborne_height():
-    F = 6
-    mask = np.zeros((F, 2), bool)
-    mask[1:4, 0] = True
-    mask[2:5, 1] = True
-    foot_coords = np.zeros((F, 2, 3))
-    foot_coords[2:5, 1, 0] = [0.0, 1.5, 3.0]  # foot1 slides 3 in x during contact
-    clearance = np.zeros((F, 2))  # all on the floor
-    diag = analysis._contact_diagnostics(mask, foot_coords, clearance, up_idx=2, scale=10.0)
-    np.testing.assert_allclose(diag["foot_skate"]["max"][0], 0.0)
-    np.testing.assert_allclose(diag["foot_skate"]["max"][1], 3.0 / 10.0)
-    np.testing.assert_allclose(diag["airborne_fraction"], 2 / 6)  # rows 0,5 have no contact
-    np.testing.assert_allclose(diag["height_at_contact"], [0.0, 0.0])
+    # LeftFoot is planted on frames 1-3 at height 0.4; RightFoot on frames 2-4
+    # at height 0, sliding 3 units along x as it stands.
+    height = np.array([[5, 5], [0.4, 5], [0.4, 0], [0.4, 0], [5, 0], [5, 5]], dtype=float)
+    x = np.zeros((6, 2))
+    x[3:, 1] = [1.5, 3.0, 3.0]
+    bvh = make_contact_rig(6)
+    c, info = bvh.foot_contacts(
+        foot_joints=list(CONTACT_FEET),
+        method="height",
+        coords=contact_coords(bvh, height, x=x),
+        floor=0.0,
+        height_threshold=1.0,
+        hysteresis=0.0,
+        min_contact_duration=0.0,
+        min_gap_duration=0.0,
+        return_info=True,
+    )
+    np.testing.assert_array_equal(c, height < 1.0)
+    # The skate is the drift over a contact run, over the skeleton scale (10).
+    np.testing.assert_allclose(info["foot_skate"]["max"], [0.0, 3.0 / 10.0])
+    np.testing.assert_allclose(info["foot_skate"]["mean"], [0.0, 3.0 / 10.0])
+    np.testing.assert_allclose(info["airborne_fraction"], 2 / 6)  # frames 0 and 5
+    np.testing.assert_allclose(info["height_at_contact"], [0.4, 0.0])
 
 
 # ----------------------------------------------------------------

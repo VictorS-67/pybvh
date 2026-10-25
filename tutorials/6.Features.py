@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.19.1
+#       jupytext_version: 1.19.5
 #   kernelspec:
 #     display_name: pybvh
 #     language: python
@@ -231,7 +231,7 @@ plt.tight_layout()
 plt.show()
 
 # %% [markdown]
-# The defaults auto-scale thresholds with skeleton size (no tuning needed across cm- vs m-scale rigs) and apply 100 ms temporal smoothing to remove flickers. Pass `min_contact_duration=0, min_gap_duration=0` for raw per-frame output.
+# The defaults auto-scale thresholds with skeleton size (no tuning needed across cm- vs m-scale rigs) and drop contacts and gaps shorter than 100 ms to remove flickers. `min_contact_duration=0, min_gap_duration=0` switch off those two duration filters only: the `hysteresis` band (default 0.25) still keeps a foot from switching state on every dip near the threshold, and above 30 fps the foot speed is still averaged over `vel_smooth_duration` (default 1/30 s). Add `hysteresis=0, vel_smooth_duration=0` to label each frame by its own signal against a single threshold.
 
 # %% [markdown]
 # # The feature array — combining everything

@@ -1287,7 +1287,7 @@ class TestContactReport:
         assert report.vel_threshold.shape == (2,)
         for name in (
             "height_threshold",
-            "adaptive_used_height",
+            "height_threshold_source",
             "floor",
             "clearance",
             "height_reference",
@@ -1310,7 +1310,7 @@ class TestContactReport:
         assert report.clearance.shape == (6, 2)
         for name in (
             "vel_threshold",
-            "adaptive_used_velocity",
+            "vel_threshold_source",
             "speed",
             "vel_smooth_duration",
             "vel_smooth_frames",
@@ -1335,6 +1335,9 @@ class TestContactReport:
         assert report.speed is None
         assert report.vel_smooth_frames is None
         assert report.vel_threshold.shape == (2,)
+        assert report.vel_threshold_source is None
+        _, report = bvh.foot_contacts(adaptive=True, return_info=True)
+        assert report.vel_threshold_source is None
         assert report.clearance.shape == (1, 2)
         np.testing.assert_array_equal(contacts, bvh.foot_contacts(method="height"))
 
@@ -1348,6 +1351,122 @@ class TestContactReport:
         for name in ("vel_threshold", "height_threshold", "speed", "clearance", "confidence"):
             with pytest.raises(ValueError, match="read-only"):
                 getattr(report, name)[0] = 1.0
+
+
+class TestThresholdSources:
+    """The report says, per joint, where each threshold applied came from, and whether the skeleton scale was measured, so that no fallback passes as a measurement."""
+
+    def test_a_split_clamped_to_its_bound_reads_otsu_clamped(self):
+        # Reproduction 3 of #123: on the walk, Otsu's speed splits (about 28
+        # u/s) lie above the upper bound, 4 x 0.12 x the skeleton scale, which
+        # stands in on both feet; the dict reported the split as used.
+        bvh = read_bvh_file(CMU_WALK_PATH)
+        _, report = bvh.foot_contacts(adaptive=True, return_info=True)
+        assert report.vel_threshold_source == ("otsu_clamped", "otsu_clamped")
+        np.testing.assert_allclose(report.vel_threshold, [8.0204] * 2, atol=1e-4)
+
+    @staticmethod
+    def _stepping_rig(step):
+        """16 frames: LeftFoot still for 8, then travelling ``step`` units a frame; RightFoot still. Skeleton scale 10."""
+        rig = make_contact_rig(16)
+        x = np.zeros((16, 2))
+        x[8:, 0] = step * np.arange(1, 9)
+        return rig, contact_coords(rig, np.zeros((16, 2)), x)
+
+    def test_a_split_accepted_reads_otsu_and_one_rejected_reads_scale(self):
+        # LeftFoot's speed is 0 or 3 u/s: a split between the two, within the
+        # bounds [0.3, 4.8] (0.25 and 4 x 0.12 x 10). RightFoot's speed is
+        # constant, so no split: the scaled default 1.2 stands in.
+        rig, coords = self._stepping_rig(0.1)
+        _, report = rig.foot_contacts(
+            _RIG_FEET, method="velocity", adaptive=True, coords=coords, return_info=True
+        )
+        assert report.vel_threshold_source == ("otsu", "scale")
+        assert 0.3 < report.vel_threshold[0] < 3.0
+        assert report.vel_threshold[1] == pytest.approx(1.2)
+
+    def test_a_split_below_the_lower_bound_reads_otsu_clamped(self):
+        # LeftFoot's speed is 0 or 0.09 u/s: its split lies below 0.3.
+        rig, coords = self._stepping_rig(0.003)
+        _, report = rig.foot_contacts(
+            _RIG_FEET, method="velocity", adaptive=True, coords=coords, return_info=True
+        )
+        assert report.vel_threshold_source == ("otsu_clamped", "scale")
+        np.testing.assert_allclose(report.vel_threshold, [0.3, 1.2])
+
+    def test_without_adaptive_the_speed_threshold_reads_scale_and_given_reads_given(self):
+        rig, coords = self._stepping_rig(0.1)
+        _, report = rig.foot_contacts(_RIG_FEET, method="velocity", coords=coords, return_info=True)
+        assert report.vel_threshold_source == ("scale", "scale")
+        _, report = rig.foot_contacts(
+            _RIG_FEET, method="velocity", vel_threshold=[2.0, 0.5], coords=coords, return_info=True
+        )
+        assert report.vel_threshold_source == ("given", "given")
+
+    def test_the_stance_calibration_reads_stance_and_its_fallback_margin(self):
+        # On the walk both feet hover above the contact reference when slow,
+        # so the default call calibrates each foot's height threshold to its
+        # stance level (reproduction 2's values, above the margin 0.217).
+        walk = read_bvh_file(CMU_WALK_PATH)
+        _, report = walk.foot_contacts(return_info=True)
+        assert report.height_threshold_source == ("stance", "stance")
+        # Two feet standing still never swing above their stance level: the
+        # calibration falls back on the margin, 0.013 x the skeleton scale 10.
+        rig, coords = _still_rig()
+        _, report = rig.foot_contacts(_RIG_FEET, coords=coords, return_info=True)
+        assert report.height_threshold_source == ("margin", "margin")
+        np.testing.assert_allclose(report.height_threshold, [0.13, 0.13])
+
+    def test_the_floor_reference_reads_margin_and_given_reads_given(self):
+        rig, coords = _still_rig()
+        _, report = rig.foot_contacts(
+            _RIG_FEET, height_reference="floor", coords=coords, return_info=True
+        )
+        assert report.height_threshold_source == ("margin", "margin")
+        _, report = rig.foot_contacts(
+            _RIG_FEET, height_threshold=0.5, coords=coords, return_info=True
+        )
+        assert report.height_threshold_source == ("given", "given")
+
+    def test_a_height_split_accepted_reads_otsu_and_one_rejected_reads_margin(self):
+        # Over the walk's first second the height split is accepted on the
+        # right foot (0.2702, within its bounds) and rejected on the left,
+        # where the margin 0.2172 stands in (the pin's run 15).
+        first_second = read_bvh_file(CMU_WALK_PATH)[:120]
+        _, report = first_second.foot_contacts(method="height", adaptive=True, return_info=True)
+        assert report.height_threshold_source == ("margin", "otsu")
+        np.testing.assert_allclose(report.height_threshold, [0.2172, 0.2702], atol=1e-4)
+
+    def test_a_height_split_above_the_upper_bound_reads_otsu_clamped(self):
+        # LeftFoot stands on the floor for 8 frames and 5 units above it for
+        # 8: the split lies above 4 x 0.013 x 10 = 0.52, which stands in.
+        rig = make_contact_rig(16)
+        height = np.zeros((16, 2))
+        height[8:, 0] = 5.0
+        _, report = rig.foot_contacts(
+            _RIG_FEET,
+            method="height",
+            floor=0.0,
+            adaptive=True,
+            coords=contact_coords(rig, height),
+            return_info=True,
+        )
+        assert report.height_threshold_source == ("otsu_clamped", "margin")
+        np.testing.assert_allclose(report.height_threshold, [0.52, 0.13])
+
+    def test_a_skeleton_scale_measured_and_one_that_stands_in(self):
+        walk = read_bvh_file(CMU_WALK_PATH)
+        _, report = walk.foot_contacts(return_info=True)
+        assert report.skeleton_scale_measured is True
+        # The root alone sits on the root: there is no distance to measure,
+        # and the scale 1.0 stands in for one.
+        _, report = walk.ground_contacts(["Hips"], return_info=True)
+        assert report.skeleton_scale == 1.0
+        assert report.skeleton_scale_measured is False
+        # Every threshold given: no scale was used, measured or not.
+        _, report = walk.foot_contacts(vel_threshold=2.0, height_threshold=0.5, return_info=True)
+        assert report.skeleton_scale is None
+        assert report.skeleton_scale_measured is None
 
 
 # Each public contact detector, called on the two feet of make_contact_rig:
@@ -1503,11 +1622,16 @@ class TestWhatACallMayPass:
 def test_adaptive_derives_the_height_threshold_of_ground_contacts_beside_a_given_speed_threshold():
     # ground_contacts' own height_reference is "floor", where adaptive=True
     # splits the height signal; a vel_threshold given leaves it that one.
-    rig, coords = _still_rig()
+    # LeftFoot stands for 8 frames and stands 5 units higher for 8, a split
+    # clamped to the upper bound; RightFoot stays still, so no split.
+    rig = make_contact_rig(16)
+    height = np.zeros((16, 2))
+    height[8:, 0] = 5.0
+    coords = contact_coords(rig, height)
     _, report = rig.ground_contacts(
         _RIG_FEET, coords=coords, vel_threshold=2.0, adaptive=True, return_info=True
     )
-    assert report.adaptive_used_height is not None
+    assert report.height_threshold_source == ("otsu_clamped", "margin")
     with pytest.raises(
         ValueError, match=r"^adaptive=True derives no threshold under method='combined'"
     ):
@@ -1819,10 +1943,8 @@ class TestGroundContacts:
             cmu_walk, foot_joints=feet, adaptive=True, height_reference="floor", return_info=True
         )
         np.testing.assert_array_equal(got_contacts, ref_contacts)
-        assert got_report.adaptive_used_height is not None
-        np.testing.assert_array_equal(
-            got_report.adaptive_used_height, ref_report.adaptive_used_height
-        )
+        assert got_report.height_threshold_source is not None
+        assert got_report.height_threshold_source == ref_report.height_threshold_source
 
 
 def _make_arm_only_bvh() -> Bvh:

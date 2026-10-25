@@ -1312,7 +1312,7 @@ def _resolve_contact_joints(
 ) -> tuple[list[str], list[int]]:
     """Resolve a detector's joint argument into parallel node names and node indices.
 
-    ``None`` auto-detects the feet (:func:`foot_contacts`' default). Entries are node names or node indices, negative indices counting from the end as in NumPy; the names returned for indices are the nodes' own. An empty list passes through: the detector refuses it.
+    ``None`` auto-detects the feet (:func:`foot_contacts`' default). Entries are node names or node indices, negative indices counting from the end as in NumPy; the names returned for indices are the nodes' own. An empty list is refused here, before the settings are checked, since a threshold per joint is checked against the joints resolved.
     """
     if joints is None:
         joints = auto_detect_foot_joints(bvh)
@@ -1321,6 +1321,12 @@ def _resolve_contact_joints(
                 "Could not auto-detect foot joints. Please provide "
                 "foot_joints explicitly (e.g. ['LeftFoot', 'RightFoot'])."
             )
+    if not joints:
+        raise ValueError(
+            "contact detection needs at least one joint; got an empty "
+            "joint list. (auto_detect_foot_joints returns [] on footless "
+            "rigs — pass joints explicitly.)"
+        )
 
     num_nodes = len(bvh.nodes)
     joint_names: list[str] = []
@@ -1366,7 +1372,7 @@ def _contacts_on_clip(
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """The clip's part of :func:`foot_contacts` and :func:`ground_contacts`, around the detector on plain arrays.
 
-    Both entry points resolve their joint arguments with :func:`_resolve_contact_joints` into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip, and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet.
+    Both entry points resolve their joint arguments with :func:`_resolve_contact_joints` into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet.
     """
     if bvh.frame_time == 0:
         if settings.reads_velocity:
@@ -1382,13 +1388,6 @@ def _contacts_on_clip(
                 "filters with min_contact_duration=0.0 and "
                 "min_gap_duration=0.0."
             )
-
-    if not joint_indices:
-        raise ValueError(
-            "contact detection needs at least one joint; got an empty "
-            "joint list. (auto_detect_foot_joints returns [] on footless "
-            "rigs — pass joints explicitly.)"
-        )
 
     if coords is None:
         coords = bvh.node_positions()

@@ -2008,6 +2008,26 @@ class TestFootlessRigContract:
         with pytest.raises(ValueError, match="at least one joint"):
             analysis.ground_contacts(bvh, [])
 
+    @pytest.mark.parametrize(
+        "detect", [analysis.foot_contacts, analysis.ground_contacts], ids=["foot", "ground"]
+    )
+    @pytest.mark.parametrize(
+        "settings",
+        [{"vel_threshold": [1.0, 2.0]}, {"method": "velocity", "floor": 0.0}],
+        ids=["threshold_per_joint", "setting_not_read"],
+    )
+    def test_an_empty_list_is_refused_before_the_settings(self, detect, settings):
+        # Before the per-joint length or the setting the method does not read.
+        bvh = make_pos_y_up_bvh()
+        with pytest.raises(ValueError, match="^contact detection needs at least one joint"):
+            detect(bvh, [], **settings)
+
+    def test_an_empty_list_is_refused_before_a_zero_frame_time(self):
+        bvh = make_pos_y_up_bvh()
+        bvh.frame_time = 0.0
+        with pytest.raises(ValueError, match="^contact detection needs at least one joint"):
+            analysis.ground_contacts(bvh, [])
+
 
 class TestFacingFrame:
     """analysis.facing_frame / Bvh.facing_frame — the continuous per-frame

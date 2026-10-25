@@ -18,7 +18,9 @@ from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhRoot
 
 sys.path.insert(0, str(Path(__file__).parent))
 from synthetic_bvh import (
+    contact_coords,
     make_clip_bvh,
+    make_contact_rig,
     make_neg_y_up_bvh,
     make_neg_z_up_bvh,
     make_pos_y_up_bvh,
@@ -933,56 +935,50 @@ class TestFootContactsDurationFilters:
     """min_contact_duration / min_gap_duration: morphological open + close
     specified in seconds, fps-independent."""
 
-    def test_helper_removes_short_true_runs(self):
-        from pybvh.analysis import _filter_short_runs
+    FRAME_TIME = 0.1  # a duration of 0.3 s is 3 frames
 
-        mask = np.array(
-            [[False, True, True, False, True, False, False, True, True, True, True, False]]
-        ).T  # interior True runs of 2, 1, 4
-        filtered = _filter_short_runs(mask, min_run=3, value=True)
-        expected = np.array(
-            [[False, False, False, False, False, False, False, True, True, True, True, False]]
-        ).T  # only the 4-run survives
-        np.testing.assert_array_equal(filtered, expected)
+    @classmethod
+    def _filtered(cls, pattern, **durations):
+        """Contacts of a foot whose raw labels are ``pattern`` ("X" contact, "_" not).
 
-    def test_helper_exempts_open_boundary_runs(self):
-        from pybvh.analysis import _filter_short_runs
+        The height signal is 0 where the pattern says contact and 3 elsewhere, against an explicit floor of 0 and a threshold of 1, with no hysteresis, so the raw mask is the pattern and only the duration filters act on it.
+        """
+        raw = np.array([c == "X" for c in pattern])
+        bvh = make_contact_rig(raw.size, frame_time=cls.FRAME_TIME)
+        c = bvh.foot_contacts(
+            foot_joints=["LeftFoot"],
+            method="height",
+            coords=contact_coords(bvh, np.where(raw, 0.0, 3.0)),
+            floor=0.0,
+            height_threshold=1.0,
+            hysteresis=0.0,
+            **durations,
+        )
+        return "".join("X" if v else "_" for v in c[:, 0])
 
+    def test_min_contact_duration_removes_shorter_interior_runs(self):
+        # Interior contact runs of 2, 1 and 4 frames against 3: only the 4-run survives.
+        got = self._filtered("_XX_X__XXXX_", min_contact_duration=0.3, min_gap_duration=0.0)
+        assert got == "_______XXXX_"
+
+    def test_runs_open_at_the_clip_edges_are_not_filtered(self):
         # A run touching frame 0 or the last frame is truncated by the clip, so
-        # its length is only a lower bound -> exempt from the short-run filter.
-        contacts = np.array([[True, False, False, False, False, True]]).T  # 1-frame at each end
-        np.testing.assert_array_equal(  # open: boundary contacts kept
-            _filter_short_runs(contacts, min_run=3, value=True), contacts
-        )
-        gaps = np.array([[False, True, True, True, True, False]]).T  # 1-frame gap at each end
-        np.testing.assert_array_equal(  # close: boundary gaps not filled
-            _filter_short_runs(gaps, min_run=3, value=False), gaps
-        )
+        # its length is only a lower bound: a one-frame contact there is kept...
+        got = self._filtered("X____X", min_contact_duration=0.3, min_gap_duration=0.0)
+        assert got == "X____X"
+        # ... and a one-frame gap there is not filled.
+        got = self._filtered("_XXXX_", min_contact_duration=0.0, min_gap_duration=0.3)
+        assert got == "_XXXX_"
 
-    def test_helper_fills_short_false_gaps(self):
-        from pybvh.analysis import _filter_short_runs
+    def test_min_gap_duration_fills_shorter_gaps_only(self):
+        # A gap of 2 frames against 3 is filled; a gap of exactly 3 is not.
+        got = self._filtered("_XX__XXX___XX_", min_contact_duration=0.0, min_gap_duration=0.3)
+        assert got == "_XXXXXXX___XX_"
 
-        # True True False False True True True → gap of 2 in the middle
-        mask = np.array([[True, True, False, False, True, True, True]]).T
-        filled = _filter_short_runs(mask, min_run=3, value=False)
-        # Gap of 2 < 3 → filled
-        expected = np.array([[True, True, True, True, True, True, True]]).T
-        np.testing.assert_array_equal(filled, expected)
-
-    def test_helper_keeps_long_false_gaps(self):
-        from pybvh.analysis import _filter_short_runs
-
-        mask = np.array([[True, False, False, False, True]]).T
-        filled = _filter_short_runs(mask, min_run=3, value=False)
-        # Gap of 3 == min_run → NOT filled (must be strictly shorter)
-        np.testing.assert_array_equal(filled, mask)
-
-    def test_helper_minrun_one_is_identity(self):
-        from pybvh.analysis import _filter_short_runs
-
-        mask = np.array([[True, False, True, True, False, True]]).T
-        np.testing.assert_array_equal(_filter_short_runs(mask, 1, value=True), mask)
-        np.testing.assert_array_equal(_filter_short_runs(mask, 1, value=False), mask)
+    def test_a_one_frame_duration_filters_nothing(self):
+        # 0.1 s at 0.1 s a frame is one frame: no run is shorter than that.
+        pattern = "_X_XX_X__X_"
+        assert self._filtered(pattern, min_contact_duration=0.1, min_gap_duration=0.1) == pattern
 
     def test_zero_duration_disables_filtering(self, bvh_example):
         """Explicit 0.0 disables both filters (raw per-frame output)."""

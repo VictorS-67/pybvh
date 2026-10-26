@@ -842,7 +842,14 @@ def render_mpl(
     axs = fig.subplots(1, n, subplot_kw=dict(projection="3d"), squeeze=False)
     axs_flat: list[Axes3D] = list(axs[0])
 
-    fig.patch.set_facecolor(style.background)
+    # A file without transparency gets the background laid on white, as
+    # matplotlib's own movie writers lay it for such a file; its player
+    # page lays it itself.
+    opaque_file = isinstance(output, Writer) and not output.keeps_alpha
+    r, g, b, a = to_rgba(style.background)
+    fig.patch.set_facecolor(
+        (a * r + 1 - a, a * g + 1 - a, a * b + 1 - a) if opaque_file else style.background
+    )
 
     viewports = panel_viewports(
         scene.views, framing="clip", motion=motion, projection=style.projection, fps=target.fps
@@ -902,12 +909,7 @@ def render_mpl(
             f.write(html_content)
         return target.path
 
-    if not output.keeps_alpha:
-        # A file without transparency gets the background laid on white,
-        # as matplotlib's own movie writers lay it for such a file.
-        r, g, b, a = to_rgba(style.background)
-        fig.patch.set_facecolor((a * r + 1 - a, a * g + 1 - a, a * b + 1 - a))
-    channels = 4 if output.keeps_alpha else 3
+    channels = 3 if opaque_file else 4
 
     def drawn_frames() -> Iterator[npt.NDArray[np.uint8]]:
         for f in range(num_frames):

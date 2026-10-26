@@ -1273,6 +1273,47 @@ class TestGifTiming:
             assert gif.info["duration"] == shown_ms
 
 
+class TestAnimatedImages:
+    """OpenCV writes ``.webp`` and ``.apng`` through the video module, as
+    it writes ``.gif``. An ``.apng`` is lossless, so it reads back as the
+    frames drawn."""
+
+    @pytest.fixture(autouse=True)
+    def _skip_if_no_cv2(self):
+        pytest.importorskip("cv2")
+
+    def test_an_apng_reads_back_as_the_frames_drawn(
+        self, bvh_example, tmp_path, handed_to_writer, apng_frames
+    ):
+        """Frames 0, 0, 1: the repeated frame is stored once, for twice
+        the duration, and still reads back as two frames."""
+        clip = bvh_example[0:1] + bvh_example[0:2]
+        path = bvhplot.render(
+            clip, tmp_path / "x.apng", backend="opencv", resolution=(64, 48), fps=25
+        )
+        [drawn] = handed_to_writer
+        assert len(drawn) == 3 and np.array_equal(drawn[0], drawn[1])
+        read = apng_frames(path, 25)
+        assert len(read) == len(drawn)
+        assert all(np.array_equal(r, d) for r, d in zip(read, drawn, strict=True))
+
+    def test_a_webp_has_every_frame_at_the_rate_written(self, bvh_example, tmp_path):
+        """At 20.1 fps a frame lasts 49.75 ms, rounded to 50."""
+        from PIL import Image
+
+        path = bvhplot.render(
+            bvh_example[0:4], tmp_path / "x.webp", backend="opencv", resolution=(64, 48), fps=20.1
+        )
+        with Image.open(path) as webp:
+            assert (webp.format, webp.n_frames, webp.size) == ("WEBP", 4, (64, 48))
+            durations = []
+            for index in range(webp.n_frames):
+                webp.seek(index)
+                webp.load()
+                durations.append(webp.info["duration"])
+        assert durations == [50] * 4
+
+
 class TestMissingPackage:
     """A backend whose package does not import raises before drawing,
     naming what to install, through each public call."""
@@ -1316,12 +1357,11 @@ class TestRenderBackendResolution:
         return reached
 
     @pytest.mark.parametrize("ext", [".html", ".webp", ".apng", ".gif"])
-    def test_mpl_only_extensions_route_to_matplotlib(
+    def test_html_and_animated_images_route_to_matplotlib(
         self, bvh_example, tmp_path, rendered_by, environment, ext
     ):
-        """Formats OpenCV cannot write always go to matplotlib under auto,
-        even when cv2 is installed, and without the missing-OpenCV
-        warning."""
+        """They always go to matplotlib under auto, even when cv2 is
+        installed, and without the missing-OpenCV warning."""
         environment(importable={"cv2"})
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")

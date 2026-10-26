@@ -30,7 +30,14 @@ CODECS = frozenset({"auto", "h264", "mpeg4"})
 # encoded as the codec and the machine allow, or the name of the Pillow
 # format an animated image is saved in.
 _VIDEO = "video"
-_FORMATS = {".mp4": _VIDEO, ".mov": _VIDEO, ".avi": _VIDEO, ".gif": "GIF"}
+_FORMATS = {
+    ".mp4": _VIDEO,
+    ".mov": _VIDEO,
+    ".avi": _VIDEO,
+    ".gif": "GIF",
+    ".webp": "WEBP",
+    ".apng": "PNG",  # an animated PNG: Pillow writes one from several frames
+}
 VIDEO_CONTAINERS = frozenset(ext for ext, fmt in _FORMATS.items() if fmt == _VIDEO)
 
 
@@ -302,16 +309,22 @@ def _save_with_pillow(
 ) -> None:
     """Save *frames* as one animated image in Pillow's *pillow_format*, looping,
     each frame shown for ``1000 / fps`` milliseconds rounded to a whole
-    millisecond (a GIF stores them further truncated to 10 ms)."""
+    millisecond (a GIF stores them further truncated to 10 ms).
+
+    Pillow stores a run of identical frames as one frame shown for the
+    run's summed duration, so the frames are read back from the
+    durations; a file whose frames are all identical is a still image.
+    WebP is Pillow's default lossy encoding; PNG is lossless.
+    """
     from PIL import Image
 
-    images = (Image.fromarray(frame) for frame in frames)
-    first = next(images)
+    # A list, as Pillow documents: its PNG writer reads the frames twice.
+    first, *rest = (Image.fromarray(frame) for frame in frames)
     first.save(
         path,
         format=pillow_format,
         save_all=True,
-        append_images=images,
+        append_images=rest,
         duration=round(1000.0 / fps),
         loop=0,
     )

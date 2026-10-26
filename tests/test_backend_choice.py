@@ -150,11 +150,11 @@ class TestRenderChoice:
 
     @pytest.mark.parametrize("suffix", [".html", ".webp", ".apng", ".gif"])
     @pytest.mark.parametrize("importable", [{"cv2"}, set()], ids=["opencv", "no-opencv"])
-    def test_auto_sends_what_opencv_cannot_write_to_matplotlib(
+    def test_auto_sends_html_and_animated_images_to_matplotlib(
         self, environment, suffix, importable
     ):
-        """Without the missing-OpenCV warning: OpenCV would not have
-        written the file either."""
+        """Without the missing-OpenCV warning: auto would not have chosen
+        OpenCV for the file either."""
         choice = _backends.choose_render_backend("auto", suffix, environment(importable=importable))
         assert (choice.backend, choice.warnings) == ("matplotlib", ())
 

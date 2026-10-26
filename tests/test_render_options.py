@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from pybvh import bvhplot, read_bvh_file
+from pybvh.bvhplot import _backends
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
 
@@ -26,6 +27,13 @@ OPTIONS = {
 FPS = 10
 # The package each backend draws with, skipped without it.
 PACKAGE = {"opencv": "cv2", "matplotlib": "matplotlib", "vedo": "vedo"}
+# Every option each backend declares it reads, as the rule reads the
+# declarations: each must have its value in OPTIONS.
+DECLARED = [
+    (backend, option)
+    for backend in sorted(PACKAGE)
+    for option in sorted(_backends._render_reads(backend))
+]
 
 
 @pytest.fixture(scope="module")
@@ -68,19 +76,9 @@ class TestEachBackendReadsWhatItDeclares:
     """Rendered with and without an option, a backend that reads it
     writes other frames, and one that does not writes the same."""
 
-    @pytest.mark.parametrize(
-        "backend, option",
-        [
-            *[
-                ("opencv", option)
-                for option in ("follow", "turntable", "ghost", "trajectory", "frame_counter")
-            ],
-            *[("matplotlib", option) for option in ("follow", "turntable", "ghost", "trajectory")],
-            ("vedo", "spacing"),
-            ("vedo", "match_size"),
-        ],
-    )
-    def test_an_option_read_changes_the_frames(self, drawn, backend, option):
+    @pytest.mark.parametrize("backend, option", DECLARED)
+    def test_an_option_declared_changes_the_frames(self, drawn, backend, option):
+        """Named, so the rule lets every declared option through."""
         pytest.importorskip(PACKAGE[backend])
         without = drawn(backend, option)
         given = drawn(backend, option, **OPTIONS[option])

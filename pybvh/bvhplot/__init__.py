@@ -889,15 +889,16 @@ def render(
         Video codec for ``.mp4``/``.mov``/``.avi`` output (invalid for
         other formats). ``"auto"`` (default) writes H.264 through the
         system ``ffmpeg`` executable when one is on PATH, and falls
-        back to OpenCV's MPEG-4 Part 2 (``mp4v``) otherwise — OpenCV
-        builds cannot encode H.264 themselves (patent licensing). The
-        two diverge in where the file plays: H.264 plays everywhere
-        (browsers, VSCode, notebook embeds, GitHub); ``mp4v`` only in
-        desktop players such as VLC or mpv. Pass ``"h264"`` when you
-        need the guarantee (raises with an install hint if no ffmpeg
-        is found) or ``"mpeg4"`` to force the OpenCV writer. The
-        matplotlib backend always writes H.264 (its mp4 writer *is*
-        ffmpeg), so ``"mpeg4"`` is rejected there.
+        back to OpenCV's MPEG-4 Part 2 (``mp4v``) otherwise, with a
+        warning — OpenCV builds cannot encode H.264 themselves (patent
+        licensing). The two diverge in where the file plays: H.264
+        plays everywhere (browsers, VSCode, notebook embeds, GitHub);
+        ``mp4v`` only in desktop players such as VLC or mpv. Pass
+        ``"h264"`` when you need the guarantee (raises with an install
+        hint if no ffmpeg is found) or ``"mpeg4"`` to write MPEG-4
+        Part 2 without the warning. Either way the file is written at
+        the path given. The matplotlib backend always writes H.264
+        (its mp4 writer *is* ffmpeg), so ``"mpeg4"`` is rejected there.
     spacing : float or "auto", optional
         Lateral separation between skeletons on the vedo backend, which
         draws every skeleton in one scene, exactly as :func:`play`

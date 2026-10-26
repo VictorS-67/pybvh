@@ -116,13 +116,21 @@ class Writer:
         return path
 
 
+_NOT_IN_BROWSERS = (
+    "ffmpeg is not on PATH, so the video is written as MPEG-4 Part 2, which "
+    "plays in desktop players such as VLC but not in browsers, VSCode or "
+    f"notebooks. {install_hint('ffmpeg')} to write H.264."
+)
+
+
 def writer_for(target: VideoTarget, environment: Environment, subject: str) -> Writer:
     """The writer of *target* on the machine *environment* describes, for
     the backend *subject* names in an error (``"The OpenCV backend"``).
 
     A video container is H.264 through ffmpeg when ffmpeg is on PATH and
     the codec is ``"auto"`` or ``"h264"``, else MPEG-4 Part 2 through
-    OpenCV. The path is never changed.
+    OpenCV; under ``"auto"`` that fallback warns that the file will not
+    play in browsers. The path is never changed.
 
     Raises
     ------
@@ -164,7 +172,8 @@ def writer_for(target: VideoTarget, environment: Environment, subject: str) -> W
             f"neither is available. {install_hint('ffmpeg')}, or OpenCV "
             f"({install_hint('cv2')}), or render to .gif instead."
         )
-    return Writer(target, _OPENCV)
+    warned = () if target.codec == "mpeg4" else (_NOT_IN_BROWSERS,)
+    return Writer(target, _OPENCV, warned)
 
 
 class _FfmpegPipeWriter:

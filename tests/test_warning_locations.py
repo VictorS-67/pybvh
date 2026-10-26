@@ -627,6 +627,33 @@ class TestBvhplot:
     @pytest.mark.parametrize(
         "draw",
         [
+            lambda clip, path: bvhplot.render(clip, path, backend="opencv"),
+            lambda clip, path: clip.render(path, backend="opencv"),
+            lambda clip, path: bvhplot.play(clip, backend="opencv"),
+            lambda clip, path: clip.play(backend="opencv"),
+        ],
+        ids=["bvhplot.render", "Bvh.render", "bvhplot.play", "Bvh.play"],
+    )
+    def test_a_video_written_as_mpeg4_names_the_draw_call(
+        self, walk, environment, monkeypatch, tmp_path, draw
+    ):
+        """OpenCV's drawing and the notebook's display are stubbed: the
+        warning comes before them."""
+        from pybvh.bvhplot import _opencv
+
+        ipython_display = pytest.importorskip("IPython.display")
+        monkeypatch.setattr(_opencv, "render_opencv", lambda *args, **kwargs: None)
+        monkeypatch.setattr(ipython_display, "Video", lambda *args, **kwargs: None)
+        monkeypatch.setattr(ipython_display, "display", lambda *args, **kwargs: None)
+        environment(notebook=True, importable={"cv2"})
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            draw(walk, tmp_path / "clip.mp4")
+        assert _files_named(caught, "ffmpeg is not on PATH") == {__file__}
+
+    @pytest.mark.parametrize(
+        "draw",
+        [
             lambda clip, path: bvhplot.render(clip, path, backend="matplotlib"),
             lambda clip, path: clip.render(path, backend="matplotlib"),
         ],

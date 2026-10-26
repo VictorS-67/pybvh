@@ -50,7 +50,7 @@ The layout is the one real choice, and it follows the motion: `"offset"` draws e
 bvh.render("supplementary.mp4", codec="h264", resolution=(1920, 1080))
 ```
 
-`codec="auto"` (the default) uses H.264 when a system `ffmpeg` is on PATH and falls back to OpenCV's MPEG-4 Part 2, which plays in desktop players like VLC but not in browsers. Naming `"h264"` turns that silent fallback into an error you can act on before you upload.
+`codec="auto"` (the default) uses H.264 when a system `ffmpeg` is on PATH and falls back to OpenCV's MPEG-4 Part 2, which plays in desktop players like VLC but not in browsers, and warns that it did. Naming `"h264"` turns that fallback into an error, so a script stops before it writes a file you would upload.
 
 Two options exist to make a clip legible without narration. `ghost=N` trails faded copies of recent poses behind the live skeleton, and `trajectory=True` draws the root's path on the floor as it goes, so any single frame says where the motion has been:
 

@@ -317,6 +317,9 @@ class TestReadEnvironment:
         assert _backends.read_environment().in_notebook is False
         assert "IPython" not in sys.modules
 
+    # The display tests fake sys.platform, so they ask the display probe
+    # alone: read_environment also calls shutil.which, which branches on
+    # sys.platform (into Windows-only code since Python 3.12).
     @pytest.mark.parametrize(
         "variables, has_display",
         [
@@ -332,11 +335,17 @@ class TestReadEnvironment:
             monkeypatch.delenv(name, raising=False)
         for name, value in variables.items():
             monkeypatch.setenv(name, value)
-        assert _backends.read_environment().has_display is has_display
+        assert _backends._has_display() is has_display
 
     @pytest.mark.parametrize("platform", ["darwin", "win32"])
     def test_macos_and_windows_always_have_a_display(self, monkeypatch, platform):
         monkeypatch.setattr(sys, "platform", platform)
         monkeypatch.delenv("DISPLAY", raising=False)
         monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+        assert _backends._has_display() is True
+
+    def test_the_display_probe_is_what_the_environment_reads(self, monkeypatch):
+        monkeypatch.setattr(_backends, "_has_display", lambda: True)
         assert _backends.read_environment().has_display is True
+        monkeypatch.setattr(_backends, "_has_display", lambda: False)
+        assert _backends.read_environment().has_display is False

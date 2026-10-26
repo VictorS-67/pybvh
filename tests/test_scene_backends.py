@@ -218,11 +218,8 @@ class TestEveryPassIsDrawnAsTheFirst:
         pytest.importorskip("cv2")
         from pybvh.bvhplot._opencv import _generate_frames
 
-        frames = list(
-            _generate_frames(
-                looped, self.STYLE, (160, 120), ghost=2, trajectory=True, frame_counter=True
-            )
-        )
+        options = AnimationOptions(ghost=2, trajectory=True, frame_counter=True)
+        frames = list(_generate_frames(looped, self.STYLE, (160, 120), options))
         assert len(frames) == self.LOOPED
         for f in range(self.CLIP, self.LOOPED):
             np.testing.assert_array_equal(frames[f], frames[f % self.CLIP], err_msg=f"frame {f}")
@@ -802,7 +799,7 @@ class TestEveryBackendDrawsTheViewportsFloor:
 
         monkeypatch.setattr(cv2, "fillPoly", capture)
         style = Style("paper", supersample=1)
-        next(_opencv._generate_frames(scene, style, (320, 240)))
+        next(_opencv._generate_frames(scene, style, (320, 240), AnimationOptions()))
 
         viewport = make_viewport(scene.views, framing="clip")
         expected = viewport.project(viewport.floor_quad(), (320, 240), 0)
@@ -967,7 +964,7 @@ class TestEveryBackendStatesItsProjection:
             monkeypatch.setattr(module, "make_viewport", record)
         style = Style("paper", projection="ortho", supersample=1)
         if backend == "_opencv":
-            next(module._generate_frames(scene, style, (160, 120)))
+            next(module._generate_frames(scene, style, (160, 120), AnimationOptions()))
         elif backend == "_k3d":
             module._build_plot(scene, style)
         elif backend == "_vedo_offscreen":

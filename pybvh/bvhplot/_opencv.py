@@ -31,7 +31,7 @@ from ._style import (
     frame_counter_text,
     ghost_schedule,
 )
-from ._viewport import Turntable, Viewport, panel_viewports
+from ._viewport import Viewport, panel_viewports
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -342,12 +342,9 @@ def _generate_frames(
     scene: Scene,
     style: Style,
     resolution: tuple[int, int],
+    animation_options: AnimationOptions,
     *,
-    schedule: str | Turntable = "fixed",
     fps: float | None = None,
-    frame_counter: bool = False,
-    ghost: int = 0,
-    trajectory: bool = False,
 ) -> Iterator[npt.NDArray[np.uint8]]:
     """Yield one rendered BGR image ``(H, W, 3)`` per animation frame.
 
@@ -361,28 +358,22 @@ def _generate_frames(
         axis indicator (the pre-0.9.0 ``show_axis``).
     resolution : (int, int)
         ``(width, height)`` in pixels.
-    schedule : str or Turntable, optional
-        How each panel's camera moves, handed to the viewport
-        untouched (:func:`~._viewport.make_viewport`).
+    animation_options : AnimationOptions
+        What is drawn besides the skeletons, every field read: the
+        camera's schedule, handed to the viewport untouched
+        (:func:`~._viewport.make_viewport`); the ghosts, spaced by
+        ``style.ghost_spacing`` seconds of clip time; each root's trace
+        on the floor, growing with playback; and the ``Frame f/F``
+        counter in the bottom-right corner.
     fps : float, optional
         The rate the video plays at, handed to the viewport, which
         times a follow camera by it on a clip whose rate is unset.
-    frame_counter : bool, optional
-        Draw a ``Frame f/F`` counter in the bottom-right corner.
-        Default ``False`` (opt-in — publication output never stamps
-        text).
-    ghost : int, optional
-        Number of faded trailing poses behind each live skeleton,
-        spaced by ``style.ghost_spacing`` seconds of clip time. Default
-        0, none.
-    trajectory : bool, optional
-        Draw each root's trace on the floor, growing with playback.
-        Default ``False``.
     """
     import cv2
 
     w, h = resolution
     bg_bgr = _to_bgr(style.background)
+    ghost, trajectory = animation_options.ghost, animation_options.trajectory
 
     # Supersampling: draw at style.supersample x the target resolution
     # and downsample with INTER_AREA — cheap, dramatically better
@@ -401,7 +392,11 @@ def _generate_frames(
     # Orthographic whatever the style asks: this backend has no
     # perspective projection, and says so to the viewport.
     viewports = panel_viewports(
-        scene.views, framing="clip", schedule=schedule, projection="ortho", fps=fps
+        scene.views,
+        framing="clip",
+        schedule=animation_options.schedule,
+        projection="ortho",
+        fps=fps,
     )
 
     contexts = [
@@ -433,7 +428,7 @@ def _generate_frames(
 
         # Text and the axis indicator stamp AFTER the downsample so
         # they stay crisp at the output resolution.
-        if frame_counter:
+        if animation_options.frame_counter:
             cv2.putText(
                 img,
                 frame_counter_text(scene, f),
@@ -483,7 +478,7 @@ def render_opencv(
     animation_options : AnimationOptions
         What is drawn besides the skeletons, every field read: the
         camera's schedule, ghosts, the root trail and the frame
-        counter, passed to :func:`_generate_frames`.
+        counter, handed whole to :func:`_generate_frames`.
 
     Returns
     -------
@@ -491,16 +486,7 @@ def render_opencv(
         The path to the written file.
     """
     target = writer.target
-    frames = _generate_frames(
-        scene,
-        style,
-        target.resolution,
-        schedule=animation_options.schedule,
-        fps=target.fps,
-        frame_counter=animation_options.frame_counter,
-        ghost=animation_options.ghost,
-        trajectory=animation_options.trajectory,
-    )
+    frames = _generate_frames(scene, style, target.resolution, animation_options, fps=target.fps)
     # BGR is this backend's drawing order; the video module takes RGB.
     return writer.write(img[:, :, ::-1] for img in frames)
 

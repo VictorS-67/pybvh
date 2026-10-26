@@ -1006,6 +1006,8 @@ def render(
     _validate_sync(sync)
     pad = sync == "pad"
     style_obj = resolve_style(style)
+    # The target waits for the Scene's rate; its codec rule does not.
+    _video.check_codec(filepath, codec)
 
     # "turntable" is a camera *schedule*, not an angle: orbit from the
     # front view. It overrides follow (both prescribe the azimuth). A

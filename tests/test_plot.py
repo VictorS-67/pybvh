@@ -13,6 +13,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from pybvh import Bvh, bvhplot, nodes_from_table, nodes_to_table, parse_axis, read_bvh_file
 from pybvh.analysis import root_trajectory
@@ -890,6 +891,21 @@ class TestTrajectory:
         assert ax.get_xlim()[0] <= min(ax_a.get_xlim()[0], ax_b.get_xlim()[0]) + 1e-6
 
 
+def page_frames(path, mode="RGB"):
+    """The frames an ``.html`` page embeds, each a PNG matplotlib saved
+    from its own figure, as uint8 arrays in the Pillow *mode*: ``(H, W,
+    3)`` for ``"RGB"``, ``(H, W, 4)`` for ``"RGBA"``."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    encoded = re.findall(r'"data:image/png;base64,([^"]+)"', path.read_text())
+    return [
+        np.asarray(Image.open(io.BytesIO(base64.b64decode(data))).convert(mode)) for data in encoded
+    ]
+
+
 class TestRenderMatplotlib:
     def test_render_creates_file(self, bvh_example, tmp_path):
         import matplotlib
@@ -920,21 +936,6 @@ class TestRenderMatplotlib:
         assert path.exists()
         assert path.stat().st_size > 0
 
-    @staticmethod
-    def _page_frames(path):
-        """The frames an ``.html`` page embeds, each a PNG matplotlib
-        saved from its own figure, as ``(H, W, 3)`` uint8 RGB arrays."""
-        import base64
-        import io
-
-        from PIL import Image
-
-        encoded = re.findall(r'"data:image/png;base64,([^"]+)"', path.read_text())
-        return [
-            np.asarray(Image.open(io.BytesIO(base64.b64decode(data))).convert("RGB"))
-            for data in encoded
-        ]
-
     @pytest.mark.parametrize(
         "options",
         [
@@ -947,19 +948,21 @@ class TestRenderMatplotlib:
         self, bvh_example, tmp_path, handed_to_writer, apng_frames, options
     ):
         """An ``.html`` page is matplotlib's own: its player saves the
-        figure of each frame. The frames handed to the video module, and
+        figure of each frame. The frames handed to the video module
+        (RGBA, an animated image keeping transparency; opaque here), and
         the ``.apng`` read back, are those frames, pixel for pixel."""
         clips = bvh_example[0:4] if "labels" not in options else [bvh_example[0:4]] * 2
         options = dict(options, backend="matplotlib", fps=25, resolution=(160, 120))
         page = bvhplot.render(clips, tmp_path / "x.html", **options)
         apng = bvhplot.render(clips, tmp_path / "x.apng", **options)
-        drawn = self._page_frames(page)
+        drawn = page_frames(page)
         [handed] = handed_to_writer
         read = apng_frames(apng, 25)
         assert len(drawn) == len(handed) == len(read) == 4
         assert not np.array_equal(drawn[0], drawn[1])
         for page_frame, handed_frame, read_frame in zip(drawn, handed, read, strict=True):
-            np.testing.assert_array_equal(handed_frame, page_frame)
+            assert (handed_frame[:, :, 3] == 255).all()
+            np.testing.assert_array_equal(handed_frame[:, :, :3], page_frame)
             np.testing.assert_array_equal(read_frame, page_frame)
 
 
@@ -1424,8 +1427,8 @@ class TestMatplotlibVideo:
         with matplotlib.rc_context({"savefig.dpi": 200, "savefig.facecolor": "red"}):
             self._render(bvh_example, tmp_path / "x.apng", style="paper")
         [handed] = handed_to_writer
-        assert handed[0].shape == (120, 160, 3)
-        assert tuple(handed[0][0, 0]) == (255, 255, 255)  # the paper style's white
+        assert handed[0].shape == (120, 160, 4)
+        assert tuple(handed[0][0, 0]) == (255, 255, 255, 255)  # the paper style's white
 
     def test_a_turntable_is_timed_at_the_rate_given(
         self, bvh_example, tmp_path, environment, ffmpeg_on_path, handed_to_writer
@@ -1438,6 +1441,97 @@ class TestMatplotlibVideo:
         )
         [handed] = handed_to_writer
         assert len(handed) == 59
+
+
+class TestTransparentBackground:
+    """A style whose background is transparent: matplotlib's animated
+    images keep the transparency, as its own Pillow writer kept it, and
+    its videos lay the picture on white, as its own ffmpeg writer did.
+    OpenCV draws opaque frames whatever the background."""
+
+    @staticmethod
+    def _render(clip, path, background, backend="matplotlib", **kwargs):
+        return bvhplot.render(
+            clip[0:4],
+            path,
+            backend=backend,
+            fps=10,
+            resolution=(160, 120),
+            camera="turntable",
+            style=bvhplot.Style("paper", background=background),
+            **kwargs,
+        )
+
+    @staticmethod
+    def _rgba_frames(path):
+        from PIL import Image, ImageSequence
+
+        with Image.open(path) as image:
+            return [np.asarray(f.convert("RGBA")) for f in ImageSequence.Iterator(image)]
+
+    BACKGROUNDS = pytest.mark.parametrize(
+        "background", ["none", (1, 1, 1, 0)], ids=["none", "white-alpha-0"]
+    )
+
+    @staticmethod
+    def _on_white(frame):
+        """An ``(H, W, 4)`` RGBA frame composited over white, as floats."""
+        alpha = frame[..., 3:] / 255.0
+        return frame[..., :3] * alpha + 255.0 * (1.0 - alpha)
+
+    @BACKGROUNDS
+    def test_an_apng_holds_the_transparent_frames_drawn(self, bvh_example, tmp_path, background):
+        """Laid on white, they are the frames of matplotlib's own
+        ``.html`` page, whose player draws the figure on white (it saves
+        no transparency). Laying a drawn edge on white afterwards rounds
+        its partly transparent pixels differently from drawing it on
+        white: v0.9.0's own ``.apng`` differs from its page by up to 3.2
+        levels, on 0.3% of the pixels."""
+        page = self._render(bvh_example, tmp_path / "x.html", background)
+        apng = self._render(bvh_example, tmp_path / "x.apng", background)
+        drawn = page_frames(page)
+        with Image.open(apng) as image:
+            assert image.mode == "RGBA"
+        read = self._rgba_frames(apng)
+        assert len(read) == len(drawn) == 4
+        for read_frame, page_frame in zip(read, drawn, strict=True):
+            assert read_frame[..., 3].min() == 0
+            np.testing.assert_allclose(self._on_white(read_frame), page_frame, atol=4)
+
+    @BACKGROUNDS
+    @pytest.mark.parametrize("ext", [".gif", ".webp"])
+    def test_a_gif_and_a_webp_keep_the_transparency(self, bvh_example, tmp_path, background, ext):
+        path = self._render(bvh_example, tmp_path / f"x{ext}", background)
+        with Image.open(path) as image:
+            if ext == ".gif":
+                assert image.mode == "P" and "transparency" in image.info
+            else:
+                assert image.mode == "RGBA"
+        assert all(frame[..., 3].min() == 0 for frame in self._rgba_frames(path))
+
+    @BACKGROUNDS
+    def test_a_video_lays_the_picture_on_white(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path, handed_to_writer, background
+    ):
+        """The frames handed to the encoder are those of matplotlib's own
+        ``.html`` page, whose player draws the figure on white, pixel for
+        pixel."""
+        environment(ffmpeg=True)
+        page = self._render(bvh_example, tmp_path / "x.html", background)
+        self._render(bvh_example, tmp_path / "x.mp4", background)
+        [handed] = handed_to_writer
+        drawn = page_frames(page)
+        assert len(handed) == len(drawn) == 4
+        for handed_frame, page_frame in zip(handed, drawn, strict=True):
+            np.testing.assert_array_equal(handed_frame, page_frame)
+
+    @pytest.mark.parametrize("ext", [".apng", ".gif"])
+    def test_opencv_frames_stay_opaque(self, bvh_example, tmp_path, ext):
+        pytest.importorskip("cv2")
+        path = self._render(bvh_example, tmp_path / f"x{ext}", "none", backend="opencv")
+        with Image.open(path) as image:
+            assert "transparency" not in image.info
+            assert image.mode == ("RGB" if ext == ".apng" else "P")
 
 
 class TestH264Fidelity:

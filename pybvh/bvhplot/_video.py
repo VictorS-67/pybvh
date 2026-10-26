@@ -10,7 +10,8 @@ encoded: H.264 through the system ``ffmpeg`` executable, or OpenCV's
 MPEG-4 Part 2. The one format not written from frames is matplotlib's
 player page (``.html``), which the table names as matplotlib's own.
 Frames are ``(H, W, 3)`` uint8 RGB arrays, every one the size of the
-first.
+first; a writer that keeps transparency (:attr:`Writer.keeps_alpha`)
+also takes ``(H, W, 4)`` RGBA arrays.
 """
 
 from __future__ import annotations
@@ -20,12 +21,15 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
 
 from ._backends import Environment, install_hint
+
+if TYPE_CHECKING:
+    from PIL import Image
 
 # Valid values of render(codec=).
 CODECS = frozenset({"auto", "h264", "mpeg4"})
@@ -184,6 +188,13 @@ class Writer:
     target: VideoTarget
     encoder: str
     warnings: tuple[str, ...] = ()
+
+    @property
+    def keeps_alpha(self) -> bool:
+        """The file keeps transparency: an animated image takes RGBA
+        frames and keeps their alpha. A video container takes RGB frames
+        only."""
+        return self.encoder == _PILLOW
 
     def write(self, frames: Iterable[npt.NDArray[np.uint8]]) -> Path:
         """Write *frames* to the target's path and return the path.
@@ -383,10 +394,13 @@ def _save_with_pillow(
     run's summed duration, a whole number of frame durations; a file
     whose frames are all identical is a still image. WebP is Pillow's
     default lossy encoding; PNG is lossless.
-    """
-    from PIL import Image
 
-    images = (Image.fromarray(frame) for frame in frames)
+    An RGBA frame is saved with its alpha when some pixel of it is
+    transparent, and as RGB when none is, as matplotlib's own Pillow
+    writer saves its frames: Pillow converts RGB to a GIF's palette
+    better than RGBA.
+    """
+    images = (_pillow_image(frame) for frame in frames)
     first = next(images)
     # Pillow documents append_images as a list, and its PNG writer reads
     # the frames twice; its GIF writer reads them once, keeping each frame
@@ -400,3 +414,13 @@ def _save_with_pillow(
         duration=round(1000.0 / fps),
         loop=0,
     )
+
+
+def _pillow_image(frame: npt.NDArray[np.uint8]) -> Image.Image:
+    """The Pillow image of an RGB or RGBA *frame*, RGB when no pixel of
+    it is transparent."""
+    from PIL import Image
+
+    if frame.shape[2] == 4 and frame[:, :, 3].min() == 255:
+        return Image.fromarray(frame).convert("RGB")
+    return Image.fromarray(frame)

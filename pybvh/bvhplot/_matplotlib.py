@@ -19,6 +19,7 @@ import numpy.typing as npt
 from matplotlib.artist import Artist
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.collections import LineCollection
+from matplotlib.colors import to_rgba
 from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d import proj3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
@@ -901,12 +902,19 @@ def render_mpl(
             f.write(html_content)
         return target.path
 
+    if not output.keeps_alpha:
+        # A file without transparency gets the background laid on white,
+        # as matplotlib's own movie writers lay it for such a file.
+        r, g, b, a = to_rgba(style.background)
+        fig.patch.set_facecolor((a * r + 1 - a, a * g + 1 - a, a * b + 1 - a))
+    channels = 4 if output.keeps_alpha else 3
+
     def drawn_frames() -> Iterator[npt.NDArray[np.uint8]]:
         for f in range(num_frames):
             update(f)
             canvas.draw()
             # The buffer is the canvas's own, redrawn in place: copy it.
-            yield np.asarray(canvas.buffer_rgba())[:, :, :3].copy()
+            yield np.asarray(canvas.buffer_rgba())[:, :, :channels].copy()
 
     return output.write(drawn_frames())
 

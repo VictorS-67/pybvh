@@ -1765,10 +1765,12 @@ class TestMatchFps:
 
 class TestSceneSpacing:
     """Scene.spread() (lateral spacing for the single-scene backends) and
-    _warn_world_up_mismatch(). The router's policy around the spread is
-    tested through play, frame and render in TestSpreadInOneScene.
+    play()'s world_up mismatch warning. The router's policy around the
+    spread is tested through play, frame and render in
+    TestSpreadInOneScene.
 
-    No k3d or vedo installation required — the Scene is exercised directly.
+    No k3d or vedo installation required — the Scene is exercised
+    directly, and play() reaches a stubbed matplotlib backend.
     """
 
     @pytest.fixture
@@ -1863,43 +1865,37 @@ class TestSceneSpacing:
     # world_up mismatch warning
     # ------------------------------------------------------------------
 
-    def test_world_up_mismatch_warning(self, two_bvhs):
+    def test_world_up_mismatch_warning(self, two_bvhs, played):
         import sys
-
-        from pybvh.bvhplot import _warn_world_up_mismatch
 
         sys.path.insert(0, str(Path(__file__).parent))
         from synthetic_bvh import make_pos_y_up_bvh
 
         b_yup = make_pos_y_up_bvh()
         b_zup, _ = two_bvhs
-        with pytest.warns(UserWarning, match="world_up"):
-            _warn_world_up_mismatch([b_zup, b_yup])
+        with pytest.warns(UserWarning, match=r"different world_up values \(\+z, \+y\)"):
+            bvhplot.play([b_zup, b_yup], backend="matplotlib")
+        assert len(played) == 1
 
-    def test_no_warning_same_world_up(self, two_bvhs):
+    def test_no_warning_same_world_up(self, two_bvhs, played):
         import warnings
-
-        from pybvh.bvhplot import _warn_world_up_mismatch
 
         b1, b2 = two_bvhs
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            _warn_world_up_mismatch([b1, b2])
-            wu_warns = [x for x in w if "world_up" in str(x.message)]
-            assert len(wu_warns) == 0
+            bvhplot.play([b1, b2], backend="matplotlib")
+        assert [x for x in w if "world_up" in str(x.message)] == []
 
-    def test_warning_mentions_reorient(self, two_bvhs):
+    def test_warning_mentions_reorient(self, two_bvhs, played):
         import sys
 
         sys.path.insert(0, str(Path(__file__).parent))
         from synthetic_bvh import make_pos_y_up_bvh
 
-        from pybvh.bvhplot import _warn_world_up_mismatch
-
         b_yup = make_pos_y_up_bvh()
         b_zup, _ = two_bvhs
         with pytest.warns(UserWarning, match="reorient_world_up"):
-            _warn_world_up_mismatch([b_zup, b_yup])
+            bvhplot.play([b_zup, b_yup], backend="matplotlib")
 
 
 @pytest.fixture

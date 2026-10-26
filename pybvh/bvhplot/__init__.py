@@ -1251,6 +1251,8 @@ def play(
 
     spacing = _validated_spacing("auto" if spacing is None else spacing)
     match_size = bool(match_size)
+    # play has no follow, turntable, ghost or trail: the camera is fixed.
+    animation_options = _animation_options.AnimationOptions(frame_counter=bool(frame_counter))
     _validate_sync(sync)
     pad = sync == "pad"
     style_obj = resolve_style(style)
@@ -1318,12 +1320,7 @@ def play(
             tmp_path, actual_fps, (960, 540) if resolution is None else resolution
         )
         writer = _video_writer(target, environment, "The opencv play backend")
-        render_opencv(
-            scene,
-            style_obj,
-            writer,
-            _animation_options.AnimationOptions(frame_counter=bool(frame_counter)),
-        )
+        render_opencv(scene, style_obj, writer, animation_options)
 
         display(Video(str(tmp_path), embed=True, mimetype="video/mp4"))
         tmp_path.unlink(missing_ok=True)

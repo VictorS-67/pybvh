@@ -13,7 +13,7 @@ import math
 import os
 import shutil
 import sys
-from collections.abc import Callable, Collection, Container, Mapping
+from collections.abc import Collection, Container, Mapping
 from dataclasses import dataclass
 from typing import NamedTuple
 
@@ -160,17 +160,31 @@ def check_importable(call: str, backend: str, environment: Environment) -> None:
     raise ImportError(f"{subject} requires {what}. {install_hint(package)}") from cause
 
 
-# The module holding each frame backend's entry function and declaration.
-_FRAME_MODULES = {"matplotlib": "_matplotlib", "vedo": "_vedo_offscreen"}
+# The module holding each backend's entry function and its declaration of
+# the options it reads (ADR 0006), per public call, under the name the
+# backend runs as.
+_DECLARING_MODULES = {
+    "frame": {"matplotlib": "_matplotlib", "vedo": "_vedo_offscreen"},
+    "render": {"matplotlib": "_matplotlib", "opencv": "_opencv", "vedo": "_vedo_offscreen"},
+    "play": {
+        "k3d": "_k3d",
+        "vedo": "_vedo",
+        "opencv_notebook": "_opencv",
+        "matplotlib": "_matplotlib",
+    },
+}
 
 
-def _frame_reads(backend: str) -> frozenset[str]:
-    """The options of ``frame`` *backend* reads, as it declares them
-    beside its entry function."""
-    # Imported on demand, as for render: another backend's module only
-    # to name it in a refusal.
-    module = importlib.import_module(f".{_FRAME_MODULES[backend]}", __package__)
-    reads: frozenset[str] = module.FRAME_READS
+def _reads(call: str, backend: str) -> frozenset[str]:
+    """The options of the public *call* that *backend* reads, as it
+    declares them beside its entry function: ``FRAME_READS``,
+    ``RENDER_READS`` or ``PLAY_READS`` (the notebook video's beside
+    ``render_opencv``, which draws it)."""
+    # Imported on demand: a call loads the module of the backend it runs,
+    # and another backend's only to name it in a refusal (matplotlib's
+    # imports pyplot).
+    module = importlib.import_module(f".{_DECLARING_MODULES[call][backend]}", __package__)
+    reads: frozenset[str] = getattr(module, f"{call.upper()}_READS")
     return reads
 
 
@@ -186,7 +200,7 @@ def choose_frame_backend(requested: str, given: Collection[str] = ()) -> str:
     _check_known(requested, FRAME_BACKENDS)
     if given:
         _with_unread_options(
-            "frame", requested, Choice(requested), given, _frame_reads, _FRAME_MODULES
+            "frame", requested, Choice(requested), given, _DECLARING_MODULES["frame"]
         )
     return requested
 
@@ -216,14 +230,13 @@ def _with_unread_options(
     requested: str,
     choice: Choice,
     given: Collection[str],
-    reads: Callable[[str], frozenset[str]],
     backends: Collection[str],
     public_names: Mapping[str, str] | None = None,
 ) -> Choice:
     """Apply the rule for an option the chosen backend does not read
     (ADR 0006) to *choice*: *given* are the options the caller passed
-    (not ``None``), ``reads(backend)`` the declaration of the options
-    each of the *backends* of the call reads. A named backend raises
+    (not ``None``), and *backends* those of the public *call* a message
+    may offer, each read from its declaration. A named backend raises
     ``ValueError`` naming every given option it does not read; under
     ``"auto"`` the choice gains a warning naming them and the backend
     chosen. Either message offers the backends that read them all, when
@@ -235,13 +248,13 @@ def _with_unread_options(
     def public_name(backend: str) -> str:
         return repr((public_names or {}).get(backend, backend))
 
-    unread = sorted(set(given) - reads(choice.backend) - _ACCEPTED_BY_EVERY_BACKEND)
+    unread = sorted(set(given) - _reads(call, choice.backend) - _ACCEPTED_BY_EVERY_BACKEND)
     if not unread:
         return choice
     names = _either([_SHOWN.get(option, option) for option in unread])
     it = "it" if len(unread) == 1 else "them"
     readers = [
-        public_name(backend) for backend in sorted(backends) if set(unread) <= reads(backend)
+        public_name(backend) for backend in sorted(backends) if set(unread) <= _reads(call, backend)
     ]
     instead = (
         f"use backend={_either(readers)}, which {'reads' if len(readers) == 1 else 'read'} {it}"
@@ -261,21 +274,6 @@ def _with_unread_options(
         f"{call}(backend={public_name(choice.backend)}) does not read {names}. "
         f"Leave {it} unset{hint}."
     )
-
-
-# The module holding each render backend's entry function and declaration.
-_RENDER_MODULES = {"matplotlib": "_matplotlib", "opencv": "_opencv", "vedo": "_vedo_offscreen"}
-
-
-def _render_reads(backend: str) -> frozenset[str]:
-    """The options of ``render`` *backend* reads, as it declares them
-    beside its entry function."""
-    # Imported on demand: a call loads the module of the backend it runs,
-    # and another backend's only to name it in a refusal (matplotlib's
-    # imports pyplot).
-    module = importlib.import_module(f".{_RENDER_MODULES[backend]}", __package__)
-    reads: frozenset[str] = module.RENDER_READS
-    return reads
 
 
 def choose_render_backend(
@@ -314,7 +312,7 @@ def choose_render_backend(
         choice = Choice("matplotlib", (_SLOW_RENDER,))
     if not given:
         return choice
-    return _with_unread_options("render", requested, choice, given, _render_reads, _RENDER_MODULES)
+    return _with_unread_options("render", requested, choice, given, _DECLARING_MODULES["render"])
 
 
 _NO_INTERACTIVE = f"No interactive backend (k3d, vedo) found. {install_hint('k3d')}"
@@ -324,29 +322,9 @@ _SLOW_PLAY = (
 )
 
 
-# The module holding each play backend's declaration, under the name the
-# backend runs as.
-_PLAY_MODULES = {
-    "k3d": "_k3d",
-    "vedo": "_vedo",
-    "opencv_notebook": "_opencv",
-    "matplotlib": "_matplotlib",
-}
-
-
 # The name a play backend goes by in messages, when it runs under another:
 # the caller writes backend="opencv" for the notebook video.
 _PLAY_NAMES = {"opencv_notebook": "opencv"}
-
-
-def _play_reads(backend: str) -> frozenset[str]:
-    """The options of ``play`` *backend* reads, as it declares them
-    beside its entry function (the notebook video beside
-    ``render_opencv``, which draws it)."""
-    # Imported on demand, as for render: matplotlib's module imports pyplot.
-    module = importlib.import_module(f".{_PLAY_MODULES[backend]}", __package__)
-    reads: frozenset[str] = module.PLAY_READS
-    return reads
 
 
 def choose_play_backend(
@@ -398,10 +376,10 @@ def choose_play_backend(
     # script, it raises.
     offered = [
         backend
-        for backend in _PLAY_MODULES
+        for backend in _DECLARING_MODULES["play"]
         if environment.in_notebook or backend != "opencv_notebook"
     ]
-    return _with_unread_options("play", requested, choice, given, _play_reads, offered, _PLAY_NAMES)
+    return _with_unread_options("play", requested, choice, given, offered, _PLAY_NAMES)
 
 
 def _auto_play_backend(environment: Environment) -> Choice:

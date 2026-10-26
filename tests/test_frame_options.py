@@ -21,7 +21,7 @@ PACKAGE = {"matplotlib": "matplotlib", "vedo": "vedo"}
 DECLARED = [
     (backend, option)
     for backend in sorted(PACKAGE)
-    for option in sorted(_backends._frame_reads(backend))
+    for option in sorted(_backends._reads("frame", backend))
 ]
 # A small picture for vedo, so that each still is quick.
 SMALL = (160, 120)

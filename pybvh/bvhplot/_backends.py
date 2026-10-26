@@ -8,11 +8,12 @@ that value, so a test builds the value instead of changing the machine.
 
 from __future__ import annotations
 
+import importlib
 import math
 import os
 import shutil
 import sys
-from collections.abc import Collection, Container, Mapping
+from collections.abc import Callable, Collection, Container
 from dataclasses import dataclass
 from typing import NamedTuple
 
@@ -191,21 +192,24 @@ def _with_unread_options(
     requested: str,
     choice: Choice,
     given: Collection[str],
-    reads: Mapping[str, frozenset[str]],
+    reads: Callable[[str], frozenset[str]],
+    backends: Collection[str],
 ) -> Choice:
     """Apply the rule for an option the chosen backend does not read
     (ADR 0006) to *choice*: *given* are the options the caller passed
-    (not ``None``), *reads* each backend's declaration of the options it
-    reads. A named backend raises ``ValueError`` naming every given
-    option it does not read; under ``"auto"`` the choice gains a warning
-    naming them and the backend chosen. Either message offers the
-    backends that read them all, when there are any."""
-    unread = sorted(set(given) - reads[choice.backend] - _ACCEPTED_BY_EVERY_BACKEND)
+    (not ``None``), ``reads(backend)`` the declaration of the options
+    each of the *backends* of the call reads. A named backend raises
+    ``ValueError`` naming every given option it does not read; under
+    ``"auto"`` the choice gains a warning naming them and the backend
+    chosen. Either message offers the backends that read them all, when
+    there are any. The other backends' declarations are read only for
+    that message."""
+    unread = sorted(set(given) - reads(choice.backend) - _ACCEPTED_BY_EVERY_BACKEND)
     if not unread:
         return choice
     names = _either([_SHOWN.get(option, option) for option in unread])
     it = "it" if len(unread) == 1 else "them"
-    readers = [repr(backend) for backend, read in sorted(reads.items()) if set(unread) <= read]
+    readers = [repr(backend) for backend in sorted(backends) if set(unread) <= reads(backend)]
     instead = (
         f"use backend={_either(readers)}, which {'reads' if len(readers) == 1 else 'read'} {it}"
         if readers
@@ -225,18 +229,19 @@ def _with_unread_options(
     )
 
 
-def _render_reads() -> dict[str, frozenset[str]]:
-    """The options of ``render`` each backend reads, as it declares them
-    beside its entry function."""
-    # Imported here: a backend module is loaded only when a call needs it
-    # (matplotlib's imports pyplot).
-    from . import _matplotlib, _opencv, _vedo_offscreen
+# The module holding each render backend's entry function and declaration.
+_RENDER_MODULES = {"matplotlib": "_matplotlib", "opencv": "_opencv", "vedo": "_vedo_offscreen"}
 
-    return {
-        "matplotlib": _matplotlib.RENDER_READS,
-        "opencv": _opencv.RENDER_READS,
-        "vedo": _vedo_offscreen.RENDER_READS,
-    }
+
+def _render_reads(backend: str) -> frozenset[str]:
+    """The options of ``render`` *backend* reads, as it declares them
+    beside its entry function."""
+    # Imported on demand: a call loads the module of the backend it runs,
+    # and another backend's only to name it in a refusal (matplotlib's
+    # imports pyplot).
+    module = importlib.import_module(f".{_RENDER_MODULES[backend]}", __package__)
+    reads: frozenset[str] = module.RENDER_READS
+    return reads
 
 
 def choose_render_backend(
@@ -275,7 +280,7 @@ def choose_render_backend(
         choice = Choice("matplotlib", (_SLOW_RENDER,))
     if not given:
         return choice
-    return _with_unread_options("render", requested, choice, given, _render_reads())
+    return _with_unread_options("render", requested, choice, given, _render_reads, _RENDER_MODULES)
 
 
 _NO_INTERACTIVE = f"No interactive backend (k3d, vedo) found. {install_hint('k3d')}"

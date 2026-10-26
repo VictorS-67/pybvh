@@ -6,11 +6,15 @@ are also tested through play() itself, in test_plot.py."""
 
 from __future__ import annotations
 
+import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 from pybvh.bvhplot import _backends
+
+REPO = Path(__file__).parent.parent
 
 NO_INTERACTIVE = (
     "No interactive backend (k3d, vedo) found. Install with: pip install pybvh[interactive]"
@@ -189,6 +193,22 @@ class TestRenderChoice:
         assert str(raised.value) == (
             "Unknown backend 'opencvv'. Choose from: ['auto', 'matplotlib', 'opencv', 'vedo']"
         )
+
+    def test_the_options_of_an_opencv_render_load_no_matplotlib(self):
+        """Checking the options a named backend reads loads that
+        backend's declaration only: matplotlib's module imports pyplot.
+        Run in a fresh interpreter, which nothing else has loaded."""
+        code = (
+            "import sys\n"
+            "from pybvh.bvhplot import _backends\n"
+            "machine = _backends.Environment(False, False, frozenset({'cv2'}), False)\n"
+            "_backends.choose_render_backend('opencv', '.mp4', machine, {'ghost', 'follow'})\n"
+            "print(sorted(m for m in sys.modules if m.startswith('matplotlib.pyplot')))\n"
+        )
+        ran = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True, cwd=REPO
+        )
+        assert ran.stdout.strip() == "[]"
 
 
 class TestFrameChoice:

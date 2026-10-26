@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -815,22 +815,32 @@ def _wrap_update_with_extras(
 # (DejaVu Sans) at 14 pixels draws that text 14 high and 88 wide.
 _COUNTER_TEXT_PX = 14
 
+# Matplotlib sizes text in points, 72 to the inch.
+_POINTS_PER_INCH = 72
 
-def _wrap_update_with_counter(base_update, scene: Scene, fig: Figure, resolution, dpi: float):
+
+def _wrap_update_with_counter(
+    base_update: Callable[[int], list[Any]],
+    scene: Scene,
+    fig: Figure,
+    resolution: tuple[int, int],
+    dpi: float,
+) -> Callable[[int], list[Any]]:
     """Extend an animation update fn with the frame counter, stamped
-    on the figure where :mod:`._style` places it."""
+    on the figure where :mod:`._style` places it, for a figure of
+    *resolution* pixels at *dpi*."""
     w, h = resolution
     counter = fig.text(
         counter_left_px(w) / w,
         COUNTER_BASELINE_PX / h,
         "",
-        fontsize=_COUNTER_TEXT_PX * 72 / dpi,
+        fontsize=_COUNTER_TEXT_PX * _POINTS_PER_INCH / dpi,
         color=tuple(c / 255 for c in COUNTER_RGB),
         ha="left",
         va="baseline",
     )
 
-    def update(f: int):
+    def update(f: int) -> list[Any]:
         artists = base_update(f)
         counter.set_text(frame_counter_text(scene, f))
         artists.append(counter)

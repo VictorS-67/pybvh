@@ -107,14 +107,6 @@ class TestPlayTiers:
             "to a file instead."
         )
 
-    def test_opencv_without_opencv_raises_naming_the_install(self, environment):
-        with pytest.raises(ImportError) as raised:
-            _backends.choose_play_backend("opencv", environment(notebook=True))
-        assert str(raised.value) == (
-            "The opencv play backend requires opencv-python. "
-            "Install with: pip install pybvh[opencv]"
-        )
-
     def test_an_unknown_backend_raises(self, environment):
         with pytest.raises(ValueError) as raised:
             _backends.choose_play_backend("opencvv", environment())

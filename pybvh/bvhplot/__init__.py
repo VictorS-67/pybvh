@@ -809,9 +809,11 @@ def render(
         backend. An animated image (``.gif``, ``.webp``, ``.apng``)
         stores each frame's duration in whole milliseconds, ``1000 /
         fps`` rounded to the nearest (42 ms at 24 fps, so 23.81 fps),
-        and a GIF stores it further truncated to 10 ms. An ``.html``
-        page embeds ``1000 // fps`` milliseconds, floored as
-        matplotlib's player computes it.
+        and a GIF stores it further truncated to 10 ms. A run of
+        identical frames (a held pose) is stored as one frame shown for
+        the run's summed duration, which a GIF truncates as a whole: 5
+        frames at 24 fps last 210 ms. An ``.html`` page embeds ``1000 //
+        fps`` milliseconds, floored as matplotlib's player computes it.
     backend : str, optional
         ``"auto"`` (default), ``"opencv"``, ``"matplotlib"`` or
         ``"vedo"``. Every backend writes a video container through the

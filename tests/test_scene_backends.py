@@ -21,6 +21,7 @@ import pytest
 import synthetic_scene
 from synthetic_scene import make_array_scene
 
+from pybvh.bvhplot._animation import Animation
 from pybvh.bvhplot._backends import Environment
 from pybvh.bvhplot._style import Style
 from pybvh.bvhplot._video import VideoTarget, writer_for
@@ -93,9 +94,7 @@ class TestMatplotlib:
             scene,
             Style("paper"),
             _gif_writer(tmp_path / "walk.gif", 10.0, (320, 240)),
-            motion="follow",
-            ghost=2,
-            trajectory=True,
+            Animation(motion="follow", ghost=2, trajectory=True),
         )
         assert out.exists() and out.stat().st_size > 0
 
@@ -187,10 +186,7 @@ class TestOpenCV:
             scene,
             Style("paper"),
             _mpeg4_writer(tmp_path / "walk.mp4", 10.0, (320, 240)),
-            motion="follow",
-            ghost=1,
-            trajectory=True,
-            frame_counter=True,
+            Animation(motion="follow", ghost=1, trajectory=True, frame_counter=True),
         )
         assert out.exists() and out.stat().st_size > 0
 
@@ -238,8 +234,7 @@ class TestEveryPassIsDrawnAsTheFirst:
             looped,
             self.STYLE,
             _gif_writer(tmp_path / "loop.gif", 10.0, (160, 120)),
-            ghost=2,
-            trajectory=True,
+            Animation(ghost=2, trajectory=True),
         )
         frames = _gif_frames(out)
         assert len(frames) == self.LOOPED

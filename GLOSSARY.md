@@ -216,7 +216,7 @@ The camera azimuth per frame: fixed, turntable or follow. A constant schedule is
 The one styling object every bvhplot function accepts: the presets `paper`, `debug` and `dark`, with overrides.
 
 **Backend**:
-The toolkit a picture is drawn with: matplotlib, OpenCV, k3d, the vedo viewer or the vedo offscreen renderer, auto-detected from the environment unless named.
+The toolkit a picture is drawn with: matplotlib, OpenCV, k3d, the vedo viewer or the vedo offscreen renderer, chosen by the call unless named: `render` by the file's extension and the installed packages, `play` by the session (notebook, display) and the installed packages; `frame` draws with matplotlib unless named. Each declares the options it reads (ADR 0006).
 
 **Video target**:
 Where an animation is written: the path, the rate written, the resolution and the codec. One writer serves every backend.

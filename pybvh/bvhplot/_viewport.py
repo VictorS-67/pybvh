@@ -90,6 +90,13 @@ class Turntable:
             )
 
 
+def check_motion(motion: str | Turntable) -> None:
+    """Raise ``ValueError`` unless *motion* is a camera schedule
+    :func:`make_viewport` takes."""
+    if not isinstance(motion, Turntable) and motion not in _MOTIONS:
+        raise ValueError(f"Unknown motion {motion!r}. Choose from: {list(_MOTIONS)}")
+
+
 @dataclass(frozen=True)
 class Viewport(GroundFrame):
     """The geometry of one picture, in world coordinates.
@@ -498,8 +505,7 @@ def make_viewport(
         raise ValueError("A viewport needs at least one view.")
     if framing not in _FRAMINGS:
         raise ValueError(f"Unknown framing {framing!r}. Choose from: {list(_FRAMINGS)}")
-    if not isinstance(motion, Turntable) and motion not in _MOTIONS:
-        raise ValueError(f"Unknown motion {motion!r}. Choose from: {list(_MOTIONS)}")
+    check_motion(motion)
 
     first = views[0]
     num_frames = first.coords.shape[0]

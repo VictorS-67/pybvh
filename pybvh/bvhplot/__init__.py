@@ -110,6 +110,10 @@ _MIN_TURNTABLE_FRAMES = 2
 # resolution is given.
 _VEDO_STILL_RESOLUTION = (1100, 1000)
 
+# The size, (width, height) in pixels, of play()'s notebook video when no
+# resolution is given.
+_NOTEBOOK_VIDEO_RESOLUTION = (960, 540)
+
 
 def _resolve_fps(fps: float | None, frame_time: float) -> float:
     """Resolve the shared ``fps`` parameter of ``play()`` and ``render()``.
@@ -1353,7 +1357,7 @@ def play(
             tmp_path = Path(tmp.name)
 
         target = _video.VideoTarget(
-            tmp_path, actual_fps, (960, 540) if resolution is None else resolution
+            tmp_path, actual_fps, _NOTEBOOK_VIDEO_RESOLUTION if resolution is None else resolution
         )
         writer = _video_writer(target, environment, "The opencv play backend")
         render_opencv(scene, style_obj, writer, animation_options)

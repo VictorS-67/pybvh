@@ -25,12 +25,12 @@ from ._backends import Environment, install_hint
 # Valid values of render(codec=).
 CODECS = frozenset({"auto", "h264", "mpeg4"})
 
-# The extensions written from frames: a video container, encoded as the
-# codec and the machine allow, or the Pillow format an image sequence is
-# saved in.
+# The format of each extension written from frames: a video container,
+# encoded as the codec and the machine allow, or the name of the Pillow
+# format an animated image is saved in.
 _VIDEO = "video"
-_WRITERS = {".mp4": _VIDEO, ".mov": _VIDEO, ".avi": _VIDEO, ".gif": "GIF"}
-VIDEO_CONTAINERS = frozenset(ext for ext, writer in _WRITERS.items() if writer == _VIDEO)
+_FORMATS = {".mp4": _VIDEO, ".mov": _VIDEO, ".avi": _VIDEO, ".gif": "GIF"}
+VIDEO_CONTAINERS = frozenset(ext for ext, fmt in _FORMATS.items() if fmt == _VIDEO)
 
 
 @dataclass(frozen=True)
@@ -105,10 +105,10 @@ class Writer:
         first = next(frames)
         frames = chain([first], frames)
         if self.encoder == _PILLOW:
-            _save_with_pillow(path, frames, fps, _WRITERS[self.target.suffix])
+            _save_with_pillow(path, frames, fps, _FORMATS[self.target.suffix])
             return path
         h, w = first.shape[:2]
-        sink_type = _FfmpegPipeWriter if self.encoder == _FFMPEG else _OpenCvWriter
+        sink_type = _FfmpegSink if self.encoder == _FFMPEG else _OpenCvSink
         sink = sink_type(path, fps, (w, h))
         for frame in frames:
             sink.write(frame)
@@ -142,14 +142,14 @@ def writer_for(target: VideoTarget, environment: Environment, subject: str) -> W
         When MPEG-4 Part 2 is needed and OpenCV does not import.
     """
     ext = target.suffix
-    writer = _WRITERS.get(ext)
-    if writer is None:
+    fmt = _FORMATS.get(ext)
+    if fmt is None:
         raise ValueError(
             f"{subject} cannot write {ext!r} files. "
-            f"Supported extensions: {sorted(_WRITERS)}. "
+            f"Supported extensions: {sorted(_FORMATS)}. "
             f"Use backend='matplotlib' for other formats."
         )
-    if writer != _VIDEO:
+    if fmt != _VIDEO:
         return Writer(target, _PILLOW)
     if target.codec == "h264" and not environment.has_ffmpeg:
         raise RuntimeError(
@@ -176,15 +176,15 @@ def writer_for(target: VideoTarget, environment: Environment, subject: str) -> W
     return Writer(target, _OPENCV, warned)
 
 
-class _FfmpegPipeWriter:
+class _FfmpegSink:
     """H.264 video sink: frames piped to the system ``ffmpeg``.
 
     Encodes libx264 + yuv420p + faststart, the combination that plays in
     browsers, VSCode, and notebook embeds. Odd frame dimensions are
     padded by one pixel (yuv420p requires even sizes). Frames are piped
-    as BGR, the order they were encoded from before this module took
-    RGB: ffmpeg's conversion from RGB rounds a few levels differently, so
-    the files stay what they were.
+    as BGR, not RGB: ffmpeg rounds the two conversions to yuv420p a few
+    levels apart, and BGR is the conversion every H.264 file pybvh has
+    written went through, so a frame drawn the same encodes the same.
     """
 
     def __init__(self, filepath: Path, fps: float, resolution: tuple[int, int]) -> None:
@@ -236,7 +236,7 @@ class _FfmpegPipeWriter:
             )
 
 
-class _OpenCvWriter:
+class _OpenCvSink:
     """MPEG-4 Part 2 video sink: OpenCV's ``VideoWriter``, ``mp4v`` and
     else ``XVID``. OpenCV builds ship without an H.264 encoder (patent
     licensing), which is why H.264 needs the external binary."""

@@ -171,6 +171,12 @@ def shown(monkeypatch):
     return objects
 
 
+def _same(frames, others):
+    return len(frames) == len(others) and all(
+        np.array_equal(a, b) for a, b in zip(frames, others, strict=True)
+    )
+
+
 def _play_warnings(call):
     """The messages of the warnings *call* raises that the rule wrote,
     each with the file it names."""
@@ -227,15 +233,18 @@ class TestTheNotebookVideo:
 
     @pytest.fixture
     def played(self, walk, environment, shown, handed_to_writer):
-        """The frames the notebook video of the walk is drawn as, with
-        the options given; the session lacks k3d, so auto chooses it."""
+        """The frames the notebook video of the walk (or of *clips*) is
+        drawn as, with the options given; the session lacks k3d, so auto
+        chooses it."""
         pytest.importorskip("cv2")
         environment(notebook=True, importable={"cv2"})
 
-        def play(**options):
+        def play(clips=None, **options):
             with warnings.catch_warnings():
-                warnings.simplefilter("ignore")  # the fallback, MPEG-4 Part 2
-                bvhplot.play(walk, fps=10, **options)
+                # the MPEG-4 Part 2 fallback, and the rule's own warnings,
+                # which other tests check
+                warnings.simplefilter("ignore")
+                bvhplot.play(walk if clips is None else clips, fps=10, **options)
             return handed_to_writer[-1]
 
         return play
@@ -250,7 +259,19 @@ class TestTheNotebookVideo:
         without = played(resolution=(96, 72))
         given = played(resolution=(96, 72), frame_counter=True)
         assert len(given) == len(without)
-        assert not all(np.array_equal(a, b) for a, b in zip(given, without, strict=True))
+        assert not _same(given, without)
+
+    def test_quality_leaves_its_frames_alone(self, played):
+        """Under auto it warns, and the video is the same."""
+        assert _same(played(resolution=(96, 72), quality="fast"), played(resolution=(96, 72)))
+
+    @pytest.mark.parametrize("option", [{"spacing": 1.0}, {"match_size": True}], ids=str)
+    def test_the_arrangement_leaves_its_frames_alone(self, played, walk, option):
+        """Each skeleton in its own panel is the arrangement asked for;
+        the second is twice the first's size, so a matched size would
+        show."""
+        pair = [walk, walk.scale(2.0)]
+        assert _same(played(pair, resolution=(96, 72), **option), played(pair, resolution=(96, 72)))
 
     def test_auto_reads_its_options_without_a_warning(self, walk, environment, shown):
         pytest.importorskip("cv2")

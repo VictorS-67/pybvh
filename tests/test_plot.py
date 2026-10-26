@@ -1403,9 +1403,16 @@ class TestPlayWithoutAWindow:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             bvhplot.play(bvh_example[0:5])
-        messages = [str(w.message) for w in caught]
-        assert any(m.startswith("No interactive backend") for m in messages)
-        assert any(m.startswith("OpenCV not found") for m in messages)
+        fallbacks = [
+            str(w.message)
+            for w in caught
+            if str(w.message).startswith(("No interactive backend", "OpenCV not found"))
+        ]
+        assert fallbacks == [
+            "No interactive backend (k3d, vedo) found. Install with: pip install pybvh[interactive]",
+            "OpenCV not found for fast rendering. Install with: pip install pybvh[opencv]. "
+            "Falling back to matplotlib (slow for long clips).",
+        ]
         ((player, page),) = shown
         assert type(player).__name__ == "HTML"
         assert page.count("data:image/png;base64,") == 5

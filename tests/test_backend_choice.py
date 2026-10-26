@@ -1,8 +1,8 @@
 """The backend-choice module: which backend runs, from the request and an
-environment the conftest fixture builds, so that every tier and every missing package is
-reached on any machine. The k3d widget and the vedo window cannot run in
-the suite; the paths of play() that open no window are also tested through
-play() itself, in test_plot.py."""
+environment the conftest fixture builds, so that every tier and every
+missing package is reached on any machine. The k3d widget and the vedo
+window cannot run in the suite; the paths of play() that open no window
+are also tested through play() itself, in test_plot.py."""
 
 from __future__ import annotations
 

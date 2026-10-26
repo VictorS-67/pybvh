@@ -12,7 +12,8 @@ import math
 import os
 import sys
 from collections.abc import Container
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from typing import NamedTuple
 
 # The extra of pybvh that installs each optional package a backend imports.
 _EXTRAS = {"cv2": "opencv", "k3d": "interactive", "vedo": "viewer"}
@@ -47,7 +48,7 @@ class Environment:
 
     in_notebook: bool
     has_display: bool
-    importable: Container[str] = field(default_factory=frozenset)
+    importable: Container[str]
 
 
 @dataclass(frozen=True)
@@ -120,15 +121,20 @@ def _check_known(requested: str, valid: frozenset[str]) -> None:
         raise ValueError(f"Unknown backend {requested!r}. Choose from: {sorted(valid)}")
 
 
-# (call, backend) -> (the package the backend imports, the backend as its
-# error names it, what the error says to install)
+class _Requirement(NamedTuple):
+    package: str  # the optional package the backend imports
+    subject: str  # the backend, as its error names it
+    what: str  # what the error says the backend requires
+
+
+# The optional package each backend of each public call imports.
 _REQUIREMENTS = {
-    ("frame", "vedo"): ("vedo", "vedo backend", "vedo"),
-    ("render", "vedo"): ("vedo", "vedo backend", "vedo"),
-    ("render", "opencv"): ("cv2", "OpenCV backend", "opencv-python"),
-    ("play", "k3d"): ("k3d", "k3d backend", "k3d and ipywidgets"),
-    ("play", "vedo"): ("vedo", "vedo backend", "vedo"),
-    ("play", "opencv_notebook"): ("cv2", "The opencv play backend", "opencv-python"),
+    ("frame", "vedo"): _Requirement("vedo", "vedo backend", "vedo"),
+    ("render", "vedo"): _Requirement("vedo", "vedo backend", "vedo"),
+    ("render", "opencv"): _Requirement("cv2", "OpenCV backend", "opencv-python"),
+    ("play", "k3d"): _Requirement("k3d", "k3d backend", "k3d and ipywidgets"),
+    ("play", "vedo"): _Requirement("vedo", "vedo backend", "vedo"),
+    ("play", "opencv_notebook"): _Requirement("cv2", "The opencv play backend", "opencv-python"),
 }
 
 
@@ -226,18 +232,17 @@ def choose_play_backend(requested: str, environment: Environment) -> Choice:
     if environment.in_notebook:
         if "k3d" in environment.importable:
             return Choice("k3d")
-        backend, tier = (
-            ("opencv_notebook", 2) if "cv2" in environment.importable else ("matplotlib", 3)
-        )
+        slow = "cv2" not in environment.importable
+        backend = "matplotlib" if slow else "opencv_notebook"
     else:
         if environment.has_display and "vedo" in environment.importable:
             return Choice("vedo")
-        backend, tier = "matplotlib", 2
+        slow, backend = False, "matplotlib"
 
     warned = []
     if "vedo" not in environment.importable:
         warned.append(_NO_INTERACTIVE)
-    if tier == 3:
+    if slow:
         warned.append(_SLOW_PLAY)
     return Choice(backend, tuple(warned))
 

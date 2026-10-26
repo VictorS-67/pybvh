@@ -12,10 +12,10 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
+from matplotlib.animation import FuncAnimation
 from matplotlib.artist import Artist
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.collections import LineCollection
@@ -37,7 +37,7 @@ from ._style import (
     ghost_schedule,
 )
 from ._video import VideoTarget, Writer
-from ._viewport import Turntable, Viewport, make_viewport, panel_viewports
+from ._viewport import Viewport, make_viewport, panel_viewports
 
 # mplot3d sizes its default margins for a cube free to rotate to any
 # angle; span-fitted boxes are much tighter, so they can be zoomed in
@@ -63,6 +63,8 @@ if TYPE_CHECKING:
     import matplotlib.axes
     import matplotlib.figure
     from matplotlib.typing import ColorType
+
+    from ._animation import Animation
 
 
 # ---------------------------------------------------------------------------
@@ -807,10 +809,7 @@ def render_mpl(
     scene: Scene,
     style: Style,
     output: Writer | VideoTarget,
-    *,
-    motion: str | Turntable = "fixed",
-    ghost: int = 0,
-    trajectory: bool = False,
+    animation: Animation,
 ) -> Path:
     """Render an animation via matplotlib, to the file of *output*.
 
@@ -822,9 +821,10 @@ def render_mpl(
     for matplotlib's player page (``.html``), the
     :class:`~._video.VideoTarget` the page is written to, which
     matplotlib builds from the figure itself. The figure is drawn at
-    the target's resolution. *motion* is handed to the viewport
-    untouched: it decides how each panel's camera moves, and a panel
-    whose camera rotates is re-aimed every frame.
+    the target's resolution. Of *animation*, the camera's schedule is
+    handed to the viewport untouched, and a panel whose camera rotates
+    is re-aimed every frame; ghosts and the root trail are drawn; the
+    frame counter is not read.
 
     Returns
     -------
@@ -856,7 +856,11 @@ def render_mpl(
     )
 
     viewports = panel_viewports(
-        scene.views, framing="clip", motion=motion, projection=style.projection, fps=target.fps
+        scene.views,
+        framing="clip",
+        motion=animation.motion,
+        projection=style.projection,
+        fps=target.fps,
     )
     coords_list = [v.coords for v in scene.views]
     bones_arrays = [np.asarray(v.bones, dtype=int) for v in scene.views]
@@ -893,9 +897,9 @@ def render_mpl(
     else:
         update = _make_update_fn(coords_list, bones_arrays, bone_collections, joint_scatters)
 
-    if ghost > 0 or trajectory:
+    if animation.ghost > 0 or animation.trajectory:
         ghost_slots, trace_lines = _setup_render_extras(
-            scene, viewports, style, axs_flat, ghost, trajectory
+            scene, viewports, style, axs_flat, animation.ghost, animation.trajectory
         )
         update = _wrap_update_with_extras(
             update, scene, viewports, bones_arrays, ghost_slots, trace_lines
@@ -903,7 +907,7 @@ def render_mpl(
 
     if isinstance(output, VideoTarget):
         interval = int(1000.0 / target.fps)
-        anim = animation.FuncAnimation(fig, update, frames=num_frames, interval=interval)
+        anim = FuncAnimation(fig, update, frames=num_frames, interval=interval)
         # Hand the rate explicitly: to_jshtml would otherwise derive it
         # from the whole-millisecond interval, and the HTML writer's
         # floor division would then drop another millisecond (1000 //
@@ -999,7 +1003,7 @@ def play_mpl(
     update = _make_update_fn(coords_list, bones_arrays, bone_collections, joint_scatters)
 
     interval = int(1000.0 / fps)
-    anim = animation.FuncAnimation(fig, update, frames=num_frames, interval=interval)
+    anim = FuncAnimation(fig, update, frames=num_frames, interval=interval)
 
     if in_notebook:
         # Render as inline HTML with play/pause/scrub controls

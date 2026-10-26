@@ -35,6 +35,7 @@ Install optional backends::
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import warnings
 from pathlib import Path
@@ -44,7 +45,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .._warnings import user_stacklevel
-from . import _backends, _video
+from . import _animation, _backends, _video
 from ._from_bvh import (
     as_clip_list,
     get_skeleton_lines,  # noqa: F401 — re-export (public since 0.5.0)
@@ -99,7 +100,6 @@ if TYPE_CHECKING:
     import matplotlib.figure
 
     from ..bvh import Bvh
-    from ._viewport import Turntable
 
 
 # A turntable turning 180 degrees or more a frame looks frozen or turning
@@ -950,11 +950,6 @@ def render(
     )
     if camera == "turntable":
         given.add("turntable")
-    follow = bool(follow)
-    ghost = 0 if ghost is None else ghost
-    trajectory = bool(trajectory)
-    frame_counter = bool(frame_counter)
-    match_size = bool(match_size)
 
     clips = as_clip_list(bvh)
     filepath = Path(filepath)
@@ -962,12 +957,24 @@ def render(
     _validate_sync(sync)
     pad = sync == "pad"
     style_obj = resolve_style(style)
-    if not (isinstance(ghost, int) and ghost >= 0):
-        raise ValueError(f"ghost must be an integer >= 0, got {ghost!r}")
 
     # "turntable" is a camera *motion*, not an angle: orbit from the
-    # front view. It overrides follow (both prescribe the azimuth).
+    # front view. It overrides follow (both prescribe the azimuth). A
+    # custom (azim, elev) tuple means the camera is fixed; follow is a
+    # no-op there because there's no orientation to track.
     turntable = camera == "turntable"
+    if turntable:
+        motion = "turntable"
+    elif follow and not isinstance(camera, tuple):
+        motion = "follow"
+    else:
+        motion = "fixed"
+    animation = _animation.Animation(
+        motion=motion,
+        ghost=0 if ghost is None else ghost,
+        trajectory=bool(trajectory),
+        frame_counter=bool(frame_counter),
+    )
     if turntable_period is not None:
         if not turntable:
             raise ValueError(
@@ -985,7 +992,7 @@ def render(
     backend_name = choice.backend
 
     # Handle frame-rate mismatch before computing FK coordinates
-    _require_frame_rates(clips, "render", fps, ghost, match_fps)
+    _require_frame_rates(clips, "render", fps, animation.ghost, match_fps)
     clips = _match_frame_rates(clips, match_fps)
 
     scene = _prepare(clips, None, centered, camera, labels, pad=pad)
@@ -993,38 +1000,29 @@ def render(
     actual_fps = _resolve_fps(fps, scene.frame_time)
     target = _video.VideoTarget(filepath, actual_fps, resolution, codec)
 
-    # The one value the backends hand to the viewport. Turntable
-    # overrides follow — both prescribe the azimuth. A custom (azim,
-    # elev) tuple means the camera is fixed; follow is a no-op in that
-    # case because there's no orientation to track.
-    motion: str | Turntable
-    if turntable:
+    # A period sets the turntable's speed in frames of the video, so it
+    # waits for the rate the file is written at; without one, the
+    # turntable makes one orbit over the clip.
+    if turntable_period is not None:
         from ._viewport import Turntable
 
-        if turntable_period is None:
-            period = float(scene.num_frames)
-        else:
-            video_fps = target.written_fps
-            period = turntable_period * video_fps
-            if period <= _MIN_TURNTABLE_FRAMES:
-                shortest = _MIN_TURNTABLE_FRAMES / video_fps
-                raise ValueError(
-                    f"turntable_period must be longer than {shortest:g} s "
-                    f"at {video_fps:g} fps, the rate the video is written "
-                    f"at ({_MIN_TURNTABLE_FRAMES} frames), got "
-                    f"{turntable_period!r}: a camera turning 180 degrees "
-                    f"or more a frame looks frozen or turning backwards."
-                )
+        video_fps = target.written_fps
+        period = turntable_period * video_fps
+        if period <= _MIN_TURNTABLE_FRAMES:
+            shortest = _MIN_TURNTABLE_FRAMES / video_fps
+            raise ValueError(
+                f"turntable_period must be longer than {shortest:g} s "
+                f"at {video_fps:g} fps, the rate the video is written "
+                f"at ({_MIN_TURNTABLE_FRAMES} frames), got "
+                f"{turntable_period!r}: a camera turning 180 degrees "
+                f"or more a frame looks frozen or turning backwards."
+            )
         # Rounded, not ceiled: a period of 360.0000001 frames (a rate
         # read back from a frame time) must not add a 361st frame.
         video_frames = round(period)
         if video_frames > scene.num_frames:
             scene = scene.looped(video_frames)
-        motion = Turntable(period=period)
-    elif follow and not isinstance(camera, tuple):
-        motion = "follow"
-    else:
-        motion = "fixed"
+        animation = dataclasses.replace(animation, motion=Turntable(period=period))
 
     for message in choice.warnings:
         warnings.warn(message, stacklevel=user_stacklevel())
@@ -1035,7 +1033,7 @@ def render(
 
         writer = _video_writer(target, environment, "The vedo backend")
         scene = _arranged_in_one_scene(
-            scene, spacing=spacing, centered=centered, match_size=match_size
+            scene, spacing=spacing, centered=centered, match_size=bool(match_size)
         )
         return render_vedo(scene, style_obj, writer)
 
@@ -1046,10 +1044,7 @@ def render(
             scene,
             style_obj,
             _video_writer(target, environment, "The OpenCV backend"),
-            motion=motion,
-            frame_counter=frame_counter,
-            ghost=ghost,
-            trajectory=trajectory,
+            animation,
         )
 
     else:  # matplotlib
@@ -1060,9 +1055,7 @@ def render(
             if target.is_player_page
             else _video_writer(target, environment, "The matplotlib backend")
         )
-        return render_mpl(
-            scene, style_obj, output, motion=motion, ghost=ghost, trajectory=trajectory
-        )
+        return render_mpl(scene, style_obj, output, animation)
 
 
 def _video_writer(
@@ -1295,7 +1288,7 @@ def play(
 
         target = _video.VideoTarget(tmp_path, actual_fps, resolution)
         writer = _video_writer(target, environment, "The opencv play backend")
-        render_opencv(scene, style_obj, writer, frame_counter=frame_counter)
+        render_opencv(scene, style_obj, writer, _animation.Animation(frame_counter=frame_counter))
 
         display(Video(str(tmp_path), embed=True, mimetype="video/mp4"))
         tmp_path.unlink(missing_ok=True)

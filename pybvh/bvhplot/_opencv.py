@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 
     from matplotlib.typing import ColorType
 
+    from ._animation import Animation
     from ._video import Writer
 
 # RGB is canonical in _style; the channel flip for OpenCV's BGR
@@ -456,22 +457,12 @@ def _generate_frames(
 RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory", "frame_counter"})
 
 
-def render_opencv(
-    scene: Scene,
-    style: Style,
-    writer: Writer,
-    *,
-    motion: str | Turntable = "fixed",
-    frame_counter: bool = False,
-    ghost: int = 0,
-    trajectory: bool = False,
-) -> Path:
+def render_opencv(scene: Scene, style: Style, writer: Writer, animation: Animation) -> Path:
     """Render skeleton animation with OpenCV and hand the frames to
     *writer*, which writes the file.
 
     Each panel uses its own bounding box and camera so that mixed-up-axis
-    side-by-side comparisons render correctly. *motion* decides how
-    each panel's camera moves.
+    side-by-side comparisons render correctly.
 
     Parameters
     ----------
@@ -484,12 +475,10 @@ def render_opencv(
     writer : Writer
         The video module's writer of the target: frames are drawn at
         its target's resolution and rate.
-    motion : str or Turntable, optional
-        ``"fixed"`` (default), ``"turntable"``, ``"follow"`` or a
-        :class:`~._viewport.Turntable`, handed to the viewport
-        untouched.
-    frame_counter, ghost, trajectory : optional
-        Passed to :func:`_generate_frames`, which documents them.
+    animation : Animation
+        What is drawn besides the skeletons, every field read: the
+        camera's schedule, ghosts, the root trail and the frame
+        counter, passed to :func:`_generate_frames`.
 
     Returns
     -------
@@ -501,11 +490,11 @@ def render_opencv(
         scene,
         style,
         target.resolution,
-        motion=motion,
+        motion=animation.motion,
         fps=target.fps,
-        frame_counter=frame_counter,
-        ghost=ghost,
-        trajectory=trajectory,
+        frame_counter=animation.frame_counter,
+        ghost=animation.ghost,
+        trajectory=animation.trajectory,
     )
     # BGR is this backend's drawing order; the video module takes RGB.
     return writer.write(img[:, :, ::-1] for img in frames)

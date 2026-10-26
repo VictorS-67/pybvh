@@ -455,6 +455,8 @@ def _generate_frames(
 
 # The options of render() this backend reads (ADR 0006).
 RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory", "frame_counter"})
+# The options of play() its notebook video, drawn by render_opencv, reads.
+PLAY_READS = frozenset({"resolution", "frame_counter"})
 
 
 def render_opencv(

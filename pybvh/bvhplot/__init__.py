@@ -894,7 +894,7 @@ def render(
         ``"h264"`` when you need the guarantee (raises with an install
         hint if no ffmpeg is found) or ``"mpeg4"`` to write MPEG-4
         Part 2 without the warning. Either way the file is written at
-        the path given. Every backend reads it the same way.
+        the path given, and the choice is the same on every backend.
     spacing : float or "auto", optional
         Lateral separation between skeletons on the vedo backend, which
         draws every skeleton in one scene, exactly as :func:`play`

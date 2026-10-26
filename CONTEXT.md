@@ -50,14 +50,14 @@ bvhplot (`pybvh/bvhplot/`) splits at its Scene: the router and `_from_bvh` read 
 | Module | Owns | Does not |
 |---|---|---|
 | `__init__` (the router) | the public functions; preparing the user's `Bvh` (timing, resampling, world-up checks, rest pose); arranging a comparison; calling the backend `_backends` chooses | draw, or decide which backend runs |
-| `_backends` | which backend runs a call: the environment value and the one function that reads the machine, the choice for `frame`, `render` and `play`, the install hints and the import checks, `play`'s 30 fps cap | read a `Bvh` or a Scene, or import an optional package but to ask whether it imports |
+| `_backends` | which backend runs a call: the environment value and the one function that reads the machine, the choice for `frame`, `render` (by the video table's preference per extension and the installed packages) and `play`, the install hints and the import checks, `play`'s 30 fps cap | read a `Bvh` or a Scene, or import an optional package but to ask whether it imports |
 | `_from_bvh` | turning a `Bvh` into a Scene: views, bones, camera presets, bone chains | get imported by any module but the router |
 | `_scene` | the Scene and its views, checked read-only data, and the operations that change a Scene | import a plotting library or the core |
 | `_viewport` | the geometry of one 3D picture: framing, floor, camera, schedule, projection | import a plotting library or the core |
 | `_style` | `Style`, its presets and palettes, the ghost and trace conventions | import a plotting library |
 | `_colors` | the color resolution that needs matplotlib's color parser | |
 | `_playback` | the viewer's playback state machine | import a rendering library |
-| `_video` | writing an animation's frames to a file: the video target and the rate each file is written at, the table of every extension `render` writes, its writer (`.html` named as matplotlib's own player page) and whether auto gives it to matplotlib, the ffmpeg pipe (H.264), OpenCV's MPEG-4 Part 2 writer, Pillow's GIF, WebP and APNG | draw, or decide which backend runs |
+| `_video` | writing an animation's frames to a file: the video target and the rate each file is written at, the table of every extension `render` writes, its writer (`.html` named as matplotlib's own player page) and whether auto gives it to matplotlib, the ffmpeg pipe (H.264), OpenCV's MPEG-4 Part 2 writer, Pillow's GIF, WebP and APNG | draw, or decide which backend runs (it keeps auto's preference per extension, which `_backends` applies) |
 | `_vedo_capsules` | the capsule geometry both vedo backends draw | |
 | `_matplotlib`, `_opencv`, `_k3d`, `_vedo`, `_vedo_offscreen` | drawing a Scene with a Style in one toolkit | compute a box, a floor or a camera of their own for a 3D picture (one exception: the floor of matplotlib's overlay `sequence`), or read the core; the 2D `trajectory` plot has no viewport, and `_matplotlib` frames it |
 

@@ -79,13 +79,13 @@ class _ImportableOnDemand:
 
 
 def _detect_notebook() -> bool:
-    try:
-        from IPython import get_ipython
-
-        shell = get_ipython().__class__.__name__
-        return shell == "ZMQInteractiveShell"
-    except (ImportError, AttributeError):
+    # A Jupyter kernel imports IPython before any user code runs, so a
+    # process that has not imported it is no notebook; importing it here
+    # would cost every render() call in a script.
+    ipython = sys.modules.get("IPython")
+    if ipython is None:
         return False
+    return type(ipython.get_ipython()).__name__ == "ZMQInteractiveShell"
 
 
 def _has_display() -> bool:

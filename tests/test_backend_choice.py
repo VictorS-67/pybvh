@@ -189,6 +189,13 @@ class TestReadEnvironment:
     def test_a_plain_session_is_not_a_notebook(self):
         assert _backends.read_environment().in_notebook is False
 
+    def test_reading_the_session_does_not_import_ipython(self, monkeypatch):
+        """A script that never imported IPython is no notebook, and is not
+        made to import it."""
+        monkeypatch.delitem(sys.modules, "IPython", raising=False)
+        assert _backends.read_environment().in_notebook is False
+        assert "IPython" not in sys.modules
+
     @pytest.mark.parametrize(
         "variables, has_display",
         [

@@ -57,7 +57,7 @@ FLOOR_INSET = 0.02
 FIT_FRACTION = 0.9
 
 _FRAMINGS = ("still", "clip")
-_MOTIONS = ("fixed", "turntable", "follow")
+_SCHEDULES = ("fixed", "turntable", "follow")
 
 
 class Camera(NamedTuple):
@@ -74,7 +74,7 @@ class Turntable:
     """A turntable camera that turns at a set speed: one revolution
     every ``period`` frames, whatever the number of frames.
 
-    The ``motion`` a backend hands to :func:`make_viewport` when the
+    The ``schedule`` a backend hands to :func:`make_viewport` when the
     caller chose the speed; the plain ``"turntable"`` is the one orbit
     over the frames, ``Turntable(period=num_frames)``. The period is a
     number of frames of the picture, not necessarily whole, positive
@@ -90,11 +90,11 @@ class Turntable:
             )
 
 
-def check_motion(motion: str | Turntable) -> None:
-    """Raise ``ValueError`` unless *motion* is a camera schedule
+def check_schedule(schedule: str | Turntable) -> None:
+    """Raise ``ValueError`` unless *schedule* is a camera schedule
     :func:`make_viewport` takes."""
-    if not isinstance(motion, Turntable) and motion not in _MOTIONS:
-        raise ValueError(f"Unknown motion {motion!r}. Choose from: {list(_MOTIONS)}")
+    if not isinstance(schedule, Turntable) and schedule not in _SCHEDULES:
+        raise ValueError(f"Unknown schedule {schedule!r}. Choose from: {list(_SCHEDULES)}")
 
 
 @dataclass(frozen=True)
@@ -453,7 +453,7 @@ def make_viewport(
     views: Sequence[SkeletonView],
     *,
     framing: str = "still",
-    motion: str | Turntable = "fixed",
+    schedule: str | Turntable = "fixed",
     include_floor: bool = True,
     projection: str = "persp",
     fps: float | None = None,
@@ -471,7 +471,7 @@ def make_viewport(
         ``"clip"`` frames the box the motion sweeps
         (:func:`framing_bounds`), so a clip that travels far sideways
         does not shrink the character to fit a cube.
-    motion : {"fixed", "turntable", "follow"} or Turntable
+    schedule : {"fixed", "turntable", "follow"} or Turntable
         How the camera moves. ``"turntable"`` orbits once over the
         clip, a :class:`Turntable` once every ``period`` frames
         (:func:`turntable_azimuths`); ``"follow"`` tracks the
@@ -505,20 +505,20 @@ def make_viewport(
         raise ValueError("A viewport needs at least one view.")
     if framing not in _FRAMINGS:
         raise ValueError(f"Unknown framing {framing!r}. Choose from: {list(_FRAMINGS)}")
-    check_motion(motion)
+    check_schedule(schedule)
 
     first = views[0]
     num_frames = first.coords.shape[0]
-    if motion == "turntable":
-        motion = Turntable(period=num_frames)
+    if schedule == "turntable":
+        schedule = Turntable(period=num_frames)
     center, half_span = compute_unified_limits([v.coords for v in views])
     ground_side = min if first.up_sign > 0 else max
     floor_height = float(ground_side(v.floor_height for v in views))
 
-    if motion == "follow":
+    if schedule == "follow":
         azimuths = compute_follow_azimuths(first, first.azimuth, fps=fps)
-    elif isinstance(motion, Turntable):
-        azimuths = turntable_azimuths(first.azimuth, num_frames, motion.period)
+    elif isinstance(schedule, Turntable):
+        azimuths = turntable_azimuths(first.azimuth, num_frames, schedule.period)
     else:
         azimuths = None
     if azimuths is not None and np.all(azimuths == azimuths[0]):

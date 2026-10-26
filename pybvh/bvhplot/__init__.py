@@ -45,7 +45,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .._warnings import user_stacklevel
-from . import _animation, _backends, _video
+from . import _animation_options, _backends, _video
 from ._from_bvh import (
     as_clip_list,
     get_skeleton_lines,  # noqa: F401 — re-export (public since 0.5.0)
@@ -958,19 +958,19 @@ def render(
     pad = sync == "pad"
     style_obj = resolve_style(style)
 
-    # "turntable" is a camera *motion*, not an angle: orbit from the
+    # "turntable" is a camera *schedule*, not an angle: orbit from the
     # front view. It overrides follow (both prescribe the azimuth). A
     # custom (azim, elev) tuple means the camera is fixed; follow is a
     # no-op there because there's no orientation to track.
     turntable = camera == "turntable"
     if turntable:
-        motion = "turntable"
+        schedule = "turntable"
     elif follow and not isinstance(camera, tuple):
-        motion = "follow"
+        schedule = "follow"
     else:
-        motion = "fixed"
-    animation = _animation.Animation(
-        motion=motion,
+        schedule = "fixed"
+    animation_options = _animation_options.AnimationOptions(
+        schedule=schedule,
         ghost=0 if ghost is None else ghost,
         trajectory=bool(trajectory),
         frame_counter=bool(frame_counter),
@@ -992,7 +992,7 @@ def render(
     backend_name = choice.backend
 
     # Handle frame-rate mismatch before computing FK coordinates
-    _require_frame_rates(clips, "render", fps, animation.ghost, match_fps)
+    _require_frame_rates(clips, "render", fps, animation_options.ghost, match_fps)
     clips = _match_frame_rates(clips, match_fps)
 
     scene = _prepare(clips, None, centered, camera, labels, pad=pad)
@@ -1022,7 +1022,9 @@ def render(
         video_frames = round(period)
         if video_frames > scene.num_frames:
             scene = scene.looped(video_frames)
-        animation = dataclasses.replace(animation, motion=Turntable(period=period))
+        animation_options = dataclasses.replace(
+            animation_options, schedule=Turntable(period=period)
+        )
 
     for message in choice.warnings:
         warnings.warn(message, stacklevel=user_stacklevel())
@@ -1044,7 +1046,7 @@ def render(
             scene,
             style_obj,
             _video_writer(target, environment, "The OpenCV backend"),
-            animation,
+            animation_options,
         )
 
     else:  # matplotlib
@@ -1055,7 +1057,7 @@ def render(
             if target.is_player_page
             else _video_writer(target, environment, "The matplotlib backend")
         )
-        return render_mpl(scene, style_obj, output, animation)
+        return render_mpl(scene, style_obj, output, animation_options)
 
 
 def _video_writer(
@@ -1288,7 +1290,12 @@ def play(
 
         target = _video.VideoTarget(tmp_path, actual_fps, resolution)
         writer = _video_writer(target, environment, "The opencv play backend")
-        render_opencv(scene, style_obj, writer, _animation.Animation(frame_counter=frame_counter))
+        render_opencv(
+            scene,
+            style_obj,
+            writer,
+            _animation_options.AnimationOptions(frame_counter=frame_counter),
+        )
 
         display(Video(str(tmp_path), embed=True, mimetype="video/mp4"))
         tmp_path.unlink(missing_ok=True)

@@ -64,7 +64,7 @@ if TYPE_CHECKING:
     import matplotlib.figure
     from matplotlib.typing import ColorType
 
-    from ._animation import Animation
+    from ._animation_options import AnimationOptions
 
 
 # ---------------------------------------------------------------------------
@@ -809,7 +809,7 @@ def render_mpl(
     scene: Scene,
     style: Style,
     output: Writer | VideoTarget,
-    animation: Animation,
+    animation_options: AnimationOptions,
 ) -> Path:
     """Render an animation via matplotlib, to the file of *output*.
 
@@ -821,7 +821,7 @@ def render_mpl(
     for matplotlib's player page (``.html``), the
     :class:`~._video.VideoTarget` the page is written to, which
     matplotlib builds from the figure itself. The figure is drawn at
-    the target's resolution. Of *animation*, the camera's schedule is
+    the target's resolution. Of *animation_options*, the camera's schedule is
     handed to the viewport untouched, and a panel whose camera rotates
     is re-aimed every frame; ghosts and the root trail are drawn; the
     frame counter is not read.
@@ -858,7 +858,7 @@ def render_mpl(
     viewports = panel_viewports(
         scene.views,
         framing="clip",
-        motion=animation.motion,
+        schedule=animation_options.schedule,
         projection=style.projection,
         fps=target.fps,
     )
@@ -897,9 +897,9 @@ def render_mpl(
     else:
         update = _make_update_fn(coords_list, bones_arrays, bone_collections, joint_scatters)
 
-    if animation.ghost > 0 or animation.trajectory:
+    if animation_options.ghost > 0 or animation_options.trajectory:
         ghost_slots, trace_lines = _setup_render_extras(
-            scene, viewports, style, axs_flat, animation.ghost, animation.trajectory
+            scene, viewports, style, axs_flat, animation_options.ghost, animation_options.trajectory
         )
         update = _wrap_update_with_extras(
             update, scene, viewports, bones_arrays, ghost_slots, trace_lines

@@ -2253,7 +2253,7 @@ class TestComputeFollowAzimuths:
         bvh = read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")
         view = _view(bvh, bvh.node_positions())
         viewport = make_viewport(
-            [dataclasses.replace(view, azimuth=-20.0)], framing="clip", motion="follow"
+            [dataclasses.replace(view, azimuth=-20.0)], framing="clip", schedule="follow"
         )
         np.testing.assert_allclose(viewport.azimuths, pinned["azimuths"], rtol=0, atol=1e-12)
 

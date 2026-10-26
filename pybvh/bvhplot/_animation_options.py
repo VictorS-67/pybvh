@@ -1,25 +1,25 @@
 """What an animation draws beside its Scene.
 
 The router gathers the options of ``render`` that say what is drawn over
-the frames into one :class:`Animation`, which the backend reads; where
-the frames go is the video module's :class:`~._video.VideoTarget`.
+the frames into one :class:`AnimationOptions`, which the backend reads;
+where the frames go is the video module's :class:`~._video.VideoTarget`.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ._viewport import Turntable, check_motion
+from ._viewport import Turntable, check_schedule
 
 
 @dataclass(frozen=True)
-class Animation:
+class AnimationOptions:
     """What is drawn over an animation's frames, besides the Scene's
     skeletons; frozen, and checked when built.
 
     Attributes
     ----------
-    motion : {"fixed", "follow", "turntable"} or Turntable
+    schedule : {"fixed", "follow", "turntable"} or Turntable
         The camera's schedule, handed to the viewport untouched
         (:func:`~._viewport.make_viewport`): ``"turntable"`` is one
         orbit over the frames, a :class:`~._viewport.Turntable` one
@@ -32,12 +32,12 @@ class Animation:
         Stamp a ``Frame f/F`` counter in the corner.
     """
 
-    motion: str | Turntable = "fixed"
+    schedule: str | Turntable = "fixed"
     ghost: int = 0
     trajectory: bool = False
     frame_counter: bool = False
 
     def __post_init__(self) -> None:
-        check_motion(self.motion)
+        check_schedule(self.schedule)
         if not (isinstance(self.ghost, int) and self.ghost >= 0):
             raise ValueError(f"ghost must be an integer >= 0, got {self.ghost!r}")

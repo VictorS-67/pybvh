@@ -21,7 +21,7 @@ import pytest
 import synthetic_scene
 from synthetic_scene import make_array_scene
 
-from pybvh.bvhplot._animation import Animation
+from pybvh.bvhplot._animation_options import AnimationOptions
 from pybvh.bvhplot._backends import Environment
 from pybvh.bvhplot._style import Style
 from pybvh.bvhplot._video import VideoTarget, writer_for
@@ -94,7 +94,7 @@ class TestMatplotlib:
             scene,
             Style("paper"),
             _gif_writer(tmp_path / "walk.gif", 10.0, (320, 240)),
-            Animation(motion="follow", ghost=2, trajectory=True),
+            AnimationOptions(schedule="follow", ghost=2, trajectory=True),
         )
         assert out.exists() and out.stat().st_size > 0
 
@@ -186,7 +186,7 @@ class TestOpenCV:
             scene,
             Style("paper"),
             _mpeg4_writer(tmp_path / "walk.mp4", 10.0, (320, 240)),
-            Animation(motion="follow", ghost=1, trajectory=True, frame_counter=True),
+            AnimationOptions(schedule="follow", ghost=1, trajectory=True, frame_counter=True),
         )
         assert out.exists() and out.stat().st_size > 0
 
@@ -234,7 +234,7 @@ class TestEveryPassIsDrawnAsTheFirst:
             looped,
             self.STYLE,
             _gif_writer(tmp_path / "loop.gif", 10.0, (160, 120)),
-            Animation(ghost=2, trajectory=True),
+            AnimationOptions(ghost=2, trajectory=True),
         )
         frames = _gif_frames(out)
         assert len(frames) == self.LOOPED
@@ -823,13 +823,13 @@ class TestEveryBackendFramesTheViewportsBox:
         np.testing.assert_array_equal(limits[:, 1], viewport.hi)
         plt.close(fig)
 
-    @pytest.mark.parametrize("motion", ["fixed", "turntable"])
-    def test_a_matplotlib_clip_is_fitted_to_the_clip_box(self, scene, motion):
+    @pytest.mark.parametrize("schedule", ["fixed", "turntable"])
+    def test_a_matplotlib_clip_is_fitted_to_the_clip_box(self, scene, schedule):
         from pybvh.bvhplot._matplotlib import _setup_animated_panel
         from pybvh.bvhplot._viewport import make_viewport
 
         view = scene.views[0]
-        viewport = make_viewport([view], framing="clip", motion=motion)
+        viewport = make_viewport([view], framing="clip", schedule=schedule)
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
         _setup_animated_panel(

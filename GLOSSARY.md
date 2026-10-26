@@ -224,6 +224,9 @@ Where an animation is written: the path, the rate written, the resolution and th
 **Sequence**:
 The motion-paper still: equidistantly sampled poses in one figure, lighter the earlier.
 
+**Animation options**:
+What an animation draws beside its Scene, apart from the Style and the video target: the camera's schedule, ghosts, the trail and the frame counter. Built by `render` and `play` from their options; a still (`frame`) has none.
+
 **Ghost**:
 A trailing pose drawn faded behind the current one, spaced in seconds of clip time.
 

@@ -1200,31 +1200,28 @@ class TestRenderBackendResolution:
 class TestFpsResolution:
     """Shared fps parameter of play() and render()."""
 
-    def test_none_uses_bvh_frame_rate(self):
-        from pybvh.bvhplot import _resolve_fps
+    def test_none_uses_bvh_frame_rate(self, bvh_example, played):
+        """bvh_test1's frame time is 0.033333 s: 30 fps."""
+        bvhplot.play(bvh_example, backend="matplotlib")
+        ((_, fps),) = played
+        assert fps == pytest.approx(30.0, rel=1e-4)
 
-        assert _resolve_fps(None, 1.0 / 30.0) == pytest.approx(30.0)
+    def test_fractional_fps_preserved(self, bvh_example, played):
+        bvhplot.play(bvh_example, backend="matplotlib", fps=119.88)
+        ((_, fps),) = played
+        assert fps == 119.88
 
-    def test_fractional_fps_preserved(self):
-        from pybvh.bvhplot import _resolve_fps
-
-        assert _resolve_fps(119.88, 1.0 / 30.0) == pytest.approx(119.88)
-
-    def test_zero_fps_raises(self):
-        from pybvh.bvhplot import _resolve_fps
-
+    @pytest.mark.parametrize("fps", [0, -1])
+    def test_play_refuses_a_rate_not_positive(self, bvh_example, played, fps):
         with pytest.raises(ValueError, match="fps must be positive"):
-            _resolve_fps(0, 1.0 / 30.0)
+            bvhplot.play(bvh_example, backend="matplotlib", fps=fps)
+        assert played == []
 
-    def test_negative_fps_raises(self):
-        from pybvh.bvhplot import _resolve_fps
-
+    @pytest.mark.parametrize("fps", [0, -1])
+    def test_render_refuses_a_rate_not_positive(self, bvh_example, tmp_path, fps):
         with pytest.raises(ValueError, match="fps must be positive"):
-            _resolve_fps(-1, 1.0 / 30.0)
-
-    def test_render_fps_zero_raises(self, bvh_example, tmp_path):
-        with pytest.raises(ValueError, match="fps must be positive"):
-            bvhplot.render(bvh_example, tmp_path / "x.gif", fps=0)
+            bvhplot.render(bvh_example, tmp_path / "x.gif", fps=fps)
+        assert not (tmp_path / "x.gif").exists()
 
     def test_render_fractional_fps(self, bvh_example, tmp_path):
         import matplotlib

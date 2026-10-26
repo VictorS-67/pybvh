@@ -432,7 +432,7 @@ print(f"Comparison video saved to: {output_path}")
 # - **opencv** (notebook inline video) — if in Jupyter with OpenCV installed, an embedded video player
 # - **matplotlib** (fallback) — always available, but less interactive
 #
-# Playback is clean by default; pass `frame_counter=True` to overlay the frame number on backends that support it.
+# Playback is clean by default; pass `frame_counter=True` to overlay the frame number on the notebook video (`backend="opencv"`). Each backend reads only its own options: one it does not read raises when the backend is named, and warns under auto.
 
 # %% tags=["skip-execution"]
 # This auto-detects the best backend

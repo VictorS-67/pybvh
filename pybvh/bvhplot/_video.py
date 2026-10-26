@@ -12,6 +12,7 @@ first.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import chain
@@ -43,9 +44,11 @@ class VideoTarget:
     path : Path
         The file written, whose extension says its format; never changed.
     fps : float
-        Frames per second, fractional rates included.
+        Frames per second, fractional rates included; the router has
+        checked it is a positive number (``_resolve_fps``).
     resolution : (int, int)
-        ``(width, height)`` in pixels the backend draws at.
+        ``(width, height)`` in pixels the backend draws at, each a
+        positive number.
     codec : str
         ``"auto"``, ``"h264"`` or ``"mpeg4"``, as
         :func:`pybvh.bvhplot.render` documents; anything but ``"auto"``
@@ -54,8 +57,8 @@ class VideoTarget:
     Raises
     ------
     ValueError
-        On an unknown codec, or a codec named for a file that is not a
-        video container.
+        On a resolution that is not two positive numbers, an unknown
+        codec, or a codec named for a file that is not a video container.
     """
 
     path: Path
@@ -64,6 +67,13 @@ class VideoTarget:
     codec: str = "auto"
 
     def __post_init__(self) -> None:
+        sizes = tuple(self.resolution) if isinstance(self.resolution, (list, tuple)) else ()
+        if not (len(sizes) == 2 and all(_is_positive_number(size) for size in sizes)):
+            raise ValueError(
+                f"resolution must be two positive numbers (width, height) in "
+                f"pixels, got {self.resolution!r}."
+            )
+        object.__setattr__(self, "resolution", sizes)  # a list given is kept as a tuple
         if self.codec not in CODECS:
             raise ValueError(f"Unknown codec {self.codec!r}. Choose from: {sorted(CODECS)}")
         if self.codec != "auto" and self.suffix not in VIDEO_CONTAINERS:
@@ -76,6 +86,15 @@ class VideoTarget:
     def suffix(self) -> str:
         """The path's extension, in lower case."""
         return self.path.suffix.lower()
+
+
+def _is_positive_number(value: object) -> bool:
+    return (
+        isinstance(value, (int, float, np.integer, np.floating))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and bool(value > 0)
+    )
 
 
 _FFMPEG = "ffmpeg"  # H.264 through the system ffmpeg

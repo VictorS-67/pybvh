@@ -1093,7 +1093,8 @@ class TestRenderCodec:
 
     @staticmethod
     def _render(clip, path, **kwargs):
-        return bvhplot.render(clip[0:5], path, backend="opencv", resolution=(320, 240), **kwargs)
+        kwargs.setdefault("resolution", (320, 240))
+        return bvhplot.render(clip[0:5], path, backend="opencv", **kwargs)
 
     @staticmethod
     def _needs_ffmpeg():
@@ -1170,6 +1171,30 @@ class TestRenderCodec:
             bvhplot.render(bvh_example[0:3], tmp_path / "x.mp4", backend="vedo", codec=codec)
         assert ("Install ffmpeg" in str(raised.value)) == (codec == "auto")
         assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize("backend", ["opencv", "matplotlib"])
+    @pytest.mark.parametrize(
+        "resolution", [(0, 0), (-5, 10), (320, float("nan")), (320,), (True, 240)]
+    )
+    def test_a_resolution_that_is_no_picture_size_raises(
+        self, bvh_example, tmp_path, environment, backend, resolution
+    ):
+        """Each backend failed inside its own library (fillPoly, an
+        IndexError, a negative figure size); the video target refuses it
+        by name before anything is drawn."""
+        environment(importable={"cv2"})
+        with pytest.raises(ValueError, match=re.escape("resolution must be")):
+            bvhplot.render(
+                bvh_example[0:3], tmp_path / "x.gif", backend=backend, resolution=resolution
+            )
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_resolution_given_as_a_list_is_drawn(self, bvh_example, tmp_path):
+        path = self._render(bvh_example, tmp_path / "list.gif", resolution=[64, 48])
+        from PIL import Image
+
+        with Image.open(path) as gif:
+            assert gif.size == (64, 48)
 
     def test_unknown_codec_raises(self, bvh_example, tmp_path):
         with pytest.raises(ValueError, match="codec"):

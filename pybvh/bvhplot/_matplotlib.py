@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
-import warnings
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -17,12 +17,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 from matplotlib.artist import Artist
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.collections import LineCollection
+from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d import proj3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from mpl_toolkits.mplot3d.axes3d import Axes3D
 
-from .._warnings import user_stacklevel
 from ._colors import floor_palette
 from ._scene import Scene, SkeletonView
 from ._style import (
@@ -34,6 +35,7 @@ from ._style import (
     bone_colors_for_view,
     ghost_schedule,
 )
+from ._video import VideoTarget, Writer
 from ._viewport import Turntable, Viewport, make_viewport, panel_viewports
 
 # mplot3d sizes its default margins for a cube free to rotate to any
@@ -796,83 +798,53 @@ def _wrap_update_with_extras(
     return update
 
 
-def written_fps(fps: float, suffix: str) -> float:
-    """The rate :func:`render_mpl` writes a file at, given *fps*.
-
-    The movie writers (ffmpeg for video, Pillow for ``.gif``,
-    ``.webp`` and ``.apng``) are handed whole frames per second
-    (:func:`_movie_writer_fps`), the type matplotlib documents for
-    them, so *fps* is rounded to the nearest: ``fps=29.5`` is written
-    at 30. An ``.html`` page is handed *fps* unchanged and embeds a
-    whole number of milliseconds per frame, which matplotlib's HTML
-    writer computes as ``1000 // fps`` (floored, in matplotlib 3.9 and
-    3.11 alike): 33 ms at 30 fps, so the page plays at about 30.3.
-    Pillow then stores GIF frame durations in centiseconds, a limit of
-    the format not counted here.
-    """
-    if suffix.lower() == ".html":
-        return 1000.0 / (1000 // fps)
-    return _movie_writer_fps(fps)
-
-
-def _movie_writer_fps(fps: float) -> int:
-    """The whole frames per second matplotlib's movie writers are
-    handed."""
-    return round(fps)
-
-
 def render_mpl(
     scene: Scene,
     style: Style,
-    filepath: Path,
-    fps: float,
+    output: Writer | VideoTarget,
     *,
     motion: str | Turntable = "fixed",
-    resolution: tuple[int, int] = (1920, 1080),
     ghost: int = 0,
     trajectory: bool = False,
-    codec: str = "auto",
 ) -> Path:
-    """Render animation to a video/GIF/HTML file via matplotlib.
+    """Render an animation via matplotlib, to the file of *output*.
 
     Each subplot uses its own bounding box and camera orientation so
     that mixed-up-axis side-by-side comparisons render correctly.
 
-    *motion* is handed to the viewport untouched: it decides how each
-    panel's camera moves, and a panel whose camera rotates is re-aimed
-    every frame. *codec* is ``"auto"`` or ``"h264"``; ``"mpeg4"``
-    raises, since this backend writes video through ffmpeg, which
-    encodes H.264.
+    *output* is the :class:`~._video.Writer` the frames are handed to,
+    each drawn on the figure's Agg canvas and read from its buffer; or,
+    for matplotlib's player page (``.html``), the
+    :class:`~._video.VideoTarget` the page is written to, which
+    matplotlib builds from the figure itself. The figure is drawn at
+    the target's resolution. *motion* is handed to the viewport
+    untouched: it decides how each panel's camera moves, and a panel
+    whose camera rotates is re-aimed every frame.
 
     Returns
     -------
     filepath : Path
-        The actual output path (may differ from input if ffmpeg is missing
-        and the format was changed to GIF).
+        The path written, the target's.
     """
-    if codec == "mpeg4":
-        raise ValueError(
-            "codec='mpeg4' is only available on the OpenCV and "
-            "vedo backends — the matplotlib backend writes video "
-            "through ffmpeg, which encodes H.264."
-        )
-    filepath, writer_name = _resolve_writer(filepath)
+    target = output if isinstance(output, VideoTarget) else output.target
     num_frames = scene.num_frames
 
     n = scene.num_skeletons
     # matplotlib sizes figures in inches; convert the requested pixel
-    # resolution via the figure dpi so the saved frames honor it.
+    # resolution via the figure dpi so the saved frames honor it. The
+    # figure is drawn on its own Agg canvas, outside pyplot: a figure
+    # from pyplot gets the canvas of the session's GUI backend.
     dpi = float(plt.rcParams["figure.dpi"])
-    w, h = resolution
-    fig, axs = plt.subplots(
-        1, n, subplot_kw=dict(projection="3d"), figsize=(w / dpi, h / dpi), squeeze=False
-    )
+    w, h = target.resolution
+    fig = Figure(figsize=(w / dpi, h / dpi), dpi=dpi)
+    canvas = FigureCanvasAgg(fig)
+    axs = fig.subplots(1, n, subplot_kw=dict(projection="3d"), squeeze=False)
     axs_flat: list[Axes3D] = list(axs[0])
 
     fig.patch.set_facecolor(style.background)
 
     viewports = panel_viewports(
-        scene.views, framing="clip", motion=motion, projection=style.projection, fps=fps
+        scene.views, framing="clip", motion=motion, projection=style.projection, fps=target.fps
     )
     coords_list = [v.coords for v in scene.views]
     bones_arrays = [np.asarray(v.bones, dtype=int) for v in scene.views]
@@ -917,25 +889,26 @@ def render_mpl(
             update, scene, viewports, bones_arrays, ghost_slots, trace_lines
         )
 
-    interval = int(1000.0 / fps)
-    anim = animation.FuncAnimation(fig, update, frames=num_frames, interval=interval)
-
-    if writer_name == "jshtml":
+    if isinstance(output, VideoTarget):
+        interval = int(1000.0 / target.fps)
+        anim = animation.FuncAnimation(fig, update, frames=num_frames, interval=interval)
         # Hand the rate explicitly: to_jshtml would otherwise derive it
         # from the whole-millisecond interval, and the HTML writer's
         # floor division would then drop another millisecond (1000 //
         # (1000 / 33) is 32).
-        html_content = anim.to_jshtml(fps=fps)  # type: ignore[arg-type]  # stub says int; its own default fps is a float
-        with open(filepath, "w") as f:
+        html_content = anim.to_jshtml(fps=target.fps)  # type: ignore[arg-type]  # stub says int; its own default fps is a float
+        with open(target.path, "w") as f:
             f.write(html_content)
-    else:
-        # Pass fps explicitly: the writer's rate would otherwise be
-        # derived from the integer-millisecond interval, quantizing e.g.
-        # 24 fps (41.67 ms) to 1000/41 ≈ 24.4 fps.
-        anim.save(filepath, writer=writer_name, fps=_movie_writer_fps(fps))
+        return target.path
 
-    plt.close(fig)
-    return filepath
+    def drawn_frames() -> Iterator[npt.NDArray[np.uint8]]:
+        for f in range(num_frames):
+            update(f)
+            canvas.draw()
+            # The buffer is the canvas's own, redrawn in place: copy it.
+            yield np.asarray(canvas.buffer_rgba())[:, :, :3].copy()
+
+    return output.write(drawn_frames())
 
 
 def _make_orbit_update_fn(
@@ -1400,40 +1373,6 @@ def _set_span_limits(
     ax.set_zlim(lo[2], hi[2])
     spans = hi - lo
     ax.set_box_aspect(tuple(spans / spans.max()), zoom=BOX_ZOOM)
-
-
-def _resolve_writer(filepath: Path) -> tuple[Path, str]:
-    """Determine the matplotlib animation writer from file extension.
-
-    Returns
-    -------
-    filepath : Path
-        Possibly modified path (e.g. .mp4 → .gif if ffmpeg missing).
-    writer : str
-        Matplotlib writer name.
-    """
-    ext = filepath.suffix.lower()
-
-    if ext in (".mp4", ".mov", ".avi"):
-        if animation.writers.is_available("ffmpeg"):
-            return filepath, "ffmpeg"
-        # Fallback to GIF
-        filepath = filepath.with_suffix(".gif")
-        warnings.warn(
-            f"FFmpeg not found — cannot save as {ext}. "
-            f"Falling back to GIF: '{filepath}'. "
-            f".webp and .html are also available.",
-            stacklevel=user_stacklevel(),
-        )
-        return filepath, "pillow"
-
-    if ext in (".gif", ".webp", ".apng"):
-        return filepath, "pillow"
-
-    if ext == ".html":
-        return filepath, "jshtml"
-
-    raise ValueError(f"Unsupported file format: {ext}")
 
 
 # ---------------------------------------------------------------------------

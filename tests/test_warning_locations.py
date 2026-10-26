@@ -602,7 +602,7 @@ class TestBvhplot:
     def test_a_render_without_opencv_names_the_render_call(
         self, walk, stubbed, environment, tmp_path, draw
     ):
-        environment()
+        environment(ffmpeg=True)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             draw(walk, tmp_path / "clip.mp4")
@@ -629,16 +629,25 @@ class TestBvhplot:
         [
             lambda clip, path: bvhplot.render(clip, path, backend="opencv"),
             lambda clip, path: clip.render(path, backend="opencv"),
+            lambda clip, path: bvhplot.render(clip, path, backend="matplotlib"),
+            lambda clip, path: clip.render(path, backend="matplotlib"),
             lambda clip, path: bvhplot.play(clip, backend="opencv"),
             lambda clip, path: clip.play(backend="opencv"),
         ],
-        ids=["bvhplot.render", "Bvh.render", "bvhplot.play", "Bvh.play"],
+        ids=[
+            "bvhplot.render-opencv",
+            "Bvh.render-opencv",
+            "bvhplot.render-matplotlib",
+            "Bvh.render-matplotlib",
+            "bvhplot.play",
+            "Bvh.play",
+        ],
     )
     def test_a_video_written_as_mpeg4_names_the_draw_call(
-        self, walk, environment, monkeypatch, tmp_path, draw
+        self, walk, environment, monkeypatch, stubbed, tmp_path, draw
     ):
-        """OpenCV's drawing and the notebook's display are stubbed: the
-        warning comes before them."""
+        """The backends' drawing and the notebook's display are stubbed:
+        the warning comes before them."""
         from pybvh.bvhplot import _opencv
 
         ipython_display = pytest.importorskip("IPython.display")
@@ -650,24 +659,6 @@ class TestBvhplot:
             warnings.simplefilter("always")
             draw(walk, tmp_path / "clip.mp4")
         assert _files_named(caught, "ffmpeg is not on PATH") == {__file__}
-
-    @pytest.mark.parametrize(
-        "draw",
-        [
-            lambda clip, path: bvhplot.render(clip, path, backend="matplotlib"),
-            lambda clip, path: clip.render(path, backend="matplotlib"),
-        ],
-        ids=["bvhplot.render", "Bvh.render"],
-    )
-    def test_a_video_without_ffmpeg_names_the_render_call(self, walk, monkeypatch, tmp_path, draw):
-        from matplotlib import animation
-
-        monkeypatch.setattr(animation.writers, "is_available", lambda name: False)
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            draw(walk, tmp_path / "clip.mp4")
-        assert _files_named(caught, "FFmpeg not found") == {__file__}
-        assert (tmp_path / "clip.gif").exists()
 
 
 class TestParsingNeverWarns:

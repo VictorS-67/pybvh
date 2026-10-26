@@ -1,11 +1,14 @@
 """Writing an animation's frames to a file.
 
-A backend that produces frames draws them at the :class:`VideoTarget`'s
+Every backend of ``render`` draws its frames at the :class:`VideoTarget`'s
 resolution and hands them to the :class:`Writer` the router chose with
-:func:`writer_for`. This module owns the table of the extensions written
-from frames and their writers, and decides from the machine's
-:class:`~._backends.Environment` how a video container is encoded: H.264
-through the system ``ffmpeg`` executable, or OpenCV's MPEG-4 Part 2.
+:func:`writer_for`. This module owns the table of every extension
+``render`` writes, the rate each is written at
+(:attr:`VideoTarget.written_fps`) and the writers, and decides from the
+machine's :class:`~._backends.Environment` how a video container is
+encoded: H.264 through the system ``ffmpeg`` executable, or OpenCV's
+MPEG-4 Part 2. The one format not written from frames is matplotlib's
+player page (``.html``), which the table names as matplotlib's own.
 Frames are ``(H, W, 3)`` uint8 RGB arrays, every one the size of the
 first.
 """
@@ -26,10 +29,12 @@ from ._backends import Environment, install_hint
 # Valid values of render(codec=).
 CODECS = frozenset({"auto", "h264", "mpeg4"})
 
-# The format of each extension written from frames: a video container,
-# encoded as the codec and the machine allow, or the name of the Pillow
-# format an animated image is saved in.
+# The format of each extension render() writes: a video container,
+# encoded as the codec and the machine allow; the name of the Pillow
+# format an animated image is saved in; or matplotlib's player page, which
+# matplotlib builds from its own figure rather than from frames.
 _VIDEO = "video"
+_PLAYER_PAGE = "player page"
 _FORMATS = {
     ".mp4": _VIDEO,
     ".mov": _VIDEO,
@@ -37,8 +42,10 @@ _FORMATS = {
     ".gif": "GIF",
     ".webp": "WEBP",
     ".apng": "PNG",  # an animated PNG: Pillow writes one from several frames
+    ".html": _PLAYER_PAGE,
 }
 VIDEO_CONTAINERS = frozenset(ext for ext, fmt in _FORMATS.items() if fmt == _VIDEO)
+_FROM_FRAMES = sorted(ext for ext, fmt in _FORMATS.items() if fmt != _PLAYER_PAGE)
 
 
 @dataclass(frozen=True)
@@ -104,11 +111,23 @@ class VideoTarget:
         WebP, APNG) stores each frame's duration in whole milliseconds,
         ``1000 / fps`` rounded to the nearest: 42 ms at 24 fps, so 23.81
         fps; a GIF then stores it truncated to 10 ms, a limit of the
-        format not counted here.
+        format not counted here. An ``.html`` page embeds whole
+        milliseconds per frame too, floored as matplotlib's player
+        computes them, ``1000 // fps``: 33 ms at 30 fps, so 30.3 fps.
         """
-        if _FORMATS.get(self.suffix) == _VIDEO:
+        fmt = _FORMATS.get(self.suffix)
+        if fmt == _VIDEO:
             return self.fps
+        if fmt == _PLAYER_PAGE:
+            return 1000.0 / (1000 // self.fps)
         return 1000.0 / round(1000.0 / self.fps)
+
+    @property
+    def is_player_page(self) -> bool:
+        """The file is matplotlib's player page (``.html``), which
+        matplotlib builds from its own figure; every other format is
+        written from frames by :func:`writer_for`'s writer."""
+        return _FORMATS.get(self.suffix) == _PLAYER_PAGE
 
 
 def _is_positive_number(value: object) -> bool:
@@ -181,7 +200,8 @@ def writer_for(target: VideoTarget, environment: Environment, subject: str) -> W
     Raises
     ------
     ValueError
-        When *target*'s extension is not written from frames.
+        When *target*'s extension is not written from frames: unknown,
+        or matplotlib's player page.
     RuntimeError
         On ``codec="h264"`` without ffmpeg.
     ImportError
@@ -189,11 +209,10 @@ def writer_for(target: VideoTarget, environment: Environment, subject: str) -> W
     """
     ext = target.suffix
     fmt = _FORMATS.get(ext)
-    if fmt is None:
+    if fmt is None or fmt == _PLAYER_PAGE:
         raise ValueError(
             f"{subject} cannot write {ext!r} files. "
-            f"Supported extensions: {sorted(_FORMATS)}. "
-            f"Use backend='matplotlib' for other formats."
+            f"Supported extensions: {_FROM_FRAMES}, and '.html' on backend='matplotlib'."
         )
     if fmt != _VIDEO:
         return Writer(target, _PILLOW)

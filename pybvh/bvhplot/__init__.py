@@ -102,17 +102,6 @@ if TYPE_CHECKING:
     from ._viewport import Turntable
 
 
-def _written_fps(backend_name: str, target: _video.VideoTarget) -> float:
-    """The rate *backend_name* writes *target* at: matplotlib rounds it
-    (:func:`._matplotlib.written_fps`), OpenCV and vedo write it at the
-    video module's rate (:attr:`._video.VideoTarget.written_fps`)."""
-    if backend_name == "matplotlib":
-        from ._matplotlib import written_fps
-
-        return written_fps(target.fps, target.suffix)
-    return target.written_fps
-
-
 # A turntable turning 180 degrees or more a frame looks frozen or turning
 # backwards: its period must be longer than this many frames.
 _MIN_TURNTABLE_FRAMES = 2
@@ -759,15 +748,24 @@ def render(
         Frames per second (fractional rates like 119.88 are fine).
         ``None`` (default) uses the BVH frame rate, which then must be
         set: a clip whose ``frame_time`` is 0 (unset, as on a Bvh built
-        in memory) raises ``ValueError`` unless ``fps`` is given.
+        in memory) raises ``ValueError`` unless ``fps`` is given. A
+        video container is written at this rate as given, on every
+        backend. An animated image (``.gif``, ``.webp``, ``.apng``)
+        stores each frame's duration in whole milliseconds, ``1000 /
+        fps`` rounded to the nearest (42 ms at 24 fps, so 23.81 fps),
+        and a GIF stores it further truncated to 10 ms. An ``.html``
+        page embeds ``1000 // fps`` milliseconds, floored as
+        matplotlib's player computes it.
     backend : str, optional
         ``"auto"`` (default), ``"opencv"``, ``"matplotlib"`` or
-        ``"vedo"``. OpenCV writes every format but ``.html``. Under
-        ``"auto"``, ``.gif``, ``.webp``, ``.apng`` and ``.html`` always
-        use matplotlib. ``"vedo"`` draws shadowed 3D capsule skeletons
-        offscreen (headless-safe, requires ``pybvh[viewer]``, and for
-        a video container ``ffmpeg`` or ``pybvh[opencv]``, as *codec*
-        says) to every format but ``.html``, every skeleton in one
+        ``"vedo"``. Every backend writes a video container through the
+        ``ffmpeg`` executable or ``pybvh[opencv]``, as *codec* says, and
+        raises naming both when neither is there. Only matplotlib
+        writes ``.html``, its player page; OpenCV writes every other
+        format. Under ``"auto"``, ``.gif``, ``.webp``, ``.apng`` and
+        ``.html`` always use matplotlib. ``"vedo"`` draws shadowed 3D
+        capsule skeletons offscreen (headless-safe, requires
+        ``pybvh[viewer]``) to every format but ``.html``, every skeleton in one
         scene (see *spacing*); it is never chosen by ``"auto"``, and
         has no ``follow``, turntable, ``ghost`` or ``trajectory``.
     camera : str or (float, float), optional
@@ -793,11 +791,11 @@ def render(
         gives) would then end on a frame showing nearly the first view
         again, which a looping GIF shows twice in a row.
         The seconds are seconds of the video at the rate it is written
-        at: ``fps``, or the clip's own rate by default, except that the
-        matplotlib backend writes whole frames per second (``fps=29.5``
-        is written at 30) and an ``.html`` page whole milliseconds per
-        frame. GIF frame durations are further quantized to 10 ms by
-        the format, so a GIF may play slightly faster than written.
+        at: ``fps``, or the clip's own rate by default, except that an
+        animated image and an ``.html`` page are written at whole
+        milliseconds per frame (see ``fps``). GIF frame durations are
+        further quantized to 10 ms by the format, so a GIF may play
+        slightly faster than written.
         They are not seconds of the clip: the two differ when ``fps``
         plays the clip faster or slower than recorded, and the period
         is the speed the viewer sees. A clip whose ``frame_time`` is 0
@@ -896,8 +894,7 @@ def render(
         ``"h264"`` when you need the guarantee (raises with an install
         hint if no ffmpeg is found) or ``"mpeg4"`` to write MPEG-4
         Part 2 without the warning. Either way the file is written at
-        the path given. The matplotlib backend always writes H.264
-        (its mp4 writer *is* ffmpeg), so ``"mpeg4"`` is rejected there.
+        the path given. Every backend reads it the same way.
     spacing : float or "auto", optional
         Lateral separation between skeletons on the vedo backend, which
         draws every skeleton in one scene, exactly as :func:`play`
@@ -971,7 +968,7 @@ def render(
         if turntable_period is None:
             period = float(scene.num_frames)
         else:
-            video_fps = _written_fps(backend_name, target)
+            video_fps = target.written_fps
             period = turntable_period * video_fps
             if period <= _MIN_TURNTABLE_FRAMES:
                 shortest = _MIN_TURNTABLE_FRAMES / video_fps
@@ -1035,16 +1032,13 @@ def render(
     else:  # matplotlib
         from ._matplotlib import render_mpl
 
+        output = (
+            target
+            if target.is_player_page
+            else _video_writer(target, environment, "The matplotlib backend")
+        )
         return render_mpl(
-            scene,
-            style_obj,
-            filepath,
-            actual_fps,
-            motion=motion,
-            resolution=resolution,
-            ghost=ghost,
-            trajectory=trajectory,
-            codec=codec,
+            scene, style_obj, output, motion=motion, ghost=ghost, trajectory=trajectory
         )
 
 

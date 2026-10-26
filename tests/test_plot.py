@@ -920,6 +920,45 @@ class TestRenderMatplotlib:
         assert path.exists()
         assert path.stat().st_size > 0
 
+    @staticmethod
+    def _page_frames(path):
+        """The frames an ``.html`` page embeds, each a PNG matplotlib
+        saved from its own figure, as ``(H, W, 3)`` uint8 RGB arrays."""
+        import base64
+        import io
+
+        from PIL import Image
+
+        encoded = re.findall(r'"data:image/png;base64,([^"]+)"', path.read_text())
+        return [
+            np.asarray(Image.open(io.BytesIO(base64.b64decode(data))).convert("RGB"))
+            for data in encoded
+        ]
+
+    def test_the_frames_written_are_the_frames_matplotlib_draws(
+        self, bvh_example, tmp_path, handed_to_writer, apng_frames
+    ):
+        """An ``.html`` page is matplotlib's own: its player saves the
+        figure of each frame. The frames handed to the video module, and
+        the ``.apng`` read back, are those frames, pixel for pixel."""
+        options = dict(
+            backend="matplotlib",
+            fps=25,
+            resolution=(160, 120),
+            camera="turntable",
+            trajectory=True,
+        )
+        page = bvhplot.render(bvh_example[0:4], tmp_path / "x.html", **options)
+        apng = bvhplot.render(bvh_example[0:4], tmp_path / "x.apng", **options)
+        drawn = self._page_frames(page)
+        [handed] = handed_to_writer
+        read = apng_frames(apng, 25)
+        assert len(drawn) == len(handed) == len(read) == 4
+        assert not np.array_equal(drawn[0], drawn[1])
+        for page_frame, handed_frame, read_frame in zip(drawn, handed, read, strict=True):
+            np.testing.assert_array_equal(handed_frame, page_frame)
+            np.testing.assert_array_equal(read_frame, page_frame)
+
 
 # ===================================================================
 # OpenCV backend tests
@@ -1246,9 +1285,110 @@ class TestRenderCodec:
         with pytest.raises(ValueError, match="video containers"):
             bvhplot.render(bvh_example, tmp_path / "x.gif", codec="mpeg4")
 
-    def test_mpeg4_rejected_on_matplotlib_backend(self, bvh_example, tmp_path):
-        with pytest.raises(ValueError, match="OpenCV"):
-            bvhplot.render(bvh_example, tmp_path / "x.mp4", backend="matplotlib", codec="mpeg4")
+
+class TestMatplotlibVideo:
+    """matplotlib hands its frames to the video module, so its videos
+    follow the same rules as OpenCV's: the path asked for is kept, the
+    codec chosen as ``codec=`` and the machine say, the rate written as
+    given."""
+
+    @staticmethod
+    def _render(clip, path, **kwargs):
+        kwargs.setdefault("resolution", (160, 120))
+        return bvhplot.render(clip[0:4], path, backend="matplotlib", **kwargs)
+
+    @staticmethod
+    def _probe(path, entry):
+        """A stream entry of the video at *path*, as ffprobe reports it."""
+        import subprocess
+
+        if shutil.which("ffprobe") is None:
+            pytest.skip("needs the ffprobe executable")
+        return subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries"]
+            + [f"stream={entry}", "-of", "csv=p=0", str(path)],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    def test_an_unknown_extension_raises_naming_what_is_written(self, bvh_example, tmp_path):
+        with pytest.raises(ValueError) as raised:
+            self._render(bvh_example, tmp_path / "x.mkv")
+        assert str(raised.value) == (
+            "The matplotlib backend cannot write '.mkv' files. Supported extensions: "
+            "['.apng', '.avi', '.gif', '.mov', '.mp4', '.webp'], and '.html' on "
+            "backend='matplotlib'."
+        )
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize("backend", ["matplotlib", "auto"])
+    def test_a_video_without_ffmpeg_or_opencv_raises_naming_both(
+        self, bvh_example, tmp_path, environment, backend
+    ):
+        """Under auto too, where matplotlib is the fallback for a
+        missing OpenCV; v0.9.0 wrote a .gif instead."""
+        environment()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # auto's fallback warning
+            with pytest.raises(ImportError) as raised:
+                bvhplot.render(bvh_example[0:4], tmp_path / "x.mp4", backend=backend)
+        assert "Install ffmpeg" in str(raised.value)
+        assert "pip install pybvh[opencv]" in str(raised.value)
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_video_without_ffmpeg_keeps_its_name_as_mpeg4(
+        self, bvh_example, tmp_path, environment
+    ):
+        pytest.importorskip("cv2")
+        environment(importable={"cv2"})
+        with pytest.warns(UserWarning, match="ffmpeg is not on PATH"):
+            path = self._render(bvh_example, tmp_path / "x.mp4")
+        assert list(tmp_path.iterdir()) == [tmp_path / "x.mp4"] == [path]
+        assert self._probe(path, "codec_name") == "mpeg4"
+
+    @pytest.mark.parametrize("ffmpeg", [False, True], ids=["without-ffmpeg", "with-ffmpeg"])
+    def test_mpeg4_is_written_without_warning(self, bvh_example, tmp_path, environment, ffmpeg):
+        pytest.importorskip("cv2")
+        environment(importable={"cv2"}, ffmpeg=ffmpeg)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            path = self._render(bvh_example, tmp_path / "x.mp4", codec="mpeg4")
+        assert self._probe(path, "codec_name") == "mpeg4"
+
+    def test_with_ffmpeg_the_video_is_h264(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path
+    ):
+        environment(ffmpeg=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            path = self._render(bvh_example, tmp_path / "x.mp4")
+        assert self._probe(path, "codec_name") == "h264"
+
+    @pytest.mark.parametrize("ffmpeg", [False, True], ids=["mpeg4", "h264"])
+    def test_a_fractional_rate_is_written_as_given(
+        self, bvh_example, tmp_path, environment, ffmpeg
+    ):
+        """29.97 fps is stored as 2997/100, not rounded to 30."""
+        if ffmpeg and shutil.which("ffmpeg") is None:
+            pytest.skip("needs the ffmpeg executable")
+        if not ffmpeg:
+            pytest.importorskip("cv2")
+        environment(importable={"cv2"}, ffmpeg=ffmpeg)
+        path = self._render(bvh_example, tmp_path / "x.mp4", fps=29.97, codec="auto")
+        assert self._probe(path, "r_frame_rate") == "2997/100"
+
+    def test_a_turntable_is_timed_at_the_rate_given(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path, handed_to_writer
+    ):
+        """At 29.5 fps a 2 s period is 59 frames; v0.9.0 timed it at 30
+        fps, the rate matplotlib then wrote, 60 frames."""
+        environment(ffmpeg=True)
+        self._render(
+            bvh_example, tmp_path / "x.mp4", fps=29.5, camera="turntable", turntable_period=2
+        )
+        [handed] = handed_to_writer
+        assert len(handed) == 59
 
 
 class TestGifTiming:

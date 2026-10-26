@@ -57,7 +57,7 @@ bvhplot (`pybvh/bvhplot/`) splits at its Scene: the router and `_from_bvh` read 
 | `_style` | `Style`, its presets and palettes, the ghost and trace conventions | import a plotting library |
 | `_colors` | the color resolution that needs matplotlib's color parser | |
 | `_playback` | the viewer's playback state machine | import a rendering library |
-| `_video` | writing an animation's frames to a file: the video target, the table of the extensions written from frames and their writers, the ffmpeg pipe (H.264), OpenCV's MPEG-4 Part 2 writer, Pillow's GIF, WebP and APNG | draw, or decide which backend runs |
+| `_video` | writing an animation's frames to a file: the video target and the rate each file is written at, the table of every extension `render` writes and its writer (`.html` named as matplotlib's own player page), the ffmpeg pipe (H.264), OpenCV's MPEG-4 Part 2 writer, Pillow's GIF, WebP and APNG | draw, or decide which backend runs |
 | `_vedo_capsules` | the capsule geometry both vedo backends draw | |
 | `_matplotlib`, `_opencv`, `_k3d`, `_vedo`, `_vedo_offscreen` | drawing a Scene with a Style in one toolkit | compute a box, a floor or a camera of their own for a 3D picture (one exception: the floor of matplotlib's overlay `sequence`), or read the core; the 2D `trajectory` plot has no viewport, and `_matplotlib` frames it |
 

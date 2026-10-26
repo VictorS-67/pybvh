@@ -2318,42 +2318,47 @@ class TestSpreadInOneScene:
             )
 
     @pytest.fixture
-    def whole_clip_scenes(self, monkeypatch):
-        """Count the Scenes prepared from every frame of the clips,
-        which a still builds only to measure an arrangement on."""
-        prepared = bvhplot._prepare
-        calls = []
+    def whole_clip_positions(self, monkeypatch):
+        """The clips whose positions over every frame are computed in the
+        stills' centering, "first", which a still needs only to measure
+        an arrangement on. The scene ground's own reading of every frame,
+        under "world" (Bvh.floor_height), is not counted."""
+        computed = Bvh.node_positions
+        signature = inspect.signature(computed)
+        clips = []
 
-        def spy(clips, frames, *args, **kwargs):
-            if frames is None:
-                calls.append(list(clips))
-            return prepared(clips, frames, *args, **kwargs)
+        def spy(*args, **kwargs):
+            given = signature.bind(*args, **kwargs)
+            given.apply_defaults()
+            if given.arguments["frame"] is None and given.arguments["centered"] == "first":
+                clips.append(given.arguments["self"])
+            return computed(*args, **kwargs)
 
-        monkeypatch.setattr(bvhplot, "_prepare", spy)
-        return calls
+        monkeypatch.setattr(Bvh, "node_positions", spy)
+        return clips
 
-    def test_a_still_of_one_clip_prepares_only_its_frame(
-        self, twins, reached, tmp_path, whole_clip_scenes
+    def test_a_still_of_one_clip_computes_only_its_frame(
+        self, twins, reached, tmp_path, whole_clip_positions
     ):
         """One skeleton has nothing to be arranged with, so its still
-        never prepares the whole clip."""
+        never computes the whole clip."""
         pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo_offscreen
 
         reached(_vedo_offscreen, "frame_vedo")
         bvhplot.frame(twins[0], 3, backend="vedo", centered="first", match_size=True)
-        assert whole_clip_scenes == []
+        assert whole_clip_positions == []
 
-    def test_a_still_of_a_comparison_prepares_the_whole_clips(
-        self, twins, reached, tmp_path, whole_clip_scenes
+    def test_a_still_of_a_comparison_computes_the_whole_clips_once(
+        self, twins, reached, tmp_path, whole_clip_positions
     ):
         pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo_offscreen
 
         reached(_vedo_offscreen, "frame_vedo")
         bvhplot.frame(twins, 3, backend="vedo", centered="first")
-        assert len(whole_clip_scenes) == 1
-        assert all(a is b for a, b in zip(whole_clip_scenes[0], twins, strict=True))
+        assert len(whole_clip_positions) == len(twins)
+        assert all(a is b for a, b in zip(whole_clip_positions, twins, strict=True))
 
 
 # Each public function that draws into a caller's ax=, with the axes

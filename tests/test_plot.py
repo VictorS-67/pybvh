@@ -1363,6 +1363,66 @@ class TestFpsResolution:
         assert fps == pytest.approx(played_fps)
 
 
+class TestPlayWithoutAWindow:
+    """The play() paths that open no window run for real, in a notebook
+    the test builds: what the notebook would show is captured."""
+
+    @pytest.fixture
+    def shown(self, monkeypatch):
+        """Each object play() hands the notebook to display, with the HTML
+        the notebook renders it as, taken at the call as display() takes
+        it."""
+        ipython_display = pytest.importorskip("IPython.display")
+        objects = []
+
+        def display(obj):
+            objects.append((obj, obj._repr_html_()))
+
+        monkeypatch.setattr(ipython_display, "display", display)
+        return objects
+
+    def test_a_notebook_with_opencv_shows_the_clip_as_an_embedded_video(
+        self, bvh_example, environment, shown
+    ):
+        """The page embeds the video; its temporary file is deleted once
+        shown."""
+        pytest.importorskip("cv2")
+        environment(notebook=True, importable={"cv2"})
+        with pytest.warns(UserWarning, match="No interactive backend"):
+            bvhplot.play(bvh_example[0:5])
+        ((video, page),) = shown
+        assert type(video).__name__ == "Video"
+        assert "data:video/mp4;base64," in page
+        assert not Path(video.filename).exists()
+
+    def test_a_notebook_without_opencv_shows_matplotlibs_player(
+        self, bvh_example, environment, shown
+    ):
+        """Every frame of the clip is embedded in the player page."""
+        environment(notebook=True)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            bvhplot.play(bvh_example[0:5])
+        messages = [str(w.message) for w in caught]
+        assert any(m.startswith("No interactive backend") for m in messages)
+        assert any(m.startswith("OpenCV not found") for m in messages)
+        ((player, page),) = shown
+        assert type(player).__name__ == "HTML"
+        assert page.count("data:image/png;base64,") == 5
+
+    def test_a_script_hands_matplotlib_a_window(self, bvh_example, environment, monkeypatch):
+        import pybvh.bvhplot._matplotlib as mpl_backend
+
+        environment()
+        windows = []
+        monkeypatch.setattr(
+            mpl_backend, "play_mpl", lambda *args, in_notebook: windows.append(not in_notebook)
+        )
+        with pytest.warns(UserWarning, match="No interactive backend"):
+            bvhplot.play(bvh_example[0:5])
+        assert windows == [True]
+
+
 class TestPlaySync:
     """Clips of unequal length share one frame counter: sync= says
     whether the longer clip is cut or the shorter one held."""

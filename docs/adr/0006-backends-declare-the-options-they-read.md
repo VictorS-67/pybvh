@@ -1,6 +1,6 @@
 # A backend declares the options it reads, and an option it does not read raises when the backend is named and warns under auto
 
-bvhplot's `frame`, `render` and `play` take one set of keywords for every backend, and the backends do not all draw the same things: the vedo renderer has no follow camera, turntable, ghosts, trail or frame counter; matplotlib's `render` has no frame counter yet; `play`'s options split between its four players. Some of these gaps raised, from a list kept by hand in the router, and others were dropped without a word, so a script could write a file that lacked what it asked for and never learn it (issue #129).
+bvhplot's `frame`, `render` and `play` take one set of keywords for every backend, and the backends do not all draw the same things: the vedo renderer has no follow camera, turntable, ghosts, trail or frame counter; matplotlib's `render` drew no frame counter, until the same issue gave it one; `play`'s options split between its four players. Some of these gaps raised, from a list kept by hand in the router, and others were dropped without a word, so a script could write a file that lacked what it asked for and never learn it (issue #129).
 
 ## Decision
 
@@ -26,7 +26,7 @@ bvhplot's `frame`, `render` and `play` take one set of keywords for every backen
 
 - **Keep dropping unread options silently**: a script cannot learn that its file lacks what it asked for.
 - **Raise only on a value other than the real default**: rejected for decision 4. The two differ only when the default is passed explicitly, and `None` is the one value that says the option was left alone, as in the contact detectors.
-- **Let `render`'s auto choose among the backends that read every option given**: only the frame counter and `codec="mpeg4"` would have steered it; every backend writes `codec="mpeg4"`, and matplotlib is to draw the frame counter (issue #129), after which auto's two backends read the same options.
+- **Let `render`'s auto choose among the backends that read every option given**: only the frame counter and `codec="mpeg4"` would have steered it; every backend writes `codec="mpeg4"`, and matplotlib draws the frame counter (issue #129), so auto's two backends read the same options.
 - **Raise under auto too**: rejected for decision 3.
 
 ## Consequences

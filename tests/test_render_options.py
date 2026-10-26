@@ -1,6 +1,7 @@
 """The options of render() each backend reads, and what render() does
 with an option the backend it runs does not read: raise when the backend
-is named, warn under auto."""
+is named, warn under auto (which no render() call reaches: auto chooses
+OpenCV or matplotlib, which read the same options)."""
 
 from __future__ import annotations
 
@@ -102,13 +103,6 @@ class TestEachBackendReadsWhatItDeclares:
         pytest.importorskip(PACKAGE[backend])
         assert _same(drawn(backend, option, **OPTIONS[option]), drawn(backend, option))
 
-    def test_matplotlib_draws_no_frame_counter(self, drawn):
-        """Reached under auto, which gives an animated image to
-        matplotlib and warns rather than refuse."""
-        with pytest.warns(UserWarning, match="frame_counter"):
-            given = drawn("auto", "frame_counter", frame_counter=True)
-        assert _same(given, drawn("matplotlib", "frame_counter"))
-
 
 class TestANamedBackend:
     def test_refuses_an_option_it_does_not_read_even_at_its_default(self, walk, tmp_path):
@@ -118,7 +112,7 @@ class TestANamedBackend:
             bvhplot.render(walk, path, backend="vedo", frame_counter=False)
         assert str(raised.value) == (
             "render(backend='vedo') does not read frame_counter. Leave it "
-            "unset, or use backend='opencv', which reads it."
+            "unset, or use backend='matplotlib' or 'opencv', which read it."
         )
         assert not path.exists()
 
@@ -130,7 +124,6 @@ class TestANamedBackend:
             ("vedo", {"ghost": 2}, "ghost"),
             ("vedo", {"trajectory": True}, "trajectory"),
             ("vedo", {"frame_counter": True}, "frame_counter"),
-            ("matplotlib", {"frame_counter": True}, "frame_counter"),
         ],
         ids=lambda value: "-".join(map(str, value)) if isinstance(value, dict) else value,
     )
@@ -153,27 +146,3 @@ class TestANamedBackend:
             "render(backend='vedo') does not read follow, ghost or camera='turntable'. "
             "Leave them unset, or use backend='matplotlib' or 'opencv', which read them."
         )
-
-
-class TestUnderAuto:
-    def test_an_option_the_backend_chosen_does_not_read_warns_and_the_file_is_written(
-        self, walk, tmp_path
-    ):
-        """Auto sends an animated image to matplotlib, which draws no
-        frame counter."""
-        with pytest.warns(UserWarning) as record:
-            path = bvhplot.render(
-                walk, tmp_path / "x.apng", resolution=(64, 48), frame_counter=True
-            )
-        [message] = [str(w.message) for w in record if "frame_counter" in str(w.message)]
-        assert message == (
-            "render() chose backend='matplotlib', which does not read frame_counter, "
-            "so it is ignored. To draw it, use backend='opencv', which reads it."
-        )
-        assert path.exists()
-
-    def test_the_warning_names_the_users_line(self, walk, tmp_path):
-        with pytest.warns(UserWarning, match="frame_counter") as record:
-            bvhplot.render(walk, tmp_path / "x.apng", resolution=(64, 48), frame_counter=False)
-        [warning] = [w for w in record if "frame_counter" in str(w.message)]
-        assert warning.filename == __file__

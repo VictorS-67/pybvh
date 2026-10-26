@@ -1184,6 +1184,28 @@ class TestRenderCodec:
             bvhplot.render(bvh_example, tmp_path / "x.mp4", backend="matplotlib", codec="mpeg4")
 
 
+class TestGifTiming:
+    """A GIF frame lasts 1000 / fps milliseconds rounded to a whole
+    millisecond, which the format then stores truncated to 10 ms."""
+
+    @pytest.mark.parametrize(
+        "fps, shown_ms",
+        [(20.1, 50), (24, 40), (30, 30)],
+        ids=["49.75ms", "41.67ms", "33.33ms"],
+    )
+    def test_opencv_rounds_the_frame_duration(self, bvh_example, tmp_path, fps, shown_ms):
+        """At 20.1 fps a frame lasts 49.75 ms: rounded to 50 it is stored
+        as 5 hundredths, where truncating to 49 stored 4."""
+        pytest.importorskip("cv2")
+        from PIL import Image
+
+        path = bvhplot.render(
+            bvh_example[0:3], tmp_path / "t.gif", backend="opencv", resolution=(64, 48), fps=fps
+        )
+        with Image.open(path) as gif:
+            assert gif.info["duration"] == shown_ms
+
+
 class TestMissingPackage:
     """A backend whose package does not import raises before drawing,
     naming what to install, through each public call."""

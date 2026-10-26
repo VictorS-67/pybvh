@@ -277,6 +277,6 @@ def _save_with_pillow(
         format=pillow_format,
         save_all=True,
         append_images=images,
-        duration=int(1000.0 / fps),
+        duration=round(1000.0 / fps),
         loop=0,
     )

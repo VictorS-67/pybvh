@@ -186,8 +186,9 @@ def choose_render_backend(requested: str, suffix: str, environment: Environment)
     animated images (``.gif``, ``.webp``, ``.apng``) go to matplotlib even
     when OpenCV imports, and without a warning when it does not; every
     other extension goes to OpenCV when it imports, and else to
-    matplotlib with a warning naming the install. ``"vedo"`` (the shadowed capsule renderer) is never chosen by
-    auto: it is a deliberate look, not a fallback.
+    matplotlib with a warning naming the install. ``"vedo"`` (the
+    shadowed capsule renderer) is never chosen by auto: it is a
+    deliberate look, not a fallback.
     """
     _check_known(requested, RENDER_BACKENDS)
     if requested != "auto":

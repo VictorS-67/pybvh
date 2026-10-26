@@ -301,6 +301,7 @@ class _OpenCvSink:
         self._writer.release()
 
     def abort(self) -> None:
+        """Close the file as written so far."""
         self._writer.release()
 
 
@@ -312,14 +313,18 @@ def _save_with_pillow(
     millisecond (a GIF stores them further truncated to 10 ms).
 
     Pillow stores a run of identical frames as one frame shown for the
-    run's summed duration, so the frames are read back from the
-    durations; a file whose frames are all identical is a still image.
-    WebP is Pillow's default lossy encoding; PNG is lossless.
+    run's summed duration, a whole number of frame durations; a file
+    whose frames are all identical is a still image. WebP is Pillow's
+    default lossy encoding; PNG is lossless.
     """
     from PIL import Image
 
-    # A list, as Pillow documents: its PNG writer reads the frames twice.
-    first, *rest = (Image.fromarray(frame) for frame in frames)
+    images = (Image.fromarray(frame) for frame in frames)
+    first = next(images)
+    # Pillow documents append_images as a list, and its PNG writer reads
+    # the frames twice; its GIF writer reads them once, keeping each frame
+    # only in its palette, so a GIF's RGB frames are not all held at once.
+    rest = list(images) if pillow_format == "PNG" else images
     first.save(
         path,
         format=pillow_format,

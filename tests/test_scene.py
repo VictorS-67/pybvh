@@ -1292,7 +1292,7 @@ _ROUTER = "__init__"
 _BVH_READER = "_from_bvh"
 # No plotting library may be imported here: the pure-data modules, and the
 # playback state machine, which the viewer drives.
-_PURE_DATA = ["_scene", "_viewport", "_animation", "_style", "_from_bvh", "_playback"]
+_PURE_DATA = ["_scene", "_viewport", "_animation_options", "_style", "_from_bvh", "_playback"]
 # The modules that draw with one toolkit each.
 _BACKENDS = ["_matplotlib", "_opencv", "_k3d", "_vedo", "_vedo_offscreen"]
 

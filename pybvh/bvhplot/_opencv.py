@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
     from matplotlib.typing import ColorType
 
-    from ._animation import Animation
+    from ._animation_options import AnimationOptions
     from ._video import Writer
 
 # RGB is canonical in _style; the channel flip for OpenCV's BGR
@@ -339,7 +339,7 @@ def _generate_frames(
     style: Style,
     resolution: tuple[int, int],
     *,
-    motion: str | Turntable = "fixed",
+    schedule: str | Turntable = "fixed",
     fps: float | None = None,
     frame_counter: bool = False,
     ghost: int = 0,
@@ -357,7 +357,7 @@ def _generate_frames(
         axis indicator (the pre-0.9.0 ``show_axis``).
     resolution : (int, int)
         ``(width, height)`` in pixels.
-    motion : str or Turntable, optional
+    schedule : str or Turntable, optional
         How each panel's camera moves, handed to the viewport
         untouched (:func:`~._viewport.make_viewport`).
     fps : float, optional
@@ -397,7 +397,7 @@ def _generate_frames(
     # Orthographic whatever the style asks: this backend has no
     # perspective projection, and says so to the viewport.
     viewports = panel_viewports(
-        scene.views, framing="clip", motion=motion, projection="ortho", fps=fps
+        scene.views, framing="clip", schedule=schedule, projection="ortho", fps=fps
     )
 
     contexts = [
@@ -457,7 +457,9 @@ def _generate_frames(
 RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory", "frame_counter"})
 
 
-def render_opencv(scene: Scene, style: Style, writer: Writer, animation: Animation) -> Path:
+def render_opencv(
+    scene: Scene, style: Style, writer: Writer, animation_options: AnimationOptions
+) -> Path:
     """Render skeleton animation with OpenCV and hand the frames to
     *writer*, which writes the file.
 
@@ -475,7 +477,7 @@ def render_opencv(scene: Scene, style: Style, writer: Writer, animation: Animati
     writer : Writer
         The video module's writer of the target: frames are drawn at
         its target's resolution and rate.
-    animation : Animation
+    animation_options : AnimationOptions
         What is drawn besides the skeletons, every field read: the
         camera's schedule, ghosts, the root trail and the frame
         counter, passed to :func:`_generate_frames`.
@@ -490,11 +492,11 @@ def render_opencv(scene: Scene, style: Style, writer: Writer, animation: Animati
         scene,
         style,
         target.resolution,
-        motion=animation.motion,
+        schedule=animation_options.schedule,
         fps=target.fps,
-        frame_counter=animation.frame_counter,
-        ghost=animation.ghost,
-        trajectory=animation.trajectory,
+        frame_counter=animation_options.frame_counter,
+        ghost=animation_options.ghost,
+        trajectory=animation_options.trajectory,
     )
     # BGR is this backend's drawing order; the video module takes RGB.
     return writer.write(img[:, :, ::-1] for img in frames)

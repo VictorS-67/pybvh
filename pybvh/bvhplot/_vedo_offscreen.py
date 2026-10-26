@@ -188,8 +188,9 @@ def render_vedo(scene: Scene, style: Style, writer: Writer) -> Path:
 
     Frames are screenshots at the writer's target resolution (vedo may
     deliver them larger, under HiDPI scaling). It is handed no
-    :class:`~._animation.Animation`: the camera is fixed, and no ghost,
-    trail or frame counter is drawn, as ``RENDER_READS`` declares.
+    :class:`~._animation_options.AnimationOptions`: the camera is
+    fixed, and no ghost, trail or frame counter is drawn, as
+    ``RENDER_READS`` declares.
     """
     with _vtk_backend():
         plt, capsules, camera = _build_offscreen(scene, style, writer.target.resolution)

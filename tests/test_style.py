@@ -382,7 +382,7 @@ class TestFraming:
         from pybvh.bvhplot._viewport import make_viewport
 
         view = _whole_clip_view(bvh, "front")
-        viewport = make_viewport([view], framing="clip", motion="turntable")
+        viewport = make_viewport([view], framing="clip", schedule="turntable")
         assert viewport.rotating
 
         # A vertical probe: spinning the camera about the up axis cannot

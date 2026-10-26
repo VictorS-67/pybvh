@@ -1,5 +1,5 @@
-"""The backend-choice module: which backend runs, from the request and a
-test-built environment, so that every tier and every missing package is
+"""The backend-choice module: which backend runs, from the request and an
+environment the conftest fixture builds, so that every tier and every missing package is
 reached on any machine. The k3d widget and the vedo window cannot run in
 the suite; the paths of play() that open no window are also tested through
 play() itself, in test_plot.py."""
@@ -11,7 +11,6 @@ import sys
 import pytest
 
 from pybvh.bvhplot import _backends
-from pybvh.bvhplot._backends import Environment
 
 NO_INTERACTIVE = (
     "No interactive backend (k3d, vedo) found. Install with: pip install pybvh[interactive]"
@@ -22,99 +21,99 @@ SLOW_PLAY = (
 )
 
 
-def machine(*, notebook=False, display=False, importable=()):
-    return Environment(in_notebook=notebook, has_display=display, importable=frozenset(importable))
-
-
 class TestPlayTiers:
     """play()'s auto choice: the best backend the session and the installed
     packages allow, and a warning for each fallback naming what to install."""
 
     @pytest.mark.parametrize(
-        "environment, backend, warned",
+        "offered, backend, warned",
         [
             pytest.param(
-                machine(notebook=True, importable={"k3d", "cv2", "vedo"}),
+                dict(notebook=True, importable={"k3d", "cv2", "vedo"}),
                 "k3d",
                 (),
                 id="notebook-k3d",
             ),
             pytest.param(
-                machine(notebook=True, importable={"cv2"}),
+                dict(notebook=True, importable={"cv2"}),
                 "opencv_notebook",
                 (NO_INTERACTIVE,),
                 id="notebook-opencv",
             ),
             pytest.param(
-                machine(notebook=True, importable={"cv2", "vedo"}),
+                dict(notebook=True, importable={"cv2", "vedo"}),
                 "opencv_notebook",
                 (),
                 id="notebook-opencv-vedo-installed",
             ),
             pytest.param(
-                machine(notebook=True),
+                dict(notebook=True),
                 "matplotlib",
                 (NO_INTERACTIVE, SLOW_PLAY),
                 id="notebook-nothing",
             ),
             pytest.param(
-                machine(notebook=True, importable={"vedo"}),
+                dict(notebook=True, importable={"vedo"}),
                 "matplotlib",
                 (SLOW_PLAY,),
                 id="notebook-vedo-only",
             ),
             pytest.param(
-                machine(display=True, importable={"vedo", "k3d", "cv2"}),
+                dict(display=True, importable={"vedo", "k3d", "cv2"}),
                 "vedo",
                 (),
                 id="window-vedo",
             ),
             pytest.param(
-                machine(display=True, importable={"k3d", "cv2"}),
+                dict(display=True, importable={"k3d", "cv2"}),
                 "matplotlib",
                 (NO_INTERACTIVE,),
                 id="window-no-vedo",
             ),
-            pytest.param(
-                machine(importable={"vedo"}), "matplotlib", (), id="headless-vedo-installed"
-            ),
-            pytest.param(machine(), "matplotlib", (NO_INTERACTIVE,), id="headless-nothing"),
+            pytest.param(dict(importable={"vedo"}), "matplotlib", (), id="headless-vedo-installed"),
+            pytest.param(dict(), "matplotlib", (NO_INTERACTIVE,), id="headless-nothing"),
         ],
     )
-    def test_auto_picks_the_best_backend_the_session_allows(self, environment, backend, warned):
-        choice = _backends.choose_play_backend("auto", environment)
+    def test_auto_picks_the_best_backend_the_session_allows(
+        self, environment, offered, backend, warned
+    ):
+        choice = _backends.choose_play_backend("auto", environment(**offered))
         assert choice.backend == backend
         assert choice.warnings == warned
 
     @pytest.mark.parametrize("named", ["k3d", "vedo", "matplotlib"])
-    def test_a_named_backend_runs_without_a_warning(self, named):
-        choice = _backends.choose_play_backend(named, machine(importable={"k3d", "vedo", "cv2"}))
+    def test_a_named_backend_runs_without_a_warning(self, environment, named):
+        choice = _backends.choose_play_backend(
+            named, environment(importable={"k3d", "vedo", "cv2"})
+        )
         assert (choice.backend, choice.warnings) == (named, ())
 
-    def test_opencv_names_the_notebook_video(self):
-        choice = _backends.choose_play_backend("opencv", machine(notebook=True, importable={"cv2"}))
+    def test_opencv_names_the_notebook_video(self, environment):
+        choice = _backends.choose_play_backend(
+            "opencv", environment(notebook=True, importable={"cv2"})
+        )
         assert (choice.backend, choice.warnings) == ("opencv_notebook", ())
 
-    def test_opencv_outside_a_notebook_raises(self):
+    def test_opencv_outside_a_notebook_raises(self, environment):
         with pytest.raises(ValueError) as raised:
-            _backends.choose_play_backend("opencv", machine(display=True, importable={"cv2"}))
+            _backends.choose_play_backend("opencv", environment(display=True, importable={"cv2"}))
         assert str(raised.value) == (
             "backend='opencv' plays an inline video and only works inside a Jupyter "
             "notebook. In a script, use backend='vedo' (interactive window) or render() "
             "to a file instead."
         )
 
-    def test_opencv_without_opencv_raises_naming_the_install(self):
+    def test_opencv_without_opencv_raises_naming_the_install(self, environment):
         with pytest.raises(ImportError) as raised:
-            _backends.choose_play_backend("opencv", machine(notebook=True))
+            _backends.choose_play_backend("opencv", environment(notebook=True))
         assert str(raised.value) == (
             "The opencv play backend requires opencv-python. "
             "Install with: pip install pybvh[opencv]"
         )
 
-    def test_an_unknown_backend_raises(self):
+    def test_an_unknown_backend_raises(self, environment):
         with pytest.raises(ValueError) as raised:
-            _backends.choose_play_backend("opencvv", machine())
+            _backends.choose_play_backend("opencvv", environment())
         assert str(raised.value) == (
             "Unknown backend 'opencvv'. Choose from: "
             "['auto', 'k3d', 'matplotlib', 'opencv', 'vedo']"
@@ -151,20 +150,22 @@ class TestRenderChoice:
 
     @pytest.mark.parametrize("suffix", [".html", ".webp", ".apng", ".gif"])
     @pytest.mark.parametrize("importable", [{"cv2"}, set()], ids=["opencv", "no-opencv"])
-    def test_auto_sends_what_opencv_cannot_write_to_matplotlib(self, suffix, importable):
+    def test_auto_sends_what_opencv_cannot_write_to_matplotlib(
+        self, environment, suffix, importable
+    ):
         """Without the missing-OpenCV warning: OpenCV would not have
         written the file either."""
-        choice = _backends.choose_render_backend("auto", suffix, machine(importable=importable))
+        choice = _backends.choose_render_backend("auto", suffix, environment(importable=importable))
         assert (choice.backend, choice.warnings) == ("matplotlib", ())
 
     @pytest.mark.parametrize("suffix", [".mp4", ".mov", ".avi"])
-    def test_auto_writes_video_with_opencv_when_it_imports(self, suffix):
-        choice = _backends.choose_render_backend("auto", suffix, machine(importable={"cv2"}))
+    def test_auto_writes_video_with_opencv_when_it_imports(self, environment, suffix):
+        choice = _backends.choose_render_backend("auto", suffix, environment(importable={"cv2"}))
         assert (choice.backend, choice.warnings) == ("opencv", ())
 
     @pytest.mark.parametrize("suffix", [".mp4", ".mov", ".avi"])
-    def test_auto_falls_back_to_matplotlib_without_opencv(self, suffix):
-        choice = _backends.choose_render_backend("auto", suffix, machine(importable={"vedo"}))
+    def test_auto_falls_back_to_matplotlib_without_opencv(self, environment, suffix):
+        choice = _backends.choose_render_backend("auto", suffix, environment(importable={"vedo"}))
         assert choice.backend == "matplotlib"
         assert choice.warnings == (
             "OpenCV not found for fast rendering. Install with: pip install pybvh[opencv]. "
@@ -175,14 +176,14 @@ class TestRenderChoice:
         "named, suffix",
         [("matplotlib", ".mp4"), ("opencv", ".gif"), ("vedo", ".mp4")],
     )
-    def test_a_named_backend_wins_over_the_extension(self, named, suffix):
+    def test_a_named_backend_wins_over_the_extension(self, environment, named, suffix):
         """vedo is never chosen by auto: it is a look, not a fallback."""
-        choice = _backends.choose_render_backend(named, suffix, machine())
+        choice = _backends.choose_render_backend(named, suffix, environment())
         assert (choice.backend, choice.warnings) == (named, ())
 
-    def test_an_unknown_backend_raises(self):
+    def test_an_unknown_backend_raises(self, environment):
         with pytest.raises(ValueError) as raised:
-            _backends.choose_render_backend("opencvv", ".mp4", machine())
+            _backends.choose_render_backend("opencvv", ".mp4", environment())
         assert str(raised.value) == (
             "Unknown backend 'opencvv'. Choose from: ['auto', 'matplotlib', 'opencv', 'vedo']"
         )
@@ -236,9 +237,9 @@ class TestImportChecks:
             ),
         ],
     )
-    def test_a_missing_package_raises_naming_the_install(self, call, backend, message):
+    def test_a_missing_package_raises_naming_the_install(self, environment, call, backend, message):
         with pytest.raises(ImportError) as raised:
-            _backends.check_importable(call, backend, machine(notebook=True, display=True))
+            _backends.check_importable(call, backend, environment(notebook=True, display=True))
         assert str(raised.value) == message
 
     @pytest.mark.parametrize(
@@ -252,8 +253,8 @@ class TestImportChecks:
             ("play", "opencv_notebook", "cv2"),
         ],
     )
-    def test_a_package_that_imports_passes(self, call, backend, package):
-        _backends.check_importable(call, backend, machine(importable={package}))
+    def test_a_package_that_imports_passes(self, environment, call, backend, package):
+        _backends.check_importable(call, backend, environment(importable={package}))
 
     def test_a_package_that_fails_to_load_raises_from_its_own_error(self, tmp_path, monkeypatch):
         """Read from the machine, the import's error is the cause, so the
@@ -266,8 +267,8 @@ class TestImportChecks:
         assert str(raised.value.__cause__) == "No module named ipywidgets"
 
     @pytest.mark.parametrize("call", ["frame", "render", "play"])
-    def test_matplotlib_needs_no_optional_package(self, call):
-        _backends.check_importable(call, "matplotlib", machine())
+    def test_matplotlib_needs_no_optional_package(self, environment, call):
+        _backends.check_importable(call, "matplotlib", environment())
 
 
 class TestReadEnvironment:
@@ -292,10 +293,10 @@ class TestReadEnvironment:
         monkeypatch.setattr(ipython, "get_ipython", lambda: type(shell, (), {})())
         assert _backends.read_environment().in_notebook is in_notebook
 
-    def test_a_plain_session_is_not_a_notebook(self):
+    def test_a_plain_process_is_not_a_notebook(self):
         assert _backends.read_environment().in_notebook is False
 
-    def test_reading_the_session_does_not_import_ipython(self, monkeypatch):
+    def test_reading_the_machine_does_not_import_ipython(self, monkeypatch):
         """A script that never imported IPython is no notebook, and is not
         made to import it."""
         monkeypatch.delitem(sys.modules, "IPython", raising=False)

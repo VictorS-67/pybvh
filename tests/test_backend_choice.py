@@ -164,6 +164,88 @@ class TestRenderChoice:
         )
 
 
+class TestFrameChoice:
+    @pytest.mark.parametrize("named", ["matplotlib", "vedo"])
+    def test_a_known_backend_runs_as_named(self, named):
+        assert _backends.choose_frame_backend(named) == named
+
+    def test_an_unknown_backend_raises(self):
+        with pytest.raises(ValueError) as raised:
+            _backends.choose_frame_backend("opencv")
+        assert str(raised.value) == "Unknown backend 'opencv'. Choose from: ['matplotlib', 'vedo']"
+
+
+class TestImportChecks:
+    """Before each dispatch, a backend whose package does not import
+    raises, naming what to install."""
+
+    @pytest.mark.parametrize(
+        "call, backend, message",
+        [
+            (
+                "frame",
+                "vedo",
+                "vedo backend requires vedo. Install with: pip install pybvh[viewer]",
+            ),
+            (
+                "render",
+                "vedo",
+                "vedo backend requires vedo. Install with: pip install pybvh[viewer]",
+            ),
+            (
+                "render",
+                "opencv",
+                "OpenCV backend requires opencv-python. Install with: pip install pybvh[opencv]",
+            ),
+            (
+                "play",
+                "k3d",
+                "k3d backend requires k3d and ipywidgets. "
+                "Install with: pip install pybvh[interactive]",
+            ),
+            ("play", "vedo", "vedo backend requires vedo. Install with: pip install pybvh[viewer]"),
+            (
+                "play",
+                "opencv_notebook",
+                "The opencv play backend requires opencv-python. "
+                "Install with: pip install pybvh[opencv]",
+            ),
+        ],
+    )
+    def test_a_missing_package_raises_naming_the_install(self, call, backend, message):
+        with pytest.raises(ImportError) as raised:
+            _backends.check_importable(call, backend, machine(notebook=True, display=True))
+        assert str(raised.value) == message
+
+    @pytest.mark.parametrize(
+        "call, backend, package",
+        [
+            ("frame", "vedo", "vedo"),
+            ("render", "vedo", "vedo"),
+            ("render", "opencv", "cv2"),
+            ("play", "k3d", "k3d"),
+            ("play", "vedo", "vedo"),
+            ("play", "opencv_notebook", "cv2"),
+        ],
+    )
+    def test_a_package_that_imports_passes(self, call, backend, package):
+        _backends.check_importable(call, backend, machine(importable={package}))
+
+    def test_a_package_that_fails_to_load_raises_from_its_own_error(self, tmp_path, monkeypatch):
+        """Read from the machine, the import's error is the cause, so the
+        traceback says why an installed package did not load."""
+        (tmp_path / "k3d.py").write_text("raise ImportError('No module named ipywidgets')\n")
+        monkeypatch.delitem(sys.modules, "k3d", raising=False)
+        monkeypatch.syspath_prepend(str(tmp_path))
+        with pytest.raises(ImportError, match="k3d backend requires") as raised:
+            _backends.check_importable("play", "k3d", _backends.read_environment())
+        assert str(raised.value.__cause__) == "No module named ipywidgets"
+
+    @pytest.mark.parametrize("call", ["frame", "render", "play"])
+    def test_matplotlib_needs_no_optional_package(self, call):
+        _backends.check_importable(call, "matplotlib", machine())
+
+
 class TestReadEnvironment:
     """The one function that reads the machine."""
 

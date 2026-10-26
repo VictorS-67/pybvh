@@ -1152,6 +1152,31 @@ class TestRenderCodec:
             bvhplot.render(bvh_example, tmp_path / "x.mp4", backend="matplotlib", codec="mpeg4")
 
 
+class TestMissingPackage:
+    """A backend whose package does not import raises before drawing,
+    naming what to install, through each public call."""
+
+    @pytest.mark.parametrize(
+        "draw, install",
+        [
+            (lambda clip, path: bvhplot.frame(clip, backend="vedo"), "viewer"),
+            (lambda clip, path: bvhplot.render(clip, path / "x.mp4", backend="vedo"), "viewer"),
+            (lambda clip, path: bvhplot.render(clip, path / "x.mp4", backend="opencv"), "opencv"),
+            (lambda clip, path: bvhplot.play(clip, backend="k3d"), "interactive"),
+            (lambda clip, path: bvhplot.play(clip, backend="vedo"), "viewer"),
+            (lambda clip, path: bvhplot.play(clip, backend="opencv"), "opencv"),
+        ],
+        ids=["frame-vedo", "render-vedo", "render-opencv", "play-k3d", "play-vedo", "play-opencv"],
+    )
+    def test_the_call_raises_naming_the_install(
+        self, bvh_example, tmp_path, environment, draw, install
+    ):
+        environment(notebook=True, display=True)
+        with pytest.raises(ImportError, match=re.escape(f"pip install pybvh[{install}]")):
+            draw(bvh_example[0:3], tmp_path)
+        assert list(tmp_path.iterdir()) == []
+
+
 class TestRenderBackendResolution:
     """Extension-aware backend routing for render()."""
 
@@ -1185,9 +1210,9 @@ class TestRenderBackendResolution:
 
     @pytest.mark.parametrize("ext", [".mp4", ".mov", ".avi"])
     def test_video_extensions_prefer_opencv_when_available(
-        self, bvh_example, tmp_path, rendered_by, ext
+        self, bvh_example, tmp_path, rendered_by, environment, ext
     ):
-        pytest.importorskip("cv2")
+        environment(importable={"cv2"})
         bvhplot.render(bvh_example[0:3], tmp_path / f"x{ext}")
         assert rendered_by == ["opencv"]
 
@@ -1195,10 +1220,9 @@ class TestRenderBackendResolution:
         "backend, ext", [("matplotlib", ".mp4"), ("opencv", ".gif")], ids=["matplotlib", "opencv"]
     )
     def test_explicit_backend_wins_over_extension(
-        self, bvh_example, tmp_path, rendered_by, backend, ext
+        self, bvh_example, tmp_path, rendered_by, environment, backend, ext
     ):
-        if backend == "opencv":
-            pytest.importorskip("cv2")
+        environment(importable={"cv2"})
         bvhplot.render(bvh_example[0:3], tmp_path / f"x{ext}", backend=backend)
         assert rendered_by == [backend]
 
@@ -1317,8 +1341,9 @@ class TestFpsResolution:
         played_fps,
     ):
         """k3d widgets cannot keep up with 120 fps; vedo's timer and a
-        notebook video player can."""
-        pytest.importorskip(library)
+        notebook video player can. The player is stubbed and the machine
+        built, so no optional package is needed."""
+        environment(notebook=True, importable={library})
         signature = inspect.signature(getattr(module, player))
         calls = []
 
@@ -1329,7 +1354,6 @@ class TestFpsResolution:
         monkeypatch.setattr(module, player, record)
         if backend == "opencv":
             ipython_display = pytest.importorskip("IPython.display")
-            environment(notebook=True, importable={"cv2"})
             # the video file is never written: show nothing
             monkeypatch.setattr(ipython_display, "Video", lambda *args, **kwargs: None)
             monkeypatch.setattr(ipython_display, "display", lambda *args, **kwargs: None)

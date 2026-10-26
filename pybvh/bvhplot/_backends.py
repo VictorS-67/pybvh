@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 # The extra of pybvh that installs each optional package a backend imports.
 _EXTRAS = {"cv2": "opencv", "k3d": "interactive", "vedo": "viewer"}
 
+FRAME_BACKENDS = frozenset({"matplotlib", "vedo"})
 RENDER_BACKENDS = frozenset({"auto", "opencv", "matplotlib", "vedo"})
 PLAY_BACKENDS = frozenset({"auto", "k3d", "vedo", "opencv", "matplotlib"})
 
@@ -59,23 +60,27 @@ class Choice:
 
 class _ImportableOnDemand:
     """The packages that import, each tried the first time it is asked
-    about and remembered. Trying every optional package up front would
-    import VTK, OpenCV and ipywidgets into a process that only draws a
-    matplotlib figure."""
+    about and remembered with the error of a failed import. Trying every
+    optional package up front would import VTK, OpenCV and ipywidgets into
+    a process that only draws a matplotlib figure."""
 
     def __init__(self) -> None:
-        self._known: dict[str, bool] = {}
+        self._failures: dict[str, ImportError | None] = {}
 
     def __contains__(self, name: object) -> bool:
         if not isinstance(name, str):
             return False
-        if name not in self._known:
+        return self.failure(name) is None
+
+    def failure(self, name: str) -> ImportError | None:
+        """The error importing *name* raised, or ``None`` when it imports."""
+        if name not in self._failures:
             try:
                 __import__(name)
-                self._known[name] = True
-            except ImportError:
-                self._known[name] = False
-        return self._known[name]
+                self._failures[name] = None
+            except ImportError as error:
+                self._failures[name] = error
+        return self._failures[name]
 
 
 def _detect_notebook() -> bool:
@@ -117,6 +122,11 @@ def _check_known(requested: str, valid: frozenset[str]) -> None:
 # (call, backend) -> (the package the backend imports, the backend as its
 # error names it, what the error says to install)
 _REQUIREMENTS = {
+    ("frame", "vedo"): ("vedo", "vedo backend", "vedo"),
+    ("render", "vedo"): ("vedo", "vedo backend", "vedo"),
+    ("render", "opencv"): ("cv2", "OpenCV backend", "opencv-python"),
+    ("play", "k3d"): ("k3d", "k3d backend", "k3d and ipywidgets"),
+    ("play", "vedo"): ("vedo", "vedo backend", "vedo"),
     ("play", "opencv_notebook"): ("cv2", "The opencv play backend", "opencv-python"),
 }
 
@@ -129,8 +139,20 @@ def check_importable(call: str, backend: str, environment: Environment) -> None:
     if requirement is None:
         return
     package, subject, what = requirement
-    if package not in environment.importable:
-        raise ImportError(f"{subject} requires {what}. {install_hint(package)}")
+    if package in environment.importable:
+        return
+    # The import's own error says why an installed package failed to load
+    # (OpenCV without libGL, k3d without ipywidgets).
+    importable = environment.importable
+    cause = importable.failure(package) if isinstance(importable, _ImportableOnDemand) else None
+    raise ImportError(f"{subject} requires {what}. {install_hint(package)}") from cause
+
+
+def choose_frame_backend(requested: str) -> str:
+    """The backend ``frame(backend=requested)`` runs: always the one
+    named, since ``frame`` has no auto."""
+    _check_known(requested, FRAME_BACKENDS)
+    return requested
 
 
 _SLOW_RENDER = (

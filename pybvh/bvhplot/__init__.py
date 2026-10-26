@@ -102,19 +102,6 @@ if TYPE_CHECKING:
     from ._viewport import Turntable
 
 
-# ---------------------------------------------------------------------------
-# Backend detection
-# ---------------------------------------------------------------------------
-
-
-def _module_importable(name: str) -> bool:
-    try:
-        __import__(name)
-        return True
-    except ImportError:
-        return False
-
-
 _VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi"}  # containers codec= applies to
 
 
@@ -612,19 +599,14 @@ def frame(
         array instead.
     """
     clips = as_clip_list(bvh)
-    _VALID_FRAME_BACKENDS = {"matplotlib", "vedo"}
-    if backend not in _VALID_FRAME_BACKENDS:
-        raise ValueError(
-            f"Unknown backend {backend!r}. Choose from: {sorted(_VALID_FRAME_BACKENDS)}"
-        )
+    backend = _backends.choose_frame_backend(backend)
     spacing = _validated_spacing(spacing)
 
     frame_spec = coords if coords is not None else frame
     scene = _prepare(clips, frame_spec, centered, camera, labels)
 
+    _backends.check_importable("frame", backend, _backends.read_environment())
     if backend == "vedo":
-        if not _module_importable("vedo"):
-            raise ImportError("vedo backend requires vedo. Install with: pip install pybvh[viewer]")
         from ._vedo_offscreen import frame_vedo
 
         # Only a comparison is arranged, so only it needs its clips'
@@ -1025,9 +1007,8 @@ def render(
     for message in choice.warnings:
         warnings.warn(message, stacklevel=user_stacklevel())
 
+    _backends.check_importable("render", backend_name, environment)
     if backend_name == "vedo":
-        if not _module_importable("vedo"):
-            raise ImportError("vedo backend requires vedo. Install with: pip install pybvh[viewer]")
         unsupported = []
         if motion != "fixed":
             unsupported.append("follow/turntable cameras")
@@ -1049,10 +1030,6 @@ def render(
         return render_vedo(scene, style_obj, filepath, actual_fps, resolution, codec=codec)
 
     if backend_name == "opencv":
-        if not _module_importable("cv2"):
-            raise ImportError(
-                "OpenCV backend requires opencv-python. Install with: pip install pybvh[opencv]"
-            )
         from ._opencv import render_opencv
 
         return render_opencv(
@@ -1280,14 +1257,8 @@ def play(
     # For single-scene backends (vedo, k3d) there can only be ONE camera
     # and ONE bounding box: the backends make one viewport of the scene
     # as _arranged_in_one_scene lays it out.
+    _backends.check_importable("play", backend_name, environment)
     if backend_name == "k3d":
-        try:
-            import k3d  # noqa: F401
-        except ImportError as err:
-            raise ImportError(
-                "k3d backend requires k3d and ipywidgets. "
-                "Install with: pip install pybvh[interactive]"
-            ) from err
         from ._k3d import play_k3d
 
         play_k3d(
@@ -1300,12 +1271,6 @@ def play(
         return None
 
     elif backend_name == "vedo":
-        try:
-            import vedo  # noqa: F401
-        except ImportError as err:
-            raise ImportError(
-                "vedo backend requires vedo. Install with: pip install pybvh[viewer]"
-            ) from err
         from ._vedo import play_vedo
 
         play_vedo(

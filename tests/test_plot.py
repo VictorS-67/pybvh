@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import dataclasses
+import gc
 import importlib
 import inspect
 import re
+import shutil
 import warnings
 from pathlib import Path
 
@@ -1128,6 +1130,14 @@ class TestRenderCodec:
             self._render(bvh_example, tmp_path / "h264.mp4", codec="h264")
         assert list(tmp_path.iterdir()) == []
 
+    # A pipe or a process the ffmpeg encoder leaves open is only reported
+    # when Python collects it, as a ResourceWarning that pytest receives as
+    # an unraisable exception; both are errors here.
+    _NOTHING_LEFT_OPEN = pytest.mark.filterwarnings(
+        "error::ResourceWarning", "error::pytest.PytestUnraisableExceptionWarning"
+    )
+
+    @_NOTHING_LEFT_OPEN
     @pytest.mark.parametrize("codec", ["auto", "h264"])
     def test_with_ffmpeg_the_video_is_h264_without_warning(
         self, bvh_example, tmp_path, environment, ffmpeg_on_path, codec
@@ -1138,10 +1148,50 @@ class TestRenderCodec:
             path = self._render(bvh_example, tmp_path / "h264.mp4", codec=codec)
         assert self._fourcc(path) in ("avc1", "h264", "H264")
 
+    @_NOTHING_LEFT_OPEN
+    @pytest.mark.parametrize("ffmpeg", [False, True], ids=["mpeg4", "h264"])
+    def test_a_frame_failing_midway_leaves_no_encoder_running(
+        self, bvh_example, tmp_path, environment, monkeypatch, ffmpeg
+    ):
+        """The drawing's error reaches the caller, and the encoder is
+        stopped: no ffmpeg process left running (Python reports one it
+        collects still running), no pipe left open."""
+        if ffmpeg and shutil.which("ffmpeg") is None:
+            pytest.skip("needs the ffmpeg executable")
+        environment(importable={"cv2"}, ffmpeg=ffmpeg)
+        draw = _opencv._generate_frames
+
+        def failing_at_the_third_frame(*args, **kwargs):
+            for index, frame in enumerate(draw(*args, **kwargs)):
+                if index == 2:
+                    raise RuntimeError("drawing failed")
+                yield frame
+
+        monkeypatch.setattr(_opencv, "_generate_frames", failing_at_the_third_frame)
+        with pytest.raises(RuntimeError, match="drawing failed"):
+            self._render(bvh_example, tmp_path / "x.mp4", codec="auto" if ffmpeg else "mpeg4")
+        gc.collect()
+
+    @_NOTHING_LEFT_OPEN
+    def test_ffmpeg_failing_midway_raises_its_own_message(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path
+    ):
+        """ffmpeg exits when it cannot open the file, while frames are
+        still being piped: the error says why, not only that the pipe
+        broke."""
+        environment(importable={"cv2"}, ffmpeg=True)
+        with pytest.raises(RuntimeError, match="ffmpeg exited with code .*No such file"):
+            bvhplot.render(
+                bvh_example[0:40],
+                tmp_path / "missing" / "x.mp4",
+                backend="opencv",
+                resolution=(64, 48),
+            )
+        gc.collect()
+
     def test_the_machine_is_read_for_ffmpeg(self, bvh_example, tmp_path):
         """Without a test-built environment, auto writes what this
         machine's PATH allows."""
-        import shutil
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
@@ -1223,6 +1273,47 @@ class TestGifTiming:
             assert gif.info["duration"] == shown_ms
 
 
+class TestAnimatedImages:
+    """OpenCV writes ``.webp`` and ``.apng`` through the video module, as
+    it writes ``.gif``. An ``.apng`` is lossless, so it reads back as the
+    frames drawn."""
+
+    @pytest.fixture(autouse=True)
+    def _skip_if_no_cv2(self):
+        pytest.importorskip("cv2")
+
+    def test_an_apng_reads_back_as_the_frames_drawn(
+        self, bvh_example, tmp_path, handed_to_writer, apng_frames
+    ):
+        """Frames 0, 0, 1: the repeated frame is stored once, for twice
+        the duration, and still reads back as two frames."""
+        clip = bvh_example[0:1] + bvh_example[0:2]
+        path = bvhplot.render(
+            clip, tmp_path / "x.apng", backend="opencv", resolution=(64, 48), fps=25
+        )
+        [drawn] = handed_to_writer
+        assert len(drawn) == 3 and np.array_equal(drawn[0], drawn[1])
+        read = apng_frames(path, 25)
+        assert len(read) == len(drawn)
+        assert all(np.array_equal(r, d) for r, d in zip(read, drawn, strict=True))
+
+    def test_a_webp_has_every_frame_at_the_rate_written(self, bvh_example, tmp_path):
+        """At 20.1 fps a frame lasts 49.75 ms, rounded to 50."""
+        from PIL import Image
+
+        path = bvhplot.render(
+            bvh_example[0:4], tmp_path / "x.webp", backend="opencv", resolution=(64, 48), fps=20.1
+        )
+        with Image.open(path) as webp:
+            assert (webp.format, webp.n_frames, webp.size) == ("WEBP", 4, (64, 48))
+            durations = []
+            for index in range(webp.n_frames):
+                webp.seek(index)
+                webp.load()
+                durations.append(webp.info["duration"])
+        assert durations == [50] * 4
+
+
 class TestMissingPackage:
     """A backend whose package does not import raises before drawing,
     naming what to install, through each public call."""
@@ -1266,12 +1357,11 @@ class TestRenderBackendResolution:
         return reached
 
     @pytest.mark.parametrize("ext", [".html", ".webp", ".apng", ".gif"])
-    def test_mpl_only_extensions_route_to_matplotlib(
+    def test_html_and_animated_images_route_to_matplotlib(
         self, bvh_example, tmp_path, rendered_by, environment, ext
     ):
-        """Formats OpenCV cannot write always go to matplotlib under auto,
-        even when cv2 is installed, and without the missing-OpenCV
-        warning."""
+        """They always go to matplotlib under auto, even when cv2 is
+        installed, and without the missing-OpenCV warning."""
         environment(importable={"cv2"})
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")

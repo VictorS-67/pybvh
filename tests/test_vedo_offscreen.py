@@ -100,6 +100,26 @@ class TestRenderVedo:
         with Image.open(path) as gif:
             assert gif.info["duration"] == 50
 
+    def test_an_apng_reads_back_as_the_frames_drawn(
+        self, bvh, tmp_path, handed_to_writer, apng_frames
+    ):
+        path = bvhplot.render(
+            bvh[0:3], tmp_path / "caps.apng", backend="vedo", resolution=(120, 100), fps=25
+        )
+        [drawn] = handed_to_writer
+        read = apng_frames(path, 25)
+        assert len(read) == len(drawn) == 3
+        assert all(np.array_equal(r, d) for r, d in zip(read, drawn, strict=True))
+
+    def test_webp(self, bvh, tmp_path):
+        from PIL import Image
+
+        path = bvhplot.render(
+            bvh[0:3], tmp_path / "caps.webp", backend="vedo", resolution=(120, 100)
+        )
+        with Image.open(path) as webp:
+            assert (webp.format, webp.n_frames) == ("WEBP", 3)
+
     def test_mp4(self, bvh, tmp_path):
         pytest.importorskip("cv2")
         path = bvhplot.render(

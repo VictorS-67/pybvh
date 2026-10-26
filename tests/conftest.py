@@ -10,7 +10,7 @@ import pytest
 
 import pybvh.analysis
 import pybvh.bvh
-from pybvh.bvhplot import _backends
+from pybvh.bvhplot import _backends, _video
 
 
 @dataclass
@@ -115,3 +115,49 @@ def ffmpeg_on_path():
     file needs the real encoder, whatever environment the test builds."""
     if shutil.which("ffmpeg") is None:
         pytest.skip("needs the ffmpeg executable")
+
+
+@pytest.fixture
+def handed_to_writer(monkeypatch):
+    """The frames each backend hands to the video module, one list per
+    file written, recorded as they pass through to the file."""
+    written = []
+    write = _video.Writer.write
+
+    def recording(self, frames):
+        kept = []
+        written.append(kept)
+
+        def passing(frames):
+            for frame in frames:
+                kept.append(frame.copy())
+                yield frame
+
+        return write(self, passing(frames))
+
+    monkeypatch.setattr(_video.Writer, "write", recording)
+    return written
+
+
+@pytest.fixture
+def apng_frames():
+    """Read back every frame of an ``.apng``: ``apng_frames(path, fps)``
+    gives the frames of the file at *path*, written at *fps*, as
+    ``(H, W, 3)`` uint8 RGB arrays. Pillow writes a run of identical
+    frames as one frame shown for the run's summed duration, so each is
+    repeated for its duration over the frame's (``round(1000 / fps)``
+    milliseconds)."""
+    from PIL import Image, ImageSequence
+
+    def read(path, fps):
+        shown_ms = round(1000 / fps)
+        frames = []
+        with Image.open(path) as apng:
+            for image in ImageSequence.Iterator(apng):
+                duration = image.info.get("duration", shown_ms)
+                repeats, remainder = divmod(duration, shown_ms)
+                assert remainder == 0, f"a frame of {path} lasts {duration} ms"
+                frames.extend([np.asarray(image.convert("RGB"))] * int(repeats))
+        return frames
+
+    return read

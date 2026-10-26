@@ -30,7 +30,14 @@ CODECS = frozenset({"auto", "h264", "mpeg4"})
 # encoded as the codec and the machine allow, or the name of the Pillow
 # format an animated image is saved in.
 _VIDEO = "video"
-_FORMATS = {".mp4": _VIDEO, ".mov": _VIDEO, ".avi": _VIDEO, ".gif": "GIF"}
+_FORMATS = {
+    ".mp4": _VIDEO,
+    ".mov": _VIDEO,
+    ".avi": _VIDEO,
+    ".gif": "GIF",
+    ".webp": "WEBP",
+    ".apng": "PNG",  # an animated PNG: Pillow writes one from several frames
+}
 VIDEO_CONTAINERS = frozenset(ext for ext, fmt in _FORMATS.items() if fmt == _VIDEO)
 
 
@@ -129,8 +136,12 @@ class Writer:
         h, w = first.shape[:2]
         sink_type = _FfmpegSink if self.encoder == _FFMPEG else _OpenCvSink
         sink = sink_type(path, fps, (w, h))
-        for frame in frames:
-            sink.write(frame)
+        try:
+            for frame in frames:
+                sink.write(frame)
+        except BaseException:
+            sink.abort()
+            raise
         sink.release()
         return path
 
@@ -242,17 +253,26 @@ class _FfmpegSink:
 
     def write(self, frame: npt.NDArray[np.uint8]) -> None:
         assert self._proc.stdin is not None
-        self._proc.stdin.write(frame[:, :, ::-1].tobytes())
+        try:
+            self._proc.stdin.write(frame[:, :, ::-1].tobytes())
+        except BrokenPipeError:
+            self.release()  # ffmpeg has exited: raise its own error
+            raise
 
     def release(self) -> None:
-        assert self._proc.stdin is not None and self._proc.stderr is not None
-        self._proc.stdin.close()
-        err = self._proc.stderr.read().decode(errors="replace")
-        code = self._proc.wait()
-        if code != 0:
+        """Close the pipes, wait for ffmpeg to finish the file, and raise
+        its error if it failed."""
+        _, err = self._proc.communicate()
+        if self._proc.returncode != 0:
+            message = err.decode(errors="replace").strip()[:500]
             raise RuntimeError(
-                f"ffmpeg exited with code {code} while encoding: {err.strip()[:500]}"
+                f"ffmpeg exited with code {self._proc.returncode} while encoding: {message}"
             )
+
+    def abort(self) -> None:
+        """Stop ffmpeg without finishing the file, and close the pipes."""
+        self._proc.kill()
+        self._proc.communicate()
 
 
 class _OpenCvSink:
@@ -280,22 +300,36 @@ class _OpenCvSink:
     def release(self) -> None:
         self._writer.release()
 
+    def abort(self) -> None:
+        """Close the file as written so far."""
+        self._writer.release()
+
 
 def _save_with_pillow(
     path: Path, frames: Iterable[npt.NDArray[np.uint8]], fps: float, pillow_format: str
 ) -> None:
     """Save *frames* as one animated image in Pillow's *pillow_format*, looping,
     each frame shown for ``1000 / fps`` milliseconds rounded to a whole
-    millisecond (a GIF stores them further truncated to 10 ms)."""
+    millisecond (a GIF stores them further truncated to 10 ms).
+
+    Pillow stores a run of identical frames as one frame shown for the
+    run's summed duration, a whole number of frame durations; a file
+    whose frames are all identical is a still image. WebP is Pillow's
+    default lossy encoding; PNG is lossless.
+    """
     from PIL import Image
 
     images = (Image.fromarray(frame) for frame in frames)
     first = next(images)
+    # Pillow documents append_images as a list, and its PNG writer reads
+    # the frames twice; its GIF writer reads them once, keeping each frame
+    # only in its palette, so a GIF's RGB frames are not all held at once.
+    rest = list(images) if pillow_format == "PNG" else images
     first.save(
         path,
         format=pillow_format,
         save_all=True,
-        append_images=images,
+        append_images=rest,
         duration=round(1000.0 / fps),
         loop=0,
     )

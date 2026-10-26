@@ -762,15 +762,14 @@ def render(
         in memory) raises ``ValueError`` unless ``fps`` is given.
     backend : str, optional
         ``"auto"`` (default), ``"opencv"``, ``"matplotlib"`` or
-        ``"vedo"``. Under ``"auto"``, ``.gif``, ``.webp``, ``.apng`` and
-        ``.html`` always use matplotlib (OpenCV writes no ``.webp``,
-        ``.apng`` or ``.html``). ``"vedo"`` draws shadowed 3D capsule skeletons
+        ``"vedo"``. OpenCV writes every format but ``.html``. Under
+        ``"auto"``, ``.gif``, ``.webp``, ``.apng`` and ``.html`` always
+        use matplotlib. ``"vedo"`` draws shadowed 3D capsule skeletons
         offscreen (headless-safe, requires ``pybvh[viewer]``, and for
         a video container ``ffmpeg`` or ``pybvh[opencv]``, as *codec*
-        says) to ``.mp4``, ``.mov``,
-        ``.avi`` or ``.gif``, every skeleton in one scene (see
-        *spacing*); it is never chosen by ``"auto"``, and has no
-        ``follow``, turntable, ``ghost`` or ``trajectory``.
+        says) to every format but ``.html``, every skeleton in one
+        scene (see *spacing*); it is never chosen by ``"auto"``, and
+        has no ``follow``, turntable, ``ghost`` or ``trajectory``.
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``), the
         special ``"turntable"`` (an orbit starting from the front view,

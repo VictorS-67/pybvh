@@ -32,7 +32,7 @@ def _axes():
     return plt.figure().add_subplot(projection="3d")
 
 
-def _given(option):
+def _a_value_of(option):
     """A value of *option* for frame(), other than None."""
     values = {"figsize": (4, 3), "show": True, "resolution": (400, 300)}
     return {option: _axes() if option == "ax" else values[option]}
@@ -83,7 +83,7 @@ def _show_shows_the_figure(walk, pair, monkeypatch):
 
 
 def _ax_is_drawn_on(walk, pair, monkeypatch):
-    ax = plt.figure().add_subplot(projection="3d")
+    ax = _axes()
     empty = _picture((ax.figure, ax))
     fig, returned = bvhplot.frame(walk, ax=ax)
     assert returned is ax and fig is ax.figure
@@ -92,6 +92,8 @@ def _ax_is_drawn_on(walk, pair, monkeypatch):
 
 def _resolution_sizes_the_image(walk, pair, monkeypatch):
     assert bvhplot.frame(walk, backend="vedo", resolution=SMALL).shape == (120, 160, 3)
+    # Left unset, the documented default: 1100 wide and 1000 tall.
+    assert bvhplot.frame(walk, backend="vedo").shape == (1000, 1100, 3)
 
 
 def _spacing_spreads_the_skeletons(walk, pair, monkeypatch):
@@ -167,7 +169,7 @@ class TestANamedBackend:
         with pytest.raises(
             ValueError, match=rf"^frame\(backend='{backend}'\) does not read {option}\."
         ):
-            bvhplot.frame(walk, backend=backend, filepath=path, **_given(option))
+            bvhplot.frame(walk, backend=backend, filepath=path, **_a_value_of(option))
         assert not path.exists()
 
     def test_names_every_option_it_does_not_read(self, walk):

@@ -91,12 +91,16 @@ def environment(monkeypatch):
 
     Call it with what the machine offers: ``environment(notebook=True,
     importable={"cv2"})`` makes every later bvhplot call run in a notebook
-    where only OpenCV imports. Returns the value built.
+    where only OpenCV imports and ffmpeg is not on PATH. Returns the value
+    built.
     """
 
-    def build(*, notebook=False, display=False, importable=()):
+    def build(*, notebook=False, display=False, importable=(), ffmpeg=False):
         built = _backends.Environment(
-            in_notebook=notebook, has_display=display, importable=frozenset(importable)
+            in_notebook=notebook,
+            has_display=display,
+            importable=frozenset(importable),
+            has_ffmpeg=ffmpeg,
         )
         monkeypatch.setattr(_backends, "read_environment", lambda: built)
         return built

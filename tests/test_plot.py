@@ -1349,7 +1349,8 @@ class TestFpsResolution:
 
         def record(*args, **kwargs):
             given = signature.bind(*args, **kwargs).arguments
-            calls.append((given["scene"], given["fps"]))
+            fps = given["writer"].target.fps if "writer" in given else given["fps"]
+            calls.append((given["scene"], fps))
 
         monkeypatch.setattr(module, player, record)
         if backend == "opencv":

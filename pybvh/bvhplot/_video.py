@@ -1,0 +1,259 @@
+"""Writing an animation's frames to a file.
+
+A backend that produces frames draws them at the :class:`VideoTarget`'s
+resolution and hands them to the :class:`Writer` the router chose with
+:func:`writer_for`. This module owns the table of the extensions written
+from frames and their writers, and decides from the machine's
+:class:`~._backends.Environment` how a video container is encoded: H.264
+through the system ``ffmpeg`` executable, or OpenCV's MPEG-4 Part 2.
+Frames are ``(H, W, 3)`` uint8 RGB arrays, every one the size of the
+first.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from dataclasses import dataclass
+from itertools import chain
+from pathlib import Path
+
+import numpy as np
+import numpy.typing as npt
+
+from ._backends import Environment, install_hint
+
+# Valid values of render(codec=).
+CODECS = frozenset({"auto", "h264", "mpeg4"})
+
+# The extensions written from frames: a video container, encoded as the
+# codec and the machine allow, or the Pillow format an image sequence is
+# saved in.
+_VIDEO = "video"
+_WRITERS = {".mp4": _VIDEO, ".mov": _VIDEO, ".avi": _VIDEO, ".gif": "GIF"}
+VIDEO_CONTAINERS = frozenset(ext for ext, writer in _WRITERS.items() if writer == _VIDEO)
+
+
+@dataclass(frozen=True)
+class VideoTarget:
+    """Where an animation is written: the path, the rate written, the
+    resolution and the codec.
+
+    Attributes
+    ----------
+    path : Path
+        The file written, whose extension says its format; never changed.
+    fps : float
+        Frames per second, fractional rates included.
+    resolution : (int, int)
+        ``(width, height)`` in pixels the backend draws at.
+    codec : str
+        ``"auto"``, ``"h264"`` or ``"mpeg4"``, as
+        :func:`pybvh.bvhplot.render` documents; anything but ``"auto"``
+        only for a video container (``.mp4``, ``.mov``, ``.avi``).
+
+    Raises
+    ------
+    ValueError
+        On an unknown codec, or a codec named for a file that is not a
+        video container.
+    """
+
+    path: Path
+    fps: float
+    resolution: tuple[int, int]
+    codec: str = "auto"
+
+    def __post_init__(self) -> None:
+        if self.codec not in CODECS:
+            raise ValueError(f"Unknown codec {self.codec!r}. Choose from: {sorted(CODECS)}")
+        if self.codec != "auto" and self.suffix not in VIDEO_CONTAINERS:
+            raise ValueError(
+                f"codec= applies to video containers "
+                f"({sorted(VIDEO_CONTAINERS)}), not {self.path.suffix!r}."
+            )
+
+    @property
+    def suffix(self) -> str:
+        """The path's extension, in lower case."""
+        return self.path.suffix.lower()
+
+
+_FFMPEG = "ffmpeg"  # H.264 through the system ffmpeg
+_OPENCV = "opencv"  # MPEG-4 Part 2 through OpenCV's VideoWriter
+_PILLOW = "pillow"  # an image sequence through Pillow
+
+
+@dataclass(frozen=True)
+class Writer:
+    """How this machine writes a target, and the warnings the choice owes
+    the caller (each a message, warned by the router at the user's
+    line). Built by :func:`writer_for`."""
+
+    target: VideoTarget
+    encoder: str
+    warnings: tuple[str, ...] = ()
+
+    def write(self, frames: Iterable[npt.NDArray[np.uint8]]) -> Path:
+        """Write *frames* to the target's path and return the path.
+
+        The file is sized from the first frame, not from the target's
+        resolution: vedo may deliver screenshots larger than asked
+        (HiDPI scaling).
+        """
+        path, fps = self.target.path, self.target.fps
+        frames = iter(frames)
+        first = next(frames)
+        frames = chain([first], frames)
+        if self.encoder == _PILLOW:
+            _save_with_pillow(path, frames, fps, _WRITERS[self.target.suffix])
+            return path
+        h, w = first.shape[:2]
+        sink_type = _FfmpegPipeWriter if self.encoder == _FFMPEG else _OpenCvWriter
+        sink = sink_type(path, fps, (w, h))
+        for frame in frames:
+            sink.write(frame)
+        sink.release()
+        return path
+
+
+def writer_for(target: VideoTarget, environment: Environment, subject: str) -> Writer:
+    """The writer of *target* on the machine *environment* describes, for
+    the backend *subject* names in an error (``"The OpenCV backend"``).
+
+    A video container is H.264 through ffmpeg when ffmpeg is on PATH and
+    the codec is ``"auto"`` or ``"h264"``, else MPEG-4 Part 2 through
+    OpenCV. The path is never changed.
+
+    Raises
+    ------
+    ValueError
+        When *target*'s extension is not written from frames.
+    RuntimeError
+        On ``codec="h264"`` without ffmpeg.
+    """
+    ext = target.suffix
+    writer = _WRITERS.get(ext)
+    if writer is None:
+        raise ValueError(
+            f"{subject} cannot write {ext!r} files. "
+            f"Supported extensions: {sorted(_WRITERS)}. "
+            f"Use backend='matplotlib' for other formats."
+        )
+    if writer != _VIDEO:
+        return Writer(target, _PILLOW)
+    if target.codec == "h264" and not environment.has_ffmpeg:
+        raise RuntimeError(
+            "codec='h264' requires the ffmpeg executable on PATH — "
+            f"OpenCV cannot encode H.264 itself. {install_hint('ffmpeg')}, or use "
+            "codec='mpeg4' (plays in desktop players such as VLC, but "
+            "not in browsers or VSCode)."
+        )
+    if environment.has_ffmpeg and target.codec != "mpeg4":
+        return Writer(target, _FFMPEG)
+    return Writer(target, _OPENCV)
+
+
+class _FfmpegPipeWriter:
+    """H.264 video sink: frames piped to the system ``ffmpeg``.
+
+    Encodes libx264 + yuv420p + faststart, the combination that plays in
+    browsers, VSCode, and notebook embeds. Odd frame dimensions are
+    padded by one pixel (yuv420p requires even sizes). Frames are piped
+    as BGR, the order they were encoded from before this module took
+    RGB: ffmpeg's conversion from RGB rounds a few levels differently, so
+    the files stay what they were.
+    """
+
+    def __init__(self, filepath: Path, fps: float, resolution: tuple[int, int]) -> None:
+        import subprocess
+
+        w, h = resolution
+        self._proc = subprocess.Popen(
+            [
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "bgr24",
+                "-s",
+                f"{w}x{h}",
+                "-r",
+                f"{fps}",
+                "-i",
+                "-",
+                "-vf",
+                "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+                str(filepath),
+            ],
+            stdin=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    def write(self, frame: npt.NDArray[np.uint8]) -> None:
+        assert self._proc.stdin is not None
+        self._proc.stdin.write(frame[:, :, ::-1].tobytes())
+
+    def release(self) -> None:
+        assert self._proc.stdin is not None and self._proc.stderr is not None
+        self._proc.stdin.close()
+        err = self._proc.stderr.read().decode(errors="replace")
+        code = self._proc.wait()
+        if code != 0:
+            raise RuntimeError(
+                f"ffmpeg exited with code {code} while encoding: {err.strip()[:500]}"
+            )
+
+
+class _OpenCvWriter:
+    """MPEG-4 Part 2 video sink: OpenCV's ``VideoWriter``, ``mp4v`` and
+    else ``XVID``. OpenCV builds ship without an H.264 encoder (patent
+    licensing), which is why H.264 needs the external binary."""
+
+    def __init__(self, filepath: Path, fps: float, resolution: tuple[int, int]) -> None:
+        import cv2
+
+        codecs = ["mp4v", "XVID"]
+        for fourcc_name in codecs:
+            fourcc = cv2.VideoWriter_fourcc(*fourcc_name)  # type: ignore[attr-defined]
+            self._writer = cv2.VideoWriter(str(filepath), fourcc, fps, resolution)
+            if self._writer.isOpened():
+                return
+        raise RuntimeError(
+            f"Could not open video writer for {filepath}. "
+            f"Tried codecs: {codecs}. Ensure OpenCV has video codec support."
+        )
+
+    def write(self, frame: npt.NDArray[np.uint8]) -> None:
+        self._writer.write(np.ascontiguousarray(frame[:, :, ::-1]))
+
+    def release(self) -> None:
+        self._writer.release()
+
+
+def _save_with_pillow(
+    path: Path, frames: Iterable[npt.NDArray[np.uint8]], fps: float, pillow_format: str
+) -> None:
+    """Save *frames* as one animated image in Pillow's *pillow_format*, looping,
+    each frame shown for ``1000 / fps`` milliseconds rounded to a whole
+    millisecond (a GIF stores them further truncated to 10 ms)."""
+    from PIL import Image
+
+    images = (Image.fromarray(frame) for frame in frames)
+    first = next(images)
+    first.save(
+        path,
+        format=pillow_format,
+        save_all=True,
+        append_images=images,
+        duration=int(1000.0 / fps),
+        loop=0,
+    )

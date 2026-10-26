@@ -1293,6 +1293,8 @@ _BVH_READER = "_from_bvh"
 # No plotting library may be imported here: the pure-data modules, and the
 # playback state machine, which the viewer drives.
 _PURE_DATA = ["_scene", "_viewport", "_style", "_from_bvh", "_playback"]
+# The modules that draw with one toolkit each.
+_BACKENDS = ["_matplotlib", "_opencv", "_k3d", "_vedo", "_vedo_offscreen"]
 
 
 def _bvhplot_modules() -> list[str]:
@@ -1851,6 +1853,19 @@ class TestSceneIsPureData:
             f"bvhplot has modules below its top level, which the import "
             f"guards do not inspect: {nested}"
         )
+
+    @pytest.mark.parametrize("module_name", _BACKENDS)
+    def test_a_backend_imports_no_other_backend(self, module_name):
+        """A backend draws; what two backends share (the viewport, the
+        capsules, the video writers) lives in a module of its own, so
+        that no backend's toolkit is needed to run another."""
+        source = _module_source(module_name)
+        offenders = {
+            other: lines
+            for other in _BACKENDS
+            if other != module_name and (lines := _sibling_imports_in_source(source, other))
+        }
+        assert offenders == {}, f"{module_name} imports other backends: {offenders}"
 
     def test_the_boundary_covers_the_package(self):
         """The module list is read from disk; this pins that it finds the

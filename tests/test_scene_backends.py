@@ -21,7 +21,18 @@ import pytest
 import synthetic_scene
 from synthetic_scene import make_array_scene
 
+from pybvh.bvhplot._backends import Environment
 from pybvh.bvhplot._style import Style
+from pybvh.bvhplot._video import VideoTarget, writer_for
+
+
+def _mpeg4_writer(path, fps, resolution):
+    """The video module's writer of an MPEG-4 Part 2 file, which needs
+    OpenCV only."""
+    machine = Environment(
+        in_notebook=False, has_display=False, importable={"cv2"}, has_ffmpeg=False
+    )
+    return writer_for(VideoTarget(path, fps, resolution, codec="mpeg4"), machine, "A backend")
 
 
 def test_factory_knows_nothing_about_bvh():
@@ -170,9 +181,7 @@ class TestOpenCV:
         out = render_opencv(
             scene,
             Style("paper"),
-            tmp_path / "walk.mp4",
-            10.0,
-            (320, 240),
+            _mpeg4_writer(tmp_path / "walk.mp4", 10.0, (320, 240)),
             motion="follow",
             ghost=1,
             trajectory=True,
@@ -262,9 +271,12 @@ class TestVedo:
 
     def test_offscreen_render(self, scene, tmp_path):
         pytest.importorskip("vedo")
+        pytest.importorskip("cv2")
         from pybvh.bvhplot._vedo_offscreen import render_vedo
 
-        out = render_vedo(scene, Style("paper"), tmp_path / "walk.mp4", 10.0, resolution=(200, 200))
+        out = render_vedo(
+            scene, Style("paper"), _mpeg4_writer(tmp_path / "walk.mp4", 10.0, (200, 200))
+        )
         assert out.exists() and out.stat().st_size > 0
 
     def test_the_viewers_trails_lie_on_the_scene_ground(self, pair, monkeypatch):

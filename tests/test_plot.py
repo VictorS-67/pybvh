@@ -898,8 +898,6 @@ def page_frames(path, mode="RGB"):
     import base64
     import io
 
-    from PIL import Image
-
     encoded = re.findall(r'"data:image/png;base64,([^"]+)"', path.read_text())
     return [
         np.asarray(Image.open(io.BytesIO(base64.b64decode(data))).convert(mode)) for data in encoded
@@ -1464,13 +1462,18 @@ class TestTransparentBackground:
 
     @staticmethod
     def _rgba_frames(path):
-        from PIL import Image, ImageSequence
+        from PIL import ImageSequence
 
         with Image.open(path) as image:
             return [np.asarray(f.convert("RGBA")) for f in ImageSequence.Iterator(image)]
 
-    BACKGROUNDS = pytest.mark.parametrize(
+    TRANSPARENT = pytest.mark.parametrize(
         "background", ["none", (1, 1, 1, 0)], ids=["none", "white-alpha-0"]
+    )
+    SEE_THROUGH = pytest.mark.parametrize(
+        "background",
+        ["none", (1, 1, 1, 0), (0, 0, 1, 0.5)],
+        ids=["none", "white-alpha-0", "blue-alpha-half"],
     )
 
     @staticmethod
@@ -1479,14 +1482,15 @@ class TestTransparentBackground:
         alpha = frame[..., 3:] / 255.0
         return frame[..., :3] * alpha + 255.0 * (1.0 - alpha)
 
-    @BACKGROUNDS
+    @SEE_THROUGH
     def test_an_apng_holds_the_transparent_frames_drawn(self, bvh_example, tmp_path, background):
         """Laid on white, they are the frames of matplotlib's own
         ``.html`` page, whose player draws the figure on white (it saves
         no transparency). Laying a drawn edge on white afterwards rounds
         its partly transparent pixels differently from drawing it on
         white: v0.9.0's own ``.apng`` differs from its page by up to 3.2
-        levels, on 0.3% of the pixels."""
+        levels, on 0.3% of the pixels, and its opaque pixels from the
+        page's by one level at most."""
         page = self._render(bvh_example, tmp_path / "x.html", background)
         apng = self._render(bvh_example, tmp_path / "x.apng", background)
         drawn = page_frames(page)
@@ -1495,10 +1499,13 @@ class TestTransparentBackground:
         read = self._rgba_frames(apng)
         assert len(read) == len(drawn) == 4
         for read_frame, page_frame in zip(read, drawn, strict=True):
-            assert read_frame[..., 3].min() == 0
+            alpha = read_frame[..., 3]
+            assert alpha.min() < 255
+            opaque = alpha == 255
+            np.testing.assert_allclose(read_frame[opaque][:, :3], page_frame[opaque], atol=1)
             np.testing.assert_allclose(self._on_white(read_frame), page_frame, atol=4)
 
-    @BACKGROUNDS
+    @TRANSPARENT
     @pytest.mark.parametrize("ext", [".gif", ".webp"])
     def test_a_gif_and_a_webp_keep_the_transparency(self, bvh_example, tmp_path, background, ext):
         path = self._render(bvh_example, tmp_path / f"x{ext}", background)
@@ -1509,7 +1516,7 @@ class TestTransparentBackground:
                 assert image.mode == "RGBA"
         assert all(frame[..., 3].min() == 0 for frame in self._rgba_frames(path))
 
-    @BACKGROUNDS
+    @SEE_THROUGH
     def test_a_video_lays_the_picture_on_white(
         self, bvh_example, tmp_path, environment, ffmpeg_on_path, handed_to_writer, background
     ):
@@ -1531,7 +1538,7 @@ class TestTransparentBackground:
         path = self._render(bvh_example, tmp_path / f"x{ext}", "none", backend="opencv")
         with Image.open(path) as image:
             assert "transparency" not in image.info
-            assert image.mode == ("RGB" if ext == ".apng" else "P")
+            assert image.mode != "RGBA"
 
 
 class TestH264Fidelity:

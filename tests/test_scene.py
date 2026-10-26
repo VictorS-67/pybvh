@@ -45,6 +45,32 @@ def coords(bvh):
     return bvh.node_positions()
 
 
+@pytest.fixture
+def handed(monkeypatch):
+    """The Scene of each frame() or play() call that reached the
+    matplotlib backend, which is stubbed out."""
+    import pybvh.bvhplot._matplotlib as mpl_backend
+
+    scenes = []
+
+    def fake_frame_mpl(scene, style, **kwargs):
+        scenes.append(scene)
+        return None, None
+
+    def fake_play_mpl(scene, style, fps, **kwargs):
+        scenes.append(scene)
+
+    monkeypatch.setattr(mpl_backend, "frame_mpl", fake_frame_mpl)
+    monkeypatch.setattr(mpl_backend, "play_mpl", fake_play_mpl)
+    return scenes
+
+
+def _play_every_frame(clip):
+    """Play *clip* on the stubbed matplotlib backend at its own rate,
+    given as fps= so that play's 30 fps cap keeps every frame."""
+    bvhplot.play(clip, backend="matplotlib", fps=clip.fps)
+
+
 class TestMakeScene:
     def test_single_skeleton(self, bvh, coords):
         scene = make_scene([bvh], [coords], "front", None)
@@ -237,18 +263,15 @@ class TestViewCarriesSkeletonFacts:
         view = make_scene([bvh], [coords], "front", None).views[0]
         assert view.root_heading is None
 
-    def test_router_says_which_clip_frames_the_coords_are(self, bvh, coords):
-        from pybvh.bvhplot import _prepare
-
+    def test_router_says_which_clip_frames_the_coords_are(self, bvh, coords, handed):
         heading = root_trajectory(bvh)[:, 2:4]
+        _play_every_frame(bvh)
+        bvhplot.frame(bvh, 7)
+        bvhplot.frame(bvh, coords=coords[:5])
+        whole, one, supplied = (scene.views[0] for scene in handed)
 
-        whole = _prepare(bvh, None, "world", "front").views[0]
         np.testing.assert_allclose(whole.root_heading, heading)
-
-        one = _prepare(bvh, 7, "world", "front").views[0]
         np.testing.assert_allclose(one.root_heading, heading[7:8])
-
-        supplied = _prepare(bvh, coords[:5], "world", "front").views[0]
         assert supplied.root_heading is None
 
     def test_rest_pose_scene_carries_no_clip_heading(self, bvh, monkeypatch):
@@ -318,20 +341,26 @@ class TestInitialForwardOnAFrameLyingOnItsSide:
         clip.world_up = "-x"  # along the rest pose's left/right axis, which the turn keeps
         return clip
 
-    @pytest.mark.parametrize("frames", [3, None])
-    def test_a_clip_frame_takes_the_root_heading(self, lying, frames):
+    @pytest.mark.parametrize(
+        "draw",
+        [lambda clip: bvhplot.frame(clip, 3), _play_every_frame],
+        ids=["frame 3", "every frame"],
+    )
+    def test_a_clip_frame_takes_the_root_heading(self, lying, draw, handed):
         # The root turns rest forward +y onto +z, on the ground of -x; the
         # house default for an x up would be +y.
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            view = bvhplot._prepare(lying, frames, "world", "front").views[0]
-        assert view.initial_forward == "+z"
+            draw(lying)
+        (scene,) = handed
+        assert scene.views[0].initial_forward == "+z"
 
-    def test_a_pose_with_no_clip_frame_takes_the_default(self, lying):
+    def test_a_pose_with_no_clip_frame_takes_the_default(self, lying, handed):
         pose = lying.node_positions()[3:4]
         with pytest.warns(UserWarning, match="On the pose given"):
-            view = bvhplot._prepare(lying, pose, "world", "front").views[0]
-        assert view.initial_forward == "+y"
+            bvhplot.frame(lying, coords=pose)
+        (scene,) = handed
+        assert scene.views[0].initial_forward == "+y"
 
 
 class TestSceneMethods:

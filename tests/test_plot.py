@@ -6,6 +6,7 @@ import dataclasses
 import importlib
 import inspect
 import re
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -1154,26 +1155,49 @@ class TestRenderCodec:
 class TestRenderBackendResolution:
     """Extension-aware backend routing for render()."""
 
-    def test_mpl_only_extensions_route_to_matplotlib(self):
+    @pytest.fixture
+    def rendered_by(self, monkeypatch):
+        """The backend each render() call reached; both are stubbed out."""
+        import pybvh.bvhplot._matplotlib as mpl_backend
+
+        reached = []
+        monkeypatch.setattr(
+            mpl_backend, "render_mpl", lambda *args, **kwargs: reached.append("matplotlib")
+        )
+        monkeypatch.setattr(
+            _opencv, "render_opencv", lambda *args, **kwargs: reached.append("opencv")
+        )
+        return reached
+
+    @pytest.mark.parametrize("ext", [".html", ".webp", ".apng", ".gif"])
+    def test_mpl_only_extensions_route_to_matplotlib(self, bvh_example, tmp_path, rendered_by, ext):
         """Formats OpenCV cannot write always go to matplotlib under auto,
-        even when cv2 is installed."""
-        from pybvh.bvhplot import _resolve_render_backend
+        even when cv2 is installed, and without the missing-OpenCV
+        warning."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            bvhplot.render(bvh_example[0:3], tmp_path / f"x{ext}")
+        assert rendered_by == ["matplotlib"]
+        assert [w for w in caught if "OpenCV not found" in str(w.message)] == []
 
-        for ext in (".html", ".webp", ".apng", ".gif"):
-            assert _resolve_render_backend("auto", ext) == "matplotlib"
-
-    def test_video_extensions_prefer_opencv_when_available(self):
+    @pytest.mark.parametrize("ext", [".mp4", ".mov", ".avi"])
+    def test_video_extensions_prefer_opencv_when_available(
+        self, bvh_example, tmp_path, rendered_by, ext
+    ):
         pytest.importorskip("cv2")
-        from pybvh.bvhplot import _resolve_render_backend
+        bvhplot.render(bvh_example[0:3], tmp_path / f"x{ext}")
+        assert rendered_by == ["opencv"]
 
-        for ext in (".mp4", ".mov", ".avi"):
-            assert _resolve_render_backend("auto", ext) == "opencv"
-
-    def test_explicit_backend_wins_over_extension(self):
-        from pybvh.bvhplot import _resolve_render_backend
-
-        assert _resolve_render_backend("matplotlib", ".mp4") == "matplotlib"
-        assert _resolve_render_backend("opencv", ".gif") == "opencv"
+    @pytest.mark.parametrize(
+        "backend, ext", [("matplotlib", ".mp4"), ("opencv", ".gif")], ids=["matplotlib", "opencv"]
+    )
+    def test_explicit_backend_wins_over_extension(
+        self, bvh_example, tmp_path, rendered_by, backend, ext
+    ):
+        if backend == "opencv":
+            pytest.importorskip("cv2")
+        bvhplot.render(bvh_example[0:3], tmp_path / f"x{ext}", backend=backend)
+        assert rendered_by == [backend]
 
     def test_unknown_backend_raises(self, bvh_example, tmp_path):
         with pytest.raises(ValueError, match="backend"):
@@ -1200,31 +1224,28 @@ class TestRenderBackendResolution:
 class TestFpsResolution:
     """Shared fps parameter of play() and render()."""
 
-    def test_none_uses_bvh_frame_rate(self):
-        from pybvh.bvhplot import _resolve_fps
+    def test_none_uses_bvh_frame_rate(self, bvh_example, played):
+        """bvh_test1's frame time is 0.033333 s: 30 fps."""
+        bvhplot.play(bvh_example, backend="matplotlib")
+        ((_, fps),) = played
+        assert fps == pytest.approx(30.0, rel=1e-4)
 
-        assert _resolve_fps(None, 1.0 / 30.0) == pytest.approx(30.0)
+    def test_fractional_fps_preserved(self, bvh_example, played):
+        bvhplot.play(bvh_example, backend="matplotlib", fps=119.88)
+        ((_, fps),) = played
+        assert fps == 119.88
 
-    def test_fractional_fps_preserved(self):
-        from pybvh.bvhplot import _resolve_fps
-
-        assert _resolve_fps(119.88, 1.0 / 30.0) == pytest.approx(119.88)
-
-    def test_zero_fps_raises(self):
-        from pybvh.bvhplot import _resolve_fps
-
+    @pytest.mark.parametrize("fps", [0, -1])
+    def test_play_refuses_a_rate_not_positive(self, bvh_example, played, fps):
         with pytest.raises(ValueError, match="fps must be positive"):
-            _resolve_fps(0, 1.0 / 30.0)
+            bvhplot.play(bvh_example, backend="matplotlib", fps=fps)
+        assert played == []
 
-    def test_negative_fps_raises(self):
-        from pybvh.bvhplot import _resolve_fps
-
+    @pytest.mark.parametrize("fps", [0, -1])
+    def test_render_refuses_a_rate_not_positive(self, bvh_example, tmp_path, fps):
         with pytest.raises(ValueError, match="fps must be positive"):
-            _resolve_fps(-1, 1.0 / 30.0)
-
-    def test_render_fps_zero_raises(self, bvh_example, tmp_path):
-        with pytest.raises(ValueError, match="fps must be positive"):
-            bvhplot.render(bvh_example, tmp_path / "x.gif", fps=0)
+            bvhplot.render(bvh_example, tmp_path / "x.gif", fps=fps)
+        assert not (tmp_path / "x.gif").exists()
 
     def test_render_fractional_fps(self, bvh_example, tmp_path):
         import matplotlib
@@ -1702,6 +1723,11 @@ class TestHeadingChange:
 
 
 class TestMatchFps:
+    """Clips at different rates, through play(): bvh_test1 is 30 fps and
+    bvh_test2 120 fps. The matplotlib backend is stubbed, so the Scene
+    it receives shows each clip's rate after the router's matching; an
+    explicit fps= keeps play's 30 fps cap from subsampling that Scene."""
+
     @pytest.fixture
     def bvh_30fps(self):
         return read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_test1.bvh")
@@ -1710,81 +1736,65 @@ class TestMatchFps:
     def bvh_120fps(self):
         return read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_test2.bvh")
 
-    def test_warns_on_mismatch(self, bvh_30fps, bvh_120fps):
-        from pybvh.bvhplot import _match_frame_rates
+    @staticmethod
+    def _played_rates(played):
+        ((scene, _),) = played
+        return [1.0 / view.frame_time for view in scene.views]
 
+    def test_warns_on_mismatch(self, bvh_30fps, bvh_120fps, played):
         with pytest.warns(UserWarning, match="Frame rates differ"):
-            _match_frame_rates([bvh_30fps, bvh_120fps], None)
+            bvhplot.play([bvh_30fps, bvh_120fps], backend="matplotlib", fps=60)
+        assert self._played_rates(played) == pytest.approx([30.0, 120.0], rel=1e-4)
 
-    def test_no_warning_when_same_fps(self, bvh_30fps):
+    def test_no_warning_when_same_fps(self, bvh_30fps, played):
         import warnings
 
-        from pybvh.bvhplot import _match_frame_rates
-
-        bvh2 = bvh_30fps.copy()
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            _match_frame_rates([bvh_30fps, bvh2], None)
-            fps_warns = [x for x in w if "Frame rates differ" in str(x.message)]
-            assert len(fps_warns) == 0
+            bvhplot.play([bvh_30fps, bvh_30fps.copy()], backend="matplotlib")
+        assert [x for x in w if "Frame rates differ" in str(x.message)] == []
 
-    def test_lowest_resamples_to_min(self, bvh_30fps, bvh_120fps):
-        from pybvh.bvhplot import _match_frame_rates
+    def test_lowest_resamples_to_min(self, bvh_30fps, bvh_120fps, played):
+        bvhplot.play([bvh_120fps, bvh_30fps], backend="matplotlib", match_fps="lowest", fps=60)
+        assert self._played_rates(played) == pytest.approx([30.0, 30.0], rel=1e-4)
 
-        result = _match_frame_rates([bvh_30fps, bvh_120fps], "lowest")
-        fps0 = 1.0 / result[0].frame_time
-        fps1 = 1.0 / result[1].frame_time
-        assert abs(fps0 - fps1) < 0.5
-        assert abs(fps0 - 30.0) < 0.5
+    def test_highest_resamples_to_max(self, bvh_30fps, bvh_120fps, played):
+        bvhplot.play([bvh_30fps, bvh_120fps], backend="matplotlib", match_fps="highest", fps=60)
+        assert self._played_rates(played) == pytest.approx([120.0, 120.0], rel=1e-4)
 
-    def test_highest_resamples_to_max(self, bvh_30fps, bvh_120fps):
-        from pybvh.bvhplot import _match_frame_rates
+    def test_resampling_never_drops_a_clip(self, bvh_30fps, bvh_120fps, played):
+        """Every clip comes back, resampled or not. (A clip whose rate
+        cannot be compared, NaN, never reaches play(): the frame_time
+        setter refuses it, see test_bvh.py's
+        test_frame_time_setter_rejects_non_finite.)"""
+        clips = [bvh_30fps, bvh_120fps, bvh_30fps[0:5]]
+        bvhplot.play(clips, backend="matplotlib", match_fps="lowest", fps=60)
+        assert self._played_rates(played) == pytest.approx([30.0, 30.0, 30.0], rel=1e-4)
 
-        result = _match_frame_rates([bvh_30fps, bvh_120fps], "highest")
-        fps0 = 1.0 / result[0].frame_time
-        fps1 = 1.0 / result[1].frame_time
-        assert abs(fps0 - fps1) < 0.5
-        assert abs(fps0 - 120.0) < 0.5
-
-    def test_resampling_never_drops_a_clip(self, bvh_30fps, bvh_120fps):
-        """Every clip comes back, resampled or not, or the call raises: a
-        clip whose rate cannot be compared (NaN, which the frame_time
-        setter now rejects at the assignment) must not vanish from the
-        comparison."""
-        from pybvh.bvhplot import _match_frame_rates
-
-        odd = bvh_30fps[0:5]
-        try:
-            odd.frame_time = float("nan")
-            result = _match_frame_rates([bvh_30fps, bvh_120fps, odd], "lowest")
-        except ValueError:
-            return
-        assert len(result) == 3
-
-    def test_invalid_match_fps_raises(self, bvh_30fps, bvh_120fps):
-        from pybvh.bvhplot import _match_frame_rates
-
+    def test_invalid_match_fps_raises(self, bvh_30fps, bvh_120fps, played):
         with pytest.raises(ValueError, match="match_fps"):
-            _match_frame_rates([bvh_30fps, bvh_120fps], "bad")
+            bvhplot.play([bvh_30fps, bvh_120fps], backend="matplotlib", match_fps="bad")
+        assert played == []
 
-    def test_single_clip_no_warning(self, bvh_30fps):
+    def test_single_clip_no_warning(self, bvh_30fps, played):
         import warnings
-
-        from pybvh.bvhplot import _match_frame_rates
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            result = _match_frame_rates([bvh_30fps], None)
-            assert len(w) == 0
-            assert len(result) == 1
+            bvhplot.play([bvh_30fps], backend="matplotlib")
+        assert len(w) == 0
+        ((scene, _),) = played
+        assert len(scene.views) == 1
 
 
 class TestSceneSpacing:
     """Scene.spread() (lateral spacing for the single-scene backends) and
-    _warn_world_up_mismatch(). The router's policy around the spread is
-    tested through play, frame and render in TestSpreadInOneScene.
+    play()'s world_up mismatch warning. The router's policy around the
+    spread is tested through play, frame and render in
+    TestSpreadInOneScene.
 
-    No k3d or vedo installation required — the Scene is exercised directly.
+    No k3d or vedo installation required — the Scene is exercised
+    directly, and play() reaches a stubbed matplotlib backend.
     """
 
     @pytest.fixture
@@ -1879,43 +1889,37 @@ class TestSceneSpacing:
     # world_up mismatch warning
     # ------------------------------------------------------------------
 
-    def test_world_up_mismatch_warning(self, two_bvhs):
+    def test_world_up_mismatch_warning(self, two_bvhs, played):
         import sys
-
-        from pybvh.bvhplot import _warn_world_up_mismatch
 
         sys.path.insert(0, str(Path(__file__).parent))
         from synthetic_bvh import make_pos_y_up_bvh
 
         b_yup = make_pos_y_up_bvh()
         b_zup, _ = two_bvhs
-        with pytest.warns(UserWarning, match="world_up"):
-            _warn_world_up_mismatch([b_zup, b_yup])
+        with pytest.warns(UserWarning, match=r"different world_up values \(\+z, \+y\)"):
+            bvhplot.play([b_zup, b_yup], backend="matplotlib")
+        assert len(played) == 1
 
-    def test_no_warning_same_world_up(self, two_bvhs):
+    def test_no_warning_same_world_up(self, two_bvhs, played):
         import warnings
-
-        from pybvh.bvhplot import _warn_world_up_mismatch
 
         b1, b2 = two_bvhs
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            _warn_world_up_mismatch([b1, b2])
-            wu_warns = [x for x in w if "world_up" in str(x.message)]
-            assert len(wu_warns) == 0
+            bvhplot.play([b1, b2], backend="matplotlib")
+        assert [x for x in w if "world_up" in str(x.message)] == []
 
-    def test_warning_mentions_reorient(self, two_bvhs):
+    def test_warning_mentions_reorient(self, two_bvhs, played):
         import sys
 
         sys.path.insert(0, str(Path(__file__).parent))
         from synthetic_bvh import make_pos_y_up_bvh
 
-        from pybvh.bvhplot import _warn_world_up_mismatch
-
         b_yup = make_pos_y_up_bvh()
         b_zup, _ = two_bvhs
         with pytest.warns(UserWarning, match="reorient_world_up"):
-            _warn_world_up_mismatch([b_zup, b_yup])
+            bvhplot.play([b_zup, b_yup], backend="matplotlib")
 
 
 @pytest.fixture
@@ -2338,42 +2342,47 @@ class TestSpreadInOneScene:
             )
 
     @pytest.fixture
-    def whole_clip_scenes(self, monkeypatch):
-        """Count the Scenes prepared from every frame of the clips,
-        which a still builds only to measure an arrangement on."""
-        prepared = bvhplot._prepare
-        calls = []
+    def whole_clip_positions(self, monkeypatch):
+        """The clips whose positions over every frame are computed in the
+        stills' centering, "first", which a still needs only to measure
+        an arrangement on. The scene ground's own reading of every frame,
+        under "world" (Bvh.floor_height), is not counted."""
+        computed = Bvh.node_positions
+        signature = inspect.signature(computed)
+        clips = []
 
-        def spy(clips, frames, *args, **kwargs):
-            if frames is None:
-                calls.append(list(clips))
-            return prepared(clips, frames, *args, **kwargs)
+        def spy(*args, **kwargs):
+            given = signature.bind(*args, **kwargs)
+            given.apply_defaults()
+            if given.arguments["frame"] is None and given.arguments["centered"] == "first":
+                clips.append(given.arguments["self"])
+            return computed(*args, **kwargs)
 
-        monkeypatch.setattr(bvhplot, "_prepare", spy)
-        return calls
+        monkeypatch.setattr(Bvh, "node_positions", spy)
+        return clips
 
-    def test_a_still_of_one_clip_prepares_only_its_frame(
-        self, twins, reached, tmp_path, whole_clip_scenes
+    def test_a_still_of_one_clip_computes_only_its_frame(
+        self, twins, reached, tmp_path, whole_clip_positions
     ):
         """One skeleton has nothing to be arranged with, so its still
-        never prepares the whole clip."""
+        never computes the whole clip."""
         pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo_offscreen
 
         reached(_vedo_offscreen, "frame_vedo")
         bvhplot.frame(twins[0], 3, backend="vedo", centered="first", match_size=True)
-        assert whole_clip_scenes == []
+        assert whole_clip_positions == []
 
-    def test_a_still_of_a_comparison_prepares_the_whole_clips(
-        self, twins, reached, tmp_path, whole_clip_scenes
+    def test_a_still_of_a_comparison_computes_the_whole_clips_once(
+        self, twins, reached, tmp_path, whole_clip_positions
     ):
         pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo_offscreen
 
         reached(_vedo_offscreen, "frame_vedo")
         bvhplot.frame(twins, 3, backend="vedo", centered="first")
-        assert len(whole_clip_scenes) == 1
-        assert all(a is b for a, b in zip(whole_clip_scenes[0], twins, strict=True))
+        assert len(whole_clip_positions) == len(twins)
+        assert all(a is b for a, b in zip(whole_clip_positions, twins, strict=True))
 
 
 # Each public function that draws into a caller's ax=, with the axes

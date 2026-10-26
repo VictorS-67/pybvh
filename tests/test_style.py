@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from pybvh import bvhplot, read_bvh_file
-from pybvh.bvhplot._from_bvh import get_bone_chains, get_skeleton_lines
+from pybvh.bvhplot._from_bvh import get_bone_chains, get_skeleton_lines, make_scene
 from pybvh.bvhplot._style import (
     CHAIN_COLORS,
     Style,
@@ -328,19 +328,22 @@ class TestVectorExport:
             )
 
 
+def _whole_clip_view(bvh, camera):
+    """The view of every frame of *bvh* under ``centered="world"``, as an
+    animated output draws it."""
+    return make_scene(
+        [bvh], [bvh.node_positions(centered="world")], camera, None, clip_frames=slice(None)
+    ).views[0]
+
+
 class TestFraming:
     """Animated output frames the motion, not a cube around it."""
-
-    def _view(self, bvh, camera="side"):
-        from pybvh.bvhplot import _prepare
-
-        return _prepare(bvh, None, "world", camera).views[0]
 
     def test_box_follows_each_axis_of_the_motion(self, bvh):
         """A travelling clip must not spend its vertical extent on travel."""
         from pybvh.bvhplot._viewport import framing_bounds
 
-        lo, hi = framing_bounds(self._view(bvh))
+        lo, hi = framing_bounds(_whole_clip_view(bvh, "side"))
         spans = hi - lo
         travel = float(spans.max())
         assert travel > 2 * float(np.median(spans)), (
@@ -352,7 +355,7 @@ class TestFraming:
     def test_floor_is_inside_the_box(self, bvh):
         from pybvh.bvhplot._viewport import framing_bounds
 
-        view = self._view(bvh)
+        view = _whole_clip_view(bvh, "side")
         lo, hi = framing_bounds(view)
         assert lo[view.up_index] <= view.floor_height <= hi[view.up_index]
 
@@ -360,7 +363,7 @@ class TestFraming:
         """An orbiting camera needs an azimuth-invariant footprint."""
         from pybvh.bvhplot._viewport import framing_bounds
 
-        view = self._view(bvh)
+        view = _whole_clip_view(bvh, "side")
         lo, hi = framing_bounds(view, rotating=True)
         ground = [i for i in range(3) if i != view.up_index]
         assert (hi - lo)[ground[0]] == pytest.approx((hi - lo)[ground[1]])
@@ -378,7 +381,7 @@ class TestFraming:
         """
         from pybvh.bvhplot._viewport import make_viewport
 
-        view = self._view(bvh, camera="front")
+        view = _whole_clip_view(bvh, "front")
         viewport = make_viewport([view], framing="clip", motion="turntable")
         assert viewport.rotating
 
@@ -410,12 +413,11 @@ class TestFraming:
         """
         from mpl_toolkits.mplot3d import proj3d
 
-        from pybvh.bvhplot import _prepare
         from pybvh.bvhplot._matplotlib import _setup_animated_panel
         from pybvh.bvhplot._style import resolve_style
         from pybvh.bvhplot._viewport import make_viewport
 
-        view = _prepare(read_bvh_file(clip), None, "world", "side").views[0]
+        view = _whole_clip_view(read_bvh_file(clip), "side")
         fig = plt.figure(figsize=(19.2, 10.8))
         ax = fig.add_subplot(111, projection="3d")
         _setup_animated_panel(

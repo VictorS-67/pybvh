@@ -24,8 +24,8 @@ RENDER_BACKENDS = frozenset({"auto", "opencv", "matplotlib", "vedo"})
 PLAY_BACKENDS = frozenset({"auto", "k3d", "vedo", "opencv", "matplotlib"})
 
 # The extensions auto gives to matplotlib even when OpenCV imports: only
-# matplotlib writes .html, .webp and .apng, and .gif keeps the backend auto
-# gave it before the video module wrote OpenCV's GIFs too.
+# matplotlib writes .html, .webp and .apng, and a .gif, which OpenCV writes
+# too, is matplotlib's under auto by a choice no change has revisited.
 _MPL_ONLY_EXTENSIONS = frozenset({".html", ".webp", ".apng", ".gif"})
 
 

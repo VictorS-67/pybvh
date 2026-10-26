@@ -762,9 +762,9 @@ def render(
         in memory) raises ``ValueError`` unless ``fps`` is given.
     backend : str, optional
         ``"auto"`` (default), ``"opencv"``, ``"matplotlib"`` or
-        ``"vedo"``. Under ``"auto"``, formats OpenCV cannot write
-        (``.gif``, ``.webp``, ``.apng``, ``.html``) always use
-        matplotlib. ``"vedo"`` draws shadowed 3D capsule skeletons
+        ``"vedo"``. Under ``"auto"``, ``.gif``, ``.webp``, ``.apng`` and
+        ``.html`` always use matplotlib (OpenCV writes no ``.webp``,
+        ``.apng`` or ``.html``). ``"vedo"`` draws shadowed 3D capsule skeletons
         offscreen (headless-safe, requires ``pybvh[viewer]``, and for
         a video container ``ffmpeg`` or ``pybvh[opencv]``, as *codec*
         says) to ``.mp4``, ``.mov``,

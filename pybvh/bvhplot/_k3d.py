@@ -259,6 +259,11 @@ def _build_floor(viewport: Viewport, style: Style) -> Any | None:
     )
 
 
+# The options of play() this backend reads (ADR 0006): it draws every
+# skeleton in one scene, arranged by the router.
+PLAY_READS = frozenset({"spacing", "match_size"})
+
+
 def play_k3d(
     scene: Scene,
     style: Style,

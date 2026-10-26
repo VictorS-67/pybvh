@@ -1001,6 +1001,11 @@ def _make_orbit_update_fn(
 # ---------------------------------------------------------------------------
 
 
+# The options of play() this backend reads (ADR 0006): none of those
+# another backend reads.
+PLAY_READS: frozenset[str] = frozenset()
+
+
 def play_mpl(
     scene: Scene,
     style: Style,

@@ -13,7 +13,7 @@ import math
 import os
 import shutil
 import sys
-from collections.abc import Callable, Collection, Container
+from collections.abc import Callable, Collection, Container, Mapping
 from dataclasses import dataclass
 from typing import NamedTuple
 
@@ -218,6 +218,7 @@ def _with_unread_options(
     given: Collection[str],
     reads: Callable[[str], frozenset[str]],
     backends: Collection[str],
+    public_names: Mapping[str, str] | None = None,
 ) -> Choice:
     """Apply the rule for an option the chosen backend does not read
     (ADR 0006) to *choice*: *given* are the options the caller passed
@@ -227,13 +228,21 @@ def _with_unread_options(
     ``"auto"`` the choice gains a warning naming them and the backend
     chosen. Either message offers the backends that read them all, when
     there are any. The other backends' declarations are read only for
-    that message."""
+    that message. A message names a backend as the caller does:
+    ``public_names[backend]`` for one that runs under another name,
+    else the name it runs as."""
+
+    def public_name(backend: str) -> str:
+        return repr((public_names or {}).get(backend, backend))
+
     unread = sorted(set(given) - reads(choice.backend) - _ACCEPTED_BY_EVERY_BACKEND)
     if not unread:
         return choice
     names = _either([_SHOWN.get(option, option) for option in unread])
     it = "it" if len(unread) == 1 else "them"
-    readers = [repr(backend) for backend in sorted(backends) if set(unread) <= reads(backend)]
+    readers = [
+        public_name(backend) for backend in sorted(backends) if set(unread) <= reads(backend)
+    ]
     instead = (
         f"use backend={_either(readers)}, which {'reads' if len(readers) == 1 else 'read'} {it}"
         if readers
@@ -243,13 +252,14 @@ def _with_unread_options(
         ignored = "it is ignored" if len(unread) == 1 else "they are ignored"
         hint = f" To draw {it}, {instead}." if readers else ""
         message = (
-            f"{call}() chose backend={choice.backend!r}, which does not read {names}, "
+            f"{call}() chose backend={public_name(choice.backend)}, which does not read {names}, "
             f"so {ignored}.{hint}"
         )
         return Choice(choice.backend, (*choice.warnings, message))
     hint = f", or {instead}" if readers else ""
     raise ValueError(
-        f"{call}(backend={choice.backend!r}) does not read {names}. Leave {it} unset{hint}."
+        f"{call}(backend={public_name(choice.backend)}) does not read {names}. "
+        f"Leave {it} unset{hint}."
     )
 
 
@@ -314,7 +324,34 @@ _SLOW_PLAY = (
 )
 
 
-def choose_play_backend(requested: str, environment: Environment) -> Choice:
+# The module holding each play backend's declaration, under the name the
+# backend runs as.
+_PLAY_MODULES = {
+    "k3d": "_k3d",
+    "vedo": "_vedo",
+    "opencv_notebook": "_opencv",
+    "matplotlib": "_matplotlib",
+}
+
+
+# The name a play backend goes by in messages, when it runs under another:
+# the caller writes backend="opencv" for the notebook video.
+_PLAY_NAMES = {"opencv_notebook": "opencv"}
+
+
+def _play_reads(backend: str) -> frozenset[str]:
+    """The options of ``play`` *backend* reads, as it declares them
+    beside its entry function (the notebook video beside
+    ``render_opencv``, which draws it)."""
+    # Imported on demand, as for render: matplotlib's module imports pyplot.
+    module = importlib.import_module(f".{_PLAY_MODULES[backend]}", __package__)
+    reads: frozenset[str] = module.PLAY_READS
+    return reads
+
+
+def choose_play_backend(
+    requested: str, environment: Environment, given: Collection[str] = ()
+) -> Choice:
     """The backend ``play(backend=requested)`` runs.
 
     A named backend runs as named; ``"opencv"`` is the user-facing name
@@ -332,6 +369,13 @@ def choose_play_backend(requested: str, environment: Environment) -> Choice:
     A fallback warns that no interactive backend imports (unless vedo
     does, and only the display is missing), and tier 3 also that OpenCV
     does not.
+
+    *given* are the options passed (the keywords whose value is not
+    ``None``). One the backend does not read raises ``ValueError`` when
+    the backend is named and adds a warning under ``"auto"``, whose
+    choice the session makes, not the script; ``spacing`` and
+    ``match_size`` are accepted by every backend. The messages call the
+    notebook video ``"opencv"``, and offer it only in a notebook.
     """
     _check_known(requested, PLAY_BACKENDS)
     if requested == "opencv":
@@ -343,10 +387,26 @@ def choose_play_backend(requested: str, environment: Environment) -> Choice:
                 "backend='vedo' (interactive window) or render() to a "
                 "file instead."
             )
-        return Choice("opencv_notebook")
-    if requested != "auto":
-        return Choice(requested)
+        choice = Choice("opencv_notebook")
+    elif requested != "auto":
+        choice = Choice(requested)
+    else:
+        choice = _auto_play_backend(environment)
+    if not given:
+        return choice
+    # The notebook video is offered only where it plays: named in a
+    # script, it raises.
+    offered = [
+        backend
+        for backend in _PLAY_MODULES
+        if environment.in_notebook or backend != "opencv_notebook"
+    ]
+    return _with_unread_options("play", requested, choice, given, _play_reads, offered, _PLAY_NAMES)
 
+
+def _auto_play_backend(environment: Environment) -> Choice:
+    """The backend ``play(backend="auto")`` runs: the first tier the
+    session allows (see :func:`choose_play_backend`)."""
     if environment.in_notebook:
         if "k3d" in environment.importable:
             return Choice("k3d")

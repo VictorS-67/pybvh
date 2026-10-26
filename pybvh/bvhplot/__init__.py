@@ -1116,12 +1116,12 @@ def play(
     backend: str = "auto",
     camera: str | tuple[float, float] = "front",
     sync: str = "truncate",
-    resolution: tuple[int, int] = (960, 540),
-    quality: str = "high",
-    frame_counter: bool = False,
+    resolution: tuple[int, int] | None = None,
+    quality: str | None = None,
+    frame_counter: bool | None = None,
     match_fps: str | None = None,
-    spacing: float | str = "auto",
-    match_size: bool = False,
+    spacing: float | str | None = None,
+    match_size: bool | None = None,
 ) -> None:
     """Play back motion data.
 
@@ -1161,6 +1161,22 @@ def play(
         ``"auto"`` (default), ``"k3d"``, ``"vedo"``, ``"opencv"``
         (the notebook inline-video fallback — nameable so a backend
         auto-selection picked can be pinned), or ``"matplotlib"``.
+        Each reads its own options: ``quality`` is read by vedo,
+        ``resolution`` and ``frame_counter`` by the OpenCV notebook
+        video, ``spacing`` and ``match_size`` by k3d and vedo, which
+        draw every skeleton in one scene; matplotlib reads none of
+        them, and like every backend accepts ``spacing`` and
+        ``match_size`` (see below). An option given (not ``None``) that the named backend
+        does not read raises ``ValueError`` naming it, even at its
+        default value (``frame_counter=False`` on vedo). Under
+        ``"auto"`` it warns instead, naming the option and the backend
+        chosen, and playback goes on: auto's choice depends on the
+        session (notebook, display), which the script does not
+        control, so a raise would fail a correct script on another
+        machine, while a dropped option costs a look, not a file.
+        Either message offers the backends that read the option, the
+        notebook video only in a notebook. ``spacing`` and
+        ``match_size`` are accepted by every backend.
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``) or
         ``(azimuth_deg, elevation_deg)`` tuple. Default ``"front"``.
@@ -1177,25 +1193,25 @@ def play(
         ``"truncate"`` (default) stops at the shortest clip;
         ``"pad"`` continues to the longest clip (shorter clips freeze
         on their last frame).
-    resolution : (int, int), optional
-        Output resolution ``(width, height)`` in pixels for the OpenCV
-        notebook fallback. Default ``(960, 540)``. Ignored by
-        interactive backends (k3d, vedo) and matplotlib.
-    quality : str, optional
-        Visual quality for the vedo desktop backend:
-        ``"high"`` (default) draws shaded capsules, 3D tubes and
-        spheres lit as ``render(backend="vedo")`` lights them but
-        without their shadows; ``"fast"`` uses flat lines and points
-        for maximum performance. Ignored by other backends. The light
-        is a single headlight, at the camera wherever you orbit, so
-        the side of a capsule facing you is the lit one and its edges
-        fall off into shade. The alternative is VTK's light kit (a
+    resolution : (int, int) or None, optional
+        Output resolution ``(width, height)`` in pixels of the OpenCV
+        notebook video, the only backend that reads it (see
+        *backend*). ``None`` (default) is ``(960, 540)``.
+    quality : str or None, optional
+        Visual quality of the vedo desktop window, the only backend
+        that reads it (see *backend*): ``"high"`` draws shaded
+        capsules, 3D tubes and spheres lit as ``render(backend="vedo")``
+        lights them but without their shadows; ``"fast"`` uses flat
+        lines and points for maximum performance. ``None`` (default)
+        is ``"high"``. The light is a single headlight, at the camera
+        wherever you orbit, so the side of a capsule facing you is the
+        lit one and its edges fall off into shade. The alternative is VTK's light kit (a
         key, a fill and a back light, also tied to the camera), which
         lights more evenly but reads less sharply at the edges.
-    frame_counter : bool, optional
-        Stamp a ``Frame f/F`` counter on the OpenCV notebook preview
-        (default ``False``; pass ``True`` to restore the pre-0.9.0
-        counter). Ignored by the other backends.
+    frame_counter : bool or None, optional
+        Stamp a ``Frame f/F`` counter on the OpenCV notebook video, the
+        only backend that reads it (see *backend*). ``None`` (default)
+        is ``False``; pass ``True`` to restore the pre-0.9.0 counter.
     match_fps : str or None, optional
         How to handle clips with different frame rates.  ``None``
         (default) emits a warning.  ``"lowest"`` or ``"highest"``
@@ -1203,13 +1219,14 @@ def play(
         clip's own rate, so a clip whose ``frame_time`` is 0 (unset)
         raises ``ValueError`` under ``"lowest"`` or ``"highest"``, even
         when ``fps`` is given; under ``None`` the warning names it.
-    spacing : float or "auto", optional
-        Lateral separation between skeletons in single-scene backends (k3d,
-        vedo). ``"auto"`` (default) spaces skeletons by 1.2 × the lateral
-        width of the first skeleton over the clip when ``centered`` is
-        ``"first"`` or ``"skeleton"``; no spacing is applied when
-        ``centered="world"`` (raw world coordinates are honoured). Pass a
-        float (in scene units) to override. Ignored by multi-panel backends
+    spacing : float, "auto" or None, optional
+        Lateral separation between skeletons in single-scene backends
+        (k3d, vedo). ``None`` (default) is ``"auto"``, which spaces
+        skeletons by 1.2 × the lateral width of the first skeleton over
+        the clip when ``centered`` is ``"first"`` or ``"skeleton"``; no
+        spacing is applied when ``centered="world"`` (raw world
+        coordinates are honoured). Pass a float (in scene units) to
+        override. Accepted and ignored by multi-panel backends
         (matplotlib, OpenCV). Skeleton ``k`` sits ``k × spacing`` to
         the first skeleton's own left (up × forward at its first
         frame, forward snapped to the nearest axis), the viewer's
@@ -1222,16 +1239,17 @@ def play(
         ``"front"`` camera also faces, so the skeletons still read
         left to right from that camera, whichever side of the body
         that is.
-    match_size : bool, optional
+    match_size : bool or None, optional
         Draw every skeleton as tall as the first, in the single-scene
         backends (k3d, vedo), where clips from files in different units
-        would otherwise differ in size by an order of magnitude. Default
-        ``False``. The first skeleton is drawn as it is, so the order of
-        the clips chooses the scale (rather than the tallest skeleton's
-        or a fixed height). Each other skeleton is scaled about the
-        point on its floor under its root at the first frame, before
-        the lateral spacing, and its label shows the factor (``"test2 ×0.13"``, or
-        ``"×0.13"`` alone for a skeleton with no label). Only the
+        would otherwise differ in size by an order of magnitude. ``None``
+        (default) is ``False``. The first skeleton is drawn as it is, so
+        the order of the clips chooses the scale (rather than the
+        tallest skeleton's or a fixed height). Each other skeleton is
+        scaled about the point on its floor under its root at the first
+        frame, before the lateral spacing, and its label shows the
+        factor (``"test2 ×0.13"``, or ``"×0.13"`` alone for a skeleton
+        with no label). Only the
         drawing changes: the clips are not touched. The height matched
         is the rest pose's, along the rest pose's own up axis
         (:attr:`Bvh.rest_up`); the alternative, the median over the
@@ -1240,26 +1258,37 @@ def play(
         which it would blow up to the first skeleton's standing height.
         A skeleton whose rest pose has no size to measure is drawn at
         its own size, with a warning. See
-        :meth:`~._scene.Scene.size_matched`. Ignored by multi-panel
-        backends (matplotlib, OpenCV), which frame each skeleton in its
-        own panel.
+        :meth:`~._scene.Scene.size_matched`. Accepted and ignored by
+        multi-panel backends (matplotlib, OpenCV), which frame each
+        skeleton in its own panel.
 
     Returns
     -------
     None
         All backends display or open their viewer as a side effect.
     """
+    given = _given(
+        resolution=resolution,
+        quality=quality,
+        frame_counter=frame_counter,
+        spacing=spacing,
+        match_size=match_size,
+    )
     clips = as_clip_list(bvh)
 
     environment = _backends.read_environment()
-    choice = _backends.choose_play_backend(backend, environment)
+    choice = _backends.choose_play_backend(backend, environment, given)
     backend_name = choice.backend
 
     _VALID_QUALITY = {"fast", "high"}
+    quality = "high" if quality is None else quality
     if quality not in _VALID_QUALITY:
         raise ValueError(f"Unknown quality {quality!r}. Choose from: {sorted(_VALID_QUALITY)}")
 
-    spacing = _validated_spacing(spacing)
+    spacing = _validated_spacing("auto" if spacing is None else spacing)
+    match_size = bool(match_size)
+    # play has no follow, turntable, ghost or trail: the camera is fixed.
+    animation_options = _animation_options.AnimationOptions(frame_counter=bool(frame_counter))
     _validate_sync(sync)
     pad = sync == "pad"
     style_obj = resolve_style(style)
@@ -1323,14 +1352,11 @@ def play(
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp_path = Path(tmp.name)
 
-        target = _video.VideoTarget(tmp_path, actual_fps, resolution)
-        writer = _video_writer(target, environment, "The opencv play backend")
-        render_opencv(
-            scene,
-            style_obj,
-            writer,
-            _animation_options.AnimationOptions(frame_counter=frame_counter),
+        target = _video.VideoTarget(
+            tmp_path, actual_fps, (960, 540) if resolution is None else resolution
         )
+        writer = _video_writer(target, environment, "The opencv play backend")
+        render_opencv(scene, style_obj, writer, animation_options)
 
         display(Video(str(tmp_path), embed=True, mimetype="video/mp4"))
         tmp_path.unlink(missing_ok=True)

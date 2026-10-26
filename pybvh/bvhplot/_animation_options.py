@@ -1,8 +1,9 @@
 """What an animation draws beside its Scene.
 
-The router gathers the options of ``render`` that say what is drawn over
-the frames into one :class:`AnimationOptions`, which the backend reads;
-where the frames go is the video module's :class:`~._video.VideoTarget`.
+The router gathers the options of ``render`` and ``play`` that say what
+is drawn over the frames into one :class:`AnimationOptions`, which the
+backend reads; where the frames go is the video module's
+:class:`~._video.VideoTarget`.
 """
 
 from __future__ import annotations

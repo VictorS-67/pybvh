@@ -1096,13 +1096,6 @@ class TestRenderCodec:
         kwargs.setdefault("resolution", (320, 240))
         return bvhplot.render(clip[0:5], path, backend="opencv", **kwargs)
 
-    @staticmethod
-    def _needs_ffmpeg():
-        import shutil
-
-        if not shutil.which("ffmpeg"):
-            pytest.skip("needs the ffmpeg executable")
-
     @pytest.mark.parametrize("ffmpeg", [False, True], ids=["without-ffmpeg", "with-ffmpeg"])
     def test_mpeg4_is_written_by_opencv_without_warning(
         self, bvh_example, tmp_path, environment, ffmpeg
@@ -1137,9 +1130,8 @@ class TestRenderCodec:
 
     @pytest.mark.parametrize("codec", ["auto", "h264"])
     def test_with_ffmpeg_the_video_is_h264_without_warning(
-        self, bvh_example, tmp_path, environment, codec
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path, codec
     ):
-        self._needs_ffmpeg()
         environment(importable={"cv2"}, ffmpeg=True)
         with warnings.catch_warnings():
             warnings.simplefilter("error")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 
 import numpy as np
@@ -106,3 +107,11 @@ def environment(monkeypatch):
         return built
 
     return build
+
+
+@pytest.fixture
+def ffmpeg_on_path():
+    """Skip the test unless the ffmpeg executable is on PATH: an H.264
+    file needs the real encoder, whatever environment the test builds."""
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("needs the ffmpeg executable")

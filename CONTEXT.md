@@ -49,7 +49,8 @@ bvhplot (`pybvh/bvhplot/`) splits at its Scene: the router and `_from_bvh` read 
 
 | Module | Owns | Does not |
 |---|---|---|
-| `__init__` (the router) | the public functions; preparing the user's `Bvh` (timing, resampling, world-up checks, rest pose); choosing a backend; arranging a comparison | draw |
+| `__init__` (the router) | the public functions; preparing the user's `Bvh` (timing, resampling, world-up checks, rest pose); arranging a comparison; calling the backend `_backends` chooses | draw, or decide which backend runs |
+| `_backends` | which backend runs a call: the environment value and the one function that reads the machine, the choice for `frame`, `render` and `play`, the install hints and the import checks, `play`'s 30 fps cap | read a `Bvh` or a Scene, or import an optional package but to ask whether it imports |
 | `_from_bvh` | turning a `Bvh` into a Scene: views, bones, camera presets, bone chains | get imported by any module but the router |
 | `_scene` | the Scene and its views, checked read-only data, and the operations that change a Scene | import a plotting library or the core |
 | `_viewport` | the geometry of one 3D picture: framing, floor, camera, schedule, projection | import a plotting library or the core |

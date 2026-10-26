@@ -106,6 +106,10 @@ if TYPE_CHECKING:
 # backwards: its period must be longer than this many frames.
 _MIN_TURNTABLE_FRAMES = 2
 
+# The size, (width, height) in pixels, of frame()'s vedo image when no
+# resolution is given.
+_VEDO_STILL_RESOLUTION = (1100, 1000)
+
 
 def _resolve_fps(fps: float | None, frame_time: float) -> float:
     """Resolve the shared ``fps`` parameter of ``play()`` and ``render()``.
@@ -638,7 +642,7 @@ def frame(
         return frame_vedo(
             scene,
             resolve_style(style),
-            resolution=(1100, 1000) if resolution is None else resolution,
+            resolution=_VEDO_STILL_RESOLUTION if resolution is None else resolution,
             filepath=filepath,
         )
 

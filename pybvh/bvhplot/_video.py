@@ -247,9 +247,8 @@ class _FfmpegSink:
     Encodes libx264 + yuv420p + faststart, the combination that plays in
     browsers, VSCode, and notebook embeds. Odd frame dimensions are
     padded by one pixel (yuv420p requires even sizes). Frames are piped
-    as BGR, not RGB: ffmpeg rounds the two conversions to yuv420p a few
-    levels apart, and BGR is the conversion every H.264 file pybvh has
-    written went through, so a frame drawn the same encodes the same.
+    as RGB: ffmpeg 6.1's conversion of BGR to yuv420p tints them, white
+    decoding as (251, 253, 250).
     """
 
     def __init__(self, filepath: Path, fps: float, resolution: tuple[int, int]) -> None:
@@ -265,7 +264,7 @@ class _FfmpegSink:
                 "-f",
                 "rawvideo",
                 "-pix_fmt",
-                "bgr24",
+                "rgb24",
                 "-s",
                 f"{w}x{h}",
                 "-r",
@@ -289,7 +288,7 @@ class _FfmpegSink:
     def write(self, frame: npt.NDArray[np.uint8]) -> None:
         assert self._proc.stdin is not None
         try:
-            self._proc.stdin.write(frame[:, :, ::-1].tobytes())
+            self._proc.stdin.write(frame.tobytes())
         except BrokenPipeError:
             self.release()  # ffmpeg has exited: raise its own error
             raise

@@ -1391,6 +1391,41 @@ class TestMatplotlibVideo:
         assert len(handed) == 59
 
 
+class TestH264Fidelity:
+    """An H.264 file is lossy, but decodes close to the frames drawn."""
+
+    @pytest.mark.parametrize("backend", ["opencv", "matplotlib"])
+    def test_the_video_decodes_close_to_the_frames_drawn(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path, handed_to_writer, backend
+    ):
+        """Within a mean of 1.5 levels of 255 on this clip. Piped as
+        BGR, ffmpeg's conversion to YUV lost about four times as much
+        as from RGB: means of 3.0 (OpenCV) and 3.8 (matplotlib) levels
+        against 0.7 and 0.9, measured on these frames."""
+        import subprocess
+
+        if backend == "opencv":
+            pytest.importorskip("cv2")
+        environment(importable={"cv2"}, ffmpeg=True)
+        width, height = 240, 180
+        path = bvhplot.render(
+            bvh_example[0:6],
+            tmp_path / "x.mp4",
+            backend=backend,
+            fps=10,
+            resolution=(width, height),
+        )
+        decoded = subprocess.run(
+            ["ffmpeg", "-loglevel", "error", "-i", str(path)]
+            + ["-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+            capture_output=True,
+            check=True,
+        ).stdout
+        [drawn] = handed_to_writer
+        frames = np.frombuffer(decoded, np.uint8).reshape(len(drawn), height, width, 3)
+        assert np.abs(frames.astype(int) - np.stack(drawn)).mean() < 1.5
+
+
 class TestGifTiming:
     """A GIF frame lasts 1000 / fps milliseconds rounded to a whole
     millisecond, which the format then stores truncated to 10 ms."""

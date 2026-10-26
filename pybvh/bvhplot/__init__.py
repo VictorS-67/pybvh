@@ -302,11 +302,12 @@ def _given(**options: object) -> set[str]:
     return {name for name, value in options.items() if value is not None}
 
 
-def _validated_spacing(spacing: float | str) -> float | str:
+def _validated_spacing(spacing: float | str | None) -> float | str:
     """*spacing* as the router hands it to :meth:`Scene.spread`:
-    ``"auto"``, or a non-negative float."""
-    if spacing == "auto":
-        return spacing
+    ``"auto"``, or a non-negative float. ``None``, the default of every
+    call, stands for ``"auto"``."""
+    if spacing is None or spacing == "auto":
+        return "auto"
     try:
         spacing_val = float(spacing)
     except (TypeError, ValueError):
@@ -632,7 +633,7 @@ def frame(
     )
     clips = as_clip_list(bvh)
     backend = _backends.choose_frame_backend(backend, given)
-    spacing = _validated_spacing("auto" if spacing is None else spacing)
+    spacing = _validated_spacing(spacing)
 
     frame_spec = coords if coords is not None else frame
     scene = _prepare(clips, frame_spec, centered, camera, labels)
@@ -1001,7 +1002,7 @@ def render(
 
     clips = as_clip_list(bvh)
     filepath = Path(filepath)
-    spacing = _validated_spacing("auto" if spacing is None else spacing)
+    spacing = _validated_spacing(spacing)
     _validate_sync(sync)
     pad = sync == "pad"
     style_obj = resolve_style(style)
@@ -1296,7 +1297,7 @@ def play(
     if quality not in _VALID_QUALITY:
         raise ValueError(f"Unknown quality {quality!r}. Choose from: {sorted(_VALID_QUALITY)}")
 
-    spacing = _validated_spacing("auto" if spacing is None else spacing)
+    spacing = _validated_spacing(spacing)
     match_size = bool(match_size)
     # play has no follow, turntable, ghost or trail: the camera is fixed.
     animation_options = _animation_options.AnimationOptions(frame_counter=bool(frame_counter))

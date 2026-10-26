@@ -115,30 +115,7 @@ def _module_importable(name: str) -> bool:
         return False
 
 
-# Formats only the matplotlib/pillow pipeline can write — OpenCV's
-# VideoWriter handles video containers only (its .gif support is a
-# dedicated pillow-based path inside render_opencv).
-_MPL_ONLY_EXTENSIONS = {".html", ".webp", ".apng", ".gif"}
 _VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi"}  # containers codec= applies to
-
-
-def _resolve_render_backend(requested: str, ext: str) -> str:
-    """Resolve the render backend from the request and the file extension.
-
-    Under ``"auto"``, extensions OpenCV cannot write route to matplotlib
-    even when cv2 is installed (previously they hit a misleading codec
-    error); everything else prefers OpenCV when available. ``"vedo"``
-    (the shadowed capsule renderer) is never auto-selected — it is a
-    deliberate look, not a fallback.
-    """
-    valid = {"auto", "opencv", "matplotlib", "vedo"}
-    if requested not in valid:
-        raise ValueError(f"Unknown backend {requested!r}. Choose from: {sorted(valid)}")
-    if requested != "auto":
-        return requested
-    if ext in _MPL_ONLY_EXTENSIONS:
-        return "matplotlib"
-    return "opencv" if _module_importable("cv2") else "matplotlib"
 
 
 def _written_fps(backend_name: str, suffix: str, fps: float) -> float:
@@ -1000,7 +977,9 @@ def render(
     if turntable:
         camera = "front"
 
-    backend_name = _resolve_render_backend(backend, filepath.suffix.lower())
+    environment = _backends.read_environment()
+    choice = _backends.choose_render_backend(backend, filepath.suffix.lower(), environment)
+    backend_name = choice.backend
 
     # Handle frame-rate mismatch before computing FK coordinates
     _require_frame_rates(clips, "render", fps, ghost, match_fps)
@@ -1043,17 +1022,8 @@ def render(
     else:
         motion = "fixed"
 
-    if (
-        backend == "auto"
-        and backend_name == "matplotlib"
-        and filepath.suffix.lower() not in _MPL_ONLY_EXTENSIONS
-    ):
-        warnings.warn(
-            "OpenCV not found for fast rendering. "
-            "Install with: pip install pybvh[opencv]. "
-            "Falling back to matplotlib (slower).",
-            stacklevel=user_stacklevel(),
-        )
+    for message in choice.warnings:
+        warnings.warn(message, stacklevel=user_stacklevel())
 
     if backend_name == "vedo":
         if not _module_importable("vedo"):

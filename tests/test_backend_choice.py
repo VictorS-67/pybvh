@@ -121,6 +121,49 @@ class TestPlayTiers:
         )
 
 
+class TestRenderChoice:
+    """render()'s choice: by the file's extension and the installed
+    packages under auto; a named backend wins."""
+
+    @pytest.mark.parametrize("suffix", [".html", ".webp", ".apng", ".gif"])
+    @pytest.mark.parametrize("importable", [{"cv2"}, set()], ids=["opencv", "no-opencv"])
+    def test_auto_sends_what_opencv_cannot_write_to_matplotlib(self, suffix, importable):
+        """Without the missing-OpenCV warning: OpenCV would not have
+        written the file either."""
+        choice = _backends.choose_render_backend("auto", suffix, machine(importable=importable))
+        assert (choice.backend, choice.warnings) == ("matplotlib", ())
+
+    @pytest.mark.parametrize("suffix", [".mp4", ".mov", ".avi"])
+    def test_auto_writes_video_with_opencv_when_it_imports(self, suffix):
+        choice = _backends.choose_render_backend("auto", suffix, machine(importable={"cv2"}))
+        assert (choice.backend, choice.warnings) == ("opencv", ())
+
+    @pytest.mark.parametrize("suffix", [".mp4", ".mov", ".avi"])
+    def test_auto_falls_back_to_matplotlib_without_opencv(self, suffix):
+        choice = _backends.choose_render_backend("auto", suffix, machine(importable={"vedo"}))
+        assert choice.backend == "matplotlib"
+        assert choice.warnings == (
+            "OpenCV not found for fast rendering. Install with: pip install pybvh[opencv]. "
+            "Falling back to matplotlib (slower).",
+        )
+
+    @pytest.mark.parametrize(
+        "named, suffix",
+        [("matplotlib", ".mp4"), ("opencv", ".gif"), ("vedo", ".mp4")],
+    )
+    def test_a_named_backend_wins_over_the_extension(self, named, suffix):
+        """vedo is never chosen by auto: it is a look, not a fallback."""
+        choice = _backends.choose_render_backend(named, suffix, machine())
+        assert (choice.backend, choice.warnings) == (named, ())
+
+    def test_an_unknown_backend_raises(self):
+        with pytest.raises(ValueError) as raised:
+            _backends.choose_render_backend("opencvv", ".mp4", machine())
+        assert str(raised.value) == (
+            "Unknown backend 'opencvv'. Choose from: ['auto', 'matplotlib', 'opencv', 'vedo']"
+        )
+
+
 class TestReadEnvironment:
     """The one function that reads the machine."""
 

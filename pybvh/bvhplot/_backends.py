@@ -16,7 +16,13 @@ from dataclasses import dataclass, field
 # The extra of pybvh that installs each optional package a backend imports.
 _EXTRAS = {"cv2": "opencv", "k3d": "interactive", "vedo": "viewer"}
 
+RENDER_BACKENDS = frozenset({"auto", "opencv", "matplotlib", "vedo"})
 PLAY_BACKENDS = frozenset({"auto", "k3d", "vedo", "opencv", "matplotlib"})
+
+# Formats only the matplotlib/pillow pipeline can write — OpenCV's
+# VideoWriter handles video containers only (its .gif support is a
+# dedicated pillow-based path inside render_opencv).
+_MPL_ONLY_EXTENSIONS = frozenset({".html", ".webp", ".apng", ".gif"})
 
 
 @dataclass(frozen=True)
@@ -125,6 +131,33 @@ def check_importable(call: str, backend: str, environment: Environment) -> None:
     package, subject, what = requirement
     if package not in environment.importable:
         raise ImportError(f"{subject} requires {what}. {install_hint(package)}")
+
+
+_SLOW_RENDER = (
+    f"OpenCV not found for fast rendering. {install_hint('cv2')}. "
+    "Falling back to matplotlib (slower)."
+)
+
+
+def choose_render_backend(requested: str, suffix: str, environment: Environment) -> Choice:
+    """The backend ``render(filepath, backend=requested)`` runs, for a
+    file ending in *suffix* (lower case).
+
+    A named backend runs as named. Under ``"auto"``, the extensions
+    OpenCV cannot write (``.html``, ``.webp``, ``.apng``, ``.gif``) go to
+    matplotlib even when OpenCV imports; every other one goes to OpenCV
+    when it imports, and else to matplotlib with a warning naming the
+    install. ``"vedo"`` (the shadowed capsule renderer) is never chosen by
+    auto: it is a deliberate look, not a fallback.
+    """
+    _check_known(requested, RENDER_BACKENDS)
+    if requested != "auto":
+        return Choice(requested)
+    if suffix in _MPL_ONLY_EXTENSIONS:
+        return Choice("matplotlib")
+    if "cv2" in environment.importable:
+        return Choice("opencv")
+    return Choice("matplotlib", (_SLOW_RENDER,))
 
 
 _NO_INTERACTIVE = f"No interactive backend (k3d, vedo) found. {install_hint('k3d')}"

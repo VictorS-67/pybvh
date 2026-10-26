@@ -1170,10 +1170,13 @@ class TestRenderBackendResolution:
         return reached
 
     @pytest.mark.parametrize("ext", [".html", ".webp", ".apng", ".gif"])
-    def test_mpl_only_extensions_route_to_matplotlib(self, bvh_example, tmp_path, rendered_by, ext):
+    def test_mpl_only_extensions_route_to_matplotlib(
+        self, bvh_example, tmp_path, rendered_by, environment, ext
+    ):
         """Formats OpenCV cannot write always go to matplotlib under auto,
         even when cv2 is installed, and without the missing-OpenCV
         warning."""
+        environment(importable={"cv2"})
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             bvhplot.render(bvh_example[0:3], tmp_path / f"x{ext}")

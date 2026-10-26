@@ -160,10 +160,34 @@ def check_importable(call: str, backend: str, environment: Environment) -> None:
     raise ImportError(f"{subject} requires {what}. {install_hint(package)}") from cause
 
 
-def choose_frame_backend(requested: str) -> str:
-    """The backend ``frame(backend=requested)`` runs: always the one
-    named, since ``frame`` has no auto."""
+# The module holding each frame backend's entry function and declaration.
+_FRAME_MODULES = {"matplotlib": "_matplotlib", "vedo": "_vedo_offscreen"}
+
+
+def _frame_reads(backend: str) -> frozenset[str]:
+    """The options of ``frame`` *backend* reads, as it declares them
+    beside its entry function."""
+    # Imported on demand, as for render: another backend's module only
+    # to name it in a refusal.
+    module = importlib.import_module(f".{_FRAME_MODULES[backend]}", __package__)
+    reads: frozenset[str] = module.FRAME_READS
+    return reads
+
+
+def choose_frame_backend(requested: str, given: Collection[str] = ()) -> str:
+    """The backend ``frame(backend=requested)`` runs, passed the options
+    *given* (the keywords whose value is not ``None``): always the one
+    named, since ``frame`` has no auto.
+
+    A given option the backend does not read raises ``ValueError``
+    (ADR 0006); ``spacing`` and ``match_size`` are accepted by every
+    backend.
+    """
     _check_known(requested, FRAME_BACKENDS)
+    if given:
+        _with_unread_options(
+            "frame", requested, Choice(requested), given, _frame_reads, _FRAME_MODULES
+        )
     return requested
 
 

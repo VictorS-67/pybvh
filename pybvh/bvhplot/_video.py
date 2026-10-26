@@ -129,8 +129,12 @@ class Writer:
         h, w = first.shape[:2]
         sink_type = _FfmpegSink if self.encoder == _FFMPEG else _OpenCvSink
         sink = sink_type(path, fps, (w, h))
-        for frame in frames:
-            sink.write(frame)
+        try:
+            for frame in frames:
+                sink.write(frame)
+        except BaseException:
+            sink.abort()
+            raise
         sink.release()
         return path
 
@@ -242,17 +246,26 @@ class _FfmpegSink:
 
     def write(self, frame: npt.NDArray[np.uint8]) -> None:
         assert self._proc.stdin is not None
-        self._proc.stdin.write(frame[:, :, ::-1].tobytes())
+        try:
+            self._proc.stdin.write(frame[:, :, ::-1].tobytes())
+        except BrokenPipeError:
+            self.release()  # ffmpeg has exited: raise its own error
+            raise
 
     def release(self) -> None:
-        assert self._proc.stdin is not None and self._proc.stderr is not None
-        self._proc.stdin.close()
-        err = self._proc.stderr.read().decode(errors="replace")
-        code = self._proc.wait()
-        if code != 0:
+        """Close the pipes, wait for ffmpeg to finish the file, and raise
+        its error if it failed."""
+        _, err = self._proc.communicate()
+        if self._proc.returncode != 0:
+            message = err.decode(errors="replace").strip()[:500]
             raise RuntimeError(
-                f"ffmpeg exited with code {code} while encoding: {err.strip()[:500]}"
+                f"ffmpeg exited with code {self._proc.returncode} while encoding: {message}"
             )
+
+    def abort(self) -> None:
+        """Stop ffmpeg without finishing the file, and close the pipes."""
+        self._proc.kill()
+        self._proc.communicate()
 
 
 class _OpenCvSink:
@@ -278,6 +291,9 @@ class _OpenCvSink:
         self._writer.write(np.ascontiguousarray(frame[:, :, ::-1]))
 
     def release(self) -> None:
+        self._writer.release()
+
+    def abort(self) -> None:
         self._writer.release()
 
 

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import dataclasses
+import gc
 import importlib
 import inspect
 import re
+import shutil
 import warnings
 from pathlib import Path
 
@@ -1128,6 +1130,14 @@ class TestRenderCodec:
             self._render(bvh_example, tmp_path / "h264.mp4", codec="h264")
         assert list(tmp_path.iterdir()) == []
 
+    # A pipe or a process the ffmpeg encoder leaves open is only reported
+    # when Python collects it, as a ResourceWarning that pytest receives as
+    # an unraisable exception; both are errors here.
+    _NOTHING_LEFT_OPEN = pytest.mark.filterwarnings(
+        "error::ResourceWarning", "error::pytest.PytestUnraisableExceptionWarning"
+    )
+
+    @_NOTHING_LEFT_OPEN
     @pytest.mark.parametrize("codec", ["auto", "h264"])
     def test_with_ffmpeg_the_video_is_h264_without_warning(
         self, bvh_example, tmp_path, environment, ffmpeg_on_path, codec
@@ -1138,10 +1148,50 @@ class TestRenderCodec:
             path = self._render(bvh_example, tmp_path / "h264.mp4", codec=codec)
         assert self._fourcc(path) in ("avc1", "h264", "H264")
 
+    @_NOTHING_LEFT_OPEN
+    @pytest.mark.parametrize("ffmpeg", [False, True], ids=["mpeg4", "h264"])
+    def test_a_frame_failing_midway_leaves_no_encoder_running(
+        self, bvh_example, tmp_path, environment, monkeypatch, ffmpeg
+    ):
+        """The drawing's error reaches the caller, and the encoder is
+        stopped: no ffmpeg process left running (Python reports one it
+        collects still running), no pipe left open."""
+        if ffmpeg and shutil.which("ffmpeg") is None:
+            pytest.skip("needs the ffmpeg executable")
+        environment(importable={"cv2"}, ffmpeg=ffmpeg)
+        draw = _opencv._generate_frames
+
+        def failing_at_the_third_frame(*args, **kwargs):
+            for index, frame in enumerate(draw(*args, **kwargs)):
+                if index == 2:
+                    raise RuntimeError("drawing failed")
+                yield frame
+
+        monkeypatch.setattr(_opencv, "_generate_frames", failing_at_the_third_frame)
+        with pytest.raises(RuntimeError, match="drawing failed"):
+            self._render(bvh_example, tmp_path / "x.mp4", codec="auto" if ffmpeg else "mpeg4")
+        gc.collect()
+
+    @_NOTHING_LEFT_OPEN
+    def test_ffmpeg_failing_midway_raises_its_own_message(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path
+    ):
+        """ffmpeg exits when it cannot open the file, while frames are
+        still being piped: the error says why, not only that the pipe
+        broke."""
+        environment(importable={"cv2"}, ffmpeg=True)
+        with pytest.raises(RuntimeError, match="ffmpeg exited with code .*No such file"):
+            bvhplot.render(
+                bvh_example[0:40],
+                tmp_path / "missing" / "x.mp4",
+                backend="opencv",
+                resolution=(64, 48),
+            )
+        gc.collect()
+
     def test_the_machine_is_read_for_ffmpeg(self, bvh_example, tmp_path):
         """Without a test-built environment, auto writes what this
         machine's PATH allows."""
-        import shutil
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")

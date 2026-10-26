@@ -523,6 +523,10 @@ def sequence_mpl(
 # ---------------------------------------------------------------------------
 
 
+# The options of frame() this backend reads (ADR 0006).
+FRAME_READS = frozenset({"figsize", "show", "ax"})
+
+
 def frame_mpl(
     scene: Scene,
     style: Style,

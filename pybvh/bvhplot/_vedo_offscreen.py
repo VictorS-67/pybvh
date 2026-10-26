@@ -151,11 +151,16 @@ def _build_offscreen(
     return plt, capsules, camera
 
 
+# The options of frame() this backend reads (ADR 0006): it draws every
+# skeleton in one scene, arranged by the router.
+FRAME_READS = frozenset({"resolution", "spacing", "match_size"})
+
+
 def frame_vedo(
     scene: Scene,
     style: Style,
     *,
-    resolution: tuple[int, int] = (1100, 1000),
+    resolution: tuple[int, int],
     filepath: str | Path | None = None,
 ) -> npt.NDArray[np.uint8]:
     """Render one shadowed capsule-skeleton still.

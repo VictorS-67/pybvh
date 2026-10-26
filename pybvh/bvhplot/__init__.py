@@ -106,6 +106,10 @@ if TYPE_CHECKING:
 # backwards: its period must be longer than this many frames.
 _MIN_TURNTABLE_FRAMES = 2
 
+# The size, (width, height) in pixels, of frame()'s vedo image when no
+# resolution is given.
+_VEDO_STILL_RESOLUTION = (1100, 1000)
+
 
 def _resolve_fps(fps: float | None, frame_time: float) -> float:
     """Resolve the shared ``fps`` parameter of ``play()`` and ``render()``.
@@ -469,13 +473,13 @@ def frame(
     centered: str = "world",
     labels: list[str] | None = None,
     figsize: tuple[float, float] | None = None,
-    show: bool = False,
+    show: bool | None = None,
     camera: str | tuple[float, float] = "front",
-    resolution: tuple[int, int] = (1100, 1000),
+    resolution: tuple[int, int] | None = None,
     filepath: str | Path | None = None,
     ax: matplotlib.axes.Axes | None = None,
-    spacing: float | str = "auto",
-    match_size: bool = False,
+    spacing: float | str | None = None,
+    match_size: bool | None = None,
 ) -> (
     tuple[matplotlib.figure.Figure, matplotlib.axes.Axes | list[matplotlib.axes.Axes]]
     | npt.NDArray[np.uint8]
@@ -497,14 +501,23 @@ def frame(
         joint markers with axes hidden; ``"debug"`` reproduces the
         pre-0.9.0 look (single blue, full axes/ticks, no floor).
     backend : str, optional
-        ``"matplotlib"`` (default) returns ``(fig, ax)``. ``"vedo"``
-        renders a shadowed 3D capsule skeleton offscreen (headless-
-        safe, requires ``pybvh[viewer]``) and returns an ``(H, W, 3)``
-        uint8 RGB image instead — display it with ``plt.imshow`` or
-        save it via *filepath*. Shadows are hard-edged projections
-        (``Style.shadow``); ``figsize``/``ax`` do not apply, and all
-        skeletons share one scene rather than side-by-side panels,
+        ``"matplotlib"`` (default) returns ``(fig, ax)``; it reads
+        ``figsize``, ``show`` and ``ax``, and not ``resolution``.
+        ``"vedo"`` renders a shadowed 3D capsule skeleton offscreen
+        (headless-safe, requires ``pybvh[viewer]``) and returns an
+        ``(H, W, 3)`` uint8 RGB image instead — display it with
+        ``plt.imshow`` or save it via *filepath*. Shadows are
+        hard-edged projections (``Style.shadow``); it reads
+        ``resolution``, and not ``figsize``, ``show`` or ``ax``, and
+        all skeletons share one scene rather than side-by-side panels,
         spread side by side by *spacing*.
+        An option given (not ``None``) that the backend does not read
+        raises ``ValueError`` naming it, even at its default value
+        (``show=False`` on vedo, ``resolution=(1100, 1000)`` on
+        matplotlib), rather than be dropped from the picture.
+        ``frame`` has no ``"auto"``: the backend is always named, by
+        default ``"matplotlib"``. ``spacing`` and ``match_size`` are
+        accepted by both backends.
     coords : ndarray, optional
         Pre-computed spatial coordinates to plot instead of computing
         forward kinematics from *bvh*: ``(N, 3)`` for one frame, or
@@ -518,15 +531,19 @@ def frame(
     labels : list[str], optional
         Subplot titles for side-by-side comparison.
     figsize : (float, float), optional
-        Figure size in inches.
-    show : bool, optional
-        If ``True``, call ``plt.show()``. Default ``False``.
+        Figure size in inches; ``None`` (default) is 6.5 inches wide
+        per skeleton and 6 tall. Read by matplotlib only (see
+        *backend*).
+    show : bool or None, optional
+        If ``True``, call ``plt.show()``. ``None`` (default) is
+        ``False``. Read by matplotlib only (see *backend*).
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``) or
         ``(azimuth_deg, elevation_deg)`` tuple. Default ``"front"``.
-    resolution : (int, int), optional
-        Image size in pixels for ``backend="vedo"`` (ignored by
-        matplotlib, which sizes via *figsize*/*dpi*).
+    resolution : (int, int) or None, optional
+        Image size ``(width, height)`` in pixels. ``None`` (default)
+        is ``(1100, 1000)``. Read by vedo only (see *backend*);
+        matplotlib sizes its figure by *figsize* and ``Style.dpi``.
     filepath : str or Path, optional
         Also write the rendered image here (``fig.savefig`` on the
         matplotlib backend, a PNG write on vedo).
@@ -536,17 +553,18 @@ def frame(
         ``ValueError`` when ``bvh`` is a list). The style is applied
         to the provided axes — the default paper style hides its
         ticks and panes; pass ``style="debug"`` to draw into an axes
-        whose full axis machinery you want to keep.
-    spacing : float or "auto", optional
+        whose full axis machinery you want to keep. Read by
+        matplotlib only (see *backend*).
+    spacing : float, "auto" or None, optional
         Lateral separation between skeletons on the vedo backend, which
         draws every skeleton in one scene, by the rule :func:`play`
         uses (see there for the direction): skeleton ``k`` sits
-        ``k × spacing`` to the first skeleton's own left. ``"auto"``
-        (default) spaces them by 1.2 × the first skeleton's lateral
-        width when ``centered`` is ``"first"`` or ``"skeleton"``, and
-        leaves them where their files put them under
-        ``centered="world"``; a float, in scene units, always spaces
-        them. The arrangement is measured on the whole clips (cut to
+        ``k × spacing`` to the first skeleton's own left. ``None``
+        (default) is ``"auto"``, which spaces them by 1.2 × the first
+        skeleton's lateral width when ``centered`` is ``"first"`` or
+        ``"skeleton"``, and leaves them where their files put them
+        under ``centered="world"``; a float, in scene units, always
+        spaces them. The arrangement is measured on the whole clips (cut to
         the shortest, as :func:`play` and :func:`render` cut them under
         their default ``sync="truncate"``), not on the frame drawn: the
         direction and the ``"auto"`` width on the first skeleton's
@@ -569,15 +587,15 @@ def frame(
         sweeps wider over the clip (walking sideways, say) than at that
         frame, or has turned by then.
         *coords* draws a single skeleton, which is never spread.
-        Ignored by matplotlib, which draws each skeleton in its own
-        panel.
-    match_size : bool, optional
+        Accepted and ignored by matplotlib, which draws each skeleton
+        in its own panel.
+    match_size : bool or None, optional
         Draw every skeleton as tall as the first, with the factor on
         its label, as :func:`play` does (see there for the height
-        matched and its alternative). Default ``False``. Only the vedo
-        backend, which draws every skeleton in one space, is changed;
-        matplotlib draws the same figure either way, since it frames
-        each skeleton in its own panel.
+        matched and its alternative). ``None`` (default) is ``False``.
+        Only the vedo backend, which draws every skeleton in one
+        space, is changed; matplotlib draws the same figure either
+        way, since it frames each skeleton in its own panel.
 
     Returns
     -------
@@ -591,9 +609,17 @@ def frame(
         With ``backend="vedo"``: an ``(H, W, 3)`` uint8 RGB image
         array instead.
     """
+    given = _given(
+        figsize=figsize,
+        show=show,
+        ax=ax,
+        resolution=resolution,
+        spacing=spacing,
+        match_size=match_size,
+    )
     clips = as_clip_list(bvh)
-    backend = _backends.choose_frame_backend(backend)
-    spacing = _validated_spacing(spacing)
+    backend = _backends.choose_frame_backend(backend, given)
+    spacing = _validated_spacing("auto" if spacing is None else spacing)
 
     frame_spec = coords if coords is not None else frame
     scene = _prepare(clips, frame_spec, centered, camera, labels)
@@ -607,14 +633,23 @@ def frame(
         # "skeleton" its floor would become the clip's, not its pose's.
         whole_clip = _prepare(clips, None, centered, camera, labels) if len(clips) > 1 else None
         scene = _arranged_in_one_scene(
-            scene, spacing=spacing, centered=centered, match_size=match_size, measured_on=whole_clip
+            scene,
+            spacing=spacing,
+            centered=centered,
+            match_size=bool(match_size),
+            measured_on=whole_clip,
         )
-        return frame_vedo(scene, resolve_style(style), resolution=resolution, filepath=filepath)
+        return frame_vedo(
+            scene,
+            resolve_style(style),
+            resolution=_VEDO_STILL_RESOLUTION if resolution is None else resolution,
+            filepath=filepath,
+        )
 
     from ._matplotlib import frame_mpl
 
     style_obj = resolve_style(style)
-    fig, axs = frame_mpl(scene, style_obj, figsize=figsize, show=show, ax=ax)
+    fig, axs = frame_mpl(scene, style_obj, figsize=figsize, show=bool(show), ax=ax)
     if filepath is not None:
         fig.savefig(filepath, dpi=style_obj.dpi, facecolor=fig.get_facecolor())
     return fig, axs

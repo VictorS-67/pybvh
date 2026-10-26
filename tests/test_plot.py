@@ -13,6 +13,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from pybvh import Bvh, bvhplot, nodes_from_table, nodes_to_table, parse_axis, read_bvh_file
 from pybvh.analysis import root_trajectory
@@ -890,6 +891,19 @@ class TestTrajectory:
         assert ax.get_xlim()[0] <= min(ax_a.get_xlim()[0], ax_b.get_xlim()[0]) + 1e-6
 
 
+def page_frames(path, mode="RGB"):
+    """The frames an ``.html`` page embeds, each a PNG matplotlib saved
+    from its own figure, as uint8 arrays in the Pillow *mode*: ``(H, W,
+    3)`` for ``"RGB"``, ``(H, W, 4)`` for ``"RGBA"``."""
+    import base64
+    import io
+
+    encoded = re.findall(r'"data:image/png;base64,([^"]+)"', path.read_text())
+    return [
+        np.asarray(Image.open(io.BytesIO(base64.b64decode(data))).convert(mode)) for data in encoded
+    ]
+
+
 class TestRenderMatplotlib:
     def test_render_creates_file(self, bvh_example, tmp_path):
         import matplotlib
@@ -919,6 +933,35 @@ class TestRenderMatplotlib:
         path = bvhplot.render(bvh_short, tmp_path / "follow.gif", backend="matplotlib", follow=True)
         assert path.exists()
         assert path.stat().st_size > 0
+
+    @pytest.mark.parametrize(
+        "options",
+        [
+            dict(camera="turntable", trajectory=True),
+            dict(follow=True, ghost=2, style="dark", labels=["a", "b"]),
+        ],
+        ids=["turntable-trace", "pair-follow-ghosts-dark"],
+    )
+    def test_the_frames_written_are_the_frames_matplotlib_draws(
+        self, bvh_example, tmp_path, handed_to_writer, apng_frames, options
+    ):
+        """An ``.html`` page is matplotlib's own: its player saves the
+        figure of each frame. The frames handed to the video module
+        (RGBA, an animated image keeping transparency; opaque here), and
+        the ``.apng`` read back, are those frames, pixel for pixel."""
+        clips = bvh_example[0:4] if "labels" not in options else [bvh_example[0:4]] * 2
+        options = dict(options, backend="matplotlib", fps=25, resolution=(160, 120))
+        page = bvhplot.render(clips, tmp_path / "x.html", **options)
+        apng = bvhplot.render(clips, tmp_path / "x.apng", **options)
+        drawn = page_frames(page)
+        [handed] = handed_to_writer
+        read = apng_frames(apng, 25)
+        assert len(drawn) == len(handed) == len(read) == 4
+        assert not np.array_equal(drawn[0], drawn[1])
+        for page_frame, handed_frame, read_frame in zip(drawn, handed, read, strict=True):
+            assert (handed_frame[:, :, 3] == 255).all()
+            np.testing.assert_array_equal(handed_frame[:, :, :3], page_frame)
+            np.testing.assert_array_equal(read_frame, page_frame)
 
 
 # ===================================================================
@@ -1246,9 +1289,292 @@ class TestRenderCodec:
         with pytest.raises(ValueError, match="video containers"):
             bvhplot.render(bvh_example, tmp_path / "x.gif", codec="mpeg4")
 
-    def test_mpeg4_rejected_on_matplotlib_backend(self, bvh_example, tmp_path):
-        with pytest.raises(ValueError, match="OpenCV"):
-            bvhplot.render(bvh_example, tmp_path / "x.mp4", backend="matplotlib", codec="mpeg4")
+
+class TestMatplotlibVideo:
+    """matplotlib hands its frames to the video module, so its videos
+    follow the same rules as OpenCV's: the path asked for is kept, the
+    codec chosen as ``codec=`` and the machine say, the rate written as
+    given."""
+
+    @staticmethod
+    def _render(clip, path, **kwargs):
+        kwargs.setdefault("resolution", (160, 120))
+        return bvhplot.render(clip[0:4], path, backend="matplotlib", **kwargs)
+
+    @staticmethod
+    def _probe(path, entry):
+        """A stream entry of the video at *path*, as ffprobe reports it."""
+        import subprocess
+
+        if shutil.which("ffprobe") is None:
+            pytest.skip("needs the ffprobe executable")
+        return subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries"]
+            + [f"stream={entry}", "-of", "csv=p=0", str(path)],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    def test_an_unknown_extension_raises_naming_what_is_written(self, bvh_example, tmp_path):
+        with pytest.raises(ValueError) as raised:
+            self._render(bvh_example, tmp_path / "x.mkv")
+        assert str(raised.value) == (
+            "The matplotlib backend cannot write '.mkv' files. Supported extensions: "
+            "['.apng', '.avi', '.gif', '.mov', '.mp4', '.webp'], and '.html' on "
+            "backend='matplotlib'."
+        )
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize("backend", ["matplotlib", "auto"])
+    def test_a_video_without_ffmpeg_or_opencv_raises_naming_both(
+        self, bvh_example, tmp_path, environment, backend
+    ):
+        """Under auto too, where matplotlib is the fallback for a
+        missing OpenCV; v0.9.0 wrote a .gif instead."""
+        environment()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # auto's fallback warning
+            with pytest.raises(ImportError) as raised:
+                bvhplot.render(bvh_example[0:4], tmp_path / "x.mp4", backend=backend)
+        assert "Install ffmpeg" in str(raised.value)
+        assert "pip install pybvh[opencv]" in str(raised.value)
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_video_without_ffmpeg_keeps_its_name_as_mpeg4(
+        self, bvh_example, tmp_path, environment
+    ):
+        pytest.importorskip("cv2")
+        environment(importable={"cv2"})
+        with pytest.warns(UserWarning, match="ffmpeg is not on PATH"):
+            path = self._render(bvh_example, tmp_path / "x.mp4")
+        assert list(tmp_path.iterdir()) == [tmp_path / "x.mp4"] == [path]
+        assert self._probe(path, "codec_name") == "mpeg4"
+
+    @pytest.mark.parametrize("ffmpeg", [False, True], ids=["without-ffmpeg", "with-ffmpeg"])
+    def test_mpeg4_is_written_without_warning(self, bvh_example, tmp_path, environment, ffmpeg):
+        pytest.importorskip("cv2")
+        environment(importable={"cv2"}, ffmpeg=ffmpeg)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            path = self._render(bvh_example, tmp_path / "x.mp4", codec="mpeg4")
+        assert self._probe(path, "codec_name") == "mpeg4"
+
+    def test_with_ffmpeg_the_video_is_h264(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path
+    ):
+        environment(ffmpeg=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            path = self._render(bvh_example, tmp_path / "x.mp4")
+        assert self._probe(path, "codec_name") == "h264"
+
+    @pytest.mark.parametrize("ffmpeg", [False, True], ids=["mpeg4", "h264"])
+    def test_a_fractional_rate_is_written_as_given(
+        self, bvh_example, tmp_path, environment, ffmpeg
+    ):
+        """29.97 fps is stored as 2997/100, not rounded to 30."""
+        if ffmpeg and shutil.which("ffmpeg") is None:
+            pytest.skip("needs the ffmpeg executable")
+        if not ffmpeg:
+            pytest.importorskip("cv2")
+        environment(importable={"cv2"}, ffmpeg=ffmpeg)
+        path = self._render(bvh_example, tmp_path / "x.mp4", fps=29.97)
+        assert self._probe(path, "r_frame_rate") == "2997/100"
+
+    def test_animation_ffmpeg_path_is_not_read(self, bvh_example, tmp_path, ffmpeg_on_path):
+        """ffmpeg is looked for on PATH, as for every backend: an
+        rcParam naming no executable changes nothing."""
+        import matplotlib
+
+        with matplotlib.rc_context({"animation.ffmpeg_path": str(tmp_path / "no-ffmpeg")}):
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                path = self._render(bvh_example, tmp_path / "x.mp4")
+        assert path == tmp_path / "x.mp4"
+        assert self._probe(path, "codec_name") == "h264"
+
+    def test_an_odd_resolution_is_drawn_and_padded_to_an_even_one(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path, handed_to_writer
+    ):
+        """H.264 in yuv420p needs even sizes: the frames are drawn at the
+        size asked, and the video is one pixel larger each way."""
+        environment(ffmpeg=True)
+        path = self._render(bvh_example, tmp_path / "x.mp4", resolution=(161, 121))
+        [handed] = handed_to_writer
+        assert handed[0].shape == (121, 161, 3)
+        assert self._probe(path, "width,height") == "162,122"
+
+    def test_an_animated_image_frame_lasts_its_rounded_milliseconds(self, bvh_example, tmp_path):
+        """1000 / 24 = 41.67 ms, rounded to 42; v0.9.0 stored 1000 /
+        round(24) truncated, 41."""
+        from PIL import Image, ImageSequence
+
+        path = self._render(bvh_example, tmp_path / "x.apng", fps=24, camera="turntable")
+        with Image.open(path) as apng:
+            durations = [frame.info["duration"] for frame in ImageSequence.Iterator(apng)]
+        assert durations == [42] * 4
+
+    def test_savefig_settings_do_not_change_the_frames(
+        self, bvh_example, tmp_path, handed_to_writer
+    ):
+        """The frames are read from the figure as drawn, not saved
+        through ``savefig``: its dpi and face colour are not read."""
+        import matplotlib
+
+        with matplotlib.rc_context({"savefig.dpi": 200, "savefig.facecolor": "red"}):
+            self._render(bvh_example, tmp_path / "x.apng", style="paper")
+        [handed] = handed_to_writer
+        assert handed[0].shape == (120, 160, 4)
+        assert tuple(handed[0][0, 0]) == (255, 255, 255, 255)  # the paper style's white
+
+    def test_a_turntable_is_timed_at_the_rate_given(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path, handed_to_writer
+    ):
+        """At 29.5 fps a 2 s period is 59 frames; v0.9.0 timed it at 30
+        fps, the rate matplotlib then wrote, 60 frames."""
+        environment(ffmpeg=True)
+        self._render(
+            bvh_example, tmp_path / "x.mp4", fps=29.5, camera="turntable", turntable_period=2
+        )
+        [handed] = handed_to_writer
+        assert len(handed) == 59
+
+
+class TestTransparentBackground:
+    """A style whose background is transparent: matplotlib's animated
+    images keep the transparency, as its own Pillow writer kept it, and
+    its videos lay the picture on white, as its own ffmpeg writer did.
+    OpenCV draws opaque frames whatever the background."""
+
+    @staticmethod
+    def _render(clip, path, background, backend="matplotlib", **kwargs):
+        return bvhplot.render(
+            clip[0:4],
+            path,
+            backend=backend,
+            fps=10,
+            resolution=(160, 120),
+            camera="turntable",
+            style=bvhplot.Style("paper", background=background),
+            **kwargs,
+        )
+
+    @staticmethod
+    def _rgba_frames(path):
+        from PIL import ImageSequence
+
+        with Image.open(path) as image:
+            return [np.asarray(f.convert("RGBA")) for f in ImageSequence.Iterator(image)]
+
+    TRANSPARENT = pytest.mark.parametrize(
+        "background", ["none", (1, 1, 1, 0)], ids=["none", "white-alpha-0"]
+    )
+    SEE_THROUGH = pytest.mark.parametrize(
+        "background",
+        ["none", (1, 1, 1, 0), (0, 0, 1, 0.5)],
+        ids=["none", "white-alpha-0", "blue-alpha-half"],
+    )
+
+    @staticmethod
+    def _on_white(frame):
+        """An ``(H, W, 4)`` RGBA frame composited over white, as floats."""
+        alpha = frame[..., 3:] / 255.0
+        return frame[..., :3] * alpha + 255.0 * (1.0 - alpha)
+
+    @SEE_THROUGH
+    def test_an_apng_holds_the_transparent_frames_drawn(self, bvh_example, tmp_path, background):
+        """Laid on white, they are the frames of matplotlib's own
+        ``.html`` page, whose player draws the figure on white (it saves
+        no transparency). Laying a drawn edge on white afterwards rounds
+        its partly transparent pixels differently from drawing it on
+        white: v0.9.0's own ``.apng`` differs from its page by up to 3.2
+        levels, on 0.3% of the pixels, and its opaque pixels from the
+        page's by one level at most."""
+        page = self._render(bvh_example, tmp_path / "x.html", background)
+        apng = self._render(bvh_example, tmp_path / "x.apng", background)
+        drawn = page_frames(page)
+        with Image.open(apng) as image:
+            assert image.mode == "RGBA"
+        read = self._rgba_frames(apng)
+        assert len(read) == len(drawn) == 4
+        for read_frame, page_frame in zip(read, drawn, strict=True):
+            alpha = read_frame[..., 3]
+            assert alpha.min() < 255
+            opaque = alpha == 255
+            np.testing.assert_allclose(read_frame[opaque][:, :3], page_frame[opaque], atol=1)
+            np.testing.assert_allclose(self._on_white(read_frame), page_frame, atol=4)
+
+    @TRANSPARENT
+    @pytest.mark.parametrize("ext", [".gif", ".webp"])
+    def test_a_gif_and_a_webp_keep_the_transparency(self, bvh_example, tmp_path, background, ext):
+        path = self._render(bvh_example, tmp_path / f"x{ext}", background)
+        with Image.open(path) as image:
+            if ext == ".gif":
+                assert image.mode == "P" and "transparency" in image.info
+            else:
+                assert image.mode == "RGBA"
+        assert all(frame[..., 3].min() == 0 for frame in self._rgba_frames(path))
+
+    @SEE_THROUGH
+    def test_a_video_lays_the_picture_on_white(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path, handed_to_writer, background
+    ):
+        """The frames handed to the encoder are those of matplotlib's own
+        ``.html`` page, whose player draws the figure on white, pixel for
+        pixel."""
+        environment(ffmpeg=True)
+        page = self._render(bvh_example, tmp_path / "x.html", background)
+        self._render(bvh_example, tmp_path / "x.mp4", background)
+        [handed] = handed_to_writer
+        drawn = page_frames(page)
+        assert len(handed) == len(drawn) == 4
+        for handed_frame, page_frame in zip(handed, drawn, strict=True):
+            np.testing.assert_array_equal(handed_frame, page_frame)
+
+    @pytest.mark.parametrize("ext", [".apng", ".gif"])
+    def test_opencv_frames_stay_opaque(self, bvh_example, tmp_path, ext):
+        pytest.importorskip("cv2")
+        path = self._render(bvh_example, tmp_path / f"x{ext}", "none", backend="opencv")
+        with Image.open(path) as image:
+            assert "transparency" not in image.info
+            assert image.mode != "RGBA"
+
+
+class TestH264Fidelity:
+    """An H.264 file is lossy, but decodes close to the frames drawn."""
+
+    @pytest.mark.parametrize("backend", ["opencv", "matplotlib"])
+    def test_the_video_decodes_close_to_the_frames_drawn(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path, handed_to_writer, backend
+    ):
+        """Within a mean of 1.5 levels of 255 on this clip, where frames
+        piped as RGB decode 0.7 (OpenCV) and 0.9 (matplotlib) levels
+        away. Frames piped as BGR decode 3.0 and 3.8 levels away, white
+        as (251, 253, 250): ffmpeg 6.1's conversion of BGR to YUV
+        tints them."""
+        import subprocess
+
+        if backend == "opencv":
+            pytest.importorskip("cv2")
+        environment(importable={"cv2"}, ffmpeg=True)
+        width, height = 240, 180
+        path = bvhplot.render(
+            bvh_example[0:6],
+            tmp_path / "x.mp4",
+            backend=backend,
+            fps=10,
+            resolution=(width, height),
+        )
+        decoded = subprocess.run(
+            ["ffmpeg", "-loglevel", "error", "-i", str(path)]
+            + ["-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+            capture_output=True,
+            check=True,
+        ).stdout
+        [drawn] = handed_to_writer
+        frames = np.frombuffer(decoded, np.uint8).reshape(len(drawn), height, width, 3)
+        assert np.abs(frames.astype(int) - np.stack(drawn)).mean() < 1.5
 
 
 class TestGifTiming:
@@ -1260,14 +1586,18 @@ class TestGifTiming:
         [(20.1, 50), (24, 40), (30, 30)],
         ids=["49.75ms", "41.67ms", "33.33ms"],
     )
-    def test_opencv_rounds_the_frame_duration(self, bvh_example, tmp_path, fps, shown_ms):
+    @pytest.mark.parametrize("backend", ["opencv", "matplotlib"])
+    def test_every_backend_rounds_the_frame_duration(
+        self, bvh_example, tmp_path, fps, shown_ms, backend
+    ):
         """At 20.1 fps a frame lasts 49.75 ms: rounded to 50 it is stored
         as 5 hundredths, where truncating to 49 stored 4."""
-        pytest.importorskip("cv2")
+        if backend == "opencv":
+            pytest.importorskip("cv2")
         from PIL import Image
 
         path = bvhplot.render(
-            bvh_example[0:3], tmp_path / "t.gif", backend="opencv", resolution=(64, 48), fps=fps
+            bvh_example[0:3], tmp_path / "t.gif", backend=backend, resolution=(64, 48), fps=fps
         )
         with Image.open(path) as gif:
             assert gif.info["duration"] == shown_ms

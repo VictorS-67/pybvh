@@ -1,13 +1,17 @@
 """Writing an animation's frames to a file.
 
-A backend that produces frames draws them at the :class:`VideoTarget`'s
+Every backend of ``render`` draws its frames at the :class:`VideoTarget`'s
 resolution and hands them to the :class:`Writer` the router chose with
-:func:`writer_for`. This module owns the table of the extensions written
-from frames and their writers, and decides from the machine's
-:class:`~._backends.Environment` how a video container is encoded: H.264
-through the system ``ffmpeg`` executable, or OpenCV's MPEG-4 Part 2.
+:func:`writer_for`. This module owns the table of every extension
+``render`` writes, the rate each is written at
+(:attr:`VideoTarget.written_fps`) and the writers, and decides from the
+machine's :class:`~._backends.Environment` how a video container is
+encoded: H.264 through the system ``ffmpeg`` executable, or OpenCV's
+MPEG-4 Part 2. The one format not written from frames is matplotlib's
+player page (``.html``), which the table names as matplotlib's own.
 Frames are ``(H, W, 3)`` uint8 RGB arrays, every one the size of the
-first.
+first; a writer that keeps transparency (:attr:`Writer.keeps_alpha`)
+also takes ``(H, W, 4)`` RGBA arrays.
 """
 
 from __future__ import annotations
@@ -17,28 +21,66 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
 
 from ._backends import Environment, install_hint
 
+if TYPE_CHECKING:
+    from PIL import Image
+
 # Valid values of render(codec=).
 CODECS = frozenset({"auto", "h264", "mpeg4"})
 
-# The format of each extension written from frames: a video container,
-# encoded as the codec and the machine allow, or the name of the Pillow
-# format an animated image is saved in.
 _VIDEO = "video"
+_PLAYER_PAGE = "player page"
+
+
+class _Format(NamedTuple):
+    """How ``render`` writes an extension."""
+
+    # A video container, encoded as the codec and the machine allow
+    # (_VIDEO); the name of the Pillow format an animated image is saved
+    # in; or matplotlib's player page, which matplotlib builds from its own
+    # figure rather than from frames (_PLAYER_PAGE).
+    writer: str
+    # render(backend="auto") gives the extension to matplotlib even when
+    # OpenCV imports: the player page, which only matplotlib writes, and
+    # the animated images, which OpenCV writes too but auto has always
+    # given to matplotlib, a choice no change has revisited.
+    matplotlib_under_auto: bool = False
+
+
 _FORMATS = {
-    ".mp4": _VIDEO,
-    ".mov": _VIDEO,
-    ".avi": _VIDEO,
-    ".gif": "GIF",
-    ".webp": "WEBP",
-    ".apng": "PNG",  # an animated PNG: Pillow writes one from several frames
+    ".mp4": _Format(_VIDEO),
+    ".mov": _Format(_VIDEO),
+    ".avi": _Format(_VIDEO),
+    ".gif": _Format("GIF", matplotlib_under_auto=True),
+    ".webp": _Format("WEBP", matplotlib_under_auto=True),
+    # an animated PNG: Pillow writes one from several frames
+    ".apng": _Format("PNG", matplotlib_under_auto=True),
+    ".html": _Format(_PLAYER_PAGE, matplotlib_under_auto=True),
 }
-VIDEO_CONTAINERS = frozenset(ext for ext, fmt in _FORMATS.items() if fmt == _VIDEO)
+VIDEO_CONTAINERS = frozenset(ext for ext, fmt in _FORMATS.items() if fmt.writer == _VIDEO)
+_FROM_FRAMES = sorted(ext for ext, fmt in _FORMATS.items() if fmt.writer != _PLAYER_PAGE)
+_PLAYER_PAGES = sorted(ext for ext, fmt in _FORMATS.items() if fmt.writer == _PLAYER_PAGE)
+
+
+def _writer_of(suffix: str) -> str | None:
+    """The writer of the extension *suffix* (lower case), ``None`` when
+    ``render`` writes no such file."""
+    fmt = _FORMATS.get(suffix)
+    return None if fmt is None else fmt.writer
+
+
+def matplotlib_under_auto(suffix: str) -> bool:
+    """``render(backend="auto")`` gives a file ending in *suffix* (lower
+    case) to matplotlib even when OpenCV imports: ``.html`` and the
+    animated images. An extension ``render`` does not write is not."""
+    fmt = _FORMATS.get(suffix)
+    return fmt is not None and fmt.matplotlib_under_auto
 
 
 @dataclass(frozen=True)
@@ -51,8 +93,9 @@ class VideoTarget:
     path : Path
         The file written, whose extension says its format; never changed.
     fps : float
-        Frames per second, fractional rates included; the router has
-        checked it is a positive number (``_resolve_fps``).
+        Frames per second asked, fractional rates included; the router
+        has checked it is a positive number (``_resolve_fps``). The file
+        is written at :attr:`written_fps`.
     resolution : (int, int)
         ``(width, height)`` in pixels the backend draws at, each a
         positive number.
@@ -94,6 +137,33 @@ class VideoTarget:
         """The path's extension, in lower case."""
         return self.path.suffix.lower()
 
+    @property
+    def written_fps(self) -> float:
+        """The rate the file is written at: the rate its frames play at.
+
+        A video container is written at :attr:`fps` as given, since
+        ffmpeg and OpenCV take fractional rates. An animated image (GIF,
+        WebP, APNG) stores each frame's duration in whole milliseconds,
+        ``1000 / fps`` rounded to the nearest: 42 ms at 24 fps, so 23.81
+        fps; a GIF then stores it truncated to 10 ms, a limit of the
+        format not counted here. An ``.html`` page embeds whole
+        milliseconds per frame too, floored as matplotlib's player
+        computes them, ``1000 // fps``: 33 ms at 30 fps, so 30.3 fps.
+        """
+        fmt = _writer_of(self.suffix)
+        if fmt == _VIDEO:
+            return self.fps
+        if fmt == _PLAYER_PAGE:
+            return 1000.0 / (1000 // self.fps)
+        return 1000.0 / round(1000.0 / self.fps)
+
+    @property
+    def is_player_page(self) -> bool:
+        """The file is matplotlib's player page (``.html``), which
+        matplotlib builds from its own figure; every other format is
+        written from frames by :func:`writer_for`'s writer."""
+        return _writer_of(self.suffix) == _PLAYER_PAGE
+
 
 def _is_positive_number(value: object) -> bool:
     return (
@@ -119,6 +189,13 @@ class Writer:
     encoder: str
     warnings: tuple[str, ...] = ()
 
+    @property
+    def keeps_alpha(self) -> bool:
+        """The file keeps transparency: an animated image takes RGBA
+        frames and keeps their alpha. A video container takes RGB frames
+        only."""
+        return self.encoder == _PILLOW
+
     def write(self, frames: Iterable[npt.NDArray[np.uint8]]) -> Path:
         """Write *frames* to the target's path and return the path.
 
@@ -126,12 +203,12 @@ class Writer:
         resolution: vedo may deliver screenshots larger than asked
         (HiDPI scaling).
         """
-        path, fps = self.target.path, self.target.fps
+        path, fps = self.target.path, self.target.written_fps
         frames = iter(frames)
         first = next(frames)
         frames = chain([first], frames)
         if self.encoder == _PILLOW:
-            _save_with_pillow(path, frames, fps, _FORMATS[self.target.suffix])
+            _save_with_pillow(path, frames, fps, _FORMATS[self.target.suffix].writer)
             return path
         h, w = first.shape[:2]
         sink_type = _FfmpegSink if self.encoder == _FFMPEG else _OpenCvSink
@@ -165,19 +242,20 @@ def writer_for(target: VideoTarget, environment: Environment, subject: str) -> W
     Raises
     ------
     ValueError
-        When *target*'s extension is not written from frames.
+        When *target*'s extension is not written from frames: unknown,
+        or matplotlib's player page.
     RuntimeError
         On ``codec="h264"`` without ffmpeg.
     ImportError
         When MPEG-4 Part 2 is needed and OpenCV does not import.
     """
     ext = target.suffix
-    fmt = _FORMATS.get(ext)
-    if fmt is None:
+    fmt = _writer_of(ext)
+    if fmt is None or fmt == _PLAYER_PAGE:
         raise ValueError(
             f"{subject} cannot write {ext!r} files. "
-            f"Supported extensions: {sorted(_FORMATS)}. "
-            f"Use backend='matplotlib' for other formats."
+            f"Supported extensions: {_FROM_FRAMES}, and "
+            f"{', '.join(map(repr, _PLAYER_PAGES))} on backend='matplotlib'."
         )
     if fmt != _VIDEO:
         return Writer(target, _PILLOW)
@@ -212,9 +290,8 @@ class _FfmpegSink:
     Encodes libx264 + yuv420p + faststart, the combination that plays in
     browsers, VSCode, and notebook embeds. Odd frame dimensions are
     padded by one pixel (yuv420p requires even sizes). Frames are piped
-    as BGR, not RGB: ffmpeg rounds the two conversions to yuv420p a few
-    levels apart, and BGR is the conversion every H.264 file pybvh has
-    written went through, so a frame drawn the same encodes the same.
+    as RGB: ffmpeg 6.1's conversion of BGR to yuv420p tints them, white
+    decoding as (251, 253, 250).
     """
 
     def __init__(self, filepath: Path, fps: float, resolution: tuple[int, int]) -> None:
@@ -230,7 +307,7 @@ class _FfmpegSink:
                 "-f",
                 "rawvideo",
                 "-pix_fmt",
-                "bgr24",
+                "rgb24",
                 "-s",
                 f"{w}x{h}",
                 "-r",
@@ -254,7 +331,7 @@ class _FfmpegSink:
     def write(self, frame: npt.NDArray[np.uint8]) -> None:
         assert self._proc.stdin is not None
         try:
-            self._proc.stdin.write(frame[:, :, ::-1].tobytes())
+            self._proc.stdin.write(frame.tobytes())
         except BrokenPipeError:
             self.release()  # ffmpeg has exited: raise its own error
             raise
@@ -309,17 +386,21 @@ def _save_with_pillow(
     path: Path, frames: Iterable[npt.NDArray[np.uint8]], fps: float, pillow_format: str
 ) -> None:
     """Save *frames* as one animated image in Pillow's *pillow_format*, looping,
-    each frame shown for ``1000 / fps`` milliseconds rounded to a whole
-    millisecond (a GIF stores them further truncated to 10 ms).
+    each frame shown for ``1000 / fps`` milliseconds, *fps* being a
+    :attr:`VideoTarget.written_fps` (a GIF stores them further truncated
+    to 10 ms).
 
     Pillow stores a run of identical frames as one frame shown for the
     run's summed duration, a whole number of frame durations; a file
     whose frames are all identical is a still image. WebP is Pillow's
     default lossy encoding; PNG is lossless.
-    """
-    from PIL import Image
 
-    images = (Image.fromarray(frame) for frame in frames)
+    An RGBA frame is saved with its alpha when some pixel of it is
+    transparent, and as RGB when none is, as matplotlib's own Pillow
+    writer saves its frames: Pillow converts RGB to a GIF's palette
+    better than RGBA.
+    """
+    images = (_pillow_image(frame) for frame in frames)
     first = next(images)
     # Pillow documents append_images as a list, and its PNG writer reads
     # the frames twice; its GIF writer reads them once, keeping each frame
@@ -333,3 +414,13 @@ def _save_with_pillow(
         duration=round(1000.0 / fps),
         loop=0,
     )
+
+
+def _pillow_image(frame: npt.NDArray[np.uint8]) -> Image.Image:
+    """The Pillow image of an RGB or RGBA *frame*, RGB when no pixel of
+    it is transparent."""
+    from PIL import Image
+
+    if frame.shape[2] == 4 and frame[:, :, 3].min() == 255:
+        return Image.fromarray(frame).convert("RGB")
+    return Image.fromarray(frame)

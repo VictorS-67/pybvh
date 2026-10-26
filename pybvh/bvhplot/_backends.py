@@ -23,12 +23,6 @@ FRAME_BACKENDS = frozenset({"matplotlib", "vedo"})
 RENDER_BACKENDS = frozenset({"auto", "opencv", "matplotlib", "vedo"})
 PLAY_BACKENDS = frozenset({"auto", "k3d", "vedo", "opencv", "matplotlib"})
 
-# The extensions auto gives to matplotlib even when OpenCV imports: .html,
-# which only matplotlib writes, and the animated images, which OpenCV
-# writes too (the video module's table says what each backend writes) but
-# auto has always given to matplotlib, a choice no change has revisited.
-_MATPLOTLIB_UNDER_AUTO = frozenset({".html", ".gif", ".webp", ".apng"})
-
 
 @dataclass(frozen=True)
 class Environment:
@@ -182,18 +176,23 @@ def choose_render_backend(requested: str, suffix: str, environment: Environment)
     """The backend ``render(filepath, backend=requested)`` runs, for a
     file ending in *suffix* (lower case).
 
-    A named backend runs as named. Under ``"auto"``, ``.html`` and the
-    animated images (``.gif``, ``.webp``, ``.apng``) go to matplotlib even
-    when OpenCV imports, and without a warning when it does not; every
-    other extension goes to OpenCV when it imports, and else to
+    A named backend runs as named. Under ``"auto"``, the extensions the
+    video module's table gives to matplotlib
+    (:func:`._video.matplotlib_under_auto`: ``.html`` and the animated
+    images) go to matplotlib even when OpenCV imports, and without a
+    warning when it does not; every other extension goes to OpenCV when
+    it imports, and else to
     matplotlib with a warning naming the install. ``"vedo"`` (the
     shadowed capsule renderer) is never chosen by auto: it is a
     deliberate look, not a fallback.
     """
+    # Imported here: the video module imports this one.
+    from ._video import matplotlib_under_auto
+
     _check_known(requested, RENDER_BACKENDS)
     if requested != "auto":
         return Choice(requested)
-    if suffix in _MATPLOTLIB_UNDER_AUTO:
+    if matplotlib_under_auto(suffix):
         return Choice("matplotlib")
     if "cv2" in environment.importable:
         return Choice("opencv")

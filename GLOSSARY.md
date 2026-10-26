@@ -219,7 +219,7 @@ The one styling object every bvhplot function accepts: the presets `paper`, `deb
 The toolkit a picture is drawn with: matplotlib, OpenCV, k3d, the vedo viewer or the vedo offscreen renderer, auto-detected from the environment unless named.
 
 **Video target**:
-Where an animation is written: the path, the rate written, the resolution and the codec. One writer serves every backend that hands it frames.
+Where an animation is written: the path, the rate written, the resolution and the codec. One writer serves every backend.
 
 **Sequence**:
 The motion-paper still: equidistantly sampled poses in one figure, lighter the earlier.

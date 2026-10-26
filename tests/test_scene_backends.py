@@ -35,6 +35,13 @@ def _mpeg4_writer(path, fps, resolution):
     return writer_for(VideoTarget(path, fps, resolution, codec="mpeg4"), machine, "A backend")
 
 
+def _gif_writer(path, fps, resolution):
+    """The video module's writer of a GIF, which needs no optional
+    package."""
+    machine = Environment(in_notebook=False, has_display=False, importable=(), has_ffmpeg=False)
+    return writer_for(VideoTarget(path, fps, resolution), machine, "A backend")
+
+
 def test_factory_knows_nothing_about_bvh():
     tree = ast.parse(pathlib.Path(synthetic_scene.__file__).read_text())
     imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
@@ -85,12 +92,10 @@ class TestMatplotlib:
         out = render_mpl(
             scene,
             Style("paper"),
-            tmp_path / "walk.gif",
-            10.0,
+            _gif_writer(tmp_path / "walk.gif", 10.0, (320, 240)),
             motion="follow",
             ghost=2,
             trajectory=True,
-            resolution=(320, 240),
         )
         assert out.exists() and out.stat().st_size > 0
 
@@ -232,11 +237,9 @@ class TestEveryPassIsDrawnAsTheFirst:
         out = render_mpl(
             looped,
             self.STYLE,
-            tmp_path / "loop.gif",
-            10.0,
+            _gif_writer(tmp_path / "loop.gif", 10.0, (160, 120)),
             ghost=2,
             trajectory=True,
-            resolution=(160, 120),
         )
         frames = _gif_frames(out)
         assert len(frames) == self.LOOPED

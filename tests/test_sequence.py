@@ -150,12 +150,13 @@ class TestTurntablePeriod:
     """``turntable_period`` is seconds of the video per revolution,
     at the rate the render plays (``fps``, 10 here)."""
 
-    def _render(self, clip, tmp_path, fps=10, **options):
-        pytest.importorskip("cv2")
+    def _render(self, clip, tmp_path, fps=10, backend="opencv", **options):
+        if backend == "opencv":
+            pytest.importorskip("cv2")
         path = bvhplot.render(
             clip,
             tmp_path / "tt.gif",
-            backend="opencv",
+            backend=backend,
             fps=fps,
             camera="turntable",
             resolution=(160, 120),
@@ -211,26 +212,6 @@ class TestTurntablePeriod:
         )
         assert len(_gif_frames(path)) == 12
 
-    def test_the_period_is_timed_at_the_rate_the_file_is_written_at(self, bvh, tmp_path):
-        """matplotlib writes whole frames per second: fps=9.5 is
-        written at 10 fps, so a 1.2 s period is 12 frames of 100 ms,
-        not the 11 frames 1.2 * 9.5 would give."""
-        from PIL import Image
-
-        path = bvhplot.render(
-            bvh[0:4],
-            tmp_path / "tt.gif",
-            backend="matplotlib",
-            fps=9.5,
-            camera="turntable",
-            turntable_period=1.2,
-            resolution=(160, 120),
-        )
-        with Image.open(path) as gif:
-            duration_ms = gif.info["duration"]
-        assert len(_gif_frames(path)) == 12
-        assert duration_ms == 100
-
     def test_an_html_page_plays_the_period_it_was_scheduled_for(self, bvh, tmp_path):
         """The page embeds whole milliseconds per frame (33 at 30 fps):
         the frames it holds, played at that interval, last the period to
@@ -257,6 +238,14 @@ class TestTurntablePeriod:
     def test_opencv_writes_at_the_rate_it_is_given(self, bvh, tmp_path):
         frames = self._render(bvh[0:4], tmp_path, fps=9.5, turntable_period=1.2)
         assert len(frames) == round(1.2 * 9.5)
+
+    @pytest.mark.parametrize("backend", ["opencv", "matplotlib"])
+    def test_an_animated_image_is_timed_at_its_whole_milliseconds(self, bvh, tmp_path, backend):
+        """At 24 fps a frame of an animated image lasts 1000 / 24 =
+        41.67 ms, written as 42: 23.81 fps, so a 0.9 s period is 21.4
+        frames, 21, where 0.9 s at 24 fps would be 21.6, 22."""
+        frames = self._render(bvh[0:4], tmp_path, fps=24, backend=backend, turntable_period=0.9)
+        assert len(frames) == 21
 
     def test_follow_is_ignored_under_a_timed_turntable(self, bvh, tmp_path):
         clip = bvh[0:6]

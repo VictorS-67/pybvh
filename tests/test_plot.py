@@ -935,21 +935,24 @@ class TestRenderMatplotlib:
             for data in encoded
         ]
 
+    @pytest.mark.parametrize(
+        "options",
+        [
+            dict(camera="turntable", trajectory=True),
+            dict(follow=True, ghost=2, style="dark", labels=["a", "b"]),
+        ],
+        ids=["turntable-trace", "pair-follow-ghosts-dark"],
+    )
     def test_the_frames_written_are_the_frames_matplotlib_draws(
-        self, bvh_example, tmp_path, handed_to_writer, apng_frames
+        self, bvh_example, tmp_path, handed_to_writer, apng_frames, options
     ):
         """An ``.html`` page is matplotlib's own: its player saves the
         figure of each frame. The frames handed to the video module, and
         the ``.apng`` read back, are those frames, pixel for pixel."""
-        options = dict(
-            backend="matplotlib",
-            fps=25,
-            resolution=(160, 120),
-            camera="turntable",
-            trajectory=True,
-        )
-        page = bvhplot.render(bvh_example[0:4], tmp_path / "x.html", **options)
-        apng = bvhplot.render(bvh_example[0:4], tmp_path / "x.apng", **options)
+        clips = bvh_example[0:4] if "labels" not in options else [bvh_example[0:4]] * 2
+        options = dict(options, backend="matplotlib", fps=25, resolution=(160, 120))
+        page = bvhplot.render(clips, tmp_path / "x.html", **options)
+        apng = bvhplot.render(clips, tmp_path / "x.apng", **options)
         drawn = self._page_frames(page)
         [handed] = handed_to_writer
         read = apng_frames(apng, 25)
@@ -1375,8 +1378,54 @@ class TestMatplotlibVideo:
         if not ffmpeg:
             pytest.importorskip("cv2")
         environment(importable={"cv2"}, ffmpeg=ffmpeg)
-        path = self._render(bvh_example, tmp_path / "x.mp4", fps=29.97, codec="auto")
+        path = self._render(bvh_example, tmp_path / "x.mp4", fps=29.97)
         assert self._probe(path, "r_frame_rate") == "2997/100"
+
+    def test_animation_ffmpeg_path_is_not_read(self, bvh_example, tmp_path, ffmpeg_on_path):
+        """ffmpeg is looked for on PATH, as for every backend: an
+        rcParam naming no executable changes nothing."""
+        import matplotlib
+
+        with matplotlib.rc_context({"animation.ffmpeg_path": str(tmp_path / "no-ffmpeg")}):
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                path = self._render(bvh_example, tmp_path / "x.mp4")
+        assert path == tmp_path / "x.mp4"
+        assert self._probe(path, "codec_name") == "h264"
+
+    def test_an_odd_resolution_is_drawn_and_padded_to_an_even_one(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path, handed_to_writer
+    ):
+        """H.264 in yuv420p needs even sizes: the frames are drawn at the
+        size asked, and the video is one pixel larger each way."""
+        environment(ffmpeg=True)
+        path = self._render(bvh_example, tmp_path / "x.mp4", resolution=(161, 121))
+        [handed] = handed_to_writer
+        assert handed[0].shape == (121, 161, 3)
+        assert self._probe(path, "width,height") == "162,122"
+
+    def test_an_animated_image_frame_lasts_its_rounded_milliseconds(self, bvh_example, tmp_path):
+        """1000 / 24 = 41.67 ms, rounded to 42; v0.9.0 stored 1000 /
+        round(24) truncated, 41."""
+        from PIL import Image, ImageSequence
+
+        path = self._render(bvh_example, tmp_path / "x.apng", fps=24, camera="turntable")
+        with Image.open(path) as apng:
+            durations = [frame.info["duration"] for frame in ImageSequence.Iterator(apng)]
+        assert durations == [42] * 4
+
+    def test_savefig_settings_do_not_change_the_frames(
+        self, bvh_example, tmp_path, handed_to_writer
+    ):
+        """The frames are read from the figure as drawn, not saved
+        through ``savefig``: its dpi and face colour are not read."""
+        import matplotlib
+
+        with matplotlib.rc_context({"savefig.dpi": 200, "savefig.facecolor": "red"}):
+            self._render(bvh_example, tmp_path / "x.apng", style="paper")
+        [handed] = handed_to_writer
+        assert handed[0].shape == (120, 160, 3)
+        assert tuple(handed[0][0, 0]) == (255, 255, 255)  # the paper style's white
 
     def test_a_turntable_is_timed_at_the_rate_given(
         self, bvh_example, tmp_path, environment, ffmpeg_on_path, handed_to_writer
@@ -1398,10 +1447,11 @@ class TestH264Fidelity:
     def test_the_video_decodes_close_to_the_frames_drawn(
         self, bvh_example, tmp_path, environment, ffmpeg_on_path, handed_to_writer, backend
     ):
-        """Within a mean of 1.5 levels of 255 on this clip. Piped as
-        BGR, ffmpeg's conversion to YUV lost about four times as much
-        as from RGB: means of 3.0 (OpenCV) and 3.8 (matplotlib) levels
-        against 0.7 and 0.9, measured on these frames."""
+        """Within a mean of 1.5 levels of 255 on this clip, where frames
+        piped as RGB decode 0.7 (OpenCV) and 0.9 (matplotlib) levels
+        away. Frames piped as BGR decode 3.0 and 3.8 levels away, white
+        as (251, 253, 250): ffmpeg 6.1's conversion of BGR to YUV
+        tints them."""
         import subprocess
 
         if backend == "opencv":
@@ -1435,14 +1485,18 @@ class TestGifTiming:
         [(20.1, 50), (24, 40), (30, 30)],
         ids=["49.75ms", "41.67ms", "33.33ms"],
     )
-    def test_opencv_rounds_the_frame_duration(self, bvh_example, tmp_path, fps, shown_ms):
+    @pytest.mark.parametrize("backend", ["opencv", "matplotlib"])
+    def test_every_backend_rounds_the_frame_duration(
+        self, bvh_example, tmp_path, fps, shown_ms, backend
+    ):
         """At 20.1 fps a frame lasts 49.75 ms: rounded to 50 it is stored
         as 5 hundredths, where truncating to 49 stored 4."""
-        pytest.importorskip("cv2")
+        if backend == "opencv":
+            pytest.importorskip("cv2")
         from PIL import Image
 
         path = bvhplot.render(
-            bvh_example[0:3], tmp_path / "t.gif", backend="opencv", resolution=(64, 48), fps=fps
+            bvh_example[0:3], tmp_path / "t.gif", backend=backend, resolution=(64, 48), fps=fps
         )
         with Image.open(path) as gif:
             assert gif.info["duration"] == shown_ms

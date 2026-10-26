@@ -194,7 +194,7 @@ def _with_unread_options(
     given: Collection[str],
     reads: Callable[[str], frozenset[str]],
     backends: Collection[str],
-    shown_as: Mapping[str, str] | None = None,
+    public_names: Mapping[str, str] | None = None,
 ) -> Choice:
     """Apply the rule for an option the chosen backend does not read
     (ADR 0006) to *choice*: *given* are the options the caller passed
@@ -205,18 +205,20 @@ def _with_unread_options(
     chosen. Either message offers the backends that read them all, when
     there are any. The other backends' declarations are read only for
     that message. A message names a backend as the caller does:
-    ``shown_as[backend]`` for one that runs under another name, else
-    the name it runs as."""
+    ``public_names[backend]`` for one that runs under another name,
+    else the name it runs as."""
 
-    def shown(backend: str) -> str:
-        return repr((shown_as or {}).get(backend, backend))
+    def public_name(backend: str) -> str:
+        return repr((public_names or {}).get(backend, backend))
 
     unread = sorted(set(given) - reads(choice.backend) - _ACCEPTED_BY_EVERY_BACKEND)
     if not unread:
         return choice
     names = _either([_SHOWN.get(option, option) for option in unread])
     it = "it" if len(unread) == 1 else "them"
-    readers = [shown(backend) for backend in sorted(backends) if set(unread) <= reads(backend)]
+    readers = [
+        public_name(backend) for backend in sorted(backends) if set(unread) <= reads(backend)
+    ]
     instead = (
         f"use backend={_either(readers)}, which {'reads' if len(readers) == 1 else 'read'} {it}"
         if readers
@@ -226,13 +228,14 @@ def _with_unread_options(
         ignored = "it is ignored" if len(unread) == 1 else "they are ignored"
         hint = f" To draw {it}, {instead}." if readers else ""
         message = (
-            f"{call}() chose backend={shown(choice.backend)}, which does not read {names}, "
+            f"{call}() chose backend={public_name(choice.backend)}, which does not read {names}, "
             f"so {ignored}.{hint}"
         )
         return Choice(choice.backend, (*choice.warnings, message))
     hint = f", or {instead}" if readers else ""
     raise ValueError(
-        f"{call}(backend={shown(choice.backend)}) does not read {names}. Leave {it} unset{hint}."
+        f"{call}(backend={public_name(choice.backend)}) does not read {names}. "
+        f"Leave {it} unset{hint}."
     )
 
 
@@ -316,6 +319,7 @@ def _play_reads(backend: str) -> frozenset[str]:
     """The options of ``play`` *backend* reads, as it declares them
     beside its entry function (the notebook video beside
     ``render_opencv``, which draws it)."""
+    # Imported on demand, as for render: matplotlib's module imports pyplot.
     module = importlib.import_module(f".{_PLAY_MODULES[backend]}", __package__)
     reads: frozenset[str] = module.PLAY_READS
     return reads

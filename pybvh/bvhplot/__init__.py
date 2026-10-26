@@ -1130,7 +1130,8 @@ def play(
         ``resolution`` and ``frame_counter`` by the OpenCV notebook
         video, ``spacing`` and ``match_size`` by k3d and vedo, which
         draw every skeleton in one scene; matplotlib reads none of
-        them. An option given (not ``None``) that the named backend
+        them, and like every backend accepts ``spacing`` and
+        ``match_size`` (see below). An option given (not ``None``) that the named backend
         does not read raises ``ValueError`` naming it, even at its
         default value (``frame_counter=False`` on vedo). Under
         ``"auto"`` it warns instead, naming the option and the backend
@@ -1167,10 +1168,9 @@ def play(
         capsules, 3D tubes and spheres lit as ``render(backend="vedo")``
         lights them but without their shadows; ``"fast"`` uses flat
         lines and points for maximum performance. ``None`` (default)
-        is ``"high"``. The light
-        is a single headlight, at the camera wherever you orbit, so
-        the side of a capsule facing you is the lit one and its edges
-        fall off into shade. The alternative is VTK's light kit (a
+        is ``"high"``. The light is a single headlight, at the camera
+        wherever you orbit, so the side of a capsule facing you is the
+        lit one and its edges fall off into shade. The alternative is VTK's light kit (a
         key, a fill and a back light, also tied to the camera), which
         lights more evenly but reads less sharply at the edges.
     frame_counter : bool or None, optional
@@ -1210,10 +1210,11 @@ def play(
         would otherwise differ in size by an order of magnitude. ``None``
         (default) is ``False``. The first skeleton is drawn as it is, so
         the order of the clips chooses the scale (rather than the
-        tallest skeleton's or a fixed height). Each other skeleton is scaled about the
-        point on its floor under its root at the first frame, before
-        the lateral spacing, and its label shows the factor (``"test2 ×0.13"``, or
-        ``"×0.13"`` alone for a skeleton with no label). Only the
+        tallest skeleton's or a fixed height). Each other skeleton is
+        scaled about the point on its floor under its root at the first
+        frame, before the lateral spacing, and its label shows the
+        factor (``"test2 ×0.13"``, or ``"×0.13"`` alone for a skeleton
+        with no label). Only the
         drawing changes: the clips are not touched. The height matched
         is the rest pose's, along the rest pose's own up axis
         (:attr:`Bvh.rest_up`); the alternative, the median over the

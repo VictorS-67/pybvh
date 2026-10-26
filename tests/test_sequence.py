@@ -258,6 +258,13 @@ class TestTurntablePeriod:
         frames = self._render(bvh[0:4], tmp_path, fps=9.5, turntable_period=1.2)
         assert len(frames) == round(1.2 * 9.5)
 
+    def test_an_animated_image_is_timed_at_its_whole_milliseconds(self, bvh, tmp_path):
+        """At 24 fps a frame of an animated image lasts 1000 / 24 =
+        41.67 ms, written as 42: 23.81 fps, so a 0.9 s period is 21.4
+        frames, 21, where 0.9 s at 24 fps would be 21.6, 22."""
+        frames = self._render(bvh[0:4], tmp_path, fps=24, turntable_period=0.9)
+        assert len(frames) == 21
+
     def test_follow_is_ignored_under_a_timed_turntable(self, bvh, tmp_path):
         clip = bvh[0:6]
         plain = self._render(clip, tmp_path, turntable_period=1.2)

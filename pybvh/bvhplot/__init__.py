@@ -102,15 +102,15 @@ if TYPE_CHECKING:
     from ._viewport import Turntable
 
 
-def _written_fps(backend_name: str, suffix: str, fps: float) -> float:
-    """The rate *backend_name* writes a ``suffix`` file at, given the
-    resolved *fps*: matplotlib rounds it (:func:`._matplotlib.written_fps`),
-    OpenCV and vedo write it as given."""
+def _written_fps(backend_name: str, target: _video.VideoTarget) -> float:
+    """The rate *backend_name* writes *target* at: matplotlib rounds it
+    (:func:`._matplotlib.written_fps`), OpenCV and vedo write it at the
+    video module's rate (:attr:`._video.VideoTarget.written_fps`)."""
     if backend_name == "matplotlib":
         from ._matplotlib import written_fps
 
-        return written_fps(fps, suffix)
-    return fps
+        return written_fps(target.fps, target.suffix)
+    return target.written_fps
 
 
 # A turntable turning 180 degrees or more a frame looks frozen or turning
@@ -971,7 +971,7 @@ def render(
         if turntable_period is None:
             period = float(scene.num_frames)
         else:
-            video_fps = _written_fps(backend_name, filepath.suffix, actual_fps)
+            video_fps = _written_fps(backend_name, target)
             period = turntable_period * video_fps
             if period <= _MIN_TURNTABLE_FRAMES:
                 shortest = _MIN_TURNTABLE_FRAMES / video_fps

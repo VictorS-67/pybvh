@@ -51,8 +51,9 @@ class VideoTarget:
     path : Path
         The file written, whose extension says its format; never changed.
     fps : float
-        Frames per second, fractional rates included; the router has
-        checked it is a positive number (``_resolve_fps``).
+        Frames per second asked, fractional rates included; the router
+        has checked it is a positive number (``_resolve_fps``). The file
+        is written at :attr:`written_fps`.
     resolution : (int, int)
         ``(width, height)`` in pixels the backend draws at, each a
         positive number.
@@ -94,6 +95,21 @@ class VideoTarget:
         """The path's extension, in lower case."""
         return self.path.suffix.lower()
 
+    @property
+    def written_fps(self) -> float:
+        """The rate the file is written at: the rate its frames play at.
+
+        A video container is written at :attr:`fps` as given, since
+        ffmpeg and OpenCV take fractional rates. An animated image (GIF,
+        WebP, APNG) stores each frame's duration in whole milliseconds,
+        ``1000 / fps`` rounded to the nearest: 42 ms at 24 fps, so 23.81
+        fps; a GIF then stores it truncated to 10 ms, a limit of the
+        format not counted here.
+        """
+        if _FORMATS.get(self.suffix) == _VIDEO:
+            return self.fps
+        return 1000.0 / round(1000.0 / self.fps)
+
 
 def _is_positive_number(value: object) -> bool:
     return (
@@ -126,7 +142,7 @@ class Writer:
         resolution: vedo may deliver screenshots larger than asked
         (HiDPI scaling).
         """
-        path, fps = self.target.path, self.target.fps
+        path, fps = self.target.path, self.target.written_fps
         frames = iter(frames)
         first = next(frames)
         frames = chain([first], frames)
@@ -309,8 +325,9 @@ def _save_with_pillow(
     path: Path, frames: Iterable[npt.NDArray[np.uint8]], fps: float, pillow_format: str
 ) -> None:
     """Save *frames* as one animated image in Pillow's *pillow_format*, looping,
-    each frame shown for ``1000 / fps`` milliseconds rounded to a whole
-    millisecond (a GIF stores them further truncated to 10 ms).
+    each frame shown for ``1000 / fps`` milliseconds, *fps* being a
+    :attr:`VideoTarget.written_fps` (a GIF stores them further truncated
+    to 10 ms).
 
     Pillow stores a run of identical frames as one frame shown for the
     run's summed duration, a whole number of frame durations; a file

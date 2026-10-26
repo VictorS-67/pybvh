@@ -1289,6 +1289,30 @@ class TestRenderCodec:
         with pytest.raises(ValueError, match="video containers"):
             bvhplot.render(bvh_example, tmp_path / "x.gif", codec="mpeg4")
 
+    BAD_CODECS = pytest.mark.parametrize(
+        "name, codec, message",
+        [("x.mp4", "hevc", "Unknown codec 'hevc'"), ("x.gif", "h264", "codec= applies to video")],
+        ids=["unknown", "on-a-gif"],
+    )
+
+    @BAD_CODECS
+    def test_a_bad_codec_is_refused_before_any_forward_kinematics(
+        self, bvh_example, tmp_path, computations, name, codec, message
+    ):
+        with pytest.raises(ValueError, match=message):
+            bvhplot.render(bvh_example, tmp_path / name, codec=codec)
+        assert computations.fk == 0
+
+    @BAD_CODECS
+    def test_a_bad_codec_is_refused_before_the_frame_rate(
+        self, bvh_example, tmp_path, name, codec, message
+    ):
+        """A clip whose rate is unset, given no fps, is refused for its
+        codec first, as v0.9.0 refused it."""
+        bvh_example.frame_time = 0
+        with pytest.raises(ValueError, match=message):
+            bvhplot.render(bvh_example, tmp_path / name, codec=codec)
+
 
 class TestMatplotlibVideo:
     """matplotlib hands its frames to the video module, so its videos

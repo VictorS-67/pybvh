@@ -124,13 +124,7 @@ class VideoTarget:
                 f"pixels, got {self.resolution!r}."
             )
         object.__setattr__(self, "resolution", sizes)  # a list given is kept as a tuple
-        if self.codec not in CODECS:
-            raise ValueError(f"Unknown codec {self.codec!r}. Choose from: {sorted(CODECS)}")
-        if self.codec != "auto" and self.suffix not in VIDEO_CONTAINERS:
-            raise ValueError(
-                f"codec= applies to video containers "
-                f"({sorted(VIDEO_CONTAINERS)}), not {self.path.suffix!r}."
-            )
+        check_codec(self.path, self.codec)
 
     @property
     def suffix(self) -> str:
@@ -163,6 +157,23 @@ class VideoTarget:
         matplotlib builds from its own figure; every other format is
         written from frames by :func:`writer_for`'s writer."""
         return _writer_of(self.suffix) == _PLAYER_PAGE
+
+
+def check_codec(path: Path, codec: str) -> None:
+    """Raise ``ValueError`` on an unknown *codec*, or on a codec other
+    than ``"auto"`` named for a *path* that is not a video container.
+
+    The rule a :class:`VideoTarget` checks when built, and the one part
+    of it that needs no rate: the router applies it before preparing the
+    Scene, whose rate the target waits for, so that a bad codec is
+    refused before any forward kinematics.
+    """
+    if codec not in CODECS:
+        raise ValueError(f"Unknown codec {codec!r}. Choose from: {sorted(CODECS)}")
+    if codec != "auto" and path.suffix.lower() not in VIDEO_CONTAINERS:
+        raise ValueError(
+            f"codec= applies to video containers ({sorted(VIDEO_CONTAINERS)}), not {path.suffix!r}."
+        )
 
 
 def _is_positive_number(value: object) -> bool:

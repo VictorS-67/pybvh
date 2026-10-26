@@ -4,16 +4,13 @@ auto and its backend is always named (``"matplotlib"`` by default)."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from pybvh import bvhplot, read_bvh_file
+from pybvh import bvhplot
 from pybvh.bvhplot import _backends
 
-BVH_DIR = Path(__file__).parent.parent / "bvh_data"
 # The package each backend draws with, skipped without it.
 PACKAGE = {"matplotlib": "matplotlib", "vedo": "vedo"}
 # Every option each backend declares it reads, as the rule reads the
@@ -21,7 +18,7 @@ PACKAGE = {"matplotlib": "matplotlib", "vedo": "vedo"}
 DECLARED = [
     (backend, option)
     for backend in sorted(PACKAGE)
-    for option in sorted(_backends._frame_reads(backend))
+    for option in sorted(_backends._reads("frame", backend))
 ]
 # A small picture for vedo, so that each still is quick.
 SMALL = (160, 120)
@@ -36,18 +33,6 @@ def _a_value_of(option):
     """A value of *option* for frame(), other than None."""
     values = {"figsize": (4, 3), "show": True, "resolution": (400, 300)}
     return {option: _axes() if option == "ax" else values[option]}
-
-
-@pytest.fixture(scope="module")
-def walk():
-    return read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")
-
-
-@pytest.fixture(scope="module")
-def pair(walk):
-    """The walk beside itself drawn twice as large, so that a spacing
-    and a matched size each change a scene holding both."""
-    return [walk, walk.scale(2.0)]
 
 
 @pytest.fixture(autouse=True)

@@ -4,7 +4,7 @@ bvhplot's `frame`, `render` and `play` take one set of keywords for every backen
 
 ## Decision
 
-**1. Each backend states the options it reads, beside its entry function.** `render`'s backends hold a `RENDER_READS` set next to `render_opencv`, `render_mpl` and `render_vedo`. `_backends` collects the declarations and applies the rule; no other module knows which backend reads what.
+**1. Each backend states the options it reads, beside its entry function.** `frame`'s backends hold a `FRAME_READS` set next to `frame_mpl` and `frame_vedo`; `render`'s a `RENDER_READS` set next to `render_opencv`, `render_mpl` and `render_vedo`; `play`'s a `PLAY_READS` set next to `play_k3d`, `play_vedo` and `play_mpl`, and the notebook video's next to `render_opencv`, which draws it. `_backends` collects the declarations and applies the rule when it chooses each call's backend (`choose_frame_backend`, `choose_render_backend`, `choose_play_backend`); no other module knows which backend reads what.
 
 **2. An option given that the named backend does not read raises `ValueError`.** The message names the option, the backend, and the backends that read it. A file is never written without something its call asked for.
 
@@ -18,7 +18,7 @@ bvhplot's `frame`, `render` and `play` take one set of keywords for every backen
 
 ## Why
 
-**One rule, read from one place.** The router's hand-kept list described one backend of one call, and the silent drops were not written anywhere: a reader of the router could not tell which options a backend honours. A declaration beside the entry function sits where a change to what the backend draws is made, and a test keeps it honest by rendering each backend to `.apng`, lossless, with and without each option: a declared option must change the frames read back, an undeclared one must leave them identical.
+**One rule, read from one place.** The router's hand-kept list described one backend of one call, and the silent drops were not written anywhere: a reader of the router could not tell which options a backend honours. A declaration beside the entry function sits where a change to what the backend draws is made, and tests keep it honest by running each backend with and without each option: a declared option must change what is drawn (`render`'s frames read back from a lossless `.apng`, `frame`'s picture, the frames of `play`'s notebook video), and an undeclared one that a call can hand over (`spacing` and `match_size` on a panel backend) must leave them identical.
 
 **Raising when named, warning under auto.** A named backend is a choice the script's author made and can change, so a raise there costs one edit and prevents a wrong file. Auto is a choice the library made from the machine, which the author does not control; a raise there would make a script's success depend on where it runs.
 
@@ -31,4 +31,4 @@ bvhplot's `frame`, `render` and `play` take one set of keywords for every backen
 
 ## Consequences
 
-A call passing an option its named backend does not read, which used to write a file without it or raise from the router's list, raises naming the option; code that forwards one mapping of options to several backends keeps in it only what each reads, or `None`. A backend gaining an option adds it to its declaration, and the frames test, which runs every declared option, then requires it to change the picture. `frame` and `play` are to follow the same rule (issue #129), their backends declaring their own options and `_backends` collecting them the same way.
+A call passing an option its named backend does not read, which used to write a file without it or raise from the router's list, raises naming the option; code that forwards one mapping of options to several backends keeps in it only what each reads, or `None`. A backend gaining an option adds it to its declaration, and the frames test, which runs every declared option, then requires it to change the picture. `frame` and `play` follow the same rule, their backends declaring their own options and `_backends` collecting them the same way; `frame` has no auto, so its backend, `"matplotlib"` by default, is always named and an option it does not read always raises.

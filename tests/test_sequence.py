@@ -432,6 +432,7 @@ class TestReviewFixes:
         panel of a 2-up render equals the same view rendered alone."""
         pytest.importorskip("cv2")
         from pybvh.bvhplot import Style
+        from pybvh.bvhplot._animation_options import AnimationOptions
         from pybvh.bvhplot._from_bvh import make_scene
         from pybvh.bvhplot._opencv import _generate_frames
 
@@ -442,7 +443,7 @@ class TestReviewFixes:
         far = coords + np.array([500.0, 0.0, 0.0])
         pair = make_scene([bvh, bvh], [coords, far], "front", None)
         solo = make_scene([bvh], [coords], "front", None)
-        pair_img = next(_generate_frames(pair, style, (400, 200)))
-        solo_img = next(_generate_frames(solo, style, (200, 200)))
+        pair_img = next(_generate_frames(pair, style, (400, 200), AnimationOptions()))
+        solo_img = next(_generate_frames(solo, style, (200, 200), AnimationOptions()))
         # ignore the 1px divider column at x=200
         assert np.array_equal(pair_img[:, :199], solo_img[:, :199])

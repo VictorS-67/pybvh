@@ -214,7 +214,7 @@ class TestRenderChoice:
 class TestFrameChoice:
     @pytest.mark.parametrize("named", ["matplotlib", "vedo"])
     def test_a_known_backend_runs_as_named(self, named):
-        assert _backends.choose_frame_backend(named) == named
+        assert _backends.choose_frame_backend(named) == _backends.Choice(named)
 
     def test_an_unknown_backend_raises(self):
         with pytest.raises(ValueError) as raised:

@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 import pybvh.analysis
 import pybvh.bvh
+from pybvh import read_bvh_file
 from pybvh.bvhplot import _backends, _video
+
+BVH_DIR = Path(__file__).parent.parent / "bvh_data"
 
 
 @dataclass
@@ -161,3 +165,32 @@ def apng_frames():
         return frames
 
     return read
+
+
+@pytest.fixture(scope="module")
+def walk():
+    """Four frames of the CMU walk spread over 3 seconds, as it turns:
+    short to draw, and a camera that follows, a turntable, ghosts and the
+    root's trail each change the picture."""
+    return read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")[0:400:100]
+
+
+@pytest.fixture(scope="module")
+def pair(walk):
+    """The walk beside itself drawn twice as large, so that a spacing
+    and a matched size each change a scene holding both."""
+    return [walk, walk.scale(2.0)]
+
+
+@pytest.fixture
+def same_frames():
+    """Compare two drawings frame by frame: ``same_frames(frames,
+    others)`` is whether they hold as many frames, each identical to its
+    counterpart."""
+
+    def same(frames, others):
+        return len(frames) == len(others) and all(
+            np.array_equal(a, b) for a, b in zip(frames, others, strict=True)
+        )
+
+    return same

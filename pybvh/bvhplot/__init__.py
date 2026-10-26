@@ -96,6 +96,8 @@ def _resolve_sample_frames(
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     import matplotlib.axes
     import matplotlib.figure
 
@@ -109,6 +111,10 @@ _MIN_TURNTABLE_FRAMES = 2
 # The size, (width, height) in pixels, of frame()'s vedo image when no
 # resolution is given.
 _VEDO_STILL_RESOLUTION = (1100, 1000)
+
+# The size, (width, height) in pixels, of play()'s notebook video when no
+# resolution is given.
+_NOTEBOOK_VIDEO_RESOLUTION = (960, 540)
 
 
 def _resolve_fps(fps: float | None, frame_time: float) -> float:
@@ -282,6 +288,13 @@ def _match_frame_rates(
     return result
 
 
+def _warn_at_user_line(messages: Iterable[str]) -> None:
+    """Warn each of *messages*, which a backend choice or a video writer
+    owes the caller, at the user's line."""
+    for message in messages:
+        warnings.warn(message, stacklevel=user_stacklevel())
+
+
 def _given(**options: object) -> set[str]:
     """The names of the *options* the caller gave: those not ``None``.
     An option some backend does not read defaults to ``None``, so that a
@@ -289,11 +302,12 @@ def _given(**options: object) -> set[str]:
     return {name for name, value in options.items() if value is not None}
 
 
-def _validated_spacing(spacing: float | str) -> float | str:
+def _validated_spacing(spacing: float | str | None) -> float | str:
     """*spacing* as the router hands it to :meth:`Scene.spread`:
-    ``"auto"``, or a non-negative float."""
-    if spacing == "auto":
-        return spacing
+    ``"auto"``, or a non-negative float. ``None``, the default of every
+    call, stands for ``"auto"``."""
+    if spacing is None or spacing == "auto":
+        return "auto"
     try:
         spacing_val = float(spacing)
     except (TypeError, ValueError):
@@ -618,8 +632,8 @@ def frame(
         match_size=match_size,
     )
     clips = as_clip_list(bvh)
-    backend = _backends.choose_frame_backend(backend, given)
-    spacing = _validated_spacing("auto" if spacing is None else spacing)
+    backend = _backends.choose_frame_backend(backend, given).backend
+    spacing = _validated_spacing(spacing)
 
     frame_spec = coords if coords is not None else frame
     scene = _prepare(clips, frame_spec, centered, camera, labels)
@@ -988,10 +1002,12 @@ def render(
 
     clips = as_clip_list(bvh)
     filepath = Path(filepath)
-    spacing = _validated_spacing("auto" if spacing is None else spacing)
+    spacing = _validated_spacing(spacing)
     _validate_sync(sync)
     pad = sync == "pad"
     style_obj = resolve_style(style)
+    # The target waits for the Scene's rate; its codec rule does not.
+    _video.check_codec(filepath, codec)
 
     # "turntable" is a camera *schedule*, not an angle: orbit from the
     # front view. It overrides follow (both prescribe the azimuth). A
@@ -1061,8 +1077,7 @@ def render(
             animation_options, schedule=Turntable(period=period)
         )
 
-    for message in choice.warnings:
-        warnings.warn(message, stacklevel=user_stacklevel())
+    _warn_at_user_line(choice.warnings)
 
     _backends.check_importable("render", backend_name, environment)
     if backend_name == "vedo":
@@ -1101,8 +1116,7 @@ def _video_writer(
     """The video module's writer of *target* for the backend *subject*
     names, its warnings warned at the user's line."""
     writer = _video.writer_for(target, environment, subject)
-    for message in writer.warnings:
-        warnings.warn(message, stacklevel=user_stacklevel())
+    _warn_at_user_line(writer.warnings)
     return writer
 
 
@@ -1285,7 +1299,7 @@ def play(
     if quality not in _VALID_QUALITY:
         raise ValueError(f"Unknown quality {quality!r}. Choose from: {sorted(_VALID_QUALITY)}")
 
-    spacing = _validated_spacing("auto" if spacing is None else spacing)
+    spacing = _validated_spacing(spacing)
     match_size = bool(match_size)
     # play has no follow, turntable, ghost or trail: the camera is fixed.
     animation_options = _animation_options.AnimationOptions(frame_counter=bool(frame_counter))
@@ -1301,8 +1315,7 @@ def play(
 
     actual_fps = _resolve_fps(fps, scene.frame_time)
 
-    for message in choice.warnings:
-        warnings.warn(message, stacklevel=user_stacklevel())
+    _warn_at_user_line(choice.warnings)
 
     step = _backends.play_frame_step(backend_name, fps, actual_fps)
     if step > 1:
@@ -1353,7 +1366,7 @@ def play(
             tmp_path = Path(tmp.name)
 
         target = _video.VideoTarget(
-            tmp_path, actual_fps, (960, 540) if resolution is None else resolution
+            tmp_path, actual_fps, _NOTEBOOK_VIDEO_RESOLUTION if resolution is None else resolution
         )
         writer = _video_writer(target, environment, "The opencv play backend")
         render_opencv(scene, style_obj, writer, animation_options)

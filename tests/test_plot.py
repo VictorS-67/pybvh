@@ -6,6 +6,7 @@ import dataclasses
 import importlib
 import inspect
 import re
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -1154,26 +1155,49 @@ class TestRenderCodec:
 class TestRenderBackendResolution:
     """Extension-aware backend routing for render()."""
 
-    def test_mpl_only_extensions_route_to_matplotlib(self):
+    @pytest.fixture
+    def rendered_by(self, monkeypatch):
+        """The backend each render() call reached; both are stubbed out."""
+        import pybvh.bvhplot._matplotlib as mpl_backend
+
+        reached = []
+        monkeypatch.setattr(
+            mpl_backend, "render_mpl", lambda *args, **kwargs: reached.append("matplotlib")
+        )
+        monkeypatch.setattr(
+            _opencv, "render_opencv", lambda *args, **kwargs: reached.append("opencv")
+        )
+        return reached
+
+    @pytest.mark.parametrize("ext", [".html", ".webp", ".apng", ".gif"])
+    def test_mpl_only_extensions_route_to_matplotlib(self, bvh_example, tmp_path, rendered_by, ext):
         """Formats OpenCV cannot write always go to matplotlib under auto,
-        even when cv2 is installed."""
-        from pybvh.bvhplot import _resolve_render_backend
+        even when cv2 is installed, and without the missing-OpenCV
+        warning."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            bvhplot.render(bvh_example[0:3], tmp_path / f"x{ext}")
+        assert rendered_by == ["matplotlib"]
+        assert [w for w in caught if "OpenCV not found" in str(w.message)] == []
 
-        for ext in (".html", ".webp", ".apng", ".gif"):
-            assert _resolve_render_backend("auto", ext) == "matplotlib"
-
-    def test_video_extensions_prefer_opencv_when_available(self):
+    @pytest.mark.parametrize("ext", [".mp4", ".mov", ".avi"])
+    def test_video_extensions_prefer_opencv_when_available(
+        self, bvh_example, tmp_path, rendered_by, ext
+    ):
         pytest.importorskip("cv2")
-        from pybvh.bvhplot import _resolve_render_backend
+        bvhplot.render(bvh_example[0:3], tmp_path / f"x{ext}")
+        assert rendered_by == ["opencv"]
 
-        for ext in (".mp4", ".mov", ".avi"):
-            assert _resolve_render_backend("auto", ext) == "opencv"
-
-    def test_explicit_backend_wins_over_extension(self):
-        from pybvh.bvhplot import _resolve_render_backend
-
-        assert _resolve_render_backend("matplotlib", ".mp4") == "matplotlib"
-        assert _resolve_render_backend("opencv", ".gif") == "opencv"
+    @pytest.mark.parametrize(
+        "backend, ext", [("matplotlib", ".mp4"), ("opencv", ".gif")], ids=["matplotlib", "opencv"]
+    )
+    def test_explicit_backend_wins_over_extension(
+        self, bvh_example, tmp_path, rendered_by, backend, ext
+    ):
+        if backend == "opencv":
+            pytest.importorskip("cv2")
+        bvhplot.render(bvh_example[0:3], tmp_path / f"x{ext}", backend=backend)
+        assert rendered_by == [backend]
 
     def test_unknown_backend_raises(self, bvh_example, tmp_path):
         with pytest.raises(ValueError, match="backend"):

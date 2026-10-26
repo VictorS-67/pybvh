@@ -9,6 +9,7 @@ import pytest
 
 import pybvh.analysis
 import pybvh.bvh
+from pybvh.bvhplot import _backends
 
 
 @dataclass
@@ -82,3 +83,22 @@ def computations(monkeypatch):
     monkeypatch.setattr(pybvh.bvh, "_build_rest_pose", counted_rest)
     monkeypatch.setattr(pybvh.bvh, "_build_orientation_report", counted_report)
     return counts
+
+
+@pytest.fixture
+def environment(monkeypatch):
+    """Replace the machine bvhplot reads with one the test builds.
+
+    Call it with what the machine offers: ``environment(notebook=True,
+    importable={"cv2"})`` makes every later bvhplot call run in a notebook
+    where only OpenCV imports. Returns the value built.
+    """
+
+    def build(*, notebook=False, display=False, importable=()):
+        built = _backends.Environment(
+            in_notebook=notebook, has_display=display, importable=frozenset(importable)
+        )
+        monkeypatch.setattr(_backends, "read_environment", lambda: built)
+        return built
+
+    return build

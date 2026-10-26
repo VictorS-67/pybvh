@@ -44,6 +44,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .._warnings import user_stacklevel
+from . import _backends
 from ._from_bvh import (
     as_clip_list,
     get_skeleton_lines,  # noqa: F401 — re-export (public since 0.5.0)
@@ -101,64 +102,7 @@ if TYPE_CHECKING:
     from ._viewport import Turntable
 
 
-# ---------------------------------------------------------------------------
-# Backend detection
-# ---------------------------------------------------------------------------
-
-
-def _detect_notebook() -> bool:
-    """Check if running inside a Jupyter notebook."""
-    try:
-        from IPython import get_ipython
-
-        shell = get_ipython().__class__.__name__
-        return shell == "ZMQInteractiveShell"
-    except (ImportError, AttributeError):
-        return False
-
-
-def _has_display() -> bool:
-    """Check if a display server is available."""
-    import os
-    import sys
-
-    if sys.platform in ("darwin", "win32"):
-        return True  # macOS/Windows always have a windowing system
-    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
-
-
-def _module_importable(name: str) -> bool:
-    try:
-        __import__(name)
-        return True
-    except ImportError:
-        return False
-
-
-# Formats only the matplotlib/pillow pipeline can write — OpenCV's
-# VideoWriter handles video containers only (its .gif support is a
-# dedicated pillow-based path inside render_opencv).
-_MPL_ONLY_EXTENSIONS = {".html", ".webp", ".apng", ".gif"}
 _VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi"}  # containers codec= applies to
-
-
-def _resolve_render_backend(requested: str, ext: str) -> str:
-    """Resolve the render backend from the request and the file extension.
-
-    Under ``"auto"``, extensions OpenCV cannot write route to matplotlib
-    even when cv2 is installed (previously they hit a misleading codec
-    error); everything else prefers OpenCV when available. ``"vedo"``
-    (the shadowed capsule renderer) is never auto-selected — it is a
-    deliberate look, not a fallback.
-    """
-    valid = {"auto", "opencv", "matplotlib", "vedo"}
-    if requested not in valid:
-        raise ValueError(f"Unknown backend {requested!r}. Choose from: {sorted(valid)}")
-    if requested != "auto":
-        return requested
-    if ext in _MPL_ONLY_EXTENSIONS:
-        return "matplotlib"
-    return "opencv" if _module_importable("cv2") else "matplotlib"
 
 
 def _written_fps(backend_name: str, suffix: str, fps: float) -> float:
@@ -253,54 +197,6 @@ def _require_frame_rates(
             f"{subject} frame_time 0 (unset). Set bvh.frame_time (or "
             f"bvh.fps), or pass fps= to {entry}()."
         )
-
-
-def _resolve_play_backend(requested: str) -> tuple[str, int]:
-    """Resolve the play backend and its fallback tier.
-
-    Returns
-    -------
-    backend_name : str
-        One of ``"k3d"``, ``"vedo"``, ``"opencv_notebook"``,
-        ``"matplotlib"``.
-    tier : int
-        0 = explicit (no warnings), 1 = best auto,
-        2 = fast fallback, 3 = slow fallback.
-    """
-    if requested != "auto":
-        # "opencv" is the user-facing name (matching render()) for the
-        # inline-video backend auto-selection calls "opencv_notebook" —
-        # everything auto can choose must be nameable.
-        if requested == "opencv":
-            return "opencv_notebook", 0
-        return requested, 0
-
-    in_notebook = _detect_notebook()
-
-    if in_notebook:
-        try:
-            import k3d  # noqa: F401
-
-            return "k3d", 1
-        except ImportError:
-            pass
-        try:
-            import cv2  # noqa: F401
-
-            return "opencv_notebook", 2
-        except ImportError:
-            pass
-        return "matplotlib", 3
-
-    # Script path
-    if _has_display():
-        try:
-            import vedo  # noqa: F401
-
-            return "vedo", 1
-        except ImportError:
-            pass
-    return "matplotlib", 2
 
 
 # ---------------------------------------------------------------------------
@@ -703,19 +599,14 @@ def frame(
         array instead.
     """
     clips = as_clip_list(bvh)
-    _VALID_FRAME_BACKENDS = {"matplotlib", "vedo"}
-    if backend not in _VALID_FRAME_BACKENDS:
-        raise ValueError(
-            f"Unknown backend {backend!r}. Choose from: {sorted(_VALID_FRAME_BACKENDS)}"
-        )
+    backend = _backends.choose_frame_backend(backend)
     spacing = _validated_spacing(spacing)
 
     frame_spec = coords if coords is not None else frame
     scene = _prepare(clips, frame_spec, centered, camera, labels)
 
+    _backends.check_importable("frame", backend, _backends.read_environment())
     if backend == "vedo":
-        if not _module_importable("vedo"):
-            raise ImportError("vedo backend requires vedo. Install with: pip install pybvh[viewer]")
         from ._vedo_offscreen import frame_vedo
 
         # Only a comparison is arranged, so only it needs its clips'
@@ -1068,7 +959,9 @@ def render(
     if turntable:
         camera = "front"
 
-    backend_name = _resolve_render_backend(backend, filepath.suffix.lower())
+    environment = _backends.read_environment()
+    choice = _backends.choose_render_backend(backend, filepath.suffix.lower(), environment)
+    backend_name = choice.backend
 
     # Handle frame-rate mismatch before computing FK coordinates
     _require_frame_rates(clips, "render", fps, ghost, match_fps)
@@ -1111,21 +1004,11 @@ def render(
     else:
         motion = "fixed"
 
-    if (
-        backend == "auto"
-        and backend_name == "matplotlib"
-        and filepath.suffix.lower() not in _MPL_ONLY_EXTENSIONS
-    ):
-        warnings.warn(
-            "OpenCV not found for fast rendering. "
-            "Install with: pip install pybvh[opencv]. "
-            "Falling back to matplotlib (slower).",
-            stacklevel=user_stacklevel(),
-        )
+    for message in choice.warnings:
+        warnings.warn(message, stacklevel=user_stacklevel())
 
+    _backends.check_importable("render", backend_name, environment)
     if backend_name == "vedo":
-        if not _module_importable("vedo"):
-            raise ImportError("vedo backend requires vedo. Install with: pip install pybvh[viewer]")
         unsupported = []
         if motion != "fixed":
             unsupported.append("follow/turntable cameras")
@@ -1147,10 +1030,6 @@ def render(
         return render_vedo(scene, style_obj, filepath, actual_fps, resolution, codec=codec)
 
     if backend_name == "opencv":
-        if not _module_importable("cv2"):
-            raise ImportError(
-                "OpenCV backend requires opencv-python. Install with: pip install pybvh[opencv]"
-            )
         from ._opencv import render_opencv
 
         return render_opencv(
@@ -1332,22 +1211,9 @@ def play(
     """
     clips = as_clip_list(bvh)
 
-    valid_backends = {"auto", "k3d", "vedo", "opencv", "matplotlib"}
-    if backend not in valid_backends:
-        raise ValueError(f"Unknown backend {backend!r}. Choose from: {sorted(valid_backends)}")
-    if backend == "opencv":
-        if not _module_importable("cv2"):
-            raise ImportError(
-                "The opencv play backend requires opencv-python. "
-                "Install with: pip install pybvh[opencv]"
-            )
-        if not _detect_notebook():
-            raise ValueError(
-                "backend='opencv' plays an inline video and only works "
-                "inside a Jupyter notebook. In a script, use "
-                "backend='vedo' (interactive window) or render() to a "
-                "file instead."
-            )
+    environment = _backends.read_environment()
+    choice = _backends.choose_play_backend(backend, environment)
+    backend_name = choice.backend
 
     _VALID_QUALITY = {"fast", "high"}
     if quality not in _VALID_QUALITY:
@@ -1366,39 +1232,12 @@ def play(
 
     actual_fps = _resolve_fps(fps, scene.frame_time)
 
-    backend_name, tier = _resolve_play_backend(backend)
+    for message in choice.warnings:
+        warnings.warn(message, stacklevel=user_stacklevel())
 
-    # --- Warnings (auto mode only, tier > 0) ---
-    # Gate the install hint on vedo actually being missing: on a
-    # headless display-less machine vedo may well be installed (the
-    # fallback is about the display, not the install).
-    if tier >= 2 and not _module_importable("vedo"):
-        warnings.warn(
-            "No interactive backend (k3d, vedo) found. "
-            "Install with: pip install pybvh[interactive]",
-            stacklevel=user_stacklevel(),
-        )
-    if tier >= 3:
-        warnings.warn(
-            "OpenCV not found for fast rendering. "
-            "Install with: pip install pybvh[opencv]. "
-            "Falling back to matplotlib (slow for long clips).",
-            stacklevel=user_stacklevel(),
-        )
-
-    # --- Subsample to 30fps when fps is auto ---
-    # Notebooks (k3d, jshtml) and matplotlib windows can't keep up with
-    # high frame rates (120fps). Cap at 30fps for correct playback speed.
-    # opencv_notebook uses a video player that handles any fps natively.
-    # vedo uses persistent actors + timer, handles high fps well.
-    _PLAY_MAX_FPS = 30.0
-    if (
-        fps is None
-        and backend_name not in ("opencv_notebook", "vedo")
-        and actual_fps > _PLAY_MAX_FPS
-    ):
-        subsample_step = math.ceil(actual_fps / _PLAY_MAX_FPS)
-        scene = scene.subsampled(subsample_step)
+    step = _backends.play_frame_step(backend_name, fps, actual_fps)
+    if step > 1:
+        scene = scene.subsampled(step)
         actual_fps = 1.0 / scene.frame_time
 
     # --- world_up consistency check (all backends) ---
@@ -1408,14 +1247,8 @@ def play(
     # For single-scene backends (vedo, k3d) there can only be ONE camera
     # and ONE bounding box: the backends make one viewport of the scene
     # as _arranged_in_one_scene lays it out.
+    _backends.check_importable("play", backend_name, environment)
     if backend_name == "k3d":
-        try:
-            import k3d  # noqa: F401
-        except ImportError as err:
-            raise ImportError(
-                "k3d backend requires k3d and ipywidgets. "
-                "Install with: pip install pybvh[interactive]"
-            ) from err
         from ._k3d import play_k3d
 
         play_k3d(
@@ -1428,12 +1261,6 @@ def play(
         return None
 
     elif backend_name == "vedo":
-        try:
-            import vedo  # noqa: F401
-        except ImportError as err:
-            raise ImportError(
-                "vedo backend requires vedo. Install with: pip install pybvh[viewer]"
-            ) from err
         from ._vedo import play_vedo
 
         play_vedo(
@@ -1467,7 +1294,7 @@ def play(
     else:  # matplotlib
         from ._matplotlib import play_mpl
 
-        play_mpl(scene, style_obj, actual_fps, in_notebook=_detect_notebook())
+        play_mpl(scene, style_obj, actual_fps, in_notebook=environment.in_notebook)
         return None
 
 

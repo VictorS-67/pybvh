@@ -1152,6 +1152,31 @@ class TestRenderCodec:
             bvhplot.render(bvh_example, tmp_path / "x.mp4", backend="matplotlib", codec="mpeg4")
 
 
+class TestMissingPackage:
+    """A backend whose package does not import raises before drawing,
+    naming what to install, through each public call."""
+
+    @pytest.mark.parametrize(
+        "draw, install",
+        [
+            (lambda clip, path: bvhplot.frame(clip, backend="vedo"), "viewer"),
+            (lambda clip, path: bvhplot.render(clip, path / "x.mp4", backend="vedo"), "viewer"),
+            (lambda clip, path: bvhplot.render(clip, path / "x.mp4", backend="opencv"), "opencv"),
+            (lambda clip, path: bvhplot.play(clip, backend="k3d"), "interactive"),
+            (lambda clip, path: bvhplot.play(clip, backend="vedo"), "viewer"),
+            (lambda clip, path: bvhplot.play(clip, backend="opencv"), "opencv"),
+        ],
+        ids=["frame-vedo", "render-vedo", "render-opencv", "play-k3d", "play-vedo", "play-opencv"],
+    )
+    def test_the_call_raises_naming_the_install(
+        self, bvh_example, tmp_path, environment, draw, install
+    ):
+        environment(notebook=True, display=True)
+        with pytest.raises(ImportError, match=re.escape(f"pip install pybvh[{install}]")):
+            draw(bvh_example[0:3], tmp_path)
+        assert list(tmp_path.iterdir()) == []
+
+
 class TestRenderBackendResolution:
     """Extension-aware backend routing for render()."""
 
@@ -1170,10 +1195,13 @@ class TestRenderBackendResolution:
         return reached
 
     @pytest.mark.parametrize("ext", [".html", ".webp", ".apng", ".gif"])
-    def test_mpl_only_extensions_route_to_matplotlib(self, bvh_example, tmp_path, rendered_by, ext):
+    def test_mpl_only_extensions_route_to_matplotlib(
+        self, bvh_example, tmp_path, rendered_by, environment, ext
+    ):
         """Formats OpenCV cannot write always go to matplotlib under auto,
         even when cv2 is installed, and without the missing-OpenCV
         warning."""
+        environment(importable={"cv2"})
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             bvhplot.render(bvh_example[0:3], tmp_path / f"x{ext}")
@@ -1182,9 +1210,9 @@ class TestRenderBackendResolution:
 
     @pytest.mark.parametrize("ext", [".mp4", ".mov", ".avi"])
     def test_video_extensions_prefer_opencv_when_available(
-        self, bvh_example, tmp_path, rendered_by, ext
+        self, bvh_example, tmp_path, rendered_by, environment, ext
     ):
-        pytest.importorskip("cv2")
+        environment(importable={"cv2"})
         bvhplot.render(bvh_example[0:3], tmp_path / f"x{ext}")
         assert rendered_by == ["opencv"]
 
@@ -1192,10 +1220,9 @@ class TestRenderBackendResolution:
         "backend, ext", [("matplotlib", ".mp4"), ("opencv", ".gif")], ids=["matplotlib", "opencv"]
     )
     def test_explicit_backend_wins_over_extension(
-        self, bvh_example, tmp_path, rendered_by, backend, ext
+        self, bvh_example, tmp_path, rendered_by, environment, backend, ext
     ):
-        if backend == "opencv":
-            pytest.importorskip("cv2")
+        environment(importable={"cv2"})
         bvhplot.render(bvh_example[0:3], tmp_path / f"x{ext}", backend=backend)
         assert rendered_by == [backend]
 
@@ -1302,11 +1329,21 @@ class TestFpsResolution:
         ],
     )
     def test_play_caps_the_rate_only_where_the_player_needs_it(
-        self, bvh_test2, monkeypatch, backend, library, module, player, step, played_fps
+        self,
+        bvh_test2,
+        monkeypatch,
+        environment,
+        backend,
+        library,
+        module,
+        player,
+        step,
+        played_fps,
     ):
         """k3d widgets cannot keep up with 120 fps; vedo's timer and a
-        notebook video player can."""
-        pytest.importorskip(library)
+        notebook video player can. The player is stubbed and the machine
+        built, so no optional package is needed."""
+        environment(notebook=True, importable={library})
         signature = inspect.signature(getattr(module, player))
         calls = []
 
@@ -1317,7 +1354,6 @@ class TestFpsResolution:
         monkeypatch.setattr(module, player, record)
         if backend == "opencv":
             ipython_display = pytest.importorskip("IPython.display")
-            monkeypatch.setattr(bvhplot, "_detect_notebook", lambda: True)
             # the video file is never written: show nothing
             monkeypatch.setattr(ipython_display, "Video", lambda *args, **kwargs: None)
             monkeypatch.setattr(ipython_display, "display", lambda *args, **kwargs: None)
@@ -1325,6 +1361,73 @@ class TestFpsResolution:
         ((scene, fps),) = calls
         assert scene.num_frames == len(range(0, len(bvh_test2), step))
         assert fps == pytest.approx(played_fps)
+
+
+class TestPlayWithoutAWindow:
+    """The play() paths that open no window run for real, in a notebook
+    the test builds: what the notebook would show is captured."""
+
+    @pytest.fixture
+    def shown(self, monkeypatch):
+        """Each object play() hands the notebook to display, with the HTML
+        the notebook renders it as, taken at the call as display() takes
+        it."""
+        ipython_display = pytest.importorskip("IPython.display")
+        objects = []
+
+        def display(obj):
+            objects.append((obj, obj._repr_html_()))
+
+        monkeypatch.setattr(ipython_display, "display", display)
+        return objects
+
+    def test_a_notebook_with_opencv_shows_the_clip_as_an_embedded_video(
+        self, bvh_example, environment, shown
+    ):
+        """The page embeds the video; its temporary file is deleted once
+        shown."""
+        pytest.importorskip("cv2")
+        environment(notebook=True, importable={"cv2"})
+        with pytest.warns(UserWarning, match="No interactive backend"):
+            bvhplot.play(bvh_example[0:5])
+        ((video, page),) = shown
+        assert type(video).__name__ == "Video"
+        assert "data:video/mp4;base64," in page
+        assert not Path(video.filename).exists()
+
+    def test_a_notebook_without_opencv_shows_matplotlibs_player(
+        self, bvh_example, environment, shown
+    ):
+        """Every frame of the clip is embedded in the player page."""
+        environment(notebook=True)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            bvhplot.play(bvh_example[0:5])
+        fallbacks = [
+            str(w.message)
+            for w in caught
+            if str(w.message).startswith(("No interactive backend", "OpenCV not found"))
+        ]
+        assert fallbacks == [
+            "No interactive backend (k3d, vedo) found. Install with: pip install pybvh[interactive]",
+            "OpenCV not found for fast rendering. Install with: pip install pybvh[opencv]. "
+            "Falling back to matplotlib (slow for long clips).",
+        ]
+        ((player, page),) = shown
+        assert type(player).__name__ == "HTML"
+        assert page.count("data:image/png;base64,") == 5
+
+    def test_a_script_hands_matplotlib_a_window(self, bvh_example, environment, monkeypatch):
+        import pybvh.bvhplot._matplotlib as mpl_backend
+
+        environment()
+        windows = []
+        monkeypatch.setattr(
+            mpl_backend, "play_mpl", lambda *args, in_notebook: windows.append(not in_notebook)
+        )
+        with pytest.warns(UserWarning, match="No interactive backend"):
+            bvhplot.play(bvh_example[0:5])
+        assert windows == [True]
 
 
 class TestPlaySync:

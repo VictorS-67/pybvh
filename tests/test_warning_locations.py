@@ -560,15 +560,6 @@ class TestBvhplot:
         monkeypatch.setattr(_matplotlib, "render_mpl", lambda *args, **kwargs: None)
         monkeypatch.setattr(_matplotlib, "play_mpl", lambda *args, **kwargs: None)
 
-    @pytest.fixture
-    def without(self, monkeypatch):
-        """Make the packages named importable no more."""
-
-        def remove(*names):
-            monkeypatch.setattr(bvhplot, "_module_importable", lambda name: name not in names)
-
-        return remove
-
     @pytest.mark.parametrize(
         "draw",
         [
@@ -609,9 +600,9 @@ class TestBvhplot:
         ids=["bvhplot.render", "Bvh.render"],
     )
     def test_a_render_without_opencv_names_the_render_call(
-        self, walk, stubbed, without, tmp_path, draw
+        self, walk, stubbed, environment, tmp_path, draw
     ):
-        without("cv2")
+        environment()
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             draw(walk, tmp_path / "clip.mp4")
@@ -625,9 +616,8 @@ class TestBvhplot:
         ],
         ids=["bvhplot.play", "Bvh.play"],
     )
-    def test_a_slow_fallback_names_the_play_call(self, walk, stubbed, without, monkeypatch, play):
-        without("vedo")
-        monkeypatch.setattr(bvhplot, "_resolve_play_backend", lambda requested: ("matplotlib", 3))
+    def test_a_slow_fallback_names_the_play_call(self, walk, stubbed, environment, play):
+        environment(notebook=True)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             play(walk)

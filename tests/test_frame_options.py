@@ -7,11 +7,24 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pytest
 
 from pybvh import bvhplot, read_bvh_file
+from pybvh.bvhplot import _backends
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
+# The package each backend draws with, skipped without it.
+PACKAGE = {"matplotlib": "matplotlib", "vedo": "vedo"}
+# Every option each backend declares it reads, as the rule reads the
+# declarations: each must have its check in EFFECTS below.
+DECLARED = [
+    (backend, option)
+    for backend in sorted(PACKAGE)
+    for option in sorted(_backends._frame_reads(backend))
+]
+# A small picture for vedo, so that each still is quick.
+SMALL = (160, 120)
 
 
 def _axes():
@@ -30,10 +43,93 @@ def walk():
     return read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")
 
 
+@pytest.fixture(scope="module")
+def pair(walk):
+    """The walk beside itself drawn twice as large, so that a spacing
+    and a matched size each change a scene holding both."""
+    return [walk, walk.scale(2.0)]
+
+
 @pytest.fixture(autouse=True)
 def _close_figures():
     yield
     plt.close("all")
+
+
+def _picture(drawn):
+    """The pixels of what ``frame`` returned: vedo's image, or
+    matplotlib's figure drawn on its canvas."""
+    if isinstance(drawn, np.ndarray):
+        return drawn
+    fig, _ = drawn
+    fig.canvas.draw()
+    return np.asarray(fig.canvas.buffer_rgba()).copy()
+
+
+def _figsize_sizes_the_figure(walk, pair, monkeypatch):
+    fig, _ = bvhplot.frame(walk, figsize=(4, 3))
+    assert tuple(fig.get_size_inches()) == (4, 3)
+    fig, _ = bvhplot.frame(walk)
+    assert tuple(fig.get_size_inches()) != (4, 3)
+
+
+def _show_shows_the_figure(walk, pair, monkeypatch):
+    shown = []
+    monkeypatch.setattr(plt, "show", lambda *args, **kwargs: shown.append(True))
+    bvhplot.frame(walk)
+    assert shown == []
+    bvhplot.frame(walk, show=True)
+    assert shown == [True]
+
+
+def _ax_is_drawn_on(walk, pair, monkeypatch):
+    ax = plt.figure().add_subplot(projection="3d")
+    empty = _picture((ax.figure, ax))
+    fig, returned = bvhplot.frame(walk, ax=ax)
+    assert returned is ax and fig is ax.figure
+    assert not np.array_equal(_picture((fig, ax)), empty)
+
+
+def _resolution_sizes_the_image(walk, pair, monkeypatch):
+    assert bvhplot.frame(walk, backend="vedo", resolution=SMALL).shape == (120, 160, 3)
+
+
+def _spacing_spreads_the_skeletons(walk, pair, monkeypatch):
+    given = bvhplot.frame(pair, backend="vedo", resolution=SMALL, spacing=1.0)
+    assert not np.array_equal(given, bvhplot.frame(pair, backend="vedo", resolution=SMALL))
+
+
+def _match_size_scales_the_skeletons(walk, pair, monkeypatch):
+    given = bvhplot.frame(pair, backend="vedo", resolution=SMALL, match_size=True)
+    assert not np.array_equal(given, bvhplot.frame(pair, backend="vedo", resolution=SMALL))
+
+
+# What each declared option is checked to do, through frame().
+EFFECTS = {
+    ("matplotlib", "figsize"): _figsize_sizes_the_figure,
+    ("matplotlib", "show"): _show_shows_the_figure,
+    ("matplotlib", "ax"): _ax_is_drawn_on,
+    ("vedo", "resolution"): _resolution_sizes_the_image,
+    ("vedo", "spacing"): _spacing_spreads_the_skeletons,
+    ("vedo", "match_size"): _match_size_scales_the_skeletons,
+}
+
+
+class TestEachBackendReadsWhatItDeclares:
+    @pytest.mark.parametrize("backend, option", DECLARED)
+    def test_an_option_declared_takes_effect(self, walk, pair, monkeypatch, backend, option):
+        """Named, so the rule lets every declared option through. An
+        option added to a declaration fails here until EFFECTS checks
+        what it does."""
+        pytest.importorskip(PACKAGE[backend])
+        EFFECTS[backend, option](walk, pair, monkeypatch)
+
+    @pytest.mark.parametrize("option", [{"spacing": 1.0}, {"match_size": True}], ids=str)
+    def test_matplotlib_accepts_spacing_and_match_size_and_draws_the_same(self, pair, option):
+        """Each skeleton in its own panel is the arrangement they ask
+        for."""
+        given = _picture(bvhplot.frame(pair, **option))
+        assert np.array_equal(given, _picture(bvhplot.frame(pair)))
 
 
 class TestANamedBackend:

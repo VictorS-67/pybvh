@@ -632,7 +632,7 @@ def frame(
         match_size=match_size,
     )
     clips = as_clip_list(bvh)
-    backend = _backends.choose_frame_backend(backend, given)
+    backend = _backends.choose_frame_backend(backend, given).backend
     spacing = _validated_spacing(spacing)
 
     frame_spec = coords if coords is not None else frame

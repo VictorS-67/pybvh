@@ -188,21 +188,20 @@ def _reads(call: str, backend: str) -> frozenset[str]:
     return reads
 
 
-def choose_frame_backend(requested: str, given: Collection[str] = ()) -> str:
+def choose_frame_backend(requested: str, given: Collection[str] = ()) -> Choice:
     """The backend ``frame(backend=requested)`` runs, passed the options
     *given* (the keywords whose value is not ``None``): always the one
-    named, since ``frame`` has no auto.
+    named, since ``frame`` has no auto, and so with no warning owed.
 
     A given option the backend does not read raises ``ValueError``
     (ADR 0006); ``spacing`` and ``match_size`` are accepted by every
     backend.
     """
     _check_known(requested, FRAME_BACKENDS)
-    if given:
-        _with_unread_options(
-            "frame", requested, Choice(requested), given, _DECLARING_MODULES["frame"]
-        )
-    return requested
+    choice = Choice(requested)
+    if not given:
+        return choice
+    return _with_unread_options("frame", requested, choice, given, _DECLARING_MODULES["frame"])
 
 
 _SLOW_RENDER = (

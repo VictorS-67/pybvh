@@ -20,6 +20,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import numpy.typing as npt
@@ -29,23 +30,52 @@ from ._backends import Environment, install_hint
 # Valid values of render(codec=).
 CODECS = frozenset({"auto", "h264", "mpeg4"})
 
-# The format of each extension render() writes: a video container,
-# encoded as the codec and the machine allow; the name of the Pillow
-# format an animated image is saved in; or matplotlib's player page, which
-# matplotlib builds from its own figure rather than from frames.
 _VIDEO = "video"
 _PLAYER_PAGE = "player page"
+
+
+class _Format(NamedTuple):
+    """How ``render`` writes an extension."""
+
+    # A video container, encoded as the codec and the machine allow
+    # (_VIDEO); the name of the Pillow format an animated image is saved
+    # in; or matplotlib's player page, which matplotlib builds from its own
+    # figure rather than from frames (_PLAYER_PAGE).
+    writer: str
+    # render(backend="auto") gives the extension to matplotlib even when
+    # OpenCV imports: the player page, which only matplotlib writes, and
+    # the animated images, which OpenCV writes too but auto has always
+    # given to matplotlib, a choice no change has revisited.
+    matplotlib_under_auto: bool = False
+
+
 _FORMATS = {
-    ".mp4": _VIDEO,
-    ".mov": _VIDEO,
-    ".avi": _VIDEO,
-    ".gif": "GIF",
-    ".webp": "WEBP",
-    ".apng": "PNG",  # an animated PNG: Pillow writes one from several frames
-    ".html": _PLAYER_PAGE,
+    ".mp4": _Format(_VIDEO),
+    ".mov": _Format(_VIDEO),
+    ".avi": _Format(_VIDEO),
+    ".gif": _Format("GIF", matplotlib_under_auto=True),
+    ".webp": _Format("WEBP", matplotlib_under_auto=True),
+    # an animated PNG: Pillow writes one from several frames
+    ".apng": _Format("PNG", matplotlib_under_auto=True),
+    ".html": _Format(_PLAYER_PAGE, matplotlib_under_auto=True),
 }
-VIDEO_CONTAINERS = frozenset(ext for ext, fmt in _FORMATS.items() if fmt == _VIDEO)
-_FROM_FRAMES = sorted(ext for ext, fmt in _FORMATS.items() if fmt != _PLAYER_PAGE)
+VIDEO_CONTAINERS = frozenset(ext for ext, fmt in _FORMATS.items() if fmt.writer == _VIDEO)
+_FROM_FRAMES = sorted(ext for ext, fmt in _FORMATS.items() if fmt.writer != _PLAYER_PAGE)
+
+
+def _writer_of(suffix: str) -> str | None:
+    """The writer of the extension *suffix* (lower case), ``None`` when
+    ``render`` writes no such file."""
+    fmt = _FORMATS.get(suffix)
+    return None if fmt is None else fmt.writer
+
+
+def matplotlib_under_auto(suffix: str) -> bool:
+    """``render(backend="auto")`` gives a file ending in *suffix* (lower
+    case) to matplotlib even when OpenCV imports: ``.html`` and the
+    animated images. An extension ``render`` does not write is not."""
+    fmt = _FORMATS.get(suffix)
+    return fmt is not None and fmt.matplotlib_under_auto
 
 
 @dataclass(frozen=True)
@@ -115,7 +145,7 @@ class VideoTarget:
         milliseconds per frame too, floored as matplotlib's player
         computes them, ``1000 // fps``: 33 ms at 30 fps, so 30.3 fps.
         """
-        fmt = _FORMATS.get(self.suffix)
+        fmt = _writer_of(self.suffix)
         if fmt == _VIDEO:
             return self.fps
         if fmt == _PLAYER_PAGE:
@@ -127,7 +157,7 @@ class VideoTarget:
         """The file is matplotlib's player page (``.html``), which
         matplotlib builds from its own figure; every other format is
         written from frames by :func:`writer_for`'s writer."""
-        return _FORMATS.get(self.suffix) == _PLAYER_PAGE
+        return _writer_of(self.suffix) == _PLAYER_PAGE
 
 
 def _is_positive_number(value: object) -> bool:
@@ -166,7 +196,7 @@ class Writer:
         first = next(frames)
         frames = chain([first], frames)
         if self.encoder == _PILLOW:
-            _save_with_pillow(path, frames, fps, _FORMATS[self.target.suffix])
+            _save_with_pillow(path, frames, fps, _FORMATS[self.target.suffix].writer)
             return path
         h, w = first.shape[:2]
         sink_type = _FfmpegSink if self.encoder == _FFMPEG else _OpenCvSink
@@ -208,7 +238,7 @@ def writer_for(target: VideoTarget, environment: Environment, subject: str) -> W
         When MPEG-4 Part 2 is needed and OpenCV does not import.
     """
     ext = target.suffix
-    fmt = _FORMATS.get(ext)
+    fmt = _writer_of(ext)
     if fmt is None or fmt == _PLAYER_PAGE:
         raise ValueError(
             f"{subject} cannot write {ext!r} files. "

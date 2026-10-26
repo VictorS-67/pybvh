@@ -158,12 +158,14 @@ class TestRenderChoice:
         choice = _backends.choose_render_backend("auto", suffix, environment(importable=importable))
         assert (choice.backend, choice.warnings) == ("matplotlib", ())
 
-    @pytest.mark.parametrize("suffix", [".mp4", ".mov", ".avi"])
+    @pytest.mark.parametrize("suffix", [".mp4", ".mov", ".avi", ".mkv"])
     def test_auto_writes_video_with_opencv_when_it_imports(self, environment, suffix):
+        """An extension no backend writes (``.mkv``) goes the same way,
+        and OpenCV's refusal names the extensions it writes."""
         choice = _backends.choose_render_backend("auto", suffix, environment(importable={"cv2"}))
         assert (choice.backend, choice.warnings) == ("opencv", ())
 
-    @pytest.mark.parametrize("suffix", [".mp4", ".mov", ".avi"])
+    @pytest.mark.parametrize("suffix", [".mp4", ".mov", ".avi", ".mkv"])
     def test_auto_falls_back_to_matplotlib_without_opencv(self, environment, suffix):
         choice = _backends.choose_render_backend("auto", suffix, environment(importable={"vedo"}))
         assert choice.backend == "matplotlib"

@@ -625,9 +625,8 @@ class TestBvhplot:
         ],
         ids=["bvhplot.play", "Bvh.play"],
     )
-    def test_a_slow_fallback_names_the_play_call(self, walk, stubbed, without, monkeypatch, play):
-        without("vedo")
-        monkeypatch.setattr(bvhplot, "_resolve_play_backend", lambda requested: ("matplotlib", 3))
+    def test_a_slow_fallback_names_the_play_call(self, walk, stubbed, environment, play):
+        environment(notebook=True)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             play(walk)

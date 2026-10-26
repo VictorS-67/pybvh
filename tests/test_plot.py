@@ -1302,7 +1302,16 @@ class TestFpsResolution:
         ],
     )
     def test_play_caps_the_rate_only_where_the_player_needs_it(
-        self, bvh_test2, monkeypatch, backend, library, module, player, step, played_fps
+        self,
+        bvh_test2,
+        monkeypatch,
+        environment,
+        backend,
+        library,
+        module,
+        player,
+        step,
+        played_fps,
     ):
         """k3d widgets cannot keep up with 120 fps; vedo's timer and a
         notebook video player can."""
@@ -1317,7 +1326,7 @@ class TestFpsResolution:
         monkeypatch.setattr(module, player, record)
         if backend == "opencv":
             ipython_display = pytest.importorskip("IPython.display")
-            monkeypatch.setattr(bvhplot, "_detect_notebook", lambda: True)
+            environment(notebook=True, importable={"cv2"})
             # the video file is never written: show nothing
             monkeypatch.setattr(ipython_display, "Video", lambda *args, **kwargs: None)
             monkeypatch.setattr(ipython_display, "display", lambda *args, **kwargs: None)

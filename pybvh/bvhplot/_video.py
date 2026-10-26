@@ -61,6 +61,7 @@ _FORMATS = {
 }
 VIDEO_CONTAINERS = frozenset(ext for ext, fmt in _FORMATS.items() if fmt.writer == _VIDEO)
 _FROM_FRAMES = sorted(ext for ext, fmt in _FORMATS.items() if fmt.writer != _PLAYER_PAGE)
+_PLAYER_PAGES = sorted(ext for ext, fmt in _FORMATS.items() if fmt.writer == _PLAYER_PAGE)
 
 
 def _writer_of(suffix: str) -> str | None:
@@ -242,7 +243,8 @@ def writer_for(target: VideoTarget, environment: Environment, subject: str) -> W
     if fmt is None or fmt == _PLAYER_PAGE:
         raise ValueError(
             f"{subject} cannot write {ext!r} files. "
-            f"Supported extensions: {_FROM_FRAMES}, and '.html' on backend='matplotlib'."
+            f"Supported extensions: {_FROM_FRAMES}, and "
+            f"{', '.join(map(repr, _PLAYER_PAGES))} on backend='matplotlib'."
         )
     if fmt != _VIDEO:
         return Writer(target, _PILLOW)

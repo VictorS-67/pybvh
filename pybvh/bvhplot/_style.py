@@ -1,5 +1,5 @@
 """The look of a figure: :class:`Style`, its presets, the palettes and
-the ghost and trace conventions every backend shares.
+the ghost, trace and frame-counter conventions every backend shares.
 
 Pure data, no plotting library imports; the pieces that need
 matplotlib's color parser live in :mod:`._colors`.
@@ -15,7 +15,7 @@ import numpy as np
 import numpy.typing as npt
 
 if TYPE_CHECKING:
-    from ._scene import SkeletonView
+    from ._scene import Scene, SkeletonView
 
 
 # ---------------------------------------------------------------------------
@@ -408,3 +408,29 @@ def ghost_schedule(
     lag = max(1, round(style.ghost_spacing / frame_time))
     weights = np.linspace(0.32, 0.15, n_ghosts, dtype=np.float64)
     return lag, weights
+
+
+# ---------------------------------------------------------------------------
+# Frame counter (shared backend convention)
+# ---------------------------------------------------------------------------
+
+# How every backend that draws the counter stamps it, in pixels of the
+# written frame: gray text, its baseline this far above the bottom edge
+# and its left edge where counter_left_px puts it.
+COUNTER_RGB = (150, 150, 150)
+COUNTER_BASELINE_PX = 15
+
+
+def counter_left_px(width: int) -> int:
+    """The left edge of the counter on a frame *width* pixels wide:
+    200 pixels in from the right edge, or 5 in from the left on a frame
+    narrower than 205."""
+    return max(5, width - 200)
+
+
+def frame_counter_text(scene: Scene, frame: int) -> str:
+    """The counter stamped on *frame*: ``Frame f/F``, ``f`` the frame
+    of the clip it shows and ``F`` the clip's last frame, so a looped
+    Scene counts from 0 again on each pass
+    (:meth:`~._scene.Scene.pass_start`)."""
+    return f"Frame {frame - scene.pass_start(frame)}/{scene.pass_length - 1}"

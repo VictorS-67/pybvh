@@ -55,7 +55,7 @@ bvhplot (`pybvh/bvhplot/`) splits at its Scene: the router and `_from_bvh` read 
 | `_scene` | the Scene and its views, checked read-only data, and the operations that change a Scene | import a plotting library or the core |
 | `_viewport` | the geometry of one 3D picture: framing, floor, camera, schedule, projection | import a plotting library or the core |
 | `_animation_options` | what an animation draws besides the Scene's skeletons, the `AnimationOptions` the router builds from `render`'s options: the camera's schedule, ghosts, the trail, the frame counter | import a plotting library or the core |
-| `_style` | `Style`, its presets and palettes, the ghost and trace conventions | import a plotting library |
+| `_style` | `Style`, its presets and palettes, the ghost, trace and frame-counter conventions | import a plotting library |
 | `_colors` | the color resolution that needs matplotlib's color parser | |
 | `_playback` | the viewer's playback state machine | import a rendering library |
 | `_video` | writing an animation's frames to a file: the video target and the rate each file is written at, the table of every extension `render` writes, its writer (`.html` named as matplotlib's own player page) and whether auto gives it to matplotlib, the ffmpeg pipe (H.264), OpenCV's MPEG-4 Part 2 writer, Pillow's GIF, WebP and APNG | draw, or decide which backend runs (it keeps auto's preference per extension, which `_backends` applies) |

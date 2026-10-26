@@ -810,12 +810,12 @@ def render(
         ``pybvh[viewer]``) to every format but ``.html``, every skeleton in one
         scene (see *spacing*); it is never chosen by ``"auto"``, and
         has no ``follow``, turntable, ``ghost``, ``trajectory`` or
-        ``frame_counter``. Matplotlib has no ``frame_counter``.
-        An option given (not ``None``) that the named backend does not
-        read raises ``ValueError`` naming it, even at its default value
-        (``frame_counter=False`` on vedo), rather than be dropped from
-        the file; under ``"auto"``, a warning names it and the backend
-        chosen. Raising only on a value other than the default was the
+        ``frame_counter``. An option given (not ``None``) that the
+        named backend does not read raises ``ValueError`` naming it,
+        even at its default value (``frame_counter=False`` on vedo),
+        rather than be dropped from the file; ``"auto"`` chooses
+        OpenCV or matplotlib, which read the same options, so it drops
+        none. Raising only on a value other than the default was the
         alternative, and the two differ only when the default is passed
         explicitly; ``None`` is the one value that says the caller left
         the option alone. ``spacing`` and ``match_size`` are accepted
@@ -923,7 +923,7 @@ def render(
     frame_counter : bool or None, optional
         Stamp a ``Frame f/F`` counter in the corner, counting frames
         of the clip: a looped turntable (``turntable_period``) counts
-        from 0 again on each pass. Read by OpenCV only (see
+        from 0 again on each pass. Not read by vedo (see
         *backend*). ``None`` (default) is ``False`` — publication
         output never stamps text; pass ``True`` to restore the
         pre-0.9.0 counter.

@@ -1365,14 +1365,20 @@ def play(
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp_path = Path(tmp.name)
 
-        target = _video.VideoTarget(
-            tmp_path, actual_fps, _NOTEBOOK_VIDEO_RESOLUTION if resolution is None else resolution
-        )
-        writer = _video_writer(target, environment, "The opencv play backend")
-        render_opencv(scene, style_obj, writer, animation_options)
-
-        display(Video(str(tmp_path), embed=True, mimetype="video/mp4"))
-        tmp_path.unlink(missing_ok=True)
+        # The page embeds the video's bytes, so the file goes once shown,
+        # and on every way out before: a failed render, or a warning the
+        # caller raises as an error.
+        try:
+            target = _video.VideoTarget(
+                tmp_path,
+                actual_fps,
+                _NOTEBOOK_VIDEO_RESOLUTION if resolution is None else resolution,
+            )
+            writer = _video_writer(target, environment, "The opencv play backend")
+            render_opencv(scene, style_obj, writer, animation_options)
+            display(Video(str(tmp_path), embed=True, mimetype="video/mp4"))
+        finally:
+            tmp_path.unlink(missing_ok=True)
         return None
 
     else:  # matplotlib

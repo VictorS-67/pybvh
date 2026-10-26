@@ -184,6 +184,34 @@ class TestThroughPlay:
         )
         assert windowed == []
 
+    def test_the_notebook_video_refuses_an_option_before_asking_for_opencv(self, walk, environment):
+        """As render() does: the caller learns the options cannot run
+        together before being told to install."""
+        environment(notebook=True)
+        with pytest.raises(ValueError) as raised:
+            bvhplot.play(walk, backend="opencv", quality="fast")
+        assert str(raised.value) == (
+            "play(backend='opencv') does not read quality. Leave it unset, or use "
+            "backend='vedo', which reads it."
+        )
+
+    def test_the_notebook_video_without_opencv_raises_naming_the_install(self, walk, environment):
+        environment(notebook=True)
+        with pytest.raises(ImportError) as raised:
+            bvhplot.play(walk, backend="opencv")
+        assert str(raised.value) == (
+            "The opencv play backend requires opencv-python. "
+            "Install with: pip install pybvh[opencv]"
+        )
+
+    def test_the_notebook_video_in_a_script_raises_before_asking_for_opencv(
+        self, walk, environment
+    ):
+        """No install would let it play there."""
+        environment(display=True)
+        with pytest.raises(ValueError, match=r"^backend='opencv' plays an inline video"):
+            bvhplot.play(walk, backend="opencv")
+
     def test_given_means_not_none(self, walk, environment, windowed):
         """frame_counter=False is its default, given all the same."""
         environment(notebook=True)

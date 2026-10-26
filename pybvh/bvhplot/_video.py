@@ -402,8 +402,9 @@ def _save_with_pillow(
     to 10 ms).
 
     Pillow stores a run of identical frames as one frame shown for the
-    run's summed duration, a whole number of frame durations; a file
-    whose frames are all identical is a still image. WebP is Pillow's
+    run's summed duration, a whole number of frame durations, which a
+    GIF truncates to 10 ms as a whole; a file whose frames are all
+    identical is a still image. WebP is Pillow's
     default lossy encoding; PNG is lossless.
 
     An RGBA frame is saved with its alpha when some pixel of it is

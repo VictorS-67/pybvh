@@ -353,10 +353,15 @@ def choose_play_backend(
     choice the session makes, not the script; ``spacing`` and
     ``match_size`` are accepted by every backend. The messages call the
     notebook video ``"opencv"``, and offer it only in a notebook.
+
+    Whether a named backend's package imports is not checked here but by
+    :func:`check_importable` after this choice, as for ``render()`` and
+    ``frame()``: an option the backend does not read is refused first.
     """
     _check_known(requested, PLAY_BACKENDS)
     if requested == "opencv":
-        check_importable("play", "opencv_notebook", environment)
+        # Refused before the options: in a script no option left unset
+        # and no install would let it play.
         if not environment.in_notebook:
             raise ValueError(
                 "backend='opencv' plays an inline video and only works "

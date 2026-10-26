@@ -809,9 +809,11 @@ def render(
         backend. An animated image (``.gif``, ``.webp``, ``.apng``)
         stores each frame's duration in whole milliseconds, ``1000 /
         fps`` rounded to the nearest (42 ms at 24 fps, so 23.81 fps),
-        and a GIF stores it further truncated to 10 ms. An ``.html``
-        page embeds ``1000 // fps`` milliseconds, floored as
-        matplotlib's player computes it.
+        and a GIF stores it further truncated to 10 ms. A run of
+        identical frames (a held pose) is stored as one frame shown for
+        the run's summed duration, which a GIF truncates as a whole: 5
+        frames at 24 fps last 210 ms. An ``.html`` page embeds ``1000 //
+        fps`` milliseconds, floored as matplotlib's player computes it.
     backend : str, optional
         ``"auto"`` (default), ``"opencv"``, ``"matplotlib"`` or
         ``"vedo"``. Every backend writes a video container through the
@@ -1365,14 +1367,20 @@ def play(
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp_path = Path(tmp.name)
 
-        target = _video.VideoTarget(
-            tmp_path, actual_fps, _NOTEBOOK_VIDEO_RESOLUTION if resolution is None else resolution
-        )
-        writer = _video_writer(target, environment, "The opencv play backend")
-        render_opencv(scene, style_obj, writer, animation_options)
-
-        display(Video(str(tmp_path), embed=True, mimetype="video/mp4"))
-        tmp_path.unlink(missing_ok=True)
+        # The page embeds the video's bytes, so the file goes once shown,
+        # and on every way out before: a failed render, or a warning the
+        # caller raises as an error.
+        try:
+            target = _video.VideoTarget(
+                tmp_path,
+                actual_fps,
+                _NOTEBOOK_VIDEO_RESOLUTION if resolution is None else resolution,
+            )
+            writer = _video_writer(target, environment, "The opencv play backend")
+            render_opencv(scene, style_obj, writer, animation_options)
+            display(Video(str(tmp_path), embed=True, mimetype="video/mp4"))
+        finally:
+            tmp_path.unlink(missing_ok=True)
         return None
 
     else:  # matplotlib

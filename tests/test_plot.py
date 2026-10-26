@@ -1911,6 +1911,24 @@ class TestPlayWithoutAWindow:
         assert "data:video/mp4;base64," in page
         assert not Path(video.filename).exists()
 
+    def test_a_video_that_fails_leaves_no_temporary_file(
+        self, bvh_example, environment, shown, tmp_path, monkeypatch
+    ):
+        """Without ffmpeg the writer warns that the video will not play in
+        a browser; raised as an error, that warning stops play() after its
+        temporary file is made."""
+        pytest.importorskip("cv2")
+        import tempfile
+
+        environment(notebook=True, importable={"cv2"})
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with pytest.raises(UserWarning, match="ffmpeg is not on PATH"):
+                bvhplot.play(bvh_example[0:5], backend="opencv")
+        assert list(tmp_path.iterdir()) == []
+        assert shown == []
+
     def test_a_notebook_without_opencv_shows_matplotlibs_player(
         self, bvh_example, environment, shown
     ):

@@ -805,8 +805,10 @@ def _wrap_update_with_extras(
     return update
 
 
-# The counter's text height in pixels of the written frame, matching the
-# height of the text OpenCV stamps at its font scale of 0.5.
+# The counter's font size in pixels of the written frame. OpenCV stamps
+# it in its Hershey font at scale 0.5, which cv2.getTextSize measures 14
+# pixels high and 89 wide for "Frame 99/99"; matplotlib's default font
+# (DejaVu Sans) at 14 pixels draws that text 14 high and 88 wide.
 _COUNTER_TEXT_PX = 14
 
 

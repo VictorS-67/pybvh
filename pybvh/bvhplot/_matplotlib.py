@@ -799,6 +799,10 @@ def _wrap_update_with_extras(
     return update
 
 
+# The options of render() this backend reads (ADR 0006).
+RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory"})
+
+
 def render_mpl(
     scene: Scene,
     style: Style,

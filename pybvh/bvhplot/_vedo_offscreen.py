@@ -177,6 +177,11 @@ def frame_vedo(
     return img
 
 
+# The options of render() this backend reads (ADR 0006): it draws every
+# skeleton in one scene, arranged by the router.
+RENDER_READS = frozenset({"spacing", "match_size"})
+
+
 def render_vedo(scene: Scene, style: Style, writer: Writer) -> Path:
     """Render a shadowed capsule-skeleton animation and hand the frames
     to *writer*, which writes the file.

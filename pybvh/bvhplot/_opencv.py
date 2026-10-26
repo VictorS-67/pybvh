@@ -452,6 +452,10 @@ def _generate_frames(
         yield img
 
 
+# The options of render() this backend reads (ADR 0006).
+RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory", "frame_counter"})
+
+
 def render_opencv(
     scene: Scene,
     style: Style,

@@ -12,7 +12,7 @@ import math
 import os
 import shutil
 import sys
-from collections.abc import Container
+from collections.abc import Collection, Container, Mapping
 from dataclasses import dataclass
 from typing import NamedTuple
 
@@ -172,9 +172,80 @@ _SLOW_RENDER = (
 )
 
 
-def choose_render_backend(requested: str, suffix: str, environment: Environment) -> Choice:
+# Every backend accepts these whether it reads them or not: a backend that
+# does not read them draws each skeleton in its own panel, which already
+# gives the arrangement they ask for.
+_ACCEPTED_BY_EVERY_BACKEND = frozenset({"spacing", "match_size"})
+
+# How a message names an option that is not a keyword of its own.
+_SHOWN = {"turntable": "camera='turntable'"}
+
+
+def _either(words: list[str]) -> str:
+    """``a``, ``a or b``, ``a, b or c``."""
+    return words[0] if len(words) == 1 else f"{', '.join(words[:-1])} or {words[-1]}"
+
+
+def _with_unread_options(
+    call: str,
+    requested: str,
+    choice: Choice,
+    given: Collection[str],
+    reads: Mapping[str, frozenset[str]],
+) -> Choice:
+    """Apply the rule for an option the chosen backend does not read
+    (ADR 0006) to *choice*: *given* are the options the caller passed
+    (not ``None``), *reads* each backend's declaration of the options it
+    reads. A named backend raises ``ValueError`` naming every given
+    option it does not read; under ``"auto"`` the choice gains a warning
+    naming them and the backend chosen. Either message offers the
+    backends that read them all, when there are any."""
+    unread = sorted(set(given) - reads[choice.backend] - _ACCEPTED_BY_EVERY_BACKEND)
+    if not unread:
+        return choice
+    names = _either([_SHOWN.get(option, option) for option in unread])
+    it = "it" if len(unread) == 1 else "them"
+    readers = [repr(backend) for backend, read in sorted(reads.items()) if set(unread) <= read]
+    instead = (
+        f"use backend={_either(readers)}, which {'reads' if len(readers) == 1 else 'read'} {it}"
+        if readers
+        else ""
+    )
+    if requested == "auto":
+        ignored = "it is ignored" if len(unread) == 1 else "they are ignored"
+        hint = f" To draw {it}, {instead}." if readers else ""
+        message = (
+            f"{call}() chose backend={choice.backend!r}, which does not read {names}, "
+            f"so {ignored}.{hint}"
+        )
+        return Choice(choice.backend, (*choice.warnings, message))
+    hint = f", or {instead}" if readers else ""
+    raise ValueError(
+        f"{call}(backend={choice.backend!r}) does not read {names}. Leave {it} unset{hint}."
+    )
+
+
+def _render_reads() -> dict[str, frozenset[str]]:
+    """The options of ``render`` each backend reads, as it declares them
+    beside its entry function."""
+    # Imported here: a backend module is loaded only when a call needs it
+    # (matplotlib's imports pyplot).
+    from . import _matplotlib, _opencv, _vedo_offscreen
+
+    return {
+        "matplotlib": _matplotlib.RENDER_READS,
+        "opencv": _opencv.RENDER_READS,
+        "vedo": _vedo_offscreen.RENDER_READS,
+    }
+
+
+def choose_render_backend(
+    requested: str, suffix: str, environment: Environment, given: Collection[str] = ()
+) -> Choice:
     """The backend ``render(filepath, backend=requested)`` runs, for a
-    file ending in *suffix* (lower case).
+    file ending in *suffix* (lower case), passed the options *given*: the
+    keywords whose value is not ``None``, ``camera="turntable"`` as
+    ``"turntable"``.
 
     A named backend runs as named. Under ``"auto"``, the extensions the
     video module's table gives to matplotlib
@@ -185,18 +256,26 @@ def choose_render_backend(requested: str, suffix: str, environment: Environment)
     matplotlib with a warning naming the install. ``"vedo"`` (the
     shadowed capsule renderer) is never chosen by auto: it is a
     deliberate look, not a fallback.
+
+    A given option the backend does not read raises ``ValueError`` when
+    the backend is named and adds a warning under ``"auto"``;
+    ``spacing`` and ``match_size`` are accepted by every backend.
     """
     # Imported here: the video module imports this one.
     from ._video import matplotlib_under_auto
 
     _check_known(requested, RENDER_BACKENDS)
     if requested != "auto":
-        return Choice(requested)
-    if matplotlib_under_auto(suffix):
-        return Choice("matplotlib")
-    if "cv2" in environment.importable:
-        return Choice("opencv")
-    return Choice("matplotlib", (_SLOW_RENDER,))
+        choice = Choice(requested)
+    elif matplotlib_under_auto(suffix):
+        choice = Choice("matplotlib")
+    elif "cv2" in environment.importable:
+        choice = Choice("opencv")
+    else:
+        choice = Choice("matplotlib", (_SLOW_RENDER,))
+    if not given:
+        return choice
+    return _with_unread_options("render", requested, choice, given, _render_reads())
 
 
 _NO_INTERACTIVE = f"No interactive backend (k3d, vedo) found. {install_hint('k3d')}"

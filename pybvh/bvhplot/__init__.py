@@ -278,6 +278,13 @@ def _match_frame_rates(
     return result
 
 
+def _given(**options: object) -> set[str]:
+    """The names of the *options* the caller gave: those not ``None``.
+    An option some backend does not read defaults to ``None``, so that a
+    value passed, even its real default, is told from one left alone."""
+    return {name for name, value in options.items() if value is not None}
+
+
 def _validated_spacing(spacing: float | str) -> float | str:
     """*spacing* as the router hands it to :meth:`Scene.spread`:
     ``"auto"``, or a non-negative float."""
@@ -715,14 +722,14 @@ def render(
     turntable_period: float | None = None,
     resolution: tuple[int, int] = (1920, 1080),
     sync: str = "truncate",
-    follow: bool = False,
-    ghost: int = 0,
-    trajectory: bool = False,
-    frame_counter: bool = False,
+    follow: bool | None = None,
+    ghost: int | None = None,
+    trajectory: bool | None = None,
+    frame_counter: bool | None = None,
     match_fps: str | None = None,
     codec: str = "auto",
-    spacing: float | str = "auto",
-    match_size: bool = False,
+    spacing: float | str | None = None,
+    match_size: bool | None = None,
 ) -> Path:
     """Render animation to a video, GIF, or HTML file.
 
@@ -767,14 +774,24 @@ def render(
         capsule skeletons offscreen (headless-safe, requires
         ``pybvh[viewer]``) to every format but ``.html``, every skeleton in one
         scene (see *spacing*); it is never chosen by ``"auto"``, and
-        has no ``follow``, turntable, ``ghost`` or ``trajectory``.
+        has no ``follow``, turntable, ``ghost``, ``trajectory`` or
+        ``frame_counter``. Matplotlib has no ``frame_counter``.
+        An option given (not ``None``) that the named backend does not
+        read raises ``ValueError`` naming it, even at its default value
+        (``frame_counter=False`` on vedo), rather than be dropped from
+        the file; under ``"auto"``, a warning names it and the backend
+        chosen. Raising only on a value other than the default was the
+        alternative, and the two differ only when the default is passed
+        explicitly; ``None`` is the one value that says the caller left
+        the option alone. ``spacing`` and ``match_size`` are accepted
+        by every backend.
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``), the
         special ``"turntable"`` (an orbit starting from the front view,
         by default one full 360-degree orbit over the clip duration;
         see ``turntable_period``), or an
         ``(azimuth_deg, elevation_deg)`` tuple. Default ``"front"``.
-        The vedo backend has no turntable.
+        The vedo backend has no turntable (see *backend*).
     turntable_period : float, optional
         Seconds per revolution of ``camera="turntable"``; any other
         camera raises ``ValueError``. ``None`` (default) makes one
@@ -829,7 +846,7 @@ def render(
         ``"truncate"`` (default) stops at the shortest clip;
         ``"pad"`` continues to the longest clip (shorter clips freeze
         on their last frame).
-    follow : bool, optional
+    follow : bool or None, optional
         If ``True``, the camera turns with each skeleton's heading, so
         the view orbits with the character: the first frame is seen
         from the preset, later frames turned by the rotation of the
@@ -852,26 +869,29 @@ def render(
         and the smoothing weakens toward them. Only affects preset
         cameras (``"front"``, ``"side"``, ``"top"``); custom
         ``(azimuth, elevation)`` tuples are fixed and ignore
-        ``follow``. Default ``False`` (stable camera).
-    ghost : int, optional
-        Number of faded trailing poses drawn behind the live skeleton
-        (default 0 — none). Spacing between ghosts is
+        ``follow``. ``None`` (default) is ``False``, a stable camera.
+        Not read by vedo (see *backend*).
+    ghost : int or None, optional
+        Number of faded trailing poses drawn behind the live skeleton;
+        ``None`` (default) is 0, none. Spacing between ghosts is
         ``style.ghost_spacing`` seconds of clip time, taken from each
         clip's own ``frame_time``, not playback time from ``fps``; the
         two differ when ``fps`` plays the clip faster or slower than
         recorded, and clip time keeps the trail the same poses at any
         playback speed. Ghosts therefore need every clip's frame rate
         set, even when ``fps`` is given. Older ghosts fade further
-        toward the background.
-    trajectory : bool, optional
-        Draw the root trace on the floor, growing with playback
-        (default ``False``).
-    frame_counter : bool, optional
-        Stamp a ``Frame f/F`` counter in the corner (OpenCV backend
-        only), counting frames of the clip: a looped turntable
-        (``turntable_period``) counts from 0 again on each pass.
-        Default ``False`` — publication output never stamps
-        text; pass ``True`` to restore the pre-0.9.0 counter.
+        toward the background. Not read by vedo (see *backend*).
+    trajectory : bool or None, optional
+        Draw the root trace on the floor, growing with playback.
+        ``None`` (default) is ``False``. Not read by vedo (see
+        *backend*).
+    frame_counter : bool or None, optional
+        Stamp a ``Frame f/F`` counter in the corner, counting frames
+        of the clip: a looped turntable (``turntable_period``) counts
+        from 0 again on each pass. Read by OpenCV only (see
+        *backend*). ``None`` (default) is ``False`` — publication
+        output never stamps text; pass ``True`` to restore the
+        pre-0.9.0 counter.
     match_fps : str or None, optional
         How to handle clips with different frame rates in side-by-side
         rendering.  ``None`` (default) emits a warning but does not
@@ -895,34 +915,50 @@ def render(
         hint if no ffmpeg is found) or ``"mpeg4"`` to write MPEG-4
         Part 2 without the warning. Either way the file is written at
         the path given, and the choice is the same on every backend.
-    spacing : float or "auto", optional
+    spacing : float, "auto" or None, optional
         Lateral separation between skeletons on the vedo backend, which
         draws every skeleton in one scene, exactly as :func:`play`
         spaces them (see there for the direction), so a video shows the
         arrangement the viewer does: skeleton ``k`` sits
-        ``k × spacing`` to the first skeleton's own left. ``"auto"``
-        (default) spaces them by 1.2 × the first skeleton's lateral
-        width over the clip when ``centered`` is ``"first"`` or
-        ``"skeleton"``, and leaves them where their files put them under
-        ``centered="world"``; a float, in scene units, always spaces
-        them. Ignored by OpenCV and matplotlib, which draw each skeleton
-        in its own panel.
-    match_size : bool, optional
+        ``k × spacing`` to the first skeleton's own left. ``None``
+        (default) is ``"auto"``, which spaces them by 1.2 × the first
+        skeleton's lateral width over the clip when ``centered`` is
+        ``"first"`` or ``"skeleton"``, and leaves them where their
+        files put them under ``centered="world"``; a float, in scene
+        units, always spaces them. Accepted and ignored by OpenCV and matplotlib, which draw
+        each skeleton in its own panel.
+    match_size : bool or None, optional
         Draw every skeleton as tall as the first, with the factor on
         its label, as :func:`play` does (see there for the height
-        matched and its alternative). Default ``False``. Only the vedo
-        backend, which draws every skeleton in one space, is changed;
-        OpenCV and matplotlib write the same video either way, since
-        they frame each skeleton in its own panel.
+        matched and its alternative). ``None`` (default) is ``False``.
+        Only the vedo backend, which draws every skeleton in one space,
+        is changed; OpenCV and matplotlib write the same video either
+        way, since they frame each skeleton in its own panel.
 
     Returns
     -------
     Path
         The path to the written file.
     """
+    given = _given(
+        follow=follow,
+        ghost=ghost,
+        trajectory=trajectory,
+        frame_counter=frame_counter,
+        spacing=spacing,
+        match_size=match_size,
+    )
+    if camera == "turntable":
+        given.add("turntable")
+    follow = bool(follow)
+    ghost = 0 if ghost is None else ghost
+    trajectory = bool(trajectory)
+    frame_counter = bool(frame_counter)
+    match_size = bool(match_size)
+
     clips = as_clip_list(bvh)
     filepath = Path(filepath)
-    spacing = _validated_spacing(spacing)
+    spacing = _validated_spacing("auto" if spacing is None else spacing)
     _validate_sync(sync)
     pad = sync == "pad"
     style_obj = resolve_style(style)
@@ -945,7 +981,7 @@ def render(
         camera = "front"
 
     environment = _backends.read_environment()
-    choice = _backends.choose_render_backend(backend, filepath.suffix.lower(), environment)
+    choice = _backends.choose_render_backend(backend, filepath.suffix.lower(), environment, given)
     backend_name = choice.backend
 
     # Handle frame-rate mismatch before computing FK coordinates
@@ -995,19 +1031,6 @@ def render(
 
     _backends.check_importable("render", backend_name, environment)
     if backend_name == "vedo":
-        unsupported = []
-        if motion != "fixed":
-            unsupported.append("follow/turntable cameras")
-        if ghost:
-            unsupported.append("ghost trails")
-        if trajectory:
-            unsupported.append("trajectory traces")
-        if unsupported:
-            raise ValueError(
-                f"The vedo render backend does not support "
-                f"{', '.join(unsupported)}. Use backend='opencv' or "
-                f"'matplotlib' for those."
-            )
         from ._vedo_offscreen import render_vedo
 
         writer = _video_writer(target, environment, "The vedo backend")

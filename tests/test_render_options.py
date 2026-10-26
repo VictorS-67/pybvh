@@ -5,15 +5,10 @@ OpenCV or matplotlib, which read the same options)."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import numpy as np
 import pytest
 
-from pybvh import bvhplot, read_bvh_file
+from pybvh import bvhplot
 from pybvh.bvhplot import _backends
-
-BVH_DIR = Path(__file__).parent.parent / "bvh_data"
 
 # Each option of render() that some backend does not read, as given.
 OPTIONS = {
@@ -37,21 +32,6 @@ DECLARED = [
 ]
 
 
-@pytest.fixture(scope="module")
-def walk():
-    """Four frames of a walk spread over 3 seconds, as it turns, so a
-    camera that follows, a turntable, ghosts and the root's trail each
-    change the picture."""
-    return read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")[0:400:100]
-
-
-@pytest.fixture(scope="module")
-def pair(walk):
-    """The walk beside itself drawn twice as large, so that a spacing
-    and a matched size each change a scene holding both."""
-    return [walk, walk.scale(2.0)]
-
-
 @pytest.fixture
 def drawn(walk, pair, tmp_path, apng_frames):
     """The frames ``render`` writes to an ``.apng`` of the walk (of the
@@ -67,24 +47,18 @@ def drawn(walk, pair, tmp_path, apng_frames):
     return draw
 
 
-def _same(frames, others):
-    return len(frames) == len(others) and all(
-        np.array_equal(a, b) for a, b in zip(frames, others, strict=True)
-    )
-
-
 class TestEachBackendReadsWhatItDeclares:
     """Rendered with and without an option, a backend that reads it
     writes other frames, and one that does not writes the same."""
 
     @pytest.mark.parametrize("backend, option", DECLARED)
-    def test_an_option_declared_changes_the_frames(self, drawn, backend, option):
+    def test_an_option_declared_changes_the_frames(self, drawn, same_frames, backend, option):
         """Named, so the rule lets every declared option through."""
         pytest.importorskip(PACKAGE[backend])
         without = drawn(backend, option)
         given = drawn(backend, option, **OPTIONS[option])
         assert len(given) == len(without)
-        assert not _same(given, without)
+        assert not same_frames(given, without)
 
     @pytest.mark.parametrize(
         "backend, option",
@@ -96,12 +70,12 @@ class TestEachBackendReadsWhatItDeclares:
         ],
     )
     def test_an_option_a_panel_backend_does_not_read_leaves_the_frames_alone(
-        self, drawn, backend, option
+        self, drawn, same_frames, backend, option
     ):
         """Named, it is accepted: each skeleton in its own panel is the
         arrangement it asks for."""
         pytest.importorskip(PACKAGE[backend])
-        assert _same(drawn(backend, option, **OPTIONS[option]), drawn(backend, option))
+        assert same_frames(drawn(backend, option, **OPTIONS[option]), drawn(backend, option))
 
 
 class TestANamedBackend:

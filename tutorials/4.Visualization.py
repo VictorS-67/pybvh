@@ -371,7 +371,7 @@ print(f"Turntable animation saved to: {output_path}")
 # %% [markdown]
 # ## Frame counter
 #
-# Rendered clips are clean by default — publication output never stamps text on the image. For debugging or review, `frame_counter=True` stamps a `Frame f/F` counter in the corner (OpenCV backend):
+# Rendered clips are clean by default — publication output never stamps text on the image. For debugging or review, `frame_counter=True` stamps a `Frame f/F` counter in the corner (every backend but vedo):
 
 # %% tags=["slow-on-pr"]
 output_path = bvh.render(output_folder / "bvh_counter.mp4", frame_counter=True)

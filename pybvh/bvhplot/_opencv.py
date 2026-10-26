@@ -18,6 +18,8 @@ import numpy.typing as npt
 from ._colors import bone_colors_255, floor_palette, node_colors_255
 from ._scene import Scene, SkeletonView
 from ._style import (
+    COUNTER_BASELINE_PX,
+    COUNTER_RGB,
     GHOST_WIDTH_FACTOR,
     JOINT_DISC_MARGIN_PX,
     PALETTE_RGB,
@@ -25,6 +27,8 @@ from ._style import (
     TRACE_COLOR,
     Style,
     bone_width_px,
+    counter_left_px,
+    frame_counter_text,
     ghost_schedule,
 )
 from ._viewport import Turntable, Viewport, panel_viewports
@@ -430,16 +434,13 @@ def _generate_frames(
         # Text and the axis indicator stamp AFTER the downsample so
         # they stay crisp at the output resolution.
         if frame_counter:
-            clip_frame = f - scene.pass_start(f)
-            fc_text = f"Frame {clip_frame}/{scene.pass_length - 1}"
-            fc_x = max(5, w - 200)
             cv2.putText(
                 img,
-                fc_text,
-                (fc_x, h - 15),
+                frame_counter_text(scene, f),
+                (counter_left_px(w), h - COUNTER_BASELINE_PX),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
-                (150, 150, 150),
+                COUNTER_RGB[::-1],  # BGR, this backend's drawing order
                 1,
                 cv2.LINE_AA,
             )

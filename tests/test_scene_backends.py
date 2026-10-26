@@ -234,7 +234,7 @@ class TestEveryPassIsDrawnAsTheFirst:
             looped,
             self.STYLE,
             _gif_writer(tmp_path / "loop.gif", 10.0, (160, 120)),
-            AnimationOptions(ghost=2, trajectory=True),
+            AnimationOptions(ghost=2, trajectory=True, frame_counter=True),
         )
         frames = _gif_frames(out)
         assert len(frames) == self.LOOPED

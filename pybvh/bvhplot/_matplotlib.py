@@ -28,12 +28,16 @@ from mpl_toolkits.mplot3d.axes3d import Axes3D
 from ._colors import floor_palette
 from ._scene import Scene, SkeletonView
 from ._style import (
+    COUNTER_BASELINE_PX,
+    COUNTER_RGB,
     GHOST_WIDTH_FACTOR,
     PALETTE_MPL,
     TRACE_BLEND,
     TRACE_COLOR,
     Style,
     bone_colors_for_view,
+    counter_left_px,
+    frame_counter_text,
     ghost_schedule,
 )
 from ._video import VideoTarget, Writer
@@ -801,8 +805,38 @@ def _wrap_update_with_extras(
     return update
 
 
+# The counter's font size in pixels of the written frame. OpenCV stamps
+# it in its Hershey font at scale 0.5, which cv2.getTextSize measures 14
+# pixels high and 89 wide for "Frame 99/99"; matplotlib's default font
+# (DejaVu Sans) at 14 pixels draws that text 14 high and 88 wide.
+_COUNTER_TEXT_PX = 14
+
+
+def _wrap_update_with_counter(base_update, scene: Scene, fig: Figure, resolution, dpi: float):
+    """Extend an animation update fn with the frame counter, stamped
+    on the figure where :mod:`._style` places it."""
+    w, h = resolution
+    counter = fig.text(
+        counter_left_px(w) / w,
+        COUNTER_BASELINE_PX / h,
+        "",
+        fontsize=_COUNTER_TEXT_PX * 72 / dpi,
+        color=tuple(c / 255 for c in COUNTER_RGB),
+        ha="left",
+        va="baseline",
+    )
+
+    def update(f: int):
+        artists = base_update(f)
+        counter.set_text(frame_counter_text(scene, f))
+        artists.append(counter)
+        return artists
+
+    return update
+
+
 # The options of render() this backend reads (ADR 0006).
-RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory"})
+RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory", "frame_counter"})
 
 
 def render_mpl(
@@ -823,8 +857,8 @@ def render_mpl(
     matplotlib builds from the figure itself. The figure is drawn at
     the target's resolution. Of *animation_options*, the camera's schedule is
     handed to the viewport untouched, and a panel whose camera rotates
-    is re-aimed every frame; ghosts and the root trail are drawn; the
-    frame counter is not read.
+    is re-aimed every frame; ghosts, the root trail and the frame
+    counter are drawn.
 
     Returns
     -------
@@ -904,6 +938,8 @@ def render_mpl(
         update = _wrap_update_with_extras(
             update, scene, viewports, bones_arrays, ghost_slots, trace_lines
         )
+    if animation_options.frame_counter:
+        update = _wrap_update_with_counter(update, scene, fig, target.resolution, dpi)
 
     if isinstance(output, VideoTarget):
         interval = int(1000.0 / target.fps)

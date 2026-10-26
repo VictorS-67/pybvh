@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 import os
+import shutil
 import sys
 from collections.abc import Container
 from dataclasses import dataclass
@@ -22,9 +23,9 @@ FRAME_BACKENDS = frozenset({"matplotlib", "vedo"})
 RENDER_BACKENDS = frozenset({"auto", "opencv", "matplotlib", "vedo"})
 PLAY_BACKENDS = frozenset({"auto", "k3d", "vedo", "opencv", "matplotlib"})
 
-# Formats only the matplotlib/pillow pipeline can write — OpenCV's
-# VideoWriter handles video containers only (its .gif support is a
-# dedicated pillow-based path inside render_opencv).
+# The extensions auto gives to matplotlib even when OpenCV imports: only
+# matplotlib writes .html, .webp and .apng, and a .gif, which OpenCV writes
+# too, is matplotlib's under auto by a choice no change has revisited.
 _MPL_ONLY_EXTENSIONS = frozenset({".html", ".webp", ".apng", ".gif"})
 
 
@@ -44,11 +45,15 @@ class Environment:
         ``"vedo"``), asked with ``in``. A package counts when importing it
         succeeds, not when it is installed: an OpenCV that fails to load
         its system libraries does not count.
+    has_ffmpeg : bool
+        The ``ffmpeg`` executable is on PATH, so videos can be encoded
+        as H.264.
     """
 
     in_notebook: bool
     has_display: bool
     importable: Container[str]
+    has_ffmpeg: bool
 
 
 @dataclass(frozen=True)
@@ -107,12 +112,16 @@ def read_environment() -> Environment:
         in_notebook=_detect_notebook(),
         has_display=_has_display(),
         importable=_ImportableOnDemand(),
+        has_ffmpeg=shutil.which("ffmpeg") is not None,
     )
 
 
 def install_hint(package: str) -> str:
     """How to install the optional *package* (``"cv2"``, ``"k3d"``,
-    ``"vedo"``) with pybvh."""
+    ``"vedo"``) with pybvh, or the ``"ffmpeg"`` executable, which no pip
+    extra provides."""
+    if package == "ffmpeg":
+        return "Install ffmpeg (e.g. apt install ffmpeg / conda install ffmpeg)"
     return f"Install with: pip install pybvh[{_EXTRAS[package]}]"
 
 

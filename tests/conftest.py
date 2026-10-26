@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 
 import numpy as np
@@ -91,14 +92,26 @@ def environment(monkeypatch):
 
     Call it with what the machine offers: ``environment(notebook=True,
     importable={"cv2"})`` makes every later bvhplot call run in a notebook
-    where only OpenCV imports. Returns the value built.
+    where only OpenCV imports and ffmpeg is not on PATH. Returns the value
+    built.
     """
 
-    def build(*, notebook=False, display=False, importable=()):
+    def build(*, notebook=False, display=False, importable=(), ffmpeg=False):
         built = _backends.Environment(
-            in_notebook=notebook, has_display=display, importable=frozenset(importable)
+            in_notebook=notebook,
+            has_display=display,
+            importable=frozenset(importable),
+            has_ffmpeg=ffmpeg,
         )
         monkeypatch.setattr(_backends, "read_environment", lambda: built)
         return built
 
     return build
+
+
+@pytest.fixture
+def ffmpeg_on_path():
+    """Skip the test unless the ffmpeg executable is on PATH: an H.264
+    file needs the real encoder, whatever environment the test builds."""
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("needs the ffmpeg executable")

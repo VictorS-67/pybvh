@@ -89,6 +89,17 @@ class TestRenderVedo:
         )
         assert path.exists() and path.stat().st_size > 0
 
+    def test_gif_rounds_the_frame_duration(self, bvh, tmp_path):
+        """At 20.1 fps a frame lasts 49.75 ms: rounded to 50, stored as 5
+        hundredths (truncating to 49 stored 4)."""
+        from PIL import Image
+
+        path = bvhplot.render(
+            bvh[0:3], tmp_path / "t.gif", backend="vedo", resolution=(120, 100), fps=20.1
+        )
+        with Image.open(path) as gif:
+            assert gif.info["duration"] == 50
+
     def test_mp4(self, bvh, tmp_path):
         pytest.importorskip("cv2")
         path = bvhplot.render(
@@ -107,6 +118,23 @@ class TestRenderVedo:
         cap.release()
         four = "".join(chr((fcc >> 8 * i) & 0xFF) for i in range(4))
         assert four in ("FMP4", "mp4v", "XVID")
+
+    def test_mp4_without_opencv_is_h264_through_ffmpeg(
+        self, bvh, tmp_path, environment, ffmpeg_on_path
+    ):
+        """ffmpeg alone writes a video container: OpenCV is needed only
+        for MPEG-4 Part 2."""
+        environment(importable={"vedo"}, ffmpeg=True)
+        path = bvhplot.render(
+            bvh[0:4], tmp_path / "caps.mp4", backend="vedo", resolution=(300, 280)
+        )
+        cv2 = pytest.importorskip("cv2")  # only to read the file back
+        cap = cv2.VideoCapture(str(path))
+        fcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+        frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
+        assert "".join(chr((fcc >> 8 * i) & 0xFF) for i in range(4)) in ("avc1", "h264", "H264")
+        assert frames == 4
 
     def test_unsupported_extension_raises(self, bvh, tmp_path):
         with pytest.raises(ValueError, match="vedo backend"):

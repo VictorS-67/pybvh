@@ -1091,53 +1091,102 @@ class TestRenderCodec:
         cap.release()
         return "".join(chr((fcc >> 8 * i) & 0xFF) for i in range(4))
 
-    def test_mpeg4_forced(self, bvh_example, tmp_path):
-        path = bvhplot.render(
-            bvh_example, tmp_path / "m4.mp4", backend="opencv", resolution=(320, 240), codec="mpeg4"
-        )
+    @staticmethod
+    def _render(clip, path, **kwargs):
+        kwargs.setdefault("resolution", (320, 240))
+        return bvhplot.render(clip[0:5], path, backend="opencv", **kwargs)
+
+    @pytest.mark.parametrize("ffmpeg", [False, True], ids=["without-ffmpeg", "with-ffmpeg"])
+    def test_mpeg4_is_written_by_opencv_without_warning(
+        self, bvh_example, tmp_path, environment, ffmpeg
+    ):
+        environment(importable={"cv2"}, ffmpeg=ffmpeg)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            path = self._render(bvh_example, tmp_path / "m4.mp4", codec="mpeg4")
         assert self._fourcc(path) in ("FMP4", "mp4v", "XVID")
 
-    def test_h264_without_ffmpeg_raises(self, bvh_example, tmp_path):
-        import shutil
+    def test_auto_without_ffmpeg_writes_mpeg4_and_warns(self, bvh_example, tmp_path, environment):
+        """The file keeps the name asked for, and the warning says where
+        it will not play and how to get H.264."""
+        environment(importable={"cv2"})
+        with pytest.warns(UserWarning, match="ffmpeg") as caught:
+            path = self._render(bvh_example, tmp_path / "auto.mp4")
+        assert path == tmp_path / "auto.mp4"
+        assert list(tmp_path.iterdir()) == [path]
+        assert self._fourcc(path) in ("FMP4", "mp4v", "XVID")
+        assert [str(w.message) for w in caught] == [
+            "ffmpeg is not on PATH, so the video is written as MPEG-4 Part 2, which "
+            "plays in desktop players such as VLC but not in browsers, VSCode or "
+            "notebooks. Install ffmpeg (e.g. apt install ffmpeg / conda install ffmpeg) "
+            "to write H.264."
+        ]
 
-        if shutil.which("ffmpeg"):
-            pytest.skip("ffmpeg present — the raise path needs it absent")
-        with pytest.raises(RuntimeError, match="ffmpeg"):
-            bvhplot.render(
-                bvh_example,
-                tmp_path / "h264.mp4",
-                backend="opencv",
-                resolution=(320, 240),
-                codec="h264",
-            )
+    def test_h264_without_ffmpeg_raises(self, bvh_example, tmp_path, environment):
+        environment(importable={"cv2"})
+        with pytest.raises(RuntimeError, match=re.escape("requires the ffmpeg executable on PATH")):
+            self._render(bvh_example, tmp_path / "h264.mp4", codec="h264")
+        assert list(tmp_path.iterdir()) == []
 
-    def test_h264_with_ffmpeg(self, bvh_example, tmp_path):
-        import shutil
-
-        if not shutil.which("ffmpeg"):
-            pytest.skip("needs the ffmpeg executable")
-        path = bvhplot.render(
-            bvh_example,
-            tmp_path / "h264.mp4",
-            backend="opencv",
-            resolution=(320, 240),
-            codec="h264",
-        )
-        assert path.exists() and path.stat().st_size > 0
+    @pytest.mark.parametrize("codec", ["auto", "h264"])
+    def test_with_ffmpeg_the_video_is_h264_without_warning(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path, codec
+    ):
+        environment(importable={"cv2"}, ffmpeg=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            path = self._render(bvh_example, tmp_path / "h264.mp4", codec=codec)
         assert self._fourcc(path) in ("avc1", "h264", "H264")
 
-    def test_auto_matches_environment(self, bvh_example, tmp_path):
-        """auto == h264 when ffmpeg is on PATH, mp4v otherwise."""
+    def test_the_machine_is_read_for_ffmpeg(self, bvh_example, tmp_path):
+        """Without a test-built environment, auto writes what this
+        machine's PATH allows."""
         import shutil
 
-        path = bvhplot.render(
-            bvh_example, tmp_path / "auto.mp4", backend="opencv", resolution=(320, 240)
-        )
-        four = self._fourcc(path)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            path = self._render(bvh_example, tmp_path / "auto.mp4")
+        warned = any("ffmpeg is not on PATH" in str(w.message) for w in caught)
         if shutil.which("ffmpeg"):
-            assert four in ("avc1", "h264", "H264")
+            assert self._fourcc(path) in ("avc1", "h264", "H264") and not warned
         else:
-            assert four in ("FMP4", "mp4v", "XVID")
+            assert self._fourcc(path) in ("FMP4", "mp4v", "XVID") and warned
+
+    @pytest.mark.parametrize("codec", ["auto", "mpeg4"])
+    def test_a_video_without_its_encoder_raises_naming_the_install(
+        self, bvh_example, tmp_path, environment, codec
+    ):
+        """vedo needs OpenCV for MPEG-4 Part 2, and ffmpeg or OpenCV under
+        auto: the error names what to install, and nothing is written."""
+        environment(importable={"vedo"})
+        with pytest.raises(ImportError, match=re.escape("pip install pybvh[opencv]")) as raised:
+            bvhplot.render(bvh_example[0:3], tmp_path / "x.mp4", backend="vedo", codec=codec)
+        assert ("Install ffmpeg" in str(raised.value)) == (codec == "auto")
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize("backend", ["opencv", "matplotlib"])
+    @pytest.mark.parametrize(
+        "resolution", [(0, 0), (-5, 10), (320, float("nan")), (320,), (True, 240)]
+    )
+    def test_a_resolution_that_is_no_picture_size_raises(
+        self, bvh_example, tmp_path, environment, backend, resolution
+    ):
+        """Each backend failed inside its own library (fillPoly, an
+        IndexError, a negative figure size); the video target refuses it
+        by name before anything is drawn."""
+        environment(importable={"cv2"})
+        with pytest.raises(ValueError, match=re.escape("resolution must be")):
+            bvhplot.render(
+                bvh_example[0:3], tmp_path / "x.gif", backend=backend, resolution=resolution
+            )
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_resolution_given_as_a_list_is_drawn(self, bvh_example, tmp_path):
+        path = self._render(bvh_example, tmp_path / "list.gif", resolution=[64, 48])
+        from PIL import Image
+
+        with Image.open(path) as gif:
+            assert gif.size == (64, 48)
 
     def test_unknown_codec_raises(self, bvh_example, tmp_path):
         with pytest.raises(ValueError, match="codec"):
@@ -1150,6 +1199,28 @@ class TestRenderCodec:
     def test_mpeg4_rejected_on_matplotlib_backend(self, bvh_example, tmp_path):
         with pytest.raises(ValueError, match="OpenCV"):
             bvhplot.render(bvh_example, tmp_path / "x.mp4", backend="matplotlib", codec="mpeg4")
+
+
+class TestGifTiming:
+    """A GIF frame lasts 1000 / fps milliseconds rounded to a whole
+    millisecond, which the format then stores truncated to 10 ms."""
+
+    @pytest.mark.parametrize(
+        "fps, shown_ms",
+        [(20.1, 50), (24, 40), (30, 30)],
+        ids=["49.75ms", "41.67ms", "33.33ms"],
+    )
+    def test_opencv_rounds_the_frame_duration(self, bvh_example, tmp_path, fps, shown_ms):
+        """At 20.1 fps a frame lasts 49.75 ms: rounded to 50 it is stored
+        as 5 hundredths, where truncating to 49 stored 4."""
+        pytest.importorskip("cv2")
+        from PIL import Image
+
+        path = bvhplot.render(
+            bvh_example[0:3], tmp_path / "t.gif", backend="opencv", resolution=(64, 48), fps=fps
+        )
+        with Image.open(path) as gif:
+            assert gif.info["duration"] == shown_ms
 
 
 class TestMissingPackage:
@@ -1349,7 +1420,8 @@ class TestFpsResolution:
 
         def record(*args, **kwargs):
             given = signature.bind(*args, **kwargs).arguments
-            calls.append((given["scene"], given["fps"]))
+            fps = given["writer"].target.fps if "writer" in given else given["fps"]
+            calls.append((given["scene"], fps))
 
         monkeypatch.setattr(module, player, record)
         if backend == "opencv":

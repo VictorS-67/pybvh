@@ -44,7 +44,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .._warnings import user_stacklevel
-from . import _backends
+from . import _backends, _video
 from ._from_bvh import (
     as_clip_list,
     get_skeleton_lines,  # noqa: F401 — re-export (public since 0.5.0)
@@ -100,9 +100,6 @@ if TYPE_CHECKING:
 
     from ..bvh import Bvh
     from ._viewport import Turntable
-
-
-_VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi"}  # containers codec= applies to
 
 
 def _written_fps(backend_name: str, suffix: str, fps: float) -> float:
@@ -765,11 +762,12 @@ def render(
         in memory) raises ``ValueError`` unless ``fps`` is given.
     backend : str, optional
         ``"auto"`` (default), ``"opencv"``, ``"matplotlib"`` or
-        ``"vedo"``. Under ``"auto"``, formats OpenCV cannot write
-        (``.gif``, ``.webp``, ``.apng``, ``.html``) always use
-        matplotlib. ``"vedo"`` draws shadowed 3D capsule skeletons
-        offscreen (headless-safe, requires ``pybvh[viewer]``, and
-        ``pybvh[opencv]`` for a video container) to ``.mp4``, ``.mov``,
+        ``"vedo"``. Under ``"auto"``, ``.gif``, ``.webp``, ``.apng`` and
+        ``.html`` always use matplotlib (OpenCV writes no ``.webp``,
+        ``.apng`` or ``.html``). ``"vedo"`` draws shadowed 3D capsule skeletons
+        offscreen (headless-safe, requires ``pybvh[viewer]``, and for
+        a video container ``ffmpeg`` or ``pybvh[opencv]``, as *codec*
+        says) to ``.mp4``, ``.mov``,
         ``.avi`` or ``.gif``, every skeleton in one scene (see
         *spacing*); it is never chosen by ``"auto"``, and has no
         ``follow``, turntable, ``ghost`` or ``trajectory``.
@@ -891,15 +889,16 @@ def render(
         Video codec for ``.mp4``/``.mov``/``.avi`` output (invalid for
         other formats). ``"auto"`` (default) writes H.264 through the
         system ``ffmpeg`` executable when one is on PATH, and falls
-        back to OpenCV's MPEG-4 Part 2 (``mp4v``) otherwise — OpenCV
-        builds cannot encode H.264 themselves (patent licensing). The
-        two diverge in where the file plays: H.264 plays everywhere
-        (browsers, VSCode, notebook embeds, GitHub); ``mp4v`` only in
-        desktop players such as VLC or mpv. Pass ``"h264"`` when you
-        need the guarantee (raises with an install hint if no ffmpeg
-        is found) or ``"mpeg4"`` to force the OpenCV writer. The
-        matplotlib backend always writes H.264 (its mp4 writer *is*
-        ffmpeg), so ``"mpeg4"`` is rejected there.
+        back to OpenCV's MPEG-4 Part 2 (``mp4v``) otherwise, with a
+        warning — OpenCV builds cannot encode H.264 themselves (patent
+        licensing). The two diverge in where the file plays: H.264
+        plays everywhere (browsers, VSCode, notebook embeds, GitHub);
+        ``mp4v`` only in desktop players such as VLC or mpv. Pass
+        ``"h264"`` when you need the guarantee (raises with an install
+        hint if no ffmpeg is found) or ``"mpeg4"`` to write MPEG-4
+        Part 2 without the warning. Either way the file is written at
+        the path given. The matplotlib backend always writes H.264
+        (its mp4 writer *is* ffmpeg), so ``"mpeg4"`` is rejected there.
     spacing : float or "auto", optional
         Lateral separation between skeletons on the vedo backend, which
         draws every skeleton in one scene, exactly as :func:`play`
@@ -934,16 +933,6 @@ def render(
     if not (isinstance(ghost, int) and ghost >= 0):
         raise ValueError(f"ghost must be an integer >= 0, got {ghost!r}")
 
-    from ._opencv import VIDEO_CODECS
-
-    if codec not in VIDEO_CODECS:
-        raise ValueError(f"Unknown codec {codec!r}. Choose from: {sorted(VIDEO_CODECS)}")
-    if codec != "auto" and filepath.suffix.lower() not in _VIDEO_EXTENSIONS:
-        raise ValueError(
-            f"codec= applies to video containers "
-            f"({sorted(_VIDEO_EXTENSIONS)}), not {filepath.suffix!r}."
-        )
-
     # "turntable" is a camera *motion*, not an angle: orbit from the
     # front view. It overrides follow (both prescribe the azimuth).
     turntable = camera == "turntable"
@@ -970,6 +959,7 @@ def render(
     scene = _prepare(clips, None, centered, camera, labels, pad=pad)
 
     actual_fps = _resolve_fps(fps, scene.frame_time)
+    target = _video.VideoTarget(filepath, actual_fps, resolution, codec)
 
     # The one value the backends hand to the viewport. Turntable
     # overrides follow — both prescribe the azimuth. A custom (azim,
@@ -1024,10 +1014,11 @@ def render(
             )
         from ._vedo_offscreen import render_vedo
 
+        writer = _video_writer(target, environment, "The vedo backend")
         scene = _arranged_in_one_scene(
             scene, spacing=spacing, centered=centered, match_size=match_size
         )
-        return render_vedo(scene, style_obj, filepath, actual_fps, resolution, codec=codec)
+        return render_vedo(scene, style_obj, writer)
 
     if backend_name == "opencv":
         from ._opencv import render_opencv
@@ -1035,23 +1026,14 @@ def render(
         return render_opencv(
             scene,
             style_obj,
-            filepath,
-            actual_fps,
-            resolution,
+            _video_writer(target, environment, "The OpenCV backend"),
             motion=motion,
             frame_counter=frame_counter,
             ghost=ghost,
             trajectory=trajectory,
-            codec=codec,
         )
 
     else:  # matplotlib
-        if codec == "mpeg4":
-            raise ValueError(
-                "codec='mpeg4' is only available on the OpenCV and "
-                "vedo backends — the matplotlib backend writes video "
-                "through ffmpeg, which encodes H.264."
-            )
         from ._matplotlib import render_mpl
 
         return render_mpl(
@@ -1063,7 +1045,19 @@ def render(
             resolution=resolution,
             ghost=ghost,
             trajectory=trajectory,
+            codec=codec,
         )
+
+
+def _video_writer(
+    target: _video.VideoTarget, environment: _backends.Environment, subject: str
+) -> _video.Writer:
+    """The video module's writer of *target* for the backend *subject*
+    names, its warnings warned at the user's line."""
+    writer = _video.writer_for(target, environment, subject)
+    for message in writer.warnings:
+        warnings.warn(message, stacklevel=user_stacklevel())
+    return writer
 
 
 def play(
@@ -1283,9 +1277,9 @@ def play(
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp_path = Path(tmp.name)
 
-        render_opencv(
-            scene, style_obj, tmp_path, actual_fps, resolution, frame_counter=frame_counter
-        )
+        target = _video.VideoTarget(tmp_path, actual_fps, resolution)
+        writer = _video_writer(target, environment, "The opencv play backend")
+        render_opencv(scene, style_obj, writer, frame_counter=frame_counter)
 
         display(Video(str(tmp_path), embed=True, mimetype="video/mp4"))
         tmp_path.unlink(missing_ok=True)

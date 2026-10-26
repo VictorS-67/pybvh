@@ -831,6 +831,7 @@ def render_mpl(
     resolution: tuple[int, int] = (1920, 1080),
     ghost: int = 0,
     trajectory: bool = False,
+    codec: str = "auto",
 ) -> Path:
     """Render animation to a video/GIF/HTML file via matplotlib.
 
@@ -839,7 +840,9 @@ def render_mpl(
 
     *motion* is handed to the viewport untouched: it decides how each
     panel's camera moves, and a panel whose camera rotates is re-aimed
-    every frame.
+    every frame. *codec* is ``"auto"`` or ``"h264"``; ``"mpeg4"``
+    raises, since this backend writes video through ffmpeg, which
+    encodes H.264.
 
     Returns
     -------
@@ -847,6 +850,12 @@ def render_mpl(
         The actual output path (may differ from input if ffmpeg is missing
         and the format was changed to GIF).
     """
+    if codec == "mpeg4":
+        raise ValueError(
+            "codec='mpeg4' is only available on the OpenCV and "
+            "vedo backends — the matplotlib backend writes video "
+            "through ffmpeg, which encodes H.264."
+        )
     filepath, writer_name = _resolve_writer(filepath)
     num_frames = scene.num_frames
 

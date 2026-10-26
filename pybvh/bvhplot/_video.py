@@ -130,6 +130,8 @@ def writer_for(target: VideoTarget, environment: Environment, subject: str) -> W
         When *target*'s extension is not written from frames.
     RuntimeError
         On ``codec="h264"`` without ffmpeg.
+    ImportError
+        When MPEG-4 Part 2 is needed and OpenCV does not import.
     """
     ext = target.suffix
     writer = _WRITERS.get(ext)
@@ -150,6 +152,18 @@ def writer_for(target: VideoTarget, environment: Environment, subject: str) -> W
         )
     if environment.has_ffmpeg and target.codec != "mpeg4":
         return Writer(target, _FFMPEG)
+    if "cv2" not in environment.importable:
+        if target.codec == "mpeg4":
+            raise ImportError(
+                f"codec='mpeg4' is written by OpenCV, which requires "
+                f"opencv-python. {install_hint('cv2')}"
+            )
+        raise ImportError(
+            f"{subject} writes {ext} files as H.264 through the ffmpeg "
+            f"executable or as MPEG-4 Part 2 through opencv-python, and "
+            f"neither is available. {install_hint('ffmpeg')}, or OpenCV "
+            f"({install_hint('cv2')}), or render to .gif instead."
+        )
     return Writer(target, _OPENCV)
 
 

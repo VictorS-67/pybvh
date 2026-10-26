@@ -108,6 +108,25 @@ class TestRenderVedo:
         four = "".join(chr((fcc >> 8 * i) & 0xFF) for i in range(4))
         assert four in ("FMP4", "mp4v", "XVID")
 
+    def test_mp4_without_opencv_is_h264_through_ffmpeg(self, bvh, tmp_path, environment):
+        """ffmpeg alone writes a video container: OpenCV is needed only
+        for MPEG-4 Part 2."""
+        import shutil
+
+        if not shutil.which("ffmpeg"):
+            pytest.skip("needs the ffmpeg executable")
+        environment(importable={"vedo"}, ffmpeg=True)
+        path = bvhplot.render(
+            bvh[0:4], tmp_path / "caps.mp4", backend="vedo", resolution=(300, 280)
+        )
+        cv2 = pytest.importorskip("cv2")  # only to read the file back
+        cap = cv2.VideoCapture(str(path))
+        fcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+        frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
+        assert "".join(chr((fcc >> 8 * i) & 0xFF) for i in range(4)) in ("avc1", "h264", "H264")
+        assert frames == 4
+
     def test_unsupported_extension_raises(self, bvh, tmp_path):
         with pytest.raises(ValueError, match="vedo backend"):
             bvhplot.render(bvh[0:4], tmp_path / "x.html", backend="vedo")

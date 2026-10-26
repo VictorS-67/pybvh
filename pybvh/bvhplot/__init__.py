@@ -1013,12 +1013,6 @@ def render(
             )
         from ._vedo_offscreen import render_vedo
 
-        if target.suffix in _video.VIDEO_CONTAINERS and "cv2" not in environment.importable:
-            raise ImportError(
-                f"Writing {target.suffix} via the vedo backend requires "
-                f"opencv-python. {_backends.install_hint('cv2')}, or render "
-                f"to .gif instead."
-            )
         writer = _video_writer(target, environment, "The vedo backend")
         scene = _arranged_in_one_scene(
             scene, spacing=spacing, centered=centered, match_size=match_size

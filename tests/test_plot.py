@@ -1139,6 +1139,18 @@ class TestRenderCodec:
         else:
             assert four in ("FMP4", "mp4v", "XVID")
 
+    @pytest.mark.parametrize("codec", ["auto", "mpeg4"])
+    def test_a_video_without_its_encoder_raises_naming_the_install(
+        self, bvh_example, tmp_path, environment, codec
+    ):
+        """vedo needs OpenCV for MPEG-4 Part 2, and ffmpeg or OpenCV under
+        auto: the error names what to install, and nothing is written."""
+        environment(importable={"vedo"})
+        with pytest.raises(ImportError, match=re.escape("pip install pybvh[opencv]")) as raised:
+            bvhplot.render(bvh_example[0:3], tmp_path / "x.mp4", backend="vedo", codec=codec)
+        assert ("Install ffmpeg" in str(raised.value)) == (codec == "auto")
+        assert list(tmp_path.iterdir()) == []
+
     def test_unknown_codec_raises(self, bvh_example, tmp_path):
         with pytest.raises(ValueError, match="codec"):
             bvhplot.render(bvh_example, tmp_path / "x.mp4", codec="hevc")

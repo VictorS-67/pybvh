@@ -96,6 +96,8 @@ def _resolve_sample_frames(
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     import matplotlib.axes
     import matplotlib.figure
 
@@ -284,6 +286,13 @@ def _match_frame_rates(
         else:
             result.append(b.resample(target_fps))
     return result
+
+
+def _warn_at_user_line(messages: Iterable[str]) -> None:
+    """Warn each of *messages*, which a backend choice or a video writer
+    owes the caller, at the user's line."""
+    for message in messages:
+        warnings.warn(message, stacklevel=user_stacklevel())
 
 
 def _given(**options: object) -> set[str]:
@@ -1065,8 +1074,7 @@ def render(
             animation_options, schedule=Turntable(period=period)
         )
 
-    for message in choice.warnings:
-        warnings.warn(message, stacklevel=user_stacklevel())
+    _warn_at_user_line(choice.warnings)
 
     _backends.check_importable("render", backend_name, environment)
     if backend_name == "vedo":
@@ -1105,8 +1113,7 @@ def _video_writer(
     """The video module's writer of *target* for the backend *subject*
     names, its warnings warned at the user's line."""
     writer = _video.writer_for(target, environment, subject)
-    for message in writer.warnings:
-        warnings.warn(message, stacklevel=user_stacklevel())
+    _warn_at_user_line(writer.warnings)
     return writer
 
 
@@ -1305,8 +1312,7 @@ def play(
 
     actual_fps = _resolve_fps(fps, scene.frame_time)
 
-    for message in choice.warnings:
-        warnings.warn(message, stacklevel=user_stacklevel())
+    _warn_at_user_line(choice.warnings)
 
     step = _backends.play_frame_step(backend_name, fps, actual_fps)
     if step > 1:

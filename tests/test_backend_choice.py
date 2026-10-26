@@ -121,6 +121,30 @@ class TestPlayTiers:
         )
 
 
+class TestPlayRateCap:
+    """Under fps=None, the k3d widget and matplotlib play at most 30 fps,
+    by keeping every step-th frame: the smallest whole step that brings
+    the clip's rate to 30 or below."""
+
+    @pytest.mark.parametrize(
+        "backend, rate, step",
+        [
+            ("k3d", 120.0, 4),
+            ("matplotlib", 100.0, 4),  # 100 / 4 = 25; 100 / 3 > 30
+            ("matplotlib", 31.0, 2),
+            ("matplotlib", 30.0, 1),
+            ("opencv_notebook", 120.0, 1),  # a video player keeps up
+            ("vedo", 120.0, 1),  # vedo's timer keeps up
+        ],
+    )
+    def test_the_step_brings_the_rate_to_thirty_or_below(self, backend, rate, step):
+        assert _backends.play_frame_step(backend, None, rate) == step
+
+    @pytest.mark.parametrize("backend", ["k3d", "matplotlib"])
+    def test_a_rate_given_is_never_capped(self, backend):
+        assert _backends.play_frame_step(backend, 120.0, 120.0) == 1
+
+
 class TestRenderChoice:
     """render()'s choice: by the file's extension and the installed
     packages under auto; a named backend wins."""

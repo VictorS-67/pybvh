@@ -8,6 +8,7 @@ that value, so a test builds the value instead of changing the machine.
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 from collections.abc import Container
@@ -239,3 +240,25 @@ def choose_play_backend(requested: str, environment: Environment) -> Choice:
     if tier == 3:
         warned.append(_SLOW_PLAY)
     return Choice(backend, tuple(warned))
+
+
+# Notebook widgets (k3d, matplotlib's jshtml player) and matplotlib windows
+# cannot keep up with high frame rates (120 fps), so play() caps them here.
+# The OpenCV notebook video plays any rate in the browser's player, and the
+# vedo window keeps its actors and steps them on a timer.
+PLAY_MAX_FPS = 30.0
+_UNCAPPED_PLAY_BACKENDS = frozenset({"opencv_notebook", "vedo"})
+
+
+def play_frame_step(backend: str, fps: float | None, rate: float) -> int:
+    """Every how many frames *backend* plays a clip of *rate* fps, when
+    ``play`` was given *fps* (``None`` for the clip's own rate).
+
+    A rate given is played as given. Under ``None``, a backend that cannot
+    keep up plays every step-th frame, the smallest whole step bringing
+    the rate to :data:`PLAY_MAX_FPS` or below; the kept frames keep their
+    moments, so the rate played is *rate* over the step.
+    """
+    if fps is not None or backend in _UNCAPPED_PLAY_BACKENDS or rate <= PLAY_MAX_FPS:
+        return 1
+    return math.ceil(rate / PLAY_MAX_FPS)

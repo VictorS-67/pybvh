@@ -1235,19 +1235,9 @@ def play(
     for message in choice.warnings:
         warnings.warn(message, stacklevel=user_stacklevel())
 
-    # --- Subsample to 30fps when fps is auto ---
-    # Notebooks (k3d, jshtml) and matplotlib windows can't keep up with
-    # high frame rates (120fps). Cap at 30fps for correct playback speed.
-    # opencv_notebook uses a video player that handles any fps natively.
-    # vedo uses persistent actors + timer, handles high fps well.
-    _PLAY_MAX_FPS = 30.0
-    if (
-        fps is None
-        and backend_name not in ("opencv_notebook", "vedo")
-        and actual_fps > _PLAY_MAX_FPS
-    ):
-        subsample_step = math.ceil(actual_fps / _PLAY_MAX_FPS)
-        scene = scene.subsampled(subsample_step)
+    step = _backends.play_frame_step(backend_name, fps, actual_fps)
+    if step > 1:
+        scene = scene.subsampled(step)
         actual_fps = 1.0 / scene.frame_time
 
     # --- world_up consistency check (all backends) ---

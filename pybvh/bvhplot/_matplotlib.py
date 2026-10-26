@@ -29,7 +29,6 @@ from ._colors import floor_palette
 from ._scene import Scene, SkeletonView
 from ._style import (
     COUNTER_BASELINE_PX,
-    COUNTER_INSET_PX,
     COUNTER_RGB,
     GHOST_WIDTH_FACTOR,
     PALETTE_MPL,
@@ -37,6 +36,7 @@ from ._style import (
     TRACE_COLOR,
     Style,
     bone_colors_for_view,
+    counter_left_px,
     frame_counter_text,
     ghost_schedule,
 )
@@ -815,7 +815,7 @@ def _wrap_update_with_counter(base_update, scene: Scene, fig: Figure, resolution
     on the figure where :mod:`._style` places it."""
     w, h = resolution
     counter = fig.text(
-        max(5, w - COUNTER_INSET_PX) / w,
+        counter_left_px(w) / w,
         COUNTER_BASELINE_PX / h,
         "",
         fontsize=_COUNTER_TEXT_PX * 72 / dpi,

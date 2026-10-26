@@ -19,7 +19,6 @@ from ._colors import bone_colors_255, floor_palette, node_colors_255
 from ._scene import Scene, SkeletonView
 from ._style import (
     COUNTER_BASELINE_PX,
-    COUNTER_INSET_PX,
     COUNTER_RGB,
     GHOST_WIDTH_FACTOR,
     JOINT_DISC_MARGIN_PX,
@@ -28,6 +27,7 @@ from ._style import (
     TRACE_COLOR,
     Style,
     bone_width_px,
+    counter_left_px,
     frame_counter_text,
     ghost_schedule,
 )
@@ -437,7 +437,7 @@ def _generate_frames(
             cv2.putText(
                 img,
                 frame_counter_text(scene, f),
-                (max(5, w - COUNTER_INSET_PX), h - COUNTER_BASELINE_PX),
+                (counter_left_px(w), h - COUNTER_BASELINE_PX),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
                 COUNTER_RGB[::-1],  # BGR, this backend's drawing order

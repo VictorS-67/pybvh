@@ -414,13 +414,18 @@ def ghost_schedule(
 # Frame counter (shared backend convention)
 # ---------------------------------------------------------------------------
 
-# Where every backend that draws the counter stamps it, in pixels of the
-# written frame: gray text whose left edge sits this far in from the
-# right edge (5 pixels in from the left on a narrower frame), its
-# baseline this far above the bottom edge.
+# How every backend that draws the counter stamps it, in pixels of the
+# written frame: gray text, its baseline this far above the bottom edge
+# and its left edge where counter_left_px puts it.
 COUNTER_RGB = (150, 150, 150)
-COUNTER_INSET_PX = 200
 COUNTER_BASELINE_PX = 15
+
+
+def counter_left_px(width: int) -> int:
+    """The left edge of the counter on a frame *width* pixels wide:
+    200 pixels in from the right edge, or 5 in from the left on a frame
+    narrower than 205."""
+    return max(5, width - 200)
 
 
 def frame_counter_text(scene: Scene, frame: int) -> str:

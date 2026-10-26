@@ -1699,6 +1699,11 @@ class TestHeadingChange:
 
 
 class TestMatchFps:
+    """Clips at different rates, through play(): bvh_test1 is 30 fps and
+    bvh_test2 120 fps. The matplotlib backend is stubbed, so the Scene
+    it receives shows each clip's rate after the router's matching; an
+    explicit fps= keeps play's 30 fps cap from subsampling that Scene."""
+
     @pytest.fixture
     def bvh_30fps(self):
         return read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_test1.bvh")
@@ -1707,73 +1712,55 @@ class TestMatchFps:
     def bvh_120fps(self):
         return read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_test2.bvh")
 
-    def test_warns_on_mismatch(self, bvh_30fps, bvh_120fps):
-        from pybvh.bvhplot import _match_frame_rates
+    @staticmethod
+    def _played_rates(played):
+        ((scene, _),) = played
+        return [1.0 / view.frame_time for view in scene.views]
 
+    def test_warns_on_mismatch(self, bvh_30fps, bvh_120fps, played):
         with pytest.warns(UserWarning, match="Frame rates differ"):
-            _match_frame_rates([bvh_30fps, bvh_120fps], None)
+            bvhplot.play([bvh_30fps, bvh_120fps], backend="matplotlib", fps=60)
+        assert self._played_rates(played) == pytest.approx([30.0, 120.0], rel=1e-4)
 
-    def test_no_warning_when_same_fps(self, bvh_30fps):
+    def test_no_warning_when_same_fps(self, bvh_30fps, played):
         import warnings
 
-        from pybvh.bvhplot import _match_frame_rates
-
-        bvh2 = bvh_30fps.copy()
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            _match_frame_rates([bvh_30fps, bvh2], None)
-            fps_warns = [x for x in w if "Frame rates differ" in str(x.message)]
-            assert len(fps_warns) == 0
+            bvhplot.play([bvh_30fps, bvh_30fps.copy()], backend="matplotlib")
+        assert [x for x in w if "Frame rates differ" in str(x.message)] == []
 
-    def test_lowest_resamples_to_min(self, bvh_30fps, bvh_120fps):
-        from pybvh.bvhplot import _match_frame_rates
+    def test_lowest_resamples_to_min(self, bvh_30fps, bvh_120fps, played):
+        bvhplot.play([bvh_120fps, bvh_30fps], backend="matplotlib", match_fps="lowest", fps=60)
+        assert self._played_rates(played) == pytest.approx([30.0, 30.0], rel=1e-4)
 
-        result = _match_frame_rates([bvh_30fps, bvh_120fps], "lowest")
-        fps0 = 1.0 / result[0].frame_time
-        fps1 = 1.0 / result[1].frame_time
-        assert abs(fps0 - fps1) < 0.5
-        assert abs(fps0 - 30.0) < 0.5
+    def test_highest_resamples_to_max(self, bvh_30fps, bvh_120fps, played):
+        bvhplot.play([bvh_30fps, bvh_120fps], backend="matplotlib", match_fps="highest", fps=60)
+        assert self._played_rates(played) == pytest.approx([120.0, 120.0], rel=1e-4)
 
-    def test_highest_resamples_to_max(self, bvh_30fps, bvh_120fps):
-        from pybvh.bvhplot import _match_frame_rates
+    def test_resampling_never_drops_a_clip(self, bvh_30fps, bvh_120fps, played):
+        """Every clip comes back, resampled or not. (A clip whose rate
+        cannot be compared, NaN, never reaches play(): the frame_time
+        setter refuses it, see test_bvh.py's
+        test_frame_time_setter_rejects_non_finite.)"""
+        clips = [bvh_30fps, bvh_120fps, bvh_30fps[0:5]]
+        bvhplot.play(clips, backend="matplotlib", match_fps="lowest", fps=60)
+        assert self._played_rates(played) == pytest.approx([30.0, 30.0, 30.0], rel=1e-4)
 
-        result = _match_frame_rates([bvh_30fps, bvh_120fps], "highest")
-        fps0 = 1.0 / result[0].frame_time
-        fps1 = 1.0 / result[1].frame_time
-        assert abs(fps0 - fps1) < 0.5
-        assert abs(fps0 - 120.0) < 0.5
-
-    def test_resampling_never_drops_a_clip(self, bvh_30fps, bvh_120fps):
-        """Every clip comes back, resampled or not, or the call raises: a
-        clip whose rate cannot be compared (NaN, which the frame_time
-        setter now rejects at the assignment) must not vanish from the
-        comparison."""
-        from pybvh.bvhplot import _match_frame_rates
-
-        odd = bvh_30fps[0:5]
-        try:
-            odd.frame_time = float("nan")
-            result = _match_frame_rates([bvh_30fps, bvh_120fps, odd], "lowest")
-        except ValueError:
-            return
-        assert len(result) == 3
-
-    def test_invalid_match_fps_raises(self, bvh_30fps, bvh_120fps):
-        from pybvh.bvhplot import _match_frame_rates
-
+    def test_invalid_match_fps_raises(self, bvh_30fps, bvh_120fps, played):
         with pytest.raises(ValueError, match="match_fps"):
-            _match_frame_rates([bvh_30fps, bvh_120fps], "bad")
+            bvhplot.play([bvh_30fps, bvh_120fps], backend="matplotlib", match_fps="bad")
+        assert played == []
 
-    def test_single_clip_no_warning(self, bvh_30fps):
+    def test_single_clip_no_warning(self, bvh_30fps, played):
         import warnings
-
-        from pybvh.bvhplot import _match_frame_rates
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            result = _match_frame_rates([bvh_30fps], None)
-            assert len(w) == 0
-            assert len(result) == 1
+            bvhplot.play([bvh_30fps], backend="matplotlib")
+        assert len(w) == 0
+        ((scene, _),) = played
+        assert len(scene.views) == 1
 
 
 class TestSceneSpacing:

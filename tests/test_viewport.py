@@ -89,10 +89,10 @@ class TestStillFraming:
 
 class TestClipFraming:
     @pytest.mark.parametrize(
-        "motion, rotating", [("fixed", False), ("turntable", True), ("follow", True)]
+        "schedule, rotating", [("fixed", False), ("turntable", True), ("follow", True)]
     )
-    def test_the_box_is_the_one_the_motion_sweeps(self, view, motion, rotating):
-        viewport = make_viewport([view], framing="clip", motion=motion)
+    def test_the_box_is_the_one_the_motion_sweeps(self, view, schedule, rotating):
+        viewport = make_viewport([view], framing="clip", schedule=schedule)
         lo, hi = framing_bounds(view, rotating=rotating)
         np.testing.assert_array_equal(viewport.lo, lo)
         np.testing.assert_array_equal(viewport.hi, hi)
@@ -144,7 +144,7 @@ class TestClipFraming:
         np.testing.assert_allclose(viewport.hi[1], -mirrored.lo[1])
 
     def test_a_rotating_camera_squares_the_ground_off(self, view):
-        viewport = make_viewport([view], framing="clip", motion="turntable")
+        viewport = make_viewport([view], framing="clip", schedule="turntable")
         first, second = viewport.ground_indices
         spans = viewport.hi - viewport.lo
         assert spans[first] == pytest.approx(spans[second])
@@ -158,13 +158,13 @@ class TestClipFraming:
 
 class TestSchedule:
     def test_a_fixed_camera_has_no_schedule(self, view):
-        viewport = make_viewport([view], motion="fixed")
+        viewport = make_viewport([view], schedule="fixed")
         assert viewport.azimuths is None
         assert not viewport.rotating
         assert viewport.azimuth_at(7) == view.azimuth
 
     def test_turntable_orbits_once(self, view):
-        viewport = make_viewport([view], motion="turntable")
+        viewport = make_viewport([view], schedule="turntable")
         # v0.9.0's ramp, to the bit: the default speed is unchanged.
         np.testing.assert_array_equal(
             viewport.azimuths, view.azimuth + np.linspace(0.0, 360.0, 24, endpoint=False)
@@ -175,21 +175,21 @@ class TestSchedule:
     def test_a_turntable_turns_once_every_period(self, view):
         """The period is a speed, not a share of the clip: 12 frames
         per revolution over 24 frames is two orbits, 30 degrees a frame."""
-        viewport = make_viewport([view], motion=Turntable(period=12))
+        viewport = make_viewport([view], schedule=Turntable(period=12))
         np.testing.assert_allclose(viewport.azimuths, view.azimuth + 30.0 * np.arange(24))
         assert viewport.azimuth_at(15) == pytest.approx(view.azimuth + 450.0)
 
     def test_a_fractional_period_keeps_its_exact_speed(self, view):
-        viewport = make_viewport([view], motion=Turntable(period=7.5))
+        viewport = make_viewport([view], schedule=Turntable(period=7.5))
         np.testing.assert_allclose(viewport.azimuths, view.azimuth + 48.0 * np.arange(24))
 
     def test_a_period_longer_than_the_frames_turns_part_way(self, view):
-        viewport = make_viewport([view], motion=Turntable(period=48))
+        viewport = make_viewport([view], schedule=Turntable(period=48))
         assert viewport.azimuth_at(23) == pytest.approx(view.azimuth + 172.5)
 
     def test_a_period_of_the_frames_is_the_one_orbit_turntable(self, view):
-        once = make_viewport([view], motion="turntable")
-        timed = make_viewport([view], motion=Turntable(period=24))
+        once = make_viewport([view], schedule="turntable")
+        timed = make_viewport([view], schedule=Turntable(period=24))
         np.testing.assert_array_equal(timed.azimuths, once.azimuths)
 
     def test_a_turntable_period_is_a_positive_number_of_frames(self):
@@ -199,7 +199,7 @@ class TestSchedule:
 
     def test_follow_tracks_the_facing(self, view):
         turning = _turning_view(view)
-        viewport = make_viewport([turning], motion="follow")
+        viewport = make_viewport([turning], schedule="follow")
         np.testing.assert_array_equal(
             viewport.azimuths, compute_follow_azimuths(turning, turning.azimuth)
         )
@@ -209,11 +209,11 @@ class TestSchedule:
         """Follow on a rig with no left/right pairs has nothing to
         track; a turntable over one frame has nowhere to go."""
         no_pairs = dataclasses.replace(view, lr_pairs=np.empty((0, 2), dtype=np.intp))
-        assert make_viewport([no_pairs], motion="follow").azimuths is None
+        assert make_viewport([no_pairs], schedule="follow").azimuths is None
         one_frame = dataclasses.replace(
             view, coords=view.coords[:1], root_heading=view.root_heading[:1]
         )
-        viewport = make_viewport([one_frame], motion="turntable")
+        viewport = make_viewport([one_frame], schedule="turntable")
         assert viewport.azimuths is None
         assert not viewport.rotating
 
@@ -223,16 +223,16 @@ class TestSchedule:
         assert len(view.lr_pairs) > 0
         travel = view.coords[:, :1] - view.coords[:1, :1]
         gliding = dataclasses.replace(view, coords=view.coords[:1] + travel)
-        viewport = make_viewport([gliding], framing="clip", motion="follow")
+        viewport = make_viewport([gliding], framing="clip", schedule="follow")
         assert viewport.azimuths is None
-        fixed = make_viewport([gliding], framing="clip", motion="fixed")
+        fixed = make_viewport([gliding], framing="clip", schedule="fixed")
         np.testing.assert_array_equal(viewport.lo, fixed.lo)
 
     def test_a_fixed_camera_is_framed_as_one(self, view):
         """With nothing to rotate, the ground is not squared off."""
         no_pairs = dataclasses.replace(view, lr_pairs=np.empty((0, 2), dtype=np.intp))
-        followed = make_viewport([no_pairs], framing="clip", motion="follow")
-        fixed = make_viewport([no_pairs], framing="clip", motion="fixed")
+        followed = make_viewport([no_pairs], framing="clip", schedule="follow")
+        fixed = make_viewport([no_pairs], framing="clip", schedule="fixed")
         np.testing.assert_array_equal(followed.lo, fixed.lo)
         np.testing.assert_array_equal(followed.hi, fixed.hi)
 
@@ -274,7 +274,7 @@ class TestFollowSchedule:
             compute_follow_azimuths(unset, -20.0, fps=30.0), compute_follow_azimuths(timed, -20.0)
         )
         np.testing.assert_array_equal(
-            make_viewport([unset], motion="follow", fps=30.0).azimuths,
+            make_viewport([unset], schedule="follow", fps=30.0).azimuths,
             compute_follow_azimuths(timed, -20.0),
         )
 
@@ -321,7 +321,7 @@ class TestFollowSchedule:
         turn = np.linspace(0.0, 90.0, 120)
         unmeasured = _unmeasured(_turned_in_place(view, turn), slice(0, 5))
         np.testing.assert_array_equal(compute_follow_azimuths(unmeasured, -20.0), -20.0)
-        assert make_viewport([unmeasured], motion="follow").azimuths is None
+        assert make_viewport([unmeasured], schedule="follow").azimuths is None
 
     def test_an_unmeasured_tail_holds_the_last_measured_heading(self, view):
         """Frames 60 on cannot be measured: they take frame 59's heading,
@@ -335,7 +335,7 @@ class TestFollowSchedule:
         turn = np.linspace(0.0, 90.0, 120)
         unmeasured = _unmeasured(_turned_in_place(view, turn), slice(1, None))
         np.testing.assert_array_equal(compute_follow_azimuths(unmeasured, -20.0), -20.0)
-        assert make_viewport([unmeasured], motion="follow").azimuths is None
+        assert make_viewport([unmeasured], schedule="follow").azimuths is None
 
 
 def _unmeasured(view, frames):
@@ -382,7 +382,7 @@ def _turning_view(view):
 
 class TestCamera:
     def test_view_matrix_is_the_schedules(self, view):
-        viewport = make_viewport([view], motion="turntable")
+        viewport = make_viewport([view], schedule="turntable")
         for frame in (0, 5, 23):
             np.testing.assert_array_equal(
                 viewport.view_matrix(frame),
@@ -410,7 +410,7 @@ class TestCamera:
         np.testing.assert_array_equal(still.target, clip.target)
 
     def test_the_camera_orbits_with_the_schedule(self, view):
-        viewport = make_viewport([view], motion="turntable")
+        viewport = make_viewport([view], schedule="turntable")
         start, quarter = (viewport.camera(frame, view_angle=30.0) for frame in (0, 6))
         assert not np.allclose(start.eye, quarter.eye)
         np.testing.assert_array_equal(start.target, quarter.target)
@@ -466,13 +466,13 @@ class TestPerspectiveFit:
     every coordinate shown lands inside FIT_FRACTION of the picture."""
 
     @pytest.mark.parametrize("still", [True, False], ids=["still", "clip"])
-    @pytest.mark.parametrize("motion", ["fixed", "turntable"])
+    @pytest.mark.parametrize("schedule", ["fixed", "turntable"])
     @pytest.mark.parametrize("view_angle", [30.0, 60.0])
     @pytest.mark.parametrize(
         "aspect", [16 / 9, 9 / 16, None], ids=["landscape", "portrait", "vertical"]
     )
     def test_every_coordinate_fits_and_one_reaches_the_edge(
-        self, still, motion, view_angle, aspect
+        self, still, schedule, view_angle, aspect
     ):
         """A still under a turntable is one pose held for the orbit, as
         a render of a one-frame clip loops it."""
@@ -483,8 +483,8 @@ class TestPerspectiveFit:
         else:
             scene = make_array_scene(n_frames=24)
         view = scene.views[0]
-        viewport = make_viewport(scene.views, motion=motion)
-        assert viewport.rotating == (motion == "turntable")
+        viewport = make_viewport(scene.views, schedule=schedule)
+        assert viewport.rotating == (schedule == "turntable")
         fills = []
         for frame in range(24):
             camera = viewport.camera(frame, view_angle=view_angle, aspect=aspect)
@@ -502,7 +502,7 @@ class TestPerspectiveFit:
         """A clip whose heading turns a quarter turn, followed: each
         frame is seen from that frame's direction."""
         turning = _turning_view(view)
-        viewport = make_viewport([turning], motion="follow")
+        viewport = make_viewport([turning], schedule="follow")
         assert viewport.rotating
         fills = []
         for frame in range(turning.coords.shape[0]):
@@ -514,7 +514,7 @@ class TestPerspectiveFit:
         assert fills.max() == pytest.approx(FIT_FRACTION, rel=1e-9)
 
     def test_a_turning_camera_keeps_one_distance(self, view):
-        viewport = make_viewport([_turning_view(view)], motion="follow")
+        viewport = make_viewport([_turning_view(view)], schedule="follow")
         assert viewport.rotating
         distances = [
             np.linalg.norm(camera.eye - camera.target)
@@ -527,9 +527,9 @@ class TestPerspectiveFit:
     @pytest.mark.parametrize(
         "band", [(0.12, 0.89), (0.3, 0.95), (0.02, 0.6)], ids=["nearly centred", "high", "low"]
     )
-    @pytest.mark.parametrize("motion", ["fixed", "turntable"])
+    @pytest.mark.parametrize("schedule", ["fixed", "turntable"])
     @pytest.mark.parametrize("aspect", [16 / 9, 9 / 16])
-    def test_every_coordinate_fits_the_band_and_one_reaches_it(self, band, motion, aspect):
+    def test_every_coordinate_fits_the_band_and_one_reaches_it(self, band, schedule, aspect):
         """A band of the picture's height, as the vedo viewer leaves
         free between its transport bar and its top row of controls.
         The coordinates fill FIT_FRACTION of the band, about its middle,
@@ -537,7 +537,7 @@ class TestPerspectiveFit:
         FIT_FRACTION of the width as without a band."""
         scene = make_array_scene(n_frames=24)
         view = scene.views[0]
-        viewport = make_viewport(scene.views, motion=motion)
+        viewport = make_viewport(scene.views, schedule=schedule)
         bottom, top = band
         margin = (1 - FIT_FRACTION) / 2 * (top - bottom)
         lowest, highest = bottom + margin, top - margin
@@ -606,10 +606,10 @@ class TestFloor:
         np.testing.assert_array_equal(quad[:, viewport.up_index], view.floor_height)
 
     @pytest.mark.parametrize(
-        "framing, motion", [("still", "fixed"), ("clip", "fixed"), ("clip", "turntable")]
+        "framing, schedule", [("still", "fixed"), ("clip", "fixed"), ("clip", "turntable")]
     )
-    def test_a_square_of_the_stated_extent_around_the_centre(self, view, framing, motion):
-        viewport = make_viewport([view], framing=framing, motion=motion)
+    def test_a_square_of_the_stated_extent_around_the_centre(self, view, framing, schedule):
+        viewport = make_viewport([view], framing=framing, schedule=schedule)
         quad = viewport.floor_quad()
         ground = list(viewport.ground_indices)
         sides = quad[2, ground] - quad[0, ground]
@@ -760,7 +760,7 @@ class TestProjection:
     def test_an_orbit_holds_one_scale(self, view):
         """Two points a fixed distance apart along the up axis project
         to the same pixel distance on every frame of a turntable."""
-        viewport = make_viewport([view], framing="clip", motion="turntable")
+        viewport = make_viewport([view], framing="clip", schedule="turntable")
         middle = (viewport.lo + viewport.hi) / 2
         pair = np.stack([middle, middle + viewport.up_vector])
         lengths = []
@@ -770,7 +770,7 @@ class TestProjection:
         assert max(lengths) - min(lengths) <= 2.0  # integer pixels
 
     def test_the_whole_orbit_stays_in_the_panel(self, view):
-        viewport = make_viewport([view], framing="clip", motion="turntable")
+        viewport = make_viewport([view], framing="clip", schedule="turntable")
         for frame in range(24):
             pixels = viewport.project(view.coords[frame], self.RESOLUTION, frame)
             assert pixels[:, 0].min() >= 0 and pixels[:, 0].max() < 640
@@ -871,7 +871,7 @@ class TestViewportValue:
         "options, message",
         [
             (dict(framing="cube"), "Unknown framing"),
-            (dict(motion="orbit"), "Unknown motion"),
+            (dict(schedule="orbit"), "Unknown schedule"),
         ],
     )
     def test_rejects_unknown_options(self, view, options, message):

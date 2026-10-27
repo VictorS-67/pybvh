@@ -161,6 +161,11 @@ _HELP_ENTRIES = [
 ]
 
 
+# The options of play() this backend reads (ADR 0006): it draws every
+# skeleton in one scene, arranged by the router.
+PLAY_READS = frozenset({"quality", "spacing", "match_size"})
+
+
 def play_vedo(
     scene: Scene,
     style: Style,

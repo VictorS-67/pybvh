@@ -560,15 +560,6 @@ class TestBvhplot:
         monkeypatch.setattr(_matplotlib, "render_mpl", lambda *args, **kwargs: None)
         monkeypatch.setattr(_matplotlib, "play_mpl", lambda *args, **kwargs: None)
 
-    @pytest.fixture
-    def without(self, monkeypatch):
-        """Make the packages named importable no more."""
-
-        def remove(*names):
-            monkeypatch.setattr(bvhplot, "_module_importable", lambda name: name not in names)
-
-        return remove
-
     @pytest.mark.parametrize(
         "draw",
         [
@@ -609,9 +600,9 @@ class TestBvhplot:
         ids=["bvhplot.render", "Bvh.render"],
     )
     def test_a_render_without_opencv_names_the_render_call(
-        self, walk, stubbed, without, tmp_path, draw
+        self, walk, stubbed, environment, tmp_path, draw
     ):
-        without("cv2")
+        environment(ffmpeg=True)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             draw(walk, tmp_path / "clip.mp4")
@@ -625,9 +616,8 @@ class TestBvhplot:
         ],
         ids=["bvhplot.play", "Bvh.play"],
     )
-    def test_a_slow_fallback_names_the_play_call(self, walk, stubbed, without, monkeypatch, play):
-        without("vedo")
-        monkeypatch.setattr(bvhplot, "_resolve_play_backend", lambda requested: ("matplotlib", 3))
+    def test_a_slow_fallback_names_the_play_call(self, walk, stubbed, environment, play):
+        environment(notebook=True)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             play(walk)
@@ -637,20 +627,38 @@ class TestBvhplot:
     @pytest.mark.parametrize(
         "draw",
         [
+            lambda clip, path: bvhplot.render(clip, path, backend="opencv"),
+            lambda clip, path: clip.render(path, backend="opencv"),
             lambda clip, path: bvhplot.render(clip, path, backend="matplotlib"),
             lambda clip, path: clip.render(path, backend="matplotlib"),
+            lambda clip, path: bvhplot.play(clip, backend="opencv"),
+            lambda clip, path: clip.play(backend="opencv"),
         ],
-        ids=["bvhplot.render", "Bvh.render"],
+        ids=[
+            "bvhplot.render-opencv",
+            "Bvh.render-opencv",
+            "bvhplot.render-matplotlib",
+            "Bvh.render-matplotlib",
+            "bvhplot.play",
+            "Bvh.play",
+        ],
     )
-    def test_a_video_without_ffmpeg_names_the_render_call(self, walk, monkeypatch, tmp_path, draw):
-        from matplotlib import animation
+    def test_a_video_written_as_mpeg4_names_the_draw_call(
+        self, walk, environment, monkeypatch, stubbed, tmp_path, draw
+    ):
+        """The backends' drawing and the notebook's display are stubbed:
+        the warning comes before them."""
+        from pybvh.bvhplot import _opencv
 
-        monkeypatch.setattr(animation.writers, "is_available", lambda name: False)
+        ipython_display = pytest.importorskip("IPython.display")
+        monkeypatch.setattr(_opencv, "render_opencv", lambda *args, **kwargs: None)
+        monkeypatch.setattr(ipython_display, "Video", lambda *args, **kwargs: None)
+        monkeypatch.setattr(ipython_display, "display", lambda *args, **kwargs: None)
+        environment(notebook=True, importable={"cv2"})
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             draw(walk, tmp_path / "clip.mp4")
-        assert _files_named(caught, "FFmpeg not found") == {__file__}
-        assert (tmp_path / "clip.gif").exists()
+        assert _files_named(caught, "ffmpeg is not on PATH") == {__file__}
 
 
 class TestParsingNeverWarns:

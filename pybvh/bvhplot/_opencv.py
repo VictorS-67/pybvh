@@ -1,8 +1,8 @@
 """OpenCV fast render backend.
 
-Renders skeleton animations to video files using orthographic 2D
-projection and OpenCV drawing primitives. Orders of magnitude faster
-than matplotlib for video export.
+Renders skeleton animations as frames using orthographic 2D
+projection and OpenCV drawing primitives, written by the video module.
+Orders of magnitude faster than matplotlib for video export.
 
 Requires ``opencv-python >= 4.5``.
 """
@@ -18,6 +18,8 @@ import numpy.typing as npt
 from ._colors import bone_colors_255, floor_palette, node_colors_255
 from ._scene import Scene, SkeletonView
 from ._style import (
+    COUNTER_BASELINE_PX,
+    COUNTER_RGB,
     GHOST_WIDTH_FACTOR,
     JOINT_DISC_MARGIN_PX,
     PALETTE_RGB,
@@ -25,14 +27,19 @@ from ._style import (
     TRACE_COLOR,
     Style,
     bone_width_px,
+    counter_left_px,
+    frame_counter_text,
     ghost_schedule,
 )
-from ._viewport import Turntable, Viewport, panel_viewports
+from ._viewport import Viewport, panel_viewports
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from matplotlib.typing import ColorType
+
+    from ._animation_options import AnimationOptions
+    from ._video import Writer
 
 # RGB is canonical in _style; the channel flip for OpenCV's BGR
 # drawing API happens here, at this backend's border.
@@ -129,14 +136,6 @@ def _draw_floor_opencv(
                 cv2.line(
                     img, tuple(p[0]), tuple(p[1]), color, max(1, int(px_scale + 0.5)), cv2.LINE_AA
                 )
-
-
-# Extensions this backend can actually write: video containers via
-# cv2.VideoWriter, plus GIF via a dedicated Pillow path.
-_OPENCV_EXTENSIONS = {".mp4", ".mov", ".avi", ".gif"}
-
-# Valid values for render(codec=); shared by the OpenCV and vedo sinks.
-VIDEO_CODECS = {"auto", "h264", "mpeg4"}
 
 
 class _ViewDrawContext:
@@ -343,17 +342,11 @@ def _generate_frames(
     scene: Scene,
     style: Style,
     resolution: tuple[int, int],
+    animation_options: AnimationOptions,
     *,
-    motion: str | Turntable = "fixed",
     fps: float | None = None,
-    frame_counter: bool = False,
-    ghost: int = 0,
-    trajectory: bool = False,
 ) -> Iterator[npt.NDArray[np.uint8]]:
     """Yield one rendered BGR image ``(H, W, 3)`` per animation frame.
-
-    Shared by the video and GIF paths of :func:`render_opencv` — only
-    the sink (``cv2.VideoWriter`` vs Pillow) differs between them.
 
     Parameters
     ----------
@@ -365,28 +358,22 @@ def _generate_frames(
         axis indicator (the pre-0.9.0 ``show_axis``).
     resolution : (int, int)
         ``(width, height)`` in pixels.
-    motion : str or Turntable, optional
-        How each panel's camera moves, handed to the viewport
-        untouched (:func:`~._viewport.make_viewport`).
+    animation_options : AnimationOptions
+        What is drawn besides the skeletons, every field read: the
+        camera's schedule, handed to the viewport untouched
+        (:func:`~._viewport.make_viewport`); the ghosts, spaced by
+        ``style.ghost_spacing`` seconds of clip time; each root's trace
+        on the floor, growing with playback; and the ``Frame f/F``
+        counter in the bottom-right corner.
     fps : float, optional
         The rate the video plays at, handed to the viewport, which
         times a follow camera by it on a clip whose rate is unset.
-    frame_counter : bool, optional
-        Draw a ``Frame f/F`` counter in the bottom-right corner.
-        Default ``False`` (opt-in — publication output never stamps
-        text).
-    ghost : int, optional
-        Number of faded trailing poses behind each live skeleton,
-        spaced by ``style.ghost_spacing`` seconds of clip time. Default
-        0, none.
-    trajectory : bool, optional
-        Draw each root's trace on the floor, growing with playback.
-        Default ``False``.
     """
     import cv2
 
     w, h = resolution
     bg_bgr = _to_bgr(style.background)
+    ghost, trajectory = animation_options.ghost, animation_options.trajectory
 
     # Supersampling: draw at style.supersample x the target resolution
     # and downsample with INTER_AREA — cheap, dramatically better
@@ -405,7 +392,11 @@ def _generate_frames(
     # Orthographic whatever the style asks: this backend has no
     # perspective projection, and says so to the viewport.
     viewports = panel_viewports(
-        scene.views, framing="clip", motion=motion, projection="ortho", fps=fps
+        scene.views,
+        framing="clip",
+        schedule=animation_options.schedule,
+        projection="ortho",
+        fps=fps,
     )
 
     contexts = [
@@ -437,17 +428,14 @@ def _generate_frames(
 
         # Text and the axis indicator stamp AFTER the downsample so
         # they stay crisp at the output resolution.
-        if frame_counter:
-            clip_frame = f - scene.pass_start(f)
-            fc_text = f"Frame {clip_frame}/{scene.pass_length - 1}"
-            fc_x = max(5, w - 200)
+        if animation_options.frame_counter:
             cv2.putText(
                 img,
-                fc_text,
-                (fc_x, h - 15),
+                frame_counter_text(scene, f),
+                (counter_left_px(w), h - COUNTER_BASELINE_PX),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
-                (150, 150, 150),
+                COUNTER_RGB[::-1],  # BGR, this backend's drawing order
                 1,
                 cv2.LINE_AA,
             )
@@ -461,27 +449,20 @@ def _generate_frames(
         yield img
 
 
+# The options of render() this backend reads (ADR 0006).
+RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory", "frame_counter"})
+# The options of play() its notebook video, drawn by render_opencv, reads.
+PLAY_READS = frozenset({"resolution", "frame_counter"})
+
+
 def render_opencv(
-    scene: Scene,
-    style: Style,
-    filepath: Path,
-    fps: float,
-    resolution: tuple[int, int],
-    *,
-    motion: str | Turntable = "fixed",
-    frame_counter: bool = False,
-    ghost: int = 0,
-    trajectory: bool = False,
-    codec: str = "auto",
+    scene: Scene, style: Style, writer: Writer, animation_options: AnimationOptions
 ) -> Path:
-    """Render skeleton animation to a video or GIF file using OpenCV.
+    """Render skeleton animation with OpenCV and hand the frames to
+    *writer*, which writes the file.
 
     Each panel uses its own bounding box and camera so that mixed-up-axis
-    side-by-side comparisons render correctly. *motion* decides how
-    each panel's camera moves.
-
-    Frame generation is shared with the GIF path via
-    :func:`_generate_frames`; this function only picks the sink.
+    side-by-side comparisons render correctly.
 
     Parameters
     ----------
@@ -491,195 +472,23 @@ def render_opencv(
     style : Style
         Visual styling (colors, floor, background; ``axes="full"``
         draws the per-panel axis indicator).
-    filepath : Path
-        Output file path. Must end in one of ``.mp4``, ``.mov``,
-        ``.avi``, or ``.gif``.
-    fps : float
-        Frames per second.
-    resolution : (int, int)
-        ``(width, height)`` in pixels.
-    motion : str or Turntable, optional
-        ``"fixed"`` (default), ``"turntable"``, ``"follow"`` or a
-        :class:`~._viewport.Turntable`, handed to the viewport
-        untouched.
-    frame_counter, ghost, trajectory : optional
-        Passed to :func:`_generate_frames`, which documents them.
-    codec : str, optional
-        ``"auto"`` (default), ``"h264"`` or ``"mpeg4"``, as
-        :func:`pybvh.bvhplot.render` documents. Read for video output
-        only: a GIF is written by Pillow whatever the codec.
+    writer : Writer
+        The video module's writer of the target: frames are drawn at
+        its target's resolution and rate.
+    animation_options : AnimationOptions
+        What is drawn besides the skeletons, every field read: the
+        camera's schedule, ghosts, the root trail and the frame
+        counter, handed whole to :func:`_generate_frames`.
 
     Returns
     -------
     Path
-        The path to the written video file.
-
-    Raises
-    ------
-    ValueError
-        If the file extension is not one this backend can write
-        (``.html``/``.webp``/``.apng`` need the matplotlib backend).
+        The path to the written file.
     """
-    ext = filepath.suffix.lower()
-    if ext not in _OPENCV_EXTENSIONS:
-        raise ValueError(
-            f"The OpenCV backend cannot write {ext!r} files. "
-            f"Supported extensions: {sorted(_OPENCV_EXTENSIONS)}. "
-            f"Use backend='matplotlib' for other formats."
-        )
-
-    frames = _generate_frames(
-        scene,
-        style,
-        resolution,
-        motion=motion,
-        fps=fps,
-        frame_counter=frame_counter,
-        ghost=ghost,
-        trajectory=trajectory,
-    )
-
-    # Pillow sink for GIF output (cv2.VideoWriter doesn't support GIF).
-    if ext == ".gif":
-        return _render_gif(frames, filepath, fps)
-
-    writer = _open_writer(filepath, fps, resolution, codec)
-    for img in frames:
-        writer.write(img)  # type: ignore[attr-defined]
-    writer.release()  # type: ignore[attr-defined]
-    return filepath
-
-
-class _FfmpegPipeWriter:
-    """H.264 video sink: BGR frames piped to the system ``ffmpeg``.
-
-    Duck-types ``cv2.VideoWriter`` (``write``/``release``) so the two
-    sinks are interchangeable downstream. Encodes libx264 + yuv420p +
-    faststart — the combination that plays in browsers, VSCode, and
-    notebook embeds. Odd frame dimensions are padded by one pixel
-    (yuv420p requires even sizes).
-    """
-
-    def __init__(
-        self,
-        filepath: Path,
-        fps: float,
-        resolution: tuple[int, int],
-    ) -> None:
-        import subprocess
-
-        w, h = resolution
-        self._frame_bytes = w * h * 3
-        self._proc = subprocess.Popen(
-            [
-                "ffmpeg",
-                "-y",
-                "-loglevel",
-                "error",
-                "-f",
-                "rawvideo",
-                "-pix_fmt",
-                "bgr24",
-                "-s",
-                f"{w}x{h}",
-                "-r",
-                f"{fps}",
-                "-i",
-                "-",
-                "-vf",
-                "pad=ceil(iw/2)*2:ceil(ih/2)*2",
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                "-movflags",
-                "+faststart",
-                str(filepath),
-            ],
-            stdin=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-
-    def write(self, frame: npt.NDArray[np.uint8]) -> None:
-        assert self._proc.stdin is not None
-        self._proc.stdin.write(np.ascontiguousarray(frame).tobytes())
-
-    def release(self) -> None:
-        assert self._proc.stdin is not None and self._proc.stderr is not None
-        self._proc.stdin.close()
-        err = self._proc.stderr.read().decode(errors="replace")
-        code = self._proc.wait()
-        if code != 0:
-            raise RuntimeError(
-                f"ffmpeg exited with code {code} while encoding: {err.strip()[:500]}"
-            )
-
-
-def _open_writer(
-    filepath: Path,
-    fps: float,
-    resolution: tuple[int, int],
-    codec: str = "auto",
-) -> object:
-    """Open the video sink for *codec*.
-
-    ``"auto"``: H.264 via the system ``ffmpeg`` when one is on PATH,
-    else OpenCV's MPEG-4 Part 2 (``mp4v``). ``"h264"``: require ffmpeg,
-    raise with an install hint otherwise. ``"mpeg4"``: always the
-    OpenCV writer. OpenCV builds ship without an H.264 encoder (patent
-    licensing), which is why H.264 needs the external binary.
-    """
-    import shutil
-
-    if codec not in VIDEO_CODECS:
-        raise ValueError(f"Unknown codec {codec!r}. Choose from: {sorted(VIDEO_CODECS)}")
-    have_ffmpeg = shutil.which("ffmpeg") is not None
-    if codec == "h264" and not have_ffmpeg:
-        raise RuntimeError(
-            "codec='h264' requires the ffmpeg executable on PATH — "
-            "OpenCV cannot encode H.264 itself. Install ffmpeg (e.g. "
-            "apt install ffmpeg / conda install ffmpeg), or use "
-            "codec='mpeg4' (plays in desktop players such as VLC, but "
-            "not in browsers or VSCode)."
-        )
-    if have_ffmpeg and codec in ("auto", "h264"):
-        return _FfmpegPipeWriter(filepath, fps, resolution)
-
-    import cv2
-
-    codecs = ["mp4v", "XVID"]
-    for fourcc_name in codecs:
-        fourcc = cv2.VideoWriter_fourcc(*fourcc_name)  # type: ignore[attr-defined]
-        writer = cv2.VideoWriter(str(filepath), fourcc, fps, resolution)
-        if writer.isOpened():
-            return writer
-
-    raise RuntimeError(
-        f"Could not open video writer for {filepath}. "
-        f"Tried codecs: {codecs}. Ensure OpenCV has video codec support."
-    )
-
-
-def _render_gif(
-    frames: Iterator[npt.NDArray[np.uint8]],
-    filepath: Path,
-    fps: float,
-) -> Path:
-    """Pillow sink for GIF output (cv2.VideoWriter doesn't support GIF).
-
-    Consumes the BGR frames from :func:`_generate_frames`, converting
-    each to RGB for Pillow.
-    """
-    from PIL import Image
-
-    duration_ms = int(1000.0 / fps)
-    pil_frames = (Image.fromarray(img[:, :, ::-1]) for img in frames)
-    first_frame = next(pil_frames)
-    first_frame.save(
-        filepath, save_all=True, append_images=pil_frames, duration=duration_ms, loop=0
-    )
-
-    return filepath
+    target = writer.target
+    frames = _generate_frames(scene, style, target.resolution, animation_options, fps=target.fps)
+    # BGR is this backend's drawing order; the video module takes RGB.
+    return writer.write(img[:, :, ::-1] for img in frames)
 
 
 def _draw_axis_indicator(

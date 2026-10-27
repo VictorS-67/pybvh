@@ -35,6 +35,7 @@ Install optional backends::
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import warnings
 from pathlib import Path
@@ -44,6 +45,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .._warnings import user_stacklevel
+from . import _animation_options, _backends, _video
 from ._from_bvh import (
     as_clip_list,
     get_skeleton_lines,  # noqa: F401 — re-export (public since 0.5.0)
@@ -94,87 +96,25 @@ def _resolve_sample_frames(
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     import matplotlib.axes
     import matplotlib.figure
 
     from ..bvh import Bvh
-    from ._viewport import Turntable
-
-
-# ---------------------------------------------------------------------------
-# Backend detection
-# ---------------------------------------------------------------------------
-
-
-def _detect_notebook() -> bool:
-    """Check if running inside a Jupyter notebook."""
-    try:
-        from IPython import get_ipython
-
-        shell = get_ipython().__class__.__name__
-        return shell == "ZMQInteractiveShell"
-    except (ImportError, AttributeError):
-        return False
-
-
-def _has_display() -> bool:
-    """Check if a display server is available."""
-    import os
-    import sys
-
-    if sys.platform in ("darwin", "win32"):
-        return True  # macOS/Windows always have a windowing system
-    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
-
-
-def _module_importable(name: str) -> bool:
-    try:
-        __import__(name)
-        return True
-    except ImportError:
-        return False
-
-
-# Formats only the matplotlib/pillow pipeline can write — OpenCV's
-# VideoWriter handles video containers only (its .gif support is a
-# dedicated pillow-based path inside render_opencv).
-_MPL_ONLY_EXTENSIONS = {".html", ".webp", ".apng", ".gif"}
-_VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi"}  # containers codec= applies to
-
-
-def _resolve_render_backend(requested: str, ext: str) -> str:
-    """Resolve the render backend from the request and the file extension.
-
-    Under ``"auto"``, extensions OpenCV cannot write route to matplotlib
-    even when cv2 is installed (previously they hit a misleading codec
-    error); everything else prefers OpenCV when available. ``"vedo"``
-    (the shadowed capsule renderer) is never auto-selected — it is a
-    deliberate look, not a fallback.
-    """
-    valid = {"auto", "opencv", "matplotlib", "vedo"}
-    if requested not in valid:
-        raise ValueError(f"Unknown backend {requested!r}. Choose from: {sorted(valid)}")
-    if requested != "auto":
-        return requested
-    if ext in _MPL_ONLY_EXTENSIONS:
-        return "matplotlib"
-    return "opencv" if _module_importable("cv2") else "matplotlib"
-
-
-def _written_fps(backend_name: str, suffix: str, fps: float) -> float:
-    """The rate *backend_name* writes a ``suffix`` file at, given the
-    resolved *fps*: matplotlib rounds it (:func:`._matplotlib.written_fps`),
-    OpenCV and vedo write it as given."""
-    if backend_name == "matplotlib":
-        from ._matplotlib import written_fps
-
-        return written_fps(fps, suffix)
-    return fps
 
 
 # A turntable turning 180 degrees or more a frame looks frozen or turning
 # backwards: its period must be longer than this many frames.
 _MIN_TURNTABLE_FRAMES = 2
+
+# The size, (width, height) in pixels, of frame()'s vedo image when no
+# resolution is given.
+_VEDO_STILL_RESOLUTION = (1100, 1000)
+
+# The size, (width, height) in pixels, of play()'s notebook video when no
+# resolution is given.
+_NOTEBOOK_VIDEO_RESOLUTION = (960, 540)
 
 
 def _resolve_fps(fps: float | None, frame_time: float) -> float:
@@ -253,54 +193,6 @@ def _require_frame_rates(
             f"{subject} frame_time 0 (unset). Set bvh.frame_time (or "
             f"bvh.fps), or pass fps= to {entry}()."
         )
-
-
-def _resolve_play_backend(requested: str) -> tuple[str, int]:
-    """Resolve the play backend and its fallback tier.
-
-    Returns
-    -------
-    backend_name : str
-        One of ``"k3d"``, ``"vedo"``, ``"opencv_notebook"``,
-        ``"matplotlib"``.
-    tier : int
-        0 = explicit (no warnings), 1 = best auto,
-        2 = fast fallback, 3 = slow fallback.
-    """
-    if requested != "auto":
-        # "opencv" is the user-facing name (matching render()) for the
-        # inline-video backend auto-selection calls "opencv_notebook" —
-        # everything auto can choose must be nameable.
-        if requested == "opencv":
-            return "opencv_notebook", 0
-        return requested, 0
-
-    in_notebook = _detect_notebook()
-
-    if in_notebook:
-        try:
-            import k3d  # noqa: F401
-
-            return "k3d", 1
-        except ImportError:
-            pass
-        try:
-            import cv2  # noqa: F401
-
-            return "opencv_notebook", 2
-        except ImportError:
-            pass
-        return "matplotlib", 3
-
-    # Script path
-    if _has_display():
-        try:
-            import vedo  # noqa: F401
-
-            return "vedo", 1
-        except ImportError:
-            pass
-    return "matplotlib", 2
 
 
 # ---------------------------------------------------------------------------
@@ -396,11 +288,26 @@ def _match_frame_rates(
     return result
 
 
-def _validated_spacing(spacing: float | str) -> float | str:
+def _warn_at_user_line(messages: Iterable[str]) -> None:
+    """Warn each of *messages*, which a backend choice or a video writer
+    owes the caller, at the user's line."""
+    for message in messages:
+        warnings.warn(message, stacklevel=user_stacklevel())
+
+
+def _given(**options: object) -> set[str]:
+    """The names of the *options* the caller gave: those not ``None``.
+    An option some backend does not read defaults to ``None``, so that a
+    value passed, even its real default, is told from one left alone."""
+    return {name for name, value in options.items() if value is not None}
+
+
+def _validated_spacing(spacing: float | str | None) -> float | str:
     """*spacing* as the router hands it to :meth:`Scene.spread`:
-    ``"auto"``, or a non-negative float."""
-    if spacing == "auto":
-        return spacing
+    ``"auto"``, or a non-negative float. ``None``, the default of every
+    call, stands for ``"auto"``."""
+    if spacing is None or spacing == "auto":
+        return "auto"
     try:
         spacing_val = float(spacing)
     except (TypeError, ValueError):
@@ -580,13 +487,13 @@ def frame(
     centered: str = "world",
     labels: list[str] | None = None,
     figsize: tuple[float, float] | None = None,
-    show: bool = False,
+    show: bool | None = None,
     camera: str | tuple[float, float] = "front",
-    resolution: tuple[int, int] = (1100, 1000),
+    resolution: tuple[int, int] | None = None,
     filepath: str | Path | None = None,
     ax: matplotlib.axes.Axes | None = None,
-    spacing: float | str = "auto",
-    match_size: bool = False,
+    spacing: float | str | None = None,
+    match_size: bool | None = None,
 ) -> (
     tuple[matplotlib.figure.Figure, matplotlib.axes.Axes | list[matplotlib.axes.Axes]]
     | npt.NDArray[np.uint8]
@@ -608,14 +515,23 @@ def frame(
         joint markers with axes hidden; ``"debug"`` reproduces the
         pre-0.9.0 look (single blue, full axes/ticks, no floor).
     backend : str, optional
-        ``"matplotlib"`` (default) returns ``(fig, ax)``. ``"vedo"``
-        renders a shadowed 3D capsule skeleton offscreen (headless-
-        safe, requires ``pybvh[viewer]``) and returns an ``(H, W, 3)``
-        uint8 RGB image instead — display it with ``plt.imshow`` or
-        save it via *filepath*. Shadows are hard-edged projections
-        (``Style.shadow``); ``figsize``/``ax`` do not apply, and all
-        skeletons share one scene rather than side-by-side panels,
+        ``"matplotlib"`` (default) returns ``(fig, ax)``; it reads
+        ``figsize``, ``show`` and ``ax``, and not ``resolution``.
+        ``"vedo"`` renders a shadowed 3D capsule skeleton offscreen
+        (headless-safe, requires ``pybvh[viewer]``) and returns an
+        ``(H, W, 3)`` uint8 RGB image instead — display it with
+        ``plt.imshow`` or save it via *filepath*. Shadows are
+        hard-edged projections (``Style.shadow``); it reads
+        ``resolution``, and not ``figsize``, ``show`` or ``ax``, and
+        all skeletons share one scene rather than side-by-side panels,
         spread side by side by *spacing*.
+        An option given (not ``None``) that the backend does not read
+        raises ``ValueError`` naming it, even at its default value
+        (``show=False`` on vedo, ``resolution=(1100, 1000)`` on
+        matplotlib), rather than be dropped from the picture.
+        ``frame`` has no ``"auto"``: the backend is always named, by
+        default ``"matplotlib"``. ``spacing`` and ``match_size`` are
+        accepted by both backends.
     coords : ndarray, optional
         Pre-computed spatial coordinates to plot instead of computing
         forward kinematics from *bvh*: ``(N, 3)`` for one frame, or
@@ -629,15 +545,19 @@ def frame(
     labels : list[str], optional
         Subplot titles for side-by-side comparison.
     figsize : (float, float), optional
-        Figure size in inches.
-    show : bool, optional
-        If ``True``, call ``plt.show()``. Default ``False``.
+        Figure size in inches; ``None`` (default) is 6.5 inches wide
+        per skeleton and 6 tall. Read by matplotlib only (see
+        *backend*).
+    show : bool or None, optional
+        If ``True``, call ``plt.show()``. ``None`` (default) is
+        ``False``. Read by matplotlib only (see *backend*).
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``) or
         ``(azimuth_deg, elevation_deg)`` tuple. Default ``"front"``.
-    resolution : (int, int), optional
-        Image size in pixels for ``backend="vedo"`` (ignored by
-        matplotlib, which sizes via *figsize*/*dpi*).
+    resolution : (int, int) or None, optional
+        Image size ``(width, height)`` in pixels. ``None`` (default)
+        is ``(1100, 1000)``. Read by vedo only (see *backend*);
+        matplotlib sizes its figure by *figsize* and ``Style.dpi``.
     filepath : str or Path, optional
         Also write the rendered image here (``fig.savefig`` on the
         matplotlib backend, a PNG write on vedo).
@@ -647,17 +567,18 @@ def frame(
         ``ValueError`` when ``bvh`` is a list). The style is applied
         to the provided axes — the default paper style hides its
         ticks and panes; pass ``style="debug"`` to draw into an axes
-        whose full axis machinery you want to keep.
-    spacing : float or "auto", optional
+        whose full axis machinery you want to keep. Read by
+        matplotlib only (see *backend*).
+    spacing : float, "auto" or None, optional
         Lateral separation between skeletons on the vedo backend, which
         draws every skeleton in one scene, by the rule :func:`play`
         uses (see there for the direction): skeleton ``k`` sits
-        ``k × spacing`` to the first skeleton's own left. ``"auto"``
-        (default) spaces them by 1.2 × the first skeleton's lateral
-        width when ``centered`` is ``"first"`` or ``"skeleton"``, and
-        leaves them where their files put them under
-        ``centered="world"``; a float, in scene units, always spaces
-        them. The arrangement is measured on the whole clips (cut to
+        ``k × spacing`` to the first skeleton's own left. ``None``
+        (default) is ``"auto"``, which spaces them by 1.2 × the first
+        skeleton's lateral width when ``centered`` is ``"first"`` or
+        ``"skeleton"``, and leaves them where their files put them
+        under ``centered="world"``; a float, in scene units, always
+        spaces them. The arrangement is measured on the whole clips (cut to
         the shortest, as :func:`play` and :func:`render` cut them under
         their default ``sync="truncate"``), not on the frame drawn: the
         direction and the ``"auto"`` width on the first skeleton's
@@ -680,15 +601,15 @@ def frame(
         sweeps wider over the clip (walking sideways, say) than at that
         frame, or has turned by then.
         *coords* draws a single skeleton, which is never spread.
-        Ignored by matplotlib, which draws each skeleton in its own
-        panel.
-    match_size : bool, optional
+        Accepted and ignored by matplotlib, which draws each skeleton
+        in its own panel.
+    match_size : bool or None, optional
         Draw every skeleton as tall as the first, with the factor on
         its label, as :func:`play` does (see there for the height
-        matched and its alternative). Default ``False``. Only the vedo
-        backend, which draws every skeleton in one space, is changed;
-        matplotlib draws the same figure either way, since it frames
-        each skeleton in its own panel.
+        matched and its alternative). ``None`` (default) is ``False``.
+        Only the vedo backend, which draws every skeleton in one
+        space, is changed; matplotlib draws the same figure either
+        way, since it frames each skeleton in its own panel.
 
     Returns
     -------
@@ -702,20 +623,23 @@ def frame(
         With ``backend="vedo"``: an ``(H, W, 3)`` uint8 RGB image
         array instead.
     """
+    given = _given(
+        figsize=figsize,
+        show=show,
+        ax=ax,
+        resolution=resolution,
+        spacing=spacing,
+        match_size=match_size,
+    )
     clips = as_clip_list(bvh)
-    _VALID_FRAME_BACKENDS = {"matplotlib", "vedo"}
-    if backend not in _VALID_FRAME_BACKENDS:
-        raise ValueError(
-            f"Unknown backend {backend!r}. Choose from: {sorted(_VALID_FRAME_BACKENDS)}"
-        )
+    backend = _backends.choose_frame_backend(backend, given).backend
     spacing = _validated_spacing(spacing)
 
     frame_spec = coords if coords is not None else frame
     scene = _prepare(clips, frame_spec, centered, camera, labels)
 
+    _backends.check_importable("frame", backend, _backends.read_environment())
     if backend == "vedo":
-        if not _module_importable("vedo"):
-            raise ImportError("vedo backend requires vedo. Install with: pip install pybvh[viewer]")
         from ._vedo_offscreen import frame_vedo
 
         # Only a comparison is arranged, so only it needs its clips'
@@ -723,14 +647,23 @@ def frame(
         # "skeleton" its floor would become the clip's, not its pose's.
         whole_clip = _prepare(clips, None, centered, camera, labels) if len(clips) > 1 else None
         scene = _arranged_in_one_scene(
-            scene, spacing=spacing, centered=centered, match_size=match_size, measured_on=whole_clip
+            scene,
+            spacing=spacing,
+            centered=centered,
+            match_size=bool(match_size),
+            measured_on=whole_clip,
         )
-        return frame_vedo(scene, resolve_style(style), resolution=resolution, filepath=filepath)
+        return frame_vedo(
+            scene,
+            resolve_style(style),
+            resolution=_VEDO_STILL_RESOLUTION if resolution is None else resolution,
+            filepath=filepath,
+        )
 
     from ._matplotlib import frame_mpl
 
     style_obj = resolve_style(style)
-    fig, axs = frame_mpl(scene, style_obj, figsize=figsize, show=show, ax=ax)
+    fig, axs = frame_mpl(scene, style_obj, figsize=figsize, show=bool(show), ax=ax)
     if filepath is not None:
         fig.savefig(filepath, dpi=style_obj.dpi, facecolor=fig.get_facecolor())
     return fig, axs
@@ -838,14 +771,14 @@ def render(
     turntable_period: float | None = None,
     resolution: tuple[int, int] = (1920, 1080),
     sync: str = "truncate",
-    follow: bool = False,
-    ghost: int = 0,
-    trajectory: bool = False,
-    frame_counter: bool = False,
+    follow: bool | None = None,
+    ghost: int | None = None,
+    trajectory: bool | None = None,
+    frame_counter: bool | None = None,
     match_fps: str | None = None,
     codec: str = "auto",
-    spacing: float | str = "auto",
-    match_size: bool = False,
+    spacing: float | str | None = None,
+    match_size: bool | None = None,
 ) -> Path:
     """Render animation to a video, GIF, or HTML file.
 
@@ -871,24 +804,45 @@ def render(
         Frames per second (fractional rates like 119.88 are fine).
         ``None`` (default) uses the BVH frame rate, which then must be
         set: a clip whose ``frame_time`` is 0 (unset, as on a Bvh built
-        in memory) raises ``ValueError`` unless ``fps`` is given.
+        in memory) raises ``ValueError`` unless ``fps`` is given. A
+        video container is written at this rate as given, on every
+        backend. An animated image (``.gif``, ``.webp``, ``.apng``)
+        stores each frame's duration in whole milliseconds, ``1000 /
+        fps`` rounded to the nearest (42 ms at 24 fps, so 23.81 fps),
+        and a GIF stores it further truncated to 10 ms. A run of
+        identical frames (a held pose) is stored as one frame shown for
+        the run's summed duration, which a GIF truncates as a whole: 5
+        frames at 24 fps last 210 ms. An ``.html`` page embeds ``1000 //
+        fps`` milliseconds, floored as matplotlib's player computes it.
     backend : str, optional
         ``"auto"`` (default), ``"opencv"``, ``"matplotlib"`` or
-        ``"vedo"``. Under ``"auto"``, formats OpenCV cannot write
-        (``.gif``, ``.webp``, ``.apng``, ``.html``) always use
-        matplotlib. ``"vedo"`` draws shadowed 3D capsule skeletons
-        offscreen (headless-safe, requires ``pybvh[viewer]``, and
-        ``pybvh[opencv]`` for a video container) to ``.mp4``, ``.mov``,
-        ``.avi`` or ``.gif``, every skeleton in one scene (see
-        *spacing*); it is never chosen by ``"auto"``, and has no
-        ``follow``, turntable, ``ghost`` or ``trajectory``.
+        ``"vedo"``. Every backend writes a video container through the
+        ``ffmpeg`` executable or ``pybvh[opencv]``, as *codec* says, and
+        raises naming both when neither is there. Only matplotlib
+        writes ``.html``, its player page; OpenCV writes every other
+        format. Under ``"auto"``, ``.gif``, ``.webp``, ``.apng`` and
+        ``.html`` always use matplotlib. ``"vedo"`` draws shadowed 3D
+        capsule skeletons offscreen (headless-safe, requires
+        ``pybvh[viewer]``) to every format but ``.html``, every skeleton in one
+        scene (see *spacing*); it is never chosen by ``"auto"``, and
+        has no ``follow``, turntable, ``ghost``, ``trajectory`` or
+        ``frame_counter``. An option given (not ``None``) that the
+        named backend does not read raises ``ValueError`` naming it,
+        even at its default value (``frame_counter=False`` on vedo),
+        rather than be dropped from the file; ``"auto"`` chooses
+        OpenCV or matplotlib, which read the same options, so it drops
+        none. Raising only on a value other than the default was the
+        alternative, and the two differ only when the default is passed
+        explicitly; ``None`` is the one value that says the caller left
+        the option alone. ``spacing`` and ``match_size`` are accepted
+        by every backend.
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``), the
         special ``"turntable"`` (an orbit starting from the front view,
         by default one full 360-degree orbit over the clip duration;
         see ``turntable_period``), or an
         ``(azimuth_deg, elevation_deg)`` tuple. Default ``"front"``.
-        The vedo backend has no turntable.
+        The vedo backend has no turntable (see *backend*).
     turntable_period : float, optional
         Seconds per revolution of ``camera="turntable"``; any other
         camera raises ``ValueError``. ``None`` (default) makes one
@@ -905,11 +859,11 @@ def render(
         gives) would then end on a frame showing nearly the first view
         again, which a looping GIF shows twice in a row.
         The seconds are seconds of the video at the rate it is written
-        at: ``fps``, or the clip's own rate by default, except that the
-        matplotlib backend writes whole frames per second (``fps=29.5``
-        is written at 30) and an ``.html`` page whole milliseconds per
-        frame. GIF frame durations are further quantized to 10 ms by
-        the format, so a GIF may play slightly faster than written.
+        at: ``fps``, or the clip's own rate by default, except that an
+        animated image and an ``.html`` page are written at whole
+        milliseconds per frame (see ``fps``). GIF frame durations are
+        further quantized to 10 ms by the format, so a GIF may play
+        slightly faster than written.
         They are not seconds of the clip: the two differ when ``fps``
         plays the clip faster or slower than recorded, and the period
         is the speed the viewer sees. A clip whose ``frame_time`` is 0
@@ -943,7 +897,7 @@ def render(
         ``"truncate"`` (default) stops at the shortest clip;
         ``"pad"`` continues to the longest clip (shorter clips freeze
         on their last frame).
-    follow : bool, optional
+    follow : bool or None, optional
         If ``True``, the camera turns with each skeleton's heading, so
         the view orbits with the character: the first frame is seen
         from the preset, later frames turned by the rotation of the
@@ -966,26 +920,29 @@ def render(
         and the smoothing weakens toward them. Only affects preset
         cameras (``"front"``, ``"side"``, ``"top"``); custom
         ``(azimuth, elevation)`` tuples are fixed and ignore
-        ``follow``. Default ``False`` (stable camera).
-    ghost : int, optional
-        Number of faded trailing poses drawn behind the live skeleton
-        (default 0 — none). Spacing between ghosts is
+        ``follow``. ``None`` (default) is ``False``, a stable camera.
+        Not read by vedo (see *backend*).
+    ghost : int or None, optional
+        Number of faded trailing poses drawn behind the live skeleton;
+        ``None`` (default) is 0, none. Spacing between ghosts is
         ``style.ghost_spacing`` seconds of clip time, taken from each
         clip's own ``frame_time``, not playback time from ``fps``; the
         two differ when ``fps`` plays the clip faster or slower than
         recorded, and clip time keeps the trail the same poses at any
         playback speed. Ghosts therefore need every clip's frame rate
         set, even when ``fps`` is given. Older ghosts fade further
-        toward the background.
-    trajectory : bool, optional
-        Draw the root trace on the floor, growing with playback
-        (default ``False``).
-    frame_counter : bool, optional
-        Stamp a ``Frame f/F`` counter in the corner (OpenCV backend
-        only), counting frames of the clip: a looped turntable
-        (``turntable_period``) counts from 0 again on each pass.
-        Default ``False`` — publication output never stamps
-        text; pass ``True`` to restore the pre-0.9.0 counter.
+        toward the background. Not read by vedo (see *backend*).
+    trajectory : bool or None, optional
+        Draw the root trace on the floor, growing with playback.
+        ``None`` (default) is ``False``. Not read by vedo (see
+        *backend*).
+    frame_counter : bool or None, optional
+        Stamp a ``Frame f/F`` counter in the corner, counting frames
+        of the clip: a looped turntable (``turntable_period``) counts
+        from 0 again on each pass. Not read by vedo (see
+        *backend*). ``None`` (default) is ``False`` — publication
+        output never stamps text; pass ``True`` to restore the
+        pre-0.9.0 counter.
     match_fps : str or None, optional
         How to handle clips with different frame rates in side-by-side
         rendering.  ``None`` (default) emits a warning but does not
@@ -1000,62 +957,77 @@ def render(
         Video codec for ``.mp4``/``.mov``/``.avi`` output (invalid for
         other formats). ``"auto"`` (default) writes H.264 through the
         system ``ffmpeg`` executable when one is on PATH, and falls
-        back to OpenCV's MPEG-4 Part 2 (``mp4v``) otherwise — OpenCV
-        builds cannot encode H.264 themselves (patent licensing). The
-        two diverge in where the file plays: H.264 plays everywhere
-        (browsers, VSCode, notebook embeds, GitHub); ``mp4v`` only in
-        desktop players such as VLC or mpv. Pass ``"h264"`` when you
-        need the guarantee (raises with an install hint if no ffmpeg
-        is found) or ``"mpeg4"`` to force the OpenCV writer. The
-        matplotlib backend always writes H.264 (its mp4 writer *is*
-        ffmpeg), so ``"mpeg4"`` is rejected there.
-    spacing : float or "auto", optional
+        back to OpenCV's MPEG-4 Part 2 (``mp4v``) otherwise, with a
+        warning — OpenCV builds cannot encode H.264 themselves (patent
+        licensing). The two diverge in where the file plays: H.264
+        plays everywhere (browsers, VSCode, notebook embeds, GitHub);
+        ``mp4v`` only in desktop players such as VLC or mpv. Pass
+        ``"h264"`` when you need the guarantee (raises with an install
+        hint if no ffmpeg is found) or ``"mpeg4"`` to write MPEG-4
+        Part 2 without the warning. Either way the file is written at
+        the path given, and the choice is the same on every backend.
+    spacing : float, "auto" or None, optional
         Lateral separation between skeletons on the vedo backend, which
         draws every skeleton in one scene, exactly as :func:`play`
         spaces them (see there for the direction), so a video shows the
         arrangement the viewer does: skeleton ``k`` sits
-        ``k × spacing`` to the first skeleton's own left. ``"auto"``
-        (default) spaces them by 1.2 × the first skeleton's lateral
-        width over the clip when ``centered`` is ``"first"`` or
-        ``"skeleton"``, and leaves them where their files put them under
-        ``centered="world"``; a float, in scene units, always spaces
-        them. Ignored by OpenCV and matplotlib, which draw each skeleton
-        in its own panel.
-    match_size : bool, optional
+        ``k × spacing`` to the first skeleton's own left. ``None``
+        (default) is ``"auto"``, which spaces them by 1.2 × the first
+        skeleton's lateral width over the clip when ``centered`` is
+        ``"first"`` or ``"skeleton"``, and leaves them where their
+        files put them under ``centered="world"``; a float, in scene
+        units, always spaces them. Accepted and ignored by OpenCV and matplotlib, which draw
+        each skeleton in its own panel.
+    match_size : bool or None, optional
         Draw every skeleton as tall as the first, with the factor on
         its label, as :func:`play` does (see there for the height
-        matched and its alternative). Default ``False``. Only the vedo
-        backend, which draws every skeleton in one space, is changed;
-        OpenCV and matplotlib write the same video either way, since
-        they frame each skeleton in its own panel.
+        matched and its alternative). ``None`` (default) is ``False``.
+        Only the vedo backend, which draws every skeleton in one space,
+        is changed; OpenCV and matplotlib write the same video either
+        way, since they frame each skeleton in its own panel.
 
     Returns
     -------
     Path
         The path to the written file.
     """
+    given = _given(
+        follow=follow,
+        ghost=ghost,
+        trajectory=trajectory,
+        frame_counter=frame_counter,
+        spacing=spacing,
+        match_size=match_size,
+    )
+    if camera == "turntable":
+        given.add("turntable")
+
     clips = as_clip_list(bvh)
     filepath = Path(filepath)
     spacing = _validated_spacing(spacing)
     _validate_sync(sync)
     pad = sync == "pad"
     style_obj = resolve_style(style)
-    if not (isinstance(ghost, int) and ghost >= 0):
-        raise ValueError(f"ghost must be an integer >= 0, got {ghost!r}")
+    # The target waits for the Scene's rate; its codec rule does not.
+    _video.check_codec(filepath, codec)
 
-    from ._opencv import VIDEO_CODECS
-
-    if codec not in VIDEO_CODECS:
-        raise ValueError(f"Unknown codec {codec!r}. Choose from: {sorted(VIDEO_CODECS)}")
-    if codec != "auto" and filepath.suffix.lower() not in _VIDEO_EXTENSIONS:
-        raise ValueError(
-            f"codec= applies to video containers "
-            f"({sorted(_VIDEO_EXTENSIONS)}), not {filepath.suffix!r}."
-        )
-
-    # "turntable" is a camera *motion*, not an angle: orbit from the
-    # front view. It overrides follow (both prescribe the azimuth).
+    # "turntable" is a camera *schedule*, not an angle: orbit from the
+    # front view. It overrides follow (both prescribe the azimuth). A
+    # custom (azim, elev) tuple means the camera is fixed; follow is a
+    # no-op there because there's no orientation to track.
     turntable = camera == "turntable"
+    if turntable:
+        schedule = "turntable"
+    elif follow and not isinstance(camera, tuple):
+        schedule = "follow"
+    else:
+        schedule = "fixed"
+    animation_options = _animation_options.AnimationOptions(
+        schedule=schedule,
+        ghost=0 if ghost is None else ghost,
+        trajectory=bool(trajectory),
+        frame_counter=bool(frame_counter),
+    )
     if turntable_period is not None:
         if not turntable:
             raise ValueError(
@@ -1068,123 +1040,86 @@ def render(
     if turntable:
         camera = "front"
 
-    backend_name = _resolve_render_backend(backend, filepath.suffix.lower())
+    environment = _backends.read_environment()
+    choice = _backends.choose_render_backend(backend, filepath.suffix.lower(), environment, given)
+    backend_name = choice.backend
 
     # Handle frame-rate mismatch before computing FK coordinates
-    _require_frame_rates(clips, "render", fps, ghost, match_fps)
+    _require_frame_rates(clips, "render", fps, animation_options.ghost, match_fps)
     clips = _match_frame_rates(clips, match_fps)
 
     scene = _prepare(clips, None, centered, camera, labels, pad=pad)
 
     actual_fps = _resolve_fps(fps, scene.frame_time)
+    target = _video.VideoTarget(filepath, actual_fps, resolution, codec)
 
-    # The one value the backends hand to the viewport. Turntable
-    # overrides follow — both prescribe the azimuth. A custom (azim,
-    # elev) tuple means the camera is fixed; follow is a no-op in that
-    # case because there's no orientation to track.
-    motion: str | Turntable
-    if turntable:
+    # A period sets the turntable's speed in frames of the video, so it
+    # waits for the rate the file is written at; without one, the
+    # turntable makes one orbit over the clip.
+    if turntable_period is not None:
         from ._viewport import Turntable
 
-        if turntable_period is None:
-            period = float(scene.num_frames)
-        else:
-            video_fps = _written_fps(backend_name, filepath.suffix, actual_fps)
-            period = turntable_period * video_fps
-            if period <= _MIN_TURNTABLE_FRAMES:
-                shortest = _MIN_TURNTABLE_FRAMES / video_fps
-                raise ValueError(
-                    f"turntable_period must be longer than {shortest:g} s "
-                    f"at {video_fps:g} fps, the rate the video is written "
-                    f"at ({_MIN_TURNTABLE_FRAMES} frames), got "
-                    f"{turntable_period!r}: a camera turning 180 degrees "
-                    f"or more a frame looks frozen or turning backwards."
-                )
+        video_fps = target.written_fps
+        period = turntable_period * video_fps
+        if period <= _MIN_TURNTABLE_FRAMES:
+            shortest = _MIN_TURNTABLE_FRAMES / video_fps
+            raise ValueError(
+                f"turntable_period must be longer than {shortest:g} s "
+                f"at {video_fps:g} fps, the rate the video is written "
+                f"at ({_MIN_TURNTABLE_FRAMES} frames), got "
+                f"{turntable_period!r}: a camera turning 180 degrees "
+                f"or more a frame looks frozen or turning backwards."
+            )
         # Rounded, not ceiled: a period of 360.0000001 frames (a rate
         # read back from a frame time) must not add a 361st frame.
         video_frames = round(period)
         if video_frames > scene.num_frames:
             scene = scene.looped(video_frames)
-        motion = Turntable(period=period)
-    elif follow and not isinstance(camera, tuple):
-        motion = "follow"
-    else:
-        motion = "fixed"
-
-    if (
-        backend == "auto"
-        and backend_name == "matplotlib"
-        and filepath.suffix.lower() not in _MPL_ONLY_EXTENSIONS
-    ):
-        warnings.warn(
-            "OpenCV not found for fast rendering. "
-            "Install with: pip install pybvh[opencv]. "
-            "Falling back to matplotlib (slower).",
-            stacklevel=user_stacklevel(),
+        animation_options = dataclasses.replace(
+            animation_options, schedule=Turntable(period=period)
         )
 
+    _warn_at_user_line(choice.warnings)
+
+    _backends.check_importable("render", backend_name, environment)
     if backend_name == "vedo":
-        if not _module_importable("vedo"):
-            raise ImportError("vedo backend requires vedo. Install with: pip install pybvh[viewer]")
-        unsupported = []
-        if motion != "fixed":
-            unsupported.append("follow/turntable cameras")
-        if ghost:
-            unsupported.append("ghost trails")
-        if trajectory:
-            unsupported.append("trajectory traces")
-        if unsupported:
-            raise ValueError(
-                f"The vedo render backend does not support "
-                f"{', '.join(unsupported)}. Use backend='opencv' or "
-                f"'matplotlib' for those."
-            )
         from ._vedo_offscreen import render_vedo
 
+        writer = _video_writer(target, environment, "The vedo backend")
         scene = _arranged_in_one_scene(
-            scene, spacing=spacing, centered=centered, match_size=match_size
+            scene, spacing=spacing, centered=centered, match_size=bool(match_size)
         )
-        return render_vedo(scene, style_obj, filepath, actual_fps, resolution, codec=codec)
+        return render_vedo(scene, style_obj, writer)
 
     if backend_name == "opencv":
-        if not _module_importable("cv2"):
-            raise ImportError(
-                "OpenCV backend requires opencv-python. Install with: pip install pybvh[opencv]"
-            )
         from ._opencv import render_opencv
 
         return render_opencv(
             scene,
             style_obj,
-            filepath,
-            actual_fps,
-            resolution,
-            motion=motion,
-            frame_counter=frame_counter,
-            ghost=ghost,
-            trajectory=trajectory,
-            codec=codec,
+            _video_writer(target, environment, "The OpenCV backend"),
+            animation_options,
         )
 
     else:  # matplotlib
-        if codec == "mpeg4":
-            raise ValueError(
-                "codec='mpeg4' is only available on the OpenCV and "
-                "vedo backends — the matplotlib backend writes video "
-                "through ffmpeg, which encodes H.264."
-            )
         from ._matplotlib import render_mpl
 
-        return render_mpl(
-            scene,
-            style_obj,
-            filepath,
-            actual_fps,
-            motion=motion,
-            resolution=resolution,
-            ghost=ghost,
-            trajectory=trajectory,
+        output = (
+            target
+            if target.is_player_page
+            else _video_writer(target, environment, "The matplotlib backend")
         )
+        return render_mpl(scene, style_obj, output, animation_options)
+
+
+def _video_writer(
+    target: _video.VideoTarget, environment: _backends.Environment, subject: str
+) -> _video.Writer:
+    """The video module's writer of *target* for the backend *subject*
+    names, its warnings warned at the user's line."""
+    writer = _video.writer_for(target, environment, subject)
+    _warn_at_user_line(writer.warnings)
+    return writer
 
 
 def play(
@@ -1197,12 +1132,12 @@ def play(
     backend: str = "auto",
     camera: str | tuple[float, float] = "front",
     sync: str = "truncate",
-    resolution: tuple[int, int] = (960, 540),
-    quality: str = "high",
-    frame_counter: bool = False,
+    resolution: tuple[int, int] | None = None,
+    quality: str | None = None,
+    frame_counter: bool | None = None,
     match_fps: str | None = None,
-    spacing: float | str = "auto",
-    match_size: bool = False,
+    spacing: float | str | None = None,
+    match_size: bool | None = None,
 ) -> None:
     """Play back motion data.
 
@@ -1242,6 +1177,22 @@ def play(
         ``"auto"`` (default), ``"k3d"``, ``"vedo"``, ``"opencv"``
         (the notebook inline-video fallback — nameable so a backend
         auto-selection picked can be pinned), or ``"matplotlib"``.
+        Each reads its own options: ``quality`` is read by vedo,
+        ``resolution`` and ``frame_counter`` by the OpenCV notebook
+        video, ``spacing`` and ``match_size`` by k3d and vedo, which
+        draw every skeleton in one scene; matplotlib reads none of
+        them, and like every backend accepts ``spacing`` and
+        ``match_size`` (see below). An option given (not ``None``) that the named backend
+        does not read raises ``ValueError`` naming it, even at its
+        default value (``frame_counter=False`` on vedo). Under
+        ``"auto"`` it warns instead, naming the option and the backend
+        chosen, and playback goes on: auto's choice depends on the
+        session (notebook, display), which the script does not
+        control, so a raise would fail a correct script on another
+        machine, while a dropped option costs a look, not a file.
+        Either message offers the backends that read the option, the
+        notebook video only in a notebook. ``spacing`` and
+        ``match_size`` are accepted by every backend.
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``) or
         ``(azimuth_deg, elevation_deg)`` tuple. Default ``"front"``.
@@ -1258,25 +1209,25 @@ def play(
         ``"truncate"`` (default) stops at the shortest clip;
         ``"pad"`` continues to the longest clip (shorter clips freeze
         on their last frame).
-    resolution : (int, int), optional
-        Output resolution ``(width, height)`` in pixels for the OpenCV
-        notebook fallback. Default ``(960, 540)``. Ignored by
-        interactive backends (k3d, vedo) and matplotlib.
-    quality : str, optional
-        Visual quality for the vedo desktop backend:
-        ``"high"`` (default) draws shaded capsules, 3D tubes and
-        spheres lit as ``render(backend="vedo")`` lights them but
-        without their shadows; ``"fast"`` uses flat lines and points
-        for maximum performance. Ignored by other backends. The light
-        is a single headlight, at the camera wherever you orbit, so
-        the side of a capsule facing you is the lit one and its edges
-        fall off into shade. The alternative is VTK's light kit (a
+    resolution : (int, int) or None, optional
+        Output resolution ``(width, height)`` in pixels of the OpenCV
+        notebook video, the only backend that reads it (see
+        *backend*). ``None`` (default) is ``(960, 540)``.
+    quality : str or None, optional
+        Visual quality of the vedo desktop window, the only backend
+        that reads it (see *backend*): ``"high"`` draws shaded
+        capsules, 3D tubes and spheres lit as ``render(backend="vedo")``
+        lights them but without their shadows; ``"fast"`` uses flat
+        lines and points for maximum performance. ``None`` (default)
+        is ``"high"``. The light is a single headlight, at the camera
+        wherever you orbit, so the side of a capsule facing you is the
+        lit one and its edges fall off into shade. The alternative is VTK's light kit (a
         key, a fill and a back light, also tied to the camera), which
         lights more evenly but reads less sharply at the edges.
-    frame_counter : bool, optional
-        Stamp a ``Frame f/F`` counter on the OpenCV notebook preview
-        (default ``False``; pass ``True`` to restore the pre-0.9.0
-        counter). Ignored by the other backends.
+    frame_counter : bool or None, optional
+        Stamp a ``Frame f/F`` counter on the OpenCV notebook video, the
+        only backend that reads it (see *backend*). ``None`` (default)
+        is ``False``; pass ``True`` to restore the pre-0.9.0 counter.
     match_fps : str or None, optional
         How to handle clips with different frame rates.  ``None``
         (default) emits a warning.  ``"lowest"`` or ``"highest"``
@@ -1284,13 +1235,14 @@ def play(
         clip's own rate, so a clip whose ``frame_time`` is 0 (unset)
         raises ``ValueError`` under ``"lowest"`` or ``"highest"``, even
         when ``fps`` is given; under ``None`` the warning names it.
-    spacing : float or "auto", optional
-        Lateral separation between skeletons in single-scene backends (k3d,
-        vedo). ``"auto"`` (default) spaces skeletons by 1.2 × the lateral
-        width of the first skeleton over the clip when ``centered`` is
-        ``"first"`` or ``"skeleton"``; no spacing is applied when
-        ``centered="world"`` (raw world coordinates are honoured). Pass a
-        float (in scene units) to override. Ignored by multi-panel backends
+    spacing : float, "auto" or None, optional
+        Lateral separation between skeletons in single-scene backends
+        (k3d, vedo). ``None`` (default) is ``"auto"``, which spaces
+        skeletons by 1.2 × the lateral width of the first skeleton over
+        the clip when ``centered`` is ``"first"`` or ``"skeleton"``; no
+        spacing is applied when ``centered="world"`` (raw world
+        coordinates are honoured). Pass a float (in scene units) to
+        override. Accepted and ignored by multi-panel backends
         (matplotlib, OpenCV). Skeleton ``k`` sits ``k × spacing`` to
         the first skeleton's own left (up × forward at its first
         frame, forward snapped to the nearest axis), the viewer's
@@ -1303,16 +1255,17 @@ def play(
         ``"front"`` camera also faces, so the skeletons still read
         left to right from that camera, whichever side of the body
         that is.
-    match_size : bool, optional
+    match_size : bool or None, optional
         Draw every skeleton as tall as the first, in the single-scene
         backends (k3d, vedo), where clips from files in different units
-        would otherwise differ in size by an order of magnitude. Default
-        ``False``. The first skeleton is drawn as it is, so the order of
-        the clips chooses the scale (rather than the tallest skeleton's
-        or a fixed height). Each other skeleton is scaled about the
-        point on its floor under its root at the first frame, before
-        the lateral spacing, and its label shows the factor (``"test2 ×0.13"``, or
-        ``"×0.13"`` alone for a skeleton with no label). Only the
+        would otherwise differ in size by an order of magnitude. ``None``
+        (default) is ``False``. The first skeleton is drawn as it is, so
+        the order of the clips chooses the scale (rather than the
+        tallest skeleton's or a fixed height). Each other skeleton is
+        scaled about the point on its floor under its root at the first
+        frame, before the lateral spacing, and its label shows the
+        factor (``"test2 ×0.13"``, or ``"×0.13"`` alone for a skeleton
+        with no label). Only the
         drawing changes: the clips are not touched. The height matched
         is the rest pose's, along the rest pose's own up axis
         (:attr:`Bvh.rest_up`); the alternative, the median over the
@@ -1321,39 +1274,37 @@ def play(
         which it would blow up to the first skeleton's standing height.
         A skeleton whose rest pose has no size to measure is drawn at
         its own size, with a warning. See
-        :meth:`~._scene.Scene.size_matched`. Ignored by multi-panel
-        backends (matplotlib, OpenCV), which frame each skeleton in its
-        own panel.
+        :meth:`~._scene.Scene.size_matched`. Accepted and ignored by
+        multi-panel backends (matplotlib, OpenCV), which frame each
+        skeleton in its own panel.
 
     Returns
     -------
     None
         All backends display or open their viewer as a side effect.
     """
+    given = _given(
+        resolution=resolution,
+        quality=quality,
+        frame_counter=frame_counter,
+        spacing=spacing,
+        match_size=match_size,
+    )
     clips = as_clip_list(bvh)
 
-    valid_backends = {"auto", "k3d", "vedo", "opencv", "matplotlib"}
-    if backend not in valid_backends:
-        raise ValueError(f"Unknown backend {backend!r}. Choose from: {sorted(valid_backends)}")
-    if backend == "opencv":
-        if not _module_importable("cv2"):
-            raise ImportError(
-                "The opencv play backend requires opencv-python. "
-                "Install with: pip install pybvh[opencv]"
-            )
-        if not _detect_notebook():
-            raise ValueError(
-                "backend='opencv' plays an inline video and only works "
-                "inside a Jupyter notebook. In a script, use "
-                "backend='vedo' (interactive window) or render() to a "
-                "file instead."
-            )
+    environment = _backends.read_environment()
+    choice = _backends.choose_play_backend(backend, environment, given)
+    backend_name = choice.backend
 
     _VALID_QUALITY = {"fast", "high"}
+    quality = "high" if quality is None else quality
     if quality not in _VALID_QUALITY:
         raise ValueError(f"Unknown quality {quality!r}. Choose from: {sorted(_VALID_QUALITY)}")
 
     spacing = _validated_spacing(spacing)
+    match_size = bool(match_size)
+    # play has no follow, turntable, ghost or trail: the camera is fixed.
+    animation_options = _animation_options.AnimationOptions(frame_counter=bool(frame_counter))
     _validate_sync(sync)
     pad = sync == "pad"
     style_obj = resolve_style(style)
@@ -1366,39 +1317,11 @@ def play(
 
     actual_fps = _resolve_fps(fps, scene.frame_time)
 
-    backend_name, tier = _resolve_play_backend(backend)
+    _warn_at_user_line(choice.warnings)
 
-    # --- Warnings (auto mode only, tier > 0) ---
-    # Gate the install hint on vedo actually being missing: on a
-    # headless display-less machine vedo may well be installed (the
-    # fallback is about the display, not the install).
-    if tier >= 2 and not _module_importable("vedo"):
-        warnings.warn(
-            "No interactive backend (k3d, vedo) found. "
-            "Install with: pip install pybvh[interactive]",
-            stacklevel=user_stacklevel(),
-        )
-    if tier >= 3:
-        warnings.warn(
-            "OpenCV not found for fast rendering. "
-            "Install with: pip install pybvh[opencv]. "
-            "Falling back to matplotlib (slow for long clips).",
-            stacklevel=user_stacklevel(),
-        )
-
-    # --- Subsample to 30fps when fps is auto ---
-    # Notebooks (k3d, jshtml) and matplotlib windows can't keep up with
-    # high frame rates (120fps). Cap at 30fps for correct playback speed.
-    # opencv_notebook uses a video player that handles any fps natively.
-    # vedo uses persistent actors + timer, handles high fps well.
-    _PLAY_MAX_FPS = 30.0
-    if (
-        fps is None
-        and backend_name not in ("opencv_notebook", "vedo")
-        and actual_fps > _PLAY_MAX_FPS
-    ):
-        subsample_step = math.ceil(actual_fps / _PLAY_MAX_FPS)
-        scene = scene.subsampled(subsample_step)
+    step = _backends.play_frame_step(backend_name, fps, actual_fps)
+    if step > 1:
+        scene = scene.subsampled(step)
         actual_fps = 1.0 / scene.frame_time
 
     # --- world_up consistency check (all backends) ---
@@ -1408,14 +1331,8 @@ def play(
     # For single-scene backends (vedo, k3d) there can only be ONE camera
     # and ONE bounding box: the backends make one viewport of the scene
     # as _arranged_in_one_scene lays it out.
+    _backends.check_importable("play", backend_name, environment)
     if backend_name == "k3d":
-        try:
-            import k3d  # noqa: F401
-        except ImportError as err:
-            raise ImportError(
-                "k3d backend requires k3d and ipywidgets. "
-                "Install with: pip install pybvh[interactive]"
-            ) from err
         from ._k3d import play_k3d
 
         play_k3d(
@@ -1428,12 +1345,6 @@ def play(
         return None
 
     elif backend_name == "vedo":
-        try:
-            import vedo  # noqa: F401
-        except ImportError as err:
-            raise ImportError(
-                "vedo backend requires vedo. Install with: pip install pybvh[viewer]"
-            ) from err
         from ._vedo import play_vedo
 
         play_vedo(
@@ -1456,18 +1367,26 @@ def play(
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp_path = Path(tmp.name)
 
-        render_opencv(
-            scene, style_obj, tmp_path, actual_fps, resolution, frame_counter=frame_counter
-        )
-
-        display(Video(str(tmp_path), embed=True, mimetype="video/mp4"))
-        tmp_path.unlink(missing_ok=True)
+        # The page embeds the video's bytes, so the file goes once shown,
+        # and on every way out before: a failed render, or a warning the
+        # caller raises as an error.
+        try:
+            target = _video.VideoTarget(
+                tmp_path,
+                actual_fps,
+                _NOTEBOOK_VIDEO_RESOLUTION if resolution is None else resolution,
+            )
+            writer = _video_writer(target, environment, "The opencv play backend")
+            render_opencv(scene, style_obj, writer, animation_options)
+            display(Video(str(tmp_path), embed=True, mimetype="video/mp4"))
+        finally:
+            tmp_path.unlink(missing_ok=True)
         return None
 
     else:  # matplotlib
         from ._matplotlib import play_mpl
 
-        play_mpl(scene, style_obj, actual_fps, in_notebook=_detect_notebook())
+        play_mpl(scene, style_obj, actual_fps, in_notebook=environment.in_notebook)
         return None
 
 

@@ -40,7 +40,9 @@ from ._vedo_capsules import (
 from ._viewport import make_viewport
 
 if TYPE_CHECKING:
-    pass
+    from collections.abc import Iterator
+
+    from ._video import Writer
 
 # Opaque same-gray shadows: the merged bone and joint meshes each cast
 # one, and opaque identical grays overlap invisibly (translucent
@@ -149,11 +151,16 @@ def _build_offscreen(
     return plt, capsules, camera
 
 
+# The options of frame() this backend reads (ADR 0006): it draws every
+# skeleton in one scene, arranged by the router.
+FRAME_READS = frozenset({"resolution", "spacing", "match_size"})
+
+
 def frame_vedo(
     scene: Scene,
     style: Style,
     *,
-    resolution: tuple[int, int] = (1100, 1000),
+    resolution: tuple[int, int],
     filepath: str | Path | None = None,
 ) -> npt.NDArray[np.uint8]:
     """Render one shadowed capsule-skeleton still.
@@ -175,87 +182,36 @@ def frame_vedo(
     return img
 
 
-def render_vedo(
-    scene: Scene,
-    style: Style,
-    filepath: Path,
-    fps: float,
-    resolution: tuple[int, int] = (1100, 1000),
-    codec: str = "auto",
-) -> Path:
-    """Render a shadowed capsule-skeleton video (.mp4/.mov/.avi/.gif).
+# The options of render() this backend reads (ADR 0006): it draws every
+# skeleton in one scene, arranged by the router.
+RENDER_READS = frozenset({"spacing", "match_size"})
 
-    Per-frame screenshots feed the same sinks the OpenCV backend uses:
-    ``cv2.VideoWriter`` for video containers (requires opencv-python),
-    Pillow for GIF. Camera is fixed; ``follow``/``turntable``/ghosting
-    are not supported on this backend.
+
+def render_vedo(scene: Scene, style: Style, writer: Writer) -> Path:
+    """Render a shadowed capsule-skeleton animation and hand the frames
+    to *writer*, which writes the file.
+
+    Frames are screenshots at the writer's target resolution (vedo may
+    deliver them larger, under HiDPI scaling). It is handed no
+    :class:`~._animation_options.AnimationOptions`: the camera is
+    fixed, and no ghost, trail or frame counter is drawn, as
+    ``RENDER_READS`` declares.
     """
-    ext = filepath.suffix.lower()
-    if ext not in {".mp4", ".mov", ".avi", ".gif"}:
-        raise ValueError(
-            f"The vedo backend cannot write {ext!r} files. Supported: "
-            f".mp4, .mov, .avi, .gif. Use backend='matplotlib' for "
-            f"other formats."
-        )
-    if ext != ".gif":
-        # Guard BEFORE rendering every frame: the video sink is
-        # cv2-based, and vedo-only installs would otherwise crash deep
-        # in the writer with a raw ModuleNotFoundError.
-        try:
-            import cv2  # noqa: F401
-        except ImportError as err:
-            raise ImportError(
-                f"Writing {ext} via the vedo backend requires "
-                f"opencv-python. Install with: pip install "
-                f"pybvh[opencv], or render to .gif instead."
-            ) from err
-
     with _vtk_backend():
-        return _render_vedo_frames(scene, style, filepath, fps, resolution, codec)
+        plt, capsules, camera = _build_offscreen(scene, style, writer.target.resolution)
+        try:
+            plt.show(camera=camera, interactive=False)
 
+            def frames() -> Iterator[npt.NDArray[np.uint8]]:
+                for f in range(scene.num_frames):
+                    for capsule, view in zip(capsules, scene.views, strict=True):
+                        capsule.update(view.coords[f])
+                        if style.shadow and style.floor is not None:
+                            for mesh in capsule.actors:
+                                mesh.update_shadows()
+                    plt.render()
+                    yield np.asarray(plt.screenshot(asarray=True))
 
-def _render_vedo_frames(
-    scene: Scene,
-    style: Style,
-    filepath: Path,
-    fps: float,
-    resolution: tuple[int, int],
-    codec: str,
-) -> Path:
-    """The render loop of :func:`render_vedo`, run under ``_vtk_backend``."""
-    ext = filepath.suffix.lower()
-    plt, capsules, camera = _build_offscreen(scene, style, resolution)
-    try:
-        plt.show(camera=camera, interactive=False)
-
-        def frames_bgr():
-            for f in range(scene.num_frames):
-                for capsule, view in zip(capsules, scene.views, strict=True):
-                    capsule.update(view.coords[f])
-                    if style.shadow and style.floor is not None:
-                        for mesh in capsule.actors:
-                            mesh.update_shadows()
-                plt.render()
-                rgb = np.asarray(plt.screenshot(asarray=True))
-                yield rgb[:, :, ::-1]
-
-        if ext == ".gif":
-            from ._opencv import _render_gif
-
-            return _render_gif(frames_bgr(), filepath, fps)
-
-        from ._opencv import _open_writer
-
-        frame_iter = frames_bgr()
-        first = next(frame_iter)
-        # vedo may deliver a screenshot size differing from the request
-        # (HiDPI scaling); size the writer from the actual frames.
-        h, w = first.shape[:2]
-        writer = _open_writer(filepath, fps, (w, h), codec)
-        writer.write(np.ascontiguousarray(first))  # type: ignore[attr-defined]
-        for img in frame_iter:
-            writer.write(np.ascontiguousarray(img))  # type: ignore[attr-defined]
-        writer.release()  # type: ignore[attr-defined]
-        return filepath
-    finally:
-        plt.close()
+            return writer.write(frames())
+        finally:
+            plt.close()

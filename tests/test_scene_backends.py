@@ -21,7 +21,26 @@ import pytest
 import synthetic_scene
 from synthetic_scene import make_array_scene
 
+from pybvh.bvhplot._animation_options import AnimationOptions
+from pybvh.bvhplot._backends import Environment
 from pybvh.bvhplot._style import Style
+from pybvh.bvhplot._video import VideoTarget, writer_for
+
+
+def _mpeg4_writer(path, fps, resolution):
+    """The video module's writer of an MPEG-4 Part 2 file, which needs
+    OpenCV only."""
+    machine = Environment(
+        in_notebook=False, has_display=False, importable={"cv2"}, has_ffmpeg=False
+    )
+    return writer_for(VideoTarget(path, fps, resolution, codec="mpeg4"), machine, "A backend")
+
+
+def _gif_writer(path, fps, resolution):
+    """The video module's writer of a GIF, which needs no optional
+    package."""
+    machine = Environment(in_notebook=False, has_display=False, importable=(), has_ffmpeg=False)
+    return writer_for(VideoTarget(path, fps, resolution), machine, "A backend")
 
 
 def test_factory_knows_nothing_about_bvh():
@@ -74,12 +93,8 @@ class TestMatplotlib:
         out = render_mpl(
             scene,
             Style("paper"),
-            tmp_path / "walk.gif",
-            10.0,
-            motion="follow",
-            ghost=2,
-            trajectory=True,
-            resolution=(320, 240),
+            _gif_writer(tmp_path / "walk.gif", 10.0, (320, 240)),
+            AnimationOptions(schedule="follow", ghost=2, trajectory=True),
         )
         assert out.exists() and out.stat().st_size > 0
 
@@ -170,13 +185,8 @@ class TestOpenCV:
         out = render_opencv(
             scene,
             Style("paper"),
-            tmp_path / "walk.mp4",
-            10.0,
-            (320, 240),
-            motion="follow",
-            ghost=1,
-            trajectory=True,
-            frame_counter=True,
+            _mpeg4_writer(tmp_path / "walk.mp4", 10.0, (320, 240)),
+            AnimationOptions(schedule="follow", ghost=1, trajectory=True, frame_counter=True),
         )
         assert out.exists() and out.stat().st_size > 0
 
@@ -208,11 +218,8 @@ class TestEveryPassIsDrawnAsTheFirst:
         pytest.importorskip("cv2")
         from pybvh.bvhplot._opencv import _generate_frames
 
-        frames = list(
-            _generate_frames(
-                looped, self.STYLE, (160, 120), ghost=2, trajectory=True, frame_counter=True
-            )
-        )
+        options = AnimationOptions(ghost=2, trajectory=True, frame_counter=True)
+        frames = list(_generate_frames(looped, self.STYLE, (160, 120), options))
         assert len(frames) == self.LOOPED
         for f in range(self.CLIP, self.LOOPED):
             np.testing.assert_array_equal(frames[f], frames[f % self.CLIP], err_msg=f"frame {f}")
@@ -223,11 +230,8 @@ class TestEveryPassIsDrawnAsTheFirst:
         out = render_mpl(
             looped,
             self.STYLE,
-            tmp_path / "loop.gif",
-            10.0,
-            ghost=2,
-            trajectory=True,
-            resolution=(160, 120),
+            _gif_writer(tmp_path / "loop.gif", 10.0, (160, 120)),
+            AnimationOptions(ghost=2, trajectory=True, frame_counter=True),
         )
         frames = _gif_frames(out)
         assert len(frames) == self.LOOPED
@@ -262,9 +266,12 @@ class TestVedo:
 
     def test_offscreen_render(self, scene, tmp_path):
         pytest.importorskip("vedo")
+        pytest.importorskip("cv2")
         from pybvh.bvhplot._vedo_offscreen import render_vedo
 
-        out = render_vedo(scene, Style("paper"), tmp_path / "walk.mp4", 10.0, resolution=(200, 200))
+        out = render_vedo(
+            scene, Style("paper"), _mpeg4_writer(tmp_path / "walk.mp4", 10.0, (200, 200))
+        )
         assert out.exists() and out.stat().st_size > 0
 
     def test_the_viewers_trails_lie_on_the_scene_ground(self, pair, monkeypatch):
@@ -792,7 +799,7 @@ class TestEveryBackendDrawsTheViewportsFloor:
 
         monkeypatch.setattr(cv2, "fillPoly", capture)
         style = Style("paper", supersample=1)
-        next(_opencv._generate_frames(scene, style, (320, 240)))
+        next(_opencv._generate_frames(scene, style, (320, 240), AnimationOptions()))
 
         viewport = make_viewport(scene.views, framing="clip")
         expected = viewport.project(viewport.floor_quad(), (320, 240), 0)
@@ -813,13 +820,13 @@ class TestEveryBackendFramesTheViewportsBox:
         np.testing.assert_array_equal(limits[:, 1], viewport.hi)
         plt.close(fig)
 
-    @pytest.mark.parametrize("motion", ["fixed", "turntable"])
-    def test_a_matplotlib_clip_is_fitted_to_the_clip_box(self, scene, motion):
+    @pytest.mark.parametrize("schedule", ["fixed", "turntable"])
+    def test_a_matplotlib_clip_is_fitted_to_the_clip_box(self, scene, schedule):
         from pybvh.bvhplot._matplotlib import _setup_animated_panel
         from pybvh.bvhplot._viewport import make_viewport
 
         view = scene.views[0]
-        viewport = make_viewport([view], framing="clip", motion=motion)
+        viewport = make_viewport([view], framing="clip", schedule=schedule)
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
         _setup_animated_panel(
@@ -957,7 +964,7 @@ class TestEveryBackendStatesItsProjection:
             monkeypatch.setattr(module, "make_viewport", record)
         style = Style("paper", projection="ortho", supersample=1)
         if backend == "_opencv":
-            next(module._generate_frames(scene, style, (160, 120)))
+            next(module._generate_frames(scene, style, (160, 120), AnimationOptions()))
         elif backend == "_k3d":
             module._build_plot(scene, style)
         elif backend == "_vedo_offscreen":

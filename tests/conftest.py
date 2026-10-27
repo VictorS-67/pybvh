@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 import pybvh.analysis
 import pybvh.bvh
+from pybvh import read_bvh_file
+from pybvh.bvhplot import _backends, _video
+
+BVH_DIR = Path(__file__).parent.parent / "bvh_data"
 
 
 @dataclass
@@ -82,3 +88,109 @@ def computations(monkeypatch):
     monkeypatch.setattr(pybvh.bvh, "_build_rest_pose", counted_rest)
     monkeypatch.setattr(pybvh.bvh, "_build_orientation_report", counted_report)
     return counts
+
+
+@pytest.fixture
+def environment(monkeypatch):
+    """Replace the machine bvhplot reads with one the test builds.
+
+    Call it with what the machine offers: ``environment(notebook=True,
+    importable={"cv2"})`` makes every later bvhplot call run in a notebook
+    where only OpenCV imports and ffmpeg is not on PATH. Returns the value
+    built.
+    """
+
+    def build(*, notebook=False, display=False, importable=(), ffmpeg=False):
+        built = _backends.Environment(
+            in_notebook=notebook,
+            has_display=display,
+            importable=frozenset(importable),
+            has_ffmpeg=ffmpeg,
+        )
+        monkeypatch.setattr(_backends, "read_environment", lambda: built)
+        return built
+
+    return build
+
+
+@pytest.fixture
+def ffmpeg_on_path():
+    """Skip the test unless the ffmpeg executable is on PATH: an H.264
+    file needs the real encoder, whatever environment the test builds."""
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("needs the ffmpeg executable")
+
+
+@pytest.fixture
+def handed_to_writer(monkeypatch):
+    """The frames each backend hands to the video module, one list per
+    file written, recorded as they pass through to the file."""
+    written = []
+    write = _video.Writer.write
+
+    def recording(self, frames):
+        kept = []
+        written.append(kept)
+
+        def passing(frames):
+            for frame in frames:
+                kept.append(frame.copy())
+                yield frame
+
+        return write(self, passing(frames))
+
+    monkeypatch.setattr(_video.Writer, "write", recording)
+    return written
+
+
+@pytest.fixture
+def apng_frames():
+    """Read back every frame of an ``.apng``: ``apng_frames(path, fps)``
+    gives the frames of the file at *path*, written at *fps*, as
+    ``(H, W, 3)`` uint8 RGB arrays. Pillow writes a run of identical
+    frames as one frame shown for the run's summed duration, so each is
+    repeated for its duration over the frame's (``round(1000 / fps)``
+    milliseconds)."""
+    from PIL import Image, ImageSequence
+
+    def read(path, fps):
+        shown_ms = round(1000 / fps)
+        frames = []
+        with Image.open(path) as apng:
+            for image in ImageSequence.Iterator(apng):
+                duration = image.info.get("duration", shown_ms)
+                repeats, remainder = divmod(duration, shown_ms)
+                assert remainder == 0, f"a frame of {path} lasts {duration} ms"
+                frames.extend([np.asarray(image.convert("RGB"))] * int(repeats))
+        return frames
+
+    return read
+
+
+@pytest.fixture(scope="module")
+def walk():
+    """Four frames of the CMU walk spread over 3 seconds, as it turns:
+    short to draw, and a camera that follows, a turntable, ghosts and the
+    root's trail each change the picture."""
+    return read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")[0:400:100]
+
+
+@pytest.fixture(scope="module")
+def pair(walk):
+    """The walk beside itself drawn twice as large, so that a spacing
+    and a matched size each change a scene holding both."""
+    return [walk, walk.scale(2.0)]
+
+
+@pytest.fixture
+def same_frames():
+    """Compare two drawings frame by frame: ``same_frames(frames,
+    others)`` is whether they hold as many frames, each identical to its
+    counterpart."""
+
+    def same(frames, others):
+        return len(frames) == len(others) and all(
+            np.array_equal(a, b) for a, b in zip(frames, others, strict=True)
+        )
+
+    return same

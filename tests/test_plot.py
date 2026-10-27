@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import dataclasses
+import gc
 import importlib
 import inspect
 import re
+import shutil
+import warnings
 from pathlib import Path
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from pybvh import Bvh, bvhplot, nodes_from_table, nodes_to_table, parse_axis, read_bvh_file
 from pybvh.analysis import root_trajectory
@@ -887,6 +891,19 @@ class TestTrajectory:
         assert ax.get_xlim()[0] <= min(ax_a.get_xlim()[0], ax_b.get_xlim()[0]) + 1e-6
 
 
+def page_frames(path, mode="RGB"):
+    """The frames an ``.html`` page embeds, each a PNG matplotlib saved
+    from its own figure, as uint8 arrays in the Pillow *mode*: ``(H, W,
+    3)`` for ``"RGB"``, ``(H, W, 4)`` for ``"RGBA"``."""
+    import base64
+    import io
+
+    encoded = re.findall(r'"data:image/png;base64,([^"]+)"', path.read_text())
+    return [
+        np.asarray(Image.open(io.BytesIO(base64.b64decode(data))).convert(mode)) for data in encoded
+    ]
+
+
 class TestRenderMatplotlib:
     def test_render_creates_file(self, bvh_example, tmp_path):
         import matplotlib
@@ -916,6 +933,35 @@ class TestRenderMatplotlib:
         path = bvhplot.render(bvh_short, tmp_path / "follow.gif", backend="matplotlib", follow=True)
         assert path.exists()
         assert path.stat().st_size > 0
+
+    @pytest.mark.parametrize(
+        "options",
+        [
+            dict(camera="turntable", trajectory=True),
+            dict(follow=True, ghost=2, style="dark", labels=["a", "b"]),
+        ],
+        ids=["turntable-trace", "pair-follow-ghosts-dark"],
+    )
+    def test_the_frames_written_are_the_frames_matplotlib_draws(
+        self, bvh_example, tmp_path, handed_to_writer, apng_frames, options
+    ):
+        """An ``.html`` page is matplotlib's own: its player saves the
+        figure of each frame. The frames handed to the video module
+        (RGBA, an animated image keeping transparency; opaque here), and
+        the ``.apng`` read back, are those frames, pixel for pixel."""
+        clips = bvh_example[0:4] if "labels" not in options else [bvh_example[0:4]] * 2
+        options = dict(options, backend="matplotlib", fps=25, resolution=(160, 120))
+        page = bvhplot.render(clips, tmp_path / "x.html", **options)
+        apng = bvhplot.render(clips, tmp_path / "x.apng", **options)
+        drawn = page_frames(page)
+        [handed] = handed_to_writer
+        read = apng_frames(apng, 25)
+        assert len(drawn) == len(handed) == len(read) == 4
+        assert not np.array_equal(drawn[0], drawn[1])
+        for page_frame, handed_frame, read_frame in zip(drawn, handed, read, strict=True):
+            assert (handed_frame[:, :, 3] == 255).all()
+            np.testing.assert_array_equal(handed_frame[:, :, :3], page_frame)
+            np.testing.assert_array_equal(read_frame, page_frame)
 
 
 # ===================================================================
@@ -1090,53 +1136,150 @@ class TestRenderCodec:
         cap.release()
         return "".join(chr((fcc >> 8 * i) & 0xFF) for i in range(4))
 
-    def test_mpeg4_forced(self, bvh_example, tmp_path):
-        path = bvhplot.render(
-            bvh_example, tmp_path / "m4.mp4", backend="opencv", resolution=(320, 240), codec="mpeg4"
-        )
+    @staticmethod
+    def _render(clip, path, **kwargs):
+        kwargs.setdefault("resolution", (320, 240))
+        return bvhplot.render(clip[0:5], path, backend="opencv", **kwargs)
+
+    @pytest.mark.parametrize("ffmpeg", [False, True], ids=["without-ffmpeg", "with-ffmpeg"])
+    def test_mpeg4_is_written_by_opencv_without_warning(
+        self, bvh_example, tmp_path, environment, ffmpeg
+    ):
+        environment(importable={"cv2"}, ffmpeg=ffmpeg)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            path = self._render(bvh_example, tmp_path / "m4.mp4", codec="mpeg4")
         assert self._fourcc(path) in ("FMP4", "mp4v", "XVID")
 
-    def test_h264_without_ffmpeg_raises(self, bvh_example, tmp_path):
-        import shutil
+    def test_auto_without_ffmpeg_writes_mpeg4_and_warns(self, bvh_example, tmp_path, environment):
+        """The file keeps the name asked for, and the warning says where
+        it will not play and how to get H.264."""
+        environment(importable={"cv2"})
+        with pytest.warns(UserWarning, match="ffmpeg") as caught:
+            path = self._render(bvh_example, tmp_path / "auto.mp4")
+        assert path == tmp_path / "auto.mp4"
+        assert list(tmp_path.iterdir()) == [path]
+        assert self._fourcc(path) in ("FMP4", "mp4v", "XVID")
+        assert [str(w.message) for w in caught] == [
+            "ffmpeg is not on PATH, so the video is written as MPEG-4 Part 2, which "
+            "plays in desktop players such as VLC but not in browsers, VSCode or "
+            "notebooks. Install ffmpeg (e.g. apt install ffmpeg / conda install ffmpeg) "
+            "to write H.264."
+        ]
 
-        if shutil.which("ffmpeg"):
-            pytest.skip("ffmpeg present — the raise path needs it absent")
-        with pytest.raises(RuntimeError, match="ffmpeg"):
-            bvhplot.render(
-                bvh_example,
-                tmp_path / "h264.mp4",
-                backend="opencv",
-                resolution=(320, 240),
-                codec="h264",
-            )
+    def test_h264_without_ffmpeg_raises(self, bvh_example, tmp_path, environment):
+        environment(importable={"cv2"})
+        with pytest.raises(RuntimeError, match=re.escape("requires the ffmpeg executable on PATH")):
+            self._render(bvh_example, tmp_path / "h264.mp4", codec="h264")
+        assert list(tmp_path.iterdir()) == []
 
-    def test_h264_with_ffmpeg(self, bvh_example, tmp_path):
-        import shutil
+    # A pipe or a process the ffmpeg encoder leaves open is only reported
+    # when Python collects it, as a ResourceWarning that pytest receives as
+    # an unraisable exception; both are errors here.
+    _NOTHING_LEFT_OPEN = pytest.mark.filterwarnings(
+        "error::ResourceWarning", "error::pytest.PytestUnraisableExceptionWarning"
+    )
 
-        if not shutil.which("ffmpeg"):
-            pytest.skip("needs the ffmpeg executable")
-        path = bvhplot.render(
-            bvh_example,
-            tmp_path / "h264.mp4",
-            backend="opencv",
-            resolution=(320, 240),
-            codec="h264",
-        )
-        assert path.exists() and path.stat().st_size > 0
+    @_NOTHING_LEFT_OPEN
+    @pytest.mark.parametrize("codec", ["auto", "h264"])
+    def test_with_ffmpeg_the_video_is_h264_without_warning(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path, codec
+    ):
+        environment(importable={"cv2"}, ffmpeg=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            path = self._render(bvh_example, tmp_path / "h264.mp4", codec=codec)
         assert self._fourcc(path) in ("avc1", "h264", "H264")
 
-    def test_auto_matches_environment(self, bvh_example, tmp_path):
-        """auto == h264 when ffmpeg is on PATH, mp4v otherwise."""
-        import shutil
+    @_NOTHING_LEFT_OPEN
+    @pytest.mark.parametrize("ffmpeg", [False, True], ids=["mpeg4", "h264"])
+    def test_a_frame_failing_midway_leaves_no_encoder_running(
+        self, bvh_example, tmp_path, environment, monkeypatch, ffmpeg
+    ):
+        """The drawing's error reaches the caller, and the encoder is
+        stopped: no ffmpeg process left running (Python reports one it
+        collects still running), no pipe left open."""
+        if ffmpeg and shutil.which("ffmpeg") is None:
+            pytest.skip("needs the ffmpeg executable")
+        environment(importable={"cv2"}, ffmpeg=ffmpeg)
+        draw = _opencv._generate_frames
 
-        path = bvhplot.render(
-            bvh_example, tmp_path / "auto.mp4", backend="opencv", resolution=(320, 240)
-        )
-        four = self._fourcc(path)
+        def failing_at_the_third_frame(*args, **kwargs):
+            for index, frame in enumerate(draw(*args, **kwargs)):
+                if index == 2:
+                    raise RuntimeError("drawing failed")
+                yield frame
+
+        monkeypatch.setattr(_opencv, "_generate_frames", failing_at_the_third_frame)
+        with pytest.raises(RuntimeError, match="drawing failed"):
+            self._render(bvh_example, tmp_path / "x.mp4", codec="auto" if ffmpeg else "mpeg4")
+        gc.collect()
+
+    @_NOTHING_LEFT_OPEN
+    def test_ffmpeg_failing_midway_raises_its_own_message(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path
+    ):
+        """ffmpeg exits when it cannot open the file, while frames are
+        still being piped: the error says why, not only that the pipe
+        broke."""
+        environment(importable={"cv2"}, ffmpeg=True)
+        with pytest.raises(RuntimeError, match="ffmpeg exited with code .*No such file"):
+            bvhplot.render(
+                bvh_example[0:40],
+                tmp_path / "missing" / "x.mp4",
+                backend="opencv",
+                resolution=(64, 48),
+            )
+        gc.collect()
+
+    def test_the_machine_is_read_for_ffmpeg(self, bvh_example, tmp_path):
+        """Without a test-built environment, auto writes what this
+        machine's PATH allows."""
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            path = self._render(bvh_example, tmp_path / "auto.mp4")
+        warned = any("ffmpeg is not on PATH" in str(w.message) for w in caught)
         if shutil.which("ffmpeg"):
-            assert four in ("avc1", "h264", "H264")
+            assert self._fourcc(path) in ("avc1", "h264", "H264") and not warned
         else:
-            assert four in ("FMP4", "mp4v", "XVID")
+            assert self._fourcc(path) in ("FMP4", "mp4v", "XVID") and warned
+
+    @pytest.mark.parametrize("codec", ["auto", "mpeg4"])
+    def test_a_video_without_its_encoder_raises_naming_the_install(
+        self, bvh_example, tmp_path, environment, codec
+    ):
+        """vedo needs OpenCV for MPEG-4 Part 2, and ffmpeg or OpenCV under
+        auto: the error names what to install, and nothing is written."""
+        environment(importable={"vedo"})
+        with pytest.raises(ImportError, match=re.escape("pip install pybvh[opencv]")) as raised:
+            bvhplot.render(bvh_example[0:3], tmp_path / "x.mp4", backend="vedo", codec=codec)
+        assert ("Install ffmpeg" in str(raised.value)) == (codec == "auto")
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize("backend", ["opencv", "matplotlib"])
+    @pytest.mark.parametrize(
+        "resolution", [(0, 0), (-5, 10), (320, float("nan")), (320,), (True, 240)]
+    )
+    def test_a_resolution_that_is_no_picture_size_raises(
+        self, bvh_example, tmp_path, environment, backend, resolution
+    ):
+        """Each backend failed inside its own library (fillPoly, an
+        IndexError, a negative figure size); the video target refuses it
+        by name before anything is drawn."""
+        environment(importable={"cv2"})
+        with pytest.raises(ValueError, match=re.escape("resolution must be")):
+            bvhplot.render(
+                bvh_example[0:3], tmp_path / "x.gif", backend=backend, resolution=resolution
+            )
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_resolution_given_as_a_list_is_drawn(self, bvh_example, tmp_path):
+        path = self._render(bvh_example, tmp_path / "list.gif", resolution=[64, 48])
+        from PIL import Image
+
+        with Image.open(path) as gif:
+            assert gif.size == (64, 48)
 
     def test_unknown_codec_raises(self, bvh_example, tmp_path):
         with pytest.raises(ValueError, match="codec"):
@@ -1146,34 +1289,457 @@ class TestRenderCodec:
         with pytest.raises(ValueError, match="video containers"):
             bvhplot.render(bvh_example, tmp_path / "x.gif", codec="mpeg4")
 
-    def test_mpeg4_rejected_on_matplotlib_backend(self, bvh_example, tmp_path):
-        with pytest.raises(ValueError, match="OpenCV"):
-            bvhplot.render(bvh_example, tmp_path / "x.mp4", backend="matplotlib", codec="mpeg4")
+    BAD_CODECS = pytest.mark.parametrize(
+        "name, codec, message",
+        [("x.mp4", "hevc", "Unknown codec 'hevc'"), ("x.gif", "h264", "codec= applies to video")],
+        ids=["unknown", "on-a-gif"],
+    )
+
+    @BAD_CODECS
+    def test_a_bad_codec_is_refused_before_any_forward_kinematics(
+        self, bvh_example, tmp_path, computations, name, codec, message
+    ):
+        with pytest.raises(ValueError, match=message):
+            bvhplot.render(bvh_example, tmp_path / name, codec=codec)
+        assert computations.fk == 0
+
+    @BAD_CODECS
+    def test_a_bad_codec_is_refused_before_the_frame_rate(
+        self, bvh_example, tmp_path, name, codec, message
+    ):
+        """A clip whose rate is unset, given no fps, is refused for its
+        codec first, as v0.9.0 refused it."""
+        bvh_example.frame_time = 0
+        with pytest.raises(ValueError, match=message):
+            bvhplot.render(bvh_example, tmp_path / name, codec=codec)
+
+
+class TestMatplotlibVideo:
+    """matplotlib hands its frames to the video module, so its videos
+    follow the same rules as OpenCV's: the path asked for is kept, the
+    codec chosen as ``codec=`` and the machine say, the rate written as
+    given."""
+
+    @staticmethod
+    def _render(clip, path, **kwargs):
+        kwargs.setdefault("resolution", (160, 120))
+        return bvhplot.render(clip[0:4], path, backend="matplotlib", **kwargs)
+
+    @staticmethod
+    def _probe(path, entry):
+        """A stream entry of the video at *path*, as ffprobe reports it."""
+        import subprocess
+
+        if shutil.which("ffprobe") is None:
+            pytest.skip("needs the ffprobe executable")
+        return subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries"]
+            + [f"stream={entry}", "-of", "csv=p=0", str(path)],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    def test_an_unknown_extension_raises_naming_what_is_written(self, bvh_example, tmp_path):
+        with pytest.raises(ValueError) as raised:
+            self._render(bvh_example, tmp_path / "x.mkv")
+        assert str(raised.value) == (
+            "The matplotlib backend cannot write '.mkv' files. Supported extensions: "
+            "['.apng', '.avi', '.gif', '.mov', '.mp4', '.webp'], and '.html' on "
+            "backend='matplotlib'."
+        )
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize("backend", ["matplotlib", "auto"])
+    def test_a_video_without_ffmpeg_or_opencv_raises_naming_both(
+        self, bvh_example, tmp_path, environment, backend
+    ):
+        """Under auto too, where matplotlib is the fallback for a
+        missing OpenCV; v0.9.0 wrote a .gif instead."""
+        environment()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # auto's fallback warning
+            with pytest.raises(ImportError) as raised:
+                bvhplot.render(bvh_example[0:4], tmp_path / "x.mp4", backend=backend)
+        assert "Install ffmpeg" in str(raised.value)
+        assert "pip install pybvh[opencv]" in str(raised.value)
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_video_without_ffmpeg_keeps_its_name_as_mpeg4(
+        self, bvh_example, tmp_path, environment
+    ):
+        pytest.importorskip("cv2")
+        environment(importable={"cv2"})
+        with pytest.warns(UserWarning, match="ffmpeg is not on PATH"):
+            path = self._render(bvh_example, tmp_path / "x.mp4")
+        assert list(tmp_path.iterdir()) == [tmp_path / "x.mp4"] == [path]
+        assert self._probe(path, "codec_name") == "mpeg4"
+
+    @pytest.mark.parametrize("ffmpeg", [False, True], ids=["without-ffmpeg", "with-ffmpeg"])
+    def test_mpeg4_is_written_without_warning(self, bvh_example, tmp_path, environment, ffmpeg):
+        pytest.importorskip("cv2")
+        environment(importable={"cv2"}, ffmpeg=ffmpeg)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            path = self._render(bvh_example, tmp_path / "x.mp4", codec="mpeg4")
+        assert self._probe(path, "codec_name") == "mpeg4"
+
+    def test_with_ffmpeg_the_video_is_h264(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path
+    ):
+        environment(ffmpeg=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            path = self._render(bvh_example, tmp_path / "x.mp4")
+        assert self._probe(path, "codec_name") == "h264"
+
+    @pytest.mark.parametrize("ffmpeg", [False, True], ids=["mpeg4", "h264"])
+    def test_a_fractional_rate_is_written_as_given(
+        self, bvh_example, tmp_path, environment, ffmpeg
+    ):
+        """29.97 fps is stored as 2997/100, not rounded to 30."""
+        if ffmpeg and shutil.which("ffmpeg") is None:
+            pytest.skip("needs the ffmpeg executable")
+        if not ffmpeg:
+            pytest.importorskip("cv2")
+        environment(importable={"cv2"}, ffmpeg=ffmpeg)
+        path = self._render(bvh_example, tmp_path / "x.mp4", fps=29.97)
+        assert self._probe(path, "r_frame_rate") == "2997/100"
+
+    def test_animation_ffmpeg_path_is_not_read(self, bvh_example, tmp_path, ffmpeg_on_path):
+        """ffmpeg is looked for on PATH, as for every backend: an
+        rcParam naming no executable changes nothing."""
+        import matplotlib
+
+        with matplotlib.rc_context({"animation.ffmpeg_path": str(tmp_path / "no-ffmpeg")}):
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                path = self._render(bvh_example, tmp_path / "x.mp4")
+        assert path == tmp_path / "x.mp4"
+        assert self._probe(path, "codec_name") == "h264"
+
+    def test_an_odd_resolution_is_drawn_and_padded_to_an_even_one(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path, handed_to_writer
+    ):
+        """H.264 in yuv420p needs even sizes: the frames are drawn at the
+        size asked, and the video is one pixel larger each way."""
+        environment(ffmpeg=True)
+        path = self._render(bvh_example, tmp_path / "x.mp4", resolution=(161, 121))
+        [handed] = handed_to_writer
+        assert handed[0].shape == (121, 161, 3)
+        assert self._probe(path, "width,height") == "162,122"
+
+    def test_an_animated_image_frame_lasts_its_rounded_milliseconds(self, bvh_example, tmp_path):
+        """1000 / 24 = 41.67 ms, rounded to 42; v0.9.0 stored 1000 /
+        round(24) truncated, 41."""
+        from PIL import Image, ImageSequence
+
+        path = self._render(bvh_example, tmp_path / "x.apng", fps=24, camera="turntable")
+        with Image.open(path) as apng:
+            durations = [frame.info["duration"] for frame in ImageSequence.Iterator(apng)]
+        assert durations == [42] * 4
+
+    def test_savefig_settings_do_not_change_the_frames(
+        self, bvh_example, tmp_path, handed_to_writer
+    ):
+        """The frames are read from the figure as drawn, not saved
+        through ``savefig``: its dpi and face colour are not read."""
+        import matplotlib
+
+        with matplotlib.rc_context({"savefig.dpi": 200, "savefig.facecolor": "red"}):
+            self._render(bvh_example, tmp_path / "x.apng", style="paper")
+        [handed] = handed_to_writer
+        assert handed[0].shape == (120, 160, 4)
+        assert tuple(handed[0][0, 0]) == (255, 255, 255, 255)  # the paper style's white
+
+    def test_a_turntable_is_timed_at_the_rate_given(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path, handed_to_writer
+    ):
+        """At 29.5 fps a 2 s period is 59 frames; v0.9.0 timed it at 30
+        fps, the rate matplotlib then wrote, 60 frames."""
+        environment(ffmpeg=True)
+        self._render(
+            bvh_example, tmp_path / "x.mp4", fps=29.5, camera="turntable", turntable_period=2
+        )
+        [handed] = handed_to_writer
+        assert len(handed) == 59
+
+
+class TestTransparentBackground:
+    """A style whose background is transparent: matplotlib's animated
+    images keep the transparency, as its own Pillow writer kept it, and
+    its videos lay the picture on white, as its own ffmpeg writer did.
+    OpenCV draws opaque frames whatever the background."""
+
+    @staticmethod
+    def _render(clip, path, background, backend="matplotlib", **kwargs):
+        return bvhplot.render(
+            clip[0:4],
+            path,
+            backend=backend,
+            fps=10,
+            resolution=(160, 120),
+            camera="turntable",
+            style=bvhplot.Style("paper", background=background),
+            **kwargs,
+        )
+
+    @staticmethod
+    def _rgba_frames(path):
+        from PIL import ImageSequence
+
+        with Image.open(path) as image:
+            return [np.asarray(f.convert("RGBA")) for f in ImageSequence.Iterator(image)]
+
+    TRANSPARENT = pytest.mark.parametrize(
+        "background", ["none", (1, 1, 1, 0)], ids=["none", "white-alpha-0"]
+    )
+    SEE_THROUGH = pytest.mark.parametrize(
+        "background",
+        ["none", (1, 1, 1, 0), (0, 0, 1, 0.5)],
+        ids=["none", "white-alpha-0", "blue-alpha-half"],
+    )
+
+    @staticmethod
+    def _on_white(frame):
+        """An ``(H, W, 4)`` RGBA frame composited over white, as floats."""
+        alpha = frame[..., 3:] / 255.0
+        return frame[..., :3] * alpha + 255.0 * (1.0 - alpha)
+
+    @SEE_THROUGH
+    def test_an_apng_holds_the_transparent_frames_drawn(self, bvh_example, tmp_path, background):
+        """Laid on white, they are the frames of matplotlib's own
+        ``.html`` page, whose player draws the figure on white (it saves
+        no transparency). Laying a drawn edge on white afterwards rounds
+        its partly transparent pixels differently from drawing it on
+        white: v0.9.0's own ``.apng`` differs from its page by up to 3.2
+        levels, on 0.3% of the pixels, and its opaque pixels from the
+        page's by one level at most."""
+        page = self._render(bvh_example, tmp_path / "x.html", background)
+        apng = self._render(bvh_example, tmp_path / "x.apng", background)
+        drawn = page_frames(page)
+        with Image.open(apng) as image:
+            assert image.mode == "RGBA"
+        read = self._rgba_frames(apng)
+        assert len(read) == len(drawn) == 4
+        for read_frame, page_frame in zip(read, drawn, strict=True):
+            alpha = read_frame[..., 3]
+            assert alpha.min() < 255
+            opaque = alpha == 255
+            np.testing.assert_allclose(read_frame[opaque][:, :3], page_frame[opaque], atol=1)
+            np.testing.assert_allclose(self._on_white(read_frame), page_frame, atol=4)
+
+    @TRANSPARENT
+    @pytest.mark.parametrize("ext", [".gif", ".webp"])
+    def test_a_gif_and_a_webp_keep_the_transparency(self, bvh_example, tmp_path, background, ext):
+        path = self._render(bvh_example, tmp_path / f"x{ext}", background)
+        with Image.open(path) as image:
+            if ext == ".gif":
+                assert image.mode == "P" and "transparency" in image.info
+            else:
+                assert image.mode == "RGBA"
+        assert all(frame[..., 3].min() == 0 for frame in self._rgba_frames(path))
+
+    @SEE_THROUGH
+    def test_a_video_lays_the_picture_on_white(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path, handed_to_writer, background
+    ):
+        """The frames handed to the encoder are those of matplotlib's own
+        ``.html`` page, whose player draws the figure on white, pixel for
+        pixel."""
+        environment(ffmpeg=True)
+        page = self._render(bvh_example, tmp_path / "x.html", background)
+        self._render(bvh_example, tmp_path / "x.mp4", background)
+        [handed] = handed_to_writer
+        drawn = page_frames(page)
+        assert len(handed) == len(drawn) == 4
+        for handed_frame, page_frame in zip(handed, drawn, strict=True):
+            np.testing.assert_array_equal(handed_frame, page_frame)
+
+    @pytest.mark.parametrize("ext", [".apng", ".gif"])
+    def test_opencv_frames_stay_opaque(self, bvh_example, tmp_path, ext):
+        pytest.importorskip("cv2")
+        path = self._render(bvh_example, tmp_path / f"x{ext}", "none", backend="opencv")
+        with Image.open(path) as image:
+            assert "transparency" not in image.info
+            assert image.mode != "RGBA"
+
+
+class TestH264Fidelity:
+    """An H.264 file is lossy, but decodes close to the frames drawn."""
+
+    @pytest.mark.parametrize("backend", ["opencv", "matplotlib"])
+    def test_the_video_decodes_close_to_the_frames_drawn(
+        self, bvh_example, tmp_path, environment, ffmpeg_on_path, handed_to_writer, backend
+    ):
+        """Within a mean of 1.5 levels of 255 on this clip, where frames
+        piped as RGB decode 0.7 (OpenCV) and 0.9 (matplotlib) levels
+        away. Frames piped as BGR decode 3.0 and 3.8 levels away, white
+        as (251, 253, 250): ffmpeg 6.1's conversion of BGR to YUV
+        tints them."""
+        import subprocess
+
+        if backend == "opencv":
+            pytest.importorskip("cv2")
+        environment(importable={"cv2"}, ffmpeg=True)
+        width, height = 240, 180
+        path = bvhplot.render(
+            bvh_example[0:6],
+            tmp_path / "x.mp4",
+            backend=backend,
+            fps=10,
+            resolution=(width, height),
+        )
+        decoded = subprocess.run(
+            ["ffmpeg", "-loglevel", "error", "-i", str(path)]
+            + ["-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+            capture_output=True,
+            check=True,
+        ).stdout
+        [drawn] = handed_to_writer
+        frames = np.frombuffer(decoded, np.uint8).reshape(len(drawn), height, width, 3)
+        assert np.abs(frames.astype(int) - np.stack(drawn)).mean() < 1.5
+
+
+class TestGifTiming:
+    """A GIF frame lasts 1000 / fps milliseconds rounded to a whole
+    millisecond, which the format then stores truncated to 10 ms."""
+
+    @pytest.mark.parametrize(
+        "fps, shown_ms",
+        [(20.1, 50), (24, 40), (30, 30)],
+        ids=["49.75ms", "41.67ms", "33.33ms"],
+    )
+    @pytest.mark.parametrize("backend", ["opencv", "matplotlib"])
+    def test_every_backend_rounds_the_frame_duration(
+        self, bvh_example, tmp_path, fps, shown_ms, backend
+    ):
+        """At 20.1 fps a frame lasts 49.75 ms: rounded to 50 it is stored
+        as 5 hundredths, where truncating to 49 stored 4."""
+        if backend == "opencv":
+            pytest.importorskip("cv2")
+        from PIL import Image
+
+        path = bvhplot.render(
+            bvh_example[0:3], tmp_path / "t.gif", backend=backend, resolution=(64, 48), fps=fps
+        )
+        with Image.open(path) as gif:
+            assert gif.info["duration"] == shown_ms
+
+
+class TestAnimatedImages:
+    """OpenCV writes ``.webp`` and ``.apng`` through the video module, as
+    it writes ``.gif``. An ``.apng`` is lossless, so it reads back as the
+    frames drawn."""
+
+    @pytest.fixture(autouse=True)
+    def _skip_if_no_cv2(self):
+        pytest.importorskip("cv2")
+
+    def test_an_apng_reads_back_as_the_frames_drawn(
+        self, bvh_example, tmp_path, handed_to_writer, apng_frames
+    ):
+        """Frames 0, 0, 1: the repeated frame is stored once, for twice
+        the duration, and still reads back as two frames."""
+        clip = bvh_example[0:1] + bvh_example[0:2]
+        path = bvhplot.render(
+            clip, tmp_path / "x.apng", backend="opencv", resolution=(64, 48), fps=25
+        )
+        [drawn] = handed_to_writer
+        assert len(drawn) == 3 and np.array_equal(drawn[0], drawn[1])
+        read = apng_frames(path, 25)
+        assert len(read) == len(drawn)
+        assert all(np.array_equal(r, d) for r, d in zip(read, drawn, strict=True))
+
+    def test_a_webp_has_every_frame_at_the_rate_written(self, bvh_example, tmp_path):
+        """At 20.1 fps a frame lasts 49.75 ms, rounded to 50."""
+        from PIL import Image
+
+        path = bvhplot.render(
+            bvh_example[0:4], tmp_path / "x.webp", backend="opencv", resolution=(64, 48), fps=20.1
+        )
+        with Image.open(path) as webp:
+            assert (webp.format, webp.n_frames, webp.size) == ("WEBP", 4, (64, 48))
+            durations = []
+            for index in range(webp.n_frames):
+                webp.seek(index)
+                webp.load()
+                durations.append(webp.info["duration"])
+        assert durations == [50] * 4
+
+
+class TestMissingPackage:
+    """A backend whose package does not import raises before drawing,
+    naming what to install, through each public call."""
+
+    @pytest.mark.parametrize(
+        "draw, install",
+        [
+            (lambda clip, path: bvhplot.frame(clip, backend="vedo"), "viewer"),
+            (lambda clip, path: bvhplot.render(clip, path / "x.mp4", backend="vedo"), "viewer"),
+            (lambda clip, path: bvhplot.render(clip, path / "x.mp4", backend="opencv"), "opencv"),
+            (lambda clip, path: bvhplot.play(clip, backend="k3d"), "interactive"),
+            (lambda clip, path: bvhplot.play(clip, backend="vedo"), "viewer"),
+            (lambda clip, path: bvhplot.play(clip, backend="opencv"), "opencv"),
+        ],
+        ids=["frame-vedo", "render-vedo", "render-opencv", "play-k3d", "play-vedo", "play-opencv"],
+    )
+    def test_the_call_raises_naming_the_install(
+        self, bvh_example, tmp_path, environment, draw, install
+    ):
+        environment(notebook=True, display=True)
+        with pytest.raises(ImportError, match=re.escape(f"pip install pybvh[{install}]")):
+            draw(bvh_example[0:3], tmp_path)
+        assert list(tmp_path.iterdir()) == []
 
 
 class TestRenderBackendResolution:
     """Extension-aware backend routing for render()."""
 
-    def test_mpl_only_extensions_route_to_matplotlib(self):
-        """Formats OpenCV cannot write always go to matplotlib under auto,
-        even when cv2 is installed."""
-        from pybvh.bvhplot import _resolve_render_backend
+    @pytest.fixture
+    def rendered_by(self, monkeypatch):
+        """The backend each render() call reached; both are stubbed out."""
+        import pybvh.bvhplot._matplotlib as mpl_backend
 
-        for ext in (".html", ".webp", ".apng", ".gif"):
-            assert _resolve_render_backend("auto", ext) == "matplotlib"
+        reached = []
+        monkeypatch.setattr(
+            mpl_backend, "render_mpl", lambda *args, **kwargs: reached.append("matplotlib")
+        )
+        monkeypatch.setattr(
+            _opencv, "render_opencv", lambda *args, **kwargs: reached.append("opencv")
+        )
+        return reached
 
-    def test_video_extensions_prefer_opencv_when_available(self):
-        pytest.importorskip("cv2")
-        from pybvh.bvhplot import _resolve_render_backend
+    @pytest.mark.parametrize("ext", [".html", ".webp", ".apng", ".gif"])
+    def test_html_and_animated_images_route_to_matplotlib(
+        self, bvh_example, tmp_path, rendered_by, environment, ext
+    ):
+        """They always go to matplotlib under auto, even when cv2 is
+        installed, and without the missing-OpenCV warning."""
+        environment(importable={"cv2"})
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            bvhplot.render(bvh_example[0:3], tmp_path / f"x{ext}")
+        assert rendered_by == ["matplotlib"]
+        assert [w for w in caught if "OpenCV not found" in str(w.message)] == []
 
-        for ext in (".mp4", ".mov", ".avi"):
-            assert _resolve_render_backend("auto", ext) == "opencv"
+    @pytest.mark.parametrize("ext", [".mp4", ".mov", ".avi"])
+    def test_video_extensions_prefer_opencv_when_available(
+        self, bvh_example, tmp_path, rendered_by, environment, ext
+    ):
+        environment(importable={"cv2"})
+        bvhplot.render(bvh_example[0:3], tmp_path / f"x{ext}")
+        assert rendered_by == ["opencv"]
 
-    def test_explicit_backend_wins_over_extension(self):
-        from pybvh.bvhplot import _resolve_render_backend
-
-        assert _resolve_render_backend("matplotlib", ".mp4") == "matplotlib"
-        assert _resolve_render_backend("opencv", ".gif") == "opencv"
+    @pytest.mark.parametrize(
+        "backend, ext", [("matplotlib", ".mp4"), ("opencv", ".gif")], ids=["matplotlib", "opencv"]
+    )
+    def test_explicit_backend_wins_over_extension(
+        self, bvh_example, tmp_path, rendered_by, environment, backend, ext
+    ):
+        environment(importable={"cv2"})
+        bvhplot.render(bvh_example[0:3], tmp_path / f"x{ext}", backend=backend)
+        assert rendered_by == [backend]
 
     def test_unknown_backend_raises(self, bvh_example, tmp_path):
         with pytest.raises(ValueError, match="backend"):
@@ -1200,31 +1766,28 @@ class TestRenderBackendResolution:
 class TestFpsResolution:
     """Shared fps parameter of play() and render()."""
 
-    def test_none_uses_bvh_frame_rate(self):
-        from pybvh.bvhplot import _resolve_fps
+    def test_none_uses_bvh_frame_rate(self, bvh_example, played):
+        """bvh_test1's frame time is 0.033333 s: 30 fps."""
+        bvhplot.play(bvh_example, backend="matplotlib")
+        ((_, fps),) = played
+        assert fps == pytest.approx(30.0, rel=1e-4)
 
-        assert _resolve_fps(None, 1.0 / 30.0) == pytest.approx(30.0)
+    def test_fractional_fps_preserved(self, bvh_example, played):
+        bvhplot.play(bvh_example, backend="matplotlib", fps=119.88)
+        ((_, fps),) = played
+        assert fps == 119.88
 
-    def test_fractional_fps_preserved(self):
-        from pybvh.bvhplot import _resolve_fps
-
-        assert _resolve_fps(119.88, 1.0 / 30.0) == pytest.approx(119.88)
-
-    def test_zero_fps_raises(self):
-        from pybvh.bvhplot import _resolve_fps
-
+    @pytest.mark.parametrize("fps", [0, -1])
+    def test_play_refuses_a_rate_not_positive(self, bvh_example, played, fps):
         with pytest.raises(ValueError, match="fps must be positive"):
-            _resolve_fps(0, 1.0 / 30.0)
+            bvhplot.play(bvh_example, backend="matplotlib", fps=fps)
+        assert played == []
 
-    def test_negative_fps_raises(self):
-        from pybvh.bvhplot import _resolve_fps
-
+    @pytest.mark.parametrize("fps", [0, -1])
+    def test_render_refuses_a_rate_not_positive(self, bvh_example, tmp_path, fps):
         with pytest.raises(ValueError, match="fps must be positive"):
-            _resolve_fps(-1, 1.0 / 30.0)
-
-    def test_render_fps_zero_raises(self, bvh_example, tmp_path):
-        with pytest.raises(ValueError, match="fps must be positive"):
-            bvhplot.render(bvh_example, tmp_path / "x.gif", fps=0)
+            bvhplot.render(bvh_example, tmp_path / "x.gif", fps=fps)
+        assert not (tmp_path / "x.gif").exists()
 
     def test_render_fractional_fps(self, bvh_example, tmp_path):
         import matplotlib
@@ -1281,22 +1844,32 @@ class TestFpsResolution:
         ],
     )
     def test_play_caps_the_rate_only_where_the_player_needs_it(
-        self, bvh_test2, monkeypatch, backend, library, module, player, step, played_fps
+        self,
+        bvh_test2,
+        monkeypatch,
+        environment,
+        backend,
+        library,
+        module,
+        player,
+        step,
+        played_fps,
     ):
         """k3d widgets cannot keep up with 120 fps; vedo's timer and a
-        notebook video player can."""
-        pytest.importorskip(library)
+        notebook video player can. The player is stubbed and the machine
+        built, so no optional package is needed."""
+        environment(notebook=True, importable={library})
         signature = inspect.signature(getattr(module, player))
         calls = []
 
         def record(*args, **kwargs):
             given = signature.bind(*args, **kwargs).arguments
-            calls.append((given["scene"], given["fps"]))
+            fps = given["writer"].target.fps if "writer" in given else given["fps"]
+            calls.append((given["scene"], fps))
 
         monkeypatch.setattr(module, player, record)
         if backend == "opencv":
             ipython_display = pytest.importorskip("IPython.display")
-            monkeypatch.setattr(bvhplot, "_detect_notebook", lambda: True)
             # the video file is never written: show nothing
             monkeypatch.setattr(ipython_display, "Video", lambda *args, **kwargs: None)
             monkeypatch.setattr(ipython_display, "display", lambda *args, **kwargs: None)
@@ -1304,6 +1877,91 @@ class TestFpsResolution:
         ((scene, fps),) = calls
         assert scene.num_frames == len(range(0, len(bvh_test2), step))
         assert fps == pytest.approx(played_fps)
+
+
+class TestPlayWithoutAWindow:
+    """The play() paths that open no window run for real, in a notebook
+    the test builds: what the notebook would show is captured."""
+
+    @pytest.fixture
+    def shown(self, monkeypatch):
+        """Each object play() hands the notebook to display, with the HTML
+        the notebook renders it as, taken at the call as display() takes
+        it."""
+        ipython_display = pytest.importorskip("IPython.display")
+        objects = []
+
+        def display(obj):
+            objects.append((obj, obj._repr_html_()))
+
+        monkeypatch.setattr(ipython_display, "display", display)
+        return objects
+
+    def test_a_notebook_with_opencv_shows_the_clip_as_an_embedded_video(
+        self, bvh_example, environment, shown
+    ):
+        """The page embeds the video; its temporary file is deleted once
+        shown."""
+        pytest.importorskip("cv2")
+        environment(notebook=True, importable={"cv2"})
+        with pytest.warns(UserWarning, match="No interactive backend"):
+            bvhplot.play(bvh_example[0:5])
+        ((video, page),) = shown
+        assert type(video).__name__ == "Video"
+        assert "data:video/mp4;base64," in page
+        assert not Path(video.filename).exists()
+
+    def test_a_video_that_fails_leaves_no_temporary_file(
+        self, bvh_example, environment, shown, tmp_path, monkeypatch
+    ):
+        """Without ffmpeg the writer warns that the video will not play in
+        a browser; raised as an error, that warning stops play() after its
+        temporary file is made."""
+        pytest.importorskip("cv2")
+        import tempfile
+
+        environment(notebook=True, importable={"cv2"})
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with pytest.raises(UserWarning, match="ffmpeg is not on PATH"):
+                bvhplot.play(bvh_example[0:5], backend="opencv")
+        assert list(tmp_path.iterdir()) == []
+        assert shown == []
+
+    def test_a_notebook_without_opencv_shows_matplotlibs_player(
+        self, bvh_example, environment, shown
+    ):
+        """Every frame of the clip is embedded in the player page."""
+        environment(notebook=True)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            bvhplot.play(bvh_example[0:5])
+        fallbacks = [
+            str(w.message)
+            for w in caught
+            if str(w.message).startswith(("No interactive backend", "OpenCV not found"))
+        ]
+        assert fallbacks == [
+            "No interactive backend (k3d, vedo) found. Install with: pip install pybvh[interactive]",
+            "OpenCV not found for fast rendering. Install with: pip install pybvh[opencv]. "
+            "Falling back to matplotlib (slow for long clips).",
+        ]
+        ((player, page),) = shown
+        assert type(player).__name__ == "HTML"
+        assert page.count("data:image/png;base64,") == 5
+
+    def test_a_script_hands_matplotlib_a_window(self, bvh_example, environment, monkeypatch):
+        import pybvh.bvhplot._matplotlib as mpl_backend
+
+        environment()
+        windows = []
+        monkeypatch.setattr(
+            mpl_backend, "play_mpl", lambda *args, in_notebook: windows.append(not in_notebook)
+        )
+        with pytest.warns(UserWarning, match="No interactive backend"):
+            bvhplot.play(bvh_example[0:5])
+        assert windows == [True]
 
 
 class TestPlaySync:
@@ -1637,7 +2295,7 @@ class TestComputeFollowAzimuths:
         bvh = read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")
         view = _view(bvh, bvh.node_positions())
         viewport = make_viewport(
-            [dataclasses.replace(view, azimuth=-20.0)], framing="clip", motion="follow"
+            [dataclasses.replace(view, azimuth=-20.0)], framing="clip", schedule="follow"
         )
         np.testing.assert_allclose(viewport.azimuths, pinned["azimuths"], rtol=0, atol=1e-12)
 
@@ -1702,6 +2360,11 @@ class TestHeadingChange:
 
 
 class TestMatchFps:
+    """Clips at different rates, through play(): bvh_test1 is 30 fps and
+    bvh_test2 120 fps. The matplotlib backend is stubbed, so the Scene
+    it receives shows each clip's rate after the router's matching; an
+    explicit fps= keeps play's 30 fps cap from subsampling that Scene."""
+
     @pytest.fixture
     def bvh_30fps(self):
         return read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_test1.bvh")
@@ -1710,81 +2373,65 @@ class TestMatchFps:
     def bvh_120fps(self):
         return read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_test2.bvh")
 
-    def test_warns_on_mismatch(self, bvh_30fps, bvh_120fps):
-        from pybvh.bvhplot import _match_frame_rates
+    @staticmethod
+    def _played_rates(played):
+        ((scene, _),) = played
+        return [1.0 / view.frame_time for view in scene.views]
 
+    def test_warns_on_mismatch(self, bvh_30fps, bvh_120fps, played):
         with pytest.warns(UserWarning, match="Frame rates differ"):
-            _match_frame_rates([bvh_30fps, bvh_120fps], None)
+            bvhplot.play([bvh_30fps, bvh_120fps], backend="matplotlib", fps=60)
+        assert self._played_rates(played) == pytest.approx([30.0, 120.0], rel=1e-4)
 
-    def test_no_warning_when_same_fps(self, bvh_30fps):
+    def test_no_warning_when_same_fps(self, bvh_30fps, played):
         import warnings
 
-        from pybvh.bvhplot import _match_frame_rates
-
-        bvh2 = bvh_30fps.copy()
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            _match_frame_rates([bvh_30fps, bvh2], None)
-            fps_warns = [x for x in w if "Frame rates differ" in str(x.message)]
-            assert len(fps_warns) == 0
+            bvhplot.play([bvh_30fps, bvh_30fps.copy()], backend="matplotlib")
+        assert [x for x in w if "Frame rates differ" in str(x.message)] == []
 
-    def test_lowest_resamples_to_min(self, bvh_30fps, bvh_120fps):
-        from pybvh.bvhplot import _match_frame_rates
+    def test_lowest_resamples_to_min(self, bvh_30fps, bvh_120fps, played):
+        bvhplot.play([bvh_120fps, bvh_30fps], backend="matplotlib", match_fps="lowest", fps=60)
+        assert self._played_rates(played) == pytest.approx([30.0, 30.0], rel=1e-4)
 
-        result = _match_frame_rates([bvh_30fps, bvh_120fps], "lowest")
-        fps0 = 1.0 / result[0].frame_time
-        fps1 = 1.0 / result[1].frame_time
-        assert abs(fps0 - fps1) < 0.5
-        assert abs(fps0 - 30.0) < 0.5
+    def test_highest_resamples_to_max(self, bvh_30fps, bvh_120fps, played):
+        bvhplot.play([bvh_30fps, bvh_120fps], backend="matplotlib", match_fps="highest", fps=60)
+        assert self._played_rates(played) == pytest.approx([120.0, 120.0], rel=1e-4)
 
-    def test_highest_resamples_to_max(self, bvh_30fps, bvh_120fps):
-        from pybvh.bvhplot import _match_frame_rates
+    def test_resampling_never_drops_a_clip(self, bvh_30fps, bvh_120fps, played):
+        """Every clip comes back, resampled or not. (A clip whose rate
+        cannot be compared, NaN, never reaches play(): the frame_time
+        setter refuses it, see test_bvh.py's
+        test_frame_time_setter_rejects_non_finite.)"""
+        clips = [bvh_30fps, bvh_120fps, bvh_30fps[0:5]]
+        bvhplot.play(clips, backend="matplotlib", match_fps="lowest", fps=60)
+        assert self._played_rates(played) == pytest.approx([30.0, 30.0, 30.0], rel=1e-4)
 
-        result = _match_frame_rates([bvh_30fps, bvh_120fps], "highest")
-        fps0 = 1.0 / result[0].frame_time
-        fps1 = 1.0 / result[1].frame_time
-        assert abs(fps0 - fps1) < 0.5
-        assert abs(fps0 - 120.0) < 0.5
-
-    def test_resampling_never_drops_a_clip(self, bvh_30fps, bvh_120fps):
-        """Every clip comes back, resampled or not, or the call raises: a
-        clip whose rate cannot be compared (NaN, which the frame_time
-        setter now rejects at the assignment) must not vanish from the
-        comparison."""
-        from pybvh.bvhplot import _match_frame_rates
-
-        odd = bvh_30fps[0:5]
-        try:
-            odd.frame_time = float("nan")
-            result = _match_frame_rates([bvh_30fps, bvh_120fps, odd], "lowest")
-        except ValueError:
-            return
-        assert len(result) == 3
-
-    def test_invalid_match_fps_raises(self, bvh_30fps, bvh_120fps):
-        from pybvh.bvhplot import _match_frame_rates
-
+    def test_invalid_match_fps_raises(self, bvh_30fps, bvh_120fps, played):
         with pytest.raises(ValueError, match="match_fps"):
-            _match_frame_rates([bvh_30fps, bvh_120fps], "bad")
+            bvhplot.play([bvh_30fps, bvh_120fps], backend="matplotlib", match_fps="bad")
+        assert played == []
 
-    def test_single_clip_no_warning(self, bvh_30fps):
+    def test_single_clip_no_warning(self, bvh_30fps, played):
         import warnings
-
-        from pybvh.bvhplot import _match_frame_rates
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            result = _match_frame_rates([bvh_30fps], None)
-            assert len(w) == 0
-            assert len(result) == 1
+            bvhplot.play([bvh_30fps], backend="matplotlib")
+        assert len(w) == 0
+        ((scene, _),) = played
+        assert len(scene.views) == 1
 
 
 class TestSceneSpacing:
     """Scene.spread() (lateral spacing for the single-scene backends) and
-    _warn_world_up_mismatch(). The router's policy around the spread is
-    tested through play, frame and render in TestSpreadInOneScene.
+    play()'s world_up mismatch warning. The router's policy around the
+    spread is tested through play, frame and render in
+    TestSpreadInOneScene.
 
-    No k3d or vedo installation required — the Scene is exercised directly.
+    No k3d or vedo installation required — the Scene is exercised
+    directly, and play() reaches a stubbed matplotlib backend.
     """
 
     @pytest.fixture
@@ -1879,43 +2526,37 @@ class TestSceneSpacing:
     # world_up mismatch warning
     # ------------------------------------------------------------------
 
-    def test_world_up_mismatch_warning(self, two_bvhs):
+    def test_world_up_mismatch_warning(self, two_bvhs, played):
         import sys
-
-        from pybvh.bvhplot import _warn_world_up_mismatch
 
         sys.path.insert(0, str(Path(__file__).parent))
         from synthetic_bvh import make_pos_y_up_bvh
 
         b_yup = make_pos_y_up_bvh()
         b_zup, _ = two_bvhs
-        with pytest.warns(UserWarning, match="world_up"):
-            _warn_world_up_mismatch([b_zup, b_yup])
+        with pytest.warns(UserWarning, match=r"different world_up values \(\+z, \+y\)"):
+            bvhplot.play([b_zup, b_yup], backend="matplotlib")
+        assert len(played) == 1
 
-    def test_no_warning_same_world_up(self, two_bvhs):
+    def test_no_warning_same_world_up(self, two_bvhs, played):
         import warnings
-
-        from pybvh.bvhplot import _warn_world_up_mismatch
 
         b1, b2 = two_bvhs
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            _warn_world_up_mismatch([b1, b2])
-            wu_warns = [x for x in w if "world_up" in str(x.message)]
-            assert len(wu_warns) == 0
+            bvhplot.play([b1, b2], backend="matplotlib")
+        assert [x for x in w if "world_up" in str(x.message)] == []
 
-    def test_warning_mentions_reorient(self, two_bvhs):
+    def test_warning_mentions_reorient(self, two_bvhs, played):
         import sys
 
         sys.path.insert(0, str(Path(__file__).parent))
         from synthetic_bvh import make_pos_y_up_bvh
 
-        from pybvh.bvhplot import _warn_world_up_mismatch
-
         b_yup = make_pos_y_up_bvh()
         b_zup, _ = two_bvhs
         with pytest.warns(UserWarning, match="reorient_world_up"):
-            _warn_world_up_mismatch([b_zup, b_yup])
+            bvhplot.play([b_zup, b_yup], backend="matplotlib")
 
 
 @pytest.fixture
@@ -2338,42 +2979,47 @@ class TestSpreadInOneScene:
             )
 
     @pytest.fixture
-    def whole_clip_scenes(self, monkeypatch):
-        """Count the Scenes prepared from every frame of the clips,
-        which a still builds only to measure an arrangement on."""
-        prepared = bvhplot._prepare
-        calls = []
+    def whole_clip_positions(self, monkeypatch):
+        """The clips whose positions over every frame are computed in the
+        stills' centering, "first", which a still needs only to measure
+        an arrangement on. The scene ground's own reading of every frame,
+        under "world" (Bvh.floor_height), is not counted."""
+        computed = Bvh.node_positions
+        signature = inspect.signature(computed)
+        clips = []
 
-        def spy(clips, frames, *args, **kwargs):
-            if frames is None:
-                calls.append(list(clips))
-            return prepared(clips, frames, *args, **kwargs)
+        def spy(*args, **kwargs):
+            given = signature.bind(*args, **kwargs)
+            given.apply_defaults()
+            if given.arguments["frame"] is None and given.arguments["centered"] == "first":
+                clips.append(given.arguments["self"])
+            return computed(*args, **kwargs)
 
-        monkeypatch.setattr(bvhplot, "_prepare", spy)
-        return calls
+        monkeypatch.setattr(Bvh, "node_positions", spy)
+        return clips
 
-    def test_a_still_of_one_clip_prepares_only_its_frame(
-        self, twins, reached, tmp_path, whole_clip_scenes
+    def test_a_still_of_one_clip_computes_only_its_frame(
+        self, twins, reached, tmp_path, whole_clip_positions
     ):
         """One skeleton has nothing to be arranged with, so its still
-        never prepares the whole clip."""
+        never computes the whole clip."""
         pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo_offscreen
 
         reached(_vedo_offscreen, "frame_vedo")
         bvhplot.frame(twins[0], 3, backend="vedo", centered="first", match_size=True)
-        assert whole_clip_scenes == []
+        assert whole_clip_positions == []
 
-    def test_a_still_of_a_comparison_prepares_the_whole_clips(
-        self, twins, reached, tmp_path, whole_clip_scenes
+    def test_a_still_of_a_comparison_computes_the_whole_clips_once(
+        self, twins, reached, tmp_path, whole_clip_positions
     ):
         pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo_offscreen
 
         reached(_vedo_offscreen, "frame_vedo")
         bvhplot.frame(twins, 3, backend="vedo", centered="first")
-        assert len(whole_clip_scenes) == 1
-        assert all(a is b for a, b in zip(whole_clip_scenes[0], twins, strict=True))
+        assert len(whole_clip_positions) == len(twins)
+        assert all(a is b for a, b in zip(whole_clip_positions, twins, strict=True))
 
 
 # Each public function that draws into a caller's ax=, with the axes

@@ -541,6 +541,14 @@ class TestK3d:
         lengths = np.linalg.norm(vertices[indices[:, 1]] - vertices[indices[:, 0]], axis=1)
         np.testing.assert_allclose(lengths, 2 * viewport.floor_reach, rtol=1e-5)
 
+    @pytest.mark.parametrize("alpha", [0.3, 1.0])
+    def test_a_grid_floor_is_drawn_at_floor_alpha(self, pair, alpha):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        built = _build_plot(pair.spread("auto"), Style("paper", floor="grid", floor_alpha=alpha))
+        assert built.floor.opacity == pytest.approx(alpha)
+
     def test_a_style_without_a_floor_draws_none(self, pair):
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import _build_plot

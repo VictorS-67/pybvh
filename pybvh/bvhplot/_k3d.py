@@ -279,7 +279,7 @@ def _build_floor(viewport: Viewport, style: Style) -> Any | None:
         indices_type="segment",
         color=_packed(rgb255(palette["grid"])),
         width=0.004 * viewport.half_span,
-        opacity=0.8,
+        opacity=style.floor_alpha,
         name="Floor",
     )
 

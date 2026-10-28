@@ -59,7 +59,7 @@ bvhplot (`pybvh/bvhplot/`) splits at its Scene: the router and `_from_bvh` read 
 | `_colors` | the color resolution that needs matplotlib's color parser | |
 | `_playback` | the viewer's playback state machine | import a rendering library |
 | `_video` | writing an animation's frames to a file: the video target and the rate each file is written at, the table of every extension `render` writes, its writer (`.html` named as matplotlib's own player page) and whether auto gives it to matplotlib, the ffmpeg pipe (H.264), OpenCV's MPEG-4 Part 2 writer, Pillow's GIF, WebP and APNG | draw, or decide which backend runs (it keeps auto's preference per extension, which `_backends` applies) |
-| `_vedo_capsules` | the capsule geometry both vedo backends draw | |
+| `_vedo_capsules` | the capsule geometry and the floor both vedo backends draw | |
 | `_matplotlib`, `_opencv`, `_k3d`, `_vedo`, `_vedo_offscreen` | drawing a Scene with a Style in one toolkit; the declaration, beside each entry function, of the options it reads | compute a box, a floor or a camera of their own for a 3D picture (one exception: the floor of matplotlib's overlay `sequence`), or read the core; the 2D `trajectory` plot has no viewport, and `_matplotlib` frames it |
 
 ## 3. Why the boundaries sit where they do

@@ -1,13 +1,16 @@
 """The look of a figure: :class:`Style`, its presets, the palettes and
 the ghost, trace and frame-counter conventions every backend shares.
 
-Pure data, no plotting library imports; the pieces that need
-matplotlib's color parser live in :mod:`._colors`.
+Pure data, no plotting library imports but one: the Style checks its
+color fields with matplotlib's color parser, imported where it checks
+them. Turning colors into a backend's values, which needs that parser
+too, lives in :mod:`._colors`.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import numbers
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -176,6 +179,14 @@ class Style:
     ``supersample`` (OpenCV export), ``shadow`` (vedo offscreen
     renders).
 
+    ``bone_color``, ``joint_color``, ``background`` and the values of
+    ``chain_colors`` take any color matplotlib parses (a name, a hex
+    string, an RGB tuple in [0, 1]), the parser every backend reads them
+    with; one it cannot parse raises ``ValueError`` when the Style is
+    made, by the constructor or by ``replace``. ``chain_colors`` may
+    leave chains out: those are drawn in its ``"spine"`` color, or the
+    paper preset's spine color when it has none.
+
     ``background`` also colors the grid box of ``play(backend="k3d")``:
     its lines and labels are the background stepped toward black on a
     light background and toward white on a dark one (luminance below
@@ -284,6 +295,38 @@ class Style:
             raise ValueError(
                 f"ghost_spacing must be positive (seconds), got {self.ghost_spacing!r}"
             )
+        if not (isinstance(self.floor_alpha, numbers.Real) and 0 <= self.floor_alpha <= 1):
+            raise ValueError(f"floor_alpha must be a number in [0, 1], got {self.floor_alpha!r}")
+        if not (isinstance(self.joint_size, numbers.Real) and self.joint_size > 0):
+            raise ValueError(f"joint_size must be a positive number, got {self.joint_size!r}")
+        if not (self.dpi is None or (isinstance(self.dpi, numbers.Real) and self.dpi > 0)):
+            raise ValueError(f"dpi must be a positive number or None, got {self.dpi!r}")
+        for name in ("joint_markers", "shadow"):
+            value = getattr(self, name)
+            if not isinstance(value, bool):
+                raise ValueError(f"{name} must be True or False, got {value!r}")
+        if not isinstance(self.chain_colors, dict):
+            raise ValueError(
+                f"chain_colors must be a dict from chain name to color, got {self.chain_colors!r}"
+            )
+        colors = {
+            "bone_color": self.bone_color,
+            "joint_color": self.joint_color,
+            "background": self.background,
+            **{f"chain_colors[{chain!r}]": c for chain, c in self.chain_colors.items()},
+        }
+        # Every backend turns a color into its own format through
+        # matplotlib's parser, so a value it parses is one each can draw.
+        # Imported here, not at the top: importing bvhplot loads no
+        # matplotlib.
+        from matplotlib.colors import is_color_like
+
+        for name, value in colors.items():
+            if not is_color_like(value):
+                raise ValueError(
+                    f"{name} must be a matplotlib color, such as 'white', '#16181D' "
+                    f"or (0.1, 0.2, 0.8), got {value!r}"
+                )
 
     def replace(self, **overrides: object) -> Style:
         """A new Style with the given fields changed."""

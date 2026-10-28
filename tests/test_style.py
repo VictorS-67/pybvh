@@ -95,6 +95,91 @@ class TestStyleConstruction:
             s.replace(nope=1)
 
 
+_A_COLOR = "a matplotlib color, such as 'white', '#16181D' or (0.1, 0.2, 0.8)"
+
+
+class TestStyleValidation:
+    """Every field is checked where the Style is made, by the constructor
+    and by ``replace`` alike, so that a bad value fails at the caller's
+    line rather than inside a backend."""
+
+    @staticmethod
+    def _made_both_ways(field, value):
+        """Build a paper Style with *field* set to *value*, once through
+        the constructor and once through ``replace``."""
+        return [
+            lambda: Style("paper", **{field: value}),
+            lambda: Style("paper").replace(**{field: value}),
+        ]
+
+    @pytest.mark.parametrize(
+        "field,value,message",
+        [
+            ("floor_alpha", 1.5, "floor_alpha must be a number in [0, 1], got 1.5"),
+            ("floor_alpha", -0.1, "floor_alpha must be a number in [0, 1], got -0.1"),
+            ("floor_alpha", "0.5", "floor_alpha must be a number in [0, 1], got '0.5'"),
+            ("joint_size", 0, "joint_size must be a positive number, got 0"),
+            ("joint_size", -9.0, "joint_size must be a positive number, got -9.0"),
+            ("joint_size", "9", "joint_size must be a positive number, got '9'"),
+            ("dpi", 0, "dpi must be a positive number or None, got 0"),
+            ("dpi", -300, "dpi must be a positive number or None, got -300"),
+            ("dpi", "300", "dpi must be a positive number or None, got '300'"),
+            ("shadow", 1, "shadow must be True or False, got 1"),
+            ("shadow", "yes", "shadow must be True or False, got 'yes'"),
+            ("shadow", None, "shadow must be True or False, got None"),
+            ("bone_color", "bleu", f"bone_color must be {_A_COLOR}, got 'bleu'"),
+            ("bone_color", (1.5, 0.0, 0.0), f"bone_color must be {_A_COLOR}, got (1.5, 0.0, 0.0)"),
+            ("bone_color", None, f"bone_color must be {_A_COLOR}, got None"),
+            ("background", "whte", f"background must be {_A_COLOR}, got 'whte'"),
+            ("background", "#16181", f"background must be {_A_COLOR}, got '#16181'"),
+            ("joint_color", "whte", f"joint_color must be {_A_COLOR}, got 'whte'"),
+            ("joint_markers", "yes", "joint_markers must be True or False, got 'yes'"),
+            (
+                "chain_colors",
+                "red",
+                "chain_colors must be a dict from chain name to color, got 'red'",
+            ),
+            (
+                "chain_colors",
+                {"spine": "whte"},
+                f"chain_colors['spine'] must be {_A_COLOR}, got 'whte'",
+            ),
+        ],
+    )
+    def test_an_invalid_value_is_refused(self, field, value, message):
+        for make in self._made_both_ways(field, value):
+            with pytest.raises(ValueError) as raised:
+                make()
+            assert str(raised.value) == message
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("floor_alpha", 0),
+            ("floor_alpha", 1.0),
+            ("joint_size", 0.5),
+            ("dpi", 1),
+            ("dpi", None),
+            ("shadow", False),
+            ("bone_color", (0.0, 0.0, 1.0)),
+            ("bone_color", "#E69F00"),
+            ("background", "snow"),
+            ("background", (1, 1, 1)),
+            ("joint_color", "red"),
+            ("joint_markers", False),
+            # A chain left out is drawn in the spine color.
+            ("chain_colors", {"spine": "black"}),
+        ],
+    )
+    def test_a_valid_value_is_kept(self, field, value):
+        for make in self._made_both_ways(field, value):
+            assert getattr(make(), field) == value
+
+    @pytest.mark.parametrize("preset", ["paper", "debug", "dark"])
+    def test_every_preset_passes_its_own_checks(self, preset):
+        assert Style(preset) == Style(preset)
+
+
 class TestResolveStyle:
     def test_string(self):
         assert resolve_style("debug").axes == "full"

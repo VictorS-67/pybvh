@@ -817,14 +817,11 @@ def render(
         ``"dark"``) or a :class:`Style` instance, e.g.
         ``Style("paper", floor=None)``. Axes visibility follows
         ``style.axes`` (the former ``show_axis=True`` is
-        ``Style("paper", axes="full")``, drawn by matplotlib; OpenCV
-        draws a small axis indicator for a preset whose axes are
-        ``"full"``, ``"debug"``, and refuses ``axes="full"`` set in a
-        Style, since the indicator is not the full axes). A field the
-        Style's caller set (in ``Style(...)`` or ``replace(...)``) at a
-        value the backend does not draw raises ``ValueError`` naming it
-        when the backend is named, and warns under ``"auto"``; a
-        preset's own values never do (see :class:`Style`).
+        ``Style("paper", axes="full")``). A field the Style's caller
+        set (in ``Style(...)`` or ``replace(...)``) at a value the
+        backend does not draw raises ``ValueError`` naming it when the
+        backend is named, and warns under ``"auto"``; a preset's own
+        values never do (see :class:`Style`).
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional
@@ -1195,9 +1192,8 @@ def play(
         player without a word (the OpenCV video draws ``supersample``;
         ``play`` draws no ghosts). Of the other fields, matplotlib's
         player draws all but ``shadow``, which is refused; the OpenCV
-        notebook video likewise, but with ``axes`` at ``"off"`` alone
-        and ``projection`` at ``"ortho"`` alone, as ``render`` draws
-        them on OpenCV. k3d draws all but ``shadow`` and ``axes``,
+        notebook video likewise, but with ``projection`` at
+        ``"ortho"`` alone, as ``render`` draws it on OpenCV. k3d draws all but ``shadow`` and ``axes``,
         refused at both values since its grid box is always shown, with
         ``projection`` at ``"persp"`` alone. The vedo window, at both
         qualities, refuses ``shadow`` and the joint fields

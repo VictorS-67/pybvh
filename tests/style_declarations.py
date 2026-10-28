@@ -10,10 +10,11 @@ at one value only has no second value it draws to differ from: the value
 set draws the picture of the field left to the paper preset. Where paper
 holds another value, the backend draws that one as the value it draws
 (OpenCV draws paper's "persp" orthographic); where paper holds the same
-value (vedo's and OpenCV's axes="off", vedo's "persp"), the case checks
-only that the value set is accepted. A preset holding the refused value
-is no second picture either: OpenCV draws "debug"'s axes="full" as its
-axis indicator, which is why "full" set by the caller is refused.
+value (vedo's axes="off", vedo's and k3d's "persp"), the case checks
+only that the value set is accepted. A preset holding another value is
+not compared instead: that would assume the backend draws the preset's
+value as the value it declares, which it need not, since a preset's own
+values are never refused.
 """
 
 from __future__ import annotations

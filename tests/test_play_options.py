@@ -23,11 +23,11 @@ from pybvh.bvhplot._style import STYLE_VALUES, resolve_style
 # way of the rule.
 EVERYTHING = {"k3d", "vedo", "cv2"}
 
-# The Style fields and values each play backend does not draw, as #132
-# lists them: the projections it lacks; axes on the viewers (k3d always
-# shows its grid box, vedo has none) and OpenCV's "full", a small axis
-# indicator; the vedo viewer's joint fields, its joint being the capsules'
-# sphere at both qualities; a shadow, which only the vedo renderer draws.
+# The Style fields and values each play backend does not draw: the
+# projections it lacks; axes on the viewers (k3d always shows its grid
+# box, vedo has none), while OpenCV draws "full" as its axis indicator;
+# the vedo viewer's joint fields, its joint being the capsules' sphere at
+# both qualities; a shadow, which only the vedo renderer draws.
 REFUSED = [
     ("k3d", "projection", "ortho"),
     ("k3d", "axes", "off"),
@@ -41,7 +41,6 @@ REFUSED = [
     ("vedo", "joint_color", "red"),
     ("vedo", "shadow", True),
     ("opencv", "projection", "persp"),
-    ("opencv", "axes", "full"),
     ("opencv", "shadow", True),
     ("matplotlib", "shadow", True),
 ]

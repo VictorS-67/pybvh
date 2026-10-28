@@ -224,7 +224,7 @@ class Style:
         floor         yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   n/a
         floor_alpha   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   n/a
         background    yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes
-        axes          yes   off   yes   off   off   yes   off   no    off   yes   yes   yes   no
+        axes          yes   off   yes   yes   off   yes   yes   no    off   yes   yes   yes   no
         projection    yes   persp yes   ortho persp yes   ortho persp persp yes   ortho yes   n/a
         dpi           yes   n/a   n/a   n/a   n/a   n/a   n/a   n/a   n/a   yes   yes   yes   n/a
         supersample   n/a   n/a   n/a   yes   n/a   n/a   yes   n/a   n/a   n/a   n/a   n/a   n/a
@@ -256,10 +256,10 @@ class Style:
 
     What the table leaves out: both vedo backends draw each joint as
     the capsules' sphere, sized and coloured by its bones; k3d always
-    shows its grid box; OpenCV draws the ``"debug"`` preset's
-    ``axes="full"`` as a small axis indicator, not the full axes, and
-    with ``joint_markers=False`` still draws a small bone-coloured dot
-    at each joint, which joins its bones; the vedo renderer casts its
+    shows its grid box; OpenCV draws ``axes="full"``, set by the
+    caller or by a preset, as a small axis indicator in a corner of
+    each panel, and with ``joint_markers=False`` still draws a small
+    bone-coloured dot at each joint, which joins its bones; the vedo renderer casts its
     shadow on the floor, so under ``floor=None`` it draws none;
     ``sequence`` draws the joint fields on its last pose.
 

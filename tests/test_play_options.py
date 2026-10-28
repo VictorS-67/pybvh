@@ -419,6 +419,55 @@ class TestThroughPlayAndTheStyle:
         assert len(windowed) == 1
 
 
+def _jshtml_frames(page):
+    """Every frame of matplotlib's notebook player, a page holding each
+    as a PNG, as ``(H, W, 3)`` uint8 RGB arrays."""
+    import base64
+    import io
+    import re
+
+    import numpy as np
+    from PIL import Image
+
+    pngs = re.findall(r'frames\[\d+\] = "data:image/png;base64,([^"]+)"', page)
+    assert pngs
+    return [
+        np.asarray(Image.open(io.BytesIO(base64.b64decode(png))).convert("RGB")) for png in pngs
+    ]
+
+
+class TestEachBackendDrawsTheStyleItDeclares:
+    """Played with two values of a Style field, matplotlib's notebook
+    player and the notebook video draw other frames where the backend
+    declares the field drawn, and the same where it accepts the field
+    without drawing it (see ``tests/style_declarations.py``). The one
+    frame of the walk shows a field."""
+
+    @pytest.mark.parametrize(
+        "case",
+        style_declarations.declared("play", ["matplotlib", "opencv_notebook"])
+        + style_declarations.accepted("play", ["matplotlib", "opencv_notebook"]),
+        ids=str,
+    )
+    def test_a_field_declared_changes_the_frames_and_one_accepted_does_not(
+        self, walk, environment, shown, handed_to_writer, same_frames, case
+    ):
+        if case.backend == "opencv_notebook":
+            pytest.importorskip("cv2")
+        environment(notebook=True, importable={"cv2"})
+
+        def frames(style):
+            if case.backend == "matplotlib":
+                bvhplot.play(walk[:1], backend="matplotlib", fps=10, style=style)
+                return _jshtml_frames(shown[-1].data)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")  # the MPEG-4 Part 2 fallback
+                bvhplot.play(walk[:1], backend="opencv", fps=10, resolution=(96, 72), style=style)
+            return handed_to_writer[-1]
+
+        assert same_frames(frames(case.one), frames(case.other)) != case.differ
+
+
 class TestTheNotebookVideo:
     """The one play backend whose frames a test can read: the OpenCV
     video in a notebook, played for real with its display captured."""

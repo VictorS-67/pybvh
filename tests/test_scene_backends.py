@@ -522,12 +522,11 @@ class TestK3d:
         assert np.all(built.trail_paths[0][:, up] > corners[:, up].max())
         assert built.floor.opacity == pytest.approx(Style("paper").floor_alpha)
 
-    @pytest.mark.parametrize("kind", ["grid", "checker"])
-    def test_a_grid_floor_spans_the_same_plane(self, pair, kind):
+    def test_a_grid_floor_spans_the_same_plane(self, pair):
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import FLOOR_GRID_LINES, _build_plot
 
-        built = _build_plot(pair.spread("auto"), Style("paper", floor=kind))
+        built = _build_plot(pair.spread("auto"), Style("paper", floor="grid"))
         viewport = built.viewport
         vertices = np.asarray(built.floor.vertices).reshape(-1, 3)
         # k3d keeps indices in a float32 trait
@@ -540,6 +539,51 @@ class TestK3d:
         # every line runs from one edge of the plane to the opposite one
         lengths = np.linalg.norm(vertices[indices[:, 1]] - vertices[indices[:, 0]], axis=1)
         np.testing.assert_allclose(lengths, 2 * viewport.floor_reach, rtol=1e-5)
+
+    @pytest.mark.parametrize(
+        "preset, shades",
+        [("paper", {"EDEDF1", "DCDCE3"}), ("dark", {"2A2E36", "1E2127"})],
+    )
+    def test_a_checker_floor_is_squares_of_two_colors(self, pair, preset, shades):
+        """Squares on vertices of their own, each in one color, half in
+        each of the two shades, over the plane the solid floor covers,
+        at floor_alpha."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        style = Style(preset, floor="checker", floor_alpha=0.5)
+        built = _build_plot(pair.spread("auto"), style)
+        floor = built.floor
+        assert type(floor).__name__ == "Mesh"
+        assert floor.opacity == pytest.approx(0.5)
+        vertices = np.asarray(floor.vertices).reshape(-1, 3)
+        # k3d keeps indices in a float32 trait
+        triangles = np.asarray(floor.indices).reshape(-1, 3).astype(int)
+        colors = np.asarray(floor.colors)
+        assert len(colors) == len(vertices)
+        assert {f"{c:06X}" for c in colors} == shades
+        # no vertex is shared, and each triangle is one color
+        assert len(np.unique(triangles)) == len(vertices)
+        assert np.all(colors[triangles] == colors[triangles[:, :1]])
+        counts = [np.sum(colors == c) for c in np.unique(colors)]
+        assert counts[0] == counts[1]
+        # a square is the triangles sharing its vertices; squares side by
+        # side differ in color
+        square_of = np.arange(len(vertices))
+        for a, b, c in triangles:
+            square_of[[b, c]] = square_of[a]
+        squares = np.unique(square_of[triangles[:, 0]])
+        centres = np.array([vertices[square_of == q].mean(axis=0) for q in squares])
+        shade = np.array([colors[square_of == q][0] for q in squares])
+        distance = np.linalg.norm(centres[:, np.newaxis] - centres[np.newaxis], axis=2)
+        side = distance[distance > 0].min()
+        beside = np.isclose(distance, side, rtol=1e-4)
+        assert beside.any()
+        assert np.all(shade[np.nonzero(beside)[0]] != shade[np.nonzero(beside)[1]])
+        expected = built.viewport.floor_quad()
+        for axis in built.viewport.ground_indices:
+            assert vertices[:, axis].min() == pytest.approx(expected[:, axis].min(), rel=1e-6)
+            assert vertices[:, axis].max() == pytest.approx(expected[:, axis].max(), rel=1e-6)
 
     @pytest.mark.parametrize("alpha", [0.3, 1.0])
     def test_a_grid_floor_is_drawn_at_floor_alpha(self, pair, alpha):

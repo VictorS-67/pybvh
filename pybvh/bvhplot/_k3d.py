@@ -31,6 +31,8 @@ from ._viewport import STANDING_STILL_HALF_SPAN, Viewport, make_viewport
 FLOOR_EPSILON = 0.004
 # Lines per ground direction of a "grid" floor.
 FLOOR_GRID_LINES = 21
+# Squares per ground direction of a "checker" floor, as matplotlib's.
+FLOOR_CHECKER_SQUARES = 16
 
 # What is drawn on a body is sized from it, in these fractions of its
 # body size: the v0.9.0 sizes of a standing still, which were 2%, 3%
@@ -233,10 +235,12 @@ def _build_floor(viewport: Viewport, style: Style) -> Any | None:
     """The viewport's ground plane as a k3d object, or ``None`` when
     the style draws no floor.
 
-    ``"solid"`` is a quad; ``"grid"`` is lines, and so is
-    ``"checker"``, which this backend does not draw (the vedo viewer
-    falls back the same way). The plane sits ``FLOOR_EPSILON``
-    half-spans below the ground, under the trail.
+    ``"solid"`` is a quad; ``"grid"`` is lines; ``"checker"`` is a
+    mesh of squares, each on four vertices of its own so that each
+    takes one of the two shades through k3d's per-vertex colors (a
+    vertex shared by two squares would blend their shades across
+    both). The plane sits ``FLOOR_EPSILON`` half-spans below the
+    ground, under the trail.
     """
     if style.floor is None:
         return None
@@ -256,6 +260,9 @@ def _build_floor(viewport: Viewport, style: Style) -> Any | None:
             flat_shading=True,
             name="Floor",
         )
+
+    if style.floor == "checker":
+        return _checker_floor(corners, palette, style.floor_alpha)
 
     # Lines across the quad in both ground directions: from one edge
     # to the opposite one, at equal steps.
@@ -280,6 +287,38 @@ def _build_floor(viewport: Viewport, style: Style) -> Any | None:
         color=_packed(rgb255(palette["grid"])),
         width=0.004 * viewport.half_span,
         opacity=style.floor_alpha,
+        name="Floor",
+    )
+
+
+def _checker_floor(
+    corners: npt.NDArray[np.float64],
+    palette: dict,
+    opacity: float,
+) -> Any:
+    """A checker of ``FLOOR_CHECKER_SQUARES`` squares a side over the
+    quad *corners*, alternating the palette's two shades."""
+    import k3d
+
+    n = FLOOR_CHECKER_SQUARES
+    origin, first, second = corners[0], corners[1] - corners[0], corners[3] - corners[0]
+    i, j = (a.ravel() for a in np.meshgrid(np.arange(n), np.arange(n), indexing="ij"))
+    # Each square's corners, counterclockwise from its (i, j) corner.
+    steps = np.array([[0, 0], [1, 0], [1, 1], [0, 1]])
+    u = (i[:, np.newaxis] + steps[:, 0]) / n  # (squares, 4)
+    v = (j[:, np.newaxis] + steps[:, 1]) / n
+    vertices = origin + u[..., np.newaxis] * first + v[..., np.newaxis] * second
+    first_vertex = 4 * np.arange(n * n)[:, np.newaxis]
+    triangles = np.concatenate([first_vertex + [0, 1, 2], first_vertex + [0, 2, 3]])
+    shades = np.array([_packed(rgb255(shade)) for shade in palette["checker"]], dtype=np.uint32)
+    colors = np.repeat(shades[(i + j) % 2], 4)
+    return k3d.mesh(
+        vertices.reshape(-1, 3).astype(np.float32),
+        triangles.astype(np.uint32),
+        colors=colors,
+        opacity=opacity,
+        side="double",
+        flat_shading=True,
         name="Floor",
     )
 

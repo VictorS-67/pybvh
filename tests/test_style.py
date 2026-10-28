@@ -95,6 +95,63 @@ class TestStyleConstruction:
             s.replace(nope=1)
 
 
+class TestStyleValidation:
+    """Every field is checked where the Style is made, by the constructor
+    and by ``replace`` alike, so that a bad value fails at the caller's
+    line rather than inside a backend."""
+
+    @staticmethod
+    def _made_both_ways(field, value):
+        """Build a paper Style with *field* set to *value*, once through
+        the constructor and once through ``replace``."""
+        return [
+            lambda: Style("paper", **{field: value}),
+            lambda: Style("paper").replace(**{field: value}),
+        ]
+
+    @pytest.mark.parametrize(
+        "field,value,message",
+        [
+            ("floor_alpha", 1.5, "floor_alpha must be a number in [0, 1], got 1.5"),
+            ("floor_alpha", -0.1, "floor_alpha must be a number in [0, 1], got -0.1"),
+            ("floor_alpha", "0.5", "floor_alpha must be a number in [0, 1], got '0.5'"),
+            ("joint_size", 0, "joint_size must be a positive number, got 0"),
+            ("joint_size", -9.0, "joint_size must be a positive number, got -9.0"),
+            ("joint_size", "9", "joint_size must be a positive number, got '9'"),
+            ("dpi", 0, "dpi must be a positive number or None, got 0"),
+            ("dpi", -300, "dpi must be a positive number or None, got -300"),
+            ("dpi", "300", "dpi must be a positive number or None, got '300'"),
+            ("shadow", 1, "shadow must be True or False, got 1"),
+            ("shadow", "yes", "shadow must be True or False, got 'yes'"),
+            ("shadow", None, "shadow must be True or False, got None"),
+        ],
+    )
+    def test_an_invalid_value_is_refused(self, field, value, message):
+        for make in self._made_both_ways(field, value):
+            with pytest.raises(ValueError) as raised:
+                make()
+            assert str(raised.value) == message
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("floor_alpha", 0),
+            ("floor_alpha", 1.0),
+            ("joint_size", 0.5),
+            ("dpi", 1),
+            ("dpi", None),
+            ("shadow", False),
+        ],
+    )
+    def test_a_value_at_the_edge_of_its_range_is_kept(self, field, value):
+        for make in self._made_both_ways(field, value):
+            assert getattr(make(), field) == value
+
+    @pytest.mark.parametrize("preset", ["paper", "debug", "dark"])
+    def test_every_preset_passes_its_own_checks(self, preset):
+        assert Style(preset) == Style(preset)
+
+
 class TestResolveStyle:
     def test_string(self):
         assert resolve_style("debug").axes == "full"

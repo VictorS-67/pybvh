@@ -8,6 +8,7 @@ matplotlib's color parser live in :mod:`._colors`.
 from __future__ import annotations
 
 import dataclasses
+import numbers
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -280,6 +281,14 @@ class Style:
             raise ValueError(
                 f"ghost_spacing must be positive (seconds), got {self.ghost_spacing!r}"
             )
+        if not (isinstance(self.floor_alpha, numbers.Real) and 0 <= self.floor_alpha <= 1):
+            raise ValueError(f"floor_alpha must be a number in [0, 1], got {self.floor_alpha!r}")
+        if not (isinstance(self.joint_size, numbers.Real) and self.joint_size > 0):
+            raise ValueError(f"joint_size must be a positive number, got {self.joint_size!r}")
+        if not (self.dpi is None or (isinstance(self.dpi, numbers.Real) and self.dpi > 0)):
+            raise ValueError(f"dpi must be a positive number or None, got {self.dpi!r}")
+        if not isinstance(self.shadow, bool):
+            raise ValueError(f"shadow must be True or False, got {self.shadow!r}")
 
     def replace(self, **overrides: object) -> Style:
         """A new Style with the given fields changed."""

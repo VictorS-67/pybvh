@@ -438,7 +438,11 @@ def rest_pose(
         Visual styling: a preset name (``"paper"``, ``"debug"``,
         ``"dark"``) or a :class:`Style` instance for field-level
         control, e.g. ``Style("paper", floor=None)``. Default
-        ``"paper"``.
+        ``"paper"``. Drawn as :func:`frame` draws it on matplotlib: a
+        field the Style's caller set (in ``Style(...)`` or
+        ``replace(...)``) at a value it does not draw (``shadow``)
+        raises ``ValueError`` naming it; a preset's own values never
+        do (see :class:`Style`).
     labels : list[str], optional
         Subplot titles for side-by-side comparison.
     figsize : (float, float), optional
@@ -464,6 +468,8 @@ def rest_pose(
         Single axes when one skeleton, list when multiple.
     """
     clips = as_clip_list(bvh)
+    style_obj = resolve_style(style)
+    _backends.check_drawn_style("rest_pose", style_obj)
 
     # Build rest-pose coords as (1, N, 3) arrays and go through the
     # same pipeline as frame(), bypassing spatial_coords.
@@ -474,7 +480,7 @@ def rest_pose(
     # world floor does not apply — the floor is the pose's lowest point.
     scene = make_scene(clips, coords_list, camera, labels, canonical_floor=False)
 
-    return frame_mpl(scene, resolve_style(style), figsize=figsize, show=show, ax=ax)
+    return frame_mpl(scene, style_obj, figsize=figsize, show=show, ax=ax)
 
 
 def frame(
@@ -703,12 +709,21 @@ def sequence(
         ``"offset"`` (default): poses at their world positions —
         locomotion spreads them left to right; drawn orthographic from
         the side with equal-scale non-cubic bounds so the travel fills
-        the frame. ``"overlay"``: poses superimposed (per-pose
+        the frame, whatever the style's projection (a
+        ``projection="persp"`` set in the Style raises, see *style*).
+        ``"overlay"``: poses superimposed (per-pose
         horizontal root-centering), seen from the front in the style's
         projection (perspective unless the style asks otherwise) — the
         right mode for in-place motion; on locomotion the legs tangle.
     style : Style or str, optional
-        Visual styling preset or instance. Default ``"paper"``.
+        Visual styling preset or instance. Default ``"paper"``. The
+        joint fields are drawn on the last pose, the others on every
+        pose. A field the Style's caller set (in ``Style(...)`` or
+        ``replace(...)``) at a value the layout does not draw raises
+        ``ValueError`` naming it: ``projection="persp"`` under
+        ``"offset"``, and ``shadow``. ``supersample`` and
+        ``ghost_spacing`` are accepted, and a preset's own values never
+        raise (see :class:`Style`).
     centered : str, optional
         Centering mode for the underlying coords (default ``"world"``).
     camera : str, (float, float), or None, optional
@@ -742,6 +757,9 @@ def sequence(
     if layout not in _VALID_LAYOUTS:
         raise ValueError(f"Unknown layout {layout!r}. Choose from: {sorted(_VALID_LAYOUTS)}")
 
+    style_obj = resolve_style(style)
+    _backends.check_drawn_style("sequence", style_obj, layout)
+
     if camera is None:
         camera = "side" if layout == "offset" else "front"
 
@@ -752,7 +770,7 @@ def sequence(
 
     return sequence_mpl(
         scene,
-        resolve_style(style),
+        style_obj,
         sample_frames,
         layout,
         trajectory=trajectory,
@@ -1435,9 +1453,15 @@ def trajectory(
     style : Style or str, optional
         Visual styling: a preset name (``"paper"``, ``"debug"``,
         ``"dark"``) or a :class:`Style` instance. Default ``"paper"``.
-        Only its background applies: a trajectory is a 2D data plot
+        Only its background is drawn: a trajectory is a 2D data plot
         whose axes, ticks and grid carry the information, so it keeps
-        them whatever ``style.axes`` says.
+        them whatever ``style.axes`` says, and an ``axes`` the Style's
+        caller set (in ``Style(...)`` or ``replace(...)``) raises
+        ``ValueError``, as does ``shadow``. The bone, joint and floor
+        fields and ``projection`` name what the plot does not hold, and
+        are accepted at any value, as are ``supersample``,
+        ``ghost_spacing`` and ``dpi`` (the figure takes matplotlib's
+        own), so a Style built for :func:`frame` serves here too.
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional
@@ -1475,6 +1499,8 @@ def trajectory(
     ax : matplotlib.axes.Axes
     """
     clips = as_clip_list(bvh)
+    style_obj = resolve_style(style)
+    _backends.check_drawn_style("trajectory", style_obj)
     scene = _prepare(clips, None, centered, "front", labels)
 
     # trajectory_mpl() computes its own per-skeleton horizontal axes
@@ -1483,7 +1509,7 @@ def trajectory(
 
     return trajectory_mpl(
         scene,
-        resolve_style(style),
+        style_obj,
         figsize=figsize,
         show=show,
         ax=ax,

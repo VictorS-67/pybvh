@@ -208,7 +208,7 @@ class TestANamedBackendAndTheStyle:
     def test_a_field_set_by_a_replace_is_refused(self, walk, tmp_path):
         pytest.importorskip("cv2")
         style = bvhplot.Style("paper", floor=None).replace(shadow=True)
-        with pytest.raises(ValueError, match=r"does not draw the Style's shadow\."):
+        with pytest.raises(ValueError, match=r"does not draw the Style's shadow=True\."):
             bvhplot.render(walk, tmp_path / "x.apng", backend="opencv", style=style)
 
 
@@ -232,9 +232,9 @@ class TestAutoAndTheStyle:
     def test_matplotlib_warns_of_a_shadow_it_does_not_draw(self, walk, tmp_path):
         path = tmp_path / "x.apng"
         with pytest.warns(UserWarning) as warned:
-            bvhplot.render(walk, path, resolution=(96, 72), style=bvhplot.Style(shadow=False))
+            bvhplot.render(walk, path, resolution=(96, 72), style=bvhplot.Style(shadow=True))
         assert [str(warning.message) for warning in warned] == [
-            "render() chose backend='matplotlib', which does not draw the Style's shadow, "
-            "so it is ignored. To draw it, use backend='vedo', which draws it."
+            "render() chose backend='matplotlib', which does not draw the Style's "
+            "shadow=True, so it is ignored. To draw it, use backend='vedo', which draws it."
         ]
         assert path.exists()

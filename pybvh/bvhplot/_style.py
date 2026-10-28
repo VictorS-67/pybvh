@@ -174,7 +174,17 @@ STYLE_VALUES: dict[str, frozenset[object]] = {
     "floor": frozenset(_VALID_FLOORS),
     "axes": frozenset(_VALID_AXES),
     "projection": frozenset(_VALID_PROJECTIONS),
+    "shadow": frozenset({True, False}),
 }
+
+
+def _is_number(value: object) -> bool:
+    """Whether *value* is a real number and not a bool: Python counts
+    ``True`` as the integer 1, but ``floor_alpha``, ``joint_size`` and
+    ``dpi``, which this checks, take an alpha or a size, which ``True``
+    is not, as ``1`` is not a bool for the fields taking ``True`` or
+    ``False``."""
+    return isinstance(value, numbers.Real) and not isinstance(value, bool)
 
 
 @dataclass(frozen=True, init=False)
@@ -228,7 +238,7 @@ class Style:
         projection    yes   persp yes   ortho persp yes   ortho persp persp yes   ortho yes   n/a
         dpi           yes   n/a   n/a   n/a   n/a   n/a   n/a   n/a   n/a   yes   yes   yes   n/a
         supersample   n/a   n/a   n/a   yes   n/a   n/a   yes   n/a   n/a   n/a   n/a   n/a   n/a
-        shadow        no    yes   no    no    yes   no    no    no    no    no    no    no    no
+        shadow        False yes   False False yes   False False False False False False False False
         ghost_spacing n/a   n/a   yes   yes   n/a   n/a   n/a   n/a   n/a   n/a   n/a   n/a   n/a
 
     The columns: ``frame``'s backends (``mpl`` matplotlib, ``vedo``
@@ -240,26 +250,26 @@ class Style:
     layouts, ``traj`` is ``trajectory``.
 
     ``yes``: drawn at every value. A value (``ortho``, ``persp``,
-    ``off``): drawn at that value alone; another is refused. ``no``:
-    refused at every value. ``n/a``: accepted at every value without a
-    word, since it names something that drawing does not hold: ``dpi``
-    outside the figures of ``frame``, ``rest_pose`` and ``sequence``
-    (the pixels of a video or a vedo picture are its resolution, and
-    k3d and the vedo window make no figure); ``supersample``, which
-    OpenCV alone draws with; ``ghost_spacing`` where no ghosts are
-    drawn; and in ``trajectory``, a 2D plot of the root's path, the
-    bone, joint and floor fields and ``projection``. ``trajectory``
-    and matplotlib's ``play`` do make a figure, at matplotlib's own
-    dpi, and accept ``dpi`` without drawing it all the same. So one
-    Style serves stills and videos, and a Style built for ``frame``
-    serves ``trajectory``.
+    ``off``, ``False``): drawn at that value alone; another is refused.
+    ``no``: refused at every value. ``n/a``: accepted at every value
+    without a word, since it names something that drawing does not
+    hold: ``dpi`` outside the figures of ``frame``, ``rest_pose`` and
+    ``sequence`` (the pixels of a video or a vedo picture are its
+    resolution, and k3d and the vedo window make no figure);
+    ``supersample``, which OpenCV alone draws with; ``ghost_spacing``
+    where no ghosts are drawn; and in ``trajectory``, a 2D plot of the
+    root's path, the bone, joint and floor fields and ``projection``.
+    ``trajectory`` and matplotlib's ``play`` do make a figure, at
+    matplotlib's own dpi, and accept ``dpi`` without drawing it all the
+    same. So one Style serves stills and videos, and a Style built for
+    ``frame`` serves ``trajectory``.
 
     What the table leaves out: both vedo backends draw each joint as
-    the capsules' sphere, sized and coloured by its bones; k3d always
+    the capsules' sphere, sized and colored by its bones; k3d always
     shows its grid box; OpenCV draws ``axes="full"``, set by the
     caller or by a preset, as a small axis indicator in a corner of
     each panel, and with ``joint_markers=False`` still draws a small
-    bone-coloured dot at each joint, which joins its bones; the vedo
+    bone-colored dot at each joint, which joins its bones; the vedo
     renderer casts its shadow on the floor, so under ``floor=None`` it
     draws none; ``sequence`` draws the joint fields on its last pose.
     The k3d widget also shows k3d's own axes helper in a corner, beside
@@ -292,9 +302,9 @@ class Style:
     and one for all dark backgrounds, differs as soon as the
     background is not white: fixed lines can vanish into an off-white
     background, and the fixed dark pair ignores how dark it is.
-    matplotlib's panel titles (``labels``) take the label colour on a
+    matplotlib's panel titles (``labels``) take the label color on a
     dark background; on a light one they keep matplotlib's black rather
-    than the label colour (``#444444`` on white), so the light pictures
+    than the label color (``#444444`` on white), so the light pictures
     look as they always did.
 
     ``color_mode``: ``"auto"`` uses per-chain colors for a single
@@ -405,11 +415,11 @@ class Style:
             raise ValueError(
                 f"ghost_spacing must be positive (seconds), got {self.ghost_spacing!r}"
             )
-        if not (isinstance(self.floor_alpha, numbers.Real) and 0 <= self.floor_alpha <= 1):
+        if not (_is_number(self.floor_alpha) and 0 <= self.floor_alpha <= 1):
             raise ValueError(f"floor_alpha must be a number in [0, 1], got {self.floor_alpha!r}")
-        if not (isinstance(self.joint_size, numbers.Real) and self.joint_size > 0):
+        if not (_is_number(self.joint_size) and self.joint_size > 0):
             raise ValueError(f"joint_size must be a positive number, got {self.joint_size!r}")
-        if not (self.dpi is None or (isinstance(self.dpi, numbers.Real) and self.dpi > 0)):
+        if not (self.dpi is None or (_is_number(self.dpi) and self.dpi > 0)):
             raise ValueError(f"dpi must be a positive number or None, got {self.dpi!r}")
         for name in ("joint_markers", "shadow"):
             value = getattr(self, name)
@@ -465,7 +475,7 @@ class DrawnStyle:
     the backend's own (OpenCV's axis indicator for ``axes="full"``).
     OpenCV draws orthographic whatever the projection asked, so it
     declares ``projection`` with ``"ortho"`` only, and the vedo
-    renderer, which sizes and colours every joint by its bones,
+    renderer, which sizes and colors every joint by its bones,
     declares none of the joint fields. A field absent draws none of its
     values.
     """
@@ -483,6 +493,16 @@ class DrawnStyle:
         """Whether *field* at *value* is drawn as the Style asks, in
         full or in a reduced form of the backend's own."""
         return field in self.fields or value in self.values.get(field, frozenset())
+
+    def derive(self, *, drop: Collection[str] = (), add: Collection[str] = ()) -> DrawnStyle:
+        """This declaration, for a call drawn as this one is but for the
+        fields *drop*, of which it draws no value, and *add*, which it
+        draws whole: render()'s from frame()'s. The values declared of
+        every other field are kept, so a value declared on this one is
+        never lost from a declaration derived from it."""
+        changed = set(drop) | set(add)
+        values = {name: drawn for name, drawn in self.values.items() if name not in changed}
+        return DrawnStyle((self.fields - set(drop)) | set(add), **values)
 
 
 def resolve_style(style: Style | str) -> Style:

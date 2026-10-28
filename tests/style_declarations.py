@@ -39,7 +39,6 @@ _TWO_VALUES: dict[str, tuple[object, object]] = {
     "background": ("white", "#16181D"),
     "dpi": (50, 100),
     "supersample": (1, 3),
-    "shadow": (True, False),
     "ghost_spacing": (0.3, 2.0),
 }
 _DRAWN_ON = {"bone_color": {"color_mode": "single"}}
@@ -53,6 +52,8 @@ _SECOND: dict[tuple[str, object], object] = {
     ("color_mode", "single"): "chains",
     ("joint_markers", True): False,
     ("joint_markers", False): True,
+    ("shadow", True): False,
+    ("shadow", False): True,
     ("floor", None): "solid",
     ("floor", "solid"): "grid",
     ("floor", "grid"): "checker",

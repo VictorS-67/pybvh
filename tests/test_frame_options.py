@@ -219,9 +219,15 @@ class TestANamedBackendAndTheStyle:
         with pytest.raises(ValueError) as raised:
             bvhplot.frame(walk, style=bvhplot.Style("paper", shadow=True))
         assert str(raised.value) == (
-            "frame(backend='matplotlib') does not draw the Style's shadow. "
+            "frame(backend='matplotlib') does not draw the Style's shadow=True. "
             "Leave it out of the Style, or use backend='vedo', which draws it."
         )
+
+    def test_matplotlib_honours_no_shadow(self, walk):
+        """It draws no shadow, exactly what shadow=False asks: the
+        picture of the paper preset, whose shadow it does not draw."""
+        asked = _picture(bvhplot.frame(walk, 0, style=bvhplot.Style("paper", shadow=False)))
+        assert np.array_equal(asked, _picture(bvhplot.frame(walk, 0)))
 
     def test_vedo_names_a_value_it_does_not_draw(self, walk):
         pytest.importorskip("vedo")

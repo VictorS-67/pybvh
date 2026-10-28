@@ -151,7 +151,7 @@ def _build_offscreen(
 FRAME_READS = frozenset({"resolution", "spacing", "match_size"})
 # The Style values frame() and render() draw on this backend: in
 # perspective only, with no axes, and none of the joint fields, since a
-# joint is the capsules' sphere, sized and coloured by its bones.
+# joint is the capsules' sphere, sized and colored by its bones.
 FRAME_DRAWS = DrawnStyle(
     {
         "bone_width",
@@ -197,6 +197,8 @@ def frame_vedo(
 # The options of render() this backend reads (ADR 0006): it draws every
 # skeleton in one scene, arranged by the router.
 RENDER_READS = frozenset({"spacing", "match_size"})
+# render() builds each frame as frame() builds its still
+# (_build_offscreen), so it draws what frame() draws.
 RENDER_DRAWS = FRAME_DRAWS
 
 

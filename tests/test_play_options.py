@@ -27,7 +27,7 @@ EVERYTHING = {"k3d", "vedo", "cv2"}
 # projections it lacks; axes on the viewers (k3d always shows its grid
 # box, vedo has none), while OpenCV draws "full" as its axis indicator;
 # the vedo viewer's joint fields, its joint being the capsules' sphere at
-# both qualities; a shadow, which only the vedo renderer draws.
+# both qualities; a shadow, which only the vedo renderer casts.
 REFUSED = [
     ("k3d", "projection", "ortho"),
     ("k3d", "axes", "off"),
@@ -55,7 +55,7 @@ SHOWN = {
     ("joint_markers", False): "joint_markers=False",
     ("joint_size", 20.0): "joint_size",
     ("joint_color", "red"): "joint_color",
-    ("shadow", True): "shadow",
+    ("shadow", True): "shadow=True",
 }
 
 # How to have auto choose each backend, in a session the test builds.
@@ -412,7 +412,7 @@ class TestThroughPlayAndTheStyle:
         with pytest.raises(ValueError) as raised:
             bvhplot.play(walk, backend="matplotlib", style=bvhplot.Style("paper", shadow=True))
         assert str(raised.value) == (
-            "play(backend='matplotlib') does not draw the Style's shadow. "
+            "play(backend='matplotlib') does not draw the Style's shadow=True. "
             "Leave it out of the Style."
         )
         assert windowed == []
@@ -421,11 +421,11 @@ class TestThroughPlayAndTheStyle:
         """Headless, auto plays in matplotlib's window, which draws no
         shadow, as no play backend does."""
         environment(importable={"vedo"})
-        style = bvhplot.Style("paper", shadow=False)
+        style = bvhplot.Style("paper", shadow=True)
         assert _play_warnings(lambda: bvhplot.play(walk, style=style)) == [
             (
-                "play() chose backend='matplotlib', which does not draw the Style's shadow, "
-                "so it is ignored.",
+                "play() chose backend='matplotlib', which does not draw the Style's "
+                "shadow=True, so it is ignored.",
                 __file__,
             )
         ]

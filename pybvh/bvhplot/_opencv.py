@@ -459,11 +459,12 @@ def _generate_frames(
 
 # The options of render() this backend reads (ADR 0006).
 RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory", "frame_counter"})
-# The Style values render() draws on this backend: orthographic only, no
-# shadow, and no dpi (the resolution sets the pixels). Two values it draws
-# in a reduced form of its own, as asked all the same: axes="full" as a
-# small axis indicator in a panel's corner, and joint_markers=False as
-# bone-coloured dots that join the bones (ADR 0007).
+# The Style values render() draws on this backend: orthographic only,
+# shadow at False alone (it casts none), and no dpi (the resolution sets
+# the pixels). axes="full" it draws in a reduced form of its own, as
+# asked all the same: a small axis indicator in a panel's corner (ADR
+# 0007). joint_markers=False it draws exactly, no markers; the
+# bone-colored dot at each joint is how it joins its bones.
 RENDER_DRAWS = DrawnStyle(
     {
         "bone_width",
@@ -481,12 +482,13 @@ RENDER_DRAWS = DrawnStyle(
         "ghost_spacing",
     },
     projection={"ortho"},
+    shadow={False},
 )
 # The options of play() its notebook video, drawn by render_opencv, reads.
 PLAY_READS = frozenset({"resolution", "frame_counter"})
 # The Style values its notebook video draws: render()'s, but the ghosts'
 # spacing, since play draws no ghosts.
-PLAY_DRAWS = DrawnStyle(RENDER_DRAWS.fields - {"ghost_spacing"}, **RENDER_DRAWS.values)
+PLAY_DRAWS = RENDER_DRAWS.derive(drop={"ghost_spacing"})
 
 
 def render_opencv(

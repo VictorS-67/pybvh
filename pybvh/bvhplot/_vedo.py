@@ -167,9 +167,9 @@ _HELP_ENTRIES = [
 # skeleton in one scene, arranged by the router.
 PLAY_READS = frozenset({"quality", "spacing", "match_size"})
 # The Style values play() draws on this backend, at both qualities: in
-# perspective only, with no axes, no shadow, and none of the joint
-# fields, since a joint is the capsules' sphere, sized and coloured by its
-# bones, and the fast points keep that look.
+# perspective only, with no axes, shadow at False alone (it casts none),
+# and none of the joint fields, since a joint is the capsules' sphere,
+# sized and colored by its bones, and the fast points keep that look.
 PLAY_DRAWS = DrawnStyle(
     {
         "bone_width",
@@ -182,6 +182,7 @@ PLAY_DRAWS = DrawnStyle(
     },
     axes={"off"},
     projection={"persp"},
+    shadow={False},
 )
 
 

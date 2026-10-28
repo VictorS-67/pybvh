@@ -440,7 +440,7 @@ def rest_pose(
         control, e.g. ``Style("paper", floor=None)``. Default
         ``"paper"``. Drawn as :func:`frame` draws it on matplotlib: a
         field the Style's caller set (in ``Style(...)`` or
-        ``replace(...)``) at a value it does not draw (``shadow``)
+        ``replace(...)``) at a value it does not draw (``shadow=True``)
         raises ``ValueError`` naming it; a preset's own values never
         do (see :class:`Style`).
     labels : list[str], optional
@@ -721,7 +721,7 @@ def sequence(
         pose. A field the Style's caller set (in ``Style(...)`` or
         ``replace(...)``) at a value the layout does not draw raises
         ``ValueError`` naming it: ``projection="persp"`` under
-        ``"offset"``, and ``shadow``. ``supersample`` and
+        ``"offset"``, and ``shadow=True``. ``supersample`` and
         ``ghost_spacing`` are accepted, and a preset's own values never
         raise (see :class:`Style`).
     centered : str, optional
@@ -1190,22 +1190,22 @@ def play(
         as its column of the table in :class:`Style` says. ``dpi``,
         ``supersample`` and ``ghost_spacing`` are accepted by every
         player without a word (the OpenCV video draws ``supersample``;
-        ``play`` draws no ghosts). Of the other fields, matplotlib's
-        player draws all but ``shadow``, which is refused; the OpenCV
-        notebook video likewise, but with ``projection`` at ``"ortho"``
-        alone, as ``render`` draws it on OpenCV. k3d draws all but
-        ``shadow`` and ``axes``, refused at both values since its grid
-        box is always shown, with ``projection`` at ``"persp"`` alone. The vedo window, at both
-        qualities, refuses ``shadow`` and the joint fields
-        (``joint_markers``, ``joint_size``, ``joint_color``), each
-        joint being the capsules' sphere, sized and coloured by its
-        bones, and draws ``axes`` at ``"off"`` alone and ``projection``
-        at ``"persp"`` alone. A field the Style's caller set (in
-        ``Style(...)`` or ``replace(...)``) that the backend refuses, or
-        at a value it does not draw, raises ``ValueError`` naming it
-        when the backend is named, and warns under ``"auto"``, as an
-        option the backend does not read does (see *backend*); a
-        preset's own values never do.
+        ``play`` draws no ghosts). No player casts a shadow, so each
+        draws ``shadow`` at ``False`` alone. Of the other fields,
+        matplotlib's player draws all; the OpenCV notebook video
+        likewise, but with ``projection`` at ``"ortho"`` alone, as
+        ``render`` draws it on OpenCV. k3d draws all but ``axes``,
+        refused at both values since its grid box is always shown, with
+        ``projection`` at ``"persp"`` alone. The vedo window, at both
+        qualities, refuses the joint fields (``joint_markers``,
+        ``joint_size``, ``joint_color``), each joint being the capsules'
+        sphere, sized and colored by its bones, and draws ``axes`` at
+        ``"off"`` alone and ``projection`` at ``"persp"`` alone. A field
+        the Style's caller set (in ``Style(...)`` or ``replace(...)``)
+        that the backend refuses, or at a value it does not draw, raises
+        ``ValueError`` naming it when the backend is named, and warns
+        under ``"auto"``, as an option the backend does not read does
+        (see *backend*); a preset's own values never do.
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional
@@ -1460,7 +1460,7 @@ def trajectory(
         whose axes, ticks and grid carry the information, so it keeps
         them whatever ``style.axes`` says, and an ``axes`` the Style's
         caller set (in ``Style(...)`` or ``replace(...)``) raises
-        ``ValueError``, as does ``shadow``. The bone, joint and floor
+        ``ValueError``, as does ``shadow=True``. The bone, joint and floor
         fields and ``projection`` name what the plot does not hold, and
         are accepted at any value, as are ``supersample``,
         ``ghost_spacing`` and ``dpi`` (the figure takes matplotlib's

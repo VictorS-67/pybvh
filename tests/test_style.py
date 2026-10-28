@@ -143,6 +143,10 @@ class TestStyleValidation:
             ("floor_alpha", 1.5, "floor_alpha must be a number in [0, 1], got 1.5"),
             ("floor_alpha", -0.1, "floor_alpha must be a number in [0, 1], got -0.1"),
             ("floor_alpha", "0.5", "floor_alpha must be a number in [0, 1], got '0.5'"),
+            # A bool is no number here, as 1 is no bool for shadow.
+            ("floor_alpha", True, "floor_alpha must be a number in [0, 1], got True"),
+            ("joint_size", True, "joint_size must be a positive number, got True"),
+            ("dpi", True, "dpi must be a positive number or None, got True"),
             ("joint_size", 0, "joint_size must be a positive number, got 0"),
             ("joint_size", -9.0, "joint_size must be a positive number, got -9.0"),
             ("joint_size", "9", "joint_size must be a positive number, got '9'"),
@@ -716,7 +720,7 @@ class TestStyledRenderSmoke:
 
 
 # How far, in levels of 255 per channel, a joint pixel may stray from
-# the joint colour. Where two joints overlap, a pixel inside their union
+# the joint color. Where two joints overlap, a pixel inside their union
 # that neither covers fully keeps a trace of what lies under it: 1 level
 # at most inside the joints of the walk test pictures with the joints on
 # top, against 255 where a bone covers them.
@@ -747,7 +751,7 @@ def _joints_kept(thin: np.ndarray, wide: np.ndarray) -> bool:
 
 
 # Large red joints and no floor, so the joints and bones alone fill the
-# picture; the bones are drawn in chain colours, none of them red.
+# picture; the bones are drawn in chain colors, none of them red.
 RED_JOINTS = Style("paper", joint_size=120, joint_color="red", floor=None)
 
 
@@ -799,7 +803,7 @@ class TestMatplotlibVideosDrawTheJointsOverTheBones:
 
 
 def _contrast(color, other) -> float:
-    """The WCAG contrast ratio of two colours, 1 (the same) to 21
+    """The WCAG contrast ratio of two colors, 1 (the same) to 21
     (black on white); 4.5 is its minimum for body text."""
     from matplotlib.colors import to_rgb
 
@@ -823,7 +827,7 @@ class TestPanelTitlesAreLegible:
         plt.close(fig)
 
     def test_frame_keeps_black_titles_on_a_light_background(self, bvh):
-        """matplotlib's own title colour, as before."""
+        """matplotlib's own title color, as before."""
         fig, axs = bvhplot.frame([bvh, bvh], 10, style="paper", labels=["A", "B"])
         assert all(matplotlib.colors.to_hex(ax.title.get_color()) == "#000000" for ax in axs)
         plt.close(fig)

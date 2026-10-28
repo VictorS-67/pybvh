@@ -576,7 +576,7 @@ class TestK3d:
             assert path.shape == (view.coords.shape[0], 3)
 
     @staticmethod
-    def _play_and_grab_slider(scene, monkeypatch):
+    def _play_and_grab_slider(scene, monkeypatch, style=None):
         """Play *scene* with k3d outside a notebook: the plot as built
         and the frame slider of the widget that would be displayed."""
         pytest.importorskip("k3d")
@@ -593,7 +593,7 @@ class TestK3d:
 
         monkeypatch.setattr(_k3d, "_build_plot", build_and_keep)
         monkeypatch.setattr(IPython.display, "display", shown.append)
-        _k3d.play_k3d(scene, Style("paper"), 30.0)
+        _k3d.play_k3d(scene, style or Style("paper"), 30.0)
         (widget,) = shown
         _plot, controls = widget.children
         (slider,) = [w for w in controls.children if type(w).__name__ == "IntSlider"]
@@ -607,6 +607,15 @@ class TestK3d:
             expected = view.coords[7].astype(np.float32)
             np.testing.assert_array_equal(lines.vertices, expected)
             np.testing.assert_array_equal(points.positions, expected)
+
+    def test_the_frame_slider_poses_skeletons_drawn_without_joints(self, pair, monkeypatch):
+        scene = pair.spread("auto")
+        style = Style("paper", joint_markers=False)
+        built, slider = self._play_and_grab_slider(scene, monkeypatch, style)
+        slider.value = 7
+        for (lines, points), view in zip(built.skeletons, scene.views, strict=True):
+            assert points is None
+            np.testing.assert_array_equal(lines.vertices, view.coords[7].astype(np.float32))
 
     def test_the_frame_slider_grows_each_trail_to_its_frame(self, pair, monkeypatch):
         """The trail is the root's ground path up to the frame, and its
@@ -686,6 +695,18 @@ class TestK3d:
         drawn = [f"{lines.color:06X}" for lines, _points in built.skeletons]
         assert drawn == ["3278FF", "DC3232"]
         assert all(len(lines.colors) == 0 for lines, _points in built.skeletons)
+
+    @staticmethod
+    def _points_in(plot):
+        return [o for o in plot.objects if type(o).__name__ == "Points"]
+
+    def test_without_joint_markers_no_joint_is_drawn(self, pair):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        assert len(self._points_in(_build_plot(pair.spread("auto"), Style("paper")).plot)) == 2
+        built = _build_plot(pair.spread("auto"), Style("paper", joint_markers=False))
+        assert self._points_in(built.plot) == []
 
 
 # ---------------------------------------------------------------------------

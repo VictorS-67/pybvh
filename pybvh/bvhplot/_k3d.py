@@ -70,7 +70,7 @@ class _Plot(NamedTuple):
     plot: Any  # k3d.plot.Plot
     viewport: Viewport
     coords: list[npt.NDArray[np.float32]]  # per skeleton, (F, N, 3)
-    skeletons: list[tuple[Any, Any]]  # (k3d Lines, k3d Points)
+    skeletons: list[tuple[Any, Any | None]]  # (k3d Lines, k3d Points or None)
     trails: list[Any]  # k3d Line per skeleton
     trail_paths: list[npt.NDArray[np.float32]]  # per skeleton, (F, 3)
     floor: Any | None  # k3d Mesh or Lines, None without a floor
@@ -115,7 +115,7 @@ def _build_plot(
         )
 
         # Build k3d objects for each skeleton
-        skeleton_objects: list[tuple[Any, Any]] = []
+        skeleton_objects: list[tuple[Any, Any | None]] = []
 
         for s, (view, coords) in enumerate(zip(scene.views, coords_f32, strict=True)):
             frame0 = coords[0]
@@ -139,17 +139,18 @@ def _build_plot(
                 shader="thick",
                 name=(labels[s] if labels and labels[s] is not None else f"Skeleton {s}"),
             )
-            points = k3d.points(
-                frame0,
-                color=color,
-                colors=node_colors if node_colors is not None else [],
-                point_size=JOINT_SIZE_FRACTION * view.body_size,
-                shader="3dSpecular",
-                name=f"Joints {s}",
-            )
-
             plot += lines
-            plot += points
+            points = None
+            if style.joint_markers:
+                points = k3d.points(
+                    frame0,
+                    color=color,
+                    colors=node_colors if node_colors is not None else [],
+                    point_size=JOINT_SIZE_FRACTION * view.body_size,
+                    shader="3dSpecular",
+                    name=f"Joints {s}",
+                )
+                plot += points
             skeleton_objects.append((lines, points))
 
         # --- Root trajectory projected on the floor ---
@@ -389,7 +390,8 @@ def play_k3d(
         for s, (lines_obj, pts_obj) in enumerate(skeleton_objects):
             frame_data = coords_f32[s][f]
             lines_obj.vertices = frame_data
-            pts_obj.positions = frame_data
+            if pts_obj is not None:
+                pts_obj.positions = frame_data
         # Update trails: vertices [0..f] are the real past path, the rest
         # collapse to position f so the trail grows as the animation plays.
         for s, trail_obj in enumerate(trail_objects):

@@ -168,7 +168,7 @@ _HELP_ENTRIES = [
 PLAY_READS = frozenset({"quality", "spacing", "match_size"})
 # The Style values play() draws on this backend, at both qualities: in
 # perspective only, with no axes, no shadow, and none of the joint
-# fields, since a joint is the capsules' sphere, sized and coloured by its
+# fields, since a joint is the capsules' sphere, sized and colored by its
 # bones, and the fast points keep that look.
 PLAY_DRAWS = DrawnStyle(
     {

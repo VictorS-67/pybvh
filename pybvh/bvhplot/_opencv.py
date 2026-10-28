@@ -463,7 +463,7 @@ RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory", "frame_c
 # shadow, and no dpi (the resolution sets the pixels). Two values it draws
 # in a reduced form of its own, as asked all the same: axes="full" as a
 # small axis indicator in a panel's corner, and joint_markers=False as
-# bone-coloured dots that join the bones (ADR 0007).
+# bone-colored dots that join the bones (ADR 0007).
 RENDER_DRAWS = DrawnStyle(
     {
         "bone_width",

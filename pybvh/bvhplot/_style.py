@@ -264,11 +264,11 @@ class Style:
     ``frame`` serves ``trajectory``.
 
     What the table leaves out: both vedo backends draw each joint as
-    the capsules' sphere, sized and coloured by its bones; k3d always
+    the capsules' sphere, sized and colored by its bones; k3d always
     shows its grid box; OpenCV draws ``axes="full"``, set by the
     caller or by a preset, as a small axis indicator in a corner of
     each panel, and with ``joint_markers=False`` still draws a small
-    bone-coloured dot at each joint, which joins its bones; the vedo
+    bone-colored dot at each joint, which joins its bones; the vedo
     renderer casts its shadow on the floor, so under ``floor=None`` it
     draws none; ``sequence`` draws the joint fields on its last pose.
     The k3d widget also shows k3d's own axes helper in a corner, beside
@@ -301,9 +301,9 @@ class Style:
     and one for all dark backgrounds, differs as soon as the
     background is not white: fixed lines can vanish into an off-white
     background, and the fixed dark pair ignores how dark it is.
-    matplotlib's panel titles (``labels``) take the label colour on a
+    matplotlib's panel titles (``labels``) take the label color on a
     dark background; on a light one they keep matplotlib's black rather
-    than the label colour (``#444444`` on white), so the light pictures
+    than the label color (``#444444`` on white), so the light pictures
     look as they always did.
 
     ``color_mode``: ``"auto"`` uses per-chain colors for a single
@@ -474,7 +474,7 @@ class DrawnStyle:
     the backend's own (OpenCV's axis indicator for ``axes="full"``).
     OpenCV draws orthographic whatever the projection asked, so it
     declares ``projection`` with ``"ortho"`` only, and the vedo
-    renderer, which sizes and colours every joint by its bones,
+    renderer, which sizes and colors every joint by its bones,
     declares none of the joint fields. A field absent draws none of its
     values.
     """

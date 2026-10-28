@@ -1199,7 +1199,7 @@ def play(
         box is always shown, with ``projection`` at ``"persp"`` alone. The vedo window, at both
         qualities, refuses the joint fields
         (``joint_markers``, ``joint_size``, ``joint_color``), each
-        joint being the capsules' sphere, sized and coloured by its
+        joint being the capsules' sphere, sized and colored by its
         bones, and draws ``axes`` at ``"off"`` alone and ``projection``
         at ``"persp"`` alone. A field the Style's caller set (in
         ``Style(...)`` or ``replace(...)``) that the backend refuses, or

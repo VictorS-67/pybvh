@@ -414,12 +414,12 @@ def _set_panel_background(ax: matplotlib.axes.Axes, color: ColorType) -> None:
 
 
 def _set_panel_title(ax: matplotlib.axes.Axes, label: str, style: Style) -> None:
-    """Title a panel in a colour that reads on the style's background.
+    """Title a panel in a color that reads on the style's background.
 
     On a dark background (the luminance split that picks the floor
-    colours), the grid box's label colour: the background stepped most
+    colors), the grid box's label color: the background stepped most
     of the way toward white, where matplotlib's default black would
-    vanish into it. On a light one, matplotlib's own title colour.
+    vanish into it. On a light one, matplotlib's own title color.
     """
     if is_dark_background(style.background):
         _, label_rgb = grid_box_colors(style)

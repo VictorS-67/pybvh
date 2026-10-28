@@ -151,7 +151,7 @@ def _build_offscreen(
 FRAME_READS = frozenset({"resolution", "spacing", "match_size"})
 # The Style values frame() and render() draw on this backend: in
 # perspective only, with no axes, and none of the joint fields, since a
-# joint is the capsules' sphere, sized and coloured by its bones.
+# joint is the capsules' sphere, sized and colored by its bones.
 FRAME_DRAWS = DrawnStyle(
     {
         "bone_width",

@@ -360,7 +360,7 @@ class TestGridFloor:
         def floor(quality):
             p = _vedo._VedoPlayer(scene, Style("paper", floor=kind), 30.0, quality=quality)
             try:
-                (plane,) = [o for o in p.plt.objects if isinstance(o, (vedo.Plane, vedo.Grid))]
+                (plane,) = [o for o in p.plt.objects if o.name == "Floor"]
                 return type(plane), np.asarray(plane.vertices), plane.alpha()
             finally:
                 p.plt.close()
@@ -385,8 +385,12 @@ class TestGridFloor:
             image = _rendered(p, tmp_path).reshape(-1, 3).astype(int)
         finally:
             p.plt.close()
+        # the floor takes about a third of the window's pixels, half of
+        # it in each shade; a tenth of that is a checker, where a grid's
+        # lines leave none of either shade
+        floor_share = image.shape[0] // 3
         for shade in floor_palette(style)["checker"]:
-            assert (np.abs(image - rgb255(shade)).max(axis=1) <= 1).sum() > 5000, shade
+            assert (np.abs(image - rgb255(shade)).max(axis=1) <= 1).sum() > floor_share // 20, shade
 
 
 def _rendered(player, tmp_path):
@@ -594,7 +598,7 @@ class TestStyleColorsReachVedoParsed:
         style = Style("paper", floor=floor)
         p = _vedo._VedoPlayer(scene, style, 30.0, quality="high")
         try:
-            plane = next(o for o in p.plt.objects if isinstance(o, (vedo.Plane, vedo.Grid)))
+            plane = next(o for o in p.plt.objects if o.name == "Floor")
             np.testing.assert_allclose(
                 plane.properties.GetColor(), np.asarray(rgb255(floor_palette(style)[key])) / 255
             )

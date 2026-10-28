@@ -813,7 +813,7 @@ def _viewer(scene, monkeypatch, quality="high"):
 
 
 def _vedo_plane(plotter):
-    planes = [o for o in plotter.objects if type(o).__name__ in ("Plane", "Grid")]
+    planes = [o for o in plotter.objects if o.name == "Floor"]
     assert len(planes) == 1, f"expected one floor plane, got {len(planes)}"
     return np.asarray(planes[0].vertices)
 
@@ -922,7 +922,7 @@ class TestEveryBackendDrawsTheViewportsFloor:
         from pybvh.bvhplot._vedo_offscreen import _build_offscreen
 
         def drawn(plotter):
-            (floor,) = [o for o in plotter.objects if type(o).__name__ in ("Plane", "Grid")]
+            (floor,) = [o for o in plotter.objects if o.name == "Floor"]
             colors = floor.celldata["CellsRGBA"] if kind == "checker" else floor.color()
             return np.asarray(floor.vertices), np.asarray(colors), floor.alpha()
 

@@ -460,7 +460,9 @@ class TestFloorKinds:
         front = image[-30:, :90].reshape(-1, 3).astype(int)
         shades = [np.array(rgb255(shade)) for shade in floor_palette(style)["checker"]]
         for shade in shades:
-            assert (np.abs(front - shade).max(axis=1) <= 1).sum() > 200, shade
+            # each shade fills about half of the 2700 pixels; edges,
+            # where squares blend, take some of either half
+            assert (np.abs(front - shade).max(axis=1) <= 1).sum() > 1000, shade
         # squares meet in a blend of the two shades, never darker or lighter
         low, high = np.minimum(*shades), np.maximum(*shades)
         assert (front >= low - 1).all() and (front <= high + 1).all()

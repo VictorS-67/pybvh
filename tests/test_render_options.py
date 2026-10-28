@@ -183,7 +183,7 @@ class TestANamedBackendAndTheStyle:
         assert not path.exists()
 
     @pytest.mark.parametrize("backend", sorted(PACKAGE))
-    @pytest.mark.parametrize("preset", ["paper", "debug", "dark"])
+    @pytest.mark.parametrize("preset", style_declarations.PRESETS)
     def test_accepts_every_preset(self, walk, tmp_path, backend, preset):
         """A preset fills every field, drawn by the backend or not."""
         pytest.importorskip(PACKAGE[backend])

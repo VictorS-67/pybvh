@@ -195,6 +195,15 @@ class TestANamedBackendAndTheStyle:
     naming the field, the backend and the backends that draw it; a
     preset's own values are never refused."""
 
+    @pytest.mark.parametrize("backend", sorted(PACKAGE))
+    @pytest.mark.parametrize("preset", style_declarations.PRESETS)
+    def test_accepts_every_preset(self, walk, backend, preset):
+        """A preset fills every field, drawn by the backend or not."""
+        pytest.importorskip(PACKAGE[backend])
+        options = {"resolution": SMALL} if backend == "vedo" else {}
+        for style in (preset, bvhplot.Style(preset)):
+            assert _picture(bvhplot.frame(walk, backend=backend, style=style, **options)).size
+
     def test_vedo_refuses_the_joint_fields(self, walk, tmp_path):
         pytest.importorskip("vedo")
         path = tmp_path / "x.png"

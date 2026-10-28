@@ -264,18 +264,12 @@ _ACCEPTED_BY_EVERY_BACKEND = frozenset({"spacing", "match_size"})
 # resolution; supersample is how OpenCV draws; ghost_spacing spaces ghosts
 # where a call draws them. So one "paper at 300 dpi" Style serves figures
 # and videos.
-_NOT_IN_EVERY_PICTURE = frozenset({"dpi", "supersample", "ghost_spacing"})
-# The Style fields every backend of each public call accepts, drawn or not.
-_STYLE_ACCEPTED = {
-    "frame": _NOT_IN_EVERY_PICTURE,
-    "render": _NOT_IN_EVERY_PICTURE,
-    "play": _NOT_IN_EVERY_PICTURE,
-    "rest_pose": _NOT_IN_EVERY_PICTURE,
-    "sequence": _NOT_IN_EVERY_PICTURE,
-    # A trajectory plots the root's path on the ground, seen from above:
-    # it holds no bone, joint, floor or camera to draw them on.
-    "trajectory": _NOT_IN_EVERY_PICTURE
-    | {
+_STYLE_ACCEPTED_BY_EVERY_BACKEND = frozenset({"dpi", "supersample", "ghost_spacing"})
+# trajectory also accepts these: it plots the root's path on the ground,
+# seen from above, and holds no bone, joint, floor or camera to draw them
+# on.
+_STYLE_ACCEPTED_BY_TRAJECTORY = frozenset(
+    {
         "bone_width",
         "bone_color",
         "color_mode",
@@ -286,8 +280,11 @@ _STYLE_ACCEPTED = {
         "floor",
         "floor_alpha",
         "projection",
-    },
-}
+    }
+)
+# The Style fields every backend of each public call accepts, drawn or not.
+_STYLE_ACCEPTED = {call: _STYLE_ACCEPTED_BY_EVERY_BACKEND for call in _DECLARING_MODULES}
+_STYLE_ACCEPTED["trajectory"] |= _STYLE_ACCEPTED_BY_TRAJECTORY
 
 # How a message names an option that is not a keyword of its own.
 _SHOWN = {"turntable": "camera='turntable'"}
@@ -301,8 +298,8 @@ class _Wording(NamedTuple):
     leave: str  # how the caller does without it: "unset" or "out of the Style"
 
 
-_OPTIONS = _Wording("read", "", "unset")
-_STYLE = _Wording("draw", "the Style's ", "out of the Style")
+_OPTION_WORDING = _Wording("read", "", "unset")
+_STYLE_WORDING = _Wording("draw", "the Style's ", "out of the Style")
 
 
 def _either(words: list[str]) -> str:
@@ -335,7 +332,7 @@ def _with_unread_options(
         return choice
     readers = [backend for backend in sorted(backends) if set(unread) <= _reads(call, backend)]
     names = [_SHOWN.get(option, option) for option in unread]
-    return _refused(call, requested, choice, names, readers, _OPTIONS, public_names)
+    return _refused(call, requested, choice, names, readers, _OPTION_WORDING, public_names)
 
 
 def _with_undrawn_style(
@@ -377,7 +374,7 @@ def _with_undrawn_style(
     drawers = [
         backend for backend in sorted(backends) if not set(undrawn) & set(undrawn_on(backend))
     ]
-    return _refused(call, requested, choice, names, drawers, _STYLE, public_names, keyword)
+    return _refused(call, requested, choice, names, drawers, _STYLE_WORDING, public_names, keyword)
 
 
 def _refused(

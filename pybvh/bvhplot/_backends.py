@@ -240,7 +240,11 @@ _ACCEPTED_BY_EVERY_BACKEND = frozenset({"spacing", "match_size"})
 # and videos.
 _NOT_IN_EVERY_PICTURE = frozenset({"dpi", "supersample", "ghost_spacing"})
 # The Style fields every backend of each public call accepts, drawn or not.
-_STYLE_ACCEPTED = {"frame": _NOT_IN_EVERY_PICTURE, "render": _NOT_IN_EVERY_PICTURE}
+_STYLE_ACCEPTED = {
+    "frame": _NOT_IN_EVERY_PICTURE,
+    "render": _NOT_IN_EVERY_PICTURE,
+    "play": _NOT_IN_EVERY_PICTURE,
+}
 
 # How a message names an option that is not a keyword of its own.
 _SHOWN = {"turntable": "camera='turntable'"}
@@ -429,7 +433,10 @@ _PLAY_NAMES = {"opencv_notebook": "opencv"}
 
 
 def choose_play_backend(
-    requested: str, environment: Environment, given: Collection[str] = ()
+    requested: str,
+    environment: Environment,
+    given: Collection[str] = (),
+    style: Style | None = None,
 ) -> Choice:
     """The backend ``play(backend=requested)`` runs.
 
@@ -453,8 +460,10 @@ def choose_play_backend(
     ``None``). One the backend does not read raises ``ValueError`` when
     the backend is named and adds a warning under ``"auto"``, whose
     choice the session makes, not the script; ``spacing`` and
-    ``match_size`` are accepted by every backend. The messages call the
-    notebook video ``"opencv"``, and offer it only in a notebook.
+    ``match_size`` are accepted by every backend. So does a field of
+    *style* its caller set at a value the backend does not draw (see
+    :func:`_with_undrawn_style`). The messages call the notebook video
+    ``"opencv"``, and offer it only in a notebook.
 
     Whether a named backend's package imports is not checked here but by
     :func:`check_importable` after this choice, as for ``render()`` and
@@ -476,8 +485,6 @@ def choose_play_backend(
         choice = Choice(requested)
     else:
         choice = _auto_play_backend(environment)
-    if not given:
-        return choice
     # The notebook video is offered only where it plays: named in a
     # script, it raises.
     offered = [
@@ -485,7 +492,9 @@ def choose_play_backend(
         for backend in _DECLARING_MODULES["play"]
         if environment.in_notebook or backend != "opencv_notebook"
     ]
-    return _with_unread_options("play", requested, choice, given, offered, _PLAY_NAMES)
+    if given:
+        choice = _with_unread_options("play", requested, choice, given, offered, _PLAY_NAMES)
+    return _with_undrawn_style("play", requested, choice, style, offered, _PLAY_NAMES)
 
 
 def _auto_play_backend(environment: Environment) -> Choice:

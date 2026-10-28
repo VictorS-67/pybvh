@@ -141,6 +141,24 @@ class TestPlayChoice:
         )
 
 
+class TestPlayChoiceAndTheStyle:
+    """The rule for a Style field the caller set, at the backend choice,
+    for every play backend: the k3d widget and the vedo window cannot
+    run in the suite."""
+
+    def test_a_named_backend_refuses_a_field_it_does_not_draw(self, environment):
+        with pytest.raises(ValueError) as raised:
+            _backends.choose_play_backend(
+                "vedo",
+                environment(notebook=True, importable=EVERYTHING),
+                style=bvhplot.Style("paper", joint_color="red"),
+            )
+        assert str(raised.value) == (
+            "play(backend='vedo') does not draw the Style's joint_color. Leave it out of "
+            "the Style, or use backend='k3d', 'matplotlib' or 'opencv', which draw it."
+        )
+
+
 @pytest.fixture
 def windowed(monkeypatch):
     """The options each play() call handed matplotlib's window, which
@@ -236,6 +254,35 @@ class TestThroughPlay:
     def test_the_arrangement_is_accepted_by_a_panel_backend(self, walk, environment, windowed):
         environment()
         bvhplot.play([walk, walk], backend="matplotlib", spacing=1.0, match_size=True)
+        assert len(windowed) == 1
+
+
+class TestThroughPlayAndTheStyle:
+    """The rule for a Style field through play() itself, on the paths
+    that open no window."""
+
+    def test_a_named_backend_refuses_before_playing(self, walk, environment, windowed):
+        environment()
+        with pytest.raises(ValueError) as raised:
+            bvhplot.play(walk, backend="matplotlib", style=bvhplot.Style("paper", shadow=True))
+        assert str(raised.value) == (
+            "play(backend='matplotlib') does not draw the Style's shadow. "
+            "Leave it out of the Style."
+        )
+        assert windowed == []
+
+    def test_auto_warns_at_the_users_line_and_plays(self, walk, environment, windowed):
+        """Headless, auto plays in matplotlib's window, which draws no
+        shadow, as no play backend does."""
+        environment(importable={"vedo"})
+        style = bvhplot.Style("paper", shadow=False)
+        assert _play_warnings(lambda: bvhplot.play(walk, style=style)) == [
+            (
+                "play() chose backend='matplotlib', which does not draw the Style's shadow, "
+                "so it is ignored.",
+                __file__,
+            )
+        ]
         assert len(windowed) == 1
 
 

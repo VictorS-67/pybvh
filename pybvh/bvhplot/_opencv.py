@@ -484,6 +484,9 @@ RENDER_DRAWS = DrawnStyle(
 )
 # The options of play() its notebook video, drawn by render_opencv, reads.
 PLAY_READS = frozenset({"resolution", "frame_counter"})
+# The Style values its notebook video draws: render()'s, but the ghosts'
+# spacing, since play draws no ghosts.
+PLAY_DRAWS = DrawnStyle(RENDER_DRAWS.fields - {"ghost_spacing"}, **RENDER_DRAWS.values)
 
 
 def render_opencv(

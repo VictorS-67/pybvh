@@ -28,7 +28,7 @@ from ._colors import (
 )
 from ._playback import PlaybackClock
 from ._scene import Scene
-from ._style import Style, bone_width_px
+from ._style import DrawnStyle, Style, bone_width_px
 from ._vedo_capsules import (
     CapsuleSkeleton,
     vedo_color,
@@ -166,6 +166,23 @@ _HELP_ENTRIES = [
 # The options of play() this backend reads (ADR 0006): it draws every
 # skeleton in one scene, arranged by the router.
 PLAY_READS = frozenset({"quality", "spacing", "match_size"})
+# The Style values play() draws on this backend, at both qualities: in
+# perspective only, with no axes, no shadow, and none of the joint
+# fields, since a joint is the capsules' sphere, sized and coloured by its
+# bones, and the fast points keep that look.
+PLAY_DRAWS = DrawnStyle(
+    {
+        "bone_width",
+        "bone_color",
+        "color_mode",
+        "chain_colors",
+        "floor",
+        "floor_alpha",
+        "background",
+    },
+    axes={"off"},
+    projection={"persp"},
+)
 
 
 def play_vedo(

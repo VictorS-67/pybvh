@@ -28,7 +28,7 @@ from ._colors import (
     skeleton_color_255,
 )
 from ._scene import Scene
-from ._style import Style
+from ._style import DrawnStyle, Style
 from ._vedo_capsules import (
     CapsuleSkeleton,
     shadow_height,
@@ -149,6 +149,23 @@ def _build_offscreen(
 # The options of frame() this backend reads (ADR 0006): it draws every
 # skeleton in one scene, arranged by the router.
 FRAME_READS = frozenset({"resolution", "spacing", "match_size"})
+# The Style values frame() and render() draw on this backend: in
+# perspective only, with no axes, and none of the joint fields, since a
+# joint is the capsules' sphere, sized and coloured by its bones.
+FRAME_DRAWS = DrawnStyle(
+    {
+        "bone_width",
+        "bone_color",
+        "color_mode",
+        "chain_colors",
+        "floor",
+        "floor_alpha",
+        "background",
+        "shadow",
+    },
+    axes={"off"},
+    projection={"persp"},
+)
 
 
 def frame_vedo(
@@ -180,6 +197,7 @@ def frame_vedo(
 # The options of render() this backend reads (ADR 0006): it draws every
 # skeleton in one scene, arranged by the router.
 RENDER_READS = frozenset({"spacing", "match_size"})
+RENDER_DRAWS = FRAME_DRAWS
 
 
 def render_vedo(scene: Scene, style: Style, writer: Writer) -> Path:

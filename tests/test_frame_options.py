@@ -1,12 +1,15 @@
-"""The options of frame() each backend reads, and what frame() does with
-an option the backend it runs does not read: raise, since frame() has no
-auto and its backend is always named (``"matplotlib"`` by default)."""
+"""The options of frame() each backend reads and the Style values it
+draws, and what frame() does with an option the backend it runs does not
+read, or a Style field the caller set that it does not draw: raise, since
+frame() has no auto and its backend is always named (``"matplotlib"`` by
+default)."""
 
 from __future__ import annotations
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+import style_declarations
 
 from pybvh import bvhplot
 from pybvh.bvhplot import _backends
@@ -119,6 +122,27 @@ class TestEachBackendReadsWhatItDeclares:
         assert np.array_equal(given, _picture(bvhplot.frame(pair)))
 
 
+class TestEachBackendDrawsTheStyleItDeclares:
+    """Drawn with two values of a Style field, a backend that declares it
+    draws another picture, and one that accepts it without drawing it the
+    same (see ``tests/style_declarations.py``)."""
+
+    @pytest.mark.parametrize(
+        "case",
+        style_declarations.declared("frame", sorted(PACKAGE))
+        + style_declarations.accepted("frame", sorted(PACKAGE)),
+        ids=str,
+    )
+    def test_a_field_declared_changes_the_picture_and_one_accepted_does_not(self, walk, case):
+        pytest.importorskip(PACKAGE[case.backend])
+        options = {"resolution": SMALL} if case.backend == "vedo" else {}
+
+        def picture(style):
+            return _picture(bvhplot.frame(walk, backend=case.backend, style=style, **options))
+
+        assert np.array_equal(picture(case.one), picture(case.other)) != case.differ
+
+
 class TestANamedBackend:
     def test_refuses_an_option_it_does_not_read(self, walk, tmp_path):
         path = tmp_path / "x.png"
@@ -163,4 +187,39 @@ class TestANamedBackend:
         assert str(raised.value) == (
             "frame(backend='vedo') does not read ax, figsize or show. Leave them "
             "unset, or use backend='matplotlib', which reads them."
+        )
+
+
+class TestANamedBackendAndTheStyle:
+    """A Style field the caller set that the backend does not draw raises,
+    naming the field, the backend and the backends that draw it; a
+    preset's own values are never refused."""
+
+    def test_vedo_refuses_the_joint_fields(self, walk, tmp_path):
+        pytest.importorskip("vedo")
+        path = tmp_path / "x.png"
+        style = bvhplot.Style("paper", joint_color="red", joint_size=30.0)
+        with pytest.raises(ValueError) as raised:
+            bvhplot.frame(walk, backend="vedo", style=style, filepath=path)
+        assert str(raised.value) == (
+            "frame(backend='vedo') does not draw the Style's joint_color or joint_size. "
+            "Leave them out of the Style, or use backend='matplotlib', which draws them."
+        )
+        assert not path.exists()
+
+    def test_matplotlib_refuses_a_shadow(self, walk):
+        with pytest.raises(ValueError) as raised:
+            bvhplot.frame(walk, style=bvhplot.Style("paper", shadow=True))
+        assert str(raised.value) == (
+            "frame(backend='matplotlib') does not draw the Style's shadow. "
+            "Leave it out of the Style, or use backend='vedo', which draws it."
+        )
+
+    def test_vedo_names_a_value_it_does_not_draw(self, walk):
+        pytest.importorskip("vedo")
+        with pytest.raises(ValueError) as raised:
+            bvhplot.frame(walk, backend="vedo", style=bvhplot.Style("paper", axes="full"))
+        assert str(raised.value) == (
+            "frame(backend='vedo') does not draw the Style's axes='full'. "
+            "Leave it out of the Style, or use backend='matplotlib', which draws it."
         )

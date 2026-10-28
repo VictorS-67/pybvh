@@ -34,6 +34,7 @@ from ._style import (
     PALETTE_MPL,
     TRACE_BLEND,
     TRACE_COLOR,
+    DrawnStyle,
     Style,
     bone_colors_for_view,
     counter_left_px,
@@ -545,6 +546,26 @@ def sequence_mpl(
 
 # The options of frame() this backend reads (ADR 0006).
 FRAME_READS = frozenset({"figsize", "show", "ax"})
+# The Style values frame() draws on this backend: every value of every
+# field but supersample (OpenCV's), shadow (the vedo renderer's) and
+# ghost_spacing (a still has no ghosts).
+FRAME_DRAWS = DrawnStyle(
+    {
+        "bone_width",
+        "bone_color",
+        "color_mode",
+        "chain_colors",
+        "joint_markers",
+        "joint_size",
+        "joint_color",
+        "floor",
+        "floor_alpha",
+        "background",
+        "axes",
+        "projection",
+        "dpi",
+    }
+)
 
 
 def frame_mpl(
@@ -863,6 +884,9 @@ def _wrap_update_with_counter(
 
 # The options of render() this backend reads (ADR 0006).
 RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory", "frame_counter"})
+# The Style values render() draws on this backend: frame()'s, but dpi
+# (the resolution sets the pixels), and the ghosts' spacing.
+RENDER_DRAWS = DrawnStyle(FRAME_DRAWS.fields - {"dpi"} | {"ghost_spacing"})
 
 
 def render_mpl(

@@ -514,6 +514,10 @@ def frame(
         (default) draws a ground plane, per-chain bone colors, and
         joint markers with axes hidden; ``"debug"`` reproduces the
         pre-0.9.0 look (single blue, full axes/ticks, no floor).
+        A field the Style's caller set (in ``Style(...)`` or
+        ``replace(...)``) at a value the backend does not draw raises
+        ``ValueError`` naming it; a preset's own values never do (see
+        :class:`Style`).
     backend : str, optional
         ``"matplotlib"`` (default) returns ``(fig, ax)``; it reads
         ``figsize``, ``show`` and ``ax``, and not ``resolution``.
@@ -632,7 +636,8 @@ def frame(
         match_size=match_size,
     )
     clips = as_clip_list(bvh)
-    backend = _backends.choose_frame_backend(backend, given).backend
+    style_obj = resolve_style(style)
+    backend = _backends.choose_frame_backend(backend, given, style_obj).backend
     spacing = _validated_spacing(spacing)
 
     frame_spec = coords if coords is not None else frame
@@ -655,14 +660,13 @@ def frame(
         )
         return frame_vedo(
             scene,
-            resolve_style(style),
+            style_obj,
             resolution=_VEDO_STILL_RESOLUTION if resolution is None else resolution,
             filepath=filepath,
         )
 
     from ._matplotlib import frame_mpl
 
-    style_obj = resolve_style(style)
     fig, axs = frame_mpl(scene, style_obj, figsize=figsize, show=bool(show), ax=ax)
     if filepath is not None:
         fig.savefig(filepath, dpi=style_obj.dpi, facecolor=fig.get_facecolor())
@@ -795,7 +799,11 @@ def render(
         ``"dark"``) or a :class:`Style` instance, e.g.
         ``Style("paper", floor=None)``. Axes visibility follows
         ``style.axes`` (the former ``show_axis=True`` is
-        ``Style("paper", axes="full")``).
+        ``Style("paper", axes="full")``). A field the Style's caller
+        set (in ``Style(...)`` or ``replace(...)``) at a value the
+        backend does not draw raises ``ValueError`` naming it when the
+        backend is named, and warns under ``"auto"``; a preset's own
+        values never do (see :class:`Style`).
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional
@@ -1041,7 +1049,9 @@ def render(
         camera = "front"
 
     environment = _backends.read_environment()
-    choice = _backends.choose_render_backend(backend, filepath.suffix.lower(), environment, given)
+    choice = _backends.choose_render_backend(
+        backend, filepath.suffix.lower(), environment, given, style_obj
+    )
     backend_name = choice.backend
 
     # Handle frame-rate mismatch before computing FK coordinates

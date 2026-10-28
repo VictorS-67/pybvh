@@ -29,7 +29,7 @@ from ._colors import (
 )
 from ._playback import PlaybackClock
 from ._scene import Scene
-from ._style import JOINT_DISC_MARGIN_PX, Style, bone_width_px
+from ._style import Style, bone_width_px
 from ._vedo_capsules import (
     CapsuleSkeleton,
     floor_placement,
@@ -47,6 +47,9 @@ _FORCE_OFFSCREEN = False
 LABEL_LIFT_FRACTION = 0.02 * STANDING_STILL_HALF_SPAN
 # Joint-name labels' font size, in pixels.
 LABEL_FONT_SIZE = 14
+# The fast mode's joint points are this many pixels wider in radius than
+# its bones are wide.
+FAST_JOINT_MARGIN_PX = 2
 
 
 class _UiState(TypedDict, total=False):
@@ -196,9 +199,9 @@ def play_vedo(
     the distance travelled: the fast mode's bones are ``bone_width``
     pixels wide (rounded half up, as OpenCV's are, at least 1:
     :func:`~._style.bone_width_px`), the width the OpenCV backend
-    draws at its 1080p anchor, and its joints are points as wide as
-    OpenCV's joint discs, of radius that width plus
-    ``JOINT_DISC_MARGIN_PX``; the joint labels are ``LABEL_FONT_SIZE`` pixels.
+    draws at its 1080p anchor, and its joints are points of radius that
+    width plus ``FAST_JOINT_MARGIN_PX``, sized by the bones and not by
+    ``joint_size``; the joint labels are ``LABEL_FONT_SIZE`` pixels.
     Pixel sizes do not follow the zoom: a body seen from farther away
     keeps its line widths, as matplotlib's and OpenCV's do. The
     alternative, pixels proportional to the body's size on screen,
@@ -372,7 +375,7 @@ class _VedoPlayer:
         n_skeletons = self.n_skeletons
         up_idx = self.viewport.up_index
         line_width_px = bone_width_px(self.style.bone_width)
-        point_size_px = 2 * (line_width_px + JOINT_DISC_MARGIN_PX)
+        point_size_px = 2 * (line_width_px + FAST_JOINT_MARGIN_PX)
 
         # --- Floor (both quality modes; kind from the style) ---
         if self.style.floor is not None:

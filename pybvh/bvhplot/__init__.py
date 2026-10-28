@@ -438,7 +438,11 @@ def rest_pose(
         Visual styling: a preset name (``"paper"``, ``"debug"``,
         ``"dark"``) or a :class:`Style` instance for field-level
         control, e.g. ``Style("paper", floor=None)``. Default
-        ``"paper"``.
+        ``"paper"``. Drawn as :func:`frame` draws it on matplotlib: a
+        field the Style's caller set (in ``Style(...)`` or
+        ``replace(...)``) at a value it does not draw (``shadow``)
+        raises ``ValueError`` naming it; a preset's own values never
+        do (see :class:`Style`).
     labels : list[str], optional
         Subplot titles for side-by-side comparison.
     figsize : (float, float), optional
@@ -464,6 +468,8 @@ def rest_pose(
         Single axes when one skeleton, list when multiple.
     """
     clips = as_clip_list(bvh)
+    style_obj = resolve_style(style)
+    _backends.check_drawn_style("rest_pose", style_obj)
 
     # Build rest-pose coords as (1, N, 3) arrays and go through the
     # same pipeline as frame(), bypassing spatial_coords.
@@ -474,7 +480,7 @@ def rest_pose(
     # world floor does not apply — the floor is the pose's lowest point.
     scene = make_scene(clips, coords_list, camera, labels, canonical_floor=False)
 
-    return frame_mpl(scene, resolve_style(style), figsize=figsize, show=show, ax=ax)
+    return frame_mpl(scene, style_obj, figsize=figsize, show=show, ax=ax)
 
 
 def frame(

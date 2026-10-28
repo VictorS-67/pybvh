@@ -47,6 +47,18 @@ class TestEachCallDrawsTheStyleItDeclares:
 
     @pytest.mark.parametrize(
         "case",
+        style_declarations.declared("rest_pose", ["matplotlib"])
+        + style_declarations.accepted("rest_pose", ["matplotlib"]),
+        ids=str,
+    )
+    def test_rest_pose(self, walk, case):
+        def picture(style):
+            return _picture(bvhplot.rest_pose(walk, style=style))
+
+        assert np.array_equal(picture(case.one), picture(case.other)) != case.differ
+
+    @pytest.mark.parametrize(
+        "case",
         style_declarations.declared("sequence", LAYOUTS)
         + style_declarations.accepted("sequence", LAYOUTS),
         ids=str,
@@ -89,6 +101,13 @@ class TestTheStyleRefused:
         assert str(raised.value) == (
             "sequence(layout='overlay') does not draw the Style's shadow. "
             "Leave it out of the Style."
+        )
+
+    def test_rest_pose_refuses_a_shadow(self, walk):
+        with pytest.raises(ValueError) as raised:
+            bvhplot.rest_pose(walk, style=bvhplot.Style("paper", shadow=True))
+        assert str(raised.value) == (
+            "rest_pose() does not draw the Style's shadow. Leave it out of the Style."
         )
 
 

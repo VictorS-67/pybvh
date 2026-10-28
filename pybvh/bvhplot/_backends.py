@@ -176,6 +176,7 @@ _DECLARING_MODULES = {
     },
     # Drawn by matplotlib alone; sequence's two layouts each draw their
     # own way, so they stand where another call's backends stand.
+    "rest_pose": {"matplotlib": "_matplotlib"},
     "sequence": {"offset": "_matplotlib", "overlay": "_matplotlib"},
     "trajectory": {"matplotlib": "_matplotlib"},
 }
@@ -265,6 +266,7 @@ _NOT_IN_EVERY_PICTURE = frozenset({"dpi", "supersample", "ghost_spacing"})
 _STYLE_ACCEPTED = {
     "frame": _NOT_IN_EVERY_PICTURE,
     "render": _NOT_IN_EVERY_PICTURE,
+    "rest_pose": _NOT_IN_EVERY_PICTURE,
     "sequence": _NOT_IN_EVERY_PICTURE,
     # A trajectory plots the root's path on the ground, seen from above:
     # it holds no bone, joint, floor or camera to draw them on.

@@ -595,6 +595,9 @@ FRAME_DRAWS = DrawnStyle(
     }
 )
 
+# rest_pose() draws through frame_mpl, so it draws what frame() draws.
+REST_POSE_DRAWS = FRAME_DRAWS
+
 
 def frame_mpl(
     scene: Scene,

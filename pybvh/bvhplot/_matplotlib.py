@@ -41,7 +41,7 @@ from ._style import (
     ghost_schedule,
 )
 from ._video import VideoTarget, Writer
-from ._viewport import Viewport, make_viewport, panel_viewports
+from ._viewport import FLOOR_GRID_CELLS, Viewport, make_viewport, panel_viewports
 
 # mplot3d sizes its default margins for a cube free to rotate to any
 # angle; span-fitted boxes are much tighter, so they can be zoomed in
@@ -254,7 +254,7 @@ def _draw_floor_mpl(
         # Square cells: divisions per axis follow its extent, so a wide
         # sequence floor doesn't get dense crosshatching on the short
         # axis.
-        cell = max(g0_hi - g0_lo, g1_hi - g1_lo) / 20
+        cell = max(g0_hi - g0_lo, g1_hi - g1_lo) / FLOOR_GRID_CELLS
         n0 = max(1, round((g0_hi - g0_lo) / cell))
         n1 = max(1, round((g1_hi - g1_lo) / cell))
         s0 = (g0_hi - g0_lo) / n0
@@ -276,7 +276,9 @@ def _draw_floor_mpl(
             )
         _add_collection(
             ax,
-            Line3DCollection(segs, colors=palette["grid"], linewidths=0.7, alpha=0.8, zorder=0.5),
+            Line3DCollection(
+                segs, colors=palette["grid"], linewidths=0.7, alpha=style.floor_alpha, zorder=0.5
+            ),
         )
 
 

@@ -746,6 +746,45 @@ class TestPanelTitlesAreLegible:
         assert _contrast(brightest, resolve_style("dark").background) >= 4.5
 
 
+class TestGridFloorReadsFloorAlpha:
+    """A grid floor is drawn at the style's ``floor_alpha``, as the solid
+    and checker floors are: the more opaque, the farther the picture
+    from the same one without a floor. matplotlib and OpenCV drew every
+    grid at 0.8."""
+
+    @pytest.fixture
+    def drawn(self, bvh, tmp_path, apng_frames):
+        """The picture *call* draws of the walk's first frames with
+        *style*: ``frame``'s figure, or the first frame ``render`` writes
+        to an ``.apng`` on *call*'s backend, read back."""
+
+        def draw(call, style):
+            if call == "frame":
+                fig, _ = bvhplot.frame(bvh, 10, style=style)
+                pixels = _fig_pixels(fig)[..., :3]
+                plt.close(fig)
+                return pixels
+            if call == "render opencv":
+                pytest.importorskip("cv2")
+            path = tmp_path / "grid.apng"
+            bvhplot.render(
+                bvh[0:2], path, backend=call.split()[1], resolution=(160, 120), fps=10, style=style
+            )
+            return apng_frames(path, 10)[0]
+
+        return draw
+
+    @pytest.mark.parametrize("call", ["frame", "render matplotlib", "render opencv"])
+    def test_a_more_opaque_grid_is_farther_from_no_floor(self, drawn, call):
+        def away_from_floorless(floor_alpha):
+            grid = drawn(call, Style("paper", floor="grid", floor_alpha=floor_alpha))
+            return np.abs(grid.astype(int) - floorless.astype(int)).sum()
+
+        floorless = drawn(call, Style("paper", floor=None))
+        faint, opaque = away_from_floorless(0.3), away_from_floorless(0.85)
+        assert 0 < faint < opaque
+
+
 class TestReviewFixes:
     """Regression tests for the v0.9.0 code-review findings."""
 

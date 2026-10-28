@@ -3,10 +3,10 @@
 Provides interactive 3D skeleton playback with camera rotation/zoom,
 playback controls, and frame scrubbing in a desktop window.
 
-Two quality modes:
+Two quality modes, each with the style's floor:
 
 - ``"high"`` (default): shaded 3D tapered tubes for bones, spheres for
-  joints, floor, one headlight.
+  joints, one headlight.
 - ``"fast"``: Flat lines and points. Maximum performance for large files.
 
 Requires ``vedo >= 2025.5.3``.
@@ -36,7 +36,7 @@ from ._vedo_capsules import (
     vedo_color,
     vedo_rgb,
 )
-from ._viewport import STANDING_STILL_HALF_SPAN, make_viewport
+from ._viewport import FLOOR_GRID_CELLS, STANDING_STILL_HALF_SPAN, make_viewport
 
 # Test seam: forces the player's Plotter offscreen so construction,
 # geometry, and the screenshot path can run without a display.
@@ -374,8 +374,8 @@ class _VedoPlayer:
         line_width_px = bone_width_px(self.style.bone_width)
         point_size_px = 2 * (line_width_px + JOINT_DISC_MARGIN_PX)
 
-        # --- Floor (high quality only; kind from the style) ---
-        if self.use_high and self.style.floor is not None:
+        # --- Floor (both quality modes; kind from the style) ---
+        if self.style.floor is not None:
             from vedo import Plane
 
             # One floor for the whole scene, the viewport's: the same
@@ -393,14 +393,14 @@ class _VedoPlayer:
                 # Built at the origin, turned to face up, then moved:
                 # vedo rotates about the world origin, so a grid that
                 # is placed first swings away from where it was put.
-                floor = Grid(s=[side, side], res=(30, 30))
+                floor = Grid(s=[side, side], res=(FLOOR_GRID_CELLS, FLOOR_GRID_CELLS))
                 if self.up_letter == "y":
                     floor.rotate_x(90)
                 elif self.up_letter == "x":
                     floor.rotate_y(90)
                 # up_letter='z': Grid defaults to XY plane, no rotation
                 floor.pos(*floor_pos)
-                floor.lw(1).alpha(0.6)
+                floor.lw(1).alpha(self.style.floor_alpha)
                 floor.c(vedo_color(palette["grid"])).lighting("off")
             self.plt += floor
 

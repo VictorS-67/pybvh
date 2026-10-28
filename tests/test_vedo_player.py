@@ -324,6 +324,53 @@ class TestGridFloor:
         finally:
             p.plt.close()
 
+    @pytest.mark.parametrize("floor_alpha", [0.3, 1.0])
+    def test_the_grid_is_drawn_at_the_styles_floor_alpha(self, scene, floor_alpha, monkeypatch):
+        """As the solid floor is, and the other backends' grids; it was
+        drawn at 0.6."""
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        style = Style("paper", floor="grid", floor_alpha=floor_alpha)
+        p = _vedo._VedoPlayer(scene, style, 30.0, quality="high")
+        try:
+            (grid,) = [o for o in p.plt.objects if isinstance(o, vedo.Grid)]
+            assert grid.alpha() == pytest.approx(floor_alpha)
+        finally:
+            p.plt.close()
+
+    def test_the_grid_has_twenty_cells_a_side(self, scene, monkeypatch):
+        """As matplotlib's, OpenCV's and k3d's; it had thirty."""
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        p = _vedo._VedoPlayer(scene, Style("paper", floor="grid"), 30.0, quality="high")
+        try:
+            (grid,) = [o for o in p.plt.objects if isinstance(o, vedo.Grid)]
+            vertices = np.asarray(grid.vertices)
+            side = 2 * p.viewport.floor_reach
+            for axis in p.viewport.ground_indices:
+                # the lines' positions across the plane, in cells of a 20-cell grid
+                lines = np.unique(np.round((vertices[:, axis] - vertices[:, axis].min()) / side, 4))
+                np.testing.assert_allclose(lines * 20, np.arange(21), atol=1e-4)
+        finally:
+            p.plt.close()
+
+    @pytest.mark.parametrize("kind", ["solid", "grid", "checker"])
+    def test_fast_quality_draws_the_floor_high_quality_draws(self, scene, kind, monkeypatch):
+        """Only high quality drew a floor."""
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+
+        def floor(quality):
+            p = _vedo._VedoPlayer(scene, Style("paper", floor=kind), 30.0, quality=quality)
+            try:
+                (plane,) = [o for o in p.plt.objects if isinstance(o, (vedo.Plane, vedo.Grid))]
+                return type(plane), np.asarray(plane.vertices), plane.alpha()
+            finally:
+                p.plt.close()
+
+        (fast_type, fast_vertices, fast_alpha) = floor("fast")
+        (high_type, high_vertices, high_alpha) = floor("high")
+        assert fast_type is high_type
+        np.testing.assert_array_equal(fast_vertices, high_vertices)
+        assert fast_alpha == high_alpha
+
 
 def _rendered(player, tmp_path):
     """The viewer's current frame as an (H, W, 3) uint8 image."""

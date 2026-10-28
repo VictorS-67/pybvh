@@ -31,7 +31,7 @@ from ._style import (
     frame_counter_text,
     ghost_schedule,
 )
-from ._viewport import Viewport, panel_viewports
+from ._viewport import FLOOR_GRID_CELLS, Viewport, panel_viewports
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -119,8 +119,8 @@ def _draw_floor_opencv(
                 sq = quad(c0 + (i + 0.5) * s, c1 + (j + 0.5) * s, s / 2)
                 cv2.fillPoly(img, [project(sq)], shades[(i + j) % 2], lineType=cv2.LINE_AA)  # type: ignore[list-item]  # mypy reads a list of MatLike as Mat
     elif style.floor == "grid":
-        color = _blend_bgr(_to_bgr(palette["grid"]), bg_bgr, 0.8)
-        n = 10
+        color = _blend_bgr(_to_bgr(palette["grid"]), bg_bgr, style.floor_alpha)
+        n = FLOOR_GRID_CELLS // 2  # cells on each side of the centre
         s = ext / n
         for i in range(-n, n + 1):
             for horiz in (True, False):

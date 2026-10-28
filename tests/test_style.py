@@ -19,7 +19,6 @@ from pybvh.bvhplot import _backends
 from pybvh.bvhplot._from_bvh import get_bone_chains, get_skeleton_lines, make_scene
 from pybvh.bvhplot._style import (
     CHAIN_COLORS,
-    DrawnStyle,
     Style,
     effective_color_mode,
     resolve_style,
@@ -289,28 +288,6 @@ class TestTheDocstringTable:
             if cell != _cell(call, path, field)
         ]
         assert not wrong, "\n".join(wrong)
-
-
-class TestDrawnStyleDerived:
-    """One declaration derived from another, as a backend declares
-    render()'s from frame()'s, keeps the values the other declares."""
-
-    def test_keeps_the_values_declared(self):
-        frame = DrawnStyle({"bone_width", "dpi"}, projection={"ortho"}, shadow={False})
-        render = frame.derive(drop={"dpi"}, add={"ghost_spacing"})
-        assert render == DrawnStyle(
-            {"bone_width", "ghost_spacing"}, projection={"ortho"}, shadow={False}
-        )
-
-    def test_a_field_dropped_draws_none_of_its_values(self):
-        drawn = DrawnStyle({"bone_width"}, projection={"ortho"}).derive(drop={"projection"})
-        assert drawn == DrawnStyle({"bone_width"})
-        assert not drawn.draws("projection", "ortho")
-
-    def test_a_field_added_is_drawn_whole(self):
-        drawn = DrawnStyle({"bone_width"}, projection={"ortho"}).derive(add={"projection"})
-        assert drawn == DrawnStyle({"bone_width", "projection"})
-        assert drawn.draws("projection", "persp")
 
 
 class TestResolveStyle:

@@ -224,9 +224,10 @@ class TestANamedBackendAndTheStyle:
         )
 
     def test_matplotlib_honours_no_shadow(self, walk):
-        """It draws no shadow, exactly what shadow=False asks."""
-        fig, _ = bvhplot.frame(walk, 0, style=bvhplot.Style("paper", shadow=False))
-        assert _picture((fig, fig.axes[0])).size
+        """It draws no shadow, exactly what shadow=False asks: the
+        picture of the paper preset, whose shadow it does not draw."""
+        asked = _picture(bvhplot.frame(walk, 0, style=bvhplot.Style("paper", shadow=False)))
+        assert np.array_equal(asked, _picture(bvhplot.frame(walk, 0)))
 
     def test_vedo_names_a_value_it_does_not_draw(self, walk):
         pytest.importorskip("vedo")

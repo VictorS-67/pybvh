@@ -208,7 +208,8 @@ class Style:
     the values it draws, and a field set at a value the backend does
     not draw is refused, as an option it does not read is: a named
     backend raises ``ValueError`` naming the field and any backend that
-    draws it (for ``sequence``, the other layout), and
+    draws it and accepts the rest of the call (for ``sequence``, the
+    other layout), and
     ``backend="auto"`` (``render`` and ``play``) warns, naming the
     backend chosen, and goes on. ``frame``, ``rest_pose``, ``sequence``
     and ``trajectory`` have no auto, so they always raise. A preset's

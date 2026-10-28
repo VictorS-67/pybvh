@@ -460,10 +460,10 @@ def _generate_frames(
 # The options of render() this backend reads (ADR 0006).
 RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory", "frame_counter"})
 # The Style values render() draws on this backend: orthographic only, no
-# axes, no shadow, and no dpi (the resolution sets the pixels). A preset's
-# axes="full" draws a small axis indicator, not the full axes, so "full"
-# is not drawn as asked; with joint_markers=False its bone-coloured dots
-# join the bones.
+# shadow, and no dpi (the resolution sets the pixels). Two values it draws
+# in a reduced form of its own, as asked all the same: axes="full" as a
+# small axis indicator in a panel's corner, and joint_markers=False as
+# bone-coloured dots that join the bones (ADR 0007).
 RENDER_DRAWS = DrawnStyle(
     {
         "bone_width",
@@ -476,10 +476,10 @@ RENDER_DRAWS = DrawnStyle(
         "floor",
         "floor_alpha",
         "background",
+        "axes",
         "supersample",
         "ghost_spacing",
     },
-    axes={"off"},
     projection={"ortho"},
 )
 # The options of play() its notebook video, drawn by render_opencv, reads.

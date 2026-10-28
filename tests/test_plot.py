@@ -1093,15 +1093,15 @@ class TestRenderOpenCV:
         assert path.suffix == ".gif"
         assert path.stat().st_size > 0
 
-    def test_the_debug_presets_full_axes_draw_the_indicator(self, bvh_example, tmp_path):
-        """A preset's axes="full" draws the axis indicator; set in a
-        Style it is refused, since the indicator is not the full axes."""
+    def test_axes_full_draws_indicator(self, bvh_example, tmp_path):
+        """A caller's axes="full" is drawn, as the axis indicator; that
+        it changes the picture is pinned by the declaration tests."""
         path = bvhplot.render(
             bvh_example,
             tmp_path / "axis.mp4",
             backend="opencv",
             resolution=(320, 240),
-            style="debug",
+            style=bvhplot.Style("paper", axes="full"),
         )
         assert path.exists()
 

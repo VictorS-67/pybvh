@@ -224,7 +224,7 @@ class Style:
         floor         yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   n/a
         floor_alpha   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   n/a
         background    yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes
-        axes          yes   off   yes   off   off   yes   off   no    off   yes   yes   yes   no
+        axes          yes   off   yes   yes   off   yes   yes   no    off   yes   yes   yes   no
         projection    yes   persp yes   ortho persp yes   ortho persp persp yes   ortho yes   n/a
         dpi           yes   n/a   n/a   n/a   n/a   n/a   n/a   n/a   n/a   yes   yes   yes   n/a
         supersample   n/a   n/a   n/a   yes   n/a   n/a   yes   n/a   n/a   n/a   n/a   n/a   n/a
@@ -256,12 +256,15 @@ class Style:
 
     What the table leaves out: both vedo backends draw each joint as
     the capsules' sphere, sized and coloured by its bones; k3d always
-    shows its grid box; OpenCV draws the ``"debug"`` preset's
-    ``axes="full"`` as a small axis indicator, not the full axes, and
-    with ``joint_markers=False`` still draws a small bone-coloured dot
-    at each joint, which joins its bones; the vedo renderer casts its
-    shadow on the floor, so under ``floor=None`` it draws none;
-    ``sequence`` draws the joint fields on its last pose.
+    shows its grid box; OpenCV draws ``axes="full"``, set by the
+    caller or by a preset, as a small axis indicator in a corner of
+    each panel, and with ``joint_markers=False`` still draws a small
+    bone-coloured dot at each joint, which joins its bones; the vedo
+    renderer casts its shadow on the floor, so under ``floor=None`` it
+    draws none; ``sequence`` draws the joint fields on its last pose.
+    The k3d widget also shows k3d's own axes helper in a corner, beside
+    its grid box, at either value of ``axes`` (k3d's ``axes_helper``,
+    which pybvh leaves at k3d's default).
 
     ``ghost_spacing`` is in seconds of clip time, not playback time,
     between the faded trailing poses that ``render(ghost=...)`` draws
@@ -458,11 +461,13 @@ class DrawnStyle:
     its entry function: each field drawn whole, and of each field of
     :data:`STYLE_VALUES` it does not draw whole, the values it draws.
 
-    A value drawn is drawn as the Style says: OpenCV draws orthographic
-    whatever the projection asked, so it declares ``projection`` with
-    ``"ortho"`` only, and the vedo renderer, which sizes and colours
-    every joint by its bones, declares none of the joint fields. A
-    field absent draws none of its values.
+    A value drawn is drawn as the Style says, or in a reduced form of
+    the backend's own (OpenCV's axis indicator for ``axes="full"``).
+    OpenCV draws orthographic whatever the projection asked, so it
+    declares ``projection`` with ``"ortho"`` only, and the vedo
+    renderer, which sizes and colours every joint by its bones,
+    declares none of the joint fields. A field absent draws none of its
+    values.
     """
 
     fields: frozenset[str]
@@ -475,7 +480,8 @@ class DrawnStyle:
         )
 
     def draws(self, field: str, value: object) -> bool:
-        """Whether *field* at *value* is drawn as the Style asks."""
+        """Whether *field* at *value* is drawn as the Style asks, in
+        full or in a reduced form of the backend's own."""
         return field in self.fields or value in self.values.get(field, frozenset())
 
 

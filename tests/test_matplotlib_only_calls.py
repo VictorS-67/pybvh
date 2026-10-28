@@ -12,6 +12,8 @@ import style_declarations
 
 from pybvh import bvhplot
 
+LAYOUTS = ["offset", "overlay"]
+
 
 @pytest.fixture(autouse=True)
 def _close_figures():
@@ -43,6 +45,20 @@ class TestEachCallDrawsTheStyleItDeclares:
 
         assert np.array_equal(picture(case.one), picture(case.other)) != case.differ
 
+    @pytest.mark.parametrize(
+        "case",
+        style_declarations.declared("sequence", LAYOUTS)
+        + style_declarations.accepted("sequence", LAYOUTS),
+        ids=str,
+    )
+    def test_sequence(self, walk, case):
+        """Each layout stands where another call's backend stands."""
+
+        def picture(style):
+            return _picture(bvhplot.sequence(walk, n_poses=3, layout=case.backend, style=style))
+
+        assert np.array_equal(picture(case.one), picture(case.other)) != case.differ
+
 
 class TestTheStyleRefused:
     """A Style field the caller set that the call does not draw raises,
@@ -55,6 +71,24 @@ class TestTheStyleRefused:
             bvhplot.trajectory(walk, style=bvhplot.Style("paper", axes="full"))
         assert str(raised.value) == (
             "trajectory() does not draw the Style's axes='full'. Leave it out of the Style."
+        )
+
+    def test_sequence_offset_refuses_a_perspective(self, walk):
+        """The offset layout is orthographic by design: perspective would
+        shrink the far poses and break the left-to-right read."""
+        with pytest.raises(ValueError) as raised:
+            bvhplot.sequence(walk, style=bvhplot.Style("paper", projection="persp"))
+        assert str(raised.value) == (
+            "sequence(layout='offset') does not draw the Style's projection='persp'. "
+            "Leave it out of the Style, or use layout='overlay', which draws it."
+        )
+
+    def test_sequence_offers_no_layout_where_none_draws_the_field(self, walk):
+        with pytest.raises(ValueError) as raised:
+            bvhplot.sequence(walk, layout="overlay", style=bvhplot.Style("paper", shadow=False))
+        assert str(raised.value) == (
+            "sequence(layout='overlay') does not draw the Style's shadow. "
+            "Leave it out of the Style."
         )
 
 

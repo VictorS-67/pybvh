@@ -174,7 +174,9 @@ _DECLARING_MODULES = {
         "opencv_notebook": "_opencv",
         "matplotlib": "_matplotlib",
     },
-    # Drawn by matplotlib alone.
+    # Drawn by matplotlib alone; sequence's two layouts each draw their
+    # own way, so they stand where another call's backends stand.
+    "sequence": {"offset": "_matplotlib", "overlay": "_matplotlib"},
     "trajectory": {"matplotlib": "_matplotlib"},
 }
 
@@ -196,10 +198,12 @@ def _draws(call: str, backend: str) -> DrawnStyle:
     """The Style values *backend* draws for the public *call*, as it
     declares them beside its entry function: ``FRAME_DRAWS``,
     ``RENDER_DRAWS`` or ``PLAY_DRAWS``, imported as :func:`_reads`
-    imports the options'."""
+    imports the options'. A call drawn several ways by one module
+    declares a mapping, from each way (``sequence``'s layouts) to what
+    it draws."""
     module = importlib.import_module(f".{_DECLARING_MODULES[call][backend]}", __package__)
-    draws: DrawnStyle = getattr(module, f"{call.upper()}_DRAWS")
-    return draws
+    draws: DrawnStyle | Mapping[str, DrawnStyle] = getattr(module, f"{call.upper()}_DRAWS")
+    return draws if isinstance(draws, DrawnStyle) else draws[backend]
 
 
 def choose_frame_backend(
@@ -223,14 +227,20 @@ def choose_frame_backend(
     return _with_undrawn_style("frame", requested, choice, style, backends)
 
 
-def check_drawn_style(call: str, style: Style) -> None:
+def check_drawn_style(call: str, style: Style, layout: str | None = None) -> None:
     """Raise ``ValueError`` naming each field of *style* its caller set
     that the public *call*, which matplotlib alone draws, does not draw
-    (see :func:`_with_undrawn_style`): with no other backend to offer,
-    the backend is always named."""
-    _with_undrawn_style(
-        call, "matplotlib", Choice("matplotlib"), style, _DECLARING_MODULES[call], keyword=None
-    )
+    (see :func:`_with_undrawn_style`). Its backend is always named: the
+    message names the *layout* drawn, for a call whose layouts draw
+    differently, and offers the layouts that draw the fields; else it
+    names the call alone."""
+    if layout is None:
+        _with_undrawn_style(
+            call, "matplotlib", Choice("matplotlib"), style, ["matplotlib"], keyword=None
+        )
+    else:
+        layouts = _DECLARING_MODULES[call]
+        _with_undrawn_style(call, layout, Choice(layout), style, layouts, keyword="layout")
 
 
 _SLOW_RENDER = (
@@ -255,6 +265,7 @@ _NOT_IN_EVERY_PICTURE = frozenset({"dpi", "supersample", "ghost_spacing"})
 _STYLE_ACCEPTED = {
     "frame": _NOT_IN_EVERY_PICTURE,
     "render": _NOT_IN_EVERY_PICTURE,
+    "sequence": _NOT_IN_EVERY_PICTURE,
     # A trajectory plots the root's path on the ground, seen from above:
     # it holds no bone, joint, floor or camera to draw them on.
     "trajectory": _NOT_IN_EVERY_PICTURE

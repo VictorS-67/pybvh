@@ -441,6 +441,34 @@ def _new_3d_figure(
     return fig, fig.add_subplot(111, projection="3d")
 
 
+# The Style fields sequence() draws whole in either layout: every field
+# but projection, supersample (OpenCV's), shadow (the vedo renderer's) and
+# ghost_spacing (a still has no ghosts). The joint fields are drawn on
+# the last pose, the one fully saturated.
+_SEQUENCE_FIELDS = frozenset(
+    {
+        "bone_width",
+        "bone_color",
+        "color_mode",
+        "chain_colors",
+        "joint_markers",
+        "joint_size",
+        "joint_color",
+        "floor",
+        "floor_alpha",
+        "background",
+        "axes",
+        "dpi",
+    }
+)
+# The Style values sequence() draws in each layout: the offset layout is
+# orthographic by design, the overlay draws the Style's projection.
+SEQUENCE_DRAWS = {
+    "offset": DrawnStyle(_SEQUENCE_FIELDS, projection={"ortho"}),
+    "overlay": DrawnStyle(_SEQUENCE_FIELDS | {"projection"}),
+}
+
+
 def sequence_mpl(
     scene: Scene,
     style: Style,

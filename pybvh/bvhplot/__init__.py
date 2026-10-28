@@ -703,12 +703,21 @@ def sequence(
         ``"offset"`` (default): poses at their world positions —
         locomotion spreads them left to right; drawn orthographic from
         the side with equal-scale non-cubic bounds so the travel fills
-        the frame. ``"overlay"``: poses superimposed (per-pose
+        the frame, whatever the style's projection (a
+        ``projection="persp"`` set in the Style raises, see *style*).
+        ``"overlay"``: poses superimposed (per-pose
         horizontal root-centering), seen from the front in the style's
         projection (perspective unless the style asks otherwise) — the
         right mode for in-place motion; on locomotion the legs tangle.
     style : Style or str, optional
-        Visual styling preset or instance. Default ``"paper"``.
+        Visual styling preset or instance. Default ``"paper"``. The
+        joint fields are drawn on the last pose, the others on every
+        pose. A field the Style's caller set (in ``Style(...)`` or
+        ``replace(...)``) at a value the layout does not draw raises
+        ``ValueError`` naming it: ``projection="persp"`` under
+        ``"offset"``, and ``shadow``. ``supersample`` and
+        ``ghost_spacing`` are accepted, and a preset's own values never
+        raise (see :class:`Style`).
     centered : str, optional
         Centering mode for the underlying coords (default ``"world"``).
     camera : str, (float, float), or None, optional
@@ -742,6 +751,9 @@ def sequence(
     if layout not in _VALID_LAYOUTS:
         raise ValueError(f"Unknown layout {layout!r}. Choose from: {sorted(_VALID_LAYOUTS)}")
 
+    style_obj = resolve_style(style)
+    _backends.check_drawn_style("sequence", style_obj, layout)
+
     if camera is None:
         camera = "side" if layout == "offset" else "front"
 
@@ -752,7 +764,7 @@ def sequence(
 
     return sequence_mpl(
         scene,
-        resolve_style(style),
+        style_obj,
         sample_frames,
         layout,
         trajectory=trajectory,

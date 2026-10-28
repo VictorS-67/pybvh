@@ -209,9 +209,9 @@ def choose_frame_backend(
     warning owed.
 
     A given option the backend does not read raises ``ValueError``
-    (ADR 0006); ``spacing`` and ``match_size`` are accepted by every
-    backend. So does a field of *style* its caller set at a value the
-    backend does not draw (see :func:`_with_undrawn_style`).
+    (ADR 0006), and so does a field of *style* its caller set at a value
+    the backend does not draw (see :func:`_with_undrawn_style`);
+    ``spacing`` and ``match_size`` are accepted by every backend.
     """
     _check_known(requested, FRAME_BACKENDS)
     choice = Choice(requested)
@@ -397,10 +397,10 @@ def choose_render_backend(
     deliberate look, not a fallback.
 
     A given option the backend does not read raises ``ValueError`` when
-    the backend is named and adds a warning under ``"auto"``;
-    ``spacing`` and ``match_size`` are accepted by every backend. So
+    the backend is named and adds a warning under ``"auto"``, and so
     does a field of *style* its caller set at a value the backend does
-    not draw (see :func:`_with_undrawn_style`).
+    not draw (see :func:`_with_undrawn_style`); ``spacing`` and
+    ``match_size`` are accepted by every backend.
     """
     # Imported here: the video module imports this one.
     from ._video import matplotlib_under_auto
@@ -459,10 +459,10 @@ def choose_play_backend(
     *given* are the options passed (the keywords whose value is not
     ``None``). One the backend does not read raises ``ValueError`` when
     the backend is named and adds a warning under ``"auto"``, whose
-    choice the session makes, not the script; ``spacing`` and
-    ``match_size`` are accepted by every backend. So does a field of
+    choice the session makes, not the script; so does a field of
     *style* its caller set at a value the backend does not draw (see
-    :func:`_with_undrawn_style`). The messages call the notebook video
+    :func:`_with_undrawn_style`). ``spacing`` and ``match_size`` are
+    accepted by every backend. The messages call the notebook video
     ``"opencv"``, and offer it only in a notebook.
 
     Whether a named backend's package imports is not checked here but by

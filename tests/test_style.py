@@ -95,6 +95,9 @@ class TestStyleConstruction:
             s.replace(nope=1)
 
 
+_A_COLOR = "a matplotlib color, such as 'white', '#16181D' or (0.1, 0.2, 0.8)"
+
+
 class TestStyleValidation:
     """Every field is checked where the Style is made, by the constructor
     and by ``replace`` alike, so that a bad value fails at the caller's
@@ -124,6 +127,11 @@ class TestStyleValidation:
             ("shadow", 1, "shadow must be True or False, got 1"),
             ("shadow", "yes", "shadow must be True or False, got 'yes'"),
             ("shadow", None, "shadow must be True or False, got None"),
+            ("bone_color", "bleu", f"bone_color must be {_A_COLOR}, got 'bleu'"),
+            ("bone_color", (1.5, 0.0, 0.0), f"bone_color must be {_A_COLOR}, got (1.5, 0.0, 0.0)"),
+            ("bone_color", None, f"bone_color must be {_A_COLOR}, got None"),
+            ("background", "whte", f"background must be {_A_COLOR}, got 'whte'"),
+            ("background", "#16181", f"background must be {_A_COLOR}, got '#16181'"),
         ],
     )
     def test_an_invalid_value_is_refused(self, field, value, message):
@@ -141,6 +149,10 @@ class TestStyleValidation:
             ("dpi", 1),
             ("dpi", None),
             ("shadow", False),
+            ("bone_color", (0.0, 0.0, 1.0)),
+            ("bone_color", "#E69F00"),
+            ("background", "snow"),
+            ("background", (1, 1, 1)),
         ],
     )
     def test_a_value_at_the_edge_of_its_range_is_kept(self, field, value):

@@ -1,8 +1,10 @@
 """The look of a figure: :class:`Style`, its presets, the palettes and
 the ghost, trace and frame-counter conventions every backend shares.
 
-Pure data, no plotting library imports; the pieces that need
-matplotlib's color parser live in :mod:`._colors`.
+Pure data, no plotting library imports but one: the Style checks its
+color fields with matplotlib's color parser, imported where it checks
+them. Turning colors into a backend's values, which needs that parser
+too, lives in :mod:`._colors`.
 """
 
 from __future__ import annotations
@@ -177,6 +179,11 @@ class Style:
     ``supersample`` (OpenCV export), ``shadow`` (vedo offscreen
     renders).
 
+    ``bone_color`` and ``background`` take any color matplotlib parses
+    (a name, a hex string, an RGB tuple in [0, 1]), the parser every
+    backend reads them with; one it cannot parse raises ``ValueError``
+    when the Style is made, by the constructor or by ``replace``.
+
     ``background`` also colors the grid box of ``play(backend="k3d")``:
     its lines and labels are the background stepped toward black on a
     light background and toward white on a dark one (luminance below
@@ -289,6 +296,19 @@ class Style:
             raise ValueError(f"dpi must be a positive number or None, got {self.dpi!r}")
         if not isinstance(self.shadow, bool):
             raise ValueError(f"shadow must be True or False, got {self.shadow!r}")
+        # Every backend turns a color into its own format through
+        # matplotlib's parser, so a value it parses is one each can draw.
+        # Imported here, not at the top: importing bvhplot loads no
+        # matplotlib.
+        from matplotlib.colors import is_color_like
+
+        for name in ("bone_color", "background"):
+            value = getattr(self, name)
+            if not is_color_like(value):
+                raise ValueError(
+                    f"{name} must be a matplotlib color, such as 'white', '#16181D' "
+                    f"or (0.1, 0.2, 0.8), got {value!r}"
+                )
 
     def replace(self, **overrides: object) -> Style:
         """A new Style with the given fields changed."""

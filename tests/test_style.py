@@ -524,6 +524,143 @@ class TestStyledRenderSmoke:
         assert path.exists() and path.stat().st_size > 0
 
 
+# How far, in levels of 255 per channel, a joint pixel may stray from
+# the joint colour. Where two joints overlap, a pixel inside their union
+# that neither covers fully keeps a trace of what lies under it: 1 level
+# at most inside the joints of the walk test pictures with the joints on
+# top, against 255 where a bone covers them.
+JOINT_COLOR_LEVELS = 8
+
+
+def _joints_kept(thin: np.ndarray, wide: np.ndarray) -> bool:
+    """Whether every joint pixel of the picture over thin bones is a
+    joint pixel of the picture over wide ones.
+
+    A joint pixel is the red the joint tests draw joints in, to within
+    ``JOINT_COLOR_LEVELS``. The thin picture's joint rims are left out:
+    a pixel a joint covers all but a sliver of keeps a trace of what
+    lies under it, which differs between the two.
+    """
+
+    def red(picture: np.ndarray) -> np.ndarray:
+        distance = np.abs(picture.astype(int) - (255, 0, 0))
+        return np.all(distance <= JOINT_COLOR_LEVELS, axis=-1)
+
+    joints, kept = red(thin), red(wide)
+    inside = joints.copy()
+    inside[1:] &= joints[:-1]
+    inside[:-1] &= joints[1:]
+    inside[:, 1:] &= joints[:, :-1]
+    inside[:, :-1] &= joints[:, 1:]
+    return bool(inside.any()) and not (inside & ~kept).any()
+
+
+# Large red joints and no floor, so the joints and bones alone fill the
+# picture; the bones are drawn in chain colours, none of them red.
+RED_JOINTS = Style("paper", joint_size=120, joint_color="red", floor=None)
+
+
+class TestMatplotlibVideosDrawTheJointsOverTheBones:
+    """The joints sit over the bones in every matplotlib picture, as in
+    ``frame``: every pixel a joint holds over thin bones it still holds
+    over wide ones, which it would lose to a bone drawn over it."""
+
+    def test_render(self, walk, tmp_path, apng_frames):
+        def first_frame(bone_width):
+            path = tmp_path / f"{bone_width}.apng"
+            bvhplot.render(
+                walk,
+                path,
+                backend="matplotlib",
+                resolution=(320, 240),
+                fps=10,
+                style=RED_JOINTS.replace(bone_width=bone_width),
+            )
+            return apng_frames(path, 10)[0]
+
+        assert _joints_kept(first_frame(0.5), first_frame(8.0))
+
+    def test_play(self, walk, environment, monkeypatch):
+        """In a notebook, play's matplotlib player is a page holding
+        every frame as a PNG; its first is read back."""
+        import base64
+        import io
+        import re
+
+        from PIL import Image
+
+        ipython_display = pytest.importorskip("IPython.display")
+        shown = []
+        monkeypatch.setattr(ipython_display, "display", shown.append)
+        environment(notebook=True)
+
+        def first_frame(bone_width):
+            bvhplot.play(
+                walk, backend="matplotlib", fps=10, style=RED_JOINTS.replace(bone_width=bone_width)
+            )
+            page = shown[-1].data
+            png = re.search(r'frames\[0\] = "data:image/png;base64,([^"]+)"', page)
+            assert png is not None
+            image = Image.open(io.BytesIO(base64.b64decode(png.group(1))))
+            return np.asarray(image.convert("RGB"))
+
+        assert _joints_kept(first_frame(0.5), first_frame(8.0))
+
+
+def _contrast(color, other) -> float:
+    """The WCAG contrast ratio of two colours, 1 (the same) to 21
+    (black on white); 4.5 is its minimum for body text."""
+    from matplotlib.colors import to_rgb
+
+    def luminance(c):
+        rgb = np.array(to_rgb(c))
+        linear = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
+        return float(linear @ (0.2126, 0.7152, 0.0722))
+
+    hi, lo = sorted((luminance(color), luminance(other)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+class TestPanelTitlesAreLegible:
+    """Panel titles stand out from the style's background, dark or
+    light."""
+
+    def test_frame(self, bvh):
+        fig, axs = bvhplot.frame([bvh, bvh], 10, style="dark", labels=["A", "B"])
+        background = resolve_style("dark").background
+        assert all(_contrast(ax.title.get_color(), background) >= 4.5 for ax in axs)
+        plt.close(fig)
+
+    def test_frame_keeps_black_titles_on_a_light_background(self, bvh):
+        """matplotlib's own title colour, as before."""
+        fig, axs = bvhplot.frame([bvh, bvh], 10, style="paper", labels=["A", "B"])
+        assert all(matplotlib.colors.to_hex(ax.title.get_color()) == "#000000" for ax in axs)
+        plt.close(fig)
+
+    def test_render(self, walk, tmp_path, apng_frames):
+        """The title is the pixels a label adds to the picture; its
+        brightest stands out from the background."""
+
+        def first_frame(labels):
+            path = tmp_path / f"{labels}.apng"
+            bvhplot.render(
+                walk,
+                path,
+                backend="matplotlib",
+                resolution=(320, 240),
+                fps=10,
+                style="dark",
+                labels=labels,
+            )
+            return apng_frames(path, 10)[0]
+
+        titled, untitled = first_frame(["WALK"]), first_frame(None)
+        title = np.any(titled != untitled, axis=-1)
+        assert title.any()
+        brightest = titled[title][np.argmax(titled[title].sum(axis=-1))] / 255
+        assert _contrast(brightest, resolve_style("dark").background) >= 4.5
+
+
 class TestReviewFixes:
     """Regression tests for the v0.9.0 code-review findings."""
 

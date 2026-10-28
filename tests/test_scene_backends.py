@@ -666,6 +666,27 @@ class TestK3d:
         for drawn in (lines.colors, points.colors):
             assert [f"{c:06X}" for c in drawn] == [f"{c:06X}" for c in expected]
 
+    def test_one_skeleton_under_single_is_drawn_in_the_bone_color(self, scene):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        built = _build_plot(scene, Style("paper", color_mode="single", bone_color=(1.0, 0.6, 0.0)))
+        ((lines, _points),) = built.skeletons
+        assert f"{lines.color:06X}" == "FF9900"
+        assert len(lines.colors) == 0
+
+    @pytest.mark.parametrize("color_mode", ["auto", "skeleton", "single"])
+    def test_several_skeletons_are_drawn_in_the_palette(self, pair, color_mode):
+        """Blue then red, whatever bone_color says: "single" draws one
+        skeleton in it, a comparison in the palette."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        built = _build_plot(pair.spread("auto"), Style("paper", color_mode=color_mode))
+        drawn = [f"{lines.color:06X}" for lines, _points in built.skeletons]
+        assert drawn == ["3278FF", "DC3232"]
+        assert all(len(lines.colors) == 0 for lines, _points in built.skeletons)
+
 
 # ---------------------------------------------------------------------------
 # Every backend draws the viewport

@@ -14,7 +14,13 @@ from typing import Any, NamedTuple
 import numpy as np
 import numpy.typing as npt
 
-from ._colors import floor_palette, grid_box_colors, node_colors_255, rgb255
+from ._colors import (
+    floor_palette,
+    grid_box_colors,
+    node_colors_255,
+    rgb255,
+    skeleton_color_255,
+)
 from ._scene import Scene
 from ._style import PALETTE_RGB, Style, bone_width_scale, effective_color_mode
 from ._viewport import STANDING_STILL_HALF_SPAN, Viewport, make_viewport
@@ -117,10 +123,10 @@ def _build_plot(
             # Build indices array for k3d.lines: pairs of [start, end]
             indices = np.array(view.bones, dtype=np.uint32)  # (num_bones, 2)
 
-            # Color as hex int (0xRRGGBB); chain coloring (when it
+            # The skeleton's flat color (its palette color, or
+            # bone_color under "single"); chain coloring (when it
             # applies) rides as per-vertex colors instead.
-            r, g, b = PALETTE_RGB[s % len(PALETTE_RGB)]
-            color = int(r) << 16 | int(g) << 8 | int(b)
+            color = _packed(skeleton_color_255(style, s, scene.num_skeletons))
             node_colors = _node_colors_uint32(scene, style, s)
 
             lines = k3d.lines(

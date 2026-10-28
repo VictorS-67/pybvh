@@ -492,7 +492,13 @@ class DrawnStyle:
     def draws(self, field: str, value: object) -> bool:
         """Whether *field* at *value* is drawn as the Style asks, in
         full or in a reduced form of the backend's own."""
-        return field in self.fields or value in self.values.get(field, frozenset())
+        if field in self.fields:
+            return True
+        # Only a field declared by value is looked up by its value: one
+        # declared by field is drawn whole or not at all, and its value
+        # may not hash (a color given as a list).
+        drawn = self.values.get(field)
+        return drawn is not None and value in drawn
 
     def derive(self, *, drop: Collection[str] = (), add: Collection[str] = ()) -> DrawnStyle:
         """This declaration, for a call drawn as this one is but for the

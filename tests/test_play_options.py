@@ -280,6 +280,20 @@ class TestPlayChoiceAndTheStyle:
             "backend='matplotlib' or 'opencv', which draw it.",
         )
 
+    def test_auto_warns_of_a_joint_color_given_as_a_list(self, environment):
+        """A color matplotlib parses from a list, which no set can hold,
+        is ignored by the vedo window as any other joint color."""
+        choice = _backends.choose_play_backend(
+            "auto",
+            AUTO_CHOOSES["vedo"](environment),
+            style=bvhplot.Style("paper", joint_color=[1.0, 0.0, 0.0]),
+        )
+        assert choice.backend == "vedo"
+        assert choice.warnings == (
+            "play() chose backend='vedo', which does not draw the Style's joint_color, "
+            "so it is ignored. To draw it, use backend='k3d' or 'matplotlib', which draw it.",
+        )
+
     @pytest.mark.parametrize("named", sorted(AUTO_CHOOSES))
     @pytest.mark.parametrize("preset", style_declarations.PRESETS)
     def test_accepts_every_preset(self, environment, named, preset):

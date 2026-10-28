@@ -215,6 +215,21 @@ class TestANamedBackendAndTheStyle:
         )
         assert not path.exists()
 
+    def test_vedo_refuses_a_joint_color_given_as_a_list(self, walk, tmp_path):
+        """A color matplotlib parses from a list is a joint color like
+        any other, refused as one: a field drawn whole or not at all is
+        not looked up by its value."""
+        pytest.importorskip("vedo")
+        path = tmp_path / "x.png"
+        style = bvhplot.Style("paper", joint_color=[1.0, 0.0, 0.0], floor=None)
+        with pytest.raises(ValueError) as raised:
+            bvhplot.frame(walk, 0, backend="vedo", style=style, filepath=path)
+        assert str(raised.value) == (
+            "frame(backend='vedo') does not draw the Style's joint_color. "
+            "Leave it out of the Style, or use backend='matplotlib', which draws it."
+        )
+        assert not path.exists()
+
     def test_matplotlib_refuses_a_shadow(self, walk):
         with pytest.raises(ValueError) as raised:
             bvhplot.frame(walk, style=bvhplot.Style("paper", shadow=True))

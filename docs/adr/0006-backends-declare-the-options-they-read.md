@@ -16,6 +16,8 @@ bvhplot's `frame`, `render` and `play` take one set of keywords for every backen
 
 **6. `Style` fields do not follow the rule yet.** A `Style` is built from a preset that fills every field (`Style("paper", floor=None)` holds a value for each), and it does not keep which fields the caller overrode. A field the caller asked for cannot be told from one the preset filled, so raising on every field a backend cannot draw would refuse `Style("paper")` itself on a backend lacking any one of them. The declarations are shaped so that `Style` fields can join them in the same form once a `Style` can tell an override from a preset's value; that is the next deepening's decision (whether `Style` remembers overrides, and whether each gap is implemented or declared).
 
+Superseded by [ADR 0007](0007-backends-declare-the-style-values-they-draw.md): a `Style` keeps the fields its caller set, and the backends declare the `Style` values they draw under this rule.
+
 ## Why
 
 **One rule, read from one place.** The router's hand-kept list described one backend of one call, and the silent drops were not written anywhere: a reader of the router could not tell which options a backend honours. A declaration beside the entry function sits where a change to what the backend draws is made, and tests keep it honest by running each backend with and without each option: a declared option must change what is drawn (`render`'s frames read back from a lossless `.apng`, `frame`'s picture, the frames of `play`'s notebook video), and an undeclared one that a call can hand over (`spacing` and `match_size` on a panel backend) must leave them identical.

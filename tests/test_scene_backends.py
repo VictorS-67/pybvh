@@ -844,7 +844,7 @@ class TestK3dDrawsTheStyleItDeclares:
 
     @pytest.mark.parametrize(
         "case",
-        style_declarations.declared("play", ["k3d"]) + style_declarations.accepted("play", ["k3d"]),
+        style_declarations.cases("play", ["k3d"]),
         ids=str,
     )
     def test_a_field_declared_changes_the_plot_and_one_accepted_does_not(self, scene, case):

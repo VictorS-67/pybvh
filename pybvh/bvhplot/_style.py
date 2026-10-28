@@ -194,36 +194,80 @@ class Style:
     near-black ground, for slides and project pages).
 
     A Style keeps which fields its caller set: those passed to the
-    constructor, and to every ``replace`` since. A field set at a value
-    the backend drawing it does not draw is refused, as an option the
-    backend does not read is: ``frame`` and a named ``render`` backend
-    raise ``ValueError`` naming it, ``render(backend="auto")`` warns.
-    A preset's own values are never refused, so ``Style("paper")``
-    draws on every backend, each drawing what it can of it; ``dpi``,
-    ``supersample`` and ``ghost_spacing`` are accepted by every
-    backend, drawn or not. Which fields were set does not count for
-    ``==`` or ``repr``: two Styles of the same values are the same
-    look. The alternative, refusing a field whose value differs from
-    its preset's, would let ``Style("paper", projection="persp")``
-    pass unrefused on OpenCV, which draws orthographic.
+    constructor, and to every ``replace`` since. Each backend declares
+    the values it draws, and a field set at a value the backend does
+    not draw is refused, as an option it does not read is: a named
+    backend raises ``ValueError`` naming the field and any backend that
+    draws it (for ``sequence``, the other layout), and
+    ``backend="auto"`` (``render`` and ``play``) warns, naming the
+    backend chosen, and goes on. ``frame``, ``rest_pose``, ``sequence``
+    and ``trajectory`` have no auto, so they always raise. A preset's
+    own values are never refused, so ``Style("paper")`` and the other
+    presets draw on every backend, each drawing what it can of them
+    (OpenCV draws paper's ``"persp"`` orthographic). Which fields were
+    set does not count for ``==`` or ``repr``: two Styles of the same
+    values are the same look. The alternative, refusing a field whose
+    value differs from its preset's, would let ``Style("paper",
+    projection="persp")`` pass unrefused on OpenCV.
 
-    Fields split into two documented groups. **Look** fields apply to
-    every figure/video output (matplotlib, OpenCV, vedo offscreen):
-    ``bone_width``, ``bone_color``, ``color_mode``, ``chain_colors``,
-    ``joint_markers``, ``joint_size``, ``joint_color``, ``floor``,
-    ``floor_alpha``, ``background``, ``axes``, ``projection``,
-    ``ghost_spacing`` (seconds of clip time, not playback time,
-    between the faded trailing poses that ``render(ghost=...)`` draws;
-    see there). The two *interactive viewers* apply the subset that
-    has meaning in a live window: background, bone width, and
-    single-skeleton chain colors in both; in the vedo viewer,
-    ``color_mode`` and ``bone_color`` in full, in both qualities, and
-    floor kind and ``floor_alpha``. Fields
-    outside that subset (``axes``, ``projection``, ``joint_markers``,
-    ...) do not alter the viewers. **Output** fields apply only where
-    raster output is produced: ``dpi`` (matplotlib figures),
-    ``supersample`` (OpenCV export), ``shadow`` (vedo offscreen
-    renders).
+    What each call and backend does with a field its caller set::
+
+                      frame       render            play                    matplotlib alone
+        field         mpl   vedo  mpl   cv    vedo  mpl   cv    k3d   vedo  rest  offs  over  traj
+        bone_width    yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   n/a
+        bone_color    yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   n/a
+        color_mode    yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   n/a
+        chain_colors  yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   n/a
+        joint_markers yes   no    yes   yes   no    yes   yes   yes   no    yes   yes   yes   n/a
+        joint_size    yes   no    yes   yes   no    yes   yes   yes   no    yes   yes   yes   n/a
+        joint_color   yes   no    yes   yes   no    yes   yes   yes   no    yes   yes   yes   n/a
+        floor         yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   n/a
+        floor_alpha   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   n/a
+        background    yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes
+        axes          yes   off   yes   off   off   yes   off   no    off   yes   yes   yes   no
+        projection    yes   persp yes   ortho persp yes   ortho persp persp yes   ortho yes   n/a
+        dpi           yes   n/a   n/a   n/a   n/a   n/a   n/a   n/a   n/a   yes   yes   yes   n/a
+        supersample   n/a   n/a   n/a   yes   n/a   n/a   yes   n/a   n/a   n/a   n/a   n/a   n/a
+        shadow        no    yes   no    no    yes   no    no    no    no    no    no    no    no
+        ghost_spacing n/a   n/a   yes   yes   n/a   n/a   n/a   n/a   n/a   n/a   n/a   n/a   n/a
+
+    The columns: ``frame``'s backends (``mpl`` matplotlib, ``vedo``
+    the shadowed capsule renderer), ``render``'s (``cv`` OpenCV),
+    ``play``'s (``cv`` the OpenCV notebook video, ``k3d`` the notebook
+    widget, ``vedo`` the desktop window, at both qualities), then the
+    calls matplotlib alone draws: ``rest`` is ``rest_pose``, ``offs``
+    and ``over`` are ``sequence``'s ``"offset"`` and ``"overlay"``
+    layouts, ``traj`` is ``trajectory``.
+
+    ``yes``: drawn at every value. A value (``ortho``, ``persp``,
+    ``off``): drawn at that value alone; another is refused. ``no``:
+    refused at every value. ``n/a``: accepted at every value without a
+    word, since it names something that drawing does not hold: ``dpi``
+    outside the figures of ``frame``, ``rest_pose`` and ``sequence``
+    (the pixels of a video or a vedo picture are its resolution, and
+    k3d and the vedo window make no figure); ``supersample``, which
+    OpenCV alone draws with; ``ghost_spacing`` where no ghosts are
+    drawn; and in ``trajectory``, a 2D plot of the root's path, the
+    bone, joint and floor fields and ``projection``. ``trajectory``
+    and matplotlib's ``play`` do make a figure, at matplotlib's own
+    dpi, and accept ``dpi`` without drawing it all the same. So one
+    Style serves stills and videos, and a Style built for ``frame``
+    serves ``trajectory``.
+
+    What the table leaves out: both vedo backends draw each joint as
+    the capsules' sphere, sized and coloured by its bones; k3d always
+    shows its grid box; OpenCV draws the ``"debug"`` preset's
+    ``axes="full"`` as a small axis indicator, not the full axes, and
+    with ``joint_markers=False`` still draws a small bone-coloured dot
+    at each joint, which joins its bones; the vedo renderer casts its
+    shadow on the floor, so under ``floor=None`` it draws none;
+    ``sequence`` draws the joint fields on its last pose.
+
+    ``ghost_spacing`` is in seconds of clip time, not playback time,
+    between the faded trailing poses that ``render(ghost=...)`` draws
+    (see there). ``dpi`` is a matplotlib figure's, ``supersample`` how
+    many times the resolution OpenCV draws at before scaling down, and
+    ``shadow`` the vedo renderer's projected shadow.
 
     ``bone_color``, ``joint_color``, ``background`` and the values of
     ``chain_colors`` take any color matplotlib parses (a name, a hex

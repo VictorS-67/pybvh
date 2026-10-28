@@ -35,8 +35,7 @@ class TestEachCallDrawsTheStyleItDeclares:
 
     @pytest.mark.parametrize(
         "case",
-        style_declarations.declared("trajectory", ["matplotlib"])
-        + style_declarations.accepted("trajectory", ["matplotlib"]),
+        style_declarations.cases("trajectory", ["matplotlib"]),
         ids=str,
     )
     def test_trajectory(self, walk, case):
@@ -47,8 +46,7 @@ class TestEachCallDrawsTheStyleItDeclares:
 
     @pytest.mark.parametrize(
         "case",
-        style_declarations.declared("rest_pose", ["matplotlib"])
-        + style_declarations.accepted("rest_pose", ["matplotlib"]),
+        style_declarations.cases("rest_pose", ["matplotlib"]),
         ids=str,
     )
     def test_rest_pose(self, walk, case):
@@ -59,8 +57,7 @@ class TestEachCallDrawsTheStyleItDeclares:
 
     @pytest.mark.parametrize(
         "case",
-        style_declarations.declared("sequence", LAYOUTS)
-        + style_declarations.accepted("sequence", LAYOUTS),
+        style_declarations.cases("sequence", LAYOUTS),
         ids=str,
     )
     def test_sequence(self, walk, case):

@@ -129,8 +129,7 @@ class TestEachBackendDrawsTheStyleItDeclares:
 
     @pytest.mark.parametrize(
         "case",
-        style_declarations.declared("frame", sorted(PACKAGE))
-        + style_declarations.accepted("frame", sorted(PACKAGE)),
+        style_declarations.cases("frame", sorted(PACKAGE)),
         ids=str,
     )
     def test_a_field_declared_changes_the_picture_and_one_accepted_does_not(self, walk, case):

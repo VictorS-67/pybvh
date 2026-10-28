@@ -452,8 +452,7 @@ class TestEachBackendDrawsTheStyleItDeclares:
 
     @pytest.mark.parametrize(
         "case",
-        style_declarations.declared("play", ["matplotlib", "opencv_notebook"])
-        + style_declarations.accepted("play", ["matplotlib", "opencv_notebook"]),
+        style_declarations.cases("play", ["matplotlib", "opencv_notebook"]),
         ids=str,
     )
     def test_a_field_declared_changes_the_frames_and_one_accepted_does_not(

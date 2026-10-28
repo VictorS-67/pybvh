@@ -162,6 +162,17 @@ class TestANamedBackend:
             "Leave them unset, or use backend='matplotlib' or 'opencv', which read them."
         )
 
+    def test_offers_no_backend_that_refuses_the_style(self, walk, tmp_path):
+        """matplotlib and OpenCV read the ghost vedo does not, but draw
+        no shadow."""
+        path = tmp_path / "x.apng"
+        with pytest.raises(ValueError) as raised:
+            bvhplot.render(
+                walk, path, backend="vedo", ghost=1, style=bvhplot.Style("paper", shadow=True)
+            )
+        assert str(raised.value) == "render(backend='vedo') does not read ghost. Leave it unset."
+        assert not path.exists()
+
 
 class TestANamedBackendAndTheStyle:
     """A Style field the caller set that the named backend does not draw
@@ -178,6 +189,20 @@ class TestANamedBackendAndTheStyle:
         assert str(raised.value) == (
             "render(backend='opencv') does not draw the Style's projection='persp'. "
             "Leave it out of the Style, or use backend='matplotlib' or 'vedo', which draw it."
+        )
+        assert not path.exists()
+
+    def test_offers_no_backend_that_refuses_an_option_given(self, walk, tmp_path):
+        """vedo draws the shadow matplotlib does not, but does not read
+        the ghost given."""
+        path = tmp_path / "x.apng"
+        with pytest.raises(ValueError) as raised:
+            bvhplot.render(
+                walk, path, backend="matplotlib", ghost=1, style=bvhplot.Style("paper", shadow=True)
+            )
+        assert str(raised.value) == (
+            "render(backend='matplotlib') does not draw the Style's shadow=True. "
+            "Leave it out of the Style."
         )
         assert not path.exists()
 

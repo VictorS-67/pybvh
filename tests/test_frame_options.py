@@ -188,6 +188,16 @@ class TestANamedBackend:
             "unset, or use backend='matplotlib', which reads them."
         )
 
+    def test_offers_no_backend_that_refuses_the_style(self, walk):
+        """matplotlib reads the figsize vedo does not, but does not draw
+        the shadow the Style asks for."""
+        pytest.importorskip("vedo")
+        with pytest.raises(ValueError) as raised:
+            bvhplot.frame(
+                walk, 0, backend="vedo", figsize=(4, 3), style=bvhplot.Style("paper", shadow=True)
+            )
+        assert str(raised.value) == "frame(backend='vedo') does not read figsize. Leave it unset."
+
 
 class TestANamedBackendAndTheStyle:
     """A Style field the caller set that the backend does not draw raises,
@@ -236,6 +246,35 @@ class TestANamedBackendAndTheStyle:
         assert str(raised.value) == (
             "frame(backend='matplotlib') does not draw the Style's shadow=True. "
             "Leave it out of the Style, or use backend='vedo', which draws it."
+        )
+
+    def test_offers_no_backend_that_refuses_the_rest_of_the_style(self, walk):
+        """vedo draws the shadow matplotlib refuses, but not the
+        orthographic projection matplotlib draws, so neither backend
+        offers the other."""
+        pytest.importorskip("vedo")
+        style = bvhplot.Style("paper", projection="ortho", shadow=True)
+        with pytest.raises(ValueError) as raised:
+            bvhplot.frame(walk, 0, style=style)
+        assert str(raised.value) == (
+            "frame(backend='matplotlib') does not draw the Style's shadow=True. "
+            "Leave it out of the Style."
+        )
+        with pytest.raises(ValueError) as raised:
+            bvhplot.frame(walk, 0, backend="vedo", style=style)
+        assert str(raised.value) == (
+            "frame(backend='vedo') does not draw the Style's projection='ortho'. "
+            "Leave it out of the Style."
+        )
+
+    def test_offers_no_backend_that_refuses_an_option_given(self, walk):
+        """vedo draws the shadow matplotlib refuses, but does not read
+        the figsize given."""
+        with pytest.raises(ValueError) as raised:
+            bvhplot.frame(walk, 0, figsize=(4, 3), style=bvhplot.Style("paper", shadow=True))
+        assert str(raised.value) == (
+            "frame(backend='matplotlib') does not draw the Style's shadow=True. "
+            "Leave it out of the Style."
         )
 
     def test_matplotlib_honours_no_shadow(self, walk):

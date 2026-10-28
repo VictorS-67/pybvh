@@ -6,7 +6,7 @@ bvhplot's `frame`, `render` and `play` take one set of keywords for every backen
 
 **1. Each backend states the options it reads, beside its entry function.** `frame`'s backends hold a `FRAME_READS` set next to `frame_mpl` and `frame_vedo`; `render`'s a `RENDER_READS` set next to `render_opencv`, `render_mpl` and `render_vedo`; `play`'s a `PLAY_READS` set next to `play_k3d`, `play_vedo` and `play_mpl`, and the notebook video's next to `render_opencv`, which draws it. `_backends` collects the declarations and applies the rule when it chooses each call's backend (`choose_frame_backend`, `choose_render_backend`, `choose_play_backend`); no other module knows which backend reads what.
 
-**2. An option given that the named backend does not read raises `ValueError`.** The message names the option, the backend, and the backends that read it. A file is never written without something its call asked for.
+**2. An option given that the named backend does not read raises `ValueError`.** The message names the option, the backend, and the backends that read it and accept the rest of the call, so that the backend it offers does not refuse the call in turn. A file is never written without something its call asked for.
 
 **3. Under `backend="auto"` the same option warns instead,** naming the option and the backend chosen, and the call goes on. Auto's choice depends on the file's extension, the installed packages and, for `play`, the session (notebook, display), so a raise there would fail a correct script on another machine; the warning still says what the file lacks.
 

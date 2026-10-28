@@ -280,6 +280,40 @@ class TestPlayChoiceAndTheStyle:
             "backend='matplotlib' or 'opencv', which draw it.",
         )
 
+    def test_auto_offers_only_backends_that_take_the_whole_call(self, environment):
+        """OpenCV reads the resolution k3d does not and draws the
+        orthographic projection; matplotlib draws the projection too,
+        but does not read the resolution."""
+        choice = _backends.choose_play_backend(
+            "auto",
+            environment(notebook=True, importable=EVERYTHING),
+            given={"resolution"},
+            style=bvhplot.Style("paper", projection="ortho"),
+        )
+        assert choice.backend == "k3d"
+        assert choice.warnings == (
+            "play() chose backend='k3d', which does not read resolution, so it is ignored. "
+            "To draw it, use backend='opencv', which reads it.",
+            "play() chose backend='k3d', which does not draw the Style's projection='ortho', "
+            "so it is ignored. To draw it, use backend='opencv', which draws it.",
+        )
+
+    def test_auto_offers_none_when_no_backend_takes_the_whole_call(self, environment):
+        """Only vedo reads quality, and it draws no orthographic
+        projection."""
+        choice = _backends.choose_play_backend(
+            "auto",
+            environment(notebook=True, importable=EVERYTHING),
+            given={"quality"},
+            style=bvhplot.Style("paper", projection="ortho"),
+        )
+        assert choice.backend == "k3d"
+        assert choice.warnings == (
+            "play() chose backend='k3d', which does not read quality, so it is ignored.",
+            "play() chose backend='k3d', which does not draw the Style's projection='ortho', "
+            "so it is ignored.",
+        )
+
     def test_auto_warns_of_a_joint_color_given_as_a_list(self, environment):
         """A color matplotlib parses from a list, which no set can hold,
         is ignored by the vedo window as any other joint color."""
@@ -440,6 +474,19 @@ class TestThroughPlayAndTheStyle:
             (
                 "play() chose backend='matplotlib', which does not draw the Style's "
                 "shadow=True, so it is ignored.",
+                __file__,
+            )
+        ]
+        assert len(windowed) == 1
+
+    def test_auto_offers_no_backend_that_refuses_the_style(self, walk, environment, windowed):
+        """Headless, auto plays in matplotlib's window; vedo reads the
+        quality it does not, but draws no orthographic projection."""
+        environment(importable={"vedo"})
+        style = bvhplot.Style("paper", projection="ortho")
+        assert _play_warnings(lambda: bvhplot.play(walk, quality="fast", style=style)) == [
+            (
+                "play() chose backend='matplotlib', which does not read quality, so it is ignored.",
                 __file__,
             )
         ]

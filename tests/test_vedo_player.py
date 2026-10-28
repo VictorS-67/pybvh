@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import style_declarations
 
 from pybvh import read_bvh_file
 from pybvh.bvhplot import _vedo
@@ -732,3 +733,57 @@ class TestSkeletonLabels:
             line = box[3] - box[2]
             assert 0 < above[2] - box[3] < line, (name, above, box)
             above = box
+
+
+# Two screenshots of one Style may differ by a level here and there: the
+# offscreen render is not exact from one player to the next (seen: 25
+# pixels 1 level apart, after some thirty players in one process). The
+# least a declared field was seen to change is 10 levels (a checker floor
+# against a solid one, on its squares).
+SAME_PICTURE_LEVELS = 2
+
+
+@pytest.fixture(scope="module")
+def screenshots(scene, tmp_path_factory):
+    """The viewer's first frame of the scene under a Style, at a
+    quality: ``screenshots(style, quality)``. Each look is drawn once
+    (about 2 s a screenshot), since the cases share their Styles."""
+    drawn = {}
+    folder = tmp_path_factory.mktemp("declared")
+
+    def screenshot(style, quality):
+        key = (repr(style), quality)
+        if key not in drawn:
+            with pytest.MonkeyPatch.context() as patch:
+                patch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+                p = _vedo._VedoPlayer(scene, style, 30.0, quality=quality)
+                try:
+                    drawn[key] = _rendered(p, folder)
+                finally:
+                    p.plt.close()
+        return drawn[key]
+
+    return screenshot
+
+
+class TestTheViewerDrawsTheStyleItDeclares:
+    """Drawn with two values of a Style field, the viewer shows another
+    picture where it declares the field drawn, and the same where it
+    accepts the field without drawing it (see
+    ``tests/style_declarations.py``), at both qualities: one declaration
+    holds for both."""
+
+    @pytest.mark.parametrize("quality", ["high", "fast"])
+    @pytest.mark.parametrize(
+        "case",
+        style_declarations.declared("play", ["vedo"])
+        + style_declarations.accepted("play", ["vedo"]),
+        ids=str,
+    )
+    def test_a_field_declared_changes_the_picture_and_one_accepted_does_not(
+        self, screenshots, case, quality
+    ):
+        one = screenshots(case.one, quality).astype(int)
+        other = screenshots(case.other, quality).astype(int)
+        differ = np.abs(one - other).max() > SAME_PICTURE_LEVELS
+        assert differ == case.differ

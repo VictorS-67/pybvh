@@ -1192,21 +1192,20 @@ def play(
         player without a word (the OpenCV video draws ``supersample``;
         ``play`` draws no ghosts). No player casts a shadow, so each
         draws ``shadow`` at ``False`` alone. Of the other fields,
-        matplotlib's player draws all; the OpenCV
-        notebook video likewise, but with ``projection`` at ``"ortho"``
-        alone, as ``render`` draws it on OpenCV. k3d draws all but
-        ``axes``, refused at both values since its grid
-        box is always shown, with ``projection`` at ``"persp"`` alone. The vedo window, at both
-        qualities, refuses the joint fields
-        (``joint_markers``, ``joint_size``, ``joint_color``), each
-        joint being the capsules' sphere, sized and colored by its
-        bones, and draws ``axes`` at ``"off"`` alone and ``projection``
-        at ``"persp"`` alone. A field the Style's caller set (in
-        ``Style(...)`` or ``replace(...)``) that the backend refuses, or
-        at a value it does not draw, raises ``ValueError`` naming it
-        when the backend is named, and warns under ``"auto"``, as an
-        option the backend does not read does (see *backend*); a
-        preset's own values never do.
+        matplotlib's player draws all; the OpenCV notebook video
+        likewise, but with ``projection`` at ``"ortho"`` alone, as
+        ``render`` draws it on OpenCV. k3d draws all but ``axes``,
+        refused at both values since its grid box is always shown, with
+        ``projection`` at ``"persp"`` alone. The vedo window, at both
+        qualities, refuses the joint fields (``joint_markers``,
+        ``joint_size``, ``joint_color``), each joint being the capsules'
+        sphere, sized and colored by its bones, and draws ``axes`` at
+        ``"off"`` alone and ``projection`` at ``"persp"`` alone. A field
+        the Style's caller set (in ``Style(...)`` or ``replace(...)``)
+        that the backend refuses, or at a value it does not draw, raises
+        ``ValueError`` naming it when the backend is named, and warns
+        under ``"auto"``, as an option the backend does not read does
+        (see *backend*); a preset's own values never do.
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional

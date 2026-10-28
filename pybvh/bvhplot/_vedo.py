@@ -23,7 +23,6 @@ import numpy.typing as npt
 
 from ._colors import (
     bone_colors_255,
-    floor_palette,
     node_colors_255,
     skeleton_color_255,
 )
@@ -32,11 +31,11 @@ from ._scene import Scene
 from ._style import Style, bone_width_px
 from ._vedo_capsules import (
     CapsuleSkeleton,
-    floor_placement,
     vedo_color,
+    vedo_floor,
     vedo_rgb,
 )
-from ._viewport import FLOOR_GRID_CELLS, STANDING_STILL_HALF_SPAN, make_viewport
+from ._viewport import STANDING_STILL_HALF_SPAN, make_viewport
 
 # Test seam: forces the player's Plotter offscreen so construction,
 # geometry, and the screenshot path can run without a display.
@@ -182,8 +181,9 @@ def play_vedo(
     the first view) and one viewport over the — possibly laterally
     spread — views.
 
-    Style application (look fields): background, floor kind
-    (``"checker"`` falls back to ``"grid"`` here), bone width, and
+    Style application (look fields): background, floor kind and
+    ``floor_alpha`` (the offscreen renderer's floor:
+    :func:`~._vedo_capsules.vedo_floor`), bone width, and
     the bone colors ``color_mode`` resolves to, in both quality modes
     and from the same rule as the offscreen renderer
     (:func:`~._colors.bone_colors_255`). Joint spheres are structural
@@ -365,7 +365,6 @@ class _VedoPlayer:
         """Create the floor, skeleton actors, labels, camera, and trails."""
         import vtk
         from vedo import (
-            Grid,
             Lines,
             Points,
             Text2D,
@@ -378,33 +377,10 @@ class _VedoPlayer:
         point_size_px = 2 * (line_width_px + FAST_JOINT_MARGIN_PX)
 
         # --- Floor (both quality modes; kind from the style) ---
-        if self.style.floor is not None:
-            from vedo import Plane
-
-            # One floor for the whole scene, the viewport's: the same
-            # plane the offscreen renderer draws, so viewer and render
-            # agree.
-            floor_pos, normal, side = floor_placement(self.viewport)
-            palette = floor_palette(self.style)
-            if self.style.floor == "solid":
-                floor = Plane(pos=tuple(floor_pos), normal=tuple(normal), s=(side, side))
-                floor.alpha(self.style.floor_alpha)
-                floor.c(vedo_color(palette["face"])).lighting("off")
-            else:
-                # "grid" — and "checker", which falls back to grid in
-                # this viewer (no cheap checker primitive in vedo).
-                # Built at the origin, turned to face up, then moved:
-                # vedo rotates about the world origin, so a grid that
-                # is placed first swings away from where it was put.
-                floor = Grid(s=[side, side], res=(FLOOR_GRID_CELLS, FLOOR_GRID_CELLS))
-                if self.up_letter == "y":
-                    floor.rotate_x(90)
-                elif self.up_letter == "x":
-                    floor.rotate_y(90)
-                # up_letter='z': Grid defaults to XY plane, no rotation
-                floor.pos(*floor_pos)
-                floor.lw(1).alpha(self.style.floor_alpha)
-                floor.c(vedo_color(palette["grid"])).lighting("off")
+        # One floor for the whole scene, the viewport's, built as the
+        # offscreen renderer builds it, so viewer and render agree.
+        floor = vedo_floor(self.viewport, self.style)
+        if floor is not None:
             self.plt += floor
 
         # --- Build persistent skeleton geometry (created once, updated in-place) ---

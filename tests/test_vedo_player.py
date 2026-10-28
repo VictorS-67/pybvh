@@ -360,7 +360,7 @@ class TestGridFloor:
         def floor(quality):
             p = _vedo._VedoPlayer(scene, Style("paper", floor=kind), 30.0, quality=quality)
             try:
-                (plane,) = [o for o in p.plt.objects if isinstance(o, (vedo.Plane, vedo.Grid))]
+                (plane,) = [o for o in p.plt.objects if o.name == "Floor"]
                 return type(plane), np.asarray(plane.vertices), plane.alpha()
             finally:
                 p.plt.close()
@@ -370,6 +370,27 @@ class TestGridFloor:
         assert fast_type is high_type
         np.testing.assert_array_equal(fast_vertices, high_vertices)
         assert fast_alpha == high_alpha
+
+    @pytest.mark.parametrize("quality", ["high", "fast"])
+    def test_the_checker_is_drawn_as_a_checker(self, scene, quality, monkeypatch, tmp_path):
+        """Opaque, both of the palette's checker shades fill a good part
+        of the picture. "checker" fell back to the grid, whose lines
+        are neither shade."""
+        from pybvh.bvhplot._colors import floor_palette, rgb255
+
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        style = Style("paper", floor="checker", floor_alpha=1.0)
+        p = _vedo._VedoPlayer(scene, style, 30.0, quality=quality)
+        try:
+            image = _rendered(p, tmp_path).reshape(-1, 3).astype(int)
+        finally:
+            p.plt.close()
+        # the floor takes about a third of the window's pixels, half of
+        # it in each shade; a tenth of that is a checker, where a grid's
+        # lines leave none of either shade
+        floor_share = image.shape[0] // 3
+        for shade in floor_palette(style)["checker"]:
+            assert (np.abs(image - rgb255(shade)).max(axis=1) <= 1).sum() > floor_share // 20, shade
 
 
 def _rendered(player, tmp_path):
@@ -577,7 +598,7 @@ class TestStyleColorsReachVedoParsed:
         style = Style("paper", floor=floor)
         p = _vedo._VedoPlayer(scene, style, 30.0, quality="high")
         try:
-            plane = next(o for o in p.plt.objects if isinstance(o, (vedo.Plane, vedo.Grid)))
+            plane = next(o for o in p.plt.objects if o.name == "Floor")
             np.testing.assert_allclose(
                 plane.properties.GetColor(), np.asarray(rgb255(floor_palette(style)[key])) / 255
             )

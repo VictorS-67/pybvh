@@ -1,9 +1,10 @@
-"""Capsule-skeleton geometry for the vedo backends.
+"""Capsule-skeleton geometry and the floor for the vedo backends.
 
 One skeleton = two merged vedo meshes (all bone tubes, all joint
 spheres — 2 VTK actors instead of ~120) with canonical vertices kept
-around so per-frame posing is a single vectorized ``einsum``. Shared
-by the interactive viewer (`_vedo.py`) and the offscreen renderer
+around so per-frame posing is a single vectorized ``einsum``. The
+floor is one mesh, built by :func:`vedo_floor`. Shared by the
+interactive viewer (`_vedo.py`) and the offscreen renderer
 (`_vedo_offscreen.py`) so the two can never drift apart.
 """
 
@@ -15,14 +16,16 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpy.typing as npt
 
-from ._colors import rgb255
+from ._colors import floor_palette, rgb255
 from ._style import bone_width_scale
-from ._viewport import STANDING_STILL_HALF_SPAN
+from ._viewport import FLOOR_CHECKER_SQUARES, FLOOR_GRID_CELLS, STANDING_STILL_HALF_SPAN
 
 if TYPE_CHECKING:
     from matplotlib.typing import ColorType
+    from vedo import Mesh
 
     from ._scene import SkeletonView
+    from ._style import Style
     from ._viewport import Viewport
 
 # VTK has a depth buffer, so surfaces that share a plane flicker. The
@@ -88,21 +91,64 @@ def vedo_color(color: ColorType) -> tuple[float, float, float]:
     return vedo_rgb(rgb255(color))
 
 
-def floor_placement(
-    viewport: Viewport,
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], float]:
-    """Where a vedo ``Plane`` or ``Grid`` for the viewport's ground
-    plane goes: ``(position, normal, side)``.
+def vedo_floor(viewport: Viewport, style: Style) -> Mesh | None:
+    """The viewport's ground plane as one vedo mesh, of the style's
+    floor kind and at its ``floor_alpha``, or ``None`` when the style
+    draws no floor.
 
-    The position is the plane's centre, ``FLOOR_EPSILON`` half-spans
-    below the scene ground; the side is the full side length vedo's
-    ``s=`` takes, twice the viewport's floor reach."""
-    up = viewport.up_index
+    Every kind is a vedo ``Grid``, a plane of quad cells built at the
+    origin in the XY plane, so all three are turned and placed alike:
+    ``"grid"`` keeps its ``FLOOR_GRID_CELLS`` cells a side as lines;
+    ``"solid"`` is one filled cell; ``"checker"`` is
+    ``FLOOR_CHECKER_SQUARES`` filled cells a side, alternating the
+    palette's two shades from the shade of the low corner of both
+    ground axes, as the other backends lay theirs out. Unlit: under
+    real lights the plane picks up a tint in this stack, and a flat
+    floor is the paper look. It lies ``FLOOR_EPSILON`` half-spans
+    below the scene ground and reaches the viewport's floor reach
+    around its centre.
+    """
+    if style.floor is None:
+        return None
+    from vedo import Grid
+
+    palette = floor_palette(style)
+    side = 2.0 * viewport.floor_reach
+    cells = {"solid": 1, "grid": FLOOR_GRID_CELLS, "checker": FLOOR_CHECKER_SQUARES}[style.floor]
+    floor = Grid(s=[side, side], res=(cells, cells))
+    # Turned to face up before it is moved: vedo rotates about the
+    # world origin, so a grid placed first swings away from where it
+    # was put. A grid in the XY plane already faces up a z axis.
+    if viewport.up_letter == "y":
+        floor.rotate_x(90)
+    elif viewport.up_letter == "x":
+        floor.rotate_y(90)
     position = viewport.center.copy()
-    position[up] = viewport.below_floor(FLOOR_EPSILON * viewport.half_span)
-    normal = np.zeros(3)
-    normal[up] = 1.0
-    return position, normal, 2.0 * viewport.floor_reach
+    position[viewport.up_index] = viewport.below_floor(FLOOR_EPSILON * viewport.half_span)
+    floor.pos(*position)
+
+    if style.floor == "grid":
+        floor.lw(1).c(vedo_color(palette["grid"]))
+    else:
+        # Filled, without its cells' edges: vedo turns the edges off,
+        # and the surface on, with a zero line width.
+        floor.lw(0)
+        if style.floor == "solid":
+            floor.c(vedo_color(palette["face"]))
+        else:
+            # A square's place on each ground axis, counted from the
+            # low edge, read from its centre (the mean of its corners).
+            centres = np.asarray(floor.vertices)[np.asarray(floor.cells)].mean(axis=1)
+            low = position - side / 2
+            square = side / cells
+            place = np.floor((centres - low) / square).astype(int)
+            first, second = viewport.ground_indices
+            parity = (place[:, first] + place[:, second]) % 2
+            shades = np.array([(*rgb255(shade), 255) for shade in palette["checker"]])
+            floor.cellcolors = shades[parity].astype(np.uint8)
+    floor.alpha(style.floor_alpha).lighting("off")
+    floor.name = "Floor"
+    return floor
 
 
 def shadow_height(viewport: Viewport) -> float:

@@ -31,7 +31,7 @@ from ._style import (
     ghost_schedule,
     joint_radius_px,
 )
-from ._viewport import FLOOR_GRID_CELLS, Viewport, panel_viewports
+from ._viewport import FLOOR_CHECKER_SQUARES, FLOOR_GRID_CELLS, Viewport, panel_viewports
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -109,7 +109,7 @@ def _draw_floor_opencv(
         face = _blend_bgr(_to_bgr(palette["face"]), bg_bgr, style.floor_alpha)
         cv2.fillPoly(img, [project(quad(c0, c1, ext))], face, lineType=cv2.LINE_AA)  # type: ignore[list-item]  # mypy reads a list of MatLike as Mat
     elif style.floor == "checker":
-        n = 8
+        n = FLOOR_CHECKER_SQUARES // 2  # squares on each side of the centre
         s = ext / n
         shades = [
             _blend_bgr(_to_bgr(shade), bg_bgr, style.floor_alpha) for shade in palette["checker"]

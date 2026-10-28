@@ -799,11 +799,14 @@ def render(
         ``"dark"``) or a :class:`Style` instance, e.g.
         ``Style("paper", floor=None)``. Axes visibility follows
         ``style.axes`` (the former ``show_axis=True`` is
-        ``Style("paper", axes="full")``). A field the Style's caller
-        set (in ``Style(...)`` or ``replace(...)``) at a value the
-        backend does not draw raises ``ValueError`` naming it when the
-        backend is named, and warns under ``"auto"``; a preset's own
-        values never do (see :class:`Style`).
+        ``Style("paper", axes="full")``, drawn by matplotlib; OpenCV
+        draws a small axis indicator for a preset whose axes are
+        ``"full"``, ``"debug"``, and refuses ``axes="full"`` set in a
+        Style, since the indicator is not the full axes). A field the
+        Style's caller set (in ``Style(...)`` or ``replace(...)``) at a
+        value the backend does not draw raises ``ValueError`` naming it
+        when the backend is named, and warns under ``"auto"``; a
+        preset's own values never do (see :class:`Style`).
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional

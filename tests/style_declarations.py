@@ -6,11 +6,14 @@ differ on the backend: a field drawn whole, two values of it; a value of
 a field of a fixed set of values, that value and a second one; an
 accepted field (one every backend takes whether it draws it or not), two
 values of it, which must draw the same picture. A field a backend draws
-at one value only (OpenCV's projection) has no second value to differ
-from: the value set draws the picture drawn with the field left to a
-preset whose value differs, where one does ("debug"'s axes="full", for
-vedo's "off"). Where none does (no preset asks for "ortho", for vedo's
-"persp"), the case checks only that the value set is accepted.
+at one value only has no second value it draws to differ from: the value
+set draws the picture of the field left to the paper preset. Where paper
+holds another value, the backend draws that one as the value it draws
+(OpenCV draws paper's "persp" orthographic); where paper holds the same
+value (vedo's and OpenCV's axes="off", vedo's "persp"), the case checks
+only that the value set is accepted. A preset holding the refused value
+is no second picture either: OpenCV draws "debug"'s axes="full" as its
+axis indicator, which is why "full" set by the caller is refused.
 """
 
 from __future__ import annotations
@@ -100,20 +103,12 @@ def declared(call: str, backends: list[str]) -> list[Case]:
             for value in sorted(values, key=repr):
                 one = Style("paper", **{field: value})
                 if len(values) == 1:
-                    preset = _a_preset_without(field, value)
-                    cases.append(
-                        Case(backend, field, Style(preset, **{field: value}), Style(preset), False)
-                    )
+                    cases.append(Case(backend, field, one, Style("paper"), False))
                     continue
                 second = _SECOND[field, value]
                 assert drawn.draws(field, second), f"{backend} draws {field}={value!r} alone"
                 cases.append(Case(backend, field, one, Style("paper", **{field: second}), True))
     return cases
-
-
-def _a_preset_without(field: str, value: object) -> str:
-    """A preset whose *field* is not *value*, else ``"paper"``."""
-    return next((preset for preset in PRESETS if getattr(Style(preset), field) != value), "paper")
 
 
 def accepted(call: str, backends: list[str]) -> list[Case]:

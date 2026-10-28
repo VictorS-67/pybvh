@@ -182,6 +182,21 @@ class TestANamedBackendAndTheStyle:
         )
         assert not path.exists()
 
+    def test_opencv_refuses_full_axes(self, walk, tmp_path):
+        """Its axis indicator is not the full axes."""
+        pytest.importorskip("cv2")
+        with pytest.raises(ValueError) as raised:
+            bvhplot.render(
+                walk,
+                tmp_path / "x.apng",
+                backend="opencv",
+                style=bvhplot.Style("paper", axes="full"),
+            )
+        assert str(raised.value) == (
+            "render(backend='opencv') does not draw the Style's axes='full'. "
+            "Leave it out of the Style, or use backend='matplotlib', which draws it."
+        )
+
     @pytest.mark.parametrize("backend", sorted(PACKAGE))
     @pytest.mark.parametrize("preset", style_declarations.PRESETS)
     def test_accepts_every_preset(self, walk, tmp_path, backend, preset):

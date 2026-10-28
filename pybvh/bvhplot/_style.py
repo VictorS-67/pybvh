@@ -267,6 +267,12 @@ class Style:
     supersample: int
     shadow: bool
     ghost_spacing: float
+    # The fields the caller set, by the constructor's overrides and every
+    # replace since: the fields a backend that does not draw them refuses.
+    # Not a field of the look, so not compared, hashed or shown.
+    _set_fields: frozenset[str] = dataclasses.field(
+        default=frozenset(), init=False, repr=False, compare=False
+    )
 
     def __init__(self, preset: str = "paper", **overrides: object) -> None:
         if preset not in _STYLE_PRESETS:
@@ -279,9 +285,11 @@ class Style:
         self,
         fields: dict[str, object],
         overrides: dict[str, object],
+        set_before: frozenset[str] = frozenset(),
     ) -> None:
         """Shared construction path for __init__ and replace: unknown-
-        field check, defensive copies, assignment, validation."""
+        field check, defensive copies, assignment, validation, and the
+        fields set: *set_before* and the overrides."""
         unknown = set(overrides) - set(fields)
         if unknown:
             raise TypeError(
@@ -296,6 +304,7 @@ class Style:
                 value = dict(value)
             object.__setattr__(self, name, value)
         self._validate()
+        object.__setattr__(self, "_set_fields", set_before | frozenset(overrides))
 
     def _validate(self) -> None:
         if self.color_mode not in _VALID_COLOR_MODES:
@@ -356,11 +365,19 @@ class Style:
                 )
 
     def replace(self, **overrides: object) -> Style:
-        """A new Style with the given fields changed."""
-        fields = {f.name: getattr(self, f.name) for f in dataclasses.fields(self)}
+        """A new Style with the given fields changed. The fields changed
+        join those the caller set before (see :class:`Style`)."""
+        fields = {name: getattr(self, name) for name in _STYLE_PRESETS["paper"]}
         new = object.__new__(Style)
-        new._assign_fields(fields, overrides)
+        new._assign_fields(fields, overrides, self._set_fields)
         return new
+
+
+def fields_set(style: Style) -> dict[str, object]:
+    """The fields of *style* its caller set, by the constructor's
+    overrides or by :meth:`Style.replace`, with their values: none for a
+    preset alone."""
+    return {name: getattr(style, name) for name in sorted(style._set_fields)}
 
 
 def resolve_style(style: Style | str) -> Style:

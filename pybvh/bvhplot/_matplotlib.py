@@ -288,20 +288,25 @@ def _pt3(ground: list[int], up: int, a: float, b: float, y: float):
     return tuple(p)
 
 
-def _draw_joint_markers(
+def _scatter_joints(
     ax: Axes3D,
-    frame_data: npt.NDArray[np.float64],
+    pose: npt.NDArray[np.float64],
     style: Style,
-) -> None:
-    # zorder 3: joint dots sit on top of the bone lines (scatter's
-    # default of 1 would put them underneath once computed_zorder is
-    # off in paper mode).
-    ax.scatter(
-        frame_data[:, 0],
-        frame_data[:, 1],
-        frame_data[:, 2],
+    color: ColorType,
+) -> Any:
+    """Draw a pose's joint markers in *color* and return the scatter.
+
+    Stills and videos both draw their joints here, so they share one
+    draw order: zorder 3 sits the joints over the bones (2) once the
+    style takes manual control of the order (:func:`_manual_zorder`),
+    where scatter's default of 1 would put them underneath.
+    """
+    return ax.scatter(
+        pose[:, 0],
+        pose[:, 1],
+        pose[:, 2],
         s=style.joint_size,
-        c=style.joint_color,
+        c=[color],
         depthshade=False,
         zorder=3,
     )
@@ -348,15 +353,7 @@ def _draw_pose(
             if weight >= 1.0
             else _fade_toward_background(style.joint_color, weight, style)
         )
-        ax.scatter(
-            pose[:, 0],
-            pose[:, 1],
-            pose[:, 2],
-            s=style.joint_size,
-            c=[joint_color],
-            depthshade=False,
-            zorder=3,
-        )
+        _scatter_joints(ax, pose, style, joint_color)
 
 
 def _draw_floor_trace(
@@ -691,15 +688,7 @@ def _setup_animated_panel(
 
     joint_scatter = None
     if style.joint_markers:
-        frame0 = view.coords[0]
-        joint_scatter = ax.scatter(
-            frame0[:, 0],
-            frame0[:, 1],
-            frame0[:, 2],
-            s=style.joint_size,
-            c=style.joint_color,
-            depthshade=False,
-        )
+        joint_scatter = _scatter_joints(ax, view.coords[0], style, style.joint_color)
 
     # view_init first: set_box_aspect stores the aspect rolled to whatever
     # vertical axis is current, and get_proj rolls it back the same way. Set

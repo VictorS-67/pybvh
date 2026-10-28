@@ -442,9 +442,10 @@ def _new_3d_figure(
 
 
 # The Style fields sequence() draws whole in either layout: every field
-# but projection, supersample (OpenCV's), shadow (the vedo renderer's) and
-# ghost_spacing (a still has no ghosts). The joint fields are drawn on
-# the last pose, the one fully saturated.
+# but projection, supersample (OpenCV's), shadow (the vedo renderer's,
+# drawn at False alone: none is cast) and ghost_spacing (a still has no
+# ghosts). The joint fields are drawn on the last pose, the one fully
+# saturated.
 _SEQUENCE_FIELDS = frozenset(
     {
         "bone_width",
@@ -464,8 +465,8 @@ _SEQUENCE_FIELDS = frozenset(
 # The Style values sequence() draws in each layout: the offset layout is
 # orthographic by design, the overlay draws the Style's projection.
 SEQUENCE_DRAWS = {
-    "offset": DrawnStyle(_SEQUENCE_FIELDS, projection={"ortho"}),
-    "overlay": DrawnStyle(_SEQUENCE_FIELDS | {"projection"}),
+    "offset": DrawnStyle(_SEQUENCE_FIELDS, projection={"ortho"}, shadow={False}),
+    "overlay": DrawnStyle(_SEQUENCE_FIELDS | {"projection"}, shadow={False}),
 }
 
 
@@ -575,8 +576,9 @@ def sequence_mpl(
 # The options of frame() this backend reads (ADR 0006).
 FRAME_READS = frozenset({"figsize", "show", "ax"})
 # The Style values frame() draws on this backend: every value of every
-# field but supersample (OpenCV's), shadow (the vedo renderer's) and
-# ghost_spacing (a still has no ghosts).
+# field but supersample (OpenCV's), shadow (the vedo renderer's, drawn
+# at False alone: none is cast) and ghost_spacing (a still has no
+# ghosts).
 FRAME_DRAWS = DrawnStyle(
     {
         "bone_width",
@@ -592,7 +594,8 @@ FRAME_DRAWS = DrawnStyle(
         "axes",
         "projection",
         "dpi",
-    }
+    },
+    shadow={False},
 )
 
 # rest_pose() draws through frame_mpl, so it draws what frame() draws.
@@ -917,7 +920,7 @@ def _wrap_update_with_counter(
 RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory", "frame_counter"})
 # The Style values render() draws on this backend: frame()'s, but dpi
 # (the resolution sets the pixels), and the ghosts' spacing.
-RENDER_DRAWS = DrawnStyle(FRAME_DRAWS.fields - {"dpi"} | {"ghost_spacing"})
+RENDER_DRAWS = DrawnStyle(FRAME_DRAWS.fields - {"dpi"} | {"ghost_spacing"}, **FRAME_DRAWS.values)
 
 
 def render_mpl(
@@ -1149,8 +1152,9 @@ def play_mpl(
 
 
 # The Style values trajectory() draws: a path plot keeps its axes, ticks
-# and grid, which carry its information, whatever the Style's axes say.
-TRAJECTORY_DRAWS = DrawnStyle({"background"})
+# and grid, which carry its information, whatever the Style's axes say,
+# and casts no shadow.
+TRAJECTORY_DRAWS = DrawnStyle({"background"}, shadow={False})
 
 
 def trajectory_mpl(

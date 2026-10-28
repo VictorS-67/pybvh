@@ -320,8 +320,8 @@ def _checker_floor(
 # The options of play() this backend reads (ADR 0006): it draws every
 # skeleton in one scene, arranged by the router.
 PLAY_READS = frozenset({"spacing", "match_size"})
-# The Style values play() draws on this backend: in perspective only, and
-# no axes value, since its grid box is always shown.
+# The Style values play() draws on this backend: in perspective only, no
+# axes value, since its grid box is always shown, and no shadow.
 PLAY_DRAWS = DrawnStyle(
     {
         "bone_width",
@@ -336,6 +336,7 @@ PLAY_DRAWS = DrawnStyle(
         "background",
     },
     projection={"persp"},
+    shadow={False},
 )
 
 

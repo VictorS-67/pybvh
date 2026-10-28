@@ -481,6 +481,7 @@ RENDER_DRAWS = DrawnStyle(
         "ghost_spacing",
     },
     projection={"ortho"},
+    shadow={False},
 )
 # The options of play() its notebook video, drawn by render_opencv, reads.
 PLAY_READS = frozenset({"resolution", "frame_counter"})

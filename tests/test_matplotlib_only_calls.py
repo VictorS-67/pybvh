@@ -94,9 +94,9 @@ class TestTheStyleRefused:
 
     def test_sequence_offers_no_layout_where_none_draws_the_field(self, walk):
         with pytest.raises(ValueError) as raised:
-            bvhplot.sequence(walk, layout="overlay", style=bvhplot.Style("paper", shadow=False))
+            bvhplot.sequence(walk, layout="overlay", style=bvhplot.Style("paper", shadow=True))
         assert str(raised.value) == (
-            "sequence(layout='overlay') does not draw the Style's shadow. "
+            "sequence(layout='overlay') does not draw the Style's shadow=True. "
             "Leave it out of the Style."
         )
 
@@ -104,7 +104,7 @@ class TestTheStyleRefused:
         with pytest.raises(ValueError) as raised:
             bvhplot.rest_pose(walk, style=bvhplot.Style("paper", shadow=True))
         assert str(raised.value) == (
-            "rest_pose() does not draw the Style's shadow. Leave it out of the Style."
+            "rest_pose() does not draw the Style's shadow=True. Leave it out of the Style."
         )
 
     @pytest.mark.parametrize(
@@ -116,7 +116,7 @@ class TestTheStyleRefused:
             ("sequence", {"layout": "offset"}, "projection", "persp"),
             ("sequence", {"layout": "offset"}, "shadow", True),
             ("sequence", {"layout": "overlay"}, "shadow", True),
-            ("rest_pose", {}, "shadow", False),
+            ("rest_pose", {}, "shadow", True),
         ],
     )
     def test_each_field_refused(self, walk, call, options, field, value):

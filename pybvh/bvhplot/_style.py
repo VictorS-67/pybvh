@@ -174,6 +174,7 @@ STYLE_VALUES: dict[str, frozenset[object]] = {
     "floor": frozenset(_VALID_FLOORS),
     "axes": frozenset(_VALID_AXES),
     "projection": frozenset(_VALID_PROJECTIONS),
+    "shadow": frozenset({True, False}),
 }
 
 
@@ -228,7 +229,7 @@ class Style:
         projection    yes   persp yes   ortho persp yes   ortho persp persp yes   ortho yes   n/a
         dpi           yes   n/a   n/a   n/a   n/a   n/a   n/a   n/a   n/a   yes   yes   yes   n/a
         supersample   n/a   n/a   n/a   yes   n/a   n/a   yes   n/a   n/a   n/a   n/a   n/a   n/a
-        shadow        no    yes   no    no    yes   no    no    no    no    no    no    no    no
+        shadow        False yes   False False yes   False False False False False False False False
         ghost_spacing n/a   n/a   yes   yes   n/a   n/a   n/a   n/a   n/a   n/a   n/a   n/a   n/a
 
     The columns: ``frame``'s backends (``mpl`` matplotlib, ``vedo``
@@ -240,19 +241,19 @@ class Style:
     layouts, ``traj`` is ``trajectory``.
 
     ``yes``: drawn at every value. A value (``ortho``, ``persp``,
-    ``off``): drawn at that value alone; another is refused. ``no``:
-    refused at every value. ``n/a``: accepted at every value without a
-    word, since it names something that drawing does not hold: ``dpi``
-    outside the figures of ``frame``, ``rest_pose`` and ``sequence``
-    (the pixels of a video or a vedo picture are its resolution, and
-    k3d and the vedo window make no figure); ``supersample``, which
-    OpenCV alone draws with; ``ghost_spacing`` where no ghosts are
-    drawn; and in ``trajectory``, a 2D plot of the root's path, the
-    bone, joint and floor fields and ``projection``. ``trajectory``
-    and matplotlib's ``play`` do make a figure, at matplotlib's own
-    dpi, and accept ``dpi`` without drawing it all the same. So one
-    Style serves stills and videos, and a Style built for ``frame``
-    serves ``trajectory``.
+    ``off``, ``False``): drawn at that value alone; another is refused.
+    ``no``: refused at every value. ``n/a``: accepted at every value
+    without a word, since it names something that drawing does not
+    hold: ``dpi`` outside the figures of ``frame``, ``rest_pose`` and
+    ``sequence`` (the pixels of a video or a vedo picture are its
+    resolution, and k3d and the vedo window make no figure);
+    ``supersample``, which OpenCV alone draws with; ``ghost_spacing``
+    where no ghosts are drawn; and in ``trajectory``, a 2D plot of the
+    root's path, the bone, joint and floor fields and ``projection``.
+    ``trajectory`` and matplotlib's ``play`` do make a figure, at
+    matplotlib's own dpi, and accept ``dpi`` without drawing it all the
+    same. So one Style serves stills and videos, and a Style built for
+    ``frame`` serves ``trajectory``.
 
     What the table leaves out: both vedo backends draw each joint as
     the capsules' sphere, sized and coloured by its bones; k3d always

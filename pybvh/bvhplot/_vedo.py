@@ -182,6 +182,7 @@ PLAY_DRAWS = DrawnStyle(
     },
     axes={"off"},
     projection={"persp"},
+    shadow={False},
 )
 
 

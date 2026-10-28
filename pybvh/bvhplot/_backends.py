@@ -198,8 +198,10 @@ def _reads(call: str, backend: str) -> frozenset[str]:
 def _draws(call: str, backend: str) -> DrawnStyle:
     """The Style values *backend* draws for the public *call*, as it
     declares them beside its entry function: ``FRAME_DRAWS``,
-    ``RENDER_DRAWS`` or ``PLAY_DRAWS``, imported as :func:`_reads`
-    imports the options'. A call drawn several ways by one module
+    ``RENDER_DRAWS``, ``PLAY_DRAWS``, or ``SEQUENCE_DRAWS``,
+    ``TRAJECTORY_DRAWS`` and ``REST_POSE_DRAWS`` for the calls
+    matplotlib alone draws, imported as :func:`_reads` imports the
+    options'. A call drawn several ways by one module
     declares a mapping, from each way (``sequence``'s layouts) to what
     it draws."""
     module = importlib.import_module(f".{_DECLARING_MODULES[call][backend]}", __package__)
@@ -231,10 +233,11 @@ def choose_frame_backend(
 def check_drawn_style(call: str, style: Style, layout: str | None = None) -> None:
     """Raise ``ValueError`` naming each field of *style* its caller set
     that the public *call*, which matplotlib alone draws, does not draw
-    (see :func:`_with_undrawn_style`). Its backend is always named: the
-    message names the *layout* drawn, for a call whose layouts draw
-    differently, and offers the layouts that draw the fields; else it
-    names the call alone."""
+    (see :func:`_with_undrawn_style`), as for a named backend, since
+    the call has no other. For a call whose layouts draw differently
+    (``sequence``), the message names the *layout* drawn and offers the
+    layouts that draw the fields; for any other, it names the call
+    alone and offers nothing."""
     if layout is None:
         _with_undrawn_style(
             call, "matplotlib", Choice("matplotlib"), style, ["matplotlib"], keyword=None

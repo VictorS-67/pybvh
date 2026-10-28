@@ -110,14 +110,35 @@ class TestTheStyleRefused:
             "rest_pose() does not draw the Style's shadow. Leave it out of the Style."
         )
 
+    @pytest.mark.parametrize(
+        ("call", "options", "field", "value"),
+        [
+            ("trajectory", {}, "axes", "full"),
+            ("trajectory", {}, "axes", "off"),
+            ("trajectory", {}, "shadow", True),
+            ("sequence", {"layout": "offset"}, "projection", "persp"),
+            ("sequence", {"layout": "offset"}, "shadow", True),
+            ("sequence", {"layout": "overlay"}, "shadow", True),
+            ("rest_pose", {}, "shadow", False),
+        ],
+    )
+    def test_each_field_refused(self, walk, call, options, field, value):
+        """What each call does not draw, from #132's design: a
+        trajectory keeps its axes, the offset sequence is orthographic,
+        and only the vedo renderer draws a shadow."""
+        style = bvhplot.Style("paper", **{field: value})
+        with pytest.raises(ValueError, match=f"does not draw the Style's {field}"):
+            getattr(bvhplot, call)(walk, style=style, **options)
+
 
 class TestTheStyleAccepted:
     @pytest.mark.parametrize("preset", style_declarations.PRESETS)
     @pytest.mark.parametrize("call", ["sequence", "trajectory", "rest_pose"])
     def test_every_preset(self, walk, call, preset):
-        """A preset fills every field, drawn by the call or not."""
+        """A preset fills every field, drawn by the call or not: none
+        raises."""
         for style in (preset, bvhplot.Style(preset)):
-            assert _picture(getattr(bvhplot, call)(walk, style=style)).size
+            _picture(getattr(bvhplot, call)(walk, style=style))
 
     def test_trajectory_takes_a_style_built_for_frame(self, walk):
         """pybvh-qualities' gallery draws its stills in one grey with this

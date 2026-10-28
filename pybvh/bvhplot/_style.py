@@ -259,9 +259,12 @@ class Style:
     shows its grid box; OpenCV draws ``axes="full"``, set by the
     caller or by a preset, as a small axis indicator in a corner of
     each panel, and with ``joint_markers=False`` still draws a small
-    bone-coloured dot at each joint, which joins its bones; the vedo renderer casts its
-    shadow on the floor, so under ``floor=None`` it draws none;
-    ``sequence`` draws the joint fields on its last pose.
+    bone-coloured dot at each joint, which joins its bones; the vedo
+    renderer casts its shadow on the floor, so under ``floor=None`` it
+    draws none; ``sequence`` draws the joint fields on its last pose.
+    The k3d widget also shows k3d's own axes helper in a corner, beside
+    its grid box, at either value of ``axes`` (k3d's ``axes_helper``,
+    which pybvh leaves at k3d's default).
 
     ``ghost_spacing`` is in seconds of clip time, not playback time,
     between the faded trailing poses that ``render(ghost=...)`` draws

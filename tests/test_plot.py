@@ -1118,9 +1118,13 @@ class TestRenderOpenCV:
         bvhplot.render(clips, path, backend="opencv", fps=10, **options)
         return apng_frames(path, 10)[0].astype(int)
 
-    def test_a_larger_joint_size_draws_larger_joint_discs(self, walk, tmp_path, apng_frames):
-        """The discs are drawn in pure red, a color no bone or floor of
-        these styles takes, so the red pixels are the discs."""
+    def test_four_times_the_joint_size_draws_discs_twice_as_wide(self, walk, tmp_path, apng_frames):
+        """``joint_size`` is an area, as matplotlib's marker size is: four
+        times the size doubles the radius and draws about four times the
+        disc pixels, a little fewer where discs overlap (a radius
+        growing with the size itself would draw about sixteen times).
+        The discs are drawn in pure red, a color no bone of these styles
+        takes, so the red pixels are the discs."""
 
         def red_pixels(joint_size):
             style = bvhplot.Style("paper", floor=None, joint_color="#FF0000", joint_size=joint_size)
@@ -1130,7 +1134,7 @@ class TestRenderOpenCV:
 
         small, large = red_pixels(9.0), red_pixels(36.0)
         assert small > 0
-        assert large > 2 * small
+        assert 2.5 * small < large < 6 * small
 
     def test_the_dots_joining_the_bones_without_markers_ignore_joint_size(
         self, walk, tmp_path, apng_frames

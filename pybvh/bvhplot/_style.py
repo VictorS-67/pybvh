@@ -76,6 +76,25 @@ def bone_width_scale(bone_width: float) -> float:
     return bone_width / ANCHOR_BONE_WIDTH
 
 
+# The joint size at which every backend that sizes joints itself (k3d's
+# points, OpenCV's discs) draws them at its base size: the presets'.
+ANCHOR_JOINT_SIZE = 9.0
+
+
+def joint_size_scale(joint_size: float) -> float:
+    """The factor a style's *joint_size* scales a joint's diameter by:
+    1 at ``ANCHOR_JOINT_SIZE``.
+
+    ``joint_size`` is an area, as matplotlib's marker size is (square
+    points), so the diameter goes as its square root, as a matplotlib
+    marker's does: four times the joint size draws joints twice as wide
+    on every backend. The alternative, a diameter in proportion to the
+    size as ``bone_width`` gives the bones, would make the same change
+    twice as large on k3d and OpenCV as on matplotlib.
+    """
+    return float((joint_size / ANCHOR_JOINT_SIZE) ** 0.5)
+
+
 # Preset field values. "paper" is the publication-grade default;
 # "debug" reproduces the pre-0.9.0 output exactly (single blue, full
 # axes, no floor); "dark" is the paper look on a near-black ground.
@@ -377,11 +396,10 @@ def bone_colors_for_view(
 # Bone and joint sizes in pixels (OpenCV, the vedo viewer's fast mode)
 # ---------------------------------------------------------------------------
 
-# A joint disc of ANCHOR_JOINT_SIZE, the presets' joint_size, has this
-# radius in pixels at the 1080p anchor. At render's default 1920 x 1080,
-# drawn twice the size, that is 8 pixels against bones 6 wide: a joint
-# stands 2 pixels out of its bones on each side.
-ANCHOR_JOINT_SIZE = 9.0
+# A joint disc of ANCHOR_JOINT_SIZE has this radius in pixels at the
+# 1080p anchor. At render's default 1920 x 1080, drawn twice the size,
+# that is 8 pixels against bones 6 wide: a joint stands 2 pixels out of
+# its bones on each side.
 ANCHOR_JOINT_RADIUS_PX = 4.0
 
 
@@ -394,17 +412,12 @@ def bone_width_px(bone_width: float, px_scale: float = 1.0) -> int:
 
 
 def joint_radius_px(joint_size: float, px_scale: float = 1.0) -> int:
-    """A style's *joint_size* as a joint disc's radius in whole pixels.
-
-    *joint_size* is an area, as matplotlib's marker size is, so the
-    radius grows with its square root: ``ANCHOR_JOINT_RADIUS_PX`` pixels
-    for ``ANCHOR_JOINT_SIZE`` at the 1080p anchor (*px_scale* 1), scaled
-    by *px_scale* as :func:`bone_width_px` scales the bones, rounded
-    half up and at least 1. A radius proportional to *joint_size* was
-    rejected: four times the size would draw discs four times as wide
-    where matplotlib draws its markers twice as wide.
-    """
-    radius = ANCHOR_JOINT_RADIUS_PX * (joint_size / ANCHOR_JOINT_SIZE) ** 0.5
+    """A style's *joint_size* as a joint disc's radius in whole pixels:
+    ``ANCHOR_JOINT_RADIUS_PX`` at the 1080p anchor (*px_scale* 1) scaled
+    by :func:`joint_size_scale`, which grows with the square root of
+    the size, and by *px_scale*, as :func:`bone_width_px` scales the
+    bones; rounded half up and at least 1."""
+    radius = ANCHOR_JOINT_RADIUS_PX * joint_size_scale(joint_size)
     return max(1, int(radius * px_scale + 0.5))
 
 

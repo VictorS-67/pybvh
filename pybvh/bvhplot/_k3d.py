@@ -22,7 +22,13 @@ from ._colors import (
     skeleton_color_255,
 )
 from ._scene import Scene
-from ._style import PALETTE_RGB, Style, bone_width_scale, effective_color_mode
+from ._style import (
+    PALETTE_RGB,
+    Style,
+    bone_width_scale,
+    effective_color_mode,
+    joint_size_scale,
+)
 from ._viewport import STANDING_STILL_HALF_SPAN, Viewport, make_viewport
 
 # The floor is drawn this far below the scene ground, in half-spans, so
@@ -41,23 +47,6 @@ FLOOR_CHECKER_SQUARES = 16
 BONE_WIDTH_FRACTION = 0.02 * STANDING_STILL_HALF_SPAN
 JOINT_SIZE_FRACTION = 0.03 * STANDING_STILL_HALF_SPAN
 TRAIL_WIDTH_FRACTION = 0.015 * STANDING_STILL_HALF_SPAN
-# The joint size at which the joints are JOINT_SIZE_FRACTION of the
-# body: the paper default.
-ANCHOR_JOINT_SIZE = 9.0
-
-
-def _joint_size_scale(joint_size: float) -> float:
-    """The factor a style's *joint_size* scales the joints' diameter by:
-    1 at ``ANCHOR_JOINT_SIZE``.
-
-    ``joint_size`` is an area, as matplotlib's marker size is (square
-    points), so the diameter goes as its square root, as a matplotlib
-    marker's does: four times the joint size draws joints twice as wide
-    on both. The alternative, a diameter in proportion to the size as
-    ``bone_width`` gives the bones, would make the same change twice as
-    large on k3d as on matplotlib.
-    """
-    return float(np.sqrt(joint_size / ANCHOR_JOINT_SIZE))
 
 
 def _packed(rgb: tuple[int, int, int]) -> int:
@@ -112,7 +101,7 @@ def _build_plot(
 
     grid_line_rgb, grid_label_rgb = grid_box_colors(style)
     width_factor = bone_width_scale(style.bone_width)
-    joint_factor = _joint_size_scale(style.joint_size)
+    joint_factor = joint_size_scale(style.joint_size)
 
     # Pre-convert all coordinates to float32 once (k3d requires float32)
     coords_f32 = [v.coords.astype(np.float32) for v in scene.views]
@@ -375,8 +364,8 @@ def play_k3d(
     scaled by ``bone_width`` (:func:`~._style.bone_width_scale`: the
     paper default is the 1:1 anchor), the joints' point size
     ``JOINT_SIZE_FRACTION``, scaled by the square root of
-    ``joint_size`` over the paper default (:func:`_joint_size_scale`),
-    and the root trail's width
+    ``joint_size`` over the paper default
+    (:func:`~._style.joint_size_scale`), and the root trail's width
     ``TRAIL_WIDTH_FRACTION``, the v0.9.0 sizes of a standing still. A
     still and the whole clip draw a body at the same proportions, and
     each skeleton of a scene gets its own. The sizes are scene lengths

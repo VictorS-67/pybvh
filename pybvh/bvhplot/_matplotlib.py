@@ -276,7 +276,9 @@ def _draw_floor_mpl(
             )
         _add_collection(
             ax,
-            Line3DCollection(segs, colors=palette["grid"], linewidths=0.7, alpha=0.8, zorder=0.5),
+            Line3DCollection(
+                segs, colors=palette["grid"], linewidths=0.7, alpha=style.floor_alpha, zorder=0.5
+            ),
         )
 
 

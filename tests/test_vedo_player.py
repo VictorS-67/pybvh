@@ -776,8 +776,7 @@ class TestTheViewerDrawsTheStyleItDeclares:
     @pytest.mark.parametrize("quality", ["high", "fast"])
     @pytest.mark.parametrize(
         "case",
-        style_declarations.declared("play", ["vedo"])
-        + style_declarations.accepted("play", ["vedo"]),
+        style_declarations.cases("play", ["vedo"]),
         ids=str,
     )
     def test_a_field_declared_changes_the_picture_and_one_accepted_does_not(

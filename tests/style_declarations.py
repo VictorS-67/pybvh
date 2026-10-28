@@ -90,7 +90,7 @@ def _whole(backend: str, field: str) -> Case:
     )
 
 
-def declared(call: str, backends: list[str]) -> list[Case]:
+def _declared(call: str, backends: list[str]) -> list[Case]:
     """A case of every field and value *backends* declare they draw for
     the public *call*."""
     cases = []
@@ -111,7 +111,7 @@ def declared(call: str, backends: list[str]) -> list[Case]:
     return cases
 
 
-def accepted(call: str, backends: list[str]) -> list[Case]:
+def _accepted(call: str, backends: list[str]) -> list[Case]:
     """A case of every field *backends* accept for the public *call*
     without drawing it: of a field of a fixed set of values, each value
     against its second."""
@@ -128,3 +128,10 @@ def accepted(call: str, backends: list[str]) -> list[Case]:
                 other = Style("paper", **{field: _SECOND[field, value]})
                 cases.append(Case(backend, field, one, other, False))
     return cases
+
+
+def cases(call: str, backends: list[str]) -> list[Case]:
+    """A case of every field and value *backends* declare they draw for
+    the public *call*, then of every field they accept without drawing
+    it."""
+    return _declared(call, backends) + _accepted(call, backends)

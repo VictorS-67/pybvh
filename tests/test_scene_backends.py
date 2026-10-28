@@ -522,12 +522,11 @@ class TestK3d:
         assert np.all(built.trail_paths[0][:, up] > corners[:, up].max())
         assert built.floor.opacity == pytest.approx(Style("paper").floor_alpha)
 
-    @pytest.mark.parametrize("kind", ["grid", "checker"])
-    def test_a_grid_floor_spans_the_same_plane(self, pair, kind):
+    def test_a_grid_floor_spans_the_same_plane(self, pair):
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import FLOOR_GRID_LINES, _build_plot
 
-        built = _build_plot(pair.spread("auto"), Style("paper", floor=kind))
+        built = _build_plot(pair.spread("auto"), Style("paper", floor="grid"))
         viewport = built.viewport
         vertices = np.asarray(built.floor.vertices).reshape(-1, 3)
         # k3d keeps indices in a float32 trait
@@ -540,6 +539,59 @@ class TestK3d:
         # every line runs from one edge of the plane to the opposite one
         lengths = np.linalg.norm(vertices[indices[:, 1]] - vertices[indices[:, 0]], axis=1)
         np.testing.assert_allclose(lengths, 2 * viewport.floor_reach, rtol=1e-5)
+
+    @pytest.mark.parametrize(
+        "preset, shades",
+        [("paper", {"EDEDF1", "DCDCE3"}), ("dark", {"2A2E36", "1E2127"})],
+    )
+    def test_a_checker_floor_is_squares_of_two_colors(self, pair, preset, shades):
+        """Squares on vertices of their own, each in one color, half in
+        each of the two shades, over the plane the solid floor covers,
+        at floor_alpha."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        style = Style(preset, floor="checker", floor_alpha=0.5)
+        built = _build_plot(pair.spread("auto"), style)
+        floor = built.floor
+        assert type(floor).__name__ == "Mesh"
+        assert floor.opacity == pytest.approx(0.5)
+        vertices = np.asarray(floor.vertices).reshape(-1, 3)
+        # k3d keeps indices in a float32 trait
+        triangles = np.asarray(floor.indices).reshape(-1, 3).astype(int)
+        colors = np.asarray(floor.colors)
+        assert len(colors) == len(vertices)
+        assert {f"{c:06X}" for c in colors} == shades
+        # no vertex is shared, and each triangle is one color
+        assert len(np.unique(triangles)) == len(vertices)
+        assert np.all(colors[triangles] == colors[triangles[:, :1]])
+        counts = [np.sum(colors == c) for c in np.unique(colors)]
+        assert counts[0] == counts[1]
+        # a square is the triangles sharing its vertices; squares side by
+        # side differ in color
+        square_of = np.arange(len(vertices))
+        for a, b, c in triangles:
+            square_of[[b, c]] = square_of[a]
+        squares = np.unique(square_of[triangles[:, 0]])
+        centres = np.array([vertices[square_of == q].mean(axis=0) for q in squares])
+        shade = np.array([colors[square_of == q][0] for q in squares])
+        distance = np.linalg.norm(centres[:, np.newaxis] - centres[np.newaxis], axis=2)
+        side = distance[distance > 0].min()
+        beside = np.isclose(distance, side, rtol=1e-4)
+        assert beside.any()
+        assert np.all(shade[np.nonzero(beside)[0]] != shade[np.nonzero(beside)[1]])
+        expected = built.viewport.floor_quad()
+        for axis in built.viewport.ground_indices:
+            assert vertices[:, axis].min() == pytest.approx(expected[:, axis].min(), rel=1e-6)
+            assert vertices[:, axis].max() == pytest.approx(expected[:, axis].max(), rel=1e-6)
+
+    @pytest.mark.parametrize("alpha", [0.3, 1.0])
+    def test_a_grid_floor_is_drawn_at_floor_alpha(self, pair, alpha):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        built = _build_plot(pair.spread("auto"), Style("paper", floor="grid", floor_alpha=alpha))
+        assert built.floor.opacity == pytest.approx(alpha)
 
     def test_a_style_without_a_floor_draws_none(self, pair):
         pytest.importorskip("k3d")
@@ -576,7 +628,7 @@ class TestK3d:
             assert path.shape == (view.coords.shape[0], 3)
 
     @staticmethod
-    def _play_and_grab_slider(scene, monkeypatch):
+    def _play_and_grab_slider(scene, monkeypatch, style=None):
         """Play *scene* with k3d outside a notebook: the plot as built
         and the frame slider of the widget that would be displayed."""
         pytest.importorskip("k3d")
@@ -593,7 +645,7 @@ class TestK3d:
 
         monkeypatch.setattr(_k3d, "_build_plot", build_and_keep)
         monkeypatch.setattr(IPython.display, "display", shown.append)
-        _k3d.play_k3d(scene, Style("paper"), 30.0)
+        _k3d.play_k3d(scene, style or Style("paper"), 30.0)
         (widget,) = shown
         _plot, controls = widget.children
         (slider,) = [w for w in controls.children if type(w).__name__ == "IntSlider"]
@@ -607,6 +659,15 @@ class TestK3d:
             expected = view.coords[7].astype(np.float32)
             np.testing.assert_array_equal(lines.vertices, expected)
             np.testing.assert_array_equal(points.positions, expected)
+
+    def test_the_frame_slider_poses_skeletons_drawn_without_joints(self, pair, monkeypatch):
+        scene = pair.spread("auto")
+        style = Style("paper", joint_markers=False)
+        built, slider = self._play_and_grab_slider(scene, monkeypatch, style)
+        slider.value = 7
+        for (lines, points), view in zip(built.skeletons, scene.views, strict=True):
+            assert points is None
+            np.testing.assert_array_equal(lines.vertices, view.coords[7].astype(np.float32))
 
     def test_the_frame_slider_grows_each_trail_to_its_frame(self, pair, monkeypatch):
         """The trail is the root's ground path up to the frame, and its
@@ -662,9 +723,77 @@ class TestK3d:
             r_leg,  # LeftFoot, RightFoot
         ]
         built = _build_plot(scene, Style(preset))
-        ((lines, points),) = built.skeletons
-        for drawn in (lines.colors, points.colors):
-            assert [f"{c:06X}" for c in drawn] == [f"{c:06X}" for c in expected]
+        ((lines, _points),) = built.skeletons
+        assert [f"{c:06X}" for c in lines.colors] == [f"{c:06X}" for c in expected]
+
+    @pytest.mark.parametrize("which", ["one", "pair"])
+    @pytest.mark.parametrize(
+        "style, joint",
+        [
+            (Style("paper"), "23262E"),
+            (Style("dark"), "E8E8EC"),
+            (Style("paper", joint_color="red"), "FF0000"),
+        ],
+        ids=["paper", "dark", "red"],
+    )
+    def test_the_joints_are_drawn_in_the_joint_color(self, scene, pair, which, style, joint):
+        """... over chain colors and the palette alike, as matplotlib
+        draws them."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        built = _build_plot(scene if which == "one" else pair.spread("auto"), style)
+        for _lines, points in built.skeletons:
+            assert f"{points.color:06X}" == joint
+            assert len(points.colors) == 0
+
+    def test_one_skeleton_under_single_is_drawn_in_the_bone_color(self, scene):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        built = _build_plot(scene, Style("paper", color_mode="single", bone_color=(1.0, 0.6, 0.0)))
+        ((lines, _points),) = built.skeletons
+        assert f"{lines.color:06X}" == "FF9900"
+        assert len(lines.colors) == 0
+
+    @pytest.mark.parametrize("color_mode", ["auto", "skeleton", "single"])
+    def test_several_skeletons_are_drawn_in_the_palette(self, pair, color_mode):
+        """Blue then red, whatever bone_color says: "single" draws one
+        skeleton in it, a comparison in the palette."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        built = _build_plot(pair.spread("auto"), Style("paper", color_mode=color_mode))
+        drawn = [f"{lines.color:06X}" for lines, _points in built.skeletons]
+        assert drawn == ["3278FF", "DC3232"]
+        assert all(len(lines.colors) == 0 for lines, _points in built.skeletons)
+
+    def test_the_joints_are_sized_from_joint_size(self, scene):
+        """The paper size draws the v0.9.0 joints; joint_size is an area,
+        as matplotlib's marker size is, so four times it draws joints
+        twice as wide."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import JOINT_SIZE_FRACTION, _build_plot
+
+        def point_size(style):
+            ((_lines, points),) = _build_plot(scene, style).skeletons
+            return points.point_size
+
+        paper = point_size(Style("paper"))
+        assert paper == pytest.approx(JOINT_SIZE_FRACTION * scene.views[0].body_size)
+        assert point_size(Style("paper", joint_size=36.0)) == pytest.approx(2 * paper)
+
+    @staticmethod
+    def _points_in(plot):
+        return [o for o in plot.objects if type(o).__name__ == "Points"]
+
+    def test_without_joint_markers_no_joint_is_drawn(self, pair):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        assert len(self._points_in(_build_plot(pair.spread("auto"), Style("paper")).plot)) == 2
+        built = _build_plot(pair.spread("auto"), Style("paper", joint_markers=False))
+        assert self._points_in(built.plot) == []
 
 
 # ---------------------------------------------------------------------------

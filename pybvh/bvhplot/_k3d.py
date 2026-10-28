@@ -146,7 +146,6 @@ def _build_plot(
             # The bones take the skeleton's flat color (its palette
             # color, or bone_color under "single"); chain coloring
             # (when it applies) rides as per-vertex colors instead.
-            # The joints take joint_color, as matplotlib draws them.
             color = _packed(skeleton_color_255(style, s, scene.num_skeletons))
             node_colors = _node_colors_uint32(scene, style, s)
 
@@ -163,6 +162,7 @@ def _build_plot(
             plot += lines
             points = None
             if style.joint_markers:
+                # The joints take joint_color, as matplotlib draws them.
                 points = k3d.points(
                     frame0,
                     color=_packed(rgb255(style.joint_color)),
@@ -301,13 +301,13 @@ def _checker_floor(
     import k3d
 
     n = FLOOR_CHECKER_SQUARES
-    origin, first, second = corners[0], corners[1] - corners[0], corners[3] - corners[0]
+    origin, edge_u, edge_v = corners[0], corners[1] - corners[0], corners[3] - corners[0]
     i, j = (a.ravel() for a in np.meshgrid(np.arange(n), np.arange(n), indexing="ij"))
     # Each square's corners, in order around it from its (i, j) corner.
     steps = np.array([[0, 0], [1, 0], [1, 1], [0, 1]])
     u = (i[:, np.newaxis] + steps[:, 0]) / n  # (squares, 4)
     v = (j[:, np.newaxis] + steps[:, 1]) / n
-    vertices = origin + u[..., np.newaxis] * first + v[..., np.newaxis] * second
+    vertices = origin + u[..., np.newaxis] * edge_u + v[..., np.newaxis] * edge_v
     first_vertex = 4 * np.arange(n * n)[:, np.newaxis]
     triangles = np.concatenate([first_vertex + [0, 1, 2], first_vertex + [0, 2, 3]])
     shades = np.array([_packed(rgb255(shade)) for shade in palette["checker"]], dtype=np.uint32)

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import dataclasses
+import inspect
+import re
 from pathlib import Path
 
 import matplotlib
@@ -13,6 +15,7 @@ import numpy as np
 import pytest
 
 from pybvh import bvhplot, read_bvh_file
+from pybvh.bvhplot import _backends
 from pybvh.bvhplot._from_bvh import get_bone_chains, get_skeleton_lines, make_scene
 from pybvh.bvhplot._style import (
     CHAIN_COLORS,
@@ -200,6 +203,87 @@ class TestStyleValidation:
     @pytest.mark.parametrize("preset", ["paper", "debug", "dark"])
     def test_every_preset_passes_its_own_checks(self, preset):
         assert Style(preset) == Style(preset)
+
+
+# The drawing path each column of the Style docstring's table names: under
+# the call (or the group) of its first header row, the label of its second.
+_TABLE_COLUMNS = {
+    ("frame", "mpl"): ("frame", "matplotlib"),
+    ("frame", "vedo"): ("frame", "vedo"),
+    ("render", "mpl"): ("render", "matplotlib"),
+    ("render", "cv"): ("render", "opencv"),
+    ("render", "vedo"): ("render", "vedo"),
+    ("play", "mpl"): ("play", "matplotlib"),
+    ("play", "cv"): ("play", "opencv_notebook"),
+    ("play", "k3d"): ("play", "k3d"),
+    ("play", "vedo"): ("play", "vedo"),
+    ("matplotlib alone", "rest"): ("rest_pose", "matplotlib"),
+    ("matplotlib alone", "offs"): ("sequence", "offset"),
+    ("matplotlib alone", "over"): ("sequence", "overlay"),
+    ("matplotlib alone", "traj"): ("trajectory", "matplotlib"),
+}
+
+
+def _docstring_table() -> tuple[list[tuple[str, str]], list[tuple[str, list[str]]]]:
+    """The Style docstring's table: the drawing path of each column, and
+    each row's field and cells."""
+    lines = inspect.cleandoc(Style.__doc__ or "").splitlines()
+    headers = [i for i, line in enumerate(lines) if line.split()[:1] == ["field"]]
+    assert len(headers) == 1, "the Style docstring holds no table, or several"
+    at = headers[0]
+    groups = [(m.start(), m.group()) for m in re.finditer(r"\S+(?: \S+)*", lines[at - 1])]
+    columns = []
+    for label in list(re.finditer(r"\S+", lines[at]))[1:]:
+        group = [name for start, name in groups if start <= label.start()][-1]
+        columns.append(_TABLE_COLUMNS[group, label.group()])
+    rows = []
+    for line in lines[at + 1 :]:
+        if not line.strip():
+            break
+        field, *cells = line.split()
+        rows.append((field, cells))
+    return columns, rows
+
+
+def _cell(call: str, path: str, field: str) -> str:
+    """What the table should say of *field* on the drawing path: ``yes``
+    drawn at every value, the values drawn, ``n/a`` accepted, ``no``
+    refused."""
+    drawn = _backends._draws(call, path)
+    if field in drawn.fields:
+        return "yes"
+    if field in _backends._STYLE_ACCEPTED[call]:
+        return "n/a"
+    values = drawn.values.get(field, frozenset())
+    return ",".join(sorted(str(value) for value in values)) or "no"
+
+
+class TestTheDocstringTable:
+    """The table in the Style docstring says what each drawing path does
+    with each field its caller sets, as the declarations the backend
+    choice reads say it."""
+
+    def test_a_column_per_drawing_path(self):
+        columns, _ = _docstring_table()
+        paths = [
+            (call, path) for call, ways in _backends._DECLARING_MODULES.items() for path in ways
+        ]
+        assert sorted(columns) == sorted(paths)
+
+    def test_a_row_per_field(self):
+        _, rows = _docstring_table()
+        fields = [f.name for f in dataclasses.fields(Style) if f.compare]
+        assert sorted(field for field, _ in rows) == sorted(fields)
+
+    def test_every_cell_says_what_the_declarations_say(self):
+        columns, rows = _docstring_table()
+        wrong = [
+            f"{field} on {call} {path}: {cell!r}, declared {_cell(call, path, field)!r}"
+            for field, cells in rows
+            for (call, path), cell in zip(columns, cells, strict=True)
+            if cell != _cell(call, path, field)
+        ]
+        assert not wrong, "\n".join(wrong)
 
 
 class TestResolveStyle:

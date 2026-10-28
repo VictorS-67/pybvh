@@ -35,10 +35,27 @@ FLOOR_GRID_LINES = 21
 # What is drawn on a body is sized from it, in these fractions of its
 # body size: the v0.9.0 sizes of a standing still, which were 2%, 3%
 # and 1.5% of its half-span. The bones' width is at the paper style's
-# bone width.
+# bone width, the joints' size at its joint size.
 BONE_WIDTH_FRACTION = 0.02 * STANDING_STILL_HALF_SPAN
 JOINT_SIZE_FRACTION = 0.03 * STANDING_STILL_HALF_SPAN
 TRAIL_WIDTH_FRACTION = 0.015 * STANDING_STILL_HALF_SPAN
+# The joint size at which the joints are JOINT_SIZE_FRACTION of the
+# body: the paper default.
+ANCHOR_JOINT_SIZE = 9.0
+
+
+def _joint_size_scale(joint_size: float) -> float:
+    """The factor a style's *joint_size* scales the joints' diameter by:
+    1 at ``ANCHOR_JOINT_SIZE``.
+
+    ``joint_size`` is an area, as matplotlib's marker size is (square
+    points), so the diameter goes as its square root, as a matplotlib
+    marker's does: four times the joint size draws joints twice as wide
+    on both. The alternative, a diameter in proportion to the size as
+    ``bone_width`` gives the bones, would make the same change twice as
+    large on k3d as on matplotlib.
+    """
+    return float(np.sqrt(joint_size / ANCHOR_JOINT_SIZE))
 
 
 def _packed(rgb: tuple[int, int, int]) -> int:
@@ -93,6 +110,7 @@ def _build_plot(
 
     grid_line_rgb, grid_label_rgb = grid_box_colors(style)
     width_factor = bone_width_scale(style.bone_width)
+    joint_factor = _joint_size_scale(style.joint_size)
 
     # Pre-convert all coordinates to float32 once (k3d requires float32)
     coords_f32 = [v.coords.astype(np.float32) for v in scene.views]
@@ -146,7 +164,7 @@ def _build_plot(
                 points = k3d.points(
                     frame0,
                     color=_packed(rgb255(style.joint_color)),
-                    point_size=JOINT_SIZE_FRACTION * view.body_size,
+                    point_size=JOINT_SIZE_FRACTION * view.body_size * joint_factor,
                     shader="3dSpecular",
                     name=f"Joints {s}",
                 )

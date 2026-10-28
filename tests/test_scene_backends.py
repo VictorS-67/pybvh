@@ -716,6 +716,21 @@ class TestK3d:
         assert drawn == ["3278FF", "DC3232"]
         assert all(len(lines.colors) == 0 for lines, _points in built.skeletons)
 
+    def test_the_joints_are_sized_from_joint_size(self, scene):
+        """The paper size draws the v0.9.0 joints; joint_size is an area,
+        as matplotlib's marker size is, so four times it draws joints
+        twice as wide."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import JOINT_SIZE_FRACTION, _build_plot
+
+        def point_size(style):
+            ((_lines, points),) = _build_plot(scene, style).skeletons
+            return points.point_size
+
+        paper = point_size(Style("paper"))
+        assert paper == pytest.approx(JOINT_SIZE_FRACTION * scene.views[0].body_size)
+        assert point_size(Style("paper", joint_size=36.0)) == pytest.approx(2 * paper)
+
     @staticmethod
     def _points_in(plot):
         return [o for o in plot.objects if type(o).__name__ == "Points"]

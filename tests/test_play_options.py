@@ -4,16 +4,70 @@ named, warn under auto, whose choice depends on the session."""
 
 from __future__ import annotations
 
+import dataclasses
 import warnings
 
 import pytest
+import style_declarations
 
 from pybvh import bvhplot
 from pybvh.bvhplot import _backends
+from pybvh.bvhplot._style import STYLE_VALUES, resolve_style
 
 # Every package a play backend imports, so no import check stands in the
 # way of the rule.
 EVERYTHING = {"k3d", "vedo", "cv2"}
+
+# The Style fields and values each play backend does not draw, as #132
+# lists them: the projections it lacks; axes on the viewers (k3d always
+# shows its grid box, vedo has none) and OpenCV's "full", a small axis
+# indicator; the vedo viewer's joint fields, its joint being the capsules'
+# sphere at both qualities; a shadow, which only the vedo renderer draws.
+REFUSED = [
+    ("k3d", "projection", "ortho"),
+    ("k3d", "axes", "off"),
+    ("k3d", "axes", "full"),
+    ("k3d", "shadow", True),
+    ("vedo", "projection", "ortho"),
+    ("vedo", "axes", "full"),
+    ("vedo", "joint_markers", True),
+    ("vedo", "joint_markers", False),
+    ("vedo", "joint_size", 20.0),
+    ("vedo", "joint_color", "red"),
+    ("vedo", "shadow", True),
+    ("opencv", "projection", "persp"),
+    ("opencv", "axes", "full"),
+    ("opencv", "shadow", True),
+    ("matplotlib", "shadow", True),
+]
+
+# How to have auto choose each backend, in a session the test builds.
+AUTO_CHOOSES = {
+    "k3d": lambda environment: environment(notebook=True, importable=EVERYTHING),
+    "vedo": lambda environment: environment(display=True, importable=EVERYTHING),
+    "opencv": lambda environment: environment(notebook=True, importable={"cv2"}),
+    "matplotlib": lambda environment: environment(importable=EVERYTHING),
+}
+
+
+def _case_id(value) -> str:
+    return str(value)
+
+
+def _refused_as(field, value):
+    """A field of a fixed set of values is refused at a value, any
+    other at every value."""
+    return (field, value) if field in STYLE_VALUES else (field, None)
+
+
+def _every_field_and_value():
+    """Each Style field once, at the paper preset's value, and each
+    value of a field of a fixed set of values."""
+    paper = bvhplot.Style("paper")
+    for field in sorted(f.name for f in dataclasses.fields(paper) if f.compare):
+        values = sorted(STYLE_VALUES[field], key=repr) if field in STYLE_VALUES else []
+        for value in values or [getattr(paper, field)]:
+            yield field, value
 
 
 class TestPlayChoice:
@@ -157,6 +211,85 @@ class TestPlayChoiceAndTheStyle:
             "play(backend='vedo') does not draw the Style's joint_color. Leave it out of "
             "the Style, or use backend='k3d', 'matplotlib' or 'opencv', which draw it."
         )
+
+    @pytest.mark.parametrize("named, field, value", REFUSED, ids=_case_id)
+    def test_a_named_backend_refuses_each_field_it_does_not_draw(
+        self, environment, named, field, value
+    ):
+        with pytest.raises(ValueError, match=rf"^play\(backend='{named}'\) does not draw "):
+            _backends.choose_play_backend(
+                named,
+                environment(notebook=True, importable=EVERYTHING),
+                style=bvhplot.Style("paper", **{field: value}),
+            )
+
+    @pytest.mark.parametrize("named, field, value", REFUSED, ids=_case_id)
+    def test_auto_warns_of_each_field_its_choice_does_not_draw(
+        self, environment, named, field, value
+    ):
+        choice = _backends.choose_play_backend(
+            "auto", AUTO_CHOOSES[named](environment), style=bvhplot.Style("paper", **{field: value})
+        )
+        assert _backends._PLAY_NAMES.get(choice.backend, choice.backend) == named
+        shown = f"{field}={value!r}" if field in STYLE_VALUES else field
+        assert choice.warnings[-1].startswith(
+            f"play() chose backend='{named}', which does not draw the Style's {shown}, "
+            "so it is ignored."
+        )
+
+    @pytest.mark.parametrize("named", sorted(AUTO_CHOOSES))
+    def test_a_named_backend_takes_every_other_field_without_a_word(self, environment, named):
+        """Each field set alone, at the paper preset's value, or at each
+        value of a field of a fixed set of values."""
+        refused = [
+            _refused_as(field, value) for backend, field, value in REFUSED if backend == named
+        ]
+        for field, value in _every_field_and_value():
+            if _refused_as(field, value) in refused:
+                continue
+            choice = _backends.choose_play_backend(
+                named,
+                environment(notebook=True, importable=EVERYTHING),
+                style=bvhplot.Style("paper", **{field: value}),
+            )
+            assert choice.warnings == (), (field, value)
+
+    def test_auto_warns_offering_the_backends_that_draw_the_field(self, environment):
+        choice = _backends.choose_play_backend(
+            "auto",
+            environment(notebook=True, importable=EVERYTHING),
+            style=bvhplot.Style("paper", projection="ortho"),
+        )
+        assert choice.backend == "k3d"
+        assert choice.warnings == (
+            "play() chose backend='k3d', which does not draw the Style's "
+            "projection='ortho', so it is ignored. To draw it, use "
+            "backend='matplotlib' or 'opencv', which draw it.",
+        )
+
+    @pytest.mark.parametrize("named", sorted(AUTO_CHOOSES))
+    @pytest.mark.parametrize("preset", style_declarations.PRESETS)
+    def test_accepts_every_preset(self, environment, named, preset):
+        """A preset's own values are never refused, though no play
+        backend draws the paper preset's shadow."""
+        for style in (preset, bvhplot.Style(preset)):
+            choice = _backends.choose_play_backend(
+                named,
+                environment(notebook=True, importable=EVERYTHING),
+                style=resolve_style(style),
+            )
+            assert choice.warnings == ()
+
+    @pytest.mark.parametrize("named", sorted(AUTO_CHOOSES))
+    def test_accepts_ghost_spacing_and_dpi(self, environment, named):
+        """play draws no ghosts, and a picture whose pixels are set
+        otherwise has no dpi."""
+        choice = _backends.choose_play_backend(
+            named,
+            environment(notebook=True, importable=EVERYTHING),
+            style=bvhplot.Style("paper", ghost_spacing=0.5, dpi=300),
+        )
+        assert choice.warnings == ()
 
 
 @pytest.fixture

@@ -1189,9 +1189,20 @@ def play(
         One or more BVH objects. Pass a list for side-by-side comparison.
     style : Style or str, optional
         Visual styling: a preset name (``"paper"``, ``"debug"``,
-        ``"dark"``) or a :class:`Style` instance. Applies fully to the
-        matplotlib and OpenCV-notebook fallbacks; the k3d and vedo
-        interactive viewers apply Style's look fields.
+        ``"dark"``) or a :class:`Style` instance. Each backend draws
+        what it can of it. matplotlib's player and the OpenCV notebook
+        video draw it as ``render`` does: OpenCV orthographic, with its
+        small axis indicator for a preset whose axes are ``"full"``. The
+        k3d widget draws in perspective, its grid box always shown. The
+        vedo window draws in perspective, with no axes, and each joint,
+        at both qualities, sized and coloured by its bones. No play
+        backend draws a shadow. A field the Style's caller set (in
+        ``Style(...)`` or ``replace(...)``) at a value the backend does
+        not draw raises ``ValueError`` naming it when the backend is
+        named, and warns under ``"auto"``, as an option the backend does
+        not read does (see *backend*); a preset's own values never do
+        (see :class:`Style`). ``dpi``, ``supersample`` and
+        ``ghost_spacing`` are accepted by every backend, drawn or not.
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional
@@ -1322,9 +1333,10 @@ def play(
         match_size=match_size,
     )
     clips = as_clip_list(bvh)
+    style_obj = resolve_style(style)
 
     environment = _backends.read_environment()
-    choice = _backends.choose_play_backend(backend, environment, given)
+    choice = _backends.choose_play_backend(backend, environment, given, style_obj)
     backend_name = choice.backend
 
     _VALID_QUALITY = {"fast", "high"}
@@ -1338,7 +1350,6 @@ def play(
     animation_options = _animation_options.AnimationOptions(frame_counter=bool(frame_counter))
     _validate_sync(sync)
     pad = sync == "pad"
-    style_obj = resolve_style(style)
 
     # Handle frame-rate mismatch before computing FK coordinates
     _require_frame_rates(clips, "play", fps, match_fps=match_fps)

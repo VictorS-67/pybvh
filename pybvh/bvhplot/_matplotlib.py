@@ -1081,6 +1081,9 @@ def _make_orbit_update_fn(
 # The options of play() this backend reads (ADR 0006): none of those
 # another backend reads.
 PLAY_READS: frozenset[str] = frozenset()
+# The Style values play() draws on this backend: render()'s, but the
+# ghosts' spacing, since play draws no ghosts.
+PLAY_DRAWS = DrawnStyle(RENDER_DRAWS.fields - {"ghost_spacing"}, **RENDER_DRAWS.values)
 
 
 def play_mpl(

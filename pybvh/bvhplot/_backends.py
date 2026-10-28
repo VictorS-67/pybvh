@@ -218,9 +218,9 @@ def choose_frame_backend(
     warning owed.
 
     A given option the backend does not read raises ``ValueError``
-    (ADR 0006); ``spacing`` and ``match_size`` are accepted by every
-    backend. So does a field of *style* its caller set at a value the
-    backend does not draw (see :func:`_with_undrawn_style`).
+    (ADR 0006), and so does a field of *style* its caller set at a value
+    the backend does not draw (see :func:`_with_undrawn_style`);
+    ``spacing`` and ``match_size`` are accepted by every backend.
     """
     _check_known(requested, FRAME_BACKENDS)
     choice = Choice(requested)
@@ -269,6 +269,7 @@ _NOT_IN_EVERY_PICTURE = frozenset({"dpi", "supersample", "ghost_spacing"})
 _STYLE_ACCEPTED = {
     "frame": _NOT_IN_EVERY_PICTURE,
     "render": _NOT_IN_EVERY_PICTURE,
+    "play": _NOT_IN_EVERY_PICTURE,
     "rest_pose": _NOT_IN_EVERY_PICTURE,
     "sequence": _NOT_IN_EVERY_PICTURE,
     # A trajectory plots the root's path on the ground, seen from above:
@@ -444,10 +445,10 @@ def choose_render_backend(
     deliberate look, not a fallback.
 
     A given option the backend does not read raises ``ValueError`` when
-    the backend is named and adds a warning under ``"auto"``;
-    ``spacing`` and ``match_size`` are accepted by every backend. So
+    the backend is named and adds a warning under ``"auto"``, and so
     does a field of *style* its caller set at a value the backend does
-    not draw (see :func:`_with_undrawn_style`).
+    not draw (see :func:`_with_undrawn_style`); ``spacing`` and
+    ``match_size`` are accepted by every backend.
     """
     # Imported here: the video module imports this one.
     from ._video import matplotlib_under_auto
@@ -480,7 +481,10 @@ _PLAY_NAMES = {"opencv_notebook": "opencv"}
 
 
 def choose_play_backend(
-    requested: str, environment: Environment, given: Collection[str] = ()
+    requested: str,
+    environment: Environment,
+    given: Collection[str] = (),
+    style: Style | None = None,
 ) -> Choice:
     """The backend ``play(backend=requested)`` runs.
 
@@ -503,9 +507,11 @@ def choose_play_backend(
     *given* are the options passed (the keywords whose value is not
     ``None``). One the backend does not read raises ``ValueError`` when
     the backend is named and adds a warning under ``"auto"``, whose
-    choice the session makes, not the script; ``spacing`` and
-    ``match_size`` are accepted by every backend. The messages call the
-    notebook video ``"opencv"``, and offer it only in a notebook.
+    choice the session makes, not the script; so does a field of
+    *style* its caller set at a value the backend does not draw (see
+    :func:`_with_undrawn_style`). ``spacing`` and ``match_size`` are
+    accepted by every backend. The messages call the notebook video
+    ``"opencv"``, and offer it only in a notebook.
 
     Whether a named backend's package imports is not checked here but by
     :func:`check_importable` after this choice, as for ``render()`` and
@@ -527,8 +533,6 @@ def choose_play_backend(
         choice = Choice(requested)
     else:
         choice = _auto_play_backend(environment)
-    if not given:
-        return choice
     # The notebook video is offered only where it plays: named in a
     # script, it raises.
     offered = [
@@ -536,7 +540,9 @@ def choose_play_backend(
         for backend in _DECLARING_MODULES["play"]
         if environment.in_notebook or backend != "opencv_notebook"
     ]
-    return _with_unread_options("play", requested, choice, given, offered, _PLAY_NAMES)
+    if given:
+        choice = _with_unread_options("play", requested, choice, given, offered, _PLAY_NAMES)
+    return _with_undrawn_style("play", requested, choice, style, offered, _PLAY_NAMES)
 
 
 def _auto_play_backend(environment: Environment) -> Choice:

@@ -24,6 +24,7 @@ from ._colors import (
 from ._scene import Scene
 from ._style import (
     PALETTE_RGB,
+    DrawnStyle,
     Style,
     bone_width_scale,
     effective_color_mode,
@@ -319,6 +320,23 @@ def _checker_floor(
 # The options of play() this backend reads (ADR 0006): it draws every
 # skeleton in one scene, arranged by the router.
 PLAY_READS = frozenset({"spacing", "match_size"})
+# The Style values play() draws on this backend: in perspective only, and
+# no axes value, since its grid box is always shown.
+PLAY_DRAWS = DrawnStyle(
+    {
+        "bone_width",
+        "bone_color",
+        "color_mode",
+        "chain_colors",
+        "joint_markers",
+        "joint_size",
+        "joint_color",
+        "floor",
+        "floor_alpha",
+        "background",
+    },
+    projection={"persp"},
+)
 
 
 def play_k3d(

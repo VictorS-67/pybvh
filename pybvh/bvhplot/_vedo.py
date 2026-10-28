@@ -3,10 +3,10 @@
 Provides interactive 3D skeleton playback with camera rotation/zoom,
 playback controls, and frame scrubbing in a desktop window.
 
-Two quality modes:
+Two quality modes, each with the style's floor:
 
 - ``"high"`` (default): shaded 3D tapered tubes for bones, spheres for
-  joints, floor, one headlight.
+  joints, one headlight.
 - ``"fast"``: Flat lines and points. Maximum performance for large files.
 
 Requires ``vedo >= 2025.5.3``.
@@ -374,8 +374,8 @@ class _VedoPlayer:
         line_width_px = bone_width_px(self.style.bone_width)
         point_size_px = 2 * (line_width_px + JOINT_DISC_MARGIN_PX)
 
-        # --- Floor (high quality only; kind from the style) ---
-        if self.use_high and self.style.floor is not None:
+        # --- Floor (both quality modes; kind from the style) ---
+        if self.style.floor is not None:
             from vedo import Plane
 
             # One floor for the whole scene, the viewport's: the same

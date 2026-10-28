@@ -352,6 +352,25 @@ class TestGridFloor:
         finally:
             p.plt.close()
 
+    @pytest.mark.parametrize("kind", ["solid", "grid", "checker"])
+    def test_fast_quality_draws_the_floor_high_quality_draws(self, scene, kind, monkeypatch):
+        """Only high quality drew a floor."""
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+
+        def floor(quality):
+            p = _vedo._VedoPlayer(scene, Style("paper", floor=kind), 30.0, quality=quality)
+            try:
+                (plane,) = [o for o in p.plt.objects if isinstance(o, (vedo.Plane, vedo.Grid))]
+                return type(plane), np.asarray(plane.vertices), plane.alpha()
+            finally:
+                p.plt.close()
+
+        (fast_type, fast_vertices, fast_alpha) = floor("fast")
+        (high_type, high_vertices, high_alpha) = floor("high")
+        assert fast_type is high_type
+        np.testing.assert_array_equal(fast_vertices, high_vertices)
+        assert fast_alpha == high_alpha
+
 
 def _rendered(player, tmp_path):
     """The viewer's current frame as an (H, W, 3) uint8 image."""

@@ -94,6 +94,28 @@ class TestStyleConstruction:
         with pytest.raises(TypeError, match="Unknown"):
             s.replace(nope=1)
 
+    @pytest.mark.parametrize(
+        "set_by_caller",
+        [
+            Style("paper", floor="solid"),
+            Style("paper", floor="solid", projection="persp"),
+            Style("paper", floor=None).replace(floor="solid"),
+            Style("paper").replace(projection="persp"),
+        ],
+        ids=["constructor", "two fields", "replace back", "replace"],
+    )
+    def test_equality_ignores_which_fields_the_caller_set(self, set_by_caller):
+        """Equality is the same look: a field set to the preset's own
+        value draws what the preset draws."""
+        assert set_by_caller == Style("paper")
+        assert repr(set_by_caller) == repr(Style("paper"))
+
+    @pytest.mark.parametrize("style", [Style("paper"), Style("paper", floor=None)])
+    def test_unhashable_whatever_the_caller_set(self, style):
+        """A Style holds a dict (``chain_colors``), so it has no hash."""
+        with pytest.raises(TypeError):
+            hash(style)
+
 
 _A_COLOR = "a matplotlib color, such as 'white', '#16181D' or (0.1, 0.2, 0.8)"
 

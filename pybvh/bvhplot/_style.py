@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import dataclasses
 import numbers
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -163,6 +164,18 @@ _VALID_FLOORS = {None, "solid", "grid", "checker"}
 _VALID_AXES = {"off", "full"}
 _VALID_PROJECTIONS = {"persp", "ortho"}
 
+# The fields with a fixed set of values, and those values. A backend
+# declares which of these values it draws, where it declares any other
+# field drawn whole (see DrawnStyle): OpenCV draws "ortho" exactly, and
+# so honours a Style asking for it, without drawing "persp".
+STYLE_VALUES: dict[str, frozenset[object]] = {
+    "color_mode": frozenset(_VALID_COLOR_MODES),
+    "joint_markers": frozenset({True, False}),
+    "floor": frozenset(_VALID_FLOORS),
+    "axes": frozenset(_VALID_AXES),
+    "projection": frozenset(_VALID_PROJECTIONS),
+}
+
 
 @dataclass(frozen=True, init=False)
 class Style:
@@ -179,6 +192,20 @@ class Style:
     pre-0.9.0 look: single blue skeleton, full axes and ticks, no
     floor — for coordinate inspection), ``"dark"`` (paper on a
     near-black ground, for slides and project pages).
+
+    A Style keeps which fields its caller set: those passed to the
+    constructor, and to every ``replace`` since. A field set at a value
+    the backend drawing it does not draw is refused, as an option the
+    backend does not read is: ``frame`` and a named ``render`` backend
+    raise ``ValueError`` naming it, ``render(backend="auto")`` warns.
+    A preset's own values are never refused, so ``Style("paper")``
+    draws on every backend, each drawing what it can of it; ``dpi``,
+    ``supersample`` and ``ghost_spacing`` are accepted by every
+    backend, drawn or not. Which fields were set does not count for
+    ``==`` or ``repr``: two Styles of the same values are the same
+    look. The alternative, refusing a field whose value differs from
+    its preset's, would let ``Style("paper", projection="persp")``
+    pass unrefused on OpenCV, which draws orthographic.
 
     Fields split into two documented groups. **Look** fields apply to
     every figure/video output (matplotlib, OpenCV, vedo offscreen):
@@ -267,6 +294,12 @@ class Style:
     supersample: int
     shadow: bool
     ghost_spacing: float
+    # The fields the caller set, by the constructor's overrides and every
+    # replace since: the fields a backend that does not draw them refuses.
+    # Not a field of the look: equality and repr leave it out.
+    _set_fields: frozenset[str] = dataclasses.field(
+        default=frozenset(), init=False, repr=False, compare=False
+    )
 
     def __init__(self, preset: str = "paper", **overrides: object) -> None:
         if preset not in _STYLE_PRESETS:
@@ -279,9 +312,11 @@ class Style:
         self,
         fields: dict[str, object],
         overrides: dict[str, object],
+        set_before: frozenset[str] = frozenset(),
     ) -> None:
         """Shared construction path for __init__ and replace: unknown-
-        field check, defensive copies, assignment, validation."""
+        field check, defensive copies, assignment, validation, and the
+        fields set: *set_before* and the overrides."""
         unknown = set(overrides) - set(fields)
         if unknown:
             raise TypeError(
@@ -296,6 +331,7 @@ class Style:
                 value = dict(value)
             object.__setattr__(self, name, value)
         self._validate()
+        object.__setattr__(self, "_set_fields", set_before | frozenset(overrides))
 
     def _validate(self) -> None:
         if self.color_mode not in _VALID_COLOR_MODES:
@@ -356,11 +392,47 @@ class Style:
                 )
 
     def replace(self, **overrides: object) -> Style:
-        """A new Style with the given fields changed."""
-        fields = {f.name: getattr(self, f.name) for f in dataclasses.fields(self)}
+        """A new Style with the given fields changed. The fields changed
+        join those the caller set before (see :class:`Style`)."""
+        # The fields of the look, the ones compared: not _set_fields.
+        fields = {f.name: getattr(self, f.name) for f in dataclasses.fields(self) if f.compare}
         new = object.__new__(Style)
-        new._assign_fields(fields, overrides)
+        new._assign_fields(fields, overrides, self._set_fields)
         return new
+
+
+def fields_set(style: Style) -> dict[str, object]:
+    """The fields of *style* its caller set, by the constructor's
+    overrides or by :meth:`Style.replace`, with their values: none for a
+    preset alone."""
+    return {name: getattr(style, name) for name in sorted(style._set_fields)}
+
+
+@dataclass(frozen=True, init=False)
+class DrawnStyle:
+    """The Style values one backend draws for one call, declared beside
+    its entry function: each field drawn whole, and of each field of
+    :data:`STYLE_VALUES` it does not draw whole, the values it draws.
+
+    A value drawn is drawn as the Style says: OpenCV draws orthographic
+    whatever the projection asked, so it declares ``projection`` with
+    ``"ortho"`` only, and the vedo renderer, which sizes and colours
+    every joint by its bones, declares none of the joint fields. A
+    field absent draws none of its values.
+    """
+
+    fields: frozenset[str]
+    values: dict[str, frozenset[object]]
+
+    def __init__(self, fields: Collection[str], **values: Collection[object]) -> None:
+        object.__setattr__(self, "fields", frozenset(fields))
+        object.__setattr__(
+            self, "values", {name: frozenset(drawn) for name, drawn in values.items()}
+        )
+
+    def draws(self, field: str, value: object) -> bool:
+        """Whether *field* at *value* is drawn as the Style asks."""
+        return field in self.fields or value in self.values.get(field, frozenset())
 
 
 def resolve_style(style: Style | str) -> Style:

@@ -17,6 +17,8 @@ from collections.abc import Collection, Container, Mapping
 from dataclasses import dataclass
 from typing import NamedTuple
 
+from ._style import STYLE_VALUES, DrawnStyle, Style, fields_set
+
 # The extra of pybvh that installs each optional package a backend imports.
 _EXTRAS = {"cv2": "opencv", "k3d": "interactive", "vedo": "viewer"}
 
@@ -160,9 +162,9 @@ def check_importable(call: str, backend: str, environment: Environment) -> None:
     raise ImportError(f"{subject} requires {what}. {install_hint(package)}") from cause
 
 
-# The module holding each backend's entry function and its declaration of
-# the options it reads (ADR 0006), per public call, under the name the
-# backend runs as.
+# The module holding each backend's entry function and its declarations of
+# the options it reads (ADR 0006) and the Style values it draws, per public
+# call, under the name the backend runs as.
 _DECLARING_MODULES = {
     "frame": {"matplotlib": "_matplotlib", "vedo": "_vedo_offscreen"},
     "render": {"matplotlib": "_matplotlib", "opencv": "_opencv", "vedo": "_vedo_offscreen"},
@@ -188,20 +190,35 @@ def _reads(call: str, backend: str) -> frozenset[str]:
     return reads
 
 
-def choose_frame_backend(requested: str, given: Collection[str] = ()) -> Choice:
+def _draws(call: str, backend: str) -> DrawnStyle:
+    """The Style values *backend* draws for the public *call*, as it
+    declares them beside its entry function: ``FRAME_DRAWS``,
+    ``RENDER_DRAWS`` or ``PLAY_DRAWS``, imported as :func:`_reads`
+    imports the options'."""
+    module = importlib.import_module(f".{_DECLARING_MODULES[call][backend]}", __package__)
+    draws: DrawnStyle = getattr(module, f"{call.upper()}_DRAWS")
+    return draws
+
+
+def choose_frame_backend(
+    requested: str, given: Collection[str] = (), style: Style | None = None
+) -> Choice:
     """The backend ``frame(backend=requested)`` runs, passed the options
-    *given* (the keywords whose value is not ``None``): always the one
-    named, since ``frame`` has no auto, and so with no warning owed.
+    *given* (the keywords whose value is not ``None``) and *style*:
+    always the one named, since ``frame`` has no auto, and so with no
+    warning owed.
 
     A given option the backend does not read raises ``ValueError``
     (ADR 0006); ``spacing`` and ``match_size`` are accepted by every
-    backend.
+    backend. So does a field of *style* its caller set at a value the
+    backend does not draw (see :func:`_with_undrawn_style`).
     """
     _check_known(requested, FRAME_BACKENDS)
     choice = Choice(requested)
-    if not given:
-        return choice
-    return _with_unread_options("frame", requested, choice, given, _DECLARING_MODULES["frame"])
+    backends = _DECLARING_MODULES["frame"]
+    if given:
+        choice = _with_unread_options("frame", requested, choice, given, backends)
+    return _with_undrawn_style("frame", requested, choice, style, backends)
 
 
 _SLOW_RENDER = (
@@ -215,8 +232,30 @@ _SLOW_RENDER = (
 # gives the arrangement they ask for.
 _ACCEPTED_BY_EVERY_BACKEND = frozenset({"spacing", "match_size"})
 
+# Every backend accepts these Style fields, drawn or not: where one is not
+# drawn, it names something the drawing does not contain. dpi sizes a
+# matplotlib figure, and a video's or a vedo picture's pixels are its
+# resolution; supersample is how OpenCV draws; ghost_spacing spaces ghosts
+# where a call draws them. So one "paper at 300 dpi" Style serves figures
+# and videos.
+_NOT_IN_EVERY_PICTURE = frozenset({"dpi", "supersample", "ghost_spacing"})
+# The Style fields every backend of each public call accepts, drawn or not.
+_STYLE_ACCEPTED = {"frame": _NOT_IN_EVERY_PICTURE, "render": _NOT_IN_EVERY_PICTURE}
+
 # How a message names an option that is not a keyword of its own.
 _SHOWN = {"turntable": "camera='turntable'"}
+
+
+class _Wording(NamedTuple):
+    """How a message of the rule speaks of what a backend lacks."""
+
+    verb: str  # what a backend does with it, "read" or "draw"
+    prefix: str  # what precedes the names: "" or "the Style's "
+    leave: str  # how the caller does without it: "unset" or "out of the Style"
+
+
+_OPTIONS = _Wording("read", "", "unset")
+_STYLE = _Wording("draw", "the Style's ", "out of the Style")
 
 
 def _either(words: list[str]) -> str:
@@ -244,39 +283,99 @@ def _with_unread_options(
     ``public_names[backend]`` for one that runs under another name,
     else the name it runs as."""
 
-    def public_name(backend: str) -> str:
-        return repr((public_names or {}).get(backend, backend))
-
     unread = sorted(set(given) - _reads(call, choice.backend) - _ACCEPTED_BY_EVERY_BACKEND)
     if not unread:
         return choice
-    names = _either([_SHOWN.get(option, option) for option in unread])
-    it = "it" if len(unread) == 1 else "them"
-    readers = [
-        public_name(backend) for backend in sorted(backends) if set(unread) <= _reads(call, backend)
+    readers = [backend for backend in sorted(backends) if set(unread) <= _reads(call, backend)]
+    names = [_SHOWN.get(option, option) for option in unread]
+    return _refused(call, requested, choice, names, readers, _OPTIONS, public_names)
+
+
+def _with_undrawn_style(
+    call: str,
+    requested: str,
+    choice: Choice,
+    style: Style | None,
+    backends: Collection[str],
+    public_names: Mapping[str, str] | None = None,
+) -> Choice:
+    """Apply the rule of :func:`_with_unread_options` to the fields of
+    *style* its caller set (:func:`._style.fields_set`): one set at a
+    value the chosen backend does not draw raises when the backend is
+    named, and warns under ``"auto"``, offering the backends that draw
+    them all. A field of a fixed set of values is named with its value.
+    A preset's own values are never refused, nor the fields every
+    backend of the call accepts (``_STYLE_ACCEPTED[call]``)."""
+    asked = {
+        field: value
+        for field, value in (fields_set(style) if style is not None else {}).items()
+        if field not in _STYLE_ACCEPTED[call]
+    }
+    if not asked:
+        return choice
+
+    def undrawn_on(backend: str) -> list[str]:
+        """The fields asked that *backend* does not draw as asked."""
+        drawn = _draws(call, backend)
+        return [field for field, value in asked.items() if not drawn.draws(field, value)]
+
+    undrawn = undrawn_on(choice.backend)
+    if not undrawn:
+        return choice
+    names = [f"{field}={asked[field]!r}" if field in STYLE_VALUES else field for field in undrawn]
+    drawers = [
+        backend for backend in sorted(backends) if not set(undrawn) & set(undrawn_on(backend))
     ]
+    return _refused(call, requested, choice, names, drawers, _STYLE, public_names)
+
+
+def _refused(
+    call: str,
+    requested: str,
+    choice: Choice,
+    names: list[str],
+    others: list[str],
+    wording: _Wording,
+    public_names: Mapping[str, str] | None,
+) -> Choice:
+    """Raise ``ValueError`` naming what the named backend lacks
+    (*names*), or, under ``"auto"``, add a warning naming it and the
+    backend chosen; either offers *others*, the backends that have it
+    all, when there are any."""
+
+    def public_name(backend: str) -> str:
+        return repr((public_names or {}).get(backend, backend))
+
+    verb = wording.verb
+    shown = f"{wording.prefix}{_either(names)}"
+    it = "it" if len(names) == 1 else "them"
     instead = (
-        f"use backend={_either(readers)}, which {'reads' if len(readers) == 1 else 'read'} {it}"
-        if readers
+        f"use backend={_either([public_name(b) for b in others])}, which "
+        f"{verb + 's' if len(others) == 1 else verb} {it}"
+        if others
         else ""
     )
     if requested == "auto":
-        ignored = "it is ignored" if len(unread) == 1 else "they are ignored"
-        hint = f" To draw {it}, {instead}." if readers else ""
+        ignored = "it is ignored" if len(names) == 1 else "they are ignored"
+        hint = f" To draw {it}, {instead}." if others else ""
         message = (
-            f"{call}() chose backend={public_name(choice.backend)}, which does not read {names}, "
-            f"so {ignored}.{hint}"
+            f"{call}() chose backend={public_name(choice.backend)}, which does not {verb} "
+            f"{shown}, so {ignored}.{hint}"
         )
         return Choice(choice.backend, (*choice.warnings, message))
-    hint = f", or {instead}" if readers else ""
+    hint = f", or {instead}" if others else ""
     raise ValueError(
-        f"{call}(backend={public_name(choice.backend)}) does not read {names}. "
-        f"Leave {it} unset{hint}."
+        f"{call}(backend={public_name(choice.backend)}) does not {verb} {shown}. "
+        f"Leave {it} {wording.leave}{hint}."
     )
 
 
 def choose_render_backend(
-    requested: str, suffix: str, environment: Environment, given: Collection[str] = ()
+    requested: str,
+    suffix: str,
+    environment: Environment,
+    given: Collection[str] = (),
+    style: Style | None = None,
 ) -> Choice:
     """The backend ``render(filepath, backend=requested)`` runs, for a
     file ending in *suffix* (lower case), passed the options *given*: the
@@ -295,7 +394,9 @@ def choose_render_backend(
 
     A given option the backend does not read raises ``ValueError`` when
     the backend is named and adds a warning under ``"auto"``;
-    ``spacing`` and ``match_size`` are accepted by every backend.
+    ``spacing`` and ``match_size`` are accepted by every backend. So
+    does a field of *style* its caller set at a value the backend does
+    not draw (see :func:`_with_undrawn_style`).
     """
     # Imported here: the video module imports this one.
     from ._video import matplotlib_under_auto
@@ -309,9 +410,10 @@ def choose_render_backend(
         choice = Choice("opencv")
     else:
         choice = Choice("matplotlib", (_SLOW_RENDER,))
-    if not given:
-        return choice
-    return _with_unread_options("render", requested, choice, given, _DECLARING_MODULES["render"])
+    backends = _DECLARING_MODULES["render"]
+    if given:
+        choice = _with_unread_options("render", requested, choice, given, backends)
+    return _with_undrawn_style("render", requested, choice, style, backends)
 
 
 _NO_INTERACTIVE = f"No interactive backend (k3d, vedo) found. {install_hint('k3d')}"

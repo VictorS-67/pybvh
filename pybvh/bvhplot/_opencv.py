@@ -24,6 +24,7 @@ from ._style import (
     PALETTE_RGB,
     TRACE_BLEND,
     TRACE_COLOR,
+    DrawnStyle,
     Style,
     bone_width_px,
     counter_left_px,
@@ -458,6 +459,29 @@ def _generate_frames(
 
 # The options of render() this backend reads (ADR 0006).
 RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory", "frame_counter"})
+# The Style values render() draws on this backend: orthographic only, no
+# axes, no shadow, and no dpi (the resolution sets the pixels). A preset's
+# axes="full" draws a small axis indicator, not the full axes, so "full"
+# is not drawn as asked; with joint_markers=False its bone-coloured dots
+# join the bones.
+RENDER_DRAWS = DrawnStyle(
+    {
+        "bone_width",
+        "bone_color",
+        "color_mode",
+        "chain_colors",
+        "joint_markers",
+        "joint_size",
+        "joint_color",
+        "floor",
+        "floor_alpha",
+        "background",
+        "supersample",
+        "ghost_spacing",
+    },
+    axes={"off"},
+    projection={"ortho"},
+)
 # The options of play() its notebook video, drawn by render_opencv, reads.
 PLAY_READS = frozenset({"resolution", "frame_counter"})
 

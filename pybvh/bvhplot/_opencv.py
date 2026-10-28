@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpy.typing as npt
 
-from ._colors import bone_colors_255, floor_palette, node_colors_255
+from ._colors import bone_colors_255, floor_palette, node_colors_255, skeleton_color_255
 from ._scene import Scene, SkeletonView
 from ._style import (
     COUNTER_BASELINE_PX,
@@ -160,7 +160,10 @@ class _ViewDrawContext:
         node_rgb = node_colors_255(view, style, view_index, n_skeletons, bone_rgb)
         self.node_bgr = node_rgb[:, ::-1]
         self.joint_bgr = _to_bgr(style.joint_color)
-        self.label_bgr = self.bone_bgr[0] if self.bone_bgr else (0, 0, 0)
+        # The skeleton's one color, the spine color under chain colors,
+        # as the vedo backends color a label.
+        r, g, b = skeleton_color_255(style, view_index, n_skeletons)
+        self.label_bgr = (b, g, r)
         if ghost > 0:
             self.ghost_lag, weights = ghost_schedule(style, view.frame_time, ghost)
             self.ghost_bgr = [

@@ -1145,6 +1145,48 @@ class TestRenderOpenCV:
 
         assert np.array_equal(drawn(9.0), drawn(36.0))
 
+    @staticmethod
+    def _label_color(picture, x0):
+        """The color most of the label's pixels take, in the label's
+        corner of the panel starting at column *x0*, on a white
+        background: the label's own, where its strokes are not blended
+        into the background."""
+        corner = picture[:60, x0 : x0 + 100].reshape(-1, 3)
+        inked = corner[np.any(corner != 255, axis=-1)]
+        colors, counts = np.unique(inked, axis=0, return_counts=True)
+        return tuple(int(c) for c in colors[counts.argmax()])
+
+    def test_a_label_under_chain_colors_takes_the_spine_color(self, walk, tmp_path, apng_frames):
+        """No chain color stands for the whole skeleton, so its label is
+        drawn in the spine color (paper's ``#3A3F4A``), as the vedo
+        backends draw it. Drawn at 1080 rows without supersampling, the
+        label's strokes keep its exact color."""
+        style = bvhplot.Style("paper", color_mode="chains", floor=None, supersample=1)
+        picture = self._first_frame(
+            walk,
+            tmp_path / "x.apng",
+            apng_frames,
+            resolution=(480, 1080),
+            labels=["A"],
+            style=style,
+        )
+        assert self._label_color(picture, 0) == (0x3A, 0x3F, 0x4A)
+
+    def test_a_label_under_the_palette_takes_its_skeletons_color(self, walk, tmp_path, apng_frames):
+        """Two skeletons are drawn in the palette's first two colors, blue
+        and red, and each label in its skeleton's."""
+        style = bvhplot.Style("paper", floor=None, supersample=1)
+        picture = self._first_frame(
+            [walk, walk],
+            tmp_path / "x.apng",
+            apng_frames,
+            resolution=(960, 1080),
+            labels=["A", "B"],
+            style=style,
+        )
+        assert self._label_color(picture, 0) == (50, 120, 255)
+        assert self._label_color(picture, 480) == (220, 50, 50)
+
 
 # =============================================================================
 # Backend / extension routing and fps resolution

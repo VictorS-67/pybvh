@@ -24,7 +24,6 @@ import numpy.typing as npt
 
 from ._colors import (
     bone_colors_255,
-    floor_palette,
     node_colors_255,
     skeleton_color_255,
 )
@@ -32,9 +31,9 @@ from ._scene import Scene
 from ._style import Style
 from ._vedo_capsules import (
     CapsuleSkeleton,
-    floor_placement,
     shadow_height,
     vedo_color,
+    vedo_floor,
     vedo_rgb,
 )
 from ._viewport import make_viewport
@@ -99,7 +98,7 @@ def _build_offscreen(
     one scene (single-scene backend, like the viewer): one viewport of
     all the views, which supplies the cube, the camera and the floor.
     """
-    from vedo import Plane, Plotter
+    from vedo import Plotter
 
     # vedo draws in perspective whatever the style asks.
     viewport = make_viewport(scene.views, projection="persp")
@@ -120,12 +119,8 @@ def _build_offscreen(
             plt += mesh
         capsules.append(capsule)
 
-    if style.floor is not None:
-        # Flat-shaded solid plane: under real lights the plane picks up
-        # a tint in this stack, and a flat floor is the paper look.
-        position, normal, side = floor_placement(viewport)
-        floor = Plane(pos=tuple(position), normal=tuple(normal), s=(side, side))
-        floor.c(vedo_color(floor_palette(style)["face"])).lighting("off")
+    floor = vedo_floor(viewport, style)
+    if floor is not None:
         plt += floor
 
     if scene.labels is not None:

@@ -813,7 +813,7 @@ def _viewer(scene, monkeypatch, quality="high"):
 
 
 def _vedo_plane(plotter):
-    planes = [o for o in plotter.objects if type(o).__name__ == "Plane"]
+    planes = [o for o in plotter.objects if type(o).__name__ in ("Plane", "Grid")]
     assert len(planes) == 1, f"expected one floor plane, got {len(planes)}"
     return np.asarray(planes[0].vertices)
 

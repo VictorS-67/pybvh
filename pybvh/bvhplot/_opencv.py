@@ -460,10 +460,11 @@ def _generate_frames(
 # The options of render() this backend reads (ADR 0006).
 RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory", "frame_counter"})
 # The Style values render() draws on this backend: orthographic only, no
-# shadow, and no dpi (the resolution sets the pixels). Two values it draws
-# in a reduced form of its own, as asked all the same: axes="full" as a
-# small axis indicator in a panel's corner, and joint_markers=False as
-# bone-colored dots that join the bones (ADR 0007).
+# shadow, and no dpi (the resolution sets the pixels). axes="full" it
+# draws in a reduced form of its own, as asked all the same: a small axis
+# indicator in a panel's corner (ADR 0007). joint_markers=False it draws
+# exactly, no markers; the bone-colored dot at each joint is how it joins
+# its bones.
 RENDER_DRAWS = DrawnStyle(
     {
         "bone_width",

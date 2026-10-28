@@ -671,9 +671,29 @@ class TestK3d:
             r_leg,  # LeftFoot, RightFoot
         ]
         built = _build_plot(scene, Style(preset))
-        ((lines, points),) = built.skeletons
-        for drawn in (lines.colors, points.colors):
-            assert [f"{c:06X}" for c in drawn] == [f"{c:06X}" for c in expected]
+        ((lines, _points),) = built.skeletons
+        assert [f"{c:06X}" for c in lines.colors] == [f"{c:06X}" for c in expected]
+
+    @pytest.mark.parametrize("which", ["one", "pair"])
+    @pytest.mark.parametrize(
+        "style, joint",
+        [
+            (Style("paper"), "23262E"),
+            (Style("dark"), "E8E8EC"),
+            (Style("paper", joint_color="red"), "FF0000"),
+        ],
+        ids=["paper", "dark", "red"],
+    )
+    def test_the_joints_are_drawn_in_the_joint_color(self, scene, pair, which, style, joint):
+        """... over chain colors and the palette alike, as matplotlib
+        draws them."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        built = _build_plot(scene if which == "one" else pair.spread("auto"), style)
+        for _lines, points in built.skeletons:
+            assert f"{points.color:06X}" == joint
+            assert len(points.colors) == 0
 
     def test_one_skeleton_under_single_is_drawn_in_the_bone_color(self, scene):
         pytest.importorskip("k3d")

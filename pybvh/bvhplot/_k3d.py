@@ -123,9 +123,10 @@ def _build_plot(
             # Build indices array for k3d.lines: pairs of [start, end]
             indices = np.array(view.bones, dtype=np.uint32)  # (num_bones, 2)
 
-            # The skeleton's flat color (its palette color, or
-            # bone_color under "single"); chain coloring (when it
-            # applies) rides as per-vertex colors instead.
+            # The bones take the skeleton's flat color (its palette
+            # color, or bone_color under "single"); chain coloring
+            # (when it applies) rides as per-vertex colors instead.
+            # The joints take joint_color, as matplotlib draws them.
             color = _packed(skeleton_color_255(style, s, scene.num_skeletons))
             node_colors = _node_colors_uint32(scene, style, s)
 
@@ -144,8 +145,7 @@ def _build_plot(
             if style.joint_markers:
                 points = k3d.points(
                     frame0,
-                    color=color,
-                    colors=node_colors if node_colors is not None else [],
+                    color=_packed(rgb255(style.joint_color)),
                     point_size=JOINT_SIZE_FRACTION * view.body_size,
                     shader="3dSpecular",
                     name=f"Joints {s}",

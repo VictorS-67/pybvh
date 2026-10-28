@@ -324,6 +324,19 @@ class TestGridFloor:
         finally:
             p.plt.close()
 
+    @pytest.mark.parametrize("floor_alpha", [0.3, 1.0])
+    def test_the_grid_is_drawn_at_the_styles_floor_alpha(self, scene, floor_alpha, monkeypatch):
+        """As the solid floor is, and the other backends' grids; it was
+        drawn at 0.6."""
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        style = Style("paper", floor="grid", floor_alpha=floor_alpha)
+        p = _vedo._VedoPlayer(scene, style, 30.0, quality="high")
+        try:
+            (grid,) = [o for o in p.plt.objects if isinstance(o, vedo.Grid)]
+            assert grid.alpha() == pytest.approx(floor_alpha)
+        finally:
+            p.plt.close()
+
 
 def _rendered(player, tmp_path):
     """The viewer's current frame as an (H, W, 3) uint8 image."""

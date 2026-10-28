@@ -400,7 +400,7 @@ class _VedoPlayer:
                     floor.rotate_y(90)
                 # up_letter='z': Grid defaults to XY plane, no rotation
                 floor.pos(*floor_pos)
-                floor.lw(1).alpha(0.6)
+                floor.lw(1).alpha(self.style.floor_alpha)
                 floor.c(vedo_color(palette["grid"])).lighting("off")
             self.plt += floor
 

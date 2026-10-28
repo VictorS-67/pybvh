@@ -1431,10 +1431,10 @@ class TestTheViewersOtherSizesIgnoreTheDistanceTravelled:
         assert big_sizes["lift"] == pytest.approx(3.0 * small_sizes["lift"])
 
     def test_fast_mode_draws_bones_as_wide_as_opencv_at_1080p(self, monkeypatch):
-        """At the debug style's 2.5, OpenCV draws 3-pixel bones and
-        joint discs 2 pixels wider in radius, 10 pixels across; the
+        """At the debug style's 2.5, OpenCV draws 3-pixel bones; the
         viewer's fast mode draws the same, not 2 pixels from rounding
-        half to even."""
+        half to even, and joint points 2 pixels wider in radius, 10
+        pixels across."""
         pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo
         from pybvh.bvhplot._scene import Scene

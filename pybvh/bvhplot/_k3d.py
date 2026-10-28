@@ -303,7 +303,7 @@ def _checker_floor(
     n = FLOOR_CHECKER_SQUARES
     origin, first, second = corners[0], corners[1] - corners[0], corners[3] - corners[0]
     i, j = (a.ravel() for a in np.meshgrid(np.arange(n), np.arange(n), indexing="ij"))
-    # Each square's corners, counterclockwise from its (i, j) corner.
+    # Each square's corners, in order around it from its (i, j) corner.
     steps = np.array([[0, 0], [1, 0], [1, 1], [0, 1]])
     u = (i[:, np.newaxis] + steps[:, 0]) / n  # (squares, 4)
     v = (j[:, np.newaxis] + steps[:, 1]) / n
@@ -358,9 +358,12 @@ def play_k3d(
     times its height); the mouse wheel zooms out.
 
     Style application (look fields): background, bone width, the
-    floor (``"checker"`` draws as a grid), and chain colors for
-    single-skeleton sessions (per-vertex colors — segments blend at
-    chain boundaries, a k3d rendering artifact). k3d's own grid box is
+    bone colors (chain colors for a single skeleton under ``"auto"``
+    or ``"chains"``, as per-vertex colors, so segments blend at chain
+    boundaries, a k3d rendering artifact; otherwise the skeleton's flat
+    color, ``bone_color`` for a single skeleton under ``"single"``),
+    the joints (``joint_markers``, ``joint_color``, ``joint_size``),
+    and the floor (its kind and ``floor_alpha``). k3d's own grid box is
     kept as the toolkit's frame, with its bottom face just under the
     ground and its lines and labels colored from the background (see
     :class:`~pybvh.bvhplot.Style`).
@@ -371,7 +374,9 @@ def play_k3d(
     bones' line width is ``BONE_WIDTH_FRACTION`` of the body size,
     scaled by ``bone_width`` (:func:`~._style.bone_width_scale`: the
     paper default is the 1:1 anchor), the joints' point size
-    ``JOINT_SIZE_FRACTION`` and the root trail's width
+    ``JOINT_SIZE_FRACTION``, scaled by the square root of
+    ``joint_size`` over the paper default (:func:`_joint_size_scale`),
+    and the root trail's width
     ``TRAIL_WIDTH_FRACTION``, the v0.9.0 sizes of a standing still. A
     still and the whole clip draw a body at the same proportions, and
     each skeleton of a scene gets its own. The sizes are scene lengths

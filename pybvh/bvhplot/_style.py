@@ -208,7 +208,8 @@ class Style:
     the values it draws, and a field set at a value the backend does
     not draw is refused, as an option it does not read is: a named
     backend raises ``ValueError`` naming the field and any backend that
-    draws it (for ``sequence``, the other layout), and
+    draws it and accepts the rest of the call (for ``sequence``, the
+    other layout), and
     ``backend="auto"`` (``render`` and ``play``) warns, naming the
     backend chosen, and goes on. ``frame``, ``rest_pose``, ``sequence``
     and ``trajectory`` have no auto, so they always raise. A preset's
@@ -492,7 +493,13 @@ class DrawnStyle:
     def draws(self, field: str, value: object) -> bool:
         """Whether *field* at *value* is drawn as the Style asks, in
         full or in a reduced form of the backend's own."""
-        return field in self.fields or value in self.values.get(field, frozenset())
+        if field in self.fields:
+            return True
+        # Only a field declared by value is looked up by its value: one
+        # declared by field is drawn whole or not at all, and its value
+        # may not hash (a color given as a list).
+        drawn = self.values.get(field)
+        return drawn is not None and value in drawn
 
     def derive(self, *, drop: Collection[str] = (), add: Collection[str] = ()) -> DrawnStyle:
         """This declaration, for a call drawn as this one is but for the

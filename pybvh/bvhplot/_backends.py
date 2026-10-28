@@ -225,9 +225,8 @@ def choose_frame_backend(
     _check_known(requested, FRAME_BACKENDS)
     choice = Choice(requested)
     backends = _DECLARING_MODULES["frame"]
-    if given:
-        choice = _with_unread_options("frame", requested, choice, given, backends)
-    return _with_undrawn_style("frame", requested, choice, style, backends)
+    choice = _with_unread_options("frame", requested, choice, given, backends, style=style)
+    return _with_undrawn_style("frame", requested, choice, style, backends, given=given)
 
 
 def check_drawn_style(call: str, style: Style, layout: str | None = None) -> None:
@@ -236,7 +235,7 @@ def check_drawn_style(call: str, style: Style, layout: str | None = None) -> Non
     (see :func:`_with_undrawn_style`), as for a named backend, since
     the call has no other. For a call whose layouts draw differently
     (``sequence``), the message names the *layout* drawn and offers the
-    layouts that draw the fields; for any other, it names the call
+    layouts that draw every field set; for any other, it names the call
     alone and offers nothing."""
     if layout is None:
         _with_undrawn_style(
@@ -307,6 +306,51 @@ def _either(words: list[str]) -> str:
     return words[0] if len(words) == 1 else f"{', '.join(words[:-1])} or {words[-1]}"
 
 
+def _unread(call: str, backend: str, given: Collection[str]) -> list[str]:
+    """The options *given* that *backend* of the public *call* does not
+    read, sorted, leaving out those every backend accepts. With none
+    given, none is unread and no declaration is read: the calls
+    matplotlib alone draws (``trajectory``, ``sequence``,
+    ``rest_pose``) declare no options."""
+    if not given:
+        return []
+    return sorted(set(given) - _reads(call, backend) - _ACCEPTED_BY_EVERY_BACKEND)
+
+
+def _fields_asked(call: str, style: Style | None) -> dict[str, object]:
+    """The fields of *style* its caller set, with their values, leaving
+    out those every backend of the public *call* accepts."""
+    return {
+        field: value
+        for field, value in (fields_set(style) if style is not None else {}).items()
+        if field not in _STYLE_ACCEPTED[call]
+    }
+
+
+def _undrawn(call: str, backend: str, asked: Mapping[str, object]) -> list[str]:
+    """The fields *asked* that *backend* of the public *call* does not
+    draw at the value asked."""
+    drawn = _draws(call, backend)
+    return [field for field, value in asked.items() if not drawn.draws(field, value)]
+
+
+def _backends_accepting(
+    call: str, backends: Collection[str], given: Collection[str], style: Style | None
+) -> list[str]:
+    """The *backends* of the public *call* that accept the whole call:
+    that read every option *given* and draw every field of *style* its
+    caller set at its value, those every backend accepts aside. A
+    refusal offers these alone, so that the call it suggests is not
+    refused in turn. Each backend's declarations are read here, for
+    that message only."""
+    asked = _fields_asked(call, style)
+    return [
+        backend
+        for backend in sorted(backends)
+        if not _unread(call, backend, given) and not _undrawn(call, backend, asked)
+    ]
+
+
 def _with_unread_options(
     call: str,
     requested: str,
@@ -314,23 +358,25 @@ def _with_unread_options(
     given: Collection[str],
     backends: Collection[str],
     public_names: Mapping[str, str] | None = None,
+    *,
+    style: Style | None = None,
 ) -> Choice:
     """Apply the rule for an option the chosen backend does not read
     (ADR 0006) to *choice*: *given* are the options the caller passed
-    (not ``None``), and *backends* those of the public *call* a message
-    may offer, each read from its declaration. A named backend raises
-    ``ValueError`` naming every given option it does not read; under
-    ``"auto"`` the choice gains a warning naming them and the backend
-    chosen. Either message offers the backends that read them all, when
-    there are any. The other backends' declarations are read only for
-    that message. A message names a backend as the caller does:
-    ``public_names[backend]`` for one that runs under another name,
-    else the name it runs as."""
+    (not ``None``), *style* the Style asked for, and *backends* those of
+    the public *call* a message may offer, each read from its
+    declaration. A named backend raises ``ValueError`` naming every
+    given option it does not read; under ``"auto"`` the choice gains a
+    warning naming them and the backend chosen. Either message offers
+    the backends that accept the whole call
+    (:func:`_backends_accepting`), when there are any. A message names
+    a backend as the caller does: ``public_names[backend]`` for one
+    that runs under another name, else the name it runs as."""
 
-    unread = sorted(set(given) - _reads(call, choice.backend) - _ACCEPTED_BY_EVERY_BACKEND)
+    unread = _unread(call, choice.backend, given)
     if not unread:
         return choice
-    readers = [backend for backend in sorted(backends) if set(unread) <= _reads(call, backend)]
+    readers = _backends_accepting(call, backends, given, style)
     names = [_SHOWN.get(option, option) for option in unread]
     return _refused(call, requested, choice, names, readers, _OPTION_WORDING, public_names)
 
@@ -344,36 +390,26 @@ def _with_undrawn_style(
     public_names: Mapping[str, str] | None = None,
     *,
     keyword: str | None = "backend",
+    given: Collection[str] = (),
 ) -> Choice:
     """Apply the rule of :func:`_with_unread_options` to the fields of
     *style* its caller set (:func:`._style.fields_set`): one set at a
     value the chosen backend does not draw raises when the backend is
-    named, and warns under ``"auto"``, offering the backends that draw
-    them all. A field of a fixed set of values is named with its value.
-    A preset's own values are never refused, nor the fields every
-    backend of the call accepts (``_STYLE_ACCEPTED[call]``). The
-    messages name the backend as the call's *keyword* that chose it, or
-    name none under ``None``."""
-    asked = {
-        field: value
-        for field, value in (fields_set(style) if style is not None else {}).items()
-        if field not in _STYLE_ACCEPTED[call]
-    }
+    named, and warns under ``"auto"``, offering the backends that
+    accept the whole call, the options *given* included
+    (:func:`_backends_accepting`). A field of a fixed set of values is
+    named with its value. A preset's own values are never refused, nor
+    the fields every backend of the call accepts
+    (``_STYLE_ACCEPTED[call]``). The messages name the backend as the
+    call's *keyword* that chose it, or name none under ``None``."""
+    asked = _fields_asked(call, style)
     if not asked:
         return choice
-
-    def undrawn_on(backend: str) -> list[str]:
-        """The fields asked that *backend* does not draw as asked."""
-        drawn = _draws(call, backend)
-        return [field for field, value in asked.items() if not drawn.draws(field, value)]
-
-    undrawn = undrawn_on(choice.backend)
+    undrawn = _undrawn(call, choice.backend, asked)
     if not undrawn:
         return choice
     names = [f"{field}={asked[field]!r}" if field in STYLE_VALUES else field for field in undrawn]
-    drawers = [
-        backend for backend in sorted(backends) if not set(undrawn) & set(undrawn_on(backend))
-    ]
+    drawers = _backends_accepting(call, backends, given, style)
     return _refused(call, requested, choice, names, drawers, _STYLE_WORDING, public_names, keyword)
 
 
@@ -389,10 +425,10 @@ def _refused(
 ) -> Choice:
     """Raise ``ValueError`` naming what the named backend lacks
     (*names*), or, under ``"auto"``, add a warning naming it and the
-    backend chosen; either offers *others*, the backends that have it
-    all, when there are any. A backend is named as the value of the
-    call's *keyword* that chose it; under ``None``, a call that draws
-    one way only, the call is named without one."""
+    backend chosen; either offers *others*, the backends that accept
+    the whole call, when there are any. A backend is named as the value
+    of the call's *keyword* that chose it; under ``None``, a call that
+    draws one way only, the call is named without one."""
 
     def public_name(backend: str) -> str:
         return repr((public_names or {}).get(backend, backend))
@@ -460,9 +496,8 @@ def choose_render_backend(
     else:
         choice = Choice("matplotlib", (_SLOW_RENDER,))
     backends = _DECLARING_MODULES["render"]
-    if given:
-        choice = _with_unread_options("render", requested, choice, given, backends)
-    return _with_undrawn_style("render", requested, choice, style, backends)
+    choice = _with_unread_options("render", requested, choice, given, backends, style=style)
+    return _with_undrawn_style("render", requested, choice, style, backends, given=given)
 
 
 _NO_INTERACTIVE = f"No interactive backend (k3d, vedo) found. {install_hint('k3d')}"
@@ -537,9 +572,10 @@ def choose_play_backend(
         for backend in _DECLARING_MODULES["play"]
         if environment.in_notebook or backend != "opencv_notebook"
     ]
-    if given:
-        choice = _with_unread_options("play", requested, choice, given, offered, _PLAY_NAMES)
-    return _with_undrawn_style("play", requested, choice, style, offered, _PLAY_NAMES)
+    choice = _with_unread_options(
+        "play", requested, choice, given, offered, _PLAY_NAMES, style=style
+    )
+    return _with_undrawn_style("play", requested, choice, style, offered, _PLAY_NAMES, given=given)
 
 
 def _auto_play_backend(environment: Environment) -> Choice:

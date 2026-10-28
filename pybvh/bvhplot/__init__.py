@@ -1235,8 +1235,9 @@ def play(
         session (notebook, display), which the script does not
         control, so a raise would fail a correct script on another
         machine, while a dropped option costs a look, not a file.
-        Either message offers the backends that read the option, the
-        notebook video only in a notebook. ``spacing`` and
+        Either message offers the backends that read the option and
+        accept the rest of the call, the notebook video only in a
+        notebook. ``spacing`` and
         ``match_size`` are accepted by every backend.
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``) or

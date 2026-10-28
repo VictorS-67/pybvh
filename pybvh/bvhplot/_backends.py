@@ -309,7 +309,12 @@ def _either(words: list[str]) -> str:
 
 def _unread(call: str, backend: str, given: Collection[str]) -> list[str]:
     """The options *given* that *backend* of the public *call* does not
-    read, sorted, leaving out those every backend accepts."""
+    read, sorted, leaving out those every backend accepts. With none
+    given, none is unread and no declaration is read: the calls
+    matplotlib alone draws (``trajectory``, ``sequence``,
+    ``rest_pose``) declare no options."""
+    if not given:
+        return []
     return sorted(set(given) - _reads(call, backend) - _ACCEPTED_BY_EVERY_BACKEND)
 
 

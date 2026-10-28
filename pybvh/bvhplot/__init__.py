@@ -1447,10 +1447,10 @@ def trajectory(
         them whatever ``style.axes`` says, and an ``axes`` the Style's
         caller set (in ``Style(...)`` or ``replace(...)``) raises
         ``ValueError``, as does ``shadow``. The bone, joint and floor
-        fields, ``projection``, ``dpi``, ``supersample`` and
-        ``ghost_spacing`` name what the plot does not hold, and are
-        accepted at any value, so a Style built for :func:`frame`
-        serves here too.
+        fields and ``projection`` name what the plot does not hold, and
+        are accepted at any value, as are ``supersample``,
+        ``ghost_spacing`` and ``dpi`` (the figure takes matplotlib's
+        own), so a Style built for :func:`frame` serves here too.
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional

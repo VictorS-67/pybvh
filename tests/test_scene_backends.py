@@ -914,6 +914,34 @@ class TestEveryBackendDrawsTheViewportsFloor:
         up = view.up_index
         assert before[:, up].mean() - after[:, up].mean() == pytest.approx(0.75, abs=1e-5), backend
 
+    @pytest.mark.parametrize("kind", ["solid", "grid", "checker"])
+    def test_the_vedo_viewer_and_renderer_draw_one_floor(self, kind, scene, monkeypatch):
+        """Of every kind, the same mesh in the same colors and alpha."""
+        pytest.importorskip("vedo")
+        from pybvh.bvhplot import _vedo
+        from pybvh.bvhplot._vedo_offscreen import _build_offscreen
+
+        def drawn(plotter):
+            (floor,) = [o for o in plotter.objects if type(o).__name__ in ("Plane", "Grid")]
+            colors = floor.celldata["CellsRGBA"] if kind == "checker" else floor.color()
+            return np.asarray(floor.vertices), np.asarray(colors), floor.alpha()
+
+        style = Style("paper", floor=kind, floor_alpha=0.4)
+        plotter, _, _ = _build_offscreen(scene, style, (200, 200))
+        try:
+            rendered = drawn(plotter)
+        finally:
+            plotter.close()
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        player = _vedo._VedoPlayer(scene, style, 30.0, quality="high")
+        try:
+            viewed = drawn(player.plt)
+        finally:
+            player.plt.close()
+        for in_render, in_viewer in zip(rendered, viewed, strict=True):
+            np.testing.assert_array_equal(in_render, in_viewer)
+        assert rendered[2] == pytest.approx(0.4)
+
     def test_opencv_projects_the_viewports_plane(self, scene, monkeypatch):
         cv2 = pytest.importorskip("cv2")
         from pybvh.bvhplot import _opencv

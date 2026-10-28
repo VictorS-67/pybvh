@@ -371,6 +371,23 @@ class TestGridFloor:
         np.testing.assert_array_equal(fast_vertices, high_vertices)
         assert fast_alpha == high_alpha
 
+    @pytest.mark.parametrize("quality", ["high", "fast"])
+    def test_the_checker_is_drawn_as_a_checker(self, scene, quality, monkeypatch, tmp_path):
+        """Opaque, both of the palette's checker shades fill a good part
+        of the picture. "checker" fell back to the grid, whose lines
+        are neither shade."""
+        from pybvh.bvhplot._colors import floor_palette, rgb255
+
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        style = Style("paper", floor="checker", floor_alpha=1.0)
+        p = _vedo._VedoPlayer(scene, style, 30.0, quality=quality)
+        try:
+            image = _rendered(p, tmp_path).reshape(-1, 3).astype(int)
+        finally:
+            p.plt.close()
+        for shade in floor_palette(style)["checker"]:
+            assert (np.abs(image - rgb255(shade)).max(axis=1) <= 1).sum() > 5000, shade
+
 
 def _rendered(player, tmp_path):
     """The viewer's current frame as an (H, W, 3) uint8 image."""

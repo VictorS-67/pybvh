@@ -91,23 +91,6 @@ def vedo_color(color: ColorType) -> tuple[float, float, float]:
     return vedo_rgb(rgb255(color))
 
 
-def floor_placement(
-    viewport: Viewport,
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], float]:
-    """Where a vedo ``Plane`` or ``Grid`` for the viewport's ground
-    plane goes: ``(position, normal, side)``.
-
-    The position is the plane's centre, ``FLOOR_EPSILON`` half-spans
-    below the scene ground; the side is the full side length vedo's
-    ``s=`` takes, twice the viewport's floor reach."""
-    up = viewport.up_index
-    position = viewport.center.copy()
-    position[up] = viewport.below_floor(FLOOR_EPSILON * viewport.half_span)
-    normal = np.zeros(3)
-    normal[up] = 1.0
-    return position, normal, 2.0 * viewport.floor_reach
-
-
 def vedo_floor(viewport: Viewport, style: Style) -> Mesh | None:
     """The viewport's ground plane as one vedo mesh, of the style's
     floor kind and at its ``floor_alpha``, or ``None`` when the style

@@ -132,6 +132,18 @@ class TestStyleValidation:
             ("bone_color", None, f"bone_color must be {_A_COLOR}, got None"),
             ("background", "whte", f"background must be {_A_COLOR}, got 'whte'"),
             ("background", "#16181", f"background must be {_A_COLOR}, got '#16181'"),
+            ("joint_color", "whte", f"joint_color must be {_A_COLOR}, got 'whte'"),
+            ("joint_markers", "yes", "joint_markers must be True or False, got 'yes'"),
+            (
+                "chain_colors",
+                "red",
+                "chain_colors must be a dict from chain name to color, got 'red'",
+            ),
+            (
+                "chain_colors",
+                {"spine": "whte"},
+                f"chain_colors['spine'] must be {_A_COLOR}, got 'whte'",
+            ),
         ],
     )
     def test_an_invalid_value_is_refused(self, field, value, message):
@@ -153,9 +165,13 @@ class TestStyleValidation:
             ("bone_color", "#E69F00"),
             ("background", "snow"),
             ("background", (1, 1, 1)),
+            ("joint_color", "red"),
+            ("joint_markers", False),
+            # A chain left out is drawn in the spine color.
+            ("chain_colors", {"spine": "black"}),
         ],
     )
-    def test_a_value_at_the_edge_of_its_range_is_kept(self, field, value):
+    def test_a_valid_value_is_kept(self, field, value):
         for make in self._made_both_ways(field, value):
             assert getattr(make(), field) == value
 

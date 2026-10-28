@@ -179,10 +179,13 @@ class Style:
     ``supersample`` (OpenCV export), ``shadow`` (vedo offscreen
     renders).
 
-    ``bone_color`` and ``background`` take any color matplotlib parses
-    (a name, a hex string, an RGB tuple in [0, 1]), the parser every
-    backend reads them with; one it cannot parse raises ``ValueError``
-    when the Style is made, by the constructor or by ``replace``.
+    ``bone_color``, ``joint_color``, ``background`` and the values of
+    ``chain_colors`` take any color matplotlib parses (a name, a hex
+    string, an RGB tuple in [0, 1]), the parser every backend reads them
+    with; one it cannot parse raises ``ValueError`` when the Style is
+    made, by the constructor or by ``replace``. ``chain_colors`` may
+    leave chains out: those are drawn in its ``"spine"`` color, or the
+    paper preset's spine color when it has none.
 
     ``background`` also colors the grid box of ``play(backend="k3d")``:
     its lines and labels are the background stepped toward black on a
@@ -294,16 +297,27 @@ class Style:
             raise ValueError(f"joint_size must be a positive number, got {self.joint_size!r}")
         if not (self.dpi is None or (isinstance(self.dpi, numbers.Real) and self.dpi > 0)):
             raise ValueError(f"dpi must be a positive number or None, got {self.dpi!r}")
-        if not isinstance(self.shadow, bool):
-            raise ValueError(f"shadow must be True or False, got {self.shadow!r}")
+        for name in ("joint_markers", "shadow"):
+            value = getattr(self, name)
+            if not isinstance(value, bool):
+                raise ValueError(f"{name} must be True or False, got {value!r}")
+        if not isinstance(self.chain_colors, dict):
+            raise ValueError(
+                f"chain_colors must be a dict from chain name to color, got {self.chain_colors!r}"
+            )
+        colors = {
+            "bone_color": self.bone_color,
+            "joint_color": self.joint_color,
+            "background": self.background,
+            **{f"chain_colors[{chain!r}]": c for chain, c in self.chain_colors.items()},
+        }
         # Every backend turns a color into its own format through
         # matplotlib's parser, so a value it parses is one each can draw.
         # Imported here, not at the top: importing bvhplot loads no
         # matplotlib.
         from matplotlib.colors import is_color_like
 
-        for name in ("bone_color", "background"):
-            value = getattr(self, name)
+        for name, value in colors.items():
             if not is_color_like(value):
                 raise ValueError(
                     f"{name} must be a matplotlib color, such as 'white', '#16181D' "

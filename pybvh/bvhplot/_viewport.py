@@ -47,6 +47,10 @@ STANDING_STILL_HALF_SPAN = CUBE_MARGIN / 2
 # ground direction: wide enough to fill the frame at the usual camera
 # elevations, small enough that its far edge stays in the picture.
 FLOOR_EXTENT = 1.8
+# A grid floor divides the plane into this many cells along its longer
+# side. Kept even: OpenCV lays out half of them on each side of the
+# centre.
+FLOOR_GRID_CELLS = 20
 # A still that draws a floor shifts its cube so the plane sits this far
 # above the cube's bottom edge; without the shift a floor below the
 # lowest joint would fall outside the axes.

@@ -337,6 +337,21 @@ class TestGridFloor:
         finally:
             p.plt.close()
 
+    def test_the_grid_has_twenty_cells_a_side(self, scene, monkeypatch):
+        """As matplotlib's, OpenCV's and k3d's; it had thirty."""
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        p = _vedo._VedoPlayer(scene, Style("paper", floor="grid"), 30.0, quality="high")
+        try:
+            (grid,) = [o for o in p.plt.objects if isinstance(o, vedo.Grid)]
+            vertices = np.asarray(grid.vertices)
+            side = 2 * p.viewport.floor_reach
+            for axis in p.viewport.ground_indices:
+                # the lines' positions across the plane, in cells of a 20-cell grid
+                lines = np.unique(np.round((vertices[:, axis] - vertices[:, axis].min()) / side, 4))
+                np.testing.assert_allclose(lines * 20, np.arange(21), atol=1e-4)
+        finally:
+            p.plt.close()
+
 
 def _rendered(player, tmp_path):
     """The viewer's current frame as an (H, W, 3) uint8 image."""

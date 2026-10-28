@@ -36,7 +36,7 @@ from ._vedo_capsules import (
     vedo_color,
     vedo_rgb,
 )
-from ._viewport import STANDING_STILL_HALF_SPAN, make_viewport
+from ._viewport import FLOOR_GRID_CELLS, STANDING_STILL_HALF_SPAN, make_viewport
 
 # Test seam: forces the player's Plotter offscreen so construction,
 # geometry, and the screenshot path can run without a display.
@@ -393,7 +393,7 @@ class _VedoPlayer:
                 # Built at the origin, turned to face up, then moved:
                 # vedo rotates about the world origin, so a grid that
                 # is placed first swings away from where it was put.
-                floor = Grid(s=[side, side], res=(30, 30))
+                floor = Grid(s=[side, side], res=(FLOOR_GRID_CELLS, FLOOR_GRID_CELLS))
                 if self.up_letter == "y":
                     floor.rotate_x(90)
                 elif self.up_letter == "x":

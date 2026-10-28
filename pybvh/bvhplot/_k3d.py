@@ -321,7 +321,8 @@ def _checker_floor(
 # skeleton in one scene, arranged by the router.
 PLAY_READS = frozenset({"spacing", "match_size"})
 # The Style values play() draws on this backend: in perspective only, no
-# axes value, since its grid box is always shown, and no shadow.
+# axes value, since its grid box is always shown, and shadow at False
+# alone: it casts none.
 PLAY_DRAWS = DrawnStyle(
     {
         "bone_width",

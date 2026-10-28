@@ -180,9 +180,10 @@ STYLE_VALUES: dict[str, frozenset[object]] = {
 
 def _is_number(value: object) -> bool:
     """Whether *value* is a real number and not a bool: Python counts
-    ``True`` as the integer 1, but a Style field taking a number means
-    a size or an alpha, which ``True`` is not, as ``1`` is not a bool
-    for the fields taking ``True`` or ``False``."""
+    ``True`` as the integer 1, but ``floor_alpha``, ``joint_size`` and
+    ``dpi``, which this checks, take an alpha or a size, which ``True``
+    is not, as ``1`` is not a bool for the fields taking ``True`` or
+    ``False``."""
     return isinstance(value, numbers.Real) and not isinstance(value, bool)
 
 

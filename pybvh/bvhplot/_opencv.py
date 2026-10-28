@@ -119,7 +119,7 @@ def _draw_floor_opencv(
                 sq = quad(c0 + (i + 0.5) * s, c1 + (j + 0.5) * s, s / 2)
                 cv2.fillPoly(img, [project(sq)], shades[(i + j) % 2], lineType=cv2.LINE_AA)  # type: ignore[list-item]  # mypy reads a list of MatLike as Mat
     elif style.floor == "grid":
-        color = _blend_bgr(_to_bgr(palette["grid"]), bg_bgr, 0.8)
+        color = _blend_bgr(_to_bgr(palette["grid"]), bg_bgr, style.floor_alpha)
         n = 10
         s = ext / n
         for i in range(-n, n + 1):

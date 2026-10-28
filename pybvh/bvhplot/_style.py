@@ -178,6 +178,14 @@ STYLE_VALUES: dict[str, frozenset[object]] = {
 }
 
 
+def _is_number(value: object) -> bool:
+    """Whether *value* is a real number and not a bool: Python counts
+    ``True`` as the integer 1, but a Style field taking a number means
+    a size or an alpha, which ``True`` is not, as ``1`` is not a bool
+    for the fields taking ``True`` or ``False``."""
+    return isinstance(value, numbers.Real) and not isinstance(value, bool)
+
+
 @dataclass(frozen=True, init=False)
 class Style:
     """Visual styling for every bvhplot function.
@@ -406,11 +414,11 @@ class Style:
             raise ValueError(
                 f"ghost_spacing must be positive (seconds), got {self.ghost_spacing!r}"
             )
-        if not (isinstance(self.floor_alpha, numbers.Real) and 0 <= self.floor_alpha <= 1):
+        if not (_is_number(self.floor_alpha) and 0 <= self.floor_alpha <= 1):
             raise ValueError(f"floor_alpha must be a number in [0, 1], got {self.floor_alpha!r}")
-        if not (isinstance(self.joint_size, numbers.Real) and self.joint_size > 0):
+        if not (_is_number(self.joint_size) and self.joint_size > 0):
             raise ValueError(f"joint_size must be a positive number, got {self.joint_size!r}")
-        if not (self.dpi is None or (isinstance(self.dpi, numbers.Real) and self.dpi > 0)):
+        if not (self.dpi is None or (_is_number(self.dpi) and self.dpi > 0)):
             raise ValueError(f"dpi must be a positive number or None, got {self.dpi!r}")
         for name in ("joint_markers", "shadow"):
             value = getattr(self, name)

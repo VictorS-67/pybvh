@@ -143,6 +143,10 @@ class TestStyleValidation:
             ("floor_alpha", 1.5, "floor_alpha must be a number in [0, 1], got 1.5"),
             ("floor_alpha", -0.1, "floor_alpha must be a number in [0, 1], got -0.1"),
             ("floor_alpha", "0.5", "floor_alpha must be a number in [0, 1], got '0.5'"),
+            # A bool is no number here, as 1 is no bool for shadow.
+            ("floor_alpha", True, "floor_alpha must be a number in [0, 1], got True"),
+            ("joint_size", True, "joint_size must be a positive number, got True"),
+            ("dpi", True, "dpi must be a positive number or None, got True"),
             ("joint_size", 0, "joint_size must be a positive number, got 0"),
             ("joint_size", -9.0, "joint_size must be a positive number, got -9.0"),
             ("joint_size", "9", "joint_size must be a positive number, got '9'"),

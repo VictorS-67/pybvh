@@ -18,6 +18,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+import style_declarations
 import synthetic_scene
 from synthetic_scene import make_array_scene
 
@@ -794,6 +795,65 @@ class TestK3d:
         assert len(self._points_in(_build_plot(pair.spread("auto"), Style("paper")).plot)) == 2
         built = _build_plot(pair.spread("auto"), Style("paper", joint_markers=False))
         assert self._points_in(built.plot) == []
+
+
+def _k3d_drawing(built):
+    """What a k3d plot shows: every trait the plot and each of its
+    objects send to the widget, but the ids, which are new on every
+    build, and the layout."""
+
+    def traits(widget, skipped):
+        return {
+            name: getattr(widget, name)
+            for name in widget.keys
+            if not name.startswith("_") and name not in skipped
+        }
+
+    plot = built.plot
+    return [traits(plot, {"object_ids", "layout"})] + [
+        traits(o, {"id", "layout"}) for o in plot.objects
+    ]
+
+
+def _same_drawing(one, other):
+    """Whether two drawings of :func:`_k3d_drawing` hold the same values,
+    arrays compared by their elements."""
+    if isinstance(one, dict):
+        return (
+            isinstance(other, dict)
+            and one.keys() == other.keys()
+            and all(_same_drawing(one[name], other[name]) for name in one)
+        )
+    if isinstance(one, (list, tuple)):
+        return (
+            isinstance(other, (list, tuple))
+            and len(one) == len(other)
+            and all(_same_drawing(a, b) for a, b in zip(one, other, strict=True))
+        )
+    if isinstance(one, np.ndarray) or isinstance(other, np.ndarray):
+        return np.array_equal(np.asarray(one), np.asarray(other))
+    return bool(one == other)
+
+
+class TestK3dDrawsTheStyleItDeclares:
+    """Built with two values of a Style field, k3d's plot holds other
+    objects where it declares the field drawn, and the same where it
+    accepts the field without drawing it (see
+    ``tests/style_declarations.py``). The widget cannot run in the
+    suite, so the plot's objects stand for the picture."""
+
+    @pytest.mark.parametrize(
+        "case",
+        style_declarations.declared("play", ["k3d"]) + style_declarations.accepted("play", ["k3d"]),
+        ids=str,
+    )
+    def test_a_field_declared_changes_the_plot_and_one_accepted_does_not(self, scene, case):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        one = _k3d_drawing(_build_plot(scene, case.one))
+        other = _k3d_drawing(_build_plot(scene, case.other))
+        assert _same_drawing(one, other) != case.differ
 
 
 # ---------------------------------------------------------------------------

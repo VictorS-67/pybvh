@@ -196,9 +196,9 @@ def play_vedo(
     the distance travelled: the fast mode's bones are ``bone_width``
     pixels wide (rounded half up, as OpenCV's are, at least 1:
     :func:`~._style.bone_width_px`), the width the OpenCV backend
-    draws at its 1080p anchor, and its joints are points as wide as
-    OpenCV's joint discs, of radius that width plus
-    ``JOINT_DISC_MARGIN_PX``; the joint labels are ``LABEL_FONT_SIZE`` pixels.
+    draws at its 1080p anchor, and its joints are points of radius that
+    width plus ``JOINT_DISC_MARGIN_PX``, sized by the bones and not by
+    ``joint_size``; the joint labels are ``LABEL_FONT_SIZE`` pixels.
     Pixel sizes do not follow the zoom: a body seen from farther away
     keeps its line widths, as matplotlib's and OpenCV's do. The
     alternative, pixels proportional to the body's size on screen,

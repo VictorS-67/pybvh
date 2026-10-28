@@ -21,7 +21,6 @@ from ._style import (
     COUNTER_BASELINE_PX,
     COUNTER_RGB,
     GHOST_WIDTH_FACTOR,
-    JOINT_DISC_MARGIN_PX,
     PALETTE_RGB,
     TRACE_BLEND,
     TRACE_COLOR,
@@ -30,6 +29,7 @@ from ._style import (
     counter_left_px,
     frame_counter_text,
     ghost_schedule,
+    joint_radius_px,
 )
 from ._viewport import Viewport, panel_viewports
 
@@ -220,9 +220,12 @@ def _draw_skeletons_on_frame(
 
     Joint dots are always drawn in this backend — at raster resolution
     they are load-bearing for line joins (matplotlib omits them when
-    ``style.joint_markers`` is off). With markers off they are small
-    and bone-colored (the pre-0.9.0 look); with markers on they use
-    ``style.joint_color``.
+    ``style.joint_markers`` is off). With markers off they are
+    bone-colored, one pixel wider in radius than the bones are wide
+    (the pre-0.9.0 look): they are how the bones are joined, and do not
+    read ``style.joint_size``. With markers on they are discs of
+    ``style.joint_color``, sized from ``style.joint_size`` through the
+    same pixel scale as the bones (:func:`~._style.joint_radius_px`).
 
     ``ghost`` faded trailing poses draw behind the live skeleton
     (oldest first); ``trajectory`` draws the root trace on the floor up
@@ -239,6 +242,7 @@ def _draw_skeletons_on_frame(
     # 1:1 anchor: bone_width 3.0 -> 3 px there, twice that at 4K, and
     # supersampled drawing surfaces scale up with them).
     thickness = bone_width_px(style.bone_width, px_scale)
+    joint_radius = joint_radius_px(style.joint_size, px_scale)
     thin = max(1, int(px_scale + 0.5))
     panel_size = (panel_w, h)
 
@@ -300,7 +304,7 @@ def _draw_skeletons_on_frame(
                 cv2.circle(
                     canvas,
                     (int(pt[0]), int(pt[1])),
-                    thickness + JOINT_DISC_MARGIN_PX,
+                    joint_radius,
                     ctx.joint_bgr,
                     -1,
                     cv2.LINE_AA,

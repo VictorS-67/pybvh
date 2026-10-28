@@ -369,9 +369,16 @@ def bone_colors_for_view(
 # Bone and joint sizes in pixels (OpenCV, the vedo viewer's fast mode)
 # ---------------------------------------------------------------------------
 
-# A joint marker's disc is this many pixels wider in radius than the
-# bones are wide.
+# The vedo viewer's fast-mode joint point is this many pixels wider in
+# radius than its bones are wide.
 JOINT_DISC_MARGIN_PX = 2
+
+# A joint disc of the paper preset's joint_size has this radius in
+# pixels at the 1080p anchor: the radius OpenCV drew the paper joints at
+# by default (1920 x 1080, supersampled twice) before it read
+# joint_size, when the radius came from the bone width.
+PAPER_JOINT_SIZE = 9.0
+PAPER_JOINT_RADIUS_PX = 4.0
 
 
 def bone_width_px(bone_width: float, px_scale: float = 1.0) -> int:
@@ -380,6 +387,19 @@ def bone_width_px(bone_width: float, px_scale: float = 1.0) -> int:
     up as the OpenCV backend has always rounded it (2.5 draws 3 pixels,
     where Python's ``round``, half to even, gives 2) and at least 1."""
     return max(1, int(bone_width * px_scale + 0.5))
+
+
+def joint_radius_px(joint_size: float, px_scale: float = 1.0) -> int:
+    """A style's *joint_size* as a joint disc's radius in whole pixels.
+
+    *joint_size* is an area, as matplotlib's marker size is, so the
+    radius grows with its square root: ``PAPER_JOINT_RADIUS_PX`` pixels
+    for ``PAPER_JOINT_SIZE`` at the 1080p anchor (*px_scale* 1), scaled
+    by *px_scale* as :func:`bone_width_px` scales the bones, rounded
+    half up and at least 1.
+    """
+    radius = PAPER_JOINT_RADIUS_PX * (joint_size / PAPER_JOINT_SIZE) ** 0.5
+    return max(1, int(radius * px_scale + 0.5))
 
 
 # ---------------------------------------------------------------------------

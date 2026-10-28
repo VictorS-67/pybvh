@@ -1111,6 +1111,40 @@ class TestRenderOpenCV:
         )
         assert path.exists()
 
+    @staticmethod
+    def _first_frame(clips, path, apng_frames, **options):
+        """The first frame ``render(backend="opencv")`` writes to the
+        ``.apng`` at *path*, read back as ``(H, W, 3)`` RGB."""
+        bvhplot.render(clips, path, backend="opencv", fps=10, **options)
+        return apng_frames(path, 10)[0].astype(int)
+
+    def test_a_larger_joint_size_draws_larger_joint_discs(self, walk, tmp_path, apng_frames):
+        """The discs are drawn in pure red, a color no bone or floor of
+        these styles takes, so the red pixels are the discs."""
+
+        def red_pixels(joint_size):
+            style = bvhplot.Style("paper", floor=None, joint_color="#FF0000", joint_size=joint_size)
+            path = tmp_path / f"joints-{joint_size}.apng"
+            picture = self._first_frame(walk, path, apng_frames, resolution=(640, 480), style=style)
+            return int(np.all(picture == (255, 0, 0), axis=-1).sum())
+
+        small, large = red_pixels(9.0), red_pixels(36.0)
+        assert small > 0
+        assert large > 2 * small
+
+    def test_the_dots_joining_the_bones_without_markers_ignore_joint_size(
+        self, walk, tmp_path, apng_frames
+    ):
+        """With ``joint_markers=False`` the bone-colored dots round the
+        line joins: they are sized by the bones, not by ``joint_size``."""
+
+        def drawn(joint_size):
+            style = bvhplot.Style("paper", joint_markers=False, joint_size=joint_size)
+            path = tmp_path / f"dots-{joint_size}.apng"
+            return self._first_frame(walk, path, apng_frames, resolution=(320, 240), style=style)
+
+        assert np.array_equal(drawn(9.0), drawn(36.0))
+
 
 # =============================================================================
 # Backend / extension routing and fps resolution

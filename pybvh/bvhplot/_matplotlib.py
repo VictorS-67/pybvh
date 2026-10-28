@@ -25,7 +25,7 @@ from mpl_toolkits.mplot3d import proj3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from mpl_toolkits.mplot3d.axes3d import Axes3D
 
-from ._colors import floor_palette
+from ._colors import floor_palette, grid_box_colors, is_dark_background
 from ._scene import Scene, SkeletonView
 from ._style import (
     COUNTER_BASELINE_PX,
@@ -404,6 +404,21 @@ def _set_panel_background(ax: matplotlib.axes.Axes, color: ColorType) -> None:
     panel.patch.set_facecolor(color)
 
 
+def _set_panel_title(ax: matplotlib.axes.Axes, label: str, style: Style) -> None:
+    """Title a panel in a colour that reads on the style's background.
+
+    On a dark background (the luminance split that picks the floor
+    colours), the grid box's label colour: the background stepped most
+    of the way toward white, where matplotlib's default black would
+    vanish into it. On a light one, matplotlib's own title colour.
+    """
+    if is_dark_background(style.background):
+        _, label_rgb = grid_box_colors(style)
+        ax.set_title(label, color=tuple(c / 255 for c in label_rgb))
+    else:
+        ax.set_title(label)
+
+
 def _new_3d_figure(
     figsize: tuple[float, float], dpi: int | None
 ) -> tuple[matplotlib.figure.Figure, Axes3D]:
@@ -617,7 +632,7 @@ def frame_mpl(
             _disable_3d_label_clipping(ax_i)
 
         if view.label is not None:
-            ax_i.set_title(view.label)
+            _set_panel_title(ax_i, view.label, style)
 
     if ax is None and n > 1:
         # tight_layout / constrained_layout under-estimate 3D axis tick-label
@@ -708,7 +723,7 @@ def _setup_animated_panel(
         _disable_3d_label_clipping(ax)
 
     if view.label is not None:
-        ax.set_title(view.label)
+        _set_panel_title(ax, view.label, style)
 
     return collection, joint_scatter
 

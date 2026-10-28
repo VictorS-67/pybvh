@@ -188,6 +188,10 @@ class Style:
     and one for all dark backgrounds, differs as soon as the
     background is not white: fixed lines can vanish into an off-white
     background, and the fixed dark pair ignores how dark it is.
+    matplotlib's panel titles (``labels``) take the label colour on a
+    dark background; on a light one they keep matplotlib's black rather
+    than the label colour (``#444444`` on white), so the light pictures
+    look as they always did.
 
     ``color_mode``: ``"auto"`` uses per-chain colors for a single
     skeleton and flat per-skeleton palette colors for multi-skeleton

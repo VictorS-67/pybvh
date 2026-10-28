@@ -607,6 +607,60 @@ class TestMatplotlibVideosDrawTheJointsOverTheBones:
         assert _joints_kept(first_frame(0.5), first_frame(8.0))
 
 
+def _contrast(color, other) -> float:
+    """The WCAG contrast ratio of two colours, 1 (the same) to 21
+    (black on white); 4.5 is its minimum for body text."""
+    from matplotlib.colors import to_rgb
+
+    def luminance(c):
+        rgb = np.array(to_rgb(c))
+        linear = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
+        return float(linear @ (0.2126, 0.7152, 0.0722))
+
+    hi, lo = sorted((luminance(color), luminance(other)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+class TestPanelTitlesAreLegible:
+    """Panel titles stand out from the style's background, dark or
+    light."""
+
+    def test_frame(self, bvh):
+        fig, axs = bvhplot.frame([bvh, bvh], 10, style="dark", labels=["A", "B"])
+        background = resolve_style("dark").background
+        assert all(_contrast(ax.title.get_color(), background) >= 4.5 for ax in axs)
+        plt.close(fig)
+
+    def test_frame_keeps_black_titles_on_a_light_background(self, bvh):
+        """matplotlib's own title colour, as before."""
+        fig, axs = bvhplot.frame([bvh, bvh], 10, style="paper", labels=["A", "B"])
+        assert all(matplotlib.colors.to_hex(ax.title.get_color()) == "#000000" for ax in axs)
+        plt.close(fig)
+
+    def test_render(self, walk, tmp_path, apng_frames):
+        """The title is the pixels a label adds to the picture; its
+        brightest stands out from the background."""
+
+        def first_frame(labels):
+            path = tmp_path / f"{labels}.apng"
+            bvhplot.render(
+                walk,
+                path,
+                backend="matplotlib",
+                resolution=(320, 240),
+                fps=10,
+                style="dark",
+                labels=labels,
+            )
+            return apng_frames(path, 10)[0]
+
+        titled, untitled = first_frame(["WALK"]), first_frame(None)
+        title = np.any(titled != untitled, axis=-1)
+        assert title.any()
+        brightest = titled[title][np.argmax(titled[title].sum(axis=-1))] / 255
+        assert _contrast(brightest, resolve_style("dark").background) >= 4.5
+
+
 class TestReviewFixes:
     """Regression tests for the v0.9.0 code-review findings."""
 

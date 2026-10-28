@@ -1192,10 +1192,10 @@ def play(
         player without a word (the OpenCV video draws ``supersample``;
         ``play`` draws no ghosts). Of the other fields, matplotlib's
         player draws all but ``shadow``, which is refused; the OpenCV
-        notebook video likewise, but with ``projection`` at
-        ``"ortho"`` alone, as ``render`` draws it on OpenCV. k3d draws all but ``shadow`` and ``axes``,
-        refused at both values since its grid box is always shown, with
-        ``projection`` at ``"persp"`` alone. The vedo window, at both
+        notebook video likewise, but with ``projection`` at ``"ortho"``
+        alone, as ``render`` draws it on OpenCV. k3d draws all but
+        ``shadow`` and ``axes``, refused at both values since its grid
+        box is always shown, with ``projection`` at ``"persp"`` alone. The vedo window, at both
         qualities, refuses ``shadow`` and the joint fields
         (``joint_markers``, ``joint_size``, ``joint_color``), each
         joint being the capsules' sphere, sized and coloured by its

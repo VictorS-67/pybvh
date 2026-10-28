@@ -461,11 +461,13 @@ class DrawnStyle:
     its entry function: each field drawn whole, and of each field of
     :data:`STYLE_VALUES` it does not draw whole, the values it draws.
 
-    A value drawn is drawn as the Style says: OpenCV draws orthographic
-    whatever the projection asked, so it declares ``projection`` with
-    ``"ortho"`` only, and the vedo renderer, which sizes and colours
-    every joint by its bones, declares none of the joint fields. A
-    field absent draws none of its values.
+    A value drawn is drawn as the Style says, or in a reduced form of
+    the backend's own (OpenCV's axis indicator for ``axes="full"``).
+    OpenCV draws orthographic whatever the projection asked, so it
+    declares ``projection`` with ``"ortho"`` only, and the vedo
+    renderer, which sizes and colours every joint by its bones,
+    declares none of the joint fields. A field absent draws none of its
+    values.
     """
 
     fields: frozenset[str]
@@ -478,7 +480,8 @@ class DrawnStyle:
         )
 
     def draws(self, field: str, value: object) -> bool:
-        """Whether *field* at *value* is drawn as the Style asks."""
+        """Whether *field* at *value* is drawn as the Style asks, in
+        full or in a reduced form of the backend's own."""
         return field in self.fields or value in self.values.get(field, frozenset())
 
 

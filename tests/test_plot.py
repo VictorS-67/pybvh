@@ -1094,7 +1094,8 @@ class TestRenderOpenCV:
         assert path.stat().st_size > 0
 
     def test_axes_full_draws_indicator(self, bvh_example, tmp_path):
-        # axes visibility moved from show_axis= into Style (v0.9.0)
+        """A caller's axes="full" is drawn, as the axis indicator; that
+        it changes the picture is pinned by the declaration tests."""
         path = bvhplot.render(
             bvh_example,
             tmp_path / "axis.mp4",

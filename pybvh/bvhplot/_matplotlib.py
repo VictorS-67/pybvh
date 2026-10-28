@@ -920,7 +920,7 @@ def _wrap_update_with_counter(
 RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory", "frame_counter"})
 # The Style values render() draws on this backend: frame()'s, but dpi
 # (the resolution sets the pixels), and the ghosts' spacing.
-RENDER_DRAWS = DrawnStyle(FRAME_DRAWS.fields - {"dpi"} | {"ghost_spacing"}, **FRAME_DRAWS.values)
+RENDER_DRAWS = FRAME_DRAWS.derive(drop={"dpi"}, add={"ghost_spacing"})
 
 
 def render_mpl(
@@ -1086,7 +1086,7 @@ def _make_orbit_update_fn(
 PLAY_READS: frozenset[str] = frozenset()
 # The Style values play() draws on this backend: render()'s, but the
 # ghosts' spacing, since play draws no ghosts.
-PLAY_DRAWS = DrawnStyle(RENDER_DRAWS.fields - {"ghost_spacing"}, **RENDER_DRAWS.values)
+PLAY_DRAWS = RENDER_DRAWS.derive(drop={"ghost_spacing"})
 
 
 def play_mpl(

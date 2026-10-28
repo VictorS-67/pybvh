@@ -493,6 +493,16 @@ class DrawnStyle:
         full or in a reduced form of the backend's own."""
         return field in self.fields or value in self.values.get(field, frozenset())
 
+    def derive(self, *, drop: Collection[str] = (), add: Collection[str] = ()) -> DrawnStyle:
+        """This declaration, for a call drawn as this one is but for the
+        fields *drop*, of which it draws no value, and *add*, which it
+        draws whole: render()'s from frame()'s. The values declared of
+        every other field are kept, so a value declared on this one is
+        never lost from a declaration derived from it."""
+        changed = set(drop) | set(add)
+        values = {name: drawn for name, drawn in self.values.items() if name not in changed}
+        return DrawnStyle((self.fields - set(drop)) | set(add), **values)
+
 
 def resolve_style(style: Style | str) -> Style:
     """Accept a preset name or a Style instance; return a Style."""

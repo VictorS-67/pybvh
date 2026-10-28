@@ -487,7 +487,7 @@ RENDER_DRAWS = DrawnStyle(
 PLAY_READS = frozenset({"resolution", "frame_counter"})
 # The Style values its notebook video draws: render()'s, but the ghosts'
 # spacing, since play draws no ghosts.
-PLAY_DRAWS = DrawnStyle(RENDER_DRAWS.fields - {"ghost_spacing"}, **RENDER_DRAWS.values)
+PLAY_DRAWS = RENDER_DRAWS.derive(drop={"ghost_spacing"})
 
 
 def render_opencv(

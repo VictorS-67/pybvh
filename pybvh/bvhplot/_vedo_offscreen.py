@@ -197,6 +197,8 @@ def frame_vedo(
 # The options of render() this backend reads (ADR 0006): it draws every
 # skeleton in one scene, arranged by the router.
 RENDER_READS = frozenset({"spacing", "match_size"})
+# render() builds each frame as frame() builds its still
+# (_build_offscreen), so it draws what frame() draws.
 RENDER_DRAWS = FRAME_DRAWS
 
 

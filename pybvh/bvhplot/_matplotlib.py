@@ -41,7 +41,13 @@ from ._style import (
     ghost_schedule,
 )
 from ._video import VideoTarget, Writer
-from ._viewport import FLOOR_GRID_CELLS, Viewport, make_viewport, panel_viewports
+from ._viewport import (
+    FLOOR_CHECKER_SQUARES,
+    FLOOR_GRID_CELLS,
+    Viewport,
+    make_viewport,
+    panel_viewports,
+)
 
 # mplot3d sizes its default margins for a cube free to rotate to any
 # angle; span-fitted boxes are much tighter, so they can be zoomed in
@@ -236,7 +242,7 @@ def _draw_floor_mpl(
             ),
         )
     elif style.floor == "checker":
-        n = 16
+        n = FLOOR_CHECKER_SQUARES
         s0 = (g0_hi - g0_lo) / n
         s1 = (g1_hi - g1_lo) / n
         squares = []

@@ -23,7 +23,13 @@ from ._colors import (
 )
 from ._scene import Scene
 from ._style import PALETTE_RGB, Style, bone_width_scale, effective_color_mode
-from ._viewport import FLOOR_GRID_CELLS, STANDING_STILL_HALF_SPAN, Viewport, make_viewport
+from ._viewport import (
+    FLOOR_CHECKER_SQUARES,
+    FLOOR_GRID_CELLS,
+    STANDING_STILL_HALF_SPAN,
+    Viewport,
+    make_viewport,
+)
 
 # The floor is drawn this far below the scene ground, in half-spans, so
 # the root trail, which lies exactly on the ground, has a fixed order
@@ -31,8 +37,6 @@ from ._viewport import FLOOR_GRID_CELLS, STANDING_STILL_HALF_SPAN, Viewport, mak
 FLOOR_EPSILON = 0.004
 # Lines per ground direction of a "grid" floor: one more than its cells.
 FLOOR_GRID_LINES = FLOOR_GRID_CELLS + 1
-# Squares per ground direction of a "checker" floor, as matplotlib's.
-FLOOR_CHECKER_SQUARES = 16
 
 # What is drawn on a body is sized from it, in these fractions of its
 # body size: the v0.9.0 sizes of a standing still, which were 2%, 3%

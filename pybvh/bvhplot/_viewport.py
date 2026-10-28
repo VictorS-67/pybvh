@@ -51,6 +51,9 @@ FLOOR_EXTENT = 1.8
 # side. Kept even: OpenCV lays out half of them on each side of the
 # centre.
 FLOOR_GRID_CELLS = 20
+# A checker floor divides the plane into this many squares a side. Kept
+# even: OpenCV lays out half of them on each side of the centre.
+FLOOR_CHECKER_SQUARES = 16
 # A still that draws a floor shifts its cube so the plane sits this far
 # above the cube's bottom edge; without the shift a floor below the
 # lowest joint would fall outside the axes.

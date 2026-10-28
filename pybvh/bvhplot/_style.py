@@ -296,7 +296,7 @@ class Style:
     ghost_spacing: float
     # The fields the caller set, by the constructor's overrides and every
     # replace since: the fields a backend that does not draw them refuses.
-    # Not a field of the look, so not compared, hashed or shown.
+    # Not a field of the look: equality and repr leave it out.
     _set_fields: frozenset[str] = dataclasses.field(
         default=frozenset(), init=False, repr=False, compare=False
     )
@@ -394,7 +394,8 @@ class Style:
     def replace(self, **overrides: object) -> Style:
         """A new Style with the given fields changed. The fields changed
         join those the caller set before (see :class:`Style`)."""
-        fields = {name: getattr(self, name) for name in _STYLE_PRESETS["paper"]}
+        # The fields of the look, the ones compared: not _set_fields.
+        fields = {f.name: getattr(self, f.name) for f in dataclasses.fields(self) if f.compare}
         new = object.__new__(Style)
         new._assign_fields(fields, overrides, self._set_fields)
         return new

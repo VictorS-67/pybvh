@@ -6,8 +6,11 @@ differ on the backend: a field drawn whole, two values of it; a value of
 a field of a fixed set of values, that value and a second one; an
 accepted field (one every backend takes whether it draws it or not), two
 values of it, which must draw the same picture. A field a backend draws
-at one value only, OpenCV's projection, cannot differ from a second one:
-the value set draws the picture drawn with the field left to the preset.
+at one value only (OpenCV's projection) has no second value to differ
+from: the value set draws the picture drawn with the field left to a
+preset whose value differs, where one does ("debug"'s axes="full", for
+vedo's "off"). Where none does (no preset asks for "ortho", for vedo's
+"persp"), the case checks only that the value set is accepted.
 """
 
 from __future__ import annotations
@@ -16,6 +19,8 @@ from typing import NamedTuple
 
 from pybvh.bvhplot import Style, _backends
 from pybvh.bvhplot._style import STYLE_VALUES
+
+PRESETS = ["paper", "debug", "dark"]
 
 # Two values of each field drawn whole whose pictures differ wherever the
 # field is drawn on the paper preset; bone_color is drawn in "single"
@@ -95,7 +100,10 @@ def declared(call: str, backends: list[str]) -> list[Case]:
             for value in sorted(values, key=repr):
                 one = Style("paper", **{field: value})
                 if len(values) == 1:
-                    cases.append(Case(backend, field, one, Style("paper"), False))
+                    preset = _a_preset_without(field, value)
+                    cases.append(
+                        Case(backend, field, Style(preset, **{field: value}), Style(preset), False)
+                    )
                     continue
                 second = _SECOND[field, value]
                 assert drawn.draws(field, second), f"{backend} draws {field}={value!r} alone"
@@ -103,13 +111,18 @@ def declared(call: str, backends: list[str]) -> list[Case]:
     return cases
 
 
+def _a_preset_without(field: str, value: object) -> str:
+    """A preset whose *field* is not *value*, else ``"paper"``."""
+    return next((preset for preset in PRESETS if getattr(Style(preset), field) != value), "paper")
+
+
 def accepted(call: str, backends: list[str]) -> list[Case]:
     """A case of every field *backends* accept for the public *call*
     without drawing it."""
     return [
-        Case(backend, *_whole(backend, field)[1:4], False)
+        _whole(backend, field)._replace(differ=False)
         for backend in backends
         for field in sorted(
-            _backends._STYLE_ACCEPTED_BY_EVERY_BACKEND - _backends._draws(call, backend).fields
+            _backends._STYLE_ACCEPTED[call] - _backends._draws(call, backend).fields
         )
     ]

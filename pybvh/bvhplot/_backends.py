@@ -238,7 +238,9 @@ _ACCEPTED_BY_EVERY_BACKEND = frozenset({"spacing", "match_size"})
 # resolution; supersample is how OpenCV draws; ghost_spacing spaces ghosts
 # where a call draws them. So one "paper at 300 dpi" Style serves figures
 # and videos.
-_STYLE_ACCEPTED_BY_EVERY_BACKEND = frozenset({"dpi", "supersample", "ghost_spacing"})
+_NOT_IN_EVERY_PICTURE = frozenset({"dpi", "supersample", "ghost_spacing"})
+# The Style fields every backend of each public call accepts, drawn or not.
+_STYLE_ACCEPTED = {"frame": _NOT_IN_EVERY_PICTURE, "render": _NOT_IN_EVERY_PICTURE}
 
 # How a message names an option that is not a keyword of its own.
 _SHOWN = {"turntable": "camera='turntable'"}
@@ -248,7 +250,7 @@ class _Wording(NamedTuple):
     """How a message of the rule speaks of what a backend lacks."""
 
     verb: str  # what a backend does with it, "read" or "draw"
-    things: str  # what is named before the names: "" or "the Style's "
+    prefix: str  # what precedes the names: "" or "the Style's "
     leave: str  # how the caller does without it: "unset" or "out of the Style"
 
 
@@ -303,11 +305,11 @@ def _with_undrawn_style(
     named, and warns under ``"auto"``, offering the backends that draw
     them all. A field of a fixed set of values is named with its value.
     A preset's own values are never refused, nor the fields every
-    backend accepts (``_STYLE_ACCEPTED_BY_EVERY_BACKEND``)."""
+    backend of the call accepts (``_STYLE_ACCEPTED[call]``)."""
     asked = {
         field: value
         for field, value in (fields_set(style) if style is not None else {}).items()
-        if field not in _STYLE_ACCEPTED_BY_EVERY_BACKEND
+        if field not in _STYLE_ACCEPTED[call]
     }
     if not asked:
         return choice
@@ -345,7 +347,7 @@ def _refused(
         return repr((public_names or {}).get(backend, backend))
 
     verb = wording.verb
-    shown = f"{wording.things}{_either(names)}"
+    shown = f"{wording.prefix}{_either(names)}"
     it = "it" if len(names) == 1 else "them"
     instead = (
         f"use backend={_either([public_name(b) for b in others])}, which "

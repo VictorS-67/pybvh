@@ -268,7 +268,7 @@ _STYLE_ACCEPTED_BY_EVERY_BACKEND = frozenset({"dpi", "supersample", "ghost_spaci
 # trajectory also accepts these: it plots the root's path on the ground,
 # seen from above, and holds no bone, joint, floor or camera to draw them
 # on.
-_STYLE_ACCEPTED_BY_TRAJECTORY = frozenset(
+_STYLE_ALSO_ACCEPTED_BY_TRAJECTORY = frozenset(
     {
         "bone_width",
         "bone_color",
@@ -284,7 +284,7 @@ _STYLE_ACCEPTED_BY_TRAJECTORY = frozenset(
 )
 # The Style fields every backend of each public call accepts, drawn or not.
 _STYLE_ACCEPTED = {call: _STYLE_ACCEPTED_BY_EVERY_BACKEND for call in _DECLARING_MODULES}
-_STYLE_ACCEPTED["trajectory"] |= _STYLE_ACCEPTED_BY_TRAJECTORY
+_STYLE_ACCEPTED["trajectory"] |= _STYLE_ALSO_ACCEPTED_BY_TRAJECTORY
 
 # How a message names an option that is not a keyword of its own.
 _SHOWN = {"turntable": "camera='turntable'"}

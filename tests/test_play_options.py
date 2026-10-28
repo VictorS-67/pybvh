@@ -4,11 +4,16 @@ named, warn under auto, whose choice depends on the session."""
 
 from __future__ import annotations
 
+import base64
 import dataclasses
+import io
+import re
 import warnings
 
+import numpy as np
 import pytest
 import style_declarations
+from PIL import Image
 
 from pybvh import bvhplot
 from pybvh.bvhplot import _backends
@@ -40,6 +45,19 @@ REFUSED = [
     ("opencv", "shadow", True),
     ("matplotlib", "shadow", True),
 ]
+# How a message names each field: one of a fixed set of values with its
+# value, any other by its name alone.
+SHOWN = {
+    ("projection", "ortho"): "projection='ortho'",
+    ("projection", "persp"): "projection='persp'",
+    ("axes", "off"): "axes='off'",
+    ("axes", "full"): "axes='full'",
+    ("joint_markers", True): "joint_markers=True",
+    ("joint_markers", False): "joint_markers=False",
+    ("joint_size", 20.0): "joint_size",
+    ("joint_color", "red"): "joint_color",
+    ("shadow", True): "shadow",
+}
 
 # How to have auto choose each backend, in a session the test builds.
 AUTO_CHOOSES = {
@@ -48,10 +66,6 @@ AUTO_CHOOSES = {
     "opencv": lambda environment: environment(notebook=True, importable={"cv2"}),
     "matplotlib": lambda environment: environment(importable=EVERYTHING),
 }
-
-
-def _case_id(value) -> str:
-    return str(value)
 
 
 def _refused_as(field, value):
@@ -212,7 +226,7 @@ class TestPlayChoiceAndTheStyle:
             "the Style, or use backend='k3d', 'matplotlib' or 'opencv', which draw it."
         )
 
-    @pytest.mark.parametrize("named, field, value", REFUSED, ids=_case_id)
+    @pytest.mark.parametrize("named, field, value", REFUSED, ids=str)
     def test_a_named_backend_refuses_each_field_it_does_not_draw(
         self, environment, named, field, value
     ):
@@ -223,7 +237,7 @@ class TestPlayChoiceAndTheStyle:
                 style=bvhplot.Style("paper", **{field: value}),
             )
 
-    @pytest.mark.parametrize("named, field, value", REFUSED, ids=_case_id)
+    @pytest.mark.parametrize("named, field, value", REFUSED, ids=str)
     def test_auto_warns_of_each_field_its_choice_does_not_draw(
         self, environment, named, field, value
     ):
@@ -231,9 +245,9 @@ class TestPlayChoiceAndTheStyle:
             "auto", AUTO_CHOOSES[named](environment), style=bvhplot.Style("paper", **{field: value})
         )
         assert _backends._PLAY_NAMES.get(choice.backend, choice.backend) == named
-        shown = f"{field}={value!r}" if field in STYLE_VALUES else field
         assert choice.warnings[-1].startswith(
-            f"play() chose backend='{named}', which does not draw the Style's {shown}, "
+            f"play() chose backend='{named}', which does not draw the Style's "
+            f"{SHOWN[field, value]}, "
             "so it is ignored."
         )
 
@@ -422,13 +436,6 @@ class TestThroughPlayAndTheStyle:
 def _jshtml_frames(page):
     """Every frame of matplotlib's notebook player, a page holding each
     as a PNG, as ``(H, W, 3)`` uint8 RGB arrays."""
-    import base64
-    import io
-    import re
-
-    import numpy as np
-    from PIL import Image
-
     pngs = re.findall(r'frames\[\d+\] = "data:image/png;base64,([^"]+)"', page)
     assert pngs
     return [

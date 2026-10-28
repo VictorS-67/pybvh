@@ -800,7 +800,7 @@ class TestK3d:
 def _k3d_drawing(built):
     """What a k3d plot shows: every trait the plot and each of its
     objects send to the widget, but the ids, which are new on every
-    build, and the layout."""
+    build, and the layout, the widget's box on the notebook's page."""
 
     def traits(widget, skipped):
         return {

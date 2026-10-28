@@ -1424,9 +1424,15 @@ def trajectory(
     style : Style or str, optional
         Visual styling: a preset name (``"paper"``, ``"debug"``,
         ``"dark"``) or a :class:`Style` instance. Default ``"paper"``.
-        Only its background applies: a trajectory is a 2D data plot
+        Only its background is drawn: a trajectory is a 2D data plot
         whose axes, ticks and grid carry the information, so it keeps
-        them whatever ``style.axes`` says.
+        them whatever ``style.axes`` says, and an ``axes`` the Style's
+        caller set (in ``Style(...)`` or ``replace(...)``) raises
+        ``ValueError``, as does ``shadow``. The bone, joint and floor
+        fields, ``projection``, ``dpi``, ``supersample`` and
+        ``ghost_spacing`` name what the plot does not hold, and are
+        accepted at any value, so a Style built for :func:`frame`
+        serves here too.
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional
@@ -1464,6 +1470,8 @@ def trajectory(
     ax : matplotlib.axes.Axes
     """
     clips = as_clip_list(bvh)
+    style_obj = resolve_style(style)
+    _backends.check_drawn_style("trajectory", style_obj)
     scene = _prepare(clips, None, centered, "front", labels)
 
     # trajectory_mpl() computes its own per-skeleton horizontal axes
@@ -1472,7 +1480,7 @@ def trajectory(
 
     return trajectory_mpl(
         scene,
-        resolve_style(style),
+        style_obj,
         figsize=figsize,
         show=show,
         ax=ax,

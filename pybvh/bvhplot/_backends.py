@@ -174,6 +174,8 @@ _DECLARING_MODULES = {
         "opencv_notebook": "_opencv",
         "matplotlib": "_matplotlib",
     },
+    # Drawn by matplotlib alone.
+    "trajectory": {"matplotlib": "_matplotlib"},
 }
 
 
@@ -221,6 +223,16 @@ def choose_frame_backend(
     return _with_undrawn_style("frame", requested, choice, style, backends)
 
 
+def check_drawn_style(call: str, style: Style) -> None:
+    """Raise ``ValueError`` naming each field of *style* its caller set
+    that the public *call*, which matplotlib alone draws, does not draw
+    (see :func:`_with_undrawn_style`): with no other backend to offer,
+    the backend is always named."""
+    _with_undrawn_style(
+        call, "matplotlib", Choice("matplotlib"), style, _DECLARING_MODULES[call], keyword=None
+    )
+
+
 _SLOW_RENDER = (
     f"OpenCV not found for fast rendering. {install_hint('cv2')}. "
     "Falling back to matplotlib (slower)."
@@ -240,7 +252,25 @@ _ACCEPTED_BY_EVERY_BACKEND = frozenset({"spacing", "match_size"})
 # and videos.
 _NOT_IN_EVERY_PICTURE = frozenset({"dpi", "supersample", "ghost_spacing"})
 # The Style fields every backend of each public call accepts, drawn or not.
-_STYLE_ACCEPTED = {"frame": _NOT_IN_EVERY_PICTURE, "render": _NOT_IN_EVERY_PICTURE}
+_STYLE_ACCEPTED = {
+    "frame": _NOT_IN_EVERY_PICTURE,
+    "render": _NOT_IN_EVERY_PICTURE,
+    # A trajectory plots the root's path on the ground, seen from above:
+    # it holds no bone, joint, floor or camera to draw them on.
+    "trajectory": _NOT_IN_EVERY_PICTURE
+    | {
+        "bone_width",
+        "bone_color",
+        "color_mode",
+        "chain_colors",
+        "joint_markers",
+        "joint_size",
+        "joint_color",
+        "floor",
+        "floor_alpha",
+        "projection",
+    },
+}
 
 # How a message names an option that is not a keyword of its own.
 _SHOWN = {"turntable": "camera='turntable'"}
@@ -298,6 +328,8 @@ def _with_undrawn_style(
     style: Style | None,
     backends: Collection[str],
     public_names: Mapping[str, str] | None = None,
+    *,
+    keyword: str | None = "backend",
 ) -> Choice:
     """Apply the rule of :func:`_with_unread_options` to the fields of
     *style* its caller set (:func:`._style.fields_set`): one set at a
@@ -305,7 +337,9 @@ def _with_undrawn_style(
     named, and warns under ``"auto"``, offering the backends that draw
     them all. A field of a fixed set of values is named with its value.
     A preset's own values are never refused, nor the fields every
-    backend of the call accepts (``_STYLE_ACCEPTED[call]``)."""
+    backend of the call accepts (``_STYLE_ACCEPTED[call]``). The
+    messages name the backend as the call's *keyword* that chose it, or
+    name none under ``None``."""
     asked = {
         field: value
         for field, value in (fields_set(style) if style is not None else {}).items()
@@ -326,7 +360,7 @@ def _with_undrawn_style(
     drawers = [
         backend for backend in sorted(backends) if not set(undrawn) & set(undrawn_on(backend))
     ]
-    return _refused(call, requested, choice, names, drawers, _STYLE, public_names)
+    return _refused(call, requested, choice, names, drawers, _STYLE, public_names, keyword)
 
 
 def _refused(
@@ -337,11 +371,14 @@ def _refused(
     others: list[str],
     wording: _Wording,
     public_names: Mapping[str, str] | None,
+    keyword: str | None = "backend",
 ) -> Choice:
     """Raise ``ValueError`` naming what the named backend lacks
     (*names*), or, under ``"auto"``, add a warning naming it and the
     backend chosen; either offers *others*, the backends that have it
-    all, when there are any."""
+    all, when there are any. A backend is named as the value of the
+    call's *keyword* that chose it; under ``None``, a call that draws
+    one way only, the call is named without one."""
 
     def public_name(backend: str) -> str:
         return repr((public_names or {}).get(backend, backend))
@@ -350,7 +387,7 @@ def _refused(
     shown = f"{wording.prefix}{_either(names)}"
     it = "it" if len(names) == 1 else "them"
     instead = (
-        f"use backend={_either([public_name(b) for b in others])}, which "
+        f"use {keyword}={_either([public_name(b) for b in others])}, which "
         f"{verb + 's' if len(others) == 1 else verb} {it}"
         if others
         else ""
@@ -364,10 +401,8 @@ def _refused(
         )
         return Choice(choice.backend, (*choice.warnings, message))
     hint = f", or {instead}" if others else ""
-    raise ValueError(
-        f"{call}(backend={public_name(choice.backend)}) does not {verb} {shown}. "
-        f"Leave {it} {wording.leave}{hint}."
-    )
+    chosen = f"{keyword}={public_name(choice.backend)}" if keyword else ""
+    raise ValueError(f"{call}({chosen}) does not {verb} {shown}. Leave {it} {wording.leave}{hint}.")
 
 
 def choose_render_backend(

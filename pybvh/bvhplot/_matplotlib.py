@@ -1114,6 +1114,11 @@ def play_mpl(
 # ---------------------------------------------------------------------------
 
 
+# The Style values trajectory() draws: a path plot keeps its axes, ticks
+# and grid, which carry its information, whatever the Style's axes say.
+TRAJECTORY_DRAWS = DrawnStyle({"background"})
+
+
 def trajectory_mpl(
     scene: Scene,
     style: Style,

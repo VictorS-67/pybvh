@@ -113,11 +113,18 @@ def declared(call: str, backends: list[str]) -> list[Case]:
 
 def accepted(call: str, backends: list[str]) -> list[Case]:
     """A case of every field *backends* accept for the public *call*
-    without drawing it."""
-    return [
-        _whole(backend, field)._replace(differ=False)
-        for backend in backends
+    without drawing it: of a field of a fixed set of values, each value
+    against its second."""
+    cases = []
+    for backend in backends:
         for field in sorted(
             _backends._STYLE_ACCEPTED[call] - _backends._draws(call, backend).fields
-        )
-    ]
+        ):
+            if field not in STYLE_VALUES:
+                cases.append(_whole(backend, field)._replace(differ=False))
+                continue
+            for value in sorted(STYLE_VALUES[field], key=repr):
+                one = Style("paper", **{field: value})
+                other = Style("paper", **{field: _SECOND[field, value]})
+                cases.append(Case(backend, field, one, other, False))
+    return cases

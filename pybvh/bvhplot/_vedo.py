@@ -198,7 +198,7 @@ def play_vedo(
     the first view) and one viewport over the — possibly laterally
     spread — views.
 
-    Style application (look fields): background, floor kind and
+    The Style it draws (``PLAY_DRAWS``): background, floor kind and
     ``floor_alpha`` (the offscreen renderer's floor:
     :func:`~._vedo_capsules.vedo_floor`), bone width, and
     the bone colors ``color_mode`` resolves to, in both quality modes
@@ -239,7 +239,7 @@ def play_vedo(
     scene : Scene
         Prepared visualization.
     style : Style
-        Visual styling (look fields).
+        Visual styling, drawn as ``PLAY_DRAWS`` declares.
     fps : float
         Frames per second.
     quality : str

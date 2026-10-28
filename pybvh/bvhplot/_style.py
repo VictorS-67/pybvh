@@ -231,6 +231,14 @@ class Style:
         shadow        no    yes   no    no    yes   no    no    no    no    no    no    no    no
         ghost_spacing n/a   n/a   yes   yes   n/a   n/a   n/a   n/a   n/a   n/a   n/a   n/a   n/a
 
+    The columns: ``frame``'s backends (``mpl`` matplotlib, ``vedo``
+    the shadowed capsule renderer), ``render``'s (``cv`` OpenCV),
+    ``play``'s (``cv`` the OpenCV notebook video, ``k3d`` the notebook
+    widget, ``vedo`` the desktop window, at both qualities), then the
+    calls matplotlib alone draws: ``rest`` is ``rest_pose``, ``offs``
+    and ``over`` are ``sequence``'s ``"offset"`` and ``"overlay"``
+    layouts, ``traj`` is ``trajectory``.
+
     ``yes``: drawn at every value. A value (``ortho``, ``persp``,
     ``off``): drawn at that value alone; another is refused. ``no``:
     refused at every value. ``n/a``: accepted at every value without a
@@ -246,19 +254,14 @@ class Style:
     Style serves stills and videos, and a Style built for ``frame``
     serves ``trajectory``.
 
-    The columns: ``frame``'s backends (``mpl`` matplotlib, ``vedo``
-    the shadowed capsule renderer), ``render``'s (``cv`` OpenCV),
-    ``play``'s (``cv`` the OpenCV notebook video, ``k3d`` the notebook
-    widget, ``vedo`` the desktop window, at both qualities), then the
-    calls matplotlib alone draws: ``rest`` is ``rest_pose``, ``offs``
-    and ``over`` are ``sequence``'s ``"offset"`` and ``"overlay"``
-    layouts, ``traj`` is ``trajectory``. What the table leaves out:
-    both vedo backends draw each joint as the capsules' sphere, sized
-    and coloured by its bones; k3d always shows its grid box; OpenCV
-    draws the ``"debug"`` preset's ``axes="full"`` as a small axis
-    indicator, not the full axes, and with ``joint_markers=False``
-    still draws a small bone-coloured dot at each joint, which joins
-    its bones; ``sequence`` draws the joint fields on its last pose.
+    What the table leaves out: both vedo backends draw each joint as
+    the capsules' sphere, sized and coloured by its bones; k3d always
+    shows its grid box; OpenCV draws the ``"debug"`` preset's
+    ``axes="full"`` as a small axis indicator, not the full axes, and
+    with ``joint_markers=False`` still draws a small bone-coloured dot
+    at each joint, which joins its bones; the vedo renderer casts its
+    shadow on the floor, so under ``floor=None`` it draws none;
+    ``sequence`` draws the joint fields on its last pose.
 
     ``ghost_spacing`` is in seconds of clip time, not playback time,
     between the faded trailing poses that ``render(ghost=...)`` draws

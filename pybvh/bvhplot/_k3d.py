@@ -368,7 +368,7 @@ def play_k3d(
     sides of a narrow widget (two standing figures need about 1.5
     times its height); the mouse wheel zooms out.
 
-    Style application (look fields): background, bone width, the
+    The Style it draws (``PLAY_DRAWS``): background, bone width, the
     bone colors (chain colors for a single skeleton under ``"auto"``
     or ``"chains"``, as per-vertex colors, so segments blend at chain
     boundaries, a k3d rendering artifact; otherwise the skeleton's flat
@@ -409,7 +409,7 @@ def play_k3d(
     scene : Scene
         Prepared visualization.
     style : Style
-        Visual styling (look fields).
+        Visual styling, drawn as ``PLAY_DRAWS`` declares.
     fps : float
         Frames per second.
 

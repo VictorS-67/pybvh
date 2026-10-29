@@ -6,7 +6,7 @@ from itertools import pairwise
 
 import numpy as np
 import pytest
-from skeleton_pixels import CHANGED_LEVELS, skeleton_pixels
+from skeleton_pixels import CHANGED_LEVELS, FLOOR_CASES, skeleton_pixels
 
 from pybvh import bvhplot, read_bvh_file
 from pybvh.bvhplot import Style
@@ -468,13 +468,11 @@ class TestFloorKinds:
         low, high = np.minimum(*shades), np.maximum(*shades)
         assert (front >= low - 1).all() and (front <= high + 1).all()
 
-    @pytest.mark.parametrize(
-        "kind, floor_alpha", [("grid", 0.85), ("grid", 1.0), ("checker", 0.85), ("solid", 0.85)]
-    )
+    @pytest.mark.parametrize("kind, floor_alpha", FLOOR_CASES)
     def test_the_skeleton_hides_the_floor_behind_it(self, kind, floor_alpha):
         """A capsule keeps its color over every floor kind. The grid's
         lines were drawn across the feet of bvh_test1.bvh, over capsules
-        up to a few centimetres above the floor."""
+        up to a tenth of the half-span above the floor."""
         clip = read_bvh_file("bvh_data/bvh_test1.bvh")[0:3]
 
         def still(**style):

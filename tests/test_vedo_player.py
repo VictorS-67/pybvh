@@ -11,7 +11,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import style_declarations
-from skeleton_pixels import CHANGED_LEVELS, skeleton_pixels
+from skeleton_pixels import (
+    CHANGED_UNDER_A_JOINT_LEVELS,
+    FLOOR_CASES,
+    PRESET_FLOOR_ALPHA,
+    skeleton_pixels,
+)
 
 from pybvh import read_bvh_file
 from pybvh.bvhplot import _vedo
@@ -395,45 +400,44 @@ class TestGridFloor:
             assert (np.abs(image - rgb255(shade)).max(axis=1) <= 1).sum() > floor_share // 20, shade
 
 
+@pytest.fixture(scope="module")
+def drawn_test1(tmp_path_factory):
+    """The viewer's first frame of bvh_test1.bvh under a Style, at a
+    quality: ``drawn_test1(quality, **style_fields)``, each drawn once."""
+    bvh = read_bvh_file("bvh_data/bvh_test1.bvh")[0:3]
+    scene = make_scene([bvh], [bvh.node_positions()], "front", None)
+    folder = tmp_path_factory.mktemp("hides")
+    shots = {}
+
+    def draw(quality, **fields):
+        key = (quality, tuple(sorted(fields.items())))
+        if key not in shots:
+            with pytest.MonkeyPatch.context() as patch:
+                patch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+                p = _vedo._VedoPlayer(scene, Style("paper", **fields), 30.0, quality=quality)
+                try:
+                    shots[key] = _rendered(p, folder).astype(int)
+                finally:
+                    p.plt.close()
+        return shots[key]
+
+    return draw
+
+
 class TestTheSkeletonHidesTheFloor:
     """A bone or joint keeps its color over every floor kind, in both
     qualities. On the feet of bvh_test1.bvh the grid's lines were drawn
     over the capsules in front of them, and in fast quality the
     translucent floor washed over the joints, which are translucent too."""
 
-    @pytest.fixture(scope="class")
-    def drawn(self, tmp_path_factory):
-        """The viewer's first frame of bvh_test1.bvh under a Style, at a
-        quality: ``drawn(quality, **style_fields)``, each drawn once."""
-        bvh = read_bvh_file("bvh_data/bvh_test1.bvh")[0:3]
-        scene = make_scene([bvh], [bvh.node_positions()], "front", None)
-        folder = tmp_path_factory.mktemp("hides")
-        shots = {}
-
-        def draw(quality, **fields):
-            key = (quality, tuple(sorted(fields.items())))
-            if key not in shots:
-                with pytest.MonkeyPatch.context() as patch:
-                    patch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
-                    p = _vedo._VedoPlayer(scene, Style("paper", **fields), 30.0, quality=quality)
-                    try:
-                        shots[key] = _rendered(p, folder).astype(int)
-                    finally:
-                        p.plt.close()
-            return shots[key]
-
-        return draw
-
     @pytest.mark.parametrize("quality", ["high", "fast"])
-    @pytest.mark.parametrize(
-        "kind, floor_alpha", [("grid", 0.85), ("grid", 1.0), ("checker", 0.85), ("solid", 0.85)]
-    )
-    def test_over_every_floor(self, drawn, quality, kind, floor_alpha):
-        bare = drawn(quality, floor=None)
-        figure = skeleton_pixels(bare, drawn(quality, floor="solid", floor_alpha=1.0))
+    @pytest.mark.parametrize("kind, floor_alpha", FLOOR_CASES)
+    def test_over_every_floor(self, drawn_test1, quality, kind, floor_alpha):
+        bare = drawn_test1(quality, floor=None)
+        figure = skeleton_pixels(bare, drawn_test1(quality, floor="solid", floor_alpha=1.0))
         assert figure.sum() > 500  # the figure, not a few stray pixels
-        changed = np.abs(drawn(quality, floor=kind, floor_alpha=floor_alpha) - bare)
-        assert int(((changed.max(axis=-1) > CHANGED_LEVELS) & figure).sum()) == 0
+        changed = np.abs(drawn_test1(quality, floor=kind, floor_alpha=floor_alpha) - bare)
+        assert int(((changed.max(axis=-1) > CHANGED_UNDER_A_JOINT_LEVELS) & figure).sum()) == 0
 
 
 class TestTheTrailOverTheFloor:
@@ -447,7 +451,8 @@ class TestTheTrailOverTheFloor:
         presets' floor (0.85) it differs from the trail over an opaque
         floor by what the floor lets through under it, 0.4 of 0.15 of the
         background's lead over the floor: 1.4 levels on the paper preset.
-        It came out 38 levels paler in high quality, washed by the floor."""
+        In high quality it came out at a mean gray of 165, where it is 127
+        over an opaque floor, washed by the floor."""
         bvh = read_bvh_file(BVH_PATH)
         scene = make_scene([bvh], [bvh.node_positions()[:120]], "front", None)
         monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
@@ -468,7 +473,7 @@ class TestTheTrailOverTheFloor:
         # where the trail darkens the opaque floor, not its faint edges
         trail = np.abs(over_opaque - drawn(1.0, trail=False)).max(axis=-1) > 40
         assert trail.sum() > 100
-        over_translucent = drawn(0.85, trail=True)
+        over_translucent = drawn(PRESET_FLOOR_ALPHA, trail=True)
         assert np.abs(over_translucent[trail] - over_opaque[trail]).mean() < 3
 
 

@@ -985,6 +985,13 @@ class _VedoPlayer:
         self._sync_all()
         self._update_frame(self.clock.frame)
 
+    def _show_trail(self, shown: bool) -> None:
+        """Show or hide the root trajectory trail (pre-computed, so
+        only its visibility changes)."""
+        self.state["show_trail"] = shown
+        for trail in self._trail_actors:
+            trail.actor.SetVisibility(int(shown))
+
     def _on_key(self, event: object) -> None:
         key = self.plt.last_event.keypress  # type: ignore[attr-defined]
         state = self.state
@@ -1017,11 +1024,7 @@ class _VedoPlayer:
             self._on_last()
 
         elif key == "t":
-            # Toggle root trajectory trail (pre-computed, just show/hide)
-            state["show_trail"] = not state["show_trail"]
-            vis = 1 if state["show_trail"] else 0
-            for s in range(self.n_skeletons):
-                self._trail_actors[s].actor.SetVisibility(vis)
+            self._show_trail(not state["show_trail"])
             self.plt.render()
 
         elif key == "f":

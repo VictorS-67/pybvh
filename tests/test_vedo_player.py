@@ -458,9 +458,7 @@ class TestTheTrailOverTheFloor:
             )
             try:
                 # what the T key and then the End key do
-                p.state["show_trail"] = trail
-                for actor in p._trail_actors:
-                    actor.actor.SetVisibility(int(trail))
+                p._show_trail(trail)
                 p._on_last()
                 return _rendered(p, tmp_path).astype(int)
             finally:

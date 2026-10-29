@@ -396,9 +396,10 @@ class TestGridFloor:
 
 
 class TestTheSkeletonHidesTheFloor:
-    """A bone or joint keeps its color over every floor kind. On the
-    feet of bvh_test1.bvh the grid's lines were drawn over the capsules
-    in front of them."""
+    """A bone or joint keeps its color over every floor kind, in both
+    qualities. On the feet of bvh_test1.bvh the grid's lines were drawn
+    over the capsules in front of them, and in fast quality the
+    translucent floor washed over the joints, which are translucent too."""
 
     @pytest.fixture(scope="class")
     def drawn(self, tmp_path_factory):
@@ -423,7 +424,7 @@ class TestTheSkeletonHidesTheFloor:
 
         return draw
 
-    @pytest.mark.parametrize("quality", ["high"])
+    @pytest.mark.parametrize("quality", ["high", "fast"])
     @pytest.mark.parametrize(
         "kind, floor_alpha", [("grid", 0.85), ("grid", 1.0), ("checker", 0.85), ("solid", 0.85)]
     )
@@ -433,6 +434,44 @@ class TestTheSkeletonHidesTheFloor:
         assert figure.sum() > 500  # the figure, not a few stray pixels
         changed = np.abs(drawn(quality, floor=kind, floor_alpha=floor_alpha) - bare)
         assert int(((changed.max(axis=-1) > CHANGED_LEVELS) & figure).sum()) == 0
+
+
+class TestTheTrailOverTheFloor:
+    """The root trail lies on the floor, a hair above it."""
+
+    @pytest.mark.parametrize("quality", ["high", "fast"])
+    def test_the_trail_keeps_its_color_over_a_translucent_floor(
+        self, quality, monkeypatch, tmp_path
+    ):
+        """The trail lies on the floor at an alpha of 0.6. Over the
+        presets' floor (0.85) it differs from the trail over an opaque
+        floor by what the floor lets through under it, 0.4 of 0.15 of the
+        background's lead over the floor: 1.4 levels on the paper preset.
+        It came out 38 levels paler in high quality, washed by the floor."""
+        bvh = read_bvh_file(BVH_PATH)
+        scene = make_scene([bvh], [bvh.node_positions()[:120]], "front", None)
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+
+        def drawn(floor_alpha, trail):
+            p = _vedo._VedoPlayer(
+                scene, Style("paper", floor="solid", floor_alpha=floor_alpha), 30.0, quality=quality
+            )
+            try:
+                # what the T key and then the End key do
+                p.state["show_trail"] = trail
+                for actor in p._trail_actors:
+                    actor.actor.SetVisibility(int(trail))
+                p._on_last()
+                return _rendered(p, tmp_path).astype(int)
+            finally:
+                p.plt.close()
+
+        over_opaque = drawn(1.0, trail=True)
+        # where the trail darkens the opaque floor, not its faint edges
+        trail = np.abs(over_opaque - drawn(1.0, trail=False)).max(axis=-1) > 40
+        assert trail.sum() > 100
+        over_translucent = drawn(0.85, trail=True)
+        assert np.abs(over_translucent[trail] - over_opaque[trail]).mean() < 3
 
 
 def _rendered(player, tmp_path):

@@ -9,9 +9,13 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
-# More than a level or two of drawing noise, and far less than a floor
-# drawn over the skeleton (a grid line over a capsule: up to 205 levels).
-CHANGED_LEVELS = 8
+# The viewer's fast quality draws its joints at an alpha of 0.9, so a
+# joint lets a tenth of what lies behind it through: at most 26 levels.
+# Where a joint covers the edge of a bone, some of the floor comes
+# through with the bone (up to 15 levels seen, and none with the window's
+# multisampling off). A floor drawn over the skeleton changed it by up to
+# 108 levels (the floor over a joint) and 205 (a grid line over a capsule).
+CHANGED_LEVELS = 26
 
 
 def skeleton_pixels(bare: npt.NDArray, opaque: npt.NDArray, margin: int = 2) -> npt.NDArray:

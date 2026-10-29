@@ -1094,7 +1094,8 @@ class TestRenderOpenCV:
         assert path.stat().st_size > 0
 
     def test_axes_full_draws_indicator(self, bvh_example, tmp_path):
-        # axes visibility moved from show_axis= into Style (v0.9.0)
+        """A caller's axes="full" is drawn, as the axis indicator; that
+        it changes the picture is pinned by the declaration tests."""
         path = bvhplot.render(
             bvh_example,
             tmp_path / "axis.mp4",
@@ -1110,6 +1111,86 @@ class TestRenderOpenCV:
             bvh_example, tmp_path / "auto.mp4", backend="auto", resolution=(320, 240)
         )
         assert path.exists()
+
+    @staticmethod
+    def _first_frame(clips, path, apng_frames, **options):
+        """The first frame ``render(backend="opencv")`` writes to the
+        ``.apng`` at *path*, read back as ``(H, W, 3)`` RGB."""
+        bvhplot.render(clips, path, backend="opencv", fps=10, **options)
+        return apng_frames(path, 10)[0].astype(int)
+
+    def test_four_times_the_joint_size_draws_discs_twice_as_wide(self, walk, tmp_path, apng_frames):
+        """``joint_size`` is an area, as matplotlib's marker size is: four
+        times the size doubles the radius and draws about four times the
+        disc pixels, a little fewer where discs overlap (a radius
+        growing with the size itself would draw about sixteen times).
+        The discs are drawn in pure red, a color no bone of these styles
+        takes, so the red pixels are the discs."""
+
+        def red_pixels(joint_size):
+            style = bvhplot.Style("paper", floor=None, joint_color="#FF0000", joint_size=joint_size)
+            path = tmp_path / f"joints-{joint_size}.apng"
+            picture = self._first_frame(walk, path, apng_frames, resolution=(640, 480), style=style)
+            return int(np.all(picture == (255, 0, 0), axis=-1).sum())
+
+        small, large = red_pixels(9.0), red_pixels(36.0)
+        assert small > 0
+        assert 2.5 * small < large < 6 * small
+
+    def test_the_dots_joining_the_bones_without_markers_ignore_joint_size(
+        self, walk, tmp_path, apng_frames
+    ):
+        """With ``joint_markers=False`` the bone-colored dots round the
+        line joins: they are sized by the bones, not by ``joint_size``."""
+
+        def drawn(joint_size):
+            style = bvhplot.Style("paper", joint_markers=False, joint_size=joint_size)
+            path = tmp_path / f"dots-{joint_size}.apng"
+            return self._first_frame(walk, path, apng_frames, resolution=(320, 240), style=style)
+
+        assert np.array_equal(drawn(9.0), drawn(36.0))
+
+    @staticmethod
+    def _label_color(picture, x0):
+        """The color most of the label's pixels take, in the label's
+        corner of the panel starting at column *x0*, on a white
+        background: the label's own, where its strokes are not blended
+        into the background."""
+        corner = picture[:60, x0 : x0 + 100].reshape(-1, 3)
+        inked = corner[np.any(corner != 255, axis=-1)]
+        colors, counts = np.unique(inked, axis=0, return_counts=True)
+        return tuple(int(c) for c in colors[counts.argmax()])
+
+    def test_a_label_under_chain_colors_takes_the_spine_color(self, walk, tmp_path, apng_frames):
+        """No chain color stands for the whole skeleton, so its label is
+        drawn in the spine color (paper's ``#3A3F4A``), as the vedo
+        backends draw it. Drawn at 1080 rows without supersampling, the
+        label's strokes keep its exact color."""
+        style = bvhplot.Style("paper", color_mode="chains", floor=None, supersample=1)
+        picture = self._first_frame(
+            walk,
+            tmp_path / "x.apng",
+            apng_frames,
+            resolution=(480, 1080),
+            labels=["A"],
+            style=style,
+        )
+        assert self._label_color(picture, 0) == (0x3A, 0x3F, 0x4A)
+
+    def test_a_label_under_the_palette_takes_its_skeletons_color(self, walk, tmp_path, apng_frames):
+        """Two skeletons are drawn in the palette's first two colors, blue
+        and red, and each label in its skeleton's."""
+        style = bvhplot.Style("paper", floor=None, supersample=1)
+        picture = self._first_frame(
+            [walk, walk],
+            tmp_path / "x.apng",
+            apng_frames,
+            resolution=(960, 1080),
+            labels=["A", "B"],
+            style=style,
+        )
+        assert self._label_color(picture, 0) == (50, 120, 255)
+        assert self._label_color(picture, 480) == (220, 50, 50)
 
 
 # =============================================================================

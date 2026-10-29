@@ -6,7 +6,7 @@ bvhplot's `frame`, `render` and `play` take one set of keywords for every backen
 
 **1. Each backend states the options it reads, beside its entry function.** `frame`'s backends hold a `FRAME_READS` set next to `frame_mpl` and `frame_vedo`; `render`'s a `RENDER_READS` set next to `render_opencv`, `render_mpl` and `render_vedo`; `play`'s a `PLAY_READS` set next to `play_k3d`, `play_vedo` and `play_mpl`, and the notebook video's next to `render_opencv`, which draws it. `_backends` collects the declarations and applies the rule when it chooses each call's backend (`choose_frame_backend`, `choose_render_backend`, `choose_play_backend`); no other module knows which backend reads what.
 
-**2. An option given that the named backend does not read raises `ValueError`.** The message names the option, the backend, and the backends that read it. A file is never written without something its call asked for.
+**2. An option given that the named backend does not read raises `ValueError`.** The message names the option, the backend, and the backends that read it and accept the rest of the call, so that the backend it offers does not refuse the call in turn: those that would take the whole call if named, by the checks the call runs on a named backend (the options it reads, the `Style` values it draws and, for `render`, the extensions the video module's table gives it). Whether a backend is installed is not among them: one that is not is still offered, and naming it raises `ImportError` with its install. A file is never written without something its call asked for.
 
 **3. Under `backend="auto"` the same option warns instead,** naming the option and the backend chosen, and the call goes on. Auto's choice depends on the file's extension, the installed packages and, for `play`, the session (notebook, display), so a raise there would fail a correct script on another machine; the warning still says what the file lacks.
 
@@ -15,6 +15,8 @@ bvhplot's `frame`, `render` and `play` take one set of keywords for every backen
 **5. `spacing` and `match_size` are accepted by every backend.** A backend that does not read them draws each skeleton in its own panel, which already gives the arrangement they ask for, so a comparison script can pass them whatever backend runs.
 
 **6. `Style` fields do not follow the rule yet.** A `Style` is built from a preset that fills every field (`Style("paper", floor=None)` holds a value for each), and it does not keep which fields the caller overrode. A field the caller asked for cannot be told from one the preset filled, so raising on every field a backend cannot draw would refuse `Style("paper")` itself on a backend lacking any one of them. The declarations are shaped so that `Style` fields can join them in the same form once a `Style` can tell an override from a preset's value; that is the next deepening's decision (whether `Style` remembers overrides, and whether each gap is implemented or declared).
+
+Superseded by [ADR 0007](0007-backends-declare-the-style-values-they-draw.md): a `Style` keeps the fields its caller set, and the backends declare the `Style` values they draw under this rule.
 
 ## Why
 

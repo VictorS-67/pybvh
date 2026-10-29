@@ -15,23 +15,24 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpy.typing as npt
 
-from ._colors import bone_colors_255, floor_palette, node_colors_255
+from ._colors import bone_colors_255, floor_palette, node_colors_255, skeleton_color_255
 from ._scene import Scene, SkeletonView
 from ._style import (
     COUNTER_BASELINE_PX,
     COUNTER_RGB,
     GHOST_WIDTH_FACTOR,
-    JOINT_DISC_MARGIN_PX,
     PALETTE_RGB,
     TRACE_BLEND,
     TRACE_COLOR,
+    DrawnStyle,
     Style,
     bone_width_px,
     counter_left_px,
     frame_counter_text,
     ghost_schedule,
+    joint_radius_px,
 )
-from ._viewport import Viewport, panel_viewports
+from ._viewport import FLOOR_CHECKER_SQUARES, FLOOR_GRID_CELLS, Viewport, panel_viewports
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -109,7 +110,7 @@ def _draw_floor_opencv(
         face = _blend_bgr(_to_bgr(palette["face"]), bg_bgr, style.floor_alpha)
         cv2.fillPoly(img, [project(quad(c0, c1, ext))], face, lineType=cv2.LINE_AA)  # type: ignore[list-item]  # mypy reads a list of MatLike as Mat
     elif style.floor == "checker":
-        n = 8
+        n = FLOOR_CHECKER_SQUARES // 2  # squares on each side of the centre
         s = ext / n
         shades = [
             _blend_bgr(_to_bgr(shade), bg_bgr, style.floor_alpha) for shade in palette["checker"]
@@ -119,8 +120,8 @@ def _draw_floor_opencv(
                 sq = quad(c0 + (i + 0.5) * s, c1 + (j + 0.5) * s, s / 2)
                 cv2.fillPoly(img, [project(sq)], shades[(i + j) % 2], lineType=cv2.LINE_AA)  # type: ignore[list-item]  # mypy reads a list of MatLike as Mat
     elif style.floor == "grid":
-        color = _blend_bgr(_to_bgr(palette["grid"]), bg_bgr, 0.8)
-        n = 10
+        color = _blend_bgr(_to_bgr(palette["grid"]), bg_bgr, style.floor_alpha)
+        n = FLOOR_GRID_CELLS // 2  # cells on each side of the centre
         s = ext / n
         for i in range(-n, n + 1):
             for horiz in (True, False):
@@ -160,7 +161,10 @@ class _ViewDrawContext:
         node_rgb = node_colors_255(view, style, view_index, n_skeletons, bone_rgb)
         self.node_bgr = node_rgb[:, ::-1]
         self.joint_bgr = _to_bgr(style.joint_color)
-        self.label_bgr = self.bone_bgr[0] if self.bone_bgr else (0, 0, 0)
+        # The skeleton's one color, the spine color under chain colors,
+        # as the vedo backends color a label.
+        r, g, b = skeleton_color_255(style, view_index, n_skeletons)
+        self.label_bgr = (b, g, r)
         if ghost > 0:
             self.ghost_lag, weights = ghost_schedule(style, view.frame_time, ghost)
             self.ghost_bgr = [
@@ -220,9 +224,12 @@ def _draw_skeletons_on_frame(
 
     Joint dots are always drawn in this backend — at raster resolution
     they are load-bearing for line joins (matplotlib omits them when
-    ``style.joint_markers`` is off). With markers off they are small
-    and bone-colored (the pre-0.9.0 look); with markers on they use
-    ``style.joint_color``.
+    ``style.joint_markers`` is off). With markers off they are
+    bone-colored, one pixel wider in radius than the bones are wide
+    (the pre-0.9.0 look): they are how the bones are joined, and do not
+    read ``style.joint_size``. With markers on they are discs of
+    ``style.joint_color``, sized from ``style.joint_size`` through the
+    same pixel scale as the bones (:func:`~._style.joint_radius_px`).
 
     ``ghost`` faded trailing poses draw behind the live skeleton
     (oldest first); ``trajectory`` draws the root trace on the floor up
@@ -239,6 +246,7 @@ def _draw_skeletons_on_frame(
     # 1:1 anchor: bone_width 3.0 -> 3 px there, twice that at 4K, and
     # supersampled drawing surfaces scale up with them).
     thickness = bone_width_px(style.bone_width, px_scale)
+    joint_radius = joint_radius_px(style.joint_size, px_scale)
     thin = max(1, int(px_scale + 0.5))
     panel_size = (panel_w, h)
 
@@ -300,7 +308,7 @@ def _draw_skeletons_on_frame(
                 cv2.circle(
                     canvas,
                     (int(pt[0]), int(pt[1])),
-                    thickness + JOINT_DISC_MARGIN_PX,
+                    joint_radius,
                     ctx.joint_bgr,
                     -1,
                     cv2.LINE_AA,
@@ -451,8 +459,36 @@ def _generate_frames(
 
 # The options of render() this backend reads (ADR 0006).
 RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory", "frame_counter"})
+# The Style values render() draws on this backend: orthographic only,
+# shadow at False alone (it casts none), and no dpi (the resolution sets
+# the pixels). axes="full" it draws in a reduced form of its own, as
+# asked all the same: a small axis indicator in a panel's corner (ADR
+# 0007). joint_markers=False it draws exactly, no markers; the
+# bone-colored dot at each joint is how it joins its bones.
+RENDER_DRAWS = DrawnStyle(
+    {
+        "bone_width",
+        "bone_color",
+        "color_mode",
+        "chain_colors",
+        "joint_markers",
+        "joint_size",
+        "joint_color",
+        "floor",
+        "floor_alpha",
+        "background",
+        "axes",
+        "supersample",
+        "ghost_spacing",
+    },
+    projection={"ortho"},
+    shadow={False},
+)
 # The options of play() its notebook video, drawn by render_opencv, reads.
 PLAY_READS = frozenset({"resolution", "frame_counter"})
+# The Style values its notebook video draws: render()'s, but the ghosts'
+# spacing, since play draws no ghosts.
+PLAY_DRAWS = RENDER_DRAWS.derive(drop={"ghost_spacing"})
 
 
 def render_opencv(

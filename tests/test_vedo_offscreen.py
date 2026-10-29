@@ -6,6 +6,7 @@ from itertools import pairwise
 
 import numpy as np
 import pytest
+from skeleton_pixels import CHANGED_LEVELS, FLOOR_CASES, skeleton_pixels
 
 from pybvh import bvhplot, read_bvh_file
 from pybvh.bvhplot import Style
@@ -415,6 +416,77 @@ class TestCapsuleShading:
         [built_sideways] = render(sideways)
         assert np.abs(first - built_sideways).max() > 50
         np.testing.assert_allclose(then_sideways, built_sideways, atol=2)
+
+
+class TestFloorKinds:
+    """The renderer draws the floor the style asks for at its
+    floor_alpha; it drew every kind as an opaque solid plane."""
+
+    @staticmethod
+    def _frame(bvh, **style):
+        return bvhplot.frame(
+            bvh, 260, backend="vedo", resolution=(300, 280), style=Style("paper", **style)
+        )
+
+    def test_each_kind_is_its_own_picture(self, bvh):
+        solid, grid, checker = (
+            self._frame(bvh, floor=kind) for kind in ("solid", "grid", "checker")
+        )
+        assert not np.array_equal(solid, grid)
+        assert not np.array_equal(solid, checker)
+        assert not np.array_equal(grid, checker)
+
+    @pytest.mark.parametrize("kind", ["solid", "grid", "checker"])
+    def test_floor_alpha_changes_the_picture(self, bvh, kind):
+        faint = self._frame(bvh, floor=kind, floor_alpha=0.3)
+        opaque = self._frame(bvh, floor=kind, floor_alpha=1.0)
+        assert not np.array_equal(faint, opaque)
+
+    @pytest.mark.parametrize("kind", ["solid", "grid", "checker"])
+    def test_the_shadow_falls_on_every_kind(self, bvh, kind):
+        """Gray on the paper floor: the shadowed picture is darker."""
+        shadowed = self._frame(bvh, floor=kind, shadow=True)
+        unshadowed = self._frame(bvh, floor=kind, shadow=False)
+        assert shadowed.mean() < unshadowed.mean()
+
+    @pytest.mark.parametrize("preset", ["paper", "dark"])
+    def test_the_checker_is_its_two_shades(self, bvh, preset):
+        """Opaque, the floor in front of the skeleton holds both of the
+        palette's checker shades and nothing else (no square edges)."""
+        from pybvh.bvhplot._colors import floor_palette, rgb255
+
+        style = Style(preset, floor="checker", floor_alpha=1.0, shadow=False)
+        image = bvhplot.frame(bvh, 260, backend="vedo", resolution=(300, 280), style=style)
+        # the bottom left: floor only, clear of the skeleton
+        front = image[-30:, :90].reshape(-1, 3).astype(int)
+        shades = [np.array(rgb255(shade)) for shade in floor_palette(style)["checker"]]
+        for shade in shades:
+            # each shade fills about half of the 2700 pixels; edges,
+            # where squares blend, take some of either half
+            assert (np.abs(front - shade).max(axis=1) <= 1).sum() > 1000, shade
+        # squares meet in a blend of the two shades, never darker or lighter
+        low, high = np.minimum(*shades), np.maximum(*shades)
+        assert (front >= low - 1).all() and (front <= high + 1).all()
+
+    @pytest.mark.parametrize("kind, floor_alpha", FLOOR_CASES)
+    def test_the_skeleton_hides_the_floor_behind_it(self, kind, floor_alpha):
+        """A capsule keeps its color over every floor kind. The grid's
+        lines were drawn across the feet of bvh_test1.bvh, over capsules
+        up to a tenth of the half-span above the floor."""
+        clip = read_bvh_file("bvh_data/bvh_test1.bvh")[0:3]
+
+        def still(**style):
+            return bvhplot.frame(
+                clip, 0, backend="vedo", resolution=(800, 600), style=Style("paper", **style)
+            ).astype(int)
+
+        bare = still(floor=None, shadow=False)
+        opaque = still(floor="solid", floor_alpha=1.0)
+        drawn = still(floor=kind, floor_alpha=floor_alpha)
+        capsules = skeleton_pixels(bare, opaque)
+        assert capsules.sum() > 10_000  # the figure, not a few stray pixels
+        changed = np.abs(drawn - bare).max(axis=-1) > CHANGED_LEVELS
+        assert int((changed & capsules).sum()) == 0
 
 
 class TestLabels:

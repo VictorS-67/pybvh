@@ -438,7 +438,11 @@ def rest_pose(
         Visual styling: a preset name (``"paper"``, ``"debug"``,
         ``"dark"``) or a :class:`Style` instance for field-level
         control, e.g. ``Style("paper", floor=None)``. Default
-        ``"paper"``.
+        ``"paper"``. Drawn as :func:`frame` draws it on matplotlib: a
+        field the Style's caller set (in ``Style(...)`` or
+        ``replace(...)``) at a value it does not draw (``shadow=True``)
+        raises ``ValueError`` naming it; a preset's own values never
+        do (see :class:`Style`).
     labels : list[str], optional
         Subplot titles for side-by-side comparison.
     figsize : (float, float), optional
@@ -464,6 +468,8 @@ def rest_pose(
         Single axes when one skeleton, list when multiple.
     """
     clips = as_clip_list(bvh)
+    style_obj = resolve_style(style)
+    _backends.check_drawn_style("rest_pose", style_obj)
 
     # Build rest-pose coords as (1, N, 3) arrays and go through the
     # same pipeline as frame(), bypassing spatial_coords.
@@ -474,7 +480,7 @@ def rest_pose(
     # world floor does not apply — the floor is the pose's lowest point.
     scene = make_scene(clips, coords_list, camera, labels, canonical_floor=False)
 
-    return frame_mpl(scene, resolve_style(style), figsize=figsize, show=show, ax=ax)
+    return frame_mpl(scene, style_obj, figsize=figsize, show=show, ax=ax)
 
 
 def frame(
@@ -514,6 +520,10 @@ def frame(
         (default) draws a ground plane, per-chain bone colors, and
         joint markers with axes hidden; ``"debug"`` reproduces the
         pre-0.9.0 look (single blue, full axes/ticks, no floor).
+        A field the Style's caller set (in ``Style(...)`` or
+        ``replace(...)``) at a value the backend does not draw raises
+        ``ValueError`` naming it; a preset's own values never do (see
+        :class:`Style`).
     backend : str, optional
         ``"matplotlib"`` (default) returns ``(fig, ax)``; it reads
         ``figsize``, ``show`` and ``ax``, and not ``resolution``.
@@ -632,7 +642,8 @@ def frame(
         match_size=match_size,
     )
     clips = as_clip_list(bvh)
-    backend = _backends.choose_frame_backend(backend, given).backend
+    style_obj = resolve_style(style)
+    backend = _backends.choose_frame_backend(backend, given, style_obj).backend
     spacing = _validated_spacing(spacing)
 
     frame_spec = coords if coords is not None else frame
@@ -655,14 +666,13 @@ def frame(
         )
         return frame_vedo(
             scene,
-            resolve_style(style),
+            style_obj,
             resolution=_VEDO_STILL_RESOLUTION if resolution is None else resolution,
             filepath=filepath,
         )
 
     from ._matplotlib import frame_mpl
 
-    style_obj = resolve_style(style)
     fig, axs = frame_mpl(scene, style_obj, figsize=figsize, show=bool(show), ax=ax)
     if filepath is not None:
         fig.savefig(filepath, dpi=style_obj.dpi, facecolor=fig.get_facecolor())
@@ -699,12 +709,21 @@ def sequence(
         ``"offset"`` (default): poses at their world positions —
         locomotion spreads them left to right; drawn orthographic from
         the side with equal-scale non-cubic bounds so the travel fills
-        the frame. ``"overlay"``: poses superimposed (per-pose
+        the frame, whatever the style's projection (a
+        ``projection="persp"`` set in the Style raises, see *style*).
+        ``"overlay"``: poses superimposed (per-pose
         horizontal root-centering), seen from the front in the style's
         projection (perspective unless the style asks otherwise) — the
         right mode for in-place motion; on locomotion the legs tangle.
     style : Style or str, optional
-        Visual styling preset or instance. Default ``"paper"``.
+        Visual styling preset or instance. Default ``"paper"``. The
+        joint fields are drawn on the last pose, the others on every
+        pose. A field the Style's caller set (in ``Style(...)`` or
+        ``replace(...)``) at a value the layout does not draw raises
+        ``ValueError`` naming it: ``projection="persp"`` under
+        ``"offset"``, and ``shadow=True``. ``supersample`` and
+        ``ghost_spacing`` are accepted, and a preset's own values never
+        raise (see :class:`Style`).
     centered : str, optional
         Centering mode for the underlying coords (default ``"world"``).
     camera : str, (float, float), or None, optional
@@ -738,6 +757,9 @@ def sequence(
     if layout not in _VALID_LAYOUTS:
         raise ValueError(f"Unknown layout {layout!r}. Choose from: {sorted(_VALID_LAYOUTS)}")
 
+    style_obj = resolve_style(style)
+    _backends.check_drawn_style("sequence", style_obj, layout)
+
     if camera is None:
         camera = "side" if layout == "offset" else "front"
 
@@ -748,7 +770,7 @@ def sequence(
 
     return sequence_mpl(
         scene,
-        resolve_style(style),
+        style_obj,
         sample_frames,
         layout,
         trajectory=trajectory,
@@ -795,7 +817,11 @@ def render(
         ``"dark"``) or a :class:`Style` instance, e.g.
         ``Style("paper", floor=None)``. Axes visibility follows
         ``style.axes`` (the former ``show_axis=True`` is
-        ``Style("paper", axes="full")``).
+        ``Style("paper", axes="full")``). A field the Style's caller
+        set (in ``Style(...)`` or ``replace(...)``) at a value the
+        backend does not draw raises ``ValueError`` naming it when the
+        backend is named, and warns under ``"auto"``; a preset's own
+        values never do (see :class:`Style`).
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional
@@ -1041,7 +1067,9 @@ def render(
         camera = "front"
 
     environment = _backends.read_environment()
-    choice = _backends.choose_render_backend(backend, filepath.suffix.lower(), environment, given)
+    choice = _backends.choose_render_backend(
+        backend, filepath.suffix.lower(), environment, given, style_obj
+    )
     backend_name = choice.backend
 
     # Handle frame-rate mismatch before computing FK coordinates
@@ -1158,9 +1186,26 @@ def play(
         One or more BVH objects. Pass a list for side-by-side comparison.
     style : Style or str, optional
         Visual styling: a preset name (``"paper"``, ``"debug"``,
-        ``"dark"``) or a :class:`Style` instance. Applies fully to the
-        matplotlib and OpenCV-notebook fallbacks; the k3d and vedo
-        interactive viewers apply Style's look fields.
+        ``"dark"``) or a :class:`Style` instance. Each player draws it
+        as its column of the table in :class:`Style` says. ``dpi``,
+        ``supersample`` and ``ghost_spacing`` are accepted by every
+        player without a word (the OpenCV video draws ``supersample``;
+        ``play`` draws no ghosts). No player casts a shadow, so each
+        draws ``shadow`` at ``False`` alone. Of the other fields,
+        matplotlib's player draws all; the OpenCV notebook video
+        likewise, but with ``projection`` at ``"ortho"`` alone, as
+        ``render`` draws it on OpenCV. k3d draws all but ``axes``,
+        refused at both values since its grid box is always shown, with
+        ``projection`` at ``"persp"`` alone. The vedo window, at both
+        qualities, refuses the joint fields (``joint_markers``,
+        ``joint_size``, ``joint_color``), each joint being the capsules'
+        sphere, sized and colored by its bones, and draws ``axes`` at
+        ``"off"`` alone and ``projection`` at ``"persp"`` alone. A field
+        the Style's caller set (in ``Style(...)`` or ``replace(...)``)
+        that the backend refuses, or at a value it does not draw, raises
+        ``ValueError`` naming it when the backend is named, and warns
+        under ``"auto"``, as an option the backend does not read does
+        (see *backend*); a preset's own values never do.
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional
@@ -1190,8 +1235,9 @@ def play(
         session (notebook, display), which the script does not
         control, so a raise would fail a correct script on another
         machine, while a dropped option costs a look, not a file.
-        Either message offers the backends that read the option, the
-        notebook video only in a notebook. ``spacing`` and
+        Either message offers the backends that read the option and
+        accept the rest of the call, the notebook video only in a
+        notebook. ``spacing`` and
         ``match_size`` are accepted by every backend.
     camera : str or (float, float), optional
         Camera preset (``"front"``, ``"side"``, ``"top"``) or
@@ -1291,9 +1337,10 @@ def play(
         match_size=match_size,
     )
     clips = as_clip_list(bvh)
+    style_obj = resolve_style(style)
 
     environment = _backends.read_environment()
-    choice = _backends.choose_play_backend(backend, environment, given)
+    choice = _backends.choose_play_backend(backend, environment, given, style_obj)
     backend_name = choice.backend
 
     _VALID_QUALITY = {"fast", "high"}
@@ -1307,7 +1354,6 @@ def play(
     animation_options = _animation_options.AnimationOptions(frame_counter=bool(frame_counter))
     _validate_sync(sync)
     pad = sync == "pad"
-    style_obj = resolve_style(style)
 
     # Handle frame-rate mismatch before computing FK coordinates
     _require_frame_rates(clips, "play", fps, match_fps=match_fps)
@@ -1411,9 +1457,15 @@ def trajectory(
     style : Style or str, optional
         Visual styling: a preset name (``"paper"``, ``"debug"``,
         ``"dark"``) or a :class:`Style` instance. Default ``"paper"``.
-        Only its background applies: a trajectory is a 2D data plot
+        Only its background is drawn: a trajectory is a 2D data plot
         whose axes, ticks and grid carry the information, so it keeps
-        them whatever ``style.axes`` says.
+        them whatever ``style.axes`` says, and an ``axes`` the Style's
+        caller set (in ``Style(...)`` or ``replace(...)``) raises
+        ``ValueError``, as does ``shadow=True``. The bone, joint and floor
+        fields and ``projection`` name what the plot does not hold, and
+        are accepted at any value, as are ``supersample``,
+        ``ghost_spacing`` and ``dpi`` (the figure takes matplotlib's
+        own), so a Style built for :func:`frame` serves here too.
     centered : str, optional
         Centering mode: ``"world"`` (default), ``"skeleton"``, or ``"first"``.
     labels : list[str], optional
@@ -1451,6 +1503,8 @@ def trajectory(
     ax : matplotlib.axes.Axes
     """
     clips = as_clip_list(bvh)
+    style_obj = resolve_style(style)
+    _backends.check_drawn_style("trajectory", style_obj)
     scene = _prepare(clips, None, centered, "front", labels)
 
     # trajectory_mpl() computes its own per-skeleton horizontal axes
@@ -1459,7 +1513,7 @@ def trajectory(
 
     return trajectory_mpl(
         scene,
-        resolve_style(style),
+        style_obj,
         figsize=figsize,
         show=show,
         ax=ax,

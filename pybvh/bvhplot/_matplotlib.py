@@ -25,7 +25,7 @@ from mpl_toolkits.mplot3d import proj3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from mpl_toolkits.mplot3d.axes3d import Axes3D
 
-from ._colors import floor_palette
+from ._colors import floor_palette, grid_box_colors, is_dark_background
 from ._scene import Scene, SkeletonView
 from ._style import (
     COUNTER_BASELINE_PX,
@@ -34,6 +34,7 @@ from ._style import (
     PALETTE_MPL,
     TRACE_BLEND,
     TRACE_COLOR,
+    DrawnStyle,
     Style,
     bone_colors_for_view,
     counter_left_px,
@@ -41,7 +42,13 @@ from ._style import (
     ghost_schedule,
 )
 from ._video import VideoTarget, Writer
-from ._viewport import Viewport, make_viewport, panel_viewports
+from ._viewport import (
+    FLOOR_CHECKER_SQUARES,
+    FLOOR_GRID_CELLS,
+    Viewport,
+    make_viewport,
+    panel_viewports,
+)
 
 # mplot3d sizes its default margins for a cube free to rotate to any
 # angle; span-fitted boxes are much tighter, so they can be zoomed in
@@ -236,7 +243,7 @@ def _draw_floor_mpl(
             ),
         )
     elif style.floor == "checker":
-        n = 16
+        n = FLOOR_CHECKER_SQUARES
         s0 = (g0_hi - g0_lo) / n
         s1 = (g1_hi - g1_lo) / n
         squares = []
@@ -254,7 +261,7 @@ def _draw_floor_mpl(
         # Square cells: divisions per axis follow its extent, so a wide
         # sequence floor doesn't get dense crosshatching on the short
         # axis.
-        cell = max(g0_hi - g0_lo, g1_hi - g1_lo) / 20
+        cell = max(g0_hi - g0_lo, g1_hi - g1_lo) / FLOOR_GRID_CELLS
         n0 = max(1, round((g0_hi - g0_lo) / cell))
         n1 = max(1, round((g1_hi - g1_lo) / cell))
         s0 = (g0_hi - g0_lo) / n0
@@ -276,7 +283,9 @@ def _draw_floor_mpl(
             )
         _add_collection(
             ax,
-            Line3DCollection(segs, colors=palette["grid"], linewidths=0.7, alpha=0.8, zorder=0.5),
+            Line3DCollection(
+                segs, colors=palette["grid"], linewidths=0.7, alpha=style.floor_alpha, zorder=0.5
+            ),
         )
 
 
@@ -288,20 +297,25 @@ def _pt3(ground: list[int], up: int, a: float, b: float, y: float):
     return tuple(p)
 
 
-def _draw_joint_markers(
+def _scatter_joints(
     ax: Axes3D,
-    frame_data: npt.NDArray[np.float64],
+    pose: npt.NDArray[np.float64],
     style: Style,
-) -> None:
-    # zorder 3: joint dots sit on top of the bone lines (scatter's
-    # default of 1 would put them underneath once computed_zorder is
-    # off in paper mode).
-    ax.scatter(
-        frame_data[:, 0],
-        frame_data[:, 1],
-        frame_data[:, 2],
+    color: ColorType,
+) -> Any:
+    """Draw a pose's joint markers in *color* and return the scatter.
+
+    Stills and videos both draw their joints here, so they share one
+    draw order: zorder 3 sits the joints over the bones (2) once the
+    style takes manual control of the order (:func:`_manual_zorder`),
+    where scatter's default of 1 would put them underneath.
+    """
+    return ax.scatter(
+        pose[:, 0],
+        pose[:, 1],
+        pose[:, 2],
         s=style.joint_size,
-        c=style.joint_color,
+        c=[color],
         depthshade=False,
         zorder=3,
     )
@@ -348,15 +362,7 @@ def _draw_pose(
             if weight >= 1.0
             else _fade_toward_background(style.joint_color, weight, style)
         )
-        ax.scatter(
-            pose[:, 0],
-            pose[:, 1],
-            pose[:, 2],
-            s=style.joint_size,
-            c=[joint_color],
-            depthshade=False,
-            zorder=3,
-        )
+        _scatter_joints(ax, pose, style, joint_color)
 
 
 def _draw_floor_trace(
@@ -407,6 +413,21 @@ def _set_panel_background(ax: matplotlib.axes.Axes, color: ColorType) -> None:
     panel.patch.set_facecolor(color)
 
 
+def _set_panel_title(ax: matplotlib.axes.Axes, label: str, style: Style) -> None:
+    """Title a panel in a color that reads on the style's background.
+
+    On a dark background (the luminance split that picks the floor
+    colors), the grid box's label color: the background stepped most
+    of the way toward white, where matplotlib's default black would
+    vanish into it. On a light one, matplotlib's own title color.
+    """
+    if is_dark_background(style.background):
+        _, label_rgb = grid_box_colors(style)
+        ax.set_title(label, color=tuple(c / 255 for c in label_rgb))
+    else:
+        ax.set_title(label)
+
+
 def _new_3d_figure(
     figsize: tuple[float, float], dpi: int | None
 ) -> tuple[matplotlib.figure.Figure, Axes3D]:
@@ -418,6 +439,35 @@ def _new_3d_figure(
     """
     fig = plt.figure(figsize=figsize, dpi=dpi)
     return fig, fig.add_subplot(111, projection="3d")
+
+
+# The Style fields sequence() draws whole in either layout: every field
+# but projection, supersample (OpenCV's), shadow (the vedo renderer's,
+# drawn at False alone: none is cast) and ghost_spacing (a still has no
+# ghosts). The joint fields are drawn on the last pose, the one fully
+# saturated.
+_SEQUENCE_FIELDS = frozenset(
+    {
+        "bone_width",
+        "bone_color",
+        "color_mode",
+        "chain_colors",
+        "joint_markers",
+        "joint_size",
+        "joint_color",
+        "floor",
+        "floor_alpha",
+        "background",
+        "axes",
+        "dpi",
+    }
+)
+# The Style values sequence() draws in each layout: the offset layout is
+# orthographic by design, the overlay draws the Style's projection.
+SEQUENCE_DRAWS = {
+    "offset": DrawnStyle(_SEQUENCE_FIELDS, projection={"ortho"}, shadow={False}),
+    "overlay": DrawnStyle(_SEQUENCE_FIELDS | {"projection"}, shadow={False}),
+}
 
 
 def sequence_mpl(
@@ -525,6 +575,31 @@ def sequence_mpl(
 
 # The options of frame() this backend reads (ADR 0006).
 FRAME_READS = frozenset({"figsize", "show", "ax"})
+# The Style values frame() draws on this backend: every value of every
+# field but supersample (OpenCV's), shadow (the vedo renderer's, drawn
+# at False alone: none is cast) and ghost_spacing (a still has no
+# ghosts).
+FRAME_DRAWS = DrawnStyle(
+    {
+        "bone_width",
+        "bone_color",
+        "color_mode",
+        "chain_colors",
+        "joint_markers",
+        "joint_size",
+        "joint_color",
+        "floor",
+        "floor_alpha",
+        "background",
+        "axes",
+        "projection",
+        "dpi",
+    },
+    shadow={False},
+)
+
+# rest_pose() draws through frame_mpl, so it draws what frame() draws.
+REST_POSE_DRAWS = FRAME_DRAWS
 
 
 def frame_mpl(
@@ -620,7 +695,7 @@ def frame_mpl(
             _disable_3d_label_clipping(ax_i)
 
         if view.label is not None:
-            ax_i.set_title(view.label)
+            _set_panel_title(ax_i, view.label, style)
 
     if ax is None and n > 1:
         # tight_layout / constrained_layout under-estimate 3D axis tick-label
@@ -691,15 +766,7 @@ def _setup_animated_panel(
 
     joint_scatter = None
     if style.joint_markers:
-        frame0 = view.coords[0]
-        joint_scatter = ax.scatter(
-            frame0[:, 0],
-            frame0[:, 1],
-            frame0[:, 2],
-            s=style.joint_size,
-            c=style.joint_color,
-            depthshade=False,
-        )
+        joint_scatter = _scatter_joints(ax, view.coords[0], style, style.joint_color)
 
     # view_init first: set_box_aspect stores the aspect rolled to whatever
     # vertical axis is current, and get_proj rolls it back the same way. Set
@@ -719,7 +786,7 @@ def _setup_animated_panel(
         _disable_3d_label_clipping(ax)
 
     if view.label is not None:
-        ax.set_title(view.label)
+        _set_panel_title(ax, view.label, style)
 
     return collection, joint_scatter
 
@@ -851,6 +918,9 @@ def _wrap_update_with_counter(
 
 # The options of render() this backend reads (ADR 0006).
 RENDER_READS = frozenset({"follow", "turntable", "ghost", "trajectory", "frame_counter"})
+# The Style values render() draws on this backend: frame()'s, but dpi
+# (the resolution sets the pixels), and the ghosts' spacing.
+RENDER_DRAWS = FRAME_DRAWS.derive(drop={"dpi"}, add={"ghost_spacing"})
 
 
 def render_mpl(
@@ -1014,6 +1084,9 @@ def _make_orbit_update_fn(
 # The options of play() this backend reads (ADR 0006): none of those
 # another backend reads.
 PLAY_READS: frozenset[str] = frozenset()
+# The Style values play() draws on this backend: render()'s, but the
+# ghosts' spacing, since play draws no ghosts.
+PLAY_DRAWS = RENDER_DRAWS.derive(drop={"ghost_spacing"})
 
 
 def play_mpl(
@@ -1076,6 +1149,12 @@ def play_mpl(
 # ---------------------------------------------------------------------------
 # 2D trajectory
 # ---------------------------------------------------------------------------
+
+
+# The Style values trajectory() draws: a path plot keeps its axes, ticks
+# and grid, which carry its information, whatever the Style's axes say,
+# and casts no shadow.
+TRAJECTORY_DRAWS = DrawnStyle({"background"}, shadow={False})
 
 
 def trajectory_mpl(

@@ -10,6 +10,13 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import style_declarations
+from skeleton_pixels import (
+    CHANGED_UNDER_A_JOINT_LEVELS,
+    FLOOR_CASES,
+    PRESET_FLOOR_ALPHA,
+    skeleton_pixels,
+)
 
 from pybvh import read_bvh_file
 from pybvh.bvhplot import _vedo
@@ -324,6 +331,151 @@ class TestGridFloor:
         finally:
             p.plt.close()
 
+    @pytest.mark.parametrize("floor_alpha", [0.3, 1.0])
+    def test_the_grid_is_drawn_at_the_styles_floor_alpha(self, scene, floor_alpha, monkeypatch):
+        """As the solid floor is, and the other backends' grids; it was
+        drawn at 0.6."""
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        style = Style("paper", floor="grid", floor_alpha=floor_alpha)
+        p = _vedo._VedoPlayer(scene, style, 30.0, quality="high")
+        try:
+            (grid,) = [o for o in p.plt.objects if isinstance(o, vedo.Grid)]
+            assert grid.alpha() == pytest.approx(floor_alpha)
+        finally:
+            p.plt.close()
+
+    def test_the_grid_has_twenty_cells_a_side(self, scene, monkeypatch):
+        """As matplotlib's, OpenCV's and k3d's; it had thirty."""
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        p = _vedo._VedoPlayer(scene, Style("paper", floor="grid"), 30.0, quality="high")
+        try:
+            (grid,) = [o for o in p.plt.objects if isinstance(o, vedo.Grid)]
+            vertices = np.asarray(grid.vertices)
+            side = 2 * p.viewport.floor_reach
+            for axis in p.viewport.ground_indices:
+                # the lines' positions across the plane, in cells of a 20-cell grid
+                lines = np.unique(np.round((vertices[:, axis] - vertices[:, axis].min()) / side, 4))
+                np.testing.assert_allclose(lines * 20, np.arange(21), atol=1e-4)
+        finally:
+            p.plt.close()
+
+    @pytest.mark.parametrize("kind", ["solid", "grid", "checker"])
+    def test_fast_quality_draws_the_floor_high_quality_draws(self, scene, kind, monkeypatch):
+        """Only high quality drew a floor."""
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+
+        def floor(quality):
+            p = _vedo._VedoPlayer(scene, Style("paper", floor=kind), 30.0, quality=quality)
+            try:
+                (plane,) = [o for o in p.plt.objects if o.name == "Floor"]
+                return type(plane), np.asarray(plane.vertices), plane.alpha()
+            finally:
+                p.plt.close()
+
+        (fast_type, fast_vertices, fast_alpha) = floor("fast")
+        (high_type, high_vertices, high_alpha) = floor("high")
+        assert fast_type is high_type
+        np.testing.assert_array_equal(fast_vertices, high_vertices)
+        assert fast_alpha == high_alpha
+
+    @pytest.mark.parametrize("quality", ["high", "fast"])
+    def test_the_checker_is_drawn_as_a_checker(self, scene, quality, monkeypatch, tmp_path):
+        """Opaque, both of the palette's checker shades fill a good part
+        of the picture. "checker" fell back to the grid, whose lines
+        are neither shade."""
+        from pybvh.bvhplot._colors import floor_palette, rgb255
+
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        style = Style("paper", floor="checker", floor_alpha=1.0)
+        p = _vedo._VedoPlayer(scene, style, 30.0, quality=quality)
+        try:
+            image = _rendered(p, tmp_path).reshape(-1, 3).astype(int)
+        finally:
+            p.plt.close()
+        # the floor takes about a third of the window's pixels, half of
+        # it in each shade; a tenth of that is a checker, where a grid's
+        # lines leave none of either shade
+        floor_share = image.shape[0] // 3
+        for shade in floor_palette(style)["checker"]:
+            assert (np.abs(image - rgb255(shade)).max(axis=1) <= 1).sum() > floor_share // 20, shade
+
+
+@pytest.fixture(scope="module")
+def drawn_test1(tmp_path_factory):
+    """The viewer's first frame of bvh_test1.bvh under a Style, at a
+    quality: ``drawn_test1(quality, **style_fields)``, each drawn once."""
+    bvh = read_bvh_file("bvh_data/bvh_test1.bvh")[0:3]
+    scene = make_scene([bvh], [bvh.node_positions()], "front", None)
+    folder = tmp_path_factory.mktemp("hides")
+    shots = {}
+
+    def draw(quality, **fields):
+        key = (quality, tuple(sorted(fields.items())))
+        if key not in shots:
+            with pytest.MonkeyPatch.context() as patch:
+                patch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+                p = _vedo._VedoPlayer(scene, Style("paper", **fields), 30.0, quality=quality)
+                try:
+                    shots[key] = _rendered(p, folder).astype(int)
+                finally:
+                    p.plt.close()
+        return shots[key]
+
+    return draw
+
+
+class TestTheSkeletonHidesTheFloor:
+    """A bone or joint keeps its color over every floor kind, in both
+    qualities. On the feet of bvh_test1.bvh the grid's lines were drawn
+    over the capsules in front of them, and in fast quality the
+    translucent floor washed over the joints, which are translucent too."""
+
+    @pytest.mark.parametrize("quality", ["high", "fast"])
+    @pytest.mark.parametrize("kind, floor_alpha", FLOOR_CASES)
+    def test_over_every_floor(self, drawn_test1, quality, kind, floor_alpha):
+        bare = drawn_test1(quality, floor=None)
+        figure = skeleton_pixels(bare, drawn_test1(quality, floor="solid", floor_alpha=1.0))
+        assert figure.sum() > 500  # the figure, not a few stray pixels
+        changed = np.abs(drawn_test1(quality, floor=kind, floor_alpha=floor_alpha) - bare)
+        assert int(((changed.max(axis=-1) > CHANGED_UNDER_A_JOINT_LEVELS) & figure).sum()) == 0
+
+
+class TestTheTrailOverTheFloor:
+    """The root trail lies on the floor, a hair above it."""
+
+    @pytest.mark.parametrize("quality", ["high", "fast"])
+    def test_the_trail_keeps_its_color_over_a_translucent_floor(
+        self, quality, monkeypatch, tmp_path
+    ):
+        """The trail lies on the floor at an alpha of 0.6. Over the
+        presets' floor (0.85) it differs from the trail over an opaque
+        floor by what the floor lets through under it, 0.4 of 0.15 of the
+        background's lead over the floor: 1.4 levels on the paper preset.
+        In high quality it came out at a mean gray of 165, where it is 127
+        over an opaque floor, washed by the floor."""
+        bvh = read_bvh_file(BVH_PATH)
+        scene = make_scene([bvh], [bvh.node_positions()[:120]], "front", None)
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+
+        def drawn(floor_alpha, trail):
+            p = _vedo._VedoPlayer(
+                scene, Style("paper", floor="solid", floor_alpha=floor_alpha), 30.0, quality=quality
+            )
+            try:
+                # what the T key and then the End key do
+                p._show_trail(trail)
+                p._on_last()
+                return _rendered(p, tmp_path).astype(int)
+            finally:
+                p.plt.close()
+
+        over_opaque = drawn(1.0, trail=True)
+        # where the trail darkens the opaque floor, not its faint edges
+        trail = np.abs(over_opaque - drawn(1.0, trail=False)).max(axis=-1) > 40
+        assert trail.sum() > 100
+        over_translucent = drawn(PRESET_FLOOR_ALPHA, trail=True)
+        assert np.abs(over_translucent[trail] - over_opaque[trail]).mean() < 3
+
 
 def _rendered(player, tmp_path):
     """The viewer's current frame as an (H, W, 3) uint8 image."""
@@ -530,7 +682,7 @@ class TestStyleColorsReachVedoParsed:
         style = Style("paper", floor=floor)
         p = _vedo._VedoPlayer(scene, style, 30.0, quality="high")
         try:
-            plane = next(o for o in p.plt.objects if isinstance(o, (vedo.Plane, vedo.Grid)))
+            plane = next(o for o in p.plt.objects if o.name == "Floor")
             np.testing.assert_allclose(
                 plane.properties.GetColor(), np.asarray(rgb255(floor_palette(style)[key])) / 255
             )
@@ -664,3 +816,56 @@ class TestSkeletonLabels:
             line = box[3] - box[2]
             assert 0 < above[2] - box[3] < line, (name, above, box)
             above = box
+
+
+# Two screenshots of one Style may differ by a level here and there: the
+# offscreen render is not exact from one player to the next (seen: 25
+# pixels 1 level apart, after some thirty players in one process). The
+# least a declared field was seen to change is 10 levels (a checker floor
+# against a solid one, on its squares).
+SAME_PICTURE_LEVELS = 2
+
+
+@pytest.fixture(scope="module")
+def screenshots(scene, tmp_path_factory):
+    """The viewer's first frame of the scene under a Style, at a
+    quality: ``screenshots(style, quality)``. Each look is drawn once
+    (about 2 s a screenshot), since the cases share their Styles."""
+    drawn = {}
+    folder = tmp_path_factory.mktemp("declared")
+
+    def screenshot(style, quality):
+        key = (repr(style), quality)
+        if key not in drawn:
+            with pytest.MonkeyPatch.context() as patch:
+                patch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+                p = _vedo._VedoPlayer(scene, style, 30.0, quality=quality)
+                try:
+                    drawn[key] = _rendered(p, folder)
+                finally:
+                    p.plt.close()
+        return drawn[key]
+
+    return screenshot
+
+
+class TestTheViewerDrawsTheStyleItDeclares:
+    """Drawn with two values of a Style field, the viewer shows another
+    picture where it declares the field drawn, and the same where it
+    accepts the field without drawing it (see
+    ``tests/style_declarations.py``), at both qualities: one declaration
+    holds for both."""
+
+    @pytest.mark.parametrize("quality", ["high", "fast"])
+    @pytest.mark.parametrize(
+        "case",
+        style_declarations.cases("play", ["vedo"]),
+        ids=str,
+    )
+    def test_a_field_declared_changes_the_picture_and_one_accepted_does_not(
+        self, screenshots, case, quality
+    ):
+        one = screenshots(case.one, quality).astype(int)
+        other = screenshots(case.other, quality).astype(int)
+        differ = np.abs(one - other).max() > SAME_PICTURE_LEVELS
+        assert differ == case.differ

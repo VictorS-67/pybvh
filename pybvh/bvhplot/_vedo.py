@@ -3,10 +3,10 @@
 Provides interactive 3D skeleton playback with camera rotation/zoom,
 playback controls, and frame scrubbing in a desktop window.
 
-Two quality modes:
+Two quality modes, each with the style's floor:
 
 - ``"high"`` (default): shaded 3D tapered tubes for bones, spheres for
-  joints, floor, one headlight.
+  joints, one headlight.
 - ``"fast"``: Flat lines and points. Maximum performance for large files.
 
 Requires ``vedo >= 2025.5.3``.
@@ -23,17 +23,16 @@ import numpy.typing as npt
 
 from ._colors import (
     bone_colors_255,
-    floor_palette,
     node_colors_255,
     skeleton_color_255,
 )
 from ._playback import PlaybackClock
 from ._scene import Scene
-from ._style import JOINT_DISC_MARGIN_PX, Style, bone_width_px
+from ._style import DrawnStyle, Style, bone_width_px
 from ._vedo_capsules import (
     CapsuleSkeleton,
-    floor_placement,
     vedo_color,
+    vedo_floor,
     vedo_rgb,
 )
 from ._viewport import STANDING_STILL_HALF_SPAN, make_viewport
@@ -47,6 +46,9 @@ _FORCE_OFFSCREEN = False
 LABEL_LIFT_FRACTION = 0.02 * STANDING_STILL_HALF_SPAN
 # Joint-name labels' font size, in pixels.
 LABEL_FONT_SIZE = 14
+# The fast mode's joint points are this many pixels wider in radius than
+# its bones are wide.
+FAST_JOINT_MARGIN_PX = 2
 
 
 class _UiState(TypedDict, total=False):
@@ -164,6 +166,24 @@ _HELP_ENTRIES = [
 # The options of play() this backend reads (ADR 0006): it draws every
 # skeleton in one scene, arranged by the router.
 PLAY_READS = frozenset({"quality", "spacing", "match_size"})
+# The Style values play() draws on this backend, at both qualities: in
+# perspective only, with no axes, shadow at False alone (it casts none),
+# and none of the joint fields, since a joint is the capsules' sphere,
+# sized and colored by its bones, and the fast points keep that look.
+PLAY_DRAWS = DrawnStyle(
+    {
+        "bone_width",
+        "bone_color",
+        "color_mode",
+        "chain_colors",
+        "floor",
+        "floor_alpha",
+        "background",
+    },
+    axes={"off"},
+    projection={"persp"},
+    shadow={False},
+)
 
 
 def play_vedo(
@@ -179,8 +199,9 @@ def play_vedo(
     the first view) and one viewport over the — possibly laterally
     spread — views.
 
-    Style application (look fields): background, floor kind
-    (``"checker"`` falls back to ``"grid"`` here), bone width, and
+    The Style it draws (``PLAY_DRAWS``): background, floor kind and
+    ``floor_alpha`` (the offscreen renderer's floor:
+    :func:`~._vedo_capsules.vedo_floor`), bone width, and
     the bone colors ``color_mode`` resolves to, in both quality modes
     and from the same rule as the offscreen renderer
     (:func:`~._colors.bone_colors_255`). Joint spheres are structural
@@ -196,9 +217,9 @@ def play_vedo(
     the distance travelled: the fast mode's bones are ``bone_width``
     pixels wide (rounded half up, as OpenCV's are, at least 1:
     :func:`~._style.bone_width_px`), the width the OpenCV backend
-    draws at its 1080p anchor, and its joints are points as wide as
-    OpenCV's joint discs, of radius that width plus
-    ``JOINT_DISC_MARGIN_PX``; the joint labels are ``LABEL_FONT_SIZE`` pixels.
+    draws at its 1080p anchor, and its joints are points of radius that
+    width plus ``FAST_JOINT_MARGIN_PX``, sized by the bones and not by
+    ``joint_size``; the joint labels are ``LABEL_FONT_SIZE`` pixels.
     Pixel sizes do not follow the zoom: a body seen from farther away
     keeps its line widths, as matplotlib's and OpenCV's do. The
     alternative, pixels proportional to the body's size on screen,
@@ -219,7 +240,7 @@ def play_vedo(
     scene : Scene
         Prepared visualization.
     style : Style
-        Visual styling (look fields).
+        Visual styling, drawn as ``PLAY_DRAWS`` declares.
     fps : float
         Frames per second.
     quality : str
@@ -313,6 +334,12 @@ class _VedoPlayer:
         # it along, but a camera set from code (the reset key) would
         # not, and would light the capsules from the side.
         self.plt.renderer.LightFollowCameraOn()
+        # Translucent layers stacked by depth. The floor (at its alpha),
+        # the joints in fast quality and the trail are translucent, and
+        # VTK's default order-independent blend weighs overlapping
+        # layers instead of stacking them, which shows the floor over
+        # the joints and the trail in front of it.
+        self.plt.use_depth_peeling(value=True)
 
         # Button registry: (x0, y0, w, h, callback) per clickable region.
         self._buttons: list[tuple[float, float, float, float, Callable[[], None]]] = []
@@ -362,7 +389,6 @@ class _VedoPlayer:
         """Create the floor, skeleton actors, labels, camera, and trails."""
         import vtk
         from vedo import (
-            Grid,
             Lines,
             Points,
             Text2D,
@@ -372,36 +398,13 @@ class _VedoPlayer:
         n_skeletons = self.n_skeletons
         up_idx = self.viewport.up_index
         line_width_px = bone_width_px(self.style.bone_width)
-        point_size_px = 2 * (line_width_px + JOINT_DISC_MARGIN_PX)
+        point_size_px = 2 * (line_width_px + FAST_JOINT_MARGIN_PX)
 
-        # --- Floor (high quality only; kind from the style) ---
-        if self.use_high and self.style.floor is not None:
-            from vedo import Plane
-
-            # One floor for the whole scene, the viewport's: the same
-            # plane the offscreen renderer draws, so viewer and render
-            # agree.
-            floor_pos, normal, side = floor_placement(self.viewport)
-            palette = floor_palette(self.style)
-            if self.style.floor == "solid":
-                floor = Plane(pos=tuple(floor_pos), normal=tuple(normal), s=(side, side))
-                floor.alpha(self.style.floor_alpha)
-                floor.c(vedo_color(palette["face"])).lighting("off")
-            else:
-                # "grid" — and "checker", which falls back to grid in
-                # this viewer (no cheap checker primitive in vedo).
-                # Built at the origin, turned to face up, then moved:
-                # vedo rotates about the world origin, so a grid that
-                # is placed first swings away from where it was put.
-                floor = Grid(s=[side, side], res=(30, 30))
-                if self.up_letter == "y":
-                    floor.rotate_x(90)
-                elif self.up_letter == "x":
-                    floor.rotate_y(90)
-                # up_letter='z': Grid defaults to XY plane, no rotation
-                floor.pos(*floor_pos)
-                floor.lw(1).alpha(0.6)
-                floor.c(vedo_color(palette["grid"])).lighting("off")
+        # --- Floor (both quality modes; kind from the style) ---
+        # One floor for the whole scene, the viewport's, built as the
+        # offscreen renderer builds it, so viewer and render agree.
+        floor = vedo_floor(self.viewport, self.style)
+        if floor is not None:
             self.plt += floor
 
         # --- Build persistent skeleton geometry (created once, updated in-place) ---
@@ -982,6 +985,13 @@ class _VedoPlayer:
         self._sync_all()
         self._update_frame(self.clock.frame)
 
+    def _show_trail(self, shown: bool) -> None:
+        """Show or hide the root trajectory trail (pre-computed, so
+        only its visibility changes)."""
+        self.state["show_trail"] = shown
+        for trail in self._trail_actors:
+            trail.actor.SetVisibility(int(shown))
+
     def _on_key(self, event: object) -> None:
         key = self.plt.last_event.keypress  # type: ignore[attr-defined]
         state = self.state
@@ -1014,11 +1024,7 @@ class _VedoPlayer:
             self._on_last()
 
         elif key == "t":
-            # Toggle root trajectory trail (pre-computed, just show/hide)
-            state["show_trail"] = not state["show_trail"]
-            vis = 1 if state["show_trail"] else 0
-            for s in range(self.n_skeletons):
-                self._trail_actors[s].actor.SetVisibility(vis)
+            self._show_trail(not state["show_trail"])
             self.plt.render()
 
         elif key == "f":

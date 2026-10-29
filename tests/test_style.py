@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import dataclasses
+import inspect
+import re
 from pathlib import Path
 
 import matplotlib
@@ -13,6 +15,7 @@ import numpy as np
 import pytest
 
 from pybvh import bvhplot, read_bvh_file
+from pybvh.bvhplot import _backends
 from pybvh.bvhplot._from_bvh import get_bone_chains, get_skeleton_lines, make_scene
 from pybvh.bvhplot._style import (
     CHAIN_COLORS,
@@ -93,6 +96,198 @@ class TestStyleConstruction:
         assert s.floor == "solid"
         with pytest.raises(TypeError, match="Unknown"):
             s.replace(nope=1)
+
+    @pytest.mark.parametrize(
+        "set_by_caller",
+        [
+            Style("paper", floor="solid"),
+            Style("paper", floor="solid", projection="persp"),
+            Style("paper", floor=None).replace(floor="solid"),
+            Style("paper").replace(projection="persp"),
+        ],
+        ids=["constructor", "two fields", "replace back", "replace"],
+    )
+    def test_equality_ignores_which_fields_the_caller_set(self, set_by_caller):
+        """Equality is the same look: a field set to the preset's own
+        value draws what the preset draws."""
+        assert set_by_caller == Style("paper")
+        assert repr(set_by_caller) == repr(Style("paper"))
+
+    @pytest.mark.parametrize("style", [Style("paper"), Style("paper", floor=None)])
+    def test_unhashable_whatever_the_caller_set(self, style):
+        """A Style holds a dict (``chain_colors``), so it has no hash."""
+        with pytest.raises(TypeError):
+            hash(style)
+
+
+_A_COLOR = "a matplotlib color, such as 'white', '#16181D' or (0.1, 0.2, 0.8)"
+
+
+class TestStyleValidation:
+    """Every field is checked where the Style is made, by the constructor
+    and by ``replace`` alike, so that a bad value fails at the caller's
+    line rather than inside a backend."""
+
+    @staticmethod
+    def _made_both_ways(field, value):
+        """Build a paper Style with *field* set to *value*, once through
+        the constructor and once through ``replace``."""
+        return [
+            lambda: Style("paper", **{field: value}),
+            lambda: Style("paper").replace(**{field: value}),
+        ]
+
+    @pytest.mark.parametrize(
+        "field,value,message",
+        [
+            ("floor_alpha", 1.5, "floor_alpha must be a number in [0, 1], got 1.5"),
+            ("floor_alpha", -0.1, "floor_alpha must be a number in [0, 1], got -0.1"),
+            ("floor_alpha", "0.5", "floor_alpha must be a number in [0, 1], got '0.5'"),
+            # A bool is no number here, as 1 is no bool for shadow.
+            ("floor_alpha", True, "floor_alpha must be a number in [0, 1], got True"),
+            ("joint_size", True, "joint_size must be a positive number, got True"),
+            ("dpi", True, "dpi must be a positive number or None, got True"),
+            ("joint_size", 0, "joint_size must be a positive number, got 0"),
+            ("joint_size", -9.0, "joint_size must be a positive number, got -9.0"),
+            ("joint_size", "9", "joint_size must be a positive number, got '9'"),
+            ("dpi", 0, "dpi must be a positive number or None, got 0"),
+            ("dpi", -300, "dpi must be a positive number or None, got -300"),
+            ("dpi", "300", "dpi must be a positive number or None, got '300'"),
+            ("shadow", 1, "shadow must be True or False, got 1"),
+            ("shadow", "yes", "shadow must be True or False, got 'yes'"),
+            ("shadow", None, "shadow must be True or False, got None"),
+            ("bone_color", "bleu", f"bone_color must be {_A_COLOR}, got 'bleu'"),
+            ("bone_color", (1.5, 0.0, 0.0), f"bone_color must be {_A_COLOR}, got (1.5, 0.0, 0.0)"),
+            ("bone_color", None, f"bone_color must be {_A_COLOR}, got None"),
+            ("background", "whte", f"background must be {_A_COLOR}, got 'whte'"),
+            ("background", "#16181", f"background must be {_A_COLOR}, got '#16181'"),
+            ("joint_color", "whte", f"joint_color must be {_A_COLOR}, got 'whte'"),
+            ("joint_markers", "yes", "joint_markers must be True or False, got 'yes'"),
+            (
+                "chain_colors",
+                "red",
+                "chain_colors must be a dict from chain name to color, got 'red'",
+            ),
+            (
+                "chain_colors",
+                {"spine": "whte"},
+                f"chain_colors['spine'] must be {_A_COLOR}, got 'whte'",
+            ),
+        ],
+    )
+    def test_an_invalid_value_is_refused(self, field, value, message):
+        for make in self._made_both_ways(field, value):
+            with pytest.raises(ValueError) as raised:
+                make()
+            assert str(raised.value) == message
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("floor_alpha", 0),
+            ("floor_alpha", 1.0),
+            ("joint_size", 0.5),
+            ("dpi", 1),
+            ("dpi", None),
+            ("shadow", False),
+            ("bone_color", (0.0, 0.0, 1.0)),
+            ("bone_color", "#E69F00"),
+            ("background", "snow"),
+            ("background", (1, 1, 1)),
+            ("joint_color", "red"),
+            ("joint_markers", False),
+            # A chain left out is drawn in the spine color.
+            ("chain_colors", {"spine": "black"}),
+        ],
+    )
+    def test_a_valid_value_is_kept(self, field, value):
+        for make in self._made_both_ways(field, value):
+            assert getattr(make(), field) == value
+
+    @pytest.mark.parametrize("preset", ["paper", "debug", "dark"])
+    def test_every_preset_passes_its_own_checks(self, preset):
+        assert Style(preset) == Style(preset)
+
+
+# The drawing path each column of the Style docstring's table names: under
+# the call (or the group) of its first header row, the label of its second.
+_TABLE_COLUMNS = {
+    ("frame", "mpl"): ("frame", "matplotlib"),
+    ("frame", "vedo"): ("frame", "vedo"),
+    ("render", "mpl"): ("render", "matplotlib"),
+    ("render", "cv"): ("render", "opencv"),
+    ("render", "vedo"): ("render", "vedo"),
+    ("play", "mpl"): ("play", "matplotlib"),
+    ("play", "cv"): ("play", "opencv_notebook"),
+    ("play", "k3d"): ("play", "k3d"),
+    ("play", "vedo"): ("play", "vedo"),
+    ("matplotlib alone", "rest"): ("rest_pose", "matplotlib"),
+    ("matplotlib alone", "offs"): ("sequence", "offset"),
+    ("matplotlib alone", "over"): ("sequence", "overlay"),
+    ("matplotlib alone", "traj"): ("trajectory", "matplotlib"),
+}
+
+
+def _docstring_table() -> tuple[list[tuple[str, str]], list[tuple[str, list[str]]]]:
+    """The Style docstring's table: the drawing path of each column, and
+    each row's field and cells."""
+    lines = inspect.cleandoc(Style.__doc__ or "").splitlines()
+    headers = [i for i, line in enumerate(lines) if line.split()[:1] == ["field"]]
+    assert len(headers) == 1, "the Style docstring holds no table, or several"
+    at = headers[0]
+    groups = [(m.start(), m.group()) for m in re.finditer(r"\S+(?: \S+)*", lines[at - 1])]
+    columns = []
+    for label in list(re.finditer(r"\S+", lines[at]))[1:]:
+        group = [name for start, name in groups if start <= label.start()][-1]
+        columns.append(_TABLE_COLUMNS[group, label.group()])
+    rows = []
+    for line in lines[at + 1 :]:
+        if not line.strip():
+            break
+        field, *cells = line.split()
+        rows.append((field, cells))
+    return columns, rows
+
+
+def _cell(call: str, path: str, field: str) -> str:
+    """What the table should say of *field* on the drawing path: ``yes``
+    drawn at every value, the values drawn, ``n/a`` accepted, ``no``
+    refused."""
+    drawn = _backends._draws(call, path)
+    if field in drawn.fields:
+        return "yes"
+    if field in _backends._STYLE_ACCEPTED[call]:
+        return "n/a"
+    values = drawn.values.get(field, frozenset())
+    return ",".join(sorted(str(value) for value in values)) or "no"
+
+
+class TestTheDocstringTable:
+    """The table in the Style docstring says what each drawing path does
+    with each field its caller sets, as the declarations the backend
+    choice reads say it."""
+
+    def test_a_column_per_drawing_path(self):
+        columns, _ = _docstring_table()
+        paths = [
+            (call, path) for call, ways in _backends._DECLARING_MODULES.items() for path in ways
+        ]
+        assert sorted(columns) == sorted(paths)
+
+    def test_a_row_per_field(self):
+        _, rows = _docstring_table()
+        fields = [f.name for f in dataclasses.fields(Style) if f.compare]
+        assert sorted(field for field, _ in rows) == sorted(fields)
+
+    def test_every_cell_says_what_the_declarations_say(self):
+        columns, rows = _docstring_table()
+        wrong = [
+            f"{field} on {call} {path}: {cell!r}, declared {_cell(call, path, field)!r}"
+            for field, cells in rows
+            for (call, path), cell in zip(columns, cells, strict=True)
+            if cell != _cell(call, path, field)
+        ]
+        assert not wrong, "\n".join(wrong)
 
 
 class TestResolveStyle:
@@ -522,6 +717,182 @@ class TestStyledRenderSmoke:
             style="paper",
         )
         assert path.exists() and path.stat().st_size > 0
+
+
+# How far, in levels of 255 per channel, a joint pixel may stray from
+# the joint color. Where two joints overlap, a pixel inside their union
+# that neither covers fully keeps a trace of what lies under it: 1 level
+# at most inside the joints of the walk test pictures with the joints on
+# top, against 255 where a bone covers them.
+JOINT_COLOR_LEVELS = 8
+
+
+def _joints_kept(thin: np.ndarray, wide: np.ndarray) -> bool:
+    """Whether every joint pixel of the picture over thin bones is a
+    joint pixel of the picture over wide ones.
+
+    A joint pixel is the red the joint tests draw joints in, to within
+    ``JOINT_COLOR_LEVELS``. The thin picture's joint rims are left out:
+    a pixel a joint covers all but a sliver of keeps a trace of what
+    lies under it, which differs between the two.
+    """
+
+    def red(picture: np.ndarray) -> np.ndarray:
+        distance = np.abs(picture.astype(int) - (255, 0, 0))
+        return np.all(distance <= JOINT_COLOR_LEVELS, axis=-1)
+
+    joints, kept = red(thin), red(wide)
+    inside = joints.copy()
+    inside[1:] &= joints[:-1]
+    inside[:-1] &= joints[1:]
+    inside[:, 1:] &= joints[:, :-1]
+    inside[:, :-1] &= joints[:, 1:]
+    return bool(inside.any()) and not (inside & ~kept).any()
+
+
+# Large red joints and no floor, so the joints and bones alone fill the
+# picture; the bones are drawn in chain colors, none of them red.
+RED_JOINTS = Style("paper", joint_size=120, joint_color="red", floor=None)
+
+
+class TestMatplotlibVideosDrawTheJointsOverTheBones:
+    """The joints sit over the bones in every matplotlib picture, as in
+    ``frame``: every pixel a joint holds over thin bones it still holds
+    over wide ones, which it would lose to a bone drawn over it."""
+
+    def test_render(self, walk, tmp_path, apng_frames):
+        def first_frame(bone_width):
+            path = tmp_path / f"{bone_width}.apng"
+            bvhplot.render(
+                walk,
+                path,
+                backend="matplotlib",
+                resolution=(320, 240),
+                fps=10,
+                style=RED_JOINTS.replace(bone_width=bone_width),
+            )
+            return apng_frames(path, 10)[0]
+
+        assert _joints_kept(first_frame(0.5), first_frame(8.0))
+
+    def test_play(self, walk, environment, monkeypatch):
+        """In a notebook, play's matplotlib player is a page holding
+        every frame as a PNG; its first is read back."""
+        import base64
+        import io
+        import re
+
+        from PIL import Image
+
+        ipython_display = pytest.importorskip("IPython.display")
+        shown = []
+        monkeypatch.setattr(ipython_display, "display", shown.append)
+        environment(notebook=True)
+
+        def first_frame(bone_width):
+            bvhplot.play(
+                walk, backend="matplotlib", fps=10, style=RED_JOINTS.replace(bone_width=bone_width)
+            )
+            page = shown[-1].data
+            png = re.search(r'frames\[0\] = "data:image/png;base64,([^"]+)"', page)
+            assert png is not None
+            image = Image.open(io.BytesIO(base64.b64decode(png.group(1))))
+            return np.asarray(image.convert("RGB"))
+
+        assert _joints_kept(first_frame(0.5), first_frame(8.0))
+
+
+def _contrast(color, other) -> float:
+    """The WCAG contrast ratio of two colors, 1 (the same) to 21
+    (black on white); 4.5 is its minimum for body text."""
+    from matplotlib.colors import to_rgb
+
+    def luminance(c):
+        rgb = np.array(to_rgb(c))
+        linear = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
+        return float(linear @ (0.2126, 0.7152, 0.0722))
+
+    hi, lo = sorted((luminance(color), luminance(other)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+class TestPanelTitlesAreLegible:
+    """Panel titles stand out from the style's background, dark or
+    light."""
+
+    def test_frame(self, bvh):
+        fig, axs = bvhplot.frame([bvh, bvh], 10, style="dark", labels=["A", "B"])
+        background = resolve_style("dark").background
+        assert all(_contrast(ax.title.get_color(), background) >= 4.5 for ax in axs)
+        plt.close(fig)
+
+    def test_frame_keeps_black_titles_on_a_light_background(self, bvh):
+        """matplotlib's own title color, as before."""
+        fig, axs = bvhplot.frame([bvh, bvh], 10, style="paper", labels=["A", "B"])
+        assert all(matplotlib.colors.to_hex(ax.title.get_color()) == "#000000" for ax in axs)
+        plt.close(fig)
+
+    def test_render(self, walk, tmp_path, apng_frames):
+        """The title is the pixels a label adds to the picture; its
+        brightest stands out from the background."""
+
+        def first_frame(labels):
+            path = tmp_path / f"{labels}.apng"
+            bvhplot.render(
+                walk,
+                path,
+                backend="matplotlib",
+                resolution=(320, 240),
+                fps=10,
+                style="dark",
+                labels=labels,
+            )
+            return apng_frames(path, 10)[0]
+
+        titled, untitled = first_frame(["WALK"]), first_frame(None)
+        title = np.any(titled != untitled, axis=-1)
+        assert title.any()
+        brightest = titled[title][np.argmax(titled[title].sum(axis=-1))] / 255
+        assert _contrast(brightest, resolve_style("dark").background) >= 4.5
+
+
+class TestGridFloorReadsFloorAlpha:
+    """A grid floor is drawn at the style's ``floor_alpha``, as the solid
+    and checker floors are: the more opaque, the farther the picture
+    from the same one without a floor. matplotlib and OpenCV drew every
+    grid at 0.8."""
+
+    @pytest.fixture
+    def drawn(self, bvh, tmp_path, apng_frames):
+        """The picture *call* draws of the walk's first frames with
+        *style*: ``frame``'s figure, or the first frame ``render`` writes
+        to an ``.apng`` on *call*'s backend, read back."""
+
+        def draw(call, style):
+            if call == "frame":
+                fig, _ = bvhplot.frame(bvh, 10, style=style)
+                pixels = _fig_pixels(fig)[..., :3]
+                plt.close(fig)
+                return pixels
+            if call == "render opencv":
+                pytest.importorskip("cv2")
+            path = tmp_path / "grid.apng"
+            bvhplot.render(
+                bvh[0:2], path, backend=call.split()[1], resolution=(160, 120), fps=10, style=style
+            )
+            return apng_frames(path, 10)[0]
+
+        return draw
+
+    @pytest.mark.parametrize("call", ["frame", "render matplotlib", "render opencv"])
+    def test_a_more_opaque_grid_is_farther_from_no_floor(self, drawn, call):
+        def away_from_floorless(floor_alpha):
+            grid = drawn(call, Style("paper", floor="grid", floor_alpha=floor_alpha))
+            return np.abs(grid.astype(int) - floorless.astype(int)).sum()
+
+        floorless = drawn(call, Style("paper", floor=None))
+        faint, opaque = away_from_floorless(0.3), away_from_floorless(0.85)
+        assert 0 < faint < opaque
 
 
 class TestReviewFixes:

@@ -213,10 +213,10 @@ A view's height along its rest up, in the coords' unit; what is drawn on a body 
 The camera azimuth per frame: fixed, turntable or follow. A constant schedule is stored as none and framed as a fixed camera.
 
 **Style**:
-The one styling object every bvhplot function accepts: the presets `paper`, `debug` and `dark`, with overrides.
+The one styling object every bvhplot function accepts: a preset (`paper`, `debug` or `dark`) and the fields its caller set over it. A backend draws each preset as far as it can, and refuses a field its caller set at a value it does not draw, unless the picture holds nothing the field names (ADR 0007).
 
 **Backend**:
-The toolkit a picture is drawn with: matplotlib, OpenCV, k3d, the vedo viewer or the vedo offscreen renderer, chosen by the call unless named: `render` by the file's extension and the installed packages, `play` by the session (notebook, display) and the installed packages; `frame` draws with matplotlib unless named. Each declares the options it reads (ADR 0006).
+The toolkit a picture is drawn with: matplotlib, OpenCV, k3d, the vedo viewer or the vedo offscreen renderer, chosen by the call unless named: `render` by the file's extension and the installed packages, `play` by the session (notebook, display) and the installed packages; `frame` draws with matplotlib unless named. Each declares the options it reads (ADR 0006) and the `Style` values it draws (ADR 0007).
 
 **Video target**:
 Where an animation is written: the path, the rate written, the resolution and the codec. One writer serves every backend.

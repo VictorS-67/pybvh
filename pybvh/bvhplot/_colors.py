@@ -1,7 +1,8 @@
 """Color resolution shared by every backend.
 
-_style.py stays free of plotting imports (enforced by test); this
-module owns the pieces that need matplotlib's color parser: the
+_style.py imports no plotting library but matplotlib's color parser,
+which checks a Style's colors (enforced by test); this module owns the
+color resolution that needs that parser: the
 light/dark background split, the floor palette, the grid box colors
 derived from the background, and the conversion of per-bone/per-node
 style colors to 0-255 RGB. Backends do only their

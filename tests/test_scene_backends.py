@@ -18,6 +18,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+import style_declarations
 import synthetic_scene
 from synthetic_scene import make_array_scene
 
@@ -522,12 +523,11 @@ class TestK3d:
         assert np.all(built.trail_paths[0][:, up] > corners[:, up].max())
         assert built.floor.opacity == pytest.approx(Style("paper").floor_alpha)
 
-    @pytest.mark.parametrize("kind", ["grid", "checker"])
-    def test_a_grid_floor_spans_the_same_plane(self, pair, kind):
+    def test_a_grid_floor_spans_the_same_plane(self, pair):
         pytest.importorskip("k3d")
         from pybvh.bvhplot._k3d import FLOOR_GRID_LINES, _build_plot
 
-        built = _build_plot(pair.spread("auto"), Style("paper", floor=kind))
+        built = _build_plot(pair.spread("auto"), Style("paper", floor="grid"))
         viewport = built.viewport
         vertices = np.asarray(built.floor.vertices).reshape(-1, 3)
         # k3d keeps indices in a float32 trait
@@ -540,6 +540,59 @@ class TestK3d:
         # every line runs from one edge of the plane to the opposite one
         lengths = np.linalg.norm(vertices[indices[:, 1]] - vertices[indices[:, 0]], axis=1)
         np.testing.assert_allclose(lengths, 2 * viewport.floor_reach, rtol=1e-5)
+
+    @pytest.mark.parametrize(
+        "preset, shades",
+        [("paper", {"EDEDF1", "DCDCE3"}), ("dark", {"2A2E36", "1E2127"})],
+    )
+    def test_a_checker_floor_is_squares_of_two_colors(self, pair, preset, shades):
+        """Squares on vertices of their own, each in one color, half in
+        each of the two shades, over the plane the solid floor covers,
+        at floor_alpha."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        style = Style(preset, floor="checker", floor_alpha=0.5)
+        built = _build_plot(pair.spread("auto"), style)
+        floor = built.floor
+        assert type(floor).__name__ == "Mesh"
+        assert floor.opacity == pytest.approx(0.5)
+        vertices = np.asarray(floor.vertices).reshape(-1, 3)
+        # k3d keeps indices in a float32 trait
+        triangles = np.asarray(floor.indices).reshape(-1, 3).astype(int)
+        colors = np.asarray(floor.colors)
+        assert len(colors) == len(vertices)
+        assert {f"{c:06X}" for c in colors} == shades
+        # no vertex is shared, and each triangle is one color
+        assert len(np.unique(triangles)) == len(vertices)
+        assert np.all(colors[triangles] == colors[triangles[:, :1]])
+        counts = [np.sum(colors == c) for c in np.unique(colors)]
+        assert counts[0] == counts[1]
+        # a square is the triangles sharing its vertices; squares side by
+        # side differ in color
+        square_of = np.arange(len(vertices))
+        for a, b, c in triangles:
+            square_of[[b, c]] = square_of[a]
+        squares = np.unique(square_of[triangles[:, 0]])
+        centres = np.array([vertices[square_of == q].mean(axis=0) for q in squares])
+        shade = np.array([colors[square_of == q][0] for q in squares])
+        distance = np.linalg.norm(centres[:, np.newaxis] - centres[np.newaxis], axis=2)
+        side = distance[distance > 0].min()
+        beside = np.isclose(distance, side, rtol=1e-4)
+        assert beside.any()
+        assert np.all(shade[np.nonzero(beside)[0]] != shade[np.nonzero(beside)[1]])
+        expected = built.viewport.floor_quad()
+        for axis in built.viewport.ground_indices:
+            assert vertices[:, axis].min() == pytest.approx(expected[:, axis].min(), rel=1e-6)
+            assert vertices[:, axis].max() == pytest.approx(expected[:, axis].max(), rel=1e-6)
+
+    @pytest.mark.parametrize("alpha", [0.3, 1.0])
+    def test_a_grid_floor_is_drawn_at_floor_alpha(self, pair, alpha):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        built = _build_plot(pair.spread("auto"), Style("paper", floor="grid", floor_alpha=alpha))
+        assert built.floor.opacity == pytest.approx(alpha)
 
     def test_a_style_without_a_floor_draws_none(self, pair):
         pytest.importorskip("k3d")
@@ -576,7 +629,7 @@ class TestK3d:
             assert path.shape == (view.coords.shape[0], 3)
 
     @staticmethod
-    def _play_and_grab_slider(scene, monkeypatch):
+    def _play_and_grab_slider(scene, monkeypatch, style=None):
         """Play *scene* with k3d outside a notebook: the plot as built
         and the frame slider of the widget that would be displayed."""
         pytest.importorskip("k3d")
@@ -593,7 +646,7 @@ class TestK3d:
 
         monkeypatch.setattr(_k3d, "_build_plot", build_and_keep)
         monkeypatch.setattr(IPython.display, "display", shown.append)
-        _k3d.play_k3d(scene, Style("paper"), 30.0)
+        _k3d.play_k3d(scene, style or Style("paper"), 30.0)
         (widget,) = shown
         _plot, controls = widget.children
         (slider,) = [w for w in controls.children if type(w).__name__ == "IntSlider"]
@@ -607,6 +660,15 @@ class TestK3d:
             expected = view.coords[7].astype(np.float32)
             np.testing.assert_array_equal(lines.vertices, expected)
             np.testing.assert_array_equal(points.positions, expected)
+
+    def test_the_frame_slider_poses_skeletons_drawn_without_joints(self, pair, monkeypatch):
+        scene = pair.spread("auto")
+        style = Style("paper", joint_markers=False)
+        built, slider = self._play_and_grab_slider(scene, monkeypatch, style)
+        slider.value = 7
+        for (lines, points), view in zip(built.skeletons, scene.views, strict=True):
+            assert points is None
+            np.testing.assert_array_equal(lines.vertices, view.coords[7].astype(np.float32))
 
     def test_the_frame_slider_grows_each_trail_to_its_frame(self, pair, monkeypatch):
         """The trail is the root's ground path up to the frame, and its
@@ -662,9 +724,136 @@ class TestK3d:
             r_leg,  # LeftFoot, RightFoot
         ]
         built = _build_plot(scene, Style(preset))
-        ((lines, points),) = built.skeletons
-        for drawn in (lines.colors, points.colors):
-            assert [f"{c:06X}" for c in drawn] == [f"{c:06X}" for c in expected]
+        ((lines, _points),) = built.skeletons
+        assert [f"{c:06X}" for c in lines.colors] == [f"{c:06X}" for c in expected]
+
+    @pytest.mark.parametrize("which", ["one", "pair"])
+    @pytest.mark.parametrize(
+        "style, joint",
+        [
+            (Style("paper"), "23262E"),
+            (Style("dark"), "E8E8EC"),
+            (Style("paper", joint_color="red"), "FF0000"),
+        ],
+        ids=["paper", "dark", "red"],
+    )
+    def test_the_joints_are_drawn_in_the_joint_color(self, scene, pair, which, style, joint):
+        """... over chain colors and the palette alike, as matplotlib
+        draws them."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        built = _build_plot(scene if which == "one" else pair.spread("auto"), style)
+        for _lines, points in built.skeletons:
+            assert f"{points.color:06X}" == joint
+            assert len(points.colors) == 0
+
+    def test_one_skeleton_under_single_is_drawn_in_the_bone_color(self, scene):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        built = _build_plot(scene, Style("paper", color_mode="single", bone_color=(1.0, 0.6, 0.0)))
+        ((lines, _points),) = built.skeletons
+        assert f"{lines.color:06X}" == "FF9900"
+        assert len(lines.colors) == 0
+
+    @pytest.mark.parametrize("color_mode", ["auto", "skeleton", "single"])
+    def test_several_skeletons_are_drawn_in_the_palette(self, pair, color_mode):
+        """Blue then red, whatever bone_color says: "single" draws one
+        skeleton in it, a comparison in the palette."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        built = _build_plot(pair.spread("auto"), Style("paper", color_mode=color_mode))
+        drawn = [f"{lines.color:06X}" for lines, _points in built.skeletons]
+        assert drawn == ["3278FF", "DC3232"]
+        assert all(len(lines.colors) == 0 for lines, _points in built.skeletons)
+
+    def test_the_joints_are_sized_from_joint_size(self, scene):
+        """The paper size draws the v0.9.0 joints; joint_size is an area,
+        as matplotlib's marker size is, so four times it draws joints
+        twice as wide."""
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import JOINT_SIZE_FRACTION, _build_plot
+
+        def point_size(style):
+            ((_lines, points),) = _build_plot(scene, style).skeletons
+            return points.point_size
+
+        paper = point_size(Style("paper"))
+        assert paper == pytest.approx(JOINT_SIZE_FRACTION * scene.views[0].body_size)
+        assert point_size(Style("paper", joint_size=36.0)) == pytest.approx(2 * paper)
+
+    @staticmethod
+    def _points_in(plot):
+        return [o for o in plot.objects if type(o).__name__ == "Points"]
+
+    def test_without_joint_markers_no_joint_is_drawn(self, pair):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        assert len(self._points_in(_build_plot(pair.spread("auto"), Style("paper")).plot)) == 2
+        built = _build_plot(pair.spread("auto"), Style("paper", joint_markers=False))
+        assert self._points_in(built.plot) == []
+
+
+def _k3d_drawing(built):
+    """What a k3d plot shows: every trait the plot and each of its
+    objects send to the widget, but the ids, which are new on every
+    build, and the layout, the widget's box on the notebook's page."""
+
+    def traits(widget, skipped):
+        return {
+            name: getattr(widget, name)
+            for name in widget.keys
+            if not name.startswith("_") and name not in skipped
+        }
+
+    plot = built.plot
+    return [traits(plot, {"object_ids", "layout"})] + [
+        traits(o, {"id", "layout"}) for o in plot.objects
+    ]
+
+
+def _same_drawing(one, other):
+    """Whether two drawings of :func:`_k3d_drawing` hold the same values,
+    arrays compared by their elements."""
+    if isinstance(one, dict):
+        return (
+            isinstance(other, dict)
+            and one.keys() == other.keys()
+            and all(_same_drawing(one[name], other[name]) for name in one)
+        )
+    if isinstance(one, (list, tuple)):
+        return (
+            isinstance(other, (list, tuple))
+            and len(one) == len(other)
+            and all(_same_drawing(a, b) for a, b in zip(one, other, strict=True))
+        )
+    if isinstance(one, np.ndarray) or isinstance(other, np.ndarray):
+        return np.array_equal(np.asarray(one), np.asarray(other))
+    return bool(one == other)
+
+
+class TestK3dDrawsTheStyleItDeclares:
+    """Built with two values of a Style field, k3d's plot holds other
+    objects where it declares the field drawn, and the same where it
+    accepts the field without drawing it (see
+    ``tests/style_declarations.py``). The widget cannot run in the
+    suite, so the plot's objects stand for the picture."""
+
+    @pytest.mark.parametrize(
+        "case",
+        style_declarations.cases("play", ["k3d"]),
+        ids=str,
+    )
+    def test_a_field_declared_changes_the_plot_and_one_accepted_does_not(self, scene, case):
+        pytest.importorskip("k3d")
+        from pybvh.bvhplot._k3d import _build_plot
+
+        one = _k3d_drawing(_build_plot(scene, case.one))
+        other = _k3d_drawing(_build_plot(scene, case.other))
+        assert _same_drawing(one, other) != case.differ
 
 
 # ---------------------------------------------------------------------------
@@ -684,7 +873,7 @@ def _viewer(scene, monkeypatch, quality="high"):
 
 
 def _vedo_plane(plotter):
-    planes = [o for o in plotter.objects if type(o).__name__ == "Plane"]
+    planes = [o for o in plotter.objects if o.name == "Floor"]
     assert len(planes) == 1, f"expected one floor plane, got {len(planes)}"
     return np.asarray(planes[0].vertices)
 
@@ -784,6 +973,34 @@ class TestEveryBackendDrawsTheViewportsFloor:
         after = _floor_corners(backend, moved, monkeypatch)
         up = view.up_index
         assert before[:, up].mean() - after[:, up].mean() == pytest.approx(0.75, abs=1e-5), backend
+
+    @pytest.mark.parametrize("kind", ["solid", "grid", "checker"])
+    def test_the_vedo_viewer_and_renderer_draw_one_floor(self, kind, scene, monkeypatch):
+        """Of every kind, the same mesh in the same colors and alpha."""
+        pytest.importorskip("vedo")
+        from pybvh.bvhplot import _vedo
+        from pybvh.bvhplot._vedo_offscreen import _build_offscreen
+
+        def drawn(plotter):
+            (floor,) = [o for o in plotter.objects if o.name == "Floor"]
+            colors = floor.celldata["CellsRGBA"] if kind == "checker" else floor.color()
+            return np.asarray(floor.vertices), np.asarray(colors), floor.alpha()
+
+        style = Style("paper", floor=kind, floor_alpha=0.4)
+        plotter, _, _ = _build_offscreen(scene, style, (200, 200))
+        try:
+            rendered = drawn(plotter)
+        finally:
+            plotter.close()
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+        player = _vedo._VedoPlayer(scene, style, 30.0, quality="high")
+        try:
+            viewed = drawn(player.plt)
+        finally:
+            player.plt.close()
+        for in_render, in_viewer in zip(rendered, viewed, strict=True):
+            np.testing.assert_array_equal(in_render, in_viewer)
+        assert rendered[2] == pytest.approx(0.4)
 
     def test_opencv_projects_the_viewports_plane(self, scene, monkeypatch):
         cv2 = pytest.importorskip("cv2")
@@ -1274,10 +1491,10 @@ class TestTheViewersOtherSizesIgnoreTheDistanceTravelled:
         assert big_sizes["lift"] == pytest.approx(3.0 * small_sizes["lift"])
 
     def test_fast_mode_draws_bones_as_wide_as_opencv_at_1080p(self, monkeypatch):
-        """At the debug style's 2.5, OpenCV draws 3-pixel bones and
-        joint discs 2 pixels wider in radius, 10 pixels across; the
+        """At the debug style's 2.5, OpenCV draws 3-pixel bones; the
         viewer's fast mode draws the same, not 2 pixels from rounding
-        half to even."""
+        half to even, and joint points 2 pixels wider in radius, 10
+        pixels across."""
         pytest.importorskip("vedo")
         from pybvh.bvhplot import _vedo
         from pybvh.bvhplot._scene import Scene

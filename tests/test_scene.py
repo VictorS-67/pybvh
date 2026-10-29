@@ -1293,6 +1293,10 @@ _BVH_READER = "_from_bvh"
 # No plotting library may be imported here: the pure-data modules, and the
 # playback state machine, which the viewer drives.
 _PURE_DATA = ["_scene", "_viewport", "_animation_options", "_style", "_from_bvh", "_playback"]
+# The one exception: the Style checks its colors where it is made with
+# the parser every backend reads them with, matplotlib's, which loads no
+# toolkit and no pyplot.
+_PURE_DATA_COLOR_PARSER = {"_style": "matplotlib.colors"}
 # The modules that draw with one toolkit each.
 _BACKENDS = ["_matplotlib", "_opencv", "_k3d", "_vedo", "_vedo_offscreen"]
 
@@ -1820,14 +1824,16 @@ class TestSceneIsPureData:
     def test_no_plotting_imports_in_pure_data_modules(self, module_name):
         """The Scene, the viewport, the Style, the Bvh reader and the
         playback clock must never import a plotting library, by any of
-        its top-level package names."""
+        its top-level package names, but for the Style's color parser."""
         tree = ast.parse(_module_source(module_name))
-        imported: set[str] = set()
+        modules: set[str] = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
-                imported.update(alias.name.split(".")[0] for alias in node.names)
+                modules.update(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
-                imported.add(node.module.split(".")[0])
+                modules.add(node.module)
+        modules.discard(_PURE_DATA_COLOR_PARSER.get(module_name, ""))
+        imported = {module.split(".")[0] for module in modules}
 
         forbidden = {"matplotlib", "mpl_toolkits", "cv2", "k3d", "vedo", "PIL", "vtk", "vtkmodules"}
         assert not (imported & forbidden), (

@@ -1,13 +1,17 @@
 """The look of a figure: :class:`Style`, its presets, the palettes and
 the ghost, trace and frame-counter conventions every backend shares.
 
-Pure data, no plotting library imports; the pieces that need
-matplotlib's color parser live in :mod:`._colors`.
+Pure data, no plotting library imports but one: the Style checks its
+color fields with matplotlib's color parser, imported where it checks
+them. Turning colors into a backend's values, which needs that parser
+too, lives in :mod:`._colors`.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import numbers
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -76,6 +80,25 @@ def bone_width_scale(bone_width: float) -> float:
     return bone_width / ANCHOR_BONE_WIDTH
 
 
+# The joint size at which every backend that sizes joints itself (k3d's
+# points, OpenCV's discs) draws them at its base size: the presets'.
+ANCHOR_JOINT_SIZE = 9.0
+
+
+def joint_size_scale(joint_size: float) -> float:
+    """The factor a style's *joint_size* scales a joint's diameter by:
+    1 at ``ANCHOR_JOINT_SIZE``.
+
+    ``joint_size`` is an area, as matplotlib's marker size is (square
+    points), so the diameter goes as its square root, as a matplotlib
+    marker's does: four times the joint size draws joints twice as wide
+    on every backend. The alternative, a diameter in proportion to the
+    size as ``bone_width`` gives the bones, would make the same change
+    twice as large on k3d and OpenCV as on matplotlib.
+    """
+    return float((joint_size / ANCHOR_JOINT_SIZE) ** 0.5)
+
+
 # Preset field values. "paper" is the publication-grade default;
 # "debug" reproduces the pre-0.9.0 output exactly (single blue, full
 # axes, no floor); "dark" is the paper look on a near-black ground.
@@ -141,6 +164,28 @@ _VALID_FLOORS = {None, "solid", "grid", "checker"}
 _VALID_AXES = {"off", "full"}
 _VALID_PROJECTIONS = {"persp", "ortho"}
 
+# The fields with a fixed set of values, and those values. A backend
+# declares which of these values it draws, where it declares any other
+# field drawn whole (see DrawnStyle): OpenCV draws "ortho" exactly, and
+# so honours a Style asking for it, without drawing "persp".
+STYLE_VALUES: dict[str, frozenset[object]] = {
+    "color_mode": frozenset(_VALID_COLOR_MODES),
+    "joint_markers": frozenset({True, False}),
+    "floor": frozenset(_VALID_FLOORS),
+    "axes": frozenset(_VALID_AXES),
+    "projection": frozenset(_VALID_PROJECTIONS),
+    "shadow": frozenset({True, False}),
+}
+
+
+def _is_number(value: object) -> bool:
+    """Whether *value* is a real number and not a bool: Python counts
+    ``True`` as the integer 1, but ``floor_alpha``, ``joint_size`` and
+    ``dpi``, which this checks, take an alpha or a size, which ``True``
+    is not, as ``1`` is not a bool for the fields taking ``True`` or
+    ``False``."""
+    return isinstance(value, numbers.Real) and not isinstance(value, bool)
+
 
 @dataclass(frozen=True, init=False)
 class Style:
@@ -158,23 +203,93 @@ class Style:
     floor — for coordinate inspection), ``"dark"`` (paper on a
     near-black ground, for slides and project pages).
 
-    Fields split into two documented groups. **Look** fields apply to
-    every figure/video output (matplotlib, OpenCV, vedo offscreen):
-    ``bone_width``, ``bone_color``, ``color_mode``, ``chain_colors``,
-    ``joint_markers``, ``joint_size``, ``joint_color``, ``floor``,
-    ``floor_alpha``, ``background``, ``axes``, ``projection``,
-    ``ghost_spacing`` (seconds of clip time, not playback time,
-    between the faded trailing poses that ``render(ghost=...)`` draws;
-    see there). The two *interactive viewers* apply the subset that
-    has meaning in a live window: background, bone width, and
-    single-skeleton chain colors in both; in the vedo viewer,
-    ``color_mode`` and ``bone_color`` in full, in both qualities, and
-    floor kind, where ``"checker"`` falls back to ``"grid"``. Fields
-    outside that subset (``axes``, ``projection``, ``joint_markers``,
-    ...) do not alter the viewers. **Output** fields apply only where
-    raster output is produced: ``dpi`` (matplotlib figures),
-    ``supersample`` (OpenCV export), ``shadow`` (vedo offscreen
-    renders).
+    A Style keeps which fields its caller set: those passed to the
+    constructor, and to every ``replace`` since. Each backend declares
+    the values it draws, and a field set at a value the backend does
+    not draw is refused, as an option it does not read is: a named
+    backend raises ``ValueError`` naming the field and any backend that
+    draws it and accepts the rest of the call (for ``sequence``, the
+    other layout), and
+    ``backend="auto"`` (``render`` and ``play``) warns, naming the
+    backend chosen, and goes on. ``frame``, ``rest_pose``, ``sequence``
+    and ``trajectory`` have no auto, so they always raise. A preset's
+    own values are never refused, so ``Style("paper")`` and the other
+    presets draw on every backend, each drawing what it can of them
+    (OpenCV draws paper's ``"persp"`` orthographic). Which fields were
+    set does not count for ``==`` or ``repr``: two Styles of the same
+    values are the same look. The alternative, refusing a field whose
+    value differs from its preset's, would let ``Style("paper",
+    projection="persp")`` pass unrefused on OpenCV.
+
+    What each call and backend does with a field its caller set::
+
+                      frame       render            play                    matplotlib alone
+        field         mpl   vedo  mpl   cv    vedo  mpl   cv    k3d   vedo  rest  offs  over  traj
+        bone_width    yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   n/a
+        bone_color    yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   n/a
+        color_mode    yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   n/a
+        chain_colors  yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   n/a
+        joint_markers yes   no    yes   yes   no    yes   yes   yes   no    yes   yes   yes   n/a
+        joint_size    yes   no    yes   yes   no    yes   yes   yes   no    yes   yes   yes   n/a
+        joint_color   yes   no    yes   yes   no    yes   yes   yes   no    yes   yes   yes   n/a
+        floor         yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   n/a
+        floor_alpha   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   n/a
+        background    yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes   yes
+        axes          yes   off   yes   yes   off   yes   yes   no    off   yes   yes   yes   no
+        projection    yes   persp yes   ortho persp yes   ortho persp persp yes   ortho yes   n/a
+        dpi           yes   n/a   n/a   n/a   n/a   n/a   n/a   n/a   n/a   yes   yes   yes   n/a
+        supersample   n/a   n/a   n/a   yes   n/a   n/a   yes   n/a   n/a   n/a   n/a   n/a   n/a
+        shadow        False yes   False False yes   False False False False False False False False
+        ghost_spacing n/a   n/a   yes   yes   n/a   n/a   n/a   n/a   n/a   n/a   n/a   n/a   n/a
+
+    The columns: ``frame``'s backends (``mpl`` matplotlib, ``vedo``
+    the shadowed capsule renderer), ``render``'s (``cv`` OpenCV),
+    ``play``'s (``cv`` the OpenCV notebook video, ``k3d`` the notebook
+    widget, ``vedo`` the desktop window, at both qualities), then the
+    calls matplotlib alone draws: ``rest`` is ``rest_pose``, ``offs``
+    and ``over`` are ``sequence``'s ``"offset"`` and ``"overlay"``
+    layouts, ``traj`` is ``trajectory``.
+
+    ``yes``: drawn at every value. A value (``ortho``, ``persp``,
+    ``off``, ``False``): drawn at that value alone; another is refused.
+    ``no``: refused at every value. ``n/a``: accepted at every value
+    without a word, since it names something that drawing does not
+    hold: ``dpi`` outside the figures of ``frame``, ``rest_pose`` and
+    ``sequence`` (the pixels of a video or a vedo picture are its
+    resolution, and k3d and the vedo window make no figure);
+    ``supersample``, which OpenCV alone draws with; ``ghost_spacing``
+    where no ghosts are drawn; and in ``trajectory``, a 2D plot of the
+    root's path, the bone, joint and floor fields and ``projection``.
+    ``trajectory`` and matplotlib's ``play`` do make a figure, at
+    matplotlib's own dpi, and accept ``dpi`` without drawing it all the
+    same. So one Style serves stills and videos, and a Style built for
+    ``frame`` serves ``trajectory``.
+
+    What the table leaves out: both vedo backends draw each joint as
+    the capsules' sphere, sized and colored by its bones; k3d always
+    shows its grid box; OpenCV draws ``axes="full"``, set by the
+    caller or by a preset, as a small axis indicator in a corner of
+    each panel, and with ``joint_markers=False`` still draws a small
+    bone-colored dot at each joint, which joins its bones; the vedo
+    renderer casts its shadow on the floor, so under ``floor=None`` it
+    draws none; ``sequence`` draws the joint fields on its last pose.
+    The k3d widget also shows k3d's own axes helper in a corner, beside
+    its grid box, at either value of ``axes`` (k3d's ``axes_helper``,
+    which pybvh leaves at k3d's default).
+
+    ``ghost_spacing`` is in seconds of clip time, not playback time,
+    between the faded trailing poses that ``render(ghost=...)`` draws
+    (see there). ``dpi`` is a matplotlib figure's, ``supersample`` how
+    many times the resolution OpenCV draws at before scaling down, and
+    ``shadow`` the vedo renderer's projected shadow.
+
+    ``bone_color``, ``joint_color``, ``background`` and the values of
+    ``chain_colors`` take any color matplotlib parses (a name, a hex
+    string, an RGB tuple in [0, 1]), the parser every backend reads them
+    with; one it cannot parse raises ``ValueError`` when the Style is
+    made, by the constructor or by ``replace``. ``chain_colors`` may
+    leave chains out: those are drawn in its ``"spine"`` color, or the
+    paper preset's spine color when it has none.
 
     ``background`` also colors the grid box of ``play(backend="k3d")``:
     its lines and labels are the background stepped toward black on a
@@ -188,17 +303,29 @@ class Style:
     and one for all dark backgrounds, differs as soon as the
     background is not white: fixed lines can vanish into an off-white
     background, and the fixed dark pair ignores how dark it is.
+    matplotlib's panel titles (``labels``) take the label color on a
+    dark background; on a light one they keep matplotlib's black rather
+    than the label color (``#444444`` on white), so the light pictures
+    look as they always did.
 
     ``color_mode``: ``"auto"`` uses per-chain colors for a single
     skeleton and flat per-skeleton palette colors for multi-skeleton
     comparisons (the GT-vs-generated convention); ``"chains"`` forces
     chain colors everywhere; ``"skeleton"`` forces the flat palette;
     ``"single"`` draws one skeleton in ``bone_color`` (multi-skeleton
-    still uses the palette — the pre-0.9.0 behavior). The vedo
-    backends draw a skeleton's label, and the vedo viewer its root
-    trail, in that flat color; under chain colors, which give a
+    still uses the palette — the pre-0.9.0 behavior). The vedo and
+    OpenCV backends draw a skeleton's label, and the vedo viewer its
+    root trail, in that flat color; under chain colors, which give a
     skeleton no single color, in the spine color rather than the
     color of whichever bone the file lists first.
+
+    ``joint_size`` is matplotlib's marker size, an area in points
+    squared, so four times the size draws joints twice as wide. OpenCV
+    draws the joint discs through the scale that turns ``bone_width``
+    into pixels: their radius grows with the square root of
+    ``joint_size``, 4 pixels for the presets' 9.0 on a drawing surface
+    1080 rows high, which it draws at ``supersample`` times the
+    resolution and scales down.
 
     ``axes`` and ``floor`` are independent, so ``Style("paper",
     axes="full")`` keeps the ground plane — and on the matplotlib
@@ -225,6 +352,12 @@ class Style:
     supersample: int
     shadow: bool
     ghost_spacing: float
+    # The fields the caller set, by the constructor's overrides and every
+    # replace since: the fields a backend that does not draw them refuses.
+    # Not a field of the look: equality and repr leave it out.
+    _set_fields: frozenset[str] = dataclasses.field(
+        default=frozenset(), init=False, repr=False, compare=False
+    )
 
     def __init__(self, preset: str = "paper", **overrides: object) -> None:
         if preset not in _STYLE_PRESETS:
@@ -237,9 +370,11 @@ class Style:
         self,
         fields: dict[str, object],
         overrides: dict[str, object],
+        set_before: frozenset[str] = frozenset(),
     ) -> None:
         """Shared construction path for __init__ and replace: unknown-
-        field check, defensive copies, assignment, validation."""
+        field check, defensive copies, assignment, validation, and the
+        fields set: *set_before* and the overrides."""
         unknown = set(overrides) - set(fields)
         if unknown:
             raise TypeError(
@@ -254,6 +389,7 @@ class Style:
                 value = dict(value)
             object.__setattr__(self, name, value)
         self._validate()
+        object.__setattr__(self, "_set_fields", set_before | frozenset(overrides))
 
     def _validate(self) -> None:
         if self.color_mode not in _VALID_COLOR_MODES:
@@ -280,13 +416,100 @@ class Style:
             raise ValueError(
                 f"ghost_spacing must be positive (seconds), got {self.ghost_spacing!r}"
             )
+        if not (_is_number(self.floor_alpha) and 0 <= self.floor_alpha <= 1):
+            raise ValueError(f"floor_alpha must be a number in [0, 1], got {self.floor_alpha!r}")
+        if not (_is_number(self.joint_size) and self.joint_size > 0):
+            raise ValueError(f"joint_size must be a positive number, got {self.joint_size!r}")
+        if not (self.dpi is None or (_is_number(self.dpi) and self.dpi > 0)):
+            raise ValueError(f"dpi must be a positive number or None, got {self.dpi!r}")
+        for name in ("joint_markers", "shadow"):
+            value = getattr(self, name)
+            if not isinstance(value, bool):
+                raise ValueError(f"{name} must be True or False, got {value!r}")
+        if not isinstance(self.chain_colors, dict):
+            raise ValueError(
+                f"chain_colors must be a dict from chain name to color, got {self.chain_colors!r}"
+            )
+        colors = {
+            "bone_color": self.bone_color,
+            "joint_color": self.joint_color,
+            "background": self.background,
+            **{f"chain_colors[{chain!r}]": c for chain, c in self.chain_colors.items()},
+        }
+        # Every backend turns a color into its own format through
+        # matplotlib's parser, so a value it parses is one each can draw.
+        # Imported here, not at the top: importing bvhplot loads no
+        # matplotlib.
+        from matplotlib.colors import is_color_like
+
+        for name, value in colors.items():
+            if not is_color_like(value):
+                raise ValueError(
+                    f"{name} must be a matplotlib color, such as 'white', '#16181D' "
+                    f"or (0.1, 0.2, 0.8), got {value!r}"
+                )
 
     def replace(self, **overrides: object) -> Style:
-        """A new Style with the given fields changed."""
-        fields = {f.name: getattr(self, f.name) for f in dataclasses.fields(self)}
+        """A new Style with the given fields changed. The fields changed
+        join those the caller set before (see :class:`Style`)."""
+        # The fields of the look, the ones compared: not _set_fields.
+        fields = {f.name: getattr(self, f.name) for f in dataclasses.fields(self) if f.compare}
         new = object.__new__(Style)
-        new._assign_fields(fields, overrides)
+        new._assign_fields(fields, overrides, self._set_fields)
         return new
+
+
+def fields_set(style: Style) -> dict[str, object]:
+    """The fields of *style* its caller set, by the constructor's
+    overrides or by :meth:`Style.replace`, with their values: none for a
+    preset alone."""
+    return {name: getattr(style, name) for name in sorted(style._set_fields)}
+
+
+@dataclass(frozen=True, init=False)
+class DrawnStyle:
+    """The Style values one backend draws for one call, declared beside
+    its entry function: each field drawn whole, and of each field of
+    :data:`STYLE_VALUES` it does not draw whole, the values it draws.
+
+    A value drawn is drawn as the Style says, or in a reduced form of
+    the backend's own (OpenCV's axis indicator for ``axes="full"``).
+    OpenCV draws orthographic whatever the projection asked, so it
+    declares ``projection`` with ``"ortho"`` only, and the vedo
+    renderer, which sizes and colors every joint by its bones,
+    declares none of the joint fields. A field absent draws none of its
+    values.
+    """
+
+    fields: frozenset[str]
+    values: dict[str, frozenset[object]]
+
+    def __init__(self, fields: Collection[str], **values: Collection[object]) -> None:
+        object.__setattr__(self, "fields", frozenset(fields))
+        object.__setattr__(
+            self, "values", {name: frozenset(drawn) for name, drawn in values.items()}
+        )
+
+    def draws(self, field: str, value: object) -> bool:
+        """Whether *field* at *value* is drawn as the Style asks, in
+        full or in a reduced form of the backend's own."""
+        if field in self.fields:
+            return True
+        # Only a field declared by value is looked up by its value: one
+        # declared by field is drawn whole or not at all, and its value
+        # may not hash (a color given as a list).
+        drawn = self.values.get(field)
+        return drawn is not None and value in drawn
+
+    def derive(self, *, drop: Collection[str] = (), add: Collection[str] = ()) -> DrawnStyle:
+        """This declaration, for a call drawn as this one is but for the
+        fields *drop*, of which it draws no value, and *add*, which it
+        draws whole: render()'s from frame()'s. The values declared of
+        every other field are kept, so a value declared on this one is
+        never lost from a declaration derived from it."""
+        changed = set(drop) | set(add)
+        values = {name: drawn for name, drawn in self.values.items() if name not in changed}
+        return DrawnStyle((self.fields - set(drop)) | set(add), **values)
 
 
 def resolve_style(style: Style | str) -> Style:
@@ -369,9 +592,11 @@ def bone_colors_for_view(
 # Bone and joint sizes in pixels (OpenCV, the vedo viewer's fast mode)
 # ---------------------------------------------------------------------------
 
-# A joint marker's disc is this many pixels wider in radius than the
-# bones are wide.
-JOINT_DISC_MARGIN_PX = 2
+# A joint disc of ANCHOR_JOINT_SIZE has this radius in pixels at the
+# 1080p anchor. At render's default 1920 x 1080, drawn twice the size,
+# that is 8 pixels against bones 6 wide: a joint stands 2 pixels out of
+# its bones on each side.
+ANCHOR_JOINT_RADIUS_PX = 4.0
 
 
 def bone_width_px(bone_width: float, px_scale: float = 1.0) -> int:
@@ -380,6 +605,16 @@ def bone_width_px(bone_width: float, px_scale: float = 1.0) -> int:
     up as the OpenCV backend has always rounded it (2.5 draws 3 pixels,
     where Python's ``round``, half to even, gives 2) and at least 1."""
     return max(1, int(bone_width * px_scale + 0.5))
+
+
+def joint_radius_px(joint_size: float, px_scale: float = 1.0) -> int:
+    """A style's *joint_size* as a joint disc's radius in whole pixels:
+    ``ANCHOR_JOINT_RADIUS_PX`` at the 1080p anchor (*px_scale* 1) scaled
+    by :func:`joint_size_scale`, which grows with the square root of
+    the size, and by *px_scale*, as :func:`bone_width_px` scales the
+    bones; rounded half up and at least 1."""
+    radius = ANCHOR_JOINT_RADIUS_PX * joint_size_scale(joint_size)
+    return max(1, int(radius * px_scale + 0.5))
 
 
 # ---------------------------------------------------------------------------

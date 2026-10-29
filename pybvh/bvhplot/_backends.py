@@ -354,10 +354,12 @@ def _accepts(backend: str, request: _Request) -> bool:
     reads every option given, draws every field of the Style its caller
     set at its value (those every backend accepts aside), and writes the
     file's extension (:func:`._video.writes`). These are the checks the
-    call runs on a named backend, less one: whether the backend's
-    package imports, which :func:`check_importable` asks once it is
-    named, naming the install, so a backend not installed here is still
-    accepted."""
+    call runs on a named backend, less those asking the machine: whether
+    the backend's package imports, which :func:`check_importable` asks
+    once it is named, naming the install, so a backend not installed
+    here is still accepted; and for ``render`` whether the machine can
+    encode the file (:func:`._video.writer_for`), asked alike of every
+    backend writing frames."""
     # Imported here: the video module imports this one.
     from ._video import writes
 

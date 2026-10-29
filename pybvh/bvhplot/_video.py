@@ -36,9 +36,6 @@ CODECS = frozenset({"auto", "h264", "mpeg4"})
 
 _VIDEO = "video"
 _PLAYER_PAGE = "player page"
-# The one backend of render() that writes the player page, from its own
-# figure; every backend writes the formats written from frames.
-_PLAYER_PAGE_BACKEND = "matplotlib"
 
 
 class _Format(NamedTuple):
@@ -54,6 +51,9 @@ class _Format(NamedTuple):
     # the animated images, which OpenCV writes too but auto has always
     # given to matplotlib, a choice no change has revisited.
     matplotlib_under_auto: bool = False
+    # The one backend of render() that writes the extension, None when
+    # every backend does: matplotlib alone writes its player page.
+    backend: str | None = None
 
 
 _FORMATS = {
@@ -64,11 +64,11 @@ _FORMATS = {
     ".webp": _Format("WEBP", matplotlib_under_auto=True),
     # an animated PNG: Pillow writes one from several frames
     ".apng": _Format("PNG", matplotlib_under_auto=True),
-    ".html": _Format(_PLAYER_PAGE, matplotlib_under_auto=True),
+    ".html": _Format(_PLAYER_PAGE, matplotlib_under_auto=True, backend="matplotlib"),
 }
 VIDEO_CONTAINERS = frozenset(ext for ext, fmt in _FORMATS.items() if fmt.writer == _VIDEO)
 _FROM_FRAMES = sorted(ext for ext, fmt in _FORMATS.items() if fmt.writer != _PLAYER_PAGE)
-_PLAYER_PAGES = sorted(ext for ext, fmt in _FORMATS.items() if fmt.writer == _PLAYER_PAGE)
+_OWN_FORMATS = sorted((ext, fmt.backend) for ext, fmt in _FORMATS.items() if fmt.backend)
 
 
 def _writer_of(suffix: str) -> str | None:
@@ -86,7 +86,7 @@ def writes(backend: str, suffix: str) -> bool:
     writes nothing and reads no machine: whether this machine can encode
     the file is :func:`writer_for`'s to say."""
     fmt = _FORMATS.get(suffix)
-    return fmt is not None and (fmt.writer != _PLAYER_PAGE or backend == _PLAYER_PAGE_BACKEND)
+    return fmt is not None and fmt.backend in (None, backend)
 
 
 def matplotlib_under_auto(suffix: str) -> bool:
@@ -280,7 +280,7 @@ def writer_for(target: VideoTarget, environment: Environment, subject: str) -> W
         raise ValueError(
             f"{subject} cannot write {ext!r} files. "
             f"Supported extensions: {_FROM_FRAMES}, and "
-            f"{', '.join(map(repr, _PLAYER_PAGES))} on backend={_PLAYER_PAGE_BACKEND!r}."
+            f"{', '.join(f'{ext!r} on backend={backend!r}' for ext, backend in _OWN_FORMATS)}."
         )
     if fmt != _VIDEO:
         return Writer(target, _PILLOW)

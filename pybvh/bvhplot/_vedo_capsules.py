@@ -155,13 +155,14 @@ def vedo_floor(viewport: Viewport, style: Style) -> Mesh | None:
 def _without_line_offset(mesh: Mesh) -> None:
     """Draw *mesh*'s lines at their own depth.
 
-    vedo turns on VTK's coincident-topology offsets, which move every
-    line a fixed step of the depth buffer toward the camera, so that an
+    vedo turns on VTK's coincident-topology offsets, which draw every
+    line a fixed step of the depth buffer nearer the camera, so that an
     edge wins over the face it lies on. A grid floor's lines lie on no
-    face, and that step, in a depth range a thousand times the near
-    distance (VTK's default), is centimetres where the feet are: the
-    lines were drawn over the capsules in front of them. The mesh's own
-    offset, added to VTK's, takes VTK's away again.
+    face. Where the far plane is a thousand times as far as the near one
+    (0.34 to 343 on a still of ``bvh_test1.bvh``), that step is a tenth
+    of the half-span at the feet, enough to draw the lines over the
+    capsules standing on the floor. The mesh's own offset, added to
+    VTK's, takes VTK's away again.
     """
     from vtkmodules.vtkCommonCore import reference
     from vtkmodules.vtkRenderingCore import vtkMapper

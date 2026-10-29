@@ -337,8 +337,8 @@ class _VedoPlayer:
         # Translucent layers stacked by depth. The floor (at its alpha),
         # the joints in fast quality and the trail are translucent, and
         # VTK's default order-independent blend weighs overlapping
-        # layers instead of stacking them, so the floor washed over the
-        # joints and the trail in front of it.
+        # layers instead of stacking them, which shows the floor over
+        # the joints and the trail in front of it.
         self.plt.use_depth_peeling(value=True)
 
         # Button registry: (x0, y0, w, h, callback) per clickable region.

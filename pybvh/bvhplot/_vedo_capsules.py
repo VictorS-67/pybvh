@@ -129,6 +129,7 @@ def vedo_floor(viewport: Viewport, style: Style) -> Mesh | None:
 
     if style.floor == "grid":
         floor.lw(1).c(vedo_color(palette["grid"]))
+        _without_line_offset(floor)
     else:
         # Filled, without its cells' edges: vedo turns the edges off,
         # and the surface on, with a zero line width.
@@ -149,6 +150,26 @@ def vedo_floor(viewport: Viewport, style: Style) -> Mesh | None:
     floor.alpha(style.floor_alpha).lighting("off")
     floor.name = "Floor"
     return floor
+
+
+def _without_line_offset(mesh: Mesh) -> None:
+    """Draw *mesh*'s lines at their own depth.
+
+    vedo turns on VTK's coincident-topology offsets, which draw every
+    line a fixed step of the depth buffer nearer the camera, so that an
+    edge wins over the face it lies on. A grid floor's lines lie on no
+    face. Where the far plane is a thousand times as far as the near one
+    (0.34 to 343 on a still of ``bvh_test1.bvh``), that step is a tenth
+    of the half-span at the feet, enough to draw the lines over the
+    capsules standing on the floor. The mesh's own offset, added to
+    VTK's, takes VTK's away again.
+    """
+    from vtkmodules.vtkCommonCore import reference
+    from vtkmodules.vtkRenderingCore import vtkMapper
+
+    factor, units = reference(0.0), reference(0.0)
+    vtkMapper.GetResolveCoincidentTopologyLineOffsetParameters(factor, units)
+    mesh.mapper.SetRelativeCoincidentTopologyLineOffsetParameters(-float(factor), -float(units))
 
 
 def shadow_height(viewport: Viewport) -> float:

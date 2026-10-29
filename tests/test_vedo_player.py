@@ -11,6 +11,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import style_declarations
+from skeleton_pixels import (
+    CHANGED_UNDER_A_JOINT_LEVELS,
+    FLOOR_CASES,
+    PRESET_FLOOR_ALPHA,
+    skeleton_pixels,
+)
 
 from pybvh import read_bvh_file
 from pybvh.bvhplot import _vedo
@@ -392,6 +398,83 @@ class TestGridFloor:
         floor_share = image.shape[0] // 3
         for shade in floor_palette(style)["checker"]:
             assert (np.abs(image - rgb255(shade)).max(axis=1) <= 1).sum() > floor_share // 20, shade
+
+
+@pytest.fixture(scope="module")
+def drawn_test1(tmp_path_factory):
+    """The viewer's first frame of bvh_test1.bvh under a Style, at a
+    quality: ``drawn_test1(quality, **style_fields)``, each drawn once."""
+    bvh = read_bvh_file("bvh_data/bvh_test1.bvh")[0:3]
+    scene = make_scene([bvh], [bvh.node_positions()], "front", None)
+    folder = tmp_path_factory.mktemp("hides")
+    shots = {}
+
+    def draw(quality, **fields):
+        key = (quality, tuple(sorted(fields.items())))
+        if key not in shots:
+            with pytest.MonkeyPatch.context() as patch:
+                patch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+                p = _vedo._VedoPlayer(scene, Style("paper", **fields), 30.0, quality=quality)
+                try:
+                    shots[key] = _rendered(p, folder).astype(int)
+                finally:
+                    p.plt.close()
+        return shots[key]
+
+    return draw
+
+
+class TestTheSkeletonHidesTheFloor:
+    """A bone or joint keeps its color over every floor kind, in both
+    qualities. On the feet of bvh_test1.bvh the grid's lines were drawn
+    over the capsules in front of them, and in fast quality the
+    translucent floor washed over the joints, which are translucent too."""
+
+    @pytest.mark.parametrize("quality", ["high", "fast"])
+    @pytest.mark.parametrize("kind, floor_alpha", FLOOR_CASES)
+    def test_over_every_floor(self, drawn_test1, quality, kind, floor_alpha):
+        bare = drawn_test1(quality, floor=None)
+        figure = skeleton_pixels(bare, drawn_test1(quality, floor="solid", floor_alpha=1.0))
+        assert figure.sum() > 500  # the figure, not a few stray pixels
+        changed = np.abs(drawn_test1(quality, floor=kind, floor_alpha=floor_alpha) - bare)
+        assert int(((changed.max(axis=-1) > CHANGED_UNDER_A_JOINT_LEVELS) & figure).sum()) == 0
+
+
+class TestTheTrailOverTheFloor:
+    """The root trail lies on the floor, a hair above it."""
+
+    @pytest.mark.parametrize("quality", ["high", "fast"])
+    def test_the_trail_keeps_its_color_over_a_translucent_floor(
+        self, quality, monkeypatch, tmp_path
+    ):
+        """The trail lies on the floor at an alpha of 0.6. Over the
+        presets' floor (0.85) it differs from the trail over an opaque
+        floor by what the floor lets through under it, 0.4 of 0.15 of the
+        background's lead over the floor: 1.4 levels on the paper preset.
+        In high quality it came out at a mean gray of 165, where it is 127
+        over an opaque floor, washed by the floor."""
+        bvh = read_bvh_file(BVH_PATH)
+        scene = make_scene([bvh], [bvh.node_positions()[:120]], "front", None)
+        monkeypatch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+
+        def drawn(floor_alpha, trail):
+            p = _vedo._VedoPlayer(
+                scene, Style("paper", floor="solid", floor_alpha=floor_alpha), 30.0, quality=quality
+            )
+            try:
+                # what the T key and then the End key do
+                p._show_trail(trail)
+                p._on_last()
+                return _rendered(p, tmp_path).astype(int)
+            finally:
+                p.plt.close()
+
+        over_opaque = drawn(1.0, trail=True)
+        # where the trail darkens the opaque floor, not its faint edges
+        trail = np.abs(over_opaque - drawn(1.0, trail=False)).max(axis=-1) > 40
+        assert trail.sum() > 100
+        over_translucent = drawn(PRESET_FLOOR_ALPHA, trail=True)
+        assert np.abs(over_translucent[trail] - over_opaque[trail]).mean() < 3
 
 
 def _rendered(player, tmp_path):

@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import style_declarations
+from skeleton_pixels import CHANGED_LEVELS, skeleton_pixels
 
 from pybvh import read_bvh_file
 from pybvh.bvhplot import _vedo
@@ -392,6 +393,46 @@ class TestGridFloor:
         floor_share = image.shape[0] // 3
         for shade in floor_palette(style)["checker"]:
             assert (np.abs(image - rgb255(shade)).max(axis=1) <= 1).sum() > floor_share // 20, shade
+
+
+class TestTheSkeletonHidesTheFloor:
+    """A bone or joint keeps its color over every floor kind. On the
+    feet of bvh_test1.bvh the grid's lines were drawn over the capsules
+    in front of them."""
+
+    @pytest.fixture(scope="class")
+    def drawn(self, tmp_path_factory):
+        """The viewer's first frame of bvh_test1.bvh under a Style, at a
+        quality: ``drawn(quality, **style_fields)``, each drawn once."""
+        bvh = read_bvh_file("bvh_data/bvh_test1.bvh")[0:3]
+        scene = make_scene([bvh], [bvh.node_positions()], "front", None)
+        folder = tmp_path_factory.mktemp("hides")
+        shots = {}
+
+        def draw(quality, **fields):
+            key = (quality, tuple(sorted(fields.items())))
+            if key not in shots:
+                with pytest.MonkeyPatch.context() as patch:
+                    patch.setattr(_vedo, "_FORCE_OFFSCREEN", True)
+                    p = _vedo._VedoPlayer(scene, Style("paper", **fields), 30.0, quality=quality)
+                    try:
+                        shots[key] = _rendered(p, folder).astype(int)
+                    finally:
+                        p.plt.close()
+            return shots[key]
+
+        return draw
+
+    @pytest.mark.parametrize("quality", ["high"])
+    @pytest.mark.parametrize(
+        "kind, floor_alpha", [("grid", 0.85), ("grid", 1.0), ("checker", 0.85), ("solid", 0.85)]
+    )
+    def test_over_every_floor(self, drawn, quality, kind, floor_alpha):
+        bare = drawn(quality, floor=None)
+        figure = skeleton_pixels(bare, drawn(quality, floor="solid", floor_alpha=1.0))
+        assert figure.sum() > 500  # the figure, not a few stray pixels
+        changed = np.abs(drawn(quality, floor=kind, floor_alpha=floor_alpha) - bare)
+        assert int(((changed.max(axis=-1) > CHANGED_LEVELS) & figure).sum()) == 0
 
 
 def _rendered(player, tmp_path):

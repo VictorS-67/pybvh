@@ -206,6 +206,26 @@ class TestANamedBackendAndTheStyle:
         )
         assert not path.exists()
 
+    @pytest.mark.parametrize(
+        "suffix, offered",
+        [
+            (".apng", ", or use backend='vedo', which draws it"),
+            # vedo draws the shadow but writes no player page
+            (".html", ""),
+        ],
+    )
+    def test_offers_only_a_backend_that_writes_the_file(self, walk, tmp_path, suffix, offered):
+        path = tmp_path / f"x{suffix}"
+        with pytest.raises(ValueError) as raised:
+            bvhplot.render(
+                walk, path, backend="matplotlib", style=bvhplot.Style("paper", shadow=True)
+            )
+        assert str(raised.value) == (
+            "render(backend='matplotlib') does not draw the Style's shadow=True. "
+            f"Leave it out of the Style{offered}."
+        )
+        assert not path.exists()
+
     @pytest.mark.parametrize("backend", sorted(PACKAGE))
     @pytest.mark.parametrize("preset", style_declarations.PRESETS)
     def test_accepts_every_preset(self, walk, tmp_path, backend, preset):
@@ -261,5 +281,17 @@ class TestAutoAndTheStyle:
         assert [str(warning.message) for warning in warned] == [
             "render() chose backend='matplotlib', which does not draw the Style's "
             "shadow=True, so it is ignored. To draw it, use backend='vedo', which draws it."
+        ]
+        assert path.exists()
+
+    def test_offers_no_backend_that_does_not_write_the_file(self, walk, tmp_path):
+        """vedo draws the shadow matplotlib does not, but writes no
+        player page."""
+        path = tmp_path / "x.html"
+        with pytest.warns(UserWarning) as warned:
+            bvhplot.render(walk, path, resolution=(96, 72), style=bvhplot.Style(shadow=True))
+        assert [str(warning.message) for warning in warned] == [
+            "render() chose backend='matplotlib', which does not draw the Style's "
+            "shadow=True, so it is ignored."
         ]
         assert path.exists()

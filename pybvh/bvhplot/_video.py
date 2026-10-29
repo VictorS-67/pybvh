@@ -36,6 +36,9 @@ CODECS = frozenset({"auto", "h264", "mpeg4"})
 
 _VIDEO = "video"
 _PLAYER_PAGE = "player page"
+# The one backend of render() that writes the player page, from its own
+# figure; every backend writes the formats written from frames.
+_PLAYER_PAGE_BACKEND = "matplotlib"
 
 
 class _Format(NamedTuple):
@@ -73,6 +76,17 @@ def _writer_of(suffix: str) -> str | None:
     ``render`` writes no such file."""
     fmt = _FORMATS.get(suffix)
     return None if fmt is None else fmt.writer
+
+
+def writes(backend: str, suffix: str) -> bool:
+    """``render(backend=backend)`` writes a file ending in *suffix* (lower
+    case): every backend writes the formats written from frames, and
+    matplotlib alone its player page (``.html``); none writes an
+    extension the table lacks. Read from the table alone, so asking
+    writes nothing and reads no machine: whether this machine can encode
+    the file is :func:`writer_for`'s to say."""
+    fmt = _FORMATS.get(suffix)
+    return fmt is not None and (fmt.writer != _PLAYER_PAGE or backend == _PLAYER_PAGE_BACKEND)
 
 
 def matplotlib_under_auto(suffix: str) -> bool:
@@ -266,7 +280,7 @@ def writer_for(target: VideoTarget, environment: Environment, subject: str) -> W
         raise ValueError(
             f"{subject} cannot write {ext!r} files. "
             f"Supported extensions: {_FROM_FRAMES}, and "
-            f"{', '.join(map(repr, _PLAYER_PAGES))} on backend='matplotlib'."
+            f"{', '.join(map(repr, _PLAYER_PAGES))} on backend={_PLAYER_PAGE_BACKEND!r}."
         )
     if fmt != _VIDEO:
         return Writer(target, _PILLOW)

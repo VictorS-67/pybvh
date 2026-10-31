@@ -18,7 +18,6 @@ import numpy as np
 
 from .bvh import Bvh, _motion_column_names
 from .bvhnode import BvhNode
-from .io import _snap_frame_time
 from .node_tree import _nodes_from_table_or_list
 
 if TYPE_CHECKING:
@@ -30,6 +29,26 @@ _SUFFIX_RULE = (
     "node order, the first keeping its name, as pandas labels repeated CSV "
     "headers"
 )
+
+
+def _snap_frame_time(frame_time: float) -> float:
+    """Snap a derived frame time to an exact ``1/N`` when within 0.01% of one.
+
+    A ``time`` column saved at a few decimals derives a frame time a
+    little off its clip's rate; an integer rate comes back exact, and a
+    non-integer rate such as 23.976 fps is kept as measured.
+    """
+    # Only a positive finite value has a rate to snap to; anything else is
+    # returned unchanged for the frame_time rule to reject or accept.
+    if not (np.isfinite(frame_time) and frame_time > 0):
+        return frame_time
+    rate = round(1.0 / frame_time)
+    if rate == 0:
+        return frame_time
+    snapped = 1.0 / rate
+    if abs(snapped - frame_time) / frame_time < 1e-4:
+        return snapped
+    return frame_time
 
 
 def _time_label(df: pd.DataFrame) -> Hashable:
@@ -159,8 +178,7 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
     by its number of intervals, so a first timestamp other than zero
     does not matter and uneven intervals are averaged rather than
     refused, and it is snapped to an exact ``1 / N`` when within 0.01%
-    of one, as :func:`read_bvh_file` snaps a truncated ``Frame Time``:
-    any integer rate comes back exact, so a ``time`` column written at
+    of one: any integer rate comes back exact, so a ``time`` column written at
     six decimals for a 30 fps clip gives ``1 / 30`` exactly, and a
     non-integer rate such as 23.976 fps is kept as measured. A clip
     that goes out through :meth:`Bvh.to_df_dict` and back therefore

@@ -455,7 +455,9 @@ def write_bvh_file(
     Raises
     ------
     ValueError
-        If the file extension is not ``.bvh``.
+        If the file extension is not ``.bvh``, or if ``bvh.frame_time``
+        is 0 (unset): a file must state its frame time, and
+        :func:`read_bvh_file` refuses ``Frame Time: 0``.
     FileNotFoundError
         If the parent directory does not exist.
     FileExistsError
@@ -470,9 +472,11 @@ def write_bvh_file(
     facto BVH convention (and what most DCC tools emit) — motion data
     re-read from a written file is therefore quantized at ~1e-6 in the
     skeleton's length unit and in degrees. ``Frame Time`` is the
-    exception: it is written at full precision (``%.10g``), because a
-    truncated frame time compounds across every frame of a resample
-    while a truncated coordinate does not.
+    exception: it is written with the shortest digits that read back as
+    the same float (Python's ``repr``), so the file holds the clip's frame
+    time without loss. A truncated frame time compounds
+    across every frame of a resample, while a truncated coordinate does
+    not.
 
     The BVH format carries no place for ``world_up``, ``lr_mapping``, or
     ``source_path``; those are lost on write and re-inferred on read.
@@ -488,6 +492,11 @@ def write_bvh_file(
     # check would already have destroyed the data it is meant to protect
     elif not overwrite and filepath.exists():
         raise FileExistsError(f"{filepath} already exists; pass overwrite=True to replace it.")
+    if bvh.frame_time == 0:
+        raise ValueError(
+            f"Cannot write {filepath.name}: the clip's frame_time is 0 (unset), and a "
+            "BVH file must state its frame time. Set bvh.frame_time (or bvh.fps) first."
+        )
 
     def offset_to_str(node: BvhNode) -> str:
         offset_str = "OFFSET"
@@ -535,9 +544,7 @@ def write_bvh_file(
 
         f.write("MOTION\n")
         f.write(f"Frames: {bvh.frame_count}\n")
-        # Full precision (10 significant digits) so non-integer rates like
-        # 23.976 fps survive round-trips; the old '%.6f' truncation lost them.
-        f.write(f"Frame Time: {bvh.frame_time:.10g}\n")
+        f.write(f"Frame Time: {float(bvh.frame_time)!r}\n")
 
         F = bvh.frame_count
         if F > 0:

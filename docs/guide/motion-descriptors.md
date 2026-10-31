@@ -18,7 +18,7 @@ The descriptors are in four modules. The modules mirror the two halves of the BV
 `pybvh.geometry` measures points and trajectories:
 
 - How far a joint travels (`path_length`), and how directly (`directness`).
-- How sharply its path turns (`curvature`), and how it twists out of plane (`torsion`).
+- How sharply its path turns (`curvature`), and how sharply it twists out of plane (`torsion`).
 - The size and shape of the whole pose (`bounding_box`, `bounding_sphere`, `bounding_ellipsoid`, `verticality`).
 - The pose's centre of mass (`center_of_mass`, `com_displacement`).
 - Relations between joints (`inter_joint_distance`, `joint_angle`, `triangle_area`).
@@ -30,7 +30,7 @@ Derivative-based kernels share pybvh's one finite-difference convention with the
 `pybvh.analysis` adds dynamics on top of the kinematics it already owned:
 
 - `node_jerk`/`joint_jerk`: the third rung of the velocity → acceleration ladder.
-- `node_speed_derivative`/`joint_speed_derivative`: the ladder's tangential rung. It is the per-frame `d‖v‖/dt`, positive while a joint speeds up and negative while it brakes. It is distinct from `node_accelerations`, whose norm also counts direction changes.
+- `node_speed_derivative`/`joint_speed_derivative`: the ladder's tangential rung. It is the per-frame `d‖v‖/dt`. It is positive while a joint speeds up. It is negative while the joint brakes. It is distinct from `node_accelerations`, whose norm also counts direction changes.
 - **Smoothness** of a speed profile, via SPARC, dimensionless jerk, log dimensionless jerk, number of peaks, and a `smoothness(metric=…)` dispatcher. Every speed-profile kernel also reduces a `(T, K)` stack of profiles per column.
 - `kinetic_energy`.
 - Gait: `cadence`, `stride_length`, `walking_pace`.

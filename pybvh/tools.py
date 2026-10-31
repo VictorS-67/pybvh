@@ -47,6 +47,23 @@ def _validate_bvh_path(filepath: str | Path) -> Path:
     return filepath
 
 
+#: The library's one "same rate" tolerance, which #121 will use for
+#: ``Bvh.matches_rate``, the joins, ``harmonize`` and bvhplot: two frame
+#: times are the same rate when they differ by at most this fraction of
+#: the larger one.
+#: Relative, because the error a computation or a saved table leaves in a
+#: frame time scales with the frame time, so one tolerance serves 24 fps
+#: and 1000 fps alike. 2e-6, because a 29.97 fps file and an exact NTSC
+#: clip are the same rate: the reader recovers the file as ``1 / 29.97``,
+#: which differs from NTSC's ``1001 / 30000`` by 1e-6 of the larger in
+#: exact arithmetic and by 1.0000000000459e-6 in floats, just outside 1e-6.
+#: 2e-6 is still far above float noise (about 1e-16), and far below the
+#: 1e-3 between 29.97 and 30 fps, or between whole rates up to 1000 fps.
+#: ``df_to_bvh`` recovers a table's rate in a window of its own,
+#: ``pybvh.dataframe._RATE_RECOVERY_RTOL``.
+_SAME_RATE_RTOL = 2e-6
+
+
 def _validate_frame_time(value: float) -> None:
     """Raise ``ValueError`` unless ``value`` is a valid frame time.
 

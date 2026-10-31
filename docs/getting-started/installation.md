@@ -16,7 +16,7 @@ pip install "pybvh[viewer]"        # vedo for desktop interactive viewer
 pip install "pybvh[all-viz]"       # All visualization backends
 ```
 
-Pandas is only used for DataFrame import/export — it is not required for core functionality.
+pybvh uses Pandas only for DataFrame import/export. The core functionality does not require it.
 
 ## Requirements
 

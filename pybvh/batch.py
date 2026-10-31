@@ -268,8 +268,7 @@ def harmonize(
     2. **Bone-proportion retargeting** to ``reference`` (if provided).
     3. **Frame-rate resampling** to ``target_fps`` (if provided and the
        clip does not already have that rate by
-       :meth:`Bvh.matches_rate`'s rule, frame times within a relative
-       ``2e-6``). A clip that has it is not interpolated; it takes the
+       :meth:`Bvh.matches_rate`'s rule). A clip that has it is not interpolated; it takes the
        frame time ``1 / target_fps`` exactly.
     4. **World-up reorientation** to ``target_world_up`` (if provided
        and ``bvh.world_up != target_world_up``).  Rotates the entire

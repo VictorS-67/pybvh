@@ -4,7 +4,7 @@ pybvh is a lightweight Python library to read, write, and manipulate BVH motion 
 
 pybvh is framework-agnostic. It outputs pure NumPy arrays. It understands motion capture data, but it does not assume what you will do with the data. The same library serves ML researchers, biomechanics scientists, and game developers.
 
-![A skeleton animates while its hand traces a blue trajectory. pybvh renders motion, and it extracts trajectories from the motion that you can analyze](assets/hand-trajectory.gif)
+![A skeleton animates while its hand traces a blue trajectory. pybvh renders motion, and it extracts trajectories from it. You can analyze those trajectories](assets/hand-trajectory.gif)
 
 <div class="grid cards" markdown>
 
@@ -24,9 +24,9 @@ pybvh is framework-agnostic. It outputs pure NumPy arrays. It understands motion
 - **Forward kinematics** to compute [3D joint positions](guide/core-concepts.md) from angles
 - **Skeleton operations**: [retargeting, scaling, joint extraction, Euler order changes](guide/skeleton-ops.md)
 - **Frame operations**: [slicing, concatenation, resampling](guide/skeleton-ops.md) to different frame rates
-- **Spatial transforms**: [mirroring, vertical rotation, speed perturbation, joint noise, root translation, frame dropout](guide/augmentation.md). All of them use seeded randomization
+- **Spatial transforms**: [mirroring, vertical rotation, speed perturbation, joint noise, root translation, frame dropout](guide/augmentation.md). All of them support seeded randomization
 - **Motion analysis**: [joint velocities/accelerations, root trajectory, foot contact detection](guide/feature-export.md), and a one-stop [`to_feature_array()`](api/features.md) export
-- **Motion descriptors**: [trajectory geometry, dynamics (jerk, smoothness, kinetic energy), gait, and SE(3) rigid-transform math](guide/motion-descriptors.md). All of it is pure NumPy, and each one is [drawn in the gallery](gallery/index.md)
+- **Motion descriptors**: [trajectory geometry, dynamics (jerk, smoothness, kinetic energy), gait, and SE(3) rigid-transform math](guide/motion-descriptors.md). All of it is pure NumPy. Each one is [drawn in the gallery](gallery/index.md)
 - **Signal utilities**: [finite differences, temporal statistics, smoothing, FFT, polyline simplification](api/signal.md)
 - **Batch loading** of entire directories with [optional parallelism and dataset harmonization](guide/feature-export.md)
 - **3D visualization**: publication-grade stills, the sampled-poses [sequence figure](guide/publication-figures.md), ghost trails, turntable orbits, video export and shadowed capsule renders. The [four backends](api/bvhplot.md) are matplotlib, OpenCV, k3d, and vedo

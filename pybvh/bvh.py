@@ -210,7 +210,7 @@ def _describe_rate(frame_time: float) -> str:
     """A clip's rate for a message: its fps and its exact frame time, or unset."""
     if frame_time == 0:
         return "unset, frame_time 0"
-    return f"{1.0 / frame_time:g} fps, frame_time {frame_time!r}"
+    return f"{1.0 / frame_time:g} fps, frame_time {float(frame_time)!r}"
 
 
 class Bvh:

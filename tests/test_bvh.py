@@ -7633,6 +7633,10 @@ class TestJoinsRequireTheSameRate:
         b.frame_time = b_frame_time
         joined = join(a, b)
         assert joined.frame_time == a_frame_time
+        np.testing.assert_array_equal(
+            joined.root_pos[-10:] if join is not _splice else joined.root_pos[:10],
+            bvh_example.root_pos[30:40],
+        )
 
     def test_two_unset_clips_join_unset(self, bvh_example, join):
         a = bvh_example.copy()
@@ -7656,16 +7660,37 @@ class TestJoinsRequireTheSameRate:
             join(a, b)
         assert a == before
 
-    @pytest.mark.parametrize("a_frame_time", [1 / 30, 0.013])
-    def test_resampling_b_at_a_s_fps_lets_it_join(self, bvh_example, join, a_frame_time):
+    @pytest.mark.parametrize(
+        ("a_frame_time", "resampled_frame_time"),
+        # At 0.013 the remedy's frame time is a's only up to rounding.
+        [(1 / 30, 1 / 30), (0.013, 0.013000000000000001)],
+    )
+    def test_resampling_b_at_a_s_fps_lets_it_join(
+        self, bvh_example, join, a_frame_time, resampled_frame_time
+    ):
         a = bvh_example.copy()
         a.frame_time = a_frame_time
         b = bvh_example[30:50].copy()
         b.frame_time = a_frame_time * 2
         with pytest.raises(ValueError):
             join(a.copy(), b)
-        joined = join(a, b.resample(a.fps))
+        resampled = b.resample(a.fps)
+        assert resampled.frame_time == resampled_frame_time
+        joined = join(a, resampled)
         assert joined.frame_time == a_frame_time
+        n = resampled.frame_count
+        np.testing.assert_array_equal(
+            joined.root_pos[-n:] if join is not _splice else joined.root_pos[:n],
+            resampled.root_pos,
+        )
+
+    def test_the_message_prints_a_numpy_frame_time_as_a_float(self, bvh_example, join):
+        a = bvh_example.copy()
+        b = bvh_example[30:40].copy()
+        b.frame_time = np.float64(a.frame_time * 2)
+        with pytest.raises(ValueError, match=r"b: 15 fps, frame_time 0\.0666") as raised:
+            join(a, b)
+        assert "np.float64" not in str(raised.value)
 
     def test_the_skeleton_is_checked_before_the_rate(self, bvh_example, bvh_test2, join):
         b = bvh_test2[0:10].copy()

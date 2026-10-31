@@ -13,7 +13,6 @@ computation itself.
 from __future__ import annotations
 
 import copy
-import warnings
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast, overload
@@ -53,7 +52,6 @@ from ._orientation import (
     _world_up_disagrees,
     _WorldUpGuess,
 )
-from ._warnings import user_stacklevel
 
 # Re-exported: pybvh.bvh has long served every node class, end sites included.
 from .bvhnode import BvhEndSite as BvhEndSite
@@ -206,6 +204,13 @@ def _build_rest_pose(bvh: Bvh) -> npt.NDArray[np.float64]:
         joint_angles=np.zeros((bvh.joint_count, 3), dtype=np.float64),
         centered="skeleton",
     )
+
+
+def _describe_rate(frame_time: float) -> str:
+    """A clip's rate for a message: its fps and its exact frame time, or unset."""
+    if frame_time == 0:
+        return "unset, frame_time 0"
+    return f"{1.0 / frame_time:g} fps, frame_time {frame_time!r}"
 
 
 class Bvh:
@@ -793,8 +798,15 @@ class Bvh:
         offsets within ``1e-6``, rotation orders), since ``other``'s
         motion is written onto ``self``'s bones; to join motion recorded
         on other bones on purpose, put it on this skeleton first,
-        ``self + other.copy(nodes=self.to_node_table())``. Warns on
-        ``frame_time`` mismatch (``self``'s frame time wins).
+        ``self + other.copy(nodes=self.to_node_table())``. Then raises
+        ``ValueError`` unless the two have the same rate
+        (:meth:`matches_rate`: frame times within a relative ``2e-6``),
+        since ``other``'s frames would play at ``self``'s rate: join
+        ``other.resample(self.fps)`` to keep its timing on ``self``'s grid,
+        or set ``other.frame_time = self.frame_time`` when the difference
+        is only metadata. The result keeps ``self``'s frame time. Two
+        unset clips (``frame_time`` 0) join, and the result is unset; an
+        unset clip and a set one do not.
         """
         if not isinstance(other, Bvh):
             return NotImplemented  # type: ignore[return-value]
@@ -803,19 +815,15 @@ class Bvh:
     def __iadd__(self, other: object) -> Bvh:
         """In-place concatenation. Grows ``self`` by appending ``other``'s frames.
 
-        Validates skeleton compatibility and warns on ``frame_time`` mismatch
-        just like ``a + b``. The values derived from the motion are
-        recomputed on their next read.
+        Checks the skeleton, then the rate, just like ``a + b``, and raises
+        ``ValueError`` before changing ``self`` when either differs;
+        ``self`` keeps its frame time. The values derived from the motion
+        are recomputed on their next read.
         """
         if not isinstance(other, Bvh):
             return NotImplemented  # type: ignore[return-value]
         self._check_same_skeleton(other)
-        if self.frame_time != other.frame_time:
-            warnings.warn(
-                f"Frame time mismatch: {self.frame_time} vs "
-                f"{other.frame_time}. Using self's frame time.",
-                stacklevel=user_stacklevel(),
-            )
+        self._check_same_rate(other, "a += b")
         self._set_motion(
             root_pos=np.concatenate([self.root_pos, other.root_pos], axis=0),
             joint_angles=np.concatenate([self.joint_angles, other.joint_angles], axis=0),
@@ -828,11 +836,12 @@ class Bvh:
         """Splice frames from another Bvh into ``self`` in place.
 
         The skeleton of ``value`` must match ``self``'s topology, as for
-        ``a + b`` (:meth:`matches_topology`), ``value.frame_time``
-        must equal ``self.frame_time`` (raises ``ValueError`` otherwise —
-        use :meth:`resample` first if they differ), and the slice length
-        must equal ``value.frame_count``. Integer keys require
-        ``value.frame_count == 1``.
+        ``a + b`` (:meth:`matches_topology`), ``value`` must have
+        ``self``'s rate, as for ``a + b`` (:meth:`matches_rate`; splice
+        ``value.resample(self.fps)`` when it was recorded at another
+        rate), and the slice length must equal ``value.frame_count``.
+        Integer keys require ``value.frame_count == 1``. Each check raises
+        before ``self`` changes, and ``self`` keeps its frame time.
 
         Frames are written into the motion arrays in place (no full-array
         copies), and the values derived from the motion are recomputed on
@@ -864,12 +873,7 @@ class Bvh:
 
         # --- skeleton + frame_time ---
         self._check_same_skeleton(value)
-        if self.frame_time != value.frame_time:
-            raise ValueError(
-                f"frame_time mismatch (self={self.frame_time}, value="
-                f"{value.frame_time}). Call value.resample(1/self.frame_time) "
-                "first, or overwrite self.frame_time explicitly before splicing."
-            )
+        self._check_same_rate(value, "a[i:j] = b")
 
         # --- length match (no resizing) ---
         target_len = len(self.root_pos[s])
@@ -3125,6 +3129,37 @@ class Bvh:
             )
         raise ValueError(message)
 
+    def _check_same_rate(self, other: Bvh, join: str) -> None:
+        """Raise unless ``other`` has ``self``'s rate, before a join changes anything.
+
+        ``a + b``, ``a += b`` and ``a[i:j] = b`` lay ``other``'s frames on
+        ``self``'s timeline, so frames recorded at another rate would play
+        too fast or too slow. The same rate is :meth:`matches_rate`'s rule.
+        The message speaks of the clips as *a* (``self``) and *b*
+        (``other``), as *join* writes them, and names the ways out. A
+        clip with no rate cannot be resampled, so when one of the two is
+        unset the only way out is to give it the rate its frames were
+        recorded at.
+        """
+        if self.matches_rate(other):
+            return
+        message = (
+            f"Cannot join clips whose rates differ in {join} "
+            f"(a: {_describe_rate(self.frame_time)}; b: {_describe_rate(other.frame_time)})."
+        )
+        if self.frame_time == 0 or other.frame_time == 0:
+            unset, peer = ("a", "b") if self.frame_time == 0 else ("b", "a")
+            message += (
+                f" {unset} has no rate: set {unset}.frame_time = {peer}.frame_time "
+                f"(or {unset}.fps) when its frames were recorded at {peer}'s rate."
+            )
+        else:
+            message += (
+                " Join b.resample(a.fps) to keep b's timing on a's grid, or set "
+                "b.frame_time = a.frame_time when the difference is only metadata."
+            )
+        raise ValueError(message)
+
     def _concat(self, other: Bvh) -> Bvh:
         """Implementation of ``self + other`` (see :meth:`__add__`).
 
@@ -3143,17 +3178,11 @@ class Bvh:
         Raises
         ------
         ValueError
-            If the topologies differ; the message names the first
-            difference.
+            If the topologies differ, the message naming the first
+            difference, or if the rates differ (:meth:`matches_rate`).
         """
         self._check_same_skeleton(other)
-
-        if self.frame_time != other.frame_time:
-            warnings.warn(
-                f"Frame time mismatch: {self.frame_time} vs "
-                f"{other.frame_time}. Using self's frame time.",
-                stacklevel=user_stacklevel(),
-            )
+        self._check_same_rate(other, "a + b")
 
         new_bvh = self._derive_clip(
             root_pos=np.concatenate([self.root_pos, other.root_pos], axis=0),

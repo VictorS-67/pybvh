@@ -55,7 +55,7 @@ When only part of the clip is the point, `frames=(start, stop)` restricts the sa
 bvh.render("supplementary.mp4", codec="h264", resolution=(1920, 1080))
 ```
 
-`codec="auto"` (the default) uses H.264 when a system `ffmpeg` is on PATH. Otherwise it falls back to OpenCV's MPEG-4 Part 2, and it warns that it did. MPEG-4 Part 2 plays in desktop players like VLC, but not in browsers. Naming `"h264"` turns that fallback into an error. So a script stops before it writes a file you would upload.
+`codec="auto"` (the default) uses H.264 when a system `ffmpeg` is on PATH. Otherwise it falls back to OpenCV's MPEG-4 Part 2. It warns that it did. MPEG-4 Part 2 plays in desktop players like VLC, but not in browsers. Naming `"h264"` turns that fallback into an error. So a script stops before it writes a file you would upload.
 
 Two options exist to make a clip legible without narration. `ghost=N` trails faded copies of recent poses behind the live skeleton. `trajectory=True` draws the root's path on the floor as it goes. So any single frame says where the motion has been:
 
@@ -77,7 +77,7 @@ One orbit over a 4.4 s clip is 82° per second, too fast to look at anything. `t
 bvh.render("orbit.mp4", camera="turntable", centered="skeleton", turntable_period=12)
 ```
 
-Anti-aliasing is on by default. The OpenCV backend draws at `Style.supersample` (2) times the output resolution, and then it downsamples. Primitive sizes scale with the drawing surface. So a 4K export gets proportionally thicker lines, not hairlines. `.gif` output always goes through matplotlib. Use `.gif` when a venue wants an animated figure rather than a video file.
+Anti-aliasing is on by default. The OpenCV backend draws at `Style.supersample` (2) times the output resolution, and then it downsamples. Primitive sizes scale with the drawing surface. So a 4K export gets proportionally thicker lines, not hairlines. `.gif` output always goes through matplotlib, which is what to use when a venue wants an animated figure rather than a video file.
 
 ## The capsule look
 
@@ -89,7 +89,7 @@ bvh.plot_frame(frame=120, backend="vedo", filepath="pose.png")               # o
 bvh.render("capsules.mp4", backend="vedo")                                   # same look, as video
 ```
 
-Bone thickness is derived from the skeleton's own geometry. So rigs with fingers keep articulated hands without the renderer being told what a hand is. `Style.shadow` toggles the shadow. Camera motion, ghosts and traces are not available on this backend. For those, use OpenCV or matplotlib.
+pybvh derives bone thickness from the skeleton's own geometry. So rigs with fingers keep articulated hands without the renderer being told what a hand is. `Style.shadow` toggles the shadow. Camera motion, ghosts and traces are not available on this backend. For those, use OpenCV or matplotlib.
 
 ## Choosing the style for the venue
 
@@ -103,7 +103,7 @@ Any field overrides on top of a preset:
 - `Style("paper", floor="grid")` when the reader needs a sense of scale.
 - `Style("paper", bone_width=4)` for a figure that will be printed small.
 
-Chain colors are derived from the Okabe-Ito palette, so they stay distinguishable in the common forms of color blindness. They are **not** greyscale-safe. The two arm colors sit at the same luminance, so a black-and-white print loses left from right. If the figure will be printed without color, label the sides, or pass your own `Style(chain_colors=...)`. Multi-skeleton comparisons switch automatically to flat per-skeleton colors, which is the ground-truth-versus-generated convention.
+pybvh derives the chain colors from the Okabe-Ito palette, so they stay distinguishable in the common forms of color blindness. They are **not** greyscale-safe. The two arm colors sit at the same luminance, so a black-and-white print loses left from right. If the figure will be printed without color, label the sides, or pass your own `Style(chain_colors=...)`. Multi-skeleton comparisons switch automatically to flat per-skeleton colors, which is the ground-truth-versus-generated convention.
 
 ## Where pybvh stops
 

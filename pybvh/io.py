@@ -113,14 +113,14 @@ def read_bvh_file(
       ``frame_time`` is ``0.033`` is written ``0.033000000000000002``,
       and it reads back as ``0.033``. None of the other BVH readers
       surveyed recovers a rate. Those that use the value take the text
-      as printed, and one (fairmotion) rounds the rate to a whole
-      number. Where the rule recovers a rate, the printed value differs
-      from pybvh's by less than one unit of its last decimal
-      (``0.033333`` against ``1 / 30``). Where the rule keeps the text,
-      the two agree. The rounded rate differs from pybvh's wherever
-      pybvh's is not whole (``0.033367`` gives 30 fps, ``0.017`` 59
-      fps). In a file at 6 decimals, it also differs on some whole rates
-      above 720 fps (``0.001386`` gives 722 fps, where pybvh reads 721).
+      as printed. One (fairmotion) rounds the rate to a whole number.
+      Where the rule recovers a rate, the printed value differs from
+      pybvh's by less than one unit of its last decimal (``0.033333``
+      against ``1 / 30``). Where the rule keeps the text, the two agree.
+      The rounded rate differs from pybvh's wherever pybvh's is not
+      whole (``0.033367`` gives 30 fps, ``0.017`` 59 fps). In a file at
+      6 decimals, it also differs on some whole rates above 720 fps
+      (``0.001386`` gives 722 fps, where pybvh reads 721).
     - **Root channels are reordered** to position-first. A file that
       declares rotations before positions parses correctly, but it
       writes back in pybvh's canonical order.

@@ -34,6 +34,7 @@ from pybvh import (
     read_bvh_directory,
     read_bvh_file,
     transforms,
+    write_bvh_file,
 )
 from pybvh.analysis import foot_contacts
 from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhNode, BvhRoot
@@ -1089,10 +1090,43 @@ class TestFileRoundTrip:
         out = tmp_path / "ntsc.bvh"
         bvh_example.write(out, verbose=False)
         reloaded = read_bvh_file(out)
-        # Frame Time is written at 10 significant digits ('%.10g'), so the
-        # relative error is bounded by 5e-10 (and 23.976 fps is far enough
-        # from 24 fps that the read-side 1/N snap does not fire).
-        assert reloaded.frame_time == pytest.approx(bvh_example.frame_time, rel=1e-9)
+        assert reloaded.frame_time == bvh_example.frame_time
+
+    @staticmethod
+    def _frame_times_changed_by_a_file(clip, frame_times, path, write=Bvh.write):
+        """The ``(written, read back)`` pairs that differ after writing ``clip`` at each frame time."""
+        changed = []
+        for frame_time in frame_times:
+            clip.frame_time = frame_time
+            write(clip, path)
+            read_back = read_bvh_file(path).frame_time
+            if read_back != frame_time:
+                changed.append((frame_time, read_back))
+        return changed
+
+    @pytest.mark.parametrize(
+        "write", [Bvh.write, write_bvh_file], ids=["Bvh.write", "write_bvh_file"]
+    )
+    def test_written_frame_time_reads_back_unchanged(self, bvh_example, tmp_path, write):
+        """The NTSC rates and every whole rate up to 1000 fps survive a write and a read."""
+        ntsc_frame_times = [1 / 23.976, 1 / 29.97, 1 / 59.94, 1 / 119.88, 1001 / 30000]
+        whole_rate_frame_times = [1 / n for n in range(1, 1001)]
+        changed = self._frame_times_changed_by_a_file(
+            bvh_example[:1], ntsc_frame_times + whole_rate_frame_times, tmp_path / "rate.bvh", write
+        )
+        assert changed == []
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="the reader snaps a frame time within a relative 1e-4 of 1/N to 1/N (#140)",
+    )
+    def test_written_random_frame_time_reads_back_unchanged(self, bvh_example, tmp_path):
+        """Any frame time survives a write and a read, not only the rates people name."""
+        random_frame_times = np.random.default_rng(140).uniform(0.001, 0.2, size=500).tolist()
+        changed = self._frame_times_changed_by_a_file(
+            bvh_example[:1], random_frame_times, tmp_path / "rate.bvh"
+        )
+        assert changed == []
 
     def test_write_to_invalid_extension_raises(self, bvh_example, tmp_path):
         with pytest.raises(ValueError, match=r"output\.txt is not a \.bvh file"):
@@ -2314,8 +2348,7 @@ class TestFileRoundTripAllFiles:
         np.testing.assert_allclose(bvh2.root_pos, bvh.root_pos, atol=1e-5)
         np.testing.assert_allclose(bvh2.joint_angles, bvh.joint_angles, atol=1e-5)
         assert len(bvh2.nodes) == len(bvh.nodes)
-        # '%.10g' frame-time formatting bounds the relative error at 5e-10
-        assert bvh2.frame_time == pytest.approx(bvh.frame_time, rel=1e-9)
+        assert bvh2.frame_time == bvh.frame_time
 
     def test_roundtrip_bvh_test2_yxz(self, bvh_test2, tmp_path):
         """Round-trip bvh_test2.bvh (YXZ channel order) preserves data."""
@@ -2391,8 +2424,7 @@ class TestReadWriteReadEquality:
         # Hierarchy and channel layout are preserved exactly
         assert bvh2.matches_hierarchy(bvh1, atol=0)
         assert bvh2.matches_channels(bvh1)
-        # Frame time is written at 10 significant digits ('%.10g')
-        assert bvh2.frame_time == pytest.approx(bvh1.frame_time, rel=1e-9)
+        assert bvh2.frame_time == bvh1.frame_time
         # Motion survives within the '%.6f' text quantization, which applies
         # in degrees / world units
         np.testing.assert_allclose(bvh2.root_pos, bvh1.root_pos, atol=1e-6)

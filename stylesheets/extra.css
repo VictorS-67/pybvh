@@ -1,0 +1,29 @@
+/* Thumbnail grid at the top of the generated Gallery page
+   (emitted by scripts/export_gallery.py). */
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.5rem;
+  margin: 1em 0;
+}
+
+.gallery-grid a {
+  display: block;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.2rem;
+  overflow: hidden;
+  background: var(--md-default-bg-color);
+  transition: border-color 125ms, box-shadow 125ms;
+}
+
+.gallery-grid a:hover {
+  border-color: var(--md-accent-fg-color);
+  box-shadow: var(--md-shadow-z2);
+}
+
+.gallery-grid img {
+  display: block;
+  width: 100%;
+  height: 6rem;
+  object-fit: cover;
+}

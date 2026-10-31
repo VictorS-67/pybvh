@@ -1,0 +1,2255 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A lightweight Python library for BVH motion capture files">
+      
+      
+      
+        <link rel="canonical" href="https://victors-67.github.io/pybvh/guide/world-up/">
+      
+      
+        <link rel="prev" href="../core-concepts/">
+      
+      
+        <link rel="next" href="../rotations/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>World Up & Orientation - pybvh</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#world-up-and-orientation" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="pybvh" class="md-header__button md-logo" aria-label="pybvh" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pybvh
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              World Up & Orientation
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/VictorS-67/pybvh" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    VictorS-67/pybvh
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/installation/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../gallery/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Gallery
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../core-concepts/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../tutorials/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Tutorials
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="pybvh" class="md-nav__button md-logo" aria-label="pybvh" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pybvh
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/VictorS-67/pybvh" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    VictorS-67/pybvh
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../gallery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gallery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../core-concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World Up & Orientation
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World Up & Orientation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-world_up" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is world_up?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#two-frames-the-skeletons-and-the-worlds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two frames: the skeleton's and the world's
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#auto-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Auto-detection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-disagreement-warnings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The disagreement warnings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#set-inferred-or-inherited" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Set, inferred or inherited
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Set, inferred or inherited">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-the-guess-starts-again" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When the guess starts again
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manual-override" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manual override
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-orientation-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The orientation report
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#forward_atframe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        forward_at(frame)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#left_atframe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        left_at(frame)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="left_at(frame)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#coords-skip-per-call-fk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        coords= (skip per-call FK)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#facing_frame-the-continuous-basis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        facing_frame() — the continuous basis
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="facing_frame() — the continuous basis">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-a-frames-facing-cannot-be-measured" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a frame's facing cannot be measured
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rest-pose-axes-rest_up-rest-left-and-rest_forward" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rest-pose axes: rest_up, rest left and rest_forward
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-heading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The heading
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mirror-works-in-the-skeletons-frame" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mirror works in the skeleton's frame
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#negative-up-axes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Negative up axes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reorienting-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reorienting data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rotations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rotation Representations & SE(3)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../choosing-rotations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Choosing a Representation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../augmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Augmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../feature-export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Feature Export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../skeleton-ops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skeleton Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../motion-descriptors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Motion Descriptors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../publication-figures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publication Figures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/bvh/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bvh Class
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/io/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    I/O
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rotations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rotations & SE(3)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/geometry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Geometry (trajectory & pose)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/transforms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transforms (augmentation)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analysis (contacts, gait, smoothness)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features (ML export)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/signal/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Signal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/batch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Batch Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/bvhplot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visualization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-world_up" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is world_up?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#two-frames-the-skeletons-and-the-worlds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two frames: the skeleton's and the world's
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#auto-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Auto-detection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-disagreement-warnings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The disagreement warnings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#set-inferred-or-inherited" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Set, inferred or inherited
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Set, inferred or inherited">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-the-guess-starts-again" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When the guess starts again
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manual-override" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manual override
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-orientation-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The orientation report
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#forward_atframe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        forward_at(frame)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#left_atframe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        left_at(frame)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="left_at(frame)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#coords-skip-per-call-fk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        coords= (skip per-call FK)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#facing_frame-the-continuous-basis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        facing_frame() — the continuous basis
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="facing_frame() — the continuous basis">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-a-frames-facing-cannot-be-measured" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a frame's facing cannot be measured
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rest-pose-axes-rest_up-rest-left-and-rest_forward" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rest-pose axes: rest_up, rest left and rest_forward
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-heading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The heading
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mirror-works-in-the-skeletons-frame" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mirror works in the skeleton's frame
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#negative-up-axes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Negative up axes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reorienting-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reorienting data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="world-up-and-orientation">World Up and Orientation<a class="headerlink" href="#world-up-and-orientation" title="Permanent link">&para;</a></h1>
+<h2 id="what-is-world_up">What is world_up?<a class="headerlink" href="#what-is-world_up" title="Permanent link">&para;</a></h2>
+<p>BVH files don't declare which axis is "up". Different software uses different conventions. Y-up is standard in game engines and Maya. Z-up is standard in Blender and CAD tools. pybvh needs to know the up axis for:</p>
+<ul>
+<li><strong>Visualization</strong> -- camera orientation, bounding box projection</li>
+<li><strong>Foot contact detection</strong> -- which direction is "ground"</li>
+<li><strong><code>rotate_vertical()</code></strong> -- which axis to rotate around</li>
+<li><strong><code>root_trajectory()</code></strong> -- projecting the root path onto the ground plane</li>
+</ul>
+<h2 id="two-frames-the-skeletons-and-the-worlds">Two frames: the skeleton's and the world's<a class="headerlink" href="#two-frames-the-skeletons-and-the-worlds" title="Permanent link">&para;</a></h2>
+<p>A BVH file says which way is up in two places:</p>
+<ul>
+<li>The rest pose: the skeleton with every rotation zero, written in the file's coordinates.</li>
+<li>The motion, which places that skeleton in the world frame by frame.</li>
+</ul>
+<p>pybvh reads each orientation fact from one of the two. It never combines an axis of one with an axis of the other:</p>
+<table>
+<thead>
+<tr>
+<th>Frame</th>
+<th>Read from</th>
+<th>Facts</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The skeleton's own frame</td>
+<td>the rest pose alone, never <code>world_up</code> or the motion</td>
+<td><code>rest_up</code>, rest left, <code>rest_forward</code></td>
+</tr>
+<tr>
+<td>The world frame</td>
+<td>the motion, against <code>world_up</code></td>
+<td><code>world_up</code>, the facing (<code>forward_at</code>, <code>left_at</code>, <code>facing_frame</code>), the heading (<code>root_trajectory</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>The rest pose's coordinates are not world coordinates. Only the root rotation of a frame says how the skeleton stands in the world at that frame. It is the one thing that carries a skeleton fact into the world: the heading is the root rotation applied to <code>rest_forward</code>. On a clean file, the two frames agree: rest up is world up. Then the distinction changes no value. On a file whose rest pose is authored in another convention than its motion, the distinction changes values. The bundled <code>bvh_test3.bvh</code> animates z-up, with a rest pose authored y-up:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">b3</span> <span class="o">=</span> <span class="n">pybvh</span><span class="o">.</span><span class="n">read_bvh_file</span><span class="p">(</span><span class="s2">"bvh_data/bvh_test3.bvh"</span><span class="p">)</span>   <span class="c1"># warns: rest pose and first frame disagree</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">b3</span><span class="o">.</span><span class="n">world_up</span>        <span class="c1"># '+z' — read from the motion</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">b3</span><span class="o">.</span><span class="n">rest_up</span>         <span class="c1"># '+y' — the rest pose was authored y-up</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">b3</span><span class="o">.</span><span class="n">rest_forward</span>    <span class="c1"># '+z' — the rest pose's own facing: its left '+x' × its up '+y'</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">b3</span><span class="o">.</span><span class="n">forward_at</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>   <span class="c1"># '+y' — where the body faces in the world at frame 0</span>
+</code></pre></div>
+<p>Here <code>rest_forward</code> lies along world up, and that is correct. It is a direction in the skeleton's frame. The root rotation turns it onto the ground on every frame.</p>
+<h2 id="auto-detection">Auto-detection<a class="headerlink" href="#auto-detection" title="Permanent link">&para;</a></h2>
+<p>When a clip is read from a file or built from arrays, <code>Bvh.__init__</code> guesses <code>world_up</code> from frame 0. The guess is the direction from the root to the head, snapped to its main axis when its largest component is at least twice the second. The head is the first joint whose name holds <code>head</code> as a word, else <code>neck</code>, <code>chest</code> or <code>spine</code>. <code>rest_up</code> reads the same joint.</p>
+<p>Frame 0 cannot decide when there is no such joint, no frames, or a crouched, lying or leaning first pose. Then the skeleton's own up, <code>rest_up</code>, stands in. That guess assumes that the rest pose is authored upright. If the root's rotation at frame 0 carries <code>rest_up</code> onto another axis, pybvh warns that the rest pose may be authored in another convention. It keeps the guess (next section). When the rest pose is degenerate too, pybvh warns and falls back to <code>'+y'</code>.</p>
+<p>The result is a signed axis string like <code>'+y'</code> or <code>'+z'</code>. <code>bvh.orientation_report.world_up_source</code> says which of the three gave it: <code>"first_frame"</code>, <code>"rest_up"</code> or <code>"default"</code>. See <a href="#the-orientation-report">The orientation report</a>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">bvh</span> <span class="o">=</span> <span class="n">pybvh</span><span class="o">.</span><span class="n">read_bvh_file</span><span class="p">(</span><span class="s2">"walk.bvh"</span><span class="p">)</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">bvh</span><span class="o">.</span><span class="n">world_up</span>  <span class="c1"># '+z' (auto-detected)</span>
+</code></pre></div>
+<h2 id="the-disagreement-warnings">The disagreement warnings<a class="headerlink" href="#the-disagreement-warnings" title="Permanent link">&para;</a></h2>
+<p>Some BVH files author the rest pose in one convention and animate in another. For example, a Blender export where the rest pose skeleton points along Y but the animation plays in Z-up world space. pybvh cannot always tell such a file from one whose first frame is not upright. So it keeps its guess, and it warns in two cases. Each warning is a <code>UserWarning</code>, raised once per guess (at load, for a clip read from a file). The clips derived from a clip inherit its axis (next section), and they do not warn again.</p>
+<ul>
+<li><strong>The first frame and the rest pose name different axes.</strong> pybvh trusts the animation data (frame 0) over the rest pose. Either the rest pose is authored in another convention, and frame 0 is right, or the first frame is not upright (the performer lies, kneels or bows at the start), and the rest pose's axis may be.</li>
+<li><strong>The first frame cannot decide, and the root contradicts the rest pose.</strong> <code>rest_up</code> stands in. But the root's rotation at frame 0 carries it onto another axis, snapped the same way as frame 0's head direction. The rest pose may then be authored in another convention, and world up may be that other axis.</li>
+</ul>
+<p><code>warn_on_world_up_disagreement=False</code> at load silences both. Without the warnings, the report says the same. A pipeline that loads many clips can mark for a check every clip where one of these holds:</p>
+<ul>
+<li>Its <code>orientation_report.world_up</code> names another axis letter than its <code>rest_up</code>.</li>
+<li>Its <code>world_up_source</code> is <code>"rest_up"</code>.</li>
+</ul>
+<p>The maintainer's corpus has 23,020 clips. Their rest poses and motion share their convention, except on <code>bvh_test3.bvh</code>. In this corpus, the first warning fires on 75 clips. The true up could be confirmed on 69 of them. On 68 of those 69, the first frame is not upright, and the guess is wrong. The 69th is <code>bvh_test3.bvh</code>, where the guess is right.</p>
+<p>On an older export of one of its datasets, the rest poses are authored <code>+y</code> for a <code>+z</code> motion. There, the first warning fires on almost every clip. The second warning catches 31 of the 38 clips that the rest-up fallback guesses wrong.</p>
+<p>Some clips lie flat for their whole recording. No guess from the head or the root finds their up. Only setting <code>world_up</code> does. If you see a warning, check whether <code>world_up</code> matches your expectation. Override it if needed.</p>
+<h2 id="set-inferred-or-inherited">Set, inferred or inherited<a class="headerlink" href="#set-inferred-or-inherited" title="Permanent link">&para;</a></h2>
+<p>A clip's world up is in one of three states:</p>
+<ul>
+<li><strong>Set</strong>: you assigned it (<code>bvh.world_up = '+y'</code>), passed <code>world_up=</code> at load, or the clip is the result of <code>reorient_world_up</code>. It stays until you assign another axis.</li>
+<li><strong>Inferred</strong>: guessed from the clip's own first frame, as above. A clip read from a file, or built with <code>Bvh(...)</code>, <code>Bvh.from_df</code> or <code>df_to_bvh</code>, starts here.</li>
+<li><strong>Inherited</strong>: a clip pybvh derives from another reports its source's axis without guessing from its own frames. That covers <code>copy()</code>, slicing (<code>bvh[a:b]</code>), <code>a + b</code> and <code>a += b</code> (from <code>a</code>), <code>resample</code>, every transform (<code>mirror</code>, <code>scale</code>, <code>rotate_vertical</code>, <code>translate_root</code>, the noise functions, the reorientations), <code>retarget</code>, <code>change_euler_order</code>, <code>extract_joints</code> and a clip loaded from a pickle. A set axis travels the same way: the derived clip has it set too.</li>
+</ul>
+<p>Cutting, resampling or transforming a clip does not change which way gravity points. But a fresh guess on the derived clip could change it. A slice whose first frame is a crouch, a fall or a lying pose is ambiguous on its own and would fall back to the rest pose, where its source was not. Inheriting the answer makes every derived clip agree with its source. It also makes the guess on the source the only one.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">bvh</span> <span class="o">=</span> <span class="n">pybvh</span><span class="o">.</span><span class="n">read_bvh_file</span><span class="p">(</span><span class="s2">"walk.bvh"</span><span class="p">)</span>   <span class="c1"># inferred from frame 0: '+z'</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">clip</span> <span class="o">=</span> <span class="n">bvh</span><span class="p">[</span><span class="mi">200</span><span class="p">:</span><span class="mi">260</span><span class="p">]</span>                       <span class="c1"># inherited: '+z', whatever frame 200 shows</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">clip</span><span class="o">.</span><span class="n">orientation_report</span><span class="o">.</span><span class="n">world_up_inherited</span>   <span class="c1"># True; world_up_source is the source's, 'first_frame'</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">clip</span><span class="o">.</span><span class="n">world_up_inferred</span>                    <span class="c1"># what a guess from clip's own frames would give</span>
+</code></pre></div>
+<p>The report tells the three states apart:</p>
+<ul>
+<li><code>world_up_source</code> is <code>"set"</code> for a set axis. Otherwise it names what the guess was read from.</li>
+<li><code>world_up_inherited</code> is <code>True</code> for a guess made on the clip this one was derived from.</li>
+</ul>
+<p><code>world_up_inferred</code> always runs the heuristic on the clip's own motion. It changes nothing. To have a derived clip use its own guess instead, assign it: <code>clip.world_up = clip.world_up_inferred</code>. The axis is then set.</p>
+<h3 id="when-the-guess-starts-again">When the guess starts again<a class="headerlink" href="#when-the-guess-starts-again" title="Permanent link">&para;</a></h3>
+<p>The guess starts again when the recording itself is replaced:</p>
+<ul>
+<li>When you assign <code>root_pos</code>, <code>joint_angles</code> or frames (<code>bvh[i] = other</code>).</li>
+<li>When you load new motion with <code>from_rotmat</code>, <code>from_6d</code>, <code>from_quat</code> or <code>from_axisangle</code>.</li>
+</ul>
+<p>The clip then guesses again from its new first frame, whether its axis was inferred or inherited. The clips derived from it afterwards inherit the new guess. None of these clears a set axis.</p>
+<p>For a guess that the clip made itself, the guess also starts again when you set <code>lr_mapping</code>. On a rig with no head, neck, chest or spine joint, the guess falls back to <code>rest_up</code>. On such a rig, <code>rest_up</code> is read from the legs of the mapping. So the clip guesses again, and it gets the axis that it would get if the same mapping had been passed at load. <code>floor_height</code> is measured again along that axis. A guess from the first frame comes out the same, and it does not warn again. An inherited guess stays, as does a set axis.</p>
+<h2 id="manual-override">Manual override<a class="headerlink" href="#manual-override" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">bvh</span><span class="o">.</span><span class="n">world_up</span> <span class="o">=</span> <span class="s1">'+y'</span>  <span class="c1"># override auto-detection</span>
+</code></pre></div>
+<p>The setter validates its input. It accepts only <code>{+x, -x, +y, -y, +z, -z}</code>. Anything else raises <code>ValueError</code>.</p>
+<p>The override is a set axis. So it propagates to every clip derived from this one, <code>retarget()</code> included, because new bone lengths do not change which way is up. To clear the override and return to the guessed axis, inferred or inherited, assign <code>"auto"</code> (or <code>None</code>). A pickle keeps the override. But BVH files have no world-up field, so a write/read round trip loses a manual override. You must apply it again.</p>
+<h2 id="the-orientation-report">The orientation report<a class="headerlink" href="#the-orientation-report" title="Permanent link">&para;</a></h2>
+<p><code>world_up</code>, <code>rest_up</code> and <code>rest_forward</code> always answer, with a default if need be. So their value alone cannot say whether it was measured. <code>bvh.orientation_report</code> can say it. It returns a frozen <code>OrientationReport</code>, which holds each clip-level orientation fact beside how it was obtained.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">report</span> <span class="o">=</span> <span class="n">b3</span><span class="o">.</span><span class="n">orientation_report</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="c1"># OrientationReport(rest_up='+y', rest_up_source='named_joint', rest_left='+x',</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="c1">#                   rest_forward='+z', rest_forward_source='lr_geometry',</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1">#                   world_up='+z', world_up_source='first_frame',</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="c1">#                   world_up_inherited=False, lr_mapping_source='names')</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Values</th>
+<th>Says</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rest_up_source</code></td>
+<td><code>"named_joint"</code>, <code>"leg_pair"</code>, <code>"largest_spread"</code>, <code>None</code></td>
+<td>rest up read from a joint named for the head, neck, chest or spine; else opposite the legs, the L/R pair split across the pelvis's branches; else from the axis along which the rest pose spreads most; <code>None</code> when the rest pose carries no direction</td>
+</tr>
+<tr>
+<td><code>rest_left</code></td>
+<td>a signed axis or <code>None</code></td>
+<td>the skeleton's own left (next sections)</td>
+</tr>
+<tr>
+<td><code>rest_forward_source</code></td>
+<td><code>"lr_geometry"</code>, <code>"default"</code></td>
+<td>rest forward measured as rest left × rest up, or the house default for a rest pose without usable L/R geometry</td>
+</tr>
+<tr>
+<td><code>world_up_source</code></td>
+<td><code>"set"</code>, <code>"first_frame"</code>, <code>"rest_up"</code>, <code>"default"</code></td>
+<td>world up set by you, guessed from frame 0, guessed from rest up because frame 0 could not decide, or the house <code>'+y'</code></td>
+</tr>
+<tr>
+<td><code>world_up_inherited</code></td>
+<td><code>bool</code></td>
+<td>the guess was made on the clip this one was derived from</td>
+</tr>
+<tr>
+<td><code>lr_mapping_source</code></td>
+<td><code>"set"</code>, <code>"names"</code>, <code>None</code></td>
+<td>the L/R mapping set by you, detected from joint names, or absent</td>
+</tr>
+</tbody>
+</table>
+<p>Reading the sources is how a pipeline tells a measurement from a default without parsing warnings:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">report</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">orientation_report</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="k">if</span> <span class="n">report</span><span class="o">.</span><span class="n">world_up_source</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"rest_up"</span><span class="p">,</span> <span class="s2">"default"</span><span class="p">):</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    <span class="o">...</span>  <span class="c1"># frame 0 could not decide world up: check it, or set it</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="k">if</span> <span class="n">report</span><span class="o">.</span><span class="n">rest_forward_source</span> <span class="o">==</span> <span class="s2">"default"</span><span class="p">:</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="o">...</span>  <span class="c1"># no usable L/R geometry: rest_forward and the heading are a house default</span>
+</code></pre></div>
+<p>Reading the report never warns. A warning about a default fires when the defaulted fact itself is read: <code>world_up</code> (once per guess), <code>rest_forward</code>, or the facing. The warning points to the report.</p>
+<p>The report is computed once. It is kept until one of these happens:</p>
+<ul>
+<li>The skeleton changes.</li>
+<li><code>world_up</code> or <code>lr_mapping</code> is assigned.</li>
+<li>The motion is assigned.</li>
+</ul>
+<p>Facts that change from frame to frame are not in the report. <code>forward_at</code>, <code>left_at</code> and <code>facing_frame</code> carry them. <code>facing_frame().valid</code> marks the frames whose facing could not be measured.</p>
+<h2 id="forward_atframe">forward_at(frame)<a class="headerlink" href="#forward_atframe" title="Permanent link">&para;</a></h2>
+<p><code>forward_at(frame)</code> returns the character's world-space facing direction at a given frame, as a signed axis string:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">bvh</span><span class="o">.</span><span class="n">forward_at</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>   <span class="c1"># '-z' (facing direction at frame 0)</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">bvh</span><span class="o">.</span><span class="n">forward_at</span><span class="p">(</span><span class="mi">60</span><span class="p">)</span>  <span class="c1"># '+x' (character has turned by frame 60)</span>
+</code></pre></div>
+<p>The direction is derived from actual joint positions. pybvh averages the L/R joint pairs in world space to find the leftward direction, measured against <code>world_up</code>. Forward is that leftward crossed with <code>world_up</code>. This tracks the character's real facing as they rotate through the animation, not the rest pose.</p>
+<p>bvhplot's camera auto-orientation and follow mode use it internally.</p>
+<p><code>forward_at()</code> reads the L/R pair list from <code>bvh.lr_mapping</code>. If your skeleton's joint names don't follow the expected conventions (<code>Left*</code>/<code>Right*</code>, <code>.L</code>/<code>.R</code>, <code>_l</code>/<code>_r</code>, <code>mixamorig:</code> namespace, <code>.001</code> numbered duplicates), <code>bvh.lr_mapping</code> will be <code>None</code>, and <code>orientation_report.lr_mapping_source</code> is <code>None</code>. Then <code>forward_at()</code> falls back to a house default, with a warning. The house default is an arbitrary-but-stable horizontal axis for <code>world_up</code>. To get a meaningful forward, set the mapping explicitly. The <a href="../augmentation/#lr-pair-detection">Augmentation guide</a> gives the override patterns.</p>
+<h2 id="left_atframe">left_at(frame)<a class="headerlink" href="#left_atframe" title="Permanent link">&para;</a></h2>
+<p><code>left_at(frame)</code> returns the character's world-space leftward direction at a given frame, as a signed axis string:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">bvh</span><span class="o">.</span><span class="n">left_at</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>   <span class="c1"># '-x' — character's left-hand direction at frame 0</span>
+</code></pre></div>
+<p>Together with <code>world_up</code> and <code>forward_at(frame)</code>, <code>left_at(frame)</code> completes the character's local frame as an orthonormal right-hand-rule triple:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>left = world_up × forward        (equivalently, forward = left × world_up)
+</code></pre></div>
+<p>A positive step along <code>left_at</code> moves from the character's right side toward their left (right-shoulder → left-shoulder direction). This matches the standard rigging convention used in Blender, Maya, and Unity.</p>
+<p>The triple drawn on a pose:</p>
+<p><img alt="The orientation triple drawn as three arrows on a skeleton: world_up in blue, forward_at in red, left_at in green" src="../../gallery/img/orientation-triad.png" /></p>
+<p><code>left_at()</code> shares the L/R pair machinery with <code>forward_at()</code>, so the same <code>bvh.lr_mapping</code> caveats apply. The two always form a right-handed triple with <code>world_up</code>, on every frame: <code>left_at</code> never returns world up.</p>
+<h3 id="coords-skip-per-call-fk">coords= (skip per-call FK)<a class="headerlink" href="#coords-skip-per-call-fk" title="Permanent link">&para;</a></h3>
+<p>Both <code>forward_at()</code> and <code>left_at()</code> accept a pre-computed <code>(F, N, 3)</code> spatial-coordinates array via <code>coords=</code> to skip the per-call forward kinematics. This is useful when you need orientation axes across many frames:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">coords</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">node_positions</span><span class="p">()</span>    <span class="c1"># one FK pass</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">forwards</span> <span class="o">=</span> <span class="p">[</span><span class="n">bvh</span><span class="o">.</span><span class="n">forward_at</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">coords</span><span class="o">=</span><span class="n">coords</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">bvh</span><span class="o">.</span><span class="n">frame_count</span><span class="p">)]</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">lefts</span>    <span class="o">=</span> <span class="p">[</span><span class="n">bvh</span><span class="o">.</span><span class="n">left_at</span><span class="p">(</span><span class="n">f</span><span class="p">,</span>    <span class="n">coords</span><span class="o">=</span><span class="n">coords</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">bvh</span><span class="o">.</span><span class="n">frame_count</span><span class="p">)]</span>
+</code></pre></div>
+<p><code>coords</code> holds the clip's frames, one row per frame. A frame whose leftward cannot be read falls back to the root's heading at that frame (next section).</p>
+<h2 id="facing_frame-the-continuous-basis">facing_frame() — the continuous basis<a class="headerlink" href="#facing_frame-the-continuous-basis" title="Permanent link">&para;</a></h2>
+<p><code>forward_at()</code> / <code>left_at()</code> snap the facing direction to the nearest of the six signed world axes. That is useful for canonicalization checks, but it is lossy: through a gentle turn, the label stays constant while the true facing rotates.</p>
+<p><code>bvh.facing_frame()</code> returns the same construction <em>before</em> the snap, as a <code>FacingFrame(forward, left, up, valid)</code> named tuple. It holds:</p>
+<ul>
+<li>Three <code>(F, 3)</code> unit-vector arrays: a per-frame orthonormal right-handed basis (<code>forward × left = up</code>).</li>
+<li>A <code>(F,)</code> bool array that is <code>False</code> on frames whose basis is a fallback rather than a measurement.</li>
+</ul>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">frame</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">facing_frame</span><span class="p">()</span>        <span class="c1"># or bvh.facing_frame(coords=coords), one row per clip frame</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">frame</span><span class="o">.</span><span class="n">forward</span><span class="p">[</span><span class="mi">120</span><span class="p">]</span>                <span class="c1"># continuous facing vector at frame 120</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">frame</span><span class="o">.</span><span class="n">valid</span><span class="p">[</span><span class="mi">120</span><span class="p">]</span>                  <span class="c1"># False if that vector is a fallback</span>
+</code></pre></div>
+<p>This is a yaw-only, gravity-aligned <em>facing</em> frame. <code>up</code> is always exactly <code>world_up</code>, so the basis only rotates about the vertical. It is deliberately not a pelvis orientation (no roll/pitch). It is also distinct from <code>root_trajectory()</code>'s heading. The heading is a second facing estimate, built differently: the root bone's rotation applied to the rest forward. The heading inherits pelvis twist, and it is not a direction of travel. See <a href="../../api/analysis/#pybvh.analysis.facing_frame"><code>analysis.facing_frame</code></a> for the full policy.</p>
+<h3 id="when-a-frames-facing-cannot-be-measured">When a frame's facing cannot be measured<a class="headerlink" href="#when-a-frames-facing-cannot-be-measured" title="Permanent link">&para;</a></h3>
+<p>One chain gives every frame its leftward, measured against <code>world_up</code>. The facing is built from it:</p>
+<ol>
+<li>The frame's own leftward, from its L/R pairs.</li>
+<li>Where that cannot be read, the root's heading at that frame, turned a quarter turn about up, when <code>rest_forward</code> is measured and the heading can be read. The leftward cannot be read when the L/R pairs line up with world up: the body lies on its side.</li>
+<li>Otherwise, the house default: an arbitrary-but-stable horizontal axis for <code>world_up</code>.</li>
+</ol>
+<p>Forward is always left × up. So the basis is right-handed with world up on every frame, fallback frames included. <code>valid</code> is <code>False</code> on the frames of steps 2 and 3. A frame that falls to the house default warns, and the warning names the frame. On a skeleton with no L/R pairs at all, every frame does, and the warning names the skeleton.</p>
+<h2 id="rest-pose-axes-rest_up-rest-left-and-rest_forward">Rest-pose axes: rest_up, rest left and rest_forward<a class="headerlink" href="#rest-pose-axes-rest_up-rest-left-and-rest_forward" title="Permanent link">&para;</a></h2>
+<p><code>world_up</code> and <code>forward_at(frame)</code> are read from the motion. <code>rest_up</code>, rest left and <code>rest_forward</code> are the skeleton's own frame. They are read from the rest pose alone, never from <code>world_up</code> or the animation:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">bvh</span><span class="o">.</span><span class="n">rest_up</span>                         <span class="c1"># '+y' — the skeleton's own up</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">bvh</span><span class="o">.</span><span class="n">orientation_report</span><span class="o">.</span><span class="n">rest_left</span>    <span class="c1"># '+x' — the skeleton's own left</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="n">bvh</span><span class="o">.</span><span class="n">rest_forward</span>                    <span class="c1"># '+z' — the direction the rest pose faces: rest left × rest up</span>
+</code></pre></div>
+<ul>
+<li>
+<p><strong><code>rest_up</code></strong> is the main axis from the root to the first joint whose name holds <code>head</code> as a word, else <code>neck</code>, <code>chest</code> or <code>spine</code>. The name matches in any case, and after a <code>foo:</code> namespace or a <code>.001</code> suffix. <code>Head</code>, <code>mixamorig:Head</code>, <code>Bip01 Head</code>, <code>CC_Base_Head</code> and <code>J_Bip_C_Head</code> are heads. <code>Forehead</code> is not.</p>
+<p>Without such a joint, <code>rest_up</code> is the axis opposite the legs. The legs are the first L/R pair whose two joints lie in two different branches of the pelvis. The pelvis is the first node down from the root with more than one child: the root itself on a usual rig, or a <code>Hips</code> below a <code>Root</code>. The axis is read from the pelvis to the far ends of those two branches, the feet. A mapping of the arms alone, both below the spine, names no legs.</p>
+<p>Without such a pair either, <code>rest_up</code> is the axis along which the rest pose spreads most. This is a weak reading. A T-pose wider than tall spreads most along its arms. And hips mid-body put as much of the body below the root as above.</p>
+<p><code>rest_up_source</code> says which (<code>"named_joint"</code>, <code>"leg_pair"</code>, <code>"largest_spread"</code>).</p>
+</li>
+<li>
+<p><strong>Rest left</strong> averages the left-minus-right rest positions of the L/R pairs. Then it removes the <code>rest_up</code> component. It snaps what remains to an axis. <code>mirror</code> reflects along it. It is in the report only.</p>
+</li>
+<li>
+<p><strong><code>rest_forward</code></strong> is rest left × rest up. Without usable L/R geometry (no pairs, or pairs that lie along rest up), it is the house default for rest up (<code>'+y'</code> gives <code>'+z'</code>, <code>'+z'</code> gives <code>'+x'</code>, <code>'+x'</code> gives <code>'+y'</code>). Then reading it warns. <code>has_lr_geometry</code> is <code>False</code>, and <code>rest_forward_source</code> is <code>"default"</code>.</p>
+</li>
+</ul>
+<p>On a clean BVH file, <code>rest_up == world_up</code> and <code>rest_forward</code> matches <code>forward_at(0)</code> when the root rotation at frame 0 is identity. When they disagree:</p>
+<ul>
+<li><code>rest_up != world_up</code>: the file was authored with the rest pose in one up convention and animated in another. This is the case that triggers the disagreement warning. Fix it with <code>reorient_rest_up</code>. <code>rest_forward</code> is then a direction in the rest pose's convention, and it may lie along world up, as on <code>bvh_test3.bvh</code> above.</li>
+<li><code>rest_forward != forward_at(0)</code>: the character simply starts the animation facing a different direction from their rest pose. This is normal. <code>forward_at(0)</code> is what the viewer sees.</li>
+</ul>
+<p>All three are read-only. To actually change <code>rest_up</code> or <code>rest_forward</code>, call the corresponding <code>reorient_*</code> method (see "Reorienting data" below). It rotates the rest-pose offsets. It compensates the joint rotations, so FK positions are unchanged.</p>
+<h2 id="the-heading">The heading<a class="headerlink" href="#the-heading" title="Permanent link">&para;</a></h2>
+<p><code>root_trajectory()</code> reports the root's heading as a <code>(sin, cos)</code> pair. The heading is the root rotation of each frame applied to <code>rest_forward</code>, projected on the ground plane of <code>world_up</code>. The root rotation is what carries the skeleton's own forward into the world. So the heading follows the body, whichever convention the rest pose was authored in. On <code>bvh_test3.bvh</code>, it lies a median 2.3° from the measured facing (<code>facing_frame().forward</code>).</p>
+<p>On a frame where the root's forward stands along world up, its projection on the ground is too short to have a direction. There the heading is <code>NaN</code>, not an arbitrary angle:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pybvh</span><span class="w"> </span><span class="kn">import</span> <span class="n">rotations</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="n">bvh</span> <span class="o">=</span> <span class="n">pybvh</span><span class="o">.</span><span class="n">read_bvh_file</span><span class="p">(</span><span class="s2">"bvh_data/bvh_test1.bvh"</span><span class="p">)</span>   <span class="c1"># world up '+z', rest forward '+y'</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="n">bvh</span><span class="o">.</span><span class="n">world_up</span> <span class="o">=</span> <span class="s2">"+z"</span>   <span class="c1"># set it: assigning the motion below would guess world up again, from the tilted frame</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="n">tilt</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">]])</span>   <span class="c1"># turns '+y' onto '+z'</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="n">angles</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">joint_angles</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="n">angles</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">rotations</span><span class="o">.</span><span class="n">rotmat_to_euler</span><span class="p">(</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>    <span class="n">np</span><span class="o">.</span><span class="n">broadcast_to</span><span class="p">(</span><span class="n">tilt</span><span class="p">,</span> <span class="p">(</span><span class="n">bvh</span><span class="o">.</span><span class="n">frame_count</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">3</span><span class="p">)),</span> <span class="n">bvh</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">rot_channels</span><span class="p">)</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="n">bvh</span><span class="o">.</span><span class="n">joint_angles</span> <span class="o">=</span> <span class="n">angles</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="n">bvh</span><span class="o">.</span><span class="n">root_trajectory</span><span class="p">()[:</span><span class="mi">3</span><span class="p">,</span> <span class="mi">2</span><span class="p">:</span><span class="mi">4</span><span class="p">]</span>   <span class="c1"># NaN: the root faces straight up</span>
+</code></pre></div>
+<p>When <code>rest_forward</code> is the house default (no usable L/R geometry, and reading it warns), <code>root_trajectory()</code> still builds the heading on it. Then both the heading and its rate of turn (<code>heading_vel</code>) depend on that guessed reference whenever the root pitches or rolls. A tilted root's forward projects on the ground at an angle, and turns there at a rate, that differ with the forward it starts from. On a defaulted <code>rest_forward</code>, the heading and <code>heading_vel</code> are reliable only for a root that turns about world up alone. The facing chain takes no heading from such a <code>rest_forward</code> (step 2 above). So a facing never offers a guessed direction as a measured one.</p>
+<p>With <code>include_velocities=True</code>, the <code>NaN</code> reaches only the <code>heading_vel</code> samples whose stencil reads that frame. With the default central stencil, these are the frames either side. Code that feeds the columns to a model or a sum masks every row that holds a <code>NaN</code> in any column, or fills those rows. The mask is <code>np.isnan(traj).any(axis=1)</code>, over every column, because a heading velocity next to an unreadable heading is <code>NaN</code> while its own heading is not. For a facing that is never <code>NaN</code>, read <code>facing_frame()</code>. Its <code>valid</code> flags its fallback frames.</p>
+<h2 id="mirror-works-in-the-skeletons-frame">mirror works in the skeleton's frame<a class="headerlink" href="#mirror-works-in-the-skeletons-frame" title="Permanent link">&para;</a></h2>
+<p><code>mirror</code> reflects the skeleton's offsets across its own sagittal plane, along rest left. The motion follows by the same reflection. <code>mirror</code> never reads <code>world_up</code>. So the result is a valid mirror whatever world up says, a wrong guess included. To choose the axis yourself, pass <code>lateral='x'</code> (or <code>'y'</code>, <code>'z'</code>).</p>
+<h2 id="negative-up-axes">Negative up axes<a class="headerlink" href="#negative-up-axes" title="Permanent link">&para;</a></h2>
+<p><code>'-y'</code> means "more negative Y = higher". This is uncommon but valid. It affects:</p>
+<ul>
+<li><strong><code>rotate_vertical()</code></strong> -- angle direction is inverted</li>
+<li><strong><code>foot_contacts()</code></strong> -- ground is at the positive end of the axis</li>
+<li><strong>Camera orientation</strong> -- flipped vertical in visualization</li>
+</ul>
+<p>All of these handle the sign correctly.</p>
+<h2 id="reorienting-data">Reorienting data<a class="headerlink" href="#reorienting-data" title="Permanent link">&para;</a></h2>
+<p>The <code>world_up</code> setter only changes metadata.  To actually <strong>rewrite the data</strong> so a file uses a different coordinate system or rest-pose orientation:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Change the world coordinate system (Z-up -&gt; Y-up)</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="n">bvh_y</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">reorient_world_up</span><span class="p">(</span><span class="s1">'+y'</span><span class="p">)</span>  <span class="c1"># character looks identical, coords change</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="c1"># Fix a rest-pose / animation disagreement</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="n">bvh_fixed</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">reorient_rest_up</span><span class="p">(</span><span class="s1">'+y'</span><span class="p">)</span>  <span class="c1"># FK positions unchanged, rest pose rotated</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="c1"># Change the rest-pose forward direction</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="n">bvh_fwd</span> <span class="o">=</span> <span class="n">bvh</span><span class="o">.</span><span class="n">reorient_rest_forward</span><span class="p">(</span><span class="s1">'+z'</span><span class="p">)</span>  <span class="c1"># FK positions unchanged</span>
+</code></pre></div>
+<p><code>reorient_rest_forward</code> turns the rest pose about <code>rest_up</code>, in the skeleton's own frame. Afterwards, <code>rest_up</code> is the same. <code>rest_forward</code> is the target. The target is named in the rest pose's frame, and it must not be parallel to <code>rest_up</code>. All three are restricted to axis-aligned rotations (multiples of 90 degrees), for lossless transformation.</p>
+<h2 id="quick-reference">Quick reference<a class="headerlink" href="#quick-reference" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># Load with explicit world_up (skips auto-detection and warning)</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="n">bvh</span> <span class="o">=</span> <span class="n">pybvh</span><span class="o">.</span><span class="n">read_bvh_file</span><span class="p">(</span><span class="s2">"walk.bvh"</span><span class="p">,</span> <span class="n">world_up</span><span class="o">=</span><span class="s2">"+y"</span><span class="p">)</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="c1"># Or auto-detect (default)</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="n">bvh</span> <span class="o">=</span> <span class="n">pybvh</span><span class="o">.</span><span class="n">read_bvh_file</span><span class="p">(</span><span class="s2">"walk.bvh"</span><span class="p">)</span>
+<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="n">bvh</span><span class="o">.</span><span class="n">world_up</span>           <span class="c1"># '+z' (auto-detected)</span>
+<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="n">bvh</span><span class="o">.</span><span class="n">forward_at</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>      <span class="c1"># '-z' (facing direction at frame 0)</span>
+<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="n">bvh</span><span class="o">.</span><span class="n">world_up</span> <span class="o">=</span> <span class="s1">'+y'</span>    <span class="c1"># manual metadata override</span>
+<a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>
+<a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a><span class="c1"># How each orientation fact was obtained</span>
+<a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a><span class="n">bvh</span><span class="o">.</span><span class="n">orientation_report</span><span class="o">.</span><span class="n">world_up_source</span>      <span class="c1"># 'set', 'first_frame', 'rest_up' or 'default'</span>
+<a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a><span class="n">bvh</span><span class="o">.</span><span class="n">orientation_report</span><span class="o">.</span><span class="n">rest_forward_source</span>  <span class="c1"># 'lr_geometry' or 'default'</span>
+<a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a>
+<a id="__codelineno-14-14" name="__codelineno-14-14" href="#__codelineno-14-14"></a><span class="c1"># Suppress disagreement warning for bulk processing</span>
+<a id="__codelineno-14-15" name="__codelineno-14-15" href="#__codelineno-14-15"></a><span class="n">clips</span> <span class="o">=</span> <span class="n">pybvh</span><span class="o">.</span><span class="n">read_bvh_directory</span><span class="p">(</span><span class="s2">"dataset/"</span><span class="p">,</span> <span class="n">warn_on_world_up_disagreement</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</code></pre></div>
+<div class="admonition info">
+<p class="admonition-title">See also</p>
+<p><a href="../core-concepts/">Core Concepts</a> — the index spaces and <code>centered</code> modes this page's conventions feed into · <a href="../../api/transforms/">Transforms API</a> — the reorientation functions at array level · <a href="../../gallery/">Gallery</a> — the orientation triple and reorientation drawn (section 2)</p>
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../core-concepts/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Core Concepts">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Core Concepts
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../rotations/" class="md-footer__link md-footer__link--next" aria-label="Next: Rotation Representations &amp; SE(3)">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Rotation Representations & SE(3)
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "navigation.footer", "toc.follow", "search.suggest", "search.highlight", "content.code.copy"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

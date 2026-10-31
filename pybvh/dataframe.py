@@ -266,7 +266,7 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
         )
     nodes = _nodes_from_table_or_list(hier, "hier")
     time_label = _time_label(df)
-    time_values = df[time_label].to_numpy()
+    time_values = df[time_label].to_numpy(dtype=np.float64)
     frames = _motion_columns(nodes, df).to_numpy()
 
     if len(time_values) < 2:

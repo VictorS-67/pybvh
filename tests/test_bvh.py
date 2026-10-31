@@ -992,6 +992,16 @@ class TestDataFrameConversion:
 
         assert rebuilt.frame_time == 1 / 29.97
 
+    def test_a_time_column_of_object_dtype_is_read_as_numbers(self, bvh_example, from_df):
+        """A column pandas holds as Python objects, as after an
+        ``astype(object)`` or a concat with a column of mixed types."""
+        df = pd.DataFrame(bvh_example.to_df_dict(mode="euler"))
+        df["time"] = df["time"].astype(object)
+
+        rebuilt = from_df(bvh_example.nodes, df)
+
+        assert rebuilt.frame_time == bvh_example.frame_time
+
     def test_a_rate_with_three_decimals_is_not_moved_to_a_whole_one(self, bvh_example, from_df):
         """1/124.988 is 9.6e-5 from 1/125: the former 1e-4 snap moved it."""
         clip = bvh_example.resample(124.988)

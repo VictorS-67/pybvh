@@ -18,7 +18,7 @@ from .bvh import Bvh
 from .features import to_feature_array
 from .io import _bvh_from_parsed, _extract_bvh_file_info, _ParsedBvh
 from .node_tree import _channel_difference, _hierarchy_difference, _NodeTreeDifference
-from .tools import _require_rate
+from .tools import _matches_fps, _require_rate, _validate_fps
 
 
 @dataclass
@@ -50,6 +50,9 @@ class HarmonizeReport:
         ``"retarget"``, ``"resample"``, ``"world_up"``, ``"rest_up"``,
         ``"rest_forward"``, ``"euler_order"``. Empty dict means the clip
         passed the gate without needing any transformation.
+        ``"resample"`` records an interpolation only: a clip that already
+        has ``target_fps``'s rate and only takes its exact frame time has
+        no ``"resample"`` key.
     """
 
     kept_indices: list[int] = field(default_factory=list)
@@ -264,7 +267,10 @@ def harmonize(
        the clip is dropped or raises per ``on_incompatible``.
     2. **Bone-proportion retargeting** to ``reference`` (if provided).
     3. **Frame-rate resampling** to ``target_fps`` (if provided and the
-       clip's current fps differs by more than ``0.01``).
+       clip does not already have that rate by
+       :meth:`Bvh.matches_rate`'s rule, frame times within a relative
+       ``2e-6``). A clip that has it is not interpolated; it takes the
+       frame time ``1 / target_fps`` exactly.
     4. **World-up reorientation** to ``target_world_up`` (if provided
        and ``bvh.world_up != target_world_up``).  Rotates the entire
        scene — affects offsets, root_pos, and the ``world_up`` flag.
@@ -301,8 +307,11 @@ def harmonize(
         to differ since retargeting will overwrite them next).
         Kept clips are then retargeted to ``reference``'s bone offsets.
     target_fps : float or None
-        Target frame rate in Hz. Clips whose fps differs by more than
-        ``0.01`` are resampled via quaternion SLERP.
+        Target frame rate in Hz. Clips without this rate by
+        :meth:`Bvh.matches_rate`'s rule are resampled via quaternion
+        SLERP. The others keep their samples. Every kept clip leaves
+        with the frame time ``1 / target_fps``, the one
+        ``bvh.fps = target_fps`` sets, so the results join.
     target_world_up : str or None
         Signed-axis string (``'+y'``, ``'-z'``, ...). Clips whose
         ``world_up`` differs are rotated via ``reorient_world_up``.
@@ -349,11 +358,14 @@ def harmonize(
     ValueError
         If ``on_incompatible`` is not one of the accepted values, if
         ``on_incompatible='raise'`` and a clip mismatches ``reference``,
-        or if ``target_fps`` is given and a clip's ``frame_time`` is 0
+        if ``target_fps`` is not a positive finite number, or if
+        ``target_fps`` is given and a clip's ``frame_time`` is 0
         (unset).
     """
     if on_incompatible not in ("drop", "raise"):
         raise ValueError(f"on_incompatible must be 'drop' or 'raise', got {on_incompatible!r}")
+    if target_fps is not None:
+        _validate_fps(target_fps, "target_fps")
 
     report = HarmonizeReport()
     out: list[Bvh] = []
@@ -381,10 +393,14 @@ def harmonize(
             stages["retarget"] = "applied"
         if target_fps is not None:
             _require_rate(b.frame_time, "harmonize()", index=i)
-            if abs(1.0 / b.frame_time - target_fps) > 1e-2:
-                old_fps = 1.0 / b.frame_time
+            if b.frame_time != 1.0 / target_fps:
+                # resample keeps the samples of a clip of the same rate and
+                # only relabels it; the report records an interpolation.
+                interpolates = not _matches_fps(b.frame_time, target_fps, "target_fps")
+                old_fps = b.fps
                 b = b.resample(target_fps)
-                stages["resample"] = f"{old_fps:.4g}→{target_fps:.4g}"
+                if interpolates:
+                    stages["resample"] = f"{old_fps:.4g}→{target_fps:.4g}"
         if target_world_up is not None and b.world_up != target_world_up:
             old_world_up = b.world_up
             b = b.reorient_world_up(target_world_up)

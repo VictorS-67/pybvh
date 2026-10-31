@@ -54,7 +54,7 @@ CI checks that the code cells are formatted. `ruff format --check .` reads each 
 
 Do not let ruff write a notebook itself, for two reasons:
 
-- it would leave the twin behind.
+- it would not update the twin.
 - its JSON writer rounds some floats of the saved widget state in their last digit.
 
 Once the pair is in sync, let ruff format a copy. Then restore only the sources, through the twin:

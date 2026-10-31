@@ -13,7 +13,7 @@ Supported representations: `"euler"`, `"quat"`, `"6d"`, `"axisangle"`, `"rotmat"
 
 When `pad=False` (the default), `batch_to_numpy` returns a list of arrays with different frame counts. When `pad=True`, it zero-pads to the longest clip. Then it returns a single `(B, F_max, D)` array.
 
-For datasets with occasional corrupt files, pass `skip_errors=True`. Then `read_bvh_directory` emits a `UserWarning` for each failing load, and it skips that file. A failing load does not crash the whole call.
+For datasets with occasional corrupt files, pass `skip_errors=True`. Then `read_bvh_directory` emits a `UserWarning` for each failing load. It skips that file. A failing load does not crash the whole call.
 
 ## Harmonizing datasets
 

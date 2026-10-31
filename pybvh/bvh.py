@@ -76,6 +76,7 @@ from .spatial_coord import (
 from .tools import (
     Axis,
     _axis_to_vector,
+    _require_rate,
     _validate_axis_string,
     _validate_fps,
     _validate_frame_time,
@@ -3148,9 +3149,11 @@ class Bvh:
         Raises
         ------
         ValueError
-            If ``target_fps`` is not a positive finite number.
+            If ``target_fps`` is not a positive finite number, or the
+            clip's ``frame_time`` is 0 (unset), whatever its length.
         """
         _validate_fps(target_fps, name="target_fps")
+        _require_rate(self.frame_time, "resample()")
 
         new_freq = 1.0 / target_fps
         if self.frame_count < 2:

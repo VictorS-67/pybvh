@@ -79,6 +79,40 @@ def _validate_frame_time(value: float) -> None:
         )
 
 
+def _require_rate(
+    frame_time: float,
+    operation: str,
+    *,
+    in_frames: bool = False,
+    alternative: str | None = None,
+    index: int | None = None,
+) -> None:
+    """Raise ``ValueError`` when an operation needs a rate the clip lacks.
+
+    The one refusal of an unset clip (``frame_time`` 0) wherever pybvh
+    needs a rate: an unset clip is legal, and only its use is refused.
+    The message names ``operation`` (``"resample()"``) and the way out:
+    set ``bvh.frame_time`` or ``bvh.fps``, or pass ``in_frames=True``
+    when ``in_frames`` says the operation offers it, or ``alternative``
+    (a phrase that follows "or") when it offers another way. ``index``
+    names the clip of several that lacks the rate ("the frame rate of
+    the clip at index 2"). It lives here, and takes the frame time rather than the
+    ``Bvh``, so that ``bvh``, ``batch`` and ``bvhplot`` share it without
+    an import cycle.
+    """
+    if frame_time != 0:
+        return
+    needed = (
+        "the clip's frame rate" if index is None else f"the frame rate of the clip at index {index}"
+    )
+    way_out = "Set bvh.frame_time (or bvh.fps)"
+    if in_frames:
+        way_out += ", or pass in_frames=True for per-frame units"
+    if alternative is not None:
+        way_out += f", or {alternative}"
+    raise ValueError(f"{operation} needs {needed}, but its frame_time is 0 (unset). {way_out}.")
+
+
 def _validate_fps(value: float, name: str = "fps") -> None:
     """Raise ``ValueError`` unless ``value`` is a positive finite frame rate.
 

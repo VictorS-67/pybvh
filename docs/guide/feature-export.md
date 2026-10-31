@@ -11,9 +11,9 @@ data = batch_to_numpy(clips, representation="6d", pad=True)  # (B, F_max, D)
 
 Supported representations: `"euler"`, `"quat"`, `"6d"`, `"axisangle"`, `"rotmat"`.
 
-When `pad=False` (default), returns a list of arrays with different frame counts. When `pad=True`, zero-pads to the longest clip and returns a single `(B, F_max, D)` array.
+When `pad=False` (the default), `batch_to_numpy` returns a list of arrays with different frame counts. When `pad=True`, it zero-pads to the longest clip. Then it returns a single `(B, F_max, D)` array.
 
-For datasets with occasional corrupt files, pass `skip_errors=True` — failing loads emit a `UserWarning` and are skipped rather than crashing the whole call.
+For datasets with occasional corrupt files, pass `skip_errors=True`. Then a failing load emits a `UserWarning` and is skipped. It does not crash the whole call.
 
 ## Harmonizing datasets
 
@@ -34,9 +34,12 @@ clips = batch.harmonize(
 )
 ```
 
-Any of `reference` / `target_fps` / `target_world_up` / `target_rest_up` / `target_rest_forward` / `target_euler_order` can be `None` to skip that stage. Stages run in the order `topology-gate → retarget → resample → world_up → rest_up → rest_forward → euler_order`. Clips that fail the topology gate against `reference` are either dropped with a single summary `UserWarning` at end of call or raise `ValueError` depending on `on_incompatible`.
+Any of `reference` / `target_fps` / `target_world_up` / `target_rest_up` / `target_rest_forward` / `target_euler_order` can be `None` to skip that stage. Stages run in the order `topology-gate → retarget → resample → world_up → rest_up → rest_forward → euler_order`. `on_incompatible` picks what happens to clips that fail the topology gate against `reference`:
 
-Pass `return_report=True` for a JSON-serializable `HarmonizeReport` describing every transformation applied to every kept clip:
+- They are dropped, with a single summary `UserWarning` at the end of the call.
+- Or they raise `ValueError`.
+
+Pass `return_report=True` to get a JSON-serializable `HarmonizeReport`. It describes every transformation applied to every kept clip:
 
 ```python
 clips, report = batch.harmonize(raw_clips, reference=reference,
@@ -56,11 +59,11 @@ metadata = json.dumps(dataclasses.asdict(report))
 
 For ad-hoc filtering without invoking `harmonize`, pybvh exposes three predicates on `Bvh`:
 
-- `a.matches_hierarchy(b)` — joint names, parent structure, and rest offsets match (within `atol`). Pass `match_offsets=False` to ignore bone proportions, e.g. when retargeting is about to overwrite them. Use this gate when batching to rotation-invariant representations (`'6d'`, `'quat'`, `'rotmat'`) where channel layout is irrelevant.
-- `a.matches_channels(b)` — per-joint Euler rotation orders and root position-channel order match. Use in addition to `matches_hierarchy` when batching to `'euler'` or `'axisangle'`, where the channel layout depends on the source Euler order.
-- `a.matches_topology(b)` — conjunction of both. Use when every aspect must align.
+- `a.matches_hierarchy(b)` is true when joint names, parent structure, and rest offsets match (within `atol`). To ignore bone proportions, pass `match_offsets=False`, for example when retargeting is about to overwrite them. Use this gate when you batch to rotation-invariant representations (`'6d'`, `'quat'`, `'rotmat'`), where channel layout is irrelevant.
+- `a.matches_channels(b)` is true when the per-joint Euler rotation orders and the root position-channel order match. Use it in addition to `matches_hierarchy` when you batch to `'euler'` or `'axisangle'`, where the channel layout depends on the source Euler order.
+- `a.matches_topology(b)` is the conjunction of both. Use it when every aspect must align.
 
-`batch_to_numpy` picks the right predicate automatically based on the requested representation, and emits actionable error messages (with `source_path` where available) when a clip diverges from the reference.
+`batch_to_numpy` picks the right predicate automatically, from the requested representation. When a clip diverges from the reference, it emits actionable error messages (with `source_path` where available).
 
 ## Motion features
 
@@ -80,7 +83,7 @@ traj = bvh.root_trajectory()             # (F, 4) ground pos + heading
 contacts = bvh.foot_contacts()  # (F, num_feet) binary labels
 ```
 
-Defaults are `stencil="central", pad="edge"` on the velocity-like functions — central differences at interior frames + one-sided at boundaries, output shape equals input. Pass `stencil="forward", pad="none"` for strict forward differences matching pre-v3 pybvh (`(F-1, ...)` / `(F-2, ...)`); `stencil="central", pad="none"` drops both boundaries symmetrically.
+On the velocity-like functions, the defaults are `stencil="central", pad="edge"`. They give central differences at interior frames and one-sided differences at the boundaries. The output shape equals the input shape. For strict forward differences that match pre-v3 pybvh (`(F-1, ...)` / `(F-2, ...)`), pass `stencil="forward", pad="none"`. `stencil="central", pad="none"` drops both boundaries symmetrically.
 
 | Feature | What it captures | Common use |
 |---------|-----------------|------------|
@@ -90,7 +93,7 @@ Defaults are `stencil="central", pad="edge"` on the velocity-like functions — 
 | **Root trajectory** | Ground-plane position (2D) + heading as sin/cos (2D) | Locomotion conditioning, path prediction |
 | **Foot contacts** | Binary per-frame indicators (combined velocity + height by default; see `method=`) | Contact-aware generation, foot skating loss |
 
-What the contact detector actually thresholds — foot speed and clearance above the floor, ANDed (green spans = detected stance):
+The figure shows what the contact detector actually thresholds: foot speed and clearance above the floor, ANDed. The green spans are the detected stance:
 
 ![Foot speed and clearance signals over a walking clip with their thresholds; green spans mark the detected stance phases where both signals sit below threshold](../gallery/img/foot-contacts.png)
 
@@ -98,7 +101,7 @@ For root-relative positions, use `bvh.node_positions(centered='skeleton')`.
 
 ## One-stop feature export
 
-Combines rotations, velocities, and foot contacts into a single flat array:
+`to_feature_array()` combines rotations, velocities, and foot contacts into a single flat array:
 
 ```python
 features = bvh.to_feature_array(
@@ -108,19 +111,19 @@ features = bvh.to_feature_array(
 )  # (F, D) flat array under default stencil="central", pad="edge"
 ```
 
-Use `bvh.feature_array_layout(...)` to get `{block_name: slice}` for unpacking the flat array back into `root_pos` / `rotations` / `velocities` / `foot_contacts` blocks — this is the column layout of the exact call above:
+`bvh.feature_array_layout(...)` gives `{block_name: slice}`. Use it to unpack the flat array back into `root_pos` / `rotations` / `velocities` / `foot_contacts` blocks. The figure shows the column layout of the exact call above:
 
 ![Column-band diagram of the feature array: root_pos, rotations, velocities, and foot_contacts blocks with their widths](../gallery/img/feature-layout.png)
 
 ## Normalization
 
-Per-channel z-score normalization (dataset mean/std statistics, apply, reverse) is an ML-pipeline concern and moved to [pybvh-ml](https://github.com/VictorS-67/pybvh-ml) in v0.8.0:
+Per-channel z-score normalization (dataset mean/std statistics, apply, reverse) is an ML-pipeline concern. It moved to [pybvh-ml](https://github.com/VictorS-67/pybvh-ml) in v0.8.0:
 
 ```python
 from pybvh_ml import compute_normalization_stats, normalize_array, denormalize_array
 ```
 
-The functions behave exactly as they used to in `pybvh.batch` — same stats dict (`mean`, `std`, `constant_channels`), same z-score math.
+The functions behave exactly as they did in `pybvh.batch`. The stats dict (`mean`, `std`, `constant_channels`) and the z-score math are the same.
 
 ## Skeleton metadata
 

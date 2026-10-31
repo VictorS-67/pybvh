@@ -11,18 +11,35 @@ this module only reads the DataFrame it is given.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Hashable, Mapping, Sequence
+from fractions import Fraction
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 
 from .bvh import Bvh, _motion_column_names
 from .bvhnode import BvhNode
-from .io import _snap_frame_time
+from .io import _rate_with_fewest_decimals
 from .node_tree import _nodes_from_table_or_list
 
 if TYPE_CHECKING:
     import pandas as pd
+
+
+#: The window in which ``df_to_bvh`` looks for a table's rate: a measured
+#: frame time is recovered as ``1 / rate`` when a rate lies within this
+#: fraction of it. It stands in for the decimals a ``Frame Time`` prints,
+#: which a table does not keep; ``df_to_bvh``'s Notes give the spans of a
+#: 6-decimal table it serves. 5e-7 is half the gap between ``1 / 29.97``
+#: and NTSC's ``1001 / 30000``, 1e-6 of the larger, so an NTSC table
+#: measured within 5e-7 never holds ``1 / 29.97`` in its window: at 1e-6,
+#: the gap itself, an NTSC table whose rounding raised its measured frame
+#: time came back as ``1 / 29.97``, and one of another length kept its
+#: measured value. For the same reason it is not
+#: :data:`~pybvh.tools._SAME_RATE_RTOL`, 2e-6.
+_RATE_RECOVERY_RTOL = 5e-7
 
 
 _SUFFIX_RULE = (
@@ -30,6 +47,38 @@ _SUFFIX_RULE = (
     "node order, the first keeping its name, as pandas labels repeated CSV "
     "headers"
 )
+
+
+def _frame_time_from_times(times: npt.NDArray[Any], label: Hashable) -> float:
+    """The frame time the ``time`` column *times*, labelled *label*, means.
+
+    A column of NaN on every row is an unset clip's and gives 0; a
+    column whose first and last values are equal raises ``ValueError``.
+    Otherwise the measured frame time goes through the reader's rule
+    with :data:`_RATE_RECOVERY_RTOL` as the window, as
+    :func:`df_to_bvh` states for the user.
+    """
+    # The table of an unset clip: Bvh.to_df_dict gives it NaN times.
+    if np.isnan(times).all():
+        return 0.0
+    measured = float((times[-1] - times[0]) / (len(times) - 1))
+    if measured == 0:
+        raise ValueError(
+            f"The {label!r} column gives no frame time: its first and last values "
+            f"are both {times[0]}. A clip without a frame time has NaN times, as "
+            "Bvh.to_df_dict gives an unset clip."
+        )
+    # Only a positive finite value has a rate to recover; a negative or
+    # non-finite one is returned unchanged for the frame_time rule to reject.
+    if not (math.isfinite(measured) and measured > 0):
+        return measured
+    exact = Fraction(measured)
+    rate = _rate_with_fewest_decimals(
+        exact * (1 - Fraction(_RATE_RECOVERY_RTOL)), exact * (1 + Fraction(_RATE_RECOVERY_RTOL))
+    )
+    if rate is None:
+        return measured
+    return 1 / float(rate)
 
 
 def _time_label(df: pd.DataFrame) -> Hashable:
@@ -148,24 +197,44 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
         column, lacks a column the hierarchy expects (the message lists
         every missing label and, when *df* has repeated labels, states
         how repeated node names are labelled) or lists an expected label
-        more than once; if *df* has fewer than two rows, or the frame
-        time derived from its ``time`` column is not finite.
+        more than once; if *df* has fewer than two rows, if the first
+        and last values of its ``time`` column are equal (the message
+        names the column), or if the frame time derived from it is not
+        finite.
 
     Notes
     -----
     The DataFrame's ``_rot`` columns are in **degrees** — the human-readable convention used by :meth:`Bvh.to_df_dict` output. ``df_to_bvh`` converts them to the radians held on :attr:`Bvh.joint_angles`; feed this function degrees even though the rest of the pybvh API works in radians.
 
-    The frame time is the elapsed time of the ``time`` column divided
-    by its number of intervals, so a first timestamp other than zero
-    does not matter and uneven intervals are averaged rather than
-    refused, and it is snapped to an exact ``1 / N`` when within 0.01%
-    of one, as :func:`read_bvh_file` snaps a truncated ``Frame Time``:
-    any integer rate comes back exact, so a ``time`` column written at
-    six decimals for a 30 fps clip gives ``1 / 30`` exactly, and a
-    non-integer rate such as 23.976 fps is kept as measured. A clip
-    that goes out through :meth:`Bvh.to_df_dict` and back therefore
-    keeps its skeleton exactly and its motion within float precision,
-    the degrees conversion being the one step applied to the angles.
+    The frame time is the elapsed time of the ``time`` column divided by
+    its number of intervals, so a first timestamp other than zero does
+    not matter and uneven intervals are averaged rather than refused. A
+    ``time`` column saved at a few decimals leaves that frame time a
+    little off its clip's rate, so the rate is recovered by the rule
+    :func:`~pybvh.read_bvh_file` applies to a truncated ``Frame Time``
+    (its Notes state it), with one difference: a table keeps no printed
+    decimals, so the rate's frame time must lie within a relative 5e-7
+    of the measured one, in place of the values a file's printed
+    decimals allow. A column saved at 6 decimals measures the frame time
+    within 5e-7 when it spans two seconds or more, or one second when
+    its first time is 0, as :meth:`Bvh.to_df_dict` writes it: only the
+    last time then carries the rounding. A 30, 120 or 29.97 fps clip
+    that long comes back at exactly ``1 / 30``, ``1 / 120`` or
+    ``1 / 29.97``; a shorter one, or fewer decimals, may keep the
+    measured value. NTSC's exact ``1001 / 30000`` is not the frame time
+    of a rate with up to 3 decimals, so a clip at that frame time comes
+    back from a table saved at 6 decimals at its measured frame time:
+    when that long, within 5e-7 of ``1001 / 30000``, so never as
+    ``1 / 29.97``, which is 1.000001e-6 from it. A clip that goes out through :meth:`Bvh.to_df_dict` and
+    back therefore keeps its skeleton exactly, its motion within float
+    precision, the degrees conversion being the one step applied to the
+    angles, and its rate within 5e-7.
+
+    A ``time`` column of NaN on every row reads back as an unset clip
+    (``frame_time`` 0): it is what :meth:`Bvh.to_df_dict` gives a clip
+    without a frame time. A column whose first and last values are
+    equal is refused rather than read as unset, since it states times
+    that do not move rather than no times.
 
     Columns bind by label, not by position. The alternative, reading
     the motion columns in the order they come, would accept a frame
@@ -193,7 +262,8 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
             "bvh.nodes. See the CHANGELOG for the migration."
         )
     nodes = _nodes_from_table_or_list(hier, "hier")
-    time_values = df[_time_label(df)].to_numpy()
+    time_label = _time_label(df)
+    time_values = df[time_label].to_numpy(dtype=np.float64)
     frames = _motion_columns(nodes, df).to_numpy()
 
     if len(time_values) < 2:
@@ -201,9 +271,7 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
             f"df must contain at least 2 rows to derive the frame time "
             f"from the 'time' column (got {len(time_values)})"
         )
-    # Elapsed time over frame intervals — robust to a nonzero first timestamp.
-    frame_time = float((time_values[-1] - time_values[0]) / (len(time_values) - 1))
-    frame_time = _snap_frame_time(frame_time)
+    frame_time = _frame_time_from_times(time_values, time_label)
 
     num_joints = len([n for n in nodes if not n.is_end_site()])
     root_pos = frames[:, :3].astype(np.float64)

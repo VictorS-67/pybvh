@@ -4,8 +4,8 @@
 
 A BVH file has two sections:
 
-- **HIERARCHY** — defines a skeleton as a tree of joints. Each joint has an offset (bone vector from parent) and rotation channels (e.g., `Zrotation Yrotation Xrotation`). Leaf nodes called "End Sites" have only an offset.
-- **MOTION** holds the per-frame data: the number of frames (`Frames:`), the seconds per frame (`Frame Time:`), then one row of floats per frame. Its columns are the channels in the order the HIERARCHY declares them, depth-first: the root's six values (position and rotation) first, then three Euler angles for every joint other than the root.
+- **HIERARCHY** defines a skeleton as a tree of joints. Each joint has an offset (bone vector from parent) and rotation channels (e.g., `Zrotation Yrotation Xrotation`). Leaf nodes called "End Sites" have only an offset.
+- **MOTION** holds the per-frame data: the number of frames (`Frames:`), the seconds per frame (`Frame Time:`), then one row of floats per frame. Its columns are the channels, in the depth-first order in which the HIERARCHY declares them. The root's six values (position and rotation) come first. Then come three Euler angles for every joint other than the root.
 
 ## The Bvh object
 
@@ -26,8 +26,8 @@ A BVH file has two sections:
 
 pybvh has two index spaces:
 
-- **`node_index`** — includes end sites. Maps to `bvh.nodes`. Used by `node_positions()`.
-- **`joint_angles` index** — excludes end sites. Maps to `bvh.joint_names` and `bvh.joint_angles` axis 1. Used by `edges`, `euler_orders`, augmentation functions.
+- **`node_index`** includes end sites. It maps to `bvh.nodes`. `node_positions()` uses it.
+- The **`joint_angles` index** excludes end sites. It maps to `bvh.joint_names` and to axis 1 of `bvh.joint_angles`. `edges`, `euler_orders`, and augmentation functions use it.
 
 Most functions use the `joint_angles` index space. The docstring of each function specifies which space it expects.
 
@@ -37,9 +37,9 @@ Several functions accept a `centered` parameter:
 
 - `"world"` — positions as stored in the BVH file
 - `"skeleton"` — root forced to `(0, 0, 0)` every frame
-- `"first"` — ground-plane centering: the first frame's root position is subtracted in the two horizontal axes only (the `world_up` coordinate is untouched), so the motion starts above the origin at its original height
+- `"first"` — ground-plane centering. pybvh subtracts the first frame's root position in the two horizontal axes only. The `world_up` coordinate stays as it is. So the motion starts above the origin at its original height.
 
-One look makes the difference obvious — same walking clip, same frame, three coordinate frames (the blue trail is the root's path over the whole clip):
+One look makes the difference obvious. The figure shows the same walking clip and the same frame in three coordinate frames. The blue trail is the root's path over the whole clip:
 
 ![The three centered modes on a walking clip: world keeps file coordinates, first starts the path at the origin, skeleton pins the root so the trail collapses to a point](../gallery/img/centered-modes.png)
 

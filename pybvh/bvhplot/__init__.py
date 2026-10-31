@@ -45,7 +45,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .._warnings import user_stacklevel
-from ..tools import _require_rate
+from ..tools import _require_rate, _same_rate
 from . import _animation_options, _backends, _video
 from ._from_bvh import (
     as_clip_list,
@@ -219,14 +219,22 @@ def _match_frame_rates(
     if len(bvh_list) <= 1:
         return bvh_list
 
-    rates = [1.0 / b.frame_time for b in bvh_list if b.frame_time > 0]
-    unset = [i for i, b in enumerate(bvh_list) if b.frame_time == 0]
+    # The rule matches the unset frame time, 0, with 0 alone, so it finds
+    # the unset clips: no bvhplot module tests a frame time against 0.
+    is_unset = [_same_rate(b.frame_time, 0.0) for b in bvh_list]
+    unset = [i for i, u in enumerate(is_unset) if u]
+    frame_times = [b.frame_time for b, u in zip(bvh_list, is_unset, strict=True) if not u]
+    rates = [1.0 / ft for ft in frame_times]
     where_unset = f"{'indices' if len(unset) > 1 else 'index'} {', '.join(map(str, unset))}"
-    rates_agree = all(abs(r - rates[0]) < 0.5 for r in rates)
+    # The extremes agree only when every pair does.
+    rates_agree = not frame_times or _same_rate(min(frame_times), max(frame_times))
     if rates_agree and (not unset or not rates):
-        return bvh_list  # all close enough, or none has a rate to compare
+        return bvh_list  # the same rate, or none has a rate to compare
 
-    rate_strs = ", ".join(f"{r:.1f}" for r in rates)
+    # Seven significant digits resolve 1e-6 of a rate, so two rates
+    # beyond the rule's 2e-6 (tools._SAME_RATE_RTOL) never print alike
+    # ("29.97, 30").
+    rate_strs = ", ".join(f"{r:.7g}" for r in rates)
     if match_fps is None:
         if not unset:
             warnings.warn(

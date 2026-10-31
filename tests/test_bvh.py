@@ -1116,10 +1116,6 @@ class TestFileRoundTrip:
         )
         assert changed == []
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="the reader snaps a frame time within a relative 1e-4 of 1/N to 1/N (#140)",
-    )
     def test_written_random_frame_time_reads_back_unchanged(self, bvh_example, tmp_path):
         """Any frame time survives a write and a read, not only the rates people name."""
         random_frame_times = np.random.default_rng(140).uniform(0.001, 0.2, size=500).tolist()
@@ -2488,10 +2484,10 @@ class TestReadWriteReadEquality:
         assert bvh_rot_first == bvh_pos_first
         np.testing.assert_array_equal(bvh_rot_first.root_pos[0], [10.0, 50.0, -20.0])
 
-    def test_full_precision_frame_time_not_snapped(self):
-        """A non-integer-rate frame time is read verbatim — the 1/N snap only fires within 0.01% of an exact rate."""
+    def test_frame_time_truncated_at_13_decimals_reads_as_23_976_fps(self):
+        """``0.0417083750417`` is ``1 / 23.976`` truncated at 13 decimals, and 23.976 is the one rate with 3 decimals that fits."""
         bvh = read_bvh_file(PARSER_FIXTURES_DIR / "full_precision_frame_time.bvh")
-        assert bvh.frame_time == float("0.0417083750417")
+        assert bvh.frame_time == 1 / 23.976
 
     @pytest.mark.parametrize("literal", ["nan", "inf", "-inf"])
     def test_non_finite_frame_time_raises_naming_value_and_file(self, tmp_path, literal):
@@ -2569,6 +2565,94 @@ class TestReadWriteReadEquality:
         p.write_text(content)
         with pytest.raises(ValueError, match="position channels on non-root"):
             read_bvh_file(str(p))
+
+
+# =============================================================================
+# Test: the reader recovers the rate a truncating exporter meant
+# =============================================================================
+
+
+def _one_frame_file(path, frame_time_line):
+    """Write a one-joint, one-frame BVH file whose motion header has *frame_time_line*."""
+    path.write_text(
+        "HIERARCHY\n"
+        "ROOT Hips\n"
+        "{\n"
+        "  OFFSET 0.0 0.0 0.0\n"
+        "  CHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation\n"
+        "  End Site\n"
+        "  {\n"
+        "    OFFSET 0.0 10.0 0.0\n"
+        "  }\n"
+        "}\n"
+        "MOTION\n"
+        "Frames: 1\n"
+        f"{frame_time_line}"
+        "0 0 0 0 0 0\n"
+    )
+    return path
+
+
+# The rows of #140's table: the text an exporter printed, and the frame
+# time the reader recovers from it. A text is kept as read when several
+# rates with the fewest decimals fit it (0.008341: 119.88 and 119.89;
+# 0.017, 0.013, 0.03: several whole rates).
+FRAME_TIME_TEXT_READ_AS = [
+    ("0.008333", 1 / 120),
+    ("0.0083333", 1 / 120),
+    ("0.033333", 1 / 30),
+    ("0.0333", 1 / 30),
+    ("0.033", 1 / 30),
+    ("0.004166", 1 / 240),
+    ("0.004167", 1 / 240),
+    ("0.016667", 1 / 60),
+    ("0.033367", 1 / 29.97),
+    ("0.033366", 1 / 29.97),
+    ("0.03336670003", 1 / 29.97),
+    ("0.041708", 1 / 23.976),
+    ("0.016683", 1 / 59.94),
+    ("0.008341", 0.008341),
+    ("0.017", 0.017),
+    ("0.013", 0.013),
+    ("0.03", 0.03),
+]
+
+
+class TestFrameTimeRecovery:
+    """A truncated or rounded ``Frame Time`` reads at the rate its exporter meant, when only one rate fits."""
+
+    @pytest.mark.parametrize(
+        ("text", "frame_time"), FRAME_TIME_TEXT_READ_AS, ids=[t for t, _ in FRAME_TIME_TEXT_READ_AS]
+    )
+    def test_frame_time_text_reads_as(self, tmp_path, text, frame_time):
+        path = _one_frame_file(tmp_path / "clip.bvh", f"Frame Time: {text}\n")
+        assert read_bvh_file(path).frame_time == frame_time
+
+    @pytest.mark.parametrize("text", [t for t, _ in FRAME_TIME_TEXT_READ_AS])
+    def test_first_read_is_a_fixed_point_of_write_and_read(self, tmp_path, text):
+        """Only the first read may move a frame time: the file pybvh writes from it reads back unchanged."""
+        first_read = read_bvh_file(
+            _one_frame_file(tmp_path / "foreign.bvh", f"Frame Time: {text}\n")
+        )
+        first_write, second_write = tmp_path / "first.bvh", tmp_path / "second.bvh"
+        first_read.write(first_write)
+        second_read = read_bvh_file(first_write)
+        second_read.write(second_write)
+
+        def frame_time_line(path):
+            return next(ln for ln in path.read_text().splitlines() if ln.startswith("Frame Time:"))
+
+        assert second_read.frame_time == first_read.frame_time
+        assert frame_time_line(second_write) == frame_time_line(first_write)
+
+    def test_corpus_file_at_0_008333_reads_as_120_fps(self, bvh_test2):
+        """``bvh_test2.bvh`` says ``Frame Time: 0.008333``, ``1 / 120`` truncated at 6 decimals."""
+        assert bvh_test2.frame_time == 1 / 120
+
+    def test_missing_frame_time_line_raises(self, tmp_path):
+        path = _one_frame_file(tmp_path / "no_frame_time.bvh", "")
+        with pytest.raises(ValueError, match="frame time .* is missing or zero"):
+            read_bvh_file(path)
 
 
 # =============================================================================

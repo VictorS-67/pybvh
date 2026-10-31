@@ -36,16 +36,27 @@ _SUFFIX_RULE = (
 )
 
 
-def _frame_time_from_times(times: npt.NDArray[Any]) -> float:
-    """The frame time a ``time`` column means: the recovered rate's, or the measured one.
+def _frame_time_from_times(times: npt.NDArray[Any], label: Hashable) -> float:
+    """The frame time the ``time`` column *times*, labelled *label*, means.
 
-    The measured frame time goes through the reader's rule with
-    :data:`~pybvh.tools._SAME_RATE_RTOL` as the window, as
+    A column of NaN on every row is an unset clip's and gives 0; a
+    column whose first and last values are equal raises ``ValueError``.
+    Otherwise the measured frame time goes through the reader's rule
+    with :data:`~pybvh.tools._SAME_RATE_RTOL` as the window, as
     :func:`df_to_bvh` states for the user.
     """
+    # The table of an unset clip: Bvh.to_df_dict gives it NaN times.
+    if np.isnan(times).all():
+        return 0.0
     measured = float((times[-1] - times[0]) / (len(times) - 1))
-    # Only a positive finite value has a rate to recover; anything else is
-    # returned unchanged for the frame_time rule to reject or accept.
+    if measured == 0:
+        raise ValueError(
+            f"The {label!r} column gives no frame time: its first and last values "
+            f"are both {times[0]}. A clip without a frame time has NaN times, as "
+            "Bvh.to_df_dict gives an unset clip."
+        )
+    # Only a positive finite value has a rate to recover; a negative or
+    # non-finite one is returned unchanged for the frame_time rule to reject.
     if not (math.isfinite(measured) and measured > 0):
         return measured
     exact = Fraction(measured)
@@ -173,8 +184,10 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
         column, lacks a column the hierarchy expects (the message lists
         every missing label and, when *df* has repeated labels, states
         how repeated node names are labelled) or lists an expected label
-        more than once; if *df* has fewer than two rows, or the frame
-        time derived from its ``time`` column is not finite.
+        more than once; if *df* has fewer than two rows, if the first
+        and last values of its ``time`` column are equal (the message
+        names the column), or if the frame time derived from it is not
+        finite.
 
     Notes
     -----
@@ -203,6 +216,12 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
     being the one step applied to the angles, and its rate within
     1e-6.
 
+    A ``time`` column of NaN on every row reads back as an unset clip
+    (``frame_time`` 0): it is what :meth:`Bvh.to_df_dict` gives a clip
+    without a frame time. A column whose first and last values are
+    equal is refused rather than read as unset, since it states times
+    that do not move rather than no times.
+
     Columns bind by label, not by position. The alternative, reading
     the motion columns in the order they come, would accept a frame
     whose columns are in the file's order under any labels, and would
@@ -229,7 +248,8 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
             "bvh.nodes. See the CHANGELOG for the migration."
         )
     nodes = _nodes_from_table_or_list(hier, "hier")
-    time_values = df[_time_label(df)].to_numpy()
+    time_label = _time_label(df)
+    time_values = df[time_label].to_numpy()
     frames = _motion_columns(nodes, df).to_numpy()
 
     if len(time_values) < 2:
@@ -237,7 +257,7 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
             f"df must contain at least 2 rows to derive the frame time "
             f"from the 'time' column (got {len(time_values)})"
         )
-    frame_time = _frame_time_from_times(time_values)
+    frame_time = _frame_time_from_times(time_values, time_label)
 
     num_joints = len([n for n in nodes if not n.is_end_site()])
     root_pos = frames[:, :3].astype(np.float64)

@@ -985,6 +985,42 @@ class TestDataFrameConversion:
 
         np.testing.assert_allclose(rebuilt.frame_time, 1 / 100.0005, rtol=1e-12)
 
+    @pytest.mark.parametrize("mode", ["euler", "coordinates"])
+    def test_an_unset_clip_has_a_nan_time_column(self, mode):
+        """No frame time, no times; the other columns are those of a set clip."""
+        clip = self._make_underscored_bvh()
+        unset = clip.copy()
+        unset.frame_time = 0
+
+        columns = unset.to_df_dict(mode=mode)
+
+        assert np.isnan(columns["time"]).all()
+        assert len(columns["time"]) == clip.frame_count
+        expected = clip.to_df_dict(mode=mode)
+        assert list(columns) == list(expected)
+        for label in list(expected)[1:]:
+            np.testing.assert_array_equal(columns[label], expected[label])
+
+    def test_a_nan_time_column_reads_back_as_an_unset_clip(self, from_df):
+        unset = self._make_underscored_bvh()
+        unset.frame_time = 0
+        df = pd.DataFrame(unset.to_df_dict(mode="euler"))
+
+        rebuilt = from_df(unset.nodes, df)
+
+        assert rebuilt.frame_time == 0
+        np.testing.assert_allclose(rebuilt.joint_angles, unset.joint_angles, atol=1e-10)
+
+    def test_a_constant_time_column_is_refused(self, from_df):
+        """Times that do not move give no rate; NaN, not a constant, marks
+        an unset clip."""
+        clip = self._make_underscored_bvh()
+        df = pd.DataFrame(clip.to_df_dict(mode="euler")).rename(columns={"time": "Time"})
+        df["Time"] = 2.5
+
+        with pytest.raises(ValueError, match="'Time' column"):
+            from_df(clip.nodes, df)
+
     def test_df_to_bvh_nan_time_raises_frame_time_error(self, bvh_example):
         df = pd.DataFrame(bvh_example.to_df_dict(mode="euler", centered="world"))
         df.loc[df.index[-1], "time"] = float("nan")

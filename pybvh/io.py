@@ -455,7 +455,9 @@ def write_bvh_file(
     Raises
     ------
     ValueError
-        If the file extension is not ``.bvh``.
+        If the file extension is not ``.bvh``, or if ``bvh.frame_time``
+        is 0 (unset): a file must state its frame time, and
+        :func:`read_bvh_file` refuses ``Frame Time: 0``.
     FileNotFoundError
         If the parent directory does not exist.
     FileExistsError
@@ -490,6 +492,11 @@ def write_bvh_file(
     # check would already have destroyed the data it is meant to protect
     elif not overwrite and filepath.exists():
         raise FileExistsError(f"{filepath} already exists; pass overwrite=True to replace it.")
+    if bvh.frame_time == 0:
+        raise ValueError(
+            f"Cannot write {filepath.name}: the clip's frame_time is 0 (unset), and a "
+            "BVH file must state its frame time. Set bvh.frame_time (or bvh.fps) first."
+        )
 
     def offset_to_str(node: BvhNode) -> str:
         offset_str = "OFFSET"

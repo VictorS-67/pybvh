@@ -1128,6 +1128,25 @@ class TestFileRoundTrip:
         )
         assert changed == []
 
+    def test_write_unset_frame_time_raises_and_leaves_no_file(self, bvh_example, tmp_path):
+        """A file must state its frame time, and the reader refuses ``Frame Time: 0``."""
+        bvh_example.frame_time = 0
+        out = tmp_path / "unset.bvh"
+        with pytest.raises(
+            ValueError, match=r"frame_time is 0 \(unset\).*bvh\.frame_time.*bvh\.fps"
+        ):
+            bvh_example.write(out)
+        assert not out.exists()
+
+    def test_write_unset_frame_time_leaves_an_existing_file_intact(self, bvh_example, tmp_path):
+        """The refusal comes before ``open(..., "w")``, which would truncate the file."""
+        bvh_example.frame_time = 0
+        out = tmp_path / "previous_take.bvh"
+        out.write_text("previous take")
+        with pytest.raises(ValueError, match="frame_time is 0"):
+            bvh_example.write(out)
+        assert out.read_text() == "previous take"
+
     def test_write_to_invalid_extension_raises(self, bvh_example, tmp_path):
         with pytest.raises(ValueError, match=r"output\.txt is not a \.bvh file"):
             bvh_example.write(tmp_path / "output.txt")

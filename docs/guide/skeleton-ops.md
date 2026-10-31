@@ -101,7 +101,7 @@ A different joint count raises `ValueError`. So does a changed order, because th
 
 World up is inherited, set or guessed, as by every clip pybvh derives, because new offsets do not change which way is up. `edited.world_up = edited.world_up_inferred` guesses it from the new skeleton.
 
-To build a clip from a skeleton and motion that do not come from one clip, pass them to the constructor: `Bvh(nodes=nodes_from_table(table), root_pos=..., joint_angles=..., frame_time=...)`. Such a clip is built like a clip read from a file. It guesses its own world up, and it detects its L/R pairs from the joint names. To set them, pass `world_up=` or `lr_mapping=`.
+To build a clip from a skeleton and motion that do not come from one clip, pass them to the constructor: `Bvh(nodes=nodes_from_table(table), root_pos=..., joint_angles=..., frame_time=...)`. Such a clip is built like a clip read from a file. It guesses its own world up. It detects its L/R pairs from the joint names. To set them, pass `world_up=` or `lr_mapping=`.
 
 Nodes not yet handed to a `Bvh` stay editable. So a skeleton built by hand (nodes created, `parent`, `children` and `offset` set) works as before, as long as it is finished before it reaches `Bvh(...)`.
 

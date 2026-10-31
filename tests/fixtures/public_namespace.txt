@@ -138,7 +138,6 @@ pybvh.bvh.nodes_from_table
 pybvh.bvh.nodes_to_table
 pybvh.bvh.parse_axis
 pybvh.bvh.rotations
-pybvh.bvh.user_stacklevel
 
 pybvh.bvhnode.BvhEndSite
 pybvh.bvhnode.BvhJoint

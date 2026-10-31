@@ -47,10 +47,10 @@ def _validate_bvh_path(filepath: str | Path) -> Path:
     return filepath
 
 
-#: The library's one "same rate" tolerance, which #121 will use for
-#: ``Bvh.matches_rate``, the joins, ``harmonize`` and bvhplot: two frame
-#: times are the same rate when they differ by at most this fraction of
-#: the larger one.
+#: The library's one "same rate" tolerance: two frame times are the same
+#: rate when they differ by at most this fraction of the larger one.
+#: :func:`_same_rate` and :func:`_matches_fps` apply it, for
+#: ``Bvh.matches_rate`` and for every other comparison of rates.
 #: Relative, because the error a computation or a saved table leaves in a
 #: frame time scales with the frame time, so one tolerance serves 24 fps
 #: and 1000 fps alike. 2e-6, because a 29.97 fps file and an exact NTSC
@@ -79,6 +79,41 @@ def _validate_frame_time(value: float) -> None:
         )
 
 
+def _require_rate(
+    frame_time: float,
+    operation: str,
+    *,
+    offers_in_frames: bool = False,
+    alternative: str | None = None,
+    index: int | None = None,
+) -> None:
+    """Raise ``ValueError`` when an operation needs a rate the clip lacks.
+
+    The one refusal of an unset clip (``frame_time`` 0) for the
+    operations that need a rate: an unset clip is legal, and only its
+    use is refused. The message names ``operation`` (``"resample()"``)
+    and the way out: set ``bvh.frame_time`` or ``bvh.fps``, or pass
+    ``in_frames=True`` when ``offers_in_frames`` says the operation
+    takes it, or ``alternative`` (a phrase that follows "or") when it
+    offers another way. ``index`` names the clip of several that lacks
+    the rate ("the frame rate of the clip at index 2"). It lives here,
+    and takes the frame time rather than the ``Bvh``, so that any
+    module, ``batch`` and ``bvhplot`` included, can call it without an
+    import cycle.
+    """
+    if frame_time != 0:
+        return
+    needed = (
+        "the clip's frame rate" if index is None else f"the frame rate of the clip at index {index}"
+    )
+    way_out = "Set bvh.frame_time (or bvh.fps)"
+    if offers_in_frames:
+        way_out += ", or pass in_frames=True for per-frame units"
+    if alternative is not None:
+        way_out += f", or {alternative}"
+    raise ValueError(f"{operation} needs {needed}, but its frame_time is 0 (unset). {way_out}.")
+
+
 def _validate_fps(value: float, name: str = "fps") -> None:
     """Raise ``ValueError`` unless ``value`` is a positive finite frame rate.
 
@@ -89,6 +124,33 @@ def _validate_fps(value: float, name: str = "fps") -> None:
         raise ValueError(
             f"{name} must be a positive finite number of frames per second, got {value}"
         )
+
+
+def _same_rate(frame_time_a: float, frame_time_b: float) -> bool:
+    """Whether two frame times are the same rate, by the library's one rule.
+
+    They are when they differ by at most :data:`_SAME_RATE_RTOL` of the
+    larger. The rule gives the unset frame time, 0, its own answer: two
+    unset frame times match, and an unset one matches no set one.
+    """
+    return abs(frame_time_a - frame_time_b) <= _SAME_RATE_RTOL * max(frame_time_a, frame_time_b)
+
+
+def _matches_fps(frame_time: float, fps: float, name: str = "fps") -> bool:
+    """Whether a clip at ``frame_time`` has the rate ``fps``.
+
+    The frame time ``1 / fps``, which ``bvh.fps = fps`` sets, goes through
+    :func:`_same_rate`. An ``fps`` that is not a positive finite number
+    raises ``ValueError`` naming it *name*, as :func:`_validate_fps` does,
+    and so does one so small that ``1 / fps`` overflows, which the
+    ``fps`` setter refuses too: an infinite frame time would match every
+    clip.
+    """
+    _validate_fps(fps, name)
+    fps_frame_time = 1.0 / fps
+    if not math.isfinite(fps_frame_time):
+        raise ValueError(f"{name} is too small: its frame time, 1 / {name}, overflows, got {fps}")
+    return _same_rate(frame_time, fps_frame_time)
 
 
 # --------------------------------------------------------------------------------------------

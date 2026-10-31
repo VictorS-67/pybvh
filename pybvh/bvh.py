@@ -3182,8 +3182,11 @@ class Bvh:
         stretch the grid to land exactly on the final frame, giving
         ``round(duration · fps) + 1`` samples and an irregular last
         interval — keeps the endpoint at the cost of an inexact rate.
-        Clips shorter than two frames have nothing to interpolate and
-        simply adopt the new ``frame_time``.
+        A clip that already has the rate, by :meth:`matches_rate`'s rule
+        (frame times within a relative ``2e-6``), is not interpolated:
+        the result keeps its samples and takes ``1 / target_fps``, the
+        frame time ``bvh.fps = target_fps`` sets. So does a clip shorter
+        than two frames, which has nothing to interpolate.
 
         Parameters
         ----------
@@ -3205,8 +3208,9 @@ class Bvh:
         _require_rate(self.frame_time, "resample()")
 
         new_freq = 1.0 / target_fps
-        if self.frame_count < 2:
-            # Nothing to interpolate, but the clip still adopts the new rate.
+        if _matches_fps(self.frame_time, target_fps, "target_fps") or self.frame_count < 2:
+            # The clip already has the rate, or has nothing to interpolate:
+            # it keeps its samples and adopts the target's exact frame time.
             new_bvh = self.copy()
             new_bvh.frame_time = new_freq
             return new_bvh

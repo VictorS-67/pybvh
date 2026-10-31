@@ -2189,13 +2189,33 @@ class TestFrameSlicing:
             assert len(w) == 1
             assert "frame time mismatch" in str(w[0].message).lower()
 
-    def test_resample_identity(self, bvh_example):
-        """Resampling to the same fps should produce near-identical frames."""
-        original_fps = 1.0 / bvh_example.frame_time
-        result = bvh_example.resample(original_fps)
-        assert result.frame_count == bvh_example.frame_count
-        np.testing.assert_allclose(result.root_pos, bvh_example.root_pos, atol=1e-6)
-        np.testing.assert_allclose(result.joint_angles, bvh_example.joint_angles, atol=0.5)
+    def test_resample_to_own_rate_keeps_the_samples(self, bvh_example):
+        """Resampling to the clip's own rate interpolates nothing."""
+        result = bvh_example.resample(bvh_example.fps)
+        np.testing.assert_array_equal(result.root_pos, bvh_example.root_pos)
+        np.testing.assert_array_equal(result.joint_angles, bvh_example.joint_angles)
+        assert result.frame_time == bvh_example.frame_time
+
+    @pytest.mark.parametrize(
+        ("frame_time", "target_fps", "target_frame_time"),
+        [
+            # 1 / (1 / 0.013) is 0.013000000000000001.
+            (0.013, 1 / 0.013, 0.013000000000000001),
+            # An exact NTSC clip and 29.97 fps are the same rate.
+            (1001 / 30000, 29.97, 0.033366700033366704),
+        ],
+        ids=["rounding", "ntsc"],
+    )
+    def test_resample_within_rounding_keeps_the_samples_at_the_target_frame_time(
+        self, bvh_example, frame_time, target_fps, target_frame_time
+    ):
+        clip = bvh_example.copy()
+        clip.frame_time = frame_time
+        result = clip.resample(target_fps)
+        np.testing.assert_array_equal(result.root_pos, clip.root_pos)
+        np.testing.assert_array_equal(result.joint_angles, clip.joint_angles)
+        assert result.frame_time == target_frame_time
+        assert clip.frame_time == frame_time
 
     def test_resample_upsample(self, bvh_example):
         """Upsampling doubles frame count (approximately)."""

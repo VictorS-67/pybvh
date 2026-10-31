@@ -2246,7 +2246,7 @@ class TestUnsetFrameTime:
             bvhplot.play([bvh_test1[0:5], unset], backend="matplotlib", fps=10)
         message = " ".join(str(w.message) for w in record)
         assert "index 1" in message
-        assert "30.0 fps" in message
+        assert "(30 fps, and" in message
         assert not re.search(r"(?<![\d.])0\.0 fps", message)
         assert "match_fps='lowest'" not in message
 
@@ -2487,6 +2487,41 @@ class TestMatchFps:
         with pytest.warns(UserWarning, match="Frame rates differ"):
             bvhplot.play([bvh_30fps, bvh_120fps], backend="matplotlib", fps=60)
         assert self._played_rates(played) == pytest.approx([30.0, 120.0], rel=1e-4)
+
+    def test_warns_on_ntsc_against_30_with_the_rates_apart(self, bvh_30fps, played):
+        """29.97 and 30 fps are different rates (frame times 1e-3 apart),
+        and the warning prints them so that they read apart."""
+        ntsc = bvh_30fps.copy()
+        ntsc.fps = 29.97
+        with pytest.warns(UserWarning, match="Frame rates differ") as record:
+            bvhplot.play([ntsc, bvh_30fps], backend="matplotlib", fps=30)
+        message = " ".join(str(w.message) for w in record)
+        assert "(29.97, 30 fps)" in message
+
+    def test_highest_resamples_ntsc_to_30(self, bvh_30fps, played):
+        ntsc = bvh_30fps.copy()
+        ntsc.fps = 29.97
+        bvhplot.play([ntsc, bvh_30fps], backend="matplotlib", match_fps="highest", fps=30)
+        assert self._played_rates(played) == pytest.approx([30.0, 30.0], rel=1e-9)
+        # Interpolated, not relabelled: the two clips share their samples,
+        # so a relabelled copy would draw the 30 fps clip's poses.
+        ((scene, _),) = played
+        assert not np.array_equal(scene.views[0].coords, scene.views[1].coords)
+
+    @pytest.mark.parametrize("match_fps", [None, "lowest", "highest"])
+    def test_rounding_apart_neither_warns_nor_resamples(self, bvh_30fps, match_fps, played):
+        """Frame times 1e-7 apart, as float arithmetic leaves them, are one rate."""
+        import warnings
+
+        rounded = bvh_30fps.copy()
+        rounded.frame_time = bvh_30fps.frame_time * (1 + 1e-7)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            bvhplot.play([bvh_30fps, rounded], backend="matplotlib", match_fps=match_fps, fps=30)
+        ((scene, _),) = played
+        for view, clip in zip(scene.views, [bvh_30fps, rounded], strict=True):
+            assert view.frame_time == clip.frame_time
+            assert len(view.coords) == clip.frame_count
 
     def test_no_warning_when_same_fps(self, bvh_30fps, played):
         import warnings

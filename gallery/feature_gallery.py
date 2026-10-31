@@ -18,8 +18,8 @@
 #
 # One **picture per feature**, designed so that the figure *is* the explanation:
 #
-# - operations and geometric descriptors are drawn in 3D on the skeleton;
-# - dynamic descriptors are annotated on the signals they summarize;
+# - operations and geometric descriptors are drawn in 3D on the skeleton.
+# - dynamic descriptors are annotated on the signals they summarize.
 # - SE(3) transforms are drawn as coordinate frames.
 #
 # Where a real pose would obscure the idea, a small synthetic example is used instead. Sections 1-5 cover the core library (viewing, concepts, transforms, skeleton ops, export). Sections 6-12 cover the motion-descriptor layer introduced in pybvh 0.8.0.
@@ -95,7 +95,7 @@ ax.set_title("plot_sequence(n_poses=8) — lighter = earlier");
 # %% [markdown]
 # **`Style`** — every figure above uses the default preset `"paper"`: ground plane, per-chain colors, joint markers, axes off. All bvhplot functions take `style=`. Its value is either:
 #
-# - a preset name: `"paper"`, `"debug"` (the single-blue-with-full-axes look, for coordinate inspection), or `"dark"` (for slides and project pages);
+# - a preset name: `"paper"`, `"debug"` (the single-blue-with-full-axes look, for coordinate inspection), or `"dark"` (for slides and project pages).
 # - a `Style` instance overriding any field, e.g. `Style("paper", floor="checker", bone_width=4)`.
 
 # %%
@@ -131,8 +131,8 @@ ghost_gif = gp.ghost_trace_gif(walk[:240])
 # %% [markdown]
 # **`render(camera="turntable")`** — a full 360° orbit over the clip's duration. It is the standard way to show a motion from every side in one clip. Here it runs with `centered="skeleton"`, which pins the root so that the orbit is the only motion in frame. Export knobs that no still can show:
 #
-# - `supersample`: 2× anti-aliasing by default on the OpenCV backend;
-# - `codec="h264"`, for mp4s that play in a browser;
+# - `supersample`: 2× anti-aliasing by default on the OpenCV backend.
+# - `codec="h264"`, for mp4s that play in a browser.
 # - `frame_counter=True`, to stamp `Frame f/F` for review.
 
 # %% tags=["slow-on-pr"]
@@ -234,7 +234,7 @@ pybvh.bvhplot.frame([bvh, bvh.mirror()], frame=FRAME, labels=["original", "mirro
 # %% [markdown]
 # **`rotate_vertical`** & **`translate_root`** — yaw the whole motion about the up axis, and shift it by a constant offset. A yaw about the up axis is the one rotation that preserves ground contact. The top-down root paths show both at once:
 #
-# - the rotated path pivots 90° about the origin;
+# - the rotated path pivots 90° about the origin.
 # - the translated one is the same shape displaced.
 
 # %%
@@ -246,9 +246,9 @@ pybvh.bvhplot.trajectory(
 # %% [markdown]
 # **`add_rotation_noise`** — zero-mean Gaussian noise on the joint angles (σ in radians). Calibration on a human skeleton:
 #
-# - σ ≈ 0.5° is imperceptible sensor-level noise;
-# - σ ≈ 2° is a typical augmentation;
-# - σ ≈ 5° is clearly visible;
+# - σ ≈ 0.5° is imperceptible sensor-level noise.
+# - σ ≈ 2° is a typical augmentation.
+# - σ ≈ 5° is clearly visible.
 # - σ > 10° is destructive.
 
 # %%
@@ -346,7 +346,7 @@ walk_gif = gp.walk_clip_gif(walk)
 # %% [markdown]
 # **`foot_contacts`** — binary planted/swing labels per foot per frame. The default detector thresholds two signals and ANDs them (the HuMoR heuristic):
 #
-# - foot **speed** (slow enough?);
+# - foot **speed** (slow enough?).
 # - **clearance** above the estimated floor (low enough?).
 #
 # Each signal catches the other's failure mode. Here the call uses `adaptive=True`, the right setting for known locomotion. That setting splits each foot's speed threshold from its own speed. The height threshold is calibrated, as by default, to each foot's own level over the frames that the speed threshold calls slow. The green spans are the detected stance phases.

@@ -381,10 +381,10 @@ def harmonize(
             stages["retarget"] = "applied"
         if target_fps is not None:
             _require_rate(b.frame_time, "harmonize()", index=i)
-        if target_fps is not None and abs(1.0 / b.frame_time - target_fps) > 1e-2:
-            old_fps = 1.0 / b.frame_time
-            b = b.resample(target_fps)
-            stages["resample"] = f"{old_fps:.4g}→{target_fps:.4g}"
+            if abs(1.0 / b.frame_time - target_fps) > 1e-2:
+                old_fps = 1.0 / b.frame_time
+                b = b.resample(target_fps)
+                stages["resample"] = f"{old_fps:.4g}→{target_fps:.4g}"
         if target_world_up is not None and b.world_up != target_world_up:
             old_world_up = b.world_up
             b = b.reorient_world_up(target_world_up)

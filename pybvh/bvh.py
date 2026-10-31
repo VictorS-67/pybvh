@@ -3799,6 +3799,7 @@ class Bvh:
     ) -> npt.NDArray[np.float64]:
         """Per-frame movement phase (``speed · curvature``) of ``joint``.
 
+        Raises ``ValueError`` when the clip's ``frame_time`` is 0 (unset).
         See :func:`pybvh.geometry.movement_phase`."""
         from . import geometry
 
@@ -4016,7 +4017,8 @@ class Bvh:
         ``normalize`` (``"peak_speed"`` default, ``"mean_speed"`` or
         ``"amplitude"``) and ``amplitude``; ``"number_of_peaks"``
         accepts ``min_height`` (minimum height for a maximum to count;
-        default counts all). The remaining metrics take none."""
+        default counts all). The remaining metrics take none. Raises
+        ``ValueError`` when the clip's ``frame_time`` is 0 (unset)."""
         from . import analysis
 
         _require_rate(self.frame_time, "smoothness()")
@@ -4030,7 +4032,8 @@ class Bvh:
         """Scalar reductions of ``joint``'s speed profile (peak, mean, …).
 
         Computes the joint's per-frame speed ``‖velocity‖`` and reduces it
-        at sampling rate ``1 / frame_time``. See
+        at sampling rate ``1 / frame_time``, and raises ``ValueError``
+        when that ``frame_time`` is 0 (unset). See
         :func:`pybvh.analysis.velocity_reductions`."""
         from . import analysis
 

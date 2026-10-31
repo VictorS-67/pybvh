@@ -168,7 +168,7 @@ def node_velocities(
             f"to compute velocities (have {bvh.frame_count})."
         )
     if not in_frames:
-        _require_rate(bvh.frame_time, "node_velocities()", in_frames=True)
+        _require_rate(bvh.frame_time, "node_velocities()", offers_in_frames=True)
 
     if coords is None:
         coords = bvh.node_positions(centered=centered)
@@ -287,7 +287,7 @@ def node_accelerations(
             f"{min_frames} frames (have {bvh.frame_count})."
         )
     if not in_frames:
-        _require_rate(bvh.frame_time, "node_accelerations()", in_frames=True)
+        _require_rate(bvh.frame_time, "node_accelerations()", offers_in_frames=True)
 
     if coords is None:
         coords = bvh.node_positions(centered=centered)
@@ -424,7 +424,7 @@ def node_speed_derivative(
             f"{min_frames} frames (have {bvh.frame_count})."
         )
     if not in_frames:
-        _require_rate(bvh.frame_time, "node_speed_derivative()", in_frames=True)
+        _require_rate(bvh.frame_time, "node_speed_derivative()", offers_in_frames=True)
 
     vel = node_velocities(
         bvh, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
@@ -555,7 +555,7 @@ def angular_velocities(
             f"stencil={stencil!r} requires at least {min_frames} frames (have {bvh.frame_count})."
         )
     if not in_frames:
-        _require_rate(bvh.frame_time, "angular_velocities()", in_frames=True)
+        _require_rate(bvh.frame_time, "angular_velocities()", offers_in_frames=True)
 
     _, R = bvh.to_rotmat()  # (F, J, 3, 3)
     F = R.shape[0]
@@ -1726,7 +1726,7 @@ def node_jerk(
             f"{min_frames} frames (have {bvh.frame_count})."
         )
     if not in_frames:
-        _require_rate(bvh.frame_time, "node_jerk()", in_frames=True)
+        _require_rate(bvh.frame_time, "node_jerk()", offers_in_frames=True)
 
     if coords is None:
         coords = bvh.node_positions(centered=centered)

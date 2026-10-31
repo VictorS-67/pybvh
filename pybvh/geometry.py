@@ -39,17 +39,27 @@ from .signal import finite_difference
 
 _EPS = 1e-12
 
+# How many units of float64 round-off (machine epsilon times the trajectory's
+# largest coordinate) a per-frame derivative must exceed before curvature and
+# torsion treat it as motion. Finite differences of positions of size ``M``
+# carry round-off of a few ``eps * M``; 1e3 leaves a wide margin over that and
+# still sits orders of magnitude below the 1e-6 resolution of a BVH file's
+# six printed decimals, so the test does not depend on the clip's length unit.
+_ROUNDOFF_MARGIN = 1e3
+
 
 def _safe_ratio(
     numerator: npt.NDArray[np.float64],
     denominator: npt.NDArray[np.float64],
     fill: float = np.nan,
+    floor: float | npt.NDArray[np.float64] = _EPS,
 ) -> npt.NDArray[np.float64]:
     """``numerator / denominator``, returning ``fill`` where ``denominator``
-    is ~0. The division is computed against a guarded denominator (never
-    zero), so no divide-by-zero warning is ever raised — the zero-denominator
-    policy is enforced before the divide, not patched up after it."""
-    valid = denominator > _EPS
+    is ~0, i.e. at or below ``floor``. The division is computed against a
+    guarded denominator (never zero), so no divide-by-zero warning is ever
+    raised — the zero-denominator policy is enforced before the divide, not
+    patched up after it."""
+    valid = denominator > floor
     guarded = np.where(valid, denominator, 1.0)
     return np.where(valid, numerator / guarded, fill)
 
@@ -593,6 +603,21 @@ def _aligned_derivatives(
     return derivs
 
 
+def _roundoff_step(traj: npt.NDArray[np.float64]) -> float:
+    """The largest per-frame difference that is float round-off for ``traj``.
+
+    ``_ROUNDOFF_MARGIN * eps * max|traj|``: a per-frame derivative at or
+    below it is round-off for a trajectory of that size, not motion. It
+    scales with the trajectory, so a zero test built on it does not depend
+    on the length unit. Non-finite coordinates are left out of the size.
+    """
+    traj = np.asarray(traj, dtype=np.float64)
+    # finite coordinates only: a missing (NaN) frame stays local to the
+    # frames its stencil reaches instead of voiding every frame's test
+    size = float(np.max(np.abs(traj), initial=0.0, where=np.isfinite(traj)))
+    return _ROUNDOFF_MARGIN * float(np.finfo(np.float64).eps) * size
+
+
 def _speed_and_swept(
     traj: npt.NDArray[np.float64],
     frame_time: float,
@@ -626,9 +651,11 @@ def curvature(
     path is travelled, so it takes no frame time: a frame time ``h``
     scales ``‖ṗ × p̈‖`` by ``h⁻³`` and ``‖ṗ‖³`` by ``h⁻³``, which cancel.
     The derivatives are computed at a unit spacing, so the kernel works on
-    a clip with no rate set. The ~0 test is therefore per frame: ``np.nan``
-    where ``‖ṗ‖³ ≤ 1e-12``, i.e. where the point moves 1e-4 length units
-    or less per frame.
+    a clip with no rate set. The speed counts as ~0 where it is float
+    round-off for the trajectory's size: ``np.nan`` where the per-frame
+    ``‖ṗ‖ ≤ 1e3 · eps · max|traj|`` (``eps`` the float64 machine epsilon),
+    a bound that scales with the trajectory, so a clip in metres and the
+    same clip in centimetres give NaN on the same frames.
 
     Parameters
     ----------
@@ -651,7 +678,7 @@ def curvature(
     Source: Larboulette & Gibet, Gibet et al.
     """
     speed, swept = _speed_and_swept(traj, 1.0, stencil, pad)
-    return _safe_ratio(swept, speed**3)
+    return _safe_ratio(swept, speed**3, floor=_roundoff_step(traj) ** 3)
 
 
 def torsion(
@@ -669,8 +696,12 @@ def torsion(
     Torsion, like :func:`curvature`, depends on the path's shape alone,
     so it takes no frame time: a frame time ``h`` scales
     ``(ṗ × p̈) · p⃛`` by ``h⁻⁶`` and ``‖ṗ × p̈‖²`` by ``h⁻⁶``, which cancel.
-    The derivatives are computed at a unit spacing, so the ~0 test is per
-    frame: ``np.nan`` where ``‖ṗ × p̈‖² ≤ 1e-12``.
+    The derivatives are computed at a unit spacing. ``‖ṗ × p̈‖`` counts as
+    ~0 where the part of ``p̈`` normal to ``ṗ`` is float round-off for the
+    trajectory's size: ``np.nan`` where the per-frame
+    ``‖ṗ × p̈‖ ≤ ‖ṗ‖ · 1e3 · eps · max|traj|`` (``eps`` the float64 machine
+    epsilon), which covers a stationary point and a straight segment in any
+    direction, in any length unit.
 
     Parameters
     ----------
@@ -692,7 +723,10 @@ def torsion(
     swept = np.cross(d1, d2)
     twist = np.sum(swept * d3, axis=-1)
     swept_sq = np.sum(swept * swept, axis=-1)
-    return _safe_ratio(twist, swept_sq)
+    # ‖ṗ × p̈‖ = ‖ṗ‖ · (the part of p̈ normal to ṗ); that part is a bend
+    # only where it exceeds round-off, so the floor carries the speed
+    speed = np.linalg.norm(d1, axis=-1)
+    return _safe_ratio(twist, swept_sq, floor=(speed * _roundoff_step(traj)) ** 2)
 
 
 def movement_phase(

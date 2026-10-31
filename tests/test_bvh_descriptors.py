@@ -45,6 +45,18 @@ def test_curvature_and_torsion_work_on_an_unset_clip():
         np.testing.assert_allclose(unset.torsion(joint), timed.torsion(joint))
 
 
+@pytest.mark.parametrize("scale", [1.0, 0.01])
+def test_curvature_and_torsion_have_no_nan_on_a_moving_120_fps_clip(scale):
+    # every node of bvh_test3 moves on every frame, so no frame is undefined,
+    # in its own units or in metres (a slow joint at 120 fps moves little
+    # per frame, which a fixed per-frame epsilon took for a standstill)
+    bvh = read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "bvh_test3.bvh")
+    assert bvh.fps == 120
+    pos = bvh.node_positions() * scale
+    assert not np.isnan(geometry.curvature(pos)).any()
+    assert not np.isnan(geometry.torsion(pos)).any()
+
+
 def test_ground_path_matches_kernel():
     bvh = _bvh()
     idx = bvh.index("Head", space="node")

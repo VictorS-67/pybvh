@@ -272,7 +272,7 @@ Conversions to and from every representation (see [Choosing a Representation](..
 
 Timeline and skeleton editing (see the [Skeleton Operations guide](../guide/skeleton-ops.md)). Slicing and concatenation use plain Python syntax:
 
-- `bvh[10:50]` returns the frame range as a new `Bvh`;
+- `bvh[10:50]` returns the frame range as a new `Bvh`.
 - `bvh_a + bvh_b` concatenates two clips with matching skeletons.
 
 ::: pybvh.bvh.Bvh.resample

@@ -27,8 +27,8 @@ jupyter notebook
 
 Each tutorial is a [Jupytext](https://jupytext.readthedocs.io/)-paired pair of files:
 
-- a `.ipynb` file: the canonical rendered artifact, with outputs and plots;
-- a `.py` file in the [Percent format](https://jupytext.readthedocs.io/en/latest/formats-scripts.html#the-percent-format): the plain-text source. It is git-friendly, and you can review it as Python.
+- a `.ipynb` file: the canonical rendered artifact, with outputs and plots.
+- a `.py` file in the [Percent format](https://jupytext.readthedocs.io/en/latest/formats-scripts.html#the-percent-format): the plain-text source. It is git-friendly. You can review it as Python.
 
 Both files are committed. Both files mirror every cell: code, markdown, and cell-level tags such as `skip-execution` or `slow-on-pr`.
 
@@ -54,10 +54,10 @@ CI checks that the code cells are formatted. `ruff format --check .` reads each 
 
 Do not let ruff write a notebook itself, for two reasons:
 
-- it would leave the twin behind;
+- it would leave the twin behind.
 - its JSON writer rounds some floats of the saved widget state in their last digit.
 
-Once the pair is in sync, let ruff format a copy. Then bring back only the sources, through the twin:
+Once the pair is in sync, let ruff format a copy. Then restore only the sources, through the twin:
 
 ```bash
 for nb in tutorials/*.ipynb gallery/feature_gallery.ipynb; do
@@ -78,14 +78,14 @@ jupyter nbconvert --to notebook --execute --inplace tutorials/3.Rotations.ipynb
 
 Run it from the repository root. Cells tagged `skip-execution` are honoured automatically.
 
-Each plotting tutorial runs `%matplotlib inline` in its setup cell. The `.py` has it as `# %matplotlib inline`, and jupytext uncomments it into the notebook. **Leave it there.** Matplotlib picks its backend from the `MPLBACKEND` environment variable. CI sets `MPLBACKEND=Agg`, a non-interactive backend, for the headless runner. If that variable names a non-interactive backend, executing the notebook drops every figure and replaces it with a `FigureCanvasAgg is non-interactive` warning on stderr. The magic pins the inline backend regardless of the environment. So the same command produces the same figures on any machine.
+Each plotting tutorial runs `%matplotlib inline` in its setup cell. The `.py` has it as `# %matplotlib inline`. Jupytext uncomments it into the notebook. **Leave it there.** Matplotlib picks its backend from the `MPLBACKEND` environment variable. CI sets `MPLBACKEND=Agg`, a non-interactive backend, for the headless runner. If that variable names a non-interactive backend, executing the notebook drops every figure and replaces it with a `FigureCanvasAgg is non-interactive` warning on stderr. The magic pins the inline backend regardless of the environment. So the same command produces the same figures on any machine.
 
 `tests/test_tutorial_notebooks.py` enforces all of this:
 
-- the jupytext pair must match;
-- execution counts must be sequential 1..N;
-- the magic must be present in every tutorial that imports pyplot;
-- every `plt.show()` cell must carry a figure;
+- the jupytext pair must match.
+- execution counts must be sequential 1..N.
+- the magic must be present in every tutorial that imports pyplot.
+- every `plt.show()` cell must carry a figure.
 - no backend warning or traceback may reach the committed outputs.
 
 ### Animated clips: markdown images, never cell outputs
@@ -108,7 +108,7 @@ Never return `IPython.display.Image` from a cell, for two reasons. It is invisib
 
 `tests/test_tutorial_notebooks.py` and `tests/test_gallery_notebook.py` enforce both halves:
 
-- no `image/gif` cell outputs anywhere;
+- no `image/gif` cell outputs anywhere.
 - every markdown image uses an absolute `raw.githubusercontent.com` URL that resolves to a committed, non-gitignored file.
 
 ### Cell-level execution control on CI

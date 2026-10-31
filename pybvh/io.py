@@ -110,7 +110,16 @@ def read_bvh_file(
       frame time from a truncated one, :func:`write_bvh_file` writes all
       17 significant digits (its Notes say why): a clip whose
       ``frame_time`` is ``0.033`` is written ``0.033000000000000002``
-      and reads back as ``0.033``.
+      and reads back as ``0.033``. None of the other BVH readers
+      surveyed recovers a rate: those that use the value take the text
+      as printed, and one (fairmotion) rounds the rate to a whole
+      number. Where the rule recovers a rate, the printed value differs
+      from pybvh's by less than one unit of its last decimal
+      (``0.033333`` against ``1 / 30``); where it keeps the text, the
+      two agree. The rounded rate differs from pybvh's wherever pybvh's
+      is not whole (``0.033367`` gives 30 fps, ``0.017`` 59 fps), and,
+      in a file at 6 decimals, on some whole rates above 720 fps
+      (``0.001386`` gives 722 fps, where pybvh reads 721).
     - **Root channels are reordered** to position-first. A file
       declaring rotations before positions parses correctly but writes
       back in pybvh's canonical order.

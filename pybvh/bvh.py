@@ -402,11 +402,20 @@ class Bvh:
     def frame_time(self) -> float:
         """Seconds between successive frames.
 
-        A value of ``0`` means "unset" and is the default for newly
-        constructed empty :class:`Bvh` objects. Writing to a file
-        requires a positive value — :func:`~pybvh.io.write_bvh_file`
-        raises ``ValueError`` otherwise. Assigning a negative number,
-        NaN or infinity raises ``ValueError``.
+        ``0`` means "unset": it is the constructor's default, and any
+        clip may carry it, with or without frames. Most operations that
+        need a rate raise ``ValueError`` on an unset clip, and so does
+        :func:`~pybvh.io.write_bvh_file`, since a file must state its
+        frame time; :meth:`to_df_dict` gives it NaN times. Assigning a
+        negative number, NaN or infinity raises ``ValueError``.
+
+        A clip written by :func:`~pybvh.io.write_bvh_file` and read
+        back has the same frame time. A frame time read from another
+        writer's file may differ from its text, since
+        :func:`~pybvh.io.read_bvh_file` recovers a rate that the writer
+        truncated or rounded: ``0.033333`` reads as ``1 / 30`` and
+        ``0.033367`` as ``1 / 29.97``. The Notes of
+        :func:`~pybvh.io.read_bvh_file` give the rule.
         """
         return self._frame_time
 
@@ -421,8 +430,11 @@ class Bvh:
 
         Returns ``0.0`` when ``frame_time == 0`` (the "unset" sentinel)
         rather than raising, mirroring the behaviour of :meth:`__str__`.
-        Assigning sets ``frame_time`` to ``1 / fps``; the rate must be a
-        positive finite number, so ``0``, a negative rate, NaN and
+        Assigning sets ``frame_time`` to ``1 / fps``, the value
+        :func:`~pybvh.io.read_bvh_file` gives a file whose rate it
+        recovers: after ``bvh.fps = 29.97``, ``bvh.frame_time`` equals
+        the frame time read from ``Frame Time: 0.033367``. The rate must
+        be a positive finite number, so ``0``, a negative rate, NaN and
         infinity raise ``ValueError`` rather than mark the rate as unset.
 
         Examples

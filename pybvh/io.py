@@ -115,7 +115,8 @@ def read_bvh_file(
       declaring rotations before positions parses correctly but writes
       back in pybvh's canonical order.
     - **Offsets and motion values are written at 6 decimal places**
-      (frame time at full precision), so re-reading a written file
+      (the frame time at 17 significant digits, which reads back as
+      the same float), so re-reading a written file
       quantizes at ~1e-6 in the file's own units.
 
     Values pybvh infers or you set — ``world_up``, ``lr_mapping`` — have

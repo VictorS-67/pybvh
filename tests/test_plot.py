@@ -2498,6 +2498,16 @@ class TestMatchFps:
         message = " ".join(str(w.message) for w in record)
         assert "(29.97, 30 fps)" in message
 
+    def test_highest_resamples_ntsc_to_30(self, bvh_30fps, played):
+        ntsc = bvh_30fps.copy()
+        ntsc.fps = 29.97
+        bvhplot.play([ntsc, bvh_30fps], backend="matplotlib", match_fps="highest", fps=30)
+        assert self._played_rates(played) == pytest.approx([30.0, 30.0], rel=1e-9)
+        # Interpolated, not relabelled: the two clips share their samples,
+        # so a relabelled copy would draw the 30 fps clip's poses.
+        ((scene, _),) = played
+        assert not np.array_equal(scene.views[0].coords, scene.views[1].coords)
+
     @pytest.mark.parametrize("match_fps", [None, "lowest", "highest"])
     def test_rounding_apart_neither_warns_nor_resamples(self, bvh_30fps, match_fps, played):
         """Frame times 1e-7 apart, as float arithmetic leaves them, are one rate."""

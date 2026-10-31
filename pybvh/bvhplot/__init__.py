@@ -196,10 +196,12 @@ def _match_frame_rates(
 ) -> list[Bvh]:
     """Warn on frame-rate mismatch and optionally resample to a common rate.
 
-    A clip whose ``frame_time`` is 0 has no rate, not a rate of 0 fps:
-    rates are compared among the clips that have one, and the warning
-    names the others. The router's :func:`_require_frame_rates` has
-    refused such a clip before ``match_fps`` resamples.
+    Rates are compared by :meth:`Bvh.matches_rate`'s rule (frame times
+    within a relative 2e-6), so 29.97 and 30 fps differ. A clip whose
+    ``frame_time`` is 0 has no rate, not a rate of 0 fps: rates are
+    compared among the clips that have one, and the warning names the
+    others. The router's :func:`_require_frame_rates` has refused such a
+    clip before ``match_fps`` resamples.
 
     Parameters
     ----------
@@ -209,12 +211,14 @@ def _match_frame_rates(
         ``None`` — warn only, no resampling.
         ``"lowest"`` — resample all clips to the lowest frame rate.
         ``"highest"`` — resample all clips to the highest frame rate.
+        A clip that has the target rate keeps its samples
+        (:meth:`Bvh.resample`).
 
     Returns
     -------
     list[Bvh]
-        Possibly resampled clips (originals returned when no resampling
-        needed).
+        The input list when every clip has the same rate, or under
+        ``match_fps=None``; otherwise new clips, all at the target rate.
     """
     if len(bvh_list) <= 1:
         return bvh_list
@@ -262,13 +266,9 @@ def _match_frame_rates(
         raise ValueError(f"match_fps must be None, 'lowest', or 'highest', got {match_fps!r}")
 
     target_fps = min(rates) if match_fps == "lowest" else max(rates)
-    result = []
-    for b in bvh_list:
-        if abs(1.0 / b.frame_time - target_fps) < 0.5:
-            result.append(b)
-        else:
-            result.append(b.resample(target_fps))
-    return result
+    # resample() relabels a clip with the target's rate, by the rule, and
+    # interpolates the others, so every clip comes back at 1 / target_fps.
+    return [b.resample(target_fps) for b in bvh_list]
 
 
 def _warn_at_user_line(messages: Iterable[str]) -> None:
@@ -954,10 +954,12 @@ def render(
         pre-0.9.0 counter.
     match_fps : str or None, optional
         How to handle clips with different frame rates in side-by-side
-        rendering.  ``None`` (default) emits a warning but does not
+        rendering (different by :meth:`Bvh.matches_rate`'s rule, so
+        29.97 and 30 fps differ).  ``None`` (default) emits a warning but does not
         resample.  ``"lowest"`` resamples all clips to the lowest frame
         rate.  ``"highest"`` resamples all clips to the highest frame rate
-        (using SLERP interpolation for added frames). Resampling starts
+        (using SLERP interpolation for added frames); a clip that has
+        the target rate keeps its samples. Resampling starts
         from each clip's own rate, so a clip whose ``frame_time`` is 0
         (unset) raises ``ValueError`` under ``"lowest"`` or
         ``"highest"``, even when ``fps`` is given; under ``None`` the
@@ -1258,9 +1260,11 @@ def play(
         only backend that reads it (see *backend*). ``None`` (default)
         is ``False``; pass ``True`` to restore the pre-0.9.0 counter.
     match_fps : str or None, optional
-        How to handle clips with different frame rates.  ``None``
-        (default) emits a warning.  ``"lowest"`` or ``"highest"``
-        resamples all clips to match. Resampling starts from each
+        How to handle clips with different frame rates (different by
+        :meth:`Bvh.matches_rate`'s rule, so 29.97 and 30 fps differ).
+        ``None`` (default) emits a warning.  ``"lowest"`` or
+        ``"highest"`` resamples all clips to match; a clip that has the
+        target rate keeps its samples. Resampling starts from each
         clip's own rate, so a clip whose ``frame_time`` is 0 (unset)
         raises ``ValueError`` under ``"lowest"`` or ``"highest"``, even
         when ``fps`` is given; under ``None`` the warning names it.

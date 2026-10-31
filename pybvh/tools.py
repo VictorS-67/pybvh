@@ -47,9 +47,10 @@ def _validate_bvh_path(filepath: str | Path) -> Path:
     return filepath
 
 
-#: The library's one "same rate" tolerance, for ``Bvh.matches_rate``, the
-#: joins, ``harmonize`` and bvhplot (#121): two frame times are the same
-#: rate when they differ by at most this fraction of the larger one.
+#: The library's one "same rate" tolerance, which #121 will use for
+#: ``Bvh.matches_rate``, the joins, ``harmonize`` and bvhplot: two frame
+#: times are the same rate when they differ by at most this fraction of
+#: the larger one.
 #: Relative, because the error a computation or a saved table leaves in a
 #: frame time scales with the frame time, so one tolerance serves 24 fps
 #: and 1000 fps alike. 2e-6, because a 29.97 fps file and an exact NTSC

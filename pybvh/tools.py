@@ -47,10 +47,10 @@ def _validate_bvh_path(filepath: str | Path) -> Path:
     return filepath
 
 
-#: The library's one "same rate" tolerance, which #121 will use for
-#: ``Bvh.matches_rate``, the joins, ``harmonize`` and bvhplot: two frame
-#: times are the same rate when they differ by at most this fraction of
-#: the larger one.
+#: The library's one "same rate" tolerance: two frame times are the same
+#: rate when they differ by at most this fraction of the larger one.
+#: :func:`_same_rate` and :func:`_matches_fps` apply it, for
+#: ``Bvh.matches_rate`` and for every other comparison of rates.
 #: Relative, because the error a computation or a saved table leaves in a
 #: frame time scales with the frame time, so one tolerance serves 24 fps
 #: and 1000 fps alike. 2e-6, because a 29.97 fps file and an exact NTSC
@@ -89,6 +89,33 @@ def _validate_fps(value: float, name: str = "fps") -> None:
         raise ValueError(
             f"{name} must be a positive finite number of frames per second, got {value}"
         )
+
+
+def _same_rate(frame_time_a: float, frame_time_b: float) -> bool:
+    """Whether two frame times are the same rate, by the library's one rule.
+
+    They are when they differ by at most :data:`_SAME_RATE_RTOL` of the
+    larger. The rule gives the unset frame time, 0, its own answer: two
+    unset frame times match, and an unset one matches no set one.
+    """
+    return abs(frame_time_a - frame_time_b) <= _SAME_RATE_RTOL * max(frame_time_a, frame_time_b)
+
+
+def _matches_fps(frame_time: float, fps: float, name: str = "fps") -> bool:
+    """Whether a clip at ``frame_time`` has the rate ``fps``.
+
+    The frame time ``1 / fps``, which ``bvh.fps = fps`` sets, goes through
+    :func:`_same_rate`. An ``fps`` that is not a positive finite number
+    raises ``ValueError`` naming it *name*, as :func:`_validate_fps` does,
+    and so does one so small that ``1 / fps`` overflows, which the
+    ``fps`` setter refuses too: an infinite frame time would match every
+    clip.
+    """
+    _validate_fps(fps, name)
+    fps_frame_time = 1.0 / fps
+    if not math.isfinite(fps_frame_time):
+        raise ValueError(f"{name} is too small: its frame time, 1 / {name}, overflows, got {fps}")
+    return _same_rate(frame_time, fps_frame_time)
 
 
 # --------------------------------------------------------------------------------------------

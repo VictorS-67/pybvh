@@ -75,6 +75,7 @@ from .tools import (
     Axis,
     _axis_to_vector,
     _matches_fps,
+    _require_rate,
     _same_rate,
     _validate_axis_string,
     _validate_fps,
@@ -3226,9 +3227,11 @@ class Bvh:
         Raises
         ------
         ValueError
-            If ``target_fps`` is not a positive finite number.
+            If ``target_fps`` is not a positive finite number, or the
+            clip's ``frame_time`` is 0 (unset), whatever its length.
         """
         _validate_fps(target_fps, name="target_fps")
+        _require_rate(self.frame_time, "resample()")
 
         new_freq = 1.0 / target_fps
         if self.frame_count < 2:
@@ -3874,9 +3877,11 @@ class Bvh:
     ) -> npt.NDArray[np.float64]:
         """Per-frame movement phase (``speed · curvature``) of ``joint``.
 
+        Raises ``ValueError`` when the clip's ``frame_time`` is 0 (unset).
         See :func:`pybvh.geometry.movement_phase`."""
         from . import geometry
 
+        _require_rate(self.frame_time, "movement_phase()")
         traj = self._positions_or(coords)[:, self._descriptor_index(joint), :]
         return geometry.movement_phase(traj, self.frame_time, stencil, pad)
 
@@ -4090,9 +4095,11 @@ class Bvh:
         ``normalize`` (``"peak_speed"`` default, ``"mean_speed"`` or
         ``"amplitude"``) and ``amplitude``; ``"number_of_peaks"``
         accepts ``min_height`` (minimum height for a maximum to count;
-        default counts all). The remaining metrics take none."""
+        default counts all). The remaining metrics take none. Raises
+        ``ValueError`` when the clip's ``frame_time`` is 0 (unset)."""
         from . import analysis
 
+        _require_rate(self.frame_time, "smoothness()")
         vel = self.node_velocities(coords=coords)
         speed = np.linalg.norm(vel[:, self._descriptor_index(joint), :], axis=-1)
         value = analysis.smoothness(speed, 1.0 / self.frame_time, metric=metric, **kwargs)
@@ -4103,10 +4110,12 @@ class Bvh:
         """Scalar reductions of ``joint``'s speed profile (peak, mean, …).
 
         Computes the joint's per-frame speed ``‖velocity‖`` and reduces it
-        at sampling rate ``1 / frame_time``. See
+        at sampling rate ``1 / frame_time``, and raises ``ValueError``
+        when that ``frame_time`` is 0 (unset). See
         :func:`pybvh.analysis.velocity_reductions`."""
         from . import analysis
 
+        _require_rate(self.frame_time, "velocity_reductions()")
         vel = self.node_velocities(coords=coords)
         speed = np.linalg.norm(vel[:, self._descriptor_index(joint), :], axis=-1)
         return analysis.velocity_reductions(speed, 1.0 / self.frame_time)

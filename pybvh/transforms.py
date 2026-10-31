@@ -30,6 +30,7 @@ from .tools import (
     _AXIS_CHAR_TO_IDX,
     _axis_index_sign,
     _axis_to_vector,
+    _require_rate,
     _validate_axis_string,
 )
 
@@ -293,8 +294,7 @@ def perturb_speed(bvh: Bvh, factor: float) -> Bvh:
     """
     if factor <= 0:
         raise ValueError(f"factor must be > 0, got {factor}")
-    if bvh.frame_time <= 0:
-        raise ValueError("Cannot resample: frame_time is 0.")
+    _require_rate(bvh.frame_time, "perturb_speed()")
     original_fps = 1.0 / bvh.frame_time
     # Resample to fewer/more frames, then restore original frame rate.
     # factor > 1 → faster → fewer frames; factor < 1 → slower → more frames.

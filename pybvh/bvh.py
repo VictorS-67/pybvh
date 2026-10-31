@@ -402,11 +402,20 @@ class Bvh:
     def frame_time(self) -> float:
         """Seconds between successive frames.
 
-        A value of ``0`` means "unset" and is the default for newly
-        constructed empty :class:`Bvh` objects. Writing to a file
-        requires a positive value — :func:`~pybvh.io.write_bvh_file`
-        raises ``ValueError`` otherwise. Assigning a negative number,
-        NaN or infinity raises ``ValueError``.
+        ``0`` means "unset": it is the constructor's default, and any
+        clip may carry it, with or without frames. Most operations that
+        need a rate raise ``ValueError`` on an unset clip, and so does
+        :func:`~pybvh.io.write_bvh_file`, since a file must state its
+        frame time; :meth:`to_df_dict` gives it NaN times. Assigning a
+        negative number, NaN or infinity raises ``ValueError``.
+
+        A clip written by :func:`~pybvh.io.write_bvh_file` and read
+        back has the same frame time. A frame time read from another
+        writer's file may differ from its text, since
+        :func:`~pybvh.io.read_bvh_file` recovers a rate that the writer
+        truncated or rounded: ``0.033333`` reads as ``1 / 30`` and
+        ``0.033367`` as ``1 / 29.97``. The Notes of
+        :func:`~pybvh.io.read_bvh_file` give the rule.
         """
         return self._frame_time
 
@@ -421,8 +430,11 @@ class Bvh:
 
         Returns ``0.0`` when ``frame_time == 0`` (the "unset" sentinel)
         rather than raising, mirroring the behaviour of :meth:`__str__`.
-        Assigning sets ``frame_time`` to ``1 / fps``; the rate must be a
-        positive finite number, so ``0``, a negative rate, NaN and
+        Assigning sets ``frame_time`` to ``1 / fps``, the value
+        :func:`~pybvh.io.read_bvh_file` gives a file whose rate it
+        recovers: after ``bvh.fps = 29.97``, ``bvh.frame_time`` equals
+        the frame time read from ``Frame Time: 0.033367``. The rate must
+        be a positive finite number, so ``0``, a negative rate, NaN and
         infinity raise ``ValueError`` rather than mark the rate as unset.
 
         Examples
@@ -2124,6 +2136,10 @@ class Bvh:
         Each key is a column name, each value a 1-D NumPy array of
         length ``frame_count``. The first column is ``time``, each
         frame's time in seconds (its index times :attr:`frame_time`).
+        On an unset clip (``frame_time`` 0) every time is NaN, which
+        :meth:`from_df` reads back as an unset clip; zeros would read
+        back as a constant column, which it refuses, and raising would
+        refuse the motion of a clip that has no rate.
 
         Parameters
         ----------
@@ -2212,9 +2228,12 @@ class Bvh:
         self, columns: list[str], flat: npt.NDArray[np.float64]
     ) -> dict[str, npt.NDArray[np.float64]]:
         """``time``, then *columns* over the columns of *flat*."""
-        result: dict[str, npt.NDArray[np.float64]] = {
-            "time": np.arange(self.frame_count, dtype=np.float64) * self.frame_time
-        }
+        times: npt.NDArray[np.float64]
+        if self.frame_time == 0:
+            times = np.full(self.frame_count, np.nan)
+        else:
+            times = np.arange(self.frame_count, dtype=np.float64) * self.frame_time
+        result: dict[str, npt.NDArray[np.float64]] = {"time": times}
         result.update(zip(columns, flat.T, strict=True))
         return result
 

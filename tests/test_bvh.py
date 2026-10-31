@@ -7,6 +7,7 @@ Run with: python -m pytest tests/test_bvh.py -v
 
 import copy
 import dataclasses
+import io
 import pickle
 import re
 import sys
@@ -34,6 +35,7 @@ from pybvh import (
     read_bvh_directory,
     read_bvh_file,
     transforms,
+    write_bvh_file,
 )
 from pybvh.analysis import foot_contacts
 from pybvh.bvhnode import BvhEndSite, BvhJoint, BvhNode, BvhRoot
@@ -938,6 +940,123 @@ class TestDataFrameConversion:
             frame_time=1.0 / 30.0,
         )
 
+    @pytest.mark.parametrize("fps", [120.0, 30.0, 29.97])
+    def test_a_time_column_saved_at_six_decimals_keeps_the_clips_rate(
+        self, bvh_example, from_df, fps
+    ):
+        """The first time is 0 and the last is rounded by at most 5e-7 s:
+        over the 4.2 s clip, a frame time off by at most 1.2e-7 relative,
+        inside the 5e-7 window, so the clip's rate is recovered."""
+        clip = bvh_example.resample(fps)
+        csv = pd.DataFrame(clip.to_df_dict(mode="euler")).to_csv(index=False, float_format="%.6f")
+        df = pd.read_csv(io.StringIO(csv))
+
+        rebuilt = from_df(clip.nodes, df)
+
+        assert rebuilt.frame_time == 1 / fps
+
+    def test_an_exact_ntsc_clip_keeps_its_frame_time_through_a_table(self, bvh_example, from_df):
+        """1/29.97 is 1.000001e-6 from 1001/30000 relative, outside the
+        5e-7 window, so the table's exact NTSC frame time is kept."""
+        clip = bvh_example.copy()
+        clip.frame_time = 1001 / 30000
+        df = pd.DataFrame(clip.to_df_dict(mode="euler"))
+
+        rebuilt = from_df(clip.nodes, df)
+
+        assert rebuilt.frame_time == 1001 / 30000
+
+    def test_an_ntsc_table_saved_at_six_decimals_is_not_read_as_29_97(self, bvh_example, from_df):
+        """The 125-frame table's last time, 4.1374667 s, is saved as
+        4.137467: a measured frame time 8.1e-8 above 1001/30000 relative.
+        A window of 1e-6 around it would hold 1/29.97, 1.000001e-6 above
+        1001/30000; NTSC is not a rate with up to 3 decimals, so the
+        measured value is kept."""
+        clip = bvh_example[:125]
+        clip.frame_time = 1001 / 30000
+        csv = pd.DataFrame(clip.to_df_dict(mode="euler")).to_csv(index=False, float_format="%.6f")
+        df = pd.read_csv(io.StringIO(csv))
+
+        rebuilt = from_df(clip.nodes, df)
+
+        np.testing.assert_allclose(rebuilt.frame_time, 4.137467 / 124, rtol=1e-12)
+
+    def test_a_table_cut_from_a_clip_keeps_its_rate(self, bvh_example, from_df):
+        """Both ends rounded, by at most 1e-6 s together: over the 3.9 s
+        left, 2.6e-7 relative, still inside the 5e-7 window."""
+        clip = bvh_example.resample(29.97)
+        csv = pd.DataFrame(clip.to_df_dict(mode="euler")).to_csv(index=False, float_format="%.6f")
+        df = pd.read_csv(io.StringIO(csv)).iloc[7:]
+
+        rebuilt = from_df(clip.nodes, df)
+
+        assert rebuilt.frame_time == 1 / 29.97
+
+    def test_a_time_column_of_object_dtype_is_read_as_numbers(self, bvh_example, from_df):
+        """A column pandas holds as Python objects, as after an
+        ``astype(object)`` or a concat with a column of mixed types."""
+        df = pd.DataFrame(bvh_example.to_df_dict(mode="euler"))
+        df["time"] = df["time"].astype(object)
+
+        rebuilt = from_df(bvh_example.nodes, df)
+
+        assert rebuilt.frame_time == bvh_example.frame_time
+
+    def test_a_rate_with_three_decimals_is_not_moved_to_a_whole_one(self, bvh_example, from_df):
+        """1/124.988 is 9.6e-5 from 1/125: the former 1e-4 snap moved it."""
+        clip = bvh_example.resample(124.988)
+        df = pd.DataFrame(clip.to_df_dict(mode="euler"))
+
+        rebuilt = from_df(clip.nodes, df)
+
+        assert rebuilt.frame_time == 1 / 124.988
+
+    def test_a_rate_no_short_rate_fits_keeps_its_measured_frame_time(self, bvh_example, from_df):
+        """The nearest rates with up to 3 decimals, 100.000 and 100.001,
+        are each 5e-6 from 100.0005 relative, outside the 5e-7 window."""
+        clip = bvh_example.resample(100.0005)
+        df = pd.DataFrame(clip.to_df_dict(mode="euler"))
+
+        rebuilt = from_df(clip.nodes, df)
+
+        np.testing.assert_allclose(rebuilt.frame_time, 1 / 100.0005, rtol=1e-12)
+
+    @pytest.mark.parametrize("mode", ["euler", "coordinates"])
+    def test_an_unset_clip_has_a_nan_time_column(self, mode):
+        """No frame time, no times; the other columns are those of a set clip."""
+        clip = self._make_underscored_bvh()
+        unset = clip.copy()
+        unset.frame_time = 0
+
+        columns = unset.to_df_dict(mode=mode)
+
+        assert np.isnan(columns["time"]).all()
+        assert len(columns["time"]) == clip.frame_count
+        expected = clip.to_df_dict(mode=mode)
+        assert list(columns) == list(expected)
+        for label in list(expected)[1:]:
+            np.testing.assert_array_equal(columns[label], expected[label])
+
+    def test_a_nan_time_column_reads_back_as_an_unset_clip(self, from_df):
+        unset = self._make_underscored_bvh()
+        unset.frame_time = 0
+        df = pd.DataFrame(unset.to_df_dict(mode="euler"))
+
+        rebuilt = from_df(unset.nodes, df)
+
+        assert rebuilt.frame_time == 0
+        np.testing.assert_allclose(rebuilt.joint_angles, unset.joint_angles, atol=1e-10)
+
+    def test_a_constant_time_column_is_refused(self, from_df):
+        """Times that do not move give no rate; NaN, not a constant, marks
+        an unset clip."""
+        clip = self._make_underscored_bvh()
+        df = pd.DataFrame(clip.to_df_dict(mode="euler")).rename(columns={"time": "Time"})
+        df["Time"] = 2.5
+
+        with pytest.raises(ValueError, match="'Time' column"):
+            from_df(clip.nodes, df)
+
     def test_df_to_bvh_nan_time_raises_frame_time_error(self, bvh_example):
         df = pd.DataFrame(bvh_example.to_df_dict(mode="euler", centered="world"))
         df.loc[df.index[-1], "time"] = float("nan")
@@ -1089,10 +1208,94 @@ class TestFileRoundTrip:
         out = tmp_path / "ntsc.bvh"
         bvh_example.write(out, verbose=False)
         reloaded = read_bvh_file(out)
-        # Frame Time is written at 10 significant digits ('%.10g'), so the
-        # relative error is bounded by 5e-10 (and 23.976 fps is far enough
-        # from 24 fps that the read-side 1/N snap does not fire).
-        assert reloaded.frame_time == pytest.approx(bvh_example.frame_time, rel=1e-9)
+        assert reloaded.frame_time == bvh_example.frame_time
+
+    @staticmethod
+    def _frame_times_changed_by_a_file(clip, frame_times, path, write=Bvh.write):
+        """The ``(written, read back)`` pairs that differ after writing ``clip`` at each frame time."""
+        changed = []
+        for frame_time in frame_times:
+            clip.frame_time = frame_time
+            write(clip, path)
+            read_back = read_bvh_file(path).frame_time
+            if read_back != frame_time:
+                changed.append((frame_time, read_back))
+        return changed
+
+    @pytest.mark.parametrize(
+        "write", [Bvh.write, write_bvh_file], ids=["Bvh.write", "write_bvh_file"]
+    )
+    def test_written_frame_time_reads_back_unchanged(self, bvh_example, tmp_path, write):
+        """The NTSC rates and every whole rate up to 1000 fps survive a write and a read."""
+        ntsc_frame_times = [1 / 23.976, 1 / 29.97, 1 / 59.94, 1 / 119.88, 1001 / 30000]
+        whole_rate_frame_times = [1 / n for n in range(1, 1001)]
+        changed = self._frame_times_changed_by_a_file(
+            bvh_example[:1], ntsc_frame_times + whole_rate_frame_times, tmp_path / "rate.bvh", write
+        )
+        assert changed == []
+
+    def test_written_random_frame_time_reads_back_unchanged(self, bvh_example, tmp_path):
+        """Any frame time survives a write and a read, not only the rates people name."""
+        random_frame_times = np.random.default_rng(140).uniform(0.001, 0.2, size=500).tolist()
+        changed = self._frame_times_changed_by_a_file(
+            bvh_example[:1], random_frame_times, tmp_path / "rate.bvh"
+        )
+        assert changed == []
+
+    def test_written_short_frame_time_reads_back_unchanged(self, bvh_example, tmp_path):
+        """A frame time with few decimals is not read back as an exporter's truncated rate.
+
+        Written as their shortest text, ``0.12`` would read as ``1 / 8``,
+        ``0.033`` and ``0.0333`` as ``1 / 30``, and ``0.0095`` as ``1 / 105``.
+        """
+        short_frame_times = [0.12, 0.033, 0.0095, 0.0333]
+        rng = np.random.default_rng(140)
+        at_most_6_decimals = [
+            int(rng.integers(10 ** (decimals - 3), 10**decimals + 1)) / 10**decimals
+            for decimals in range(3, 7)
+            for _ in range(250)
+        ]
+        changed = self._frame_times_changed_by_a_file(
+            bvh_example[:1], short_frame_times + at_most_6_decimals, tmp_path / "rate.bvh"
+        )
+        assert changed == []
+
+    def test_written_frame_time_of_a_strided_slice_reads_back_unchanged(
+        self, bvh_example, tmp_path
+    ):
+        """A slice's frame time, a product one bit off ``1 / rate``, is not moved onto it.
+
+        ``clip[::5]`` of a 48 fps clip has a frame time of ``(1 / 48) * 5``,
+        ``0.10416666666666666``, while ``1 / 9.6`` is ``0.10416666666666667``.
+        """
+        one_frame = bvh_example[:1]
+        slice_frame_times = []
+        for rate in range(1, 241):
+            one_frame.frame_time = 1 / rate
+            slice_frame_times += [one_frame[::step].frame_time for step in range(2, 11)]
+        changed = self._frame_times_changed_by_a_file(
+            one_frame, slice_frame_times, tmp_path / "rate.bvh"
+        )
+        assert changed == []
+
+    def test_write_unset_frame_time_raises_and_leaves_no_file(self, bvh_example, tmp_path):
+        """A file must state its frame time, and the reader refuses ``Frame Time: 0``."""
+        bvh_example.frame_time = 0
+        out = tmp_path / "unset.bvh"
+        with pytest.raises(
+            ValueError, match=r"frame_time is 0 \(unset\).*bvh\.frame_time.*bvh\.fps"
+        ):
+            bvh_example.write(out)
+        assert not out.exists()
+
+    def test_write_unset_frame_time_leaves_an_existing_file_intact(self, bvh_example, tmp_path):
+        """The refusal comes before ``open(..., "w")``, which would truncate the file."""
+        bvh_example.frame_time = 0
+        out = tmp_path / "previous_take.bvh"
+        out.write_text("previous take")
+        with pytest.raises(ValueError, match="frame_time is 0"):
+            bvh_example.write(out)
+        assert out.read_text() == "previous take"
 
     def test_write_to_invalid_extension_raises(self, bvh_example, tmp_path):
         with pytest.raises(ValueError, match=r"output\.txt is not a \.bvh file"):
@@ -2314,8 +2517,7 @@ class TestFileRoundTripAllFiles:
         np.testing.assert_allclose(bvh2.root_pos, bvh.root_pos, atol=1e-5)
         np.testing.assert_allclose(bvh2.joint_angles, bvh.joint_angles, atol=1e-5)
         assert len(bvh2.nodes) == len(bvh.nodes)
-        # '%.10g' frame-time formatting bounds the relative error at 5e-10
-        assert bvh2.frame_time == pytest.approx(bvh.frame_time, rel=1e-9)
+        assert bvh2.frame_time == bvh.frame_time
 
     def test_roundtrip_bvh_test2_yxz(self, bvh_test2, tmp_path):
         """Round-trip bvh_test2.bvh (YXZ channel order) preserves data."""
@@ -2391,8 +2593,7 @@ class TestReadWriteReadEquality:
         # Hierarchy and channel layout are preserved exactly
         assert bvh2.matches_hierarchy(bvh1, atol=0)
         assert bvh2.matches_channels(bvh1)
-        # Frame time is written at 10 significant digits ('%.10g')
-        assert bvh2.frame_time == pytest.approx(bvh1.frame_time, rel=1e-9)
+        assert bvh2.frame_time == bvh1.frame_time
         # Motion survives within the '%.6f' text quantization, which applies
         # in degrees / world units
         np.testing.assert_allclose(bvh2.root_pos, bvh1.root_pos, atol=1e-6)
@@ -2437,10 +2638,10 @@ class TestReadWriteReadEquality:
         assert bvh_rot_first == bvh_pos_first
         np.testing.assert_array_equal(bvh_rot_first.root_pos[0], [10.0, 50.0, -20.0])
 
-    def test_full_precision_frame_time_not_snapped(self):
-        """A non-integer-rate frame time is read verbatim — the 1/N snap only fires within 0.01% of an exact rate."""
+    def test_frame_time_truncated_at_13_decimals_reads_as_23_976_fps(self):
+        """``0.0417083750417`` is ``1 / 23.976`` truncated at 13 decimals, and 23.976 is the one rate with 3 decimals that fits."""
         bvh = read_bvh_file(PARSER_FIXTURES_DIR / "full_precision_frame_time.bvh")
-        assert bvh.frame_time == float("0.0417083750417")
+        assert bvh.frame_time == 1 / 23.976
 
     @pytest.mark.parametrize("literal", ["nan", "inf", "-inf"])
     def test_non_finite_frame_time_raises_naming_value_and_file(self, tmp_path, literal):
@@ -2518,6 +2719,97 @@ class TestReadWriteReadEquality:
         p.write_text(content)
         with pytest.raises(ValueError, match="position channels on non-root"):
             read_bvh_file(str(p))
+
+
+# =============================================================================
+# Test: the reader recovers the rate a truncating exporter meant
+# =============================================================================
+
+
+def _one_frame_file(path, frame_time_line):
+    """Write a one-joint, one-frame BVH file whose motion header has *frame_time_line*."""
+    path.write_text(
+        "HIERARCHY\n"
+        "ROOT Hips\n"
+        "{\n"
+        "  OFFSET 0.0 0.0 0.0\n"
+        "  CHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation\n"
+        "  End Site\n"
+        "  {\n"
+        "    OFFSET 0.0 10.0 0.0\n"
+        "  }\n"
+        "}\n"
+        "MOTION\n"
+        "Frames: 1\n"
+        f"{frame_time_line}"
+        "0 0 0 0 0 0\n"
+    )
+    return path
+
+
+# The rows of #140's table: the text an exporter printed, and the frame
+# time the reader recovers from it. A text is kept as read when several
+# rates with the fewest decimals fit it (0.008341: 119.88 and 119.89;
+# 0.017, 0.013, 0.03: several whole rates).
+FRAME_TIME_TEXT_READ_AS = [
+    ("0.008333", 1 / 120),
+    ("0.0083333", 1 / 120),
+    ("0.033333", 1 / 30),
+    ("0.0333", 1 / 30),
+    ("0.033", 1 / 30),
+    ("0.004166", 1 / 240),
+    ("0.004167", 1 / 240),
+    ("0.016667", 1 / 60),
+    ("0.033367", 1 / 29.97),
+    ("0.033366", 1 / 29.97),
+    ("0.03336670003", 1 / 29.97),
+    ("0.041708", 1 / 23.976),
+    ("0.016683", 1 / 59.94),
+    ("0.008341", 0.008341),
+    ("0.017", 0.017),
+    ("0.013", 0.013),
+    ("0.03", 0.03),
+    # 17 significant digits name one float: none is missing to recover,
+    # though 29.97 fps fits them and 1 / 29.97 is 0.033366700033366704.
+    ("0.033366700033366700", 0.0333667000333667),
+]
+
+
+class TestFrameTimeRecovery:
+    """A truncated or rounded ``Frame Time`` reads at the rate its exporter meant, when only one rate fits."""
+
+    @pytest.mark.parametrize(
+        ("text", "frame_time"), FRAME_TIME_TEXT_READ_AS, ids=[t for t, _ in FRAME_TIME_TEXT_READ_AS]
+    )
+    def test_frame_time_text_reads_as(self, tmp_path, text, frame_time):
+        path = _one_frame_file(tmp_path / "clip.bvh", f"Frame Time: {text}\n")
+        assert read_bvh_file(path).frame_time == frame_time
+
+    @pytest.mark.parametrize("text", [t for t, _ in FRAME_TIME_TEXT_READ_AS])
+    def test_first_read_is_a_fixed_point_of_write_and_read(self, tmp_path, text):
+        """Only the first read may move a frame time: the file pybvh writes from it reads back unchanged."""
+        first_read = read_bvh_file(
+            _one_frame_file(tmp_path / "foreign.bvh", f"Frame Time: {text}\n")
+        )
+        first_write, second_write = tmp_path / "first.bvh", tmp_path / "second.bvh"
+        first_read.write(first_write)
+        second_read = read_bvh_file(first_write)
+        second_read.write(second_write)
+
+        def frame_time_line(path):
+            return next(ln for ln in path.read_text().splitlines() if ln.startswith("Frame Time:"))
+
+        assert second_read.frame_time == first_read.frame_time
+        assert frame_time_line(second_write) == frame_time_line(first_write)
+
+    def test_corpus_file_at_0_008333_reads_as_120_fps(self, bvh_test2):
+        """``bvh_test2.bvh`` says ``Frame Time: 0.008333``, ``1 / 120`` truncated at 6 decimals."""
+        assert bvh_test2.frame_time == 1 / 120
+
+    def test_missing_frame_time_line_raises(self, tmp_path):
+        path = _one_frame_file(tmp_path / "no_frame_time.bvh", "")
+        with pytest.raises(ValueError, match="frame time .* is missing or zero"):
+            read_bvh_file(path)
 
 
 # =============================================================================

@@ -2495,7 +2495,7 @@ class TestMatchFps:
         assert not np.array_equal(scene.views[0].coords, scene.views[1].coords)
 
     @pytest.mark.parametrize("match_fps", [None, "lowest", "highest"])
-    def test_rounding_apart_neither_warns_nor_resamples(self, bvh_30fps, match_fps, played):
+    def test_rounding_apart_neither_warns_nor_interpolates(self, bvh_30fps, match_fps, played):
         """Frame times 1e-7 apart, as float arithmetic leaves them, are one rate."""
         import warnings
 
@@ -2506,8 +2506,28 @@ class TestMatchFps:
             bvhplot.play([bvh_30fps, rounded], backend="matplotlib", match_fps=match_fps, fps=30)
         ((scene, _),) = played
         for view, clip in zip(scene.views, [bvh_30fps, rounded], strict=True):
-            assert view.frame_time == clip.frame_time
             assert len(view.coords) == clip.frame_count
+
+    @pytest.mark.parametrize(("match_fps", "target"), [("lowest", 1), ("highest", 0)])
+    def test_rounding_apart_takes_the_targets_frame_time(
+        self, bvh_30fps, match_fps, target, played
+    ):
+        """Under match_fps, a clip within the rule of the target is
+        relabelled: it takes the target's exact frame time, the one
+        ``bvh.fps = target_fps`` sets, and keeps its samples."""
+        rounded = bvh_30fps.copy()
+        rounded.frame_time = bvh_30fps.frame_time * (1 + 1e-7)
+        clips = [bvh_30fps, rounded]
+        bvhplot.play(clips, backend="matplotlib", fps=30)
+        bvhplot.play(clips, backend="matplotlib", match_fps=match_fps, fps=30)
+        (as_given, _), (matched, _) = played
+        # Without match_fps, each clip keeps its own frame time.
+        assert [view.frame_time for view in as_given.views] == [c.frame_time for c in clips]
+        expected = clips[target].copy()
+        expected.fps = clips[target].fps
+        assert [view.frame_time for view in matched.views] == [expected.frame_time] * 2
+        for view, given in zip(matched.views, as_given.views, strict=True):
+            np.testing.assert_array_equal(view.coords, given.coords)
 
     def test_no_warning_when_same_fps(self, bvh_30fps, played):
         import warnings
@@ -2537,6 +2557,11 @@ class TestMatchFps:
     def test_invalid_match_fps_raises(self, bvh_30fps, bvh_120fps, played):
         with pytest.raises(ValueError, match="match_fps"):
             bvhplot.play([bvh_30fps, bvh_120fps], backend="matplotlib", match_fps="bad")
+        assert played == []
+
+    def test_invalid_match_fps_raises_when_the_rates_agree(self, bvh_30fps, played):
+        with pytest.raises(ValueError, match="match_fps"):
+            bvhplot.play([bvh_30fps, bvh_30fps.copy()], backend="matplotlib", match_fps="bad")
         assert played == []
 
     def test_single_clip_no_warning(self, bvh_30fps, played):

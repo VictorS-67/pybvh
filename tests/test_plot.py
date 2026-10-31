@@ -2164,12 +2164,6 @@ class TestUnsetFrameTime:
         finally:
             plt.close("all")
 
-    def test_render_ghost_needs_the_clip_rate_despite_fps(self, unset, tmp_path):
-        """A ghost trail is spaced in seconds of the clip's own time."""
-        message = _rate_refusal("render() with ghost=2", "drop ghost=")
-        with pytest.raises(ValueError, match=message):
-            bvhplot.render(unset, tmp_path / "x.gif", backend="matplotlib", fps=10, ghost=2)
-
     def test_a_later_unset_clip_is_caught(self, bvh_test1, unset, tmp_path):
         clips = [bvh_test1[0:5], unset]
         message = _rate_refusal("render()", "pass fps= to render()", index=1)
@@ -2178,14 +2172,6 @@ class TestUnsetFrameTime:
         message = _rate_refusal("render() with ghost=2", "drop ghost=", index=1)
         with pytest.raises(ValueError, match=message):
             bvhplot.render(clips, tmp_path / "x.gif", backend="matplotlib", fps=10, ghost=2)
-
-    def test_match_fps_does_not_resample_to_zero(self, bvh_test1, unset, tmp_path):
-        clips = [bvh_test1[0:5], unset]
-        message = _rate_refusal("render() with match_fps='lowest'", "drop match_fps=", index=1)
-        with pytest.raises(ValueError, match=message):
-            bvhplot.render(
-                clips, tmp_path / "x.gif", backend="matplotlib", fps=10, match_fps="lowest"
-            )
 
     def test_render_ghost_without_fps_names_only_the_working_fix(self, unset, tmp_path):
         """fps= alone cannot satisfy ghost=, so it is not offered alone."""

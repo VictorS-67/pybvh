@@ -95,7 +95,7 @@ On the velocity-like functions, the defaults are `stencil="central", pad="edge"`
 
 The figure shows what the contact detector actually thresholds: foot speed and clearance above the floor, ANDed. The green spans are the detected stance:
 
-![Foot speed and clearance signals over a walking clip with their thresholds; green spans mark the detected stance phases where both signals sit below threshold](../gallery/img/foot-contacts.png)
+![Foot speed and clearance signals over a walking clip with their thresholds. Green spans mark the detected stance phases where both signals sit below threshold](../gallery/img/foot-contacts.png)
 
 For root-relative positions, use `bvh.node_positions(centered='skeleton')`.
 

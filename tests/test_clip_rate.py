@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pybvh import read_bvh_file
+from pybvh import batch, read_bvh_file
 
 BVH_DIR = Path(__file__).parent.parent / "bvh_data"
 
@@ -60,6 +60,14 @@ RATE_OPERATIONS = [
         lambda clip: clip.ground_contacts(["LeftFoot"], method="velocity"),
         id="ground_contacts-speed",
     ),
+    pytest.param("movement_phase()", lambda clip: clip.movement_phase("Head"), id="movement_phase"),
+    pytest.param("smoothness()", lambda clip: clip.smoothness("Head"), id="smoothness"),
+    pytest.param(
+        "velocity_reductions()",
+        lambda clip: clip.velocity_reductions("Head"),
+        id="velocity_reductions",
+    ),
+    pytest.param("walking_pace()", lambda clip: clip.walking_pace(), id="walking_pace"),
 ]
 
 _DURATIONS_OFF = "disable them with min_contact_duration=0.0 and min_gap_duration=0.0"
@@ -117,3 +125,15 @@ class TestUnsetClipRefused:
         np.testing.assert_array_equal(
             getattr(unset, name)(in_frames=True), getattr(walk, name)(in_frames=True)
         )
+
+    def test_harmonize_names_the_clip_by_its_index(self, walk, unset):
+        expected = re.escape(
+            "harmonize() needs the frame rate of the clip at index 1, but its frame_time is 0"
+        )
+        with pytest.raises(ValueError, match=expected):
+            batch.harmonize([walk, unset], target_fps=30)
+
+
+class TestWalkingPace:
+    def test_a_clip_too_short_to_measure_has_no_pace(self, walk):
+        assert np.isnan(walk[0:1].walking_pace())

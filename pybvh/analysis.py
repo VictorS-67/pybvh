@@ -2734,13 +2734,19 @@ def walking_pace(bvh: Bvh) -> float:
     Returns
     -------
     float
-        Horizontal units per second (``nan`` if the clip has no
-        duration — the rate is undefined, not zero).
+        Horizontal units per second (``nan`` if the clip is too short to
+        measure, one frame or none: the pace is undefined, not zero).
+
+    Raises
+    ------
+    ValueError
+        If the clip's ``frame_time`` is 0 (unset).
 
     Notes
     -----
     Source: Crane & Gross, Gross et al. 2012.
     """
+    _require_rate(bvh.frame_time, "walking_pace()")
     duration = (bvh.frame_count - 1) * bvh.frame_time
     if duration <= 0:
         return float("nan")

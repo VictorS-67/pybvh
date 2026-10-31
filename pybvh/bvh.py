@@ -3802,6 +3802,7 @@ class Bvh:
         See :func:`pybvh.geometry.movement_phase`."""
         from . import geometry
 
+        _require_rate(self.frame_time, "movement_phase()")
         traj = self._positions_or(coords)[:, self._descriptor_index(joint), :]
         return geometry.movement_phase(traj, self.frame_time, stencil, pad)
 
@@ -4018,6 +4019,7 @@ class Bvh:
         default counts all). The remaining metrics take none."""
         from . import analysis
 
+        _require_rate(self.frame_time, "smoothness()")
         vel = self.node_velocities(coords=coords)
         speed = np.linalg.norm(vel[:, self._descriptor_index(joint), :], axis=-1)
         value = analysis.smoothness(speed, 1.0 / self.frame_time, metric=metric, **kwargs)
@@ -4032,6 +4034,7 @@ class Bvh:
         :func:`pybvh.analysis.velocity_reductions`."""
         from . import analysis
 
+        _require_rate(self.frame_time, "velocity_reductions()")
         vel = self.node_velocities(coords=coords)
         speed = np.linalg.norm(vel[:, self._descriptor_index(joint), :], axis=-1)
         return analysis.velocity_reductions(speed, 1.0 / self.frame_time)

@@ -18,6 +18,7 @@ from .bvh import Bvh
 from .features import to_feature_array
 from .io import _bvh_from_parsed, _extract_bvh_file_info, _ParsedBvh
 from .node_tree import _channel_difference, _hierarchy_difference, _NodeTreeDifference
+from .tools import _require_rate
 
 
 @dataclass
@@ -346,8 +347,10 @@ def harmonize(
     Raises
     ------
     ValueError
-        If ``on_incompatible`` is not one of the accepted values, or if
-        ``on_incompatible='raise'`` and a clip mismatches ``reference``.
+        If ``on_incompatible`` is not one of the accepted values, if
+        ``on_incompatible='raise'`` and a clip mismatches ``reference``,
+        or if ``target_fps`` is given and a clip's ``frame_time`` is 0
+        (unset).
     """
     if on_incompatible not in ("drop", "raise"):
         raise ValueError(f"on_incompatible must be 'drop' or 'raise', got {on_incompatible!r}")
@@ -376,6 +379,8 @@ def harmonize(
         if reference is not None:
             b = b.retarget(reference)
             stages["retarget"] = "applied"
+        if target_fps is not None:
+            _require_rate(b.frame_time, "harmonize()", index=i)
         if target_fps is not None and abs(1.0 / b.frame_time - target_fps) > 1e-2:
             old_fps = 1.0 / b.frame_time
             b = b.resample(target_fps)

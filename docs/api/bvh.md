@@ -6,7 +6,7 @@
 
 ## Construction & I/O
 
-Create a `Bvh` from a file, a DataFrame, or another instance; write it back losslessly.
+Create a `Bvh` from a file, a DataFrame, or another instance. Write it back losslessly.
 
 ::: pybvh.bvh.Bvh.from_file
     options:
@@ -210,7 +210,7 @@ Up axis, facing direction, L/R pairs, and the reorientation family (see the [Wor
 
 ## Forward kinematics
 
-From joint angles to 3D positions — the `centered` modes are drawn in the [Gallery](../gallery/index.md).
+From joint angles to 3D positions. The [Gallery](../gallery/index.md) draws the `centered` modes.
 
 ::: pybvh.bvh.Bvh.node_positions
     options:
@@ -270,7 +270,10 @@ Conversions to and from every representation (see [Choosing a Representation](..
 
 ## Frame & skeleton operations
 
-Timeline and skeleton editing (see the [Skeleton Operations guide](../guide/skeleton-ops.md)). Slicing and concatenation use plain Python syntax: `bvh[10:50]` returns the frame range as a new `Bvh`, and `bvh_a + bvh_b` concatenates two clips with matching skeletons.
+Timeline and skeleton editing (see the [Skeleton Operations guide](../guide/skeleton-ops.md)). Slicing and concatenation use plain Python syntax:
+
+- `bvh[10:50]` returns the frame range as a new `Bvh`;
+- `bvh_a + bvh_b` concatenates two clips with matching skeletons.
 
 ::: pybvh.bvh.Bvh.resample
     options:
@@ -350,7 +353,7 @@ The one-stop flat `(F, D)` array for ML pipelines.
 
 ## Trajectory & pose geometry
 
-Position descriptors — each drawn in the [Gallery](../gallery/index.md); array-pure kernels in [`pybvh.geometry`](geometry.md).
+Position descriptors. The [Gallery](../gallery/index.md) draws each one. Their array-pure kernels are in [`pybvh.geometry`](geometry.md).
 
 ::: pybvh.bvh.Bvh.curvature
     options:
@@ -418,7 +421,7 @@ Position descriptors — each drawn in the [Gallery](../gallery/index.md); array
 
 ## Dynamics, smoothness & gait
 
-Dynamic descriptors (see the [Motion Descriptors guide](../guide/motion-descriptors.md)); array-pure kernels in [`pybvh.analysis`](analysis.md).
+Dynamic descriptors (see the [Motion Descriptors guide](../guide/motion-descriptors.md)). Their array-pure kernels are in [`pybvh.analysis`](analysis.md).
 
 ::: pybvh.bvh.Bvh.node_jerk
     options:
@@ -466,7 +469,7 @@ Dynamic descriptors (see the [Motion Descriptors guide](../guide/motion-descript
 
 ## Augmentation transforms
 
-Seeded data augmentation (see the [Data Augmentation guide](../guide/augmentation.md)); array-level functions in [`pybvh.transforms`](transforms.md).
+Seeded data augmentation (see the [Data Augmentation guide](../guide/augmentation.md)). The array-level functions are in [`pybvh.transforms`](transforms.md).
 
 ::: pybvh.bvh.Bvh.mirror
     options:
@@ -510,7 +513,7 @@ Seeded data augmentation (see the [Data Augmentation guide](../guide/augmentatio
 
 ## Visualization
 
-Quick-look plotting on the object; multi-skeleton comparison lives in [`pybvh.bvhplot`](bvhplot.md).
+Quick-look plotting on the object. Multi-skeleton comparison lives in [`pybvh.bvhplot`](bvhplot.md).
 
 ::: pybvh.bvh.Bvh.plot_rest_pose
     options:

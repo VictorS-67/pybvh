@@ -90,7 +90,7 @@ One entry point that routes between any pair of representations by name.
 
 ## SE(3) rigid transforms
 
-Twists, the exp/log maps, screw interpolation, and segment-relative poses — each drawn in the [Gallery](../gallery/index.md).
+Twists, the exp/log maps, screw interpolation, and segment-relative poses. The [Gallery](../gallery/index.md) draws each one.
 
 ::: pybvh.rotations.se3_exp
     options:

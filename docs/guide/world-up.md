@@ -154,22 +154,22 @@ Facts that change from frame to frame are not in the report. `forward_at`, `left
 
 ## forward_at(frame)
 
-Returns the character's world-space facing direction at a given frame as a signed axis string:
+`forward_at(frame)` returns the character's world-space facing direction at a given frame, as a signed axis string:
 
 ```python
 bvh.forward_at(0)   # '-z' (facing direction at frame 0)
 bvh.forward_at(60)  # '+x' (character has turned by frame 60)
 ```
 
-Derived from actual joint positions: L/R joint pairs are averaged in world space to find the leftward direction, measured against `world_up`, and forward is that leftward crossed with `world_up`. This tracks the character's real facing as they rotate through the animation, not the rest pose.
+The direction is derived from actual joint positions. pybvh averages the L/R joint pairs in world space to find the leftward direction, measured against `world_up`. Forward is that leftward crossed with `world_up`. This tracks the character's real facing as they rotate through the animation, not the rest pose.
 
-Used internally by bvhplot's camera auto-orientation and follow mode.
+bvhplot's camera auto-orientation and follow mode use it internally.
 
-`forward_at()` reads the L/R pair list from `bvh.lr_mapping`. If your skeleton's joint names don't follow the expected conventions (`Left*`/`Right*`, `.L`/`.R`, `_l`/`_r`, `mixamorig:` namespace, `.001` numbered duplicates), `bvh.lr_mapping` will be `None` (`orientation_report.lr_mapping_source` is `None`), and `forward_at()` falls back to a house default, an arbitrary-but-stable horizontal axis for `world_up`, with a warning. To get a meaningful forward, set the mapping explicitly — see the [Augmentation guide](augmentation.md#lr-pair-detection) for the override patterns.
+`forward_at()` reads the L/R pair list from `bvh.lr_mapping`. If your skeleton's joint names don't follow the expected conventions (`Left*`/`Right*`, `.L`/`.R`, `_l`/`_r`, `mixamorig:` namespace, `.001` numbered duplicates), `bvh.lr_mapping` will be `None`, and `orientation_report.lr_mapping_source` is `None`. Then `forward_at()` falls back to a house default, with a warning. The house default is an arbitrary-but-stable horizontal axis for `world_up`. To get a meaningful forward, set the mapping explicitly. The [Augmentation guide](augmentation.md#lr-pair-detection) gives the override patterns.
 
 ## left_at(frame)
 
-Returns the character's world-space leftward direction at a given frame as a signed axis string:
+`left_at(frame)` returns the character's world-space leftward direction at a given frame, as a signed axis string:
 
 ```python
 bvh.left_at(0)   # '-x' — character's left-hand direction at frame 0
@@ -181,7 +181,7 @@ Together with `world_up` and `forward_at(frame)`, `left_at(frame)` completes the
 left = world_up × forward        (equivalently, forward = left × world_up)
 ```
 
-Positive step along `left_at` moves from the character's right side toward their left (right-shoulder → left-shoulder direction). This matches the standard rigging convention used in Blender, Maya, and Unity.
+A positive step along `left_at` moves from the character's right side toward their left (right-shoulder → left-shoulder direction). This matches the standard rigging convention used in Blender, Maya, and Unity.
 
 The triple drawn on a pose:
 
@@ -191,7 +191,7 @@ The triple drawn on a pose:
 
 ### coords= (skip per-call FK)
 
-Both `forward_at()` and `left_at()` accept a pre-computed `(F, N, 3)` spatial-coordinates array via `coords=` to skip the per-call forward kinematics. Useful when you need orientation axes across many frames:
+Both `forward_at()` and `left_at()` accept a pre-computed `(F, N, 3)` spatial-coordinates array via `coords=` to skip the per-call forward kinematics. This is useful when you need orientation axes across many frames:
 
 ```python
 coords = bvh.node_positions()    # one FK pass
@@ -199,11 +199,17 @@ forwards = [bvh.forward_at(f, coords=coords) for f in range(bvh.frame_count)]
 lefts    = [bvh.left_at(f,    coords=coords) for f in range(bvh.frame_count)]
 ```
 
-`coords` holds the clip's frames, one row per frame: a frame whose leftward cannot be read falls back to the root's heading at that frame (next section).
+`coords` holds the clip's frames, one row per frame. A frame whose leftward cannot be read falls back to the root's heading at that frame (next section).
 
 ## facing_frame() — the continuous basis
 
-`forward_at()` / `left_at()` snap the facing direction to the nearest of the six signed world axes — useful for canonicalization checks, but lossy: through a gentle turn the label stays constant while the true facing rotates. `bvh.facing_frame()` returns the same construction *before* the snap, as a `FacingFrame(forward, left, up, valid)` named tuple: three `(F, 3)` unit-vector arrays — a per-frame orthonormal right-handed basis (`forward × left = up`) — plus a `(F,)` bool array that is `False` on frames whose basis is a fallback rather than a measurement:
+`forward_at()` / `left_at()` snap the facing direction to the nearest of the six signed world axes. That is useful for canonicalization checks, but it is lossy: through a gentle turn, the label stays constant while the true facing rotates.
+
+`bvh.facing_frame()` returns the same construction *before* the snap, as a `FacingFrame(forward, left, up, valid)` named tuple. It holds:
+
+- Three `(F, 3)` unit-vector arrays: a per-frame orthonormal right-handed basis (`forward × left = up`).
+- A `(F,)` bool array that is `False` on frames whose basis is a fallback rather than a measurement.
+
 
 ```python
 frame = bvh.facing_frame()        # or bvh.facing_frame(coords=coords), one row per clip frame
@@ -211,21 +217,21 @@ frame.forward[120]                # continuous facing vector at frame 120
 frame.valid[120]                  # False if that vector is a fallback
 ```
 
-This is a yaw-only, gravity-aligned *facing* frame: `up` is always exactly `world_up`, so the basis only rotates about the vertical — it is deliberately not a pelvis orientation (no roll/pitch), and distinct from `root_trajectory()`'s heading, which is a second facing estimate built differently (the root bone's rotation applied to the rest forward — it inherits pelvis twist and is not a direction of travel). See [`analysis.facing_frame`](../api/analysis.md#pybvh.analysis.facing_frame) for the full policy.
+This is a yaw-only, gravity-aligned *facing* frame. `up` is always exactly `world_up`, so the basis only rotates about the vertical. It is deliberately not a pelvis orientation (no roll/pitch). It is also distinct from `root_trajectory()`'s heading. The heading is a second facing estimate, built differently: the root bone's rotation applied to the rest forward. The heading inherits pelvis twist, and it is not a direction of travel. See [`analysis.facing_frame`](../api/analysis.md#pybvh.analysis.facing_frame) for the full policy.
 
 ### When a frame's facing cannot be measured
 
-One chain gives every frame its leftward, measured against `world_up`, and the facing is built from it:
+One chain gives every frame its leftward, measured against `world_up`. The facing is built from it:
 
-1. the frame's own leftward, from its L/R pairs;
-2. where that cannot be read (the L/R pairs line up with world up: the body lies on its side), the root's heading at that frame turned a quarter turn about up, when `rest_forward` is measured and the heading can be read;
-3. otherwise the house default, an arbitrary-but-stable horizontal axis for `world_up`.
+1. The frame's own leftward, from its L/R pairs.
+2. Where that cannot be read, the root's heading at that frame, turned a quarter turn about up, when `rest_forward` is measured and the heading can be read. The leftward cannot be read when the L/R pairs line up with world up: the body lies on its side.
+3. Otherwise, the house default: an arbitrary-but-stable horizontal axis for `world_up`.
 
-Forward is always left × up, so the basis is right-handed with world up on every frame, fallback frames included, and `valid` is `False` on the frames of steps 2 and 3. A frame that falls to the house default warns, naming the frame; on a skeleton with no L/R pairs at all every frame does, and the warning names the skeleton.
+Forward is always left × up. So the basis is right-handed with world up on every frame, fallback frames included. `valid` is `False` on the frames of steps 2 and 3. A frame that falls to the house default warns, and the warning names the frame. On a skeleton with no L/R pairs at all, every frame does, and the warning names the skeleton.
 
 ## Rest-pose axes: rest_up, rest left and rest_forward
 
-`world_up` and `forward_at(frame)` are read from the motion. `rest_up`, rest left and `rest_forward` are the skeleton's own frame: read from the rest pose alone, never from `world_up` or the animation:
+`world_up` and `forward_at(frame)` are read from the motion. `rest_up`, rest left and `rest_forward` are the skeleton's own frame. They are read from the rest pose alone, never from `world_up` or the animation:
 
 ```python
 bvh.rest_up                         # '+y' — the skeleton's own up
@@ -233,22 +239,30 @@ bvh.orientation_report.rest_left    # '+x' — the skeleton's own left
 bvh.rest_forward                    # '+z' — the direction the rest pose faces: rest left × rest up
 ```
 
-- **`rest_up`** is the main axis from the root to the first joint whose name holds `head` as a word, else `neck`, `chest` or `spine`, in any case and after a `foo:` namespace or a `.001` suffix: `Head`, `mixamorig:Head`, `Bip01 Head`, `CC_Base_Head` and `J_Bip_C_Head` are heads, `Forehead` is not. Without one, it is the axis opposite the legs: the first L/R pair whose two joints lie in two different branches of the pelvis, the first node down from the root with more than one child (the root itself on a usual rig, a `Hips` below a `Root`), read from the pelvis to the far ends of those two branches, the feet. A mapping of the arms alone, both below the spine, names no legs. Without such a pair either, it is the axis along which the rest pose spreads most, a weak reading: a T-pose wider than tall spreads most along its arms, and hips mid-body put as much of the body below the root as above. `rest_up_source` says which (`"named_joint"`, `"leg_pair"`, `"largest_spread"`).
-- **Rest left** averages the left-minus-right rest positions of the L/R pairs, removes the `rest_up` component and snaps the rest to an axis. `mirror` reflects along it. It is in the report only.
-- **`rest_forward`** is rest left × rest up. Without usable L/R geometry (no pairs, or pairs that lie along rest up) it is the house default for rest up (`'+y'` gives `'+z'`, `'+z'` gives `'+x'`, `'+x'` gives `'+y'`), reading it warns, `has_lr_geometry` is `False` and `rest_forward_source` is `"default"`.
+- **`rest_up`** is the main axis from the root to the first joint whose name holds `head` as a word, else `neck`, `chest` or `spine`. The name matches in any case, and after a `foo:` namespace or a `.001` suffix. `Head`, `mixamorig:Head`, `Bip01 Head`, `CC_Base_Head` and `J_Bip_C_Head` are heads. `Forehead` is not.
+
+    Without such a joint, `rest_up` is the axis opposite the legs. The legs are the first L/R pair whose two joints lie in two different branches of the pelvis. The pelvis is the first node down from the root with more than one child: the root itself on a usual rig, or a `Hips` below a `Root`. The axis is read from the pelvis to the far ends of those two branches, the feet. A mapping of the arms alone, both below the spine, names no legs.
+
+    Without such a pair either, `rest_up` is the axis along which the rest pose spreads most. This is a weak reading. A T-pose wider than tall spreads most along its arms. And hips mid-body put as much of the body below the root as above.
+
+    `rest_up_source` says which (`"named_joint"`, `"leg_pair"`, `"largest_spread"`).
+
+- **Rest left** averages the left-minus-right rest positions of the L/R pairs. Then it removes the `rest_up` component. It snaps what remains to an axis. `mirror` reflects along it. It is in the report only.
+
+- **`rest_forward`** is rest left × rest up. Without usable L/R geometry (no pairs, or pairs that lie along rest up), it is the house default for rest up (`'+y'` gives `'+z'`, `'+z'` gives `'+x'`, `'+x'` gives `'+y'`). Then reading it warns. `has_lr_geometry` is `False`, and `rest_forward_source` is `"default"`.
 
 On a clean BVH file, `rest_up == world_up` and `rest_forward` matches `forward_at(0)` when the root rotation at frame 0 is identity. When they disagree:
 
-- `rest_up != world_up` — the file was authored with the rest pose in one up convention and animated in another (the case that triggers the disagreement warning; fix with `reorient_rest_up`). `rest_forward` is then a direction in the rest pose's convention and may lie along world up, as on `bvh_test3.bvh` above.
-- `rest_forward != forward_at(0)` — the character simply starts the animation facing a different direction from their rest pose. This is normal; `forward_at(0)` is what the viewer sees.
+- `rest_up != world_up`: the file was authored with the rest pose in one up convention and animated in another. This is the case that triggers the disagreement warning. Fix it with `reorient_rest_up`. `rest_forward` is then a direction in the rest pose's convention, and it may lie along world up, as on `bvh_test3.bvh` above.
+- `rest_forward != forward_at(0)`: the character simply starts the animation facing a different direction from their rest pose. This is normal. `forward_at(0)` is what the viewer sees.
 
-All three are read-only. To actually change `rest_up` or `rest_forward`, call the corresponding `reorient_*` method (see "Reorienting data" below) which rotates the rest-pose offsets and compensates joint rotations so FK positions are unchanged.
+All three are read-only. To actually change `rest_up` or `rest_forward`, call the corresponding `reorient_*` method (see "Reorienting data" below). It rotates the rest-pose offsets. It compensates the joint rotations, so FK positions are unchanged.
 
 ## The heading
 
-`root_trajectory()` reports the root's heading as a `(sin, cos)` pair: the root rotation of each frame applied to `rest_forward`, projected on the ground plane of `world_up`. The root rotation is what carries the skeleton's own forward into the world, so the heading follows the body whichever convention the rest pose was authored in: on `bvh_test3.bvh` it lies a median 2.3° from the measured facing (`facing_frame().forward`).
+`root_trajectory()` reports the root's heading as a `(sin, cos)` pair. The heading is the root rotation of each frame applied to `rest_forward`, projected on the ground plane of `world_up`. The root rotation is what carries the skeleton's own forward into the world. So the heading follows the body, whichever convention the rest pose was authored in. On `bvh_test3.bvh`, it lies a median 2.3° from the measured facing (`facing_frame().forward`).
 
-On a frame where the root's forward stands along world up, its projection on the ground is too short to have a direction, and the heading is `NaN` there rather than an arbitrary angle:
+On a frame where the root's forward stands along world up, its projection on the ground is too short to have a direction. There the heading is `NaN`, not an arbitrary angle:
 
 ```python
 import numpy as np
@@ -264,13 +278,13 @@ bvh.joint_angles = angles
 bvh.root_trajectory()[:3, 2:4]   # NaN: the root faces straight up
 ```
 
-When `rest_forward` is the house default (no usable L/R geometry; reading it warns), `root_trajectory()` still builds the heading on it, and both the heading and its rate of turn (`heading_vel`) depend on that guessed reference whenever the root pitches or rolls: a tilted root's forward projects on the ground at an angle, and turns there at a rate, that differ with the forward it starts from. On a defaulted `rest_forward` they are reliable only for a root that turns about world up alone. The facing chain takes no heading from such a `rest_forward` (step 2 above), so a facing never offers a guessed direction as a measured one.
+When `rest_forward` is the house default (no usable L/R geometry, and reading it warns), `root_trajectory()` still builds the heading on it. Then both the heading and its rate of turn (`heading_vel`) depend on that guessed reference whenever the root pitches or rolls. A tilted root's forward projects on the ground at an angle, and turns there at a rate, that differ with the forward it starts from. On a defaulted `rest_forward`, the heading and `heading_vel` are reliable only for a root that turns about world up alone. The facing chain takes no heading from such a `rest_forward` (step 2 above). So a facing never offers a guessed direction as a measured one.
 
-With `include_velocities=True`, the `NaN` reaches only the `heading_vel` samples whose stencil reads that frame (with the default central stencil, the frames either side). Code that feeds the columns to a model or a sum masks every row holding a `NaN` in any column (`np.isnan(traj).any(axis=1)`, since a heading velocity next to an unreadable heading is `NaN` while its own heading is not) or fills them. For a facing that is never `NaN`, read `facing_frame()`, whose `valid` flags its fallback frames.
+With `include_velocities=True`, the `NaN` reaches only the `heading_vel` samples whose stencil reads that frame. With the default central stencil, these are the frames either side. Code that feeds the columns to a model or a sum masks every row that holds a `NaN` in any column, or fills those rows. The mask is `np.isnan(traj).any(axis=1)`, over every column, because a heading velocity next to an unreadable heading is `NaN` while its own heading is not. For a facing that is never `NaN`, read `facing_frame()`. Its `valid` flags its fallback frames.
 
 ## mirror works in the skeleton's frame
 
-`mirror` reflects the skeleton's offsets across its own sagittal plane, along rest left, and the motion follows by the same reflection. It never reads `world_up`, so the result is a valid mirror whatever world up says, a wrong guess included. Pass `lateral='x'` (or `'y'`, `'z'`) to choose the axis yourself.
+`mirror` reflects the skeleton's offsets across its own sagittal plane, along rest left. The motion follows by the same reflection. `mirror` never reads `world_up`. So the result is a valid mirror whatever world up says, a wrong guess included. To choose the axis yourself, pass `lateral='x'` (or `'y'`, `'z'`).
 
 ## Negative up axes
 
@@ -297,7 +311,7 @@ bvh_fixed = bvh.reorient_rest_up('+y')  # FK positions unchanged, rest pose rota
 bvh_fwd = bvh.reorient_rest_forward('+z')  # FK positions unchanged
 ```
 
-`reorient_rest_forward` turns the rest pose about `rest_up`, in the skeleton's own frame: `rest_up` is the same afterwards and `rest_forward` is the target, which is named in the rest pose's frame and must not be parallel to `rest_up`. All three are restricted to axis-aligned rotations (multiples of 90 degrees) for lossless transformation.
+`reorient_rest_forward` turns the rest pose about `rest_up`, in the skeleton's own frame. Afterwards, `rest_up` is the same. `rest_forward` is the target. The target is named in the rest pose's frame, and it must not be parallel to `rest_up`. All three are restricted to axis-aligned rotations (multiples of 90 degrees), for lossless transformation.
 
 ## Quick reference
 

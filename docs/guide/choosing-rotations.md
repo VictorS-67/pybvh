@@ -23,7 +23,7 @@ Euler angles are the native BVH format. Use them when you read or write files, o
 ### 6D rotation (Zhou et al.)
 6D is the recommended representation for neural networks. It is **continuous**: nearby rotations map to nearby 6D vectors. Because of this, gradient-based optimization works smoothly. Use `bvh.to_6d()` for feature extraction. Use `bvh.from_6d()` to convert predictions back.
 
-One picture shows the difference in continuity. A smooth rotation crosses the ±180° boundary, and the picture shows its readout in three representations:
+One picture shows the difference in continuity. A smooth rotation crosses the ±180° boundary. The picture shows its readout in three representations:
 
 ![A smooth rotation crossing 180 degrees: the Euler readout jumps, the canonical quaternion flips the sign of z, 6D stays perfectly smooth](../gallery/img/rotation-continuity.png)
 
@@ -36,7 +36,7 @@ Quaternions are best for interpolation, with `rotations.quat_slerp()`. They are 
 Rotation matrices are useful as an intermediate representation for composing rotations or for forward kinematics. They are rarely used directly as ML features, because they are redundant: 9 values with 6 constraints.
 
 ### Axis-angle
-Axis-angle is compact (3 values) and intuitive (direction = axis, magnitude = angle). It is good for representing small perturbations or angular velocities. It is discontinuous at `2*pi` wrapping.
+Axis-angle is compact (3 values). It is also intuitive (direction = axis, magnitude = angle). It is good for representing small perturbations or angular velocities. It is discontinuous at `2*pi` wrapping.
 
 ## Converting between representations
 

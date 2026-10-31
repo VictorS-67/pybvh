@@ -20,7 +20,7 @@ import numpy.typing as npt
 from .bvh import Bvh
 from .bvhnode import BvhNode
 from .node_tree import nodes_from_table
-from .tools import _validate_bvh_path, _validate_frame_time
+from .tools import _require_rate, _validate_bvh_path, _validate_frame_time
 
 # ----------------------------------------------------------------
 #  Reading
@@ -581,11 +581,8 @@ def write_bvh_file(
     # check would already have destroyed the data it is meant to protect
     elif not overwrite and filepath.exists():
         raise FileExistsError(f"{filepath} already exists; pass overwrite=True to replace it.")
-    if bvh.frame_time == 0:
-        raise ValueError(
-            f"Cannot write {filepath.name}: the clip's frame_time is 0 (unset), and a "
-            "BVH file must state its frame time. Set bvh.frame_time (or bvh.fps) first."
-        )
+    # A BVH file must state its frame time, and the reader refuses 0.
+    _require_rate(bvh.frame_time, f"Writing {filepath.name}")
 
     def offset_to_str(node: BvhNode) -> str:
         offset_str = "OFFSET"

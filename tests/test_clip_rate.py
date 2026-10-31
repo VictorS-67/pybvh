@@ -133,6 +133,10 @@ class TestUnsetClipRefused:
         with pytest.raises(ValueError, match=expected):
             batch.harmonize([walk, unset], target_fps=30)
 
+    def test_writing_names_the_file(self, unset, tmp_path):
+        with pytest.raises(ValueError, match=_refusal("Writing take.bvh")):
+            unset.write(tmp_path / "take.bvh")
+
 
 class TestWalkingPace:
     def test_a_clip_too_short_to_measure_has_no_pace(self, walk):

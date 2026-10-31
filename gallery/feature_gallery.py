@@ -328,7 +328,7 @@ gp.fig_feature_layout(layout, feat.shape)
 
 # %% [markdown]
 # ---
-# Everything below is the quantitative **motion-descriptor layer** added in pybvh 0.8.0 — geometry, dynamics, gait, SE(3), and signal utilities, each drawn so the picture explains the number. Prose overview: the [Motion Descriptors guide](https://victors-67.github.io/pybvh/guide/motion-descriptors/).
+# Everything below is the quantitative **motion-descriptor layer** added in pybvh 0.8.0: geometry, dynamics, gait, SE(3), and signal utilities. Each is drawn so that the picture explains the number. Prose overview: the [Motion Descriptors guide](https://victors-67.github.io/pybvh/guide/motion-descriptors/).
 
 # %% [markdown]
 # ## 6 · Geometry — relations between points
@@ -336,7 +336,7 @@ gp.fig_feature_layout(layout, feat.shape)
 # These measure relationships among joint *positions*. Each is drawn on a single pose with the measured quantity labelled.
 
 # %% [markdown]
-# **`inter_joint_distance`** — the straight-line distance between two joints. The dashed line is the measured segment; its length is printed on it.
+# **`inter_joint_distance`** — the straight-line distance between two joints. The dashed line is the measured segment. Its length is printed on it.
 
 # %%
 d = bvh.inter_joint_distance([("RightHand", "LeftHand")])[FRAME, 0]
@@ -345,7 +345,7 @@ gp.fig_inter_joint_distance(
 )
 
 # %% [markdown]
-# **`joint_angle`** — the angle at a *vertex* joint between its two neighbours. The two red bones meet at the elbow; the orange arc and label show the angle. (Drawn at the most-bent-elbow frame so the angle is unmistakable.)
+# **`joint_angle`** — the angle at a *vertex* joint between its two neighbours. The two red bones meet at the elbow. The orange arc and label show the angle. (The figure is drawn at the most-bent-elbow frame, so that the angle is unmistakable.)
 
 # %%
 elbow = bvh.joint_angle("RightArm", "RightForeArm", "RightHand", degrees=True)
@@ -361,7 +361,7 @@ gp.fig_joint_angle(
 )
 
 # %% [markdown]
-# **`segment_axis_angle`** — the angle of a bone relative to a reference axis (here the world up). The blue arrow is "up", the red bone is the segment, the arc is the angle between them.
+# **`segment_axis_angle`** — the angle of a bone relative to a reference axis (here the world up). The blue arrow is "up". The red bone is the segment. The arc is the angle between them.
 
 # %%
 saa = bvh.segment_axis_angle("RightForeArm", "RightHand", degrees=True)[FRAME]
@@ -385,7 +385,12 @@ gp.fig_triangle_area(
 gp.fig_point_to_plane_segment_synthetic()  # didactic illustration on synthetic points (no bvh feature)
 
 # %% [markdown]
-# **On the skeleton.** The same two distances become useful motion features: `point_to_plane_distance` to the ground gives a foot's **clearance** (how high it is lifted off the floor), and `point_to_segment_distance` to a body axis gives how far a hand **reaches** from the torso. Both are drawn on the same pose (the frame where the toe is most lifted), with the red perpendicular as the measured distance.
+# **On the skeleton.** The same two distances become useful motion features:
+#
+# - `point_to_plane_distance` to the ground gives a foot's **clearance**: how high it is lifted off the floor.
+# - `point_to_segment_distance` to a body axis gives how far a hand **reaches** from the torso.
+#
+# Both are drawn on the same pose: the frame where the toe is most lifted. The red perpendicular is the measured distance.
 
 # %%
 floor = pos[:, :, 2].min()
@@ -404,7 +409,7 @@ gp.fig_point_to_plane_segment_skeleton(bvh, kf, clearance, reach)
 # Whole-pose descriptors, drawn as the actual bounding shape around the skeleton.
 
 # %% [markdown]
-# **`bounding_box`** (axis-aligned), **`bounding_sphere`** (Ritter, approximate), **`bounding_ellipsoid`** (PCA-aligned) — three ways to enclose the pose. Each wireframe encloses every joint; the ellipsoid tilts with the body's spread.
+# **`bounding_box`** (axis-aligned), **`bounding_sphere`** (Ritter, approximate), **`bounding_ellipsoid`** (PCA-aligned) — three ways to enclose the pose. Each wireframe encloses every joint. The ellipsoid tilts with the body's spread.
 
 # %%
 box, sph = bvh.bounding_box(), bvh.bounding_sphere()
@@ -412,7 +417,7 @@ ell = geometry.bounding_ellipsoid(P)
 gp.fig_bounding_volumes(bvh, FRAME, box, sph, ell)
 
 # %% [markdown]
-# **`center_of_mass`** (uniform centroid) and **`com_displacement`** — the black dot is the per-frame CoM; the dashed line shows how far it has travelled from the **start** CoM (frame 0, the default reference). The CoM *trail* over the whole clip is faint blue.
+# **`center_of_mass`** (uniform centroid) and **`com_displacement`** — the black dot is the per-frame CoM. The dashed line shows how far it has travelled from the **start** CoM (frame 0, the default reference). The CoM *trail* over the whole clip is faint blue.
 
 # %%
 com = bvh.center_of_mass()
@@ -420,7 +425,7 @@ disp = bvh.com_displacement()
 gp.fig_com(bvh, com, disp, frame=50)
 
 # %% [markdown]
-# **`verticality`** — vertical extent ÷ horizontal extent. The green bar is the height span (along up); the orange bar is the horizontal width. Their ratio is the verticality (> 1 = tall/upright).
+# **`verticality`** — vertical extent ÷ horizontal extent. The green bar is the height span (along up). The orange bar is the horizontal width. Their ratio is the verticality (> 1 = tall/upright).
 
 # %%
 gp.fig_verticality(bvh, FRAME, bvh.verticality()[FRAME])
@@ -435,7 +440,7 @@ JT = "RightHand"
 traj = pos[:, idx(JT), :]
 
 # %% [markdown]
-# First, to make the static trajectory plots below intuitive, watch the hand **trace its path**: the skeleton animates while the blue trail grows behind the hand, frame by frame. The finished blue curve is the hand trajectory every descriptor in this section reads as `traj` (the GIF is resampled to 20 fps so it plays in real time).
+# First, to make the static trajectory plots below intuitive, watch the hand **trace its path**. The skeleton animates while the blue trail grows behind the hand, frame by frame. The finished blue curve is the hand trajectory that every descriptor in this section reads as `traj`. The GIF is resampled to 20 fps, so that it plays in real time.
 
 # %% tags=["slow-on-pr"]
 gif_path = gp.trajectory_trace_gif(bvh, JT)
@@ -444,7 +449,7 @@ gif_path = gp.trajectory_trace_gif(bvh, JT)
 # ![the right hand tracing its trajectory, frame by frame](https://raw.githubusercontent.com/VictorS-67/pybvh/main/gallery/feature_gallery_hand_traj.gif)
 
 # %% [markdown]
-# **`path_length`** vs **`directness`** — the blue curve is the actual path (its arc length = `path_length`); the dashed chord is the straight start→end distance. `directness` = chord ÷ path (1 = perfectly straight).
+# **`path_length`** vs **`directness`** — the blue curve is the actual path (its arc length = `path_length`). The dashed chord is the straight start→end distance. `directness` = chord ÷ path (1 = perfectly straight).
 
 # %%
 gp.fig_path_directness(
@@ -452,14 +457,14 @@ gp.fig_path_directness(
 )
 
 # %% [markdown]
-# **`curvature`** — how sharply the path bends (κ = 1 ÷ the radius of the circle that best hugs the path at each point). Drawn by colouring the trajectory: bright = tight turn, dark = nearly straight.
+# **`curvature`** — how sharply the path bends (κ = 1 ÷ the radius of the circle that best hugs the path at each point). The figure colours the trajectory: bright = tight turn, dark = nearly straight.
 
 # %%
 kappa = bvh.curvature(JT)
 gp.fig_curvature(traj, kappa, f"curvature along {JT} path")
 
 # %% [markdown]
-# **`torsion`** — how a path twists *out of its plane* (0 for any flat curve). It is a *third*-derivative quantity, so on real mocap it is swamped by finite-difference noise and spikes wherever the path is momentarily straight (its denominator → 0). To see what it actually measures we use a clean synthetic curve — a flat circle that lifts into a helix: torsion is ~0 on the flat part and rises where the curve leaves the plane.
+# **`torsion`** — how a path twists *out of its plane* (0 for any flat curve). It is a *third*-derivative quantity, so on real mocap it is swamped by finite-difference noise and spikes wherever the path is momentarily straight (its denominator → 0). To see what it actually measures, we use a clean synthetic curve: a flat circle that lifts into a helix. Torsion is ~0 on the flat part, and it rises where the curve leaves the plane.
 
 # %%
 s = np.linspace(0, 6 * np.pi, 600)
@@ -470,30 +475,30 @@ tor = geometry.torsion(helix, s[1] - s[0])
 gp.fig_torsion(helix, tor, "torsion: flat circle → rising helix")
 
 # %% [markdown]
-# > **Note — the ratio torsion / curvature - or τ/κ (Lancret invariant).** Curvature and torsion are the *complete* pair of Frenet invariants: together they fix a 3D curve up to a rigid motion. Their ratio has a clean meaning — **τ/κ is constant iff the curve is a generalized helix**, and that constant *is* the helix's pitch. On the curve above it is ~0 along the flat circle and ≈0.40 (the climb rate) on the helix. It's a one-liner from the two primitives — `geometry.torsion(traj, dt) / geometry.curvature(traj, dt)` — and is left at that: as a feature it inherits torsion's noise *and* adds a second blow-up where κ→0, so it stays a documented composition rather than a library call.
+# > **Note — the ratio torsion / curvature - or τ/κ (Lancret invariant).** Curvature and torsion are the *complete* pair of Frenet invariants. Together they fix a 3D curve up to a rigid motion. Their ratio has a clean meaning: **τ/κ is constant iff the curve is a generalized helix**, and that constant *is* the helix's pitch. On the curve above, it is ~0 along the flat circle and ≈0.40 (the climb rate) on the helix. It is a one-liner from the two primitives: `geometry.torsion(traj, dt) / geometry.curvature(traj, dt)`. It is left at that, because as a feature it inherits torsion's noise *and* adds a second blow-up where κ→0. So it stays a documented composition rather than a library call.
 
 # %% [markdown]
-# **`movement_phase`** — speed·curvature, so it peaks where the joint moves both *fast* and *sharply*. Shown along the real hand path: bright marks the moments that combine high speed with a tight turn.
+# **`movement_phase`** — speed·curvature, so it peaks where the joint moves both *fast* and *sharply*. Shown along the real hand path. Bright marks the moments that combine high speed with a tight turn.
 
 # %%
 mp = geometry.movement_phase(traj, dt)
 gp.fig_movement_phase(bvh, JT, mp)
 
 # %% [markdown]
-# **`ground_path`** — the joint's path projected onto the ground plane (its shadow). `distance` is the length of that shadow; `area` is the region it encloses (shoelace). The 3D path, its shadow, and the filled area are shown.
+# **`ground_path`** — the joint's path projected onto the ground plane (its shadow). `distance` is the length of that shadow. `area` is the region it encloses (shoelace). The figure shows the 3D path, its shadow, and the filled area.
 
 # %%
 gp.fig_ground_path(bvh, JT, bvh.ground_path(JT))
 
 # %% [markdown]
-# **`pose_distance`** — the Euclidean distance between two whole poses. Computed between *every* pair of frames it gives a self-similarity matrix: with this colormap bright = similar (the diagonal is brightest — every pose matches itself) and dark = dissimilar. Recurring motifs show up as off-diagonal bright streaks.
+# **`pose_distance`** — the Euclidean distance between two whole poses. Computed between *every* pair of frames, it gives a self-similarity matrix. With this colormap, bright = similar and dark = dissimilar. The diagonal is brightest: every pose matches itself. Recurring motifs appear as off-diagonal bright streaks.
 
 # %%
 D = geometry.pose_distance(pos[:, None], pos[None, :])  # (F, F) self-similarity
 gp.fig_pose_distance(D)
 
 # %% [markdown]
-# **`mean_pose_subtract`** — removes the average pose, returning a per-frame, per-joint deviation from it (shape `(F, N, 3)`) — the motion *about* the mean. The figure shows the mean pose (grey skeleton, what gets subtracted) and a single frame's slice of that deviation field (red arrows).
+# **`mean_pose_subtract`** — removes the average pose. It returns a per-frame, per-joint deviation from it (shape `(F, N, 3)`): the motion *about* the mean. The figure shows the mean pose (grey skeleton, what gets subtracted) and a single frame's slice of that deviation field (red arrows).
 
 # %%
 resid = geometry.mean_pose_subtract(pos)  # motion about the mean pose
@@ -505,7 +510,7 @@ gp.fig_mean_pose_subtract(bvh, FRAME, resid)
 # Velocity-derived descriptors. Most are best read on the signal itself, with the quantity they compute annotated directly. The right-hand speed profile and sampling rate are reused below.
 
 # %% [markdown]
-# The traced right-hand clip from section 8 once more — it is the signal these descriptors summarize:
+# The traced right-hand clip from section 8 once more. It is the signal that these descriptors summarize:
 #
 # ![the right hand tracing its trajectory, frame by frame](https://raw.githubusercontent.com/VictorS-67/pybvh/main/gallery/feature_gallery_hand_traj.gif)
 
@@ -514,7 +519,7 @@ speed = np.linalg.norm(bvh.node_velocities()[:, idx(JT)], axis=-1)
 fs = 1.0 / dt
 
 # %% [markdown]
-# **`node_jerk` / `joint_jerk`** — the third derivative of position (rate of change of acceleration). Large jerk = abrupt, unsmooth motion. Shown as the hand's speed, acceleration, and jerk magnitude stacked by frame. Note that the acceleration here is the full acceleration-vector magnitude, so it also spikes on sharp turns (direction changes), not only on speed changes.
+# **`node_jerk` / `joint_jerk`** — the third derivative of position (rate of change of acceleration). Large jerk = abrupt, unsmooth motion. Shown as the hand's speed, acceleration, and jerk magnitude stacked by frame. Note that the acceleration here is the full acceleration-vector magnitude. So it also spikes on sharp turns (direction changes), not only on speed changes.
 
 # %%
 acc = np.linalg.norm(bvh.node_accelerations()[:, idx(JT)], axis=-1)
@@ -524,7 +529,7 @@ gp.fig_jerk_ladder(
 )
 
 # %% [markdown]
-# **`smoothness(metric=…)`** scores a *speed profile*; each metric has its own scale and direction (the next cell spells them out). **SPARC** — more negative = less smooth — is the one with a clean geometric picture, so we use it to build intuition here; the others have no natural 2D drawing and are compared as numbers below. *(Synthetic on purpose: smoothness is a contrast metric, so we show a known smooth vs jerky pair.)* **Left:** the two speed profiles (the jerky one's wiggle count is what `number_of_peaks` reports). **Right:** their normalized spectra. SPARC is the *arc length* of this curve: the smooth motion's energy sits entirely at low frequency (a short arc), while the jerky tremor adds a bump at 7 Hz that lengthens the arc — that extra length is its lower SPARC.
+# **`smoothness(metric=…)`** scores a *speed profile*. Each metric has its own scale and direction. The next cell states them. **SPARC** (more negative = less smooth) is the one with a clean geometric picture. So we use it to build intuition here. The others have no natural 2D drawing. They are compared as numbers below. *(Synthetic on purpose: smoothness is a contrast metric, so we show a known smooth vs jerky pair.)* **Left:** the two speed profiles. The jerky one's wiggle count is what `number_of_peaks` reports. **Right:** their normalized spectra. SPARC is the *arc length* of this curve. The smooth motion's energy sits entirely at low frequency (a short arc). The jerky tremor adds a bump at 7 Hz that lengthens the arc. That extra length is its lower SPARC.
 
 # %%
 # -- synthetic data creation --
@@ -538,7 +543,7 @@ sparc = [analysis.smoothness(p, FS, metric="sparc") for p in (smooth, jerky)]
 gp.fig_smoothness_profiles(smooth, jerky, sparc, FS)
 
 # %% [markdown]
-# **The full `smoothness` family** — every metric scored on the same smooth vs jerky pair through the `smoothness(metric=…)` dispatcher (the call is now shown in the cell). The jerk-based metrics all rate the tremulous motion as less smooth (more negative for SPARC / DLJ / LDLJ, larger for the squared-jerk metrics and the peak count); `speed_metric` captures a different notion (mean-to-peak ratio), so it need not move the same way.
+# **The full `smoothness` family** — every metric scored on the same smooth vs jerky pair through the `smoothness(metric=…)` dispatcher. The call is now shown in the cell. The jerk-based metrics all rate the tremulous motion as less smooth: more negative for SPARC / DLJ / LDLJ, larger for the squared-jerk metrics and the peak count. `speed_metric` captures a different notion (mean-to-peak ratio), so it need not move the same way.
 
 # %%
 metrics = [
@@ -562,7 +567,7 @@ vr = analysis.velocity_reductions(speed, fs=fs)
 gp.fig_velocity_reductions(t, speed, vr, fs, f"velocity_reductions ({JT})")
 
 # %% [markdown]
-# **`zero_crossings`** & **`active_segments` / `active_duration`** — left: where a (centred) signal changes sign, with the count; right: a speed profile with a threshold, the *active* (moving) spans shaded and their total duration.
+# **`zero_crossings`** & **`active_segments` / `active_duration`** — left: where a (centred) signal changes sign, with the count. Right: a speed profile with a threshold, the *active* (moving) spans shaded and their total duration.
 
 # %%
 zc = analysis.zero_crossings(speed - speed.mean())
@@ -570,24 +575,29 @@ active = analysis.active_duration(speed, speed.mean(), fs)
 gp.fig_zero_crossings_active(t, speed, zc, active)
 
 # %% [markdown]
-# **`kinetic_energy`** — per-frame Σ‖vⱼ‖² over all joints (unit-mass). Left: the energy curve; right: a pose with each joint coloured by its instantaneous speed (red or black = fast), showing *where* the energy is. Pass `masses={joint: m}` for mass-weighted energy — pybvh ships no mass model.
+# **`kinetic_energy`** — per-frame Σ‖vⱼ‖² over all joints (unit-mass). Left: the energy curve. Right: a pose with each joint coloured by its instantaneous speed (red or black = fast). That pose shows *where* the energy is. For mass-weighted energy, pass `masses={joint: m}`. pybvh ships no mass model.
 
 # %%
 ke = bvh.kinetic_energy()
 gp.fig_kinetic_energy(bvh, ke, FRAME, t)
 
 # %% [markdown]
-# **`range_of_motion`** — the peak-to-peak span of a joint's Euler angles over the clip. Shown as each rotation channel's trace with its min–max band shaded; the band height is the ROM.
+# **`range_of_motion`** — the peak-to-peak span of a joint's Euler angles over the clip. The figure shows each rotation channel's trace, with its min–max band shaded. The band height is the ROM.
 
 # %%
 rom = bvh.range_of_motion("RightForeArm")
 gp.fig_range_of_motion(bvh, "RightForeArm", rom, t)
 
 # %% [markdown]
-# Note that ch1 has no range of motion here (ROM = 0°). This is because the forearm's rotation order is `ZYX`, so ch1 is the Y-rotation — and for the elbow that is the **non-hinge** axis: the elbow is a hinge, it flexes in a single plane (captured here by ch0, the Z-rotation, ~102°) and the bone twists along its length (ch2, the X-rotation, ~73° of pronation/supination), but it physically cannot bend sideways, so that channel stays at 0 for the whole clip.
+# Note that ch1 has no range of motion here (ROM = 0°). This is because the forearm's rotation order is `ZYX`, so ch1 is the Y-rotation, and for the elbow that is the **non-hinge** axis. The elbow is a hinge. It flexes in a single plane, captured here by ch0 (the Z-rotation, ~102°). The bone also twists along its length (ch2, the X-rotation, ~73° of pronation/supination). But the elbow physically cannot bend sideways, so that channel stays at 0 for the whole clip.
 
 # %% [markdown]
-# **`cov3dj`** & **`lagged_covariance`** — fixed-size statistical descriptors of a whole sequence: the covariance of all 3D joint coordinates (`cov3dj`, 3N×3N), and the channel covariance at a temporal lag (`lagged_covariance`). Drawn as heatmaps — block structure reflects coordinated joints.
+# **`cov3dj`** & **`lagged_covariance`** — fixed-size statistical descriptors of a whole sequence:
+#
+# - `cov3dj`: the covariance of all 3D joint coordinates (3N×3N).
+# - `lagged_covariance`: the channel covariance at a temporal lag.
+#
+# The figure draws them as heatmaps. Block structure reflects coordinated joints.
 
 # %%
 C = analysis.cov3dj(bvh.joint_positions())
@@ -604,10 +614,10 @@ gp.fig_skeleton_size(bvh, bvh_feet, analysis.skeleton_size(bvh, foot_joints=bvh_
 # %% [markdown]
 # ### Gait — on real walking mocap
 #
-# The remaining descriptors in this section are gait metrics; unlike everything above they run on the **real walking clip** shown in section 5 (`walk`, with its auto-detected `feet`), because gait only becomes meaningful over several real strides.
+# The remaining descriptors in this section are gait metrics. Unlike everything above, they run on the **real walking clip** shown in section 5 (`walk`, with its auto-detected `feet`), because gait only becomes meaningful over several real strides.
 
 # %% [markdown]
-# **`gait_parameters`** — one-pass spatiotemporal gait analysis from foot contacts + foot landings (it also exposes the `cadence` / `stride_length` / `walking_pace` scalars individually). Since gait input is locomotion by definition, it detects contacts with `foot_contacts(…, adaptive=True)`, which splits each foot's speed threshold from its own speed; the height threshold is calibrated to each foot's own stance level, which is what handles retargeted mocap whose feet hover above the estimated floor. **Top:** the contact raster (blue = planted) with double-support frames shaded orange — illustrating `stance_fraction` and `double_support_fraction`. **Bottom:** each foot's ground path (in travel-aligned coordinates) with its landing points marked and joined, so `stride_length` (landing→landing) and left/right `asymmetry` are visible; the remaining scalars are printed in the titles. *(Kinematic only — dynamic gait like joint torques or ground-reaction force needs a physical model and is out of scope.)*
+# **`gait_parameters`** — one-pass spatiotemporal gait analysis from foot contacts + foot landings. It also exposes the `cadence` / `stride_length` / `walking_pace` scalars individually. Since gait input is locomotion by definition, it detects contacts with `foot_contacts(…, adaptive=True)`. That setting splits each foot's speed threshold from its own speed. The height threshold is calibrated to each foot's own stance level. That calibration is what handles retargeted mocap whose feet hover above the estimated floor. **Top:** the contact raster (blue = planted), with double-support frames shaded orange. It illustrates `stance_fraction` and `double_support_fraction`. **Bottom:** each foot's ground path (in travel-aligned coordinates), with its landing points marked and joined, so that `stride_length` (landing→landing) and left/right `asymmetry` are visible. The remaining scalars are printed in the titles. *(Kinematic only. Dynamic gait, like joint torques or ground-reaction force, needs a physical model and is out of scope.)*
 
 # %%
 t_walk = np.arange(walk.frame_count) * walk.frame_time
@@ -620,14 +630,14 @@ gp.fig_gait(walk, feet, g, t_walk)
 # Rigid transforms are drawn as coordinate frames (triads): red/green/blue = the x/y/z axes of the frame.
 
 # %% [markdown]
-# **`se3_exp` / `se3_log`** — a twist `[ω, v]` (six numbers, rotation first) exponentiates to a 4×4 rigid transform; `se3_log` inverts it exactly (see the inset round-trip). `ω` is an axis-angle vector — here 1.4 rad ≈ 80° about z — and `v` is the twist's *linear generator*, **not** the final translation: the exp map couples it to the ongoing rotation (`d = V(ω)·v`), so the origin of the identity frame (faint) travels along the dashed helix to the black dot at `d ≈ [0.70, 0.59, 0.60]`, where the transformed frame (bold) lands. The grey line is the **true screw axis**.
+# **`se3_exp` / `se3_log`** — a twist `[ω, v]` (six numbers, rotation first) exponentiates to a 4×4 rigid transform. `se3_log` inverts it exactly (see the inset round-trip). `ω` is an axis-angle vector: here 1.4 rad ≈ 80° about z. `v` is the twist's *linear generator*, **not** the final translation. The exp map couples it to the ongoing rotation (`d = V(ω)·v`). So the origin of the identity frame (faint) travels along the dashed helix to the black dot at `d ≈ [0.70, 0.59, 0.60]`, where the transformed frame (bold) lands. The grey line is the **true screw axis**.
 
 # %%
 twist = np.array([0.0, 0.0, 1.4, 1.0, 0.0, 0.6])  # ω about z, with translation
 gp.fig_se3_exp(twist)
 
 # %% [markdown]
-# **`screw_interpolate`** — the SE(3) analogue of SLERP: it blends two rigid transforms along the constant screw connecting them, rotating and translating together. `t = 0` returns T₀ and `t = 1` returns T₁; an array of `t`s broadcasts, so the single call below yields all seven triads at once. They fade in with `t` — T₀ faintest, T₁ boldest — and the dashed curve traces the origin's screw arc between them.
+# **`screw_interpolate`** — the SE(3) analogue of SLERP. It blends two rigid transforms along the constant screw connecting them, rotating and translating together. `t = 0` returns T₀. `t = 1` returns T₁. An array of `t`s broadcasts, so the single call below yields all seven triads at once. Their opacity grows with `t`: T₀ faintest, T₁ boldest. The dashed curve traces the origin's screw arc between them.
 
 # %%
 T0 = np.eye(4)
@@ -637,7 +647,7 @@ frames = rotations.screw_interpolate(T0, T1, ts)  # (7, 4, 4): t=0 → T₀ … 
 gp.fig_screw_interpolate(frames, ts)
 
 # %% [markdown]
-# **`relative_transform`** — the pose of one body segment in another's local frame (the geometry→SE(3) bridge). The two arm bones are drawn; the printed twist is the relative transform `se3_log(T_upper⁻¹ T_fore)`. Segment frames are completed with a fixed world reference direction, which keeps the features smooth over time but ties them to global heading — root-align the motion (e.g. `harmonize`) before comparing these features across clips.
+# **`relative_transform`** — the pose of one body segment in another's local frame (the geometry→SE(3) bridge). The two arm bones are drawn. The printed twist is the relative transform `se3_log(T_upper⁻¹ T_fore)`. Segment frames are completed with a fixed world reference direction. That direction keeps the features smooth over time, but it ties them to global heading. So root-align the motion (e.g. `harmonize`) before you compare these features across clips.
 
 # %%
 upper = np.stack([P[idx("RightArm")], P[idx("RightForeArm")]])
@@ -662,7 +672,7 @@ gp.fig_geodesic(root_R, geo, t)
 # Array-pure numeric helpers, each shown on a small constructed signal where the effect is obvious.
 
 # %% [markdown]
-# **`finite_difference`** — the shared derivative operator. On a sine wave, the central and forward differences both track the analytic derivative (cosine); central is symmetric and more accurate.
+# **`finite_difference`** — the shared derivative operator. On a sine wave, the central and forward differences both track the analytic derivative (cosine). Central is symmetric. It is also more accurate.
 
 # %%
 x = np.linspace(0, 4 * np.pi, 200)
@@ -682,7 +692,7 @@ smoothed = signal.box_filter_smooth(noisy, window=15)
 gp.fig_temporal_box(x, noisy, st, smoothed)
 
 # %% [markdown]
-# **`fft_magnitude` / `dominant_frequency`** — left: a signal mixing 3 Hz and 11 Hz, shown in time (first second). Right: its one-sided magnitude spectrum (`fft_magnitude`) resolves both components as peaks, and `dominant_frequency` picks the strongest — the red line lands on the taller 3 Hz peak, not merely any peak.
+# **`fft_magnitude` / `dominant_frequency`** — left: a signal mixing 3 Hz and 11 Hz, shown in time (first second). Right: its one-sided magnitude spectrum (`fft_magnitude`) resolves both components as peaks. `dominant_frequency` picks the strongest. The red line lands on the taller 3 Hz peak, not merely any peak.
 
 # %%
 fsx, n = 100.0, 512
@@ -704,7 +714,7 @@ gp.fig_rdp(curve, simp, 0.15)
 # %% [markdown]
 # ## 12 · Scale
 #
-# **`relative_scale_factor`** — the least-squares uniform scale that best matches one skeleton to another. Here a skeleton (blue) and a 1.6× copy (orange) are shown; the recovered factor matches the original poses back together.
+# **`relative_scale_factor`** — the least-squares uniform scale that best matches one skeleton to another. Here a skeleton (blue) and a 1.6× copy (orange) are shown. The recovered factor matches the original poses back together.
 
 # %%
 rest = bvh.rest_pose_positions()
@@ -713,4 +723,4 @@ gp.fig_relative_scale(bvh, factor, 1.6)
 
 # %% [markdown]
 # ---
-# That is pybvh's visual surface — every operation, transform, descriptor, and utility that has a picture, each drawn so the picture explains the call. What has no natural picture (file I/O, batch loading, harmonization, pandas) lives in the [capability map](https://victors-67.github.io/pybvh/api/) instead. The array-pure kernels (`geometry.*`, the smoothness functions, the SE(3) math, `signal.*`) take plain NumPy arrays, so any of these visuals can be reproduced without a `Bvh` at all.
+# That is pybvh's visual surface: every operation, transform, descriptor, and utility that has a picture. Each is drawn so that the picture explains the call. What has no natural picture (file I/O, batch loading, harmonization, pandas) lives in the [capability map](https://victors-67.github.io/pybvh/api/) instead. The array-pure kernels (`geometry.*`, the smoothness functions, the SE(3) math, `signal.*`) take plain NumPy arrays. So any of these visuals can be reproduced without a `Bvh` at all.

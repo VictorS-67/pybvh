@@ -223,9 +223,7 @@ def _match_frame_rates(
     if len(bvh_list) <= 1:
         return bvh_list
 
-    # The rule matches the unset frame time, 0, with 0 alone, so it finds
-    # the unset clips: no bvhplot module tests a frame time against 0.
-    is_unset = [_same_rate(b.frame_time, 0.0) for b in bvh_list]
+    is_unset = [b.frame_time == 0 for b in bvh_list]
     unset = [i for i, u in enumerate(is_unset) if u]
     frame_times = [b.frame_time for b, u in zip(bvh_list, is_unset, strict=True) if not u]
     rates = [1.0 / ft for ft in frame_times]

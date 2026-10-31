@@ -197,8 +197,8 @@ def _match_frame_rates(
     """Warn on frame-rate mismatch and optionally resample to a common rate.
 
     Rates are compared by :meth:`Bvh.matches_rate`'s rule, so 29.97 and
-    30 fps differ. A clip whose
-    ``frame_time`` is 0 has no rate, not a rate of 0 fps: rates are
+    30 fps differ. A clip whose ``frame_time`` is 0 has no rate, not a
+    rate of 0 fps: rates are
     compared among the clips that have one, and the warning names the
     others. The router's :func:`_require_frame_rates` has refused such a
     clip before ``match_fps`` resamples.

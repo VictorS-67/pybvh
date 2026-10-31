@@ -802,8 +802,9 @@ class Bvh:
         on other bones on purpose, put it on this skeleton first,
         ``self + other.copy(nodes=self.to_node_table())``. Then raises
         ``ValueError`` unless the two have the same rate
-        (:meth:`matches_rate`), since ``other``'s frames would play at ``self``'s rate: join
-        ``other.resample(self.fps)`` to keep its timing on ``self``'s grid,
+        (:meth:`matches_rate`), since ``other``'s frames would play at
+        ``self``'s rate: join ``other.resample(self.fps)`` to keep its
+        timing on ``self``'s grid,
         or set ``other.frame_time = self.frame_time`` when the difference
         is only metadata. The result keeps ``self``'s frame time. Two
         unset clips (``frame_time`` 0) join, and the result is unset; an
@@ -3212,8 +3213,8 @@ class Bvh:
         ``round(duration · fps) + 1`` samples and an irregular last
         interval — keeps the endpoint at the cost of an inexact rate.
         A clip that already has the rate, by :meth:`matches_rate`'s rule,
-        is not interpolated:
-        the result keeps its samples and takes ``1 / target_fps``, the
+        is not interpolated: the result keeps its samples and takes
+        ``1 / target_fps``, the
         frame time ``bvh.fps = target_fps`` sets. So does a clip shorter
         than two frames, which has nothing to interpolate.
 

@@ -221,11 +221,11 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
     last time then carries the rounding. A 30, 120 or 29.97 fps clip
     that long comes back at exactly ``1 / 30``, ``1 / 120`` or
     ``1 / 29.97``; a shorter one, or fewer decimals, may keep the
-    measured value. NTSC's exact ``1001 / 30000`` has no rate with 3 decimals, so
-    a clip at that frame time comes back from a table saved at 6
-    decimals at its measured frame time: when that long, within 5e-7 of
-    ``1001 / 30000``, so never as ``1 / 29.97``, which is 1.000001e-6
-    from it. A clip that goes out through :meth:`Bvh.to_df_dict` and
+    measured value. NTSC's exact ``1001 / 30000`` is not the frame time
+    of a rate with up to 3 decimals, so a clip at that frame time comes
+    back from a table saved at 6 decimals at its measured frame time:
+    when that long, within 5e-7 of ``1001 / 30000``, so never as
+    ``1 / 29.97``, which is 1.000001e-6 from it. A clip that goes out through :meth:`Bvh.to_df_dict` and
     back therefore keeps its skeleton exactly, its motion within float
     precision, the degrees conversion being the one step applied to the
     angles, and its rate within 5e-7.

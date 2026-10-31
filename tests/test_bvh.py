@@ -2202,7 +2202,7 @@ class TestFrameSlicing:
             # 1 / (1 / 0.013) is 0.013000000000000001.
             (0.013, 1 / 0.013, 0.013000000000000001),
             # An exact NTSC clip and 29.97 fps are the same rate.
-            (1001 / 30000, 29.97, 0.033366700033366704),
+            (1001 / 30000, 29.97, 1 / 29.97),
         ],
         ids=["rounding", "ntsc"],
     )
@@ -5005,7 +5005,7 @@ class TestHarmonize:
         out = harmonize([ntsc], target_fps=29.97)
         np.testing.assert_array_equal(out[0].root_pos, ntsc.root_pos)
         np.testing.assert_array_equal(out[0].joint_angles, ntsc.joint_angles)
-        assert out[0].frame_time == 0.033366700033366704
+        assert out[0].frame_time == 1 / 29.97
         assert ntsc.frame_time == 1001 / 30000
 
     @pytest.mark.parametrize("fps", [29.97, 30.005], ids=["29.97", "30.005"])
@@ -5020,6 +5020,17 @@ class TestHarmonize:
         # Interpolated: the last frame's root moves off the original.
         assert not np.array_equal(out[0].root_pos[-1], clip.root_pos[-1])
         assert "resample" in report.applied_stages[0]
+
+    @pytest.mark.parametrize("clips", [[], "one dropped"], ids=["empty", "all-dropped"])
+    def test_invalid_target_fps_raises_even_without_a_clip_to_resample(
+        self, bvh_example, bvh_test2, clips
+    ):
+        from pybvh.batch import harmonize
+
+        if clips == "one dropped":
+            clips = [bvh_test2]
+        with pytest.raises(ValueError, match="target_fps"):
+            harmonize(clips, reference=bvh_example, target_fps=-1, verbose=False)
 
     def test_harmonized_clips_join(self, bvh_example):
         from pybvh.batch import harmonize

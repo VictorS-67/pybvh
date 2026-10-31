@@ -18,7 +18,7 @@ from .bvh import Bvh
 from .features import to_feature_array
 from .io import _bvh_from_parsed, _extract_bvh_file_info, _ParsedBvh
 from .node_tree import _channel_difference, _hierarchy_difference, _NodeTreeDifference
-from .tools import _matches_fps, _require_rate
+from .tools import _matches_fps, _require_rate, _validate_fps
 
 
 @dataclass
@@ -364,6 +364,8 @@ def harmonize(
     """
     if on_incompatible not in ("drop", "raise"):
         raise ValueError(f"on_incompatible must be 'drop' or 'raise', got {on_incompatible!r}")
+    if target_fps is not None:
+        _validate_fps(target_fps, "target_fps")
 
     report = HarmonizeReport()
     out: list[Bvh] = []
@@ -391,13 +393,14 @@ def harmonize(
             stages["retarget"] = "applied"
         if target_fps is not None:
             _require_rate(b.frame_time, "harmonize()", index=i)
-            if not _matches_fps(b.frame_time, target_fps, "target_fps"):
+            if b.frame_time != 1.0 / target_fps:
+                # resample keeps the samples of a clip of the same rate and
+                # only relabels it; the report records an interpolation.
+                interpolates = not _matches_fps(b.frame_time, target_fps, "target_fps")
                 old_fps = b.fps
                 b = b.resample(target_fps)
-                stages["resample"] = f"{old_fps:.4g}→{target_fps:.4g}"
-            elif b.frame_time != 1.0 / target_fps:
-                # The same rate: resample only relabels it, on a copy.
-                b = b.resample(target_fps)
+                if interpolates:
+                    stages["resample"] = f"{old_fps:.4g}→{target_fps:.4g}"
         if target_world_up is not None and b.world_up != target_world_up:
             old_world_up = b.world_up
             b = b.reorient_world_up(target_world_up)

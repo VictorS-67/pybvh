@@ -7,6 +7,7 @@ Run with: python -m pytest tests/test_bvh.py -v
 
 import copy
 import dataclasses
+import io
 import pickle
 import re
 import sys
@@ -938,6 +939,51 @@ class TestDataFrameConversion:
             joint_angles=rng.normal(scale=0.5, size=(frames, 2, 3)),
             frame_time=1.0 / 30.0,
         )
+
+    @pytest.mark.parametrize("fps", [120.0, 30.0, 29.97])
+    def test_a_time_column_saved_at_six_decimals_keeps_the_clips_rate(
+        self, bvh_example, from_df, fps
+    ):
+        """The first time is 0 and the last is rounded by at most 5e-7 s:
+        over the 4.2 s clip, a frame time off by at most 1.2e-7 relative,
+        inside the 1e-6 window, so the clip's rate is recovered."""
+        clip = bvh_example.resample(fps)
+        csv = pd.DataFrame(clip.to_df_dict(mode="euler")).to_csv(index=False, float_format="%.6f")
+        df = pd.read_csv(io.StringIO(csv))
+
+        rebuilt = from_df(clip.nodes, df)
+
+        assert rebuilt.frame_time == 1 / fps
+
+    def test_a_table_cut_from_a_clip_keeps_its_rate(self, bvh_example, from_df):
+        """Both ends rounded, by at most 1e-6 s together: over the 3.9 s
+        left, 2.6e-7 relative, still inside the 1e-6 window."""
+        clip = bvh_example.resample(29.97)
+        csv = pd.DataFrame(clip.to_df_dict(mode="euler")).to_csv(index=False, float_format="%.6f")
+        df = pd.read_csv(io.StringIO(csv)).iloc[7:]
+
+        rebuilt = from_df(clip.nodes, df)
+
+        assert rebuilt.frame_time == 1 / 29.97
+
+    def test_a_rate_with_three_decimals_is_not_moved_to_a_whole_one(self, bvh_example, from_df):
+        """1/124.988 is 9.6e-5 from 1/125: the former 1e-4 snap moved it."""
+        clip = bvh_example.resample(124.988)
+        df = pd.DataFrame(clip.to_df_dict(mode="euler"))
+
+        rebuilt = from_df(clip.nodes, df)
+
+        assert rebuilt.frame_time == 1 / 124.988
+
+    def test_a_rate_no_short_rate_fits_keeps_its_measured_frame_time(self, bvh_example, from_df):
+        """The nearest rates with up to 3 decimals, 100.000 and 100.001,
+        are each 5e-6 from 100.0005 relative, outside the 1e-6 window."""
+        clip = bvh_example.resample(100.0005)
+        df = pd.DataFrame(clip.to_df_dict(mode="euler"))
+
+        rebuilt = from_df(clip.nodes, df)
+
+        np.testing.assert_allclose(rebuilt.frame_time, 1 / 100.0005, rtol=1e-12)
 
     def test_df_to_bvh_nan_time_raises_frame_time_error(self, bvh_example):
         df = pd.DataFrame(bvh_example.to_df_dict(mode="euler", centered="world"))

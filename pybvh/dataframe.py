@@ -11,14 +11,19 @@ this module only reads the DataFrame it is given.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Hashable, Mapping, Sequence
+from fractions import Fraction
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 
 from .bvh import Bvh, _motion_column_names
 from .bvhnode import BvhNode
+from .io import _rate_with_fewest_decimals
 from .node_tree import _nodes_from_table_or_list
+from .tools import _SAME_RATE_RTOL
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -31,24 +36,25 @@ _SUFFIX_RULE = (
 )
 
 
-def _snap_frame_time(frame_time: float) -> float:
-    """Snap a derived frame time to an exact ``1/N`` when within 0.01% of one.
+def _frame_time_from_times(times: npt.NDArray[Any]) -> float:
+    """The frame time a ``time`` column means: the recovered rate's, or the measured one.
 
-    A ``time`` column saved at a few decimals derives a frame time a
-    little off its clip's rate; an integer rate comes back exact, and a
-    non-integer rate such as 23.976 fps is kept as measured.
+    The measured frame time goes through the reader's rule with
+    :data:`~pybvh.tools._SAME_RATE_RTOL` as the window, as
+    :func:`df_to_bvh` states for the user.
     """
-    # Only a positive finite value has a rate to snap to; anything else is
+    measured = float((times[-1] - times[0]) / (len(times) - 1))
+    # Only a positive finite value has a rate to recover; anything else is
     # returned unchanged for the frame_time rule to reject or accept.
-    if not (np.isfinite(frame_time) and frame_time > 0):
-        return frame_time
-    rate = round(1.0 / frame_time)
-    if rate == 0:
-        return frame_time
-    snapped = 1.0 / rate
-    if abs(snapped - frame_time) / frame_time < 1e-4:
-        return snapped
-    return frame_time
+    if not (math.isfinite(measured) and measured > 0):
+        return measured
+    exact = Fraction(measured)
+    rate = _rate_with_fewest_decimals(
+        exact * (1 - Fraction(_SAME_RATE_RTOL)), exact * (1 + Fraction(_SAME_RATE_RTOL))
+    )
+    if rate is None:
+        return measured
+    return 1 / float(rate)
 
 
 def _time_label(df: pd.DataFrame) -> Hashable:
@@ -177,13 +183,25 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
     The frame time is the elapsed time of the ``time`` column divided
     by its number of intervals, so a first timestamp other than zero
     does not matter and uneven intervals are averaged rather than
-    refused, and it is snapped to an exact ``1 / N`` when within 0.01%
-    of one: any integer rate comes back exact, so a ``time`` column written at
-    six decimals for a 30 fps clip gives ``1 / 30`` exactly, and a
-    non-integer rate such as 23.976 fps is kept as measured. A clip
-    that goes out through :meth:`Bvh.to_df_dict` and back therefore
-    keeps its skeleton exactly and its motion within float precision,
-    the degrees conversion being the one step applied to the angles.
+    refused. A ``time`` column saved at a few decimals leaves that
+    frame time a little off its clip's rate, so the rate is recovered
+    by the rule :func:`~pybvh.read_bvh_file` applies to a truncated
+    ``Frame Time``, with a relative 1e-6 standing in for the decimals
+    a file prints: the frame time is ``1 / rate`` for the rate with the
+    fewest decimals, from 0 to 3, whose frame time lies within 1e-6 of
+    the measured one, relative, when it is the only rate with that
+    many decimals; when several fit, or none, the measured value is
+    kept. A column saved at 6 decimals measures the frame time within
+    1e-6 when it spans one second or more, or half a second when its
+    first time is 0, as :meth:`Bvh.to_df_dict` writes it: only the last
+    time then carries the rounding. A 30, 120 or 29.97 fps clip that
+    long comes back at exactly ``1 / 30``, ``1 / 120`` or
+    ``1 / 29.97``; a shorter one, or fewer decimals, may keep the
+    measured value. A clip that goes out through
+    :meth:`Bvh.to_df_dict` and back therefore keeps its skeleton
+    exactly, its motion within float precision, the degrees conversion
+    being the one step applied to the angles, and its rate within
+    1e-6.
 
     Columns bind by label, not by position. The alternative, reading
     the motion columns in the order they come, would accept a frame
@@ -219,9 +237,7 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
             f"df must contain at least 2 rows to derive the frame time "
             f"from the 'time' column (got {len(time_values)})"
         )
-    # Elapsed time over frame intervals — robust to a nonzero first timestamp.
-    frame_time = float((time_values[-1] - time_values[0]) / (len(time_values) - 1))
-    frame_time = _snap_frame_time(frame_time)
+    frame_time = _frame_time_from_times(time_values)
 
     num_joints = len([n for n in nodes if not n.is_end_site()])
     root_pos = frames[:, :3].astype(np.float64)

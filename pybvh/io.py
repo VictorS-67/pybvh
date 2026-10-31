@@ -8,6 +8,8 @@ Public functions:
 
 from __future__ import annotations
 
+import math
+from fractions import Fraction
 from itertools import chain
 from pathlib import Path
 from typing import Any, NamedTuple, TextIO
@@ -85,16 +87,45 @@ def read_bvh_file(
     Three things the reader normalizes rather than preserving verbatim,
     so a round-trip is lossless in *motion* but not byte-for-byte:
 
-    - **Frame time is snapped** to an exact ``1 / N`` when the file's
-      value is within 0.01% of one — salvaging the ubiquitous
-      ``0.033333`` truncation, at the cost of ``bvh.frame_time`` not
-      being the literal file value. Non-integer rates (23.976 fps) are
-      left alone, and no other parser does this snap.
+    - **Frame time is recovered** when the file's value is the frame
+      time of a round rate, truncated or rounded by its exporter.
+      Exporters often print ``Frame Time`` at 6 decimals (``0.033333``
+      for 30 fps, which is 30.0003 fps), and a resample and back
+      then drifts. The reader looks for the rate with the fewest
+      decimals, from 0 to 3, whose frame time, rounded or truncated to
+      the decimals the file prints, gives exactly the file's text. When
+      exactly one rate with that many decimals fits, ``bvh.frame_time``
+      is ``1 / rate``; when several fit, or none with up to 3 decimals,
+      it is the value as read. ``0.033333`` and ``0.033`` read as
+      ``1 / 30``, ``0.004166`` as ``1 / 240`` and ``0.033367`` as
+      ``1 / 29.97``; ``0.017`` (every whole rate from 56 to 60 fps
+      fits) and ``0.008341`` (119.88 and 119.89 fps) are kept as read.
+      A 29.97 fps file becomes ``1 / 29.97``, which is 1.000001e-6
+      relative from NTSC's exact ``1001 / 30000``; set
+      ``bvh.frame_time = 1001 / 30000`` after reading when you need
+      that. The rule recovers lost digits, not round numbers, so a text
+      of 17 significant digits or more, which names one float exactly,
+      is kept as read: ``0.033366700033366700`` reads as itself, one
+      float from ``1 / 29.97``. Since the text alone cannot tell a short
+      frame time from a truncated one, :func:`write_bvh_file` writes all
+      17 significant digits (its Notes say why): a clip whose
+      ``frame_time`` is ``0.033`` is written ``0.033000000000000002``
+      and reads back as ``0.033``. None of the other BVH readers
+      surveyed recovers a rate: those that use the value take the text
+      as printed, and one (fairmotion) rounds the rate to a whole
+      number. Where the rule recovers a rate, the printed value differs
+      from pybvh's by less than one unit of its last decimal
+      (``0.033333`` against ``1 / 30``); where it keeps the text, the
+      two agree. The rounded rate differs from pybvh's wherever pybvh's
+      is not whole (``0.033367`` gives 30 fps, ``0.017`` 59 fps), and,
+      in a file at 6 decimals, on some whole rates above 720 fps
+      (``0.001386`` gives 722 fps, where pybvh reads 721).
     - **Root channels are reordered** to position-first. A file
       declaring rotations before positions parses correctly but writes
       back in pybvh's canonical order.
     - **Offsets and motion values are written at 6 decimal places**
-      (frame time at full precision), so re-reading a written file
+      (the frame time at 17 significant digits, which reads back as
+      the same float), so re-reading a written file
       quantizes at ~1e-6 in the file's own units.
 
     Values pybvh infers or you set — ``world_up``, ``lr_mapping`` — have
@@ -153,22 +184,76 @@ def _bvh_from_parsed(
     )
 
 
-def _snap_frame_time(frame_time: float) -> float:
-    """Snap a frame time to an exact ``1/N`` rate when it looks truncated.
+#: The most decimals a recovered rate has: enough for 23.976 and 119.88 fps.
+_RECOVERED_RATE_MAX_DECIMALS = 3
 
-    Foreign BVH files commonly store ``Frame Time`` truncated to 6 digits (e.g. ``0.033333`` for 30 fps), which makes resample-and-back round-trips drift. When the nearest exact ``1/N`` is within 0.01% of the literal value, return ``1/N``; otherwise return the input unchanged — non-integer rates like 23.976 fps are NOT snapped, since ``1/24 != 1/23.976``. This is a read-side salvage for truncated files; pybvh itself writes frame times at full precision.
+#: The significant digits that name one float64 exactly, whatever its value.
+_FLOAT64_EXACT_DIGITS = 17
+
+
+def _frame_time_from_text(text: str) -> float:
+    """The frame time a ``Frame Time`` text means: the recovered rate's, or the text's value.
+
+    A writer that rounded *text* to its last printed decimal started
+    from a frame time in ``[x - u/2, x + u/2)``, and one that truncated
+    from ``[x, x + u)``, where ``x`` is the printed value and ``u`` one
+    unit of its last decimal. When :func:`_rate_with_fewest_decimals`
+    finds one rate whose frame time lies in their union, the result is
+    ``1 / rate``; otherwise it is ``x``. A text of
+    :data:`_FLOAT64_EXACT_DIGITS` significant digits or more lost none of
+    its float's digits, so it is ``x`` too. :func:`read_bvh_file` states
+    the rule for the user.
     """
-    # Only a positive finite value has a rate to snap to; anything else is
-    # returned unchanged for the frame_time rule to reject or accept.
-    if not (np.isfinite(frame_time) and frame_time > 0):
-        return frame_time
-    rate = round(1.0 / frame_time)
-    if rate == 0:
-        return frame_time
-    snapped = 1.0 / rate
-    if abs(snapped - frame_time) / frame_time < 1e-4:
-        return snapped
-    return frame_time
+    printed = Fraction(text)
+    # The caller has refused a text whose float is negative or not finite,
+    # so the value is 0 or positive, or negative but too small for a float
+    # (-1e-400 reads as -0.0). Either is the unset frame time, which the
+    # caller refuses after this call, and has no rate.
+    if printed <= 0 or _significant_digits(text) >= _FLOAT64_EXACT_DIGITS:
+        return float(printed)
+    unit = _unit_of_last_decimal(text)
+    rate = _rate_with_fewest_decimals(printed - unit / 2, printed + unit)
+    if rate is None:
+        return float(printed)
+    # 1 / float(rate), not float(1 / rate): the frame time ``bvh.fps = 29.97``
+    # sets, so a recovered clip and one given its rate in code are equal.
+    return 1 / float(rate)
+
+
+def _significant_digits(text: str) -> int:
+    """The significant digits *text* prints, trailing zeros included: ``0.0830`` gives 3."""
+    mantissa, _, _ = text.lower().partition("e")
+    return len(mantissa.lstrip("+-").replace(".", "").lstrip("0"))
+
+
+def _unit_of_last_decimal(text: str) -> Fraction:
+    """One unit of the last decimal *text* prints: ``0.0083`` gives 1/10000, ``8.3e-3`` too."""
+    mantissa, _, exponent = text.lower().partition("e")
+    _, _, decimals = mantissa.partition(".")
+    return Fraction(10) ** (int(exponent or 0) - len(decimals))
+
+
+def _rate_with_fewest_decimals(low: Fraction, high: Fraction) -> Fraction | None:
+    """The rate with the fewest decimals whose frame time lies in ``[low, high)``.
+
+    Rates with 0 decimals are tried first, then 1, up to
+    :data:`_RECOVERED_RATE_MAX_DECIMALS`. The search stops at the first
+    count of decimals at which a rate fits: the rate when it is the only
+    one, ``None`` when several fit. ``None`` too when none fits. *low*
+    must be positive.
+    """
+    for decimals in range(_RECOVERED_RATE_MAX_DECIMALS + 1):
+        step = Fraction(1, 10**decimals)
+        # The rate k * step fits when low <= 1 / (k * step) < high, that is
+        # when 1 / (high * step) < k <= 1 / (low * step): a count of whole
+        # numbers, so no candidate is enumerated.
+        largest_k = math.floor(1 / (low * step))
+        fitting = largest_k - math.floor(1 / (high * step))
+        if fitting == 1:
+            return largest_k * step
+        if fitting > 1:
+            return None
+    return None
 
 
 def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
@@ -268,15 +353,13 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
                 # Checked here, although the Bvh setter applies the same
                 # rule, so that the error names the file and the line.
                 try:
-                    file_frame_time = float(line[2])
-                    _validate_frame_time(file_frame_time)
+                    _validate_frame_time(float(line[2]))
                 except ValueError as e:
                     raise ValueError(
                         f"Could not read the frame time at line {line_number} "
                         f"in file {filepath}: {e}"
                     ) from e
-                # Snap 6-digit-truncated exact 1/N rates (see _snap_frame_time).
-                frame_time = _snap_frame_time(file_frame_time)
+                frame_time = _frame_time_from_text(line[2])
                 # --- we close the loop related to reading the hierarchy ---
                 break
             # Other tokens ('HIERARCHY', 'MOTION') carry no data — skipped.
@@ -455,7 +538,9 @@ def write_bvh_file(
     Raises
     ------
     ValueError
-        If the file extension is not ``.bvh``.
+        If the file extension is not ``.bvh``, or if ``bvh.frame_time``
+        is 0 (unset): a file must state its frame time, and
+        :func:`read_bvh_file` refuses ``Frame Time: 0``.
     FileNotFoundError
         If the parent directory does not exist.
     FileExistsError
@@ -470,9 +555,17 @@ def write_bvh_file(
     facto BVH convention (and what most DCC tools emit) — motion data
     re-read from a written file is therefore quantized at ~1e-6 in the
     skeleton's length unit and in degrees. ``Frame Time`` is the
-    exception: it is written at full precision (``%.10g``), because a
-    truncated frame time compounds across every frame of a resample
-    while a truncated coordinate does not.
+    exception: it is written at 17 significant digits with trailing
+    zeros kept (``f"{frame_time:#.17g}"``: ``0.033333333333333333`` for
+    30 fps, ``0.12000000000000000`` for 0.12 s), so the file holds the
+    clip's frame time without loss. A truncated frame time compounds
+    across every frame of a resample, while a truncated coordinate does
+    not. The shortest text that reads back as the same float (Python's
+    ``repr``) is not enough: :func:`read_bvh_file` takes a ``Frame
+    Time`` with few decimals for an exporter's truncated rate, so
+    ``0.12`` would read back as ``1 / 8`` and ``0.033`` as ``1 / 30``.
+    The reader keeps a text of 17 significant digits as read, so every
+    frame time this function writes reads back as the same float.
 
     The BVH format carries no place for ``world_up``, ``lr_mapping``, or
     ``source_path``; those are lost on write and re-inferred on read.
@@ -488,6 +581,11 @@ def write_bvh_file(
     # check would already have destroyed the data it is meant to protect
     elif not overwrite and filepath.exists():
         raise FileExistsError(f"{filepath} already exists; pass overwrite=True to replace it.")
+    if bvh.frame_time == 0:
+        raise ValueError(
+            f"Cannot write {filepath.name}: the clip's frame_time is 0 (unset), and a "
+            "BVH file must state its frame time. Set bvh.frame_time (or bvh.fps) first."
+        )
 
     def offset_to_str(node: BvhNode) -> str:
         offset_str = "OFFSET"
@@ -535,9 +633,7 @@ def write_bvh_file(
 
         f.write("MOTION\n")
         f.write(f"Frames: {bvh.frame_count}\n")
-        # Full precision (10 significant digits) so non-integer rates like
-        # 23.976 fps survive round-trips; the old '%.6f' truncation lost them.
-        f.write(f"Frame Time: {bvh.frame_time:.10g}\n")
+        f.write(f"Frame Time: {float(bvh.frame_time):#.{_FLOAT64_EXACT_DIGITS}g}\n")
 
         F = bvh.frame_count
         if F > 0:

@@ -1,6 +1,6 @@
 # Data Augmentation
 
-All augmentation transforms support seeded randomization for reproducibility. Available as both `Bvh` methods and standalone functions in `pybvh.transforms`.
+All augmentation transforms support seeded randomization for reproducibility. They are available as both `Bvh` methods and standalone functions in `pybvh.transforms`.
 
 ## Transforms
 
@@ -19,7 +19,7 @@ pairs = bvh.lr_pairs      # index pairs (or None)
 
 ![Original and mirrored skeleton side by side: the pose is reflected and every Left/Right joint pair has swapped data](../gallery/img/mirror.png)
 
-*Mirroring is not just an axis flip: the lateral axis is negated **and** every `Left*`/`Right*` pair swaps data, so the result stays anatomically possible. ([Gallery](../gallery/index.md), section 3, for every transform drawn.)*
+*Mirroring is not just an axis flip. It negates the lateral axis, **and** every `Left*`/`Right*` pair swaps data. So the result stays anatomically possible. ([Gallery](../gallery/index.md), section 3, for every transform drawn.)*
 
 #### L/R pair detection
 
@@ -32,7 +32,7 @@ pybvh auto-detects left/right joint pairs at load time by scanning joint names. 
 - Mixamo namespace prefix stripped automatically — `mixamorig:LeftArm`
 - Blender numbered duplicates stripped automatically — `Arm.L.001`
 
-The detected mapping lives on `bvh.lr_mapping` (a `dict[str, str]` or `None`). You can inspect, override, or provide it explicitly:
+The detected mapping is on `bvh.lr_mapping` (a `dict[str, str]` or `None`). You can inspect, override, or provide it explicitly:
 
 ```python
 # Inspect
@@ -46,11 +46,11 @@ bvh = pybvh.read_bvh_file("weird.bvh", lr_mapping={"arm.L": "arm.R", ...})
 bvh_list = pybvh.read_bvh_directory("dataset/", lr_mapping={...})  # applied to every file
 ```
 
-If the heuristic can't parse the skeleton's naming, `bvh.lr_mapping` is `None` and `mirror()` raises a `ValueError` pointing at the remediation above. User-set mappings are lost on `bvh.write()` — re-apply after reading.
+If the heuristic can't parse the skeleton's naming, `bvh.lr_mapping` is `None`. Then `mirror()` raises a `ValueError` that points at the remediation above. `bvh.write()` loses a mapping that you set. Set it again after you read the file.
 
 ### Vertical rotation
 
-Angles are in radians (like `Bvh.joint_angles`); pass `degrees=True` to work in degrees.
+Angles are in radians, like `Bvh.joint_angles`. To work in degrees, pass `degrees=True`.
 
 ```python
 bvh_rotated = transforms.rotate_vertical(bvh, np.pi / 2)
@@ -58,14 +58,16 @@ bvh_rotated = transforms.rotate_vertical(bvh, 90, degrees=True)   # same thing
 bvh_random = transforms.random_rotate_vertical(bvh, rng=np.random.default_rng(42))  # uniform over (-pi, pi)
 ```
 
-The rotation turns about the **world origin** by default, so a character captured away from the origin sweeps along an arc rather than turning where it stands. `pivot=` chooses the point instead:
+By default, the rotation turns about the **world origin**. So a character captured away from the origin sweeps along an arc, and it does not turn where it stands. To choose another point, use `pivot=`:
 
 ```python
 bvh_turned = transforms.rotate_vertical(bvh, np.pi / 2, pivot="root")        # turn in place
 bvh_turned = transforms.rotate_vertical(bvh, np.pi / 2, pivot=[100, 0, -50])  # about a fixed landmark
 ```
 
-`pivot="root"` is the first frame's root position projected to the ground plane. Only the two horizontal components of an explicit point are read — every point on a vertical line spans the same rotation axis — so heights are never altered by the choice, and neither are joint angles: the pivot moves the root trajectory and nothing else. Equivalently, `pivot="root"` is *center on the first-frame root → rotate about the origin → un-center*, which means a pipeline that already centers its clips gets turn-in-place from the default and needs no `pivot=`.
+`pivot="root"` is the first frame's root position, projected to the ground plane. pybvh reads only the two horizontal components of an explicit point, because every point on a vertical line spans the same rotation axis. So the choice never alters heights. It never alters joint angles either: the pivot moves the root trajectory and nothing else.
+
+Equivalently, `pivot="root"` is *center on the first-frame root → rotate about the origin → un-center*. So a pipeline that already centers its clips gets turn-in-place from the default, and it needs no `pivot=`.
 
 ### Speed perturbation
 
@@ -76,14 +78,14 @@ bvh_slow = transforms.perturb_speed(bvh, factor=0.7)  # slower
 
 ### Noise injection
 
-Rotation noise and translation noise are separate calls, because their `sigma`s are in different units — radians for joint angles, the skeleton's length unit for the root. By default noised angles are left unwrapped (BVH channels can legitimately hold values outside `[-π, π]`); pass `wrap=True` to wrap them into `[-π, π]`.
+Rotation noise and translation noise are separate calls, because their `sigma`s are in different units: radians for joint angles, and the skeleton's length unit for the root. By default, the noised angles stay unwrapped. BVH channels can legitimately hold values outside `[-π, π]`. To wrap the angles into `[-π, π]`, pass `wrap=True`.
 
 ```python
 bvh_noisy = transforms.add_rotation_noise(bvh, sigma=0.02, rng=rng)      # radians
 bvh_noisy = transforms.add_position_noise(bvh_noisy, sigma=0.5, rng=rng)  # length
 ```
 
-Only `add_rotation_noise` takes `degrees=True`; there is no angular unit for a translation.
+Only `add_rotation_noise` takes `degrees=True`. A translation has no angular unit.
 
 ### Root translation
 
@@ -93,7 +95,7 @@ bvh_shifted = transforms.translate_root(bvh, offset=[100, 0, 0])
 
 ### Frame dropout
 
-Dropped frames are re-synthesized by SLERP between the nearest kept neighbours; kept frames are preserved exactly.
+Dropped frames are re-synthesized by SLERP between the nearest kept neighbours. The kept frames stay exactly as they were.
 
 ```python
 bvh_dropped = transforms.drop_frames(bvh, drop_rate=0.1, rng=rng)
@@ -101,7 +103,7 @@ bvh_dropped = transforms.drop_frames(bvh, drop_rate=0.1, rng=rng)
 
 ## Composing transforms
 
-All Bvh-level transforms return new Bvh objects (when `inplace=False`, the default), so they can be chained:
+All Bvh-level transforms return new Bvh objects when `inplace=False`, the default. So you can chain them:
 
 ```python
 rng = np.random.default_rng(42)

@@ -7772,7 +7772,7 @@ class TestJoinsRequireTheSameRate:
 
     def test_the_message_tells_apart_rates_just_outside_the_rule(self, bvh_example, join):
         # 30.00007 fps is 2.3e-6 from 30, outside the same-rate rule; six
-        # significant digits would print both as 30.
+        # significant digits would print it as 30.0001.
         a = bvh_example.copy()
         a.fps = 30
         b = bvh_example[30:40].copy()

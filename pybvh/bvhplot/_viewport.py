@@ -850,14 +850,12 @@ def compute_follow_azimuths(
         return np.full(num_frames, float(base_azim))
 
     heading_change = _heading_change(leftward, valid, view.up_vector)
-    if fps is None:
+    if fps is None or view.frame_time > 0:
         _require_rate(
             view.frame_time,
             "The follow camera",
             alternative="pass fps, the rate the picture plays at",
         )
-        frames_per_second = 1.0 / view.frame_time
-    elif view.frame_time > 0:
         frames_per_second = 1.0 / view.frame_time
     else:
         # An unset clip is drawn at fps: its seconds are seconds of playback.

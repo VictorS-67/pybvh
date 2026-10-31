@@ -221,6 +221,7 @@ def _match_frame_rates(
 
     rates = [1.0 / b.frame_time for b in bvh_list if b.frame_time > 0]
     unset = [i for i, b in enumerate(bvh_list) if b.frame_time == 0]
+    where_unset = f"{'indices' if len(unset) > 1 else 'index'} {', '.join(map(str, unset))}"
     rates_agree = all(abs(r - rates[0]) < 0.5 for r in rates)
     if rates_agree and (not unset or not rates):
         return bvh_list  # all close enough, or none has a rate to compare
@@ -239,8 +240,7 @@ def _match_frame_rates(
         else:
             warnings.warn(
                 f"Frame rates differ across clips ({rate_strs} fps, and "
-                f"frame_time 0 (unset) at {'indices' if len(unset) > 1 else 'index'} "
-                f"{', '.join(map(str, unset))}). \n"
+                f"frame_time 0 (unset) at {where_unset}). \n"
                 f"Playback speed will not match real time for all clips. \n"
                 f"Set bvh.frame_time (or bvh.fps) on every clip to compare "
                 f"them in real time.",

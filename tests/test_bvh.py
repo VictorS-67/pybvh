@@ -1206,6 +1206,42 @@ class TestFileRoundTrip:
         )
         assert changed == []
 
+    def test_written_short_frame_time_reads_back_unchanged(self, bvh_example, tmp_path):
+        """A frame time with few decimals is not read back as an exporter's truncated rate.
+
+        Written as their shortest text, ``0.12`` would read as ``1 / 8``,
+        ``0.033`` and ``0.0333`` as ``1 / 30``, and ``0.0095`` as ``1 / 105``.
+        """
+        short_frame_times = [0.12, 0.033, 0.0095, 0.0333]
+        rng = np.random.default_rng(140)
+        at_most_6_decimals = [
+            int(rng.integers(10 ** (decimals - 3), 10**decimals + 1)) / 10**decimals
+            for decimals in range(3, 7)
+            for _ in range(250)
+        ]
+        changed = self._frame_times_changed_by_a_file(
+            bvh_example[:1], short_frame_times + at_most_6_decimals, tmp_path / "rate.bvh"
+        )
+        assert changed == []
+
+    def test_written_frame_time_of_a_strided_slice_reads_back_unchanged(
+        self, bvh_example, tmp_path
+    ):
+        """A slice's frame time, a product one bit off ``1 / rate``, is not moved onto it.
+
+        ``clip[::5]`` of a 48 fps clip has a frame time of ``(1 / 48) * 5``,
+        ``0.10416666666666666``, while ``1 / 9.6`` is ``0.10416666666666667``.
+        """
+        one_frame = bvh_example[:1]
+        slice_frame_times = []
+        for rate in range(1, 241):
+            one_frame.frame_time = 1 / rate
+            slice_frame_times += [one_frame[::step].frame_time for step in range(2, 11)]
+        changed = self._frame_times_changed_by_a_file(
+            one_frame, slice_frame_times, tmp_path / "rate.bvh"
+        )
+        assert changed == []
+
     def test_write_unset_frame_time_raises_and_leaves_no_file(self, bvh_example, tmp_path):
         """A file must state its frame time, and the reader refuses ``Frame Time: 0``."""
         bvh_example.frame_time = 0
@@ -2697,6 +2733,9 @@ FRAME_TIME_TEXT_READ_AS = [
     ("0.017", 0.017),
     ("0.013", 0.013),
     ("0.03", 0.03),
+    # 17 significant digits name one float: none is missing to recover,
+    # though 29.97 fps fits them and 1 / 29.97 is 0.033366700033366704.
+    ("0.033366700033366700", 0.0333667000333667),
 ]
 
 

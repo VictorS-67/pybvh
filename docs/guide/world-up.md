@@ -212,7 +212,9 @@ bvh.rest_forward                    # '+z' — the direction the rest pose faces
     Without such a pair either, `rest_up` is the axis along which the rest pose spreads most. This is a weak reading. A T-pose wider than tall spreads most along its arms. And hips mid-body put as much of the body below the root as above.
 
     `rest_up_source` says which (`"named_joint"`, `"leg_pair"`, `"largest_spread"`).
-- **Rest left** averages the left-minus-right rest positions of the L/R pairs. Then it removes the `rest_up` component, and it snaps what remains to an axis. `mirror` reflects along it. It is in the report only.
+
+- **Rest left** averages the left-minus-right rest positions of the L/R pairs. Then it removes the `rest_up` component. It snaps what remains to an axis. `mirror` reflects along it. It is in the report only.
+
 - **`rest_forward`** is rest left × rest up. Without usable L/R geometry (no pairs, or pairs that lie along rest up), it is the house default for rest up (`'+y'` gives `'+z'`, `'+z'` gives `'+x'`, `'+x'` gives `'+y'`). Then reading it warns. `has_lr_geometry` is `False`, and `rest_forward_source` is `"default"`.
 
 On a clean BVH file, `rest_up == world_up` and `rest_forward` matches `forward_at(0)` when the root rotation at frame 0 is identity. When they disagree:
@@ -220,7 +222,7 @@ On a clean BVH file, `rest_up == world_up` and `rest_forward` matches `forward_a
 - `rest_up != world_up`: the file was authored with the rest pose in one up convention and animated in another. This is the case that triggers the disagreement warning. Fix it with `reorient_rest_up`. `rest_forward` is then a direction in the rest pose's convention, and it may lie along world up, as on `bvh_test3.bvh` above.
 - `rest_forward != forward_at(0)`: the character simply starts the animation facing a different direction from their rest pose. This is normal. `forward_at(0)` is what the viewer sees.
 
-All three are read-only. To actually change `rest_up` or `rest_forward`, call the corresponding `reorient_*` method (see "Reorienting data" below). It rotates the rest-pose offsets, and it compensates the joint rotations, so FK positions are unchanged.
+All three are read-only. To actually change `rest_up` or `rest_forward`, call the corresponding `reorient_*` method (see "Reorienting data" below). It rotates the rest-pose offsets. It compensates the joint rotations, so FK positions are unchanged.
 
 ## The heading
 
@@ -275,7 +277,7 @@ bvh_fixed = bvh.reorient_rest_up('+y')  # FK positions unchanged, rest pose rota
 bvh_fwd = bvh.reorient_rest_forward('+z')  # FK positions unchanged
 ```
 
-`reorient_rest_forward` turns the rest pose about `rest_up`, in the skeleton's own frame. Afterwards, `rest_up` is the same, and `rest_forward` is the target. The target is named in the rest pose's frame, and it must not be parallel to `rest_up`. All three are restricted to axis-aligned rotations (multiples of 90 degrees), for lossless transformation.
+`reorient_rest_forward` turns the rest pose about `rest_up`, in the skeleton's own frame. Afterwards, `rest_up` is the same. `rest_forward` is the target. The target is named in the rest pose's frame, and it must not be parallel to `rest_up`. All three are restricted to axis-aligned rotations (multiples of 90 degrees), for lossless transformation.
 
 ## Quick reference
 

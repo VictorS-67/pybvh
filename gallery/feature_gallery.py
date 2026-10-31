@@ -200,7 +200,7 @@ pybvh.bvhplot.frame(
 );
 
 # %% [markdown]
-# **`reorient_rest_up`** — some files author the rest pose in one convention but the animation in another. pybvh warns on load, and it trusts the animation. `reorient_rest_up` rewrites the rest pose to match. It compensates every joint rotation, so that the animated joint positions are unchanged to machine precision (printed below). `reorient_rest_forward` is the same idea for the facing axis.
+# **`reorient_rest_up`** — some files author the rest pose in one convention but the animation in another. pybvh warns on load. It trusts the animation. `reorient_rest_up` rewrites the rest pose to match. It compensates every joint rotation, so that the animated joint positions are unchanged to machine precision (printed below). `reorient_rest_forward` is the same idea for the facing axis.
 
 # %%
 import warnings

@@ -205,7 +205,10 @@ def _frame_time_from_text(text: str) -> float:
     the rule for the user.
     """
     printed = Fraction(text)
-    # Zero is the unset frame time, refused by the caller; it has no rate.
+    # The caller has refused a text whose float is negative or not finite,
+    # so the value is 0 or positive, or negative but too small for a float
+    # (-1e-400 reads as -0.0). Either is the unset frame time, which the
+    # caller refuses after this call, and has no rate.
     if printed <= 0 or _significant_digits(text) >= _FLOAT64_EXACT_DIGITS:
         return float(printed)
     unit = _unit_of_last_decimal(text)

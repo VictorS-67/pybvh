@@ -3826,7 +3826,7 @@ class Bvh:
         from . import geometry
 
         traj = self._positions_or(coords)[:, self._descriptor_index(joint), :]
-        return geometry.curvature(traj, self.frame_time, stencil, pad)
+        return geometry.curvature(traj, stencil, pad)
 
     def torsion(
         self,
@@ -3840,7 +3840,7 @@ class Bvh:
         from . import geometry
 
         traj = self._positions_or(coords)[:, self._descriptor_index(joint), :]
-        return geometry.torsion(traj, self.frame_time, stencil, pad)
+        return geometry.torsion(traj, stencil, pad)
 
     def movement_phase(
         self,

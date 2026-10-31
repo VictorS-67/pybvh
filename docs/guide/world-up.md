@@ -88,7 +88,7 @@ The report tells the three states apart:
 - `world_up_source` is `"set"` for a set axis. Otherwise it names what the guess was read from.
 - `world_up_inherited` is `True` for a guess made on the clip this one was derived from.
 
-`world_up_inferred` always runs the heuristic on the clip's own motion, and it changes nothing. To have a derived clip use its own guess instead, assign it: `clip.world_up = clip.world_up_inferred`. The axis is then set.
+`world_up_inferred` always runs the heuristic on the clip's own motion. It changes nothing. To have a derived clip use its own guess instead, assign it: `clip.world_up = clip.world_up_inferred`. The axis is then set.
 
 ### When the guess starts again
 
@@ -99,7 +99,7 @@ The guess starts again when the recording itself is replaced:
 
 The clip then guesses again from its new first frame, whether its axis was inferred or inherited. The clips derived from it afterwards inherit the new guess. None of these clears a set axis.
 
-For a guess that the clip made itself, the guess also starts again when you set `lr_mapping`. On a rig with no head, neck, chest or spine joint, the guess falls back to `rest_up`. `rest_up` is read from the legs of the mapping. So the clip guesses again, and it gets the axis that it would get if the same mapping had been passed at load. `floor_height` is measured again along that axis. A guess from the first frame comes out the same, and it does not warn again. An inherited guess stays, as does a set axis.
+For a guess that the clip made itself, the guess also starts again when you set `lr_mapping`. On a rig with no head, neck, chest or spine joint, the guess falls back to `rest_up`. On such a rig, `rest_up` is read from the legs of the mapping. So the clip guesses again, and it gets the axis that it would get if the same mapping had been passed at load. `floor_height` is measured again along that axis. A guess from the first frame comes out the same, and it does not warn again. An inherited guess stays, as does a set axis.
 
 ## Manual override
 
@@ -107,7 +107,7 @@ For a guess that the clip made itself, the guess also starts again when you set 
 bvh.world_up = '+y'  # override auto-detection
 ```
 
-The input is validated. It accepts only `{+x, -x, +y, -y, +z, -z}`. Anything else raises `ValueError`.
+The setter validates its input. It accepts only `{+x, -x, +y, -y, +z, -z}`. Anything else raises `ValueError`.
 
 The override is a set axis. So it propagates to every clip derived from this one, `retarget()` included, because new bone lengths do not change which way is up. To clear the override and return to the guessed axis, inferred or inherited, assign `"auto"` (or `None`). A pickle keeps the override. But BVH files have no world-up field, so a write/read round trip loses a manual override. You must apply it again.
 

@@ -4994,7 +4994,46 @@ class TestHarmonize:
         # bvh_example is 30 fps; ask for 30 fps -> no resample
         clips = [bvh_example.copy()]
         out = harmonize(clips, target_fps=30.0)
-        assert out[0].frame_count == bvh_example.frame_count
+        np.testing.assert_array_equal(out[0].joint_angles, bvh_example.joint_angles)
+        assert out[0].frame_time == 1 / 30
+
+    def test_clip_within_rounding_takes_target_frame_time_uninterpolated(self, bvh_example):
+        from pybvh.batch import harmonize
+
+        ntsc = bvh_example.copy()
+        ntsc.frame_time = 1001 / 30000
+        out = harmonize([ntsc], target_fps=29.97)
+        np.testing.assert_array_equal(out[0].root_pos, ntsc.root_pos)
+        np.testing.assert_array_equal(out[0].joint_angles, ntsc.joint_angles)
+        assert out[0].frame_time == 0.033366700033366704
+        assert ntsc.frame_time == 1001 / 30000
+
+    @pytest.mark.parametrize("fps", [29.97, 30.005], ids=["29.97", "30.005"])
+    def test_clip_outside_the_rule_is_resampled(self, bvh_example, fps):
+        # 30.005 fps is within the former 0.01 fps of 30, outside the rule.
+        from pybvh.batch import harmonize
+
+        clip = bvh_example.copy()
+        clip.fps = fps
+        out, report = harmonize([clip], target_fps=30, return_report=True)
+        assert out[0].frame_time == 1 / 30
+        # Interpolated: the last frame's root moves off the original.
+        assert not np.array_equal(out[0].root_pos[-1], clip.root_pos[-1])
+        assert "resample" in report.applied_stages[0]
+
+    def test_harmonized_clips_join(self, bvh_example):
+        from pybvh.batch import harmonize
+
+        ntsc = bvh_example.copy()
+        ntsc.frame_time = 1001 / 30000
+        thirty = bvh_example.copy()
+        thirty.fps = 30
+        out = harmonize([ntsc, thirty], target_fps=29.97)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            joined = out[0] + out[1]
+        assert joined.frame_count == out[0].frame_count + out[1].frame_count
+        assert joined.frame_time == 1 / 29.97
 
     def test_reorient_world_up_only(self, bvh_test2):
         from pybvh.batch import harmonize
@@ -5247,6 +5286,14 @@ class TestHarmonizeReport:
         _, report = harmonize([bvh_example.copy()], target_fps=60.0, return_report=True)
         stage = report.applied_stages[0].get("resample")
         assert stage is not None and "60" in stage
+
+    def test_applied_stages_records_no_resample_within_the_rule(self, bvh_example):
+        from pybvh.batch import harmonize
+
+        ntsc = bvh_example.copy()
+        ntsc.frame_time = 1001 / 30000
+        _, report = harmonize([ntsc], target_fps=29.97, return_report=True)
+        assert report.applied_stages == [{}]
 
     def test_applied_stages_records_euler_order(self, bvh_example):
         from pybvh.batch import harmonize

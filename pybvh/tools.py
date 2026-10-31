@@ -136,6 +136,17 @@ def _same_rate(frame_time_a: float, frame_time_b: float) -> bool:
     return abs(frame_time_a - frame_time_b) <= _SAME_RATE_RTOL * max(frame_time_a, frame_time_b)
 
 
+def _format_fps(frame_time: float) -> str:
+    """The rate of a set ``frame_time`` in fps, for a message.
+
+    Seven significant digits resolve 1e-6 of a rate, below
+    :data:`_SAME_RATE_RTOL`, so two rates that are not the same rate
+    never print alike ("29.97" beside "30"). A whole rate prints without
+    decimals ("30").
+    """
+    return f"{1.0 / frame_time:.7g}"
+
+
 def _matches_fps(frame_time: float, fps: float, name: str = "fps") -> bool:
     """Whether a clip at ``frame_time`` has the rate ``fps``.
 

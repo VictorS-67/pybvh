@@ -45,7 +45,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .._warnings import user_stacklevel
-from ..tools import _require_rate, _same_rate
+from ..tools import _format_fps, _require_rate, _same_rate
 from . import _animation_options, _backends, _video
 from ._from_bvh import (
     as_clip_list,
@@ -233,10 +233,7 @@ def _match_frame_rates(
     if rates_agree and (not unset or not rates):
         return bvh_list  # the same rate, or none has a rate to compare
 
-    # Seven significant digits resolve 1e-6 of a rate, so two rates
-    # beyond the rule's 2e-6 (tools._SAME_RATE_RTOL) never print alike
-    # ("29.97, 30").
-    rate_strs = ", ".join(f"{r:.7g}" for r in rates)
+    rate_strs = ", ".join(_format_fps(ft) for ft in frame_times)
     if match_fps is None:
         if not unset:
             warnings.warn(

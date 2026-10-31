@@ -470,7 +470,7 @@ tor = geometry.torsion(helix)
 gp.fig_torsion(helix, tor, "torsion: flat circle → rising helix")
 
 # %% [markdown]
-# > **Note — the ratio torsion / curvature - or τ/κ (Lancret invariant).** Curvature and torsion are the *complete* pair of Frenet invariants: together they fix a 3D curve up to a rigid motion. Their ratio has a clean meaning — **τ/κ is constant iff the curve is a generalized helix**, and that constant *is* the helix's pitch. On the curve above it is ~0 along the flat circle and ≈0.40 (the climb rate) on the helix. It's a one-liner from the two primitives — `geometry.torsion(traj, dt) / geometry.curvature(traj, dt)` — and is left at that: as a feature it inherits torsion's noise *and* adds a second blow-up where κ→0, so it stays a documented composition rather than a library call.
+# > **Note — the ratio torsion / curvature - or τ/κ (Lancret invariant).** Curvature and torsion are the *complete* pair of Frenet invariants: together they fix a 3D curve up to a rigid motion. Their ratio has a clean meaning — **τ/κ is constant iff the curve is a generalized helix**, and that constant *is* the helix's pitch. On the curve above it is ~0 along the flat circle and ≈0.40 (the climb rate) on the helix. It's a one-liner from the two primitives — `geometry.torsion(traj) / geometry.curvature(traj)` — and is left at that: as a feature it inherits torsion's noise *and* adds a second blow-up where κ→0, so it stays a documented composition rather than a library call.
 
 # %% [markdown]
 # **`movement_phase`** — speed·curvature, so it peaks where the joint moves both *fast* and *sharply*. Shown along the real hand path: bright marks the moments that combine high speed with a tight turn.

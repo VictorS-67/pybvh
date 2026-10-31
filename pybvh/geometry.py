@@ -626,7 +626,9 @@ def curvature(
     path is travelled, so it takes no frame time: a frame time ``h``
     scales ``‖ṗ × p̈‖`` by ``h⁻³`` and ``‖ṗ‖³`` by ``h⁻³``, which cancel.
     The derivatives are computed at a unit spacing, so the kernel works on
-    a clip with no rate set.
+    a clip with no rate set. The ~0 test is therefore per frame: ``np.nan``
+    where ``‖ṗ‖³ ≤ 1e-12``, i.e. where the point moves 1e-4 length units
+    or less per frame.
 
     Parameters
     ----------
@@ -667,7 +669,8 @@ def torsion(
     Torsion, like :func:`curvature`, depends on the path's shape alone,
     so it takes no frame time: a frame time ``h`` scales
     ``(ṗ × p̈) · p⃛`` by ``h⁻⁶`` and ``‖ṗ × p̈‖²`` by ``h⁻⁶``, which cancel.
-    The derivatives are computed at a unit spacing.
+    The derivatives are computed at a unit spacing, so the ~0 test is per
+    frame: ``np.nan`` where ``‖ṗ × p̈‖² ≤ 1e-12``.
 
     Parameters
     ----------

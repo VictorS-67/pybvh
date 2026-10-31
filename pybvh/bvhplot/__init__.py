@@ -217,7 +217,8 @@ def _match_frame_rates(
     Returns
     -------
     list[Bvh]
-        The input list under ``match_fps=None``; otherwise new clips,
+        The input list for a single clip, for clips none of which has a
+        rate, and under ``match_fps=None``; otherwise new clips,
         all at the target's frame time ``1 / target_fps``, also when
         every clip has the same rate: a clip within the rule of the
         target keeps its samples and takes that exact frame time.
@@ -233,7 +234,8 @@ def _match_frame_rates(
     # The extremes agree only when every pair does.
     rates_agree = not frame_times or _same_rate(min(frame_times), max(frame_times))
     if not rates or (match_fps is None and rates_agree and not unset):
-        return bvh_list  # the same rate, or none has a rate to compare
+        # match_fps=None and the same rate, or no clip has a rate to compare
+        return bvh_list
 
     rate_strs = ", ".join(_format_fps(ft) for ft in frame_times)
     if match_fps is None:

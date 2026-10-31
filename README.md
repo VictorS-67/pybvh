@@ -28,7 +28,7 @@ pybvh is a lightweight Python library to read, write and manipulate BVH motion c
 
 ## Philosophy
 
-pybvh is framework-agnostic, and it outputs pure NumPy arrays. It understands motion capture data, but it does not assume what you will do with the data. The same library serves ML researchers, biomechanics scientists and game developers. For features specific to ML (tensor packing, PyTorch Datasets, augmentation pipelines), see the companion library [pybvh-ml](https://github.com/VictorS-67/pybvh-ml) ([documentation](https://victors-67.github.io/pybvh-ml/)).
+pybvh is framework-agnostic. It outputs pure NumPy arrays. It understands motion capture data, but it does not assume what you will do with the data. The same library serves ML researchers, biomechanics scientists and game developers. For features specific to ML (tensor packing, PyTorch Datasets, augmentation pipelines), see the companion library [pybvh-ml](https://github.com/VictorS-67/pybvh-ml) ([documentation](https://victors-67.github.io/pybvh-ml/)).
 
 ## Installation
 
@@ -75,7 +75,7 @@ features = bvh.to_feature_array(
 )  # (F, D)
 ```
 
-Beyond the basics, pybvh has a full layer of descriptors: curvature, smoothness (SPARC), kinetic energy, gait parameters and SE(3) twists. The [Feature Gallery](https://victors-67.github.io/pybvh/gallery/) draws each one with its exact call, and the [Motion Descriptors guide](https://victors-67.github.io/pybvh/guide/motion-descriptors/) explains them.
+Beyond the basics, pybvh has a full layer of descriptors: curvature, smoothness (SPARC), kinetic energy, gait parameters and SE(3) twists. The [Feature Gallery](https://victors-67.github.io/pybvh/gallery/) draws each one with its exact call. The [Motion Descriptors guide](https://victors-67.github.io/pybvh/guide/motion-descriptors/) explains them.
 
 ## Visualization
 
@@ -128,7 +128,7 @@ Eight Jupyter notebooks give detailed walkthroughs, from reading your first file
 
 **pybvh is in 0.x. Expect breaking changes between minor versions.**
 
-We treat 0.x as design space. When a past choice proves to be wrong, we fix it at the root, and we do not carry the old choice forward. There are no deprecation cycles and no compatibility shims. Each release ships a single clean migration path, which the [CHANGELOG](CHANGELOG.md) documents.
+We treat 0.x as design space. When a past choice proves to be wrong, we fix it at the root, and we do not keep the old choice. There are no deprecation cycles and no compatibility shims. Each release ships a single clean migration path, which the [CHANGELOG](CHANGELOG.md) documents.
 
 If your production code depends on pybvh:
 
@@ -148,11 +148,11 @@ Until 1.0, "make the library better" wins over "preserve the old behavior."
 - NumPy >= 1.21
 - Matplotlib >= 3.7
 
-Pandas is optional (`pip install "pybvh[pandas]"`). Only the tutorials use it, and it is not part of the pybvh library.
+Pandas is optional (`pip install "pybvh[pandas]"`). Only the tutorials use it. It is not part of the pybvh library.
 
 ## Citing pybvh
 
-If pybvh is useful in your research, please cite it. On GitHub, the *Cite this repository* button in the sidebar gives an APA and a BibTeX citation, which it generates from [`CITATION.cff`](https://github.com/VictorS-67/pybvh/blob/main/CITATION.cff). The BibTeX entry is below. Set its `version` to the release you used:
+If pybvh is useful in your research, please cite it. On GitHub, the *Cite this repository* button in the sidebar gives an APA and a BibTeX citation. It generates both from [`CITATION.cff`](https://github.com/VictorS-67/pybvh/blob/main/CITATION.cff). The BibTeX entry is below. Set its `version` to the release you used:
 
 ```bibtex
 @software{schneider_pybvh,

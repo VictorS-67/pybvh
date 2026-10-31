@@ -8,6 +8,7 @@ and no Bvh is needed to say what it should compute.
 from __future__ import annotations
 
 import dataclasses
+import re
 
 import numpy as np
 import pytest
@@ -282,7 +283,11 @@ class TestFollowSchedule:
         unset = dataclasses.replace(
             _turned_in_place(view, np.linspace(0.0, 90.0, 24)), frame_time=0.0
         )
-        with pytest.raises(ValueError, match="frame_time"):
+        message = re.escape(
+            "The follow camera needs the clip's frame rate, but its frame_time is 0 (unset). "
+            "Set bvh.frame_time (or bvh.fps), or pass fps, the rate the picture plays at."
+        )
+        with pytest.raises(ValueError, match=message):
             compute_follow_azimuths(unset, -20.0)
 
     def test_fps_does_not_retime_a_clip_that_has_a_rate(self, view):

@@ -589,7 +589,7 @@ rom = bvh.range_of_motion("RightForeArm")
 gp.fig_range_of_motion(bvh, "RightForeArm", rom, t)
 
 # %% [markdown]
-# Note that ch1 has no range of motion here (ROM = 0°). This is because the forearm's rotation order is `ZYX`, so ch1 is the Y-rotation. For the elbow, that is the **non-hinge** axis. The elbow is a hinge. It flexes in a single plane, captured here by ch0 (the Z-rotation, ~102°). The bone also twists along its length (ch2, the X-rotation, ~73° of pronation/supination). But the elbow physically cannot bend sideways, so that channel stays at 0 for the whole clip.
+# Note that ch1 has no range of motion here (ROM = 0°). This is because the forearm's rotation order is `ZYX`, so ch1 is the Y-rotation, and for the elbow that is the **non-hinge** axis. The elbow is a hinge. It flexes in a single plane, captured here by ch0 (the Z-rotation, ~102°). The bone also twists along its length (ch2, the X-rotation, ~73° of pronation/supination). But the elbow physically cannot bend sideways, so that channel stays at 0 for the whole clip.
 
 # %% [markdown]
 # **`cov3dj`** & **`lagged_covariance`** — fixed-size statistical descriptors of a whole sequence:
@@ -637,7 +637,7 @@ twist = np.array([0.0, 0.0, 1.4, 1.0, 0.0, 0.6])  # ω about z, with translation
 gp.fig_se3_exp(twist)
 
 # %% [markdown]
-# **`screw_interpolate`** — the SE(3) analogue of SLERP. It blends two rigid transforms along the constant screw connecting them, rotating and translating together. `t = 0` returns T₀, and `t = 1` returns T₁. An array of `t`s broadcasts, so the single call below yields all seven triads at once. They fade in with `t`: T₀ faintest, T₁ boldest. The dashed curve traces the origin's screw arc between them.
+# **`screw_interpolate`** — the SE(3) analogue of SLERP. It blends two rigid transforms along the constant screw connecting them, rotating and translating together. `t = 0` returns T₀. `t = 1` returns T₁. An array of `t`s broadcasts, so the single call below yields all seven triads at once. Their opacity grows with `t`: T₀ faintest, T₁ boldest. The dashed curve traces the origin's screw arc between them.
 
 # %%
 T0 = np.eye(4)
@@ -672,7 +672,7 @@ gp.fig_geodesic(root_R, geo, t)
 # Array-pure numeric helpers, each shown on a small constructed signal where the effect is obvious.
 
 # %% [markdown]
-# **`finite_difference`** — the shared derivative operator. On a sine wave, the central and forward differences both track the analytic derivative (cosine). Central is symmetric and more accurate.
+# **`finite_difference`** — the shared derivative operator. On a sine wave, the central and forward differences both track the analytic derivative (cosine). Central is symmetric. It is also more accurate.
 
 # %%
 x = np.linspace(0, 4 * np.pi, 200)

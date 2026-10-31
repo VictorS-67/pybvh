@@ -133,21 +133,6 @@ def _resolve_fps(fps: float | None, frame_time: float) -> float:
     return fps
 
 
-def _unset_rate_subject(clips: list[Bvh]) -> str | None:
-    """Name the clips whose ``frame_time`` is 0 (unset), for an error
-    message ("the clip at index 1 has"), or ``None`` when all have one.
-    """
-    unset = [i for i, clip in enumerate(clips) if clip.frame_time == 0]
-    if not unset:
-        return None
-    indices = ", ".join(str(i) for i in unset)
-    if len(clips) == 1:
-        return "the clip has"
-    if len(unset) == 1:
-        return f"the clip at index {indices} has"
-    return f"the clips at indices {indices} have"
-
-
 def _require_frame_rates(
     clips: list[Bvh],
     entry: str,
@@ -155,47 +140,41 @@ def _require_frame_rates(
     ghost: int = 0,
     match_fps: str | None = None,
 ) -> None:
-    """Raise when an animated entry point needs a rate a clip lacks.
+    """Refuse an unset clip where an animated entry point needs its rate.
 
-    ``frame_time == 0`` is the "unset" value of a Bvh built in memory.
-    Timing the animation needs a rate unless the caller gives ``fps``.
-    Two options need every clip's own rate whatever ``fps`` says: a
-    ghost trail, spaced in seconds of clip time, and ``match_fps`` on a
-    comparison, which resamples each clip from its rate. The error
-    offers only ways out that work, so ``fps=`` alone is offered only
-    when neither option is asked for. Every clip is checked, not only
-    the first that drives playback.
+    Each clip goes through the library's one check
+    (:func:`pybvh.tools._require_rate`), which names the clip's index
+    when several are drawn. Timing the animation needs a rate unless the
+    caller gives ``fps``, the playback rate of a clip without one. Two
+    options need every clip's own rate whatever ``fps`` says: a ghost
+    trail, spaced in seconds of clip time, and ``match_fps`` on a
+    comparison, which resamples each clip from its rate. The message
+    offers only ways out that work, so it names every such option asked
+    for, and ``fps=`` too when it is missing. Every clip is checked, not
+    only the first that drives playback.
     """
-    subject = _unset_rate_subject(clips)
-    if subject is None:
-        return
-    reasons = {}
+    options = []
     if ghost:
-        reasons["ghost="] = (
-            "ghost= spaces its trailing poses style.ghost_spacing seconds "
-            "apart in each clip's own time"
-        )
+        options.append(("ghost=", f"ghost={ghost}"))
     if match_fps is not None and len(clips) > 1:
-        reasons["match_fps="] = f"match_fps={match_fps!r} resamples each clip from its own rate"
-    if reasons:
-        options = " and ".join(reasons)
-        drop = f"drop {options}"
+        options.append(("match_fps=", f"match_fps={match_fps!r}"))
+    if options:
+        operation = f"{entry}() with " + " and ".join(given for _, given in options)
+        alternative = "drop " + " and ".join(name for name, _ in options)
         if fps is None:
-            drop += f" and pass fps= to {entry}()"
-        raise ValueError(
-            f"{entry}() needs every clip's frame rate even when fps= is "
-            f"given, because {'; '.join(reasons.values())}; but {subject} "
-            f"frame_time 0 (unset). Set bvh.frame_time (or bvh.fps), or "
-            f"{drop}."
+            alternative += f" and pass fps= to {entry}()"
+    elif fps is None:
+        operation = f"{entry}()"
+        alternative = f"pass fps= to {entry}()"
+    else:
+        return
+    for i, clip in enumerate(clips):
+        _require_rate(
+            clip.frame_time,
+            operation,
+            alternative=alternative,
+            index=i if len(clips) > 1 else None,
         )
-    if fps is None:
-        for i, clip in enumerate(clips):
-            _require_rate(
-                clip.frame_time,
-                f"{entry}()",
-                alternative=f"pass fps= to {entry}()",
-                index=i if len(clips) > 1 else None,
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -218,10 +197,9 @@ def _match_frame_rates(
     """Warn on frame-rate mismatch and optionally resample to a common rate.
 
     A clip whose ``frame_time`` is 0 has no rate, not a rate of 0 fps:
-    rates are compared among the clips that have one, the warning names
-    the others, and resampling refuses them (the router's
-    :func:`_require_frame_rates` does so first, with advice that fits
-    the call).
+    rates are compared among the clips that have one, and the warning
+    names the others. The router's :func:`_require_frame_rates` has
+    refused such a clip before ``match_fps`` resamples.
 
     Parameters
     ----------
@@ -241,22 +219,15 @@ def _match_frame_rates(
     if len(bvh_list) <= 1:
         return bvh_list
 
-    unset_subject = _unset_rate_subject(bvh_list)
-    if match_fps is not None and unset_subject is not None:
-        raise ValueError(
-            f"match_fps={match_fps!r} resamples each clip from its own "
-            f"rate, but {unset_subject} frame_time 0 (unset). Set "
-            f"bvh.frame_time (or bvh.fps), or drop match_fps=."
-        )
-
     rates = [1.0 / b.frame_time for b in bvh_list if b.frame_time > 0]
+    unset = [i for i, b in enumerate(bvh_list) if b.frame_time == 0]
     rates_agree = all(abs(r - rates[0]) < 0.5 for r in rates)
-    if rates_agree and (unset_subject is None or not rates):
+    if rates_agree and (not unset or not rates):
         return bvh_list  # all close enough, or none has a rate to compare
 
     rate_strs = ", ".join(f"{r:.1f}" for r in rates)
     if match_fps is None:
-        if unset_subject is None:
+        if not unset:
             warnings.warn(
                 f"Frame rates differ across clips ({rate_strs} fps). \n"
                 f"Playback speed will not match real time for all clips. \n"
@@ -268,7 +239,8 @@ def _match_frame_rates(
         else:
             warnings.warn(
                 f"Frame rates differ across clips ({rate_strs} fps, and "
-                f"{unset_subject} frame_time 0 (unset)). \n"
+                f"frame_time 0 (unset) at {'indices' if len(unset) > 1 else 'index'} "
+                f"{', '.join(map(str, unset))}). \n"
                 f"Playback speed will not match real time for all clips. \n"
                 f"Set bvh.frame_time (or bvh.fps) on every clip to compare "
                 f"them in real time.",

@@ -45,6 +45,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .._warnings import user_stacklevel
+from ..tools import _require_rate
 from . import _animation_options, _backends, _video
 from ._from_bvh import (
     as_clip_list,
@@ -188,11 +189,13 @@ def _require_frame_rates(
             f"{drop}."
         )
     if fps is None:
-        raise ValueError(
-            f"{entry}() needs a frame rate to time the animation, but "
-            f"{subject} frame_time 0 (unset). Set bvh.frame_time (or "
-            f"bvh.fps), or pass fps= to {entry}()."
-        )
+        for i, clip in enumerate(clips):
+            _require_rate(
+                clip.frame_time,
+                f"{entry}()",
+                alternative=f"pass fps= to {entry}()",
+                index=i if len(clips) > 1 else None,
+            )
 
 
 # ---------------------------------------------------------------------------

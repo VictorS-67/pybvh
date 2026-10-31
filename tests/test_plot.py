@@ -2075,9 +2075,22 @@ class TestPlaySync:
         assert_view_shows(short_view, short, held)
 
 
+def _rate_refusal(operation, alternative, index=None):
+    """The library's one message for an unset clip, as a regex."""
+    needed = (
+        "the clip's frame rate" if index is None else f"the frame rate of the clip at index {index}"
+    )
+    return re.escape(
+        f"{operation} needs {needed}, but its frame_time is 0 (unset). "
+        f"Set bvh.frame_time (or bvh.fps), or {alternative}."
+    )
+
+
 class TestUnsetFrameTime:
     """A clip whose frame_time is 0, the "unset" value a Bvh built in
-    memory carries until a rate is assigned."""
+    memory carries until a rate is assigned. An animated entry point
+    refuses it only where it needs the clip's own rate, with the
+    library's one message."""
 
     @pytest.fixture
     def unset(self, bvh_test1):
@@ -2099,17 +2112,13 @@ class TestUnsetFrameTime:
             plt.close("all")
 
     def test_render_raises_naming_both_ways_out(self, unset, tmp_path):
-        with pytest.raises(ValueError, match="frame_time") as info:
+        with pytest.raises(ValueError, match=_rate_refusal("render()", "pass fps= to render()")):
             bvhplot.render(unset, tmp_path / "x.gif", backend="matplotlib")
-        assert "bvh.fps" in str(info.value)
-        assert "fps=" in str(info.value)
         assert not (tmp_path / "x.gif").exists()
 
     def test_play_raises_naming_both_ways_out(self, unset):
-        with pytest.raises(ValueError, match="frame_time") as info:
+        with pytest.raises(ValueError, match=_rate_refusal("play()", "pass fps= to play()")):
             bvhplot.play(unset, backend="matplotlib")
-        assert "bvh.fps" in str(info.value)
-        assert "fps=" in str(info.value)
 
     def test_render_with_fps_draws_the_clip(self, unset, tmp_path):
         import matplotlib
@@ -2227,9 +2236,9 @@ class TestUnsetFrameTime:
         assert "match_fps='lowest'" not in message
 
     def test_play_mixed_list_without_fps_raises(self, bvh_test1, unset, played):
-        with pytest.raises(ValueError, match="index 1") as info:
+        message = _rate_refusal("play()", "pass fps= to play()", index=1)
+        with pytest.raises(ValueError, match=message):
             bvhplot.play([bvh_test1[0:5], unset], backend="matplotlib")
-        assert "fps=" in str(info.value)
         assert played == []
 
     @pytest.mark.filterwarnings("ignore:Frame rates differ")

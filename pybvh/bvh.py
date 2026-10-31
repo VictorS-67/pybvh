@@ -2124,6 +2124,10 @@ class Bvh:
         Each key is a column name, each value a 1-D NumPy array of
         length ``frame_count``. The first column is ``time``, each
         frame's time in seconds (its index times :attr:`frame_time`).
+        On an unset clip (``frame_time`` 0) every time is NaN, which
+        :meth:`from_df` reads back as an unset clip; zeros would read
+        back as a constant column, which it refuses, and raising would
+        refuse the motion of a clip that has no rate.
 
         Parameters
         ----------
@@ -2212,9 +2216,12 @@ class Bvh:
         self, columns: list[str], flat: npt.NDArray[np.float64]
     ) -> dict[str, npt.NDArray[np.float64]]:
         """``time``, then *columns* over the columns of *flat*."""
-        result: dict[str, npt.NDArray[np.float64]] = {
-            "time": np.arange(self.frame_count, dtype=np.float64) * self.frame_time
-        }
+        times: npt.NDArray[np.float64]
+        if self.frame_time == 0:
+            times = np.full(self.frame_count, np.nan)
+        else:
+            times = np.arange(self.frame_count, dtype=np.float64) * self.frame_time
+        result: dict[str, npt.NDArray[np.float64]] = {"time": times}
         result.update(zip(columns, flat.T, strict=True))
         return result
 

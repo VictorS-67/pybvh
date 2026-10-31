@@ -23,10 +23,20 @@ from .bvh import Bvh, _motion_column_names
 from .bvhnode import BvhNode
 from .io import _rate_with_fewest_decimals
 from .node_tree import _nodes_from_table_or_list
-from .tools import _SAME_RATE_RTOL
 
 if TYPE_CHECKING:
     import pandas as pd
+
+
+#: The window in which ``df_to_bvh`` looks for a table's rate: a measured
+#: frame time is recovered as ``1 / rate`` when a rate lies within this
+#: fraction of it. It stands in for the decimals a ``Frame Time`` prints,
+#: which a table does not keep: a frame time measured from a ``time``
+#: column saved at 6 decimals over one second or more lies within it. It is
+#: not :data:`~pybvh.tools._SAME_RATE_RTOL`: at that 2e-6 an exact NTSC
+#: clip, ``1001 / 30000``, would come back from its own table as
+#: ``1 / 29.97``, 1.000001e-6 from it relative, while 1e-6 keeps it.
+_RATE_RECOVERY_RTOL = 1e-6
 
 
 _SUFFIX_RULE = (
@@ -42,7 +52,7 @@ def _frame_time_from_times(times: npt.NDArray[Any], label: Hashable) -> float:
     A column of NaN on every row is an unset clip's and gives 0; a
     column whose first and last values are equal raises ``ValueError``.
     Otherwise the measured frame time goes through the reader's rule
-    with :data:`~pybvh.tools._SAME_RATE_RTOL` as the window, as
+    with :data:`_RATE_RECOVERY_RTOL` as the window, as
     :func:`df_to_bvh` states for the user.
     """
     # The table of an unset clip: Bvh.to_df_dict gives it NaN times.
@@ -61,7 +71,7 @@ def _frame_time_from_times(times: npt.NDArray[Any], label: Hashable) -> float:
         return measured
     exact = Fraction(measured)
     rate = _rate_with_fewest_decimals(
-        exact * (1 - Fraction(_SAME_RATE_RTOL)), exact * (1 + Fraction(_SAME_RATE_RTOL))
+        exact * (1 - Fraction(_RATE_RECOVERY_RTOL)), exact * (1 + Fraction(_RATE_RECOVERY_RTOL))
     )
     if rate is None:
         return measured

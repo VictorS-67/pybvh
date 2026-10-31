@@ -955,6 +955,17 @@ class TestDataFrameConversion:
 
         assert rebuilt.frame_time == 1 / fps
 
+    def test_an_exact_ntsc_clip_keeps_its_frame_time_through_a_table(self, bvh_example, from_df):
+        """1/29.97 is 1.000001e-6 from 1001/30000 relative, just outside
+        the 1e-6 window, so the table's exact NTSC frame time is kept."""
+        clip = bvh_example.copy()
+        clip.frame_time = 1001 / 30000
+        df = pd.DataFrame(clip.to_df_dict(mode="euler"))
+
+        rebuilt = from_df(clip.nodes, df)
+
+        assert rebuilt.frame_time == 1001 / 30000
+
     def test_a_table_cut_from_a_clip_keeps_its_rate(self, bvh_example, from_df):
         """Both ends rounded, by at most 1e-6 s together: over the 3.9 s
         left, 2.6e-7 relative, still inside the 1e-6 window."""

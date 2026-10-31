@@ -612,7 +612,6 @@ def _speed_and_swept(
 
 def curvature(
     traj: npt.NDArray[np.float64],
-    frame_time: float,
     stencil: str = "central",
     pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
@@ -623,12 +622,16 @@ def curvature(
     is undefined). Note this is distinct from the genuine ``κ = 0`` of a
     straight segment.
 
+    Curvature depends on the path's shape alone, not on how fast the
+    path is travelled, so it takes no frame time: a frame time ``h``
+    scales ``‖ṗ × p̈‖`` by ``h⁻³`` and ``‖ṗ‖³`` by ``h⁻³``, which cancel.
+    The derivatives are computed at a unit spacing, so the kernel works on
+    a clip with no rate set.
+
     Parameters
     ----------
     traj : ndarray, shape (F, 3) or (F, N, 3)
         Trajectory; the first axis is time.
-    frame_time : float
-        Seconds between frames.
     stencil, pad : optional
         Finite-difference convention, shared with the kinematics ladder
         (see :func:`pybvh.signal.finite_difference`). Default
@@ -645,13 +648,12 @@ def curvature(
     -----
     Source: Larboulette & Gibet, Gibet et al.
     """
-    speed, swept = _speed_and_swept(traj, frame_time, stencil, pad)
+    speed, swept = _speed_and_swept(traj, 1.0, stencil, pad)
     return _safe_ratio(swept, speed**3)
 
 
 def torsion(
     traj: npt.NDArray[np.float64],
-    frame_time: float,
     stencil: str = "central",
     pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
@@ -662,12 +664,15 @@ def torsion(
     where ``‖ṗ × p̈‖`` is ~0 (straight or stationary, where torsion is
     undefined).
 
+    Torsion, like :func:`curvature`, depends on the path's shape alone,
+    so it takes no frame time: a frame time ``h`` scales
+    ``(ṗ × p̈) · p⃛`` by ``h⁻⁶`` and ``‖ṗ × p̈‖²`` by ``h⁻⁶``, which cancel.
+    The derivatives are computed at a unit spacing.
+
     Parameters
     ----------
     traj : ndarray, shape (F, 3) or (F, N, 3)
         Trajectory; the first axis is time.
-    frame_time : float
-        Seconds between frames.
     stencil, pad : optional
         Finite-difference convention (see :func:`curvature`).
 
@@ -680,7 +685,7 @@ def torsion(
     -----
     Source: Bouchard & Badler, Zhao & Badler.
     """
-    d1, d2, d3 = _aligned_derivatives(traj, frame_time, 3, stencil, pad)
+    d1, d2, d3 = _aligned_derivatives(traj, 1.0, 3, stencil, pad)
     swept = np.cross(d1, d2)
     twist = np.sum(swept * d3, axis=-1)
     swept_sq = np.sum(swept * swept, axis=-1)

@@ -28,10 +28,21 @@ def test_curvature_torsion_path_directness_match_kernel():
     bvh = _bvh()
     idx = bvh.index("Spine", space="node")
     traj = bvh.node_positions()[:, idx, :]
-    np.testing.assert_allclose(bvh.curvature("Spine"), geometry.curvature(traj, bvh.frame_time))
-    np.testing.assert_allclose(bvh.torsion("Spine"), geometry.torsion(traj, bvh.frame_time))
+    np.testing.assert_allclose(bvh.curvature("Spine"), geometry.curvature(traj))
+    np.testing.assert_allclose(bvh.torsion("Spine"), geometry.torsion(traj))
     np.testing.assert_allclose(bvh.path_length("Spine"), geometry.path_length(traj))
     assert np.isnan(bvh.directness("Spine")) == np.isnan(geometry.directness(traj))
+
+
+def test_curvature_and_torsion_work_on_an_unset_clip():
+    # curvature and torsion are properties of the path's shape, not of its
+    # timing: an unset clip (frame_time 0) gives the values it has with a rate
+    timed = make_pos_y_up_rotating_bvh()
+    unset = timed.copy()
+    unset.frame_time = 0
+    for joint in ("LeftFoot", "Spine"):
+        np.testing.assert_allclose(unset.curvature(joint), timed.curvature(joint))
+        np.testing.assert_allclose(unset.torsion(joint), timed.torsion(joint))
 
 
 def test_ground_path_matches_kernel():

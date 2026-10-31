@@ -210,14 +210,14 @@ def _circle(n, r):
 
 
 def test_curvature_circle_is_one_over_r():
-    traj, dt = _circle(720, 2.0)
-    kappa = geo.curvature(traj, dt)
+    traj, _ = _circle(720, 2.0)
+    kappa = geo.curvature(traj)
     np.testing.assert_allclose(kappa[3:-3], 0.5, rtol=1e-3)
 
 
 def test_curvature_straight_line_is_zero():
     line = np.linspace([0, 0, 0], [5, 0, 0], 50)
-    kappa = geo.curvature(line, 0.1)
+    kappa = geo.curvature(line)
     np.testing.assert_allclose(kappa[2:-2], 0.0, atol=1e-9)
 
 
@@ -228,15 +228,15 @@ def _helix(n, r, b, turns):
 
 
 def test_torsion_planar_circle_is_zero():
-    traj, dt = _circle(720, 2.0)
-    tau = geo.torsion(traj, dt)
+    traj, _ = _circle(720, 2.0)
+    tau = geo.torsion(traj)
     np.testing.assert_allclose(tau[5:-5], 0.0, atol=1e-6)
 
 
 def test_torsion_helix_matches_closed_form():
     r, b = 1.0, 0.5
-    traj, dt = _helix(2000, r, b, turns=4)
-    tau = geo.torsion(traj, dt)
+    traj, _ = _helix(2000, r, b, turns=4)
+    tau = geo.torsion(traj)
     expected = b / (r**2 + b**2)  # = 0.4
     np.testing.assert_allclose(tau[20:-20], expected, rtol=1e-2)
 
@@ -371,11 +371,11 @@ def test_trajectory_derivative_kernels_reject_bad_args():
     # a typo'd pad used to silently mean "edge" in the derivative kernels
     traj = np.zeros((10, 3))
     with pytest.raises(ValueError, match="stencil"):
-        geo.curvature(traj, 0.1, stencil="bogus")
+        geo.curvature(traj, stencil="bogus")
     with pytest.raises(ValueError, match="pad"):
         geo.movement_phase(traj, 0.1, pad="bogus")
     with pytest.raises(ValueError, match="pad"):
-        geo.torsion(traj, 0.1, pad="bogus")
+        geo.torsion(traj, pad="bogus")
 
 
 # ----------------------------------------------------------------
@@ -385,7 +385,7 @@ def test_trajectory_derivative_kernels_reject_bad_args():
 
 def test_nan_sentinels_on_degenerate_input():
     stationary = np.zeros((10, 3))
-    assert np.all(np.isnan(geo.curvature(stationary, 0.1)))
+    assert np.all(np.isnan(geo.curvature(stationary)))
     assert np.isnan(geo.directness(stationary))
     # a perfectly vertical point set has zero horizontal width
     vertical = np.array([[0.0, 0, 0], [0, 1, 0], [0, 2, 0]])

@@ -466,7 +466,7 @@ s = np.linspace(0, 6 * np.pi, 600)
 climb_rate = 0.4 * (1 + np.tanh(s - 3 * np.pi)) / 2  # vertical speed: smoothly 0 → 0.4
 z = np.cumsum(climb_rate) * (s[1] - s[0])  # integrate it: flat, then climbs
 helix = np.stack([np.cos(s), np.sin(s), z], axis=1)  # smooth join → no torsion spike
-tor = geometry.torsion(helix, s[1] - s[0])
+tor = geometry.torsion(helix)
 gp.fig_torsion(helix, tor, "torsion: flat circle → rising helix")
 
 # %% [markdown]

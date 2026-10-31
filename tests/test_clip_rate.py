@@ -68,6 +68,13 @@ RATE_OPERATIONS = [
         id="velocity_reductions",
     ),
     pytest.param("walking_pace()", lambda clip: clip.walking_pace(), id="walking_pace"),
+    pytest.param("gait_parameters()", lambda clip: clip.gait_parameters(), id="gait_parameters"),
+    # Contacts given, nothing reads the speed, but cadence and pace are per second.
+    pytest.param(
+        "gait_parameters()",
+        lambda clip: clip.gait_parameters(contacts=np.zeros((clip.frame_count, 2))),
+        id="gait_parameters-contacts-given",
+    ),
 ]
 
 _DURATIONS_OFF = "disable them with min_contact_duration=0.0 and min_gap_duration=0.0"

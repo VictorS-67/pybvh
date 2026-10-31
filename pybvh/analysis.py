@@ -2924,12 +2924,15 @@ def gait_parameters(
     Raises
     ------
     ValueError
-        If no foot joints can be found.
+        If no foot joints can be found, or the clip's ``frame_time`` is
+        0 (unset), even with ``contacts`` given: cadence and walking pace
+        are per second.
 
     Notes
     -----
     Source: Crane & Gross, Gross et al. 2012, Karg et al. 2010.
     """
+    _require_rate(bvh.frame_time, "gait_parameters()")
     if foot_joints is None:
         foot_joints = auto_detect_foot_joints(bvh)
     if not foot_joints:

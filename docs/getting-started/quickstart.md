@@ -25,7 +25,7 @@ bvh.euler_orders      # ['ZYX', 'ZYX', ...] per joint
 coords = bvh.node_positions()  # (F, N, 3) via forward kinematics
 ```
 
-The `centered` parameter picks the coordinate frame — see [Core Concepts](../guide/core-concepts.md).
+The `centered` parameter picks the coordinate frame. See [Core Concepts](../guide/core-concepts.md).
 
 ## Rotation representations
 
@@ -35,7 +35,7 @@ root_pos, rot6d = bvh.to_6d()           # (F, J, 6)
 root_pos, aa = bvh.to_axisangle()    # (F, J, 3)
 ```
 
-Which one to pick, and the full conversion API: [Choosing a Representation](../guide/choosing-rotations.md) and [Rotation Representations & SE(3)](../guide/rotations.md).
+To pick one, read [Choosing a Representation](../guide/choosing-rotations.md). For the full conversion API, read [Rotation Representations & SE(3)](../guide/rotations.md).
 
 ## Writing back to file
 
@@ -45,7 +45,7 @@ bvh.write("output.bvh")
 
 ## Visualization
 
-Single-skeleton calls are most natural as methods on the `Bvh` object:
+For a single skeleton, the most natural calls are the methods on the `Bvh` object:
 
 ```python
 # Rest pose (T-pose / bind pose)
@@ -67,7 +67,7 @@ bvh.play()
 bvh.plot_trajectory()
 ```
 
-Multi-skeleton comparisons use the `pybvh.bvhplot` module functions, which accept a list of `Bvh` objects:
+To compare several skeletons, use the functions of the `pybvh.bvhplot` module. They accept a list of `Bvh` objects:
 
 ```python
 from pybvh import bvhplot
@@ -77,7 +77,7 @@ bvhplot.render([bvh1, bvh2], "compare.mp4", labels=["A", "B"], sync="pad")
 bvhplot.trajectory([bvh1, bvh2], labels=["A", "B"])
 ```
 
-The character's orientation is exposed as a property and a method (full story: the [World Up guide](../guide/world-up.md)):
+The `Bvh` object gives the character's orientation as a property and a method. The [World Up guide](../guide/world-up.md) tells the full story:
 
 ```python
 bvh.world_up           # e.g. '+y' or '+z' — auto-detected gravity axis
@@ -85,14 +85,14 @@ bvh.forward_at(0)      # facing direction in world space at frame 0
 bvh.world_up = '+y'    # manual override if the auto-detect is wrong
 ```
 
-Full visualization options (cameras, backends, side-by-side): the [Visualization API](../api/bvhplot.md).
+For the full visualization options (cameras, backends, side-by-side), read the [Visualization API](../api/bvhplot.md).
 
 ## Where to next
 
-This page covered loading, arrays, and writing — a small slice of the library. Beyond it sits a full analysis layer: augmentation transforms (mirror, noise, speed), foot contacts and gait parameters, motion descriptors (curvature, smoothness/SPARC, kinetic energy), and SE(3) rigid-transform features.
+This page covered loading, arrays, and writing. They are a small part of the library. The library also has a full analysis layer: augmentation transforms (mirror, noise, speed), foot contacts and gait parameters, motion descriptors (curvature, smoothness/SPARC, kinetic energy), and SE(3) rigid-transform features.
 
-- **[Feature Gallery](../gallery/index.md)** — every visual capability, one picture and one call each. The fastest way to see what pybvh can do.
+- **[Feature Gallery](../gallery/index.md)** — every visual capability, one picture and one call each. It is the fastest way to see what pybvh can do.
 - **[Find a function](../api/index.md)** — the "I want to… → call" capability map.
-- **[Core Concepts](../guide/core-concepts.md)** — index spaces and centering modes; ten minutes that prevent most bugs.
+- **[Core Concepts](../guide/core-concepts.md)** — index spaces and centering modes. Ten minutes here prevent most bugs.
 - **[Motion Descriptors guide](../guide/motion-descriptors.md)** — the quantitative analysis layer.
 - **[Tutorials](../tutorials.md)** — eight notebooks with detailed walkthroughs.

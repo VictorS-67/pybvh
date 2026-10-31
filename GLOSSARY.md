@@ -69,7 +69,7 @@ _Avoid_: cache
 One row of the motion: the root position and every joint's angles at one instant. `F` counts them.
 
 **Frame time**:
-Seconds per frame, the file's `Frame Time:`; `fps` is derived from it. Zero means unset.
+Seconds per frame, the file's `Frame Time:`; `fps` is its inverse. `0` means unset, legal on any clip. ADR 0008 gives the rules that refuse an unset clip where a rate is needed, that call two frame times within 2e-6 of the larger the same rate, and that read a file's value as printed unless its writer truncated or rounded the frame time of a rate with at most 3 decimals.
 _Avoid_: frame frequency
 
 **Joint angles**:

@@ -76,6 +76,8 @@ from .spatial_coord import (
 from .tools import (
     Axis,
     _axis_to_vector,
+    _matches_fps,
+    _same_rate,
     _validate_axis_string,
     _validate_fps,
     _validate_frame_time,
@@ -693,6 +695,53 @@ class Bvh:
         matches_channels : The channel-layout half (per-joint Euler orders).
         """
         return self.matches_hierarchy(other) and self.matches_channels(other)
+
+    def matches_rate(self, other: Bvh | float) -> bool:
+        """Whether ``self`` has the same rate as ``other``, a clip or a rate in fps.
+
+        The same rate means frame times within a relative ``2e-6``:
+        ``abs(a - b) <= 2e-6 * max(a, b)``, where a rate in fps stands
+        for the frame time ``1 / fps`` that ``bvh.fps = fps`` sets. The
+        tolerance is relative because the error a computation or a saved
+        table leaves in a frame time scales with the frame time, so one
+        tolerance serves 24 fps and 1000 fps alike. ``2e-6`` lets a
+        29.97 fps file, read as ``1 / 29.97``, match an exact NTSC clip at
+        ``1001 / 30000``, which differ by 1e-6 of the larger; it is still
+        far below the 1e-3 between 29.97 and 30 fps. So a clip at
+        ``frame_time = 0.013`` matches ``b.resample(1 / 0.013)``, whose
+        frame time is ``0.013000000000000001``.
+
+        Two clips whose frame time is ``0`` (unset) have the same rate; an
+        unset clip has the rate of no set clip and of no fps. ``==`` on
+        two clips is exact, as it is for their arrays.
+
+        Parameters
+        ----------
+        other : Bvh or float
+            The clip, or the rate in frames per second, to compare against.
+
+        Returns
+        -------
+        bool
+
+        Raises
+        ------
+        ValueError
+            If ``other`` is an fps that is not a positive finite number,
+            or one so small that ``1 / other`` overflows.
+
+        See Also
+        --------
+        matches_topology : Whether two clips share a skeleton.
+
+        Examples
+        --------
+        >>> if not bvh.matches_rate(30):
+        ...     bvh = bvh.resample(30)
+        """
+        if isinstance(other, Bvh):
+            return _same_rate(self.frame_time, other.frame_time)
+        return _matches_fps(self.frame_time, other)
 
     def __len__(self) -> int:
         """Number of frames. Equivalent to ``self.frame_count``."""

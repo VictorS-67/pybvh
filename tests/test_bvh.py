@@ -7198,6 +7198,77 @@ class TestMatchesTopology:
         assert not bvh_example.matches_topology(None)
 
 
+class TestMatchesRate:
+    """Tests for Bvh.matches_rate."""
+
+    def test_a_copy_matches(self, bvh_example):
+        assert bvh_example.matches_rate(bvh_example.copy())
+
+    def test_a_frame_time_off_by_rounding_matches(self, bvh_example):
+        # 1 / (1 / 0.013) is 0.013000000000000001: == refuses it.
+        a = bvh_example.copy()
+        a.frame_time = 0.013
+        b = bvh_example.resample(1 / a.frame_time)
+        assert b.frame_time == 0.013000000000000001
+        assert a.matches_rate(b)
+        assert b.matches_rate(a)
+
+    def test_a_29_97_fps_file_matches_an_exact_ntsc_clip(self, bvh_example):
+        # 1e-6 of the larger apart in exact arithmetic, just over it in floats.
+        a = bvh_example.copy()
+        a.fps = 29.97
+        b = bvh_example.copy()
+        b.frame_time = 1001 / 30000
+        assert a.matches_rate(b)
+        assert b.matches_rate(a)
+
+    def test_29_97_fps_does_not_match_30_fps(self, bvh_example):
+        a = bvh_example.copy()
+        a.fps = 29.97
+        b = bvh_example.copy()
+        b.fps = 30
+        assert not a.matches_rate(b)
+        assert not b.matches_rate(a)
+
+    def test_a_rate_in_fps(self, bvh_example):
+        clip = bvh_example.copy()
+        clip.fps = 30
+        assert clip.matches_rate(30)
+        assert clip.matches_rate(30.0)
+        assert not clip.matches_rate(29.97)
+        clip.frame_time = 0.013
+        assert clip.matches_rate(1 / 0.013)
+        clip.frame_time = 1001 / 30000
+        assert clip.matches_rate(29.97)
+
+    def test_two_unset_clips_match(self, bvh_example):
+        a = bvh_example.copy()
+        a.frame_time = 0
+        assert a.matches_rate(a.copy())
+
+    def test_an_unset_clip_does_not_match_a_set_one(self, bvh_example):
+        unset = bvh_example.copy()
+        unset.frame_time = 0
+        assert bvh_example.frame_time > 0
+        assert not unset.matches_rate(bvh_example)
+        assert not bvh_example.matches_rate(unset)
+        assert not unset.matches_rate(bvh_example.fps)
+
+    @pytest.mark.parametrize("fps", [0, -30, float("nan"), float("inf")])
+    def test_an_fps_that_is_not_a_positive_finite_number_raises(self, bvh_example, fps):
+        with pytest.raises(ValueError, match="positive finite"):
+            bvh_example.matches_rate(fps)
+
+    def test_an_fps_whose_frame_time_overflows_raises(self, bvh_example):
+        # 1 / 1e-310 is inf, a frame time the fps setter refuses too.
+        with pytest.raises(ValueError, match="fps"):
+            bvh_example.matches_rate(1e-310)
+        unset = bvh_example.copy()
+        unset.frame_time = 0
+        with pytest.raises(ValueError, match="fps"):
+            unset.matches_rate(1e-310)
+
+
 class TestMatchesHierarchy:
     """Tests for Bvh.matches_hierarchy."""
 

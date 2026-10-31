@@ -44,27 +44,27 @@ def read_bvh_file(
         animation data.  Pass a signed axis string like ``"+y"`` to skip
         auto-detection and suppress the disagreement warning.
     warn_on_world_up_disagreement : bool, optional
-        If True (default) and ``world_up="auto"``, emit a ``UserWarning``
-        when rest-pose and first-frame inferences disagree. The setting
-        is kept on the returned clip for its lifetime, not spent at
-        load: ``world_up`` is inferred again when you assign the motion
-        (``root_pos``, ``joint_angles`` or frames), and each of those
-        inferences follows it, as does :attr:`Bvh.world_up_inferred`.
-        Clips that a :class:`Bvh` operation derives from this one
-        (slices, ``copy()``, transformed copies, ``extract_joints``,
-        ``resample``) inherit it along with the world up itself; a
-        concatenation ``a + b`` follows ``a``, as it does for
-        ``frame_time``. A clip rebuilt from its data
-        (:func:`~pybvh.df_to_bvh`, :meth:`Bvh.from_df`) is a new clip,
-        like one read from a file, and starts from the default. The
-        alternative, a one-shot suppression of the load-time inference
-        only, would re-warn on the first motion assignment of a clip
-        you asked to keep quiet.
+        If True (default) and ``world_up="auto"``, emit a
+        ``UserWarning`` when the rest-pose and first-frame inferences
+        disagree. The returned clip keeps the setting for its lifetime.
+        Load does not spend it. ``world_up`` is inferred again when you
+        assign the motion (``root_pos``, ``joint_angles`` or frames).
+        Each of those inferences follows the setting, and so does
+        :attr:`Bvh.world_up_inferred`. Clips that a :class:`Bvh`
+        operation derives from this one (slices, ``copy()``, transformed
+        copies, ``extract_joints``, ``resample``) inherit the setting,
+        along with the world up itself. A concatenation ``a + b``
+        follows ``a``, as it does for ``frame_time``. A clip rebuilt
+        from its data (:func:`~pybvh.df_to_bvh`, :meth:`Bvh.from_df`) is
+        a new clip, like one read from a file. It starts from the
+        default. The alternative is a one-shot suppression of the
+        load-time inference only. It would warn again on the first
+        motion assignment of a clip that you asked to keep quiet.
     lr_mapping : dict or None, optional
         Explicit left/right joint pair mapping
-        (``{"arm.L": "arm.R", ...}``). If provided, skips the name-based
-        auto-detection for this file. Use for skeletons whose naming
-        conventions the heuristic can't parse.
+        (``{"arm.L": "arm.R", ...}``). If you give one, the name-based
+        auto-detection is skipped for this file. Use it for skeletons
+        whose naming conventions the heuristic cannot parse.
 
     Returns
     -------
@@ -80,57 +80,58 @@ def read_bvh_file(
 
     Notes
     -----
-    BVH files store joint angles in degrees; pybvh holds them in radians
-    on :attr:`Bvh.joint_angles`. This function converts on read;
-    :func:`write_bvh_file` converts back on write.
+    BVH files store joint angles in degrees. pybvh holds them in
+    radians, on :attr:`Bvh.joint_angles`. This function converts them on
+    read. :func:`write_bvh_file` converts them back on write.
 
-    Three things the reader normalizes rather than preserving verbatim,
-    so a round-trip is lossless in *motion* but not byte-for-byte:
+    The reader normalizes three things, rather than preserving them
+    verbatim. So a round-trip is lossless in *motion*, but not
+    byte-for-byte:
 
     - **Frame time is recovered** when the file's value is the frame
       time of a round rate, truncated or rounded by its exporter.
-      Exporters often print ``Frame Time`` at 6 decimals (``0.033333``
-      for 30 fps, which is 30.0003 fps), and a resample and back
-      then drifts. The reader looks for the rate with the fewest
-      decimals, from 0 to 3, whose frame time, rounded or truncated to
-      the decimals the file prints, gives exactly the file's text. When
+      Exporters often print ``Frame Time`` at 6 decimals: ``0.033333``
+      for 30 fps, which is 30.0003 fps. A resample and back then drifts.
+      The reader looks for the rate with the fewest decimals, from 0 to
+      3, whose frame time gives exactly the file's text when it is
+      rounded or truncated to the decimals that the file prints. When
       exactly one rate with that many decimals fits, ``bvh.frame_time``
-      is ``1 / rate``; when several fit, or none with up to 3 decimals,
+      is ``1 / rate``. When several fit, or none with up to 3 decimals,
       it is the value as read. ``0.033333`` and ``0.033`` read as
-      ``1 / 30``, ``0.004166`` as ``1 / 240`` and ``0.033367`` as
-      ``1 / 29.97``; ``0.017`` (every whole rate from 56 to 60 fps
-      fits) and ``0.008341`` (119.88 and 119.89 fps) are kept as read.
-      A 29.97 fps file becomes ``1 / 29.97``, which is 1.000001e-6
-      relative from NTSC's exact ``1001 / 30000``; set
-      ``bvh.frame_time = 1001 / 30000`` after reading when you need
-      that. The rule recovers lost digits, not round numbers, so a text
-      of 17 significant digits or more, which names one float exactly,
-      is kept as read: ``0.033366700033366700`` reads as itself, one
-      float from ``1 / 29.97``. Since the text alone cannot tell a short
-      frame time from a truncated one, :func:`write_bvh_file` writes all
-      17 significant digits (its Notes say why): a clip whose
-      ``frame_time`` is ``0.033`` is written ``0.033000000000000002``
-      and reads back as ``0.033``. None of the other BVH readers
-      surveyed recovers a rate: those that use the value take the text
-      as printed, and one (fairmotion) rounds the rate to a whole
-      number. Where the rule recovers a rate, the printed value differs
-      from pybvh's by less than one unit of its last decimal
-      (``0.033333`` against ``1 / 30``); where it keeps the text, the
-      two agree. The rounded rate differs from pybvh's wherever pybvh's
-      is not whole (``0.033367`` gives 30 fps, ``0.017`` 59 fps), and,
-      in a file at 6 decimals, on some whole rates above 720 fps
+      ``1 / 30``. ``0.004166`` reads as ``1 / 240``, and ``0.033367`` as
+      ``1 / 29.97``. ``0.017`` (every whole rate from 56 to 60 fps fits)
+      and ``0.008341`` (119.88 and 119.89 fps) are kept as read. A 29.97
+      fps file becomes ``1 / 29.97``, which is 1.000001e-6 relative from
+      NTSC's exact ``1001 / 30000``. When you need that value, set
+      ``bvh.frame_time = 1001 / 30000`` after reading. The rule recovers
+      lost digits, not round numbers. So a text of 17 significant digits
+      or more, which names one float exactly, is kept as read:
+      ``0.033366700033366700`` reads as itself, one float from
+      ``1 / 29.97``. The text alone cannot tell a short frame time from
+      a truncated one. So :func:`write_bvh_file` writes all 17
+      significant digits (its Notes say why). A clip whose
+      ``frame_time`` is ``0.033`` is written ``0.033000000000000002``,
+      and it reads back as ``0.033``. None of the other BVH readers
+      surveyed recovers a rate. Those that use the value take the text
+      as printed. One (fairmotion) rounds the rate to a whole number.
+      Where the rule recovers a rate, the printed value differs from
+      pybvh's by less than one unit of its last decimal (``0.033333``
+      against ``1 / 30``). Where the rule keeps the text, the two agree.
+      The rounded rate differs from pybvh's wherever pybvh's is not
+      whole (``0.033367`` gives 30 fps, ``0.017`` 59 fps). In a file at
+      6 decimals, it also differs on some whole rates above 720 fps
       (``0.001386`` gives 722 fps, where pybvh reads 721).
-    - **Root channels are reordered** to position-first. A file
-      declaring rotations before positions parses correctly but writes
-      back in pybvh's canonical order.
-    - **Offsets and motion values are written at 6 decimal places**
-      (the frame time at 17 significant digits, which reads back as
-      the same float), so re-reading a written file
-      quantizes at ~1e-6 in the file's own units.
+    - **Root channels are reordered** to position-first. A file that
+      declares rotations before positions parses correctly, but it
+      writes back in pybvh's canonical order.
+    - **Offsets and motion values are written at 6 decimal places**, so
+      re-reading a written file quantizes at ~1e-6 in the file's own
+      units. The frame time is written at 17 significant digits, which
+      reads back as the same float.
 
-    Values pybvh infers or you set — ``world_up``, ``lr_mapping`` — have
-    nowhere to live in the BVH format and are lost on write; re-apply
-    them after reading.
+    Values that pybvh infers or that you set (``world_up``,
+    ``lr_mapping``) have nowhere to live in the BVH format. They are
+    lost on write. Re-apply them after reading.
     """
     return _bvh_from_parsed(
         _extract_bvh_file_info(filepath),
@@ -527,19 +528,19 @@ def write_bvh_file(
         Destination file path.  Must have a ``.bvh`` extension.
     verbose : bool, optional
         If True, print a one-line confirmation to stdout on success.
-        Default ``False`` — preprocessing loops that write many files
-        shouldn't flood the terminal by default.
+        Default ``False``, so that preprocessing loops that write many
+        files do not flood the terminal by default.
     overwrite : bool, optional
         If True (default), replace an existing file at ``filepath``.
-        Pass ``False`` to refuse instead, raising ``FileExistsError`` —
-        worth doing when the destination is hand-authored data rather
-        than a regenerable output.
+        Pass ``False`` to refuse instead: the call then raises
+        ``FileExistsError``. That is worth doing when the destination is
+        hand-authored data rather than a regenerable output.
 
     Raises
     ------
     ValueError
         If the file extension is not ``.bvh``, or if ``bvh.frame_time``
-        is 0 (unset): a file must state its frame time, and
+        is 0 (unset). A file must state its frame time, and
         :func:`read_bvh_file` refuses ``Frame Time: 0``.
     FileNotFoundError
         If the parent directory does not exist.
@@ -549,26 +550,28 @@ def write_bvh_file(
     Notes
     -----
     pybvh stores joint angles in radians, but the BVH format requires
-    degrees; this function converts on write.
+    degrees. This function converts them on write.
 
-    Offsets and motion values are written with 6 decimal places, the de
-    facto BVH convention (and what most DCC tools emit) — motion data
-    re-read from a written file is therefore quantized at ~1e-6 in the
-    skeleton's length unit and in degrees. ``Frame Time`` is the
-    exception: it is written at 17 significant digits with trailing
-    zeros kept (``f"{frame_time:#.17g}"``: ``0.033333333333333333`` for
-    30 fps, ``0.12000000000000000`` for 0.12 s), so the file holds the
-    clip's frame time without loss. A truncated frame time compounds
-    across every frame of a resample, while a truncated coordinate does
-    not. The shortest text that reads back as the same float (Python's
-    ``repr``) is not enough: :func:`read_bvh_file` takes a ``Frame
-    Time`` with few decimals for an exporter's truncated rate, so
-    ``0.12`` would read back as ``1 / 8`` and ``0.033`` as ``1 / 30``.
-    The reader keeps a text of 17 significant digits as read, so every
-    frame time this function writes reads back as the same float.
+    Offsets and motion values are written with 6 decimal places. That is
+    the de facto BVH convention (and what most DCC tools emit). So
+    motion data re-read from a written file is quantized at ~1e-6, in
+    the skeleton's length unit and in degrees.
+
+    ``Frame Time`` is the exception. It is written at 17 significant
+    digits, with trailing zeros kept (``f"{frame_time:#.17g}"``:
+    ``0.033333333333333333`` for 30 fps, ``0.12000000000000000`` for
+    0.12 s). So the file holds the clip's frame time without loss. A
+    truncated frame time compounds across every frame of a resample, but
+    a truncated coordinate does not. The shortest text that reads back
+    as the same float (Python's ``repr``) is not enough, because
+    :func:`read_bvh_file` takes a ``Frame Time`` with few decimals for
+    an exporter's truncated rate. So ``0.12`` would read back as
+    ``1 / 8``, and ``0.033`` as ``1 / 30``. The reader keeps a text of
+    17 significant digits as read. So every frame time that this
+    function writes reads back as the same float.
 
     The BVH format carries no place for ``world_up``, ``lr_mapping``, or
-    ``source_path``; those are lost on write and re-inferred on read.
+    ``source_path``. Those are lost on write, and re-inferred on read.
     Root channels are always written position-first, whatever order the
     source file declared.
     """

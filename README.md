@@ -7,7 +7,7 @@
 
 pybvh is a lightweight Python library to read, write and manipulate BVH motion capture files. It is for researchers and developers who work with skeletal animation and motion data.
 
-![A skeleton moves across the frame, and the path of one hand is traced behind it. pybvh renders motion, and it extracts trajectories from the motion that you can analyze](https://raw.githubusercontent.com/VictorS-67/pybvh/main/docs/assets/hand-trajectory.gif)
+![A skeleton moves across the frame while the path of one hand is traced behind it. pybvh renders motion, and it extracts trajectories from the motion that you can analyze](https://raw.githubusercontent.com/VictorS-67/pybvh/main/docs/assets/hand-trajectory.gif)
 
 **[Documentation](https://victors-67.github.io/pybvh/)** · [Quick Start](https://victors-67.github.io/pybvh/getting-started/quickstart/) · [Feature Gallery](https://victors-67.github.io/pybvh/gallery/) — every feature, one picture each · [Find a function](https://victors-67.github.io/pybvh/api/) · [Tutorials](https://victors-67.github.io/pybvh/tutorials/)
 
@@ -19,7 +19,7 @@ pybvh is a lightweight Python library to read, write and manipulate BVH motion c
 - **Skeleton operations**: retargeting, scaling, joint extraction, Euler order changes — [guide](https://victors-67.github.io/pybvh/guide/skeleton-ops/)
 - **Frame operations**: slicing, concatenation, resampling to different frame rates — [guide](https://victors-67.github.io/pybvh/guide/skeleton-ops/)
 - **Spatial transforms**: mirroring, vertical rotation, speed perturbation, joint noise, root translation and frame dropout. All of them use seeded randomization — [guide](https://victors-67.github.io/pybvh/guide/augmentation/)
-- **Motion analysis**: joint velocities and accelerations, root trajectory, foot contact detection and gait parameters. `to_feature_array()` exports the features in one call — [guide](https://victors-67.github.io/pybvh/guide/feature-export/)
+- **Motion analysis**: joint velocities and accelerations, root trajectory, foot contact detection, gait parameters and a one-stop `to_feature_array()` export — [guide](https://victors-67.github.io/pybvh/guide/feature-export/)
 - **Motion descriptors**: trajectory geometry (curvature, torsion, path length, bounding volumes, centre of mass), dynamics (jerk, smoothness/SPARC, kinetic energy, gait), and SE(3) rigid-transform math (twists, screw interpolation, geodesic distance). All of it is pure NumPy — [guide](https://victors-67.github.io/pybvh/guide/motion-descriptors/) · [gallery](https://victors-67.github.io/pybvh/gallery/)
 - **Signal utilities** (`pybvh.signal`): finite differences, temporal statistics, smoothing, FFT/dominant frequency, polyline simplification — [API](https://victors-67.github.io/pybvh/api/signal/)
 - **Batch loading** of a whole directory, with optional parallel I/O — [guide](https://victors-67.github.io/pybvh/guide/feature-export/)
@@ -128,7 +128,12 @@ Eight Jupyter notebooks give detailed walkthroughs, from reading your first file
 
 **pybvh is in 0.x. Expect breaking changes between minor versions.**
 
-We treat 0.x as design space. When a past choice proves to be wrong, we fix it at the root, and we do not carry the old choice forward. There are no deprecation cycles and no compatibility shims. Each release ships a single clean migration path, which the [CHANGELOG](CHANGELOG.md) documents. If your production code depends on pybvh, **pin to an exact version** (`pybvh==0.8.2`). Read the upgrade notes before you move to a newer version.
+We treat 0.x as design space. When a past choice proves to be wrong, we fix it at the root, and we do not carry the old choice forward. There are no deprecation cycles and no compatibility shims. Each release ships a single clean migration path, which the [CHANGELOG](CHANGELOG.md) documents.
+
+If your production code depends on pybvh:
+
+- **Pin to an exact version** (`pybvh==0.8.2`).
+- Read the upgrade notes before you move to a newer version.
 
 This will change at **1.0**. From 1.0 on, pybvh will commit to strict semver:
 

@@ -2683,7 +2683,7 @@ def cadence(
     Source: Crane & Gross, Gross et al. 2012, Karg et al. 2010.
     """
     _require_rate(bvh.frame_time, "cadence()")
-    return _gait_parameters(bvh, foot_joints, contacts).cadence
+    return _gait_parameters_unchecked(bvh, foot_joints, contacts).cadence
 
 
 def stride_length(
@@ -2727,7 +2727,7 @@ def stride_length(
     -----
     Source: Crane & Gross, Gross et al. 2012, Karg et al. 2010.
     """
-    return _gait_parameters(bvh, foot_joints, contacts).stride_length
+    return _gait_parameters_unchecked(bvh, foot_joints, contacts).stride_length
 
 
 def walking_pace(bvh: Bvh) -> float:
@@ -2948,19 +2948,19 @@ def gait_parameters(
     Source: Crane & Gross, Gross et al. 2012, Karg et al. 2010.
     """
     _require_rate(bvh.frame_time, "gait_parameters()")
-    return _gait_parameters(bvh, foot_joints, contacts)
+    return _gait_parameters_unchecked(bvh, foot_joints, contacts)
 
 
-def _gait_parameters(
+def _gait_parameters_unchecked(
     bvh: Bvh,
     foot_joints: list[str] | None,
     contacts: npt.NDArray[np.float64] | None,
 ) -> GaitParameters:
     """:func:`gait_parameters` without its check of the clip's rate.
 
-    For the projections that need no rate: on an unset clip with
-    ``contacts`` given, ``cadence`` and ``walking_pace`` come out ``nan``
-    (zero duration) and the distances are measured. Without ``contacts``,
+    For the callers that check the rate themselves or need none: on an
+    unset clip with ``contacts`` given, ``cadence`` and ``walking_pace``
+    come out ``nan`` (zero duration) and the distances are measured. Without ``contacts``,
     :func:`foot_contacts` refuses an unset clip itself.
     """
     if foot_joints is None:

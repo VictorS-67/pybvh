@@ -31,12 +31,15 @@ if TYPE_CHECKING:
 #: The window in which ``df_to_bvh`` looks for a table's rate: a measured
 #: frame time is recovered as ``1 / rate`` when a rate lies within this
 #: fraction of it. It stands in for the decimals a ``Frame Time`` prints,
-#: which a table does not keep: a frame time measured from a ``time``
-#: column saved at 6 decimals over one second or more lies within it. It is
-#: not :data:`~pybvh.tools._SAME_RATE_RTOL`: at that 2e-6 an exact NTSC
-#: clip, ``1001 / 30000``, would come back from its own table as
-#: ``1 / 29.97``, 1.000001e-6 from it relative, while 1e-6 keeps it.
-_RATE_RECOVERY_RTOL = 1e-6
+#: which a table does not keep; ``df_to_bvh``'s Notes give the spans of a
+#: 6-decimal table it serves. 5e-7 is half the gap between ``1 / 29.97``
+#: and NTSC's ``1001 / 30000``, 1e-6 of the larger, so an NTSC table
+#: measured within 5e-7 never holds ``1 / 29.97`` in its window: at 1e-6,
+#: the gap itself, an NTSC table whose rounding raised its measured frame
+#: time came back as ``1 / 29.97``, and one of another length kept its
+#: measured value. For the same reason it is not
+#: :data:`~pybvh.tools._SAME_RATE_RTOL`, 2e-6.
+_RATE_RECOVERY_RTOL = 5e-7
 
 
 _SUFFIX_RULE = (
@@ -203,28 +206,29 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
     -----
     The DataFrame's ``_rot`` columns are in **degrees** — the human-readable convention used by :meth:`Bvh.to_df_dict` output. ``df_to_bvh`` converts them to the radians held on :attr:`Bvh.joint_angles`; feed this function degrees even though the rest of the pybvh API works in radians.
 
-    The frame time is the elapsed time of the ``time`` column divided
-    by its number of intervals, so a first timestamp other than zero
-    does not matter and uneven intervals are averaged rather than
-    refused. A ``time`` column saved at a few decimals leaves that
-    frame time a little off its clip's rate, so the rate is recovered
-    by the rule :func:`~pybvh.read_bvh_file` applies to a truncated
-    ``Frame Time``, with a relative 1e-6 standing in for the decimals
-    a file prints: the frame time is ``1 / rate`` for the rate with the
-    fewest decimals, from 0 to 3, whose frame time lies within 1e-6 of
-    the measured one, relative, when it is the only rate with that
-    many decimals; when several fit, or none, the measured value is
-    kept. A column saved at 6 decimals measures the frame time within
-    1e-6 when it spans one second or more, or half a second when its
-    first time is 0, as :meth:`Bvh.to_df_dict` writes it: only the last
-    time then carries the rounding. A 30, 120 or 29.97 fps clip that
-    long comes back at exactly ``1 / 30``, ``1 / 120`` or
+    The frame time is the elapsed time of the ``time`` column divided by
+    its number of intervals, so a first timestamp other than zero does
+    not matter and uneven intervals are averaged rather than refused. A
+    ``time`` column saved at a few decimals leaves that frame time a
+    little off its clip's rate, so the rate is recovered by the rule
+    :func:`~pybvh.read_bvh_file` applies to a truncated ``Frame Time``
+    (its Notes state it), with one difference: a table keeps no printed
+    decimals, so the rate's frame time must lie within a relative 5e-7
+    of the measured one, in place of the values a file's printed
+    decimals allow. A column saved at 6 decimals measures the frame time
+    within 5e-7 when it spans two seconds or more, or one second when
+    its first time is 0, as :meth:`Bvh.to_df_dict` writes it: only the
+    last time then carries the rounding. A 30, 120 or 29.97 fps clip
+    that long comes back at exactly ``1 / 30``, ``1 / 120`` or
     ``1 / 29.97``; a shorter one, or fewer decimals, may keep the
-    measured value. A clip that goes out through
-    :meth:`Bvh.to_df_dict` and back therefore keeps its skeleton
-    exactly, its motion within float precision, the degrees conversion
-    being the one step applied to the angles, and its rate within
-    1e-6.
+    measured value. NTSC's exact ``1001 / 30000`` is not the frame time
+    of a rate with up to 3 decimals, so a clip at that frame time comes
+    back from a table saved at 6 decimals at its measured frame time:
+    when that long, within 5e-7 of ``1001 / 30000``, so never as
+    ``1 / 29.97``, which is 1.000001e-6 from it. A clip that goes out through :meth:`Bvh.to_df_dict` and
+    back therefore keeps its skeleton exactly, its motion within float
+    precision, the degrees conversion being the one step applied to the
+    angles, and its rate within 5e-7.
 
     A ``time`` column of NaN on every row reads back as an unset clip
     (``frame_time`` 0): it is what :meth:`Bvh.to_df_dict` gives a clip
@@ -259,7 +263,7 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
         )
     nodes = _nodes_from_table_or_list(hier, "hier")
     time_label = _time_label(df)
-    time_values = df[time_label].to_numpy()
+    time_values = df[time_label].to_numpy(dtype=np.float64)
     frames = _motion_columns(nodes, df).to_numpy()
 
     if len(time_values) < 2:

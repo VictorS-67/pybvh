@@ -56,7 +56,7 @@ def _validate_bvh_path(filepath: str | Path) -> Path:
 #: and 1000 fps alike. 2e-6, because a 29.97 fps file and an exact NTSC
 #: clip are the same rate: the reader recovers the file as ``1 / 29.97``,
 #: which differs from NTSC's ``1001 / 30000`` by 1e-6 of the larger in
-#: exact arithmetic and by 1.00000000005e-6 in floats, just outside 1e-6.
+#: exact arithmetic and by 1.0000000000459e-6 in floats, just outside 1e-6.
 #: 2e-6 is still far above float noise (about 1e-16), and far below the
 #: 1e-3 between 29.97 and 30 fps, or between whole rates up to 1000 fps.
 #: ``df_to_bvh`` recovers a table's rate in a window of its own,

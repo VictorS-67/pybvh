@@ -1206,6 +1206,24 @@ class TestFileRoundTrip:
         )
         assert changed == []
 
+    def test_written_short_frame_time_reads_back_unchanged(self, bvh_example, tmp_path):
+        """A frame time with few decimals is not read back as an exporter's truncated rate.
+
+        Written as their shortest text, ``0.12`` would read as ``1 / 8``,
+        ``0.033`` and ``0.0333`` as ``1 / 30``, and ``0.0095`` as ``1 / 105``.
+        """
+        short_frame_times = [0.12, 0.033, 0.0095, 0.0333]
+        rng = np.random.default_rng(140)
+        at_most_6_decimals = [
+            int(rng.integers(10 ** (decimals - 3), 10**decimals + 1)) / 10**decimals
+            for decimals in range(3, 7)
+            for _ in range(250)
+        ]
+        changed = self._frame_times_changed_by_a_file(
+            bvh_example[:1], short_frame_times + at_most_6_decimals, tmp_path / "rate.bvh"
+        )
+        assert changed == []
+
     def test_write_unset_frame_time_raises_and_leaves_no_file(self, bvh_example, tmp_path):
         """A file must state its frame time, and the reader refuses ``Frame Time: 0``."""
         bvh_example.frame_time = 0

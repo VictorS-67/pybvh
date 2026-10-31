@@ -2,7 +2,7 @@
 
 ## What is world_up?
 
-BVH files don't declare which axis is "up". Different software uses different conventions: Y-up is standard in game engines and Maya, Z-up in Blender and CAD tools. pybvh needs to know the up axis for:
+BVH files don't declare which axis is "up". Different software uses different conventions. Y-up is standard in game engines and Maya. Z-up is standard in Blender and CAD tools. pybvh needs to know the up axis for:
 
 - **Visualization** -- camera orientation, bounding box projection
 - **Foot contact detection** -- which direction is "ground"
@@ -11,14 +11,19 @@ BVH files don't declare which axis is "up". Different software uses different co
 
 ## Two frames: the skeleton's and the world's
 
-A BVH file says which way is up in two places: the rest pose, the skeleton with every rotation zero, written in the file's coordinates, and the motion, which places that skeleton in the world frame by frame. pybvh reads each orientation fact from one of the two, and never combines an axis of one with an axis of the other:
+A BVH file says which way is up in two places:
+
+- The rest pose: the skeleton with every rotation zero, written in the file's coordinates.
+- The motion, which places that skeleton in the world frame by frame.
+
+pybvh reads each orientation fact from one of the two. It never combines an axis of one with an axis of the other:
 
 | Frame | Read from | Facts |
 |---|---|---|
 | The skeleton's own frame | the rest pose alone, never `world_up` or the motion | `rest_up`, rest left, `rest_forward` |
 | The world frame | the motion, against `world_up` | `world_up`, the facing (`forward_at`, `left_at`, `facing_frame`), the heading (`root_trajectory`) |
 
-The rest pose's coordinates are not world coordinates: only the root rotation of a frame says how the skeleton stands in the world at that frame, and it is the one thing that carries a skeleton fact into the world (the heading is the root rotation applied to `rest_forward`). On a clean file the two frames agree, rest up is world up, and the distinction changes no value. On a file whose rest pose is authored in another convention than its motion, it does. The bundled `bvh_test3.bvh` animates z-up with a rest pose authored y-up:
+The rest pose's coordinates are not world coordinates. Only the root rotation of a frame says how the skeleton stands in the world at that frame. It is the one thing that carries a skeleton fact into the world: the heading is the root rotation applied to `rest_forward`. On a clean file, the two frames agree: rest up is world up. Then the distinction changes no value. On a file whose rest pose is authored in another convention than its motion, the distinction changes values. The bundled `bvh_test3.bvh` animates z-up, with a rest pose authored y-up:
 
 ```python
 b3 = pybvh.read_bvh_file("bvh_data/bvh_test3.bvh")   # warns: rest pose and first frame disagree
@@ -28,11 +33,15 @@ b3.rest_forward    # '+z' — the rest pose's own facing: its left '+x' × its u
 b3.forward_at(0)   # '+y' — where the body faces in the world at frame 0
 ```
 
-`rest_forward` lies along world up here, and that is correct: it is a direction in the skeleton's frame, and the root rotation turns it onto the ground on every frame.
+Here `rest_forward` lies along world up, and that is correct. It is a direction in the skeleton's frame. The root rotation turns it onto the ground on every frame.
 
 ## Auto-detection
 
-When a clip is read from a file or built from arrays, `Bvh.__init__` guesses `world_up` from frame 0: the direction from the root to the head (the first joint whose name holds `head` as a word, else `neck`, `chest` or `spine`, the joint `rest_up` reads too), snapped to its main axis when its largest component is at least twice the second. When frame 0 cannot decide (no such joint, no frames, or a crouched, lying or leaning first pose), the skeleton's own up, `rest_up`, stands in: a guess that assumes the rest pose is authored upright. If the root's rotation at frame 0 carries `rest_up` onto another axis, pybvh warns that the rest pose may be authored in another convention, and keeps the guess (next section). When the rest pose is degenerate too, pybvh warns and falls back to `'+y'`. The result is a signed axis string like `'+y'` or `'+z'`, and `bvh.orientation_report.world_up_source` says which of the three gave it (`"first_frame"`, `"rest_up"`, `"default"`; see [The orientation report](#the-orientation-report)).
+When a clip is read from a file or built from arrays, `Bvh.__init__` guesses `world_up` from frame 0. The guess is the direction from the root to the head, snapped to its main axis when its largest component is at least twice the second. The head is the first joint whose name holds `head` as a word, else `neck`, `chest` or `spine`. `rest_up` reads the same joint.
+
+Frame 0 cannot decide when there is no such joint, no frames, or a crouched, lying or leaning first pose. Then the skeleton's own up, `rest_up`, stands in. That guess assumes that the rest pose is authored upright. If the root's rotation at frame 0 carries `rest_up` onto another axis, pybvh warns that the rest pose may be authored in another convention. It keeps the guess (next section). When the rest pose is degenerate too, pybvh warns and falls back to `'+y'`.
+
+The result is a signed axis string like `'+y'` or `'+z'`. `bvh.orientation_report.world_up_source` says which of the three gave it: `"first_frame"`, `"rest_up"` or `"default"`. See [The orientation report](#the-orientation-report).
 
 ```python
 bvh = pybvh.read_bvh_file("walk.bvh")
@@ -41,14 +50,21 @@ bvh.world_up  # '+z' (auto-detected)
 
 ## The disagreement warnings
 
-Some BVH files author the rest pose in one convention and animate in another. For example, a Blender export where the rest pose skeleton points along Y but the animation plays in Z-up world space. pybvh cannot always tell such a file from one whose first frame is not upright, so it keeps its guess and warns in two cases, each a `UserWarning` raised once per guess (at load, for a clip read from a file). The clips derived from a clip inherit its axis (next section) and do not warn again.
+Some BVH files author the rest pose in one convention and animate in another. For example, a Blender export where the rest pose skeleton points along Y but the animation plays in Z-up world space. pybvh cannot always tell such a file from one whose first frame is not upright. So it keeps its guess, and it warns in two cases. Each warning is a `UserWarning`, raised once per guess (at load, for a clip read from a file). The clips derived from a clip inherit its axis (next section), and they do not warn again.
 
 - **The first frame and the rest pose name different axes.** pybvh trusts the animation data (frame 0) over the rest pose. Either the rest pose is authored in another convention, and frame 0 is right, or the first frame is not upright (the performer lies, kneels or bows at the start), and the rest pose's axis may be.
-- **The first frame cannot decide, and the root contradicts the rest pose.** `rest_up` stands in, but the root's rotation at frame 0 carries it onto another axis, snapped the same way as frame 0's head direction: the rest pose may be authored in another convention, and world up may be that other axis.
+- **The first frame cannot decide, and the root contradicts the rest pose.** `rest_up` stands in. But the root's rotation at frame 0 carries it onto another axis, snapped the same way as frame 0's head direction. The rest pose may then be authored in another convention, and world up may be that other axis.
 
-`warn_on_world_up_disagreement=False` at load silences both. Without the warnings, the report says the same: a pipeline that loads many clips can mark for a check every clip whose `orientation_report.world_up` names another axis letter than its `rest_up`, or whose `world_up_source` is `"rest_up"`.
+`warn_on_world_up_disagreement=False` at load silences both. Without the warnings, the report says the same. A pipeline that loads many clips can mark for a check every clip where one of these holds:
 
-In the maintainer's corpus of 23,020 clips, whose rest poses and motion share their convention except on `bvh_test3.bvh`, the first warning fires on 75 clips: on 68 of the 69 whose true up could be confirmed, the first frame is not upright and the guess is wrong; the 69th is `bvh_test3.bvh`, where the guess is right. On an older export of one of its datasets, whose rest poses are authored `+y` for a `+z` motion, the first warning fires on almost every clip, and the second catches 31 of the 38 clips the rest-up fallback guesses wrong. Some clips lie flat for their whole recording; no guess from the head or the root finds their up, and only setting `world_up` does. If you see a warning, check whether `world_up` matches your expectation and override it if needed.
+- Its `orientation_report.world_up` names another axis letter than its `rest_up`.
+- Its `world_up_source` is `"rest_up"`.
+
+The maintainer's corpus has 23,020 clips. Their rest poses and motion share their convention, except on `bvh_test3.bvh`. In this corpus, the first warning fires on 75 clips. The true up could be confirmed on 69 of them. On 68 of those 69, the first frame is not upright, and the guess is wrong. The 69th is `bvh_test3.bvh`, where the guess is right.
+
+On an older export of one of its datasets, the rest poses are authored `+y` for a `+z` motion. There, the first warning fires on almost every clip. The second warning catches 31 of the 38 clips that the rest-up fallback guesses wrong.
+
+Some clips lie flat for their whole recording. No guess from the head or the root finds their up. Only setting `world_up` does. If you see a warning, check whether `world_up` matches your expectation. Override it if needed.
 
 ## Set, inferred or inherited
 
@@ -58,7 +74,7 @@ A clip's world up is in one of three states:
 - **Inferred**: guessed from the clip's own first frame, as above. A clip read from a file, or built with `Bvh(...)`, `Bvh.from_df` or `df_to_bvh`, starts here.
 - **Inherited**: a clip pybvh derives from another reports its source's axis without guessing from its own frames. That covers `copy()`, slicing (`bvh[a:b]`), `a + b` and `a += b` (from `a`), `resample`, every transform (`mirror`, `scale`, `rotate_vertical`, `translate_root`, the noise functions, the reorientations), `retarget`, `change_euler_order`, `extract_joints` and a clip loaded from a pickle. A set axis travels the same way: the derived clip has it set too.
 
-Cutting, resampling or transforming a clip does not change which way gravity points, but a fresh guess on the derived clip could: a slice whose first frame is a crouch, a fall or a lying pose is ambiguous on its own and would fall back to the rest pose, where its source was not. Inheriting the answer makes every derived clip agree with its source, and makes the guess on the source the only one.
+Cutting, resampling or transforming a clip does not change which way gravity points. But a fresh guess on the derived clip could change it. A slice whose first frame is a crouch, a fall or a lying pose is ambiguous on its own and would fall back to the rest pose, where its source was not. Inheriting the answer makes every derived clip agree with its source. It also makes the guess on the source the only one.
 
 ```python
 bvh = pybvh.read_bvh_file("walk.bvh")   # inferred from frame 0: '+z'
@@ -67,13 +83,23 @@ clip.orientation_report.world_up_inherited   # True; world_up_source is the sour
 clip.world_up_inferred                    # what a guess from clip's own frames would give
 ```
 
-The report tells the three states apart: `world_up_source` is `"set"` for a set axis and otherwise names what the guess was read from, and `world_up_inherited` is `True` for a guess made on the clip this one was derived from. `world_up_inferred` always runs the heuristic on the clip's own motion and changes nothing. To have a derived clip use its own guess instead, assign it: `clip.world_up = clip.world_up_inferred` (the axis is then set).
+The report tells the three states apart:
+
+- `world_up_source` is `"set"` for a set axis. Otherwise it names what the guess was read from.
+- `world_up_inherited` is `True` for a guess made on the clip this one was derived from.
+
+`world_up_inferred` always runs the heuristic on the clip's own motion, and it changes nothing. To have a derived clip use its own guess instead, assign it: `clip.world_up = clip.world_up_inferred`. The axis is then set.
 
 ### When the guess starts again
 
-When the recording itself is replaced: assigning `root_pos`, `joint_angles` or frames (`bvh[i] = other`), or loading new motion with `from_rotmat`, `from_6d`, `from_quat` or `from_axisangle`. The clip then guesses again from its new first frame, whether its axis was inferred or inherited, and the clips derived from it afterwards inherit the new guess. None of these clears a set axis.
+The guess starts again when the recording itself is replaced:
 
-And, for a guess the clip made itself, when you set `lr_mapping`. On a rig with no head, neck, chest or spine joint the guess falls back to `rest_up`, which is read from the legs of the mapping, so the clip guesses again and gets the axis that mapping passed at load gives; `floor_height` is measured again along it. A guess from the first frame comes out the same and does not warn again. An inherited guess stays, as does a set axis.
+- When you assign `root_pos`, `joint_angles` or frames (`bvh[i] = other`).
+- When you load new motion with `from_rotmat`, `from_6d`, `from_quat` or `from_axisangle`.
+
+The clip then guesses again from its new first frame, whether its axis was inferred or inherited. The clips derived from it afterwards inherit the new guess. None of these clears a set axis.
+
+For a guess that the clip made itself, the guess also starts again when you set `lr_mapping`. On a rig with no head, neck, chest or spine joint, the guess falls back to `rest_up`. `rest_up` is read from the legs of the mapping. So the clip guesses again, and it gets the axis that it would get if the same mapping had been passed at load. `floor_height` is measured again along that axis. A guess from the first frame comes out the same, and it does not warn again. An inherited guess stays, as does a set axis.
 
 ## Manual override
 
@@ -81,13 +107,13 @@ And, for a guess the clip made itself, when you set `lr_mapping`. On a rig with 
 bvh.world_up = '+y'  # override auto-detection
 ```
 
-Validated input -- only accepts `{+x, -x, +y, -y, +z, -z}`. Anything else raises `ValueError`.
+The input is validated. It accepts only `{+x, -x, +y, -y, +z, -z}`. Anything else raises `ValueError`.
 
-The override is a set axis, so it propagates to every clip derived from this one, `retarget()` included: new bone lengths do not change which way is up. Assign `"auto"` (or `None`) to clear the override and return to the guessed axis, inferred or inherited. A pickle keeps the override, but BVH files have no world-up field, so manual overrides are lost on write/read round trips and must be re-applied.
+The override is a set axis. So it propagates to every clip derived from this one, `retarget()` included, because new bone lengths do not change which way is up. To clear the override and return to the guessed axis, inferred or inherited, assign `"auto"` (or `None`). A pickle keeps the override. But BVH files have no world-up field, so a write/read round trip loses a manual override. You must apply it again.
 
 ## The orientation report
 
-`world_up`, `rest_up` and `rest_forward` always answer, a default included, so their value alone cannot say whether it was measured. `bvh.orientation_report` can: it returns a frozen `OrientationReport` holding each clip-level orientation fact beside how it was obtained.
+`world_up`, `rest_up` and `rest_forward` always answer, with a default if need be. So their value alone cannot say whether it was measured. `bvh.orientation_report` can say it. It returns a frozen `OrientationReport`, which holds each clip-level orientation fact beside how it was obtained.
 
 ```python
 report = b3.orientation_report
@@ -116,7 +142,15 @@ if report.rest_forward_source == "default":
     ...  # no usable L/R geometry: rest_forward and the heading are a house default
 ```
 
-Reading the report never warns. A warning about a default fires when the defaulted fact itself is read (`world_up`, once per guess; `rest_forward`; the facing), and points to the report. The report is computed once and kept until the skeleton changes, `world_up` or `lr_mapping` is assigned, or the motion is assigned. Facts that change from frame to frame are not in it: `forward_at`, `left_at` and `facing_frame` carry them, and `facing_frame().valid` marks the frames whose facing could not be measured.
+Reading the report never warns. A warning about a default fires when the defaulted fact itself is read: `world_up` (once per guess), `rest_forward`, or the facing. The warning points to the report.
+
+The report is computed once. It is kept until one of these happens:
+
+- The skeleton changes.
+- `world_up` or `lr_mapping` is assigned.
+- The motion is assigned.
+
+Facts that change from frame to frame are not in the report. `forward_at`, `left_at` and `facing_frame` carry them. `facing_frame().valid` marks the frames whose facing could not be measured.
 
 ## forward_at(frame)
 

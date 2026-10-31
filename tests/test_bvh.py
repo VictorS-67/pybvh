@@ -946,7 +946,7 @@ class TestDataFrameConversion:
     ):
         """The first time is 0 and the last is rounded by at most 5e-7 s:
         over the 4.2 s clip, a frame time off by at most 1.2e-7 relative,
-        inside the 1e-6 window, so the clip's rate is recovered."""
+        inside the 5e-7 window, so the clip's rate is recovered."""
         clip = bvh_example.resample(fps)
         csv = pd.DataFrame(clip.to_df_dict(mode="euler")).to_csv(index=False, float_format="%.6f")
         df = pd.read_csv(io.StringIO(csv))
@@ -956,8 +956,8 @@ class TestDataFrameConversion:
         assert rebuilt.frame_time == 1 / fps
 
     def test_an_exact_ntsc_clip_keeps_its_frame_time_through_a_table(self, bvh_example, from_df):
-        """1/29.97 is 1.000001e-6 from 1001/30000 relative, just outside
-        the 1e-6 window, so the table's exact NTSC frame time is kept."""
+        """1/29.97 is 1.000001e-6 from 1001/30000 relative, outside the
+        5e-7 window, so the table's exact NTSC frame time is kept."""
         clip = bvh_example.copy()
         clip.frame_time = 1001 / 30000
         df = pd.DataFrame(clip.to_df_dict(mode="euler"))
@@ -966,9 +966,24 @@ class TestDataFrameConversion:
 
         assert rebuilt.frame_time == 1001 / 30000
 
+    def test_an_ntsc_table_saved_at_six_decimals_is_not_read_as_29_97(self, bvh_example, from_df):
+        """The 125-frame table's last time, 4.1374667 s, is saved as
+        4.137467: a measured frame time 8.1e-8 above 1001/30000 relative.
+        A window of 1e-6 around it would hold 1/29.97, 1.000001e-6 above
+        1001/30000; NTSC is not a rate with up to 3 decimals, so the
+        measured value is kept."""
+        clip = bvh_example[:125]
+        clip.frame_time = 1001 / 30000
+        csv = pd.DataFrame(clip.to_df_dict(mode="euler")).to_csv(index=False, float_format="%.6f")
+        df = pd.read_csv(io.StringIO(csv))
+
+        rebuilt = from_df(clip.nodes, df)
+
+        np.testing.assert_allclose(rebuilt.frame_time, 4.137467 / 124, rtol=1e-12)
+
     def test_a_table_cut_from_a_clip_keeps_its_rate(self, bvh_example, from_df):
         """Both ends rounded, by at most 1e-6 s together: over the 3.9 s
-        left, 2.6e-7 relative, still inside the 1e-6 window."""
+        left, 2.6e-7 relative, still inside the 5e-7 window."""
         clip = bvh_example.resample(29.97)
         csv = pd.DataFrame(clip.to_df_dict(mode="euler")).to_csv(index=False, float_format="%.6f")
         df = pd.read_csv(io.StringIO(csv)).iloc[7:]
@@ -988,7 +1003,7 @@ class TestDataFrameConversion:
 
     def test_a_rate_no_short_rate_fits_keeps_its_measured_frame_time(self, bvh_example, from_df):
         """The nearest rates with up to 3 decimals, 100.000 and 100.001,
-        are each 5e-6 from 100.0005 relative, outside the 1e-6 window."""
+        are each 5e-6 from 100.0005 relative, outside the 5e-7 window."""
         clip = bvh_example.resample(100.0005)
         df = pd.DataFrame(clip.to_df_dict(mode="euler"))
 

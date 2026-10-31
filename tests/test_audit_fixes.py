@@ -295,11 +295,11 @@ class TestFrequencyTerminology:
         with pytest.raises(ValueError, match="frame_time"):
             bvh.angular_velocities()
 
-    def test_concat_warning_says_frame_time(self):
+    def test_concat_refusal_says_frame_time(self):
         bvh1 = read_bvh_file(EXAMPLE)
         bvh2 = bvh1.copy()
         bvh2.frame_time = 0.01
-        with pytest.warns(UserWarning, match="[Ff]rame time"):
+        with pytest.raises(ValueError, match="frame_time"):
             bvh1 + bvh2
 
 

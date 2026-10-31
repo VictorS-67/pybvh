@@ -2665,6 +2665,12 @@ def cadence(
         Steps per second (``nan`` if the clip has no duration — the
         rate is undefined, not zero).
 
+    Raises
+    ------
+    ValueError
+        If no foot joints can be found, or the clip's ``frame_time`` is
+        0 (unset), even with ``contacts`` given.
+
     Notes
     -----
     **Unit.** Steps per *second*, consistent with every other rate in
@@ -2676,7 +2682,8 @@ def cadence(
 
     Source: Crane & Gross, Gross et al. 2012, Karg et al. 2010.
     """
-    return gait_parameters(bvh, foot_joints=foot_joints, contacts=contacts).cadence
+    _require_rate(bvh.frame_time, "cadence()")
+    return _gait_parameters(bvh, foot_joints, contacts).cadence
 
 
 def stride_length(
@@ -2708,11 +2715,19 @@ def stride_length(
         Mean stride length in skeleton units (``nan`` if no foot completes
         a stride — fewer than two contacts).
 
+    Raises
+    ------
+    ValueError
+        If no foot joints can be found, or the clip's ``frame_time`` is
+        0 (unset) and ``contacts`` is not given: detecting the contacts
+        needs the rate (see :func:`foot_contacts`). With ``contacts``
+        given, a stride length is a distance and needs no rate.
+
     Notes
     -----
     Source: Crane & Gross, Gross et al. 2012, Karg et al. 2010.
     """
-    return gait_parameters(bvh, foot_joints=foot_joints, contacts=contacts).stride_length
+    return _gait_parameters(bvh, foot_joints, contacts).stride_length
 
 
 def walking_pace(bvh: Bvh) -> float:
@@ -2933,6 +2948,21 @@ def gait_parameters(
     Source: Crane & Gross, Gross et al. 2012, Karg et al. 2010.
     """
     _require_rate(bvh.frame_time, "gait_parameters()")
+    return _gait_parameters(bvh, foot_joints, contacts)
+
+
+def _gait_parameters(
+    bvh: Bvh,
+    foot_joints: list[str] | None,
+    contacts: npt.NDArray[np.float64] | None,
+) -> GaitParameters:
+    """:func:`gait_parameters` without its check of the clip's rate.
+
+    For the projections that need no rate: on an unset clip with
+    ``contacts`` given, ``cadence`` and ``walking_pace`` come out ``nan``
+    (zero duration) and the distances are measured. Without ``contacts``,
+    :func:`foot_contacts` refuses an unset clip itself.
+    """
     if foot_joints is None:
         foot_joints = auto_detect_foot_joints(bvh)
     if not foot_joints:

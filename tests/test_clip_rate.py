@@ -123,6 +123,18 @@ RATE_OPERATIONS = [
         lambda clip: clip.gait_parameters(contacts=np.zeros((clip.frame_count, 2))),
         id="gait_parameters-contacts-given",
     ),
+    # Contacts given, a cadence is still per second.
+    pytest.param(
+        _refusal("cadence()"),
+        lambda clip: clip.cadence(contacts=np.zeros((clip.frame_count, 2))),
+        id="cadence-contacts-given",
+    ),
+    # No contacts given, a stride length detects them first, which needs the rate.
+    pytest.param(
+        _refusal("foot_contacts() with method='combined'"),
+        lambda clip: clip.stride_length(),
+        id="stride_length-contacts-detected",
+    ),
     pytest.param(
         _refusal("harmonize()", index=1),
         lambda clip: batch.harmonize([_rated(clip), clip], target_fps=30),
@@ -185,3 +197,15 @@ class TestUnsetClipRefused:
 class TestWalkingPace:
     def test_a_clip_too_short_to_measure_has_no_pace(self, walk):
         assert np.isnan(walk[0:1].walking_pace())
+
+
+class TestStrideLength:
+    def test_contacts_given_an_unset_clip_has_its_stride_length(self):
+        # A stride length is a distance: with contacts given, it needs no rate.
+        # The value is what stride_length returned on 82dcc39, before unset
+        # clips were refused.
+        clip = read_bvh_file(BVH_DIR / "cmu_12_01_walk.bvh")[0:300]
+        # The contacts stride_length detects itself on the rated clip.
+        contacts = clip.foot_contacts(adaptive=True)
+        clip.frame_time = 0
+        assert clip.stride_length(contacts=contacts) == pytest.approx(20.542627741776613)

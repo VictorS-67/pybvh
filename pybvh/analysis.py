@@ -23,7 +23,7 @@ from ._warnings import user_stacklevel
 from .bvh import Bvh
 from .bvhnode import BvhNode
 from .signal import finite_difference as _finite_difference
-from .tools import _axis_to_vector
+from .tools import _axis_to_vector, _require_rate
 
 _EPS = 1e-12
 
@@ -167,11 +167,8 @@ def node_velocities(
             f"stencil={stencil!r} requires at least {min_frames} frames "
             f"to compute velocities (have {bvh.frame_count})."
         )
-    if not in_frames and bvh.frame_time == 0:
-        raise ValueError(
-            "frame_time is 0; cannot compute per-second velocity. "
-            "Use in_frames=True for per-frame velocity."
-        )
+    if not in_frames:
+        _require_rate(bvh.frame_time, "node_velocities()", offers_in_frames=True)
 
     if coords is None:
         coords = bvh.node_positions(centered=centered)
@@ -289,11 +286,8 @@ def node_accelerations(
             f"stencil={stencil!r}, pad={pad!r} requires at least "
             f"{min_frames} frames (have {bvh.frame_count})."
         )
-    if not in_frames and bvh.frame_time == 0:
-        raise ValueError(
-            "frame_time is 0; cannot compute per-second acceleration. "
-            "Use in_frames=True for per-frame acceleration."
-        )
+    if not in_frames:
+        _require_rate(bvh.frame_time, "node_accelerations()", offers_in_frames=True)
 
     if coords is None:
         coords = bvh.node_positions(centered=centered)
@@ -429,11 +423,8 @@ def node_speed_derivative(
             f"stencil={stencil!r}, pad={pad!r} requires at least "
             f"{min_frames} frames (have {bvh.frame_count})."
         )
-    if not in_frames and bvh.frame_time == 0:
-        raise ValueError(
-            "frame_time is 0; cannot compute a per-second speed derivative. "
-            "Use in_frames=True for per-frame units."
-        )
+    if not in_frames:
+        _require_rate(bvh.frame_time, "node_speed_derivative()", offers_in_frames=True)
 
     vel = node_velocities(
         bvh, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
@@ -563,11 +554,8 @@ def angular_velocities(
         raise ValueError(
             f"stencil={stencil!r} requires at least {min_frames} frames (have {bvh.frame_count})."
         )
-    if not in_frames and bvh.frame_time == 0:
-        raise ValueError(
-            "frame_time is 0; cannot compute per-second angular velocity. "
-            "Use in_frames=True for per-frame angular velocity."
-        )
+    if not in_frames:
+        _require_rate(bvh.frame_time, "angular_velocities()", offers_in_frames=True)
 
     _, R = bvh.to_rotmat()  # (F, J, 3, 3)
     F = R.shape[0]
@@ -725,11 +713,7 @@ def root_trajectory(
         return base
 
     _validate_stencil_pad(stencil, pad)
-    if bvh.frame_time == 0:
-        raise ValueError(
-            "frame_time is 0; cannot compute root_trajectory velocities. "
-            "Set bvh.frame_time to a non-zero value first."
-        )
+    _require_rate(bvh.frame_time, "root_trajectory(include_velocities=True)")
     min_frames = _finite_difference_min_frames(1, stencil, pad)
     if bvh.frame_count < min_frames:
         raise ValueError(
@@ -1161,6 +1145,7 @@ def foot_contacts(
         coords=coords,
         return_info=return_info,
         check_rest_height=True,
+        entry="foot_contacts()",
     )
 
 
@@ -1306,6 +1291,7 @@ def ground_contacts(
         coords=coords,
         return_info=return_info,
         check_rest_height=False,
+        entry="ground_contacts()",
     )
 
 
@@ -1372,25 +1358,20 @@ def _contacts_on_clip(
     coords: npt.NDArray[np.float64] | None,
     return_info: bool,
     check_rest_height: bool,
+    entry: str,
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """The clip's part of :func:`foot_contacts` and :func:`ground_contacts`, around the detector on plain arrays.
 
-    Both entry points resolve their joint arguments with :func:`_resolve_contact_joints` into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet.
+    Both entry points resolve their joint arguments with :func:`_resolve_contact_joints` into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet. ``entry`` is the caller's name for the messages (``"foot_contacts()"``).
     """
-    if bvh.frame_time == 0:
-        if settings.reads_velocity:
-            raise ValueError(
-                "frame_time is 0; cannot compute the units/second foot "
-                "speed. Set bvh.frame_time to the clip's real sampling "
-                "period."
-            )
-        if settings.min_contact_duration > 0 or settings.min_gap_duration > 0:
-            raise ValueError(
-                "frame_time is 0; cannot convert the duration filters "
-                "(seconds) to frames. Set bvh.frame_time, or disable the "
-                "filters with min_contact_duration=0.0 and "
-                "min_gap_duration=0.0."
-            )
+    if settings.reads_velocity:
+        _require_rate(bvh.frame_time, f"{entry} with method={settings.method!r}")
+    if settings.min_contact_duration > 0 or settings.min_gap_duration > 0:
+        _require_rate(
+            bvh.frame_time,
+            f"{entry}'s duration filters",
+            alternative="disable them with min_contact_duration=0.0 and min_gap_duration=0.0",
+        )
 
     if coords is None:
         coords = bvh.node_positions()
@@ -1744,11 +1725,8 @@ def node_jerk(
             f"stencil={stencil!r}, pad={pad!r} requires at least "
             f"{min_frames} frames (have {bvh.frame_count})."
         )
-    if not in_frames and bvh.frame_time == 0:
-        raise ValueError(
-            "frame_time is 0; cannot compute per-second jerk. "
-            "Use in_frames=True for per-frame jerk."
-        )
+    if not in_frames:
+        _require_rate(bvh.frame_time, "node_jerk()", offers_in_frames=True)
 
     if coords is None:
         coords = bvh.node_positions(centered=centered)
@@ -2756,13 +2734,19 @@ def walking_pace(bvh: Bvh) -> float:
     Returns
     -------
     float
-        Horizontal units per second (``nan`` if the clip has no
-        duration — the rate is undefined, not zero).
+        Horizontal units per second (``nan`` if the clip is too short to
+        measure, one frame or none: the pace is undefined, not zero).
+
+    Raises
+    ------
+    ValueError
+        If the clip's ``frame_time`` is 0 (unset).
 
     Notes
     -----
     Source: Crane & Gross, Gross et al. 2012.
     """
+    _require_rate(bvh.frame_time, "walking_pace()")
     duration = (bvh.frame_count - 1) * bvh.frame_time
     if duration <= 0:
         return float("nan")
@@ -2940,12 +2924,15 @@ def gait_parameters(
     Raises
     ------
     ValueError
-        If no foot joints can be found.
+        If no foot joints can be found, or the clip's ``frame_time`` is
+        0 (unset), even with ``contacts`` given: cadence and walking pace
+        are per second.
 
     Notes
     -----
     Source: Crane & Gross, Gross et al. 2012, Karg et al. 2010.
     """
+    _require_rate(bvh.frame_time, "gait_parameters()")
     if foot_joints is None:
         foot_joints = auto_detect_foot_joints(bvh)
     if not foot_joints:

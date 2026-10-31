@@ -2,7 +2,7 @@
 
 ## Find a function
 
-The fastest route from "I want to…" to the exact call. Everything visual is also drawn, one picture per feature, in the [Gallery](../gallery/index.md).
+The fastest route from "I want to…" to the exact call. The [Gallery](../gallery/index.md) also draws everything visual, one picture per feature.
 
 | I want to… | Call | Reference |
 |---|---|---|

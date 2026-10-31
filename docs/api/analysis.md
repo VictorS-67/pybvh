@@ -38,7 +38,7 @@ The finite-difference kinematics ladder over FK positions and rotations.
 
 ## Root trajectory & foot contacts
 
-Ground-plane root features and binary contact labels — the contact signals are drawn in the [Gallery](../gallery/index.md).
+Ground-plane root features and binary contact labels. The [Gallery](../gallery/index.md) draws the contact signals.
 
 ::: pybvh.analysis.root_trajectory
     options:
@@ -62,7 +62,7 @@ Ground-plane root features and binary contact labels — the contact signals are
 
 ## Facing frame
 
-The continuous per-frame facing basis — the vector form of the snapped [`Bvh.forward_at`](bvh.md#pybvh.bvh.Bvh.forward_at) / [`Bvh.left_at`](bvh.md#pybvh.bvh.Bvh.left_at) axis labels.
+The continuous per-frame facing basis. It is the vector form of the snapped [`Bvh.forward_at`](bvh.md#pybvh.bvh.Bvh.forward_at) / [`Bvh.left_at`](bvh.md#pybvh.bvh.Bvh.left_at) axis labels.
 
 ::: pybvh.analysis.FacingFrame
     options:
@@ -86,7 +86,7 @@ The third rung of the velocity → acceleration → jerk ladder.
 
 ## Smoothness metrics
 
-Array-pure kernels on a speed profile — `(T,)` for a scalar, or `(T, K)` reduced per column — plus the `smoothness(metric=…)` dispatcher.
+Array-pure kernels on a speed profile, plus the `smoothness(metric=…)` dispatcher. The speed profile is `(T,)` for a scalar, or `(T, K)` reduced per column.
 
 ::: pybvh.analysis.sparc
     options:
@@ -150,7 +150,7 @@ Scalar summaries of a speed or activity signal.
 
 ## Energy, gait & range of motion
 
-Kinetic energy and the spatiotemporal gait parameters (all computed in one pass by `gait_parameters`).
+Kinetic energy and the spatiotemporal gait parameters. `gait_parameters` computes all of the gait parameters in one pass.
 
 ::: pybvh.analysis.kinetic_energy
     options:

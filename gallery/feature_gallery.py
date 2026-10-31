@@ -16,9 +16,15 @@
 # %% [markdown]
 # # pybvh Feature Gallery
 #
-# One **picture per feature**, designed so the figure *is* the explanation: operations and geometric descriptors are drawn in 3D on the skeleton, dynamic descriptors are annotated on the signals they summarize, and SE(3) transforms are drawn as coordinate frames. Where a real pose would obscure the idea, a small synthetic example is used instead. Sections 1-5 cover the core library (viewing, concepts, transforms, skeleton ops, export); sections 6-12 the motion-descriptor layer introduced in pybvh 0.8.0.
+# One **picture per feature**, designed so that the figure *is* the explanation:
 #
-# Each cell shows the **feature call** (`bvh.mirror()`, `bvh.curvature(...)`, …); where a figure needs extra annotation, the matplotlib lives in the companion module **`gallery_plots.py`** (imported as `gp`), so the notebook stays about the features, not the plumbing.
+# - operations and geometric descriptors are drawn in 3D on the skeleton;
+# - dynamic descriptors are annotated on the signals they summarize;
+# - SE(3) transforms are drawn as coordinate frames.
+#
+# Where a real pose would obscure the idea, a small synthetic example is used instead. Sections 1-5 cover the core library (viewing, concepts, transforms, skeleton ops, export). Sections 6-12 cover the motion-descriptor layer introduced in pybvh 0.8.0.
+#
+# Each cell shows the **feature call** (`bvh.mirror()`, `bvh.curvature(...)`, …). Where a figure needs extra annotation, the matplotlib lives in the companion module **`gallery_plots.py`** (imported as `gp`). So the notebook stays about the features, not the plumbing.
 #
 # API reference for everything shown here: [Bvh class](https://victors-67.github.io/pybvh/api/bvh/) · [geometry](https://victors-67.github.io/pybvh/api/geometry/) · [analysis](https://victors-67.github.io/pybvh/api/analysis/) · [rotations & SE(3)](https://victors-67.github.io/pybvh/api/rotations/) · [transforms](https://victors-67.github.io/pybvh/api/transforms/) · [signal](https://victors-67.github.io/pybvh/api/signal/)
 #
@@ -54,12 +60,12 @@ def idx(name):
 print(bvh)
 
 # %% [markdown]
-# **Where the drawing lives & adjusting the view.** Every figure is built by a `gp.fig_*` function in `gallery_plots.py`. To re-aim the 3D camera for *all* figures, set `gp.VIEW_ELEV` / `gp.VIEW_AZIM`; a handful of figures pin their own angle inside their function (edit it there). The skeleton/triad/equal-box helpers also live in that module.
+# **Where the drawing lives & adjusting the view.** A `gp.fig_*` function in `gallery_plots.py` builds every figure. To re-aim the 3D camera for *all* figures, set `gp.VIEW_ELEV` / `gp.VIEW_AZIM`. A handful of figures pin their own angle inside their function. For those, edit the angle there. The skeleton/triad/equal-box helpers also live in that module.
 
 # %% [markdown]
 # ## 1 · Load & see
 #
-# The test clip used through most of this gallery, rendered with **`bvh.render`** to a GIF committed beside this notebook (resampled to the GIF's 20 fps so it plays in real time). The markdown cell below displays the committed file rather than the cell embedding the clip as an output: GitHub's notebook renderer shows `image/png` outputs but silently drops `image/gif` ones, so an embedded clip would be invisible exactly where most readers meet the library. For an interactive scrubber instead, use `bvh.play()` in a live kernel.
+# The test clip used through most of this gallery, rendered with **`bvh.render`** to a GIF committed beside this notebook. The clip is resampled to the GIF's 20 fps, so that it plays in real time. The markdown cell below displays the committed file, rather than the cell embedding the clip as an output. It does so because GitHub's notebook renderer shows `image/png` outputs but silently drops `image/gif` ones. So an embedded clip would be invisible exactly where most readers meet the library. For an interactive scrubber instead, use `bvh.play()` in a live kernel.
 
 # %% tags=["slow-on-pr"]
 seq_gif = gp.motion_clip_gif(bvh)  # renders the clip itself — no single feature value to surface
@@ -68,7 +74,7 @@ seq_gif = gp.motion_clip_gif(bvh)  # renders the clip itself — no single featu
 # ![the test clip, rendered by bvh.render with the front camera](https://raw.githubusercontent.com/VictorS-67/pybvh/main/gallery/feature_gallery_seq.gif)
 
 # %% [markdown]
-# **`plot_rest_pose`** & **`plot_frame`** — the two static snapshots: the rest pose (all joint angles zero, offsets only — the first thing to check on a new file) and any animation frame, with `camera="front"/"side"/"top"` or a custom `(azimuth, elevation)` tuple. Multi-skeleton comparisons use the same functions from `pybvh.bvhplot` with a list, as later sections show.
+# **`plot_rest_pose`** & **`plot_frame`** — the two static snapshots: the rest pose and any animation frame, with `camera="front"/"side"/"top"` or a custom `(azimuth, elevation)` tuple. The rest pose has all joint angles zero, and offsets only. It is the first thing to check on a new file. Multi-skeleton comparisons use the same functions from `pybvh.bvhplot` with a list, as later sections show.
 
 # %%
 fig, ax = bvh.plot_rest_pose()
@@ -79,7 +85,7 @@ fig, ax = bvh.plot_frame(frame=FRAME, camera="side")
 ax.set_title(f"plot_frame({FRAME}, camera='side')");
 
 # %% [markdown]
-# **`plot_sequence`** — the motion-paper still: equidistantly sampled poses in one figure, lightness encoding time (lighter = earlier), the root's path dashed on the floor. `layout="offset"` (default) places poses at their world positions, so locomotion reads left to right — shown on **real walking mocap** (CMU subject 12, *data from [mocap.cs.cmu.edu](http://mocap.cs.cmu.edu)*; sections 2, 5 and 9 reuse this clip). `layout="overlay"` superimposes root-centred poses instead, the right mode for in-place motion.
+# **`plot_sequence`** — the motion-paper still. It shows equidistantly sampled poses in one figure. Lightness encodes time (lighter = earlier). The root's path is dashed on the floor. `layout="offset"` (default) places poses at their world positions, so locomotion reads left to right. Here it is shown on **real walking mocap**: CMU subject 12, *data from [mocap.cs.cmu.edu](http://mocap.cs.cmu.edu)*. Sections 2, 5 and 9 reuse this clip. `layout="overlay"` superimposes root-centred poses instead. It is the right mode for in-place motion.
 
 # %%
 walk = pybvh.read_bvh_file(REPO / "bvh_data" / "cmu_12_01_walk.bvh")
@@ -87,14 +93,17 @@ fig, ax = walk.plot_sequence(n_poses=8)
 ax.set_title("plot_sequence(n_poses=8) — lighter = earlier");
 
 # %% [markdown]
-# **`Style`** — every figure above uses the default preset `"paper"` (ground plane, per-chain colors, joint markers, axes off). All bvhplot functions take `style=`: a preset name — `"paper"`, `"debug"` (the single-blue-with-full-axes look, for coordinate inspection), `"dark"` (for slides and project pages) — or a `Style` instance overriding any field, e.g. `Style("paper", floor="checker", bone_width=4)`.
+# **`Style`** — every figure above uses the default preset `"paper"`: ground plane, per-chain colors, joint markers, axes off. All bvhplot functions take `style=`. Its value is either:
+#
+# - a preset name: `"paper"`, `"debug"` (the single-blue-with-full-axes look, for coordinate inspection), or `"dark"` (for slides and project pages);
+# - a `Style` instance overriding any field, e.g. `Style("paper", floor="checker", bone_width=4)`.
 
 # %%
 fig, ax = bvh.plot_frame(frame=FRAME, style="dark")
 ax.set_title("plot_frame(style='dark')");
 
 # %% [markdown]
-# **The 0.9.0 default, and the look it replaced.** Left: `style="paper"`, applied by every bvhplot function unless told otherwise. Right: the same call with `style="debug"` — the pre-0.9.0 output, reproduced pixel-for-pixel, which is both the one-line migration for code written against the old default and the style to reach for when you need to read coordinates off the axes.
+# **The 0.9.0 default, and the look it replaced.** Left: `style="paper"`, which every bvhplot function applies unless told otherwise. Right: the same call with `style="debug"`. It reproduces the pre-0.9.0 output pixel-for-pixel. It is the one-line migration for code written against the old default. It is also the style to choose when you need to read coordinates off the axes.
 
 # %%
 fig, (ax_paper, ax_debug) = gp.side_by_side_3d()
@@ -104,14 +113,14 @@ ax_paper.set_title("style='paper' (0.9.0 default)")
 ax_debug.set_title("style='debug' (pre-0.9.0)");
 
 # %% [markdown]
-# **`plot_frame(backend="vedo")`** — the same pose as a shadowed 3D **capsule render**, computed fully offscreen (headless-safe) and returned as an `(H, W, 3)` uint8 RGB array: the publication-figure alternative to the matplotlib stick figure. `render(backend="vedo")` exports the same look as video.
+# **`plot_frame(backend="vedo")`** — the same pose as a shadowed 3D **capsule render**. It is the publication-figure alternative to the matplotlib stick figure. The render is computed fully offscreen (headless-safe). It is returned as an `(H, W, 3)` uint8 RGB array. `render(backend="vedo")` exports the same look as video.
 
 # %%
 capsule_img = bvh.plot_frame(frame=FRAME, backend="vedo")
 gp.fig_image(capsule_img, "plot_frame(backend='vedo') — shadowed capsules")
 
 # %% [markdown]
-# **`render(ghost=N, trajectory=True)`** — motion context inside a clip: `ghost=N` trails N faded copies of recent poses behind the live skeleton (spaced `Style.ghost_spacing` seconds apart, nearer ones darker) and `trajectory=True` draws the root's path on the floor as it goes, so a single frame of the video says where the motion has been. Two seconds of the walk clip, world-centered so the character travels across the frame:
+# **`render(ghost=N, trajectory=True)`** — motion context inside a clip. `ghost=N` trails N faded copies of recent poses behind the live skeleton (spaced `Style.ghost_spacing` seconds apart, nearer ones darker). And `trajectory=True` draws the root's path on the floor as it goes, so a single frame of the video says where the motion has been. Two seconds of the walk clip, world-centered so that the character travels across the frame:
 
 # %% tags=["slow-on-pr"]
 ghost_gif = gp.ghost_trace_gif(walk[:240])
@@ -120,7 +129,11 @@ ghost_gif = gp.ghost_trace_gif(walk[:240])
 # ![two seconds of the walk clip rendered with ghost=3 and trajectory=True](https://raw.githubusercontent.com/VictorS-67/pybvh/main/gallery/feature_gallery_ghost.gif)
 
 # %% [markdown]
-# **`render(camera="turntable")`** — a full 360° orbit over the clip's duration, the standard way to show a motion from every side in one clip (here with `centered="skeleton"`, which pins the root so the orbit is the only motion in frame). Export knobs no still can show: `supersample` (2× anti-aliasing by default on the OpenCV backend), `codec="h264"` for mp4s that play in a browser, and `frame_counter=True` to stamp `Frame f/F` for review.
+# **`render(camera="turntable")`** — a full 360° orbit over the clip's duration. It is the standard way to show a motion from every side in one clip. Here it runs with `centered="skeleton"`, which pins the root so that the orbit is the only motion in frame. Export knobs that no still can show:
+#
+# - `supersample`: 2× anti-aliasing by default on the OpenCV backend;
+# - `codec="h264"`, for mp4s that play in a browser;
+# - `frame_counter=True`, to stamp `Frame f/F` for review.
 
 # %% tags=["slow-on-pr"]
 turntable_gif = gp.turntable_gif(walk)
@@ -134,13 +147,23 @@ turntable_gif = gp.turntable_gif(walk)
 # The ideas every pybvh user needs, one figure each. Full prose: the [Core Concepts](https://victors-67.github.io/pybvh/guide/core-concepts/) and [World Up](https://victors-67.github.io/pybvh/guide/world-up/) guides.
 
 # %% [markdown]
-# **`node_positions(centered=…)`** — the three coordinate modes for forward-kinematics output. Shown on the **walking clip** loaded in section 1 (travel makes the modes unmistakable). Same clip, same frame; the blue trail is the root's path over the whole clip. `"world"` keeps absolute file coordinates, `"first"` shifts the first frame's root over the origin (the character still travels), `"skeleton"` pins the root at the origin every frame — the trail collapses to a point: pose only, no travel.
+# **`node_positions(centered=…)`** — the three coordinate modes for forward-kinematics output. Shown on the **walking clip** loaded in section 1. Travel makes the modes unmistakable. Same clip, same frame. The blue trail is the root's path over the whole clip.
+#
+# - `"world"` keeps absolute file coordinates.
+# - `"first"` shifts the first frame's root over the origin. The character still travels.
+# - `"skeleton"` pins the root at the origin every frame. The trail collapses to a point: pose only, no travel.
 
 # %%
 gp.fig_centered_modes(walk, walk.frame_count // 2)
 
 # %% [markdown]
-# **Why 6D exists** — a smooth rotation crossing the ±180° boundary, read out in three representations. Euler snaps from +180° to −180°; the canonical quaternion flips the sign of `z` where `w` crosses zero; 6D stays perfectly smooth — the property that makes it the default for neural-network outputs. (The other two Euler pitfalls — gimbal lock and order-dependence — are illustrated in [tutorial 3](https://victors-67.github.io/pybvh/tutorials/).)
+# **Why 6D exists** — a smooth rotation crossing the ±180° boundary, read out in three representations:
+#
+# - Euler snaps from +180° to −180°.
+# - The canonical quaternion flips the sign of `z` where `w` crosses zero.
+# - 6D stays perfectly smooth. That property makes it the default for neural-network outputs.
+#
+# (The other two Euler pitfalls, gimbal lock and order-dependence, are illustrated in [tutorial 3](https://victors-67.github.io/pybvh/tutorials/).)
 
 # %%
 input_angles = np.linspace(170, 190, 41)
@@ -154,13 +177,19 @@ rot6d = rotations.euler_to_rot6d(euler, "ZYX", degrees=True)
 gp.fig_rotation_continuity(input_angles, recovered, quats, rot6d)
 
 # %% [markdown]
-# **`world_up` · `forward_at` · `left_at`** — the orientation triple. `world_up` is the gravity axis (auto-detected from the animation), `forward_at(frame)` is the character's facing direction at a frame (derived from the L/R joint pairs), and `left_at = world_up × forward` completes the right-handed frame. All three return signed-axis strings like `'+z'`.
+# **`world_up` · `forward_at` · `left_at`** — the orientation triple:
+#
+# - `world_up` is the gravity axis, auto-detected from the animation.
+# - `forward_at(frame)` is the character's facing direction at a frame, derived from the L/R joint pairs.
+# - `left_at = world_up × forward` completes the right-handed frame.
+#
+# All three return signed-axis strings like `'+z'`.
 
 # %%
 gp.fig_orientation_triad(bvh, FRAME)
 
 # %% [markdown]
-# **`reorient_world_up`** — files disagree on which axis is "up" (Y-up vs Z-up exporters). This rotates the whole scene into a chosen convention: the character looks identical, only the coordinates are rewritten. Here a Y-up file is unified to Z-up.
+# **`reorient_world_up`** — files disagree on which axis is "up" (Y-up vs Z-up exporters). `reorient_world_up` rotates the whole scene into a chosen convention. The character looks identical. Only the coordinates are rewritten. Here a Y-up file is unified to Z-up.
 
 # %%
 bvh_yup = pybvh.read_bvh_file(REPO / "bvh_data" / "bvh_test2.bvh")
@@ -171,7 +200,7 @@ pybvh.bvhplot.frame(
 );
 
 # %% [markdown]
-# **`reorient_rest_up`** — some files author the rest pose in one convention but the animation in another (pybvh warns on load and trusts the animation). This rewrites the rest pose to match, compensating every joint rotation so the animated joint positions are unchanged to machine precision (printed below). `reorient_rest_forward` is the same idea for the facing axis.
+# **`reorient_rest_up`** — some files author the rest pose in one convention but the animation in another. pybvh warns on load, and it trusts the animation. `reorient_rest_up` rewrites the rest pose to match. It compensates every joint rotation, so that the animated joint positions are unchanged to machine precision (printed below). `reorient_rest_forward` is the same idea for the facing axis.
 
 # %%
 import warnings
@@ -194,16 +223,19 @@ pybvh.bvhplot.rest_pose(
 # %% [markdown]
 # ## 3 · Transforms & augmentation
 #
-# The standard motion augmentations, each drawn as before/after. All exist as `Bvh` methods and as array-level `pybvh.transforms` functions, all accept a seeded `rng`, and each has a `random_*` variant that samples its parameter. Full prose: the [Data Augmentation guide](https://victors-67.github.io/pybvh/guide/augmentation/).
+# The standard motion augmentations, each drawn as before/after. All exist as `Bvh` methods and as array-level `pybvh.transforms` functions. All accept a seeded `rng`. Each has a `random_*` variant that samples its parameter. Full prose: the [Data Augmentation guide](https://victors-67.github.io/pybvh/guide/augmentation/).
 
 # %% [markdown]
-# **`mirror`** — flips the motion left↔right. Not just an axis negation: the lateral axis is flipped **and** every `Left*`/`Right*` joint pair swaps data (both auto-detected), so the result stays anatomically possible.
+# **`mirror`** — flips the motion left↔right. It is not just an axis negation. The lateral axis is flipped **and** every `Left*`/`Right*` joint pair swaps data (both auto-detected). So the result stays anatomically possible.
 
 # %%
 pybvh.bvhplot.frame([bvh, bvh.mirror()], frame=FRAME, labels=["original", "mirror()"]);
 
 # %% [markdown]
-# **`rotate_vertical`** & **`translate_root`** — yaw the whole motion about the up axis (the one rotation that preserves ground contact), and shift it by a constant offset. The top-down root paths show both at once: the rotated path pivots 90° about the origin, the translated one is the same shape displaced.
+# **`rotate_vertical`** & **`translate_root`** — yaw the whole motion about the up axis, and shift it by a constant offset. A yaw about the up axis is the one rotation that preserves ground contact. The top-down root paths show both at once:
+#
+# - the rotated path pivots 90° about the origin;
+# - the translated one is the same shape displaced.
 
 # %%
 pybvh.bvhplot.trajectory(
@@ -212,7 +244,12 @@ pybvh.bvhplot.trajectory(
 );
 
 # %% [markdown]
-# **`add_rotation_noise`** — zero-mean Gaussian noise on the joint angles (σ in radians). Calibration on a human skeleton: σ ≈ 0.5° is imperceptible sensor-level noise, ≈ 2° a typical augmentation, ≈ 5° clearly visible, > 10° destructive.
+# **`add_rotation_noise`** — zero-mean Gaussian noise on the joint angles (σ in radians). Calibration on a human skeleton:
+#
+# - σ ≈ 0.5° is imperceptible sensor-level noise;
+# - σ ≈ 2° is a typical augmentation;
+# - σ ≈ 5° is clearly visible;
+# - σ > 10° is destructive.
 
 # %%
 pybvh.bvhplot.frame(
@@ -226,13 +263,13 @@ pybvh.bvhplot.frame(
 );
 
 # %% [markdown]
-# **`perturb_speed`** — changes how fast the motion plays by resampling (SLERP under the hood). The subtlety worth a figure: it changes the **frame count**, not the frame rate — this 126-frame 30 fps clip at factor 2 becomes 63 frames, still at 30 fps.
+# **`perturb_speed`** — changes how fast the motion plays, by resampling (SLERP under the hood). The subtlety worth a figure: it changes the **frame count**, not the frame rate. At factor 2, this 126-frame 30 fps clip becomes 63 frames, still at 30 fps.
 
 # %%
 gp.fig_perturb_speed(bvh, bvh.perturb_speed(0.5), bvh.perturb_speed(2.0))
 
 # %% [markdown]
-# **`drop_frames`** — simulates mocap dropouts: a random fraction of frames is **replaced** (not removed) by values interpolated from the nearest kept neighbours — linear for the root, SLERP for rotations. Same frame count out; the red dots mark the re-synthesized frames, visibly flattened where fine motion was lost.
+# **`drop_frames`** — simulates mocap dropouts. A random fraction of frames is **replaced** (not removed) by values interpolated from the nearest kept neighbours. The interpolation is linear for the root, and SLERP for rotations. The frame count out is the same. The red dots mark the re-synthesized frames, visibly flattened where fine motion was lost.
 
 # %%
 gp.fig_drop_frames(bvh, bvh.drop_frames(drop_rate=0.5, rng=np.random.default_rng(0)))
@@ -260,7 +297,13 @@ pybvh.bvhplot.frame(
 # Editing the skeleton and the timeline. Full prose: the [Skeleton Operations guide](https://victors-67.github.io/pybvh/guide/skeleton-ops/).
 
 # %% [markdown]
-# **`scale`**, **`retarget`** & **`extract_joints`** — resize the skeleton (rotations untouched), copy another skeleton's bone proportions while keeping the motion (the dataset-normalization move), and keep a subset of joints (removed joints' offsets collapse into the nearest kept descendant). Left to right on **one shared scale**: original, scaled 0.5×, a 1.5×-tall clip retargeted back to the original proportions (so it matches the original's size again), and an 11-joint subset.
+# **`scale`**, **`retarget`** & **`extract_joints`**:
+#
+# - `scale` resizes the skeleton. Rotations stay untouched.
+# - `retarget` copies another skeleton's bone proportions, and it keeps the motion. This is the dataset-normalization move.
+# - `extract_joints` keeps a subset of joints. The offsets of removed joints collapse into the nearest kept descendant.
+#
+# Left to right on **one shared scale**: original, scaled 0.5×, a 1.5×-tall clip retargeted back to the original proportions (so it matches the original's size again), and an 11-joint subset.
 
 # %%
 tall = bvh.scale(1.5)
@@ -284,7 +327,7 @@ gp.fig_skeleton_ops(
 )
 
 # %% [markdown]
-# **`resample`** — change the frame rate; the new samples are SLERP-interpolated onto the same motion. (Slicing `bvh[10:50]` and concatenation `bvh_a + bvh_b` round out the timeline operations — no figure needed.)
+# **`resample`** — change the frame rate. The new samples are SLERP-interpolated onto the same motion. (Slicing `bvh[10:50]` and concatenation `bvh_a + bvh_b` complete the timeline operations. They need no figure.)
 
 # %%
 gp.fig_resample(bvh, bvh.resample(10))
@@ -292,7 +335,7 @@ gp.fig_resample(bvh, bvh.resample(10))
 # %% [markdown]
 # ## 5 · Contacts & feature export
 #
-# From motion to ML-ready labels and arrays. Contact detection needs locomotion to be interesting, so this section runs on the **walking clip** loaded in section 1 — first the clip itself, rendered from a fixed side camera so the skeleton walks through world space. The gait descriptors in section 9 reuse it too.
+# From motion to ML-ready labels and arrays. Contact detection needs locomotion to be interesting. So this section runs on the **walking clip** loaded in section 1. First comes the clip itself, rendered from a fixed side camera so that the skeleton walks through world space. The gait descriptors in section 9 reuse it too.
 
 # %% tags=["slow-on-pr"]
 walk_gif = gp.walk_clip_gif(walk)
@@ -301,21 +344,26 @@ walk_gif = gp.walk_clip_gif(walk)
 # ![the walking clip, rendered by bvh.render with a fixed side camera](https://raw.githubusercontent.com/VictorS-67/pybvh/main/gallery/feature_gallery_walk.gif)
 
 # %% [markdown]
-# **`foot_contacts`** — binary planted/swing labels per foot per frame. The default detector thresholds two signals and ANDs them (the HuMoR heuristic): foot **speed** (slow enough?) and **clearance** above the estimated floor (low enough?) — each catches the other's failure mode. Here with `adaptive=True` (the right setting for known locomotion), which splits each foot's speed threshold from its own speed; the height threshold is calibrated, as by default, to each foot's own level over the frames that threshold calls slow. The green spans are the detected stance phases.
+# **`foot_contacts`** — binary planted/swing labels per foot per frame. The default detector thresholds two signals and ANDs them (the HuMoR heuristic):
+#
+# - foot **speed** (slow enough?);
+# - **clearance** above the estimated floor (low enough?).
+#
+# Each signal catches the other's failure mode. Here the call uses `adaptive=True`, the right setting for known locomotion. That setting splits each foot's speed threshold from its own speed. The height threshold is calibrated, as by default, to each foot's own level over the frames that the speed threshold calls slow. The green spans are the detected stance phases.
 
 # %%
 feet = analysis.auto_detect_foot_joints(walk)
 gp.fig_foot_contacts_signals(walk, feet)
 
 # %% [markdown]
-# **`root_trajectory`** — the root's ground-plane position plus its heading as a (sin, cos) pair: the standard root parameterization in motion-generation pipelines. `bvhplot.trajectory(..., facing_arrows=True)` draws the heading along the path.
+# **`root_trajectory`** — the root's ground-plane position plus its heading as a (sin, cos) pair. It is the standard root parameterization in motion-generation pipelines. `bvhplot.trajectory(..., facing_arrows=True)` draws the heading along the path.
 
 # %%
 traj_feats = walk.root_trajectory()  # (F, 4): ground a/b + heading sin/cos
 pybvh.bvhplot.trajectory(walk, facing_arrows=True);
 
 # %% [markdown]
-# **`to_feature_array`** — composes root position, joint rotations (any representation), velocities, and foot contacts into one flat `(F, D)` array; **`feature_array_layout`** reports each block's column slice so downstream code never counts columns. The diagram shows the layout of the exact call below.
+# **`to_feature_array`** — composes root position, joint rotations (any representation), velocities, and foot contacts into one flat `(F, D)` array. **`feature_array_layout`** reports each block's column slice, so that downstream code never counts columns. The diagram shows the layout of the exact call below.
 
 # %%
 feat = bvh.to_feature_array(

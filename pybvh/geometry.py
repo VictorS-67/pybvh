@@ -42,9 +42,8 @@ _EPS = 1e-12
 # How many units of float64 round-off (machine epsilon times the trajectory's
 # largest coordinate) a per-frame derivative must exceed before curvature and
 # torsion treat it as motion. Finite differences of positions of size ``M``
-# carry round-off of a few ``eps * M``; 1e3 leaves a wide margin over that and
-# still sits orders of magnitude below the 1e-6 resolution of a BVH file's
-# six printed decimals, so the test does not depend on the clip's length unit.
+# carry round-off of a few ``eps * M``; 1e3 leaves a wide margin over that
+# while keeping the bound near 1e-13 * M, far below any recorded motion.
 _ROUNDOFF_MARGIN = 1e3
 
 
@@ -52,14 +51,14 @@ def _safe_ratio(
     numerator: npt.NDArray[np.float64],
     denominator: npt.NDArray[np.float64],
     fill: float = np.nan,
-    floor: float | npt.NDArray[np.float64] = _EPS,
+    zero_below: float | npt.NDArray[np.float64] = _EPS,
 ) -> npt.NDArray[np.float64]:
     """``numerator / denominator``, returning ``fill`` where ``denominator``
-    is ~0, i.e. at or below ``floor``. The division is computed against a
+    is ~0, i.e. at or below ``zero_below``. The division is computed against a
     guarded denominator (never zero), so no divide-by-zero warning is ever
     raised — the zero-denominator policy is enforced before the divide, not
     patched up after it."""
-    valid = denominator > floor
+    valid = denominator > zero_below
     guarded = np.where(valid, denominator, 1.0)
     return np.where(valid, numerator / guarded, fill)
 
@@ -603,7 +602,7 @@ def _aligned_derivatives(
     return derivs
 
 
-def _roundoff_step(traj: npt.NDArray[np.float64]) -> float:
+def _roundoff_bound(traj: npt.NDArray[np.float64]) -> float:
     """The largest per-frame difference that is float round-off for ``traj``.
 
     ``_ROUNDOFF_MARGIN * eps * max|traj|``: a per-frame derivative at or
@@ -678,7 +677,7 @@ def curvature(
     Source: Larboulette & Gibet, Gibet et al.
     """
     speed, swept = _speed_and_swept(traj, 1.0, stencil, pad)
-    return _safe_ratio(swept, speed**3, floor=_roundoff_step(traj) ** 3)
+    return _safe_ratio(swept, speed**3, zero_below=_roundoff_bound(traj) ** 3)
 
 
 def torsion(
@@ -724,9 +723,9 @@ def torsion(
     twist = np.sum(swept * d3, axis=-1)
     swept_sq = np.sum(swept * swept, axis=-1)
     # ‖ṗ × p̈‖ = ‖ṗ‖ · (the part of p̈ normal to ṗ); that part is a bend
-    # only where it exceeds round-off, so the floor carries the speed
+    # only where it exceeds round-off, so the bound carries the speed
     speed = np.linalg.norm(d1, axis=-1)
-    return _safe_ratio(twist, swept_sq, floor=(speed * _roundoff_step(traj)) ** 2)
+    return _safe_ratio(twist, swept_sq, zero_below=(speed * _roundoff_bound(traj)) ** 2)
 
 
 def movement_phase(
@@ -739,7 +738,9 @@ def movement_phase(
 
     Peaks mark the fast, sharply-turning instants that segment a
     trajectory into ballistic phases. ``np.nan`` where speed is ~0
-    (curvature is undefined there), matching :func:`curvature`.
+    (curvature is undefined there): unlike :func:`curvature`, whose ~0
+    test scales with the trajectory, this one is a fixed ``1e-12`` on
+    ``‖ṗ‖²`` per second.
 
     Parameters
     ----------

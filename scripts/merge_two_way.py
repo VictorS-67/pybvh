@@ -34,17 +34,19 @@ pin the public namespace: a pull request that changes them
 waits for the maintainer whatever its labels say, so that no change merges
 itself past a gate it has weakened (``CONTRIBUTING.md``, "Merging").
 
-Just before merging, it reads the pull request again and merges only if its
-head commit, base and labels are still the ones it checked. The merge is a
-merge commit at that head commit, so a push in between stops it.
+Just before merging, it reads the pull request again and merges only if it
+is still open and in the same draft state, and its head commit, base, labels
+and body are still the ones it checked. The merge is a merge commit at that
+head commit, so a push in between stops it.
 
 ``main`` requires a branch to be up to date before it merges, so each merge
 leaves the other pull requests behind. When a run merges none, it brings up to
-date the oldest pull request that would merge but for being behind ``main``:
-GitHub merges ``main`` into its branch, and its checks run again. It does so
-only while no other pull request is in flight, that is, up to date with
-``main`` with its checks still running: that one may merge and move ``main``
-again. The pull requests thus catch up one at a time.
+date the oldest pull request that would merge but for being behind ``main``
+and that GitHub does not know to conflict with it: GitHub merges ``main`` into
+its branch, and its checks run again. It reads the pull request again first,
+as before a merge. It does so only while no other pull request is in flight,
+that is, up to date with ``main`` with its checks still running: that one may
+merge and move ``main`` again. The pull requests thus catch up one at a time.
 
 Everything is read from the GitHub REST API, as the token in
 ``GITHUB_TOKEN`` sees it; nothing of the pull request is checked out. Standard
@@ -272,14 +274,19 @@ def catches_up(
 ) -> bool:
     """Whether ``pull_request`` would merge but for being behind ``main``.
 
-    Its mergeable state is not read: GitHub computes it only once asked after
-    ``main`` moves, and the update itself fails on a conflict.
+    A known conflict rules it out, since it would be chosen first on every
+    run and fail every time. A mergeable state not yet computed does not:
+    GitHub computes it only once asked after ``main`` moves.
     """
-    return behind_by > 0 and not (
-        _pull_request_refusal(pull_request)
-        or _hygiene_refusal(pull_request, files)
-        or _files_refusal(pull_request, files)
-        or _checks_refusal(pull_request, required_checks, check_runs, workflow_runs)
+    return (
+        behind_by > 0
+        and pull_request["mergeable"] is not False
+        and not (
+            _pull_request_refusal(pull_request)
+            or _hygiene_refusal(pull_request, files)
+            or _files_refusal(pull_request, files)
+            or _checks_refusal(pull_request, required_checks, check_runs, workflow_runs)
+        )
     )
 
 
@@ -375,7 +382,9 @@ def _required_checks(repo_url: str, token: str) -> list[str]:
 
 def _unchanged(read: dict[str, Any], again: dict[str, Any]) -> bool:
     return (
-        again["head"]["sha"] == read["head"]["sha"]
+        again["state"] == read["state"]
+        and again["draft"] == read["draft"]
+        and again["head"]["sha"] == read["head"]["sha"]
         and again["base"]["ref"] == read["base"]["ref"]
         and sorted(_labels(again)) == sorted(_labels(read))
         and again["body"] == read["body"]
@@ -466,10 +475,13 @@ def update_one(repo: str, number: int, token: str) -> None:
     repo_url = f"{API}/repos/{repo}"
     pull_request, reading = _read(repo_url, number, token)
     if not reading.catches_up:
-        print(
-            f"#{number} is not brought up to date: "
-            f"{reading.reason or f'it is up to date with {BASE}'}."
-        )
+        reason = reading.reason or f"it is up to date with {BASE}"
+    elif not _unchanged(pull_request, _request(f"{repo_url}/pulls/{number}", token)):
+        reason = "it changed while it was read"
+    else:
+        reason = None
+    if reason is not None:
+        print(f"#{number} is not brought up to date: {reason}.")
         return
     try:
         _request(
@@ -482,7 +494,8 @@ def update_one(repo: str, number: int, token: str) -> None:
         message = json.load(error).get("message", error.reason)
         print(f"#{number} is not brought up to date: GitHub answered {error.code}, {message}.")
         return
-    print(f"#{number}: brought up to date with {BASE}.")
+    # GitHub answers 202: it has accepted the update, not made it yet.
+    print(f"#{number}: GitHub is bringing it up to date with {BASE}.")
 
 
 def main(arguments: list[str]) -> int:

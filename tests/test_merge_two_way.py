@@ -310,6 +310,10 @@ class TestCatchingUp:
         # fails on a conflict.
         assert catches_up(changed(mergeable=None)) is True
 
+    def test_one_with_a_conflict_does_not(self):
+        # It would be chosen first on every run, and fail every time.
+        assert catches_up(changed(mergeable=False)) is False
+
     def test_one_that_is_up_to_date_does_not(self):
         assert catches_up(behind_by=0) is False
 
@@ -462,6 +466,7 @@ class TestMergeOne:
             {"labels": [{"name": "internal"}, {"name": "localized"}, {"name": "one-way"}]},
             {"base": {"ref": "feat/parent"}},
             {"head": {"sha": "c" * 40}},
+            {"draft": True},
         ],
     )
     def test_does_not_merge_when_the_pull_request_changed_since_it_was_read(
@@ -494,7 +499,7 @@ class TestUpdateOne:
         assert [(url, json.loads(data)) for (_, url), data in put] == [
             (f"{API}/pulls/200/update-branch", {"expected_head_sha": HEAD})
         ]
-        assert capsys.readouterr().out == "#200: brought up to date with main.\n"
+        assert capsys.readouterr().out == "#200: GitHub is bringing it up to date with main.\n"
 
     @pytest.mark.parametrize(
         ("pull_request", "behind_by", "said"),
@@ -516,6 +521,25 @@ class TestUpdateOne:
         merge.update_one("VictorS-67/pybvh", 200, "a-token")
         assert [key for key, _ in requests if key[0] == "PUT"] == []
         assert capsys.readouterr().out == said
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            {"draft": True},
+            {"labels": [{"name": "internal"}, {"name": "localized"}, {"name": "one-way"}]},
+            {"base": {"ref": "feat/parent"}},
+        ],
+    )
+    def test_leaves_one_that_changed_since_it_was_read(self, monkeypatch, capsys, change):
+        responses = responses_for(behind_by=2)
+        responses[("GET", f"{API}/pulls/200", "each")] = [PULL_REQUEST, changed(**change)]
+        requests = []
+        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, requests))
+        merge.update_one("VictorS-67/pybvh", 200, "a-token")
+        assert [key for key, _ in requests if key[0] == "PUT"] == []
+        assert capsys.readouterr().out == (
+            "#200 is not brought up to date: it changed while it was read.\n"
+        )
 
     def test_says_why_github_refused_the_update(self, monkeypatch, capsys):
         responses = responses_for(behind_by=2)

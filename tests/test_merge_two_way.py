@@ -289,6 +289,103 @@ class TestTheBranch:
         assert refusal(changed(mergeable=None)) == "GitHub does not report it mergeable"
 
 
+def catches_up(pull_request=None, *, runs=RUNS, behind_by=2):
+    return merge.catches_up(
+        PULL_REQUEST if pull_request is None else pull_request,
+        files=FILES,
+        required_checks=REQUIRED,
+        check_runs=runs,
+        workflow_runs=WORKFLOW_RUNS,
+        behind_by=behind_by,
+    )
+
+
+class TestCatchingUp:
+    def test_one_that_waits_only_for_main_catches_up(self):
+        assert catches_up() is True
+
+    def test_one_github_has_not_computed_catches_up(self):
+        # GitHub computes mergeable lazily after main moves; the update itself
+        # fails on a conflict.
+        assert catches_up(changed(mergeable=None)) is True
+
+    def test_one_that_is_up_to_date_does_not(self):
+        assert catches_up(behind_by=0) is False
+
+    def test_one_with_a_failed_check_does_not(self):
+        failed = [RUNS[0], {**RUNS[1], "conclusion": "failure"}]
+        assert catches_up(runs=failed) is False
+
+    def test_one_that_waits_for_another_reason_does_not(self):
+        assert catches_up(changed(draft=True)) is False
+
+
+def in_flight(pull_request=None, *, runs=RUNS, behind_by=0):
+    return merge.in_flight(
+        PULL_REQUEST if pull_request is None else pull_request,
+        files=FILES,
+        required_checks=REQUIRED,
+        check_runs=runs,
+        workflow_runs=WORKFLOW_RUNS,
+        behind_by=behind_by,
+    )
+
+
+class TestInFlight:
+    def test_one_up_to_date_with_a_check_running_is(self):
+        assert in_flight(runs=[RUNS[0], {**RUNS[1], "status": "in_progress"}]) is True
+
+    def test_one_up_to_date_with_a_check_not_yet_run_is(self):
+        assert in_flight(runs=RUNS[:1]) is True
+
+    def test_one_whose_checks_all_passed_is_not(self):
+        assert in_flight() is False
+
+    def test_one_with_a_failed_check_is_not(self):
+        runs = [{**RUNS[0], "conclusion": "failure"}, {**RUNS[1], "status": "queued"}]
+        assert in_flight(runs=runs) is False
+
+    def test_one_behind_main_is_not(self):
+        assert in_flight(runs=RUNS[:1], behind_by=1) is False
+
+    def test_one_that_waits_for_another_reason_is_not(self):
+        assert in_flight(changed(draft=True), runs=RUNS[:1]) is False
+
+
+def merges(number):
+    return merge.Reading(number, reason=None, catches_up=False, in_flight=False)
+
+
+def behind(number):
+    return merge.Reading(
+        number, reason="it is 1 commits behind main", catches_up=True, in_flight=False
+    )
+
+
+def flying(number):
+    return merge.Reading(
+        number, reason="the required check lint is in_progress", catches_up=False, in_flight=True
+    )
+
+
+def waits(number):
+    return merge.Reading(number, reason="it is a draft", catches_up=False, in_flight=False)
+
+
+class TestPlan:
+    def test_merges_every_one_that_qualifies_and_updates_none(self):
+        assert merge.plan([merges(200), behind(201), merges(202)]) == ([200, 202], None)
+
+    def test_updates_the_oldest_one_behind_when_none_merges(self):
+        assert merge.plan([behind(203), waits(200), behind(201)]) == ([], 201)
+
+    def test_updates_none_while_another_is_in_flight(self):
+        assert merge.plan([behind(201), flying(202)]) == ([], None)
+
+    def test_does_nothing_when_all_wait(self):
+        assert merge.plan([waits(200)]) == ([], None)
+
+
 def fake_api(responses: dict, requests: list):
     """``urlopen`` answering each URL (and method) from ``responses``.
 

@@ -58,6 +58,7 @@ import json
 import os
 import sys
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -188,14 +189,16 @@ def _suites_of_this_pull_request(
     }
 
 
-def _checks_refusal(
+def _latest_runs(
     pull_request: dict[str, Any],
     required_checks: list[str],
     check_runs: list[dict[str, Any]],
     workflow_runs: list[dict[str, Any]],
-) -> str | None:
+) -> dict[str, dict[str, Any] | None]:
+    """The latest run that counts of each required check, or None if none has."""
     head_sha = pull_request["head"]["sha"]
     suites = _suites_of_this_pull_request(pull_request, workflow_runs)
+    latest: dict[str, dict[str, Any] | None] = {}
     for name in required_checks:
         runs = [
             run
@@ -204,9 +207,21 @@ def _checks_refusal(
             and run["head_sha"] == head_sha
             and run["check_suite"]["id"] in suites
         ]
-        if not runs:
+        latest[name] = max(runs, key=lambda run: run.get("id", 0)) if runs else None
+    return latest
+
+
+def _checks_refusal(
+    pull_request: dict[str, Any],
+    required_checks: list[str],
+    check_runs: list[dict[str, Any]],
+    workflow_runs: list[dict[str, Any]],
+) -> str | None:
+    for name, latest in _latest_runs(
+        pull_request, required_checks, check_runs, workflow_runs
+    ).items():
+        if latest is None:
             return f"the required check {name} has not run"
-        latest = max(runs, key=lambda run: run.get("id", 0))
         if latest["status"] != "completed":
             return f"the required check {name} is {latest['status']}"
         if latest["conclusion"] != "success":
@@ -232,6 +247,79 @@ def refusal(
         or (f"it is {behind_by} commits behind {BASE}" if behind_by else None)
         or (None if pull_request["mergeable"] is True else "GitHub does not report it mergeable")
     )
+
+
+def catches_up(
+    pull_request: dict[str, Any],
+    *,
+    files: list[dict[str, Any]],
+    required_checks: list[str],
+    check_runs: list[dict[str, Any]],
+    workflow_runs: list[dict[str, Any]],
+    behind_by: int,
+) -> bool:
+    """Whether ``pull_request`` would merge but for being behind ``main``.
+
+    Its mergeable state is not read: GitHub computes it only once asked after
+    ``main`` moves, and the update itself fails on a conflict.
+    """
+    return behind_by > 0 and not (
+        _pull_request_refusal(pull_request)
+        or _hygiene_refusal(pull_request, files)
+        or _files_refusal(pull_request, files)
+        or _checks_refusal(pull_request, required_checks, check_runs, workflow_runs)
+    )
+
+
+def in_flight(
+    pull_request: dict[str, Any],
+    *,
+    files: list[dict[str, Any]],
+    required_checks: list[str],
+    check_runs: list[dict[str, Any]],
+    workflow_runs: list[dict[str, Any]],
+    behind_by: int,
+) -> bool:
+    """Whether ``pull_request`` is up to date with ``main`` and its checks still run.
+
+    Such a pull request may merge soon, and an update of another one would
+    then run that one's checks for nothing. A check that has not started yet
+    counts as running, and one that failed ends the flight.
+    """
+    if behind_by or (
+        _pull_request_refusal(pull_request)
+        or _hygiene_refusal(pull_request, files)
+        or _files_refusal(pull_request, files)
+    ):
+        return False
+    latest = _latest_runs(pull_request, required_checks, check_runs, workflow_runs).values()
+    finished = [run for run in latest if run is not None and run["status"] == "completed"]
+    return len(finished) < len(latest) and all(run["conclusion"] == "success" for run in finished)
+
+
+@dataclass(frozen=True)
+class Reading:
+    """What one read of a pull request found."""
+
+    number: int
+    reason: str | None
+    """Why it waits, or None when it merges."""
+    catches_up: bool
+    in_flight: bool
+
+
+def plan(readings: list[Reading]) -> tuple[list[int], int | None]:
+    """The pull requests to merge now, and the one to bring up to date, if any.
+
+    One is brought up to date only when none merges, since a merge moves
+    ``main`` again, and none is in flight; then the oldest, so that the
+    pull requests catch up one at a time and none runs its checks twice.
+    """
+    to_merge = [reading.number for reading in readings if reading.reason is None]
+    behind = [reading.number for reading in readings if reading.catches_up]
+    if to_merge or not behind or any(reading.in_flight for reading in readings):
+        return to_merge, None
+    return to_merge, min(behind)
 
 
 def _request(url: str, token: str, *, method: str = "GET", body: dict | None = None) -> Any:

@@ -37,7 +37,7 @@ Before marking a PR ready:
 - the full suite passes locally on the finished branch: `conda run -n pybvh python -m pytest tests/ -v`
 - `CHANGELOG.md` has its entry (see below), unless the change is invisible to users
 - docstrings name any convention the change chose (see "Name every convention choice" in `CODING_STANDARDS.md`)
-- the branch is rebased on its current base, which is `main`, or its parent branch while the PR is stacked; an integration branch is built on the current `main`
+- the branch is rebased on its current base, which is `main`, or its parent branch while the PR is stacked; an integration branch is built on the current `main`; a pull request that merges itself may instead carry the catch-up merges of `main` that the `merge-two-way` workflow adds (see "Keeping a branch current")
 - the branch has passed the review described in "The review before ready", and its fixes are in
 - the required checks have run green against the current base
 
@@ -107,6 +107,8 @@ git push --force-with-lease
 
 Rebasing keeps the branch a straight line of commits; merging `main` in leaves catch-up merge commits that carry no content. Rewriting is safe because only the author commits to a branch: a reviewer reports findings and never pushes to it. Use `--force-with-lease`, never bare `--force`: the lease refuses to overwrite a remote branch that moved since you last fetched. Never rebase commits that are already on `main`. A branch that an integration branch has merged is the exception to keeping current: it stays as it was reviewed, and the integration branch is rebuilt instead (see "Branches and pull requests").
 
+A pull request that merges itself is the other exception: once it is ready, the `merge-two-way` workflow keeps it current by merging `main` into its branch (see "Merging"), and the catch-up merge commits stay. Each merge into `main` leaves every other open pull request behind, and a rebase of each by hand would hold the queue until its author came back. The workflow's merge is a push to the author's branch, so fetch before pushing to it again: the lease refuses a push over that merge, and a rebase on `origin/main` drops it.
+
 A stacked branch is kept current on its parent branch the same way, with `origin/<parent-branch>` in place of `origin/main`. If the parent was amended or rebased since your branch last took it, rebase with `git rebase --onto origin/<parent-branch> <the last commit of the parent in your branch's history>`, for the reason given under "Branches and pull requests".
 
 ## Merging
@@ -116,7 +118,7 @@ Choose the merge method per PR:
 - **Squash** when the PR is small or its intermediate commits are not worth keeping. The squash commit's message is written like any other commit.
 - **Merge commit** when the branch carries several atomic commits worth preserving for `git bisect` and `git blame`: the PR stays one unit on `main` (`git log --first-parent` shows one line per PR, one `git revert -m 1` undoes it) and the reviewed commits keep their hashes. An integration PR is always merged this way, so that every branch it carries reaches `main` with the hashes it was reviewed at. Rebase-and-merge only suits a PR of one to a few commits.
 
-A pull request opened by the maintainer's machine account, `VictorS-67-bot`, merges itself when it is labelled `two-way` and `localized` and its kind is not `breaking`. Once it is ready and every required check is green on its head commit, the `merge-two-way` workflow merges it, with a merge commit. Before it merges, the workflow checks the labels again with `pr-hygiene`'s rules, and checks that the branch is not behind `main`. Such a pull request still waits for the maintainer when it changes a file that states or implements the rules, a pytest, ruff or mypy setting, or the public namespace. `scripts/merge_two_way.py` lists those files. The maintainer merges every other pull request.
+A pull request opened by the maintainer's machine account, `VictorS-67-bot`, merges itself when it is labelled `two-way` and `localized` and its kind is not `breaking`. Once it is ready and every required check is green on its head commit, the `merge-two-way` workflow merges it, with a merge commit. Before it merges, the workflow checks the labels again with `pr-hygiene`'s rules, and checks that the branch is not behind `main`. When such a pull request would merge but for being behind `main`, the workflow brings it up to date by merging `main` into its branch, and its checks run again; it does this for one pull request at a time, the oldest first, and not while another is up to date with its checks still running. Such a pull request still waits for the maintainer when it changes a file that states or implements the rules, a pytest, ruff or mypy setting, or the public namespace. `scripts/merge_two_way.py` lists those files. The maintainer merges every other pull request.
 
 Delete the branch after merging. The repository is set to do this automatically.
 

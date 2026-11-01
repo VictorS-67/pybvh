@@ -1,8 +1,9 @@
 """Merge a two-way, localized pull request that breaks nothing.
 
 The ``merge-two-way`` job (``.github/workflows/merge-two-way.yml``) runs this
-from ``main`` whenever a pull request is marked ready or labelled, and whenever
-a CI workflow completes for one. It merges the pull request when:
+from ``main`` whenever ``main`` moves, a pull request is marked ready or
+labelled, or a CI workflow completes for one. Each run reads every open pull
+request of the machine account based on ``main``. It merges one when:
 
 - it is open, not a draft, based on ``main``, and opened by the machine
   account ``VictorS-67-bot``;
@@ -37,18 +38,28 @@ Just before merging, it reads the pull request again and merges only if its
 head commit, base and labels are still the ones it checked. The merge is a
 merge commit at that head commit, so a push in between stops it.
 
+``main`` requires a branch to be up to date before it merges, so each merge
+leaves the other pull requests behind. When a run merges none, it brings up to
+date the oldest pull request that would merge but for being behind ``main``:
+GitHub merges ``main`` into its branch, and its checks run again. It does so
+only while no other pull request is in flight, that is, up to date with
+``main`` with its checks still running: that one may merge and move ``main``
+again. The pull requests thus catch up one at a time.
+
 Everything is read from the GitHub REST API, as the token in
 ``GITHUB_TOKEN`` sees it; nothing of the pull request is checked out. Standard
-library only. Prints one line per pull request: merged, or why it waits.
-Run from the repository root in two steps:
+library only. Prints one line per pull request: merged, brought up to date,
+or why it waits. Run from the repository root in two steps:
 
     python scripts/merge_two_way.py --decide
     python scripts/merge_two_way.py 200 [201 ...]
+    python scripts/merge_two_way.py --update 202
 
-``--decide`` reads the pull requests of the event at ``$GITHUB_EVENT_PATH``
-with the job's read-only token, merges nothing, and writes the numbers of
-those that qualify to ``$GITHUB_OUTPUT`` as ``numbers``. Given numbers, it
-checks each one again and merges it, with a token that may merge.
+``--decide`` reads the pull requests with the job's read-only token, changes
+nothing, and writes to ``$GITHUB_OUTPUT`` the numbers of those that qualify,
+as ``numbers``, and the one to bring up to date, as ``update``. Given numbers,
+it checks each one again and merges it; given ``--update``, it checks that one
+again and brings it up to date; both with a token that may push.
 """
 
 from __future__ import annotations

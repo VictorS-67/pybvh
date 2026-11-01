@@ -1,0 +1,77 @@
+name: Merge two-way
+
+# Merges a pull request of the machine account that is two-way, localized and
+# not breaking, once its required checks are green (CONTRIBUTING.md, "Merging";
+# scripts/merge_two_way.py says what it checks).
+#
+# Both events run this file as it is on main, never a pull request's copy, and
+# no step checks out a pull request's code: a pull request cannot change what
+# merges it. The App's key is a secret of the `merge` environment, which only
+# main may deploy from, so a workflow pushed on a branch cannot read it.
+on:
+  pull_request_target:
+    types: [ready_for_review, labeled, unlabeled]
+  # check_suite would not do: it starts no workflow for a suite that GitHub
+  # Actions created, which every check here is.
+  workflow_run:
+    workflows: [Tests, Lint, Typecheck, Docs, PR hygiene, Commit messages, Backend tests]
+    types: [completed]
+
+permissions: {}
+
+# One run at a time per branch; a run that waits is replaced by a newer one,
+# which reads everything again.
+concurrency:
+  group: merge-two-way-${{ github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  # Reads with the job's own read-only token, so that most events end here,
+  # without the App's key.
+  decide:
+    if: >-
+      (github.event_name == 'pull_request_target'
+        && github.event.pull_request.user.login == 'VictorS-67-bot')
+      || (github.event_name == 'workflow_run'
+        && github.event.workflow_run.event == 'pull_request'
+        && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+      actions: read
+    outputs:
+      numbers: ${{ steps.decide.outputs.numbers }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - id: decide
+        run: python3 scripts/merge_two_way.py --decide
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  merge:
+    needs: decide
+    if: needs.decide.outputs.numbers != ''
+    runs-on: ubuntu-latest
+    environment: merge
+    steps:
+      - id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.MERGE_APP_ID }}
+          private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Checks each pull request again before merging it, with the App's
+      # token: GITHUB_TOKEN's push to main would start no workflow, and the
+      # docs deploy and main's checks must run.
+      - run: python3 scripts/merge_two_way.py ${{ needs.decide.outputs.numbers }}
+        env:
+          GITHUB_TOKEN: ${{ steps.app.outputs.token }}

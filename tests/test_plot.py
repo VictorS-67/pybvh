@@ -2075,9 +2075,22 @@ class TestPlaySync:
         assert_view_shows(short_view, short, held)
 
 
+def _rate_refusal(operation, alternative, index=None):
+    """The library's one message for an unset clip, as a regex."""
+    needed = (
+        "the clip's frame rate" if index is None else f"the frame rate of the clip at index {index}"
+    )
+    return re.escape(
+        f"{operation} needs {needed}, but its frame_time is 0 (unset). "
+        f"Set bvh.frame_time (or bvh.fps), or {alternative}."
+    )
+
+
 class TestUnsetFrameTime:
     """A clip whose frame_time is 0, the "unset" value a Bvh built in
-    memory carries until a rate is assigned."""
+    memory carries until a rate is assigned. An animated entry point
+    refuses it only where it needs the clip's own rate, with the
+    library's one message."""
 
     @pytest.fixture
     def unset(self, bvh_test1):
@@ -2099,17 +2112,13 @@ class TestUnsetFrameTime:
             plt.close("all")
 
     def test_render_raises_naming_both_ways_out(self, unset, tmp_path):
-        with pytest.raises(ValueError, match="frame_time") as info:
+        with pytest.raises(ValueError, match=_rate_refusal("render()", "pass fps= to render()")):
             bvhplot.render(unset, tmp_path / "x.gif", backend="matplotlib")
-        assert "bvh.fps" in str(info.value)
-        assert "fps=" in str(info.value)
         assert not (tmp_path / "x.gif").exists()
 
     def test_play_raises_naming_both_ways_out(self, unset):
-        with pytest.raises(ValueError, match="frame_time") as info:
+        with pytest.raises(ValueError, match=_rate_refusal("play()", "pass fps= to play()")):
             bvhplot.play(unset, backend="matplotlib")
-        assert "bvh.fps" in str(info.value)
-        assert "fps=" in str(info.value)
 
     def test_render_with_fps_draws_the_clip(self, unset, tmp_path):
         import matplotlib
@@ -2155,44 +2164,41 @@ class TestUnsetFrameTime:
         finally:
             plt.close("all")
 
-    def test_render_ghost_needs_the_clip_rate_despite_fps(self, unset, tmp_path):
-        with pytest.raises(ValueError, match="ghost") as info:
-            bvhplot.render(unset, tmp_path / "x.gif", backend="matplotlib", fps=10, ghost=2)
-        assert "frame_time" in str(info.value)
-
     def test_a_later_unset_clip_is_caught(self, bvh_test1, unset, tmp_path):
         clips = [bvh_test1[0:5], unset]
-        with pytest.raises(ValueError, match="index 1"):
+        message = _rate_refusal("render()", "pass fps= to render()", index=1)
+        with pytest.raises(ValueError, match=message):
             bvhplot.render(clips, tmp_path / "x.gif", backend="matplotlib")
-        with pytest.raises(ValueError, match="ghost"):
+        message = _rate_refusal("render() with ghost=2", "drop ghost=", index=1)
+        with pytest.raises(ValueError, match=message):
             bvhplot.render(clips, tmp_path / "x.gif", backend="matplotlib", fps=10, ghost=2)
-
-    def test_match_fps_does_not_resample_to_zero(self, bvh_test1, unset, tmp_path):
-        clips = [bvh_test1[0:5], unset]
-        with pytest.raises(ValueError, match="match_fps") as info:
-            bvhplot.render(
-                clips, tmp_path / "x.gif", backend="matplotlib", fps=10, match_fps="lowest"
-            )
-        assert "index 1" in str(info.value)
 
     def test_render_ghost_without_fps_names_only_the_working_fix(self, unset, tmp_path):
         """fps= alone cannot satisfy ghost=, so it is not offered alone."""
-        with pytest.raises(ValueError, match="ghost") as info:
+        message = _rate_refusal("render() with ghost=2", "drop ghost= and pass fps= to render()")
+        with pytest.raises(ValueError, match=message):
             bvhplot.render(unset, tmp_path / "x.gif", backend="matplotlib", ghost=2)
-        message = str(info.value)
-        assert "bvh.frame_time" in message
-        assert "drop ghost=" in message
-        assert "or pass fps=" not in message
+
+    def test_render_ghost_and_match_fps_names_both(self, bvh_test1, unset, tmp_path):
+        """Dropping one of two options that need the rate is no way out."""
+        clips = [bvh_test1[0:5], unset]
+        message = _rate_refusal(
+            "render() with ghost=2 and match_fps='lowest'",
+            "drop ghost= and match_fps=",
+            index=1,
+        )
+        with pytest.raises(ValueError, match=message):
+            bvhplot.render(
+                clips, tmp_path / "x.gif", backend="matplotlib", fps=10, ghost=2, match_fps="lowest"
+            )
 
     def test_play_match_fps_without_fps_names_only_the_working_fix(self, bvh_test1, unset, played):
         """fps= alone cannot satisfy match_fps=, so it is not offered alone."""
-        with pytest.raises(ValueError, match="match_fps") as info:
+        message = _rate_refusal(
+            "play() with match_fps='lowest'", "drop match_fps= and pass fps= to play()", index=1
+        )
+        with pytest.raises(ValueError, match=message):
             bvhplot.play([bvh_test1[0:5], unset], backend="matplotlib", match_fps="lowest")
-        message = str(info.value)
-        assert "index 1" in message
-        assert "bvh.frame_time" in message
-        assert "drop match_fps=" in message
-        assert "or pass fps=" not in message
         assert played == []
 
     def test_match_fps_raises_on_an_unset_clip_beside_a_slow_one(self, bvh_test1, unset, tmp_path):
@@ -2200,14 +2206,19 @@ class TestUnsetFrameTime:
         pass as close enough to need no resampling."""
         slow = bvh_test1[0:5]
         slow.frame_time = 4.0
-        with pytest.raises(ValueError, match="match_fps"):
+        message = _rate_refusal("render() with match_fps='lowest'", "drop match_fps=", index=1)
+        with pytest.raises(ValueError, match=message):
             bvhplot.render(
                 [slow, unset], tmp_path / "x.gif", backend="matplotlib", fps=10, match_fps="lowest"
             )
 
     @pytest.mark.parametrize("match_fps", ["lowest", "highest"])
     def test_match_fps_raises_when_every_clip_is_unset(self, unset, match_fps, tmp_path):
-        with pytest.raises(ValueError, match="match_fps") as info:
+        """The first clip that lacks a rate is named."""
+        message = _rate_refusal(
+            f"render() with match_fps={match_fps!r}", "drop match_fps=", index=0
+        )
+        with pytest.raises(ValueError, match=message):
             bvhplot.render(
                 [unset, unset.copy()],
                 tmp_path / "x.gif",
@@ -2215,21 +2226,20 @@ class TestUnsetFrameTime:
                 fps=10,
                 match_fps=match_fps,
             )
-        assert "indices 0, 1" in str(info.value)
 
     def test_rate_warning_names_the_unset_clip(self, bvh_test1, unset, played):
         with pytest.warns(UserWarning, match="Frame rates differ") as record:
             bvhplot.play([bvh_test1[0:5], unset], backend="matplotlib", fps=10)
         message = " ".join(str(w.message) for w in record)
         assert "index 1" in message
-        assert "30.0 fps" in message
+        assert "(30 fps, and" in message
         assert not re.search(r"(?<![\d.])0\.0 fps", message)
         assert "match_fps='lowest'" not in message
 
     def test_play_mixed_list_without_fps_raises(self, bvh_test1, unset, played):
-        with pytest.raises(ValueError, match="index 1") as info:
+        message = _rate_refusal("play()", "pass fps= to play()", index=1)
+        with pytest.raises(ValueError, match=message):
             bvhplot.play([bvh_test1[0:5], unset], backend="matplotlib")
-        assert "fps=" in str(info.value)
         assert played == []
 
     @pytest.mark.filterwarnings("ignore:Frame rates differ")
@@ -2464,6 +2474,61 @@ class TestMatchFps:
             bvhplot.play([bvh_30fps, bvh_120fps], backend="matplotlib", fps=60)
         assert self._played_rates(played) == pytest.approx([30.0, 120.0], rel=1e-4)
 
+    def test_warns_on_ntsc_against_30_with_the_rates_apart(self, bvh_30fps, played):
+        """29.97 and 30 fps are different rates (frame times 1e-3 apart),
+        and the warning prints them so that they read apart."""
+        ntsc = bvh_30fps.copy()
+        ntsc.fps = 29.97
+        with pytest.warns(UserWarning, match="Frame rates differ") as record:
+            bvhplot.play([ntsc, bvh_30fps], backend="matplotlib", fps=30)
+        message = " ".join(str(w.message) for w in record)
+        assert "(29.97, 30 fps)" in message
+
+    def test_highest_resamples_ntsc_to_30(self, bvh_30fps, played):
+        ntsc = bvh_30fps.copy()
+        ntsc.fps = 29.97
+        bvhplot.play([ntsc, bvh_30fps], backend="matplotlib", match_fps="highest", fps=30)
+        assert self._played_rates(played) == pytest.approx([30.0, 30.0], rel=1e-9)
+        # Interpolated, not relabelled: the two clips share their samples,
+        # so a relabelled copy would draw the 30 fps clip's poses.
+        ((scene, _),) = played
+        assert not np.array_equal(scene.views[0].coords, scene.views[1].coords)
+
+    @pytest.mark.parametrize("match_fps", [None, "lowest", "highest"])
+    def test_rounding_apart_neither_warns_nor_interpolates(self, bvh_30fps, match_fps, played):
+        """Frame times 1e-7 apart, as float arithmetic leaves them, are one rate."""
+        import warnings
+
+        rounded = bvh_30fps.copy()
+        rounded.frame_time = bvh_30fps.frame_time * (1 + 1e-7)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            bvhplot.play([bvh_30fps, rounded], backend="matplotlib", match_fps=match_fps, fps=30)
+        ((scene, _),) = played
+        for view, clip in zip(scene.views, [bvh_30fps, rounded], strict=True):
+            assert len(view.coords) == clip.frame_count
+
+    @pytest.mark.parametrize(("match_fps", "target"), [("lowest", 1), ("highest", 0)])
+    def test_rounding_apart_takes_the_targets_frame_time(
+        self, bvh_30fps, match_fps, target, played
+    ):
+        """Under match_fps, a clip within the rule of the target is
+        relabelled: it takes the target's exact frame time, the one
+        ``bvh.fps = target_fps`` sets, and keeps its samples."""
+        rounded = bvh_30fps.copy()
+        rounded.frame_time = bvh_30fps.frame_time * (1 + 1e-7)
+        clips = [bvh_30fps, rounded]
+        bvhplot.play(clips, backend="matplotlib", fps=30)
+        bvhplot.play(clips, backend="matplotlib", match_fps=match_fps, fps=30)
+        (as_given, _), (matched, _) = played
+        # Without match_fps, each clip keeps its own frame time.
+        assert [view.frame_time for view in as_given.views] == [c.frame_time for c in clips]
+        expected = clips[target].copy()
+        expected.fps = clips[target].fps
+        assert [view.frame_time for view in matched.views] == [expected.frame_time] * 2
+        for view, given in zip(matched.views, as_given.views, strict=True):
+            np.testing.assert_array_equal(view.coords, given.coords)
+
     def test_no_warning_when_same_fps(self, bvh_30fps, played):
         import warnings
 
@@ -2492,6 +2557,11 @@ class TestMatchFps:
     def test_invalid_match_fps_raises(self, bvh_30fps, bvh_120fps, played):
         with pytest.raises(ValueError, match="match_fps"):
             bvhplot.play([bvh_30fps, bvh_120fps], backend="matplotlib", match_fps="bad")
+        assert played == []
+
+    def test_invalid_match_fps_raises_when_the_rates_agree(self, bvh_30fps, played):
+        with pytest.raises(ValueError, match="match_fps"):
+            bvhplot.play([bvh_30fps, bvh_30fps.copy()], backend="matplotlib", match_fps="bad")
         assert played == []
 
     def test_single_clip_no_warning(self, bvh_30fps, played):

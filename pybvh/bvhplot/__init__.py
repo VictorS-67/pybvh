@@ -45,6 +45,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .._warnings import user_stacklevel
+from ..tools import _format_fps, _require_rate, _same_rate
 from . import _animation_options, _backends, _video
 from ._from_bvh import (
     as_clip_list,
@@ -132,21 +133,6 @@ def _resolve_fps(fps: float | None, frame_time: float) -> float:
     return fps
 
 
-def _unset_rate_subject(clips: list[Bvh]) -> str | None:
-    """Name the clips whose ``frame_time`` is 0 (unset), for an error
-    message ("the clip at index 1 has"), or ``None`` when all have one.
-    """
-    unset = [i for i, clip in enumerate(clips) if clip.frame_time == 0]
-    if not unset:
-        return None
-    indices = ", ".join(str(i) for i in unset)
-    if len(clips) == 1:
-        return "the clip has"
-    if len(unset) == 1:
-        return f"the clip at index {indices} has"
-    return f"the clips at indices {indices} have"
-
-
 def _require_frame_rates(
     clips: list[Bvh],
     entry: str,
@@ -154,44 +140,40 @@ def _require_frame_rates(
     ghost: int = 0,
     match_fps: str | None = None,
 ) -> None:
-    """Raise when an animated entry point needs a rate a clip lacks.
+    """Refuse an unset clip where an animated entry point needs its rate.
 
-    ``frame_time == 0`` is the "unset" value of a Bvh built in memory.
-    Timing the animation needs a rate unless the caller gives ``fps``.
-    Two options need every clip's own rate whatever ``fps`` says: a
-    ghost trail, spaced in seconds of clip time, and ``match_fps`` on a
-    comparison, which resamples each clip from its rate. The error
-    offers only ways out that work, so ``fps=`` alone is offered only
-    when neither option is asked for. Every clip is checked, not only
-    the first that drives playback.
+    Each clip goes through the library's one check
+    (:func:`pybvh.tools._require_rate`), which names the clip's index
+    when several are drawn. Timing the animation needs a rate unless the
+    caller gives ``fps``, the playback rate of a clip without one. Two
+    options need every clip's own rate whatever ``fps`` says: a ghost
+    trail, spaced in seconds of clip time, and ``match_fps`` on a
+    comparison, which resamples each clip from its rate. The message
+    offers only ways out that work, so it names every such option asked
+    for, and ``fps=`` too when it is missing. Every clip is checked, not
+    only the first that drives playback.
     """
-    subject = _unset_rate_subject(clips)
-    if subject is None:
-        return
-    reasons = {}
+    options = []
     if ghost:
-        reasons["ghost="] = (
-            "ghost= spaces its trailing poses style.ghost_spacing seconds "
-            "apart in each clip's own time"
-        )
+        options.append(("ghost=", f"ghost={ghost}"))
     if match_fps is not None and len(clips) > 1:
-        reasons["match_fps="] = f"match_fps={match_fps!r} resamples each clip from its own rate"
-    if reasons:
-        options = " and ".join(reasons)
-        drop = f"drop {options}"
+        options.append(("match_fps=", f"match_fps={match_fps!r}"))
+    if options:
+        operation = f"{entry}() with " + " and ".join(given for _, given in options)
+        alternative = "drop " + " and ".join(name for name, _ in options)
         if fps is None:
-            drop += f" and pass fps= to {entry}()"
-        raise ValueError(
-            f"{entry}() needs every clip's frame rate even when fps= is "
-            f"given, because {'; '.join(reasons.values())}; but {subject} "
-            f"frame_time 0 (unset). Set bvh.frame_time (or bvh.fps), or "
-            f"{drop}."
-        )
-    if fps is None:
-        raise ValueError(
-            f"{entry}() needs a frame rate to time the animation, but "
-            f"{subject} frame_time 0 (unset). Set bvh.frame_time (or "
-            f"bvh.fps), or pass fps= to {entry}()."
+            alternative += f" and pass fps= to {entry}()"
+    elif fps is None:
+        operation = f"{entry}()"
+        alternative = f"pass fps= to {entry}()"
+    else:
+        return
+    for i, clip in enumerate(clips):
+        _require_rate(
+            clip.frame_time,
+            operation,
+            alternative=alternative,
+            index=i if len(clips) > 1 else None,
         )
 
 
@@ -214,11 +196,12 @@ def _match_frame_rates(
 ) -> list[Bvh]:
     """Warn on frame-rate mismatch and optionally resample to a common rate.
 
-    A clip whose ``frame_time`` is 0 has no rate, not a rate of 0 fps:
-    rates are compared among the clips that have one, the warning names
-    the others, and resampling refuses them (the router's
-    :func:`_require_frame_rates` does so first, with advice that fits
-    the call).
+    Rates are compared by :meth:`Bvh.matches_rate`'s rule, so 29.97 and
+    30 fps differ. A clip whose ``frame_time`` is 0 has no rate, not a
+    rate of 0 fps: rates are
+    compared among the clips that have one, and the warning names the
+    others. The router's :func:`_require_frame_rates` has refused such a
+    clip before ``match_fps`` resamples.
 
     Parameters
     ----------
@@ -228,32 +211,35 @@ def _match_frame_rates(
         ``None`` — warn only, no resampling.
         ``"lowest"`` — resample all clips to the lowest frame rate.
         ``"highest"`` — resample all clips to the highest frame rate.
+        A clip that has the target rate keeps its samples
+        (:meth:`Bvh.resample`).
 
     Returns
     -------
     list[Bvh]
-        Possibly resampled clips (originals returned when no resampling
-        needed).
+        The input list for a single clip, for clips none of which has a
+        rate, and under ``match_fps=None``; otherwise new clips,
+        all at the target's frame time ``1 / target_fps``, also when
+        every clip has the same rate: a clip within the rule of the
+        target keeps its samples and takes that exact frame time.
     """
     if len(bvh_list) <= 1:
         return bvh_list
 
-    unset_subject = _unset_rate_subject(bvh_list)
-    if match_fps is not None and unset_subject is not None:
-        raise ValueError(
-            f"match_fps={match_fps!r} resamples each clip from its own "
-            f"rate, but {unset_subject} frame_time 0 (unset). Set "
-            f"bvh.frame_time (or bvh.fps), or drop match_fps=."
-        )
+    is_unset = [b.frame_time == 0 for b in bvh_list]
+    unset = [i for i, u in enumerate(is_unset) if u]
+    frame_times = [b.frame_time for b, u in zip(bvh_list, is_unset, strict=True) if not u]
+    rates = [1.0 / ft for ft in frame_times]
+    where_unset = f"{'indices' if len(unset) > 1 else 'index'} {', '.join(map(str, unset))}"
+    # The extremes agree only when every pair does.
+    rates_agree = not frame_times or _same_rate(min(frame_times), max(frame_times))
+    if not rates or (match_fps is None and rates_agree and not unset):
+        # match_fps=None and the same rate, or no clip has a rate to compare
+        return bvh_list
 
-    rates = [1.0 / b.frame_time for b in bvh_list if b.frame_time > 0]
-    rates_agree = all(abs(r - rates[0]) < 0.5 for r in rates)
-    if rates_agree and (unset_subject is None or not rates):
-        return bvh_list  # all close enough, or none has a rate to compare
-
-    rate_strs = ", ".join(f"{r:.1f}" for r in rates)
+    rate_strs = ", ".join(_format_fps(ft) for ft in frame_times)
     if match_fps is None:
-        if unset_subject is None:
+        if not unset:
             warnings.warn(
                 f"Frame rates differ across clips ({rate_strs} fps). \n"
                 f"Playback speed will not match real time for all clips. \n"
@@ -265,7 +251,7 @@ def _match_frame_rates(
         else:
             warnings.warn(
                 f"Frame rates differ across clips ({rate_strs} fps, and "
-                f"{unset_subject} frame_time 0 (unset)). \n"
+                f"frame_time 0 (unset) at {where_unset}). \n"
                 f"Playback speed will not match real time for all clips. \n"
                 f"Set bvh.frame_time (or bvh.fps) on every clip to compare "
                 f"them in real time.",
@@ -279,13 +265,9 @@ def _match_frame_rates(
         raise ValueError(f"match_fps must be None, 'lowest', or 'highest', got {match_fps!r}")
 
     target_fps = min(rates) if match_fps == "lowest" else max(rates)
-    result = []
-    for b in bvh_list:
-        if abs(1.0 / b.frame_time - target_fps) < 0.5:
-            result.append(b)
-        else:
-            result.append(b.resample(target_fps))
-    return result
+    # resample() relabels a clip with the target's rate, by the rule, and
+    # interpolates the others, so every clip comes back at 1 / target_fps.
+    return [b.resample(target_fps) for b in bvh_list]
 
 
 def _warn_at_user_line(messages: Iterable[str]) -> None:
@@ -971,10 +953,12 @@ def render(
         pre-0.9.0 counter.
     match_fps : str or None, optional
         How to handle clips with different frame rates in side-by-side
-        rendering.  ``None`` (default) emits a warning but does not
+        rendering (different by :meth:`Bvh.matches_rate`'s rule, so
+        29.97 and 30 fps differ).  ``None`` (default) emits a warning but does not
         resample.  ``"lowest"`` resamples all clips to the lowest frame
         rate.  ``"highest"`` resamples all clips to the highest frame rate
-        (using SLERP interpolation for added frames). Resampling starts
+        (using SLERP interpolation for added frames); a clip that has
+        the target rate keeps its samples. Resampling starts
         from each clip's own rate, so a clip whose ``frame_time`` is 0
         (unset) raises ``ValueError`` under ``"lowest"`` or
         ``"highest"``, even when ``fps`` is given; under ``None`` the
@@ -1275,9 +1259,11 @@ def play(
         only backend that reads it (see *backend*). ``None`` (default)
         is ``False``; pass ``True`` to restore the pre-0.9.0 counter.
     match_fps : str or None, optional
-        How to handle clips with different frame rates.  ``None``
-        (default) emits a warning.  ``"lowest"`` or ``"highest"``
-        resamples all clips to match. Resampling starts from each
+        How to handle clips with different frame rates (different by
+        :meth:`Bvh.matches_rate`'s rule, so 29.97 and 30 fps differ).
+        ``None`` (default) emits a warning.  ``"lowest"`` or
+        ``"highest"`` resamples all clips to match; a clip that has the
+        target rate keeps its samples. Resampling starts from each
         clip's own rate, so a clip whose ``frame_time`` is 0 (unset)
         raises ``ValueError`` under ``"lowest"`` or ``"highest"``, even
         when ``fps`` is given; under ``None`` the warning names it.

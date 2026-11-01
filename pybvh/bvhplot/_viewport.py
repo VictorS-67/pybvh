@@ -20,7 +20,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .._orientation import _leftward_units_from_pairs
-from ..tools import parse_axis
+from ..tools import _require_rate, parse_axis
 from ._scene import GroundFrame
 
 if TYPE_CHECKING:
@@ -850,16 +850,16 @@ def compute_follow_azimuths(
         return np.full(num_frames, float(base_azim))
 
     heading_change = _heading_change(leftward, valid, view.up_vector)
-    if view.frame_time > 0:
-        frames_per_second = 1.0 / view.frame_time
-    elif fps is not None:
+    if view.frame_time == 0 and fps is not None:
+        # An unset clip is drawn at fps: its seconds are seconds of playback.
         frames_per_second = float(fps)
     else:
-        raise ValueError(
-            "The follow camera smooths the heading over seconds of clip "
-            "time, and this view's frame_time is 0 (unset): pass fps, "
-            "the rate the picture plays at."
+        _require_rate(
+            view.frame_time,
+            "The follow camera",
+            alternative="pass fps, the rate the picture plays at",
         )
+        frames_per_second = 1.0 / view.frame_time
     smoothed = _gaussian_smooth_held_ends(
         heading_change, FOLLOW_SIGMA * frames_per_second, FOLLOW_TRUNCATE
     )

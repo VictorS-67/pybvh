@@ -2177,25 +2177,33 @@ class TestFrameSlicing:
         with pytest.raises(ValueError, match="rotates in order"):
             bvh_example + other
 
-    def test_concat_mismatched_frequency_warns(self, bvh_example):
-        """Concat with different frame frequencies should warn."""
-        other = bvh_example.copy()
-        other.frame_time = bvh_example.frame_time * 2
-        import warnings
+    def test_resample_to_own_rate_keeps_the_samples(self, bvh_example):
+        """Resampling to the clip's own rate interpolates nothing."""
+        result = bvh_example.resample(bvh_example.fps)
+        np.testing.assert_array_equal(result.root_pos, bvh_example.root_pos)
+        np.testing.assert_array_equal(result.joint_angles, bvh_example.joint_angles)
+        assert result.frame_time == bvh_example.frame_time
 
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            bvh_example + other
-            assert len(w) == 1
-            assert "frame time mismatch" in str(w[0].message).lower()
-
-    def test_resample_identity(self, bvh_example):
-        """Resampling to the same fps should produce near-identical frames."""
-        original_fps = 1.0 / bvh_example.frame_time
-        result = bvh_example.resample(original_fps)
-        assert result.frame_count == bvh_example.frame_count
-        np.testing.assert_allclose(result.root_pos, bvh_example.root_pos, atol=1e-6)
-        np.testing.assert_allclose(result.joint_angles, bvh_example.joint_angles, atol=0.5)
+    @pytest.mark.parametrize(
+        ("frame_time", "target_fps", "target_frame_time"),
+        [
+            # 1 / (1 / 0.013) is 0.013000000000000001.
+            (0.013, 1 / 0.013, 0.013000000000000001),
+            # An exact NTSC clip and 29.97 fps are the same rate.
+            (1001 / 30000, 29.97, 1 / 29.97),
+        ],
+        ids=["rounding", "ntsc"],
+    )
+    def test_resample_within_rounding_keeps_the_samples_at_the_target_frame_time(
+        self, bvh_example, frame_time, target_fps, target_frame_time
+    ):
+        clip = bvh_example.copy()
+        clip.frame_time = frame_time
+        result = clip.resample(target_fps)
+        np.testing.assert_array_equal(result.root_pos, clip.root_pos)
+        np.testing.assert_array_equal(result.joint_angles, clip.joint_angles)
+        assert result.frame_time == target_frame_time
+        assert clip.frame_time == frame_time
 
     def test_resample_upsample(self, bvh_example):
         """Upsampling doubles frame count (approximately)."""
@@ -4974,7 +4982,57 @@ class TestHarmonize:
         # bvh_example is 30 fps; ask for 30 fps -> no resample
         clips = [bvh_example.copy()]
         out = harmonize(clips, target_fps=30.0)
-        assert out[0].frame_count == bvh_example.frame_count
+        np.testing.assert_array_equal(out[0].joint_angles, bvh_example.joint_angles)
+        assert out[0].frame_time == 1 / 30
+
+    def test_clip_within_rounding_takes_target_frame_time_uninterpolated(self, bvh_example):
+        from pybvh.batch import harmonize
+
+        ntsc = bvh_example.copy()
+        ntsc.frame_time = 1001 / 30000
+        out = harmonize([ntsc], target_fps=29.97)
+        np.testing.assert_array_equal(out[0].root_pos, ntsc.root_pos)
+        np.testing.assert_array_equal(out[0].joint_angles, ntsc.joint_angles)
+        assert out[0].frame_time == 1 / 29.97
+        assert ntsc.frame_time == 1001 / 30000
+
+    @pytest.mark.parametrize("fps", [29.97, 30.005], ids=["29.97", "30.005"])
+    def test_clip_outside_the_rule_is_resampled(self, bvh_example, fps):
+        # 30.005 fps is within the former 0.01 fps of 30, outside the rule.
+        from pybvh.batch import harmonize
+
+        clip = bvh_example.copy()
+        clip.fps = fps
+        out, report = harmonize([clip], target_fps=30, return_report=True)
+        assert out[0].frame_time == 1 / 30
+        # Interpolated: the last frame's root moves off the original.
+        assert not np.array_equal(out[0].root_pos[-1], clip.root_pos[-1])
+        assert "resample" in report.applied_stages[0]
+
+    @pytest.mark.parametrize("clips", [[], "one dropped"], ids=["empty", "all-dropped"])
+    def test_invalid_target_fps_raises_even_without_a_clip_to_resample(
+        self, bvh_example, bvh_test2, clips
+    ):
+        from pybvh.batch import harmonize
+
+        if clips == "one dropped":
+            clips = [bvh_test2]
+        with pytest.raises(ValueError, match="target_fps"):
+            harmonize(clips, reference=bvh_example, target_fps=-1, verbose=False)
+
+    def test_harmonized_clips_join(self, bvh_example):
+        from pybvh.batch import harmonize
+
+        ntsc = bvh_example.copy()
+        ntsc.frame_time = 1001 / 30000
+        thirty = bvh_example.copy()
+        thirty.fps = 30
+        out = harmonize([ntsc, thirty], target_fps=29.97)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            joined = out[0] + out[1]
+        assert joined.frame_count == out[0].frame_count + out[1].frame_count
+        assert joined.frame_time == 1 / 29.97
 
     def test_reorient_world_up_only(self, bvh_test2):
         from pybvh.batch import harmonize
@@ -5227,6 +5285,14 @@ class TestHarmonizeReport:
         _, report = harmonize([bvh_example.copy()], target_fps=60.0, return_report=True)
         stage = report.applied_stages[0].get("resample")
         assert stage is not None and "60" in stage
+
+    def test_applied_stages_records_no_resample_within_the_rule(self, bvh_example):
+        from pybvh.batch import harmonize
+
+        ntsc = bvh_example.copy()
+        ntsc.frame_time = 1001 / 30000
+        _, report = harmonize([ntsc], target_fps=29.97, return_report=True)
+        assert report.applied_stages == [{}]
 
     def test_applied_stages_records_euler_order(self, bvh_example):
         from pybvh.batch import harmonize
@@ -7198,6 +7264,77 @@ class TestMatchesTopology:
         assert not bvh_example.matches_topology(None)
 
 
+class TestMatchesRate:
+    """Tests for Bvh.matches_rate."""
+
+    def test_a_copy_matches(self, bvh_example):
+        assert bvh_example.matches_rate(bvh_example.copy())
+
+    def test_a_frame_time_off_by_rounding_matches(self, bvh_example):
+        # 1 / (1 / 0.013) is 0.013000000000000001: == refuses it.
+        a = bvh_example.copy()
+        a.frame_time = 0.013
+        b = bvh_example.resample(1 / a.frame_time)
+        assert b.frame_time == 0.013000000000000001
+        assert a.matches_rate(b)
+        assert b.matches_rate(a)
+
+    def test_a_29_97_fps_file_matches_an_exact_ntsc_clip(self, bvh_example):
+        # 1e-6 of the larger apart in exact arithmetic, just over it in floats.
+        a = bvh_example.copy()
+        a.fps = 29.97
+        b = bvh_example.copy()
+        b.frame_time = 1001 / 30000
+        assert a.matches_rate(b)
+        assert b.matches_rate(a)
+
+    def test_29_97_fps_does_not_match_30_fps(self, bvh_example):
+        a = bvh_example.copy()
+        a.fps = 29.97
+        b = bvh_example.copy()
+        b.fps = 30
+        assert not a.matches_rate(b)
+        assert not b.matches_rate(a)
+
+    def test_a_rate_in_fps(self, bvh_example):
+        clip = bvh_example.copy()
+        clip.fps = 30
+        assert clip.matches_rate(30)
+        assert clip.matches_rate(30.0)
+        assert not clip.matches_rate(29.97)
+        clip.frame_time = 0.013
+        assert clip.matches_rate(1 / 0.013)
+        clip.frame_time = 1001 / 30000
+        assert clip.matches_rate(29.97)
+
+    def test_two_unset_clips_match(self, bvh_example):
+        a = bvh_example.copy()
+        a.frame_time = 0
+        assert a.matches_rate(a.copy())
+
+    def test_an_unset_clip_does_not_match_a_set_one(self, bvh_example):
+        unset = bvh_example.copy()
+        unset.frame_time = 0
+        assert bvh_example.frame_time > 0
+        assert not unset.matches_rate(bvh_example)
+        assert not bvh_example.matches_rate(unset)
+        assert not unset.matches_rate(bvh_example.fps)
+
+    @pytest.mark.parametrize("fps", [0, -30, float("nan"), float("inf")])
+    def test_an_fps_that_is_not_a_positive_finite_number_raises(self, bvh_example, fps):
+        with pytest.raises(ValueError, match="positive finite"):
+            bvh_example.matches_rate(fps)
+
+    def test_an_fps_whose_frame_time_overflows_raises(self, bvh_example):
+        # 1 / 1e-310 is inf, a frame time the fps setter refuses too.
+        with pytest.raises(ValueError, match="fps"):
+            bvh_example.matches_rate(1e-310)
+        unset = bvh_example.copy()
+        unset.frame_time = 0
+        with pytest.raises(ValueError, match="fps"):
+            unset.matches_rate(1e-310)
+
+
 class TestMatchesHierarchy:
     """Tests for Bvh.matches_hierarchy."""
 
@@ -7408,12 +7545,6 @@ class TestBvhAdd:
         assert combined.joint_names == bvh_example.joint_names
         assert combined.euler_orders == bvh_example.euler_orders
 
-    def test_warns_on_frame_time_mismatch(self, bvh_example):
-        other = bvh_example.copy()
-        other.frame_time = bvh_example.frame_time * 2
-        with pytest.warns(UserWarning, match="Frame time mismatch"):
-            _ = bvh_example + other
-
     def test_non_bvh_rhs_raises_type_error(self, bvh_example):
         with pytest.raises(TypeError):
             _ = bvh_example + 5
@@ -7515,13 +7646,6 @@ class TestBvhSetItemErrors:
         with pytest.raises(TypeError, match="int or slice"):
             bvh[0, 1] = bvh_example[0]
 
-    def test_frame_time_mismatch_raises(self, bvh_example):
-        bvh = bvh_example.copy()
-        donor = bvh_example[30:40].copy()
-        donor.frame_time = bvh.frame_time * 2
-        with pytest.raises(ValueError, match="frame_time mismatch"):
-            bvh[10:20] = donor
-
     def test_skeleton_mismatch_raises(self, bvh_example, bvh_test2):
         # bvh_test2 has different joint count → first check trips
         donor = bvh_test2[0:10]
@@ -7542,6 +7666,125 @@ class TestBvhSetItemErrors:
         bvh = bvh_example.copy()
         with pytest.raises(IndexError, match="out of range"):
             bvh[bvh_example.frame_count] = bvh_example[0]
+
+
+def _add(a, b):
+    return a + b
+
+
+def _add_in_place(a, b):
+    a += b
+    return a
+
+
+def _splice(a, b):
+    a[0 : b.frame_count] = b
+    return a
+
+
+@pytest.mark.parametrize(
+    "join", [_add, _add_in_place, _splice], ids=["a + b", "a += b", "a[i:j] = b"]
+)
+class TestJoinsRequireTheSameRate:
+    """``a + b``, ``a += b`` and ``a[i:j] = b`` join only clips of the same rate."""
+
+    def test_a_rate_mismatch_raises_and_leaves_a_unchanged(self, bvh_example, join):
+        a = bvh_example.copy()
+        b = bvh_example[30:40].copy()
+        b.frame_time = a.frame_time * 2
+        with pytest.raises(
+            ValueError, match=r"b\.resample\(a\.fps\).*b\.frame_time = a\.frame_time"
+        ):
+            join(a, b)
+        assert a == bvh_example
+
+    @pytest.mark.parametrize(
+        ("a_frame_time", "b_frame_time"),
+        [(0.013, 0.013000000000000001), (0.013000000000000001, 0.013)],
+    )
+    def test_frame_times_that_differ_by_rounding_join_at_a_s_frame_time(
+        self, bvh_example, join, a_frame_time, b_frame_time
+    ):
+        a = bvh_example.copy()
+        a.frame_time = a_frame_time
+        b = bvh_example[30:40].copy()
+        b.frame_time = b_frame_time
+        joined = join(a, b)
+        assert joined.frame_time == a_frame_time
+        np.testing.assert_array_equal(
+            joined.root_pos[-10:] if join is not _splice else joined.root_pos[:10],
+            bvh_example.root_pos[30:40],
+        )
+
+    def test_two_unset_clips_join_unset(self, bvh_example, join):
+        a = bvh_example.copy()
+        a.frame_time = 0
+        b = bvh_example[30:40].copy()
+        b.frame_time = 0
+        joined = join(a, b)
+        assert joined.frame_time == 0
+        np.testing.assert_array_equal(
+            joined.root_pos[-10:] if join is not _splice else joined.root_pos[:10],
+            bvh_example.root_pos[30:40],
+        )
+
+    @pytest.mark.parametrize("unset", ["a", "b"])
+    def test_an_unset_clip_joined_to_a_set_one_raises(self, bvh_example, join, unset):
+        a = bvh_example.copy()
+        b = bvh_example[30:40].copy()
+        (a if unset == "a" else b).frame_time = 0
+        before = a.copy()
+        with pytest.raises(ValueError, match=rf"{unset} has no rate.*{unset}\.frame_time ="):
+            join(a, b)
+        assert a == before
+
+    @pytest.mark.parametrize(
+        ("a_frame_time", "resampled_frame_time"),
+        # At 0.013 the remedy's frame time is a's only up to rounding.
+        [(1 / 30, 1 / 30), (0.013, 0.013000000000000001)],
+    )
+    def test_resampling_b_at_a_s_fps_lets_it_join(
+        self, bvh_example, join, a_frame_time, resampled_frame_time
+    ):
+        a = bvh_example.copy()
+        a.frame_time = a_frame_time
+        b = bvh_example[30:50].copy()
+        b.frame_time = a_frame_time * 2
+        with pytest.raises(ValueError):
+            join(a.copy(), b)
+        resampled = b.resample(a.fps)
+        assert resampled.frame_time == resampled_frame_time
+        joined = join(a, resampled)
+        assert joined.frame_time == a_frame_time
+        n = resampled.frame_count
+        np.testing.assert_array_equal(
+            joined.root_pos[-n:] if join is not _splice else joined.root_pos[:n],
+            resampled.root_pos,
+        )
+
+    def test_the_message_prints_a_numpy_frame_time_as_a_float(self, bvh_example, join):
+        a = bvh_example.copy()
+        b = bvh_example[30:40].copy()
+        b.frame_time = np.float64(a.frame_time * 2)
+        with pytest.raises(ValueError, match=r"b: 15 fps, frame_time 0\.0666") as raised:
+            join(a, b)
+        assert "np.float64" not in str(raised.value)
+
+    def test_the_message_tells_apart_rates_just_outside_the_rule(self, bvh_example, join):
+        # 30.00007 fps is 2.3e-6 from 30, outside the same-rate rule; six
+        # significant digits would print it as 30.0001.
+        a = bvh_example.copy()
+        a.fps = 30
+        b = bvh_example[30:40].copy()
+        b.fps = 30.00007
+        with pytest.raises(ValueError, match=r"a: 30 fps, .*b: 30\.00007 fps"):
+            join(a, b)
+
+    def test_the_skeleton_is_checked_before_the_rate(self, bvh_example, bvh_test2, join):
+        b = bvh_test2[0:10].copy()
+        b.frame_time = bvh_example.frame_time * 2
+        with pytest.raises(ValueError, match="skeletons differ"):
+            join(bvh_example.copy(), b)
 
 
 class TestBvhDunderInvariants:

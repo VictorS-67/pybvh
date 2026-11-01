@@ -39,17 +39,26 @@ from .signal import finite_difference
 
 _EPS = 1e-12
 
+# How many units of float64 round-off (machine epsilon times the trajectory's
+# largest coordinate) a per-frame derivative must exceed before curvature and
+# torsion treat it as motion. Finite differences of positions of size ``M``
+# carry round-off of a few ``eps * M``; 1e3 leaves a wide margin over that
+# while keeping the bound near 1e-13 * M, far below any recorded motion.
+_ROUNDOFF_MARGIN = 1e3
+
 
 def _safe_ratio(
     numerator: npt.NDArray[np.float64],
     denominator: npt.NDArray[np.float64],
     fill: float = np.nan,
+    zero_below: float | npt.NDArray[np.float64] = _EPS,
 ) -> npt.NDArray[np.float64]:
     """``numerator / denominator``, returning ``fill`` where ``denominator``
-    is ~0. The division is computed against a guarded denominator (never
-    zero), so no divide-by-zero warning is ever raised — the zero-denominator
-    policy is enforced before the divide, not patched up after it."""
-    valid = denominator > _EPS
+    is ~0, i.e. at or below ``zero_below``. The division is computed against a
+    guarded denominator (never zero), so no divide-by-zero warning is ever
+    raised — the zero-denominator policy is enforced before the divide, not
+    patched up after it."""
+    valid = denominator > zero_below
     guarded = np.where(valid, denominator, 1.0)
     return np.where(valid, numerator / guarded, fill)
 
@@ -593,6 +602,21 @@ def _aligned_derivatives(
     return derivs
 
 
+def _roundoff_bound(traj: npt.NDArray[np.float64]) -> float:
+    """The largest per-frame difference that is float round-off for ``traj``.
+
+    ``_ROUNDOFF_MARGIN * eps * max|traj|``: a per-frame derivative at or
+    below it is round-off for a trajectory of that size, not motion. It
+    scales with the trajectory, so a zero test built on it does not depend
+    on the length unit. Non-finite coordinates are left out of the size.
+    """
+    traj = np.asarray(traj, dtype=np.float64)
+    # finite coordinates only: a missing (NaN) frame stays local to the
+    # frames its stencil reaches instead of voiding every frame's test
+    size = float(np.max(np.abs(traj), initial=0.0, where=np.isfinite(traj)))
+    return _ROUNDOFF_MARGIN * float(np.finfo(np.float64).eps) * size
+
+
 def _speed_and_swept(
     traj: npt.NDArray[np.float64],
     frame_time: float,
@@ -612,7 +636,6 @@ def _speed_and_swept(
 
 def curvature(
     traj: npt.NDArray[np.float64],
-    frame_time: float,
     stencil: str = "central",
     pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
@@ -623,12 +646,20 @@ def curvature(
     is undefined). Note this is distinct from the genuine ``κ = 0`` of a
     straight segment.
 
+    Curvature depends on the path's shape alone, not on how fast the
+    path is travelled, so it takes no frame time: a frame time ``h``
+    scales ``‖ṗ × p̈‖`` by ``h⁻³`` and ``‖ṗ‖³`` by ``h⁻³``, which cancel.
+    The derivatives are computed at a unit spacing, so the kernel works on
+    a clip with no rate set. The speed counts as ~0 where it is float
+    round-off for the trajectory's size: ``np.nan`` where the per-frame
+    ``‖ṗ‖ ≤ 1e3 · eps · max|traj|`` (``eps`` the float64 machine epsilon),
+    a bound that scales with the trajectory, so a clip in metres and the
+    same clip in centimetres give NaN on the same frames.
+
     Parameters
     ----------
     traj : ndarray, shape (F, 3) or (F, N, 3)
         Trajectory; the first axis is time.
-    frame_time : float
-        Seconds between frames.
     stencil, pad : optional
         Finite-difference convention, shared with the kinematics ladder
         (see :func:`pybvh.signal.finite_difference`). Default
@@ -645,13 +676,12 @@ def curvature(
     -----
     Source: Larboulette & Gibet, Gibet et al.
     """
-    speed, swept = _speed_and_swept(traj, frame_time, stencil, pad)
-    return _safe_ratio(swept, speed**3)
+    speed, swept = _speed_and_swept(traj, 1.0, stencil, pad)
+    return _safe_ratio(swept, speed**3, zero_below=_roundoff_bound(traj) ** 3)
 
 
 def torsion(
     traj: npt.NDArray[np.float64],
-    frame_time: float,
     stencil: str = "central",
     pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
@@ -662,12 +692,20 @@ def torsion(
     where ``‖ṗ × p̈‖`` is ~0 (straight or stationary, where torsion is
     undefined).
 
+    Torsion, like :func:`curvature`, depends on the path's shape alone,
+    so it takes no frame time: a frame time ``h`` scales
+    ``(ṗ × p̈) · p⃛`` by ``h⁻⁶`` and ``‖ṗ × p̈‖²`` by ``h⁻⁶``, which cancel.
+    The derivatives are computed at a unit spacing. ``‖ṗ × p̈‖`` counts as
+    ~0 where the part of ``p̈`` normal to ``ṗ`` is float round-off for the
+    trajectory's size: ``np.nan`` where the per-frame
+    ``‖ṗ × p̈‖ ≤ ‖ṗ‖ · 1e3 · eps · max|traj|`` (``eps`` the float64 machine
+    epsilon), which covers a stationary point and a straight segment in any
+    direction, in any length unit.
+
     Parameters
     ----------
     traj : ndarray, shape (F, 3) or (F, N, 3)
         Trajectory; the first axis is time.
-    frame_time : float
-        Seconds between frames.
     stencil, pad : optional
         Finite-difference convention (see :func:`curvature`).
 
@@ -680,11 +718,14 @@ def torsion(
     -----
     Source: Bouchard & Badler, Zhao & Badler.
     """
-    d1, d2, d3 = _aligned_derivatives(traj, frame_time, 3, stencil, pad)
+    d1, d2, d3 = _aligned_derivatives(traj, 1.0, 3, stencil, pad)
     swept = np.cross(d1, d2)
     twist = np.sum(swept * d3, axis=-1)
     swept_sq = np.sum(swept * swept, axis=-1)
-    return _safe_ratio(twist, swept_sq)
+    # ‖ṗ × p̈‖ = ‖ṗ‖ · (the part of p̈ normal to ṗ); that part is a bend
+    # only where it exceeds round-off, so the bound carries the speed
+    speed = np.linalg.norm(d1, axis=-1)
+    return _safe_ratio(twist, swept_sq, zero_below=(speed * _roundoff_bound(traj)) ** 2)
 
 
 def movement_phase(
@@ -697,7 +738,9 @@ def movement_phase(
 
     Peaks mark the fast, sharply-turning instants that segment a
     trajectory into ballistic phases. ``np.nan`` where speed is ~0
-    (curvature is undefined there), matching :func:`curvature`.
+    (curvature is undefined there): unlike :func:`curvature`, whose ~0
+    test scales with the trajectory, this one is a fixed ``1e-12`` on
+    ``‖ṗ‖²`` per second.
 
     Parameters
     ----------

@@ -70,9 +70,8 @@ plt.show()
 n, r = 720, 2.0
 theta = np.linspace(0, 2 * np.pi, n, endpoint=False)
 circle = np.stack([r * np.cos(theta), r * np.sin(theta), np.zeros(n)], axis=1)
-dt = theta[1] - theta[0]
 
-kappa_circle = geometry.curvature(circle, dt)
+kappa_circle = geometry.curvature(circle)
 print(f"radius r = {r}  ->  1/r = {1 / r:.4f}")
 print(f"measured curvature (interior mean) = {kappa_circle[5:-5].mean():.4f}")
 print(f"directness = {geometry.directness(circle):.4f}   (≈ 0, closed loop)")

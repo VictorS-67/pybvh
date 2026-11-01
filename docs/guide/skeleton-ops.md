@@ -42,7 +42,7 @@ The three skeleton operations on one shared scale — scaled to half, retargeted
 
 ```python
 clip = bvh[10:50]              # frame slicing (steps work too: bvh[::2])
-combined = bvh + other_bvh     # concatenation (same skeleton required)
+combined = bvh + other_bvh     # concatenation (same skeleton and rate required)
 bvh_30fps = bvh.resample(30)
 ```
 

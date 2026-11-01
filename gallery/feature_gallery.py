@@ -519,11 +519,11 @@ s = np.linspace(0, 6 * np.pi, 600)
 climb_rate = 0.4 * (1 + np.tanh(s - 3 * np.pi)) / 2  # vertical speed: smoothly 0 → 0.4
 z = np.cumsum(climb_rate) * (s[1] - s[0])  # integrate it: flat, then climbs
 helix = np.stack([np.cos(s), np.sin(s), z], axis=1)  # smooth join → no torsion spike
-tor = geometry.torsion(helix, s[1] - s[0])
+tor = geometry.torsion(helix)
 gp.fig_torsion(helix, tor, "torsion: flat circle → rising helix")
 
 # %% [markdown]
-# > **Note — the ratio torsion / curvature - or τ/κ (Lancret invariant).** Curvature and torsion are the *complete* pair of Frenet invariants. Together they fix a 3D curve up to a rigid motion. Their ratio has a clean meaning: **τ/κ is constant iff the curve is a generalized helix**, and that constant *is* the helix's pitch. On the curve above, it is ~0 along the flat circle and ≈0.40 (the climb rate) on the helix. It is a one-liner from the two primitives: `geometry.torsion(traj, dt) / geometry.curvature(traj, dt)`. It is left at that, because as a feature it inherits torsion's noise *and* adds a second blow-up where κ→0. So it stays a documented composition rather than a library call.
+# > **Note — the ratio torsion / curvature - or τ/κ (Lancret invariant).** Curvature and torsion are the *complete* pair of Frenet invariants. Together they fix a 3D curve up to a rigid motion. Their ratio has a clean meaning: **τ/κ is constant iff the curve is a generalized helix**, and that constant *is* the helix's pitch. On the curve above, it is ~0 along the flat circle and ≈0.40 (the climb rate) on the helix. It is a one-liner from the two primitives: `geometry.torsion(traj) / geometry.curvature(traj)`. It is left at that, because as a feature it inherits torsion's noise *and* adds a second blow-up where κ→0. So it stays a documented composition rather than a library call.
 
 # %% [markdown]
 # **`movement_phase`** — speed·curvature, so it peaks where the joint moves both *fast* and *sharply*. Shown along the real hand path. Bright marks the moments that combine high speed with a tight turn.

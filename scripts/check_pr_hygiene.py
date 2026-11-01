@@ -6,7 +6,8 @@ It fails when:
 
 - the pull request does not carry exactly one kind-of-change label
   (``breaking``, ``behaviour-change``, ``internal``, ``documentation``) and
-  exactly one blast-radius label (``localized``, ``extensive``);
+  exactly one blast-radius label (``localized``, ``extensive``) and exactly
+  one door label (``two-way``, ``one-way``);
 - a ``breaking`` or ``behaviour-change`` pull request does not touch
   ``CHANGELOG.md``;
 - a ``breaking`` pull request has no filled-in ``## Migration`` section.
@@ -48,6 +49,7 @@ from typing import Any
 
 KIND_LABELS = ("breaking", "behaviour-change", "internal", "documentation")
 BLAST_RADIUS_LABELS = ("localized", "extensive")
+DOOR_LABELS = ("two-way", "one-way")
 LABELS_NEEDING_CHANGELOG = ("breaking", "behaviour-change")
 CHANGELOG = "CHANGELOG.md"
 WHERE_LABELS_ARE_DEFINED = (
@@ -148,6 +150,7 @@ def find_problems(pull_request: PullRequest, changed_files: list[str]) -> list[s
     for label_set, label_set_name in (
         (KIND_LABELS, "kind-of-change"),
         (BLAST_RADIUS_LABELS, "blast-radius"),
+        (DOOR_LABELS, "door"),
     ):
         problem = _label_count_problem(labels, label_set, label_set_name)
         if problem is not None:

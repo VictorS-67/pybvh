@@ -10,6 +10,8 @@ Closes #
 
 **localized | extensive.** <!-- Keep one; it is the PR's second label. Then the public names touched, whether the file round trip is involved, and which consumer must change. -->
 
+**two-way | one-way.** <!-- Keep one; it is the PR's third label. Then what a revert of the merge undoes, or for a one-way PR, what it does not undo. -->
+
 **Needs your eyes on:**
 - <!-- One to three decisions taken while building: a choice between defensible options, a deliberate omission, a surprise. Or "None." Merge instructions go in one line after this list, not in it. -->
 

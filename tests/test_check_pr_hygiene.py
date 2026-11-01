@@ -84,43 +84,61 @@ class TestReadPullRequest:
 
 
 class TestLabels:
-    def test_the_recorded_pull_request_passes(self, event):
-        assert problems_for(event) == []
+    def test_the_recorded_pull_request_lacks_only_the_door(self, event):
+        # PR #54 was labelled before the door label existed.
+        assert problems_for(event) == ["No door label: add one of two-way, one-way."]
+
+    def test_the_recorded_pull_request_with_a_door_passes(self, event):
+        assert problems_for(event, labels=["documentation", "localized", "two-way"]) == []
 
     def test_no_kind_of_change_label(self, event):
-        problems = problems_for(event, labels=["localized"])
+        problems = problems_for(event, labels=["localized", "two-way"])
         assert problems == [
             "No kind-of-change label: add one of breaking, behaviour-change, internal,"
             " documentation."
         ]
 
     def test_two_kind_of_change_labels(self, event):
-        problems = problems_for(event, labels=["internal", "documentation", "localized"])
+        problems = problems_for(event, labels=["internal", "documentation", "localized", "two-way"])
         assert problems == ["2 kind-of-change labels (internal, documentation): keep one."]
 
     def test_no_blast_radius_label(self, event):
-        problems = problems_for(event, labels=["internal"])
+        problems = problems_for(event, labels=["internal", "two-way"])
         assert problems == ["No blast-radius label: add one of localized, extensive."]
 
     def test_two_blast_radius_labels(self, event):
-        problems = problems_for(event, labels=["internal", "localized", "extensive"])
+        problems = problems_for(event, labels=["internal", "localized", "extensive", "two-way"])
         assert problems == ["2 blast-radius labels (localized, extensive): keep one."]
 
     def test_other_labels_do_not_count(self, event):
-        assert problems_for(event, labels=["bug", "internal", "localized"]) == []
+        assert problems_for(event, labels=["bug", "internal", "localized", "two-way"]) == []
+
+    def test_no_door_label(self, event):
+        problems = problems_for(event, labels=["internal", "localized"])
+        assert problems == ["No door label: add one of two-way, one-way."]
+
+    def test_two_door_labels(self, event):
+        problems = problems_for(event, labels=["internal", "localized", "two-way", "one-way"])
+        assert problems == ["2 door labels (two-way, one-way): keep one."]
+
+    @pytest.mark.parametrize("door", ["two-way", "one-way"])
+    def test_one_door_label_passes(self, event, door):
+        assert problems_for(event, labels=["internal", "localized", door]) == []
 
 
 class TestChangelog:
     @pytest.mark.parametrize("label", ["breaking", "behaviour-change"])
     def test_a_user_visible_change_without_changelog_fails(self, event, label):
-        problems = problems_for(event, labels=[label, "localized"], body=FILLED_MIGRATION)
+        problems = problems_for(
+            event, labels=[label, "localized", "two-way"], body=FILLED_MIGRATION
+        )
         assert problems == [f"Labelled {label}, but CHANGELOG.md is not changed: add its entry."]
 
     @pytest.mark.parametrize("label", ["breaking", "behaviour-change"])
     def test_a_user_visible_change_with_changelog_passes(self, event, label):
         problems = problems_for(
             event,
-            labels=[label, "localized"],
+            labels=[label, "localized", "two-way"],
             body=FILLED_MIGRATION,
             changed_files=SOURCE_AND_CHANGELOG,
         )
@@ -128,7 +146,7 @@ class TestChangelog:
 
     @pytest.mark.parametrize("label", ["internal", "documentation"])
     def test_an_invisible_change_needs_no_changelog(self, event, label):
-        assert problems_for(event, labels=[label, "localized"]) == []
+        assert problems_for(event, labels=[label, "localized", "two-way"]) == []
 
 
 class TestMigration:
@@ -140,7 +158,7 @@ class TestMigration:
     def breaking_problems(self, event, body):
         return problems_for(
             event,
-            labels=["breaking", "extensive"],
+            labels=["breaking", "extensive", "two-way"],
             body=body,
             changed_files=SOURCE_AND_CHANGELOG,
         )
@@ -182,7 +200,7 @@ class TestMigration:
     def test_a_behaviour_change_needs_no_migration(self, event):
         problems = problems_for(
             event,
-            labels=["behaviour-change", "localized"],
+            labels=["behaviour-change", "localized", "two-way"],
             body="## Why\n\nA reason.\n",
             changed_files=SOURCE_AND_CHANGELOG,
         )
@@ -192,9 +210,9 @@ class TestMigration:
 class TestReport:
     def test_every_problem_is_reported_at_once(self, event):
         problems = problems_for(event, labels=["breaking"], body=TEMPLATE_MIGRATION)
-        assert len(problems) == 3
+        assert len(problems) == 4
         report = check.format_report(problems).splitlines()
-        assert report[:3] == [f"::error title=pr-hygiene::{problem}" for problem in problems]
+        assert report[:4] == [f"::error title=pr-hygiene::{problem}" for problem in problems]
 
     def test_a_failing_report_points_to_the_label_definitions(self):
         report = check.format_report(["No blast-radius label: add one of localized, extensive."])
@@ -236,9 +254,9 @@ class TestMain:
         monkeypatch.setattr(check, "changed_files", lambda base_sha, head_sha: SOURCE_ONLY)
 
     def test_passes_on_the_current_pull_request(self, event, run_in_job, monkeypatch, capsys):
-        monkeypatch.setattr(
-            check.urllib.request, "urlopen", fake_urlopen(event["pull_request"], [])
-        )
+        current = copy.deepcopy(event["pull_request"])
+        current["labels"].append({"name": "two-way"})
+        monkeypatch.setattr(check.urllib.request, "urlopen", fake_urlopen(current, []))
         assert check.main() == 0
         assert capsys.readouterr().out == (
             "Labels, CHANGELOG and Migration section are in order.\n"

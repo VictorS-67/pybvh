@@ -37,16 +37,18 @@ Before marking a PR ready:
 - the full suite passes locally on the finished branch: `conda run -n pybvh python -m pytest tests/ -v`
 - `CHANGELOG.md` has its entry (see below), unless the change is invisible to users
 - docstrings name any convention the change chose (see "Name every convention choice" in `CODING_STANDARDS.md`)
-- the branch is rebased on its current base, which is `main`, or its parent branch while the PR is stacked; an integration branch is built on the current `main`
+- the branch is rebased on its current base, which is `main`, or its parent branch while the PR is stacked; an integration branch is built on the current `main`; a pull request that merges itself may instead carry the catch-up merges of `main` that the `merge-two-way` workflow adds (see "Keeping a branch current")
 - the branch has passed the review described in "The review before ready", and its fixes are in
 - the required checks have run green against the current base
+
+For a pull request that merges itself (see "Merging"), marking it ready is the last step before the merge.
 
 ## The pull request body
 
 The body follows `.github/PULL_REQUEST_TEMPLATE.md`, which GitHub prefills on a new PR. It is written for the reviewer, who decides from its first lines how much attention the PR needs, and it shows the shape of the change rather than describing it.
 
 - **Why**: one sentence.
-- **Review depth**: two lines that each open with a label, and one short list. The first label is the kind of change, which is also the PR's first label: `breaking` (a user of the previous release must change something, under the 0.x policy in `CHARTER.md`; it has its CHANGELOG rows and a Migration section), `behaviour-change` (valid input gives a different result, with no API change), `internal` (nothing a user can see) or `documentation`. The second is the blast radius, the PR's second label: `localized` (one module, and callers are unaffected) or `extensive` (several modules, or a consumer such as pybvh-ml must change). "Needs your eyes on" lists the one to three decisions taken while building that the reviewer should weigh, or says "None."
+- **Review depth**: three lines that each open with a label, and one short list. The first label is the kind of change, which is also the PR's first label: `breaking` (a user of the previous release must change something, under the 0.x policy in `CHARTER.md`; it has its CHANGELOG rows and a Migration section), `behaviour-change` (valid input gives a different result, with no API change), `internal` (nothing a user can see) or `documentation`. The second is the blast radius, the PR's second label: `localized` (one module, and callers are unaffected) or `extensive` (several modules, or a consumer such as pybvh-ml must change). The third is the door, the PR's third label: `two-way` (a `git revert -m 1` of its merge undoes its effect) or `one-way` (it does not, as for a destructive action or a decision that is hard to reverse). "Needs your eyes on" lists the one to three decisions taken while building that the reviewer should weigh, or says "None."
 - **Change outline**: the shape of the change as the smallest views that show it, each next to one short sentence: an API diff-sketch, a data shape, pseudocode of an algorithm, a call tree, a shallow file tree, a Mermaid diagram. Not prose, not a file-by-file list.
 - **Evidence**: before and after. For a fix, the issue's reproduction with its output on `main` and on the branch; for a feature, the test that failed and now passes; for a bvhplot change to what is drawn, an image or a link to the showcase, and for one that draws the same picture, the evidence of any other change. A claim that behaviour is preserved names the command or the test that shows it, so the reader can rerun it rather than trust it. Then the full-suite line.
 - **Migration**: breaking changes only.
@@ -61,7 +63,7 @@ The reviewer reads the diff with the parent issue, `CODING_STANDARDS.md` and the
 
 - the change does what the issue asks, and the tests show it;
 - the diff follows `CODING_STANDARDS.md`;
-- the two labels match the diff, derived from the diff rather than taken from the body; for an integration PR, the first is the strongest kind among its PRs (`breaking`, then `behaviour-change`, `internal`, `documentation`) and the second is `extensive` when any of them is;
+- the three labels match the diff, derived from the diff rather than taken from the body; for an integration PR, the first is the strongest kind among its PRs (`breaking`, then `behaviour-change`, `internal`, `documentation`), the second is `extensive` when any of them is, and the third is `one-way` when any of them is;
 - every Evidence claim that behaviour is preserved names the command or test that shows it;
 - "Needs your eyes on" holds decisions to weigh, not merge instructions.
 
@@ -105,6 +107,8 @@ git push --force-with-lease
 
 Rebasing keeps the branch a straight line of commits; merging `main` in leaves catch-up merge commits that carry no content. Rewriting is safe because only the author commits to a branch: a reviewer reports findings and never pushes to it. Use `--force-with-lease`, never bare `--force`: the lease refuses to overwrite a remote branch that moved since you last fetched. Never rebase commits that are already on `main`. A branch that an integration branch has merged is the exception to keeping current: it stays as it was reviewed, and the integration branch is rebuilt instead (see "Branches and pull requests").
 
+A pull request that merges itself is the other exception: once it is ready, the `merge-two-way` workflow keeps it current by merging `main` into its branch (see "Merging"), and the catch-up merge commits stay. Each merge into `main` leaves every other open pull request behind, and a rebase of each by hand would hold the queue until its author came back. The workflow's merge is a push to the author's branch, so take it in before pushing to the branch again: `git pull --no-rebase` adds it to your local branch, after which a plain push goes through; or `git fetch origin`, check with `git log --oneline HEAD..origin/<branch>` that the branch gained only the workflow's merges, then `git rebase origin/main`, which drops them and keeps what they brought, and push with `--force-with-lease`. A fetch alone does not protect the branch: it moves the lease to the remote tip, and the next forced push overwrites whatever came in.
+
 A stacked branch is kept current on its parent branch the same way, with `origin/<parent-branch>` in place of `origin/main`. If the parent was amended or rebased since your branch last took it, rebase with `git rebase --onto origin/<parent-branch> <the last commit of the parent in your branch's history>`, for the reason given under "Branches and pull requests".
 
 ## Merging
@@ -113,6 +117,8 @@ Choose the merge method per PR:
 
 - **Squash** when the PR is small or its intermediate commits are not worth keeping. The squash commit's message is written like any other commit.
 - **Merge commit** when the branch carries several atomic commits worth preserving for `git bisect` and `git blame`: the PR stays one unit on `main` (`git log --first-parent` shows one line per PR, one `git revert -m 1` undoes it) and the reviewed commits keep their hashes. An integration PR is always merged this way, so that every branch it carries reaches `main` with the hashes it was reviewed at. Rebase-and-merge only suits a PR of one to a few commits.
+
+A pull request opened by the maintainer's machine account, `VictorS-67-bot`, merges itself when it is labelled `two-way` and `localized` and its kind is not `breaking`. Once it is ready and every required check is green on its head commit, the `merge-two-way` workflow merges it, with a merge commit. Before it merges, the workflow checks the labels again with `pr-hygiene`'s rules, and checks that the branch is not behind `main`. When such a pull request would merge but for being behind `main`, the workflow brings it up to date by merging `main` into its branch, and its checks run again; it does this for one pull request at a time, the oldest first, and not while another is up to date with its checks still running. Such a pull request still waits for the maintainer when it changes a file that states or implements the rules, a pytest, ruff or mypy setting, or the public namespace. `scripts/merge_two_way.py` lists those files. The maintainer merges every other pull request.
 
 Delete the branch after merging. The repository is set to do this automatically.
 

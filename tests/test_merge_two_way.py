@@ -534,54 +534,68 @@ class TestUpdateOne:
         )
 
 
-class TestPullRequestsOfTheEvent:
-    def test_a_pull_request_event_names_its_own(self):
-        event = {"pull_request": {"number": 7}}
-        assert merge.pull_requests_of("pull_request_target", event) == [7]
+def listing(*pull_requests: dict) -> dict:
+    """The answers to the list of open pull requests based on main."""
+    url = f"{API}/pulls?state=open&base=main&per_page=100&page="
+    return {("GET", f"{url}1"): list(pull_requests), ("GET", f"{url}2"): []}
 
-    def test_a_workflow_run_names_the_pull_requests_it_ran_for(self):
-        event = {"workflow_run": {"pull_requests": [{"number": 7}, {"number": 9}]}}
-        assert merge.pull_requests_of("workflow_run", event) == [7, 9]
 
-    def test_another_event_names_none(self):
-        assert merge.pull_requests_of("push", {}) == []
+BY_VICTOR = changed(number=199, user={"login": "VictorS-67"})
 
 
 class TestDecide:
-    def test_names_the_pull_requests_that_qualify_and_merges_none(self, monkeypatch, capsys):
-        responses = {**responses_for(), **responses_for(changed(number=201, draft=True))}
+    def test_names_the_ones_that_qualify_and_merges_none(self, monkeypatch, capsys):
+        draft = changed(number=201, draft=True)
+        responses = {**responses_for(), **responses_for(draft), **listing(PULL_REQUEST, draft)}
         requests = []
         monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, requests))
-        assert merge.decide("VictorS-67/pybvh", [200, 201], "a-token") == [200]
-        assert [key for key, _ in requests if key[0] == "PUT"] == []
+        assert merge.decide("VictorS-67/pybvh", "a-token") == ([200], None)
+        assert [key for key, _ in requests if key[0] != "GET"] == []
         assert capsys.readouterr().out == "#200 qualifies.\n#201 waits: it is a draft.\n"
+
+    def test_names_the_one_to_bring_up_to_date(self, monkeypatch, capsys):
+        draft = changed(number=199, draft=True)
+        # The draft's answers first: the two share the head commit's.
+        responses = {**responses_for(draft), **responses_for(behind_by=3)}
+        responses.update(listing(draft, PULL_REQUEST))
+        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, []))
+        assert merge.decide("VictorS-67/pybvh", "a-token") == ([], 200)
+        assert capsys.readouterr().out == (
+            "#199 waits: it is a draft.\n"
+            "#200 waits: it is 3 commits behind main.\n"
+            "#200 is to be brought up to date.\n"
+        )
+
+    def test_reads_only_the_machine_account_s(self, monkeypatch):
+        requests = []
+        responses = {**responses_for(), **listing(BY_VICTOR, PULL_REQUEST)}
+        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, requests))
+        merge.decide("VictorS-67/pybvh", "a-token")
+        assert ("GET", f"{API}/pulls/199") not in [key for key, _ in requests]
 
 
 class TestMain:
     @pytest.fixture
     def job(self, monkeypatch, tmp_path):
-        event = tmp_path / "event.json"
-        event.write_text(json.dumps({"pull_request": {"number": 200}}), encoding="utf-8")
         output = tmp_path / "output"
-        monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
-        monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request_target")
         monkeypatch.setenv("GITHUB_OUTPUT", str(output))
         monkeypatch.setenv("GITHUB_REPOSITORY", "VictorS-67/pybvh")
         monkeypatch.setenv("GITHUB_TOKEN", "a-token")
         return output
 
-    def test_decide_writes_the_qualifying_numbers(self, job, monkeypatch):
+    def test_decide_writes_what_to_merge_and_what_to_update(self, job, monkeypatch):
         requests = []
-        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses_for(), requests))
+        responses = {**responses_for(), **listing(PULL_REQUEST)}
+        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, requests))
         assert merge.main(["--decide"]) == 0
-        assert job.read_text(encoding="utf-8") == "numbers=200\n"
-        assert [key for key, _ in requests if key[0] == "PUT"] == []
+        assert job.read_text(encoding="utf-8") == "numbers=200\nupdate=\n"
+        assert [key for key, _ in requests if key[0] != "GET"] == []
 
-    def test_decide_writes_no_number_when_none_qualifies(self, job, monkeypatch):
-        api = fake_api(responses_for(changed(draft=True)), [])
-        monkeypatch.setattr(merge.urllib.request, "urlopen", api)
+    def test_decide_writes_the_one_to_update(self, job, monkeypatch):
+        responses = {**responses_for(behind_by=1), **listing(PULL_REQUEST)}
+        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, []))
         merge.main(["--decide"])
-        assert job.read_text(encoding="utf-8") == "numbers=\n"
+        assert job.read_text(encoding="utf-8") == "numbers=\nupdate=200\n"
 
     def test_numbers_are_merged(self, job, monkeypatch):
         requests = []
@@ -589,3 +603,12 @@ class TestMain:
         assert merge.main(["200"]) == 0
         put = [key for key, _ in requests if key[0] == "PUT"]
         assert put == [("PUT", f"{API}/pulls/200/merge")]
+
+    def test_update_brings_one_up_to_date(self, job, monkeypatch):
+        requests = []
+        responses = responses_for(behind_by=1)
+        responses[("PUT", f"{API}/pulls/200/update-branch")] = {"message": "Updating."}
+        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, requests))
+        assert merge.main(["--update", "200"]) == 0
+        put = [key for key, _ in requests if key[0] == "PUT"]
+        assert put == [("PUT", f"{API}/pulls/200/update-branch")]

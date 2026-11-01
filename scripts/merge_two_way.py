@@ -400,18 +400,28 @@ def _read(repo_url: str, number: int, token: str) -> tuple[dict[str, Any], Readi
     )
 
 
-def decide(repo: str, numbers: list[int], token: str) -> list[int]:
-    """The pull requests among ``numbers`` that qualify now; say why the others wait."""
-    qualifying = []
-    for number in numbers:
-        _, reading = _read(f"{API}/repos/{repo}", number, token)
-        reason = reading.reason
-        if reason is None:
-            print(f"#{number} qualifies.")
-            qualifying.append(number)
+def decide(repo: str, token: str) -> tuple[list[int], int | None]:
+    """What to do now with the machine account's open pull requests based on ``main``.
+
+    Returns the ones to merge and the one to bring up to date (``plan``), and
+    says why each other one waits. Every pull request is read, whatever event
+    started the run: a merge or a push moves ``main`` under all of them.
+    """
+    repo_url = f"{API}/repos/{repo}"
+    readings = []
+    for listed in _pages(f"{repo_url}/pulls?state=open&base={BASE}", token):
+        if listed["user"]["login"] != AUTHOR:
+            continue
+        _, reading = _read(repo_url, listed["number"], token)
+        readings.append(reading)
+        if reading.reason is None:
+            print(f"#{reading.number} qualifies.")
         else:
-            print(f"#{number} waits: {reason}.")
-    return qualifying
+            print(f"#{reading.number} waits: {reading.reason}.")
+    to_merge, to_update = plan(readings)
+    if to_update is not None:
+        print(f"#{to_update} is to be brought up to date.")
+    return to_merge, to_update
 
 
 def merge_one(repo: str, number: int, token: str) -> None:
@@ -464,23 +474,17 @@ def update_one(repo: str, number: int, token: str) -> None:
     print(f"#{number}: brought up to date with {BASE}.")
 
 
-def pull_requests_of(event_name: str, event: dict[str, Any]) -> list[int]:
-    """The numbers of the pull requests an event is about."""
-    if event_name == "pull_request_target":
-        return [event["pull_request"]["number"]]
-    if event_name == "workflow_run":
-        return [pull_request["number"] for pull_request in event["workflow_run"]["pull_requests"]]
-    return []
-
-
 def main(arguments: list[str]) -> int:
     repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"]
     if arguments == ["--decide"]:
-        with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as event_file:
-            event = json.load(event_file)
-        numbers = decide(repo, pull_requests_of(os.environ["GITHUB_EVENT_NAME"], event), token)
+        to_merge, to_update = decide(repo, token)
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-            output.write(f"numbers={' '.join(map(str, numbers))}\n")
+            output.write(f"numbers={' '.join(map(str, to_merge))}\n")
+            output.write(f"update={'' if to_update is None else to_update}\n")
+        return 0
+    if arguments[:1] == ["--update"]:
+        for number in map(int, arguments[1:]):
+            update_one(repo, number, token)
         return 0
     for number in map(int, arguments):
         merge_one(repo, number, token)

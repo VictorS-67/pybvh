@@ -41,6 +41,8 @@ Before marking a PR ready:
 - the branch has passed the review described in "The review before ready", and its fixes are in
 - the required checks have run green against the current base
 
+For a pull request that merges itself (see "Merging"), marking it ready is the last step before the merge.
+
 ## The pull request body
 
 The body follows `.github/PULL_REQUEST_TEMPLATE.md`, which GitHub prefills on a new PR. It is written for the reviewer, who decides from its first lines how much attention the PR needs, and it shows the shape of the change rather than describing it.
@@ -113,6 +115,8 @@ Choose the merge method per PR:
 
 - **Squash** when the PR is small or its intermediate commits are not worth keeping. The squash commit's message is written like any other commit.
 - **Merge commit** when the branch carries several atomic commits worth preserving for `git bisect` and `git blame`: the PR stays one unit on `main` (`git log --first-parent` shows one line per PR, one `git revert -m 1` undoes it) and the reviewed commits keep their hashes. An integration PR is always merged this way, so that every branch it carries reaches `main` with the hashes it was reviewed at. Rebase-and-merge only suits a PR of one to a few commits.
+
+A pull request opened by the maintainer's machine account, `VictorS-67-bot`, merges itself when it is labelled `two-way` and `localized` and its kind is not `breaking`. Once it is ready and every required check is green on its head commit, the `merge-two-way` workflow merges it, with a merge commit. Before it merges, the workflow checks the labels again with `pr-hygiene`'s rules, and checks that the branch is not behind `main`. Such a pull request still waits for the maintainer when it changes a file that states or implements the rules, a pytest, ruff or mypy setting, or the public namespace. `scripts/merge_two_way.py` lists those files. The maintainer merges every other pull request.
 
 Delete the branch after merging. The repository is set to do this automatically.
 

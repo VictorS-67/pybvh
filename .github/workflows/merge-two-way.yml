@@ -40,6 +40,7 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
+      actions: read
     outputs:
       numbers: ${{ steps.decide.outputs.numbers }}
     steps:

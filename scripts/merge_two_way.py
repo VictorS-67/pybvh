@@ -13,8 +13,19 @@ a CI workflow completes for one. It merges the pull request when:
 - it changes none of the held paths below, under a file's current name or
   its former one;
 - every check that ``main``'s rules require has a completed, successful
-  latest run on its head commit;
+  latest run on its head commit, from a workflow run of this pull request
+  (below);
 - it is not behind ``main``, and GitHub reports it mergeable.
+
+A check run counts only when its check suite belongs to a workflow run that
+the ``pull_request`` event started for this pull request, based on ``main``,
+on its head commit, from a file under ``.github/workflows/``, which the pull
+request cannot change since that folder is held. A workflow on another branch
+can create a check run of any name and conclusion on any commit, and such a
+run belongs to no such workflow run.
+
+The whole diff is read or the pull request waits: GitHub lists at most 3,000
+of its files, and a held file could hide past them.
 
 The held paths are the files that state the rules or implement the checks,
 the settings of pytest, ruff and mypy wherever they stand, and the ones that
@@ -150,7 +161,9 @@ def _hygiene_refusal(pull_request: dict[str, Any], files: list[dict[str, Any]]) 
     return f"pr-hygiene fails on its current labels: {' '.join(problems)}" if problems else None
 
 
-def _files_refusal(files: list[dict[str, Any]]) -> str | None:
+def _files_refusal(pull_request: dict[str, Any], files: list[dict[str, Any]]) -> str | None:
+    if len(files) < pull_request["changed_files"]:
+        return f"GitHub listed {len(files)} of its {pull_request['changed_files']} changed files"
     for changed_file in files:
         for path in (changed_file.get("previous_filename"), changed_file["filename"]):
             if path is not None and _is_held(path):
@@ -158,11 +171,39 @@ def _files_refusal(files: list[dict[str, Any]]) -> str | None:
     return None
 
 
+def _suites_of_this_pull_request(
+    pull_request: dict[str, Any], workflow_runs: list[dict[str, Any]]
+) -> set[int]:
+    """The check suites of the workflow runs that ran for ``pull_request``."""
+    return {
+        run["check_suite_id"]
+        for run in workflow_runs
+        if run["event"] == "pull_request"
+        and run["path"].startswith(".github/workflows/")
+        and run["head_sha"] == pull_request["head"]["sha"]
+        and any(
+            entry["number"] == pull_request["number"] and entry["base"]["ref"] == BASE
+            for entry in run["pull_requests"]
+        )
+    }
+
+
 def _checks_refusal(
-    required_checks: list[str], check_runs: list[dict[str, Any]], head_sha: str
+    pull_request: dict[str, Any],
+    required_checks: list[str],
+    check_runs: list[dict[str, Any]],
+    workflow_runs: list[dict[str, Any]],
 ) -> str | None:
+    head_sha = pull_request["head"]["sha"]
+    suites = _suites_of_this_pull_request(pull_request, workflow_runs)
     for name in required_checks:
-        runs = [run for run in check_runs if run["name"] == name and run["head_sha"] == head_sha]
+        runs = [
+            run
+            for run in check_runs
+            if run["name"] == name
+            and run["head_sha"] == head_sha
+            and run["check_suite"]["id"] in suites
+        ]
         if not runs:
             return f"the required check {name} has not run"
         latest = max(runs, key=lambda run: run.get("id", 0))
@@ -179,14 +220,15 @@ def refusal(
     files: list[dict[str, Any]],
     required_checks: list[str],
     check_runs: list[dict[str, Any]],
+    workflow_runs: list[dict[str, Any]],
     behind_by: int,
 ) -> str | None:
     """Why ``pull_request`` waits for the maintainer, or None when it merges."""
     return (
         _pull_request_refusal(pull_request)
         or _hygiene_refusal(pull_request, files)
-        or _files_refusal(files)
-        or _checks_refusal(required_checks, check_runs, pull_request["head"]["sha"])
+        or _files_refusal(pull_request, files)
+        or _checks_refusal(pull_request, required_checks, check_runs, workflow_runs)
         or (f"it is {behind_by} commits behind {BASE}" if behind_by else None)
         or (None if pull_request["mergeable"] is True else "GitHub does not report it mergeable")
     )
@@ -212,7 +254,8 @@ def _pages(url: str, token: str, field: str | None = None) -> list[Any]:
     items: list[Any] = []
     page = 1
     while True:
-        answer = _request(f"{url}?per_page={PAGE_SIZE}&page={page}", token)
+        joiner = "&" if "?" in url else "?"
+        answer = _request(f"{url}{joiner}per_page={PAGE_SIZE}&page={page}", token)
         batch = answer if field is None else answer[field]
         if not batch:
             return items
@@ -253,6 +296,11 @@ def _read(repo_url: str, number: int, token: str) -> tuple[dict[str, Any], str |
             files=_pages(f"{repo_url}/pulls/{number}/files", token),
             required_checks=_required_checks(repo_url, token),
             check_runs=_pages(f"{repo_url}/commits/{head_sha}/check-runs", token, "check_runs"),
+            workflow_runs=_pages(
+                f"{repo_url}/actions/runs?head_sha={head_sha}&event=pull_request",
+                token,
+                "workflow_runs",
+            ),
             behind_by=_request(f"{repo_url}/compare/{BASE}...{head_sha}", token)["behind_by"],
         )
     return pull_request, reason

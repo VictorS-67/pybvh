@@ -36,21 +36,55 @@ PULL_REQUEST = {
     "labels": [{"name": "internal"}, {"name": "localized"}, {"name": "two-way"}],
     "body": "## Why\n\nA reason.\n",
     "mergeable": True,
+    "changed_files": 1,
 }
 FILES = [{"filename": "pybvh/bvh.py"}]
 REQUIRED = ["lint", "test (3.10)"]
 RUNS = [
-    {"name": "lint", "head_sha": HEAD, "status": "completed", "conclusion": "success"},
-    {"name": "test (3.10)", "head_sha": HEAD, "status": "completed", "conclusion": "success"},
+    {
+        "name": "lint",
+        "head_sha": HEAD,
+        "status": "completed",
+        "conclusion": "success",
+        "check_suite": {"id": 1},
+    },
+    {
+        "name": "test (3.10)",
+        "head_sha": HEAD,
+        "status": "completed",
+        "conclusion": "success",
+        "check_suite": {"id": 2},
+    },
+]
+# The workflow runs whose check suites hold RUNS: each ran for the pull
+# request, from a workflow file the pull request cannot change.
+WORKFLOW_RUNS = [
+    {
+        "check_suite_id": suite,
+        "event": "pull_request",
+        "path": path,
+        "head_sha": HEAD,
+        "pull_requests": [{"number": 200, "base": {"ref": "main"}}],
+    }
+    for suite, path in ((1, ".github/workflows/lint.yml"), (2, ".github/workflows/test.yml"))
 ]
 
 
-def refusal(pull_request=None, *, files=FILES, required=REQUIRED, runs=RUNS, behind_by=0):
+def refusal(
+    pull_request=None,
+    *,
+    files=FILES,
+    required=REQUIRED,
+    runs=RUNS,
+    workflow_runs=WORKFLOW_RUNS,
+    behind_by=0,
+):
     return merge.refusal(
         PULL_REQUEST if pull_request is None else pull_request,
         files=files,
         required_checks=required,
         check_runs=runs,
+        workflow_runs=workflow_runs,
         behind_by=behind_by,
     )
 
@@ -175,6 +209,12 @@ class TestTheFiles:
             f"it changes {path}, which the maintainer merges"
         )
 
+    def test_a_file_list_shorter_than_the_diff_waits(self):
+        # GitHub lists at most 3,000 files; a held file could hide past them.
+        assert refusal(changed(changed_files=3001), files=FILES) == (
+            "GitHub listed 1 of its 3001 changed files"
+        )
+
     def test_a_rename_out_of_a_held_path_waits(self):
         files = [{"filename": "docs/charter.md", "previous_filename": "CHARTER.md"}]
         assert refusal(files=files) == "it changes CHARTER.md, which the maintainer merges"
@@ -204,6 +244,23 @@ class TestTheChecks:
     def test_a_run_on_another_commit_does_not_count(self):
         runs = [RUNS[0], {**RUNS[1], "head_sha": "b" * 40}]
         assert refusal(runs=runs) == "the required check test (3.10) has not run"
+
+    @pytest.mark.parametrize(
+        "forgery",
+        [
+            # A check run that no workflow run holds, as one created through the API.
+            {"check_suite_id": 99},
+            {"event": "push"},
+            {"path": "workflows/lint.yml"},
+            {"head_sha": "b" * 40},
+            {"pull_requests": []},
+            {"pull_requests": [{"number": 201, "base": {"ref": "main"}}]},
+            {"pull_requests": [{"number": 200, "base": {"ref": "evil"}}]},
+        ],
+    )
+    def test_a_check_run_from_another_source_does_not_count(self, forgery):
+        workflow_runs = [WORKFLOW_RUNS[0] | forgery, WORKFLOW_RUNS[1]]
+        assert refusal(workflow_runs=workflow_runs) == "the required check lint has not run"
 
     def test_a_check_that_is_not_required_does_not_count(self):
         runs = [
@@ -272,6 +329,12 @@ def responses_for(pull_request=PULL_REQUEST, *, behind_by=0) -> dict:
         ("GET", f"{API}/commits/{HEAD}/check-runs?per_page=100&page=1"): {"check_runs": RUNS},
         ("GET", f"{API}/commits/{HEAD}/check-runs?per_page=100&page=2"): {"check_runs": []},
         ("GET", f"{API}/compare/main...{HEAD}"): {"behind_by": behind_by},
+        ("GET", f"{API}/actions/runs?head_sha={HEAD}&event=pull_request&per_page=100&page=1"): {
+            "workflow_runs": WORKFLOW_RUNS
+        },
+        ("GET", f"{API}/actions/runs?head_sha={HEAD}&event=pull_request&per_page=100&page=2"): {
+            "workflow_runs": []
+        },
         ("PUT", f"{API}/pulls/{number}/merge"): {"merged": True},
     }
 

@@ -14,8 +14,9 @@ on:
   # main moved: a pull request that was up to date now lags it.
   push:
     branches: [main]
+  # A pull request drafted or closed may have held back the others.
   pull_request_target:
-    types: [ready_for_review, labeled, unlabeled]
+    types: [ready_for_review, labeled, unlabeled, converted_to_draft, closed]
   # check_suite would not do: it starts no workflow for a suite that GitHub
   # Actions created, which every check here is. A failed run counts too: its
   # pull request no longer holds back the update of another.
@@ -26,7 +27,8 @@ on:
 permissions: {}
 
 # One run at a time; a run that waits is replaced by a newer one, which reads
-# everything again.
+# everything again. So every run reads everything, whatever its event: a run
+# that skipped the reading could replace one that would have acted.
 concurrency:
   group: merge-two-way
   cancel-in-progress: false
@@ -35,12 +37,6 @@ jobs:
   # Reads with the job's own read-only token, so that most events end here,
   # without the App's key.
   decide:
-    if: >-
-      github.event_name == 'push'
-      || (github.event_name == 'pull_request_target'
-        && github.event.pull_request.user.login == 'VictorS-67-bot')
-      || (github.event_name == 'workflow_run'
-        && github.event.workflow_run.event == 'pull_request')
     runs-on: ubuntu-latest
     permissions:
       contents: read

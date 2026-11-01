@@ -1,8 +1,9 @@
 """Merge a two-way, localized pull request that breaks nothing.
 
 The ``merge-two-way`` job (``.github/workflows/merge-two-way.yml``) runs this
-from ``main`` whenever a pull request is marked ready or labelled, and whenever
-a CI workflow completes for one. It merges the pull request when:
+from ``main`` whenever ``main`` moves, a pull request is marked ready or
+labelled, or a CI workflow completes for one. Each run reads every open pull
+request of the machine account based on ``main``. It merges one when:
 
 - it is open, not a draft, based on ``main``, and opened by the machine
   account ``VictorS-67-bot``;
@@ -33,22 +34,34 @@ pin the public namespace: a pull request that changes them
 waits for the maintainer whatever its labels say, so that no change merges
 itself past a gate it has weakened (``CONTRIBUTING.md``, "Merging").
 
-Just before merging, it reads the pull request again and merges only if its
-head commit, base and labels are still the ones it checked. The merge is a
-merge commit at that head commit, so a push in between stops it.
+Just before merging, it reads the pull request again and merges only if it
+is still open and in the same draft state, and its head commit, base, labels
+and body are still the ones it checked. The merge is a merge commit at that
+head commit, so a push in between stops it.
+
+``main`` requires a branch to be up to date before it merges, so each merge
+leaves the other pull requests behind. When a run merges none, it brings up to
+date the oldest pull request that would merge but for being behind ``main``
+and that GitHub does not know to conflict with it: GitHub merges ``main`` into
+its branch, and its checks run again. It reads the pull request again first,
+as before a merge. It does so only while no other pull request is in flight,
+that is, up to date with ``main`` with its checks still running: that one may
+merge and move ``main`` again. The pull requests thus catch up one at a time.
 
 Everything is read from the GitHub REST API, as the token in
 ``GITHUB_TOKEN`` sees it; nothing of the pull request is checked out. Standard
-library only. Prints one line per pull request: merged, or why it waits.
-Run from the repository root in two steps:
+library only. Prints one line per pull request: merged, brought up to date,
+or why it waits. Run from the repository root in two steps:
 
     python scripts/merge_two_way.py --decide
     python scripts/merge_two_way.py 200 [201 ...]
+    python scripts/merge_two_way.py --update 202
 
-``--decide`` reads the pull requests of the event at ``$GITHUB_EVENT_PATH``
-with the job's read-only token, merges nothing, and writes the numbers of
-those that qualify to ``$GITHUB_OUTPUT`` as ``numbers``. Given numbers, it
-checks each one again and merges it, with a token that may merge.
+``--decide`` reads the pull requests with the job's read-only token, changes
+nothing, and writes to ``$GITHUB_OUTPUT`` the numbers of those that qualify,
+as ``numbers``, and the one to bring up to date, as ``update``. Given numbers,
+it checks each one again and merges it; given ``--update``, it checks that one
+again and brings it up to date; both with a token that may push.
 """
 
 from __future__ import annotations
@@ -57,7 +70,9 @@ import importlib.util
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -188,14 +203,16 @@ def _suites_of_this_pull_request(
     }
 
 
-def _checks_refusal(
+def _latest_runs(
     pull_request: dict[str, Any],
     required_checks: list[str],
     check_runs: list[dict[str, Any]],
     workflow_runs: list[dict[str, Any]],
-) -> str | None:
+) -> dict[str, dict[str, Any] | None]:
+    """The latest run that counts of each required check, or None if none has."""
     head_sha = pull_request["head"]["sha"]
     suites = _suites_of_this_pull_request(pull_request, workflow_runs)
+    latest: dict[str, dict[str, Any] | None] = {}
     for name in required_checks:
         runs = [
             run
@@ -204,9 +221,21 @@ def _checks_refusal(
             and run["head_sha"] == head_sha
             and run["check_suite"]["id"] in suites
         ]
-        if not runs:
+        latest[name] = max(runs, key=lambda run: run.get("id", 0)) if runs else None
+    return latest
+
+
+def _checks_refusal(
+    pull_request: dict[str, Any],
+    required_checks: list[str],
+    check_runs: list[dict[str, Any]],
+    workflow_runs: list[dict[str, Any]],
+) -> str | None:
+    for name, latest in _latest_runs(
+        pull_request, required_checks, check_runs, workflow_runs
+    ).items():
+        if latest is None:
             return f"the required check {name} has not run"
-        latest = max(runs, key=lambda run: run.get("id", 0))
         if latest["status"] != "completed":
             return f"the required check {name} is {latest['status']}"
         if latest["conclusion"] != "success":
@@ -232,6 +261,84 @@ def refusal(
         or (f"it is {behind_by} commits behind {BASE}" if behind_by else None)
         or (None if pull_request["mergeable"] is True else "GitHub does not report it mergeable")
     )
+
+
+def catches_up(
+    pull_request: dict[str, Any],
+    *,
+    files: list[dict[str, Any]],
+    required_checks: list[str],
+    check_runs: list[dict[str, Any]],
+    workflow_runs: list[dict[str, Any]],
+    behind_by: int,
+) -> bool:
+    """Whether ``pull_request`` would merge but for being behind ``main``.
+
+    A known conflict rules it out, since it would be chosen first on every
+    run and fail every time. A mergeable state not yet computed does not:
+    GitHub computes it only once asked after ``main`` moves.
+    """
+    return (
+        behind_by > 0
+        and pull_request["mergeable"] is not False
+        and not (
+            _pull_request_refusal(pull_request)
+            or _hygiene_refusal(pull_request, files)
+            or _files_refusal(pull_request, files)
+            or _checks_refusal(pull_request, required_checks, check_runs, workflow_runs)
+        )
+    )
+
+
+def in_flight(
+    pull_request: dict[str, Any],
+    *,
+    files: list[dict[str, Any]],
+    required_checks: list[str],
+    check_runs: list[dict[str, Any]],
+    workflow_runs: list[dict[str, Any]],
+    behind_by: int,
+) -> bool:
+    """Whether ``pull_request`` is up to date with ``main`` and its checks still run.
+
+    Such a pull request may merge soon, and an update of another one would
+    then run that one's checks for nothing. A check that has not started yet
+    counts as running, and one that failed ends the flight.
+    """
+    if behind_by or (
+        _pull_request_refusal(pull_request)
+        or _hygiene_refusal(pull_request, files)
+        or _files_refusal(pull_request, files)
+    ):
+        return False
+    latest = _latest_runs(pull_request, required_checks, check_runs, workflow_runs).values()
+    finished = [run for run in latest if run is not None and run["status"] == "completed"]
+    return len(finished) < len(latest) and all(run["conclusion"] == "success" for run in finished)
+
+
+@dataclass(frozen=True)
+class Reading:
+    """What one read of a pull request found."""
+
+    number: int
+    reason: str | None
+    """Why it waits, or None when it merges."""
+    catches_up: bool
+    in_flight: bool
+
+
+def plan(readings: list[Reading]) -> tuple[list[int], int | None]:
+    """The pull requests to merge now, and the one to bring up to date, if any.
+
+    One is brought up to date only when none merges, since a merge moves
+    ``main`` again, and none is in flight; then the oldest, so that the
+    pull requests catch up one at a time and none runs its checks twice.
+    """
+    to_merge = [reading.number for reading in readings if reading.reason is None]
+    behind = [reading.number for reading in readings if reading.catches_up]
+    if to_merge or not behind or any(reading.in_flight for reading in readings):
+        return to_merge, None
+    return to_merge, min(behind)
 
 
 def _request(url: str, token: str, *, method: str = "GET", body: dict | None = None) -> Any:
@@ -275,54 +382,73 @@ def _required_checks(repo_url: str, token: str) -> list[str]:
 
 def _unchanged(read: dict[str, Any], again: dict[str, Any]) -> bool:
     return (
-        again["head"]["sha"] == read["head"]["sha"]
+        again["state"] == read["state"]
+        and again["draft"] == read["draft"]
+        and again["head"]["sha"] == read["head"]["sha"]
         and again["base"]["ref"] == read["base"]["ref"]
         and sorted(_labels(again)) == sorted(_labels(read))
         and again["body"] == read["body"]
     )
 
 
-def _read(repo_url: str, number: int, token: str) -> tuple[dict[str, Any], str | None]:
-    """The pull request as it is now, and why it waits, or None when it qualifies.
+def _read(repo_url: str, number: int, token: str) -> tuple[dict[str, Any], Reading]:
+    """The pull request as it is now, and what a read of it finds.
 
     Once the pull request itself waits, nothing else is read.
     """
     pull_request = _request(f"{repo_url}/pulls/{number}", token)
     reason = _pull_request_refusal(pull_request)
-    if reason is None:
-        head_sha = pull_request["head"]["sha"]
-        reason = refusal(
-            pull_request,
-            files=_pages(f"{repo_url}/pulls/{number}/files", token),
-            required_checks=_required_checks(repo_url, token),
-            check_runs=_pages(f"{repo_url}/commits/{head_sha}/check-runs", token, "check_runs"),
-            workflow_runs=_pages(
-                f"{repo_url}/actions/runs?head_sha={head_sha}&event=pull_request",
-                token,
-                "workflow_runs",
-            ),
-            behind_by=_request(f"{repo_url}/compare/{BASE}...{head_sha}", token)["behind_by"],
-        )
-    return pull_request, reason
+    if reason is not None:
+        return pull_request, Reading(number, reason, catches_up=False, in_flight=False)
+    head_sha = pull_request["head"]["sha"]
+    facts: dict[str, Any] = {
+        "files": _pages(f"{repo_url}/pulls/{number}/files", token),
+        "required_checks": _required_checks(repo_url, token),
+        "check_runs": _pages(f"{repo_url}/commits/{head_sha}/check-runs", token, "check_runs"),
+        "workflow_runs": _pages(
+            f"{repo_url}/actions/runs?head_sha={head_sha}&event=pull_request",
+            token,
+            "workflow_runs",
+        ),
+        "behind_by": _request(f"{repo_url}/compare/{BASE}...{head_sha}", token)["behind_by"],
+    }
+    return pull_request, Reading(
+        number,
+        refusal(pull_request, **facts),
+        catches_up=catches_up(pull_request, **facts),
+        in_flight=in_flight(pull_request, **facts),
+    )
 
 
-def decide(repo: str, numbers: list[int], token: str) -> list[int]:
-    """The pull requests among ``numbers`` that qualify now; say why the others wait."""
-    qualifying = []
-    for number in numbers:
-        _, reason = _read(f"{API}/repos/{repo}", number, token)
-        if reason is None:
-            print(f"#{number} qualifies.")
-            qualifying.append(number)
+def decide(repo: str, token: str) -> tuple[list[int], int | None]:
+    """What to do now with the machine account's open pull requests based on ``main``.
+
+    Returns the ones to merge and the one to bring up to date (``plan``), and
+    says why each other one waits. Every pull request is read, whatever event
+    started the run: a merge or a push moves ``main`` under all of them.
+    """
+    repo_url = f"{API}/repos/{repo}"
+    readings = []
+    for listed in _pages(f"{repo_url}/pulls?state=open&base={BASE}", token):
+        if listed["user"]["login"] != AUTHOR:
+            continue
+        _, reading = _read(repo_url, listed["number"], token)
+        readings.append(reading)
+        if reading.reason is None:
+            print(f"#{reading.number} qualifies.")
         else:
-            print(f"#{number} waits: {reason}.")
-    return qualifying
+            print(f"#{reading.number} waits: {reading.reason}.")
+    to_merge, to_update = plan(readings)
+    if to_update is not None:
+        print(f"#{to_update} is to be brought up to date.")
+    return to_merge, to_update
 
 
 def merge_one(repo: str, number: int, token: str) -> None:
     """Merge pull request ``number`` of ``repo`` if it qualifies; say what was done."""
     repo_url = f"{API}/repos/{repo}"
-    pull_request, reason = _read(repo_url, number, token)
+    pull_request, reading = _read(repo_url, number, token)
+    reason = reading.reason
     if reason is None and not _unchanged(
         pull_request, _request(f"{repo_url}/pulls/{number}", token)
     ):
@@ -339,23 +465,50 @@ def merge_one(repo: str, number: int, token: str) -> None:
     print(f"#{number}: merged.")
 
 
-def pull_requests_of(event_name: str, event: dict[str, Any]) -> list[int]:
-    """The numbers of the pull requests an event is about."""
-    if event_name == "pull_request_target":
-        return [event["pull_request"]["number"]]
-    if event_name == "workflow_run":
-        return [pull_request["number"] for pull_request in event["workflow_run"]["pull_requests"]]
-    return []
+def update_one(repo: str, number: int, token: str) -> None:
+    """Bring pull request ``number`` up to date with ``main`` if it only lags it.
+
+    GitHub merges ``main`` into the branch, at the head commit that was read,
+    with the token's identity; a push from the App's token starts the pull
+    request's checks again.
+    """
+    repo_url = f"{API}/repos/{repo}"
+    pull_request, reading = _read(repo_url, number, token)
+    if not reading.catches_up:
+        reason = reading.reason or f"it is up to date with {BASE}"
+    elif not _unchanged(pull_request, _request(f"{repo_url}/pulls/{number}", token)):
+        reason = "it changed while it was read"
+    else:
+        reason = None
+    if reason is not None:
+        print(f"#{number} is not brought up to date: {reason}.")
+        return
+    try:
+        _request(
+            f"{repo_url}/pulls/{number}/update-branch",
+            token,
+            method="PUT",
+            body={"expected_head_sha": pull_request["head"]["sha"]},
+        )
+    except urllib.error.HTTPError as error:
+        message = json.load(error).get("message", error.reason)
+        print(f"#{number} is not brought up to date: GitHub answered {error.code}, {message}.")
+        return
+    # GitHub answers 202: it has accepted the update, not made it yet.
+    print(f"#{number}: GitHub is bringing it up to date with {BASE}.")
 
 
 def main(arguments: list[str]) -> int:
     repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"]
     if arguments == ["--decide"]:
-        with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as event_file:
-            event = json.load(event_file)
-        numbers = decide(repo, pull_requests_of(os.environ["GITHUB_EVENT_NAME"], event), token)
+        to_merge, to_update = decide(repo, token)
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-            output.write(f"numbers={' '.join(map(str, numbers))}\n")
+            output.write(f"numbers={' '.join(map(str, to_merge))}\n")
+            output.write(f"update={'' if to_update is None else to_update}\n")
+        return 0
+    if arguments[:1] == ["--update"]:
+        for number in map(int, arguments[1:]):
+            update_one(repo, number, token)
         return 0
     for number in map(int, arguments):
         merge_one(repo, number, token)

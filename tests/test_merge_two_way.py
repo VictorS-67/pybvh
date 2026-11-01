@@ -12,6 +12,7 @@ import importlib.util
 import io
 import json
 import sys
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -289,6 +290,107 @@ class TestTheBranch:
         assert refusal(changed(mergeable=None)) == "GitHub does not report it mergeable"
 
 
+def catches_up(pull_request=None, *, runs=RUNS, behind_by=2):
+    return merge.catches_up(
+        PULL_REQUEST if pull_request is None else pull_request,
+        files=FILES,
+        required_checks=REQUIRED,
+        check_runs=runs,
+        workflow_runs=WORKFLOW_RUNS,
+        behind_by=behind_by,
+    )
+
+
+class TestCatchingUp:
+    def test_one_that_waits_only_for_main_catches_up(self):
+        assert catches_up() is True
+
+    def test_one_github_has_not_computed_catches_up(self):
+        # GitHub computes mergeable lazily after main moves; the update itself
+        # fails on a conflict.
+        assert catches_up(changed(mergeable=None)) is True
+
+    def test_one_with_a_conflict_does_not(self):
+        # It would be chosen first on every run, and fail every time.
+        assert catches_up(changed(mergeable=False)) is False
+
+    def test_one_that_is_up_to_date_does_not(self):
+        assert catches_up(behind_by=0) is False
+
+    def test_one_with_a_failed_check_does_not(self):
+        failed = [RUNS[0], {**RUNS[1], "conclusion": "failure"}]
+        assert catches_up(runs=failed) is False
+
+    def test_one_that_waits_for_another_reason_does_not(self):
+        assert catches_up(changed(draft=True)) is False
+
+
+def in_flight(pull_request=None, *, runs=RUNS, behind_by=0):
+    return merge.in_flight(
+        PULL_REQUEST if pull_request is None else pull_request,
+        files=FILES,
+        required_checks=REQUIRED,
+        check_runs=runs,
+        workflow_runs=WORKFLOW_RUNS,
+        behind_by=behind_by,
+    )
+
+
+class TestInFlight:
+    def test_one_up_to_date_with_a_check_running_is(self):
+        assert in_flight(runs=[RUNS[0], {**RUNS[1], "status": "in_progress"}]) is True
+
+    def test_one_up_to_date_with_a_check_not_yet_run_is(self):
+        assert in_flight(runs=RUNS[:1]) is True
+
+    def test_one_whose_checks_all_passed_is_not(self):
+        assert in_flight() is False
+
+    def test_one_with_a_failed_check_is_not(self):
+        runs = [{**RUNS[0], "conclusion": "failure"}, {**RUNS[1], "status": "queued"}]
+        assert in_flight(runs=runs) is False
+
+    def test_one_behind_main_is_not(self):
+        assert in_flight(runs=RUNS[:1], behind_by=1) is False
+
+    def test_one_that_waits_for_another_reason_is_not(self):
+        assert in_flight(changed(draft=True), runs=RUNS[:1]) is False
+
+
+def merges(number):
+    return merge.Reading(number, reason=None, catches_up=False, in_flight=False)
+
+
+def behind(number):
+    return merge.Reading(
+        number, reason="it is 1 commits behind main", catches_up=True, in_flight=False
+    )
+
+
+def flying(number):
+    return merge.Reading(
+        number, reason="the required check lint is in_progress", catches_up=False, in_flight=True
+    )
+
+
+def waits(number):
+    return merge.Reading(number, reason="it is a draft", catches_up=False, in_flight=False)
+
+
+class TestPlan:
+    def test_merges_every_one_that_qualifies_and_updates_none(self):
+        assert merge.plan([merges(200), behind(201), merges(202)]) == ([200, 202], None)
+
+    def test_updates_the_oldest_one_behind_when_none_merges(self):
+        assert merge.plan([behind(203), waits(200), behind(201)]) == ([], 201)
+
+    def test_updates_none_while_another_is_in_flight(self):
+        assert merge.plan([behind(201), flying(202)]) == ([], None)
+
+    def test_does_nothing_when_all_wait(self):
+        assert merge.plan([waits(200)]) == ([], None)
+
+
 def fake_api(responses: dict, requests: list):
     """``urlopen`` answering each URL (and method) from ``responses``.
 
@@ -305,6 +407,8 @@ def fake_api(responses: dict, requests: list):
             asked[key] = asked.get(key, 0) + 1
         else:
             answer = responses[key]
+        if isinstance(answer, urllib.error.HTTPError):
+            raise answer
         return io.BytesIO(json.dumps(answer).encode("utf-8"))
 
     return urlopen
@@ -362,6 +466,7 @@ class TestMergeOne:
             {"labels": [{"name": "internal"}, {"name": "localized"}, {"name": "one-way"}]},
             {"base": {"ref": "feat/parent"}},
             {"head": {"sha": "c" * 40}},
+            {"draft": True},
         ],
     )
     def test_does_not_merge_when_the_pull_request_changed_since_it_was_read(
@@ -383,54 +488,138 @@ class TestMergeOne:
         assert [key for key, _ in requests] == [("GET", f"{API}/pulls/200")]
 
 
-class TestPullRequestsOfTheEvent:
-    def test_a_pull_request_event_names_its_own(self):
-        event = {"pull_request": {"number": 7}}
-        assert merge.pull_requests_of("pull_request_target", event) == [7]
+class TestUpdateOne:
+    def test_brings_one_that_lags_main_up_to_date_from_the_head_it_read(self, monkeypatch, capsys):
+        requests = []
+        responses = responses_for(behind_by=2)
+        responses[("PUT", f"{API}/pulls/200/update-branch")] = {"message": "Updating."}
+        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, requests))
+        merge.update_one("VictorS-67/pybvh", 200, "a-token")
+        put = [(key, data) for key, data in requests if key[0] == "PUT"]
+        assert [(url, json.loads(data)) for (_, url), data in put] == [
+            (f"{API}/pulls/200/update-branch", {"expected_head_sha": HEAD})
+        ]
+        assert capsys.readouterr().out == "#200: GitHub is bringing it up to date with main.\n"
 
-    def test_a_workflow_run_names_the_pull_requests_it_ran_for(self):
-        event = {"workflow_run": {"pull_requests": [{"number": 7}, {"number": 9}]}}
-        assert merge.pull_requests_of("workflow_run", event) == [7, 9]
+    @pytest.mark.parametrize(
+        ("pull_request", "behind_by", "said"),
+        [
+            (PULL_REQUEST, 0, "#200 is not brought up to date: it is up to date with main.\n"),
+            (
+                changed(draft=True),
+                2,
+                "#200 is not brought up to date: it is a draft.\n",
+            ),
+        ],
+    )
+    def test_leaves_one_that_does_not_only_lag_main(
+        self, monkeypatch, capsys, pull_request, behind_by, said
+    ):
+        requests = []
+        api = fake_api(responses_for(pull_request, behind_by=behind_by), requests)
+        monkeypatch.setattr(merge.urllib.request, "urlopen", api)
+        merge.update_one("VictorS-67/pybvh", 200, "a-token")
+        assert [key for key, _ in requests if key[0] == "PUT"] == []
+        assert capsys.readouterr().out == said
 
-    def test_another_event_names_none(self):
-        assert merge.pull_requests_of("push", {}) == []
+    @pytest.mark.parametrize(
+        "change",
+        [
+            {"draft": True},
+            {"labels": [{"name": "internal"}, {"name": "localized"}, {"name": "one-way"}]},
+            {"base": {"ref": "feat/parent"}},
+        ],
+    )
+    def test_leaves_one_that_changed_since_it_was_read(self, monkeypatch, capsys, change):
+        responses = responses_for(behind_by=2)
+        responses[("GET", f"{API}/pulls/200", "each")] = [PULL_REQUEST, changed(**change)]
+        requests = []
+        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, requests))
+        merge.update_one("VictorS-67/pybvh", 200, "a-token")
+        assert [key for key, _ in requests if key[0] == "PUT"] == []
+        assert capsys.readouterr().out == (
+            "#200 is not brought up to date: it changed while it was read.\n"
+        )
+
+    def test_says_why_github_refused_the_update(self, monkeypatch, capsys):
+        responses = responses_for(behind_by=2)
+        responses[("PUT", f"{API}/pulls/200/update-branch")] = urllib.error.HTTPError(
+            f"{API}/pulls/200/update-branch",
+            422,
+            "Unprocessable Entity",
+            None,
+            io.BytesIO(b'{"message": "merge conflict between base and head"}'),
+        )
+        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, []))
+        merge.update_one("VictorS-67/pybvh", 200, "a-token")
+        assert capsys.readouterr().out == (
+            "#200 is not brought up to date: GitHub answered 422, "
+            "merge conflict between base and head.\n"
+        )
+
+
+def listing(*pull_requests: dict) -> dict:
+    """The answers to the list of open pull requests based on main."""
+    url = f"{API}/pulls?state=open&base=main&per_page=100&page="
+    return {("GET", f"{url}1"): list(pull_requests), ("GET", f"{url}2"): []}
+
+
+BY_VICTOR = changed(number=199, user={"login": "VictorS-67"})
 
 
 class TestDecide:
-    def test_names_the_pull_requests_that_qualify_and_merges_none(self, monkeypatch, capsys):
-        responses = {**responses_for(), **responses_for(changed(number=201, draft=True))}
+    def test_names_the_ones_that_qualify_and_merges_none(self, monkeypatch, capsys):
+        draft = changed(number=201, draft=True)
+        responses = {**responses_for(), **responses_for(draft), **listing(PULL_REQUEST, draft)}
         requests = []
         monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, requests))
-        assert merge.decide("VictorS-67/pybvh", [200, 201], "a-token") == [200]
-        assert [key for key, _ in requests if key[0] == "PUT"] == []
+        assert merge.decide("VictorS-67/pybvh", "a-token") == ([200], None)
+        assert [key for key, _ in requests if key[0] != "GET"] == []
         assert capsys.readouterr().out == "#200 qualifies.\n#201 waits: it is a draft.\n"
+
+    def test_names_the_one_to_bring_up_to_date(self, monkeypatch, capsys):
+        draft = changed(number=199, draft=True)
+        # The draft's answers first: the two share the head commit's.
+        responses = {**responses_for(draft), **responses_for(behind_by=3)}
+        responses.update(listing(draft, PULL_REQUEST))
+        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, []))
+        assert merge.decide("VictorS-67/pybvh", "a-token") == ([], 200)
+        assert capsys.readouterr().out == (
+            "#199 waits: it is a draft.\n"
+            "#200 waits: it is 3 commits behind main.\n"
+            "#200 is to be brought up to date.\n"
+        )
+
+    def test_reads_only_the_machine_account_s(self, monkeypatch):
+        requests = []
+        responses = {**responses_for(), **listing(BY_VICTOR, PULL_REQUEST)}
+        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, requests))
+        merge.decide("VictorS-67/pybvh", "a-token")
+        assert ("GET", f"{API}/pulls/199") not in [key for key, _ in requests]
 
 
 class TestMain:
     @pytest.fixture
     def job(self, monkeypatch, tmp_path):
-        event = tmp_path / "event.json"
-        event.write_text(json.dumps({"pull_request": {"number": 200}}), encoding="utf-8")
         output = tmp_path / "output"
-        monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
-        monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request_target")
         monkeypatch.setenv("GITHUB_OUTPUT", str(output))
         monkeypatch.setenv("GITHUB_REPOSITORY", "VictorS-67/pybvh")
         monkeypatch.setenv("GITHUB_TOKEN", "a-token")
         return output
 
-    def test_decide_writes_the_qualifying_numbers(self, job, monkeypatch):
+    def test_decide_writes_what_to_merge_and_what_to_update(self, job, monkeypatch):
         requests = []
-        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses_for(), requests))
+        responses = {**responses_for(), **listing(PULL_REQUEST)}
+        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, requests))
         assert merge.main(["--decide"]) == 0
-        assert job.read_text(encoding="utf-8") == "numbers=200\n"
-        assert [key for key, _ in requests if key[0] == "PUT"] == []
+        assert job.read_text(encoding="utf-8") == "numbers=200\nupdate=\n"
+        assert [key for key, _ in requests if key[0] != "GET"] == []
 
-    def test_decide_writes_no_number_when_none_qualifies(self, job, monkeypatch):
-        api = fake_api(responses_for(changed(draft=True)), [])
-        monkeypatch.setattr(merge.urllib.request, "urlopen", api)
+    def test_decide_writes_the_one_to_update(self, job, monkeypatch):
+        responses = {**responses_for(behind_by=1), **listing(PULL_REQUEST)}
+        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, []))
         merge.main(["--decide"])
-        assert job.read_text(encoding="utf-8") == "numbers=\n"
+        assert job.read_text(encoding="utf-8") == "numbers=\nupdate=200\n"
 
     def test_numbers_are_merged(self, job, monkeypatch):
         requests = []
@@ -438,3 +627,12 @@ class TestMain:
         assert merge.main(["200"]) == 0
         put = [key for key, _ in requests if key[0] == "PUT"]
         assert put == [("PUT", f"{API}/pulls/200/merge")]
+
+    def test_update_brings_one_up_to_date(self, job, monkeypatch):
+        requests = []
+        responses = responses_for(behind_by=1)
+        responses[("PUT", f"{API}/pulls/200/update-branch")] = {"message": "Updating."}
+        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, requests))
+        assert merge.main(["--update", "200"]) == 0
+        put = [key for key, _ in requests if key[0] == "PUT"]
+        assert put == [("PUT", f"{API}/pulls/200/update-branch")]

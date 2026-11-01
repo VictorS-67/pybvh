@@ -12,6 +12,7 @@ import importlib.util
 import io
 import json
 import sys
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -402,6 +403,8 @@ def fake_api(responses: dict, requests: list):
             asked[key] = asked.get(key, 0) + 1
         else:
             answer = responses[key]
+        if isinstance(answer, urllib.error.HTTPError):
+            raise answer
         return io.BytesIO(json.dumps(answer).encode("utf-8"))
 
     return urlopen
@@ -478,6 +481,57 @@ class TestMergeOne:
         monkeypatch.setattr(merge.urllib.request, "urlopen", api)
         merge.merge_one("VictorS-67/pybvh", 200, "a-token")
         assert [key for key, _ in requests] == [("GET", f"{API}/pulls/200")]
+
+
+class TestUpdateOne:
+    def test_brings_one_that_lags_main_up_to_date_from_the_head_it_read(self, monkeypatch, capsys):
+        requests = []
+        responses = responses_for(behind_by=2)
+        responses[("PUT", f"{API}/pulls/200/update-branch")] = {"message": "Updating."}
+        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, requests))
+        merge.update_one("VictorS-67/pybvh", 200, "a-token")
+        put = [(key, data) for key, data in requests if key[0] == "PUT"]
+        assert [(url, json.loads(data)) for (_, url), data in put] == [
+            (f"{API}/pulls/200/update-branch", {"expected_head_sha": HEAD})
+        ]
+        assert capsys.readouterr().out == "#200: brought up to date with main.\n"
+
+    @pytest.mark.parametrize(
+        ("pull_request", "behind_by", "said"),
+        [
+            (PULL_REQUEST, 0, "#200 is not brought up to date: it is up to date with main.\n"),
+            (
+                changed(draft=True),
+                2,
+                "#200 is not brought up to date: it is a draft.\n",
+            ),
+        ],
+    )
+    def test_leaves_one_that_does_not_only_lag_main(
+        self, monkeypatch, capsys, pull_request, behind_by, said
+    ):
+        requests = []
+        api = fake_api(responses_for(pull_request, behind_by=behind_by), requests)
+        monkeypatch.setattr(merge.urllib.request, "urlopen", api)
+        merge.update_one("VictorS-67/pybvh", 200, "a-token")
+        assert [key for key, _ in requests if key[0] == "PUT"] == []
+        assert capsys.readouterr().out == said
+
+    def test_says_why_github_refused_the_update(self, monkeypatch, capsys):
+        responses = responses_for(behind_by=2)
+        responses[("PUT", f"{API}/pulls/200/update-branch")] = urllib.error.HTTPError(
+            f"{API}/pulls/200/update-branch",
+            422,
+            "Unprocessable Entity",
+            None,
+            io.BytesIO(b'{"message": "merge conflict between base and head"}'),
+        )
+        monkeypatch.setattr(merge.urllib.request, "urlopen", fake_api(responses, []))
+        merge.update_one("VictorS-67/pybvh", 200, "a-token")
+        assert capsys.readouterr().out == (
+            "#200 is not brought up to date: GitHub answered 422, "
+            "merge conflict between base and head.\n"
+        )
 
 
 class TestPullRequestsOfTheEvent:

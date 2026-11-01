@@ -57,6 +57,7 @@ import importlib.util
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -370,35 +371,41 @@ def _unchanged(read: dict[str, Any], again: dict[str, Any]) -> bool:
     )
 
 
-def _read(repo_url: str, number: int, token: str) -> tuple[dict[str, Any], str | None]:
-    """The pull request as it is now, and why it waits, or None when it qualifies.
+def _read(repo_url: str, number: int, token: str) -> tuple[dict[str, Any], Reading]:
+    """The pull request as it is now, and what a read of it finds.
 
     Once the pull request itself waits, nothing else is read.
     """
     pull_request = _request(f"{repo_url}/pulls/{number}", token)
     reason = _pull_request_refusal(pull_request)
-    if reason is None:
-        head_sha = pull_request["head"]["sha"]
-        reason = refusal(
-            pull_request,
-            files=_pages(f"{repo_url}/pulls/{number}/files", token),
-            required_checks=_required_checks(repo_url, token),
-            check_runs=_pages(f"{repo_url}/commits/{head_sha}/check-runs", token, "check_runs"),
-            workflow_runs=_pages(
-                f"{repo_url}/actions/runs?head_sha={head_sha}&event=pull_request",
-                token,
-                "workflow_runs",
-            ),
-            behind_by=_request(f"{repo_url}/compare/{BASE}...{head_sha}", token)["behind_by"],
-        )
-    return pull_request, reason
+    if reason is not None:
+        return pull_request, Reading(number, reason, catches_up=False, in_flight=False)
+    head_sha = pull_request["head"]["sha"]
+    facts: dict[str, Any] = {
+        "files": _pages(f"{repo_url}/pulls/{number}/files", token),
+        "required_checks": _required_checks(repo_url, token),
+        "check_runs": _pages(f"{repo_url}/commits/{head_sha}/check-runs", token, "check_runs"),
+        "workflow_runs": _pages(
+            f"{repo_url}/actions/runs?head_sha={head_sha}&event=pull_request",
+            token,
+            "workflow_runs",
+        ),
+        "behind_by": _request(f"{repo_url}/compare/{BASE}...{head_sha}", token)["behind_by"],
+    }
+    return pull_request, Reading(
+        number,
+        refusal(pull_request, **facts),
+        catches_up=catches_up(pull_request, **facts),
+        in_flight=in_flight(pull_request, **facts),
+    )
 
 
 def decide(repo: str, numbers: list[int], token: str) -> list[int]:
     """The pull requests among ``numbers`` that qualify now; say why the others wait."""
     qualifying = []
     for number in numbers:
-        _, reason = _read(f"{API}/repos/{repo}", number, token)
+        _, reading = _read(f"{API}/repos/{repo}", number, token)
+        reason = reading.reason
         if reason is None:
             print(f"#{number} qualifies.")
             qualifying.append(number)
@@ -410,7 +417,8 @@ def decide(repo: str, numbers: list[int], token: str) -> list[int]:
 def merge_one(repo: str, number: int, token: str) -> None:
     """Merge pull request ``number`` of ``repo`` if it qualifies; say what was done."""
     repo_url = f"{API}/repos/{repo}"
-    pull_request, reason = _read(repo_url, number, token)
+    pull_request, reading = _read(repo_url, number, token)
+    reason = reading.reason
     if reason is None and not _unchanged(
         pull_request, _request(f"{repo_url}/pulls/{number}", token)
     ):
@@ -425,6 +433,35 @@ def merge_one(repo: str, number: int, token: str) -> None:
         body={"merge_method": "merge", "sha": pull_request["head"]["sha"]},
     )
     print(f"#{number}: merged.")
+
+
+def update_one(repo: str, number: int, token: str) -> None:
+    """Bring pull request ``number`` up to date with ``main`` if it only lags it.
+
+    GitHub merges ``main`` into the branch, at the head commit that was read,
+    with the token's identity; a push from the App's token starts the pull
+    request's checks again.
+    """
+    repo_url = f"{API}/repos/{repo}"
+    pull_request, reading = _read(repo_url, number, token)
+    if not reading.catches_up:
+        print(
+            f"#{number} is not brought up to date: "
+            f"{reading.reason or f'it is up to date with {BASE}'}."
+        )
+        return
+    try:
+        _request(
+            f"{repo_url}/pulls/{number}/update-branch",
+            token,
+            method="PUT",
+            body={"expected_head_sha": pull_request["head"]["sha"]},
+        )
+    except urllib.error.HTTPError as error:
+        message = json.load(error).get("message", error.reason)
+        print(f"#{number} is not brought up to date: GitHub answered {error.code}, {message}.")
+        return
+    print(f"#{number}: brought up to date with {BASE}.")
 
 
 def pull_requests_of(event_name: str, event: dict[str, Any]) -> list[int]:

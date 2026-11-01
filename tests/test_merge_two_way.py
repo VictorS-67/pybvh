@@ -156,8 +156,12 @@ class TestTheFiles:
         [
             "tests/conftest.py",
             "conftest.py",
+            "pytest.toml",
+            ".pytest.toml",
             "pytest.ini",
+            ".pytest.ini",
             "tests/pytest.ini",
+            "tests/pyproject.toml",
             "tox.ini",
             "setup.cfg",
             "ruff.toml",

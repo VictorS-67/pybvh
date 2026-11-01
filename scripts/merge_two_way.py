@@ -70,7 +70,6 @@ HELD_FILES = frozenset(
         "AGENTS.md",
         "CLAUDE.md",
         "CHARTER.md",
-        "pyproject.toml",
         ".pre-commit-config.yaml",
         # The tests of the scripts the checks run.
         "tests/test_check_no_import_skips.py",
@@ -84,11 +83,17 @@ HELD_FILES = frozenset(
     }
 )
 # Files that configure pytest, ruff or mypy, held wherever they stand: one can
-# switch off a held test without touching it.
+# switch off a held test without touching it. The names are those pytest 9
+# (locate_config), mypy (defaults.py) and ruff (its docs) read; pytest and
+# ruff read a nested one too.
 HELD_NAMES = frozenset(
     {
         "conftest.py",
+        "pytest.toml",
+        ".pytest.toml",
         "pytest.ini",
+        ".pytest.ini",
+        "pyproject.toml",
         "tox.ini",
         "setup.cfg",
         "ruff.toml",

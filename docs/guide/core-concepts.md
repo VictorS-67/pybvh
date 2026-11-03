@@ -31,6 +31,8 @@ pybvh has two index spaces:
 
 Most functions use the `joint_angles` index space. The docstring of each function specifies which space it expects.
 
+A parameter that selects a node takes the node's name or the node itself, one of `bvh.nodes`. It never takes an integer, because an integer does not say which index space it counts in. Node `i` is `bvh.nodes[i]`. A name must match exactly one node of the space that the function uses. When several nodes share a name, pass the node that you mean. To find a node's index in an array that you hold, call `bvh.index(node, space="node")` or `bvh.index(node, space="joint")`. Functions that take arrays, not a clip, such as `transforms.mirror_angles` and the functions of `geometry`, take integer indices into those arrays: there, the array sets the index space.
+
 ## Centered modes
 
 Several functions accept a `centered` parameter:

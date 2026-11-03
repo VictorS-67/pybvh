@@ -91,7 +91,7 @@ assert np.allclose(kappa_circle[5:-5], 1 / r, rtol=1e-2)
 #
 # Smoothness metrics summarize a joint's *speed profile* in one number. SPARC (spectral arc length) and log dimensionless jerk (LDLJ) are the standards — closer to 0 is smoother; the number of speed peaks counts sub-movements. Jerk, the third derivative of position, is the raw signal they build on.
 #
-# The code below looks up the hand's column with `bvh.index(name, space="node")` — the function form of the `bvh.node_index[name]` dict lookup from Tutorial 2 (same integer, plus name validation).
+# The code below looks up the hand's column with `bvh.index(name, space="node")`. When no other node carries the name, it gives the same integer as the `bvh.node_index[name]` dict lookup from Tutorial 2. When several nodes share the name, `bvh.index` raises and asks for the node, where `node_index` keeps the last of them.
 
 # %%
 hand = "RightHand"

@@ -2375,7 +2375,8 @@ class Bvh:
         :meth:`node_velocities` / :meth:`node_accelerations` (any
         ``(F, N, ...)`` array).
 
-        This is the resolver of every parameter that selects a node (see
+        This is the resolver of every parameter of ``Bvh``, ``analysis``
+        and ``features`` that selects a node (see
         :data:`~pybvh.NodeSelector`). A ``BvhNode`` is found by identity
         among :attr:`nodes`. A name must match exactly one node of the
         requested space: :attr:`node_index` and :attr:`joint_index` keep

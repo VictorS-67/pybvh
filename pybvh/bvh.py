@@ -2043,8 +2043,10 @@ class Bvh:
         world = self._world_node_positions()
         if centered == "skeleton":
             return world - self.root_pos[:, np.newaxis, :]
-        # with no frames there is nothing to center on
-        if centered == "first" and self.frame_count > 0:
+        if centered == "first":
+            # with no frames there is nothing to center on
+            if self.frame_count == 0:
+                return world.copy()
             return world - _ground_plane_offset(self.root_pos[0], self.world_up)
         return world
 
@@ -2083,7 +2085,8 @@ class Bvh:
         _check_centered(centered)
         if frame is None:
             positions = self._all_node_positions(centered)
-            return positions.copy() if positions is self._world_node_positions() else positions
+            # Only under "world" is the result the clip's own array.
+            return positions.copy() if centered == "world" else positions
         if not -self.frame_count <= frame < self.frame_count:
             raise IndexError(
                 f"frame {frame} is out of range for "

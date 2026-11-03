@@ -43,7 +43,7 @@ def feature_array_layout(
         rotation and velocity blocks: velocities are per-joint (not
         per-node), aligning with the rotation block's joint axis.
     num_feet : int, optional
-        Number of foot joints for contact detection.  Required (>0)
+        Number of feet for contact detection.  Required (>0)
         when ``include_foot_contacts=True``.
     representation : str, optional
         Rotation representation: ``'euler'``, ``'axisangle'`` (3 values

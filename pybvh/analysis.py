@@ -871,7 +871,7 @@ def foot_contacts(
         the contacts' columns, such as a :class:`~pybvh.ContactReport`'s
         ``vel_threshold`` passed back.  ``None`` (default) derives it:
         ``0.12 × skeleton_scale`` u/s where ``skeleton_scale`` is the
-        mean rest-pose distance from the root to the foot joints
+        mean rest-pose distance from the root to the feet
         (equivalent to the pre-v0.8 ``0.004 × skeleton_scale`` per
         frame at 30 fps).  Scale-invariant across cm- and m-scale
         skeletons, and unaffected by finger/spine subdivision (unlike

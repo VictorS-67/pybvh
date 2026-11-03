@@ -1334,12 +1334,14 @@ def auto_detect_feet(bvh: Bvh) -> list[BvhNode]:
         )
         with_tip = matched
 
-    # Step 3: most-distal — drop candidates whose subtree contains another candidate
-    candidate_names = {n.name for n in with_tip}
+    # Step 3: most-distal — drop candidates whose subtree contains another
+    # candidate. Identity-keyed: a node that only shares a candidate's name
+    # (an end site named after its joint) is no candidate.
+    candidate_ids = {id(n) for n in with_tip}
 
     def _has_candidate_descendant(node: BvhNode) -> bool:
         for child in getattr(node, "children", None) or []:
-            if child.name in candidate_names:
+            if id(child) in candidate_ids:
                 return True
             if not child.is_end_site() and _has_candidate_descendant(child):
                 return True

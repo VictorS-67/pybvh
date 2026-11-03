@@ -749,6 +749,19 @@ class TestAutoDetectFeet:
         with pytest.raises(ValueError, match=r"Pass the node you mean"):
             renamed.foot_contacts(feet=["Toe", "Toe"])
 
+    def test_an_end_site_named_after_its_foot_leaves_the_foot_detected(self):
+        # Some exporters name an end site after its joint. The end site is no
+        # candidate, so the foot above it is still the most distal one.
+        walk = read_bvh_file(CMU_WALK_PATH)
+        table = walk.to_node_table()
+        for foot in walk.auto_detect_feet():
+            (end_site,) = foot.children
+            table[walk.index(end_site, space="node")]["name"] = foot.name
+        renamed = walk.copy(nodes=table)
+        assert [renamed.index(foot, space="node") for foot in renamed.auto_detect_feet()] == [
+            walk.index(foot, space="node") for foot in walk.auto_detect_feet()
+        ]
+
     def test_feet_that_share_a_name_are_each_measured_by_the_gait(self):
         # The stride variability pools each foot's strides; feet that share a
         # name are still two feet. Asymmetry, which reads "left" and "right"

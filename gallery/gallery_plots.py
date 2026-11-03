@@ -480,9 +480,9 @@ def fig_resample(bvh, resampled, joint="RightForeArm", channel=0):
     plt.tight_layout()
 
 
-def fig_foot_contacts_signals(bvh, foot_joints, foot=0):
+def fig_foot_contacts_signals(bvh, feet, foot=0):
     """The two signals foot_contacts thresholds, with the detected stance spans."""
-    contacts, report = bvh.foot_contacts(foot_joints=foot_joints, adaptive=True, return_info=True)
+    contacts, report = bvh.foot_contacts(feet=feet, adaptive=True, return_info=True)
     dt = bvh.frame_time
     t = np.arange(bvh.frame_count) * dt
     planted = contacts[:, foot] > 0.5
@@ -499,7 +499,7 @@ def fig_foot_contacts_signals(bvh, foot_joints, foot=0):
         a.set_ylabel(ylab)
         a.legend(fontsize=8, loc="upper right")
     a1.set_title(
-        f"foot_contacts — {foot_joints[foot]}: planted (green) where "
+        f"foot_contacts — {report.joints[foot]}: planted (green) where "
         f"BOTH signals sit below their thresholds"
     )
     a2.set_xlabel("time (s)")
@@ -1039,7 +1039,7 @@ def fig_gait(bvh, feet, g, t, contacts=None):
     if contacts is None:
         # adaptive=True mirrors gait_parameters' internal default, so the
         # raster shows the same labels the gait scalars were computed from
-        contacts = bvh.foot_contacts(foot_joints=feet, adaptive=True)
+        contacts = bvh.foot_contacts(feet=feet, adaptive=True)
     events = analysis._foot_contact_events(contacts)
     # stacked: the time-domain contact raster above the spatial foot tracks,
     # both reading left-to-right along the walk.

@@ -13,7 +13,7 @@ computation itself.
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence, Sized
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
@@ -154,6 +154,40 @@ def _checked_joint_angles(value: npt.ArrayLike) -> npt.NDArray[np.float64]:
     if arr.ndim != 3 or arr.shape[2] != 3:
         raise ValueError(f"joint_angles must have shape (F, J, 3), got {arr.shape}")
     return arr
+
+
+def _node_pairs(pairs: object) -> list[tuple[NodeSelector, NodeSelector]]:
+    """``pairs`` as a list of pairs, or ``TypeError`` when it is not a sequence of pairs.
+
+    Without the check, a pair given alone or a ``str`` would be unpacked
+    letter by letter or entry by entry, and fail with an unpacking
+    ``ValueError`` that does not say what to pass. The entries of each pair
+    are left to :meth:`Bvh.index`.
+    """
+    example = "[('Hips', 'Spine')]"
+    if isinstance(pairs, (str, BvhNode)) or not isinstance(pairs, Iterable):
+        raise TypeError(
+            f"pairs is a sequence of node pairs, not one {type(pairs).__name__}: "
+            f"pass {example} for the pair of 'Hips' and 'Spine'."
+        )
+    checked = []
+    for pair in cast("Iterable[Any]", pairs):
+        if isinstance(pair, str):
+            got = f"the str {pair!r}"
+        elif isinstance(pair, BvhNode) or not isinstance(pair, Sized):
+            got = f"one {type(pair).__name__}"
+        elif len(pair) != 2:
+            got = f"a {type(pair).__name__} of length {len(pair)}"
+        else:
+            a, b = pair
+            checked.append((a, b))
+            continue
+        raise TypeError(
+            f"Each entry of pairs is a pair of nodes, each a name or a "
+            f"BvhNode, not {got}: pass {example} for the pair of 'Hips' "
+            f"and 'Spine'."
+        )
+    return checked
 
 
 def _validated_lr_mapping(mapping: dict[str, str], joint_names: Sequence[str]) -> dict[str, str]:
@@ -3975,10 +4009,12 @@ class Bvh:
     ) -> npt.NDArray[np.float64]:
         """Per-frame distances between node pairs, each node a name or a ``BvhNode``.
 
-        See :func:`pybvh.geometry.inter_joint_distance`."""
+        ``pairs`` is a sequence of pairs, such as ``[('Hips', 'Spine')]``;
+        anything else raises ``TypeError``. A pair may name one node twice,
+        and its distance is 0. See :func:`pybvh.geometry.inter_joint_distance`."""
         from . import geometry
 
-        idx_pairs = [[self.index(a, "node"), self.index(b, "node")] for a, b in pairs]
+        idx_pairs = [[self.index(a, "node"), self.index(b, "node")] for a, b in _node_pairs(pairs)]
         return geometry.inter_joint_distance(self._all_node_positions(), idx_pairs)
 
     def joint_angle(

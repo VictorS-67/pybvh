@@ -25,6 +25,7 @@ Migration: grep for the old name in the left column, replace with the right colu
 | `analysis.ground_contacts(bvh, joints=)`, `Bvh.ground_contacts(joints=)` | `nodes=` | Each entry is a name or a `BvhNode` (`pybvh.NodeSelector`), end sites included. An integer raises `TypeError`: node `i` is `bvh.nodes[i]`. |
 | `analysis.foot_contacts(bvh, foot_joints=)`, `Bvh.foot_contacts(foot_joints=)` | `feet=` | Each entry is a name or a `BvhNode`. |
 | `analysis.auto_detect_foot_joints(bvh)`, `Bvh.auto_detect_foot_joints()` | `auto_detect_feet` | Returns the feet as nodes of the clip, not their names: `[foot.name for foot in feet]` gives the names. |
+| `Bvh.extract_joints(joint_names=)` | `joints=` | Each entry is a name or a `BvhNode` (`pybvh.NodeSelector`) and must select one joint, end sites excluded, so the parameter is `joints`. Pass the node to keep one of two joints that share a name. |
 
 ---
 

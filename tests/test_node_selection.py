@@ -11,10 +11,22 @@ values for every other parameter. ``space`` is the index space the entry point
 resolves the parameter in, and ``takes_set`` says whether the parameter is a
 sequence of selectors: the tests then pass each selector inside a list, and
 add the refusals of a bare ``str`` or ``BvhNode`` and of a node selected twice.
+
+The guard at the end of this file reads the public signatures of ``Bvh``,
+``analysis`` and ``features``. It finds a selecting parameter by its name
+(``node``, ``joints``, ``feet``, ...) or by ``NodeSelector`` in its annotation,
+and fails on a selecting parameter without its row in ``ENTRIES`` or not typed
+with ``NodeSelector``, on a row whose parameter is gone, on a parameter typed
+with ``int`` that ``_INTEGERS_NOT_NODES`` does not list, and on a parameter
+named ``coords``. It calls each row with an end site: a parameter named
+``joint`` or ``joints`` must refuse it, and every other must accept it,
+``Bvh.index`` excepted, whose caller gives the space.
 """
 
 from __future__ import annotations
 
+import inspect
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -512,3 +524,141 @@ def test_extract_joints_keeps_one_of_two_joints_that_share_a_name():
     reduced = clip.extract_joints([clip.root, clip.nodes[_SPINE], clip.nodes[_ARM]])
     assert [node.name for node in reduced.nodes] == ["Hips", "Spine", "Arm", "Hand"]
     np.testing.assert_array_equal(reduced.joint_angles, clip.joint_angles[:, [0, 1, 3]])
+
+
+# The guard over the public signatures. It reads the signatures of every
+# public function and method of Bvh, analysis and features, so that a new one
+# cannot select nodes outside the rule, nor skip ENTRIES.
+
+# A parameter whose name says it selects nodes. The annotation finds the others
+# (a, b, c, vertex, pairs): they are typed with NodeSelector.
+_SELECTING_NAME = re.compile(r"(joint|node)s?(_[a-z])?|feet")
+# Parameters named like a selection that take a whole skeleton, not a selection
+# of the clip's nodes.
+_SKELETONS = {("Bvh.__init__", "nodes"), ("Bvh.copy", "nodes")}
+# The parameters typed with int, each of which takes a frame, an axis, a lag,
+# a padding level or a count, not a node. The name and the annotation miss a
+# selection named otherwise ("foot", "end_site"), so a new parameter typed with
+# int fails the guard until it is listed here.
+_INTEGERS_NOT_NODES = {
+    ("Bvh.forward_at", "frame"),
+    ("Bvh.left_at", "frame"),
+    ("Bvh.joint_positions", "frame"),
+    ("Bvh.node_positions", "frame"),
+    ("Bvh.feature_array_layout", "num_feet"),
+    ("analysis.lagged_covariance", "lag"),
+    ("analysis.range_of_motion", "axis"),
+    ("analysis.sparc", "padlevel"),
+    ("analysis.zero_crossings", "axis"),
+    ("features.feature_array_layout", "num_joints"),
+    ("features.feature_array_layout", "num_feet"),
+}
+
+
+def _public_callables() -> list[tuple[str, Callable[..., Any]]]:
+    """Each public function of analysis and features and each public method of Bvh, by name."""
+    callables = []
+    for name, member in vars(Bvh).items():
+        if name.startswith("_") and name != "__init__":
+            continue
+        if isinstance(member, (staticmethod, classmethod)):
+            member = member.__func__
+        if inspect.isfunction(member):
+            callables.append((f"Bvh.{name}", member))
+    for module in (analysis, features):
+        short = module.__name__.rpartition(".")[2]
+        for name, member in vars(module).items():
+            if (
+                not name.startswith("_")
+                and inspect.isfunction(member)
+                and member.__module__ == module.__name__
+            ):
+                callables.append((f"{short}.{name}", member))
+    return callables
+
+
+def _parameters() -> list[tuple[str, inspect.Parameter]]:
+    """Each parameter of each public callable, with the callable's name; ``self`` left out.
+
+    The modules import ``annotations`` from ``__future__``, so each annotation
+    is the source text, in which ``NodeSelector`` keeps its name.
+    """
+    return [
+        (function, parameter)
+        for function, member in _public_callables()
+        for parameter in inspect.signature(member).parameters.values()
+        if parameter.name != "self"
+    ]
+
+
+def _selecting_parameters() -> set[tuple[str, str]]:
+    return {
+        (function, parameter.name)
+        for function, parameter in _parameters()
+        if (
+            _SELECTING_NAME.fullmatch(parameter.name) or "NodeSelector" in str(parameter.annotation)
+        )
+        and (function, parameter.name) not in _SKELETONS
+    }
+
+
+def test_the_guard_finds_the_public_callables():
+    # A walk that found nothing would let every check below pass.
+    functions = {function for function, _ in _public_callables()}
+    assert {"Bvh.index", "Bvh.path_length", "analysis.ground_contacts"} <= functions
+    assert "features.to_feature_array" in functions
+
+
+def test_no_public_signature_takes_coords():
+    # The clip's own positions are read from it; positions the caller holds
+    # take bvh.index, then pybvh.geometry or pybvh.signal.
+    assert [function for function, parameter in _parameters() if parameter.name == "coords"] == []
+
+
+def test_every_selecting_parameter_is_typed_with_node_selector_and_never_int():
+    annotations = {
+        (function, parameter.name): str(parameter.annotation)
+        for function, parameter in _parameters()
+    }
+    wrong = {
+        selecting: annotations[selecting]
+        for selecting in _selecting_parameters()
+        if "NodeSelector" not in annotations[selecting]
+        or re.search(r"\bint\b", annotations[selecting])
+    }
+    assert wrong == {}
+
+
+def test_a_parameter_typed_with_int_is_listed_as_not_a_node():
+    typed_int = {
+        (function, parameter.name)
+        for function, parameter in _parameters()
+        if re.search(r"\bint\b", str(parameter.annotation))
+    }
+    assert typed_int - _INTEGERS_NOT_NODES == set()
+
+
+def test_every_selecting_parameter_has_its_rows_in_entries():
+    selecting = _selecting_parameters()
+    listed = {(entry.function, entry.parameter) for entry in ENTRIES}
+    assert selecting - listed == set(), "selecting parameters without a row in ENTRIES"
+    assert listed - selecting == set(), "rows of ENTRIES whose parameter is gone"
+
+
+@pytest.mark.parametrize("entry", _rows(lambda entry: entry.parameter in ("joint", "joints")))
+def test_a_parameter_named_joint_refuses_an_end_site(entry):
+    clip = _rig()
+    with pytest.raises(ValueError, match=r"is an end site"):
+        entry.call(clip, _selection(entry, clip.nodes[_HAND]))
+
+
+# Bvh.index takes its space from its caller, so its name says nothing of it.
+@pytest.mark.parametrize(
+    "entry",
+    _rows(
+        lambda entry: entry.parameter not in ("joint", "joints") and entry.function != "Bvh.index"
+    ),
+)
+def test_a_parameter_not_named_joint_accepts_an_end_site(entry):
+    clip = _rig()
+    entry.call(clip, _selection(entry, clip.nodes[_HAND]))

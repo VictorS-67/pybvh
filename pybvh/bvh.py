@@ -3902,8 +3902,7 @@ class Bvh:
     #  Relational / trajectory queries select in NODE space, so end sites
     #  (fingertips, toe tips, head top) are first-class: each takes a node's
     #  name or the node itself, resolved by index(). Every descriptor reads
-    #  the node positions the clip holds as derived state; it takes none
-    #  from the caller.
+    #  the node positions the clip holds as derived state.
 
     def curvature(
         self,

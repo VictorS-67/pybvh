@@ -2843,7 +2843,6 @@ def _gait_parameters_unchecked(
     foot_indices = _feet_indices(bvh, feet, "gait_parameters()")
     foot_nodes = [bvh.nodes[i] for i in foot_indices]
 
-    node_pos = bvh.node_positions()
     if contacts is None:
         # adaptive=True: calling gait_parameters *is* the declaration that the
         # clip is locomotion — exactly the precondition foot_contacts documents
@@ -2856,7 +2855,8 @@ def _gait_parameters_unchecked(
     contacts = np.asarray(contacts, dtype=np.float64)
 
     up = _axis_to_vector(bvh.world_up)
-    foot_xyz = node_pos[:, foot_indices, :]  # (F, n_feet, 3)
+    # The stored positions are read-only; the fancy index copies the feet's columns.
+    foot_xyz = bvh._world_node_positions()[:, foot_indices, :]  # (F, n_feet, 3)
     foot_h = foot_xyz - (foot_xyz @ up)[..., None] * up  # project to ground
 
     root = bvh.root_pos

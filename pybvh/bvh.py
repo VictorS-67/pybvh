@@ -55,7 +55,7 @@ from ._orientation import (
 
 # Re-exported: pybvh.bvh has long served every node class, end sites included.
 from .bvhnode import BvhEndSite as BvhEndSite
-from .bvhnode import BvhJoint, BvhNode, BvhRoot, _is_joint
+from .bvhnode import BvhJoint, BvhNode, BvhRoot, NodeSelector, _is_joint
 from .node_tree import (
     _OFFSET_ATOL,
     _channel_difference,
@@ -2360,8 +2360,8 @@ class Bvh:
             self._derived.joint_index = index
         return index
 
-    def index(self, name: str, space: Literal["joint", "node"]) -> int:
-        """Look up the integer index for ``name`` in the requested index space.
+    def index(self, node: NodeSelector, space: Literal["joint", "node"]) -> int:
+        """The integer index of one node in the requested index space.
 
         Unambiguous alternative to picking between :attr:`joint_index`
         and :attr:`node_index` at the call site. Use ``space='joint'``
@@ -2372,10 +2372,19 @@ class Bvh:
         :meth:`node_velocities` / :meth:`node_accelerations` (any
         ``(F, N, ...)`` array).
 
+        This is the resolver of every parameter that selects a node (see
+        :data:`~pybvh.NodeSelector`). A ``BvhNode`` is found by identity
+        among :attr:`nodes`. A name must match exactly one node of the
+        requested space: :attr:`node_index` and :attr:`joint_index` keep
+        the last of the nodes that share a name, where this method raises
+        and asks for the node. A name that a joint and an end site share
+        therefore selects the joint with ``space='joint'``, and raises
+        with ``space='node'``.
+
         Parameters
         ----------
-        name : str
-            Joint or node name.
+        node : str or BvhNode
+            The node's name, or the node itself, one of :attr:`nodes`.
         space : {'joint', 'node'}
             Which index space to look up. ``'joint'`` excludes end sites.
 
@@ -2385,17 +2394,111 @@ class Bvh:
 
         Raises
         ------
-        KeyError
-            If ``name`` is not present in the requested index space (e.g.
-            an end-site name with ``space='joint'``).
+        TypeError
+            If ``node`` is neither a ``str`` nor a ``BvhNode``. An integer
+            is refused: it does not say which index space it counts in;
+            node ``i`` is ``bvh.nodes[i]``.
         ValueError
-            If ``space`` is not ``'joint'`` or ``'node'``.
+            If ``space`` is not ``'joint'`` or ``'node'``; if ``node`` is
+            a ``BvhNode`` that is not one of :attr:`nodes` (a node of
+            another clip, or one taken before an edit replaced this
+            clip's skeleton); if no node of the space carries the name, or
+            more than one does; or if ``node`` selects an end site with
+            ``space='joint'``.
         """
-        if space == "joint":
-            return self.joint_index[name]
+        if space not in ("joint", "node"):
+            raise ValueError(f"space must be 'joint' or 'node', got {space!r}")
+        position = self._node_position(node, space)
         if space == "node":
-            return self.node_index[name]
-        raise ValueError(f"space must be 'joint' or 'node', got {space!r}")
+            return position
+        if self.nodes[position].is_end_site():
+            raise ValueError(self._end_site_in_joint_space(position))
+        return self._non_end_site_indices().index(position)
+
+    def _indices(self, nodes: Sequence[NodeSelector], space: Literal["joint", "node"]) -> list[int]:
+        """The plural form of :meth:`index`: the indices of a set of nodes, in its order.
+
+        Each entry resolves as :meth:`index` resolves one node. Beyond its
+        refusals, a bare ``str`` or ``BvhNode`` given as the set raises
+        ``TypeError`` (a ``str`` would otherwise be read letter by
+        letter), and a set that selects one node twice, by the same
+        selector or by a name and its node, raises ``ValueError``.
+        """
+        if isinstance(nodes, (str, BvhNode)):
+            listed = repr(nodes) if isinstance(nodes, str) else "bvh.nodes[i]"
+            raise TypeError(
+                f"A set of nodes is a sequence of names or BvhNode objects, "
+                f"not one {type(nodes).__name__}: pass [{listed}] to select "
+                f"one node."
+            )
+        indices: list[int] = []
+        for node in nodes:
+            index = self.index(node, space)
+            if index in indices:
+                position = self._node_position(node, space)
+                raise ValueError(
+                    f"The set selects bvh.nodes[{position}] "
+                    f"({self.nodes[position].name!r}) more than once. Select "
+                    f"each node once."
+                )
+            indices.append(index)
+        return indices
+
+    def _node_position(self, node: NodeSelector, space: Literal["joint", "node"]) -> int:
+        """The position in :attr:`nodes` of the node ``node`` selects in ``space``.
+
+        A name is looked up among the nodes of ``space``; in joint space,
+        a name that only end sites carry gives the first of them, which
+        :meth:`index` then refuses as an end site.
+        """
+        if isinstance(node, BvhNode):
+            for position, candidate in enumerate(self.nodes):
+                if candidate is node:
+                    return position
+            raise ValueError(
+                f"The node {node.name!r} is not one of this clip's nodes: it "
+                f"belongs to another clip, or to this clip's skeleton before an "
+                f"in-place edit replaced it. Pass one of bvh.nodes, or the "
+                f"node's name."
+            )
+        if not isinstance(node, str):
+            raise TypeError(
+                f"A node is selected by its name (str) or by the BvhNode "
+                f"itself, not by the {type(node).__name__} {node!r}. An "
+                f"integer does not say whether it counts in joint space or in "
+                f"node space: node i is bvh.nodes[i]."
+            )
+        positions = [
+            position
+            for position, candidate in enumerate(self.nodes)
+            if candidate.name == node and (space == "node" or not candidate.is_end_site())
+        ]
+        if len(positions) > 1:
+            listed = ", ".join(f"bvh.nodes[{position}]" for position in positions)
+            raise ValueError(
+                f"{len(positions)} {space}s of this clip are named {node!r}: "
+                f"{listed}. Pass the node you mean in place of its name."
+            )
+        if positions:
+            return positions[0]
+        if space == "joint":
+            end_sites = [i for i, candidate in enumerate(self.nodes) if candidate.name == node]
+            if end_sites:
+                return end_sites[0]
+        names_at = "bvh.node_index" if space == "node" else "bvh.joint_names"
+        raise ValueError(
+            f"No {space} of this clip is named {node!r}; {names_at} lists the {space}s' names."
+        )
+
+    def _end_site_in_joint_space(self, position: int) -> str:
+        """The refusal of the end site at ``position`` in joint space."""
+        parent_position = int(self.fk_topology.parent_idx[position])
+        return (
+            f"bvh.nodes[{position}] ({self.nodes[position].name!r}) is an end "
+            f"site: it has no rotation channels, so no index in joint space. "
+            f"Select a joint, such as its parent bvh.nodes[{parent_position}] "
+            f"({self.nodes[parent_position].name!r})."
+        )
 
     @property
     def joint_tips(self) -> dict[str, int | None]:
@@ -3777,108 +3880,94 @@ class Bvh:
     # ----------------------------------------------------------------
     #  Motion descriptors (delegate to geometry / analysis modules)
     # ----------------------------------------------------------------
-    #  Relational / trajectory queries index in NODE space (node_index), so
-    #  end sites (fingertips, toe tips, head top) are first-class; pass a
-    #  joint or end-site name. Every descriptor reads the node positions the
-    #  clip holds as derived state; it takes none from the caller.
-
-    def _descriptor_index(self, joint: str, space: str = "node") -> int:
-        """Resolve a name for the descriptor methods — names only, no ints.
-
-        Integer indices are rejected because they are ambiguous between
-        joint space and node space (the historical source of silently
-        misaligned lookups).
-        """
-        if not isinstance(joint, str):
-            raise TypeError(
-                f"joint must be a name (str), got {type(joint).__name__}. "
-                f"Integer indices are ambiguous between joint and node index "
-                f"spaces — resolve names explicitly with "
-                f"bvh.index(name, space={space!r}) and use the functional "
-                f"pybvh.geometry / pybvh.analysis API for index-based access."
-            )
-        return self.index(joint, space=space)  # type: ignore[arg-type]
+    #  Relational / trajectory queries select in NODE space, so end sites
+    #  (fingertips, toe tips, head top) are first-class: each takes a node's
+    #  name or the node itself, resolved by index(). Every descriptor reads
+    #  the node positions the clip holds as derived state; it takes none
+    #  from the caller.
 
     def curvature(
         self,
-        joint: str,
+        node: NodeSelector,
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
-        """Per-frame trajectory curvature of ``joint``. See :func:`pybvh.geometry.curvature`."""
+        """Per-frame trajectory curvature of ``node``. See :func:`pybvh.geometry.curvature`."""
         from . import geometry
 
-        traj = self._all_node_positions()[:, self._descriptor_index(joint), :]
+        traj = self._all_node_positions()[:, self.index(node, "node"), :]
         return geometry.curvature(traj, stencil, pad)
 
     def torsion(
         self,
-        joint: str,
+        node: NodeSelector,
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
-        """Per-frame trajectory torsion of ``joint``. See :func:`pybvh.geometry.torsion`."""
+        """Per-frame trajectory torsion of ``node``. See :func:`pybvh.geometry.torsion`."""
         from . import geometry
 
-        traj = self._all_node_positions()[:, self._descriptor_index(joint), :]
+        traj = self._all_node_positions()[:, self.index(node, "node"), :]
         return geometry.torsion(traj, stencil, pad)
 
     def movement_phase(
         self,
-        joint: str,
+        node: NodeSelector,
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
-        """Per-frame movement phase (``speed · curvature``) of ``joint``.
+        """Per-frame movement phase (``speed · curvature``) of ``node``.
 
         Raises ``ValueError`` when the clip's ``frame_time`` is 0 (unset).
         See :func:`pybvh.geometry.movement_phase`."""
         from . import geometry
 
         _require_rate(self.frame_time, "movement_phase()")
-        traj = self._all_node_positions()[:, self._descriptor_index(joint), :]
+        traj = self._all_node_positions()[:, self.index(node, "node"), :]
         return geometry.movement_phase(traj, self.frame_time, stencil, pad)
 
-    def path_length(self, joint: str) -> float:
-        """Arc length travelled by ``joint``. See :func:`pybvh.geometry.path_length`."""
+    def path_length(self, node: NodeSelector) -> float:
+        """Arc length travelled by ``node``. See :func:`pybvh.geometry.path_length`."""
         from . import geometry
 
         return float(
-            geometry.path_length(self._all_node_positions()[:, self._descriptor_index(joint), :])
+            geometry.path_length(self._all_node_positions()[:, self.index(node, "node"), :])
         )
 
-    def directness(self, joint: str) -> float:
-        """Directness of ``joint``'s path (net displacement ÷ path length).
+    def directness(self, node: NodeSelector) -> float:
+        """Directness of ``node``'s path (net displacement ÷ path length).
 
         See :func:`pybvh.geometry.directness`."""
         from . import geometry
 
         return float(
-            geometry.directness(self._all_node_positions()[:, self._descriptor_index(joint), :])
+            geometry.directness(self._all_node_positions()[:, self.index(node, "node"), :])
         )
 
-    def ground_path(self, joint: str) -> geometry.GroundPath:
-        """Ground-plane path of ``joint`` (uses ``world_up``). See :func:`pybvh.geometry.ground_path`."""
+    def ground_path(self, node: NodeSelector) -> geometry.GroundPath:
+        """Ground-plane path of ``node`` (uses ``world_up``). See :func:`pybvh.geometry.ground_path`."""
         from . import geometry
 
-        traj = self._all_node_positions()[:, self._descriptor_index(joint), :]
+        traj = self._all_node_positions()[:, self.index(node, "node"), :]
         return geometry.ground_path(traj, _axis_to_vector(self.world_up))
 
     def inter_joint_distance(
         self,
-        pairs: list[tuple[str, str]],
+        pairs: Sequence[tuple[NodeSelector, NodeSelector]],
     ) -> npt.NDArray[np.float64]:
-        """Per-frame distances between node pairs. See :func:`pybvh.geometry.inter_joint_distance`."""
+        """Per-frame distances between node pairs, each node a name or a ``BvhNode``.
+
+        See :func:`pybvh.geometry.inter_joint_distance`."""
         from . import geometry
 
-        idx_pairs = [[self._descriptor_index(a), self._descriptor_index(b)] for a, b in pairs]
+        idx_pairs = [[self.index(a, "node"), self.index(b, "node")] for a, b in pairs]
         return geometry.inter_joint_distance(self._all_node_positions(), idx_pairs)
 
     def joint_angle(
         self,
-        a: str,
-        vertex: str,
-        b: str,
+        a: NodeSelector,
+        vertex: NodeSelector,
+        b: NodeSelector,
         degrees: bool = False,
     ) -> npt.NDArray[np.float64]:
         """Per-frame angle at ``vertex`` in ``a–vertex–b``. See :func:`pybvh.geometry.joint_angle`."""
@@ -3886,36 +3975,38 @@ class Bvh:
 
         pos = self._all_node_positions()
         return geometry.joint_angle(
-            pos[:, self._descriptor_index(a)],
-            pos[:, self._descriptor_index(vertex)],
-            pos[:, self._descriptor_index(b)],
+            pos[:, self.index(a, "node")],
+            pos[:, self.index(vertex, "node")],
+            pos[:, self.index(b, "node")],
             degrees=degrees,
         )
 
-    def triangle_area(self, a: str, b: str, c: str) -> npt.NDArray[np.float64]:
+    def triangle_area(
+        self, a: NodeSelector, b: NodeSelector, c: NodeSelector
+    ) -> npt.NDArray[np.float64]:
         """Per-frame area of triangle ``(a, b, c)``. See :func:`pybvh.geometry.triangle_area`."""
         from . import geometry
 
         pos = self._all_node_positions()
         return geometry.triangle_area(
-            pos[:, self._descriptor_index(a)],
-            pos[:, self._descriptor_index(b)],
-            pos[:, self._descriptor_index(c)],
+            pos[:, self.index(a, "node")],
+            pos[:, self.index(b, "node")],
+            pos[:, self.index(c, "node")],
         )
 
     def segment_axis_angle(
         self,
-        joint_a: str,
-        joint_b: str,
+        node_a: NodeSelector,
+        node_b: NodeSelector,
         degrees: bool = False,
     ) -> npt.NDArray[np.float64]:
-        """Per-frame angle of the bone ``joint_a→joint_b`` to ``world_up``.
+        """Per-frame angle of the segment ``node_a→node_b`` to ``world_up``.
 
         See :func:`pybvh.geometry.segment_axis_angle`."""
         from . import geometry
 
         pos = self._all_node_positions()
-        seg = pos[:, self._descriptor_index(joint_b)] - pos[:, self._descriptor_index(joint_a)]
+        seg = pos[:, self.index(node_b, "node")] - pos[:, self.index(node_a, "node")]
         return geometry.segment_axis_angle(seg, _axis_to_vector(self.world_up), degrees=degrees)
 
     def bounding_box(self) -> geometry.BoundingBox:
@@ -4002,13 +4093,13 @@ class Bvh:
 
     def smoothness(
         self,
-        joint: str,
+        node: NodeSelector,
         metric: str = "sparc",
         **kwargs: Any,
     ) -> float:
-        """Smoothness of ``joint``'s speed profile. See :func:`pybvh.analysis.smoothness`.
+        """Smoothness of ``node``'s speed profile. See :func:`pybvh.analysis.smoothness`.
 
-        Computes the joint's per-frame speed ``‖velocity‖`` and passes it
+        Computes the node's per-frame speed ``‖velocity‖`` and passes it
         to the chosen ``metric`` at sampling rate ``1 / frame_time``.
 
         ``metric`` is one of ``"sparc"`` (default),
@@ -4029,15 +4120,15 @@ class Bvh:
 
         _require_rate(self.frame_time, "smoothness()")
         vel = self.node_velocities()
-        speed = np.linalg.norm(vel[:, self._descriptor_index(joint), :], axis=-1)
+        speed = np.linalg.norm(vel[:, self.index(node, "node"), :], axis=-1)
         value = analysis.smoothness(speed, 1.0 / self.frame_time, metric=metric, **kwargs)
-        # One joint's (T,) speed reduces to a scalar; an array's rank is not in its type.
+        # One node's (T,) speed reduces to a scalar; an array's rank is not in its type.
         return cast(float, value)
 
-    def velocity_reductions(self, joint: str):
-        """Scalar reductions of ``joint``'s speed profile (peak, mean, …).
+    def velocity_reductions(self, node: NodeSelector):
+        """Scalar reductions of ``node``'s speed profile (peak, mean, …).
 
-        Computes the joint's per-frame speed ``‖velocity‖`` and reduces it
+        Computes the node's per-frame speed ``‖velocity‖`` and reduces it
         at sampling rate ``1 / frame_time``, and raises ``ValueError``
         when that ``frame_time`` is 0 (unset). See
         :func:`pybvh.analysis.velocity_reductions`."""
@@ -4045,7 +4136,7 @@ class Bvh:
 
         _require_rate(self.frame_time, "velocity_reductions()")
         vel = self.node_velocities()
-        speed = np.linalg.norm(vel[:, self._descriptor_index(joint), :], axis=-1)
+        speed = np.linalg.norm(vel[:, self.index(node, "node"), :], axis=-1)
         return analysis.velocity_reductions(speed, 1.0 / self.frame_time)
 
     def skeleton_size(self, foot_joints: list[str] | None = None) -> float:
@@ -4112,14 +4203,15 @@ class Bvh:
 
         return analysis.gait_parameters(self, foot_joints=foot_joints, contacts=contacts)
 
-    def range_of_motion(self, joint: str) -> npt.NDArray[np.float64]:
+    def range_of_motion(self, joint: NodeSelector) -> npt.NDArray[np.float64]:
         """Peak-to-peak range of ``joint``'s Euler angles — ``(3,)`` per channel.
 
-        Indexes in JOINT space (rotations exist only on joints). See
-        :func:`pybvh.analysis.range_of_motion`."""
+        Selects in JOINT space (rotations exist only on joints), so an end
+        site raises ``ValueError``, and a name that a joint and an end site
+        share selects the joint. See :func:`pybvh.analysis.range_of_motion`."""
         from . import analysis
 
-        idx = self._descriptor_index(joint, space="joint")
+        idx = self.index(joint, "joint")
         return analysis.range_of_motion(self.joint_angles[:, idx, :], axis=0)
 
     # ----------------------------------------------------------------

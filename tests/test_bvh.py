@@ -4679,7 +4679,7 @@ class TestReadOnlyArrayViews:
 
 
 class TestBvhIndex:
-    """Tests for Bvh.index(name, space=...)."""
+    """Tests for Bvh.index(node, space=...); its refusals are in test_node_selection.py."""
 
     def test_joint_axis_matches_joint_index(self, bvh_example):
         for name in bvh_example.joint_names:
@@ -4688,10 +4688,6 @@ class TestBvhIndex:
     def test_node_axis_matches_node_index(self, bvh_example):
         for name in bvh_example.node_index:
             assert bvh_example.index(name, space="node") == bvh_example.node_index[name]
-
-    def test_end_site_on_joint_axis_raises(self, bvh_example):
-        with pytest.raises(KeyError):
-            bvh_example.index("EndSiteHead", space="joint")
 
     def test_end_site_on_node_axis_succeeds(self, bvh_example):
         assert (

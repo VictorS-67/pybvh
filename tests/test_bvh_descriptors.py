@@ -69,7 +69,8 @@ def test_ground_path_matches_kernel():
 
 
 # ----------------------------------------------------------------
-#  Relational wrappers resolve names in NODE space (end sites included)
+#  Relational wrappers select in NODE space (end sites included); their
+#  refusals are in test_node_selection.py
 # ----------------------------------------------------------------
 
 
@@ -107,18 +108,6 @@ def test_segment_axis_angle_matches_kernel():
         bvh.segment_axis_angle("Hips", "Head"),
         geometry.segment_axis_angle(seg, _axis_to_vector(bvh.world_up)),
     )
-
-
-def test_descriptor_int_index_raises_type_error():
-    bvh = _bvh()
-    # descriptor methods are names-only: ints are ambiguous between joint
-    # and node index spaces and must raise with a pointer at index()
-    with pytest.raises(TypeError, match="index"):
-        bvh.path_length(1)
-    with pytest.raises(TypeError, match="index"):
-        bvh.curvature(0)
-    with pytest.raises(TypeError, match="index"):
-        bvh.range_of_motion(0)
 
 
 def test_movement_phase_wrapper_matches_kernel():

@@ -53,16 +53,16 @@ These are the building blocks for Lie-group skeletal features.
 There are two layers, by design:
 
 - **Array-pure kernels** take plain NumPy arrays and return arrays. They are all of `pybvh.geometry`, the smoothness functions, the covariance descriptors, and the SE(3) math. A downstream library can call them with no `Bvh` at all.
-- **`Bvh` methods** wrap the primitives that are either skeleton-bound or common single-joint queries. A skeleton-bound primitive needs `world_up`, `frame_time`, or foot detection. Examples: `bvh.curvature("RightHand")`, `bvh.bounding_box()`, `bvh.smoothness(joint)`, `bvh.cadence()`.
+- **`Bvh` methods** wrap the primitives that are either skeleton-bound or common single-joint queries. A skeleton-bound primitive needs `world_up`, `frame_time`, or foot detection. Examples: `bvh.curvature("RightHand")`, `bvh.bounding_box()`, `bvh.smoothness(node)`, `bvh.cadence()`.
 
-    Relational and trajectory methods resolve names in **node space**, so end sites (fingertips, toe tips, head top) are first-class. `range_of_motion` resolves in **joint** space, because rotations exist only on joints.
+    Relational and trajectory methods select in **node space**, so end sites (fingertips, toe tips, head top) are first-class. `range_of_motion` selects in **joint** space, because rotations exist only on joints, so it refuses an end site.
 
-    Joints are addressed by **name only**. Integer indices raise `TypeError`, because they were ambiguous between the two index spaces. For index-based access, resolve with `bvh.index(name, space=...)`, and use the array-pure kernels.
+    A node is selected by its **name** or by the **`BvhNode`** itself, one of `bvh.nodes`. A name must match exactly one node of the space: a name that two nodes share raises `ValueError`, and the node itself selects either of them. Integer indices raise `TypeError`, because they do not say which index space they count in: node `i` is `bvh.nodes[i]`. For index-based access, resolve with `bvh.index(node, space=...)`, and use the array-pure kernels.
 
-    Every descriptor method reads the node positions that the clip computes by forward kinematics and keeps. It takes no positions from the caller. For positions that you hold yourself, for example smoothed, predicted or edited ones, find the node's row with `bvh.index(name, space="node")`, then call the array-pure kernel on your array.
+    Every descriptor method reads the node positions that the clip computes by forward kinematics and keeps. It takes no positions from the caller. For positions that you hold yourself, for example smoothed, predicted or edited ones, find the node's row with `bvh.index(node, space="node")`, then call the array-pure kernel on your array.
 
 !!! note "Name-based primitives assume one consistent skeleton"
-    Descriptors addressed by joint name (`inter_joint_distance(pairs)`, foot and centre-of-mass detection) assume every clip shares the same skeleton. Reconciling differing skeletons across a dataset is a harmonization concern (`pybvh.batch.harmonize`; `pybvh.analysis.relative_scale_factor` for size), not a descriptor concern.
+    Descriptors addressed by node name (`inter_joint_distance(pairs)`, foot and centre-of-mass detection) assume every clip shares the same skeleton. Reconciling differing skeletons across a dataset is a harmonization concern (`pybvh.batch.harmonize`; `pybvh.analysis.relative_scale_factor` for size), not a descriptor concern.
 
 ## See also
 

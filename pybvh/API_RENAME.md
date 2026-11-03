@@ -19,6 +19,7 @@ Migration: grep for the old name in the left column, replace with the right colu
 | `Bvh(..., warn_on_disagreement=)` | `warn_on_world_up_disagreement=` | One flag, one name: the readers already called it this. |
 | `transforms.auto_detect_lr_pairs(bvh)` | *(removed)* — `bvh.lr_pairs or []` | The same index pairs; `bvh.lr_pairs` is `None`, not `[]`, when there are none, as v0.8.0 made `bvh.lr_mapping` for the removed `auto_detect_lr_mapping`. |
 | `coords=` on the derivatives (`node_velocities` … `joint_jerk`), `facing_frame`, `Bvh.forward_at`, `Bvh.left_at`, `foot_contacts`, `ground_contacts` and the `Bvh` descriptor methods | *(removed)* | Each reads the node positions that the clip computes by forward kinematics; passing `coords=` raises `TypeError`. For positions you hold yourself: `bvh.index(name, space="node")`, then `pybvh.geometry`, or `pybvh.signal.finite_difference` for a derivative. |
+| `Bvh.index(name=, space=)` | `Bvh.index(node=, space=)` | `node` is a name or a `BvhNode` (`pybvh.NodeSelector`). A missing name, or one that several nodes of the space share, raises `ValueError` where a missing name raised `KeyError` and a shared one gave the last node; pass the node for a shared name. |
 
 ---
 

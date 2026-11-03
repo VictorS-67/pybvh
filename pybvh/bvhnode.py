@@ -21,7 +21,7 @@ skeleton cannot change under them.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TypeGuard
+from typing import TypeAlias, TypeGuard
 
 import numpy as np
 import numpy.typing as npt
@@ -457,3 +457,25 @@ class BvhRoot(BvhJoint):
         bool
         """
         return True
+
+
+# ---------------------------------------------------------------------------------------------
+
+
+NodeSelector: TypeAlias = str | BvhNode
+"""A node of a clip, selected by its name or given as the node itself.
+
+Every parameter that selects one node takes a ``NodeSelector``, and one that
+selects a set of nodes takes a sequence of them. :meth:`~pybvh.bvh.Bvh.index`
+resolves it, the same way for every entry point:
+
+- a :class:`BvhNode` is found by identity among the clip's ``nodes``, so a
+  node of another clip, or one taken before the clip's skeleton was
+  replaced, is refused;
+- a name must match exactly one node of the index space the entry point
+  works in. A name that two nodes share is refused, and the node itself
+  selects either of them.
+
+An integer is not a ``NodeSelector``: it does not say whether it counts in
+joint space or in node space. ``bvh.nodes[i]`` is node ``i``.
+"""

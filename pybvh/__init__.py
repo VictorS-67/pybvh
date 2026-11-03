@@ -33,6 +33,7 @@ from .batch import batch_to_numpy as batch_to_numpy
 from .batch import harmonize as harmonize
 from .batch import read_bvh_directory as read_bvh_directory
 from .bvh import Bvh as Bvh
+from .bvhnode import NodeSelector as NodeSelector
 from .dataframe import df_to_bvh as df_to_bvh
 from .io import read_bvh_file as read_bvh_file
 from .io import write_bvh_file as write_bvh_file

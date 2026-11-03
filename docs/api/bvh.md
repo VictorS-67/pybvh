@@ -80,6 +80,10 @@ The raw motion arrays, the joint hierarchy, and the two index spaces (see the [C
     options:
       heading_level: 3
 
+::: pybvh.NodeSelector
+    options:
+      heading_level: 3
+
 ::: pybvh.bvh.Bvh.joint_tips
     options:
       heading_level: 3

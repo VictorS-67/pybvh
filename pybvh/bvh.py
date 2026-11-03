@@ -55,7 +55,7 @@ from ._orientation import (
 
 # Re-exported: pybvh.bvh has long served every node class, end sites included.
 from .bvhnode import BvhEndSite as BvhEndSite
-from .bvhnode import BvhJoint, BvhNode, BvhRoot, _is_joint
+from .bvhnode import BvhJoint, BvhNode, BvhRoot, NodeSelector, _is_joint
 from .node_tree import (
     _OFFSET_ATOL,
     _channel_difference,
@@ -2360,8 +2360,8 @@ class Bvh:
             self._derived.joint_index = index
         return index
 
-    def index(self, name: str, space: Literal["joint", "node"]) -> int:
-        """Look up the integer index for ``name`` in the requested index space.
+    def index(self, node: NodeSelector, space: Literal["joint", "node"]) -> int:
+        """The integer index of one node in the requested index space.
 
         Unambiguous alternative to picking between :attr:`joint_index`
         and :attr:`node_index` at the call site. Use ``space='joint'``
@@ -2372,10 +2372,19 @@ class Bvh:
         :meth:`node_velocities` / :meth:`node_accelerations` (any
         ``(F, N, ...)`` array).
 
+        This is the resolver of every parameter that selects a node (see
+        :data:`~pybvh.NodeSelector`). A ``BvhNode`` is found by identity
+        among :attr:`nodes`. A name must match exactly one node of the
+        requested space: :attr:`node_index` and :attr:`joint_index` keep
+        the last of the nodes that share a name, where this method raises
+        and asks for the node. A name that a joint and an end site share
+        therefore selects the joint with ``space='joint'``, and raises
+        with ``space='node'``.
+
         Parameters
         ----------
-        name : str
-            Joint or node name.
+        node : str or BvhNode
+            The node's name, or the node itself, one of :attr:`nodes`.
         space : {'joint', 'node'}
             Which index space to look up. ``'joint'`` excludes end sites.
 
@@ -2385,17 +2394,82 @@ class Bvh:
 
         Raises
         ------
-        KeyError
-            If ``name`` is not present in the requested index space (e.g.
-            an end-site name with ``space='joint'``).
+        TypeError
+            If ``node`` is neither a ``str`` nor a ``BvhNode``. An integer
+            is refused: it does not say which index space it counts in;
+            node ``i`` is ``bvh.nodes[i]``.
         ValueError
-            If ``space`` is not ``'joint'`` or ``'node'``.
+            If ``space`` is not ``'joint'`` or ``'node'``; if ``node`` is
+            a ``BvhNode`` that is not one of :attr:`nodes` (a node of
+            another clip, or one taken before an edit replaced this
+            clip's skeleton); if no node of the space carries the name, or
+            more than one does; or if ``node`` selects an end site with
+            ``space='joint'``.
         """
-        if space == "joint":
-            return self.joint_index[name]
+        if space not in ("joint", "node"):
+            raise ValueError(f"space must be 'joint' or 'node', got {space!r}")
+        position = self._node_position(node, space)
         if space == "node":
-            return self.node_index[name]
-        raise ValueError(f"space must be 'joint' or 'node', got {space!r}")
+            return position
+        if self.nodes[position].is_end_site():
+            raise ValueError(self._end_site_in_joint_space(position))
+        return self._non_end_site_indices().index(position)
+
+    def _node_position(self, node: NodeSelector, space: Literal["joint", "node"]) -> int:
+        """The position in :attr:`nodes` of the node ``node`` selects in ``space``.
+
+        A name is looked up among the nodes of ``space``; in joint space,
+        a name that only end sites carry gives the first of them, which
+        :meth:`index` then refuses as an end site.
+        """
+        if isinstance(node, BvhNode):
+            for position, candidate in enumerate(self.nodes):
+                if candidate is node:
+                    return position
+            raise ValueError(
+                f"The node {node.name!r} is not one of this clip's nodes: it "
+                f"belongs to another clip, or to this clip's skeleton before an "
+                f"in-place edit replaced it. Pass one of bvh.nodes, or the "
+                f"node's name."
+            )
+        if not isinstance(node, str):
+            raise TypeError(
+                f"A node is selected by its name (str) or by the BvhNode "
+                f"itself, not by the {type(node).__name__} {node!r}. An "
+                f"integer does not say whether it counts in joint space or in "
+                f"node space: node i is bvh.nodes[i]."
+            )
+        positions = [
+            position
+            for position, candidate in enumerate(self.nodes)
+            if candidate.name == node and (space == "node" or not candidate.is_end_site())
+        ]
+        if len(positions) > 1:
+            listed = ", ".join(f"bvh.nodes[{position}]" for position in positions)
+            raise ValueError(
+                f"{len(positions)} {space}s of this clip are named {node!r}: "
+                f"{listed}. Pass the node you mean in place of its name."
+            )
+        if positions:
+            return positions[0]
+        if space == "joint":
+            end_sites = [i for i, candidate in enumerate(self.nodes) if candidate.name == node]
+            if end_sites:
+                return end_sites[0]
+        names_at = "bvh.node_index" if space == "node" else "bvh.joint_names"
+        raise ValueError(
+            f"No {space} of this clip is named {node!r}; {names_at} lists the {space}s' names."
+        )
+
+    def _end_site_in_joint_space(self, position: int) -> str:
+        """The refusal of the end site at ``position`` in joint space."""
+        parent_position = int(self.fk_topology.parent_idx[position])
+        return (
+            f"bvh.nodes[{position}] ({self.nodes[position].name!r}) is an end "
+            f"site: it has no rotation channels, so no index in joint space. "
+            f"Select a joint, such as its parent bvh.nodes[{parent_position}] "
+            f"({self.nodes[parent_position].name!r})."
+        )
 
     @property
     def joint_tips(self) -> dict[str, int | None]:

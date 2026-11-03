@@ -28,6 +28,8 @@ provenance leaves them out:
   typing construct, an instance of a class) counts when that module is
   ``pybvh`` or inside it, which keeps a deliberate re-export such as
   ``pybvh.bvh.BvhEndSite``;
+- a union of types, as a type alias such as ``NodeSelector`` binds,
+  reports the module ``types``; it counts when one of its members does;
 - a value of a type implemented in C (a tuple, a dict, an array) reports
   no ``__module__`` and counts, unless ``typing`` binds the same value
   under the same name: ``TYPE_CHECKING`` is the one such value the
@@ -58,7 +60,7 @@ import sys
 import typing
 from collections.abc import Iterator
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, UnionType
 
 import pytest
 
@@ -94,6 +96,8 @@ def _public_modules(package: ModuleType) -> Iterator[ModuleType]:
 
 def _is_pybvh_object(name: str, value: object) -> bool:
     """Whether ``value``, bound to ``name`` in a module, is an object of pybvh's own."""
+    if isinstance(value, UnionType):
+        return any(_is_pybvh_object(name, member) for member in value.__args__)
     if isinstance(value, ModuleType):
         origin = value.__name__
     else:

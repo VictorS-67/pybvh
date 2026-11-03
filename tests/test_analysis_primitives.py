@@ -12,10 +12,8 @@ import re
 import numpy as np
 import pytest
 from synthetic_bvh import (
-    CONTACT_FEET,
-    contact_coords,
+    kernel_contacts,
     make_clip_bvh,
-    make_contact_rig,
     make_neg_y_up_bvh,
     make_pos_y_up_bvh,
     make_pos_y_up_rotating_bvh,
@@ -825,21 +823,18 @@ def test_lagged_covariance_centers_lag0_and_bounds():
 
 # ----------------------------------------------------------------
 #  foot_contacts detection (hysteresis / Otsu / confidence / timing
-#  refinement / diagnostics), signals driven through coords=
+#  refinement / diagnostics), signals driven through the kernel
 # ----------------------------------------------------------------
 
 
 def _height_contacts(height, **settings):
-    """Contacts of ``make_contact_rig``'s feet when only their height signal decides.
+    """The kernel's contacts of feet whose height signal alone decides.
 
     ``height`` is ``(F,)`` for LeftFoot or ``(F, k)`` for the first ``k``
     feet. The floor is pinned at 0, so the clearance is the height itself;
     the threshold is 1 and the duration filters are off unless ``settings``
     says otherwise.
     """
-    height = np.asarray(height, dtype=np.float64)
-    bvh = make_contact_rig(height.shape[0])
-    k = 1 if height.ndim == 1 else height.shape[1]
     kwargs = {
         "method": "height",
         "floor": 0.0,
@@ -848,9 +843,7 @@ def _height_contacts(height, **settings):
         "min_gap_duration": 0.0,
         **settings,
     }
-    return bvh.foot_contacts(
-        foot_joints=list(CONTACT_FEET[:k]), coords=contact_coords(bvh, height), **kwargs
-    )
+    return kernel_contacts(height, **kwargs)
 
 
 def test_zero_hysteresis_is_the_single_threshold():
@@ -870,8 +863,10 @@ def test_hysteresis_holds_a_contact_through_the_band_and_drops_a_shallow_dip():
     np.testing.assert_array_equal(got[:, 0], [0, 1, 1, 1, 1, 0, 0, 0, 0, 0])
 
 
-# The default height threshold on make_contact_rig: 0.013 x its skeleton scale, 10.
-RIG_HEIGHT_MARGIN = 0.013 * 10.0
+# The skeleton scale of kernel_contacts' feet, and their default height
+# threshold: 0.013 x that scale.
+RIG_SCALE = 10.0
+RIG_HEIGHT_MARGIN = 0.013 * RIG_SCALE
 
 
 def _adaptive_height_contacts(height):
@@ -898,11 +893,9 @@ def test_adaptive_splits_a_bimodal_signal_and_keeps_the_default_on_a_unimodal_on
 def test_adaptive_keeps_the_default_on_a_flat_signal():
     # A foot held still: one value, no split to find.
     flat = np.full(100, 1.5 * RIG_HEIGHT_MARGIN)
-    bvh = make_contact_rig(flat.size)
-    c, report = bvh.foot_contacts(
-        foot_joints=["LeftFoot"],
+    c, report = kernel_contacts(
+        flat,
         method="height",
-        coords=contact_coords(bvh, flat),
         floor=0.0,
         adaptive=True,
         return_info=True,
@@ -931,12 +924,12 @@ def test_confidence_is_the_margin_below_the_thresholds_times_the_agreement():
     # (frame 0 takes frame 1's), against a threshold of 2. The foot stays at
     # height 0.5, below the height threshold of 1 throughout, so the contacts
     # are frames 2 and 3.
-    bvh = make_contact_rig(6, frame_time=1.0)
-    coords = contact_coords(bvh, np.full(6, 0.5), x=np.array([0.0, 5.0, 5.5, 6.0, 11.0, 16.0]))
+    height, x = np.full(6, 0.5), np.array([0.0, 5.0, 5.5, 6.0, 11.0, 16.0])
     unfiltered = {"hysteresis": 0.0, "min_contact_duration": 0.0, "min_gap_duration": 0.0}
-    c, report = bvh.foot_contacts(
-        foot_joints=["LeftFoot"],
-        coords=coords,
+    c, report = kernel_contacts(
+        height,
+        x,
+        frame_time=1.0,
         vel_threshold=2.0,
         height_threshold=1.0,
         floor=0.0,
@@ -949,10 +942,11 @@ def test_confidence_is_the_margin_below_the_thresholds_times_the_agreement():
     # with the height mask (true everywhere) on 2 frames of 6.
     np.testing.assert_allclose(report.confidence, [np.sqrt(5 / 8 * 2 / 6)])
     # The velocity method alone has no agreement term: its own margin.
-    _, report = bvh.foot_contacts(
-        foot_joints=["LeftFoot"],
+    _, report = kernel_contacts(
+        height,
+        x,
+        frame_time=1.0,
         method="velocity",
-        coords=coords,
         vel_threshold=2.0,
         return_info=True,
         **unfiltered,
@@ -965,11 +959,9 @@ def test_confidence_is_measured_before_the_duration_filters():
     # marks it, its margin is 1, and the minimum contact duration then drops the
     # one-frame run. The report keeps the margin of the frame it marked.
     height = np.array([2.0, 2.0, 2.0, 0.0, 2.0, 2.0, 2.0])
-    bvh = make_contact_rig(height.size)
-    contacts, report = bvh.foot_contacts(
-        foot_joints=["LeftFoot"],
+    contacts, report = kernel_contacts(
+        height,
         method="height",
-        coords=contact_coords(bvh, height),
         floor=0.0,
         height_threshold=1.0,
         hysteresis=0.0,
@@ -983,15 +975,13 @@ def test_confidence_is_measured_before_the_duration_filters():
 
 def test_foot_contacts_detects_bouncing_root_dwell():
     # Feet dwell low (contact) on known frames and lift between -> the height
-    # method must recover the dwells. Drive the foot trajectory via `coords`.
+    # method must recover the dwells. The root bounces, and the feet with it.
     bvh = make_pos_y_up_bvh()
     up = 1  # +y
-    coords = bvh.node_positions().copy()
-    for f in [bvh.index(n, space="node") for n in ["LeftFoot", "RightFoot"]]:
-        coords[4:7, f, up] += 40.0  # lift frames 4-6; dwell low elsewhere
-    c = bvh.foot_contacts(
-        foot_joints=["LeftFoot", "RightFoot"], method="height", coords=coords, hysteresis=0.0
-    )
+    root_pos = bvh.root_pos.copy()
+    root_pos[4:7, up] += 40.0  # lift frames 4-6; dwell low elsewhere
+    bvh.root_pos = root_pos
+    c = bvh.foot_contacts(foot_joints=["LeftFoot", "RightFoot"], method="height", hysteresis=0.0)
     assert c[0:4].all() and c[7:10].all()  # contact during the low dwells
     assert not c[4:7].any()  # airborne during the lift
 
@@ -1022,24 +1012,17 @@ def test_hysteresis_keeps_open_runs_the_raw_threshold_supports():
 
 
 def test_foot_contacts_releases_foot_lifting_at_clip_end():
-    # end-to-end: a foot planted then lifting in the final frames, clip cut
-    # mid-lift. With default hysteresis the latch must not hold it to the edge.
-    bvh = make_pos_y_up_bvh()
-    feet = ["LeftFoot", "RightFoot"]
-    fis = [bvh.index(n, space="node") for n in feet]
-    coords = bvh.node_positions().copy()
-    coords[:, fis, 1] = 0.0  # planted at the floor...
-    coords[7:10, fis, 1] = 1.1  # ...then in the band (above raw thr=1, below high=1.25)
-    c = np.asarray(
-        bvh.foot_contacts(
-            foot_joints=feet,
-            method="height",
-            coords=coords,
-            floor=0.0,
-            height_threshold=1.0,
-            min_contact_duration=0.0,
-            min_gap_duration=0.0,
-        )
+    # A foot planted then lifting in the final frames, clip cut mid-lift.
+    # With default hysteresis the latch must not hold it to the edge.
+    height = np.zeros((10, 2))  # planted at the floor...
+    height[7:10] = 1.1  # ...then in the band (above raw thr=1, below high=1.25)
+    c = kernel_contacts(
+        height,
+        method="height",
+        floor=0.0,
+        height_threshold=1.0,
+        min_contact_duration=0.0,
+        min_gap_duration=0.0,
     )
     assert c[:7].all()  # genuine plant kept
     assert not c[7:].any()  # open-end lift released, not held to frame 9
@@ -1051,11 +1034,10 @@ def test_contact_diagnostics_skate_airborne_height():
     height = np.array([[5, 5], [0.4, 5], [0.4, 0], [0.4, 0], [5, 0], [5, 5]], dtype=float)
     x = np.zeros((6, 2))
     x[3:, 1] = [1.5, 3.0, 3.0]
-    bvh = make_contact_rig(6)
-    c, report = bvh.foot_contacts(
-        foot_joints=list(CONTACT_FEET),
+    c, report = kernel_contacts(
+        height,
+        x,
         method="height",
-        coords=contact_coords(bvh, height, x=x),
         floor=0.0,
         height_threshold=1.0,
         hysteresis=0.0,
@@ -1105,14 +1087,13 @@ def test_stance_calibration_sets_each_foot_threshold_one_margin_above_its_stance
     m = RIG_HEIGHT_MARGIN
     left, x, in_stance = _stance_and_swing(5.0 * m)
     right, _, _ = _stance_and_swing(0.0)
-    bvh = make_contact_rig(40, frame_time=1.0)
-    coords = contact_coords(bvh, np.column_stack([left, right]), x=np.column_stack([x, x]))
-    kwargs = {"foot_joints": list(CONTACT_FEET), "coords": coords, "floor": 0.0, "hysteresis": 0.0}
-    got = bvh.foot_contacts(height_reference="velocity", **kwargs)
+    signals = (np.column_stack([left, right]), np.column_stack([x, x]))
+    kwargs = {"frame_time": 1.0, "floor": 0.0, "hysteresis": 0.0}
+    got = kernel_contacts(*signals, height_reference="velocity", **kwargs)
     np.testing.assert_array_equal(got[:, 0], in_stance)
     np.testing.assert_array_equal(got[:, 1], in_stance)
     # Anchored to the floor instead, the hovering foot never reads as low enough.
-    fixed = bvh.foot_contacts(height_reference="floor", **kwargs)
+    fixed = kernel_contacts(*signals, height_reference="floor", **kwargs)
     assert not fixed[:, 0].any()
     np.testing.assert_array_equal(fixed[:, 1], in_stance)
 
@@ -1121,10 +1102,10 @@ def test_stance_calibration_falls_back_to_the_margin_without_a_slow_frame():
     # A foot that never slows down has no stance to calibrate against.
     m = RIG_HEIGHT_MARGIN
     height = np.where(np.arange(40) < 20, 5.0 * m, 15.0 * m)
-    bvh = make_contact_rig(40, frame_time=1.0)
-    _, report = bvh.foot_contacts(
-        foot_joints=["LeftFoot"],
-        coords=contact_coords(bvh, height, x=5.0 * np.arange(40)),
+    _, report = kernel_contacts(
+        height,
+        5.0 * np.arange(40),
+        frame_time=1.0,
         floor=0.0,
         return_info=True,
     )
@@ -1149,25 +1130,20 @@ def test_default_thresholds_scale_with_the_mean_rest_distance_to_the_joints():
     # Joints 10 and 20 from the root at rest: the skeleton scale is their mean,
     # 15, so the default speed threshold is 0.12 x 15 = 1.8 u/s and the default
     # height threshold 0.013 x 15 = 0.195.
-    bvh = make_contact_rig(6, frame_time=1.0, foot_offsets=((-6.0, -8.0, 0.0), (0.0, -20.0, 0.0)))
-    joints = list(CONTACT_FEET)
+    rig = {
+        "frame_time": 1.0,
+        "foot_offsets": ((-6.0, -8.0, 0.0), (0.0, -20.0, 0.0)),
+        "default_height_reference": "floor",  # as ground_contacts runs it
+    }
     unfiltered = {"hysteresis": 0.0, "min_contact_duration": 0.0, "min_gap_duration": 0.0}
     # At one frame a second the speed is the step: 1.7, 1.7, 1.9, 1.9, 1.7
     # (frame 0 takes frame 1's).
     x = np.cumsum([0.0, 1.7, 1.7, 1.9, 1.9, 1.7])
     xs = np.column_stack([x, x])
-    c = bvh.ground_contacts(
-        joints, method="velocity", coords=contact_coords(bvh, np.zeros((6, 2)), x=xs), **unfiltered
-    )
+    c = kernel_contacts(np.zeros((6, 2)), xs, method="velocity", **rig, **unfiltered)
     np.testing.assert_array_equal(c, np.column_stack([[1, 1, 1, 0, 0, 1]] * 2))
     h = np.array([0.18, 0.21, 0.18, 0.21, 0.18, 0.21])
-    c = bvh.ground_contacts(
-        joints,
-        method="height",
-        coords=contact_coords(bvh, np.column_stack([h, h])),
-        floor=0.0,
-        **unfiltered,
-    )
+    c = kernel_contacts(np.column_stack([h, h]), method="height", floor=0.0, **rig, **unfiltered)
     np.testing.assert_array_equal(c, np.column_stack([[1, 0, 1, 0, 1, 0]] * 2))
 
 
@@ -1264,72 +1240,45 @@ def test_floor_height_negative_up_raw_coords_and_copy():
     np.testing.assert_allclose(bvh.floor_height, expected)
 
 
-def _hover_clip(hover_frac, swing_frac=0.3):
-    """make_pos_y_up_bvh + coords where each foot is fully stationary during stance
-    (at floor+hover) then swings high and moving. base = the floor (rest foot height)."""
-    bvh = make_pos_y_up_bvh()
-    feet = ["LeftFoot", "RightFoot"]
-    fidx = [bvh.index(n, space="node") for n in feet]
-    scale = analysis.skeleton_size(bvh, feet)
-    coords = bvh.node_positions().copy()
-    F = bvh.frame_count
-    half = F // 2
-    for f in fidx:
-        rest = coords[0, f, :].copy()
-        stance = rest.copy()
-        stance[1] = rest[1] + hover_frac * scale
-        coords[:half, f, :] = stance  # fully still (slow)
-        coords[half:, f, :] = stance
-        coords[half:, f, 1] = rest[1] + swing_frac * scale  # swing high
-        coords[half:, f, 0] = stance[0] + np.linspace(
-            0.1 * scale, scale, F - half
-        )  # moving -> fast
-    base = float(coords[0, fidx[0], 1] - hover_frac * scale)  # the floor (rest height)
-    return bvh, feet, coords, base
+def _hover_signals(hover_frac, swing_frac=0.3, n_frames=10):
+    """Height and x of two feet fully still in stance, then swinging high and moving.
+
+    Over the first half the feet stand still ``hover_frac`` skeleton scales
+    above the floor, y = 0; over the second they are ``swing_frac`` scales
+    up and travel along x. Returns ``(height, x)``, each ``(n_frames, 2)``.
+    """
+    half = n_frames // 2
+    height = np.full(n_frames, hover_frac * RIG_SCALE)
+    height[half:] = swing_frac * RIG_SCALE
+    x = np.zeros(n_frames)
+    x[half:] = np.linspace(0.1 * RIG_SCALE, RIG_SCALE, n_frames - half)  # moving -> fast
+    return np.column_stack([height, height]), np.column_stack([x, x])
 
 
 def test_height_reference_recovers_hovering_stance():
     # hysteresis=0 isolates the height-threshold logic from the band machinery.
-    bvh, feet, coords, base = _hover_clip(hover_frac=0.05)
-    # explicit low floor (below the hover) mimics the retargeting artifact
-    cv = bvh.foot_contacts(
-        foot_joints=feet,
-        coords=coords,
-        floor=float(base),
-        height_reference="velocity",
-        hysteresis=0.0,
-    )
-    cf = bvh.foot_contacts(
-        foot_joints=feet, coords=coords, floor=float(base), height_reference="floor", hysteresis=0.0
-    )
+    signals = _hover_signals(hover_frac=0.05)
+    # explicit floor below the hover mimics the retargeting artifact
+    cv = kernel_contacts(*signals, floor=0.0, height_reference="velocity", hysteresis=0.0)
+    cf = kernel_contacts(*signals, floor=0.0, height_reference="floor", hysteresis=0.0)
     assert cv.sum() > cf.sum()  # velocity recovers stance the floor-anchored threshold rejects
 
 
 def test_height_reference_clean_rig_identity():
     # feet reach the floor during stance -> velocity and floor anchoring are
     # identical (same threshold), regardless of hysteresis.
-    bvh, feet, coords, base = _hover_clip(hover_frac=0.0)
-    cv = bvh.foot_contacts(foot_joints=feet, coords=coords, height_reference="velocity")
-    cf = bvh.foot_contacts(foot_joints=feet, coords=coords, height_reference="floor")
+    signals = _hover_signals(hover_frac=0.0)
+    cv = kernel_contacts(*signals, height_reference="velocity")
+    cf = kernel_contacts(*signals, height_reference="floor")
     np.testing.assert_array_equal(cv, cf)
 
 
 def test_height_reference_rejects_held_airborne_foot():
-    bvh = make_pos_y_up_bvh()
-    feet = ["LeftFoot", "RightFoot"]
-    fidx = [bvh.index(n, space="node") for n in feet]
-    scale = analysis.skeleton_size(bvh, feet)
-    coords = bvh.node_positions().copy()
-    F = bvh.frame_count
-    base = coords[0, fidx[0], 1]
-    half = F // 2
-    coords[:, fidx[1], :] = coords[0, fidx[1], :]  # foot1 held still...
-    coords[:, fidx[1], 1] = base + 0.3 * scale  # ...and high (airborne)
-    coords[:half, fidx[0], :] = coords[0, fidx[0], :]
-    coords[:half, fidx[0], 1] = base  # foot0 stance on floor
-    coords[half:, fidx[0], 1] = base + 0.3 * scale
-    coords[half:, fidx[0], 0] = np.linspace(0, scale, F - half)
-    cv = bvh.foot_contacts(
-        foot_joints=feet, coords=coords, height_reference="velocity", hysteresis=0.0
-    )
+    n_frames, half = 10, 5
+    height = np.zeros((n_frames, 2))
+    x = np.zeros((n_frames, 2))
+    height[:, 1] = 0.3 * RIG_SCALE  # foot 1 held still and high (airborne)
+    height[half:, 0] = 0.3 * RIG_SCALE  # foot 0 stands on the floor, then swings
+    x[half:, 0] = np.linspace(0, RIG_SCALE, n_frames - half)
+    cv = kernel_contacts(height, x, height_reference="velocity", hysteresis=0.0)
     assert cv[:, 1].sum() == 0  # held-airborne foot rejected

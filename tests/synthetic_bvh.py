@@ -16,6 +16,8 @@ All fixtures use this skeleton topology:
 
 from __future__ import annotations
 
+import inspect
+
 import numpy as np
 
 from pybvh.bvh import Bvh
@@ -490,7 +492,7 @@ def kernel_contacts(
     detectors make on the clip (its rate, the rest height of the feet) do
     not run here.
     """
-    from pybvh import _contacts
+    from pybvh import _contacts, analysis
 
     height = np.asarray(height, dtype=np.float64)
     height = height.reshape(height.shape[0], -1)
@@ -500,17 +502,12 @@ def kernel_contacts(
     positions = np.zeros((height.shape[0], k, 3))
     positions[:, :, 0] = x
     positions[:, :, 1] = height
+    # The public detector's own defaults, so that the kernel runs as it would.
+    signature = inspect.signature(analysis.foot_contacts)
     defaults = {
-        "method": "combined",
-        "vel_threshold": None,
-        "vel_smooth_duration": None,
-        "height_threshold": None,
-        "floor": None,
-        "min_contact_duration": 0.1,
-        "min_gap_duration": 0.1,
-        "hysteresis": 0.25,
-        "adaptive": False,
-        "height_reference": None,
+        name: signature.parameters[name].default
+        for name in inspect.signature(_contacts._ContactSettings).parameters
+        if name not in ("default_height_reference", "n_joints")
     }
     contact_settings = _contacts._ContactSettings(
         **{**defaults, **settings},

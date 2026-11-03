@@ -1577,6 +1577,18 @@ class TestWhatACallMayPass:
         with pytest.raises(ValueError, match=rf"^{setting} must be finite and > 0"):
             detect(rig, **{setting: value})
 
+    def test_a_speed_threshold_per_joint_is_applied_per_joint(self, detect):
+        # The root, and both feet with it, travel 1 unit a frame along x,
+        # 30 u/s at 30 fps: above LeftFoot's 10 u/s (and its band's top, 12.5),
+        # below RightFoot's 100 u/s (and its band's bottom, 75).
+        rig = make_contact_rig(6)
+        rig.root_pos = rig.root_pos + np.column_stack([np.arange(6.0), np.zeros((6, 2))])
+        contacts, report = detect(
+            rig, method="velocity", vel_threshold=[10.0, 100.0], return_info=True
+        )
+        np.testing.assert_array_equal(contacts, [[0.0, 1.0]] * 6)
+        np.testing.assert_array_equal(report.vel_threshold, [10.0, 100.0])
+
     def test_a_height_threshold_per_joint_is_applied_per_joint(self, detect):
         # Both feet stand on y = 0, 1 unit above the floor given: above
         # LeftFoot's 0.5 (and its band's top, 0.625), below RightFoot's 2 (and
@@ -1609,21 +1621,10 @@ class TestWhatACallMayPass:
             detect(rig, **{setting: value})
 
 
-def test_a_speed_threshold_per_joint_is_applied_per_joint():
-    # Both feet travel 1 unit a frame along x, 30 u/s at 30 fps: above
-    # LeftFoot's 10 u/s (and its band's top, 12.5), below RightFoot's
-    # 100 u/s (and its band's bottom, 75).
-    x = np.repeat(np.arange(6.0)[:, None], 2, axis=1)
-    contacts, report = kernel_contacts(
-        np.zeros((6, 2)), x, method="velocity", vel_threshold=[10.0, 100.0], return_info=True
-    )
-    np.testing.assert_array_equal(contacts, [[0.0, 1.0]] * 6)
-    np.testing.assert_array_equal(report.vel_threshold, [10.0, 100.0])
-
-
 def test_adaptive_derives_the_height_threshold_of_ground_contacts_beside_a_given_speed_threshold():
-    # ground_contacts' own height_reference is "floor", where adaptive=True
-    # splits the height signal; a vel_threshold given leaves it that one.
+    # ground_contacts' own height_reference is "floor", which the kernel is
+    # given here, and there adaptive=True splits the height signal; a
+    # vel_threshold given leaves it that one.
     # LeftFoot stands for 8 frames and stands 5 units higher for 8, a split
     # clamped to the upper bound; RightFoot stays still, so no split.
     height = np.zeros((16, 2))

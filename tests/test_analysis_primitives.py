@@ -870,8 +870,10 @@ def test_hysteresis_holds_a_contact_through_the_band_and_drops_a_shallow_dip():
     np.testing.assert_array_equal(got[:, 0], [0, 1, 1, 1, 1, 0, 0, 0, 0, 0])
 
 
-# The default height threshold of kernel_contacts' feet: 0.013 x their skeleton scale, 10.
-RIG_HEIGHT_MARGIN = 0.013 * 10.0
+# The skeleton scale of kernel_contacts' feet, and their default height
+# threshold: 0.013 x that scale.
+RIG_SCALE = 10.0
+RIG_HEIGHT_MARGIN = 0.013 * RIG_SCALE
 
 
 def _adaptive_height_contacts(height):
@@ -1138,7 +1140,7 @@ def test_default_thresholds_scale_with_the_mean_rest_distance_to_the_joints():
     rig = {
         "frame_time": 1.0,
         "foot_offsets": ((-6.0, -8.0, 0.0), (0.0, -20.0, 0.0)),
-        "default_height_reference": "floor",  # ground_contacts'
+        "default_height_reference": "floor",  # as ground_contacts runs it
     }
     unfiltered = {"hysteresis": 0.0, "min_contact_duration": 0.0, "min_gap_duration": 0.0}
     # At one frame a second the speed is the step: 1.7, 1.7, 1.9, 1.9, 1.7
@@ -1243,10 +1245,6 @@ def test_floor_height_negative_up_raw_coords_and_copy():
     coords = bvh.node_positions()
     expected = float(np.percentile((coords[:, :, 1] * -1).min(axis=1), 2.0) * -1)
     np.testing.assert_allclose(bvh.floor_height, expected)
-
-
-# The skeleton scale of kernel_contacts' feet.
-RIG_SCALE = 10.0
 
 
 def _hover_signals(hover_frac, swing_frac=0.3, n_frames=10):

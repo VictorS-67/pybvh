@@ -5731,7 +5731,7 @@ class TestFootContacts:
         assert set(np.unique(contacts)).issubset({0.0, 1.0})
 
     def test_manual_joints(self, bvh_example):
-        contacts = bvh_example.foot_contacts(foot_joints=["LeftFoot", "RightFoot"])
+        contacts = bvh_example.foot_contacts(feet=["LeftFoot", "RightFoot"])
         assert contacts.shape == (bvh_example.frame_count, 2)
 
     def test_static_all_contacts(self, bvh_example):
@@ -5754,8 +5754,8 @@ class TestFootContacts:
             bvh_example.foot_contacts(method="invalid")
 
     def test_invalid_joint_name(self, bvh_example):
-        with pytest.raises(ValueError, match="not found"):
-            bvh_example.foot_contacts(foot_joints=["NonExistentJoint"])
+        with pytest.raises(ValueError, match="No node of this clip is named 'NonExistentJoint'"):
+            bvh_example.foot_contacts(feet=["NonExistentJoint"])
 
     def test_on_test2(self, bvh_test2):
         """bvh_test2 may have different joint names — test auto-detection."""

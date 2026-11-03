@@ -21,7 +21,7 @@ from . import _contacts, geometry, rotations
 from ._orientation import _root_heading_units
 from ._warnings import user_stacklevel
 from .bvh import Bvh
-from .bvhnode import BvhNode
+from .bvhnode import BvhNode, NodeSelector
 from .signal import finite_difference as _finite_difference
 from .tools import _axis_to_vector, _require_rate
 
@@ -772,7 +772,7 @@ def facing_frame(bvh: Bvh) -> FacingFrame:
 @overload
 def foot_contacts(
     bvh: Bvh,
-    foot_joints: list[str] | None = ...,
+    feet: Sequence[NodeSelector] | None = ...,
     method: str = ...,
     *,
     vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
@@ -789,7 +789,7 @@ def foot_contacts(
 @overload
 def foot_contacts(
     bvh: Bvh,
-    foot_joints: list[str] | None = ...,
+    feet: Sequence[NodeSelector] | None = ...,
     method: str = ...,
     *,
     vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
@@ -806,7 +806,7 @@ def foot_contacts(
 @overload
 def foot_contacts(
     bvh: Bvh,
-    foot_joints: list[str] | None = ...,
+    feet: Sequence[NodeSelector] | None = ...,
     method: str = ...,
     *,
     vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
@@ -822,7 +822,7 @@ def foot_contacts(
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]: ...
 def foot_contacts(
     bvh: Bvh,
-    foot_joints: list[str] | None = None,
+    feet: Sequence[NodeSelector] | None = None,
     method: str = "combined",
     *,
     vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = None,
@@ -852,10 +852,13 @@ def foot_contacts(
     ----------
     bvh : Bvh
         Input motion.
-    foot_joints : list of str or None, optional
-        Explicit foot joints by name (recommended); unlike
-        :func:`ground_contacts`, no node indices. If None, falls back to
-        :func:`auto_detect_foot_joints` which matches ``"foot"``/
+    feet : sequence of str or BvhNode, or None, optional
+        The feet to test, each a node name or one of ``bvh.nodes`` (see
+        :data:`~pybvh.NodeSelector`), resolved in node space as
+        :meth:`Bvh.index <pybvh.bvh.Bvh.index>` resolves one node; a name
+        that several nodes share is refused, and the node itself selects
+        one of them. If None (default), the feet are the nodes
+        :func:`auto_detect_feet` returns, which matches ``"foot"``/
         ``"toe"`` substrings then filters by skeletal topology.
     method : {"combined", "velocity", "height"}, optional
         ``"combined"`` (default): foot is in contact when speed is
@@ -969,7 +972,7 @@ def foot_contacts(
         How the default ``height_threshold`` is anchored (only used with ``method="combined"`` when ``height_threshold`` is None).
         ``"velocity"`` (what ``None``, the default, means): per-foot stance-median calibration — each foot's threshold is set from the median of its clearance over the frames where that foot is slow (speed below ``vel_threshold``, default ``0.12 × skeleton_scale`` u/s), so retargeted mocap whose feet hover above the estimated floor still detects stance; on rigs whose feet reach the floor this reduces to the ``"floor"`` margin.
         ``"floor"``: the fixed ``0.013 × skeleton_scale`` margin above the estimated floor — no per-foot calibration.
-        The stance calibration presumes the joints contact the ground regularly; for arbitrary (non-foot) joint sets, :func:`ground_contacts` defaults to ``"floor"`` for exactly that reason.
+        The stance calibration presumes the joints contact the ground regularly; for arbitrary (non-foot) node sets, :func:`ground_contacts` defaults to ``"floor"`` for exactly that reason.
     return_info : bool, keyword-only, optional
         If True, return ``(contacts, report)``, where ``report`` is a
         :class:`~pybvh.ContactReport`: the joints, the method and the
@@ -984,13 +987,14 @@ def foot_contacts(
 
     Returns
     -------
-    ndarray of shape ``(F, num_foot_joints)``, or
+    ndarray of shape ``(F, n_feet)``, or
     tuple ``(ndarray, ContactReport)`` when ``return_info=True``.
         Binary contact labels (1.0 = contact, 0.0 = no contact).
         For ``"velocity"``/``"combined"``, frame 0 is propagated from
         frame 1 because velocity is undefined at frame 0.  Column
-        order matches ``foot_joints`` (or, for auto-detection, the
-        order returned by :func:`auto_detect_foot_joints`).
+        order matches ``feet`` (or, for auto-detection, the
+        order returned by :func:`auto_detect_feet`). The report's
+        ``joints`` holds the nodes' own names, in that order.
 
     Raises
     ------
@@ -998,32 +1002,40 @@ def foot_contacts(
         - If ``method`` or ``height_reference`` is unknown.
         - If a setting is given that ``method`` does not read: ``height_threshold``, ``floor`` or ``height_reference`` under ``"velocity"``; ``vel_threshold``, ``vel_smooth_duration`` or ``height_reference`` under ``"height"``; ``height_reference`` with a ``height_threshold`` given; ``adaptive=True`` with no threshold to derive.
         - If ``floor`` is a string other than ``"auto"`` or ``"min"``, or a float that is not finite.
-        - If no foot joints can be found or any named joint is
-          missing from the skeleton.
-        - If ``foot_joints`` is explicitly an empty list — contact
-          detection needs at least one joint.
+        - If ``feet`` is None and :func:`auto_detect_feet` finds no feet.
+        - If ``feet`` is empty — contact detection needs at least one
+          node.
+        - If an entry of ``feet`` is a name that no node carries, or that
+          several nodes share; a ``BvhNode`` that is not one of
+          ``bvh.nodes``; or the same node selected twice.
         - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative or not finite, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
         - When the height signal is involved and ``bvh.world_up`` is
           inconsistent with rest-pose geometry (feet above hips).
         - If ``frame_time == 0`` and the velocity signal (units/second)
           or a nonzero duration filter needs a time base.
     TypeError
-        If a ``foot_joints`` entry is not a joint name (``str``): a node-space index ``i`` is named by ``bvh.nodes[i].name``.
+        If ``feet`` is a bare ``str`` or ``BvhNode`` instead of a sequence
+        of them, or an entry is neither: an integer does not say which
+        index space it counts in, and node ``i`` is ``bvh.nodes[i]``.
 
     See Also
     --------
-    ground_contacts : The same detection engine for arbitrary (non-foot) joint sets — hands, knees, props.
-    auto_detect_foot_joints : The detection used when ``foot_joints`` is None.
+    ground_contacts : The same detection engine for arbitrary (non-foot) node sets — hands, knees, props.
+    auto_detect_feet : The detection used when ``feet`` is None.
     """
-    # ground_contacts takes node indices too; foot_contacts takes names only.
     # Tested against None: a NumPy array of names has no truth value.
-    for joint in foot_joints if foot_joints is not None else ():
-        if not isinstance(joint, str):
-            raise TypeError(
-                f"foot_joints takes joint names (str), got {type(joint).__name__} {joint!r}; "
-                "to name the node at node-space index i, pass bvh.nodes[i].name"
+    if feet is None:
+        feet = auto_detect_feet(bvh)
+        if not feet:
+            raise ValueError(
+                "foot_contacts found no feet on this skeleton: "
+                "auto_detect_feet() returned []. Pass feet= explicitly, "
+                "such as feet=['LeftFoot', 'RightFoot']."
             )
-    joint_names, joint_indices = _resolve_contact_joints(bvh, foot_joints)
+    joint_indices = bvh._indices(feet, space="node")
+    if not joint_indices:
+        raise ValueError("foot_contacts got feet=[]: contact detection needs at least one node.")
+    joint_names = [bvh.nodes[i].name for i in joint_indices]
     settings = _contacts._ContactSettings(
         method=method,
         vel_threshold=vel_threshold,
@@ -1052,7 +1064,7 @@ def foot_contacts(
 @overload
 def ground_contacts(
     bvh: Bvh,
-    joints: Sequence[str | int],
+    nodes: Sequence[NodeSelector],
     method: str = ...,
     *,
     vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
@@ -1069,7 +1081,7 @@ def ground_contacts(
 @overload
 def ground_contacts(
     bvh: Bvh,
-    joints: Sequence[str | int],
+    nodes: Sequence[NodeSelector],
     method: str = ...,
     *,
     vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
@@ -1086,7 +1098,7 @@ def ground_contacts(
 @overload
 def ground_contacts(
     bvh: Bvh,
-    joints: Sequence[str | int],
+    nodes: Sequence[NodeSelector],
     method: str = ...,
     *,
     vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
@@ -1102,7 +1114,7 @@ def ground_contacts(
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]: ...
 def ground_contacts(
     bvh: Bvh,
-    joints: Sequence[str | int],
+    nodes: Sequence[NodeSelector],
     method: str = "combined",
     *,
     vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = None,
@@ -1116,9 +1128,9 @@ def ground_contacts(
     height_reference: str | None = None,
     return_info: bool = False,
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
-    """Detect ground-contact labels for an arbitrary set of joints.
+    """Detect ground-contact labels for an arbitrary set of nodes.
 
-    The same detection engine as :func:`foot_contacts` — velocity and/or clearance-above-floor thresholding with hysteresis and duration filters — but for any joint set: hands during floor work, knees in a crawl, a prop bone. Because the joints are not assumed to be feet, two foot-specific behaviors are dropped: there is no rest-pose "feet below hips" sanity check, and ``height_reference`` defaults to ``"floor"`` instead of :func:`foot_contacts`' ``"velocity"`` — the per-joint stance calibration behind ``"velocity"`` presumes regular ground contact, which feet in locomotion have and a hand that touches the floor twice does not.
+    The same detection engine as :func:`foot_contacts` — velocity and/or clearance-above-floor thresholding with hysteresis and duration filters — but for any node set: hands during floor work, knees in a crawl, a prop bone, a fingertip end site. Because the nodes are not assumed to be feet, two foot-specific behaviors are dropped: there is no rest-pose "feet below hips" sanity check, and ``height_reference`` defaults to ``"floor"`` instead of :func:`foot_contacts`' ``"velocity"`` — the per-joint stance calibration behind ``"velocity"`` presumes regular ground contact, which feet in locomotion have and a hand that touches the floor twice does not.
 
     The positions tested are the clip's cached world-frame forward kinematics, as in :func:`foot_contacts`.
 
@@ -1129,21 +1141,21 @@ def ground_contacts(
     ----------
     bvh : Bvh
         Input motion.
-    joints : sequence of str or int
-        The joints to test, as node names and/or **node**-space indices (rows of :meth:`Bvh.node_positions`; NumPy-style negative indices allowed). End sites are legal — fingertips and toe tips are often exactly the grounding points. Output column order matches this sequence.
+    nodes : sequence of str or BvhNode
+        The nodes to test, each a node name or one of ``bvh.nodes`` (see :data:`~pybvh.NodeSelector`), resolved in node space as :meth:`Bvh.index <pybvh.bvh.Bvh.index>` resolves one node; a name that several nodes share is refused, and the node itself selects one of them. End sites are legal — fingertips and toe tips are often exactly the grounding points. Output column order matches this sequence.
     method : {"combined", "velocity", "height"}, optional
         Same meaning as in :func:`foot_contacts`.
     vel_threshold, vel_smooth_duration, height_threshold, floor, min_contact_duration, min_gap_duration, hysteresis, adaptive : keyword-only, optional
         Same meaning and defaults as in :func:`foot_contacts`, read by the same methods (a setting given that the method does not read raises). The auto thresholds scale by the mean rest-pose distance from the root to the **given** joints (the same skeleton-scale rule, applied to this joint set) — so the defaults stay proportionate for short chains like hands. Mind the ``floor="auto"`` warning above.
     height_reference : {"floor", "velocity"} or None, keyword-only, optional
-        ``None`` (default) means ``"floor"``: the fixed ``0.013 × skeleton_scale`` margin above the floor. ``"velocity"`` enables :func:`foot_contacts`' per-joint stance calibration; only use it when the joints ground regularly enough to have stance statistics.
+        ``None`` (default) means ``"floor"``: the fixed ``0.013 × skeleton_scale`` margin above the floor. ``"velocity"`` enables :func:`foot_contacts`' per-joint stance calibration; only use it when the nodes ground regularly enough to have stance statistics.
     return_info : bool, keyword-only, optional
-        As in :func:`foot_contacts`; the report's ``joints`` always holds the resolved **names** (indices are mapped back through ``bvh.nodes``).
+        As in :func:`foot_contacts`; the report's ``joints`` holds the nodes' own names, in the order of ``nodes``.
 
     Returns
     -------
-    ndarray of shape ``(F, n_joints)``, or tuple ``(ndarray, ContactReport)`` when ``return_info=True``.
-        Binary contact labels (1.0 = contact); columns follow ``joints`` order.
+    ndarray of shape ``(F, n_nodes)``, or tuple ``(ndarray, ContactReport)`` when ``return_info=True``.
+        Binary contact labels (1.0 = contact); columns follow ``nodes`` order.
 
     Raises
     ------
@@ -1151,20 +1163,21 @@ def ground_contacts(
         - If ``method`` or ``height_reference`` is unknown.
         - If a setting is given that ``method`` does not read, as in :func:`foot_contacts`.
         - If ``floor`` is a string other than ``"auto"`` or ``"min"``, or a float that is not finite.
-        - If ``joints`` is empty — contact detection needs at least one joint.
-        - If a joint name is not in the skeleton.
+        - If ``nodes`` is empty — contact detection needs at least one node.
+        - If an entry of ``nodes`` is a name that no node carries, or that several nodes share; a ``BvhNode`` that is not one of ``bvh.nodes``; or the same node selected twice.
         - If a duration (``vel_smooth_duration``, ``min_contact_duration``, ``min_gap_duration``) is negative or not finite, ``hysteresis`` is outside ``[0, 1)``, or a threshold given is not finite and above zero.
         - If ``frame_time == 0`` and the velocity signal (units/second) or a nonzero duration filter needs a time base.
     TypeError
-        If a ``joints`` entry is neither a str nor an int (``bool`` is rejected explicitly — ``True``/``False`` silently indexing nodes 1/0 would be a trap).
-    IndexError
-        If a node index is out of range for ``bvh.nodes``.
+        If ``nodes`` is a bare ``str`` or ``BvhNode`` instead of a sequence of them, or an entry is neither: an integer does not say which index space it counts in, and node ``i`` is ``bvh.nodes[i]``.
 
     See Also
     --------
     foot_contacts : The foot-specialized entry point (auto-detection, rest-pose sanity check, ``height_reference="velocity"`` default).
     """
-    joint_names, joint_indices = _resolve_contact_joints(bvh, joints)
+    joint_indices = bvh._indices(nodes, space="node")
+    if not joint_indices:
+        raise ValueError("ground_contacts got nodes=[]: contact detection needs at least one node.")
+    joint_names = [bvh.nodes[i].name for i in joint_indices]
     settings = _contacts._ContactSettings(
         method=method,
         vel_threshold=vel_threshold,
@@ -1190,60 +1203,6 @@ def ground_contacts(
     )
 
 
-def _resolve_contact_joints(
-    bvh: Bvh, joints: Sequence[str | int] | None
-) -> tuple[list[str], list[int]]:
-    """Resolve a detector's joint argument into parallel node names and node indices.
-
-    ``None`` auto-detects the feet (:func:`foot_contacts`' default). Entries are node names or node indices, negative indices counting from the end as in NumPy; the names returned for indices are the nodes' own. An empty list is refused here, before the settings are checked, since a threshold per joint is checked against the joints resolved.
-    """
-    if joints is None:
-        joints = auto_detect_foot_joints(bvh)
-        if not joints:
-            raise ValueError(
-                "Could not auto-detect foot joints. Please provide "
-                "foot_joints explicitly (e.g. ['LeftFoot', 'RightFoot'])."
-            )
-    # By length: a NumPy index array has no truth value.
-    if len(joints) == 0:
-        raise ValueError(
-            "contact detection needs at least one joint; got an empty "
-            "joint list. (auto_detect_foot_joints returns [] on footless "
-            "rigs — pass joints explicitly.)"
-        )
-
-    num_nodes = len(bvh.nodes)
-    joint_names: list[str] = []
-    joint_indices: list[int] = []
-    for joint in joints:
-        # bool is an int subclass; catch it before the int branch.
-        if isinstance(joint, bool):
-            raise TypeError(
-                f"joints entries must be node names (str) or node indices (int), got bool {joint!r}"
-            )
-        if isinstance(joint, (int, np.integer)):
-            index = int(joint)
-            if not -num_nodes <= index < num_nodes:
-                raise IndexError(
-                    f"node index {index} out of range for a skeleton with {num_nodes} nodes"
-                )
-            if index < 0:
-                index += num_nodes
-            joint_indices.append(index)
-            joint_names.append(bvh.nodes[index].name)
-        elif isinstance(joint, str):
-            if joint not in bvh.node_index:
-                raise ValueError(f"Joint {joint!r} not found in skeleton.")
-            joint_indices.append(bvh.node_index[joint])
-            joint_names.append(joint)
-        else:
-            raise TypeError(
-                "joints entries must be node names (str) or node indices "
-                f"(int), got {type(joint).__name__}"
-            )
-    return joint_names, joint_indices
-
-
 def _contacts_on_clip(
     bvh: Bvh,
     joint_names: list[str],
@@ -1256,7 +1215,7 @@ def _contacts_on_clip(
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """The clip's part of :func:`foot_contacts` and :func:`ground_contacts`, around the detector on plain arrays.
 
-    Both entry points resolve their joint arguments with :func:`_resolve_contact_joints` into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet. ``entry`` is the caller's name for the messages (``"foot_contacts()"``).
+    Both entry points resolve their selection with :meth:`Bvh._indices <pybvh.bvh.Bvh._indices>` into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists, the names being the nodes' own, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet. ``entry`` is the caller's name for the messages (``"foot_contacts()"``).
     """
     if settings.reads_velocity:
         _require_rate(bvh.frame_time, f"{entry} with method={settings.method!r}")
@@ -1297,8 +1256,8 @@ def _contacts_on_clip(
     )
 
 
-def auto_detect_foot_joints(bvh: Bvh) -> list[str]:
-    """Auto-detect foot joint names by topology.
+def auto_detect_feet(bvh: Bvh) -> list[BvhNode]:
+    """Auto-detect the clip's feet by topology.
 
     Algorithm:
 
@@ -1326,8 +1285,9 @@ def auto_detect_foot_joints(bvh: Bvh) -> list[str]:
 
     Returns
     -------
-    list of str
-        Joint names in deterministic order.  Empty if no candidates.
+    list of BvhNode
+        The feet, nodes of ``bvh.nodes`` (joints, never end sites), in
+        deterministic order.  Empty if no candidates.
         Returning ``[]`` — never raising — is the contract for footless
         rigs (no ``"foot"``/``"toe"`` names, or matches with no tip
         descendants that step 2's fallback also rejects).
@@ -1335,11 +1295,15 @@ def auto_detect_foot_joints(bvh: Bvh) -> list[str]:
     Notes
     -----
     This is the same detection used internally by
-    :func:`foot_contacts` when ``foot_joints=None``.  Call it
-    directly to preview the detection or to feed an explicit list
-    back in.
+    :func:`foot_contacts` when ``feet=None``.  Call it
+    directly to preview the detection or to pass the feet back in:
+    the nodes select the feet by identity, so a foot whose name another
+    node shares is still selected, where its name would be refused. The
+    nodes belong to ``bvh``: another clip, or ``bvh`` after an in-place
+    edit replaced its skeleton, refuses them, and takes their names
+    (``[node.name for node in feet]``) or its own detection instead.
 
-    An empty result is a *report*, not an error: this function never raises on footless rigs. The contact detectors are where emptiness becomes fatal — :func:`foot_contacts` and :func:`ground_contacts` both raise ``ValueError`` when handed an empty joint list, so a silent ``[]`` cannot flow into a zero-column contact array.
+    An empty result is a *report*, not an error: this function never raises on footless rigs. The contact detectors are where emptiness becomes fatal — :func:`foot_contacts` and :func:`ground_contacts` both raise ``ValueError`` when handed an empty selection, so a silent ``[]`` cannot flow into a zero-column contact array.
     """
     up_idx, up_sign, _ = bvh.world_up_axis
 
@@ -1362,8 +1326,8 @@ def auto_detect_foot_joints(bvh: Bvh) -> list[str]:
     with_tip = [n for n in matched if _has_tip(n)]
     if not with_tip:
         warnings.warn(
-            "auto_detect_foot_joints: no candidates have tip descendants; "
-            "falling back to all substring matches. Pass foot joints "
+            "auto_detect_feet: no candidates have tip descendants; "
+            "falling back to all substring matches. Pass the feet "
             "explicitly if auto-detection looks wrong.",
             UserWarning,
             stacklevel=user_stacklevel(),
@@ -1396,7 +1360,7 @@ def auto_detect_foot_joints(bvh: Bvh) -> list[str]:
         return (height, node.name)
 
     most_distal.sort(key=_sort_key)
-    return [n.name for n in most_distal]
+    return most_distal
 
 
 def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
@@ -1447,20 +1411,21 @@ def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
     Source: gait/biomech normalization (Troje, Karg et al.).
     """
     if foot_joints is None:
-        foot_joints = auto_detect_foot_joints(bvh)
-        if not foot_joints:
+        feet = auto_detect_feet(bvh)
+        if not feet:
             raise ValueError(
                 "skeleton_size: no foot joints auto-detected on this "
                 "skeleton, so its size cannot be measured. Pass foot_joints= "
                 "explicitly (the deepest leg-chain joints), or catch this "
                 "error and choose your own scale."
             )
+        foot_indices = bvh._indices(feet, space="node")
     else:
         unknown = [n for n in foot_joints if n not in bvh.node_index]
         if unknown:
             raise ValueError(f"skeleton_size: joint names {unknown} not found in skeleton.")
+        foot_indices = [bvh.node_index[name] for name in foot_joints]
     rest_coords = bvh._rest_pose()
-    foot_indices = [bvh.node_index[name] for name in foot_joints]
     distance = geometry._mean_distance_to_root(rest_coords[foot_indices], rest_coords[0])
     if distance is None:
         raise ValueError(
@@ -2844,9 +2809,8 @@ def _gait_parameters_unchecked(
     come out ``nan`` (zero duration) and the distances are measured. Without ``contacts``,
     :func:`foot_contacts` refuses an unset clip itself.
     """
-    if foot_joints is None:
-        foot_joints = auto_detect_foot_joints(bvh)
-    if not foot_joints:
+    feet: Sequence[NodeSelector] = auto_detect_feet(bvh) if foot_joints is None else foot_joints
+    if not feet:
         raise ValueError("gait_parameters: no foot joints found; pass foot_joints explicitly")
 
     node_pos = bvh.node_positions()
@@ -2858,11 +2822,11 @@ def _gait_parameters_unchecked(
         # calibrated on the frames that threshold calls slow.  The fixed speed
         # threshold under-detects stance on the bundled walk, which yields
         # impossible gait numbers (double_support = 0 on a plain walk).
-        contacts = foot_contacts(bvh, foot_joints=foot_joints, adaptive=True)
+        contacts = foot_contacts(bvh, feet=feet, adaptive=True)
     contacts = np.asarray(contacts, dtype=np.float64)
 
     up = _axis_to_vector(bvh.world_up)
-    foot_idx = [bvh.index(name, space="node") for name in foot_joints]
+    foot_idx = [bvh.index(foot, space="node") for foot in feet]
     foot_xyz = node_pos[:, foot_idx, :]  # (F, n_feet, 3)
     foot_h = foot_xyz - (foot_xyz @ up)[..., None] * up  # project to ground
 
@@ -2873,7 +2837,7 @@ def _gait_parameters_unchecked(
     return _compute_gait_parameters(
         contacts,
         foot_h,
-        list(foot_joints),
+        [bvh.nodes[i].name for i in foot_idx],
         bvh.frame_time,
         _root_horizontal_distance(bvh),
         progression,

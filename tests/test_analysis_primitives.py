@@ -981,7 +981,7 @@ def test_foot_contacts_detects_bouncing_root_dwell():
     root_pos = bvh.root_pos.copy()
     root_pos[4:7, up] += 40.0  # lift frames 4-6; dwell low elsewhere
     bvh.root_pos = root_pos
-    c = bvh.foot_contacts(foot_joints=["LeftFoot", "RightFoot"], method="height", hysteresis=0.0)
+    c = bvh.foot_contacts(feet=["LeftFoot", "RightFoot"], method="height", hysteresis=0.0)
     assert c[0:4].all() and c[7:10].all()  # contact during the low dwells
     assert not c[4:7].any()  # airborne during the lift
 
@@ -1198,7 +1198,7 @@ def test_floor_height_follows_the_toe_tip_not_the_toe_joint():
     inside the foot. Estimating from detected feet (joints only) reads high
     by exactly the tip drop."""
     bvh = _make_toed_skeleton(toe_tip_drop=2.0)
-    assert bvh.auto_detect_foot_joints() == ["LeftToeBase", "RightToeBase"]
+    assert [foot.name for foot in bvh.auto_detect_feet()] == ["LeftToeBase", "RightToeBase"]
     coords = bvh.node_positions()
     toe_joint = coords[:, bvh.node_index["LeftToeBase"], 2].min()
     np.testing.assert_allclose(bvh.floor_height, toe_joint - 2.0)

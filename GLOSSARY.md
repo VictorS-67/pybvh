@@ -172,10 +172,10 @@ Where a clip's geometry bottoms out: the robust 2nd percentile of the per-frame 
 _Avoid_: floor (alone), ground level
 
 **Contact reference**:
-The ground level a contact detector estimates per call over the joints it tests (`floor="auto"`, reported as the contact report's `contact_reference`). Never the scene ground; the two differ by about a toe length (ADR 0002).
+The ground level a contact detector estimates per call over the nodes it tests (`floor="auto"`, reported as the contact report's `contact_reference`). Never the scene ground; the two differ by about a toe length (ADR 0002).
 
 **Contact**:
-A frame in which a joint is planted, from velocity and height thresholds: `foot_contacts` on the detected feet, `ground_contacts` on any joint set.
+A frame in which a node is planted, from velocity and height thresholds: `foot_contacts` on the detected feet, `ground_contacts` on any set of nodes, end sites included.
 
 **Contact report**:
 What one contact detection applied and compared, returned with the contacts by `return_info=True` (`ContactReport`): the method and settings, each joint's thresholds, the skeleton scale, the contact reference, the speed and clearance signals, and the diagnostics. Every field present, `None` where the method does not use it; per-joint values `(n_joints,)`, never averaged.

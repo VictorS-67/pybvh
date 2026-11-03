@@ -209,7 +209,7 @@ print(f"Foot contacts shape: {contacts.shape}  (F, num_feet)")
 # Visualizing the three methods side by side on the same clip shows where they disagree — **black pixels** are contact frames:
 
 # %%
-foot_names = bvh.auto_detect_foot_joints()
+foot_names = [foot.name for foot in bvh.auto_detect_feet()]
 
 contacts_vel = bvh.foot_contacts(method="velocity")
 contacts_ht = bvh.foot_contacts(method="height")
@@ -291,7 +291,7 @@ print(f"Foot contacts block: {contacts_block.shape}")
 # | `bvh.root_trajectory()` | Ground-plane pos + heading sin/cos | `(F, 4)` |
 # | `bvh.root_trajectory(include_velocities=True)` | + ground vel + heading vel | `(F, 7)` |
 # | `bvh.foot_contacts()` | Binary contact labels (method='combined') | `(F, num_feet)` |
-# | `bvh.auto_detect_foot_joints()` | Detected foot joint names | `list[str]` |
+# | `bvh.auto_detect_feet()` | Detected feet, nodes of the clip | `list[BvhNode]` |
 # | `bvh.to_feature_array()` | Combined flat array | `(F, D)` |
 # | `bvh.feature_array_layout(...)` | Column slice map | `dict[str, slice]` |
 #

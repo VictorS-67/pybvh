@@ -3670,7 +3670,7 @@ class Bvh:
     @overload
     def foot_contacts(
         self,
-        foot_joints: list[str] | None = ...,
+        feet: Sequence[NodeSelector] | None = ...,
         method: str = ...,
         *,
         vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
@@ -3687,7 +3687,7 @@ class Bvh:
     @overload
     def foot_contacts(
         self,
-        foot_joints: list[str] | None = ...,
+        feet: Sequence[NodeSelector] | None = ...,
         method: str = ...,
         *,
         vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
@@ -3704,7 +3704,7 @@ class Bvh:
     @overload
     def foot_contacts(
         self,
-        foot_joints: list[str] | None = ...,
+        feet: Sequence[NodeSelector] | None = ...,
         method: str = ...,
         *,
         vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
@@ -3720,7 +3720,7 @@ class Bvh:
     ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], ContactReport]: ...
     def foot_contacts(
         self,
-        foot_joints: list[str] | None = None,
+        feet: Sequence[NodeSelector] | None = None,
         method: str = "combined",
         *,
         vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = None,
@@ -3739,7 +3739,7 @@ class Bvh:
 
         return analysis.foot_contacts(
             self,
-            foot_joints=foot_joints,
+            feet=feet,
             method=method,
             vel_threshold=vel_threshold,
             vel_smooth_duration=vel_smooth_duration,
@@ -3756,7 +3756,7 @@ class Bvh:
     @overload
     def ground_contacts(
         self,
-        joints: Sequence[str | int],
+        nodes: Sequence[NodeSelector],
         method: str = ...,
         *,
         vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
@@ -3773,7 +3773,7 @@ class Bvh:
     @overload
     def ground_contacts(
         self,
-        joints: Sequence[str | int],
+        nodes: Sequence[NodeSelector],
         method: str = ...,
         *,
         vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
@@ -3790,7 +3790,7 @@ class Bvh:
     @overload
     def ground_contacts(
         self,
-        joints: Sequence[str | int],
+        nodes: Sequence[NodeSelector],
         method: str = ...,
         *,
         vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = ...,
@@ -3806,7 +3806,7 @@ class Bvh:
     ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], ContactReport]: ...
     def ground_contacts(
         self,
-        joints: Sequence[str | int],
+        nodes: Sequence[NodeSelector],
         method: str = "combined",
         *,
         vel_threshold: float | Sequence[float] | npt.NDArray[np.float64] | None = None,
@@ -3820,12 +3820,12 @@ class Bvh:
         height_reference: str | None = None,
         return_info: bool = False,
     ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], ContactReport]:
-        """Detect ground contacts for an arbitrary joint set.  See :func:`pybvh.analysis.ground_contacts`."""
+        """Detect ground contacts for an arbitrary node set.  See :func:`pybvh.analysis.ground_contacts`."""
         from . import analysis
 
         return analysis.ground_contacts(
             self,
-            joints,
+            nodes,
             method=method,
             vel_threshold=vel_threshold,
             vel_smooth_duration=vel_smooth_duration,
@@ -3839,11 +3839,11 @@ class Bvh:
             return_info=return_info,
         )
 
-    def auto_detect_foot_joints(self) -> list[str]:
-        """Auto-detect foot joint names from skeleton topology.  See :func:`pybvh.analysis.auto_detect_foot_joints`."""
+    def auto_detect_feet(self) -> list[BvhNode]:
+        """Auto-detect the clip's feet, as nodes, from skeleton topology.  See :func:`pybvh.analysis.auto_detect_feet`."""
         from . import analysis
 
-        return analysis.auto_detect_foot_joints(self)
+        return analysis.auto_detect_feet(self)
 
     def to_feature_array(
         self,

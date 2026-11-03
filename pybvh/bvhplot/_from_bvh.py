@@ -478,10 +478,8 @@ def get_bone_chains(bvh: Bvh) -> dict[str, list[int]]:
     # paired ancestors above it (stopping at the first unpaired node,
     # i.e. where the leg meets the torso).
     leg_nodes: set[int] = set()
-    for foot_name in bvh.auto_detect_foot_joints():
-        foot_idx = bvh.node_index.get(foot_name)
-        if foot_idx is None:
-            continue
+    for foot in bvh.auto_detect_feet():
+        foot_idx = bvh.index(foot, space="node")
         stack = [foot_idx]
         while stack:
             n = stack.pop()

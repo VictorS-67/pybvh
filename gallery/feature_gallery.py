@@ -352,7 +352,7 @@ walk_gif = gp.walk_clip_gif(walk)
 # Each signal catches the other's failure mode. Here the call uses `adaptive=True`, the right setting for known locomotion. That setting splits each foot's speed threshold from its own speed. The height threshold is calibrated, as by default, to each foot's own level over the frames that the speed threshold calls slow. The green spans are the detected stance phases.
 
 # %%
-feet = analysis.auto_detect_foot_joints(walk)
+feet = [foot.name for foot in analysis.auto_detect_feet(walk)]
 gp.fig_foot_contacts_signals(walk, feet)
 
 # %% [markdown]
@@ -656,7 +656,7 @@ gp.fig_covariance(C, L)
 # **`skeleton_size`** — the absolute scale proxy: the mean rest-pose distance from the root to the feet (red lines). It scales linearly with the whole skeleton.
 
 # %%
-bvh_feet = analysis.auto_detect_foot_joints(bvh)
+bvh_feet = [foot.name for foot in analysis.auto_detect_feet(bvh)]
 gp.fig_skeleton_size(bvh, bvh_feet, analysis.skeleton_size(bvh, foot_joints=bvh_feet))
 
 # %% [markdown]

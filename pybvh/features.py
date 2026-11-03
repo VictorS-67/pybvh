@@ -223,7 +223,7 @@ def to_feature_array(
     # ``centered`` is: per-frame "skeleton" centering would distort the
     # foot-speed signal.
     if include_foot_contacts:
-        contacts = _foot_contacts(bvh, foot_joints=foot_joints)
+        contacts = _foot_contacts(bvh, feet=foot_joints)
         parts.append(contacts)
 
     # Align frames: trim F-shaped blocks (root_pos, rot, contacts) to match

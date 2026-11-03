@@ -235,7 +235,7 @@ class ContactReport:
     Attributes
     ----------
     joints : tuple of str
-        The tested joints' names, in column order (``ground_contacts`` maps node indices back to names).
+        The tested nodes' own names, in column order, however the nodes were selected (by name or as ``BvhNode``).
     method : {"combined", "velocity", "height"}
         The method applied.
     vel_smooth_duration : float or None

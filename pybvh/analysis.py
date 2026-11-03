@@ -64,27 +64,10 @@ def _non_end_site_indices(bvh: Bvh) -> list[int]:
     return [i for i, n in enumerate(bvh.nodes) if not n.is_end_site()]
 
 
-def _validate_node_coords(bvh: Bvh, coords: npt.NDArray[np.float64] | None) -> None:
-    """Reject ``coords`` whose joint axis is not node-shaped.
-
-    The ``joint_*`` kinematics functions subset the node axis down to
-    non-end-site joints; a joint-shaped ``(F, J, 3)`` input would be
-    silently mis-indexed.
-    """
-    n_nodes = len(bvh.nodes)
-    if coords is not None and coords.shape[1] != n_nodes:
-        raise ValueError(
-            f"coords must be node-shaped (F, N, 3) with N = {n_nodes} nodes "
-            f"(joints + end sites, as returned by Bvh.node_positions()); got "
-            f"{coords.shape}."
-        )
-
-
 def node_velocities(
     bvh: Bvh,
     centered: str = "world",
     in_frames: bool = False,
-    coords: npt.NDArray[np.float64] | None = None,
     stencil: str = "central",
     pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
@@ -107,16 +90,12 @@ def node_velocities(
         Input motion.
     centered : str, optional
         Coordinate centering mode (default ``"world"``).
-        **Ignored if `coords` is provided** — `coords` takes precedence.
         Note: ``"world"`` and ``"first"`` produce identical velocities
         (constant offsets vanish under differentiation); only
         ``"skeleton"`` is meaningfully different here.
     in_frames : bool, optional
         If True, return velocity in units/frame.
         If False (default), return velocity in units/second.
-    coords : ndarray, shape (F, N, 3), optional
-        Pre-computed spatial coordinates. If None, computed
-        internally via :meth:`Bvh.node_positions`.
     stencil : {"central", "forward"}, optional
         ``"central"`` (default): ``v[i] = (pos[i+1] - pos[i-1]) / (2·dt)``.
         Second-order accurate at interior frames.  ``"forward"``:
@@ -170,18 +149,15 @@ def node_velocities(
     if not in_frames:
         _require_rate(bvh.frame_time, "node_velocities()", offers_in_frames=True)
 
-    if coords is None:
-        coords = bvh.node_positions(centered=centered)
-
+    positions = bvh.node_positions(centered=centered)
     dt = 1.0 if in_frames else bvh.frame_time
-    return _finite_difference(coords, dt, stencil=stencil, pad=pad)
+    return _finite_difference(positions, dt, stencil=stencil, pad=pad)
 
 
 def joint_velocities(
     bvh: Bvh,
     centered: str = "world",
     in_frames: bool = False,
-    coords: npt.NDArray[np.float64] | None = None,
     stencil: str = "central",
     pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
@@ -194,17 +170,8 @@ def joint_velocities(
     appropriate trimmed variant per ``stencil`` × ``pad``).
 
     See :func:`node_velocities` for the full parameter / shape docs.
-
-    Raises
-    ------
-    ValueError
-        If ``coords`` is not node-shaped ``(F, N, 3)`` (in addition to
-        the :func:`node_velocities` conditions).
     """
-    _validate_node_coords(bvh, coords)
-    nv = node_velocities(
-        bvh, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
-    )
+    nv = node_velocities(bvh, centered=centered, in_frames=in_frames, stencil=stencil, pad=pad)
     return nv[:, _non_end_site_indices(bvh), :]
 
 
@@ -212,7 +179,6 @@ def node_accelerations(
     bvh: Bvh,
     centered: str = "world",
     in_frames: bool = False,
-    coords: npt.NDArray[np.float64] | None = None,
     stencil: str = "central",
     pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
@@ -228,16 +194,12 @@ def node_accelerations(
         Input motion.
     centered : str, optional
         Coordinate centering mode (default ``"world"``).
-        **Ignored if `coords` is provided** — `coords` takes precedence.
         Note: ``"world"`` and ``"first"`` produce identical accelerations
         (constant offsets vanish under differentiation); only
         ``"skeleton"`` is meaningfully different here.
     in_frames : bool, optional
         If True, return acceleration in units/frame^2.
         If False (default), return in units/second^2.
-    coords : ndarray, shape (F, N, 3), optional
-        Pre-computed spatial coordinates. If None, computed
-        internally via :meth:`Bvh.node_positions`.
     stencil : {"central", "forward"}, optional
         Finite-difference method applied twice.  Default ``"central"``.
     pad : {"edge", "none"}, optional
@@ -289,18 +251,15 @@ def node_accelerations(
     if not in_frames:
         _require_rate(bvh.frame_time, "node_accelerations()", offers_in_frames=True)
 
-    if coords is None:
-        coords = bvh.node_positions(centered=centered)
-
+    positions = bvh.node_positions(centered=centered)
     dt = 1.0 if in_frames else bvh.frame_time
-    return _finite_difference(coords, dt, order=2, stencil=stencil, pad=pad)
+    return _finite_difference(positions, dt, order=2, stencil=stencil, pad=pad)
 
 
 def joint_accelerations(
     bvh: Bvh,
     centered: str = "world",
     in_frames: bool = False,
-    coords: npt.NDArray[np.float64] | None = None,
     stencil: str = "central",
     pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
@@ -313,17 +272,8 @@ def joint_accelerations(
     ``stencil`` × ``pad``).
 
     See :func:`node_accelerations` for the full parameter / shape docs.
-
-    Raises
-    ------
-    ValueError
-        If ``coords`` is not node-shaped ``(F, N, 3)`` (in addition to
-        the :func:`node_accelerations` conditions).
     """
-    _validate_node_coords(bvh, coords)
-    na = node_accelerations(
-        bvh, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
-    )
+    na = node_accelerations(bvh, centered=centered, in_frames=in_frames, stencil=stencil, pad=pad)
     return na[:, _non_end_site_indices(bvh), :]
 
 
@@ -331,7 +281,6 @@ def node_speed_derivative(
     bvh: Bvh,
     centered: str = "world",
     in_frames: bool = False,
-    coords: npt.NDArray[np.float64] | None = None,
     stencil: str = "central",
     pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
@@ -360,13 +309,9 @@ def node_speed_derivative(
         Input motion.
     centered : str, optional
         Coordinate centering mode (default ``"world"``).
-        **Ignored if `coords` is provided** — `coords` takes precedence.
     in_frames : bool, optional
         If True, return the rate in units/frame^2.
         If False (default), return in units/second^2.
-    coords : ndarray, shape (F, N, 3), optional
-        Pre-computed spatial coordinates. If None, computed
-        internally via :meth:`Bvh.node_positions`.
     stencil : {"central", "forward"}, optional
         Finite-difference method, applied at both stages (positions →
         velocities, speed → its derivative).  Default ``"central"``.
@@ -426,9 +371,7 @@ def node_speed_derivative(
     if not in_frames:
         _require_rate(bvh.frame_time, "node_speed_derivative()", offers_in_frames=True)
 
-    vel = node_velocities(
-        bvh, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
-    )
+    vel = node_velocities(bvh, centered=centered, in_frames=in_frames, stencil=stencil, pad=pad)
     speed = np.linalg.norm(vel, axis=-1)
     dt = 1.0 if in_frames else bvh.frame_time
     return _finite_difference(speed, dt, stencil=stencil, pad=pad)
@@ -438,7 +381,6 @@ def joint_speed_derivative(
     bvh: Bvh,
     centered: str = "world",
     in_frames: bool = False,
-    coords: npt.NDArray[np.float64] | None = None,
     stencil: str = "central",
     pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
@@ -452,16 +394,9 @@ def joint_speed_derivative(
 
     See :func:`node_speed_derivative` for the full parameter / shape /
     sign-semantics docs.
-
-    Raises
-    ------
-    ValueError
-        If ``coords`` is not node-shaped ``(F, N, 3)`` (in addition to
-        the :func:`node_speed_derivative` conditions).
     """
-    _validate_node_coords(bvh, coords)
     sd = node_speed_derivative(
-        bvh, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
+        bvh, centered=centered, in_frames=in_frames, stencil=stencil, pad=pad
     )
     return sd[:, _non_end_site_indices(bvh)]
 
@@ -748,10 +683,7 @@ def root_trajectory(
 FacingFrame = namedtuple("FacingFrame", ["forward", "left", "up", "valid"])
 
 
-def facing_frame(
-    bvh: Bvh,
-    coords: npt.NDArray[np.float64] | None = None,
-) -> FacingFrame:
+def facing_frame(bvh: Bvh) -> FacingFrame:
     """Per-frame facing basis of the character, as continuous unit vectors.
 
     Returns the orthonormal right-handed triple ``(forward, left, up)``
@@ -811,11 +743,6 @@ def facing_frame(
     ----------
     bvh : Bvh
         Input motion.
-    coords : ndarray, shape (F, N, 3), optional
-        Pre-computed spatial coordinates for all frames (as returned
-        by ``Bvh.node_positions()``): one row per clip frame, since the
-        fallback reads the root's rotation at each. When provided,
-        skips the per-call forward kinematics.
 
     Returns
     -------
@@ -826,12 +753,6 @@ def facing_frame(
         ``False`` on frames whose basis is a fallback rather than a
         measurement (see the fallback policy above).
 
-    Raises
-    ------
-    ValueError
-        If ``coords`` is not node-shaped, or does not hold one row per
-        clip frame.
-
     See Also
     --------
     Bvh.forward_at, Bvh.left_at : The categorical (snapped axis label)
@@ -839,19 +760,7 @@ def facing_frame(
     root_trajectory : Root-bone-orientation heading (a different facing
         estimate — see Notes above; not a travel direction).
     """
-    if coords is None:
-        coords = bvh.node_positions()
-    else:
-        coords = np.asarray(coords, dtype=np.float64)
-    _validate_node_coords(bvh, coords)
-    if coords.shape[0] != bvh.frame_count:
-        raise ValueError(
-            f"coords must hold one row per clip frame ({bvh.frame_count}), as "
-            f"node_positions() returns them, since a frame whose left/right "
-            f"axis cannot be read falls back to the root's heading at that "
-            f"frame; got {coords.shape[0]} rows."
-        )
-    forward, left, up, valid = bvh._facing_at(coords, slice(None))
+    forward, left, up, valid = bvh._facing_at(bvh.node_positions(), slice(None))
     return FacingFrame(forward, left, up, valid)
 
 
@@ -1671,7 +1580,6 @@ def node_jerk(
     bvh: Bvh,
     centered: str = "world",
     in_frames: bool = False,
-    coords: npt.NDArray[np.float64] | None = None,
     stencil: str = "central",
     pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
@@ -1689,13 +1597,9 @@ def node_jerk(
     bvh : Bvh
         Input motion.
     centered : str, optional
-        Coordinate centering mode (default ``"world"``). Ignored if
-        ``coords`` is given.
+        Coordinate centering mode (default ``"world"``).
     in_frames : bool, optional
         If True, units/frame³; else units/second³ (default).
-    coords : ndarray, shape (F, N, 3), optional
-        Pre-computed positions; computed via :meth:`Bvh.node_positions`
-        if None.
     stencil : {"central", "forward"}, optional
         Finite-difference method applied three times. Default
         ``"central"``.
@@ -1728,17 +1632,15 @@ def node_jerk(
     if not in_frames:
         _require_rate(bvh.frame_time, "node_jerk()", offers_in_frames=True)
 
-    if coords is None:
-        coords = bvh.node_positions(centered=centered)
+    positions = bvh.node_positions(centered=centered)
     dt = 1.0 if in_frames else bvh.frame_time
-    return _finite_difference(coords, dt, order=3, stencil=stencil, pad=pad)
+    return _finite_difference(positions, dt, order=3, stencil=stencil, pad=pad)
 
 
 def joint_jerk(
     bvh: Bvh,
     centered: str = "world",
     in_frames: bool = False,
-    coords: npt.NDArray[np.float64] | None = None,
     stencil: str = "central",
     pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
@@ -1746,12 +1648,8 @@ def joint_jerk(
 
     The joint-axis subset of :func:`node_jerk`, index-aligned with
     :attr:`Bvh.joint_angles`. See :func:`node_jerk` for full docs.
-    Raises ``ValueError`` if ``coords`` is not node-shaped ``(F, N, 3)``.
     """
-    _validate_node_coords(bvh, coords)
-    nj = node_jerk(
-        bvh, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
-    )
+    nj = node_jerk(bvh, centered=centered, in_frames=in_frames, stencil=stencil, pad=pad)
     return nj[:, _non_end_site_indices(bvh), :]
 
 

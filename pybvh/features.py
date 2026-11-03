@@ -218,9 +218,7 @@ def to_feature_array(
     # Velocities — call directly (same module)
     vel_shape: int | None = None
     if include_velocities:
-        vel = joint_velocities(
-            bvh, centered=centered, in_frames=True, coords=coords, stencil=stencil, pad=pad
-        )
+        vel = joint_velocities(bvh, centered=centered, in_frames=True, stencil=stencil, pad=pad)
         vel_flat = vel.reshape(vel.shape[0], -1)
         parts.append(vel_flat)
         vel_shape = vel.shape[0]

@@ -1800,11 +1800,7 @@ class Bvh:
         """Validate the user's lr_mapping dict and make it the mapping in effect."""
         self._set_lr_mapping_setting(_validated_lr_mapping(mapping, self.joint_names))
 
-    def forward_at(
-        self,
-        frame: int = 0,
-        coords: npt.NDArray[np.float64] | None = None,
-    ) -> str:
+    def forward_at(self, frame: int = 0) -> str:
         """Character's world-space forward (facing) direction at a given frame.
 
         Computed from actual joint positions at the given frame — the
@@ -1825,16 +1821,6 @@ class Bvh:
         ----------
         frame : int, optional
             Frame index (default 0). Must be within the animation range.
-        coords : ndarray, shape (F, N, 3), optional
-            Pre-computed spatial coordinates for all frames, as
-            :meth:`node_positions` returns them. When provided, skips
-            the per-call forward kinematics — useful for computing
-            facing direction across many frames in a hot loop (e.g.
-            dataset uniformity diagnostics). The selected frame's slice
-            is taken via ``coords[frame]``, which must hold clip frame
-            ``frame``'s positions: where its left/right axis cannot be
-            read, the fallback reads the clip's root rotation at
-            ``frame``, whatever ``coords`` holds.
 
         Returns
         -------
@@ -1848,13 +1834,9 @@ class Bvh:
             frames at once).
         left_at : Leftward direction.
         """
-        return self._facing_labels_at(frame, coords)[0]
+        return self._facing_labels_at(frame)[0]
 
-    def left_at(
-        self,
-        frame: int = 0,
-        coords: npt.NDArray[np.float64] | None = None,
-    ) -> str:
+    def left_at(self, frame: int = 0) -> str:
         """Character's world-space leftward direction at a given frame.
 
         Returns the signed axis along which a positive step moves from
@@ -1878,14 +1860,6 @@ class Bvh:
         ----------
         frame : int, optional
             Frame index (default 0). Must be within the animation range.
-        coords : ndarray, shape (F, N, 3), optional
-            Pre-computed spatial coordinates for all frames, as
-            :meth:`node_positions` returns them. When provided, skips
-            the per-call forward kinematics. The selected frame's slice
-            is taken via ``coords[frame]``, which must hold clip frame
-            ``frame``'s positions: where its left/right axis cannot be
-            read, the fallback reads the clip's root rotation at
-            ``frame``, whatever ``coords`` holds.
 
         Returns
         -------
@@ -1900,16 +1874,11 @@ class Bvh:
             frames at once).
         world_up : World vertical axis.
         """
-        return self._facing_labels_at(frame, coords)[1]
+        return self._facing_labels_at(frame)[1]
 
-    def _facing_labels_at(
-        self, frame: int, coords: npt.NDArray[np.float64] | None
-    ) -> tuple[str, str]:
+    def _facing_labels_at(self, frame: int) -> tuple[str, str]:
         """The snapped ``(forward, left)`` labels at clip frame *frame*."""
-        if coords is None:
-            frame_coords = self.node_positions(frame=frame)
-        else:
-            frame_coords = coords[frame]
+        frame_coords = self.node_positions(frame=frame)
         frame = range(self.frame_count)[frame]  # as the warning names it
         forward, _, _, _ = self._facing_at(frame_coords[np.newaxis], [frame])
         return _facing_labels(forward[0], self.world_up)
@@ -1963,10 +1932,7 @@ class Bvh:
         root_order = self.nodes[0].rot_channels  # type: ignore[attr-defined]
         return rotations.euler_to_rotmat(self.joint_angles[frames, 0], root_order)
 
-    def facing_frame(
-        self,
-        coords: npt.NDArray[np.float64] | None = None,
-    ):
+    def facing_frame(self):
         """Per-frame facing basis as continuous unit vectors.
 
         Returns a ``FacingFrame(forward, left, up, valid)`` named tuple:
@@ -1979,7 +1945,7 @@ class Bvh:
         """
         from . import analysis
 
-        return analysis.facing_frame(self, coords=coords)
+        return analysis.facing_frame(self)
 
     def write(self, filepath: str | Path, verbose: bool = False, overwrite: bool = True) -> None:
         """Write the Bvh object to a ``.bvh`` file.
@@ -3455,7 +3421,6 @@ class Bvh:
         self,
         centered: str = "world",
         in_frames: bool = False,
-        coords: npt.NDArray[np.float64] | None = None,
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
@@ -3463,14 +3428,13 @@ class Bvh:
         from . import analysis
 
         return analysis.joint_velocities(
-            self, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
+            self, centered=centered, in_frames=in_frames, stencil=stencil, pad=pad
         )
 
     def node_velocities(
         self,
         centered: str = "world",
         in_frames: bool = False,
-        coords: npt.NDArray[np.float64] | None = None,
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
@@ -3478,14 +3442,13 @@ class Bvh:
         from . import analysis
 
         return analysis.node_velocities(
-            self, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
+            self, centered=centered, in_frames=in_frames, stencil=stencil, pad=pad
         )
 
     def joint_accelerations(
         self,
         centered: str = "world",
         in_frames: bool = False,
-        coords: npt.NDArray[np.float64] | None = None,
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
@@ -3493,14 +3456,13 @@ class Bvh:
         from . import analysis
 
         return analysis.joint_accelerations(
-            self, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
+            self, centered=centered, in_frames=in_frames, stencil=stencil, pad=pad
         )
 
     def node_accelerations(
         self,
         centered: str = "world",
         in_frames: bool = False,
-        coords: npt.NDArray[np.float64] | None = None,
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
@@ -3508,14 +3470,13 @@ class Bvh:
         from . import analysis
 
         return analysis.node_accelerations(
-            self, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
+            self, centered=centered, in_frames=in_frames, stencil=stencil, pad=pad
         )
 
     def joint_speed_derivative(
         self,
         centered: str = "world",
         in_frames: bool = False,
-        coords: npt.NDArray[np.float64] | None = None,
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
@@ -3523,14 +3484,13 @@ class Bvh:
         from . import analysis
 
         return analysis.joint_speed_derivative(
-            self, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
+            self, centered=centered, in_frames=in_frames, stencil=stencil, pad=pad
         )
 
     def node_speed_derivative(
         self,
         centered: str = "world",
         in_frames: bool = False,
-        coords: npt.NDArray[np.float64] | None = None,
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
@@ -3538,7 +3498,7 @@ class Bvh:
         from . import analysis
 
         return analysis.node_speed_derivative(
-            self, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
+            self, centered=centered, in_frames=in_frames, stencil=stencil, pad=pad
         )
 
     def angular_velocities(
@@ -3815,8 +3775,8 @@ class Bvh:
     # ----------------------------------------------------------------
     #  Relational / trajectory queries index in NODE space (node_index), so
     #  end sites (fingertips, toe tips, head top) are first-class; pass a
-    #  joint or end-site name. Every descriptor accepts pre-computed
-    #  positions via ``coords=`` for hot loops over many descriptors.
+    #  joint or end-site name. Every descriptor reads the node positions the
+    #  clip holds as derived state; it takes none from the caller.
 
     def _descriptor_index(self, joint: str, space: str = "node") -> int:
         """Resolve a name for the descriptor methods — names only, no ints.
@@ -3835,27 +3795,16 @@ class Bvh:
             )
         return self.index(joint, space=space)  # type: ignore[arg-type]
 
-    def _positions_or(
-        self,
-        coords: npt.NDArray[np.float64] | None,
-    ) -> npt.NDArray[np.float64]:
-        """``coords`` if given, else the (cached) world-frame node positions."""
-        if coords is None:
-            return self.node_positions()
-        return np.asarray(coords, dtype=np.float64)
-
     def curvature(
         self,
         joint: str,
         stencil: str = "central",
         pad: str = "edge",
-        *,
-        coords: npt.NDArray[np.float64] | None = None,
     ) -> npt.NDArray[np.float64]:
         """Per-frame trajectory curvature of ``joint``. See :func:`pybvh.geometry.curvature`."""
         from . import geometry
 
-        traj = self._positions_or(coords)[:, self._descriptor_index(joint), :]
+        traj = self.node_positions()[:, self._descriptor_index(joint), :]
         return geometry.curvature(traj, stencil, pad)
 
     def torsion(
@@ -3863,13 +3812,11 @@ class Bvh:
         joint: str,
         stencil: str = "central",
         pad: str = "edge",
-        *,
-        coords: npt.NDArray[np.float64] | None = None,
     ) -> npt.NDArray[np.float64]:
         """Per-frame trajectory torsion of ``joint``. See :func:`pybvh.geometry.torsion`."""
         from . import geometry
 
-        traj = self._positions_or(coords)[:, self._descriptor_index(joint), :]
+        traj = self.node_positions()[:, self._descriptor_index(joint), :]
         return geometry.torsion(traj, stencil, pad)
 
     def movement_phase(
@@ -3877,8 +3824,6 @@ class Bvh:
         joint: str,
         stencil: str = "central",
         pad: str = "edge",
-        *,
-        coords: npt.NDArray[np.float64] | None = None,
     ) -> npt.NDArray[np.float64]:
         """Per-frame movement phase (``speed · curvature``) of ``joint``.
 
@@ -3887,47 +3832,43 @@ class Bvh:
         from . import geometry
 
         _require_rate(self.frame_time, "movement_phase()")
-        traj = self._positions_or(coords)[:, self._descriptor_index(joint), :]
+        traj = self.node_positions()[:, self._descriptor_index(joint), :]
         return geometry.movement_phase(traj, self.frame_time, stencil, pad)
 
-    def path_length(self, joint: str, *, coords: npt.NDArray[np.float64] | None = None) -> float:
+    def path_length(self, joint: str) -> float:
         """Arc length travelled by ``joint``. See :func:`pybvh.geometry.path_length`."""
         from . import geometry
 
         return float(
-            geometry.path_length(self._positions_or(coords)[:, self._descriptor_index(joint), :])
+            geometry.path_length(self.node_positions()[:, self._descriptor_index(joint), :])
         )
 
-    def directness(self, joint: str, *, coords: npt.NDArray[np.float64] | None = None) -> float:
+    def directness(self, joint: str) -> float:
         """Directness of ``joint``'s path (net displacement ÷ path length).
 
         See :func:`pybvh.geometry.directness`."""
         from . import geometry
 
         return float(
-            geometry.directness(self._positions_or(coords)[:, self._descriptor_index(joint), :])
+            geometry.directness(self.node_positions()[:, self._descriptor_index(joint), :])
         )
 
-    def ground_path(
-        self, joint: str, *, coords: npt.NDArray[np.float64] | None = None
-    ) -> geometry.GroundPath:
+    def ground_path(self, joint: str) -> geometry.GroundPath:
         """Ground-plane path of ``joint`` (uses ``world_up``). See :func:`pybvh.geometry.ground_path`."""
         from . import geometry
 
-        traj = self._positions_or(coords)[:, self._descriptor_index(joint), :]
+        traj = self.node_positions()[:, self._descriptor_index(joint), :]
         return geometry.ground_path(traj, _axis_to_vector(self.world_up))
 
     def inter_joint_distance(
         self,
         pairs: list[tuple[str, str]],
-        *,
-        coords: npt.NDArray[np.float64] | None = None,
     ) -> npt.NDArray[np.float64]:
         """Per-frame distances between node pairs. See :func:`pybvh.geometry.inter_joint_distance`."""
         from . import geometry
 
         idx_pairs = [[self._descriptor_index(a), self._descriptor_index(b)] for a, b in pairs]
-        return geometry.inter_joint_distance(self._positions_or(coords), idx_pairs)
+        return geometry.inter_joint_distance(self.node_positions(), idx_pairs)
 
     def joint_angle(
         self,
@@ -3935,13 +3876,11 @@ class Bvh:
         vertex: str,
         b: str,
         degrees: bool = False,
-        *,
-        coords: npt.NDArray[np.float64] | None = None,
     ) -> npt.NDArray[np.float64]:
         """Per-frame angle at ``vertex`` in ``a–vertex–b``. See :func:`pybvh.geometry.joint_angle`."""
         from . import geometry
 
-        pos = self._positions_or(coords)
+        pos = self.node_positions()
         return geometry.joint_angle(
             pos[:, self._descriptor_index(a)],
             pos[:, self._descriptor_index(vertex)],
@@ -3949,13 +3888,11 @@ class Bvh:
             degrees=degrees,
         )
 
-    def triangle_area(
-        self, a: str, b: str, c: str, *, coords: npt.NDArray[np.float64] | None = None
-    ) -> npt.NDArray[np.float64]:
+    def triangle_area(self, a: str, b: str, c: str) -> npt.NDArray[np.float64]:
         """Per-frame area of triangle ``(a, b, c)``. See :func:`pybvh.geometry.triangle_area`."""
         from . import geometry
 
-        pos = self._positions_or(coords)
+        pos = self.node_positions()
         return geometry.triangle_area(
             pos[:, self._descriptor_index(a)],
             pos[:, self._descriptor_index(b)],
@@ -3967,61 +3904,49 @@ class Bvh:
         joint_a: str,
         joint_b: str,
         degrees: bool = False,
-        *,
-        coords: npt.NDArray[np.float64] | None = None,
     ) -> npt.NDArray[np.float64]:
         """Per-frame angle of the bone ``joint_a→joint_b`` to ``world_up``.
 
         See :func:`pybvh.geometry.segment_axis_angle`."""
         from . import geometry
 
-        pos = self._positions_or(coords)
+        pos = self.node_positions()
         seg = pos[:, self._descriptor_index(joint_b)] - pos[:, self._descriptor_index(joint_a)]
         return geometry.segment_axis_angle(seg, _axis_to_vector(self.world_up), degrees=degrees)
 
-    def bounding_box(
-        self, *, coords: npt.NDArray[np.float64] | None = None
-    ) -> geometry.BoundingBox:
+    def bounding_box(self) -> geometry.BoundingBox:
         """Per-frame axis-aligned bounding box of all nodes. See :func:`pybvh.geometry.bounding_box`."""
         from . import geometry
 
-        return geometry.bounding_box(self._positions_or(coords))
+        return geometry.bounding_box(self.node_positions())
 
-    def bounding_sphere(
-        self, *, coords: npt.NDArray[np.float64] | None = None
-    ) -> geometry.BoundingSphere:
+    def bounding_sphere(self) -> geometry.BoundingSphere:
         """Per-frame approximate enclosing sphere of all nodes. See :func:`pybvh.geometry.bounding_sphere`."""
         from . import geometry
 
-        return geometry.bounding_sphere(self._positions_or(coords))
+        return geometry.bounding_sphere(self.node_positions())
 
-    def bounding_ellipsoid(
-        self, *, coords: npt.NDArray[np.float64] | None = None
-    ) -> geometry.BoundingEllipsoid:
+    def bounding_ellipsoid(self) -> geometry.BoundingEllipsoid:
         """Per-frame PCA-aligned bounding ellipsoid of all nodes. See :func:`pybvh.geometry.bounding_ellipsoid`."""
         from . import geometry
 
-        return geometry.bounding_ellipsoid(self._positions_or(coords))
+        return geometry.bounding_ellipsoid(self.node_positions())
 
     def center_of_mass(
         self,
         weights: npt.NDArray[np.float64] | None = None,
-        *,
-        coords: npt.NDArray[np.float64] | None = None,
     ) -> npt.NDArray[np.float64]:
         """Per-frame centre of mass of all nodes (uniform by default; pass per-node masses).
 
         See :func:`pybvh.geometry.center_of_mass`."""
         from . import geometry
 
-        return geometry.center_of_mass(self._positions_or(coords), weights=weights)
+        return geometry.center_of_mass(self.node_positions(), weights=weights)
 
     def com_displacement(
         self,
         weights: npt.NDArray[np.float64] | None = None,
         com_ref: npt.NDArray[np.float64] | None = None,
-        *,
-        coords: npt.NDArray[np.float64] | None = None,
     ) -> npt.NDArray[np.float64]:
         """Per-frame centre-of-mass travel from a reference.
 
@@ -4032,24 +3957,21 @@ class Bvh:
         different baseline. See :func:`pybvh.geometry.com_displacement`."""
         from . import geometry
 
-        com = geometry.center_of_mass(self._positions_or(coords), weights=weights)
+        com = geometry.center_of_mass(self.node_positions(), weights=weights)
         if com_ref is None:
             com_ref = com[0]
         return geometry.com_displacement(com, com_ref)
 
-    def verticality(
-        self, *, coords: npt.NDArray[np.float64] | None = None
-    ) -> npt.NDArray[np.float64]:
+    def verticality(self) -> npt.NDArray[np.float64]:
         """Per-frame height/width ratio along ``world_up``. See :func:`pybvh.geometry.verticality`."""
         from . import geometry
 
-        return geometry.verticality(self._positions_or(coords), _axis_to_vector(self.world_up))
+        return geometry.verticality(self.node_positions(), _axis_to_vector(self.world_up))
 
     def node_jerk(
         self,
         centered: str = "world",
         in_frames: bool = False,
-        coords: npt.NDArray[np.float64] | None = None,
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
@@ -4057,14 +3979,13 @@ class Bvh:
         from . import analysis
 
         return analysis.node_jerk(
-            self, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
+            self, centered=centered, in_frames=in_frames, stencil=stencil, pad=pad
         )
 
     def joint_jerk(
         self,
         centered: str = "world",
         in_frames: bool = False,
-        coords: npt.NDArray[np.float64] | None = None,
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
@@ -4072,15 +3993,13 @@ class Bvh:
         from . import analysis
 
         return analysis.joint_jerk(
-            self, centered=centered, in_frames=in_frames, coords=coords, stencil=stencil, pad=pad
+            self, centered=centered, in_frames=in_frames, stencil=stencil, pad=pad
         )
 
     def smoothness(
         self,
         joint: str,
         metric: str = "sparc",
-        *,
-        coords: npt.NDArray[np.float64] | None = None,
         **kwargs: Any,
     ) -> float:
         """Smoothness of ``joint``'s speed profile. See :func:`pybvh.analysis.smoothness`.
@@ -4105,13 +4024,13 @@ class Bvh:
         from . import analysis
 
         _require_rate(self.frame_time, "smoothness()")
-        vel = self.node_velocities(coords=coords)
+        vel = self.node_velocities()
         speed = np.linalg.norm(vel[:, self._descriptor_index(joint), :], axis=-1)
         value = analysis.smoothness(speed, 1.0 / self.frame_time, metric=metric, **kwargs)
         # One joint's (T,) speed reduces to a scalar; an array's rank is not in its type.
         return cast(float, value)
 
-    def velocity_reductions(self, joint: str, *, coords: npt.NDArray[np.float64] | None = None):
+    def velocity_reductions(self, joint: str):
         """Scalar reductions of ``joint``'s speed profile (peak, mean, …).
 
         Computes the joint's per-frame speed ``‖velocity‖`` and reduces it
@@ -4121,7 +4040,7 @@ class Bvh:
         from . import analysis
 
         _require_rate(self.frame_time, "velocity_reductions()")
-        vel = self.node_velocities(coords=coords)
+        vel = self.node_velocities()
         speed = np.linalg.norm(vel[:, self._descriptor_index(joint), :], axis=-1)
         return analysis.velocity_reductions(speed, 1.0 / self.frame_time)
 

@@ -65,10 +65,10 @@ def test_jerk_too_short_raises():
 # ----------------------------------------------------------------
 
 
-def _sculpted_coords(bvh, traj):
-    """Node-shaped ``(F, N, 3)`` coords with every node following ``traj``."""
-    F, N = bvh.frame_count, len(bvh.nodes)
-    return np.broadcast_to(traj[:, None, :], (F, N, 3)).copy()
+def _move_root_along(bvh, traj):
+    """Drive the root along ``traj``; with no rotation, every node follows it."""
+    assert not bvh.joint_angles.any()
+    bvh.root_pos = traj
 
 
 def test_speed_derivative_zero_on_uniform_circular_motion():
@@ -81,9 +81,9 @@ def test_speed_derivative_zero_on_uniform_circular_motion():
     circle = np.stack(
         [radius * np.cos(omega * t), np.zeros_like(t), radius * np.sin(omega * t)], axis=-1
     )
-    coords = _sculpted_coords(bvh, circle)
-    sd = analysis.node_speed_derivative(bvh, coords=coords, stencil="central", pad="none")
-    acc = analysis.node_accelerations(bvh, coords=coords, stencil="central", pad="none")
+    _move_root_along(bvh, circle)
+    sd = analysis.node_speed_derivative(bvh, stencil="central", pad="none")
+    acc = analysis.node_accelerations(bvh, stencil="central", pad="none")
     np.testing.assert_allclose(sd, 0.0, atol=1e-9)
     # centripetal magnitude ~ omega^2 * radius ~ 197 units/s^2
     assert np.linalg.norm(acc, axis=-1).min() > 100.0
@@ -97,8 +97,8 @@ def test_speed_derivative_matches_analytic_on_accelerating_line():
     a = 3.0
     line = np.zeros((bvh.frame_count, 3))
     line[:, 0] = 0.5 * a * t**2
-    coords = _sculpted_coords(bvh, line)
-    sd = analysis.node_speed_derivative(bvh, coords=coords, stencil="central", pad="none")
+    _move_root_along(bvh, line)
+    sd = analysis.node_speed_derivative(bvh, stencil="central", pad="none")
     np.testing.assert_allclose(sd, a, atol=1e-9)
 
 
@@ -124,13 +124,6 @@ def test_speed_derivative_too_short_raises():
     short = bvh[0:4]  # 4 frames < 5 needed for central+none (two applications)
     with pytest.raises(ValueError):
         analysis.node_speed_derivative(short, stencil="central", pad="none")
-
-
-def test_joint_speed_derivative_rejects_joint_shaped_coords():
-    bvh = make_pos_y_up_bvh()
-    joint_coords = bvh.node_positions()[:, : bvh.joint_count, :]
-    with pytest.raises(ValueError, match="node-shaped"):
-        analysis.joint_speed_derivative(bvh, coords=joint_coords)
 
 
 # ----------------------------------------------------------------

@@ -130,19 +130,6 @@ def test_movement_phase_wrapper_matches_kernel():
     )
 
 
-def test_descriptors_accept_precomputed_coords():
-    bvh = make_pos_y_up_rotating_bvh()
-    pos = bvh.node_positions()
-    np.testing.assert_allclose(bvh.curvature("Spine", coords=pos), bvh.curvature("Spine"))
-    np.testing.assert_allclose(bvh.path_length("Head", coords=pos), bvh.path_length("Head"))
-    np.testing.assert_allclose(bvh.center_of_mass(coords=pos), bvh.center_of_mass())
-    # constant-offset coords actually flow through (not silently ignored)
-    shifted = pos + np.array([100.0, 0.0, 0.0])
-    np.testing.assert_allclose(
-        bvh.center_of_mass(coords=shifted), bvh.center_of_mass() + np.array([100.0, 0.0, 0.0])
-    )
-
-
 # ----------------------------------------------------------------
 #  Bounding / center-of-mass wrappers
 # ----------------------------------------------------------------
@@ -191,11 +178,6 @@ def test_speed_derivative_wrappers_match_module():
     bvh = _bvh()
     np.testing.assert_allclose(bvh.node_speed_derivative(), analysis.node_speed_derivative(bvh))
     np.testing.assert_allclose(bvh.joint_speed_derivative(), analysis.joint_speed_derivative(bvh))
-    # coords= passthrough
-    coords = bvh.node_positions() + 3.0
-    np.testing.assert_allclose(
-        bvh.node_speed_derivative(coords=coords), analysis.node_speed_derivative(bvh, coords=coords)
-    )
 
 
 def test_smoothness_wrapper_uses_joint_speed():

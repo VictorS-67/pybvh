@@ -1023,8 +1023,7 @@ def foot_contacts(
     ground_contacts : The same detection engine for arbitrary (non-foot) node sets — hands, knees, props.
     auto_detect_feet : The detection used when ``feet`` is None.
     """
-    joint_indices = _feet_indices(bvh, feet, "foot_contacts()")
-    joint_names = [bvh.nodes[i].name for i in joint_indices]
+    node_indices = _feet_indices(bvh, feet, "foot_contacts()")
     settings = _contacts._ContactSettings(
         method=method,
         vel_threshold=vel_threshold,
@@ -1037,12 +1036,11 @@ def foot_contacts(
         adaptive=adaptive,
         height_reference=height_reference,
         default_height_reference="velocity",
-        n_joints=len(joint_names),
+        n_joints=len(node_indices),
     )
     return _contacts_on_clip(
         bvh,
-        joint_names,
-        joint_indices,
+        node_indices,
         settings,
         return_info=return_info,
         check_rest_height=True,
@@ -1163,10 +1161,7 @@ def ground_contacts(
     --------
     foot_contacts : The foot-specialized entry point (auto-detection, rest-pose sanity check, ``height_reference="velocity"`` default).
     """
-    joint_indices = bvh._indices(nodes, space="node")
-    if not joint_indices:
-        raise ValueError("ground_contacts got nodes=[]: contact detection needs at least one node.")
-    joint_names = [bvh.nodes[i].name for i in joint_indices]
+    node_indices = _selected_node_indices(bvh, nodes, "nodes", "ground_contacts()")
     settings = _contacts._ContactSettings(
         method=method,
         vel_threshold=vel_threshold,
@@ -1179,12 +1174,11 @@ def ground_contacts(
         adaptive=adaptive,
         height_reference=height_reference,
         default_height_reference="floor",
-        n_joints=len(joint_names),
+        n_joints=len(node_indices),
     )
     return _contacts_on_clip(
         bvh,
-        joint_names,
-        joint_indices,
+        node_indices,
         settings,
         return_info=return_info,
         check_rest_height=False,
@@ -1194,8 +1188,7 @@ def ground_contacts(
 
 def _contacts_on_clip(
     bvh: Bvh,
-    joint_names: list[str],
-    joint_indices: list[int],
+    node_indices: list[int],
     settings: _contacts._ContactSettings,
     *,
     return_info: bool,
@@ -1204,7 +1197,7 @@ def _contacts_on_clip(
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """The clip's part of :func:`foot_contacts` and :func:`ground_contacts`, around the detector on plain arrays.
 
-    Both entry points resolve their selection with :meth:`Bvh._indices <pybvh.bvh.Bvh._indices>` into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists, the names being the nodes' own, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet. ``caller`` names the public function in the messages (``"foot_contacts()"``).
+    Both entry points resolve their selection with :func:`_selected_node_indices` into ``node_indices``, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the positions and names of the nodes, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet. ``caller`` names the public function in the messages (``"foot_contacts()"``).
     """
     if settings.reads_velocity:
         _require_rate(bvh.frame_time, f"{caller} with method={settings.method!r}")
@@ -1220,7 +1213,7 @@ def _contacts_on_clip(
 
     # ---- Sanity check for the height signal (feet-presuming entry only) ----
     if settings.reads_height and check_rest_height:
-        rest_foot_height = rest_coords[joint_indices, up_idx].mean() * up_sign
+        rest_foot_height = rest_coords[node_indices, up_idx].mean() * up_sign
         rest_hip_height = rest_coords[0, up_idx] * up_sign
         if rest_foot_height > rest_hip_height:
             raise ValueError(
@@ -1232,10 +1225,10 @@ def _contacts_on_clip(
             )
 
     return _contacts._contacts_from_positions(
-        # The cache is read-only; the fancy index copies the joints' columns.
-        bvh._world_node_positions()[:, joint_indices, :],
-        joint_names,
-        rest_coords[joint_indices],
+        # The cache is read-only; the fancy index copies the nodes' columns.
+        bvh._world_node_positions()[:, node_indices, :],
+        [bvh.nodes[i].name for i in node_indices],
+        rest_coords[node_indices],
         rest_coords[0],
         frame_time=bvh.frame_time,
         up_idx=up_idx,
@@ -1357,9 +1350,9 @@ def auto_detect_feet(bvh: Bvh) -> list[BvhNode]:
 def _feet_indices(bvh: Bvh, feet: Sequence[NodeSelector] | None, caller: str) -> list[int]:
     """The node indices of ``feet``, or of the detected feet when ``feet`` is None.
 
-    The resolution of every ``feet=`` parameter: :meth:`Bvh._indices` in node
-    space, plus the refusals of a footless rig and of an empty selection,
-    whose messages name ``caller`` (``"skeleton_size()"``).
+    The resolution of every ``feet=`` parameter: :func:`_selected_node_indices`,
+    plus the refusal of a footless rig. The messages name ``caller``
+    (``"skeleton_size()"``).
     """
     # Tested against None: a NumPy array of names has no truth value.
     if feet is None:
@@ -1370,9 +1363,20 @@ def _feet_indices(bvh: Bvh, feet: Sequence[NodeSelector] | None, caller: str) ->
                 "returned []. Pass feet= explicitly, such as "
                 "feet=['LeftFoot', 'RightFoot']."
             )
-    indices = bvh._indices(feet, space="node")
+    return _selected_node_indices(bvh, feet, "feet", caller)
+
+
+def _selected_node_indices(
+    bvh: Bvh, nodes: Sequence[NodeSelector], parameter: str, caller: str
+) -> list[int]:
+    """The node indices of ``nodes``, a selection of one node or more.
+
+    :meth:`Bvh._indices` in node space, plus the refusal of an empty
+    selection, whose message names ``caller`` and its ``parameter``.
+    """
+    indices = bvh._indices(nodes, space="node")
     if not indices:
-        raise ValueError(f"{caller} got feet=[]: it needs at least one foot.")
+        raise ValueError(f"{caller} got {parameter}=[]: it needs at least one node.")
     return indices
 
 

@@ -628,7 +628,7 @@ def test_cadence_from_known_contacts():
 
     duration = (bvh.frame_count - 1) * bvh.frame_time
     np.testing.assert_allclose(
-        analysis.cadence(bvh, foot_joints=feet, contacts=contacts), 3 / duration
+        analysis.cadence(bvh, feet=feet, contacts=contacts), 3 / duration
     )  # 3 onsets
     # foot-measured stride_length is covered by the _compute_gait_parameters tests
 
@@ -637,9 +637,17 @@ def test_stride_length_nan_without_contacts():
     bvh = make_pos_y_up_bvh()
     feet = ["LeftFoot", "RightFoot"]  # end-site feet, passed explicitly
     no_contacts = np.zeros((bvh.frame_count, 2))
-    assert np.isnan(analysis.stride_length(bvh, foot_joints=feet, contacts=no_contacts))
+    assert np.isnan(analysis.stride_length(bvh, feet=feet, contacts=no_contacts))
     # zero onsets over a *positive* duration is a measurement: rate 0.0
-    assert analysis.cadence(bvh, foot_joints=feet, contacts=no_contacts) == 0.0
+    assert analysis.cadence(bvh, feet=feet, contacts=no_contacts) == 0.0
+
+
+def test_gait_refuses_an_empty_selection_and_a_rig_without_feet():
+    bvh = make_pos_y_up_bvh()  # its feet are end sites: detection finds none
+    with pytest.raises(ValueError, match=r"gait_parameters got feet=\[\]"):
+        analysis.gait_parameters(bvh, feet=[], contacts=np.zeros((bvh.frame_count, 0)))
+    with pytest.raises(ValueError, match=r"auto_detect_feet\(\) returned \[\]\. Pass feet="):
+        analysis.gait_parameters(bvh)
 
 
 def test_zero_duration_rates_are_nan_not_zero():
@@ -649,7 +657,7 @@ def test_zero_duration_rates_are_nan_not_zero():
     one = make_pos_y_up_bvh()[0:1]  # single frame: no duration
     assert np.isnan(analysis.walking_pace(one))
     feet = ["LeftFoot", "RightFoot"]
-    g = analysis.gait_parameters(one, foot_joints=feet, contacts=np.zeros((1, 2)))
+    g = analysis.gait_parameters(one, feet=feet, contacts=np.zeros((1, 2)))
     assert np.isnan(g.cadence)
     assert np.isnan(g.walking_pace)
 

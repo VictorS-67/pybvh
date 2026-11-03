@@ -685,6 +685,48 @@ class TestAutoDetectFeet:
         np.testing.assert_array_equal(by_name, default)
         assert default_report.joints == node_report.joints == name_report.joints
 
+    @pytest.mark.parametrize(
+        "measure",
+        [
+            pytest.param(
+                lambda clip, **kw: analysis.skeleton_size(clip, **kw), id="analysis.skeleton_size"
+            ),
+            pytest.param(lambda clip, **kw: clip.skeleton_size(**kw), id="Bvh.skeleton_size"),
+            *(
+                pytest.param(
+                    lambda clip, f=function, **kw: getattr(analysis, f)(clip, **kw),
+                    id=f"analysis.{function}",
+                )
+                for function in ("cadence", "stride_length", "gait_parameters")
+            ),
+            *(
+                pytest.param(
+                    lambda clip, f=function, **kw: getattr(clip, f)(**kw), id=f"Bvh.{function}"
+                )
+                for function in ("cadence", "stride_length", "gait_parameters")
+            ),
+            pytest.param(
+                lambda clip, **kw: features.to_feature_array(
+                    clip, include_foot_contacts=True, **kw
+                ),
+                id="features.to_feature_array",
+            ),
+            pytest.param(
+                lambda clip, **kw: clip.to_feature_array(include_foot_contacts=True, **kw),
+                id="Bvh.to_feature_array",
+            ),
+        ],
+    )
+    def test_the_feet_passed_back_measure_what_the_default_and_the_names_measure(self, measure):
+        walk = read_bvh_file(CMU_WALK_PATH)
+        default = np.asarray(measure(walk))
+        np.testing.assert_array_equal(
+            np.asarray(measure(walk, feet=walk.auto_detect_feet())), default
+        )
+        np.testing.assert_array_equal(
+            np.asarray(measure(walk, feet=["LeftToeBase", "RightToeBase"])), default
+        )
+
     def test_the_feet_of_another_clip_are_refused(self):
         walk = read_bvh_file(CMU_WALK_PATH)
         other = walk.copy()
@@ -706,6 +748,33 @@ class TestAutoDetectFeet:
         np.testing.assert_array_equal(renamed.foot_contacts(), walk.foot_contacts())
         with pytest.raises(ValueError, match=r"Pass the node you mean"):
             renamed.foot_contacts(feet=["Toe", "Toe"])
+
+    def test_an_end_site_named_after_its_foot_leaves_the_foot_detected(self):
+        # Some exporters name an end site after its joint. The end site is no
+        # candidate, so the foot above it is still the most distal one.
+        walk = read_bvh_file(CMU_WALK_PATH)
+        table = walk.to_node_table()
+        for foot in walk.auto_detect_feet():
+            (end_site,) = foot.children
+            table[walk.index(end_site, space="node")]["name"] = foot.name
+        renamed = walk.copy(nodes=table)
+        assert [renamed.index(foot, space="node") for foot in renamed.auto_detect_feet()] == [
+            walk.index(foot, space="node") for foot in walk.auto_detect_feet()
+        ]
+
+    def test_feet_that_share_a_name_are_each_measured_by_the_gait(self):
+        # The stride variability pools each foot's strides; feet that share a
+        # name are still two feet. Asymmetry, which reads "left" and "right"
+        # in the names, is the field the renaming changes.
+        walk = read_bvh_file(CMU_WALK_PATH)
+        table = walk.to_node_table()
+        for foot in walk.auto_detect_feet():
+            table[walk.index(foot, space="node")]["name"] = "Toe"
+        renamed = walk.copy(nodes=table)
+        got, want = renamed.gait_parameters(), walk.gait_parameters()
+        np.testing.assert_allclose(
+            np.array(got._replace(asymmetry=0.0)), np.array(want._replace(asymmetry=0.0))
+        )
 
 
 # ============================================================================

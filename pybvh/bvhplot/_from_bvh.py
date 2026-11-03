@@ -431,7 +431,7 @@ def get_bone_chains(bvh: Bvh) -> dict[str, list[int]]:
     ``"l_arm"`` / ``"r_arm"``, and ``"l_leg"`` / ``"r_leg"``. Sides come
     from :attr:`Bvh.node_lr_pairs` (the same left/right detection that
     powers ``mirror``); legs are told apart from arms by walking the
-    topology from the auto-detected foot joints (paired ancestors of a
+    topology from the auto-detected feet (paired ancestors of a
     foot, the foot itself, and everything below it), so no joint-name
     heuristics beyond what those two detectors already encode.
 

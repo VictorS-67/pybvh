@@ -871,7 +871,7 @@ def foot_contacts(
         the contacts' columns, such as a :class:`~pybvh.ContactReport`'s
         ``vel_threshold`` passed back.  ``None`` (default) derives it:
         ``0.12 × skeleton_scale`` u/s where ``skeleton_scale`` is the
-        mean rest-pose distance from the root to the foot joints
+        mean rest-pose distance from the root to the feet
         (equivalent to the pre-v0.8 ``0.004 × skeleton_scale`` per
         frame at 30 fps).  Scale-invariant across cm- and m-scale
         skeletons, and unaffected by finger/spine subdivision (unlike
@@ -1023,18 +1023,7 @@ def foot_contacts(
     ground_contacts : The same detection engine for arbitrary (non-foot) node sets — hands, knees, props.
     auto_detect_feet : The detection used when ``feet`` is None.
     """
-    # Tested against None: a NumPy array of names has no truth value.
-    if feet is None:
-        feet = auto_detect_feet(bvh)
-        if not feet:
-            raise ValueError(
-                "foot_contacts found no feet on this skeleton: "
-                "auto_detect_feet() returned []. Pass feet= explicitly, "
-                "such as feet=['LeftFoot', 'RightFoot']."
-            )
-    joint_indices = bvh._indices(feet, space="node")
-    if not joint_indices:
-        raise ValueError("foot_contacts got feet=[]: contact detection needs at least one node.")
+    joint_indices = _feet_indices(bvh, feet, "foot_contacts")
     joint_names = [bvh.nodes[i].name for i in joint_indices]
     settings = _contacts._ContactSettings(
         method=method,
@@ -1334,12 +1323,14 @@ def auto_detect_feet(bvh: Bvh) -> list[BvhNode]:
         )
         with_tip = matched
 
-    # Step 3: most-distal — drop candidates whose subtree contains another candidate
-    candidate_names = {n.name for n in with_tip}
+    # Step 3: most-distal — drop candidates whose subtree contains another
+    # candidate. Identity-keyed: a node that only shares a candidate's name
+    # (an end site named after its joint) is no candidate.
+    candidate_ids = {id(n) for n in with_tip}
 
     def _has_candidate_descendant(node: BvhNode) -> bool:
         for child in getattr(node, "children", None) or []:
-            if child.name in candidate_names:
+            if id(child) in candidate_ids:
                 return True
             if not child.is_end_site() and _has_candidate_descendant(child):
                 return True
@@ -1363,7 +1354,29 @@ def auto_detect_feet(bvh: Bvh) -> list[BvhNode]:
     return most_distal
 
 
-def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
+def _feet_indices(bvh: Bvh, feet: Sequence[NodeSelector] | None, caller: str) -> list[int]:
+    """The node indices of ``feet``, or of the detected feet when ``feet`` is None.
+
+    The resolution of every ``feet=`` parameter: :meth:`Bvh._indices` in node
+    space, plus the refusals of a footless rig and of an empty selection,
+    whose messages name ``caller``.
+    """
+    # Tested against None: a NumPy array of names has no truth value.
+    if feet is None:
+        feet = auto_detect_feet(bvh)
+        if not feet:
+            raise ValueError(
+                f"{caller} found no feet on this skeleton: auto_detect_feet() "
+                "returned []. Pass feet= explicitly, such as "
+                "feet=['LeftFoot', 'RightFoot']."
+            )
+    indices = bvh._indices(feet, space="node")
+    if not indices:
+        raise ValueError(f"{caller} got feet=[]: it needs at least one foot.")
+    return indices
+
+
+def skeleton_size(bvh: Bvh, feet: Sequence[NodeSelector] | None = None) -> float:
     """Absolute skeleton scale — mean rest-pose root-to-foot distance.
 
     A size proxy that scales linearly with the whole skeleton (≈ half the
@@ -1388,51 +1401,44 @@ def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
     ----------
     bvh : Bvh
         Input skeleton.
-    foot_joints : list of str, optional
-        Foot joints; auto-detected from topology if None. Explicitly
-        passed names must exist in the skeleton (``ValueError``
-        otherwise).
+    feet : sequence of str or BvhNode, or None, optional
+        The feet, each a node name or one of ``bvh.nodes`` (see
+        :data:`~pybvh.NodeSelector`), resolved in node space as
+        :meth:`Bvh.index <pybvh.bvh.Bvh.index>` resolves one node. If
+        None (default), the nodes :func:`auto_detect_feet` returns.
 
     Returns
     -------
     float
-        Mean rest-pose distance from the root to the foot joints
+        Mean rest-pose distance from the root to the feet
         (always ``> 0``).
 
     Raises
     ------
     ValueError
-        If an explicitly passed foot joint name is not in the skeleton;
-        if auto-detection finds no foot joints; or if all foot joints
-        coincide with the root in the rest pose (no measurable size).
+        If ``feet`` is None and :func:`auto_detect_feet` finds no feet;
+        if ``feet`` is empty; if an entry of ``feet`` is a name that no
+        node carries, or that several nodes share, a ``BvhNode`` that is
+        not one of ``bvh.nodes``, or the same node selected twice; or if
+        all feet coincide with the root in the rest pose (no measurable
+        size).
+    TypeError
+        If ``feet`` is a bare ``str`` or ``BvhNode`` instead of a sequence
+        of them, or an entry is neither: node ``i`` is ``bvh.nodes[i]``.
 
     Notes
     -----
     Source: gait/biomech normalization (Troje, Karg et al.).
     """
-    if foot_joints is None:
-        feet = auto_detect_feet(bvh)
-        if not feet:
-            raise ValueError(
-                "skeleton_size: no foot joints auto-detected on this "
-                "skeleton, so its size cannot be measured. Pass foot_joints= "
-                "explicitly (the deepest leg-chain joints), or catch this "
-                "error and choose your own scale."
-            )
-        foot_indices = bvh._indices(feet, space="node")
-    else:
-        unknown = [n for n in foot_joints if n not in bvh.node_index]
-        if unknown:
-            raise ValueError(f"skeleton_size: joint names {unknown} not found in skeleton.")
-        foot_indices = [bvh.node_index[name] for name in foot_joints]
+    foot_indices = _feet_indices(bvh, feet, "skeleton_size")
     rest_coords = bvh._rest_pose()
     distance = geometry._mean_distance_to_root(rest_coords[foot_indices], rest_coords[0])
     if distance is None:
         raise ValueError(
-            "skeleton_size: every foot joint coincides with the root in the "
+            "skeleton_size: every foot coincides with the root in the "
             "rest pose, so this skeleton has no measurable size. Pass "
-            "different foot_joints=, or catch this error and choose your "
-            "own scale."
+            "different feet=, or catch this error and choose your own "
+            "scale."
         )
     return distance
 
@@ -2487,7 +2493,7 @@ def _foot_contact_events(
 
 def cadence(
     bvh: Bvh,
-    foot_joints: list[str] | None = None,
+    feet: Sequence[NodeSelector] | None = None,
     *,
     contacts: npt.NDArray[np.float64] | None = None,
 ) -> float:
@@ -2500,8 +2506,12 @@ def cadence(
     ----------
     bvh : Bvh
         Input motion.
-    foot_joints : list of str, optional
-        Foot joints; auto-detected if None.
+    feet : sequence of str or BvhNode, or None, optional
+        The feet, each a node name or one of ``bvh.nodes`` (see
+        :data:`~pybvh.NodeSelector`), resolved in node space as
+        :meth:`Bvh.index <pybvh.bvh.Bvh.index>` resolves one node, also
+        when ``contacts`` is given. If None (default), the nodes
+        :func:`auto_detect_feet` returns.
     contacts : ndarray, shape (F, n_feet), optional
         Pre-computed contact labels (see :func:`gait_parameters`).
 
@@ -2514,8 +2524,15 @@ def cadence(
     Raises
     ------
     ValueError
-        If no foot joints can be found, or the clip's ``frame_time`` is
-        0 (unset), even with ``contacts`` given.
+        If ``feet`` is None and :func:`auto_detect_feet` finds no feet;
+        if ``feet`` is empty; if an entry of ``feet`` is a name that no
+        node carries, or that several nodes share, a ``BvhNode`` that is
+        not one of ``bvh.nodes``, or the same node selected twice;
+        or if the clip's ``frame_time`` is 0 (unset), even with
+        ``contacts`` given.
+    TypeError
+        If ``feet`` is a bare ``str`` or ``BvhNode`` instead of a sequence
+        of them, or an entry is neither: node ``i`` is ``bvh.nodes[i]``.
 
     Notes
     -----
@@ -2529,12 +2546,12 @@ def cadence(
     Source: Crane & Gross, Gross et al. 2012, Karg et al. 2010.
     """
     _require_rate(bvh.frame_time, "cadence()")
-    return _gait_parameters_unchecked(bvh, foot_joints, contacts).cadence
+    return _gait_parameters_unchecked(bvh, feet, contacts).cadence
 
 
 def stride_length(
     bvh: Bvh,
-    foot_joints: list[str] | None = None,
+    feet: Sequence[NodeSelector] | None = None,
     *,
     contacts: npt.NDArray[np.float64] | None = None,
 ) -> float:
@@ -2550,8 +2567,12 @@ def stride_length(
     ----------
     bvh : Bvh
         Input motion.
-    foot_joints : list of str, optional
-        Foot joints; auto-detected if None.
+    feet : sequence of str or BvhNode, or None, optional
+        The feet, each a node name or one of ``bvh.nodes`` (see
+        :data:`~pybvh.NodeSelector`), resolved in node space as
+        :meth:`Bvh.index <pybvh.bvh.Bvh.index>` resolves one node, also
+        when ``contacts`` is given. If None (default), the nodes
+        :func:`auto_detect_feet` returns.
     contacts : ndarray, shape (F, n_feet), optional
         Pre-computed contact labels (see :func:`gait_parameters`).
 
@@ -2564,16 +2585,23 @@ def stride_length(
     Raises
     ------
     ValueError
-        If no foot joints can be found, or the clip's ``frame_time`` is
+        If ``feet`` is None and :func:`auto_detect_feet` finds no feet;
+        if ``feet`` is empty; if an entry of ``feet`` is a name that no
+        node carries, or that several nodes share, a ``BvhNode`` that is
+        not one of ``bvh.nodes``, or the same node selected twice;
+        or if the clip's ``frame_time`` is
         0 (unset) and ``contacts`` is not given: detecting the contacts
         needs the rate (see :func:`foot_contacts`). With ``contacts``
         given, a stride length is a distance and needs no rate.
+    TypeError
+        If ``feet`` is a bare ``str`` or ``BvhNode`` instead of a sequence
+        of them, or an entry is neither: node ``i`` is ``bvh.nodes[i]``.
 
     Notes
     -----
     Source: Crane & Gross, Gross et al. 2012, Karg et al. 2010.
     """
-    return _gait_parameters_unchecked(bvh, foot_joints, contacts).stride_length
+    return _gait_parameters_unchecked(bvh, feet, contacts).stride_length
 
 
 def walking_pace(bvh: Bvh) -> float:
@@ -2581,7 +2609,7 @@ def walking_pace(bvh: Bvh) -> float:
 
     Same definition as the ``walking_pace`` field of
     :func:`gait_parameters`, but computed directly from the root path so
-    it needs no foot joints or contact detection.  Note it only
+    it needs no feet or contact detection.  Note it only
     *approximates* ``stride_length × cadence / 2`` (exact for straight,
     steady, symmetric gait; it diverges on curved or irregular walking
     because the root path and the foot landings measure different
@@ -2648,14 +2676,15 @@ def _compute_gait_parameters(contacts, foot_h, foot_names, frame_time, root_dist
     cadence = total_onsets / duration if duration > 0 else float("nan")
     pace = root_distance / duration if duration > 0 else float("nan")
 
-    # stride length: per foot, distance between consecutive landing positions
-    per_foot_strides: dict[str, npt.NDArray[np.float64]] = {}
+    # stride length: per foot, distance between consecutive landing positions.
+    # Keyed by column, not by name: two feet may share a name.
+    per_foot_strides: dict[int, npt.NDArray[np.float64]] = {}
     pooled = []
     for fi, (onsets, _) in enumerate(events):
         if len(onsets) >= 2:
             landings = foot_h[onsets, fi, :]
             d = np.linalg.norm(np.diff(landings, axis=0), axis=1)
-            per_foot_strides[foot_names[fi]] = d
+            per_foot_strides[fi] = d
             pooled.append(d)
     pooled = np.concatenate(pooled) if pooled else np.empty(0)
     stride = float(pooled.mean()) if pooled.size else float("nan")
@@ -2701,8 +2730,8 @@ def _compute_gait_parameters(contacts, foot_h, foot_names, frame_time, root_dist
         double_support = float("nan")
 
     # asymmetry: |L − R| mean stride / their average; needs one L and one R foot
-    lefts = [n for n in per_foot_strides if "left" in n.lower()]
-    rights = [n for n in per_foot_strides if "right" in n.lower()]
+    lefts = [fi for fi in per_foot_strides if "left" in foot_names[fi].lower()]
+    rights = [fi for fi in per_foot_strides if "right" in foot_names[fi].lower()]
     if len(lefts) == 1 and len(rights) == 1:
         mL = per_foot_strides[lefts[0]].mean()
         mR = per_foot_strides[rights[0]].mean()
@@ -2716,7 +2745,7 @@ def _compute_gait_parameters(contacts, foot_h, foot_names, frame_time, root_dist
 
 def gait_parameters(
     bvh: Bvh,
-    foot_joints: list[str] | None = None,
+    feet: Sequence[NodeSelector] | None = None,
     *,
     contacts: npt.NDArray[np.float64] | None = None,
 ) -> GaitParameters:
@@ -2766,10 +2795,14 @@ def gait_parameters(
     ----------
     bvh : Bvh
         Input motion.
-    foot_joints : list of str, optional
-        Foot joints; auto-detected if None.
+    feet : sequence of str or BvhNode, or None, optional
+        The feet, each a node name or one of ``bvh.nodes`` (see
+        :data:`~pybvh.NodeSelector`), resolved in node space as
+        :meth:`Bvh.index <pybvh.bvh.Bvh.index>` resolves one node, also
+        when ``contacts`` is given. If None (default), the nodes
+        :func:`auto_detect_feet` returns.
     contacts : ndarray, shape (F, n_feet), optional
-        Pre-computed contact labels (column order matching ``foot_joints``);
+        Pre-computed contact labels (column order matching ``feet``);
         otherwise :func:`foot_contacts` is run with ``adaptive=True`` —
         gait input is locomotion by definition, which is the documented
         precondition for ``adaptive``.  Under :func:`foot_contacts`'
@@ -2785,21 +2818,27 @@ def gait_parameters(
     Raises
     ------
     ValueError
-        If no foot joints can be found, or the clip's ``frame_time`` is
-        0 (unset), even with ``contacts`` given: cadence and walking pace
-        are per second.
+        If ``feet`` is None and :func:`auto_detect_feet` finds no feet;
+        if ``feet`` is empty; if an entry of ``feet`` is a name that no
+        node carries, or that several nodes share, a ``BvhNode`` that is
+        not one of ``bvh.nodes``, or the same node selected twice;
+        or if the clip's ``frame_time`` is 0 (unset), even with
+        ``contacts`` given: cadence and walking pace are per second.
+    TypeError
+        If ``feet`` is a bare ``str`` or ``BvhNode`` instead of a sequence
+        of them, or an entry is neither: node ``i`` is ``bvh.nodes[i]``.
 
     Notes
     -----
     Source: Crane & Gross, Gross et al. 2012, Karg et al. 2010.
     """
     _require_rate(bvh.frame_time, "gait_parameters()")
-    return _gait_parameters_unchecked(bvh, foot_joints, contacts)
+    return _gait_parameters_unchecked(bvh, feet, contacts)
 
 
 def _gait_parameters_unchecked(
     bvh: Bvh,
-    foot_joints: list[str] | None,
+    feet: Sequence[NodeSelector] | None,
     contacts: npt.NDArray[np.float64] | None,
 ) -> GaitParameters:
     """:func:`gait_parameters` without its check of the clip's rate.
@@ -2809,9 +2848,10 @@ def _gait_parameters_unchecked(
     come out ``nan`` (zero duration) and the distances are measured. Without ``contacts``,
     :func:`foot_contacts` refuses an unset clip itself.
     """
-    feet: Sequence[NodeSelector] = auto_detect_feet(bvh) if foot_joints is None else foot_joints
-    if not feet:
-        raise ValueError("gait_parameters: no foot joints found; pass foot_joints explicitly")
+    # Resolved once, before the contacts: a selection is refused whether the
+    # contacts are given or detected.
+    foot_indices = _feet_indices(bvh, feet, "gait_parameters")
+    foot_nodes = [bvh.nodes[i] for i in foot_indices]
 
     node_pos = bvh.node_positions()
     if contacts is None:
@@ -2822,12 +2862,11 @@ def _gait_parameters_unchecked(
         # calibrated on the frames that threshold calls slow.  The fixed speed
         # threshold under-detects stance on the bundled walk, which yields
         # impossible gait numbers (double_support = 0 on a plain walk).
-        contacts = foot_contacts(bvh, feet=feet, adaptive=True)
+        contacts = foot_contacts(bvh, feet=foot_nodes, adaptive=True)
     contacts = np.asarray(contacts, dtype=np.float64)
 
     up = _axis_to_vector(bvh.world_up)
-    foot_idx = [bvh.index(foot, space="node") for foot in feet]
-    foot_xyz = node_pos[:, foot_idx, :]  # (F, n_feet, 3)
+    foot_xyz = node_pos[:, foot_indices, :]  # (F, n_feet, 3)
     foot_h = foot_xyz - (foot_xyz @ up)[..., None] * up  # project to ground
 
     root = bvh.root_pos
@@ -2837,7 +2876,7 @@ def _gait_parameters_unchecked(
     return _compute_gait_parameters(
         contacts,
         foot_h,
-        [bvh.nodes[i].name for i in foot_idx],
+        [foot.name for foot in foot_nodes],
         bvh.frame_time,
         _root_horizontal_distance(bvh),
         progression,

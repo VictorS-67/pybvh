@@ -22,7 +22,7 @@ from typing import Any, Literal
 import numpy as np
 import pytest
 
-from pybvh import Bvh, analysis, nodes_from_table
+from pybvh import Bvh, analysis, features, nodes_from_table
 
 # The rig, in node order. Its names are chosen to collide:
 #   0 Hips    root
@@ -76,6 +76,34 @@ def _with_root(clip: Bvh, joints: Any) -> Any:
     bare ``str`` or ``BvhNode`` reaches ``extract_joints``.
     """
     return [clip.root, *joints] if isinstance(joints, list) else joints
+
+
+def _swinging(clip: Bvh) -> Bvh:
+    """``clip``, edited in place, so that the default contact detection finds contacts on it.
+
+    The detectors' height test refuses nodes above the root, and the rig's
+    motion is too fast for their speed test. Here the rig hangs from a still
+    root (world up ``-y``) and its spine swings between two held turns: the
+    default detection then labels contacts on the first "Arm" and none on the
+    other. The edit keeps the clip's nodes, so a selection taken before it
+    still selects them.
+    """
+    held = np.repeat([0.0, 30.0, 0.0, 30.0], _FRAMES // 4)
+    ramped = np.convolve(np.pad(held, 2, mode="edge"), np.ones(5) / 5, mode="valid")
+    angles = np.zeros_like(clip.joint_angles)
+    angles[:, _SPINE, 0] = ramped
+    clip.world_up = "-y"
+    clip.root_pos = np.tile([0.0, 1.0, 0.0], (_FRAMES, 1))
+    clip.joint_angles = angles
+    return clip
+
+
+def _landings(selection: Any) -> np.ndarray:
+    """Contacts with three landings in each column, one column per entry of ``selection``."""
+    columns = len(selection) if isinstance(selection, list) else 1
+    landed = np.zeros(_FRAMES)
+    landed[[*range(5, 10), *range(18, 23), *range(31, 36)]] = 1.0
+    return np.tile(landed[:, None], (1, columns))
 
 
 @dataclass(frozen=True)
@@ -199,6 +227,70 @@ ENTRIES = [
         True,
         lambda bvh, s: (
             analysis.foot_contacts(bvh, feet=s, method="velocity", return_info=True)[1].speed
+        ),
+    ),
+    Entry("Bvh.skeleton_size", "feet", "node", True, lambda bvh, s: bvh.skeleton_size(feet=s)),
+    Entry(
+        "analysis.skeleton_size",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: analysis.skeleton_size(bvh, feet=s),
+    ),
+    # Cadence counts the landings alone, and the feature array's feet only
+    # label contacts, so both detect them on a swinging rig. With contacts
+    # given, a stride is measured between the selected feet's positions at the
+    # landings, which differ between any two nodes.
+    Entry("Bvh.cadence", "feet", "node", True, lambda bvh, s: _swinging(bvh).cadence(feet=s)),
+    Entry(
+        "analysis.cadence",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: analysis.cadence(_swinging(bvh), feet=s),
+    ),
+    Entry(
+        "Bvh.stride_length",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: bvh.stride_length(feet=s, contacts=_landings(s)),
+    ),
+    Entry(
+        "analysis.stride_length",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: analysis.stride_length(bvh, feet=s, contacts=_landings(s)),
+    ),
+    Entry(
+        "Bvh.gait_parameters",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: bvh.gait_parameters(feet=s, contacts=_landings(s)),
+    ),
+    Entry(
+        "analysis.gait_parameters",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: analysis.gait_parameters(bvh, feet=s, contacts=_landings(s)),
+    ),
+    Entry(
+        "Bvh.to_feature_array",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: _swinging(bvh).to_feature_array(include_foot_contacts=True, feet=s),
+    ),
+    Entry(
+        "features.to_feature_array",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: features.to_feature_array(
+            _swinging(bvh), include_foot_contacts=True, feet=s
         ),
     ),
     # The angles show which joint changed order: the skeleton's positions do

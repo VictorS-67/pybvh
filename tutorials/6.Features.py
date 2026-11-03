@@ -190,7 +190,7 @@ plt.show()
 # # Foot contact detection
 
 # %% [markdown]
-# **Foot contacts** are binary labels per frame per foot joint, indicating whether that foot is on the ground. They matter in many pipelines — preventing foot sliding in generated motions, detecting gait phases, auxiliary labels for ML models.
+# **Foot contacts** are binary labels per frame per foot, indicating whether that foot is on the ground. They matter in many pipelines — preventing foot sliding in generated motions, detecting gait phases, auxiliary labels for ML models.
 #
 # Note: "on the ground" definition here excludes sliding on purpose.
 #

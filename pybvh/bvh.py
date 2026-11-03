@@ -4181,25 +4181,25 @@ class Bvh:
 
     def cadence(
         self,
-        foot_joints: list[str] | None = None,
+        feet: Sequence[NodeSelector] | None = None,
         *,
         contacts: npt.NDArray[np.float64] | None = None,
     ) -> float:
         """Step rate (onsets/second). See :func:`pybvh.analysis.cadence`."""
         from . import analysis
 
-        return analysis.cadence(self, foot_joints=foot_joints, contacts=contacts)
+        return analysis.cadence(self, feet=feet, contacts=contacts)
 
     def stride_length(
         self,
-        foot_joints: list[str] | None = None,
+        feet: Sequence[NodeSelector] | None = None,
         *,
         contacts: npt.NDArray[np.float64] | None = None,
     ) -> float:
         """Mean stride length. See :func:`pybvh.analysis.stride_length`."""
         from . import analysis
 
-        return analysis.stride_length(self, foot_joints=foot_joints, contacts=contacts)
+        return analysis.stride_length(self, feet=feet, contacts=contacts)
 
     def walking_pace(self) -> float:
         """Mean horizontal speed. See :func:`pybvh.analysis.walking_pace`."""
@@ -4209,14 +4209,14 @@ class Bvh:
 
     def gait_parameters(
         self,
-        foot_joints: list[str] | None = None,
+        feet: Sequence[NodeSelector] | None = None,
         *,
         contacts: npt.NDArray[np.float64] | None = None,
     ):
         """Spatiotemporal gait parameters. See :func:`pybvh.analysis.gait_parameters`."""
         from . import analysis
 
-        return analysis.gait_parameters(self, foot_joints=foot_joints, contacts=contacts)
+        return analysis.gait_parameters(self, feet=feet, contacts=contacts)
 
     def range_of_motion(self, joint: NodeSelector) -> npt.NDArray[np.float64]:
         """Peak-to-peak range of ``joint``'s Euler angles — ``(3,)`` per channel.

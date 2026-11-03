@@ -205,14 +205,14 @@ def test_kinetic_energy_and_walking_pace_match_module():
     np.testing.assert_allclose(bvh.walking_pace(), analysis.walking_pace(bvh))
 
 
-def test_gait_wrappers_pass_foot_joints_through():
+def test_gait_wrappers_pass_feet_through():
     bvh = _bvh()
     feet = ["LeftFoot", "RightFoot"]
-    assert bvh.cadence(foot_joints=feet) == analysis.cadence(bvh, foot_joints=feet)
-    w, m = bvh.stride_length(foot_joints=feet), analysis.stride_length(bvh, foot_joints=feet)
+    assert bvh.cadence(feet=feet) == analysis.cadence(bvh, feet=feet)
+    w, m = bvh.stride_length(feet=feet), analysis.stride_length(bvh, feet=feet)
     assert (np.isnan(w) and np.isnan(m)) or np.isclose(w, m)
-    g_method = bvh.gait_parameters(foot_joints=feet)
-    g_module = analysis.gait_parameters(bvh, foot_joints=feet)
+    g_method = bvh.gait_parameters(feet=feet)
+    g_module = analysis.gait_parameters(bvh, feet=feet)
     assert np.allclose(np.array(g_method), np.array(g_module), equal_nan=True)
 
 
@@ -220,10 +220,10 @@ def test_gait_standalone_scalars_match_bundle():
     # the unified definition: each standalone scalar equals the bundle field
     bvh = _bvh()
     feet = ["LeftFoot", "RightFoot"]
-    g = bvh.gait_parameters(foot_joints=feet)
-    np.testing.assert_allclose(bvh.cadence(foot_joints=feet), g.cadence)
+    g = bvh.gait_parameters(feet=feet)
+    np.testing.assert_allclose(bvh.cadence(feet=feet), g.cadence)
     np.testing.assert_allclose(bvh.walking_pace(), g.walking_pace)
-    s = bvh.stride_length(foot_joints=feet)
+    s = bvh.stride_length(feet=feet)
     assert (np.isnan(s) and np.isnan(g.stride_length)) or np.isclose(s, g.stride_length)
 
 
@@ -233,11 +233,9 @@ def test_gait_wrappers_accept_precomputed_contacts():
     # adaptive=True mirrors the detection gait_parameters runs internally,
     # so precomputed-vs-internal labels are identical by construction
     contacts = np.asarray(bvh.foot_contacts(feet=feet, adaptive=True))
-    np.testing.assert_allclose(
-        bvh.cadence(foot_joints=feet, contacts=contacts), bvh.cadence(foot_joints=feet)
-    )
-    s_pre = bvh.stride_length(foot_joints=feet, contacts=contacts)
-    s = bvh.stride_length(foot_joints=feet)
+    np.testing.assert_allclose(bvh.cadence(feet=feet, contacts=contacts), bvh.cadence(feet=feet))
+    s_pre = bvh.stride_length(feet=feet, contacts=contacts)
+    s = bvh.stride_length(feet=feet)
     assert (np.isnan(s_pre) and np.isnan(s)) or np.isclose(s_pre, s)
 
 
@@ -255,7 +253,7 @@ def test_gait_parameters_adaptive_default_sane_on_real_walk():
     # explicit contacts= still fully overrides the internal detection
     feet = [foot.name for foot in analysis.auto_detect_feet(walk)]
     pre = walk.foot_contacts(feet=feet, adaptive=True)
-    g_pre = walk.gait_parameters(foot_joints=feet, contacts=pre)
+    g_pre = walk.gait_parameters(feet=feet, contacts=pre)
     np.testing.assert_allclose(np.array(g_pre), np.array(g), equal_nan=True)
 
 

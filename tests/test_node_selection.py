@@ -78,6 +78,34 @@ def _with_root(clip: Bvh, joints: Any) -> Any:
     return [clip.root, *joints] if isinstance(joints, list) else joints
 
 
+def _swinging(clip: Bvh) -> Bvh:
+    """``clip``, edited in place, so that the default contact detection finds contacts on it.
+
+    The detectors' height test refuses nodes above the root, and the rig's
+    motion is too fast for their speed test. Here the rig hangs from a still
+    root (world up ``-y``) and its spine swings between two held turns: the
+    default detection then labels contacts on the first "Arm" and none on the
+    other. The edit keeps the clip's nodes, so a selection taken before it
+    still selects them.
+    """
+    held = np.repeat([0.0, 30.0, 0.0, 30.0], _FRAMES // 4)
+    ramped = np.convolve(np.pad(held, 2, mode="edge"), np.ones(5) / 5, mode="valid")
+    angles = np.zeros_like(clip.joint_angles)
+    angles[:, _SPINE, 0] = ramped
+    clip.world_up = "-y"
+    clip.root_pos = np.tile([0.0, 1.0, 0.0], (_FRAMES, 1))
+    clip.joint_angles = angles
+    return clip
+
+
+def _landings(selection: Any) -> np.ndarray:
+    """Contacts with three landings in each column, one column per entry of ``selection``."""
+    columns = len(selection) if isinstance(selection, list) else 1
+    landed = np.zeros(_FRAMES)
+    landed[[*range(5, 10), *range(18, 23), *range(31, 36)]] = 1.0
+    return np.tile(landed[:, None], (1, columns))
+
+
 @dataclass(frozen=True)
 class Entry:
     """One selecting parameter of one public entry point."""
@@ -208,6 +236,42 @@ ENTRIES = [
         "node",
         True,
         lambda bvh, s: analysis.skeleton_size(bvh, feet=s),
+    ),
+    # With contacts given, a stride is measured between the selected feet's
+    # positions at the landings, which differ between any two nodes. Cadence
+    # counts the landings alone, so it detects them on a swinging rig.
+    *(
+        Entry(
+            f"{owner}.{function}",
+            "feet",
+            "node",
+            True,
+            call,
+        )
+        for owner, function, call in (
+            ("Bvh", "cadence", lambda bvh, s: _swinging(bvh).cadence(feet=s)),
+            ("analysis", "cadence", lambda bvh, s: analysis.cadence(_swinging(bvh), feet=s)),
+            (
+                "Bvh",
+                "stride_length",
+                lambda bvh, s: bvh.stride_length(feet=s, contacts=_landings(s)),
+            ),
+            (
+                "analysis",
+                "stride_length",
+                lambda bvh, s: analysis.stride_length(bvh, feet=s, contacts=_landings(s)),
+            ),
+            (
+                "Bvh",
+                "gait_parameters",
+                lambda bvh, s: bvh.gait_parameters(feet=s, contacts=_landings(s)),
+            ),
+            (
+                "analysis",
+                "gait_parameters",
+                lambda bvh, s: analysis.gait_parameters(bvh, feet=s, contacts=_landings(s)),
+            ),
+        )
     ),
     # The angles show which joint changed order: the skeleton's positions do
     # not change with it.

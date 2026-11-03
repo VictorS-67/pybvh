@@ -692,6 +692,19 @@ class TestAutoDetectFeet:
                 lambda clip, **kw: analysis.skeleton_size(clip, **kw), id="analysis.skeleton_size"
             ),
             pytest.param(lambda clip, **kw: clip.skeleton_size(**kw), id="Bvh.skeleton_size"),
+            *(
+                pytest.param(
+                    lambda clip, f=function, **kw: getattr(analysis, f)(clip, **kw),
+                    id=f"analysis.{function}",
+                )
+                for function in ("cadence", "stride_length", "gait_parameters")
+            ),
+            *(
+                pytest.param(
+                    lambda clip, f=function, **kw: getattr(clip, f)(**kw), id=f"Bvh.{function}"
+                )
+                for function in ("cadence", "stride_length", "gait_parameters")
+            ),
         ],
     )
     def test_the_feet_passed_back_measure_what_the_default_and_the_names_measure(self, measure):

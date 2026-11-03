@@ -1,8 +1,9 @@
 """The kinematics, facing and descriptor entry points read the clip's positions.
 
-They take no positions from the caller (#127): each reads the node positions
-the clip holds as derived state, and positions the caller holds take the
-array path (``bvh.index`` then ``pybvh.geometry``).
+Each reads the node positions the clip holds as derived state (#127), which
+is read-only; the arrays it returns are its own, so that changing one changes
+no later result. That no entry point takes ``coords=`` is held by the
+signature guard in ``test_node_selection.py``.
 """
 
 import numpy as np
@@ -54,13 +55,6 @@ ENTRY_POINTS = {
     "Bvh.smoothness": lambda bvh, **kw: bvh.smoothness("LeftFoot", **kw),
     "Bvh.velocity_reductions": lambda bvh, **kw: bvh.velocity_reductions("LeftFoot", **kw),
 }
-
-
-@pytest.mark.parametrize("name", ENTRY_POINTS)
-def test_passing_coords_raises_type_error(name):
-    bvh = make_pos_y_up_rotating_bvh()
-    with pytest.raises(TypeError, match="coords"):
-        ENTRY_POINTS[name](bvh, coords=bvh.node_positions())
 
 
 def _arrays_in(result):

@@ -644,7 +644,7 @@ def test_stride_length_nan_without_contacts():
 
 def test_gait_refuses_an_empty_selection_and_a_rig_without_feet():
     bvh = make_pos_y_up_bvh()  # its feet are end sites: detection finds none
-    with pytest.raises(ValueError, match=r"gait_parameters got feet=\[\]"):
+    with pytest.raises(ValueError, match=r"gait_parameters\(\) got feet=\[\]"):
         analysis.gait_parameters(bvh, feet=[], contacts=np.zeros((bvh.frame_count, 0)))
     with pytest.raises(ValueError, match=r"auto_detect_feet\(\) returned \[\]\. Pass feet="):
         analysis.gait_parameters(bvh)

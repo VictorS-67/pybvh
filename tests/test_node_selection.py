@@ -485,6 +485,34 @@ def test_a_selection_is_refused_with_its_way_out(entry, refusal):
         entry.call(clip, selection)
 
 
+# The refusals of the row Bvh.inter_joint_distance(pairs) that the table cannot
+# reach: its call puts the selector inside a pair, and these are pairs
+# arguments that are not a sequence of pairs.
+_NOT_PAIRS: dict[str, Callable[[Bvh], Any]] = {
+    "one pair alone": lambda c: ("Hips", "Spine"),
+    "a str": lambda c: "AB",
+    "a node": lambda c: c.nodes[_SPINE],
+    "a pair of one node": lambda c: [("Hips",)],
+    "a pair of three nodes": lambda c: [("Hips", "Spine", "Head")],
+    "a str as a pair": lambda c: ["AB"],
+    "a node as a pair": lambda c: [c.nodes[_SPINE]],
+    "an integer as a pair": lambda c: [3],
+}
+
+
+@pytest.mark.parametrize("case", _NOT_PAIRS)
+def test_inter_joint_distance_refuses_pairs_that_are_not_pairs(case):
+    clip = _rig()
+    pairs = _NOT_PAIRS[case](clip)
+    with pytest.raises(TypeError, match=r"\[\('Hips', 'Spine'\)\]"):
+        clip.inter_joint_distance(pairs)
+
+
+def test_inter_joint_distance_of_a_node_to_itself_is_zero():
+    clip = _rig()
+    np.testing.assert_array_equal(clip.inter_joint_distance([("Spine", "Spine")]), 0.0)
+
+
 @pytest.mark.parametrize("entry", _rows(lambda entry: entry.space == "joint"))
 def test_a_name_a_joint_and_an_end_site_share_selects_the_joint_in_joint_space(entry):
     clip = _rig()

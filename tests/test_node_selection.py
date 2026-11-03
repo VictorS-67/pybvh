@@ -9,7 +9,8 @@ To add an entry point, add one row per selecting parameter: ``call`` takes the
 clip and the value of that parameter and calls the entry point with valid
 values for every other parameter. ``space`` is the index space the entry point
 resolves the parameter in, and ``takes_set`` says whether the parameter is a
-sequence of selectors: the tests then pass each selector inside a list.
+sequence of selectors: the tests then pass each selector inside a list, and
+add the refusals of a bare ``str`` or ``BvhNode`` and of a node selected twice.
 """
 
 from __future__ import annotations
@@ -86,6 +87,9 @@ class Entry:
 ENTRIES = [
     Entry("Bvh.index", "node", "node", False, lambda bvh, s: bvh.index(s, space="node")),
     Entry("Bvh.index", "node", "joint", False, lambda bvh, s: bvh.index(s, space="joint")),
+    # The plural form, which every entry point that takes a set calls. It has
+    # no public caller yet: the contact detectors' rows replace this one.
+    Entry("Bvh._indices", "nodes", "node", True, lambda bvh, s: bvh._indices(s, space="node")),
 ]
 
 
@@ -186,6 +190,34 @@ REFUSALS = [
         rf"bvh\.nodes\[{_ARM}\], bvh\.nodes\[{_OTHER_ARM}\]\. Pass the node",
         lambda e: True,
         lambda e, c: _selection(e, "Arm"),
+    ),
+    Refusal(
+        "bare str",
+        TypeError,
+        r"\['Spine'\]",
+        lambda e: e.takes_set,
+        lambda e, c: "Spine",
+    ),
+    Refusal(
+        "bare node",
+        TypeError,
+        r"\[bvh\.nodes\[i\]\]",
+        lambda e: e.takes_set,
+        lambda e, c: c.nodes[_SPINE],
+    ),
+    Refusal(
+        "node selected twice",
+        ValueError,
+        rf"bvh\.nodes\[{_SPINE}\] \('Spine'\) more than once\. Select each node once",
+        lambda e: e.takes_set,
+        lambda e, c: [c.nodes[_SPINE], c.nodes[_HAND], c.nodes[_SPINE]],
+    ),
+    Refusal(
+        "name and its node",
+        ValueError,
+        rf"bvh\.nodes\[{_SPINE}\] \('Spine'\) more than once\. Select each node once",
+        lambda e: e.takes_set,
+        lambda e, c: ["Spine", c.nodes[_SPINE]],
     ),
     Refusal(
         "end site by name",

@@ -2415,6 +2415,35 @@ class Bvh:
             raise ValueError(self._end_site_in_joint_space(position))
         return self._non_end_site_indices().index(position)
 
+    def _indices(self, nodes: Sequence[NodeSelector], space: Literal["joint", "node"]) -> list[int]:
+        """The plural form of :meth:`index`: the indices of a set of nodes, in its order.
+
+        Each entry resolves as :meth:`index` resolves one node. Beyond its
+        refusals, a bare ``str`` or ``BvhNode`` given as the set raises
+        ``TypeError`` (a ``str`` would otherwise be read letter by
+        letter), and a set that selects one node twice, by the same
+        selector or by a name and its node, raises ``ValueError``.
+        """
+        if isinstance(nodes, (str, BvhNode)):
+            listed = repr(nodes) if isinstance(nodes, str) else "bvh.nodes[i]"
+            raise TypeError(
+                f"A set of nodes is a sequence of names or BvhNode objects, "
+                f"not one {type(nodes).__name__}: pass [{listed}] to select "
+                f"one node."
+            )
+        indices: list[int] = []
+        for node in nodes:
+            index = self.index(node, space)
+            if index in indices:
+                position = self._node_position(node, space)
+                raise ValueError(
+                    f"The set selects bvh.nodes[{position}] "
+                    f"({self.nodes[position].name!r}) more than once. Select "
+                    f"each node once."
+                )
+            indices.append(index)
+        return indices
+
     def _node_position(self, node: NodeSelector, space: Literal["joint", "node"]) -> int:
         """The position in :attr:`nodes` of the node ``node`` selects in ``space``.
 

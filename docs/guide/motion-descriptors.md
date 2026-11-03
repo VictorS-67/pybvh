@@ -59,7 +59,7 @@ There are two layers, by design:
 
     Joints are addressed by **name only**. Integer indices raise `TypeError`, because they were ambiguous between the two index spaces. For index-based access, resolve with `bvh.index(name, space=...)`, and use the array-pure kernels.
 
-    Every descriptor method also accepts pre-computed positions via `coords=`, for hot loops. The FK cache serves the default path anyway.
+    Every descriptor method reads the node positions that the clip computes by forward kinematics and keeps. It takes no positions from the caller. For positions that you hold yourself, for example smoothed, predicted or edited ones, find the node's row with `bvh.index(name, space="node")`, then call the array-pure kernel on your array.
 
 !!! note "Name-based primitives assume one consistent skeleton"
     Descriptors addressed by joint name (`inter_joint_distance(pairs)`, foot and centre-of-mass detection) assume every clip shares the same skeleton. Reconciling differing skeletons across a dataset is a harmonization concern (`pybvh.batch.harmonize`; `pybvh.analysis.relative_scale_factor` for size), not a descriptor concern.

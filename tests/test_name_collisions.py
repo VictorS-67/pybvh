@@ -205,7 +205,8 @@ class TestOtherTopologyConsumers:
         nodes = [root, outer, inner, inner.children[0], hand, hand.children[0]]
         bvh = Bvh(nodes, np.zeros((2, 3)), np.zeros((2, 4, 3)), 1 / 30)
 
-        reduced = bvh.extract_joints(["Hips", "Arm", "Hand"])
+        # Both 'Arm' joints are kept; a name they share would select neither.
+        reduced = bvh.extract_joints(["Hips", bvh.nodes[1], bvh.nodes[2], "Hand"])
 
         assert [n.name for n in reduced.nodes] == [
             "Hips",
@@ -225,7 +226,7 @@ class TestOtherTopologyConsumers:
         angles[:, 3, 0] = 30.0  # the second Arm, column 3
         rig = Bvh(rig.nodes, rig.root_pos, angles, rig.frame_time)
 
-        reduced = rig.extract_joints(["Hips", "Arm"])
+        reduced = rig.extract_joints(["Hips", rig.nodes[1], rig.nodes[4]])
 
         assert reduced.joint_names == ["Hips", "Arm", "Arm"]
         np.testing.assert_array_equal(reduced.joint_angles[:, 1, 0], 10.0)

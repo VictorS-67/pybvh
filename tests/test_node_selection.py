@@ -69,6 +69,15 @@ def _renamed_rig() -> Bvh:
     return clip.copy(nodes=table)
 
 
+def _with_root(clip: Bvh, joints: Any) -> Any:
+    """``joints`` with the root first, which ``extract_joints`` requires.
+
+    A value that is not a list is passed on as it is, so that the refusal of a
+    bare ``str`` or ``BvhNode`` reaches ``extract_joints``.
+    """
+    return [clip.root, *joints] if isinstance(joints, list) else joints
+
+
 @dataclass(frozen=True)
 class Entry:
     """One selecting parameter of one public entry point."""
@@ -164,6 +173,13 @@ ENTRIES = [
         "joint",
         False,
         lambda bvh, s: bvh.change_euler_order("XYZ", joint=s).joint_angles,
+    ),
+    Entry(
+        "Bvh.extract_joints",
+        "joints",
+        "joint",
+        True,
+        lambda bvh, s: bvh.extract_joints(_with_root(bvh, s)).node_positions(),
     ),
     # The plural form, which every entry point that takes a set calls. It has
     # no public caller yet: the contact detectors' rows replace this one.
@@ -288,7 +304,8 @@ REFUSALS = [
         ValueError,
         rf"bvh\.nodes\[{_SPINE}\] \('Spine'\) more than once\. Select each node once",
         lambda e: e.takes_set,
-        lambda e, c: [c.nodes[_SPINE], c.nodes[_HAND], c.nodes[_SPINE]],
+        # The node between the two is a joint, which every space accepts.
+        lambda e, c: [c.nodes[_SPINE], c.nodes[_ARM], c.nodes[_SPINE]],
     ),
     Refusal(
         "name and its node",
@@ -362,3 +379,11 @@ def test_change_euler_order_changes_only_the_joint_it_is_given():
     changed = clip.change_euler_order("XYZ", joint=clip.nodes[_ARM])
     orders = ["".join(node.rot_channels) for node in changed.nodes if not node.is_end_site()]
     assert orders == ["ZYX", "ZYX", "ZYX", "XYZ", "ZYX"]
+
+
+def test_extract_joints_keeps_one_of_two_joints_that_share_a_name():
+    clip = _rig()
+    # The first "Arm": joint_index keeps the last node of a repeated name.
+    reduced = clip.extract_joints([clip.root, clip.nodes[_SPINE], clip.nodes[_ARM]])
+    assert [node.name for node in reduced.nodes] == ["Hips", "Spine", "Arm", "Hand"]
+    np.testing.assert_array_equal(reduced.joint_angles, clip.joint_angles[:, [0, 1, 3]])

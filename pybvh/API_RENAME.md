@@ -22,6 +22,7 @@ Migration: grep for the old name in the left column, replace with the right colu
 | `Bvh.index(name=, space=)` | `Bvh.index(node=, space=)` | `node` is a name or a `BvhNode` (`pybvh.NodeSelector`). A missing name, or one that several nodes of the space share, raises `ValueError` where a missing name raised `KeyError` and a shared one gave the last node; pass the node for a shared name. |
 | `Bvh.curvature(joint=)`, `torsion`, `movement_phase`, `path_length`, `directness`, `ground_path`, `smoothness`, `velocity_reductions` | `node=` | Each takes a name or a `BvhNode` (`pybvh.NodeSelector`) and accepts end sites, so the parameter is `node`. `range_of_motion(joint=)` keeps its name: it refuses end sites. |
 | `Bvh.segment_axis_angle(joint_a=, joint_b=)` | `node_a=`, `node_b=` | Same. |
+| `Bvh.extract_joints(joint_names=)` | `joints=` | Each entry is a name or a `BvhNode` (`pybvh.NodeSelector`) and must select one joint, end sites excluded, so the parameter is `joints`. Pass the node to keep one of two joints that share a name. |
 
 ---
 

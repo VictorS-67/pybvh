@@ -3381,7 +3381,7 @@ class Bvh:
     # Joint subsetting
     # ----------------------------------------------------------------
 
-    def extract_joints(self, joint_names: list[str]) -> Bvh:
+    def extract_joints(self, joints: Sequence[NodeSelector]) -> Bvh:
         """Extract a subset of joints into a new Bvh.
 
         Removed joints' offsets are collapsed into their nearest kept
@@ -3403,13 +3403,13 @@ class Bvh:
 
         Parameters
         ----------
-        joint_names : list of str
-            Names of joints to keep.  The root must be included.
-            End sites are handled automatically (kept if their parent
-            is kept, otherwise removed). Selection is by name, so two
-            joints sharing a name are kept or dropped together; their
-            parents and ``joint_angles`` columns are still resolved by
-            position, never by name.
+        joints : sequence of str or BvhNode
+            The joints to keep, each by its name or as the node itself
+            (see :meth:`index`, ``space='joint'``); the order does not
+            matter. The root must be included. End sites are handled
+            automatically (kept if their parent is kept, otherwise
+            removed) and cannot be selected. Of two joints that share a
+            name, pass the node to keep one alone.
 
         Returns
         -------
@@ -3419,18 +3419,28 @@ class Bvh:
 
         Raises
         ------
+        TypeError
+            If ``joints`` is a single ``str`` or ``BvhNode`` rather than a
+            sequence of them, or if an entry is neither (an integer
+            included).
         ValueError
-            If the root joint is not in ``joint_names``.
+            If the root is not among ``joints``, if :meth:`index` refuses
+            an entry in joint space, or if two entries select the same
+            joint.
         """
-        keep_set = set(joint_names)
+        position_of_column = self._non_end_site_indices()
+        kept = {
+            id(self.nodes[position_of_column[column]])
+            for column in self._indices(joints, space="joint")
+        }
 
-        if self.root.name not in keep_set:
-            raise ValueError(f"Root joint '{self.root.name}' must be in joint_names.")
+        if id(self.root) not in kept:
+            raise ValueError(f"Root joint '{self.root.name}' must be in joints.")
 
         def survives_extraction(node: BvhNode) -> bool:
             if node.is_end_site():
-                return node.parent is not None and node.parent.name in keep_set
-            return node.name in keep_set
+                return node.parent is not None and id(node.parent) in kept
+            return id(node) in kept
 
         # A kept joint ends childless in the new tree when nothing below
         # it survives: its end site then goes right after it, which is
@@ -3478,7 +3488,7 @@ class Bvh:
                 # summed up to the nearest kept one (the root at the latest).
                 acc_offset = node.offset.copy()
                 walker = node.parent
-                while walker is not None and walker.name not in keep_set:
+                while walker is not None and id(walker) not in kept:
                     acc_offset = walker.offset + acc_offset
                     walker = walker.parent
                 row["parent"] = row_of[id(walker)]
@@ -3506,13 +3516,15 @@ class Bvh:
         )
         # A user-set L/R mapping keeps the pairs whose joints are both kept;
         # with none left, the pairs are detected from the kept names, as
-        # they are when the user set none.
+        # they are when the user set none. The mapping goes by name, so a
+        # name is kept when one of its joints is.
         user_mapping = self._lr_mapping_setting
         if isinstance(user_mapping, dict):
+            kept_names = {node.name for node in self.nodes if id(node) in kept}
             kept_pairs = {
                 left: right
                 for left, right in user_mapping.items()
-                if left in keep_set and right in keep_set
+                if left in kept_names and right in kept_names
             }
             new_bvh._set_lr_mapping_setting(kept_pairs or "names")
         return new_bvh

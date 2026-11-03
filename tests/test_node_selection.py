@@ -2,7 +2,8 @@
 
 A name must match exactly one node of the index space the entry point works
 in, and a node is resolved by identity among the clip's ``nodes``. One table,
-``ENTRIES``, lists every selecting parameter of the public surface; each test
+``ENTRIES``, lists every selecting parameter of ``Bvh``, ``analysis`` and
+``features``, the modules whose functions select nodes of a clip; each test
 below runs over the rows it applies to.
 
 To add an entry point, add one row per selecting parameter: ``call`` takes the

@@ -226,14 +226,11 @@ def to_feature_array(
         vel_shape = vel.shape[0]
 
     # Foot contacts — call directly (same module); always (F, num_feet).
-    # foot_contacts wants world-frame coords or a constant translation
-    # thereof ("world"/"first"); per-frame "skeleton" centering would
-    # distort the foot-speed signal, so in that mode let it compute its
-    # own world FK (served by the Bvh cache).
+    # foot_contacts reads the clip's world-frame FK (the Bvh cache) whatever
+    # ``centered`` is: per-frame "skeleton" centering would distort the
+    # foot-speed signal.
     if include_foot_contacts:
-        contacts = _foot_contacts(
-            bvh, foot_joints=foot_joints, coords=coords if centered != "skeleton" else None
-        )
+        contacts = _foot_contacts(bvh, foot_joints=foot_joints)
         parts.append(contacts)
 
     # Align frames: trim F-shaped blocks (root_pos, rot, contacts) to match

@@ -428,62 +428,103 @@ def make_disagreement_bvh() -> Bvh:
 
 
 # ---------------------------------------------------------------------------
-#  Contact rig: rest geometry chosen, motion driven through ``coords=``
+#  Contact rig: a clip whose feet stand still, and the kernel on given signals
 # ---------------------------------------------------------------------------
 
 CONTACT_FEET = ("LeftFoot", "RightFoot")
+CONTACT_FOOT_OFFSETS = ((-6.0, -8.0, 0.0), (6.0, -8.0, 0.0))
+CONTACT_ROOT_HEIGHT = 8.0
 
 
-def make_contact_rig(
-    n_frames: int,
-    frame_time: float = FRAME_TIME,
-    foot_offsets: tuple[tuple[float, float, float], ...] = ((-6.0, -8.0, 0.0), (6.0, -8.0, 0.0)),
-) -> Bvh:
-    """+Y up rig of a root and two foot joints, built from a node table.
+def make_contact_rig(n_frames: int) -> Bvh:
+    """+Y up clip of a root and two foot joints that stand still on y = 0.
 
     The joints are ``LeftFoot`` and ``RightFoot``, children of the root at
-    ``foot_offsets``, each with an end site one unit below it. Their rest
-    distance from the root is the norm of their offset, 10 for both by
-    default, so the skeleton scale the contact detectors set their default
-    thresholds from is the mean of those norms. The motion is zero; drive
-    the feet with :func:`contact_coords`.
+    ``CONTACT_FOOT_OFFSETS``, each with an end site one unit below it. Their
+    rest distance from the root is 10 for both, so the skeleton scale the
+    contact detectors set their default thresholds from is 10. The root
+    stays at ``CONTACT_ROOT_HEIGHT`` with no rotation, which puts both foot
+    joints on y = 0 on every frame. For feet that follow given signals, see
+    :func:`kernel_contacts`.
     """
     from pybvh import nodes_from_table
 
     table: list[dict] = [{"name": "Hips", "offset": [0.0, 0.0, 0.0], "rot_channels": "ZYX"}]
-    for name, offset in zip(CONTACT_FEET, foot_offsets, strict=True):
+    for name, offset in zip(CONTACT_FEET, CONTACT_FOOT_OFFSETS, strict=True):
         table.append({"name": name, "parent": 0, "offset": list(offset), "rot_channels": "ZYX"})
         table.append({"parent": len(table) - 1, "offset": [0.0, -1.0, 0.0]})
     nodes = nodes_from_table(table)
     n_joints = sum(1 for n in nodes if not n.is_end_site())
+    root_pos = np.zeros((n_frames, 3))
+    root_pos[:, 1] = CONTACT_ROOT_HEIGHT
     bvh = Bvh(
         nodes=nodes,
-        root_pos=np.zeros((n_frames, 3)),
+        root_pos=root_pos,
         joint_angles=np.zeros((n_frames, n_joints, 3)),
-        frame_time=frame_time,
+        frame_time=FRAME_TIME,
     )
     bvh.world_up = "+y"
     return bvh
 
 
-def contact_coords(
-    bvh: Bvh,
+def kernel_contacts(
     height: np.ndarray,
     x: np.ndarray | None = None,
-) -> np.ndarray:
-    """``coords=`` for :func:`make_contact_rig`: the feet follow given signals.
+    *,
+    frame_time: float = FRAME_TIME,
+    foot_offsets: tuple[tuple[float, float, float], ...] = CONTACT_FOOT_OFFSETS,
+    default_height_reference: str = "velocity",
+    return_info: bool = False,
+    **settings,
+):
+    """The contact detector's kernel on +Y up feet that follow given signals.
 
     ``height`` (the +y coordinate) and ``x`` are ``(F,)`` for ``LeftFoot``
     alone or ``(F, k)`` for the first ``k`` feet of ``CONTACT_FEET``; ``x``
-    defaults to 0 (a foot that does not travel). Every other node sits at
-    the origin, which no detector reads when given the feet.
+    defaults to 0 (a foot that does not travel). The feet rest at
+    ``foot_offsets`` from a root at the origin, as on
+    :func:`make_contact_rig`, so the skeleton scale is the mean of their
+    norms, 10 by default. ``settings`` are the detectors' keywords, with
+    their defaults; ``default_height_reference`` is ``"velocity"`` as in
+    ``foot_contacts``, ``"floor"`` as in ``ground_contacts``. The checks the
+    detectors make on the clip (its rate, the rest height of the feet) do
+    not run here.
     """
-    height = np.asarray(height, dtype=np.float64).reshape(bvh.frame_count, -1)
+    from pybvh import _contacts
+
+    height = np.asarray(height, dtype=np.float64)
+    height = height.reshape(height.shape[0], -1)
     x = np.zeros_like(height) if x is None else np.asarray(x, dtype=np.float64)
     x = x.reshape(height.shape)
-    coords = np.zeros((bvh.frame_count, len(bvh.nodes), 3))
-    for k in range(height.shape[1]):
-        i = bvh.node_index[CONTACT_FEET[k]]
-        coords[:, i, 0] = x[:, k]
-        coords[:, i, 1] = height[:, k]
-    return coords
+    k = height.shape[1]
+    positions = np.zeros((height.shape[0], k, 3))
+    positions[:, :, 0] = x
+    positions[:, :, 1] = height
+    defaults = {
+        "method": "combined",
+        "vel_threshold": None,
+        "vel_smooth_duration": None,
+        "height_threshold": None,
+        "floor": None,
+        "min_contact_duration": 0.1,
+        "min_gap_duration": 0.1,
+        "hysteresis": 0.25,
+        "adaptive": False,
+        "height_reference": None,
+    }
+    contact_settings = _contacts._ContactSettings(
+        **{**defaults, **settings},
+        default_height_reference=default_height_reference,
+        n_joints=k,
+    )
+    return _contacts._contacts_from_positions(
+        positions,
+        list(CONTACT_FEET[:k]),
+        np.asarray(foot_offsets[:k], dtype=np.float64),
+        np.zeros(3),
+        frame_time=frame_time,
+        up_idx=1,
+        up_sign=1.0,
+        settings=contact_settings,
+        return_info=return_info,
+    )

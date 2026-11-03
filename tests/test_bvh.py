@@ -5769,12 +5769,6 @@ class TestFootContacts:
         with pytest.raises(ValueError, match="not found"):
             bvh_example.foot_contacts(foot_joints=["NonExistentJoint"])
 
-    def test_precomputed_coords(self, bvh_example):
-        coords = bvh_example.node_positions()
-        c1 = bvh_example.foot_contacts()
-        c2 = bvh_example.foot_contacts(coords=coords)
-        np.testing.assert_allclose(c1, c2)
-
     def test_on_test2(self, bvh_test2):
         """bvh_test2 may have different joint names — test auto-detection."""
         contacts = bvh_test2.foot_contacts()
@@ -5817,8 +5811,13 @@ class TestToFeatureArray:
         assert feat.shape[0] == bvh_example.frame_count - 1
         np.testing.assert_allclose(feat[:, :3], bvh_example.root_pos[:-1], atol=1e-12)
 
-    def test_with_foot_contacts(self, bvh_example):
-        feat = bvh_example.to_feature_array(representation="euler", include_foot_contacts=True)
+    @pytest.mark.parametrize("centered", ["world", "first", "skeleton"])
+    def test_with_foot_contacts(self, bvh_example, centered):
+        # The contacts are detected on the clip's world-frame positions in
+        # every centering: the same as foot_contacts().
+        feat = bvh_example.to_feature_array(
+            representation="euler", include_foot_contacts=True, centered=centered
+        )
         assert feat.shape[0] == bvh_example.frame_count
         # Last columns should be foot contacts
         contacts = bvh_example.foot_contacts()

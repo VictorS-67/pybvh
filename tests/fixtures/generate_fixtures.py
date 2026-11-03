@@ -325,8 +325,17 @@ def _run_adaptive(bvh):
     return bvh.foot_contacts, {"adaptive": True}
 
 
-def _run_coords_centered_first(bvh):
-    return bvh.foot_contacts, {"coords": bvh.node_positions(centered="first")}
+def _run_clip_centered_first(bvh):
+    # The clip moved as node_positions(centered="first") moves its positions:
+    # its first frame's root to the origin in the ground plane. The pin was
+    # taken by passing those positions as coords=, which the detectors no
+    # longer take; the clip moved the same way gives the same labels.
+    up = bvh.world_up_axis.index
+    ground = [axis for axis in range(3) if axis != up]
+    root_pos = bvh.root_pos.copy()
+    root_pos[:, ground] -= root_pos[0, ground]
+    bvh.root_pos = root_pos
+    return bvh.foot_contacts, {}
 
 
 def _run_no_morphology(bvh):
@@ -390,7 +399,7 @@ FOOT_CONTACT_RUNS = [
     ("method_height_floor0", _run_method_height_floor0),
     ("height_reference_floor", _run_height_reference_floor),
     ("adaptive", _run_adaptive),
-    ("coords_centered_first", _run_coords_centered_first),
+    ("clip_centered_first", _run_clip_centered_first),
     ("no_morphology", _run_no_morphology),
     ("explicit_thresholds", _run_explicit_thresholds),
     ("ground_contacts_by_name", _run_ground_contacts_by_name),

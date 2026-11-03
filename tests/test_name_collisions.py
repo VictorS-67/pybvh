@@ -218,6 +218,19 @@ class TestOtherTopologyConsumers:
         ]
         assert reduced.node_edges == [(1, 0), (2, 1), (3, 2), (4, 1), (5, 4)]
 
+    def test_a_changed_euler_order_names_the_conversion_that_reaches_the_joint(
+        self, duplicate_joint_rig
+    ):
+        """The refusal of copy(nodes=) names the node, not the name both joints share."""
+        rig = duplicate_joint_rig
+        table = rig.to_node_table()
+        table[4]["rot_channels"] = "XYZ"
+        with pytest.raises(ValueError, match=r"change_euler_order\('XYZ', joint=bvh\.nodes\[4\]\)"):
+            rig.copy(nodes=table)
+        converted = rig.change_euler_order("XYZ", joint=rig.nodes[4])
+        orders = [node.rot_channels for node in converted.nodes if not node.is_end_site()]
+        assert orders == [tuple("ZYX")] * 3 + [tuple("XYZ")]
+
     def test_extract_joints_selects_columns_by_position(self, duplicate_joint_rig):
         """Two kept joints named 'Arm' each keep their own joint_angles column."""
         rig = duplicate_joint_rig

@@ -980,12 +980,15 @@ class Bvh:
                 old_order = "".join(joint.rot_channels)
                 new_order = "".join(new_joint.rot_channels)
                 if new_order != old_order:
+                    # The node, not its name: names repeat, and
+                    # change_euler_order refuses a name two joints share.
+                    position = self.index(joint, space="node")
                     raise ValueError(
                         f"nodes changes the Euler order of joint {joint.name!r} "
                         f"from {old_order!r} to {new_order!r}, but the clip's "
                         f"angles are in {old_order!r}. To change an order, "
                         f"convert the angles with it: "
-                        f"bvh.change_euler_order({new_order!r}, joint={joint.name!r})."
+                        f"bvh.change_euler_order({new_order!r}, joint=bvh.nodes[{position}])."
                     )
         setting = self._lr_mapping_setting
         if isinstance(setting, dict):

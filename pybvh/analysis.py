@@ -865,9 +865,9 @@ def foot_contacts(
         below ``vel_threshold`` **and** height above floor is below
         ``height_threshold``.  ``"velocity"`` / ``"height"``: single
         signal.
-    vel_threshold : float, array_like of shape (n_joints,), or None, keyword-only, optional
+    vel_threshold : float, array_like of shape (n_feet,), or None, keyword-only, optional
         Speed threshold in world units **per second**, finite and above
-        zero: one value for every joint, or one per joint in the order of
+        zero: one value for every foot, or one per foot in the order of
         the contacts' columns, such as a :class:`~pybvh.ContactReport`'s
         ``vel_threshold`` passed back.  ``None`` (default) derives it:
         ``0.12 × skeleton_scale`` u/s where ``skeleton_scale`` is the
@@ -896,9 +896,9 @@ def foot_contacts(
         same timescale the duration filters already treat as noise.
         Applies to the velocity signal only; the height signal is
         position-level and is never smoothed.
-    height_threshold : float, array_like of shape (n_joints,), or None, keyword-only, optional
+    height_threshold : float, array_like of shape (n_feet,), or None, keyword-only, optional
         Clearance above the estimated floor, in world units, finite and
-        above zero: one value for every joint, or one per joint, as
+        above zero: one value for every foot, or one per foot, as
         ``vel_threshold``.  ``None`` (default) derives it: the
         ``0.013 × skeleton_scale`` margin, anchored as
         ``height_reference`` says under ``method="combined"``, or split
@@ -919,9 +919,9 @@ def foot_contacts(
         This reference is **not** :attr:`Bvh.floor_height`, and passing
         that in is usually wrong here. The scene ground is measured over
         *all* nodes, so on a rig with toe end sites it sits a toe-length
-        below the foot *joints* whose centres this function compares
+        below feet that are *joints*, whose centres this function compares
         against — feeding it in makes every foot read as permanently
-        airborne. The reference belongs to the joints being tested; the
+        airborne. The reference belongs to the nodes being tested; the
         scene ground belongs to the clip.
     min_contact_duration : float, keyword-only, optional
         Morphological open: contact runs shorter than this many
@@ -934,7 +934,7 @@ def foot_contacts(
         Morphological close: non-contact gaps shorter than this many
         **seconds** are filled (set to 1).  Default ``0.1`` s —
         bridges short interruptions in an otherwise continuous contact
-        phase, catching pivot-foot artefacts where the joint briefly
+        phase, catching pivot-foot artefacts where the tested node briefly
         exceeds the velocity threshold even though the physical foot
         is planted.  Set to ``0.0`` to disable.
     hysteresis : float, keyword-only, optional
@@ -972,18 +972,18 @@ def foot_contacts(
         How the default ``height_threshold`` is anchored (only used with ``method="combined"`` when ``height_threshold`` is None).
         ``"velocity"`` (what ``None``, the default, means): per-foot stance-median calibration — each foot's threshold is set from the median of its clearance over the frames where that foot is slow (speed below ``vel_threshold``, default ``0.12 × skeleton_scale`` u/s), so retargeted mocap whose feet hover above the estimated floor still detects stance; on rigs whose feet reach the floor this reduces to the ``"floor"`` margin.
         ``"floor"``: the fixed ``0.013 × skeleton_scale`` margin above the estimated floor — no per-foot calibration.
-        The stance calibration presumes the joints contact the ground regularly; for arbitrary (non-foot) node sets, :func:`ground_contacts` defaults to ``"floor"`` for exactly that reason.
+        The stance calibration presumes the nodes it tests contact the ground regularly; for arbitrary (non-foot) node sets, :func:`ground_contacts` defaults to ``"floor"`` for exactly that reason.
     return_info : bool, keyword-only, optional
         If True, return ``(contacts, report)``, where ``report`` is a
-        :class:`~pybvh.ContactReport`: the joints, the method and the
-        settings applied, each joint's thresholds, the skeleton scale, the
+        :class:`~pybvh.ContactReport`: the feet (``joints``), the method and
+        the settings applied, each foot's thresholds, the skeleton scale, the
         contact reference (``contact_reference``), the ``speed`` and ``clearance``
-        signals the thresholds were compared against, each joint's
+        signals the thresholds were compared against, each foot's
         ``confidence`` and the unsupervised quality diagnostics
         (``foot_skate_mean`` / ``foot_skate_max``, ``airborne_fraction``,
         ``height_at_contact``). Every field is present, ``None`` where the
-        method does not use it; a per-joint value is ``(n_joints,)``, one
-        joint or several.
+        method does not use it; a per-foot value is ``(n_feet,)``, one
+        foot or several.
 
     Returns
     -------
@@ -1117,12 +1117,12 @@ def ground_contacts(
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """Detect ground-contact labels for an arbitrary set of nodes.
 
-    The same detection engine as :func:`foot_contacts` — velocity and/or clearance-above-floor thresholding with hysteresis and duration filters — but for any node set: hands during floor work, knees in a crawl, a prop bone, a fingertip end site. Because the nodes are not assumed to be feet, two foot-specific behaviors are dropped: there is no rest-pose "feet below hips" sanity check, and ``height_reference`` defaults to ``"floor"`` instead of :func:`foot_contacts`' ``"velocity"`` — the per-joint stance calibration behind ``"velocity"`` presumes regular ground contact, which feet in locomotion have and a hand that touches the floor twice does not.
+    The same detection engine as :func:`foot_contacts` — velocity and/or clearance-above-floor thresholding with hysteresis and duration filters — but for any node set: hands during floor work, knees in a crawl, a prop bone, a fingertip end site. Because the nodes are not assumed to be feet, two foot-specific behaviors are dropped: there is no rest-pose "feet below hips" sanity check, and ``height_reference`` defaults to ``"floor"`` instead of :func:`foot_contacts`' ``"velocity"`` — the per-node stance calibration behind ``"velocity"`` presumes regular ground contact, which feet in locomotion have and a hand that touches the floor twice does not.
 
     The positions tested are the clip's cached world-frame forward kinematics, as in :func:`foot_contacts`.
 
     .. warning::
-        With the default ``floor="auto"`` the floor is estimated **from the given joints' own trajectories** (2nd percentile of their per-frame minimum height). A joint set that never actually grounds makes its lowest hover point the "floor" and fabricates contacts there. Unless the joints genuinely reach the ground for a meaningful fraction of the clip, pass an explicit float. :attr:`Bvh.floor_height` is the scene ground and reads low for this purpose — it is measured over all nodes, including end sites that reach below any joint centre — so a joint compared against it needs a ``height_threshold`` widened by that offset.
+        With the default ``floor="auto"`` the floor is estimated **from the given nodes' own trajectories** (2nd percentile of their per-frame minimum height). A node set that never actually grounds makes its lowest hover point the "floor" and fabricates contacts there. Unless the nodes genuinely reach the ground for a meaningful fraction of the clip, pass an explicit float. :attr:`Bvh.floor_height` is the scene ground and reads low for this purpose — it is measured over all nodes, including end sites that reach below any joint centre — so a joint compared against it needs a ``height_threshold`` widened by that offset.
 
     Parameters
     ----------
@@ -1133,9 +1133,9 @@ def ground_contacts(
     method : {"combined", "velocity", "height"}, optional
         Same meaning as in :func:`foot_contacts`.
     vel_threshold, vel_smooth_duration, height_threshold, floor, min_contact_duration, min_gap_duration, hysteresis, adaptive : keyword-only, optional
-        Same meaning and defaults as in :func:`foot_contacts`, read by the same methods (a setting given that the method does not read raises). The auto thresholds scale by the mean rest-pose distance from the root to the **given** joints (the same skeleton-scale rule, applied to this joint set) — so the defaults stay proportionate for short chains like hands. Mind the ``floor="auto"`` warning above.
+        Same meaning and defaults as in :func:`foot_contacts`, read by the same methods (a setting given that the method does not read raises). A threshold given per node has one value per entry of ``nodes``. The auto thresholds scale by the mean rest-pose distance from the root to the **given** nodes (the same skeleton-scale rule, applied to this node set) — so the defaults stay proportionate for short chains like hands. Mind the ``floor="auto"`` warning above.
     height_reference : {"floor", "velocity"} or None, keyword-only, optional
-        ``None`` (default) means ``"floor"``: the fixed ``0.013 × skeleton_scale`` margin above the floor. ``"velocity"`` enables :func:`foot_contacts`' per-joint stance calibration; only use it when the nodes ground regularly enough to have stance statistics.
+        ``None`` (default) means ``"floor"``: the fixed ``0.013 × skeleton_scale`` margin above the floor. ``"velocity"`` enables :func:`foot_contacts`' per-node stance calibration; only use it when the nodes ground regularly enough to have stance statistics.
     return_info : bool, keyword-only, optional
         As in :func:`foot_contacts`; the report's ``joints`` holds the nodes' own names, in the order of ``nodes``.
 
@@ -1197,7 +1197,7 @@ def _contacts_on_clip(
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """The clip's part of :func:`foot_contacts` and :func:`ground_contacts`, around the detector on plain arrays.
 
-    Both entry points resolve their selection with :func:`_selected_node_indices` into ``node_indices``, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the positions and names of the nodes, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet. ``caller`` names the public function in the messages (``"foot_contacts()"``).
+    Both entry points resolve their selection with :func:`_selected_node_indices` into ``node_indices``, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the positions and names of the nodes, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "feet below hips" sanity check, which presumes the nodes are feet. ``caller`` names the public function in the messages (``"foot_contacts()"``).
     """
     if settings.reads_velocity:
         _require_rate(bvh.frame_time, f"{caller} with method={settings.method!r}")

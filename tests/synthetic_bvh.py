@@ -177,9 +177,9 @@ def make_pos_y_up_bvh() -> Bvh:
 def make_clip_bvh(n_frames: int, frame_time: float) -> Bvh:
     """+Y up skeleton with ``n_frames`` zero-rotation frames at ``frame_time``.
 
-    For tests that sculpt trajectories via the ``coords=`` escape hatch at
-    controlled frame rates (the fixed-length fixtures below are all
-    ``N_FRAMES`` frames at 30 fps).
+    For tests that sculpt trajectories through ``root_pos`` at controlled
+    frame rates (the fixed-length fixtures below are all ``N_FRAMES``
+    frames at 30 fps).
     """
     up_idx, up_sign, lat_idx, fwd_idx = 1, 1, 0, 2
     nodes = _build_skeleton(up_idx, up_sign, lat_idx, fwd_idx)
@@ -439,14 +439,14 @@ CONTACT_ROOT_HEIGHT = 8.0
 
 
 def make_contact_rig(n_frames: int) -> Bvh:
-    """+Y up clip of a root and two foot joints that stand still on y = 0.
+    """+Y up clip of a root and two feet that stand still on y = 0.
 
-    The joints are ``LeftFoot`` and ``RightFoot``, children of the root at
-    ``CONTACT_FOOT_OFFSETS``, each with an end site one unit below it. Their
-    rest distance from the root is 10 for both, so the skeleton scale the
-    contact detectors set their default thresholds from is 10. The root
-    stays at ``CONTACT_ROOT_HEIGHT`` with no rotation, which puts both foot
-    joints on y = 0 on every frame. For feet that follow given signals, see
+    The feet are the joints ``LeftFoot`` and ``RightFoot``, children of the
+    root at ``CONTACT_FOOT_OFFSETS``, each with an end site one unit below
+    it. Their rest distance from the root is 10 for both, so the skeleton
+    scale the contact detectors set their default thresholds from is 10. The root
+    stays at ``CONTACT_ROOT_HEIGHT`` with no rotation, which puts both feet
+    on y = 0 on every frame. For feet that follow given signals, see
     :func:`kernel_contacts`.
     """
     from pybvh import nodes_from_table

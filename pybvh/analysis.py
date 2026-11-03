@@ -149,7 +149,7 @@ def node_velocities(
     if not in_frames:
         _require_rate(bvh.frame_time, "node_velocities()", offers_in_frames=True)
 
-    positions = bvh.node_positions(centered=centered)
+    positions = bvh._all_node_positions(centered)
     dt = 1.0 if in_frames else bvh.frame_time
     return _finite_difference(positions, dt, stencil=stencil, pad=pad)
 
@@ -251,7 +251,7 @@ def node_accelerations(
     if not in_frames:
         _require_rate(bvh.frame_time, "node_accelerations()", offers_in_frames=True)
 
-    positions = bvh.node_positions(centered=centered)
+    positions = bvh._all_node_positions(centered)
     dt = 1.0 if in_frames else bvh.frame_time
     return _finite_difference(positions, dt, order=2, stencil=stencil, pad=pad)
 
@@ -760,7 +760,7 @@ def facing_frame(bvh: Bvh) -> FacingFrame:
     root_trajectory : Root-bone-orientation heading (a different facing
         estimate — see Notes above; not a travel direction).
     """
-    forward, left, up, valid = bvh._facing_at(bvh.node_positions(), slice(None))
+    forward, left, up, valid = bvh._facing_at(bvh._all_node_positions(), slice(None))
     return FacingFrame(forward, left, up, valid)
 
 
@@ -1632,7 +1632,7 @@ def node_jerk(
     if not in_frames:
         _require_rate(bvh.frame_time, "node_jerk()", offers_in_frames=True)
 
-    positions = bvh.node_positions(centered=centered)
+    positions = bvh._all_node_positions(centered)
     dt = 1.0 if in_frames else bvh.frame_time
     return _finite_difference(positions, dt, order=3, stencil=stencil, pad=pad)
 

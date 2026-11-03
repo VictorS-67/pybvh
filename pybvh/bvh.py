@@ -208,6 +208,16 @@ def _build_rest_pose(bvh: Bvh) -> npt.NDArray[np.float64]:
     )
 
 
+def _check_centered(centered: str) -> None:
+    """Raise ``ValueError`` unless *centered* is a centering mode."""
+    centered_options = ["skeleton", "first", "world"]
+    if centered not in centered_options:
+        raise ValueError(
+            f"The value {centered} is not recognized for the centered "
+            f"argument. Currently recognized keywords are {centered_options}"
+        )
+
+
 def _describe_rate(frame_time: float) -> str:
     """A clip's rate for a message: its fps and its exact frame time, or unset."""
     if frame_time == 0:
@@ -2018,6 +2028,23 @@ class Bvh:
             self._derived.node_positions = positions
         return positions
 
+    def _all_node_positions(self, centered: str = "world") -> npt.NDArray[np.float64]:
+        """Every frame's node positions under *centered*, with no copy of the clip's.
+
+        Under ``"world"`` the result is the clip's read-only derived array
+        itself, so a caller hands the user only arrays computed from it,
+        never the result or a view of it; :meth:`node_positions` hands out a
+        copy.
+        """
+        _check_centered(centered)
+        world = self._world_node_positions()
+        if centered == "skeleton":
+            return world - self.root_pos[:, np.newaxis, :]
+        # with no frames there is nothing to center on
+        if centered == "first" and self.frame_count > 0:
+            return world - _ground_plane_offset(self.root_pos[0], self.world_up)
+        return world
+
     def node_positions(
         self, frame: int | None = None, centered: str = "world"
     ) -> npt.NDArray[np.float64]:
@@ -2050,23 +2077,10 @@ class Bvh:
             :attr:`world_up`; the up coordinate is untouched, so the
             motion starts above the origin at its original height.
         """
-        centered_options = ["skeleton", "first", "world"]
-        if centered not in centered_options:
-            raise ValueError(
-                f"The value {centered} is not recognized for the centered "
-                f"argument. Currently recognized keywords are {centered_options}"
-            )
-
+        _check_centered(centered)
         if frame is None:
-            world = self._world_node_positions()
-            if centered == "world":
-                return world.copy()
-            if centered == "skeleton":
-                return world - self.root_pos[:, np.newaxis, :]
-            # centered == "first"; with no frames there is nothing to center on
-            if self.frame_count == 0:
-                return world.copy()
-            return world - _ground_plane_offset(self.root_pos[0], self.world_up)
+            positions = self._all_node_positions(centered)
+            return positions.copy() if positions is self._world_node_positions() else positions
         if not -self.frame_count <= frame < self.frame_count:
             raise IndexError(
                 f"frame {frame} is out of range for "
@@ -3804,7 +3818,7 @@ class Bvh:
         """Per-frame trajectory curvature of ``joint``. See :func:`pybvh.geometry.curvature`."""
         from . import geometry
 
-        traj = self.node_positions()[:, self._descriptor_index(joint), :]
+        traj = self._all_node_positions()[:, self._descriptor_index(joint), :]
         return geometry.curvature(traj, stencil, pad)
 
     def torsion(
@@ -3816,7 +3830,7 @@ class Bvh:
         """Per-frame trajectory torsion of ``joint``. See :func:`pybvh.geometry.torsion`."""
         from . import geometry
 
-        traj = self.node_positions()[:, self._descriptor_index(joint), :]
+        traj = self._all_node_positions()[:, self._descriptor_index(joint), :]
         return geometry.torsion(traj, stencil, pad)
 
     def movement_phase(
@@ -3832,7 +3846,7 @@ class Bvh:
         from . import geometry
 
         _require_rate(self.frame_time, "movement_phase()")
-        traj = self.node_positions()[:, self._descriptor_index(joint), :]
+        traj = self._all_node_positions()[:, self._descriptor_index(joint), :]
         return geometry.movement_phase(traj, self.frame_time, stencil, pad)
 
     def path_length(self, joint: str) -> float:
@@ -3840,7 +3854,7 @@ class Bvh:
         from . import geometry
 
         return float(
-            geometry.path_length(self.node_positions()[:, self._descriptor_index(joint), :])
+            geometry.path_length(self._all_node_positions()[:, self._descriptor_index(joint), :])
         )
 
     def directness(self, joint: str) -> float:
@@ -3850,14 +3864,14 @@ class Bvh:
         from . import geometry
 
         return float(
-            geometry.directness(self.node_positions()[:, self._descriptor_index(joint), :])
+            geometry.directness(self._all_node_positions()[:, self._descriptor_index(joint), :])
         )
 
     def ground_path(self, joint: str) -> geometry.GroundPath:
         """Ground-plane path of ``joint`` (uses ``world_up``). See :func:`pybvh.geometry.ground_path`."""
         from . import geometry
 
-        traj = self.node_positions()[:, self._descriptor_index(joint), :]
+        traj = self._all_node_positions()[:, self._descriptor_index(joint), :]
         return geometry.ground_path(traj, _axis_to_vector(self.world_up))
 
     def inter_joint_distance(
@@ -3868,7 +3882,7 @@ class Bvh:
         from . import geometry
 
         idx_pairs = [[self._descriptor_index(a), self._descriptor_index(b)] for a, b in pairs]
-        return geometry.inter_joint_distance(self.node_positions(), idx_pairs)
+        return geometry.inter_joint_distance(self._all_node_positions(), idx_pairs)
 
     def joint_angle(
         self,
@@ -3880,7 +3894,7 @@ class Bvh:
         """Per-frame angle at ``vertex`` in ``a–vertex–b``. See :func:`pybvh.geometry.joint_angle`."""
         from . import geometry
 
-        pos = self.node_positions()
+        pos = self._all_node_positions()
         return geometry.joint_angle(
             pos[:, self._descriptor_index(a)],
             pos[:, self._descriptor_index(vertex)],
@@ -3892,7 +3906,7 @@ class Bvh:
         """Per-frame area of triangle ``(a, b, c)``. See :func:`pybvh.geometry.triangle_area`."""
         from . import geometry
 
-        pos = self.node_positions()
+        pos = self._all_node_positions()
         return geometry.triangle_area(
             pos[:, self._descriptor_index(a)],
             pos[:, self._descriptor_index(b)],
@@ -3910,7 +3924,7 @@ class Bvh:
         See :func:`pybvh.geometry.segment_axis_angle`."""
         from . import geometry
 
-        pos = self.node_positions()
+        pos = self._all_node_positions()
         seg = pos[:, self._descriptor_index(joint_b)] - pos[:, self._descriptor_index(joint_a)]
         return geometry.segment_axis_angle(seg, _axis_to_vector(self.world_up), degrees=degrees)
 
@@ -3918,19 +3932,19 @@ class Bvh:
         """Per-frame axis-aligned bounding box of all nodes. See :func:`pybvh.geometry.bounding_box`."""
         from . import geometry
 
-        return geometry.bounding_box(self.node_positions())
+        return geometry.bounding_box(self._all_node_positions())
 
     def bounding_sphere(self) -> geometry.BoundingSphere:
         """Per-frame approximate enclosing sphere of all nodes. See :func:`pybvh.geometry.bounding_sphere`."""
         from . import geometry
 
-        return geometry.bounding_sphere(self.node_positions())
+        return geometry.bounding_sphere(self._all_node_positions())
 
     def bounding_ellipsoid(self) -> geometry.BoundingEllipsoid:
         """Per-frame PCA-aligned bounding ellipsoid of all nodes. See :func:`pybvh.geometry.bounding_ellipsoid`."""
         from . import geometry
 
-        return geometry.bounding_ellipsoid(self.node_positions())
+        return geometry.bounding_ellipsoid(self._all_node_positions())
 
     def center_of_mass(
         self,
@@ -3941,7 +3955,7 @@ class Bvh:
         See :func:`pybvh.geometry.center_of_mass`."""
         from . import geometry
 
-        return geometry.center_of_mass(self.node_positions(), weights=weights)
+        return geometry.center_of_mass(self._all_node_positions(), weights=weights)
 
     def com_displacement(
         self,
@@ -3957,7 +3971,7 @@ class Bvh:
         different baseline. See :func:`pybvh.geometry.com_displacement`."""
         from . import geometry
 
-        com = geometry.center_of_mass(self.node_positions(), weights=weights)
+        com = geometry.center_of_mass(self._all_node_positions(), weights=weights)
         if com_ref is None:
             com_ref = com[0]
         return geometry.com_displacement(com, com_ref)
@@ -3966,7 +3980,7 @@ class Bvh:
         """Per-frame height/width ratio along ``world_up``. See :func:`pybvh.geometry.verticality`."""
         from . import geometry
 
-        return geometry.verticality(self.node_positions(), _axis_to_vector(self.world_up))
+        return geometry.verticality(self._all_node_positions(), _axis_to_vector(self.world_up))
 
     def node_jerk(
         self,

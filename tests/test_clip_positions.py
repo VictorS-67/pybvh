@@ -5,6 +5,7 @@ the clip holds as derived state, and positions the caller holds take the
 array path (``bvh.index`` then ``pybvh.geometry``).
 """
 
+import numpy as np
 import pytest
 from synthetic_bvh import make_pos_y_up_rotating_bvh
 
@@ -60,3 +61,39 @@ def test_passing_coords_raises_type_error(name):
     bvh = make_pos_y_up_rotating_bvh()
     with pytest.raises(TypeError, match="coords"):
         ENTRY_POINTS[name](bvh, coords=bvh.node_positions())
+
+
+def _arrays_in(result):
+    """The arrays a result holds: itself, or the fields of a named tuple."""
+    if isinstance(result, np.ndarray):
+        return [result]
+    if isinstance(result, tuple):
+        return [field for field in result if isinstance(field, np.ndarray)]
+    return []
+
+
+# The derivatives take centered=, whose "first" and "skeleton" are derived
+# from the clip's positions and its "world" is the positions themselves.
+_TAKE_CENTERED = ("velocities", "accelerations", "speed_derivative", "jerk")
+_ARRAY_CASES = [
+    pytest.param(name, kwargs, id=f"{name}-{kwargs.get('centered', 'default')}")
+    for name, call in ENTRY_POINTS.items()
+    if _arrays_in(call(make_pos_y_up_rotating_bvh()))
+    for kwargs in (
+        [{"centered": c} for c in ("world", "first", "skeleton")]
+        if name.endswith(_TAKE_CENTERED)
+        else [{}]
+    )
+]
+
+
+@pytest.mark.parametrize(("name", "kwargs"), _ARRAY_CASES)
+def test_changing_a_returned_array_changes_no_later_result(name, kwargs):
+    bvh = make_pos_y_up_rotating_bvh()
+    call = ENTRY_POINTS[name]
+    first = call(bvh, **kwargs)
+    expected = [array.copy() for array in _arrays_in(first)]
+    for array in _arrays_in(first):
+        array[...] = ~array if array.dtype == np.bool_ else array + 1.0
+    for got, want in zip(_arrays_in(call(bvh, **kwargs)), expected, strict=True):
+        np.testing.assert_array_equal(got, want)

@@ -1420,15 +1420,10 @@ def skeleton_size(bvh: Bvh, feet: Sequence[NodeSelector] | None = None) -> float
     Raises
     ------
     ValueError
-        If ``feet`` is None and :func:`auto_detect_feet` finds no feet;
-        if ``feet`` is empty; if an entry of ``feet`` is a name that no
-        node carries, or that several nodes share, a ``BvhNode`` that is
-        not one of ``bvh.nodes``, or the same node selected twice; or if
-        all feet coincide with the root in the rest pose (no measurable
-        size).
+        Where :func:`foot_contacts` raises it for ``feet``, or if all feet
+        coincide with the root in the rest pose (no measurable size).
     TypeError
-        If ``feet`` is a bare ``str`` or ``BvhNode`` instead of a sequence
-        of them, or an entry is neither: node ``i`` is ``bvh.nodes[i]``.
+        Where :func:`foot_contacts` raises it for ``feet``.
 
     Notes
     -----
@@ -2528,15 +2523,12 @@ def cadence(
     Raises
     ------
     ValueError
-        If ``feet`` is None and :func:`auto_detect_feet` finds no feet;
-        if ``feet`` is empty; if an entry of ``feet`` is a name that no
-        node carries, or that several nodes share, a ``BvhNode`` that is
-        not one of ``bvh.nodes``, or the same node selected twice;
-        or if the clip's ``frame_time`` is 0 (unset), even with
-        ``contacts`` given.
+        Where :func:`foot_contacts` raises it for ``feet``, ``contacts``
+        given or not, or if the clip's ``frame_time`` is 0 (unset), even
+        with ``contacts`` given.
     TypeError
-        If ``feet`` is a bare ``str`` or ``BvhNode`` instead of a sequence
-        of them, or an entry is neither: node ``i`` is ``bvh.nodes[i]``.
+        Where :func:`foot_contacts` raises it for ``feet``, ``contacts``
+        given or not.
 
     Notes
     -----
@@ -2589,17 +2581,14 @@ def stride_length(
     Raises
     ------
     ValueError
-        If ``feet`` is None and :func:`auto_detect_feet` finds no feet;
-        if ``feet`` is empty; if an entry of ``feet`` is a name that no
-        node carries, or that several nodes share, a ``BvhNode`` that is
-        not one of ``bvh.nodes``, or the same node selected twice;
-        or if the clip's ``frame_time`` is
-        0 (unset) and ``contacts`` is not given: detecting the contacts
-        needs the rate (see :func:`foot_contacts`). With ``contacts``
-        given, a stride length is a distance and needs no rate.
+        Where :func:`foot_contacts` raises it for ``feet``, ``contacts``
+        given or not, or if the clip's ``frame_time`` is 0 (unset) and
+        ``contacts`` is not given: detecting the contacts needs the rate
+        (see :func:`foot_contacts`). With ``contacts`` given, a stride
+        length is a distance and needs no rate.
     TypeError
-        If ``feet`` is a bare ``str`` or ``BvhNode`` instead of a sequence
-        of them, or an entry is neither: node ``i`` is ``bvh.nodes[i]``.
+        Where :func:`foot_contacts` raises it for ``feet``, ``contacts``
+        given or not.
 
     Notes
     -----
@@ -2822,15 +2811,12 @@ def gait_parameters(
     Raises
     ------
     ValueError
-        If ``feet`` is None and :func:`auto_detect_feet` finds no feet;
-        if ``feet`` is empty; if an entry of ``feet`` is a name that no
-        node carries, or that several nodes share, a ``BvhNode`` that is
-        not one of ``bvh.nodes``, or the same node selected twice;
-        or if the clip's ``frame_time`` is 0 (unset), even with
-        ``contacts`` given: cadence and walking pace are per second.
+        Where :func:`foot_contacts` raises it for ``feet``, ``contacts``
+        given or not, or if the clip's ``frame_time`` is 0 (unset), even
+        with ``contacts`` given: cadence and walking pace are per second.
     TypeError
-        If ``feet`` is a bare ``str`` or ``BvhNode`` instead of a sequence
-        of them, or an entry is neither: node ``i`` is ``bvh.nodes[i]``.
+        Where :func:`foot_contacts` raises it for ``feet``, ``contacts``
+        given or not.
 
     Notes
     -----

@@ -41,7 +41,7 @@ _RIG = [
     {"name": "Head", "parent": 2, "offset": [0, 0.5, 0]},
     {"name": "Arm", "parent": 1, "offset": [1, 0, 0], "rot_channels": "ZYX"},
     {"name": "Hand", "parent": 4, "offset": [1, 0, 0]},
-    {"name": "Arm", "parent": 1, "offset": [-1, 0, 0], "rot_channels": "ZYX"},
+    {"name": "Arm", "parent": 1, "offset": [-1.5, 0.3, 0.2], "rot_channels": "ZYX"},
     {"name": "Finger", "parent": 6, "offset": [-1, 0, 0.2]},
 ]
 _FRAMES = 40
@@ -87,6 +87,75 @@ class Entry:
 ENTRIES = [
     Entry("Bvh.index", "node", "node", False, lambda bvh, s: bvh.index(s, space="node")),
     Entry("Bvh.index", "node", "joint", False, lambda bvh, s: bvh.index(s, space="joint")),
+    *(
+        Entry(f"Bvh.{method}", "node", "node", False, lambda bvh, s, m=method: getattr(bvh, m)(s))
+        for method in (
+            "curvature",
+            "torsion",
+            "movement_phase",
+            "path_length",
+            "directness",
+            "ground_path",
+            "smoothness",
+            "velocity_reductions",
+        )
+    ),
+    Entry(
+        "Bvh.segment_axis_angle",
+        "node_a",
+        "node",
+        False,
+        lambda bvh, s: bvh.segment_axis_angle(s, "Spine"),
+    ),
+    Entry(
+        "Bvh.segment_axis_angle",
+        "node_b",
+        "node",
+        False,
+        lambda bvh, s: bvh.segment_axis_angle("Hips", s),
+    ),
+    Entry(
+        "Bvh.inter_joint_distance",
+        "pairs",
+        "node",
+        False,
+        lambda bvh, s: bvh.inter_joint_distance([("Hips", "Spine"), (s, "Hips")]),
+    ),
+    Entry(
+        "Bvh.joint_angle", "a", "node", False, lambda bvh, s: bvh.joint_angle(s, "Spine", "Hips")
+    ),
+    Entry(
+        "Bvh.joint_angle",
+        "vertex",
+        "node",
+        False,
+        lambda bvh, s: bvh.joint_angle("Hips", s, "Spine"),
+    ),
+    Entry(
+        "Bvh.joint_angle", "b", "node", False, lambda bvh, s: bvh.joint_angle("Hips", "Spine", s)
+    ),
+    Entry(
+        "Bvh.triangle_area",
+        "a",
+        "node",
+        False,
+        lambda bvh, s: bvh.triangle_area(s, "Spine", "Hips"),
+    ),
+    Entry(
+        "Bvh.triangle_area",
+        "b",
+        "node",
+        False,
+        lambda bvh, s: bvh.triangle_area("Hips", s, "Spine"),
+    ),
+    Entry(
+        "Bvh.triangle_area",
+        "c",
+        "node",
+        False,
+        lambda bvh, s: bvh.triangle_area("Hips", "Spine", s),
+    ),
+    Entry("Bvh.range_of_motion", "joint", "joint", False, lambda bvh, s: bvh.range_of_motion(s)),
     # The plural form, which every entry point that takes a set calls. It has
     # no public caller yet: the contact detectors' rows replace this one.
     Entry("Bvh._indices", "nodes", "node", True, lambda bvh, s: bvh._indices(s, space="node")),

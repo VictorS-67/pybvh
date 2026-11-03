@@ -14,9 +14,9 @@ The fastest route from "I want to…" to the exact call. The [Gallery](../galler
 | Interpolate rotations / rigid transforms | `rotations.quat_slerp(...)` / `rotations.screw_interpolate(...)` | [Rotations & SE(3)](rotations.md#se3-rigid-transforms) |
 | Detect foot contacts | `bvh.foot_contacts()` | [`analysis.foot_contacts`][pybvh.analysis.foot_contacts] |
 | Measure gait (cadence, stride, symmetry) | `bvh.gait_parameters()` | [`analysis.gait_parameters`][pybvh.analysis.gait_parameters] |
-| Score movement smoothness (SPARC, jerk) | `bvh.smoothness(joint, metric="sparc")` | [`analysis.smoothness`][pybvh.analysis.smoothness] |
+| Score movement smoothness (SPARC, jerk) | `bvh.smoothness(node, metric="sparc")` | [`analysis.smoothness`][pybvh.analysis.smoothness] |
 | Velocities / accelerations / jerk | `bvh.joint_velocities()` … `bvh.node_jerk()` | [Analysis](analysis.md) |
-| Trajectory shape (curvature, path length, …) | `bvh.curvature(joint)`, `bvh.path_length(joint)` | [Geometry](geometry.md) |
+| Trajectory shape (curvature, path length, …) | `bvh.curvature(node)`, `bvh.path_length(node)` | [Geometry](geometry.md) |
 | Pose extent & centre of mass | `bvh.bounding_box()`, `bvh.center_of_mass()` | [Geometry](geometry.md) |
 | Relative pose of two segments, SE(3) twists | `rotations.relative_transform(...)`, `se3_log` | [Rotations & SE(3)](rotations.md#se3-rigid-transforms) |
 | Augment data (mirror, rotate, noise, …) | `bvh.mirror()`, `bvh.rotate_vertical(a)`, … | [Transforms](transforms.md) |

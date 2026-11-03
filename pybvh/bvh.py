@@ -3880,108 +3880,94 @@ class Bvh:
     # ----------------------------------------------------------------
     #  Motion descriptors (delegate to geometry / analysis modules)
     # ----------------------------------------------------------------
-    #  Relational / trajectory queries index in NODE space (node_index), so
-    #  end sites (fingertips, toe tips, head top) are first-class; pass a
-    #  joint or end-site name. Every descriptor reads the node positions the
-    #  clip holds as derived state; it takes none from the caller.
-
-    def _descriptor_index(self, joint: str, space: str = "node") -> int:
-        """Resolve a name for the descriptor methods — names only, no ints.
-
-        Integer indices are rejected because they are ambiguous between
-        joint space and node space (the historical source of silently
-        misaligned lookups).
-        """
-        if not isinstance(joint, str):
-            raise TypeError(
-                f"joint must be a name (str), got {type(joint).__name__}. "
-                f"Integer indices are ambiguous between joint and node index "
-                f"spaces — resolve names explicitly with "
-                f"bvh.index(name, space={space!r}) and use the functional "
-                f"pybvh.geometry / pybvh.analysis API for index-based access."
-            )
-        return self.index(joint, space=space)  # type: ignore[arg-type]
+    #  Relational / trajectory queries select in NODE space, so end sites
+    #  (fingertips, toe tips, head top) are first-class: each takes a node's
+    #  name or the node itself, resolved by index(). Every descriptor reads
+    #  the node positions the clip holds as derived state; it takes none
+    #  from the caller.
 
     def curvature(
         self,
-        joint: str,
+        node: NodeSelector,
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
-        """Per-frame trajectory curvature of ``joint``. See :func:`pybvh.geometry.curvature`."""
+        """Per-frame trajectory curvature of ``node``. See :func:`pybvh.geometry.curvature`."""
         from . import geometry
 
-        traj = self._all_node_positions()[:, self._descriptor_index(joint), :]
+        traj = self._all_node_positions()[:, self.index(node, "node"), :]
         return geometry.curvature(traj, stencil, pad)
 
     def torsion(
         self,
-        joint: str,
+        node: NodeSelector,
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
-        """Per-frame trajectory torsion of ``joint``. See :func:`pybvh.geometry.torsion`."""
+        """Per-frame trajectory torsion of ``node``. See :func:`pybvh.geometry.torsion`."""
         from . import geometry
 
-        traj = self._all_node_positions()[:, self._descriptor_index(joint), :]
+        traj = self._all_node_positions()[:, self.index(node, "node"), :]
         return geometry.torsion(traj, stencil, pad)
 
     def movement_phase(
         self,
-        joint: str,
+        node: NodeSelector,
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
-        """Per-frame movement phase (``speed · curvature``) of ``joint``.
+        """Per-frame movement phase (``speed · curvature``) of ``node``.
 
         Raises ``ValueError`` when the clip's ``frame_time`` is 0 (unset).
         See :func:`pybvh.geometry.movement_phase`."""
         from . import geometry
 
         _require_rate(self.frame_time, "movement_phase()")
-        traj = self._all_node_positions()[:, self._descriptor_index(joint), :]
+        traj = self._all_node_positions()[:, self.index(node, "node"), :]
         return geometry.movement_phase(traj, self.frame_time, stencil, pad)
 
-    def path_length(self, joint: str) -> float:
-        """Arc length travelled by ``joint``. See :func:`pybvh.geometry.path_length`."""
+    def path_length(self, node: NodeSelector) -> float:
+        """Arc length travelled by ``node``. See :func:`pybvh.geometry.path_length`."""
         from . import geometry
 
         return float(
-            geometry.path_length(self._all_node_positions()[:, self._descriptor_index(joint), :])
+            geometry.path_length(self._all_node_positions()[:, self.index(node, "node"), :])
         )
 
-    def directness(self, joint: str) -> float:
-        """Directness of ``joint``'s path (net displacement ÷ path length).
+    def directness(self, node: NodeSelector) -> float:
+        """Directness of ``node``'s path (net displacement ÷ path length).
 
         See :func:`pybvh.geometry.directness`."""
         from . import geometry
 
         return float(
-            geometry.directness(self._all_node_positions()[:, self._descriptor_index(joint), :])
+            geometry.directness(self._all_node_positions()[:, self.index(node, "node"), :])
         )
 
-    def ground_path(self, joint: str) -> geometry.GroundPath:
-        """Ground-plane path of ``joint`` (uses ``world_up``). See :func:`pybvh.geometry.ground_path`."""
+    def ground_path(self, node: NodeSelector) -> geometry.GroundPath:
+        """Ground-plane path of ``node`` (uses ``world_up``). See :func:`pybvh.geometry.ground_path`."""
         from . import geometry
 
-        traj = self._all_node_positions()[:, self._descriptor_index(joint), :]
+        traj = self._all_node_positions()[:, self.index(node, "node"), :]
         return geometry.ground_path(traj, _axis_to_vector(self.world_up))
 
     def inter_joint_distance(
         self,
-        pairs: list[tuple[str, str]],
+        pairs: Sequence[tuple[NodeSelector, NodeSelector]],
     ) -> npt.NDArray[np.float64]:
-        """Per-frame distances between node pairs. See :func:`pybvh.geometry.inter_joint_distance`."""
+        """Per-frame distances between node pairs, each node a name or a ``BvhNode``.
+
+        See :func:`pybvh.geometry.inter_joint_distance`."""
         from . import geometry
 
-        idx_pairs = [[self._descriptor_index(a), self._descriptor_index(b)] for a, b in pairs]
+        idx_pairs = [[self.index(a, "node"), self.index(b, "node")] for a, b in pairs]
         return geometry.inter_joint_distance(self._all_node_positions(), idx_pairs)
 
     def joint_angle(
         self,
-        a: str,
-        vertex: str,
-        b: str,
+        a: NodeSelector,
+        vertex: NodeSelector,
+        b: NodeSelector,
         degrees: bool = False,
     ) -> npt.NDArray[np.float64]:
         """Per-frame angle at ``vertex`` in ``a–vertex–b``. See :func:`pybvh.geometry.joint_angle`."""
@@ -3989,36 +3975,38 @@ class Bvh:
 
         pos = self._all_node_positions()
         return geometry.joint_angle(
-            pos[:, self._descriptor_index(a)],
-            pos[:, self._descriptor_index(vertex)],
-            pos[:, self._descriptor_index(b)],
+            pos[:, self.index(a, "node")],
+            pos[:, self.index(vertex, "node")],
+            pos[:, self.index(b, "node")],
             degrees=degrees,
         )
 
-    def triangle_area(self, a: str, b: str, c: str) -> npt.NDArray[np.float64]:
+    def triangle_area(
+        self, a: NodeSelector, b: NodeSelector, c: NodeSelector
+    ) -> npt.NDArray[np.float64]:
         """Per-frame area of triangle ``(a, b, c)``. See :func:`pybvh.geometry.triangle_area`."""
         from . import geometry
 
         pos = self._all_node_positions()
         return geometry.triangle_area(
-            pos[:, self._descriptor_index(a)],
-            pos[:, self._descriptor_index(b)],
-            pos[:, self._descriptor_index(c)],
+            pos[:, self.index(a, "node")],
+            pos[:, self.index(b, "node")],
+            pos[:, self.index(c, "node")],
         )
 
     def segment_axis_angle(
         self,
-        joint_a: str,
-        joint_b: str,
+        node_a: NodeSelector,
+        node_b: NodeSelector,
         degrees: bool = False,
     ) -> npt.NDArray[np.float64]:
-        """Per-frame angle of the bone ``joint_a→joint_b`` to ``world_up``.
+        """Per-frame angle of the segment ``node_a→node_b`` to ``world_up``.
 
         See :func:`pybvh.geometry.segment_axis_angle`."""
         from . import geometry
 
         pos = self._all_node_positions()
-        seg = pos[:, self._descriptor_index(joint_b)] - pos[:, self._descriptor_index(joint_a)]
+        seg = pos[:, self.index(node_b, "node")] - pos[:, self.index(node_a, "node")]
         return geometry.segment_axis_angle(seg, _axis_to_vector(self.world_up), degrees=degrees)
 
     def bounding_box(self) -> geometry.BoundingBox:
@@ -4105,13 +4093,13 @@ class Bvh:
 
     def smoothness(
         self,
-        joint: str,
+        node: NodeSelector,
         metric: str = "sparc",
         **kwargs: Any,
     ) -> float:
-        """Smoothness of ``joint``'s speed profile. See :func:`pybvh.analysis.smoothness`.
+        """Smoothness of ``node``'s speed profile. See :func:`pybvh.analysis.smoothness`.
 
-        Computes the joint's per-frame speed ``‖velocity‖`` and passes it
+        Computes the node's per-frame speed ``‖velocity‖`` and passes it
         to the chosen ``metric`` at sampling rate ``1 / frame_time``.
 
         ``metric`` is one of ``"sparc"`` (default),
@@ -4132,15 +4120,15 @@ class Bvh:
 
         _require_rate(self.frame_time, "smoothness()")
         vel = self.node_velocities()
-        speed = np.linalg.norm(vel[:, self._descriptor_index(joint), :], axis=-1)
+        speed = np.linalg.norm(vel[:, self.index(node, "node"), :], axis=-1)
         value = analysis.smoothness(speed, 1.0 / self.frame_time, metric=metric, **kwargs)
-        # One joint's (T,) speed reduces to a scalar; an array's rank is not in its type.
+        # One node's (T,) speed reduces to a scalar; an array's rank is not in its type.
         return cast(float, value)
 
-    def velocity_reductions(self, joint: str):
-        """Scalar reductions of ``joint``'s speed profile (peak, mean, …).
+    def velocity_reductions(self, node: NodeSelector):
+        """Scalar reductions of ``node``'s speed profile (peak, mean, …).
 
-        Computes the joint's per-frame speed ``‖velocity‖`` and reduces it
+        Computes the node's per-frame speed ``‖velocity‖`` and reduces it
         at sampling rate ``1 / frame_time``, and raises ``ValueError``
         when that ``frame_time`` is 0 (unset). See
         :func:`pybvh.analysis.velocity_reductions`."""
@@ -4148,7 +4136,7 @@ class Bvh:
 
         _require_rate(self.frame_time, "velocity_reductions()")
         vel = self.node_velocities()
-        speed = np.linalg.norm(vel[:, self._descriptor_index(joint), :], axis=-1)
+        speed = np.linalg.norm(vel[:, self.index(node, "node"), :], axis=-1)
         return analysis.velocity_reductions(speed, 1.0 / self.frame_time)
 
     def skeleton_size(self, foot_joints: list[str] | None = None) -> float:
@@ -4215,14 +4203,15 @@ class Bvh:
 
         return analysis.gait_parameters(self, foot_joints=foot_joints, contacts=contacts)
 
-    def range_of_motion(self, joint: str) -> npt.NDArray[np.float64]:
+    def range_of_motion(self, joint: NodeSelector) -> npt.NDArray[np.float64]:
         """Peak-to-peak range of ``joint``'s Euler angles — ``(3,)`` per channel.
 
-        Indexes in JOINT space (rotations exist only on joints). See
-        :func:`pybvh.analysis.range_of_motion`."""
+        Selects in JOINT space (rotations exist only on joints), so an end
+        site raises ``ValueError``, and a name that a joint and an end site
+        share selects the joint. See :func:`pybvh.analysis.range_of_motion`."""
         from . import analysis
 
-        idx = self._descriptor_index(joint, space="joint")
+        idx = self.index(joint, "joint")
         return analysis.range_of_motion(self.joint_angles[:, idx, :], axis=0)
 
     # ----------------------------------------------------------------

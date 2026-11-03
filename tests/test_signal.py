@@ -299,7 +299,7 @@ def test_skeleton_size_positive_and_scale_linear():
 
 def test_skeleton_size_refuses_an_empty_selection():
     bvh = make_pos_y_up_bvh()
-    with pytest.raises(ValueError, match=r"skeleton_size got feet=\[\]"):
+    with pytest.raises(ValueError, match=r"skeleton_size\(\) got feet=\[\]"):
         analysis.skeleton_size(bvh, feet=[])
 
 

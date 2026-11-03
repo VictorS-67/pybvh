@@ -2087,7 +2087,7 @@ class TestFootlessRigContract:
     @pytest.mark.parametrize("empty", [[], np.array([], dtype=str)], ids=["list", "array"])
     def test_explicit_empty_feet_raises_and_names_feet(self, empty):
         bvh = make_pos_y_up_bvh()
-        with pytest.raises(ValueError, match=r"^foot_contacts got feet=\[\]"):
+        with pytest.raises(ValueError, match=r"^foot_contacts\(\) got feet=\[\]"):
             analysis.foot_contacts(bvh, feet=empty)
 
     @pytest.mark.parametrize("empty", [[], np.array([], dtype=str)], ids=["list", "array"])
@@ -2099,7 +2099,7 @@ class TestFootlessRigContract:
     @pytest.mark.parametrize(
         ("detect", "refusal"),
         [
-            (analysis.foot_contacts, r"^foot_contacts got feet=\[\]"),
+            (analysis.foot_contacts, r"^foot_contacts\(\) got feet=\[\]"),
             (analysis.ground_contacts, r"^ground_contacts got nodes=\[\]"),
         ],
         ids=["foot", "ground"],

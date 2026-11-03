@@ -1023,7 +1023,7 @@ def foot_contacts(
     ground_contacts : The same detection engine for arbitrary (non-foot) node sets — hands, knees, props.
     auto_detect_feet : The detection used when ``feet`` is None.
     """
-    joint_indices = _feet_indices(bvh, feet, "foot_contacts")
+    joint_indices = _feet_indices(bvh, feet, "foot_contacts()")
     joint_names = [bvh.nodes[i].name for i in joint_indices]
     settings = _contacts._ContactSettings(
         method=method,
@@ -1046,7 +1046,7 @@ def foot_contacts(
         settings,
         return_info=return_info,
         check_rest_height=True,
-        entry="foot_contacts()",
+        caller="foot_contacts()",
     )
 
 
@@ -1188,7 +1188,7 @@ def ground_contacts(
         settings,
         return_info=return_info,
         check_rest_height=False,
-        entry="ground_contacts()",
+        caller="ground_contacts()",
     )
 
 
@@ -1200,18 +1200,18 @@ def _contacts_on_clip(
     *,
     return_info: bool,
     check_rest_height: bool,
-    entry: str,
+    caller: str,
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """The clip's part of :func:`foot_contacts` and :func:`ground_contacts`, around the detector on plain arrays.
 
-    Both entry points resolve their selection with :meth:`Bvh._indices <pybvh.bvh.Bvh._indices>` into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists, the names being the nodes' own, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet. ``entry`` is the caller's name for the messages (``"foot_contacts()"``).
+    Both entry points resolve their selection with :meth:`Bvh._indices <pybvh.bvh.Bvh._indices>` into the parallel ``joint_names`` / ``joint_indices`` (node-space) lists, the names being the nodes' own, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "joints below hips" sanity check, which presumes the joints are feet. ``caller`` names the public function in the messages (``"foot_contacts()"``).
     """
     if settings.reads_velocity:
-        _require_rate(bvh.frame_time, f"{entry} with method={settings.method!r}")
+        _require_rate(bvh.frame_time, f"{caller} with method={settings.method!r}")
     if settings.min_contact_duration > 0 or settings.min_gap_duration > 0:
         _require_rate(
             bvh.frame_time,
-            f"{entry}'s duration filters",
+            f"{caller}'s duration filters",
             alternative="disable them with min_contact_duration=0.0 and min_gap_duration=0.0",
         )
 
@@ -1359,7 +1359,7 @@ def _feet_indices(bvh: Bvh, feet: Sequence[NodeSelector] | None, caller: str) ->
 
     The resolution of every ``feet=`` parameter: :meth:`Bvh._indices` in node
     space, plus the refusals of a footless rig and of an empty selection,
-    whose messages name ``caller``.
+    whose messages name ``caller`` (``"skeleton_size()"``).
     """
     # Tested against None: a NumPy array of names has no truth value.
     if feet is None:
@@ -1430,7 +1430,7 @@ def skeleton_size(bvh: Bvh, feet: Sequence[NodeSelector] | None = None) -> float
     -----
     Source: gait/biomech normalization (Troje, Karg et al.).
     """
-    foot_indices = _feet_indices(bvh, feet, "skeleton_size")
+    foot_indices = _feet_indices(bvh, feet, "skeleton_size()")
     rest_coords = bvh._rest_pose()
     distance = geometry._mean_distance_to_root(rest_coords[foot_indices], rest_coords[0])
     if distance is None:
@@ -2850,7 +2850,7 @@ def _gait_parameters_unchecked(
     """
     # Resolved once, before the contacts: a selection is refused whether the
     # contacts are given or detected.
-    foot_indices = _feet_indices(bvh, feet, "gait_parameters")
+    foot_indices = _feet_indices(bvh, feet, "gait_parameters()")
     foot_nodes = [bvh.nodes[i] for i in foot_indices]
 
     node_pos = bvh.node_positions()

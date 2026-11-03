@@ -3852,7 +3852,7 @@ class Bvh:
         include_velocities: bool = False,
         include_foot_contacts: bool = False,
         centered: str = "world",
-        foot_joints: list[str] | None = None,
+        feet: Sequence[NodeSelector] | None = None,
         stencil: str = "central",
         pad: str = "edge",
     ) -> npt.NDArray[np.float64]:
@@ -3866,7 +3866,7 @@ class Bvh:
             include_velocities=include_velocities,
             include_foot_contacts=include_foot_contacts,
             centered=centered,
-            foot_joints=foot_joints,
+            feet=feet,
             stencil=stencil,
             pad=pad,
         )

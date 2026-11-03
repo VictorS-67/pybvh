@@ -705,6 +705,16 @@ class TestAutoDetectFeet:
                 )
                 for function in ("cadence", "stride_length", "gait_parameters")
             ),
+            pytest.param(
+                lambda clip, **kw: features.to_feature_array(
+                    clip, include_foot_contacts=True, **kw
+                ),
+                id="features.to_feature_array",
+            ),
+            pytest.param(
+                lambda clip, **kw: clip.to_feature_array(include_foot_contacts=True, **kw),
+                id="Bvh.to_feature_array",
+            ),
         ],
     )
     def test_the_feet_passed_back_measure_what_the_default_and_the_names_measure(self, measure):

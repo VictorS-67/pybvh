@@ -22,7 +22,7 @@ from typing import Any, Literal
 import numpy as np
 import pytest
 
-from pybvh import Bvh, analysis, nodes_from_table
+from pybvh import Bvh, analysis, features, nodes_from_table
 
 # The rig, in node order. Its names are chosen to collide:
 #   0 Hips    root
@@ -237,41 +237,61 @@ ENTRIES = [
         True,
         lambda bvh, s: analysis.skeleton_size(bvh, feet=s),
     ),
-    # With contacts given, a stride is measured between the selected feet's
-    # positions at the landings, which differ between any two nodes. Cadence
-    # counts the landings alone, so it detects them on a swinging rig.
-    *(
-        Entry(
-            f"{owner}.{function}",
-            "feet",
-            "node",
-            True,
-            call,
-        )
-        for owner, function, call in (
-            ("Bvh", "cadence", lambda bvh, s: _swinging(bvh).cadence(feet=s)),
-            ("analysis", "cadence", lambda bvh, s: analysis.cadence(_swinging(bvh), feet=s)),
-            (
-                "Bvh",
-                "stride_length",
-                lambda bvh, s: bvh.stride_length(feet=s, contacts=_landings(s)),
-            ),
-            (
-                "analysis",
-                "stride_length",
-                lambda bvh, s: analysis.stride_length(bvh, feet=s, contacts=_landings(s)),
-            ),
-            (
-                "Bvh",
-                "gait_parameters",
-                lambda bvh, s: bvh.gait_parameters(feet=s, contacts=_landings(s)),
-            ),
-            (
-                "analysis",
-                "gait_parameters",
-                lambda bvh, s: analysis.gait_parameters(bvh, feet=s, contacts=_landings(s)),
-            ),
-        )
+    # Cadence counts the landings alone, and the feature array's feet only
+    # label contacts, so both detect them on a swinging rig. With contacts
+    # given, a stride is measured between the selected feet's positions at the
+    # landings, which differ between any two nodes.
+    Entry("Bvh.cadence", "feet", "node", True, lambda bvh, s: _swinging(bvh).cadence(feet=s)),
+    Entry(
+        "analysis.cadence",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: analysis.cadence(_swinging(bvh), feet=s),
+    ),
+    Entry(
+        "Bvh.stride_length",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: bvh.stride_length(feet=s, contacts=_landings(s)),
+    ),
+    Entry(
+        "analysis.stride_length",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: analysis.stride_length(bvh, feet=s, contacts=_landings(s)),
+    ),
+    Entry(
+        "Bvh.gait_parameters",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: bvh.gait_parameters(feet=s, contacts=_landings(s)),
+    ),
+    Entry(
+        "analysis.gait_parameters",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: analysis.gait_parameters(bvh, feet=s, contacts=_landings(s)),
+    ),
+    Entry(
+        "Bvh.to_feature_array",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: _swinging(bvh).to_feature_array(include_foot_contacts=True, feet=s),
+    ),
+    Entry(
+        "features.to_feature_array",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: features.to_feature_array(
+            _swinging(bvh), include_foot_contacts=True, feet=s
+        ),
     ),
     # The angles show which joint changed order: the skeleton's positions do
     # not change with it.

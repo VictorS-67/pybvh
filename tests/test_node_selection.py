@@ -156,6 +156,15 @@ ENTRIES = [
         lambda bvh, s: bvh.triangle_area("Hips", "Spine", s),
     ),
     Entry("Bvh.range_of_motion", "joint", "joint", False, lambda bvh, s: bvh.range_of_motion(s)),
+    # The angles show which joint changed order: the skeleton's positions do
+    # not change with it.
+    Entry(
+        "Bvh.change_euler_order",
+        "joint",
+        "joint",
+        False,
+        lambda bvh, s: bvh.change_euler_order("XYZ", joint=s).joint_angles,
+    ),
     # The plural form, which every entry point that takes a set calls. It has
     # no public caller yet: the contact detectors' rows replace this one.
     Entry("Bvh._indices", "nodes", "node", True, lambda bvh, s: bvh._indices(s, space="node")),
@@ -345,3 +354,11 @@ def test_index_counts_a_node_in_the_requested_space():
     arms = [clip.nodes[_ARM], clip.nodes[_OTHER_ARM]]
     assert [clip.index(arm, space="node") for arm in arms] == [4, 6]
     assert [clip.index(arm, space="joint") for arm in arms] == [3, 4]
+
+
+def test_change_euler_order_changes_only_the_joint_it_is_given():
+    clip = _rig()
+    # The first "Arm": joint_index keeps the last node of a repeated name.
+    changed = clip.change_euler_order("XYZ", joint=clip.nodes[_ARM])
+    orders = ["".join(node.rot_channels) for node in changed.nodes if not node.is_end_site()]
+    assert orders == ["ZYX", "ZYX", "ZYX", "XYZ", "ZYX"]

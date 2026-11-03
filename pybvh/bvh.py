@@ -2780,7 +2780,7 @@ class Bvh:
     def change_euler_order(
         self,
         order: str | Sequence[str],
-        joint: str | BvhNode | None = ...,
+        joint: NodeSelector | None = ...,
         *,
         inplace: Literal[True],
     ) -> None: ...
@@ -2788,13 +2788,13 @@ class Bvh:
     def change_euler_order(
         self,
         order: str | Sequence[str],
-        joint: str | BvhNode | None = ...,
+        joint: NodeSelector | None = ...,
         inplace: Literal[False] = ...,
     ) -> Bvh: ...
     def change_euler_order(
         self,
         order: str | Sequence[str],
-        joint: str | BvhNode | None = None,
+        joint: NodeSelector | None = None,
         inplace: bool = False,
     ) -> Bvh | None:
         """
@@ -2809,8 +2809,9 @@ class Bvh:
         order : str or list of 3 chars
             New rotation order, e.g. 'XYZ' or ['X', 'Y', 'Z'].
         joint : str, BvhNode, or None
-            If a joint name or node is given, only that joint is changed.
-            If None (default), all joints are changed to the new order.
+            The one joint to change, by its name or as the node itself (see
+            :meth:`index`, ``space='joint'``). If None (default), all joints
+            are changed to the new order.
         inplace : bool
             If True, modify self and return None.
             If False, return a modified copy while leaving self unchanged.
@@ -2821,6 +2822,13 @@ class Bvh:
         -------
         None or Bvh
             None if inplace, otherwise a new Bvh object.
+
+        Raises
+        ------
+        TypeError
+            If ``joint`` is neither a name, a ``BvhNode`` nor None.
+        ValueError
+            If :meth:`index` refuses ``joint`` in joint space.
         """
         if isinstance(order, str):
             new_order = list(order.upper())
@@ -2830,15 +2838,7 @@ class Bvh:
         if joint is None:
             joint_indices = list(range(self.joint_count))
         else:
-            if isinstance(joint, BvhNode):
-                joint_name = joint.name
-            elif isinstance(joint, str):
-                joint_name = joint
-            else:
-                raise ValueError("joint should be a string (joint name), a BvhNode object, or None")
-            if joint_name not in self.joint_index:
-                raise ValueError(f"Joint '{joint_name}' not found among non-end-site nodes.")
-            joint_indices = [self.joint_index[joint_name]]
+            joint_indices = [self.index(joint, space="joint")]
 
         target = self if inplace else self.copy()
         # The new skeleton is built, and the order checked, before any

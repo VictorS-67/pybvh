@@ -291,7 +291,7 @@ class BvhJoint(BvhNode):
         if self._frozen:
             raise AttributeError(
                 "rot_channels is frozen. Use "
-                "Bvh.change_euler_order(order, joint=joint_name) or "
+                "Bvh.change_euler_order(order, joint=node), with this node, or "
                 "Bvh.change_euler_order(order) to change rotation order."
             )
         self._rot_channels = self._check_channels(value)

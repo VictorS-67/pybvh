@@ -180,11 +180,6 @@ def to_feature_array(
     if include_velocities:
         _validate_stencil_pad(stencil, pad)
 
-    # Compute spatial coords once (shared by velocities and contacts)
-    coords = None
-    if include_velocities or include_foot_contacts:
-        coords = bvh.node_positions(centered=centered)
-
     parts: list[npt.NDArray[np.float64]] = []
 
     # Root position — apply same ``centered`` semantics as node_positions.
@@ -218,9 +213,7 @@ def to_feature_array(
     # Velocities — call directly (same module)
     vel_shape: int | None = None
     if include_velocities:
-        vel = joint_velocities(
-            bvh, centered=centered, in_frames=True, coords=coords, stencil=stencil, pad=pad
-        )
+        vel = joint_velocities(bvh, centered=centered, in_frames=True, stencil=stencil, pad=pad)
         vel_flat = vel.reshape(vel.shape[0], -1)
         parts.append(vel_flat)
         vel_shape = vel.shape[0]

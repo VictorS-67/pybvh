@@ -5514,14 +5514,6 @@ class TestNodeVelocities:
         vel = static.node_velocities(in_frames=True, stencil="forward", pad="none")
         np.testing.assert_allclose(vel, 0.0, atol=1e-10)
 
-    def test_precomputed_coords(self, bvh_example):
-        coords = bvh_example.node_positions()
-        vel1 = bvh_example.node_velocities(in_frames=True, stencil="forward", pad="none")
-        vel2 = bvh_example.node_velocities(
-            in_frames=True, coords=coords, stencil="forward", pad="none"
-        )
-        np.testing.assert_allclose(vel1, vel2, atol=1e-10)
-
     def test_too_few_frames_error(self):
         """Should raise ValueError when clip is shorter than stencil requires."""
         root = BvhRoot()
@@ -6117,20 +6109,6 @@ class TestAxisDetection:
         neutral = bvh_example.copy()
         neutral.joint_angles = np.zeros_like(neutral.joint_angles)  # everyone at rest
         assert neutral.forward_at(frame=0) == neutral.rest_forward
-
-    # --- coords= pre-computed-FK path ---
-
-    def test_forward_at_coords_matches_default(self, bvh_example):
-        """Passing pre-computed coords must give the same answer as the
-        default path that recomputes FK internally."""
-        coords = bvh_example.node_positions()
-        for f in (0, bvh_example.frame_count // 2, bvh_example.frame_count - 1):
-            assert bvh_example.forward_at(frame=f) == bvh_example.forward_at(frame=f, coords=coords)
-
-    def test_left_at_coords_matches_default(self, bvh_example):
-        coords = bvh_example.node_positions()
-        for f in (0, bvh_example.frame_count // 2, bvh_example.frame_count - 1):
-            assert bvh_example.left_at(frame=f) == bvh_example.left_at(frame=f, coords=coords)
 
 
 # =============================================================================
@@ -8129,43 +8107,63 @@ _AXIS_VECTORS = {
 class TestFacingOnAFrameLyingOnItsSide:
     """#114 reproduction 1: a frame whose left/right axis is vertical."""
 
+    @staticmethod
+    def _pose_frame_zero(bvh, rotations):
+        """Set frame 0 to the rest pose, with *rotations* ``{joint: rotmat}``."""
+        angles = bvh.joint_angles.copy()
+        angles[0] = 0.0
+        for name, rotmat in rotations.items():
+            joint = bvh.nodes[bvh.node_index[name]]
+            angles[0, bvh.joint_index[name]] = rotmat_to_euler(rotmat, joint.rot_channels)
+        bvh.joint_angles = angles
+
     @pytest.fixture
     def lying(self):
+        # Frame 0 is the rest pose turned 60 degrees about world up -x, which
+        # lies along the rest pose's left/right axis: the axis stays vertical,
+        # and the root's heading stays readable on the ground.
         bvh = read_bvh_file(BVH_DATA_DIR / "bvh_test1.bvh")
-        bvh.world_up = "-x"  # along the rest pose's left/right axis
-        return bvh, bvh.rest_pose_positions()[np.newaxis]
+        c, s = np.cos(np.radians(60.0)), np.sin(np.radians(60.0))
+        self._pose_frame_zero(bvh, {"Hips": np.array([[1.0, 0, 0], [0, c, -s], [0, s, c]])})
+        bvh.world_up = "-x"
+        return bvh
 
     def test_left_at_is_never_world_up(self, lying):
-        bvh, rest = lying
-        assert bvh.left_at(0, coords=rest)[1] != "x"
+        assert lying.left_at(0)[1] != "x"
 
     def test_forward_left_and_up_are_right_handed(self, lying):
-        bvh, rest = lying
-        forward, left = bvh.forward_at(0, coords=rest), bvh.left_at(0, coords=rest)
+        forward, left = lying.forward_at(0), lying.left_at(0)
         np.testing.assert_array_equal(
-            np.cross(_AXIS_VECTORS[forward], _AXIS_VECTORS[left]), _AXIS_VECTORS[bvh.world_up]
+            np.cross(_AXIS_VECTORS[forward], _AXIS_VECTORS[left]), _AXIS_VECTORS[lying.world_up]
         )
 
     def test_the_frame_falls_back_to_the_root_heading_without_warning(self, lying):
-        bvh, rest = lying
         # The root's heading at frame 0, on the ground of world up -x.
-        heading = bvh.root_trajectory()[0, 2:4]  # [sin, cos] on (y, z)
+        heading = lying.root_trajectory()[0, 2:4]  # [sin, cos] on (y, z)
         expected = get_main_direction(np.array([0.0, heading[1], heading[0]]))
+        assert expected == "+z"  # the turn of 60 degrees, away from rest forward +y
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            assert bvh.forward_at(0, coords=rest) == expected
+            assert lying.forward_at(0) == expected
 
-    def test_the_default_warning_names_the_frame(self, lying):
-        bvh, rest = lying
-        # A root rotation that stands rest forward (+y) along world up -x:
-        # the heading is unreadable too, so frame 0 takes the house default.
+    def test_the_default_warning_names_the_frame(self):
+        # A root rotation that stands rest forward (+y) along world up -x
+        # makes the heading unreadable. The spine turns back, so the arms
+        # keep the rest pose's left/right axis, vertical; the legs turn with
+        # the root, so only the arms are paired. Frame 0 takes the house
+        # default.
+        bvh = read_bvh_file(BVH_DATA_DIR / "bvh_test1.bvh")
+        bvh.lr_mapping = {
+            side + part: other + part
+            for side, other in (("Left", "Right"), ("Right", "Left"))
+            for part in ("Shoulder", "Arm", "ForeArm", "Hand")
+        }
         tilt = np.array([[0.0, 1, 0], [-1, 0, 0], [0, 0, 1]])  # turns +y onto -x
-        angles = bvh.joint_angles.copy()
-        angles[0, 0] = rotmat_to_euler(tilt, bvh.nodes[0].rot_channels)
-        bvh.joint_angles = angles
+        self._pose_frame_zero(bvh, {"Hips": tilt, "Spine": tilt.T})
         bvh.world_up = "-x"
+        assert bvh.rest_forward == "+y"
         with pytest.warns(UserWarning, match="At frame 0, the facing direction cannot"):
-            forward = bvh.forward_at(0, coords=rest)
+            forward = bvh.forward_at(0)
         assert forward == "+y"  # the house default for an x up
 
 

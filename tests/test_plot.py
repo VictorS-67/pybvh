@@ -2316,7 +2316,7 @@ class TestComputeFollowAzimuths:
         vec = compute_follow_azimuths(_view(bvh_example, coords), base_azim)
 
         up_vec = _axis_to_vector(bvh_example.world_up)
-        facing = bvh_example.facing_frame(coords=coords)
+        facing = bvh_example.facing_frame()
         assert facing.valid.all()
         left_0 = facing.left[0]
         changes = []

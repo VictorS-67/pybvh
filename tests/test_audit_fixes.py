@@ -234,8 +234,8 @@ class TestUpAxisSign:
         bvh_neg.root_pos = rp
 
         foot_joints = ["LeftLeg", "RightLeg"]
-        contacts_pos = bvh_pos.foot_contacts(method="height", foot_joints=foot_joints)
-        contacts_neg = bvh_neg.foot_contacts(method="height", foot_joints=foot_joints)
+        contacts_pos = bvh_pos.foot_contacts(method="height", feet=foot_joints)
+        contacts_neg = bvh_neg.foot_contacts(method="height", feet=foot_joints)
         # Same physical motion -> same contact pattern
         npt.assert_array_equal(contacts_pos, contacts_neg)
 
@@ -251,8 +251,8 @@ class TestUpAxisSign:
         bvh_neg.root_pos = rp
 
         foot_joints = ["LeftLeg", "RightLeg"]
-        contacts_pos = bvh_pos.foot_contacts(method="height", foot_joints=foot_joints)
-        contacts_neg = bvh_neg.foot_contacts(method="height", foot_joints=foot_joints)
+        contacts_pos = bvh_pos.foot_contacts(method="height", feet=foot_joints)
+        contacts_neg = bvh_neg.foot_contacts(method="height", feet=foot_joints)
         npt.assert_array_equal(contacts_pos, contacts_neg)
 
     # --- A3: root_trajectory ---

@@ -339,7 +339,7 @@ class TestGetBoneChains:
     def test_legs_contain_the_feet(self, bvh):
         chains = get_bone_chains(bvh)
         bones = get_skeleton_lines(bvh)
-        foot_nodes = {bvh.node_index[n] for n in bvh.auto_detect_foot_joints()}
+        foot_nodes = {bvh.index(foot, space="node") for foot in bvh.auto_detect_feet()}
         leg_children = {bones[i][1] for i in chains["l_leg"] + chains["r_leg"]}
         assert foot_nodes <= leg_children
 

@@ -22,7 +22,7 @@ from typing import Any, Literal
 import numpy as np
 import pytest
 
-from pybvh import Bvh, nodes_from_table
+from pybvh import Bvh, analysis, nodes_from_table
 
 # The rig, in node order. Its names are chosen to collide:
 #   0 Hips    root
@@ -156,9 +156,42 @@ ENTRIES = [
         lambda bvh, s: bvh.triangle_area("Hips", "Spine", s),
     ),
     Entry("Bvh.range_of_motion", "joint", "joint", False, lambda bvh, s: bvh.range_of_motion(s)),
-    # The plural form, which every entry point that takes a set calls. It has
-    # no public caller yet: the contact detectors' rows replace this one.
-    Entry("Bvh._indices", "nodes", "node", True, lambda bvh, s: bvh._indices(s, space="node")),
+    # The contact detectors return each node's speed, a signal that differs
+    # between any two nodes of the rig, where the labels could agree.
+    # method="velocity": the rig's nodes stand above its root, which the
+    # height test of foot_contacts refuses as feet above the hips.
+    Entry(
+        "Bvh.ground_contacts",
+        "nodes",
+        "node",
+        True,
+        lambda bvh, s: bvh.ground_contacts(nodes=s, method="velocity", return_info=True)[1].speed,
+    ),
+    Entry(
+        "analysis.ground_contacts",
+        "nodes",
+        "node",
+        True,
+        lambda bvh, s: (
+            analysis.ground_contacts(bvh, nodes=s, method="velocity", return_info=True)[1].speed
+        ),
+    ),
+    Entry(
+        "Bvh.foot_contacts",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: bvh.foot_contacts(feet=s, method="velocity", return_info=True)[1].speed,
+    ),
+    Entry(
+        "analysis.foot_contacts",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: (
+            analysis.foot_contacts(bvh, feet=s, method="velocity", return_info=True)[1].speed
+        ),
+    ),
 ]
 
 

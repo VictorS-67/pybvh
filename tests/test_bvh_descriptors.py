@@ -232,7 +232,7 @@ def test_gait_wrappers_accept_precomputed_contacts():
     feet = ["LeftFoot", "RightFoot"]
     # adaptive=True mirrors the detection gait_parameters runs internally,
     # so precomputed-vs-internal labels are identical by construction
-    contacts = np.asarray(bvh.foot_contacts(foot_joints=feet, adaptive=True))
+    contacts = np.asarray(bvh.foot_contacts(feet=feet, adaptive=True))
     np.testing.assert_allclose(
         bvh.cadence(foot_joints=feet, contacts=contacts), bvh.cadence(foot_joints=feet)
     )
@@ -253,8 +253,8 @@ def test_gait_parameters_adaptive_default_sane_on_real_walk():
     assert 0.35 < g.stance_fraction < 0.75  # human stance ~60% of the cycle
     assert 1.2 < g.cadence < 2.5  # ~1.8 steps/s on this clip
     # explicit contacts= still fully overrides the internal detection
-    feet = analysis.auto_detect_foot_joints(walk)
-    pre = walk.foot_contacts(foot_joints=feet, adaptive=True)
+    feet = [foot.name for foot in analysis.auto_detect_feet(walk)]
+    pre = walk.foot_contacts(feet=feet, adaptive=True)
     g_pre = walk.gait_parameters(foot_joints=feet, contacts=pre)
     np.testing.assert_allclose(np.array(g_pre), np.array(g), equal_nan=True)
 
@@ -269,7 +269,7 @@ def test_range_of_motion_wrapper_matches_kernel():
 
 def test_ground_contacts_wrapper_matches_module():
     walk = read_bvh_file(Path(__file__).parent.parent / "bvh_data" / "cmu_12_01_walk.bvh")
-    feet = walk.auto_detect_foot_joints()
+    feet = walk.auto_detect_feet()
     got, got_report = walk.ground_contacts(feet, return_info=True)
     ref, ref_report = analysis.ground_contacts(walk, feet, return_info=True)
     np.testing.assert_array_equal(got, ref)

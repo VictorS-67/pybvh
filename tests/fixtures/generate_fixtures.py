@@ -304,9 +304,9 @@ def _run_default(bvh):
 
 
 def _run_explicit_feet_reversed(bvh):
-    # Reversed auto-detection: pins column order = foot_joints order, and
-    # that explicit foot_joints bypasses the floor cache.
-    return bvh.foot_contacts, {"foot_joints": list(reversed(bvh.auto_detect_foot_joints()))}
+    # Reversed auto-detection: pins column order = feet order, and
+    # that explicit feet bypasses the floor cache.
+    return bvh.foot_contacts, {"feet": list(reversed(bvh.auto_detect_feet()))}
 
 
 def _run_method_velocity(bvh):
@@ -355,17 +355,18 @@ def _run_explicit_thresholds(bvh):
 
 def _run_ground_contacts_by_name(bvh):
     # ground_contacts under its own defaults (height_reference="floor", no
-    # rest-height check), on the ankles: joints named, not auto-detected.
-    return bvh.ground_contacts, {"joints": ["LeftFoot", "RightFoot"]}
+    # rest-height check), on the ankles: nodes named, not auto-detected.
+    return bvh.ground_contacts, {"nodes": ["LeftFoot", "RightFoot"]}
 
 
-def _run_ground_contacts_by_index(bvh):
-    # The toe tips as node indices: end sites, found by their place in the
-    # tree (an end site's name is generated), and mapped back to names in
-    # the report's joints.
-    toes = [bvh.nodes[bvh.node_index[name]] for name in bvh.auto_detect_foot_joints()]
-    tips = [next(i for i, node in enumerate(bvh.nodes) if node.parent is toe) for toe in toes]
-    return bvh.ground_contacts, {"joints": tips}
+def _run_ground_contacts_by_node(bvh):
+    # The toe tips as nodes: end sites, found by their place in the tree (an
+    # end site's name is generated), and named by their own names in the
+    # report's joints. The pin was taken with their node indices, which the
+    # detectors no longer take; the nodes select the same rows.
+    toes = bvh.auto_detect_feet()
+    tips = [next(node for node in bvh.nodes if node.parent is toe) for toe in toes]
+    return bvh.ground_contacts, {"nodes": tips}
 
 
 def _run_method_height_floor_min(bvh):
@@ -403,7 +404,7 @@ FOOT_CONTACT_RUNS = [
     ("no_morphology", _run_no_morphology),
     ("explicit_thresholds", _run_explicit_thresholds),
     ("ground_contacts_by_name", _run_ground_contacts_by_name),
-    ("ground_contacts_by_index", _run_ground_contacts_by_index),
+    ("ground_contacts_by_node", _run_ground_contacts_by_node),
     ("method_height_floor_min", _run_method_height_floor_min),
     ("method_height_adaptive", _run_method_height_adaptive),
     ("one_frame", _run_one_frame),

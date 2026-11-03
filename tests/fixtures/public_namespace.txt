@@ -77,11 +77,12 @@ pybvh.analysis.BvhNode
 pybvh.analysis.DLJ_NORMALIZERS
 pybvh.analysis.FacingFrame
 pybvh.analysis.GaitParameters
+pybvh.analysis.NodeSelector
 pybvh.analysis.VelocityReductions
 pybvh.analysis.active_duration
 pybvh.analysis.active_segments
 pybvh.analysis.angular_velocities
-pybvh.analysis.auto_detect_foot_joints
+pybvh.analysis.auto_detect_feet
 pybvh.analysis.cadence
 pybvh.analysis.cov3dj
 pybvh.analysis.dimensionless_jerk

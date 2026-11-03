@@ -475,15 +475,15 @@ class TestFootDetectionFallback:
     @pytest.mark.parametrize(
         "call",
         [
-            lambda clip: analysis.auto_detect_foot_joints(clip),
-            lambda clip: clip.auto_detect_foot_joints(),
+            lambda clip: analysis.auto_detect_feet(clip),
+            lambda clip: clip.auto_detect_feet(),
             lambda clip: analysis.foot_contacts(clip),
             lambda clip: clip.foot_contacts(),
             lambda clip: analysis.skeleton_size(clip),
         ],
         ids=[
-            "analysis.auto_detect_foot_joints",
-            "Bvh.auto_detect_foot_joints",
+            "analysis.auto_detect_feet",
+            "Bvh.auto_detect_feet",
             "analysis.foot_contacts",
             "Bvh.foot_contacts",
             "analysis.skeleton_size",
@@ -501,7 +501,7 @@ class TestFootDetectionFallback:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             line = _line_after_this_one()
-            analysis.auto_detect_foot_joints(clip)
+            analysis.auto_detect_feet(clip)
         warning = _the_warning(caught, TIPLESS)
         assert (warning.filename, warning.lineno) == (__file__, line)
 

@@ -14,7 +14,7 @@ import numpy.typing as npt
 
 from .analysis import _validate_stencil_pad, joint_velocities
 from .analysis import foot_contacts as _foot_contacts
-from .bvh import Bvh
+from .bvh import Bvh, _check_centered
 from .bvhnode import NodeSelector
 from .rotations import REPRESENTATION_CHANNELS as _REPRESENTATION_WIDTHS
 from .spatial_coord import _ground_plane_offset
@@ -175,8 +175,8 @@ def to_feature_array(
     Raises
     ------
     ValueError
-        If ``representation`` is unknown, or ``stencil`` / ``pad`` is
-        invalid. With ``include_foot_contacts=True``, also where
+        If ``representation`` or ``centered`` is unknown, or ``stencil`` /
+        ``pad`` is invalid. With ``include_foot_contacts=True``, also where
         :func:`pybvh.analysis.foot_contacts` raises it for ``feet``.
     TypeError
         With ``include_foot_contacts=True``, where
@@ -189,6 +189,7 @@ def to_feature_array(
             f"Unknown representation '{representation}'. "
             f"Choose from {sorted(_REPRESENTATION_WIDTHS)}."
         )
+    _check_centered(centered)
     if include_velocities:
         _validate_stencil_pad(stencil, pad)
 

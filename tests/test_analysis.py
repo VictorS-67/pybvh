@@ -549,6 +549,22 @@ class TestToFeatureArrayPad:
         assert feat.shape == (bvh_example.frame_count, expected_D)
 
 
+class TestToFeatureArrayCentered:
+    """An unknown centering mode is refused whichever blocks are exported."""
+
+    @pytest.mark.parametrize(
+        "blocks",
+        [
+            {"include_velocities": False, "include_foot_contacts": False},
+            {"include_velocities": False, "include_foot_contacts": True},
+            {"include_velocities": True, "include_foot_contacts": False},
+        ],
+    )
+    def test_unknown_centered_raises(self, bvh_example, blocks):
+        with pytest.raises(ValueError, match="skelton is not recognized for the centered"):
+            bvh_example.to_feature_array(centered="skelton", **blocks)
+
+
 # ============================================================================
 # Phase 4 — scale-invariant foot thresholds + height sanity check
 # ============================================================================

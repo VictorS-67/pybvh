@@ -2675,14 +2675,15 @@ def _compute_gait_parameters(contacts, foot_h, foot_names, frame_time, root_dist
     cadence = total_onsets / duration if duration > 0 else float("nan")
     pace = root_distance / duration if duration > 0 else float("nan")
 
-    # stride length: per foot, distance between consecutive landing positions
-    per_foot_strides: dict[str, npt.NDArray[np.float64]] = {}
+    # stride length: per foot, distance between consecutive landing positions.
+    # Keyed by column, not by name: two feet may share a name.
+    per_foot_strides: dict[int, npt.NDArray[np.float64]] = {}
     pooled = []
     for fi, (onsets, _) in enumerate(events):
         if len(onsets) >= 2:
             landings = foot_h[onsets, fi, :]
             d = np.linalg.norm(np.diff(landings, axis=0), axis=1)
-            per_foot_strides[foot_names[fi]] = d
+            per_foot_strides[fi] = d
             pooled.append(d)
     pooled = np.concatenate(pooled) if pooled else np.empty(0)
     stride = float(pooled.mean()) if pooled.size else float("nan")
@@ -2728,8 +2729,8 @@ def _compute_gait_parameters(contacts, foot_h, foot_names, frame_time, root_dist
         double_support = float("nan")
 
     # asymmetry: |L − R| mean stride / their average; needs one L and one R foot
-    lefts = [n for n in per_foot_strides if "left" in n.lower()]
-    rights = [n for n in per_foot_strides if "right" in n.lower()]
+    lefts = [fi for fi in per_foot_strides if "left" in foot_names[fi].lower()]
+    rights = [fi for fi in per_foot_strides if "right" in foot_names[fi].lower()]
     if len(lefts) == 1 and len(rights) == 1:
         mL = per_foot_strides[lefts[0]].mean()
         mR = per_foot_strides[rights[0]].mean()

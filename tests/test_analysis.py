@@ -739,6 +739,20 @@ class TestAutoDetectFeet:
         with pytest.raises(ValueError, match=r"Pass the node you mean"):
             renamed.foot_contacts(feet=["Toe", "Toe"])
 
+    def test_feet_that_share_a_name_are_each_measured_by_the_gait(self):
+        # The stride variability pools each foot's strides; feet that share a
+        # name are still two feet. Asymmetry, which reads "left" and "right"
+        # in the names, is the field the renaming changes.
+        walk = read_bvh_file(CMU_WALK_PATH)
+        table = walk.to_node_table()
+        for foot in walk.auto_detect_feet():
+            table[walk.index(foot, space="node")]["name"] = "Toe"
+        renamed = walk.copy(nodes=table)
+        got, want = renamed.gait_parameters(), walk.gait_parameters()
+        np.testing.assert_allclose(
+            np.array(got._replace(asymmetry=0.0)), np.array(want._replace(asymmetry=0.0))
+        )
+
 
 # ============================================================================
 # Composition tests: features interact correctly with transforms

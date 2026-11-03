@@ -657,7 +657,7 @@ gp.fig_covariance(C, L)
 
 # %%
 bvh_feet = [foot.name for foot in analysis.auto_detect_feet(bvh)]
-gp.fig_skeleton_size(bvh, bvh_feet, analysis.skeleton_size(bvh, foot_joints=bvh_feet))
+gp.fig_skeleton_size(bvh, bvh_feet, analysis.skeleton_size(bvh, feet=bvh_feet))
 
 # %% [markdown]
 # ### Gait — on real walking mocap

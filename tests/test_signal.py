@@ -291,16 +291,16 @@ def test_rdp_3d_and_large_eps():
 def test_skeleton_size_positive_and_scale_linear():
     bvh = make_pos_y_up_bvh()
     feet = ["LeftFoot", "RightFoot"]
-    size = analysis.skeleton_size(bvh, foot_joints=feet)
+    size = analysis.skeleton_size(bvh, feet=feet)
     assert size > 0
     bigger = bvh.scale(2.0)
-    np.testing.assert_allclose(analysis.skeleton_size(bigger, foot_joints=feet), 2.0 * size)
+    np.testing.assert_allclose(analysis.skeleton_size(bigger, feet=feet), 2.0 * size)
 
 
-def test_skeleton_size_unknown_explicit_joint_raises():
+def test_skeleton_size_refuses_an_empty_selection():
     bvh = make_pos_y_up_bvh()
-    with pytest.raises(ValueError, match="not found"):
-        analysis.skeleton_size(bvh, foot_joints=["NotAJoint"])
+    with pytest.raises(ValueError, match=r"skeleton_size got feet=\[\]"):
+        analysis.skeleton_size(bvh, feet=[])
 
 
 def test_skeleton_size_unmeasurable_raises_not_fabricates():
@@ -308,11 +308,11 @@ def test_skeleton_size_unmeasurable_raises_not_fabricates():
     substitute — 1.0 reads as a plausible metre-scale humanoid."""
     bvh = make_pos_y_up_bvh()
     # feet are end sites here, so auto-detection finds none
-    with pytest.raises(ValueError, match="no foot joints"):
+    with pytest.raises(ValueError, match="found no feet"):
         analysis.skeleton_size(bvh)
     # explicit feet that coincide with the root: no measurable size either
     with pytest.raises(ValueError, match="no measurable size"):
-        analysis.skeleton_size(bvh, foot_joints=["Hips"])
+        analysis.skeleton_size(bvh, feet=["Hips"])
 
 
 def test_relative_scale_factor_recovers_known_scale():

@@ -4154,7 +4154,7 @@ class Bvh:
         speed = np.linalg.norm(vel[:, self.index(node, "node"), :], axis=-1)
         return analysis.velocity_reductions(speed, 1.0 / self.frame_time)
 
-    def skeleton_size(self, foot_joints: list[str] | None = None) -> float:
+    def skeleton_size(self, feet: Sequence[NodeSelector] | None = None) -> float:
         """Absolute skeleton scale — mean rest-pose root-to-foot distance.
 
         Raises ``ValueError`` for a skeleton whose size cannot be
@@ -4162,7 +4162,7 @@ class Bvh:
         returning a substitute. See :func:`pybvh.analysis.skeleton_size`."""
         from . import analysis
 
-        return analysis.skeleton_size(self, foot_joints=foot_joints)
+        return analysis.skeleton_size(self, feet=feet)
 
     def kinetic_energy(
         self,

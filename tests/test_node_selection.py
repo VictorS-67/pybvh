@@ -201,6 +201,14 @@ ENTRIES = [
             analysis.foot_contacts(bvh, feet=s, method="velocity", return_info=True)[1].speed
         ),
     ),
+    Entry("Bvh.skeleton_size", "feet", "node", True, lambda bvh, s: bvh.skeleton_size(feet=s)),
+    Entry(
+        "analysis.skeleton_size",
+        "feet",
+        "node",
+        True,
+        lambda bvh, s: analysis.skeleton_size(bvh, feet=s),
+    ),
     # The angles show which joint changed order: the skeleton's positions do
     # not change with it.
     Entry(

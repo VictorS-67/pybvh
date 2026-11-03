@@ -685,6 +685,25 @@ class TestAutoDetectFeet:
         np.testing.assert_array_equal(by_name, default)
         assert default_report.joints == node_report.joints == name_report.joints
 
+    @pytest.mark.parametrize(
+        "measure",
+        [
+            pytest.param(
+                lambda clip, **kw: analysis.skeleton_size(clip, **kw), id="analysis.skeleton_size"
+            ),
+            pytest.param(lambda clip, **kw: clip.skeleton_size(**kw), id="Bvh.skeleton_size"),
+        ],
+    )
+    def test_the_feet_passed_back_measure_what_the_default_and_the_names_measure(self, measure):
+        walk = read_bvh_file(CMU_WALK_PATH)
+        default = np.asarray(measure(walk))
+        np.testing.assert_array_equal(
+            np.asarray(measure(walk, feet=walk.auto_detect_feet())), default
+        )
+        np.testing.assert_array_equal(
+            np.asarray(measure(walk, feet=["LeftToeBase", "RightToeBase"])), default
+        )
+
     def test_the_feet_of_another_clip_are_refused(self):
         walk = read_bvh_file(CMU_WALK_PATH)
         other = walk.copy()

@@ -1363,7 +1363,7 @@ def auto_detect_feet(bvh: Bvh) -> list[BvhNode]:
     return most_distal
 
 
-def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
+def skeleton_size(bvh: Bvh, feet: Sequence[NodeSelector] | None = None) -> float:
     """Absolute skeleton scale — mean rest-pose root-to-foot distance.
 
     A size proxy that scales linearly with the whole skeleton (≈ half the
@@ -1388,51 +1388,56 @@ def skeleton_size(bvh: Bvh, foot_joints: list[str] | None = None) -> float:
     ----------
     bvh : Bvh
         Input skeleton.
-    foot_joints : list of str, optional
-        Foot joints; auto-detected from topology if None. Explicitly
-        passed names must exist in the skeleton (``ValueError``
-        otherwise).
+    feet : sequence of str or BvhNode, or None, optional
+        The feet, each a node name or one of ``bvh.nodes`` (see
+        :data:`~pybvh.NodeSelector`), resolved in node space as
+        :meth:`Bvh.index <pybvh.bvh.Bvh.index>` resolves one node. If
+        None (default), the nodes :func:`auto_detect_feet` returns.
 
     Returns
     -------
     float
-        Mean rest-pose distance from the root to the foot joints
+        Mean rest-pose distance from the root to the feet
         (always ``> 0``).
 
     Raises
     ------
     ValueError
-        If an explicitly passed foot joint name is not in the skeleton;
-        if auto-detection finds no foot joints; or if all foot joints
-        coincide with the root in the rest pose (no measurable size).
+        If ``feet`` is None and :func:`auto_detect_feet` finds no feet;
+        if ``feet`` is empty; if an entry of ``feet`` is a name that no
+        node carries, or that several nodes share, a ``BvhNode`` that is
+        not one of ``bvh.nodes``, or the same node selected twice; or if
+        all feet coincide with the root in the rest pose (no measurable
+        size).
+    TypeError
+        If ``feet`` is a bare ``str`` or ``BvhNode`` instead of a sequence
+        of them, or an entry is neither: node ``i`` is ``bvh.nodes[i]``.
 
     Notes
     -----
     Source: gait/biomech normalization (Troje, Karg et al.).
     """
-    if foot_joints is None:
+    # Tested against None: a NumPy array of names has no truth value.
+    if feet is None:
         feet = auto_detect_feet(bvh)
         if not feet:
             raise ValueError(
-                "skeleton_size: no foot joints auto-detected on this "
-                "skeleton, so its size cannot be measured. Pass foot_joints= "
-                "explicitly (the deepest leg-chain joints), or catch this "
-                "error and choose your own scale."
+                "skeleton_size found no feet on this skeleton, so its size "
+                "cannot be measured: auto_detect_feet() returned []. Pass "
+                "feet= explicitly (the deepest leg-chain joints), or catch "
+                "this error and choose your own scale."
             )
-        foot_indices = bvh._indices(feet, space="node")
-    else:
-        unknown = [n for n in foot_joints if n not in bvh.node_index]
-        if unknown:
-            raise ValueError(f"skeleton_size: joint names {unknown} not found in skeleton.")
-        foot_indices = [bvh.node_index[name] for name in foot_joints]
+    foot_indices = bvh._indices(feet, space="node")
+    if not foot_indices:
+        raise ValueError("skeleton_size got feet=[]: a size is measured to at least one foot.")
     rest_coords = bvh._rest_pose()
     distance = geometry._mean_distance_to_root(rest_coords[foot_indices], rest_coords[0])
     if distance is None:
         raise ValueError(
-            "skeleton_size: every foot joint coincides with the root in the "
+            "skeleton_size: every foot coincides with the root in the "
             "rest pose, so this skeleton has no measurable size. Pass "
-            "different foot_joints=, or catch this error and choose your "
-            "own scale."
+            "different feet=, or catch this error and choose your own "
+            "scale."
         )
     return distance
 

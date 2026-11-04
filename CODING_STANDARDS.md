@@ -6,6 +6,8 @@ A rule that opens with a class name, such as **band-aid-fix**, states what the w
 
 A rule a check can enforce does not stay here: once a test or a CI step holds it, the check is the rule and the entry goes. The last section lists the mechanical rules still waiting for their check.
 
+The checks own form. A point of form is a finding only when a rule here or in `CONTRIBUTING.md` asks for it and no check holds it. Wording is a finding when it is false or ambiguous, or when the prose is what the change delivers; a phrasing that only reads awkwardly is not.
+
 ## Code and API quality
 
 Non-negotiable across every change to the codebase:
@@ -56,7 +58,6 @@ Non-negotiable across every change to the codebase:
 - **weak-assertion.** A test checks its case tightly enough to fail when the behaviour breaks: the result the behaviour names, not a fragment of it or a proxy for its effect. Numerical assertions use `np.testing.assert_allclose` with a tolerance chosen for the precision at stake; a file round trip uses `atol=1e-5` because of the `%.6f` formatting.
 - **test-gap.** Every behaviour a change adds or alters (an edge case, a backend, a mode, a path) that a real exporter or an everyday call reaches is pinned by a test that runs its case and asserts it; a theoretical input gets none (speculative-generality, above).
 - A frozen reference (`tests/fixtures/*.npz`, the pixel baselines) is regenerated only deliberately, in its own commit, with the reason in the message. When the change alters the reference's shape, so that the suite cannot pass between the change and the regeneration, the reference is regenerated in the commit that makes the change, and its message quotes a check of every old value against its new place.
-- Every commit leaves the suite green (`CONTRIBUTING.md`).
 
 ## Docs
 
@@ -64,11 +65,11 @@ Non-negotiable across every change to the codebase:
 - **unverified-claim.** Whatever is written (a docstring, a page of the docs, a comment, a test name, a commit, a PR body) is true and says no more than the evidence shows: a round trip whose values are equal within float precision is lossless within float precision, not lossless.
 - **incomplete-documentation.** Documentation gives its reader what they need; leaving it out is a finding even when every sentence written is true. A docstring names the convention it chose, as the first section says.
 - `CHANGELOG.md` has an entry for every user-visible change, phrased against the previous shipped release (`CONTRIBUTING.md`). A breaking change has its breaking row, and its PR a Migration section.
-- A commit subject is in the imperative, and a body, when there is one, says why: the constraint, the mechanism, the alternative rejected (`CONTRIBUTING.md`). The commit-message check holds the format, not these.
+- A commit body, when there is one, says why: the constraint, the mechanism, the alternative rejected (`CONTRIBUTING.md`). The commit-message check holds the format.
 
 ## Mechanical rules waiting for a check
 
 Held by the reviewer until a test or a CI step takes them over; each leaves this file when its check lands.
 
-- Markdown prose is not hard-wrapped in notebook markdown cells and PR bodies: one paragraph is one line. The suite checks `.md` files and the commit-message check covers commit bodies. Docstrings and code comments wrap at the code's line length.
+- Markdown prose is not hard-wrapped in notebook markdown cells and PR bodies: one paragraph is one line. The suite checks `.md` files and the commit-message check covers commit bodies.
 - Every `# type: ignore` names its error code (`# type: ignore[call-overload]`), so that it silences that error alone. The check is mypy's `ignore-without-code` error code, once `[tool.mypy]` enables it.

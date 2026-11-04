@@ -34,6 +34,14 @@ _EPS = 1e-12
 
 
 def _validate_stencil_pad(stencil: str, pad: str) -> None:
+    for name, value, choices in (
+        ("stencil", stencil, "'central' or 'forward'"),
+        ("pad", pad, "'edge' or 'none'"),
+    ):
+        # A value of another type would be compared element-wise (an array)
+        # before it could be refused, so it is refused by its type first.
+        if not isinstance(value, str):
+            raise TypeError(f"{name} must be {choices}, got a value of type {type(value).__name__}")
     if stencil not in ("central", "forward"):
         raise ValueError(f"stencil must be 'central' or 'forward', got {stencil!r}")
     if pad not in ("edge", "none"):

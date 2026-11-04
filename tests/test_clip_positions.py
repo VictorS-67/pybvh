@@ -91,3 +91,33 @@ def test_changing_a_returned_array_changes_no_later_result(name, kwargs):
         array[...] = ~array if array.dtype == np.bool_ else array + 1.0
     for got, want in zip(_arrays_in(call(bvh, **kwargs)), expected, strict=True):
         np.testing.assert_array_equal(got, want)
+
+
+# The derivatives whose fourth positional parameter was ``coords``: an array
+# passed there now lands in ``stencil``.
+_DERIVATIVES = [
+    analysis.node_velocities,
+    analysis.joint_velocities,
+    analysis.node_accelerations,
+    analysis.joint_accelerations,
+    analysis.node_speed_derivative,
+    analysis.joint_speed_derivative,
+    analysis.node_jerk,
+    analysis.joint_jerk,
+]
+
+
+@pytest.mark.parametrize("function", _DERIVATIVES, ids=lambda f: f.__name__)
+def test_positions_passed_by_position_are_refused_as_stencil(function):
+    bvh = make_pos_y_up_rotating_bvh()
+    positions = bvh.node_positions()
+    with pytest.raises(
+        TypeError, match=r"stencil must be 'central' or 'forward', got a value of type ndarray"
+    ):
+        function(bvh, "world", False, positions)
+
+
+def test_a_pad_that_is_not_a_string_is_refused():
+    bvh = make_pos_y_up_rotating_bvh()
+    with pytest.raises(TypeError, match=r"pad must be 'edge' or 'none', got a value of type int"):
+        analysis.node_velocities(bvh, pad=0)

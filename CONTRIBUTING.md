@@ -79,7 +79,7 @@ The PR is marked ready once the review's fixes are in and the required checks ha
 
 ## Commits
 
-Commits are **atomic**: each one is a single logical step that leaves the test suite green, so any commit can be reverted, bisected or cherry-picked on its own. A refactor that touches five backends is five commits, not one; a fix and its test are one commit, not two.
+Commits are **atomic**: each one is a single logical step, so it can be reverted or cherry-picked on its own, and it aims to leave the test suite green. The review does not run the suite at each commit: a squash or a merge commit, the two methods under "Merging", puts each pull request on the first-parent line of `main` as one commit whose checks ran green, and `git bisect --first-parent` bisects over that line. A refactor that touches five backends is five commits, not one; a fix and its test are one commit, not two.
 
 Messages follow the pattern already in the history, `type(scope): subject`, with the subject at most 72 characters:
 

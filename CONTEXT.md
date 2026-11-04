@@ -13,7 +13,7 @@ features    dataframe            a clip as one array · a DataFrame as a clip
 analysis    io    transforms     descriptors · the file · a clip in, a clip out
 bvh                              the clip: skeleton and motion
 spatial_coord   _orientation     forward kinematics · what a clip implies about up, left and forward
-_contacts                        contact detection on plain arrays
+_contacts                        contact detection on plain arrays and the tested nodes
 node_tree   tools   geometry     the tree · signed axes and validators · position kernels
 bvhnode   rotations   signal   _warnings   _derived
 ```
@@ -39,7 +39,7 @@ Every run-time import at module level points down this picture: a layer depends 
 | `_derived` | a clip's derived state: the values themselves, and the table of which change to the skeleton, the motion or the world up clears which value (ADR 0003) | compute a value: `bvh` computes each one and fills it on read |
 | `signal` | array-pure signal kernels | know a clip |
 | `geometry` | array-pure position descriptors | know a clip, or differentiate other than through `signal` |
-| `_contacts` | contact detection from plain data (the tested joints' positions, their and the root's rest positions, the frame time, the up axis, the settings): the signals, the thresholds, the labels, the confidence and the diagnostics | import a `Bvh`: `analysis.foot_contacts` and `ground_contacts` read the clip and run the checks that name it |
+| `_contacts` | contact detection from plain data (the tested nodes, for the report, their positions, their and the root's rest positions, the frame time, the up axis, the settings): the signals, the thresholds, the labels, the confidence and the diagnostics | import a `Bvh`: `analysis.foot_contacts` and `ground_contacts` read the clip and run the checks that name it |
 | `analysis` | the descriptors of a clip, as functions taking the `Bvh` first, and the array kernels behind the dynamics descriptors | assemble an export array |
 | `features` | the flat feature array and its column layout | compute a descriptor: it calls `analysis` |
 | `transforms` | spatial transforms and augmentation, on a clip and on raw arrays, and the reorientations | |

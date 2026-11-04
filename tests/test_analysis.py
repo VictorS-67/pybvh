@@ -699,7 +699,7 @@ class TestAutoDetectFeet:
         by_name, name_report = detect(walk, feet=["LeftToeBase", "RightToeBase"], return_info=True)
         np.testing.assert_array_equal(by_node, default)
         np.testing.assert_array_equal(by_name, default)
-        assert default_report.joints == node_report.joints == name_report.joints
+        assert default_report.nodes == node_report.nodes == name_report.nodes
 
     @pytest.mark.parametrize(
         "measure",
@@ -1300,10 +1300,10 @@ class TestFootContactsReturnInfo:
         assert isinstance(report, ContactReport)
         np.testing.assert_array_equal(contacts, bvh_example.foot_contacts())
 
-    def test_joints_match_the_columns(self, bvh_example):
+    def test_nodes_match_the_columns(self, bvh_example):
         contacts, report = bvh_example.foot_contacts(return_info=True)
-        assert report.joints == tuple(foot.name for foot in bvh_example.auto_detect_feet())
-        assert len(report.joints) == contacts.shape[1]
+        assert report.nodes == tuple(bvh_example.auto_detect_feet())
+        assert len(report.nodes) == contacts.shape[1]
 
     def test_report_records_the_method_used(self, bvh_example):
         for m in ("combined", "velocity", "height"):
@@ -1320,9 +1320,9 @@ FOOT_PIN_PATH = Path(__file__).parent / "fixtures" / "foot_contacts_pinned.npz"
 
 
 class TestContactReport:
-    """``return_info=True`` returns ``(contacts, report)``, a :class:`~pybvh.ContactReport` whose fields are always present (``None`` where the method does not use them) and whose per-joint values are ``(n_joints,)``."""
+    """``return_info=True`` returns ``(contacts, report)``, a :class:`~pybvh.ContactReport` whose fields are always present (``None`` where the method does not use them) and whose per-node values are ``(n_nodes,)``."""
 
-    def test_thresholds_are_per_joint_for_two_joints_and_for_one(self):
+    def test_thresholds_are_per_node_for_two_nodes_and_for_one(self):
         # Reproduction 2 of #123. The expected values are the per-foot values
         # the info dict gave on 57735bc (with one joint, its mean of one).
         bvh = read_bvh_file(CMU_WALK_PATH)
@@ -1335,7 +1335,7 @@ class TestContactReport:
         np.testing.assert_allclose(report.height_threshold, [0.48349764688295865], rtol=1e-12)
         np.testing.assert_allclose(report.vel_threshold, [2.0175858745080864], rtol=1e-12)
 
-    def test_a_scalar_threshold_given_is_reported_per_joint(self):
+    def test_a_scalar_threshold_given_is_reported_per_node(self):
         rig = make_contact_rig(6)
         _, report = rig.foot_contacts(
             feet=["LeftFoot", "RightFoot"],
@@ -1457,7 +1457,7 @@ class TestContactReport:
 
 
 class TestThresholdSources:
-    """The report says, per joint, where each threshold applied came from, and whether the skeleton scale was measured, so that no fallback passes as a measurement."""
+    """The report says, per node, where each threshold applied came from, and whether the skeleton scale was measured, so that no fallback passes as a measurement."""
 
     def test_a_split_clamped_to_its_bound_reads_otsu_clamped(self):
         # Reproduction 3 of #123: on the walk, Otsu's speed splits (about 28
@@ -1690,7 +1690,7 @@ class TestWhatACallMayPass:
         with pytest.raises(ValueError, match=rf"^{setting} must be finite and > 0"):
             detect(rig, **{setting: value})
 
-    def test_a_speed_threshold_per_joint_is_applied_per_joint(self, detect):
+    def test_a_speed_threshold_per_node_is_applied_per_node(self, detect):
         # The root, and both feet with it, travel 1 unit a frame along x,
         # 30 u/s at 30 fps: above LeftFoot's 10 u/s (and its band's top, 12.5),
         # below RightFoot's 100 u/s (and its band's bottom, 75).
@@ -1702,7 +1702,7 @@ class TestWhatACallMayPass:
         np.testing.assert_array_equal(contacts, [[0.0, 1.0]] * 6)
         np.testing.assert_array_equal(report.vel_threshold, [10.0, 100.0])
 
-    def test_a_height_threshold_per_joint_is_applied_per_joint(self, detect):
+    def test_a_height_threshold_per_node_is_applied_per_node(self, detect):
         # Both feet stand on y = 0, 1 unit above the floor given: above
         # LeftFoot's 0.5 (and its band's top, 0.625), below RightFoot's 2 (and
         # its band's bottom, 1.5).
@@ -1717,19 +1717,19 @@ class TestWhatACallMayPass:
         np.testing.assert_array_equal(contacts, [[0.0, 1.0]] * 6)
         np.testing.assert_array_equal(report.height_threshold, [0.5, 2.0])
 
-    def test_a_constant_threshold_per_joint_gives_the_scalars_contacts(self, detect):
+    def test_a_constant_threshold_per_node_gives_the_scalars_contacts(self, detect):
         walk = read_bvh_file(CMU_WALK_PATH)
         scalar = detect(walk, vel_threshold=2.0, height_threshold=0.5)
-        per_joint = detect(walk, vel_threshold=[2.0, 2.0], height_threshold=(0.5, 0.5))
+        per_node = detect(walk, vel_threshold=[2.0, 2.0], height_threshold=(0.5, 0.5))
         assert 0 < scalar.mean() < 1  # both phases occur
-        np.testing.assert_array_equal(per_joint, scalar)
+        np.testing.assert_array_equal(per_node, scalar)
 
     @pytest.mark.parametrize("setting", ["vel_threshold", "height_threshold"])
     @pytest.mark.parametrize("value", [[1.0], [1.0, 1.0, 1.0], [[1.0, 1.0]]])
-    def test_a_threshold_of_another_length_than_the_joints_is_refused(self, detect, setting, value):
+    def test_a_threshold_of_another_length_than_the_nodes_is_refused(self, detect, setting, value):
         rig = make_contact_rig(6)
         with pytest.raises(
-            ValueError, match=rf"^{setting} must be a scalar or one value per joint \(2,\)"
+            ValueError, match=rf"^{setting} must be a scalar or one value per node \(2,\)"
         ):
             detect(rig, **{setting: value})
 
@@ -1947,10 +1947,10 @@ class TestGroundContacts:
         )
         np.testing.assert_array_equal(by_node, by_name)
         np.testing.assert_array_equal(by_mixed, by_name)
-        # The report names the nodes by their own names, however selected.
-        assert report_name.joints == ("LeftToeBase", "RightToeBase")
-        assert report_node.joints == report_name.joints
-        assert report_mixed.joints == report_name.joints
+        # The report holds the clip's own nodes, however selected.
+        assert report_name.nodes == tuple(feet)
+        assert report_node.nodes == report_name.nodes
+        assert report_mixed.nodes == report_name.nodes
 
     def test_a_joint_index_is_refused_and_the_node_selects_by_identity(self, cmu_walk):
         # #127: joint_index["RightFoot"] is 9, and node 9 is RightLeg. The
@@ -1960,7 +1960,8 @@ class TestGroundContacts:
         with pytest.raises(TypeError, match=r"node i is bvh\.nodes\[i\]"):
             cmu_walk.ground_contacts([right_foot])
         _, report = cmu_walk.ground_contacts([cmu_walk.nodes[9]], return_info=True)
-        assert report.joints == ("RightLeg",)
+        assert report.nodes == (cmu_walk.nodes[9],)
+        assert report.nodes[0].name == "RightLeg"
 
     def test_numpy_array_of_names_gives_the_contacts_of_its_list(self, cmu_walk):
         names = [foot.name for foot in cmu_walk.auto_detect_feet()]
@@ -1981,7 +1982,8 @@ class TestGroundContacts:
             cmu_walk, list(reversed(feet)), return_info=True
         )
         np.testing.assert_array_equal(reordered, forward[:, ::-1])
-        assert report.joints == ("RightToeBase", "LeftToeBase")
+        assert report.nodes == tuple(reversed(feet))
+        assert [node.name for node in report.nodes] == ["RightToeBase", "LeftToeBase"]
 
     def test_default_height_reference_is_floor(self, cmu_walk):
         feet = cmu_walk.auto_detect_feet()
@@ -2017,7 +2019,7 @@ class TestGroundContacts:
         contacts, report = analysis.ground_contacts(
             cmu_walk, [toe_tip], height_reference="velocity", return_info=True
         )
-        assert report.joints == ("EndSiteLeftToeBase",)
+        assert report.nodes == (toe_tip,)
         assert contacts.shape == (cmu_walk.frame_count, 1)
         assert contacts.any()  # the toe tip does ground during a walk
 
@@ -2123,10 +2125,10 @@ class TestFootlessRigContract:
     @pytest.mark.parametrize(
         "settings",
         [{"vel_threshold": [1.0, 2.0]}, {"method": "velocity", "floor": 0.0}],
-        ids=["threshold_per_joint", "setting_not_read"],
+        ids=["threshold_per_node", "setting_not_read"],
     )
     def test_an_empty_list_is_refused_before_the_settings(self, detect, refusal, settings):
-        # Before the per-joint length or the setting the method does not read.
+        # Before the per-node length or the setting the method does not read.
         bvh = make_pos_y_up_bvh()
         with pytest.raises(ValueError, match=refusal):
             detect(bvh, [], **settings)

@@ -271,7 +271,7 @@ def test_ground_contacts_wrapper_matches_module():
     got, got_report = walk.ground_contacts(feet, return_info=True)
     ref, ref_report = analysis.ground_contacts(walk, feet, return_info=True)
     np.testing.assert_array_equal(got, ref)
-    assert got_report.joints == ref_report.joints
+    assert got_report.nodes == ref_report.nodes
     # keyword passthrough: a non-default parameterization delegates too. The
     # contact reference is the tested joints' own minimum, not the scene
     # ground (floor_height), which sits below them and leaves every frame

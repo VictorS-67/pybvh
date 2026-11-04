@@ -499,7 +499,7 @@ def fig_foot_contacts_signals(bvh, feet, foot=0):
         a.set_ylabel(ylab)
         a.legend(fontsize=8, loc="upper right")
     a1.set_title(
-        f"foot_contacts — {report.joints[foot]}: planted (green) where "
+        f"foot_contacts — {report.nodes[foot].name}: planted (green) where "
         f"BOTH signals sit below their thresholds"
     )
     a2.set_xlabel("time (s)")

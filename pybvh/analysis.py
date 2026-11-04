@@ -983,7 +983,7 @@ def foot_contacts(
         The stance calibration presumes the nodes it tests contact the ground regularly; for arbitrary (non-foot) node sets, :func:`ground_contacts` defaults to ``"floor"`` for exactly that reason.
     return_info : bool, keyword-only, optional
         If True, return ``(contacts, report)``, where ``report`` is a
-        :class:`~pybvh.ContactReport`: the feet (``joints``), the method and
+        :class:`~pybvh.ContactReport`: the feet (``nodes``), the method and
         the settings applied, each foot's thresholds, the skeleton scale, the
         contact reference (``contact_reference``), the ``speed`` and ``clearance``
         signals the thresholds were compared against, each foot's
@@ -1002,7 +1002,7 @@ def foot_contacts(
         frame 1 because velocity is undefined at frame 0.  Column
         order matches ``feet`` (or, for auto-detection, the
         order returned by :func:`auto_detect_feet`). The report's
-        ``joints`` holds the nodes' own names, in that order.
+        ``nodes`` holds the clip's own nodes, in that order.
 
     Raises
     ------
@@ -1044,7 +1044,7 @@ def foot_contacts(
         adaptive=adaptive,
         height_reference=height_reference,
         default_height_reference="velocity",
-        n_joints=len(node_indices),
+        n_nodes=len(node_indices),
     )
     return _contacts_on_clip(
         bvh,
@@ -1145,7 +1145,7 @@ def ground_contacts(
     height_reference : {"floor", "velocity"} or None, keyword-only, optional
         ``None`` (default) means ``"floor"``: the fixed ``0.013 × skeleton_scale`` margin above the floor. ``"velocity"`` enables :func:`foot_contacts`' per-node stance calibration; only use it when the nodes ground regularly enough to have stance statistics.
     return_info : bool, keyword-only, optional
-        As in :func:`foot_contacts`; the report's ``joints`` holds the nodes' own names, in the order of ``nodes``.
+        As in :func:`foot_contacts`; the report's ``nodes`` holds the clip's own nodes, in the order of ``nodes``.
 
     Returns
     -------
@@ -1182,7 +1182,7 @@ def ground_contacts(
         adaptive=adaptive,
         height_reference=height_reference,
         default_height_reference="floor",
-        n_joints=len(node_indices),
+        n_nodes=len(node_indices),
     )
     return _contacts_on_clip(
         bvh,
@@ -1205,7 +1205,7 @@ def _contacts_on_clip(
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], _contacts.ContactReport]:
     """The clip's part of :func:`foot_contacts` and :func:`ground_contacts`, around the detector on plain arrays.
 
-    Both entry points resolve their selection with :func:`_selected_node_indices` into ``node_indices``, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the positions and names of the nodes, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "feet below hips" sanity check, which presumes the nodes are feet. ``caller`` names the public function in the messages (``"foot_contacts()"``).
+    Both entry points resolve their selection with :func:`_selected_node_indices` into ``node_indices``, gather their settings into a :class:`~pybvh._contacts._ContactSettings`, and delegate here. This reads from the clip what the detector takes (the nodes and their positions, the rest pose, the frame time, the up axis), runs the checks whose messages name the clip (the frame time, the rest height), and hands the arrays to :func:`pybvh._contacts._contacts_from_positions`. ``check_rest_height`` enables the rest-pose "feet below hips" sanity check, which presumes the nodes are feet. ``caller`` names the public function in the messages (``"foot_contacts()"``).
     """
     if settings.reads_velocity:
         _require_rate(bvh.frame_time, f"{caller} with method={settings.method!r}")
@@ -1235,7 +1235,7 @@ def _contacts_on_clip(
     return _contacts._contacts_from_positions(
         # The cache is read-only; the fancy index copies the nodes' columns.
         bvh._world_node_positions()[:, node_indices, :],
-        [bvh.nodes[i].name for i in node_indices],
+        [bvh.nodes[i] for i in node_indices],
         rest_coords[node_indices],
         rest_coords[0],
         frame_time=bvh.frame_time,

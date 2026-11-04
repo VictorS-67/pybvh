@@ -1450,7 +1450,7 @@ class Bvh:
 
         This is **not** the reference :func:`~pybvh.analysis.foot_contacts`
         compares foot clearance against. That one is estimated per call, over
-        the joints being tested, and is reported as the ``contact_reference``
+        the nodes being tested, and is reported as the ``contact_reference``
         of its :class:`~pybvh.ContactReport` (``return_info=True``). The two
         answer different questions — this one belongs to the clip, that one to
         the query — and they differ by roughly a toe length on any rig with toe

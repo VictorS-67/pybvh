@@ -419,8 +419,13 @@ def call_pinned_run(build, bvh) -> tuple:
 
 
 def report_fields(report) -> dict:
-    """A ``ContactReport`` as ``{field: value}``, every field included, ``None`` ones too: the view the pin fixture stores and the pin tests compare."""
-    return {field.name: getattr(report, field.name) for field in dataclasses.fields(report)}
+    """A ``ContactReport`` as ``{field: value}``, every field included, ``None`` ones too: the view the pin fixture stores and the pin tests compare.
+
+    The tested nodes are given by their names, which an npz can hold: the pin compares what was tested, and the tests of the report check that its ``nodes`` are the clip's own.
+    """
+    fields = {field.name: getattr(report, field.name) for field in dataclasses.fields(report)}
+    fields["nodes"] = tuple(node.name for node in report.nodes)
+    return fields
 
 
 def gen_foot_contacts() -> None:

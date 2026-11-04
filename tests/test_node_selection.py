@@ -555,6 +555,32 @@ def test_extract_joints_keeps_one_of_two_joints_that_share_a_name():
     np.testing.assert_array_equal(reduced.joint_angles, clip.joint_angles[:, [0, 1, 3]])
 
 
+@pytest.mark.parametrize(
+    "detect",
+    [
+        lambda bvh, s: analysis.foot_contacts(bvh, feet=s, method="velocity", return_info=True),
+        lambda bvh, s: bvh.foot_contacts(feet=s, method="velocity", return_info=True),
+        lambda bvh, s: analysis.ground_contacts(bvh, s, return_info=True),
+        lambda bvh, s: bvh.ground_contacts(s, return_info=True),
+    ],
+    ids=[
+        "analysis.foot_contacts",
+        "Bvh.foot_contacts",
+        "analysis.ground_contacts",
+        "Bvh.ground_contacts",
+    ],
+)
+def test_a_contact_report_holds_the_tested_nodes_in_column_order(detect):
+    # The two "Arm" joints, which their names cannot tell apart, in the order
+    # given: the report's nodes are the clip's own.
+    clip = _rig()
+    selection = [clip.nodes[_OTHER_ARM], clip.nodes[_ARM]]
+    _, report = detect(clip, selection)
+    assert len(report.nodes) == 2
+    assert report.nodes[0] is clip.nodes[_OTHER_ARM]
+    assert report.nodes[1] is clip.nodes[_ARM]
+
+
 # The guard over the public signatures. It reads the signatures of every
 # public function and method of Bvh, analysis and features, so that a new one
 # cannot select nodes outside the rule, nor skip ENTRIES.

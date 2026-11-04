@@ -182,7 +182,7 @@ _Avoid_: foot joints
 A frame in which a node is planted, from velocity and height thresholds: `foot_contacts` on the detected feet, `ground_contacts` on any set of nodes, end sites included.
 
 **Contact report**:
-What one contact detection applied and compared, returned with the contacts by `return_info=True` (`ContactReport`): the method and settings, each tested node's thresholds, the skeleton scale, the contact reference, the speed and clearance signals, and the diagnostics. Every field present, `None` where the method does not use it; one value per tested node, never averaged.
+What one contact detection applied and compared, returned with the contacts by `return_info=True` (`ContactReport`): the tested nodes themselves, the method and settings, each tested node's thresholds, the skeleton scale, the contact reference, the speed and clearance signals, and the diagnostics. Every field present, `None` where the method does not use it; one value per tested node, never averaged.
 
 **Threshold source**:
 Where one tested node's contact threshold came from, in the contact report (`vel_threshold_source`, `height_threshold_source`): given by the caller, the default scaled by the skeleton scale (`"scale"`, `"margin"`), the stance calibration (`"stance"`), Otsu's split (`"otsu"`), or a bound standing in for a split outside it (`"otsu_clamped"`). A fallback reads as what stands in, never as the method that failed. Beside it, `skeleton_scale_measured` says whether the skeleton scale was measured or `1.0` stood in.

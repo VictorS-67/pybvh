@@ -1,21 +1,24 @@
 """Contact detection on plain arrays.
 
-The detector behind :func:`pybvh.analysis.foot_contacts` and :func:`pybvh.analysis.ground_contacts`: the tested joints' positions in, a per-frame contact label per joint out. It takes the joints' positions, their rest positions and the root's (the skeleton scale of the default thresholds), the frame time, the up axis and a :class:`_ContactSettings`, and imports no :class:`~pybvh.bvh.Bvh`: the two detectors read those from the clip, resolve the joints, run the checks whose messages name the clip (its frame time, its ``world_up``) and delegate here. Below the entry point are the kernels it calls: the speed and the clearance signals, the threshold resolution (the skeleton scale, Otsu's split, the stance calibration), the thresholding with hysteresis, the run filters, the confidence and the diagnostics.
+The detector behind :func:`pybvh.analysis.foot_contacts` and :func:`pybvh.analysis.ground_contacts`: the tested nodes' positions in, a per-frame contact label per node out. It takes the nodes (for the report), their positions, their rest positions and the root's (the skeleton scale of the default thresholds), the frame time, the up axis and a :class:`_ContactSettings`, and imports no :class:`~pybvh.bvh.Bvh`: the two detectors read those from the clip, resolve the nodes, run the checks whose messages name the clip (its frame time, its ``world_up``) and delegate here. Below the entry point are the kernels it calls: the speed and the clearance signals, the threshold resolution (the skeleton scale, Otsu's split, the stance calibration), the thresholding with hysteresis, the run filters, the confidence and the diagnostics.
 
-The contact reference is estimated here, over the tested joints, with :func:`pybvh.geometry._floor_level`; the scene ground (``Bvh.floor_height``) is never read (ADR 0002).
+The contact reference is estimated here, over the tested nodes, with :func:`pybvh.geometry._floor_level`; the scene ground (``Bvh.floor_height``) is never read (ADR 0002).
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Final, Literal, TypeVar, cast, get_args
+from typing import TYPE_CHECKING, Final, Literal, TypeVar, cast, get_args
 
 import numpy as np
 import numpy.typing as npt
 
 from . import geometry
 from .signal import box_filter_smooth
+
+if TYPE_CHECKING:
+    from .bvhnode import BvhNode
 
 # The choices of the settings that name one, as the entry points document them.
 _Method = Literal["combined", "velocity", "height"]
@@ -34,17 +37,17 @@ _VEL_THRESHOLD_FRACTION = 0.12
 _HEIGHT_MARGIN_FRACTION = 0.013
 # Otsu's split is kept within these multiples of the default it replaces.
 _SPLIT_LOWER_BOUND, _SPLIT_UPPER_BOUND = 0.25, 4.0
-# The percentile of the per-frame lowest joint the contact reference is read
+# The percentile of the per-frame lowest node the contact reference is read
 # at, by floor estimate.
 _FLOOR_PERCENTILE: dict[_FloorEstimate, float] = {"auto": 2.0, "min": 0.0}
 
 _METHODS_READING_VELOCITY = ("velocity", "combined")
 _METHODS_READING_HEIGHT = ("height", "combined")
 
-# A threshold as a caller gives it: one value for every joint, or one per joint.
+# A threshold as a caller gives it: one value for every node, or one per node.
 _ThresholdArg = float | Sequence[float] | npt.NDArray[np.float64]
 
-# Where a joint's threshold came from, as the report names it.
+# Where a node's threshold came from, as the report names it.
 _SplitSource = Literal["otsu", "otsu_clamped"]
 _VelocitySource = Literal["given", "scale", "otsu", "otsu_clamped"]
 _HeightSource = Literal["given", "margin", "stance", "otsu", "otsu_clamped"]
@@ -56,7 +59,7 @@ class _ContactSettings:
 
     :func:`pybvh.analysis.foot_contacts` and :func:`pybvh.analysis.ground_contacts` declare these settings as keywords and document them; they pass them on here, and what lies below the entry points receives this object instead of the keywords. Construction checks the call and puts the defaults in place: each attribute is the entry points' parameter of the same name with its default resolved, and it is :data:`~typing.Final`, so nothing below the entry points rebinds it.
 
-    ``default_height_reference`` is the detector's own default for ``height_reference``: ``"velocity"`` for :func:`pybvh.analysis.foot_contacts`, ``"floor"`` for :func:`pybvh.analysis.ground_contacts`. ``n_joints`` is the number of joints tested, the length a threshold given per joint must have; a threshold given is kept as a float or as a read-only ``(n_joints,)`` array.
+    ``default_height_reference`` is the detector's own default for ``height_reference``: ``"velocity"`` for :func:`pybvh.analysis.foot_contacts`, ``"floor"`` for :func:`pybvh.analysis.ground_contacts`. ``n_nodes`` is the number of nodes tested, the length a threshold given per node must have; a threshold given is kept as a float or as a read-only ``(n_nodes,)`` array.
     """
 
     def __init__(
@@ -73,7 +76,7 @@ class _ContactSettings:
         adaptive: bool,
         height_reference: str | None,
         default_height_reference: _HeightReference,
-        n_joints: int,
+        n_nodes: int,
     ) -> None:
         self.method: Final = _checked_method(method)
         _refuse_unread_settings(
@@ -103,9 +106,9 @@ class _ContactSettings:
         if not 0 <= hysteresis < 1:
             raise ValueError(f"hysteresis must be in [0, 1), got {hysteresis}")
         self.hysteresis: Final = hysteresis
-        self.vel_threshold: Final = _checked_threshold("vel_threshold", vel_threshold, n_joints)
+        self.vel_threshold: Final = _checked_threshold("vel_threshold", vel_threshold, n_nodes)
         self.height_threshold: Final = _checked_threshold(
-            "height_threshold", height_threshold, n_joints
+            "height_threshold", height_threshold, n_nodes
         )
         if adaptive:
             self._check_adaptive_derives_a_threshold()
@@ -113,12 +116,12 @@ class _ContactSettings:
 
     @property
     def reads_velocity(self) -> bool:
-        """Whether the method tests the joints' speed."""
+        """Whether the method tests the nodes' speed."""
         return self.method in _METHODS_READING_VELOCITY
 
     @property
     def reads_height(self) -> bool:
-        """Whether the method tests the joints' clearance above the contact reference."""
+        """Whether the method tests the nodes' clearance above the contact reference."""
         return self.method in _METHODS_READING_HEIGHT
 
     def _check_adaptive_derives_a_threshold(self) -> None:
@@ -230,12 +233,12 @@ def _check_durations(**durations: float) -> None:
 class ContactReport:
     """What one contact detection applied, and the signals it compared.
 
-    Returned beside the contacts by :func:`pybvh.analysis.foot_contacts` and :func:`pybvh.analysis.ground_contacts` (and their ``Bvh`` wrappers) when ``return_info=True``. Every field is always present: a field the call's method does not use is ``None``. A per-joint value is ``(n_joints,)`` in the order of ``joints``, the order of the contacts' columns, whether one joint is tested or several; nothing is averaged over the joints. Frozen, and its arrays are read-only; ``==`` compares identity, since the fields hold arrays.
+    Returned beside the contacts by :func:`pybvh.analysis.foot_contacts` and :func:`pybvh.analysis.ground_contacts` (and their ``Bvh`` wrappers) when ``return_info=True``. Every field is always present: a field the call's method does not use is ``None``. A per-node value is ``(n_nodes,)`` in the order of ``nodes``, the order of the contacts' columns, whether one node is tested or several; nothing is averaged over the nodes. Frozen, and its arrays are read-only; ``==`` compares identity, since the fields hold arrays.
 
     Attributes
     ----------
-    joints : tuple of str
-        The tested nodes' own names, in column order, however the nodes were selected (by name or as ``BvhNode``).
+    nodes : tuple of BvhNode
+        The tested nodes, the clip's own, in column order, however they were selected (by name or as ``BvhNode``): two nodes that share a name stay told apart, and ``n.name`` gives a node's name.
     method : {"combined", "velocity", "height"}
         The method applied.
     vel_smooth_duration : float or None
@@ -253,34 +256,34 @@ class ContactReport:
     floor_setting : {"auto", "min"} or float, or None
         The ``floor`` setting applied: ``"auto"`` (the default) or ``"min"``, the estimate ``contact_reference`` came from, or the level given. ``None`` under ``method="velocity"``.
     skeleton_scale : float
-        The scale the default thresholds are written in and the foot skate is divided by: the mean rest distance from the root to the tested joints. Reported whether or not a threshold was derived from it, since the diagnostics always use it.
+        The scale the default thresholds are written in and the foot skate is divided by: the mean rest distance from the root to the tested nodes. Reported whether or not a threshold was derived from it, since the diagnostics always use it.
     skeleton_scale_measured : bool
-        Whether ``skeleton_scale`` was measured: ``False`` where every tested joint sits on the root, which leaves no distance to measure, and ``1.0`` stands in (``ground_contacts(["Hips"])`` on a clip rooted at the hips).
-    vel_threshold : ndarray, shape (n_joints,), or None
-        The speed threshold applied to each joint, in units per second; ``None`` under ``method="height"``.
+        Whether ``skeleton_scale`` was measured: ``False`` where every tested node sits on the root, which leaves no distance to measure, and ``1.0`` stands in (``ground_contacts(["Hips"])`` on a clip rooted at the hips).
+    vel_threshold : ndarray, shape (n_nodes,), or None
+        The speed threshold applied to each node, in units per second; ``None`` under ``method="height"``.
     vel_threshold_source : tuple of str, or None
-        Where each joint's ``vel_threshold`` came from: ``"given"`` (the caller's), ``"scale"`` (the default, ``0.12 × skeleton_scale``), ``"otsu"`` (``adaptive=True``: Otsu's split of the joint's speed), ``"otsu_clamped"`` (the split fell outside ``[0.25, 4]`` × the default, and that bound stands in). A split rejected, the speed not being bimodal, reads ``"scale"``. ``None`` where ``vel_threshold`` is, and on a one-frame clip, which compares no speed against it.
-    speed : ndarray, shape (F, n_joints), or None
-        Each joint's speed, in units per second, the signal compared against ``vel_threshold`` (frame 0 repeats frame 1). ``None`` under ``method="height"``, and on a one-frame clip, which has no speed to measure: there the speed test passes every frame, so ``method="combined"`` labels by the height test alone.
-    height_threshold : ndarray, shape (n_joints,), or None
-        The clearance threshold applied to each joint, in world units; ``None`` under ``method="velocity"``.
+        Where each node's ``vel_threshold`` came from: ``"given"`` (the caller's), ``"scale"`` (the default, ``0.12 × skeleton_scale``), ``"otsu"`` (``adaptive=True``: Otsu's split of the node's speed), ``"otsu_clamped"`` (the split fell outside ``[0.25, 4]`` × the default, and that bound stands in). A split rejected, the speed not being bimodal, reads ``"scale"``. ``None`` where ``vel_threshold`` is, and on a one-frame clip, which compares no speed against it.
+    speed : ndarray, shape (F, n_nodes), or None
+        Each node's speed, in units per second, the signal compared against ``vel_threshold`` (frame 0 repeats frame 1). ``None`` under ``method="height"``, and on a one-frame clip, which has no speed to measure: there the speed test passes every frame, so ``method="combined"`` labels by the height test alone.
+    height_threshold : ndarray, shape (n_nodes,), or None
+        The clearance threshold applied to each node, in world units; ``None`` under ``method="velocity"``.
     height_threshold_source : tuple of str, or None
-        Where each joint's ``height_threshold`` came from: ``"given"``, ``"margin"`` (the default, ``0.013 × skeleton_scale``), ``"stance"`` (``height_reference="velocity"``: the joint's clearance over its slow frames, plus the margin), ``"otsu"`` and ``"otsu_clamped"`` (``adaptive=True`` where the height threshold is split, the bounds as for the speed). A split rejected, or a stance calibration that finds no swing above the stance level, reads ``"margin"``. ``None`` where ``height_threshold`` is.
+        Where each node's ``height_threshold`` came from: ``"given"``, ``"margin"`` (the default, ``0.013 × skeleton_scale``), ``"stance"`` (``height_reference="velocity"``: the node's clearance over its slow frames, plus the margin), ``"otsu"`` and ``"otsu_clamped"`` (``adaptive=True`` where the height threshold is split, the bounds as for the speed). A split rejected, or a stance calibration that finds no swing above the stance level, reads ``"margin"``. ``None`` where ``height_threshold`` is.
     contact_reference : float or None
-        The contact reference, along the raw ``world_up`` axis: the level the clearance is measured from, estimated over the tested joints (``floor="auto"`` or ``"min"``) or given. Never the scene ground, :attr:`Bvh.floor_height <pybvh.bvh.Bvh.floor_height>` (ADR 0002). ``None`` under ``method="velocity"``.
-    clearance : ndarray, shape (F, n_joints), or None
-        Each joint's height above ``contact_reference``, positive up, the signal compared against ``height_threshold``. ``None`` under ``method="velocity"``.
-    confidence : ndarray, shape (n_joints,)
-        Each joint's detection decisiveness in ``[0, 1]`` (not a probability): how far, on average over the frames its thresholds mark as contact, its signals sit below their thresholds, as a fraction of each threshold, and under ``method="combined"`` the geometric mean of that with the fraction of frames where the two tests agree. It is measured before ``min_contact_duration`` and ``min_gap_duration`` act, so a joint whose only marked run is too short to count still has a confidence above ``0`` though it is never in contact. ``0.0`` for a joint its thresholds never mark.
-    foot_skate_mean, foot_skate_max : ndarray, shape (n_joints,)
-        The mean and the largest, over each joint's contact runs of two frames or more, of how far the joint drifts horizontally within the run, divided by the skeleton scale; a planted joint should be near ``0``. ``0.0`` for a joint with no such run.
+        The contact reference, along the raw ``world_up`` axis: the level the clearance is measured from, estimated over the tested nodes (``floor="auto"`` or ``"min"``) or given. Never the scene ground, :attr:`Bvh.floor_height <pybvh.bvh.Bvh.floor_height>` (ADR 0002). ``None`` under ``method="velocity"``.
+    clearance : ndarray, shape (F, n_nodes), or None
+        Each node's height above ``contact_reference``, positive up, the signal compared against ``height_threshold``. ``None`` under ``method="velocity"``.
+    confidence : ndarray, shape (n_nodes,)
+        Each node's detection decisiveness in ``[0, 1]`` (not a probability): how far, on average over the frames its thresholds mark as contact, its signals sit below their thresholds, as a fraction of each threshold, and under ``method="combined"`` the geometric mean of that with the fraction of frames where the two tests agree. It is measured before ``min_contact_duration`` and ``min_gap_duration`` act, so a node whose only marked run is too short to count still has a confidence above ``0`` though it is never in contact. ``0.0`` for a node its thresholds never mark.
+    foot_skate_mean, foot_skate_max : ndarray, shape (n_nodes,)
+        The mean and the largest, over each node's contact runs of two frames or more, of how far the node drifts horizontally within the run, divided by the skeleton scale; a planted node should be near ``0``. ``0.0`` for a node with no such run.
     airborne_fraction : float
-        The fraction of frames in which no tested joint is in contact.
-    height_at_contact : ndarray, shape (n_joints,), or None
-        Each joint's mean ``clearance`` over its contact frames, ``nan`` for a joint never in contact. ``None`` under ``method="velocity"``, which measures no clearance.
+        The fraction of frames in which no tested node is in contact.
+    height_at_contact : ndarray, shape (n_nodes,), or None
+        Each node's mean ``clearance`` over its contact frames, ``nan`` for a node never in contact. ``None`` under ``method="velocity"``, which measures no clearance.
     """
 
-    joints: tuple[str, ...]
+    nodes: tuple[BvhNode, ...]
     method: str
     vel_smooth_duration: float | None
     vel_smooth_frames: int | None
@@ -307,16 +310,15 @@ class ContactReport:
 
 
 def _checked_threshold(
-    name: str, threshold: _ThresholdArg | None, n_joints: int
+    name: str, threshold: _ThresholdArg | None, n_nodes: int
 ) -> float | npt.NDArray[np.float64] | None:
-    """A threshold given, checked: a float, a read-only ``(n_joints,)`` array, or ``None`` when not given."""
+    """A threshold given, checked: a float, a read-only ``(n_nodes,)`` array, or ``None`` when not given."""
     if threshold is None:
         return None
     values = np.array(threshold, dtype=np.float64)
-    if values.ndim != 0 and values.shape != (n_joints,):
+    if values.ndim != 0 and values.shape != (n_nodes,):
         raise ValueError(
-            f"{name} must be a scalar or one value per joint ({n_joints},), "
-            f"got shape {values.shape}"
+            f"{name} must be a scalar or one value per node ({n_nodes},), got shape {values.shape}"
         )
     if not np.all(np.isfinite(values) & (values > 0)):
         raise ValueError(f"{name} must be finite and > 0, got {threshold}")
@@ -327,9 +329,9 @@ def _checked_threshold(
 
 
 def _contacts_from_positions(
-    joint_positions: npt.NDArray[np.float64],
-    joint_names: list[str],
-    joint_rest: npt.NDArray[np.float64],
+    node_positions: npt.NDArray[np.float64],
+    nodes: Sequence[BvhNode],
+    node_rest: npt.NDArray[np.float64],
     root_rest: npt.NDArray[np.float64],
     *,
     frame_time: float,
@@ -338,23 +340,23 @@ def _contacts_from_positions(
     settings: _ContactSettings,
     return_info: bool,
 ) -> npt.NDArray[np.float64] | tuple[npt.NDArray[np.float64], ContactReport]:
-    """Per-frame contact labels of the tested joints, from their positions.
+    """Per-frame contact labels of the tested nodes, from their positions.
 
-    ``joint_positions`` is ``(F, n_joints, 3)``, in world coordinates; ``joint_names`` names its joints, for the report; ``joint_rest`` is their rest positions ``(n_joints, 3)`` and ``root_rest`` the root's ``(3,)``, which give the skeleton scale the default thresholds are written in. The up axis is ``up_idx`` signed by ``up_sign``. Returns the ``(F, n_joints)`` labels (1.0 in contact), with the :class:`ContactReport` when ``return_info``.
+    ``node_positions`` is ``(F, n_nodes, 3)``, in world coordinates; ``nodes`` are those nodes, in the same order, for the report; ``node_rest`` is their rest positions ``(n_nodes, 3)`` and ``root_rest`` the root's ``(3,)``, which give the skeleton scale the default thresholds are written in. The up axis is ``up_idx`` signed by ``up_sign``. Returns the ``(F, n_nodes)`` labels (1.0 in contact), with the :class:`ContactReport` when ``return_info``.
 
-    The caller has checked the inputs whose messages name the clip: at least one joint, and a ``frame_time`` above zero whenever the method reads the speed or a duration filter is on.
+    The caller has checked the inputs whose messages name the clip: at least one node, and a ``frame_time`` above zero whenever the method reads the speed or a duration filter is on.
     """
-    n_joints = len(joint_names)
-    F = joint_positions.shape[0]
+    n_nodes = len(nodes)
+    F = node_positions.shape[0]
 
     # The scale the default thresholds are written in and the report's foot
     # skate is divided by.
-    scale, scale_measured = _skeleton_scale(joint_rest, root_rest)
+    scale, scale_measured = _skeleton_scale(node_rest, root_rest)
 
-    # ---- Signals (F, n_joints), threshold resolution ----
+    # ---- Signals (F, n_nodes), threshold resolution ----
     speed = None
     clearance = None
-    # The thresholds in use: the caller's, or a per-joint (n_joints,) array resolved here.
+    # The thresholds in use: the caller's, or a per-node (n_nodes,) array resolved here.
     vel_thr_used: float | npt.NDArray[np.float64] | None = None
     height_thr_used: float | npt.NDArray[np.float64] | None = None
     floor_raw = None
@@ -366,9 +368,9 @@ def _contacts_from_positions(
         if F < 2:
             # No motion info — treat as "no velocity evidence against contact"
             # (speed 0 < any positive threshold) so combined falls back to height.
-            speed = np.zeros((F, n_joints))
+            speed = np.zeros((F, n_nodes))
         else:
-            disp = joint_positions[1:] - joint_positions[:-1]  # (F-1, n_joints, 3)
+            disp = node_positions[1:] - node_positions[:-1]  # (F-1, n_nodes, 3)
             # Condition the speed estimator over a fixed physical time span
             # so detection does not depend on the capture rate: box-averaging
             # the displacement *vectors* (norm-of-mean) cancels the
@@ -377,30 +379,30 @@ def _contacts_from_positions(
             vel_smooth_frames = min(F - 1, max(1, round(settings.vel_smooth_duration / frame_time)))
             if vel_smooth_frames > 1:
                 disp = box_filter_smooth(disp, vel_smooth_frames, axis=0)
-            sp = np.linalg.norm(disp, axis=-1) / frame_time  # (F-1, n_joints), u/s
+            sp = np.linalg.norm(disp, axis=-1) / frame_time  # (F-1, n_nodes), u/s
             speed = np.concatenate([sp[0:1], sp], axis=0)  # frame-0 propagated
         if settings.vel_threshold is not None:
             vel_thr_used = settings.vel_threshold
-            vel_source = _each_joint("given", n_joints)
+            vel_source = _each_node("given", n_nodes)
         else:
             base = _VEL_THRESHOLD_FRACTION * scale  # of the rest distance, per second
             if settings.adaptive and F >= 2:
                 vel_thr_used, vel_source = _resolve_adaptive(speed, base, "scale")
             else:
                 vel_thr_used = base
-                vel_source = _each_joint("scale", n_joints)
+                vel_source = _each_node("scale", n_nodes)
         if F < 2:
             vel_source = None  # no speed was measured, so no threshold was compared against one
 
     if settings.reads_height:
-        heights_signed = joint_positions[:, :, up_idx] * up_sign  # up-positive
+        heights_signed = node_positions[:, :, up_idx] * up_sign  # up-positive
         if isinstance(settings.floor, str):
             # "auto"/"min": the reference is estimated from the coords in
-            # use, over the joints being tested — never from the scene
+            # use, over the nodes being tested — never from the scene
             # ground (Bvh.floor_height), which is measured over ALL nodes
-            # and would sit an end site's length below these joints.
+            # and would sit an end site's length below these nodes.
             floor_raw = geometry._floor_level(
-                joint_positions, up_idx, up_sign, percentile=_FLOOR_PERCENTILE[settings.floor]
+                node_positions, up_idx, up_sign, percentile=_FLOOR_PERCENTILE[settings.floor]
             )
         else:
             floor_raw = float(settings.floor)
@@ -408,12 +410,12 @@ def _contacts_from_positions(
         clearance = heights_signed - floor_signed
         if settings.height_threshold is not None:
             height_thr_used = settings.height_threshold
-            height_source = _each_joint("given", n_joints)
+            height_source = _each_node("given", n_nodes)
         else:
             base = _HEIGHT_MARGIN_FRACTION * scale  # of the rest distance, above the floor
             # A speed signal exists exactly when method is "combined" here.
             if speed is not None and settings.height_reference == "velocity":
-                # Calibrate the height threshold per joint to its own stance
+                # Calibrate the height threshold per node to its own stance
                 # level (handles retargeting hover); reduces to `base` on rigs
                 # where the foot reaches the floor.
                 assert vel_thr_used is not None
@@ -424,7 +426,7 @@ def _contacts_from_positions(
                 height_thr_used, height_source = _resolve_adaptive(clearance, base, "margin")
             else:
                 height_thr_used = base
-                height_source = _each_joint("margin", n_joints)
+                height_source = _each_node("margin", n_nodes)
 
     mask, confidence = _detect_contacts(
         speed,
@@ -458,11 +460,11 @@ def _contacts_from_positions(
         return contacts
 
     skate_mean, skate_max, airborne, height_at_contact = _contact_diagnostics(
-        mask, joint_positions, clearance, up_idx, scale
+        mask, node_positions, clearance, up_idx, scale
     )
     height_reference_applied = settings.method == "combined" and settings.height_threshold is None
     report = ContactReport(
-        joints=tuple(joint_names),
+        nodes=tuple(nodes),
         method=settings.method,
         vel_smooth_duration=(
             float(settings.vel_smooth_duration) if settings.reads_velocity else None
@@ -476,11 +478,11 @@ def _contacts_from_positions(
         floor_setting=settings.floor if settings.reads_height else None,
         skeleton_scale=float(scale),
         skeleton_scale_measured=scale_measured,
-        vel_threshold=None if vel_thr_used is None else _per_joint(vel_thr_used, n_joints),
+        vel_threshold=None if vel_thr_used is None else _per_node(vel_thr_used, n_nodes),
         vel_threshold_source=vel_source,
         # The zeros a one-frame clip is tested with are no measured speed.
         speed=_optional_read_only(speed if F >= 2 else None),
-        height_threshold=None if height_thr_used is None else _per_joint(height_thr_used, n_joints),
+        height_threshold=None if height_thr_used is None else _per_node(height_thr_used, n_nodes),
         height_threshold_source=height_source,
         contact_reference=None if floor_raw is None else float(floor_raw),
         clearance=_optional_read_only(clearance),
@@ -497,16 +499,14 @@ _A = TypeVar("_A", bound=np.generic)
 _S = TypeVar("_S", bound=str)
 
 
-def _each_joint(source: _S, n_joints: int) -> tuple[_S, ...]:
-    """One threshold source for every joint, as the report's per-joint tuple."""
-    return (source,) * n_joints
+def _each_node(source: _S, n_nodes: int) -> tuple[_S, ...]:
+    """One threshold source for every node, as the report's per-node tuple."""
+    return (source,) * n_nodes
 
 
-def _per_joint(
-    threshold: float | npt.NDArray[np.float64], n_joints: int
-) -> npt.NDArray[np.float64]:
-    """A threshold applied, scalar or per joint, as the report's read-only ``(n_joints,)``."""
-    return _read_only(np.broadcast_to(np.asarray(threshold, dtype=np.float64), (n_joints,)))
+def _per_node(threshold: float | npt.NDArray[np.float64], n_nodes: int) -> npt.NDArray[np.float64]:
+    """A threshold applied, scalar or per node, as the report's read-only ``(n_nodes,)``."""
+    return _read_only(np.broadcast_to(np.asarray(threshold, dtype=np.float64), (n_nodes,)))
 
 
 def _read_only(array: npt.NDArray[_A]) -> npt.NDArray[_A]:
@@ -522,14 +522,14 @@ def _optional_read_only(array: npt.NDArray[_A] | None) -> npt.NDArray[_A] | None
 
 
 def _skeleton_scale(
-    joint_rest: npt.NDArray[np.float64],
+    node_rest: npt.NDArray[np.float64],
     root_rest: npt.NDArray[np.float64],
 ) -> tuple[float, bool]:
     """Scale reference for the contact detectors' default thresholds, and whether it was measured.
 
-    The mean rest-pose distance from the root to the tested joints, :func:`pybvh.analysis.skeleton_size`'s measurement, with ``True``. Where it measures nothing (every joint sits on the root) the scale is ``1.0``, with ``False``, so the thresholds don't collapse to zero: the public ``skeleton_size`` raises instead of fabricating, but a threshold scale must exist even where a measurement does not, and the report says it stood in.
+    The mean rest-pose distance from the root to the tested nodes, :func:`pybvh.analysis.skeleton_size`'s measurement, with ``True``. Where it measures nothing (every node sits on the root) the scale is ``1.0``, with ``False``, so the thresholds don't collapse to zero: the public ``skeleton_size`` raises instead of fabricating, but a threshold scale must exist even where a measurement does not, and the report says it stood in.
     """
-    distance = geometry._mean_distance_to_root(joint_rest, root_rest)
+    distance = geometry._mean_distance_to_root(node_rest, root_rest)
     return (1.0, False) if distance is None else (distance, True)
 
 
@@ -627,7 +627,7 @@ def _hysteresis_mask(
     isolated dip below ``high_thr`` that never reaches ``low_thr`` is rejected,
     killing boundary flicker. Fully vectorized per column, reusing the
     run-machinery of :func:`_run_extents`. ``low_thr == high_thr`` reduces
-    to ``signal < high_thr``. Thresholds may be scalar or per joint ``(n_joints,)``.
+    to ``signal < high_thr``. Thresholds may be scalar or per node ``(n_nodes,)``.
     """
     weak = signal < high_thr
     strong = signal < low_thr
@@ -750,19 +750,19 @@ def _resolve_adaptive(
     base: float,
     fallback: _Fallback,
 ) -> tuple[npt.NDArray[np.float64], tuple[_Fallback | _SplitSource, ...]]:
-    """Per-joint adaptive thresholds (Otsu) with fallback to ``base`` and clamp.
+    """Per-node adaptive thresholds (Otsu) with fallback to ``base`` and clamp.
 
-    Returns ``(thresholds (n_joints,), sources (n_joints,))``, each joint's source as the
-    report names it. A joint whose signal is not convincingly bimodal falls back
+    Returns ``(thresholds (n_nodes,), sources (n_nodes,))``, each node's source as the
+    report names it. A node whose signal is not convincingly bimodal falls back
     to ``base``, its source ``fallback``; an accepted split is clamped to
     ``[0.25*base, 4*base]`` to bound the blast radius: ``"otsu"`` within the
     bounds, ``"otsu_clamped"`` where the bound stands in for it.
     """
-    n_joints = signal.shape[1]
-    thr = np.full(n_joints, float(base))
-    sources: list[_Fallback | _SplitSource] = [fallback] * n_joints
+    n_nodes = signal.shape[1]
+    thr = np.full(n_nodes, float(base))
+    sources: list[_Fallback | _SplitSource] = [fallback] * n_nodes
     lo, hi = _SPLIT_LOWER_BOUND * base, _SPLIT_UPPER_BOUND * base
-    for i in range(n_joints):
+    for i in range(n_nodes):
         t, _ = _otsu_threshold(signal[:, i])
         if t is not None:
             thr[i] = float(np.clip(t, lo, hi))
@@ -771,21 +771,21 @@ def _resolve_adaptive(
 
 
 def _velocity_informed_height(
-    clearance: npt.NDArray[np.float64],  # (F, n_joints), up-positive height above floor
-    speed: npt.NDArray[np.float64],  # (F, n_joints), per-frame speed
-    # Scalar or (n_joints,): the stance velocity gate.
+    clearance: npt.NDArray[np.float64],  # (F, n_nodes), up-positive height above floor
+    speed: npt.NDArray[np.float64],  # (F, n_nodes), per-frame speed
+    # Scalar or (n_nodes,): the stance velocity gate.
     vel_threshold: float | npt.NDArray[np.float64],
     margin: float,  # 0.013*scale, the fixed default reused as a margin
 ) -> tuple[npt.NDArray[np.float64], tuple[Literal["stance", "margin"], ...]]:
-    """Per-joint height threshold calibrated to each joint's own stance level.
+    """Per-node height threshold calibrated to each node's own stance level.
 
     Retargeted mocap leaves the foot hovering a clip-dependent amount above the
     floor, so a fixed height threshold misses real stance. Here the threshold is
-    pinned to where each joint actually sits when it is *slow* (a stance
-    candidate). Per joint ``i``::
+    pinned to where each node actually sits when it is *slow* (a stance
+    candidate). Per node ``i``::
 
         slow_i      = speed_i < vel_threshold
-        contact_h   = median(clearance_i[slow_i])      # this joint's stance level
+        contact_h   = median(clearance_i[slow_i])      # this node's stance level
         swing_high  = p90(clearance_i)                 # swing apex
         thr_i = contact_h + margin   if swing_high > contact_h + 2*margin
               = margin               otherwise          # guard
@@ -794,15 +794,15 @@ def _velocity_informed_height(
     foot reaches the floor (``contact_h ≈ 0``) — identical to the old fixed
     behaviour. The guard requires a clear swing above the contact level, so a
     slow-but-airborne *held* foot (no swing) falls back to the fixed threshold
-    and is correctly rejected. Returns the ``(n_joints,)`` thresholds and each
-    joint's source as the report names it: ``"stance"`` where it was
+    and is correctly rejected. Returns the ``(n_nodes,)`` thresholds and each
+    node's source as the report names it: ``"stance"`` where it was
     calibrated, ``"margin"`` where the margin stands in.
     """
-    n_joints = clearance.shape[1]
-    thr = np.full(n_joints, float(margin))
-    sources: list[Literal["stance", "margin"]] = ["margin"] * n_joints
-    vt = np.broadcast_to(np.atleast_1d(np.asarray(vel_threshold, dtype=np.float64)), (n_joints,))
-    for i in range(n_joints):
+    n_nodes = clearance.shape[1]
+    thr = np.full(n_nodes, float(margin))
+    sources: list[Literal["stance", "margin"]] = ["margin"] * n_nodes
+    vt = np.broadcast_to(np.atleast_1d(np.asarray(vel_threshold, dtype=np.float64)), (n_nodes,))
+    for i in range(n_nodes):
         slow = speed[:, i] < vt[i]
         if not slow.any():
             continue  # no stance candidate -> fixed
@@ -824,7 +824,7 @@ def _contact_confidence(
     vel_threshold: float | npt.NDArray[np.float64] | None,
     height_threshold: float | npt.NDArray[np.float64] | None,
 ) -> npt.NDArray[np.float64]:
-    """Per-joint detection confidence in ``[0, 1]`` (decisiveness, not probability).
+    """Per-node detection confidence in ``[0, 1]`` (decisiveness, not probability).
 
     ``margin`` = mean over the frames of ``mask`` (the thresholds' contacts,
     before the duration filters) of how far each active signal sits below its
@@ -858,10 +858,10 @@ def _detect_contacts(
     height_threshold: float | npt.NDArray[np.float64] | None,
     hysteresis: float,
 ) -> tuple[npt.NDArray[np.bool_], npt.NDArray[np.float64]]:
-    """Pure contact-detection core on precomputed ``(F, n_joints)`` signals.
+    """Pure contact-detection core on precomputed ``(F, n_nodes)`` signals.
 
     Returns ``(mask, confidence)`` — the raw (pre-morphology) contact mask and a
-    per-joint confidence. Thresholds may be scalar or per joint ``(n_joints,)``.
+    per-node confidence. Thresholds may be scalar or per node ``(n_nodes,)``.
     """
 
     def thresholded(
@@ -897,7 +897,7 @@ def _detect_contacts(
 
 def _contact_diagnostics(
     mask: npt.NDArray[np.bool_],
-    joint_positions: npt.NDArray[np.float64],
+    node_positions: npt.NDArray[np.float64],
     clearance: npt.NDArray[np.float64] | None,
     up_idx: int,
     scale: float,
@@ -906,19 +906,19 @@ def _contact_diagnostics(
 
     Returns ``(foot_skate_mean, foot_skate_max, airborne_fraction, height_at_contact)``, the :class:`ContactReport` fields of those names:
 
-    - the foot skate: horizontal drift of each joint within its detected contact
-      runs, normalized by skeleton scale (a planted joint should be ~0), its
+    - the foot skate: horizontal drift of each node within its detected contact
+      runs, normalized by skeleton scale (a planted node should be ~0), its
       mean and its largest over the runs;
-    - ``airborne_fraction``: fraction of frames with no joint in contact;
-    - ``height_at_contact``: mean clearance over each joint's contact frames,
+    - ``airborne_fraction``: fraction of frames with no node in contact;
+    - ``height_at_contact``: mean clearance over each node's contact frames,
       ``None`` without a ``clearance`` (the velocity method measures none).
     """
     horiz_axes = [a for a in range(3) if a != up_idx]
-    horiz = joint_positions[:, :, horiz_axes]  # (F, n_joints, 2)
-    n_joints = mask.shape[1]
-    skate_mean = np.zeros(n_joints)
-    skate_max = np.zeros(n_joints)
-    for i in range(n_joints):
+    horiz = node_positions[:, :, horiz_axes]  # (F, n_nodes, 2)
+    n_nodes = mask.shape[1]
+    skate_mean = np.zeros(n_nodes)
+    skate_max = np.zeros(n_nodes)
+    for i in range(n_nodes):
         drifts = []
         for s, e in _true_runs(mask[:, i]):
             if e - s >= 2:

@@ -507,16 +507,19 @@ def kernel_contacts(
     defaults = {
         name: signature.parameters[name].default
         for name in inspect.signature(_contacts._ContactSettings).parameters
-        if name not in ("default_height_reference", "n_joints")
+        if name not in ("default_height_reference", "n_nodes")
     }
     contact_settings = _contacts._ContactSettings(
         **{**defaults, **settings},
         default_height_reference=default_height_reference,
-        n_joints=k,
+        n_nodes=k,
     )
+    # The report holds the tested nodes: make_contact_rig's feet, its joints
+    # after the root, in the order of CONTACT_FEET.
+    feet = [node for node in make_contact_rig(1).nodes if not node.is_end_site()][1 : 1 + k]
     return _contacts._contacts_from_positions(
         positions,
-        list(CONTACT_FEET[:k]),
+        feet,
         np.asarray(foot_offsets[:k], dtype=np.float64),
         np.zeros(3),
         frame_time=frame_time,

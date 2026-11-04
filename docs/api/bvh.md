@@ -80,6 +80,10 @@ The raw motion arrays, the joint hierarchy, and the two index spaces (see the [C
     options:
       heading_level: 3
 
+::: pybvh.NodeSelector
+    options:
+      heading_level: 3
+
 ::: pybvh.bvh.Bvh.joint_tips
     options:
       heading_level: 3
@@ -339,7 +343,7 @@ The velocity ladder, the root-trajectory features, and foot-contact detection (s
     options:
       heading_level: 3
 
-::: pybvh.bvh.Bvh.auto_detect_foot_joints
+::: pybvh.bvh.Bvh.auto_detect_feet
     options:
       heading_level: 3
 

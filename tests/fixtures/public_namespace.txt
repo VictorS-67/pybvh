@@ -9,6 +9,7 @@ pybvh.Bvh
 pybvh.ContactReport
 pybvh.FkTopology
 pybvh.HarmonizeReport
+pybvh.NodeSelector
 pybvh.OrientationReport
 pybvh.analysis
 pybvh.batch
@@ -41,6 +42,7 @@ from pybvh import * binds Bvh
 from pybvh import * binds ContactReport
 from pybvh import * binds FkTopology
 from pybvh import * binds HarmonizeReport
+from pybvh import * binds NodeSelector
 from pybvh import * binds OrientationReport
 from pybvh import * binds analysis
 from pybvh import * binds annotations
@@ -75,11 +77,12 @@ pybvh.analysis.BvhNode
 pybvh.analysis.DLJ_NORMALIZERS
 pybvh.analysis.FacingFrame
 pybvh.analysis.GaitParameters
+pybvh.analysis.NodeSelector
 pybvh.analysis.VelocityReductions
 pybvh.analysis.active_duration
 pybvh.analysis.active_segments
 pybvh.analysis.angular_velocities
-pybvh.analysis.auto_detect_foot_joints
+pybvh.analysis.auto_detect_feet
 pybvh.analysis.cadence
 pybvh.analysis.cov3dj
 pybvh.analysis.dimensionless_jerk
@@ -132,6 +135,7 @@ pybvh.bvh.BvhJoint
 pybvh.bvh.BvhNode
 pybvh.bvh.BvhRoot
 pybvh.bvh.FkTopology
+pybvh.bvh.NodeSelector
 pybvh.bvh.OrientationReport
 pybvh.bvh.frames_to_node_positions
 pybvh.bvh.nodes_from_table
@@ -143,6 +147,7 @@ pybvh.bvhnode.BvhEndSite
 pybvh.bvhnode.BvhJoint
 pybvh.bvhnode.BvhNode
 pybvh.bvhnode.BvhRoot
+pybvh.bvhnode.NodeSelector
 
 pybvh.bvhplot.Scene
 pybvh.bvhplot.Style
@@ -172,6 +177,7 @@ pybvh.dataframe.BvhNode
 pybvh.dataframe.df_to_bvh
 
 pybvh.features.Bvh
+pybvh.features.NodeSelector
 pybvh.features.feature_array_layout
 pybvh.features.joint_velocities
 pybvh.features.to_feature_array

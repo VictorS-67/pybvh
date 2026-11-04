@@ -233,9 +233,9 @@ class TestUpAxisSign:
         rp[:, 1] -= bounce  # -Y: more negative Y = higher
         bvh_neg.root_pos = rp
 
-        foot_joints = ["LeftLeg", "RightLeg"]
-        contacts_pos = bvh_pos.foot_contacts(method="height", foot_joints=foot_joints)
-        contacts_neg = bvh_neg.foot_contacts(method="height", foot_joints=foot_joints)
+        feet = ["LeftLeg", "RightLeg"]
+        contacts_pos = bvh_pos.foot_contacts(method="height", feet=feet)
+        contacts_neg = bvh_neg.foot_contacts(method="height", feet=feet)
         # Same physical motion -> same contact pattern
         npt.assert_array_equal(contacts_pos, contacts_neg)
 
@@ -250,9 +250,9 @@ class TestUpAxisSign:
         rp[:, 2] -= bounce
         bvh_neg.root_pos = rp
 
-        foot_joints = ["LeftLeg", "RightLeg"]
-        contacts_pos = bvh_pos.foot_contacts(method="height", foot_joints=foot_joints)
-        contacts_neg = bvh_neg.foot_contacts(method="height", foot_joints=foot_joints)
+        feet = ["LeftLeg", "RightLeg"]
+        contacts_pos = bvh_pos.foot_contacts(method="height", feet=feet)
+        contacts_neg = bvh_neg.foot_contacts(method="height", feet=feet)
         npt.assert_array_equal(contacts_pos, contacts_neg)
 
     # --- A3: root_trajectory ---

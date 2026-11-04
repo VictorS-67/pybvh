@@ -91,7 +91,7 @@ assert np.allclose(kappa_circle[5:-5], 1 / r, rtol=1e-2)
 #
 # Smoothness metrics summarize a joint's *speed profile* in one number. SPARC (spectral arc length) and log dimensionless jerk (LDLJ) are the standards — closer to 0 is smoother; the number of speed peaks counts sub-movements. Jerk, the third derivative of position, is the raw signal they build on.
 #
-# The code below looks up the hand's column with `bvh.index(name, space="node")` — the function form of the `bvh.node_index[name]` dict lookup from Tutorial 2 (same integer, plus name validation).
+# The code below looks up the hand's column with `bvh.index(name, space="node")`. When no other node carries the name, it gives the same integer as the `bvh.node_index[name]` dict lookup from Tutorial 2. When several nodes share the name, `bvh.index` raises and asks for the node, where `node_index` keeps the last of them.
 
 # %%
 hand = "RightHand"
@@ -135,10 +135,10 @@ plt.show()
 # %% [markdown]
 # # Gait
 #
-# From foot contacts plus the root's ground-plane path, pybvh estimates cadence (steps per second), stride length, and walking pace. The foot joints are auto-detected from skeleton topology (pass `foot_joints=[...]` to override). `gait_parameters()` measures the full spatiotemporal set in one pass — `cadence` and `stride_length` are one-line projections of it. Every gait function accepts a pre-computed `contacts=` array, so one `foot_contacts()` run can feed the whole family (underdetermined values come back as `nan`). Called without `contacts=`, they detect the contacts themselves with `foot_contacts(adaptive=True)`, so precompute them with the same setting to get the same numbers: contacts from the default thresholds are other contacts, and give other gait values.
+# From foot contacts plus the root's ground-plane path, pybvh estimates cadence (steps per second), stride length, and walking pace. The feet are auto-detected from skeleton topology (pass `feet=[...]`, names or nodes, to override). `gait_parameters()` measures the full spatiotemporal set in one pass — `cadence` and `stride_length` are one-line projections of it. Every gait function accepts a pre-computed `contacts=` array, so one `foot_contacts()` run can feed the whole family (underdetermined values come back as `nan`). Called without `contacts=`, they detect the contacts themselves with `foot_contacts(adaptive=True)`, so precompute them with the same setting to get the same numbers: contacts from the default thresholds are other contacts, and give other gait values.
 
 # %%
-print("detected feet:", analysis.auto_detect_foot_joints(bvh))
+print("detected feet:", [foot.name for foot in analysis.auto_detect_feet(bvh)])
 contacts = bvh.foot_contacts(adaptive=True)  # what gait_parameters() runs on its own
 
 print(f"cadence       = {bvh.cadence(contacts=contacts):.3f} steps/s")
@@ -150,17 +150,21 @@ print(f"stance fraction        = {gait.stance_fraction:.2f}")
 print(f"double-support fraction = {gait.double_support_fraction:.2f}")
 
 # %% [markdown]
-# ## Reusing forward kinematics with `coords=`
+# ## Positions you hold yourself
 #
-# Every descriptor method accepts pre-computed node positions via `coords=` — handy when a pipeline already holds the FK output (the `Bvh` FK cache makes the default path cheap, so this mainly matters for externally modified or batch-shared position arrays).
+# The `Bvh` methods read the node positions that the clip computes by forward kinematics: the first call computes them, and the clip keeps them for the next calls until its motion or skeleton changes. The methods take no positions from you. To measure positions that you hold yourself, for example smoothed, predicted or edited ones, use the array path:
+#
+# 1. Find the node's row with `bvh.index(name, space="node")`.
+# 2. Call the `pybvh.geometry` function on your array.
 
 # %%
-pos_all = bvh.node_positions()
-print(f"path length (coords=) = {bvh.path_length('RightHand', coords=pos_all):.2f}")
-print(
-    f"verticality (coords=) matches: "
-    f"{np.allclose(bvh.verticality(coords=pos_all), bvh.verticality())}"
-)
+hand = bvh.index("RightHand", space="node")
+pos_all = bvh.node_positions()  # (F, N, 3), a copy that you own
+smoothed = pybvh.signal.box_filter_smooth(pos_all, window=9)
+
+print(f"path length, Bvh method       = {bvh.path_length('RightHand'):.2f}")
+print(f"path length, same positions   = {geometry.path_length(pos_all[:, hand]):.2f}")
+print(f"path length, smoothed (9 fr.) = {geometry.path_length(smoothed[:, hand]):.2f}")
 
 # %% [markdown]
 # # SE(3) rigid-transform math
@@ -210,6 +214,6 @@ plt.show()
 # | `analysis` | `gait_parameters`, `cadence`, `stride_length`, `walking_pace`, `range_of_motion` | yes | gait / ROM |
 # | `rotations` | `se3_exp`/`se3_log`, `screw_interpolate`, `relative_transform`, `rotation_geodesic_distance` | — | SE(3) |
 #
-# Everything is pure NumPy and vectorized over frames. The `Bvh` methods take joint *names* and accept pre-computed positions via `coords=`; the array-pure kernels (`geometry.*`, the smoothness functions, the SE(3) math) take plain arrays, so a downstream library can call them without a `Bvh` at all.
+# Everything is pure NumPy and vectorized over frames. The `Bvh` methods take a node's *name* or the `BvhNode` itself, end sites included (`range_of_motion` excepted, which takes a joint), and read the node positions the clip keeps; the array-pure kernels (`geometry.*`, the smoothness functions, the SE(3) math) take plain arrays, so a downstream library can call them without a `Bvh` at all.
 #
 # One more module pairs with these descriptors: **`pybvh.signal`** provides the array-level signal utilities they build on — smoothing (`box_filter_smooth`), temporal statistics (`temporal_stats`), spectrum tools (`fft_magnitude`, `dominant_frequency`), trajectory simplification (`ramer_douglas_peucker`), and `finite_difference`, the single derivative convention every velocity-like function in pybvh routes through. Reach for it when you want to apply the same machinery to your own arrays.

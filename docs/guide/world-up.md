@@ -189,17 +189,17 @@ The triple drawn on a pose:
 
 `left_at()` shares the L/R pair machinery with `forward_at()`, so the same `bvh.lr_mapping` caveats apply. The two always form a right-handed triple with `world_up`, on every frame: `left_at` never returns world up.
 
-### coords= (skip per-call FK)
+### Across many frames
 
-Both `forward_at()` and `left_at()` accept a pre-computed `(F, N, 3)` spatial-coordinates array via `coords=` to skip the per-call forward kinematics. This is useful when you need orientation axes across many frames:
+`forward_at()` and `left_at()` read the clip's own positions. They take no positions from the caller. When the clip has computed the positions of all its frames, each call reads the positions that the clip keeps. `node_positions()` and `facing_frame()` compute them once:
 
 ```python
-coords = bvh.node_positions()    # one FK pass
-forwards = [bvh.forward_at(f, coords=coords) for f in range(bvh.frame_count)]
-lefts    = [bvh.left_at(f,    coords=coords) for f in range(bvh.frame_count)]
+bvh.node_positions()             # one FK pass; the clip keeps the positions
+forwards = [bvh.forward_at(f) for f in range(bvh.frame_count)]
+lefts    = [bvh.left_at(f)    for f in range(bvh.frame_count)]
 ```
 
-`coords` holds the clip's frames, one row per frame. A frame whose leftward cannot be read falls back to the root's heading at that frame (next section).
+A frame whose leftward cannot be read falls back to the root's heading at that frame (next section).
 
 ## facing_frame() — the continuous basis
 
@@ -212,7 +212,7 @@ lefts    = [bvh.left_at(f,    coords=coords) for f in range(bvh.frame_count)]
 
 
 ```python
-frame = bvh.facing_frame()        # or bvh.facing_frame(coords=coords), one row per clip frame
+frame = bvh.facing_frame()        # one row per clip frame
 frame.forward[120]                # continuous facing vector at frame 120
 frame.valid[120]                  # False if that vector is a fallback
 ```

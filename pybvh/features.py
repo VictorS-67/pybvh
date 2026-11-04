@@ -7,12 +7,15 @@ Composes the per-frame motion descriptors from :mod:`pybvh.analysis`
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 import numpy.typing as npt
 
 from .analysis import _validate_stencil_pad, joint_velocities
 from .analysis import foot_contacts as _foot_contacts
-from .bvh import Bvh
+from .bvh import Bvh, _check_centered
+from .bvhnode import NodeSelector
 from .rotations import REPRESENTATION_CHANNELS as _REPRESENTATION_WIDTHS
 from .spatial_coord import _ground_plane_offset
 
@@ -40,7 +43,7 @@ def feature_array_layout(
         rotation and velocity blocks: velocities are per-joint (not
         per-node), aligning with the rotation block's joint axis.
     num_feet : int, optional
-        Number of foot joints for contact detection.  Required (>0)
+        Number of feet for contact detection.  Required (>0)
         when ``include_foot_contacts=True``.
     representation : str, optional
         Rotation representation: ``'euler'``, ``'axisangle'`` (3 values
@@ -107,7 +110,7 @@ def to_feature_array(
     include_velocities: bool = False,
     include_foot_contacts: bool = False,
     centered: str = "world",
-    foot_joints: list[str] | None = None,
+    feet: Sequence[NodeSelector] | None = None,
     stencil: str = "central",
     pad: str = "edge",
 ) -> npt.NDArray[np.float64]:
@@ -147,9 +150,12 @@ def to_feature_array(
         whatever ``centered`` says.
     centered : str, optional
         Coordinate centering mode (default ``"world"``).
-    foot_joints : list of str or None, optional
-        Foot joints for contact detection. Only used when
-        ``include_foot_contacts=True``.
+    feet : sequence of str or BvhNode, or None, optional
+        The feet for contact detection, each a node name or one of
+        ``bvh.nodes`` (see :data:`~pybvh.NodeSelector`), resolved as
+        :func:`pybvh.analysis.foot_contacts` resolves its ``feet``; the
+        nodes :func:`pybvh.analysis.auto_detect_feet` returns if None.
+        Only used when ``include_foot_contacts=True``.
     stencil, pad : optional
         Only affect output when ``include_velocities=True``.  Same
         semantics as :func:`joint_velocities`.  The root-position,
@@ -169,21 +175,23 @@ def to_feature_array(
     Raises
     ------
     ValueError
-        If ``representation`` is unknown, or ``stencil`` / ``pad`` is
-        invalid.
+        If ``representation`` or ``centered`` is unknown, or ``stencil`` /
+        ``pad`` is invalid. With ``include_foot_contacts=True``, also where
+        :func:`pybvh.analysis.foot_contacts` raises it for ``feet``.
+    TypeError
+        With ``include_foot_contacts=True``, where
+        :func:`pybvh.analysis.foot_contacts` raises it for ``feet``: a
+        bare ``str`` or ``BvhNode`` in place of a sequence of them, or an
+        entry that is neither.
     """
     if representation not in _REPRESENTATION_WIDTHS:
         raise ValueError(
             f"Unknown representation '{representation}'. "
             f"Choose from {sorted(_REPRESENTATION_WIDTHS)}."
         )
+    _check_centered(centered)
     if include_velocities:
         _validate_stencil_pad(stencil, pad)
-
-    # Compute spatial coords once (shared by velocities and contacts)
-    coords = None
-    if include_velocities or include_foot_contacts:
-        coords = bvh.node_positions(centered=centered)
 
     parts: list[npt.NDArray[np.float64]] = []
 
@@ -218,22 +226,17 @@ def to_feature_array(
     # Velocities — call directly (same module)
     vel_shape: int | None = None
     if include_velocities:
-        vel = joint_velocities(
-            bvh, centered=centered, in_frames=True, coords=coords, stencil=stencil, pad=pad
-        )
+        vel = joint_velocities(bvh, centered=centered, in_frames=True, stencil=stencil, pad=pad)
         vel_flat = vel.reshape(vel.shape[0], -1)
         parts.append(vel_flat)
         vel_shape = vel.shape[0]
 
     # Foot contacts — call directly (same module); always (F, num_feet).
-    # foot_contacts wants world-frame coords or a constant translation
-    # thereof ("world"/"first"); per-frame "skeleton" centering would
-    # distort the foot-speed signal, so in that mode let it compute its
-    # own world FK (served by the Bvh cache).
+    # foot_contacts reads the clip's world-frame FK (the Bvh cache) whatever
+    # ``centered`` is: per-frame "skeleton" centering would distort the
+    # foot-speed signal.
     if include_foot_contacts:
-        contacts = _foot_contacts(
-            bvh, foot_joints=foot_joints, coords=coords if centered != "skeleton" else None
-        )
+        contacts = _foot_contacts(bvh, feet=feet)
         parts.append(contacts)
 
     # Align frames: trim F-shaped blocks (root_pos, rot, contacts) to match

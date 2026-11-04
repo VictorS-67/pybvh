@@ -18,6 +18,15 @@ Migration: grep for the old name in the left column, replace with the right colu
 | `transforms.mirror(bvh, lateral_axis=)`, `Bvh.mirror(lateral_axis=)` | `lateral=` | The value is a string (`'x'`, `'+x'`), not an `Axis`. |
 | `Bvh(..., warn_on_disagreement=)` | `warn_on_world_up_disagreement=` | One flag, one name: the readers already called it this. |
 | `transforms.auto_detect_lr_pairs(bvh)` | *(removed)* — `bvh.lr_pairs or []` | The same index pairs; `bvh.lr_pairs` is `None`, not `[]`, when there are none, as v0.8.0 made `bvh.lr_mapping` for the removed `auto_detect_lr_mapping`. |
+| `coords=` on the derivatives (`node_velocities` … `joint_jerk`), `facing_frame`, `Bvh.forward_at`, `Bvh.left_at`, `foot_contacts`, `ground_contacts` and the `Bvh` descriptor methods | *(removed)* | Each reads the node positions that the clip computes by forward kinematics; passing `coords=` raises `TypeError`. For positions you hold yourself: `bvh.index(name, space="node")`, then `pybvh.geometry`, or `pybvh.signal.finite_difference` for a derivative. |
+| `Bvh.index(name=, space=)` | `Bvh.index(node=, space=)` | `node` is a name or a `BvhNode` (`pybvh.NodeSelector`). A missing name, or one that several nodes of the space share, raises `ValueError` where a missing name raised `KeyError` and a shared one gave the last node; pass the node for a shared name. |
+| `Bvh.curvature(joint=)`, `torsion`, `movement_phase`, `path_length`, `directness`, `ground_path`, `smoothness`, `velocity_reductions` | `node=` | Each takes a name or a `BvhNode` (`pybvh.NodeSelector`) and accepts end sites, so the parameter is `node`. `range_of_motion(joint=)` keeps its name: it refuses end sites. |
+| `Bvh.segment_axis_angle(joint_a=, joint_b=)` | `node_a=`, `node_b=` | Same. |
+| `analysis.ground_contacts(bvh, joints=)`, `Bvh.ground_contacts(joints=)` | `nodes=` | Each entry is a name or a `BvhNode` (`pybvh.NodeSelector`), end sites included. An integer raises `TypeError`: node `i` is `bvh.nodes[i]`. |
+| `analysis.foot_contacts(bvh, foot_joints=)`, `Bvh.foot_contacts(foot_joints=)` | `feet=` | Each entry is a name or a `BvhNode`. |
+| `foot_joints=` on `skeleton_size`, `cadence`, `stride_length`, `gait_parameters` (in `analysis` and on `Bvh`) and on `to_feature_array` (in `features` and on `Bvh`) | `feet=` | Same, as on `foot_contacts`. |
+| `analysis.auto_detect_foot_joints(bvh)`, `Bvh.auto_detect_foot_joints()` | `auto_detect_feet` | Returns the feet as nodes of the clip, not their names: `[foot.name for foot in feet]` gives the names. |
+| `Bvh.extract_joints(joint_names=)` | `joints=` | Each entry is a name or a `BvhNode` (`pybvh.NodeSelector`) and must select one joint, end sites excluded, so the parameter is `joints`. Pass the node to keep one of two joints that share a name. |
 
 ---
 
@@ -109,7 +118,7 @@ The duplicate Euler→rotmat implementation in `pybvh.tools` **no longer exists*
 | `pybvh.geometry.centroid` | `pybvh.geometry.center_of_mass` | Now shares the `Bvh.center_of_mass` method name. |
 | `pybvh.analysis.lagged_correlation` | `pybvh.analysis.lagged_covariance` | Also mean-centers the signal (true covariance) — values change. |
 | `pybvh.batch.relative_scale_factor` | `pybvh.analysis.relative_scale_factor` | Moved next to `skeleton_size`; also exported as `pybvh.relative_scale_factor`. |
-| `foot_contacts(..., centered=)` | *(removed)* | Detection always runs in world frame; `coords=` accepts world-frame positions or a constant translation thereof. |
+| `foot_contacts(..., centered=)` | *(removed)* | Detection always runs in world frame; `coords=` accepts world-frame positions or a constant translation thereof (v0.10.0 removes `coords=`, see its section). |
 | `foot_contacts(..., vel_threshold=)` *(units/frame)* | `vel_threshold=` *(units/second)* | Migration: `new = old / frame_time`. Default `0.12·scale` u/s ≡ old `0.004·scale`/frame at 30 fps. |
 | `foot_contacts(..., height_reference="fixed")` | `height_reference="floor"` | Parameter is now validated: `{"velocity", "floor"}`. |
 | `walking_pace(bvh, foot_joints=)` | `walking_pace(bvh)` | The parameter was unused. |
@@ -147,13 +156,13 @@ All angle parameters in `pybvh.transforms` are now **radians** (matching `Bvh.jo
 | `slice_frames(a, b, s)` | `bvh[a:b:s]` | Public method removed — the sequence protocol is the only spelling. |
 | `concat(other)` | `bvh + other` / `bvh += other` | Public method removed — the operator is the only spelling. |
 | `node_positions(frame_num=-1)` / `joint_positions(frame_num=-1)` | `node_positions(frame=None)` | `frame=None` (default) = all frames; `frame=-1` now returns the **last** frame (NumPy negative-index semantics). |
-| `index(name, axis='joint'/'node')` | `index(name, space='joint'/'node')` | Parameter rename. |
+| `index(name, axis='joint'/'node')` | `index(name, space='joint'/'node')` | Parameter rename (v0.10.0 renames `name` to `node`, see its section). |
 | `write(new_filepath)` | `write(filepath)` | Parameter rename. |
 | `scale((sx, sy, sz))` | *(removed)* | `scale()` is scalar-only — per-axis world factors on parent-local offsets are not geometrically meaningful under animation; non-scalar input raises `TypeError`. |
-| descriptor methods with integer joint indices | names only (`str`) | `curvature` … `smoothness`, `range_of_motion` raise `TypeError` on ints (they were ambiguous between joint/node index spaces); use `bvh.index(name, space=...)` + the functional `pybvh.geometry` / `pybvh.analysis` API for index-based access. |
+| descriptor methods with integer joint indices | names only (`str`) | `curvature` … `smoothness`, `range_of_motion` raise `TypeError` on ints (they were ambiguous between joint/node index spaces); use `bvh.index(name, space=...)` + the functional `pybvh.geometry` / `pybvh.analysis` API for index-based access. v0.10.0 accepts a `BvhNode` beside a name, see its section. |
 | `pybvh.api_rename_path()` | *(removed)* | This file stays in the repo / docs; the helper added no value. |
 
-New in the same release (no old names): `Bvh.from_file(path)`, `Bvh.from_df(hier, df)`, `Bvh.from_rotmat(root_pos, rotmats)`, and method wrappers `bounding_ellipsoid()`, `movement_phase()`, `skeleton_size()`, `velocity_reductions()`. All motion-descriptor methods accept pre-computed positions via `coords=`. `bvh.world_up = 'auto'` (or `None`) now clears a manual override.
+New in the same release (no old names): `Bvh.from_file(path)`, `Bvh.from_df(hier, df)`, `Bvh.from_rotmat(root_pos, rotmats)`, and method wrappers `bounding_ellipsoid()`, `movement_phase()`, `skeleton_size()`, `velocity_reductions()`. All motion-descriptor methods accept pre-computed positions via `coords=` (v0.10.0 removes it, see its section). `bvh.world_up = 'auto'` (or `None`) now clears a manual override.
 
 ---
 

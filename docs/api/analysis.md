@@ -56,7 +56,7 @@ Ground-plane root features and binary contact labels. The [Gallery](../gallery/i
     options:
       heading_level: 3
 
-::: pybvh.analysis.auto_detect_foot_joints
+::: pybvh.analysis.auto_detect_feet
     options:
       heading_level: 3
 

@@ -2868,8 +2868,17 @@ class TestEndSiteForms:
             (("  End Site { OFFSET 0 8 }",), "OFFSET must have 3 values, got 2"),
             (("  End Site { OFFSET 0 8 0 CHANNELS 0 }",), "end site must not declare CHANNELS"),
             (("  End Site { OFFSET 0 8 0 } }",), "unexpected token '}' after the end site's '}'"),
+            (
+                ("  End Site { # tip", "    OFFSET 0 8 0", "  }"),
+                "unexpected token '#' in end site block",
+            ),
         ],
-        ids=["short_offset", "channels", "token_after_the_closing_brace"],
+        ids=[
+            "short_offset",
+            "channels",
+            "token_after_the_closing_brace",
+            "text_after_the_opening_brace_on_the_end_site_line",
+        ],
     )
     def test_a_one_line_syntax_error_names_the_line_and_file(self, end_site, error, tmp_path):
         path = tmp_path / "broken.bvh"

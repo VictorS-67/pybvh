@@ -111,6 +111,15 @@ def _unique_labels(names: Sequence[str]) -> list[str]:
     return labels
 
 
+def _euler_to_quat(
+    angles: npt.NDArray[np.float64], orders: Sequence[str]
+) -> npt.NDArray[np.float64]:
+    """Joint angles ``(..., J, 3)`` in radians, each joint in its Euler order
+    of ``orders``, as canonical quaternions ``(..., J, 4)``, through
+    rotation matrices."""
+    return rotations.rotmat_to_quat(rotations.euler_to_rotmat(angles, orders))
+
+
 def _motion_column_names(nodes: Sequence[BvhNode], mode: str) -> list[str]:
     """Column names of the motion *nodes* carry, in either ``to_df_dict`` mode.
 
@@ -3031,9 +3040,7 @@ class Bvh:
         directly — forward kinematics runs once instead of per
         representation.
         """
-        joints = [n for n in self.nodes if not n.is_end_site()]
-        per_joint = ["".join(j.rot_channels) for j in joints]  # type: ignore[attr-defined]
-        joint_rotmats = rotations.euler_to_rotmat(self.joint_angles, per_joint)
+        joint_rotmats = rotations.euler_to_rotmat(self.joint_angles, self.euler_orders)
         return self.root_pos.copy(), joint_rotmats
 
     def to_6d(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
@@ -3086,9 +3093,7 @@ class Bvh:
 
         See :meth:`to_rotmat` for the multi-representation reuse pattern.
         """
-        root_pos, joint_rotmats = self.to_rotmat()
-        joint_quats = rotations.rotmat_to_quat(joint_rotmats)
-        return root_pos, joint_quats
+        return self.root_pos.copy(), _euler_to_quat(self.joint_angles, self.euler_orders)
 
     def to_axisangle(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """
@@ -3443,7 +3448,7 @@ class Bvh:
         shorter arc, so the result is ``(N, J, 3)``, in radians, read back
         in the joint's Euler order.
         """
-        quats = rotations.rotmat_to_quat(rotations.euler_to_rotmat(angles, self.euler_orders))
+        quats = _euler_to_quat(angles, self.euler_orders)
         between = rotations.quat_slerp(quats[left], quats[right], alpha[:, np.newaxis])
         return rotations.quat_to_euler(between, self.euler_orders)
 

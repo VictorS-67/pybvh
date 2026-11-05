@@ -335,7 +335,7 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
                         f"End Site outside any ROOT block at line {line_number} in file {filepath}"
                     )
                 try:
-                    offset, channels, line_number = _read_node_block("end_site", f, line_number)
+                    offset, line_number = _read_end_site_block(line[2:], f, line_number)
                 except Exception as e:
                     raise ValueError(
                         f"Could not read the offset of the End Site "
@@ -343,7 +343,7 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
                     ) from e
                 # No name: the builder gives an end site its display name,
                 # 'EndSite' + the parent's name. End-site blocks are fully
-                # consumed by _read_node_block (including their closing
+                # consumed by _read_end_site_block (including their closing
                 # '}'), so they never go on the stack.
                 table.append({"parent": open_rows[-1], "offset": offset})
 
@@ -464,17 +464,60 @@ def _stored_channel_order(channels: list[tuple[str, str]]) -> list[int]:
     return [i for _, i in pos_cols] + rot_cols
 
 
+def _read_end_site_block(tokens: list[str], f: TextIO, line_number: int) -> tuple[list[float], int]:
+    """Read an End Site block's body through its closing ``}``, on one line or several.
+
+    *tokens* are the tokens that follow ``End Site`` on its own line. The body is read as one stream of tokens, whatever the line breaks: ``End Site { OFFSET 0 8 0 }`` on one line, the ``{`` on the ``End Site`` line, ``OFFSET 0 8 0 }`` on one line, and the multi-line form all read the same. Reading stops at the line that holds the closing ``}``; a token after it on that line is refused, since the line-based hierarchy reader would not see it.
+
+    Returns ``(offset, line_number)``, *line_number* being the line of the closing ``}``.
+    """
+    body = list(tokens)
+    while "}" not in body:
+        raw_ln = next(f, None)
+        if raw_ln is None:
+            raise ValueError("end site block is not closed")
+        line_number += 1
+        body.extend(raw_ln.split())
+    close = body.index("}")
+    if close + 1 < len(body):
+        raise ValueError(f"unexpected token {body[close + 1]!r} after the end site's '}}'")
+
+    offset: list[float] | None = None
+    i = 0
+    while i < close:
+        token = body[i]
+        i += 1
+        if token == "{":
+            continue
+        elif token == "OFFSET":
+            values = []
+            while i < close and body[i] not in ("{", "OFFSET", "CHANNELS"):
+                values.append(float(body[i]))
+                i += 1
+            offset = values
+        elif token == "CHANNELS":
+            raise ValueError("end site must not declare CHANNELS")
+        else:
+            raise ValueError(f"unexpected token {token!r} in end site block")
+
+    if offset is None:
+        raise ValueError("end site missing OFFSET line")
+    if len(offset) != 3:
+        raise ValueError(f"OFFSET must have 3 values, got {len(offset)}")
+    return (offset, line_number)
+
+
 def _read_node_block(
     node_type: str, f: TextIO, line_number: int
 ) -> tuple[list[float], list[tuple[str, str]], int]:
-    """Read the lines opening a node's block: ``{``, ``OFFSET``, and ``CHANNELS``.
+    """Read the lines opening a root's or a joint's block: ``{``, ``OFFSET``, and ``CHANNELS``.
 
-    Token-driven — each line is dispatched on its leading token, and completeness is validated per node type at the end, so blank lines and line-order variations don't break parsing. Joint/root blocks are left open (their children follow); end-site blocks are consumed through their closing ``}``.
+    Token-driven — each line is dispatched on its leading token, and completeness is validated per node type at the end, so blank lines and line-order variations don't break parsing. The block is left open (its children follow). An End Site block is read by :func:`_read_end_site_block`.
 
-    Returns ``(offset, channels, line_number)`` where ``channels`` is the ``(kind, axis)`` list from :func:`_parse_channels_line` (empty for end sites).
+    Returns ``(offset, channels, line_number)`` where ``channels`` is the ``(kind, axis)`` list from :func:`_parse_channels_line`.
     """
-    if node_type not in ("root", "joint", "end_site"):
-        raise ValueError("node_type should be either root, joint or end_site")
+    if node_type not in ("root", "joint"):
+        raise ValueError("node_type should be either root or joint")
 
     offset: list[float] | None = None
     channels: list[tuple[str, str]] | None = None
@@ -488,28 +531,21 @@ def _read_node_block(
         if token == "{":
             continue
         elif token == "}":
-            if node_type != "end_site":
-                raise ValueError(f"{node_type} block closed before OFFSET/CHANNELS were read")
-            break
+            raise ValueError(f"{node_type} block closed before OFFSET/CHANNELS were read")
         elif token == "OFFSET":
             offset = [float(x) for x in parts[1:]]
         elif token == "CHANNELS":
             channels = _parse_channels_line(parts)
         else:
             raise ValueError(f"unexpected token {token!r} in {node_type} block")
-        if node_type != "end_site" and offset is not None and channels is not None:
+        if offset is not None and channels is not None:
             break
 
     # ---- per-node-type validation ----
     if offset is None:
-        raise ValueError(f"{node_type.replace('_', ' ')} missing OFFSET line")
+        raise ValueError(f"{node_type} missing OFFSET line")
     if len(offset) != 3:
         raise ValueError(f"OFFSET must have 3 values, got {len(offset)}")
-
-    if node_type == "end_site":
-        if channels is not None:
-            raise ValueError("end site must not declare CHANNELS")
-        return (offset, [], line_number)
 
     if channels is None:
         raise ValueError(f"{node_type} missing CHANNELS line")

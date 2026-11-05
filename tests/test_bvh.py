@@ -2816,6 +2816,52 @@ class TestRootPositionOrder:
             read_bvh_file(path)
 
 
+END_SITE_FORMS = {
+    "one_line": ("  End Site { OFFSET 0 8 0 }",),
+    "brace_on_the_end_site_line": ("  End Site {", "    OFFSET 0 8 0", "  }"),
+    "offset_and_brace_on_one_line": ("  End Site", "  {", "    OFFSET 0 8 0 }"),
+}
+
+
+class TestEndSiteForms:
+    """An ``End Site`` block reads the same whether its body spans one line or several."""
+
+    @pytest.mark.parametrize("form", END_SITE_FORMS.values(), ids=END_SITE_FORMS.keys())
+    def test_form_reads_as_the_multi_line_form(self, form, tmp_path):
+        multi_line = tmp_path / "multi_line.bvh"
+        multi_line.write_text(_clip_text())
+        compact = tmp_path / "compact.bvh"
+        compact.write_text(_clip_text(end_site=form))
+
+        expected = read_bvh_file(multi_line)
+        bvh = read_bvh_file(compact)
+
+        assert [n.name for n in bvh.nodes] == ["Hips", "Spine", "EndSiteSpine"]
+        np.testing.assert_array_equal(bvh.nodes[2].offset, [0.0, 8.0, 0.0])
+        assert bvh == expected
+        np.testing.assert_array_equal(bvh.node_positions(), expected.node_positions())
+
+    @pytest.mark.parametrize(
+        ("end_site", "error"),
+        [
+            (("  End Site { OFFSET 0 8 }",), "OFFSET must have 3 values, got 2"),
+            (("  End Site { OFFSET 0 8 0 CHANNELS 0 }",), "end site must not declare CHANNELS"),
+            (("  End Site { OFFSET 0 8 0 } }",), "unexpected token '}' after the end site's '}'"),
+        ],
+        ids=["short_offset", "channels", "token_after_the_closing_brace"],
+    )
+    def test_a_one_line_syntax_error_names_the_line_and_file(self, end_site, error, tmp_path):
+        path = tmp_path / "broken.bvh"
+        path.write_text(_clip_text(end_site=end_site))
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Could not read the offset of the End Site at line 10 in file {path}: {error}"
+            ),
+        ):
+            read_bvh_file(path)
+
+
 # =============================================================================
 # Test: the reader recovers the rate a truncating exporter meant
 # =============================================================================

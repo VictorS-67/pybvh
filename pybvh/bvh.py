@@ -3526,9 +3526,10 @@ class Bvh:
         dt = np.where(dt < 1e-15, 1.0, dt)
         alpha = (t_new - t_left) / dt  # (num_new,)
 
+        motion = self._motion()
         new_motion = {}
         for entry in self._MOTION_ARRAYS:
-            array = getattr(self, entry.attribute)
+            array = motion[entry.name]
             if entry.interpolation == "linear":
                 # np.interp per component, over the array flattened to
                 # (F, components) and given back its shape. drop_frames'

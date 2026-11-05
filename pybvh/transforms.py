@@ -412,9 +412,10 @@ def drop_frames(
 
     # Only the dropped rows are replaced: kept frames never round-trip
     # through quaternions, so their values are untouched bit for bit.
+    old_motion = bvh._motion()
     motion = {}
     for entry in bvh._MOTION_ARRAYS:
-        array = getattr(bvh, entry.attribute)
+        array = old_motion[entry.name]
         if entry.interpolation == "linear":
             weight = alpha.reshape((-1,) + (1,) * (array.ndim - 1))
             between = array[left_frames] * (1.0 - weight) + array[right_frames] * weight

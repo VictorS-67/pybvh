@@ -735,8 +735,10 @@ class Bvh:
             return False
         if self.frame_time != other.frame_time:
             return False
-        others = other._motion()
-        return all(np.array_equal(array, others[name]) for name, array in self._motion().items())
+        other_motion = other._motion()
+        return all(
+            np.array_equal(array, other_motion[name]) for name, array in self._motion().items()
+        )
 
     def matches_hierarchy(
         self, other: Bvh, match_offsets: bool = True, atol: float = _OFFSET_ATOL
@@ -980,10 +982,10 @@ class Bvh:
             return NotImplemented  # type: ignore[return-value]
         self._check_same_skeleton(other)
         self._check_same_rate(other, "a += b")
-        others = other._motion()
+        other_motion = other._motion()
         self._set_motion(
             **{
-                name: np.concatenate([array, others[name]], axis=0)
+                name: np.concatenate([array, other_motion[name]], axis=0)
                 for name, array in self._motion().items()
             }
         )
@@ -1045,9 +1047,9 @@ class Bvh:
             )
 
         # --- in-place splice, bypassing the setters ---
-        values = value._motion()
+        other_motion = value._motion()
         for name, array in self._motion().items():
-            array[s] = values[name]
+            array[s] = other_motion[name]
         self._derived.user_replaced_motion()
 
     def copy(self, nodes: Sequence[BvhNode] | Sequence[Mapping[str, Any]] | None = None) -> Bvh:
@@ -3421,10 +3423,10 @@ class Bvh:
         self._check_same_skeleton(other)
         self._check_same_rate(other, "a + b")
 
-        others = other._motion()
+        other_motion = other._motion()
         new_bvh = self._derive_clip(
             {
-                name: np.concatenate([array, others[name]], axis=0)
+                name: np.concatenate([array, other_motion[name]], axis=0)
                 for name, array in self._motion().items()
             }
         )

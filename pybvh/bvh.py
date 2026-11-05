@@ -1175,6 +1175,13 @@ class Bvh:
         from this clip. The arrays are taken as they are, not copied; the
         caller hands over arrays no other clip holds.
         """
+        names = [entry.name for entry in self._MOTION_ARRAYS]
+        unknown = motion.keys() - set(names)
+        if unknown:
+            raise TypeError(f"_derive_clip() got no motion array named {sorted(unknown)}")
+        missing = [name for name in names if name not in motion]
+        if missing:
+            raise TypeError(f"_derive_clip() is missing motion arrays {missing}")
         state = self.__getstate__()
         for entry in self._MOTION_ARRAYS:
             del state[entry.name]

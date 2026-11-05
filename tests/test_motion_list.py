@@ -128,6 +128,20 @@ class TestCarryingOperations:
         motion = _tagged_motion(motion_list, first=0.25)
         _assert_holds(source._derive_clip(motion), motion)
 
+    def test_a_derived_clip_refuses_a_missing_array(self, motion_list):
+        source = _clip(_tagged_motion(motion_list))
+        for entry in motion_list:
+            motion = _tagged_motion(motion_list, first=0.25)
+            del motion[entry.name]
+            with pytest.raises(TypeError, match=f"missing motion arrays \\['{entry.name}'\\]"):
+                source._derive_clip(motion)
+
+    def test_a_derived_clip_refuses_an_array_not_in_the_list(self, motion_list):
+        source = _clip(_tagged_motion(motion_list))
+        motion = {**_tagged_motion(motion_list), "root_pso": np.zeros((FRAMES, 3))}
+        with pytest.raises(TypeError, match="no motion array named \\['root_pso'\\]"):
+            source._derive_clip(motion)
+
     def test_a_pickle_round_trip_keeps_every_array(self, motion_list):
         motion = _tagged_motion(motion_list)
         _assert_holds(pickle.loads(pickle.dumps(_clip(motion))), motion)

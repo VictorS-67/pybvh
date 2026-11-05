@@ -686,9 +686,11 @@ class Bvh:
         """Whether ``self`` and ``other`` share the same channel layout.
 
         Compares per-joint Euler rotation orders, joint by joint in node
-        order. The root's position channels are always ``XYZ`` (the
-        constructor accepts no other order), so they cannot differ. This
-        is a *serialization* property:
+        order. The root's position channels are always ``XYZ``, the
+        order of a ``root_pos`` row, so they cannot differ: the
+        constructor accepts no other order, and :func:`~pybvh.read_bvh_file`
+        reads a file that declares another into ``XYZ``. This is a
+        *serialization* property:
         clips with identical underlying rotations but different stored
         Euler orders have different channel layouts.
 

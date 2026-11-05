@@ -2730,6 +2730,93 @@ class TestReadWriteReadEquality:
 
 
 # =============================================================================
+# Test: forms of BVH other tools write (#179)
+# =============================================================================
+
+# Two frames of a three-node clip. The root positions are the values of
+# the X, Y and Z position channels; the motion lines below write them in
+# whatever order the CHANNELS line declares.
+_ROOT_POS = [(10.0, 50.0, -20.0), (11.5, 49.0, -18.25)]
+_ANGLES = ["30 10 -5 15 -20 40", "35 12 -4 10 -25 45"]
+
+
+def _clip_text(position_order="XYZ", end_site=("  End Site", "  {", "    OFFSET 0 8 0", "  }")):
+    """The text of a small clip whose root declares its position channels in *position_order*."""
+    position_channels = " ".join(f"{axis}position" for axis in position_order)
+    lines = [
+        "HIERARCHY",
+        "ROOT Hips",
+        "{",
+        "  OFFSET 1 2 3",
+        f"  CHANNELS 6 {position_channels} Zrotation Xrotation Yrotation",
+        "  JOINT Spine",
+        "  {",
+        "    OFFSET 0 10 0",
+        "    CHANNELS 3 Zrotation Xrotation Yrotation",
+        *("  " + ln for ln in end_site),
+        "  }",
+        "}",
+        "MOTION",
+        "Frames: 2",
+        "Frame Time: 0.033333",
+    ]
+    for pos, angles in zip(_ROOT_POS, _ANGLES, strict=True):
+        by_axis = dict(zip("XYZ", pos, strict=True))
+        lines.append(" ".join(str(by_axis[a]) for a in position_order) + " " + angles)
+    return "\n".join(lines) + "\n"
+
+
+class TestRootPositionOrder:
+    """A root may declare its three position channels in any order; ``root_pos`` is always X, Y, Z."""
+
+    @pytest.mark.parametrize("order", ["XYZ", "XZY", "YXZ", "YZX", "ZXY", "ZYX"])
+    def test_any_order_reads_as_the_standard_form(self, order, tmp_path):
+        standard = tmp_path / "standard.bvh"
+        standard.write_text(_clip_text("XYZ"))
+        permuted = tmp_path / "permuted.bvh"
+        permuted.write_text(_clip_text(order))
+
+        expected = read_bvh_file(standard)
+        bvh = read_bvh_file(permuted)
+
+        np.testing.assert_array_equal(bvh.root_pos, _ROOT_POS)
+        np.testing.assert_array_equal(bvh.root_pos, expected.root_pos)
+        np.testing.assert_array_equal(bvh.node_positions(), expected.node_positions())
+        assert bvh.root.pos_channels == ("X", "Y", "Z")
+        assert bvh == expected
+
+    def test_a_write_declares_xyz_and_round_trips(self, tmp_path):
+        """A write changes a ``ZYX`` declaration to ``XYZ`` once; from then on the bytes are stable."""
+        src = tmp_path / "zyx.bvh"
+        src.write_text(_clip_text("ZYX"))
+        bvh = read_bvh_file(src)
+
+        first = tmp_path / "first.bvh"
+        bvh.write(first)
+        assert "CHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation" in (
+            first.read_text()
+        )
+        again = read_bvh_file(first)
+        assert again == bvh
+
+        second = tmp_path / "second.bvh"
+        again.write(second)
+        assert second.read_bytes() == first.read_bytes()
+
+    def test_a_repeated_position_axis_raises_naming_the_line_and_file(self, tmp_path):
+        path = tmp_path / "repeated.bvh"
+        path.write_text(_clip_text("XYZ").replace("Zposition", "Xposition", 1))
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Could not read the offset or channels of the root Hips, at line 5 "
+                f"in file {path}: position channels must be X, Y and Z, one of each, got 'XYX'"
+            ),
+        ):
+            read_bvh_file(path)
+
+
+# =============================================================================
 # Test: the reader recovers the rate a truncating exporter meant
 # =============================================================================
 

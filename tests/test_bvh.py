@@ -2816,7 +2816,7 @@ class TestRootPositionOrder:
             read_bvh_file(path)
 
 
-END_SITE_FORMS = {
+_END_SITE_FORMS = {
     "one_line": ("  End Site { OFFSET 0 8 0 }",),
     "brace_on_the_end_site_line": ("  End Site {", "    OFFSET 0 8 0", "  }"),
     "offset_and_brace_on_one_line": ("  End Site", "  {", "    OFFSET 0 8 0 }"),
@@ -2826,7 +2826,7 @@ END_SITE_FORMS = {
 class TestEndSiteForms:
     """An ``End Site`` block reads the same whether its body spans one line or several."""
 
-    @pytest.mark.parametrize("form", END_SITE_FORMS.values(), ids=END_SITE_FORMS.keys())
+    @pytest.mark.parametrize("form", _END_SITE_FORMS.values(), ids=_END_SITE_FORMS.keys())
     def test_form_reads_as_the_multi_line_form(self, form, tmp_path):
         multi_line = tmp_path / "multi_line.bvh"
         multi_line.write_text(_clip_text())
@@ -2840,6 +2840,22 @@ class TestEndSiteForms:
         np.testing.assert_array_equal(bvh.nodes[2].offset, [0.0, 8.0, 0.0])
         assert bvh == expected
         np.testing.assert_array_equal(bvh.node_positions(), expected.node_positions())
+
+    @pytest.mark.parametrize(
+        "end_site",
+        [
+            ("  End Site Head_End", "  {", "    OFFSET 0 8 0", "  }"),
+            ("  End Site", "  {", "    OFFSET 0 8 0", "  } Head_End"),
+        ],
+        ids=["text_after_end_site", "text_after_a_closing_brace_that_starts_its_line"],
+    )
+    def test_the_multi_line_form_ignores_trailing_text_as_before(self, end_site, tmp_path):
+        """The multi-line form ignores text after ``End Site`` and after a ``}`` that starts its line, as the reader of 0.9.0 did."""
+        multi_line = tmp_path / "multi_line.bvh"
+        multi_line.write_text(_clip_text())
+        trailing = tmp_path / "trailing.bvh"
+        trailing.write_text(_clip_text(end_site=end_site))
+        assert read_bvh_file(trailing) == read_bvh_file(multi_line)
 
     @pytest.mark.parametrize(
         ("end_site", "error"),

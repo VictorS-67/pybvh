@@ -467,17 +467,24 @@ def _stored_channel_order(channels: list[tuple[str, str]]) -> list[int]:
 def _read_end_site_block(tokens: list[str], f: TextIO, line_number: int) -> tuple[list[float], int]:
     """Read an End Site block's body through its closing ``}``, on one line or several.
 
-    *tokens* are the tokens that follow ``End Site`` on its own line. The body is read as one stream of tokens, whatever the line breaks: ``End Site { OFFSET 0 8 0 }`` on one line, the ``{`` on the ``End Site`` line, ``OFFSET 0 8 0 }`` on one line, and the multi-line form all read the same. Reading stops at the line that holds the closing ``}``; a token after it on that line is refused, since the line-based hierarchy reader would not see it.
+    *tokens* are the tokens that follow ``End Site`` on its own line. The body is read as one stream of tokens, whatever the line breaks: ``End Site { OFFSET 0 8 0 }`` on one line, the ``{`` on the ``End Site`` line, ``OFFSET 0 8 0 }`` on one line, and the multi-line form all read the same.
+
+    Text the multi-line form carried and the line-based reader ignored is still ignored: tokens after ``End Site`` before any ``{`` (``End Site Head_End``), and tokens after a ``}`` that starts its line. A token after a ``}`` that does not start its line (``End Site { OFFSET 0 8 0 } }``) is refused: ignoring it could drop the parent joint's ``}`` and nest the next joint under the wrong parent.
 
     Returns ``(offset, line_number)``, *line_number* being the line of the closing ``}``.
     """
-    body = list(tokens)
+    body = tokens[tokens.index("{") :] if "{" in tokens else []
     while "}" not in body:
         raw_ln = next(f, None)
         if raw_ln is None:
             raise ValueError("end site block is not closed")
         line_number += 1
-        body.extend(raw_ln.split())
+        parts = raw_ln.split()
+        if parts[:1] == ["}"]:
+            # The line-based form: the rest of the line is ignored, as
+            # the hierarchy reader ignores it after every other '}'.
+            parts = parts[:1]
+        body.extend(parts)
     close = body.index("}")
     if close + 1 < len(body):
         raise ValueError(f"unexpected token {body[close + 1]!r} after the end site's '}}'")
@@ -500,11 +507,16 @@ def _read_end_site_block(tokens: list[str], f: TextIO, line_number: int) -> tupl
         else:
             raise ValueError(f"unexpected token {token!r} in end site block")
 
+    return (_checked_offset(offset, "end site"), line_number)
+
+
+def _checked_offset(offset: list[float] | None, node_type: str) -> list[float]:
+    """*offset*, once checked to be an ``OFFSET`` of 3 values that the block declared."""
     if offset is None:
-        raise ValueError("end site missing OFFSET line")
+        raise ValueError(f"{node_type} missing OFFSET line")
     if len(offset) != 3:
         raise ValueError(f"OFFSET must have 3 values, got {len(offset)}")
-    return (offset, line_number)
+    return offset
 
 
 def _read_node_block(
@@ -542,10 +554,7 @@ def _read_node_block(
             break
 
     # ---- per-node-type validation ----
-    if offset is None:
-        raise ValueError(f"{node_type} missing OFFSET line")
-    if len(offset) != 3:
-        raise ValueError(f"OFFSET must have 3 values, got {len(offset)}")
+    offset = _checked_offset(offset, node_type)
 
     if channels is None:
         raise ValueError(f"{node_type} missing CHANNELS line")

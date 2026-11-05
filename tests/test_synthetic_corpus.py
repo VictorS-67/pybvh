@@ -5,7 +5,9 @@ clips, ``manifest.json`` and ``README.md``, and audits each clip with
 ``audit_synthetic_bvh.py``; ``generate_lying_down_bvh.py`` writes the
 lying-down clip. The test runs both into a temporary directory and compares
 their output with the committed files byte for byte, so that a change to a
-script and its regenerated output land together.
+script and its regenerated output land together. The lying-down clip takes
+its skeleton from ``bvh_data/bvh_test1.bvh``, so a change to that fixture
+fails this test too, until the clip is regenerated.
 
 pybvh reads three of the thirteen clips. The other ten declare position
 channels on a joint other than the root, which the reader refuses; each

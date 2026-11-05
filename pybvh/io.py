@@ -469,7 +469,7 @@ def _read_end_site_block(tokens: list[str], f: TextIO, line_number: int) -> tupl
 
     *tokens* are the tokens that follow ``End Site`` on its own line. The body is read as one stream of tokens, whatever the line breaks: ``End Site { OFFSET 0 8 0 }`` on one line, the ``{`` on the ``End Site`` line, ``OFFSET 0 8 0 }`` on one line, and the multi-line form all read the same.
 
-    Text the multi-line form carried and the line-based reader ignored is still ignored: tokens after ``End Site`` before any ``{`` (``End Site Head_End``), and tokens after a ``}`` that starts its line. A token after a ``}`` that does not start its line (``End Site { OFFSET 0 8 0 } }``) is refused: ignoring it could drop the parent joint's ``}`` and nest the next joint under the wrong parent.
+    Text the multi-line form carried and the line-based reader ignored is still ignored: tokens after ``End Site`` before any ``{`` (``End Site Head_End``), and tokens after a ``{`` or a ``}`` that starts its line. The body therefore starts after the ``{`` only when that ``{`` is on the ``End Site`` line: ``{ OFFSET 0 8 0 }`` on a line of its own reads no OFFSET, as in 0.9.0 and as for a JOINT's ``{``. A token after a ``}`` that does not start its line (``End Site { OFFSET 0 8 0 } }``) is refused: ignoring it could drop the parent joint's ``}`` and nest the next joint under the wrong parent.
 
     Returns ``(offset, line_number)``, *line_number* being the line of the closing ``}``.
     """
@@ -480,9 +480,10 @@ def _read_end_site_block(tokens: list[str], f: TextIO, line_number: int) -> tupl
             raise ValueError("end site block is not closed")
         line_number += 1
         parts = raw_ln.split()
-        if parts[:1] == ["}"]:
+        if parts[:1] in (["{"], ["}"]):
             # The line-based form: the rest of the line is ignored, as
-            # the hierarchy reader ignores it after every other '}'.
+            # the hierarchy reader ignores it after every other brace
+            # that starts its line.
             parts = parts[:1]
         body.extend(parts)
     close = body.index("}")

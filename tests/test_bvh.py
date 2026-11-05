@@ -2845,12 +2845,17 @@ class TestEndSiteForms:
         "end_site",
         [
             ("  End Site Head_End", "  {", "    OFFSET 0 8 0", "  }"),
+            ("  End Site", "  { # tip", "    OFFSET 0 8 0", "  }"),
             ("  End Site", "  {", "    OFFSET 0 8 0", "  } Head_End"),
         ],
-        ids=["text_after_end_site", "text_after_a_closing_brace_that_starts_its_line"],
+        ids=[
+            "text_after_end_site",
+            "text_after_an_opening_brace_that_starts_its_line",
+            "text_after_a_closing_brace_that_starts_its_line",
+        ],
     )
     def test_the_multi_line_form_ignores_trailing_text_as_before(self, end_site, tmp_path):
-        """The multi-line form ignores text after ``End Site`` and after a ``}`` that starts its line, as the reader of 0.9.0 did."""
+        """The multi-line form ignores text after ``End Site`` and after a ``{`` or ``}`` that starts its line, as the reader of 0.9.0 did."""
         multi_line = tmp_path / "multi_line.bvh"
         multi_line.write_text(_clip_text())
         trailing = tmp_path / "trailing.bvh"

@@ -121,9 +121,15 @@ def read_bvh_file(
       whole (``0.033367`` gives 30 fps, ``0.017`` 59 fps). In a file at
       6 decimals, it also differs on some whole rates above 720 fps
       (``0.001386`` gives 722 fps, where pybvh reads 721).
-    - **Root channels are reordered** to position-first. A file that
-      declares rotations before positions parses correctly, but it
-      writes back in pybvh's canonical order.
+    - **Root channels are reordered** to position-first, with the
+      position channels in X, Y, Z order, the order of a
+      :attr:`Bvh.root_pos` row. A file that declares rotations before
+      positions, or ``Zposition Yposition Xposition``, parses correctly,
+      and ``bvh.root.pos_channels`` is ``('X', 'Y', 'Z')``: the declared
+      order is not kept. :func:`write_bvh_file` writes the canonical
+      order, so a write changes such a declaration once, and the output
+      is the same from then on. The rotation channels keep their
+      declared order, which is the root's Euler order.
     - **Offsets and motion values are written at 6 decimal places**, so
       re-reading a written file quantizes at ~1e-6 in the file's own
       units. The frame time is written at 17 significant digits, which
@@ -262,7 +268,7 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
 
     The hierarchy is read token by token into node-table rows (see :func:`~pybvh.nodes_to_table`), one per ROOT, JOINT or End Site in file order, and the tree is built once by :func:`~pybvh.nodes_from_table`, which wires ``parent`` and ``children`` and checks the tree. Syntax errors (a second ROOT, a JOINT or End Site outside the ROOT block, an unmatched ``}``, an unreadable block) are raised here, with the line and the file.
 
-    The returned frame array is normalized to pybvh's internal column layout: the root's 3 position columns first, then all rotation columns (root's, then each joint's in hierarchy order). Files whose root declares rotation channels before position channels are reordered on read; :func:`write_bvh_file` always writes position-first.
+    The returned frame array is normalized to pybvh's internal column layout: the root's 3 position columns first, in X, Y, Z order, then all rotation columns (root's, then each joint's in hierarchy order). Files whose root declares rotation channels before position channels, or its position channels in another order, are reordered on read (see :func:`_stored_channel_order`); :func:`write_bvh_file` always writes ``Xposition Yposition Zposition`` first.
     """
     table: list[dict[str, Any]] = []
     # Brace stack of the open ROOT/JOINT blocks, as row indices: a row is
@@ -273,11 +279,9 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
     line_number: int = 0
     frame_count: int = 0
     frame_time: float = 0.0
-    # Column indices of the root's position/rotation channels within its
-    # own channel block, in file order (used to normalize rotation-first
-    # roots to the internal position-first layout).
-    root_pos_cols: list[int] = []
-    root_rot_cols: list[int] = []
+    # Column indices of the root's channel block, in the order pybvh
+    # stores them (see _stored_channel_order).
+    root_cols: list[int] = []
 
     filepath = _validate_bvh_path(filepath)
 
@@ -305,6 +309,7 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
                 node_type = "root" if token == "ROOT" else "joint"
                 try:
                     offset, channels, line_number = _read_node_block(node_type, f, line_number)
+                    cols = _stored_channel_order(channels)
                 except Exception as e:
                     raise ValueError(
                         f"Could not read the offset or channels of the {node_type} "
@@ -316,11 +321,11 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
                     "parent": open_rows[-1] if token == "JOINT" else None,
                     "offset": offset,
                 }
+                stored = [channels[i] for i in cols]
                 if token == "ROOT":
-                    row["pos_channels"] = [ax for kind, ax in channels if kind == "pos"]
-                    root_pos_cols = [i for i, (kind, _) in enumerate(channels) if kind == "pos"]
-                    root_rot_cols = [i for i, (kind, _) in enumerate(channels) if kind == "rot"]
-                row["rot_channels"] = [ax for kind, ax in channels if kind == "rot"]
+                    row["pos_channels"] = [ax for kind, ax in stored if kind == "pos"]
+                    root_cols = cols
+                row["rot_channels"] = [ax for kind, ax in stored if kind == "rot"]
                 open_rows.append(len(table))
                 table.append(row)
 
@@ -330,7 +335,7 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
                         f"End Site outside any ROOT block at line {line_number} in file {filepath}"
                     )
                 try:
-                    offset, channels, line_number = _read_node_block("end_site", f, line_number)
+                    offset, line_number = _read_end_site_block(line[2:], f, line_number)
                 except Exception as e:
                     raise ValueError(
                         f"Could not read the offset of the End Site "
@@ -338,7 +343,7 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
                     ) from e
                 # No name: the builder gives an end site its display name,
                 # 'EndSite' + the parent's name. End-site blocks are fully
-                # consumed by _read_node_block (including their closing
+                # consumed by _read_end_site_block (including their closing
                 # '}'), so they never go on the stack.
                 table.append({"parent": open_rows[-1], "offset": offset})
 
@@ -402,11 +407,11 @@ def _extract_bvh_file_info(filepath: str | Path) -> _ParsedBvh:
                 f"frame but the hierarchy declares {num_channels} channels"
             )
 
-    # Normalize rotation-first (or interleaved) root channel layouts to the
-    # internal position-first layout; within-block channel order is preserved.
-    canonical_root_cols = root_pos_cols + root_rot_cols
-    if canonical_root_cols != [0, 1, 2, 3, 4, 5]:
-        frame_array = frame_array[:, canonical_root_cols + list(range(6, num_channels))]
+    # Put the root's columns in the order pybvh stores them: a
+    # rotation-first or interleaved block, or position channels in another
+    # order than X Y Z, are read as if the file declared the stored order.
+    if root_cols != [0, 1, 2, 3, 4, 5]:
+        frame_array = frame_array[:, root_cols + list(range(6, num_channels))]
 
     return _ParsedBvh(node_list, frame_array, frame_time)
 
@@ -441,17 +446,91 @@ def _parse_channels_line(parts: list[str]) -> list[tuple[str, str]]:
     return channels
 
 
+def _stored_channel_order(channels: list[tuple[str, str]]) -> list[int]:
+    """The column indices of a node's channel block, in the order pybvh stores them.
+
+    pybvh stores a node's position channels first, in X, Y, Z order (the order of a ``root_pos`` row), then its rotation channels in their declared order, which is the node's Euler order. *channels* is the ``(kind, axis)`` list of :func:`_parse_channels_line`, in file order; the result lists, for each stored channel, the index of its column in the file. A block with no position channels keeps its order.
+
+    Raises ``ValueError`` when the position channels are not X, Y and Z, one of each.
+    """
+    pos_cols = sorted(
+        ((axis, i) for i, (kind, axis) in enumerate(channels) if kind == "pos"),
+    )
+    pos_axes = "".join(axis for axis, _ in pos_cols)
+    if pos_axes not in ("", "XYZ"):
+        declared = "".join(axis for kind, axis in channels if kind == "pos")
+        raise ValueError(f"position channels must be X, Y and Z, one of each, got {declared!r}")
+    rot_cols = [i for i, (kind, _) in enumerate(channels) if kind == "rot"]
+    return [i for _, i in pos_cols] + rot_cols
+
+
+def _read_end_site_block(tokens: list[str], f: TextIO, line_number: int) -> tuple[list[float], int]:
+    """Read an End Site block's body through its closing ``}``, on one line or several.
+
+    *tokens* are the tokens that follow ``End Site`` on its own line. The body is read as one stream of tokens, whatever the line breaks: ``End Site { OFFSET 0 8 0 }`` on one line, the ``{`` on the ``End Site`` line, ``OFFSET 0 8 0 }`` on one line, and the multi-line form all read the same.
+
+    Text the multi-line form carried and the line-based reader ignored is still ignored: tokens after ``End Site`` before any ``{`` (``End Site Head_End``), and tokens after a ``{`` or a ``}`` that starts its line. The body therefore starts after the ``{`` only when that ``{`` is on the ``End Site`` line: ``{ OFFSET 0 8 0 }`` on a line of its own reads no OFFSET, as in 0.9.0 and as for a JOINT's ``{``. Text after a ``{`` on the ``End Site`` line is the body, so ``End Site { # tip`` raises, where 0.9.0 ignored the whole line after ``End Site``. A token after a ``}`` that does not start its line (``End Site { OFFSET 0 8 0 } }``) is refused: ignoring it could drop the parent joint's ``}`` and nest the next joint under the wrong parent.
+
+    Returns ``(offset, line_number)``, *line_number* being the line of the closing ``}``.
+    """
+    body = tokens[tokens.index("{") :] if "{" in tokens else []
+    while "}" not in body:
+        raw_ln = next(f, None)
+        if raw_ln is None:
+            raise ValueError("end site block is not closed")
+        line_number += 1
+        parts = raw_ln.split()
+        if parts[:1] in (["{"], ["}"]):
+            # The line-based form: the rest of the line is ignored, as
+            # the hierarchy reader ignores it after every other brace
+            # that starts its line.
+            parts = parts[:1]
+        body.extend(parts)
+    close = body.index("}")
+    if close + 1 < len(body):
+        raise ValueError(f"unexpected token {body[close + 1]!r} after the end site's '}}'")
+
+    offset: list[float] | None = None
+    i = 0
+    while i < close:
+        token = body[i]
+        i += 1
+        if token == "{":
+            continue
+        elif token == "OFFSET":
+            values = []
+            while i < close and body[i] not in ("{", "OFFSET", "CHANNELS"):
+                values.append(float(body[i]))
+                i += 1
+            offset = values
+        elif token == "CHANNELS":
+            raise ValueError("end site must not declare CHANNELS")
+        else:
+            raise ValueError(f"unexpected token {token!r} in end site block")
+
+    return (_checked_offset(offset, "end site"), line_number)
+
+
+def _checked_offset(offset: list[float] | None, node_type: str) -> list[float]:
+    """*offset*, once checked to be an ``OFFSET`` of 3 values that the block declared."""
+    if offset is None:
+        raise ValueError(f"{node_type} missing OFFSET line")
+    if len(offset) != 3:
+        raise ValueError(f"OFFSET must have 3 values, got {len(offset)}")
+    return offset
+
+
 def _read_node_block(
     node_type: str, f: TextIO, line_number: int
 ) -> tuple[list[float], list[tuple[str, str]], int]:
-    """Read the lines opening a node's block: ``{``, ``OFFSET``, and ``CHANNELS``.
+    """Read the lines opening a root's or a joint's block: ``{``, ``OFFSET``, and ``CHANNELS``.
 
-    Token-driven — each line is dispatched on its leading token, and completeness is validated per node type at the end, so blank lines and line-order variations don't break parsing. Joint/root blocks are left open (their children follow); end-site blocks are consumed through their closing ``}``.
+    Token-driven — each line is dispatched on its leading token, and completeness is validated per node type at the end, so blank lines and line-order variations don't break parsing. The block is left open (its children follow). An End Site block is read by :func:`_read_end_site_block`.
 
-    Returns ``(offset, channels, line_number)`` where ``channels`` is the ``(kind, axis)`` list from :func:`_parse_channels_line` (empty for end sites).
+    Returns ``(offset, channels, line_number)`` where ``channels`` is the ``(kind, axis)`` list from :func:`_parse_channels_line`.
     """
-    if node_type not in ("root", "joint", "end_site"):
-        raise ValueError("node_type should be either root, joint or end_site")
+    if node_type not in ("root", "joint"):
+        raise ValueError("node_type should be either root or joint")
 
     offset: list[float] | None = None
     channels: list[tuple[str, str]] | None = None
@@ -465,28 +544,18 @@ def _read_node_block(
         if token == "{":
             continue
         elif token == "}":
-            if node_type != "end_site":
-                raise ValueError(f"{node_type} block closed before OFFSET/CHANNELS were read")
-            break
+            raise ValueError(f"{node_type} block closed before OFFSET/CHANNELS were read")
         elif token == "OFFSET":
             offset = [float(x) for x in parts[1:]]
         elif token == "CHANNELS":
             channels = _parse_channels_line(parts)
         else:
             raise ValueError(f"unexpected token {token!r} in {node_type} block")
-        if node_type != "end_site" and offset is not None and channels is not None:
+        if offset is not None and channels is not None:
             break
 
     # ---- per-node-type validation ----
-    if offset is None:
-        raise ValueError(f"{node_type.replace('_', ' ')} missing OFFSET line")
-    if len(offset) != 3:
-        raise ValueError(f"OFFSET must have 3 values, got {len(offset)}")
-
-    if node_type == "end_site":
-        if channels is not None:
-            raise ValueError("end site must not declare CHANNELS")
-        return (offset, [], line_number)
+    offset = _checked_offset(offset, node_type)
 
     if channels is None:
         raise ValueError(f"{node_type} missing CHANNELS line")
@@ -572,8 +641,12 @@ def write_bvh_file(
 
     The BVH format carries no place for ``world_up``, ``lr_mapping``, or
     ``source_path``. Those are lost on write, and re-inferred on read.
-    Root channels are always written position-first, whatever order the
-    source file declared.
+    The root's channels are always written position-first, as
+    ``Xposition Yposition Zposition``, then the rotation channels in the
+    root's Euler order, whatever order the source file declared. So a
+    write reorders a root whose file declared its position channels in
+    another order, or after its rotations (:func:`read_bvh_file` reads
+    both).
     """
     filepath = Path(filepath)
     if filepath.suffix != ".bvh":

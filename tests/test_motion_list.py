@@ -15,7 +15,7 @@ import pickle
 import numpy as np
 import pytest
 
-from pybvh import nodes_from_table
+from pybvh import nodes_from_table, transforms
 from pybvh.bvh import Bvh, _MotionArray
 
 FRAMES = 6
@@ -237,6 +237,62 @@ class TestInterpolatingOperations:
             assert resampled._motion()[entry.name].shape == (11, *_frame_shape(entry)), entry.name
 
 
+class _FixedDraws:
+    """A stand-in for ``rng`` whose draws are fixed: at ``drop_rate=0.5``,
+    frames 1, 2 and 4 of six are dropped and 0, 3 and 5 kept."""
+
+    def random(self, size):
+        return np.array([0.9, 0.1, 0.1, 0.9, 0.1, 0.9])
+
+
+def _drop_with_method(clip):
+    return clip.drop_frames(0.5, rng=_FixedDraws())
+
+
+def _drop_with_method_inplace(clip):
+    clip.drop_frames(0.5, rng=_FixedDraws(), inplace=True)
+    return clip
+
+
+def _drop_with_transform(clip):
+    return transforms.drop_frames(clip, 0.5, rng=_FixedDraws())
+
+
+def _drop_with_transform_inplace(clip):
+    transforms.drop_frames(clip, 0.5, rng=_FixedDraws(), inplace=True)
+    return clip
+
+
+DROPPERS = [
+    _drop_with_method,
+    _drop_with_method_inplace,
+    _drop_with_transform,
+    _drop_with_transform_inplace,
+]
+
+
+class TestDroppedFrames:
+    @pytest.mark.parametrize("drop", DROPPERS)
+    def test_dropped_frames_of_every_linear_array_are_interpolated(self, motion_list, drop):
+        result = drop(_clip(_square_motion(motion_list)))
+        # Kept frames 0, 3, 5 hold squares 0, 9, 25; frames 1 and 2 are a
+        # third and two thirds of the way from 0 to 9, frame 4 halfway
+        # from 9 to 25.
+        squares = np.array([0, 3, 6, 9, 17, 25])
+        for name, offset in _linear_offsets(motion_list).items():
+            expected = offset + squares.reshape((-1,) + (1,) * offset.ndim)
+            np.testing.assert_allclose(result._motion()[name], expected, atol=1e-12, err_msg=name)
+
+    @pytest.mark.parametrize("drop", DROPPERS)
+    def test_kept_frames_of_every_array_are_untouched(self, motion_list, drop):
+        motion = _square_motion(motion_list)
+        result = drop(_clip(motion))
+        for name, array in motion.items():
+            np.testing.assert_array_equal(
+                result._motion()[name][[0, 3, 5]], array[[0, 3, 5]], err_msg=name
+            )
+
+
 class TestUnknownInterpolation:
     """An entry whose kind no operation knows is refused, not skipped."""
 
@@ -253,6 +309,15 @@ class TestUnknownInterpolation:
             match=r"resample\(\) does not know interpolation 'cubic' of motion array 'odd'",
         ):
             clip.resample(20.0)
+
+    @pytest.mark.parametrize("drop", DROPPERS)
+    def test_dropping_frames_refuses_it(self, odd_list, drop):
+        clip = _clip(_tagged_motion(odd_list))
+        with pytest.raises(
+            ValueError,
+            match=r"drop_frames\(\) does not know interpolation 'cubic' of motion array 'odd'",
+        ):
+            drop(clip)
 
 
 class TestPickleFormat:

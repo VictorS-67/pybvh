@@ -410,25 +410,23 @@ def drop_frames(
     right_frames = kept_indices[ins]  # (D,)
     alpha = (dropped - left_frames) / (right_frames - left_frames)  # (D,)
 
-    # Interpolate root position linearly (dropped rows only)
-    new_root_pos = bvh.root_pos.copy()
-    new_root_pos[drop_mask] = (
-        bvh.root_pos[left_frames] * (1.0 - alpha[:, None])
-        + bvh.root_pos[right_frames] * alpha[:, None]
-    )
-
-    # SLERP all joints of the dropped frames in one broadcast call:
-    # (D, J, 4) endpoints with (D, 1) t broadcasting over the joint axis.
-    _, quats = bvh.to_quat()  # (F, J, 4)
-    dropped_quats = rotations.quat_slerp(quats[left_frames], quats[right_frames], alpha[:, None])
-
-    # Convert only the dropped frames back to Euler — kept frames never
-    # round-trip through quaternions, so their angle values are untouched.
-    new_angles = bvh.joint_angles.copy()
-    new_angles[drop_mask] = rotations.quat_to_euler(dropped_quats, bvh.euler_orders)
+    # Only the dropped rows are replaced: kept frames never round-trip
+    # through quaternions, so their values are untouched bit for bit.
+    motion = {}
+    for entry in bvh._MOTION_ARRAYS:
+        array = getattr(bvh, entry.attribute)
+        if entry.interpolation == "linear":
+            weight = alpha.reshape((-1,) + (1,) * (array.ndim - 1))
+            between = array[left_frames] * (1.0 - weight) + array[right_frames] * weight
+        elif entry.interpolation == "euler":
+            between = bvh._slerp_angles(array, left_frames, right_frames, alpha)
+        else:
+            raise entry.unknown_interpolation("drop_frames()")
+        motion[entry.name] = array.copy()
+        motion[entry.name][drop_mask] = between
 
     target = bvh if inplace else bvh.copy()
-    target._set_motion(root_pos=new_root_pos, joint_angles=new_angles)
+    target._set_motion(**motion)
     if inplace:
         return None
     return target

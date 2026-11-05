@@ -157,7 +157,7 @@ class _SkeletonDim(NamedTuple):
 
 _JOINTS = _SkeletonDim(
     symbol="J",
-    count=lambda nodes: sum(1 for node in nodes if not node.is_end_site()),
+    count=lambda nodes: sum(1 for node in nodes if _is_joint(node)),
     unit="joints",
     skeleton_unit="non-end-site joints",
 )

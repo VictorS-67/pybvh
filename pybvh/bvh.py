@@ -196,6 +196,13 @@ class _MotionArray(NamedTuple):
             if isinstance(dim, _SkeletonDim)
         ]
 
+    def unknown_interpolation(self, operation: str) -> ValueError:
+        """The error ``operation`` raises on an interpolation kind it does not know."""
+        return ValueError(
+            f"{operation} does not know interpolation {self.interpolation!r} "
+            f"of motion array {self.name!r}"
+        )
+
     def empty(self) -> npt.NDArray[np.float64]:
         """The array of a clip built without motion: no frame, and 0 on
         each skeleton dim, so that it binds no skeleton."""
@@ -3412,6 +3419,26 @@ class Bvh:
             new_bvh.source_path = None
         return new_bvh
 
+    def _slerp_angles(
+        self,
+        angles: npt.NDArray[np.float64],
+        left: npt.NDArray[np.intp],
+        right: npt.NDArray[np.intp],
+        alpha: npt.NDArray[np.float64],
+    ) -> npt.NDArray[np.float64]:
+        """Frames between frames ``left`` and ``right`` of ``angles``, at ``alpha``.
+
+        ``angles`` is ``(F, J, 3)``, each joint's angles in radians in its
+        Euler order (``euler_orders``); ``left``, ``right`` and ``alpha``
+        are ``(N,)``, one frame pair and one fraction in ``[0, 1]`` per new
+        frame. Each joint goes through quaternions and is slerped on the
+        shorter arc, so the result is ``(N, J, 3)``, in radians, read back
+        in the joint's Euler order.
+        """
+        quats = rotations.rotmat_to_quat(rotations.euler_to_rotmat(angles, self.euler_orders))
+        between = rotations.quat_slerp(quats[left], quats[right], alpha[:, np.newaxis])
+        return rotations.quat_to_euler(between, self.euler_orders)
+
     def resample(self, target_fps: float) -> Bvh:
         """Resample frames to a new frame rate via interpolation.
 
@@ -3470,16 +3497,6 @@ class Bvh:
         t_new = np.arange(0, t_orig[-1] + 1e-12, new_freq)
 
         num_new = len(t_new)
-        num_joints = self.joint_count
-
-        # --- Root position: linear interpolation ---
-        new_root_pos = np.empty((num_new, 3), dtype=np.float64)
-        for ax in range(3):
-            new_root_pos[:, ax] = np.interp(t_new, t_orig, self.root_pos[:, ax])
-
-        # --- Joint angles: quaternion SLERP ---
-        # Convert all joints to quaternions: (F, J, 4)
-        _, joint_quats = self.to_quat()
 
         # Find surrounding frame indices for each new timestamp
         idx_right = np.searchsorted(t_orig, t_new, side="right")
@@ -3494,21 +3511,25 @@ class Bvh:
         dt = np.where(dt < 1e-15, 1.0, dt)
         alpha = (t_new - t_left) / dt  # (num_new,)
 
-        # SLERP for all joints at once: shape (num_new, J, 4)
-        q_left = joint_quats[idx_left]  # (num_new, J, 4)
-        q_right = joint_quats[idx_right]  # (num_new, J, 4)
+        new_motion = {}
+        for entry in self._MOTION_ARRAYS:
+            array = getattr(self, entry.attribute)
+            if entry.interpolation == "linear":
+                # np.interp per component, over the array flattened to
+                # (F, components) and given back its shape. drop_frames'
+                # weighted sum of the two neighbours would round otherwise,
+                # so each operation keeps its own linear rule and its values.
+                components = array.reshape(self.frame_count, -1)
+                resampled = np.empty((num_new, components.shape[1]), dtype=np.float64)
+                for column in range(components.shape[1]):
+                    resampled[:, column] = np.interp(t_new, t_orig, components[:, column])
+                new_motion[entry.name] = resampled.reshape(num_new, *array.shape[1:])
+            elif entry.interpolation == "euler":
+                new_motion[entry.name] = self._slerp_angles(array, idx_left, idx_right, alpha)
+            else:
+                raise entry.unknown_interpolation("resample()")
 
-        # Broadcast alpha to (num_new, J) for per-joint SLERP
-        alpha_jt = np.broadcast_to(alpha[:, np.newaxis], (num_new, num_joints))
-        new_quats = rotations.quat_slerp(q_left, q_right, alpha_jt)
-
-        # Convert back to Euler angles — vectorized across joints via the
-        # per-joint-order overload of rotmat_to_euler.
-        new_angles = rotations.rotmat_to_euler(
-            rotations.quat_to_rotmat(new_quats), self.euler_orders
-        )
-
-        new_bvh = self._derive_clip({"root_pos": new_root_pos, "joint_angles": new_angles})
+        new_bvh = self._derive_clip(new_motion)
         new_bvh.frame_time = new_freq
         return new_bvh
 

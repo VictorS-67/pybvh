@@ -2,10 +2,10 @@
 
 ``Bvh`` keeps one private list of its motion arrays, and each operation that
 carries the arrays as they are (shape checks, derived clips, pickles, copies,
-slicing, joins, splices, equality) reads them from it. These tests run each
-operation once over the list as it is and once with a test-only third array
-registered in it, so that an array added to the list and missed by an
-operation fails here.
+slicing, joins, splices, equality) or interpolates them (resampling, dropped
+frames) reads them from it. These tests run each operation once over the list
+as it is and once with a test-only third array registered in it, so that an
+array added to the list and missed by an operation fails here.
 """
 
 from __future__ import annotations
@@ -189,6 +189,70 @@ class TestCarryingOperations:
             changed[entry.name][3] += 1.0
             assert _clip(motion) != _clip(changed), entry.name
         assert _clip(motion) == _clip(_tagged_motion(motion_list))
+
+
+def _square_motion(motion_list):
+    """``_tagged_motion`` with each linear array's frame ``f`` at ``f**2``.
+
+    Frame ``f`` of the ``k``-th linear array holds ``100 k + f**2`` plus a
+    fraction for the component: linear interpolation between two frames
+    gives a value that keeping either frame does not, so an array left out
+    of the interpolation changes some value.
+    """
+    motion = _tagged_motion(motion_list)
+    for entry in motion_list:
+        if entry.interpolation == "linear":
+            frames = np.arange(FRAMES, dtype=float).reshape(
+                (FRAMES,) + (1,) * len(entry.frame_shape)
+            )
+            motion[entry.name] = motion[entry.name] - frames + frames**2
+    return motion
+
+
+def _linear_offsets(motion_list):
+    """Each linear array's frame 0: ``100 k`` plus the component fraction."""
+    motion = _tagged_motion(motion_list)
+    return {
+        entry.name: motion[entry.name][0]
+        for entry in motion_list
+        if entry.interpolation == "linear"
+    }
+
+
+class TestInterpolatingOperations:
+    def test_resampling_interpolates_every_linear_array(self, motion_list):
+        resampled = _clip(_square_motion(motion_list), frame_time=0.1).resample(20.0)
+        # Twice the rate: new frame i sits at old frame i / 2, so an odd i
+        # is the mean of the squares on either side.
+        squares = np.array([0, 0.5, 1, 2.5, 4, 6.5, 9, 12.5, 16, 20.5, 25])
+        for name, offset in _linear_offsets(motion_list).items():
+            expected = offset + squares.reshape((-1,) + (1,) * offset.ndim)
+            np.testing.assert_allclose(
+                resampled._motion()[name], expected, atol=1e-12, err_msg=name
+            )
+
+    def test_resampling_gives_every_array_the_new_frame_count(self, motion_list):
+        resampled = _clip(_tagged_motion(motion_list), frame_time=0.1).resample(20.0)
+        for entry in motion_list:
+            assert resampled._motion()[entry.name].shape == (11, *_frame_shape(entry)), entry.name
+
+
+class TestUnknownInterpolation:
+    """An entry whose kind no operation knows is refused, not skipped."""
+
+    @pytest.fixture
+    def odd_list(self, monkeypatch):
+        odd = _MotionArray(name="odd", frame_shape=(2,), interpolation="cubic")
+        monkeypatch.setattr(Bvh, "_MOTION_ARRAYS", (*Bvh._MOTION_ARRAYS, odd))
+        return Bvh._MOTION_ARRAYS
+
+    def test_resampling_refuses_it(self, odd_list):
+        clip = _clip(_tagged_motion(odd_list), frame_time=0.1)
+        with pytest.raises(
+            ValueError,
+            match=r"resample\(\) does not know interpolation 'cubic' of motion array 'odd'",
+        ):
+            clip.resample(20.0)
 
 
 class TestPickleFormat:

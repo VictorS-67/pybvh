@@ -162,13 +162,19 @@ class TestCarryingOperations:
             assert not np.shares_memory(duplicate._motion()[name], source._motion()[name])
 
     @pytest.mark.parametrize(
-        "key",
-        [slice(1, 4), slice(0, None, 2), slice(None, None, -1), 3, -1],
+        ("key", "frames"),
+        [
+            (slice(1, 4), slice(1, 4)),
+            (slice(0, None, 2), slice(0, None, 2)),
+            (slice(None, None, -1), slice(None, None, -1)),
+            # An integer keeps its frame as a one-frame clip.
+            (3, slice(3, 4)),
+            (-1, slice(-1, None)),
+        ],
         ids=["step_1", "step_2", "reversed", "integer", "negative_integer"],
     )
-    def test_slicing_keeps_the_selected_frames_of_every_array(self, motion_list, key):
+    def test_slicing_keeps_the_selected_frames_of_every_array(self, motion_list, key, frames):
         motion = _tagged_motion(motion_list)
-        frames = slice(key, key + 1 or None) if isinstance(key, int) else key
         expected = {name: array[frames] for name, array in motion.items()}
         _assert_holds(_clip(motion)[key], expected)
 

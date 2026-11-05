@@ -27,3 +27,7 @@ pybvh's own bundled test fixtures: small clips and a reference skeleton exercise
 | `bvh_test3.bvh` | A large skeleton (60 joints, mixed Euler orders) whose rest pose is Y-up while its animation is Z-up, so reading it warns that the two disagree: the clip for world-up inference and `reorient_rest_up`. |
 | `bvh_test4.bvh` | A joy clip of 83 frames on the rig of `bvh_test1.bvh`, by the same actor: the second clip of one rig, for the batch and retarget operations that take several clips of one skeleton. |
 | `standard_skeleton.bvh` | The node names of `bvh_test1.bvh` with other bone lengths and one Euler order, as a single frame at rest: the reference skeleton `retarget` maps onto. |
+
+## `synthetic/` — invented clips of conventions the clips above lack
+
+[`synthetic/`](synthetic/README.md) holds thirteen short clips authored by scripts in `scripts/`, under the repository's MIT license: reference roots, tracked props, detailed hands, a quadruped with tails, mixed three- and six-channel layouts, animated local positions, and a body lying on its back. Its README and manifest record how each file was made, how to regenerate it, and its anatomical pelvis. It is a subdirectory, so `read_bvh_directory("bvh_data")` does not read it.

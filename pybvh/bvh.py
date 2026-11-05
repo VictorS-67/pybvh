@@ -670,7 +670,8 @@ class Bvh:
     @property
     def frame_count(self) -> int:
         """Number of frames (computed from root_pos)."""
-        return len(self.root_pos)
+        # The first motion array's frame count, which the others match.
+        return len(self._motion()[self._MOTION_ARRAYS[0].name])
 
     @property
     def root(self) -> BvhRoot:

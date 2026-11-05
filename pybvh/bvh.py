@@ -718,11 +718,8 @@ class Bvh:
             return False
         if self.frame_time != other.frame_time:
             return False
-        if not np.array_equal(self.root_pos, other.root_pos):
-            return False
-        if not np.array_equal(self.joint_angles, other.joint_angles):
-            return False
-        return True
+        others = other._motion()
+        return all(np.array_equal(array, others[name]) for name, array in self._motion().items())
 
     def matches_hierarchy(
         self, other: Bvh, match_offsets: bool = True, atol: float = _OFFSET_ATOL
@@ -966,9 +963,12 @@ class Bvh:
             return NotImplemented  # type: ignore[return-value]
         self._check_same_skeleton(other)
         self._check_same_rate(other, "a += b")
+        others = other._motion()
         self._set_motion(
-            root_pos=np.concatenate([self.root_pos, other.root_pos], axis=0),
-            joint_angles=np.concatenate([self.joint_angles, other.joint_angles], axis=0),
+            **{
+                name: np.concatenate([array, others[name]], axis=0)
+                for name, array in self._motion().items()
+            }
         )
         if self.source_path != other.source_path:
             self.source_path = None
@@ -1018,7 +1018,7 @@ class Bvh:
         self._check_same_rate(value, "a[i:j] = b")
 
         # --- length match (no resizing) ---
-        target_len = len(self.root_pos[s])
+        target_len = len(range(*s.indices(self.frame_count)))
         if target_len != value.frame_count:
             raise ValueError(
                 f"Cannot assign {value.frame_count} frames to a slice of "
@@ -1028,8 +1028,9 @@ class Bvh:
             )
 
         # --- in-place splice, bypassing the setters ---
-        self._root_pos[s] = value.root_pos
-        self._joint_angles[s] = value.joint_angles
+        values = value._motion()
+        for name, array in self._motion().items():
+            array[s] = values[name]
         self._derived.user_replaced_motion()
 
     def copy(self, nodes: Sequence[BvhNode] | Sequence[Mapping[str, Any]] | None = None) -> Bvh:

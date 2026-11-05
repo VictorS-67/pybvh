@@ -164,6 +164,32 @@ class TestCarryingOperations:
         expected = {name: np.concatenate([first[name], second[name]]) for name in first}
         _assert_holds(_clip(first) + _clip(second), expected)
 
+    def test_joining_in_place_appends_the_frames_of_every_array(self, motion_list):
+        first = _tagged_motion(motion_list)
+        second = _tagged_motion(motion_list, first=0.5)
+        expected = {name: np.concatenate([first[name], second[name]]) for name in first}
+        clip = _clip(first)
+        clip += _clip(second)
+        _assert_holds(clip, expected)
+
+    def test_splicing_writes_the_frames_of_every_array(self, motion_list):
+        target = _tagged_motion(motion_list)
+        source = _tagged_motion(motion_list, first=0.5)
+        expected = {name: array.copy() for name, array in target.items()}
+        for name in expected:
+            expected[name][2:4] = source[name][0:2]
+        clip = _clip(target)
+        clip[2:4] = _clip(source)[0:2]
+        _assert_holds(clip, expected)
+
+    def test_equality_sees_a_difference_in_any_array(self, motion_list):
+        motion = _tagged_motion(motion_list)
+        for entry in motion_list:
+            changed = {name: array.copy() for name, array in motion.items()}
+            changed[entry.name][3] += 1.0
+            assert _clip(motion) != _clip(changed), entry.name
+        assert _clip(motion) == _clip(_tagged_motion(motion_list))
+
 
 class TestPickleFormat:
     """The state a pickle holds keeps its keys, so pickles read both ways."""

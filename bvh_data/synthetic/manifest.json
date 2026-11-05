@@ -1,7 +1,7 @@
 {
   "generator": "scripts/generate_synthetic_bvh.py",
   "generator_version": "2.2.0",
-  "generator_sha256": "577c3cf6ed64531787405930671735ccbe8eb1e0df649a7679b36ecfbb04b6a4",
+  "generator_sha256": "94f6ef03b2226d6b01251242fa1fe9479229d78b29cd39bac2d2fefcfd1b45ea",
   "audit_sha256": "742317734e8cf2a7065119060d5b82dd7ec70afd0020ef3af895eed9fe2b6ce4",
   "seed": 40067,
   "frames": 5,

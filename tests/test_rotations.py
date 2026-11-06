@@ -2293,3 +2293,78 @@ class TestSlerpArcChoice:
             np.degrees(np.arccos(np.clip(np.abs(np.sum(q[1:] * q[:-1], axis=-1)), 0, 1))).max() * 2
         )
         assert step <= orig_max + 1e-6
+
+
+class TestEmptyOrder:
+    """A joint column with order ``''``: a static root, which declares no
+    rotation channel (#186). It stands for the identity, and nothing else."""
+
+    def test_zero_angles_give_the_identity(self):
+        angles = np.zeros((2, 2, 3))
+        angles[:, 1] = [0.1, 0.2, 0.3]
+        R = rotations.euler_to_rotmat(angles, ["", "ZYX"])
+        np.testing.assert_array_equal(R[:, 0], np.broadcast_to(np.eye(3), (2, 3, 3)))
+        np.testing.assert_array_equal(R[:, 1], rotations.euler_to_rotmat(angles[:, 1], "ZYX"))
+
+    def test_a_non_zero_angle_raises(self):
+        angles = np.zeros((2, 2, 3))
+        angles[1, 0, 2] = 1e-9
+        with pytest.raises(
+            ValueError, match=r"Joint column 0 has Euler order ''.*zero angles only"
+        ):
+            rotations.euler_to_rotmat(angles, ["", "ZYX"])
+
+    def test_the_other_euler_conversions_follow(self):
+        angles = np.zeros((1, 2, 3))
+        angles[0, 1] = [0.1, 0.2, 0.3]
+        q = rotations.euler_to_quat(angles, ["", "XYZ"])
+        np.testing.assert_array_equal(q[0, 0], [1, 0, 0, 0])
+        np.testing.assert_array_equal(
+            rotations.euler_to_rot6d(angles, ["", "XYZ"])[0, 0], [1, 0, 0, 0, 1, 0]
+        )
+        np.testing.assert_array_equal(
+            rotations.euler_to_axisangle(angles, ["", "XYZ"])[0, 0], [0, 0, 0]
+        )
+        angles[0, 0, 0] = 0.5
+        for convert in (
+            rotations.euler_to_quat,
+            rotations.euler_to_rot6d,
+            rotations.euler_to_axisangle,
+        ):
+            with pytest.raises(ValueError, match="Euler order ''"):
+                convert(angles, ["", "XYZ"])
+
+    def test_the_identity_gives_zero_angles(self):
+        R = np.broadcast_to(np.eye(3), (2, 2, 3, 3)).copy()
+        R[:, 1] = rotations.euler_to_rotmat([0.1, 0.2, 0.3], "ZYX")
+        angles = rotations.rotmat_to_euler(R, ["", "ZYX"])
+        np.testing.assert_array_equal(angles[:, 0], np.zeros((2, 3)))
+        np.testing.assert_allclose(angles[:, 1], [[0.1, 0.2, 0.3]] * 2, atol=1e-12)
+
+    def test_a_rotation_off_the_identity_by_rounding_gives_zero_angles(self):
+        R = rotations.euler_to_rotmat([[1e-9, -1e-9, 1e-9]], "XYZ")[np.newaxis]
+        np.testing.assert_array_equal(rotations.rotmat_to_euler(R, [""]), np.zeros((1, 1, 3)))
+
+    def test_a_rotation_that_is_not_the_identity_raises(self):
+        R = np.broadcast_to(np.eye(3), (2, 2, 3, 3)).copy()
+        R[1, 0] = rotations.euler_to_rotmat([0.0, 0.0, 1e-3], "XYZ")
+        with pytest.raises(ValueError, match=r"Joint column 0 has Euler order ''.*identity"):
+            rotations.rotmat_to_euler(R, ["", "ZYX"])
+
+    def test_the_other_conversions_to_euler_follow(self):
+        q = np.array([[[1.0, 0, 0, 0], [0.0, 1, 0, 0]]])
+        np.testing.assert_array_equal(rotations.quat_to_euler(q, ["", "XYZ"])[0, 0], [0, 0, 0])
+        with pytest.raises(ValueError, match="Euler order ''"):
+            rotations.quat_to_euler(q[:, ::-1], ["", "XYZ"])
+        aa = np.array([[[0.0, 0, 0], [0.0, 0, 0.3]]])
+        np.testing.assert_array_equal(
+            rotations.axisangle_to_euler(aa, ["", "XYZ"])[0, 0], [0, 0, 0]
+        )
+        r6 = np.array([[[1.0, 0, 0, 0, 1, 0], [0.0, 1, 0, 1, 0, 0]]])
+        np.testing.assert_array_equal(rotations.rot6d_to_euler(r6, ["", "XYZ"])[0, 0], [0, 0, 0])
+
+    def test_a_single_order_refuses_it(self):
+        with pytest.raises(ValueError, match="3 characters"):
+            rotations.euler_to_rotmat(np.zeros(3), "")
+        with pytest.raises(ValueError, match="3 characters"):
+            rotations.rotmat_to_euler(np.eye(3), "")

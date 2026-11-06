@@ -3273,7 +3273,17 @@ class Bvh:
             joint_indices = [self.index(joint, space="joint")]
         if 0 in joint_indices:
             self._refuse_static_root("change_euler_order gives the root an Euler order")
+        return self._change_euler_orders(new_order, joint_indices, inplace)
 
+    def _change_euler_orders(
+        self, new_order: list[str], joint_indices: list[int], inplace: bool
+    ) -> Bvh | None:
+        """Re-express the joints at ``joint_indices`` in ``new_order``.
+
+        :meth:`change_euler_order` after its checks; ``harmonize`` calls it
+        with the joints that declare rotation channels, which leaves a
+        static root out.
+        """
         target = self if inplace else self.copy()
         # The new skeleton is built, and the order checked, before any
         # angle is converted.

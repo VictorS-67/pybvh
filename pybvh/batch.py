@@ -15,6 +15,7 @@ import numpy.typing as npt
 
 from ._warnings import user_stacklevel
 from .bvh import Bvh
+from .bvhnode import _is_joint
 from .features import to_feature_array
 from .io import _bvh_from_parsed, _extract_bvh_file_info, _ParsedBvh
 from .node_tree import _channel_difference, _hierarchy_difference, _NodeTreeDifference
@@ -325,7 +326,9 @@ def harmonize(
     target_euler_order : str or None
         Three-character order like ``'XYZ'`` / ``'ZYX'``. When set,
         clips with any joint whose Euler order differs are re-expressed
-        in the target order via :meth:`Bvh.change_euler_order`. This is
+        in the target order via :meth:`Bvh.change_euler_order`. A static
+        root (``CHANNELS 0``) declares no rotation channel: it keeps none,
+        and its order does not count as a difference. This is
         orientation-preserving: underlying rotations are unchanged; only
         the channel layout is rewritten. Numerical drift can occur
         on gimbal-lock-adjacent rotations — for bit-exact round-trips
@@ -412,10 +415,18 @@ def harmonize(
             old_rest_forward = b.rest_forward
             b = b.reorient_rest_forward(target_rest_forward)
             stages["rest_forward"] = f"{old_rest_forward}→{target_rest_forward}"
+        # The joints that declare an order: a static root declares none,
+        # and has no order to change.
+        rotating = [
+            k
+            for k, joint in enumerate(node for node in b.nodes if _is_joint(node))
+            if joint.rot_channels
+        ]
         if target_euler_order is not None and any(
-            order != target_euler_order for order in b.euler_orders
+            b.euler_orders[k] != target_euler_order for k in rotating
         ):
-            b = b.change_euler_order(target_euler_order)
+            b = b.copy()
+            b._change_euler_orders(list(target_euler_order.upper()), rotating, inplace=True)
             stages["euler_order"] = f"→{target_euler_order}"
 
         report.kept_indices.append(i)

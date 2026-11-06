@@ -743,6 +743,15 @@ class Bvh:
         On a static root (``CHANNELS 0``, see
         :meth:`~pybvh.bvhnode.BvhRoot.is_static`) it holds the root's
         offset in every frame, and the setter raises ``ValueError``.
+
+        Its length is the clip's frame count. To change the frame count,
+        assign ``root_pos`` and :attr:`joint_angles`, and on a skeleton
+        with translating joints :attr:`joint_translations` too, each with
+        the same number of frames: the setters check no frame count, and
+        an operation on a clip whose arrays disagree raises
+        ``ValueError``. On a skeleton with no translating joint,
+        :attr:`joint_translations` holds no value and takes the frame
+        count of ``root_pos``.
         """
         view = self._root_pos.view()
         view.flags.writeable = False
@@ -752,6 +761,12 @@ class Bvh:
     def root_pos(self, value: npt.ArrayLike) -> None:
         self._refuse_static_root("Setting root_pos moves the root")
         self._root_pos = _ROOT_POS.checked(value)
+        if _TRANSLATING_JOINTS.count(self.nodes) == 0:
+            # With no translating joint, joint_translations holds no value,
+            # so it has no frame count of its own: it takes root_pos's,
+            # the clip's frame count.
+            none: npt.NDArray[np.float64] = np.empty((len(self._root_pos), 0, 3))
+            self._joint_translations = none
         self._derived.user_replaced_motion()
 
     @property

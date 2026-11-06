@@ -239,8 +239,8 @@ class TestHarmonize:
         assert report.applied_stages[0] == {"euler_order": "→XYZ"}
 
     def test_a_clip_whose_joints_have_the_target_order_is_left_alone(self, clip):
-        # The joints rotate in ZYX; the static root's 'XYZ' in euler_orders
-        # is no declared order, so it asks for no change.
+        # The joints rotate in ZYX; the static root's '' in euler_orders is
+        # no declared order, so it asks for no change.
         (harmonized,), report = harmonize(
             [clip], target_euler_order="ZYX", verbose=False, return_report=True
         )

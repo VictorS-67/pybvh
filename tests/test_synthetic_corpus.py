@@ -9,10 +9,9 @@ script and its regenerated output land together. The lying-down clip takes
 its skeleton from ``bvh_data/bvh_test1.bvh``, so a change to that fixture
 fails this test too, until the clip is regenerated.
 
-pybvh reads three of the thirteen clips. The other ten declare position
-channels on a joint other than the root, which the reader refuses; each
-refusal is pinned with its message, so that supporting that dialect turns a
-pinned refusal into a load, one file at a time.
+pybvh reads every clip, ten of which declare position channels on a joint
+other than the root (#186), and each round-trips: write then read gives an
+equal clip, and the second write the bytes of the first.
 """
 
 from __future__ import annotations
@@ -55,44 +54,35 @@ def test_generators_reproduce_the_committed_corpus(tmp_path):
 
 # File and its declared frame count (the ``Frames:`` line).
 READABLE = [
+    ("blender_mixed.bvh", 5),
     ("bvh_synthetic_lying_down.bvh", 120),
+    ("footsteps_humanoid_6ch.bvh", 5),
+    ("footsteps_humanoid_offset_6ch.bvh", 5),
+    ("hips_hands_6ch.bvh", 5),
+    ("mixed_zxy_positions.bvh", 5),
+    ("quadruped_tails_6ch.bvh", 5),
+    ("reference_humanoid_6ch.bvh", 5),
+    ("reference_props_humanoid_6ch.bvh", 5),
     ("reference_props_rotation_only.bvh", 5),
+    ("rigid_6ch_control.bvh", 5),
     ("rotation_only_control.bvh", 5),
-]
-
-# File, the first joint that declares position channels, and its line.
-REFUSED = [
-    ("blender_mixed.bvh", "Neck", 18),
-    ("footsteps_humanoid_6ch.bvh", "Footsteps", 6),
-    ("footsteps_humanoid_offset_6ch.bvh", "Footsteps", 6),
-    ("hips_hands_6ch.bvh", "Spine", 6),
-    ("mixed_zxy_positions.bvh", "Neck", 18),
-    ("quadruped_tails_6ch.bvh", "Footsteps", 6),
-    ("reference_humanoid_6ch.bvh", "Hips", 6),
-    ("reference_props_humanoid_6ch.bvh", "Hips", 6),
-    ("rigid_6ch_control.bvh", "Spine", 6),
-    ("synthetic_stretch.bvh", "LeftShoulder", 32),
+    ("synthetic_stretch.bvh", 5),
 ]
 
 
-def test_every_corpus_clip_is_either_read_or_refused():
-    listed = {name for name, _ in READABLE} | {name for name, _, _ in REFUSED}
-    assert listed == {path.name for path in CORPUS.glob("*.bvh")}
+def test_every_corpus_clip_is_listed():
+    assert {name for name, _ in READABLE} == {path.name for path in CORPUS.glob("*.bvh")}
 
 
+@pytest.mark.filterwarnings("ignore:Rest pose suggests world up")
 @pytest.mark.parametrize(("name", "frames"), READABLE, ids=[name for name, _ in READABLE])
-def test_clip_without_non_root_positions_reads(name, frames):
+def test_clip_reads_and_round_trips(name, frames, tmp_path):
     clip = read_bvh_file(CORPUS / name)
     assert clip.frame_count == frames
-
-
-@pytest.mark.parametrize(("name", "joint", "line"), REFUSED, ids=[name for name, _, _ in REFUSED])
-def test_clip_with_non_root_positions_is_refused(name, joint, line):
-    path = CORPUS / name
-    with pytest.raises(ValueError) as refusal:
-        read_bvh_file(path)
-    assert str(refusal.value) == (
-        f"Could not read the offset or channels of the joint {joint}, at line {line} "
-        f"in file {path}: pybvh does not model position channels on non-root joints "
-        "(got 3 position channels)"
-    )
+    first = tmp_path / "first.bvh"
+    clip.write(first)
+    reread = read_bvh_file(first)
+    assert reread == clip
+    second = tmp_path / "second.bvh"
+    reread.write(second)
+    assert second.read_bytes() == first.read_bytes()

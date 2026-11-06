@@ -40,8 +40,9 @@ def _walk_depth_first(root: BvhNode) -> Iterator[tuple[BvhNode, BvhNode | None]]
 def _check_node_list(nodes: Sequence[object]) -> None:
     """Raise ``ValueError`` unless ``nodes`` is a node list a clip can own.
 
-    Every element a ``BvhNode``, a ``BvhRoot`` first, and one tree in
-    depth-first order (:func:`_check_node_tree`). :class:`~pybvh.Bvh`
+    Every element a ``BvhNode``, a ``BvhRoot`` first with both channel
+    orders or neither, and one tree in depth-first order
+    (:func:`_check_node_tree`). :class:`~pybvh.Bvh`
     checks the nodes it is given with it, and ``copy(nodes=...)`` and
     ``df_to_bvh`` the node list they take over, before a node is frozen.
     """
@@ -53,6 +54,9 @@ def _check_node_list(nodes: Sequence[object]) -> None:
     # node its kind; a bare BvhNode cannot answer that.
     if not isinstance(nodes[0], BvhRoot):
         raise ValueError("The first element of nodes should be a BvhRoot object")
+    # The setters let a root pass through one channel order empty on its
+    # way to or from CHANNELS 0; a clip takes it only in one of the two states.
+    nodes[0]._check_channel_set()
     _check_node_tree(cast(Sequence[BvhNode], nodes))
 
 

@@ -894,20 +894,11 @@ class TestDataFrameConversion:
         df.loc[df.index[-1], "time"] = float("nan")
         return bvh.to_node_table(), df, "frame_time .* got nan"
 
-    @staticmethod
-    def _root_position_order_changed(bvh):
-        """Refused by the constructor, the last check before the freeze."""
-        table = bvh.to_node_table()
-        table[0]["pos_channels"] = "ZYX"
-        df = pd.DataFrame(bvh.to_df_dict(mode="euler"))
-        return table, df, "Non-standard root position channel order"
-
     REFUSALS = {
         "missing_column": _missing_column,
         "no_time_column": _no_time_column,
         "one_row": _one_row,
         "nan_frame_time": _nan_frame_time,
-        "root_position_order": _root_position_order_changed,
     }
 
     @pytest.mark.parametrize("refusal", REFUSALS.values(), ids=REFUSALS.keys())
@@ -1822,11 +1813,14 @@ class TestChannelProtection:
 class TestChannelOrdersAreTuples:
     """A channel order is a tuple on every node, so it never changes in place."""
 
-    @pytest.mark.parametrize("given", ["XZY", ["X", "Z", "Y"], ("X", "Z", "Y")])
-    def test_any_sequence_is_stored_as_a_tuple(self, given):
-        root = BvhRoot("Hips", pos_channels=given, rot_channels=given)
+    @pytest.mark.parametrize("form", [str, list, tuple])
+    def test_any_sequence_is_stored_as_a_tuple(self, form):
+        def given(order):
+            return order if form is str else form(order)
+
+        root = BvhRoot("Hips", pos_channels=given("XYZ"), rot_channels=given("XZY"))
         assert root.rot_channels == ("X", "Z", "Y")
-        assert root.pos_channels == ("X", "Z", "Y")
+        assert root.pos_channels == ("X", "Y", "Z")
 
     def test_a_node_takes_another_nodes_order(self, bvh_example):
         joint = BvhJoint("Copy", rot_channels=bvh_example.nodes[1].rot_channels)
@@ -1868,11 +1862,13 @@ class TestChannelOrdersAreTuples:
             getattr(n, "rot_channels", None) for n in bvh_example.nodes
         ]
 
-    def test_a_clip_refuses_a_root_position_order_other_than_xyz(self):
-        root = BvhRoot("Hips", pos_channels="ZYX")
-        root.children.append(BvhEndSite("Tip", offset=[0, 1, 0], parent=root))
+    def test_a_root_refuses_a_position_order_other_than_xyz(self):
+        """The check a clip made at construction, held by the node since #186."""
         with pytest.raises(ValueError, match="order 'ZYX' is not supported. Expected 'XYZ'"):
-            Bvh(nodes=[root, root.children[0]])
+            BvhRoot("Hips", pos_channels="ZYX")
+        root = BvhRoot("Hips")
+        with pytest.raises(ValueError, match="order 'ZYX' is not supported. Expected 'XYZ'"):
+            root.pos_channels = "ZYX"
 
 
 # The way every refusal names: edit the skeleton as a table, build a new clip.
@@ -3886,12 +3882,6 @@ class TestCopyWithNodes:
         return table, "identifies joints by name"
 
     @staticmethod
-    def _root_position_order_changed(bvh):
-        table = bvh.to_node_table()
-        table[0]["pos_channels"] = "ZYX"
-        return table, "Non-standard root position channel order"
-
-    @staticmethod
     def _mapped_name_missing_without_motion(bvh):
         """A clip without motion takes another joint count, and its mapping
         then goes by name."""
@@ -3905,7 +3895,6 @@ class TestCopyWithNodes:
         "euler_order": _order_changed,
         "joint_count": _joint_added,
         "rename_collision": _mapped_joints_renamed_alike,
-        "root_position_order": _root_position_order_changed,
     }
 
     @pytest.mark.parametrize("refusal", REFUSALS.values(), ids=REFUSALS.keys())

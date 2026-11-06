@@ -449,14 +449,6 @@ class Bvh:
         self.frame_time = frame_time
         self.source_path = source_path
 
-        # Validate that root position channels are standard XYZ
-        pos_order = "".join(self.root.pos_channels)
-        if pos_order != "XYZ":
-            raise ValueError(
-                f"Non-standard root position channel order {pos_order!r} is "
-                f"not supported. Expected 'XYZ', the order of every root_pos row."
-            )
-
         given = {"root_pos": root_pos, "joint_angles": joint_angles}
         missing = [name for name, value in given.items() if value is None]
         if missing and len(missing) < len(given):

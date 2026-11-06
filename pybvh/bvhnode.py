@@ -38,6 +38,11 @@ def _frozen_error(node: BvhNode, attribute: str) -> AttributeError:
     )
 
 
+def _is_empty_order(value: object) -> bool:
+    """Whether a channel order is given as empty (``[]``, ``()``, ``''``)."""
+    return isinstance(value, (str, Sequence)) and len(value) == 0
+
+
 class BvhNode:
     """Base class for BVH hierarchy nodes.
 
@@ -233,7 +238,7 @@ class BvhEndSite(BvhNode):
 
 
 class BvhJoint(BvhNode):
-    """A BVH joint node with rotation channels and children.
+    """A BVH joint node with rotation channels, position channels if it translates, and children.
 
     Attributes
     ----------
@@ -241,6 +246,9 @@ class BvhJoint(BvhNode):
         Name of the joint.
     offset : np.ndarray
         3-element array of positional offset values.
+    pos_channels : tuple of str
+        ``()`` on a joint that only rotates (the default), ``('X', 'Y',
+        'Z')`` on a translating joint.
     rot_channels : tuple of str
         Rotation channel order as a permutation of ``('X', 'Y', 'Z')``.
     children : list or tuple of BvhNode
@@ -256,12 +264,54 @@ class BvhJoint(BvhNode):
         rot_channels: str | Sequence[str] | None = None,
         children: list[BvhNode] | None = None,
         parent: BvhNode | None = None,
+        pos_channels: str | Sequence[str] | None = None,
     ) -> None:
         # inheritance
         super().__init__(name, offset, parent)
 
+        self.pos_channels = pos_channels if pos_channels is not None else ()
         self.rot_channels = rot_channels if rot_channels is not None else ("Z", "Y", "X")
         self.children = children if children is not None else []
+
+    @property
+    def pos_channels(self) -> tuple[str, ...]:
+        """The node's position channels: ``()`` or ``('X', 'Y', 'Z')``.
+
+        On a :class:`BvhJoint`, empty by default: a joint that only
+        rotates, whose position relative to its parent is its ``offset``
+        in every frame. ``('X', 'Y', 'Z')`` on a joint whose ``CHANNELS``
+        line declares three position channels besides its rotation
+        channels, a translating joint. On a :class:`BvhRoot`, ``('X',
+        'Y', 'Z')`` by default, the order of every ``root_pos`` row, and
+        ``()`` on a static root, together with an empty ``rot_channels``.
+        Position channels, where present, are stored in ``X Y Z`` order
+        whatever order the file lists them in.
+        Assigning accepts the forms of ``rot_channels`` and an empty
+        sequence; any other order raises ``ValueError`` naming the
+        expected ``'XYZ'``. Frozen by the :class:`~pybvh.bvh.Bvh`
+        constructor with the rest of the node: assigning then raises
+        ``AttributeError``.
+        """
+        return self._pos_channels
+
+    @pos_channels.setter
+    def pos_channels(self, value: str | Sequence[str]) -> None:
+        if self._frozen:
+            raise _frozen_error(self, "pos_channels")
+        if _is_empty_order(value):
+            self._pos_channels: tuple[str, ...] = ()
+            return
+        axes = self._check_channels(value)
+        if axes != ("X", "Y", "Z"):
+            raise ValueError(self._position_order_error("".join(axes)))
+        self._pos_channels = axes
+
+    def _position_order_error(self, order: str) -> str:
+        return (
+            f"Non-standard position channel order {order!r} on joint "
+            f"{self.name!r} is not supported. Expected 'XYZ': position "
+            f"channels are stored in X Y Z order."
+        )
 
     @property
     def rot_channels(self) -> tuple[str, ...]:
@@ -274,7 +324,9 @@ class BvhJoint(BvhNode):
         them. Assigning accepts a three-letter string or a sequence (a
         list, a tuple) of three one-letter strings, a permutation of
         ``'XYZ'`` either way, and stores it as a tuple, so the order never
-        changes in place; anything else raises ``ValueError``. Compare it
+        changes in place; anything else raises ``ValueError``. On a
+        :class:`BvhRoot` only, an empty sequence is accepted too: a
+        static root (``CHANNELS 0``) declares no rotation channels. Compare it
         with a tuple or as a string (``"".join(joint.rot_channels) ==
         "ZYX"``): a tuple never equals a list.
 
@@ -294,7 +346,7 @@ class BvhJoint(BvhNode):
                 "Bvh.change_euler_order(order, joint=node), with this node, or "
                 "Bvh.change_euler_order(order) to change rotation order."
             )
-        self._rot_channels = self._check_channels(value)
+        self._rot_channels = self._check_rotation_channels(value)
 
     @property
     def children(self) -> list[BvhNode] | tuple[BvhNode, ...]:
@@ -358,6 +410,10 @@ class BvhJoint(BvhNode):
             raise error
         return axes
 
+    def _check_rotation_channels(self, value: str | Sequence[str]) -> tuple[str, ...]:
+        # A joint other than the root always declares an Euler order.
+        return self._check_channels(value)
+
     def is_end_site(self) -> bool:
         """Always ``False``: a joint carries rotation channels.
 
@@ -384,7 +440,13 @@ def _is_joint(node: BvhNode) -> TypeGuard[BvhJoint]:
 
 
 class BvhRoot(BvhJoint):
-    """A BVH root joint with both position and rotation channels.
+    """A BVH root joint with both position and rotation channels, or neither.
+
+    A root declares 3 position + 3 rotation channels, or no channel at
+    all (``CHANNELS 0``, a static root, see :meth:`is_static`). One order
+    empty and the other not is refused when the root is built and when a
+    :class:`~pybvh.bvh.Bvh` is given it; the setters allow it, so that a
+    root can change state by two assignments.
 
     Attributes
     ----------
@@ -393,9 +455,10 @@ class BvhRoot(BvhJoint):
     offset : np.ndarray
         3-element array of positional offset values.
     pos_channels : tuple of str
-        Position channel order as a permutation of ``('X', 'Y', 'Z')``.
+        ``('X', 'Y', 'Z')`` (the default), or ``()`` on a static root.
     rot_channels : tuple of str
-        Rotation channel order as a permutation of ``('X', 'Y', 'Z')``.
+        Rotation channel order as a permutation of ``('X', 'Y', 'Z')``,
+        or ``()`` on a static root.
     children : list or tuple of BvhNode
         Child nodes in the hierarchy; a tuple once a ``Bvh`` owns the node.
     parent : BvhNode or None
@@ -412,28 +475,61 @@ class BvhRoot(BvhJoint):
         parent: BvhNode | None = None,
     ) -> None:
         # inheritance
-        super().__init__(name, offset, rot_channels, children, parent)
+        super().__init__(
+            name,
+            offset,
+            rot_channels,
+            children,
+            parent,
+            pos_channels if pos_channels is not None else ("X", "Y", "Z"),
+        )
+        self._check_channel_set()
 
-        self.pos_channels = pos_channels if pos_channels is not None else ("X", "Y", "Z")
+    def is_static(self) -> bool:
+        """Whether the root declares no channels (``CHANNELS 0``).
 
-    @property
-    def pos_channels(self) -> tuple[str, ...]:
-        """Order of the root's three position channels.
+        A static root has empty ``pos_channels`` and ``rot_channels``: it
+        stays at its ``offset`` with no rotation in every frame, a
+        reference node above the skeleton, as in the files Blender's
+        exporter writes for an armature with several root bones. A root
+        has both channel orders or neither.
 
-        A tuple, assigned in the same forms as ``rot_channels``. A
-        :class:`~pybvh.bvh.Bvh` supports only ``('X', 'Y', 'Z')``, the
-        order of every ``root_pos`` row, and raises ``ValueError`` at
-        construction for any other. The ``Bvh`` constructor freezes it
-        with the rest of the node: from then on, assigning raises
-        ``AttributeError``.
+        Returns
+        -------
+        bool
         """
-        return self._pos_channels
+        return not self.pos_channels and not self.rot_channels
 
-    @pos_channels.setter
-    def pos_channels(self, value: str | Sequence[str]) -> None:
-        if self._frozen:
-            raise _frozen_error(self, "pos_channels")
-        self._pos_channels = self._check_channels(value)
+    def _check_channel_set(self) -> None:
+        """Raise unless the root has both channel orders or neither.
+
+        Checked when the root is built and when a
+        :class:`~pybvh.bvh.Bvh` is given it, not by the setters: a root
+        changes from one state to the other by two assignments, and the
+        state between them has one order empty.
+        """
+        if bool(self.pos_channels) != bool(self.rot_channels):
+            raise ValueError(
+                f"Root {self.name!r} has pos_channels "
+                f"{''.join(self.pos_channels)!r} and rot_channels "
+                f"{''.join(self.rot_channels)!r}: a root declares both "
+                f"(3 position + 3 rotation channels) or neither "
+                f"(CHANNELS 0, a static root); only one of them empty is "
+                f"not a BVH declaration."
+            )
+
+    def _position_order_error(self, order: str) -> str:
+        return (
+            f"Non-standard root position channel order {order!r} is not "
+            f"supported. Expected 'XYZ', the order of every root_pos row "
+            f"(root {self.name!r})."
+        )
+
+    def _check_rotation_channels(self, value: str | Sequence[str]) -> tuple[str, ...]:
+        # A root may declare no rotation channels (a static root).
+        if _is_empty_order(value):
+            return ()
+        return self._check_channels(value)
 
     def __str__(self) -> str:
         return f"ROOT {self.name}"

@@ -511,7 +511,9 @@ def batch_to_numpy(
     Euler-order check is skipped. With ``include_joint_translations=True``
     all clips must also have the same translating joints, whatever the
     representation; with it off, which joints translate is not checked,
-    because no column depends on it.
+    because no column depends on it. The roots' position channels are
+    never compared: a static root (``CHANNELS 0``) has the columns of a
+    root with position channels.
 
     Parameters
     ----------
@@ -563,6 +565,7 @@ def batch_to_numpy(
                 ref.nodes,
                 bvh.nodes,
                 position_channels=include_joint_translations,
+                root_position_channels=False,
                 rotation_order=rotation_order_matters,
             )
             if difference is not None:

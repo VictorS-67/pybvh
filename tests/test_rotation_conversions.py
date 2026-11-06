@@ -103,6 +103,21 @@ class TestEachRepresentation:
         with pytest.raises(ValueError, match=rf"{frm} rotates the root.*'__0' is static"):
             getattr(static_root_clip, frm)(rot)
 
+    def test_from_writes_a_rounding_turn_of_the_static_root_as_zero(self, name, static_root_clip):
+        # A turn of 1e-9 rad is the identity within rounding: a rotation
+        # that went through another representation can carry one.
+        _, to, frm = REPRESENTATIONS[name]
+        target = _rotmats(static_root_clip)
+        target[1, 0] = rotations.euler_to_rotmat(np.array([1e-9, 0.0, 0.0]), "XYZ")
+        rot = {
+            "rotmat": target,
+            "6d": rotations.rotmat_to_rot6d(target),
+            "quat": rotations.rotmat_to_quat(target),
+            "axisangle": rotations.rotmat_to_axisangle(target),
+        }[name]
+        back = getattr(static_root_clip, frm)(rot)
+        np.testing.assert_array_equal(back.joint_angles[:, 0], np.zeros((3, 3)))
+
     def test_from_refuses_another_frame_count(self, name, moving_root_clip):
         _, to, frm = REPRESENTATIONS[name]
         rot = getattr(moving_root_clip, to)()

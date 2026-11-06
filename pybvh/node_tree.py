@@ -247,6 +247,7 @@ def _channel_difference(
     theirs: Sequence[BvhNode],
     *,
     position_channels: bool = True,
+    root_position_channels: bool = True,
     rotation_order: bool = True,
 ) -> _NodeTreeDifference | None:
     """The first difference between two node trees' channel layouts, or ``None``.
@@ -257,6 +258,9 @@ def _channel_difference(
     the declaration, never the values of ``joint_translations``.
     *position_channels* and *rotation_order* switch each of the two
     comparisons off, for a caller to whom only the other one matters.
+    *root_position_channels* switches off the root's position channels
+    alone (``X Y Z``, or none on a static root), for a caller to whom only
+    which joints other than the root translate matters.
     """
     our_joints = [node for node in ours if _is_joint(node)]
     their_joints = [node for node in theirs if _is_joint(node)]
@@ -264,8 +268,9 @@ def _channel_difference(
         return _NodeTreeDifference(
             "joint_count", f"joint count {len(our_joints)} vs {len(their_joints)}"
         )
-    for a, b in zip(our_joints, their_joints, strict=True):
-        if position_channels and _pos_channels(a) != _pos_channels(b):
+    for k, (a, b) in enumerate(zip(our_joints, their_joints, strict=True)):
+        compare_positions = position_channels and (root_position_channels or k > 0)
+        if compare_positions and _pos_channels(a) != _pos_channels(b):
             declared = [
                 repr("".join(_pos_channels(node))) if _pos_channels(node) else "none"
                 for node in (a, b)

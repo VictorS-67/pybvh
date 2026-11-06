@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 from six_channel_fixtures import blender_style_text
 
-from pybvh import Bvh, harmonize, nodes_from_table, read_bvh_file
+from pybvh import Bvh, batch_to_numpy, harmonize, nodes_from_table, read_bvh_file
 
 _BLENDER_STYLE = blender_style_text(2)
 
@@ -216,6 +216,41 @@ class TestReorientation:
         before = clip.node_positions()
         after = np.stack([before[..., 0], -before[..., 2], before[..., 1]], axis=-1)
         np.testing.assert_allclose(turned.node_positions(), after, atol=1e-9)
+
+
+class TestBatch:
+    """``batch_to_numpy`` compares only what its columns depend on.
+
+    A static root has the columns of any other root: ``root_pos`` (its
+    offset in every frame) and joint 0 of the rotations (the identity).
+    The translation block holds the joints other than the root.
+    """
+
+    @staticmethod
+    def _moving_root_twin(clip):
+        # The same skeleton and motion, with a root that declares channels.
+        table = clip.to_node_table()
+        table[0]["pos_channels"] = ["X", "Y", "Z"]
+        table[0]["rot_channels"] = ["Z", "X", "Y"]
+        return Bvh(
+            nodes=nodes_from_table(table),
+            root_pos=clip.root_pos,
+            joint_angles=clip.joint_angles,
+            joint_translations=clip.joint_translations,
+            frame_time=clip.frame_time,
+        )
+
+    @pytest.mark.parametrize("include_joint_translations", [False, True])
+    def test_a_static_and_a_moving_root_batch_together(self, clip, include_joint_translations):
+        arrays = batch_to_numpy(
+            [clip, self._moving_root_twin(clip)],
+            representation="6d",
+            include_joint_translations=include_joint_translations,
+        )
+        # 3 root position + 3 joints x 6, plus the Hips' 3 with the block.
+        width = 24 if include_joint_translations else 21
+        assert [array.shape for array in arrays] == [(2, width), (2, width)]
+        np.testing.assert_allclose(arrays[0], arrays[1], atol=1e-12)
 
 
 class TestHarmonize:

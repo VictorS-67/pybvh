@@ -80,7 +80,9 @@ def read_bvh_file(
     ------
     ValueError
         If the file is malformed, for example if its ``Frame Time`` is
-        missing, zero, negative, NaN or infinite.
+        missing, zero, negative, NaN or infinite, or if a joint declares
+        other channels than 3 rotation channels, or 3 position + 3
+        rotation channels (the error names the joint).
 
     Notes
     -----
@@ -125,15 +127,19 @@ def read_bvh_file(
       whole (``0.033367`` gives 30 fps, ``0.017`` 59 fps). In a file at
       6 decimals, it also differs on some whole rates above 720 fps
       (``0.001386`` gives 722 fps, where pybvh reads 721).
-    - **Root channels are reordered** to position-first, with the
-      position channels in X, Y, Z order, the order of a
-      :attr:`Bvh.root_pos` row. A file that declares rotations before
-      positions, or ``Zposition Yposition Xposition``, parses correctly,
-      and ``bvh.root.pos_channels`` is ``('X', 'Y', 'Z')``: the declared
-      order is not kept. :func:`write_bvh_file` writes the canonical
-      order, so a write changes such a declaration once, and the output
-      is the same from then on. The rotation channels keep their
-      declared order, which is the root's Euler order.
+    - **Channels are reordered** to position-first, with the position
+      channels in X, Y, Z order, the order of a :attr:`Bvh.root_pos`
+      row, on the root and on every translating joint (a joint whose
+      ``CHANNELS`` line declares 3 position + 3 rotation channels; its
+      values are :attr:`Bvh.joint_translations`). A file that declares
+      rotations before positions, or ``Zposition Yposition Xposition``,
+      parses correctly, and the node's ``pos_channels`` is ``('X', 'Y',
+      'Z')``: the declared order is not kept. Position channels
+      interleaved with rotation channels are read as translate first,
+      then rotate. :func:`write_bvh_file` writes the canonical order, so
+      a write changes such a declaration once, and the output is the
+      same from then on. The rotation channels keep their declared
+      order, which is the node's Euler order.
     - **Offsets and motion values are written at 6 decimal places**, so
       re-reading a written file quantizes at ~1e-6 in the file's own
       units. The frame time is written at 17 significant digits, which
@@ -687,12 +693,12 @@ def write_bvh_file(
 
     The BVH format carries no place for ``world_up``, ``lr_mapping``, or
     ``source_path``. Those are lost on write, and re-inferred on read.
-    The root's channels are always written position-first, as
-    ``Xposition Yposition Zposition``, then the rotation channels in the
-    root's Euler order, whatever order the source file declared. So a
-    write reorders a root whose file declared its position channels in
-    another order, or after its rotations (:func:`read_bvh_file` reads
-    both).
+    The root's channels, and a translating joint's, are always written
+    position-first, as ``Xposition Yposition Zposition``, then the
+    rotation channels in the node's Euler order, whatever order the
+    source file declared. So a write reorders a node whose file declared
+    its position channels in another order, after its rotations or
+    interleaved with them (:func:`read_bvh_file` reads all three).
     """
     filepath = Path(filepath)
     if filepath.suffix != ".bvh":

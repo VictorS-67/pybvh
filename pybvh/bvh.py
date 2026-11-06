@@ -2948,6 +2948,10 @@ class Bvh:
     ) -> Bvh | None:
         """Copy joint offsets from a reference skeleton.
 
+        A translating joint keeps its displacement from its rest pose: its
+        ``joint_translations`` move by the change of its offset,
+        ``pos + (new_offset - old_offset)`` in every frame.
+
         Parameters
         ----------
         new_skeleton : Bvh
@@ -2999,8 +3003,13 @@ class Bvh:
                 )
             # else: keep original offset (lenient mode)
 
+        # A translating joint keeps its displacement from its rest pose:
+        # its frames move by the change of its offset (#186).
+        translating = [i for i, node in enumerate(self.nodes) if _is_translating_joint(node)]
+        translations = self.joint_translations + (offsets - self._offsets())[translating]
+
         target = self if inplace else self.copy()
-        target._replace_offsets(offsets)
+        target._replace_offsets(offsets, translations=translations)
         if inplace:
             return None
         return target

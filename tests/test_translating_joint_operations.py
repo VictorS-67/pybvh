@@ -165,3 +165,41 @@ class TestTheOffsetReplacingPath:
         clip = _clip([0.0, 3])
         clip._replace_offsets(clip._offsets(), translations=np.ones((2, 1, 3)))
         assert clip.joint_translations.tolist() == [[[1.0, 1, 1]], [[1.0, 1, 1]]]
+
+
+def _reference(hips_offset, spine_offset) -> Bvh:
+    """A skeleton to retarget onto, with Hips rotating only: retarget
+    reads its offsets, not its channels."""
+    table = _table()
+    del table[1]["pos_channels"]
+    table[1]["offset"] = hips_offset
+    table[2]["offset"] = spine_offset
+    return Bvh(nodes=nodes_from_table(table))
+
+
+class TestRetarget:
+    @pytest.mark.parametrize("inplace", [False, True])
+    def test_a_translating_joint_keeps_its_displacement(self, inplace):
+        # Hips' offset goes from (0, 90, 0) to (0, 100, 0): each frame
+        # moves by the same (0, 10, 0), so (3, 90, 0) becomes (3, 100, 0).
+        clip = _clip([0.0, 3])
+        retargeted = clip.retarget(_reference([0, 100, 0], [0, 20, 0]), inplace=inplace) or clip
+        assert retargeted.nodes[1].offset.tolist() == [0.0, 100, 0]
+        assert retargeted.joint_translations.tolist() == [[[0.0, 100, 0]], [[3.0, 100, 0]]]
+
+    def test_positions_follow_the_new_skeleton(self):
+        retargeted = _clip([0.0, 3]).retarget(_reference([1, 100, 0], [0, 20, 0]))
+        assert retargeted.node_positions()[1].tolist() == [
+            [0.0, 0, 0],
+            [4.0, 100, 0],
+            [4.0, 120, 0],
+            [4.0, 125, 0],
+        ]
+
+    def test_an_unmatched_translating_joint_keeps_its_frames(self):
+        clip = _clip([0.0, 3])
+        retargeted = clip.retarget(
+            _reference([0, 100, 0], [0, 20, 0]), name_mapping={"Hips": "Pelvis"}
+        )
+        assert retargeted.nodes[1].offset.tolist() == [0.0, 90, 0]
+        assert retargeted.joint_translations.tolist() == clip.joint_translations.tolist()

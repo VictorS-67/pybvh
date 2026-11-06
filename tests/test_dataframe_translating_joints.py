@@ -152,11 +152,6 @@ class TestStaticRoot:
             "Hips_Y_rot",
         ]
 
-    # FK on a static root raises until ticket 03 of #186 lands, and the
-    # constructor df_to_bvh calls guesses the world up axis by FK.
-    @pytest.mark.xfail(
-        strict=True, raises=ValueError, reason="FK on a static root: ticket 03 of #186"
-    )
     def test_round_trip(self):
         clip = _static_root_clip()
         back = df_to_bvh(clip.to_node_table(), pd.DataFrame(clip.to_df_dict()))

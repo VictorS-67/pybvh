@@ -243,7 +243,11 @@ def _hierarchy_difference(
 
 
 def _channel_difference(
-    ours: Sequence[BvhNode], theirs: Sequence[BvhNode]
+    ours: Sequence[BvhNode],
+    theirs: Sequence[BvhNode],
+    *,
+    position_channels: bool = True,
+    rotation_order: bool = True,
 ) -> _NodeTreeDifference | None:
     """The first difference between two node trees' channel layouts, or ``None``.
 
@@ -251,6 +255,8 @@ def _channel_difference(
     ``joint_angles``' columns), each joint's position channels and its
     rotation order. The position channels say which joints translate,
     the declaration, never the values of ``joint_translations``.
+    *position_channels* and *rotation_order* switch each of the two
+    comparisons off, for a caller to whom only the other one matters.
     """
     our_joints = [node for node in ours if _is_joint(node)]
     their_joints = [node for node in theirs if _is_joint(node)]
@@ -259,7 +265,7 @@ def _channel_difference(
             "joint_count", f"joint count {len(our_joints)} vs {len(their_joints)}"
         )
     for a, b in zip(our_joints, their_joints, strict=True):
-        if _pos_channels(a) != _pos_channels(b):
+        if position_channels and _pos_channels(a) != _pos_channels(b):
             declared = [
                 repr("".join(_pos_channels(node))) if _pos_channels(node) else "none"
                 for node in (a, b)
@@ -268,7 +274,7 @@ def _channel_difference(
                 "position_channels",
                 f"joint {a.name!r} declares position channels {declared[0]} vs {declared[1]}",
             )
-        if tuple(a.rot_channels) != tuple(b.rot_channels):
+        if rotation_order and tuple(a.rot_channels) != tuple(b.rot_channels):
             return _NodeTreeDifference(
                 "rotation_order",
                 f"joint {a.name!r} rotates in order {''.join(a.rot_channels)!r} "

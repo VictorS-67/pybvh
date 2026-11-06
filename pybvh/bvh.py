@@ -1643,8 +1643,8 @@ class Bvh:
           rotated frames show.
         - **Inferred**: guessed from this clip's own first frame, for a
           clip read from a file or built from arrays. It is guessed again
-          when you assign :attr:`root_pos`, :attr:`joint_angles` or frames
-          (``bvh[i] = other``), the one change that replaces the
+          when you assign :attr:`root_pos`, :attr:`joint_angles`,
+          :attr:`joint_translations` or frames (``bvh[i] = other``), the one change that replaces the
           recording, and never by an edit pybvh makes. Setting
           :attr:`lr_mapping` guesses it again too: on a rig with no head,
           neck, chest or spine joint the guess falls back to

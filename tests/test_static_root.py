@@ -209,3 +209,16 @@ class TestRotationNoise:
     def test_the_other_joints_get_noise(self, clip):
         noised = clip.add_rotation_noise(0.1, rng=np.random.default_rng(0))
         assert np.all(noised.joint_angles[:, 1:] != clip.joint_angles[:, 1:])
+
+
+class TestOffsetEdits:
+    def test_a_copy_with_a_new_root_offset_moves_root_pos(self, clip):
+        table = clip.to_node_table()
+        table[0]["offset"] = [5.0, 0.0, 0.0]
+        edited = clip.copy(nodes=table)
+        np.testing.assert_array_equal(edited.root_pos, [[5, 0, 0], [5, 0, 0]])
+        # The whole body moves with the root: by hand, (5, -2, 0) from the source.
+        np.testing.assert_allclose(
+            edited.node_positions(), clip.node_positions() + [5, -2, 0], atol=1e-12
+        )
+        np.testing.assert_array_equal(clip.root_pos, [[0, 2, 0], [0, 2, 0]])

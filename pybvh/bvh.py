@@ -1252,7 +1252,9 @@ class Bvh:
             them). Neither may which joints translate, nor the root's
             channel set: the motion was recorded on them. A translating
             joint's frames are its whole position (ADR 0010), so a new
-            offset changes its rest pose only. A user-set L/R mapping follows its joints by position,
+            offset changes its rest pose only. A static root
+            (``CHANNELS 0``) stands at its offset in every frame, so a new
+            offset moves its ``root_pos``, and the whole body with it. A user-set L/R mapping follows its joints by position,
             under their new names, so each mapped joint's new name must be
             one no other joint carries (the mapping goes by name); one
             detected from the names is detected again from the new names.
@@ -1360,9 +1362,12 @@ class Bvh:
             # Unbound (a clip without motion took another joint count), the
             # names are all there is to go by.
             setting = _validated_lr_mapping(setting, new_names)
-        edited = self._derive_clip(
-            {name: array.copy() for name, array in self._motion().items()}, nodes=new_nodes
-        )
+        motion = {name: array.copy() for name, array in self._motion().items()}
+        new_root = new_nodes[0]
+        if isinstance(new_root, BvhRoot) and new_root.is_static():
+            # A static root stands at its offset in every frame.
+            motion["root_pos"] = np.tile(new_root.offset, (self.frame_count, 1))
+        edited = self._derive_clip(motion, nodes=new_nodes)
         if isinstance(setting, dict):
             edited._set_lr_mapping_setting(setting)
         return edited

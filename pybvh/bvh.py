@@ -1430,7 +1430,9 @@ class Bvh:
         ``translations`` is the new array, which this writes with the
         offsets. It may be omitted only on a clip with no translating
         joint, where there is nothing to leave stale; omitted on another
-        clip, it raises ``TypeError`` before anything changes.
+        clip, it raises ``TypeError`` before anything changes. A static
+        root (``CHANNELS 0``) stands at its offset in every frame, so its
+        ``root_pos`` follows its new offset.
         """
         if translations is None:
             if self._joint_translations.shape[1] != 0:
@@ -1446,12 +1448,18 @@ class Bvh:
                     f"translations has shape {translations.shape}, but "
                     f"joint_translations has {self._joint_translations.shape}."
                 )
+        offsets = np.asarray(offsets, dtype=np.float64)
         table = nodes_to_table(self.nodes)
-        for row, offset in zip(table, np.asarray(offsets, dtype=np.float64), strict=True):
+        for row, offset in zip(table, offsets, strict=True):
             row["offset"] = offset
         self._replace_skeleton(nodes_from_table(table))
+        motion: dict[str, npt.ArrayLike] = {}
         if translations is not None:
-            self._set_motion(joint_translations=translations)
+            motion["joint_translations"] = translations
+        if self.root.is_static():
+            motion["root_pos"] = np.tile(offsets[0], (self.frame_count, 1))
+        if motion:
+            self._set_motion(**motion)
 
     def _offsets(self) -> npt.NDArray[np.float64]:
         """Every node's offset, in ``nodes`` order, as a new ``(N, 3)`` array."""
@@ -3080,10 +3088,12 @@ class Bvh:
 
         factor = float(scale)
         target = self if inplace else self.copy()
+        # root_pos first: the offset edit sets a static root's root_pos
+        # to its new offset, which a later scaling would scale twice.
+        target._set_motion(root_pos=target.root_pos * factor)
         target._replace_offsets(
             target._offsets() * factor, translations=target.joint_translations * factor
         )
-        target._set_motion(root_pos=target.root_pos * factor)
         if inplace:
             return None
         return target

@@ -247,3 +247,41 @@ def test_rotation_and_root_edits_leave_the_translations_unchanged(edit):
     # a rotation, or a move of the root, does not change them.
     edited = edit(_clip([0.0, 3]))
     assert edited.joint_translations.tolist() == [[[0.0, 90, 0]], [[3.0, 90, 0]]]
+
+
+def _static_root_table(root_offset) -> list[dict]:
+    return [
+        {
+            "name": "Armature",
+            "parent": None,
+            "offset": root_offset,
+            "pos_channels": [],
+            "rot_channels": [],
+        },
+        {"name": "Hips", "parent": 0, "offset": [0, 90, 0], "rot_channels": "ZYX"},
+        {"parent": 1, "offset": [0, 5, 0]},
+    ]
+
+
+def test_a_static_root_moves_its_frames_with_its_offset():
+    # A static root's root_pos is its offset in every frame: an offset
+    # edit moves both, or root_pos goes stale.
+    clip = Bvh(
+        nodes=nodes_from_table(_static_root_table([0, 0, 0])),
+        root_pos=np.zeros((2, 3)),
+        joint_angles=np.zeros((2, 2, 3)),
+        world_up="+y",
+    )
+    clip.retarget(Bvh(nodes=nodes_from_table(_static_root_table([1, 2, 3]))), inplace=True)
+    assert clip.root_pos.tolist() == [[1.0, 2, 3], [1.0, 2, 3]]
+
+
+def test_scaling_a_static_root_scales_its_frames_once():
+    clip = Bvh(
+        nodes=nodes_from_table(_static_root_table([1, 2, 3])),
+        root_pos=np.tile([1.0, 2, 3], (2, 1)),
+        joint_angles=np.zeros((2, 2, 3)),
+        world_up="+y",
+    )
+    clip.scale(2, inplace=True)
+    assert clip.root_pos.tolist() == [[2.0, 4, 6], [2.0, 4, 6]]

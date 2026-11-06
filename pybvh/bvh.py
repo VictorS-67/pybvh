@@ -111,6 +111,15 @@ def _unique_labels(names: Sequence[str]) -> list[str]:
     return labels
 
 
+def _euler_to_quat(
+    angles: npt.NDArray[np.float64], orders: Sequence[str]
+) -> npt.NDArray[np.float64]:
+    """Joint angles ``(..., J, 3)`` in radians, each joint in its Euler order
+    of ``orders``, as canonical quaternions ``(..., J, 4)``, through
+    rotation matrices."""
+    return rotations.rotmat_to_quat(rotations.euler_to_rotmat(angles, orders))
+
+
 def _motion_column_names(nodes: Sequence[BvhNode], mode: str) -> list[str]:
     """Column names of the motion *nodes* carry, in either ``to_df_dict`` mode.
 
@@ -157,7 +166,7 @@ class _SkeletonDim(NamedTuple):
 
 _JOINTS = _SkeletonDim(
     symbol="J",
-    count=lambda nodes: sum(1 for node in nodes if not node.is_end_site()),
+    count=lambda nodes: sum(1 for node in nodes if _is_joint(node)),
     unit="joints",
     skeleton_unit="non-end-site joints",
 )
@@ -195,6 +204,13 @@ class _MotionArray(NamedTuple):
             for axis, dim in enumerate(self.frame_shape, start=1)
             if isinstance(dim, _SkeletonDim)
         ]
+
+    def unknown_interpolation(self, operation: str) -> ValueError:
+        """The error ``operation`` raises on an interpolation kind it does not know."""
+        return ValueError(
+            f"{operation} does not know interpolation {self.interpolation!r} "
+            f"of motion array {self.name!r}"
+        )
 
     def empty(self) -> npt.NDArray[np.float64]:
         """The array of a clip built without motion: no frame, and 0 on
@@ -663,7 +679,8 @@ class Bvh:
     @property
     def frame_count(self) -> int:
         """Number of frames (computed from root_pos)."""
-        return len(self.root_pos)
+        # The first motion array's frame count, which the others match.
+        return len(self._motion()[self._MOTION_ARRAYS[0].name])
 
     @property
     def root(self) -> BvhRoot:
@@ -718,8 +735,10 @@ class Bvh:
             return False
         if self.frame_time != other.frame_time:
             return False
-        others = other._motion()
-        return all(np.array_equal(array, others[name]) for name, array in self._motion().items())
+        other_motion = other._motion()
+        return all(
+            np.array_equal(array, other_motion[name]) for name, array in self._motion().items()
+        )
 
     def matches_hierarchy(
         self, other: Bvh, match_offsets: bool = True, atol: float = _OFFSET_ATOL
@@ -965,10 +984,10 @@ class Bvh:
             return NotImplemented  # type: ignore[return-value]
         self._check_same_skeleton(other)
         self._check_same_rate(other, "a += b")
-        others = other._motion()
+        other_motion = other._motion()
         self._set_motion(
             **{
-                name: np.concatenate([array, others[name]], axis=0)
+                name: np.concatenate([array, other_motion[name]], axis=0)
                 for name, array in self._motion().items()
             }
         )
@@ -1030,9 +1049,9 @@ class Bvh:
             )
 
         # --- in-place splice, bypassing the setters ---
-        values = value._motion()
+        other_motion = value._motion()
         for name, array in self._motion().items():
-            array[s] = values[name]
+            array[s] = other_motion[name]
         self._derived.user_replaced_motion()
 
     def copy(self, nodes: Sequence[BvhNode] | Sequence[Mapping[str, Any]] | None = None) -> Bvh:
@@ -1170,6 +1189,13 @@ class Bvh:
         from this clip. The arrays are taken as they are, not copied; the
         caller hands over arrays no other clip holds.
         """
+        names = [entry.name for entry in self._MOTION_ARRAYS]
+        unknown = motion.keys() - set(names)
+        if unknown:
+            raise TypeError(f"_derive_clip() got no motion array named {sorted(unknown)}")
+        missing = [name for name in names if name not in motion]
+        if missing:
+            raise TypeError(f"_derive_clip() is missing motion arrays {missing}")
         state = self.__getstate__()
         for entry in self._MOTION_ARRAYS:
             del state[entry.name]
@@ -3018,9 +3044,7 @@ class Bvh:
         directly — forward kinematics runs once instead of per
         representation.
         """
-        joints = [n for n in self.nodes if not n.is_end_site()]
-        per_joint = ["".join(j.rot_channels) for j in joints]  # type: ignore[attr-defined]
-        joint_rotmats = rotations.euler_to_rotmat(self.joint_angles, per_joint)
+        joint_rotmats = rotations.euler_to_rotmat(self.joint_angles, self.euler_orders)
         return self.root_pos.copy(), joint_rotmats
 
     def to_6d(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
@@ -3073,9 +3097,7 @@ class Bvh:
 
         See :meth:`to_rotmat` for the multi-representation reuse pattern.
         """
-        root_pos, joint_rotmats = self.to_rotmat()
-        joint_quats = rotations.rotmat_to_quat(joint_rotmats)
-        return root_pos, joint_quats
+        return self.root_pos.copy(), _euler_to_quat(self.joint_angles, self.euler_orders)
 
     def to_axisangle(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """
@@ -3403,16 +3425,36 @@ class Bvh:
         self._check_same_skeleton(other)
         self._check_same_rate(other, "a + b")
 
-        others = other._motion()
+        other_motion = other._motion()
         new_bvh = self._derive_clip(
             {
-                name: np.concatenate([array, others[name]], axis=0)
+                name: np.concatenate([array, other_motion[name]], axis=0)
                 for name, array in self._motion().items()
             }
         )
         if self.source_path != other.source_path:
             new_bvh.source_path = None
         return new_bvh
+
+    def _slerp_angles(
+        self,
+        angles: npt.NDArray[np.float64],
+        left: npt.NDArray[np.intp],
+        right: npt.NDArray[np.intp],
+        alpha: npt.NDArray[np.float64],
+    ) -> npt.NDArray[np.float64]:
+        """Frames between frames ``left`` and ``right`` of ``angles``, at ``alpha``.
+
+        ``angles`` is ``(F, J, 3)``, each joint's angles in radians in its
+        Euler order (``euler_orders``); ``left``, ``right`` and ``alpha``
+        are ``(N,)``, one frame pair and one fraction in ``[0, 1]`` per new
+        frame. Each joint goes through quaternions and is slerped on the
+        shorter arc, so the result is ``(N, J, 3)``, in radians, read back
+        in the joint's Euler order.
+        """
+        quats = _euler_to_quat(angles, self.euler_orders)
+        between = rotations.quat_slerp(quats[left], quats[right], alpha[:, np.newaxis])
+        return rotations.quat_to_euler(between, self.euler_orders)
 
     def resample(self, target_fps: float) -> Bvh:
         """Resample frames to a new frame rate via interpolation.
@@ -3472,16 +3514,6 @@ class Bvh:
         t_new = np.arange(0, t_orig[-1] + 1e-12, new_freq)
 
         num_new = len(t_new)
-        num_joints = self.joint_count
-
-        # --- Root position: linear interpolation ---
-        new_root_pos = np.empty((num_new, 3), dtype=np.float64)
-        for ax in range(3):
-            new_root_pos[:, ax] = np.interp(t_new, t_orig, self.root_pos[:, ax])
-
-        # --- Joint angles: quaternion SLERP ---
-        # Convert all joints to quaternions: (F, J, 4)
-        _, joint_quats = self.to_quat()
 
         # Find surrounding frame indices for each new timestamp
         idx_right = np.searchsorted(t_orig, t_new, side="right")
@@ -3496,21 +3528,26 @@ class Bvh:
         dt = np.where(dt < 1e-15, 1.0, dt)
         alpha = (t_new - t_left) / dt  # (num_new,)
 
-        # SLERP for all joints at once: shape (num_new, J, 4)
-        q_left = joint_quats[idx_left]  # (num_new, J, 4)
-        q_right = joint_quats[idx_right]  # (num_new, J, 4)
+        motion = self._motion()
+        new_motion = {}
+        for entry in self._MOTION_ARRAYS:
+            array = motion[entry.name]
+            if entry.interpolation == "linear":
+                # np.interp per component, over the array flattened to
+                # (F, components) and given back its shape. drop_frames'
+                # weighted sum of the two neighbours would round otherwise,
+                # so each operation keeps its own linear rule and its values.
+                components = array.reshape(self.frame_count, -1)
+                resampled = np.empty((num_new, components.shape[1]), dtype=np.float64)
+                for column in range(components.shape[1]):
+                    resampled[:, column] = np.interp(t_new, t_orig, components[:, column])
+                new_motion[entry.name] = resampled.reshape(num_new, *array.shape[1:])
+            elif entry.interpolation == "euler":
+                new_motion[entry.name] = self._slerp_angles(array, idx_left, idx_right, alpha)
+            else:
+                raise entry.unknown_interpolation("resample()")
 
-        # Broadcast alpha to (num_new, J) for per-joint SLERP
-        alpha_jt = np.broadcast_to(alpha[:, np.newaxis], (num_new, num_joints))
-        new_quats = rotations.quat_slerp(q_left, q_right, alpha_jt)
-
-        # Convert back to Euler angles — vectorized across joints via the
-        # per-joint-order overload of rotmat_to_euler.
-        new_angles = rotations.rotmat_to_euler(
-            rotations.quat_to_rotmat(new_quats), self.euler_orders
-        )
-
-        new_bvh = self._derive_clip({"root_pos": new_root_pos, "joint_angles": new_angles})
+        new_bvh = self._derive_clip(new_motion)
         new_bvh.frame_time = new_freq
         return new_bvh
 

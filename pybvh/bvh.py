@@ -3568,7 +3568,10 @@ class Bvh:
         ------
         TypeError
             If ``inplace`` is not a bool, as in a call of the old
-            signature ``from_rotmat(root_pos, joint_rotmats)``.
+            signature with two arguments,
+            ``from_rotmat(root_pos, joint_rotmats)``. Python's own
+            ``TypeError`` refuses the other old calls, with ``inplace``
+            as a third argument or a keyword.
         ValueError
             If the frame or joint count does not match the clip, or if
             the rotations turn a static root (``CHANNELS 0``).
@@ -3610,7 +3613,10 @@ class Bvh:
         ------
         TypeError
             If ``inplace`` is not a bool, as in a call of the old
-            signature ``from_6d(root_pos, joint_rot6d)``.
+            signature with two arguments,
+            ``from_6d(root_pos, joint_rot6d)``. Python's own
+            ``TypeError`` refuses the other old calls, with ``inplace``
+            as a third argument or a keyword.
         ValueError
             If the frame or joint count does not match the clip, or if
             the rotations turn a static root (``CHANNELS 0``).
@@ -3653,7 +3659,10 @@ class Bvh:
         ------
         TypeError
             If ``inplace`` is not a bool, as in a call of the old
-            signature ``from_quat(root_pos, joint_quats)``.
+            signature with two arguments,
+            ``from_quat(root_pos, joint_quats)``. Python's own
+            ``TypeError`` refuses the other old calls, with ``inplace``
+            as a third argument or a keyword.
         ValueError
             If the frame or joint count does not match the clip, or if
             the rotations turn a static root (``CHANNELS 0``).
@@ -3696,7 +3705,10 @@ class Bvh:
         ------
         TypeError
             If ``inplace`` is not a bool, as in a call of the old
-            signature ``from_axisangle(root_pos, joint_aa)``.
+            signature with two arguments,
+            ``from_axisangle(root_pos, joint_aa)``. Python's own
+            ``TypeError`` refuses the other old calls, with ``inplace``
+            as a third argument or a keyword.
         ValueError
             If the frame or joint count does not match the clip, or if
             the rotations turn a static root (``CHANNELS 0``).

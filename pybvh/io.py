@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, TextIO
 import numpy as np
 import numpy.typing as npt
 
-from .bvh import Bvh, _euler_blocks
+from .bvh import Bvh, _euler_blocks, _static_root_pos
 from .bvhnode import BvhNode, _is_joint, _pos_channels
 from .node_tree import nodes_from_table
 from .tools import _require_rate, _validate_bvh_path, _validate_frame_time
@@ -245,8 +245,7 @@ def _bvh_from_parsed(
     if columns.root_pos.size:
         root_pos = frame_array[:, columns.root_pos]
     else:
-        # A static root stays at its offset.
-        root_pos = np.tile(node_list[0].offset, (frame_count, 1))
+        root_pos = _static_root_pos(node_list[0].offset, frame_count)
     joint_translations = frame_array[:, columns.joint_translations]
     # A static root's row stays zero. BVH stores angles in degrees; pybvh
     # holds them in radians.

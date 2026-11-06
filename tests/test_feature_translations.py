@@ -13,6 +13,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from six_channel_fixtures import rotating_spine_twin
 
 from pybvh import Bvh, batch_to_numpy, features, nodes_from_table, read_bvh_file
 
@@ -70,6 +71,16 @@ class TestLayout:
             "rotations": slice(9, 33),
         }
 
+    def test_the_block_needs_the_translating_joint_count(self):
+        with pytest.raises(ValueError, match="num_translating_joints"):
+            features.feature_array_layout(num_joints=4, include_joint_translations=True)
+
+    def test_a_count_of_zero_gives_an_empty_block(self):
+        layout = features.feature_array_layout(
+            num_joints=4, num_translating_joints=0, include_joint_translations=True
+        )
+        assert layout["joint_translations"] == slice(3, 3)
+
 
 class TestBlock:
     def test_the_block_holds_the_translations_where_the_layout_says(self):
@@ -107,20 +118,6 @@ class TestBlock:
         )
 
 
-def _rotating_spine_twin(clip: Bvh) -> Bvh:
-    """``clip``'s skeleton with the spine declaring rotation channels only."""
-    table = clip.to_node_table()
-    del table[2]["pos_channels"]
-    return Bvh(
-        nodes=nodes_from_table(table),
-        root_pos=clip.root_pos,
-        joint_angles=clip.joint_angles,
-        joint_translations=clip.joint_translations[:, :1],
-        frame_time=clip.frame_time,
-        world_up="+y",
-    )
-
-
 class TestBatch:
     def test_each_array_holds_the_block(self):
         clips = [_clip(4), _clip(6)]
@@ -135,7 +132,7 @@ class TestBatch:
         clip = _clip()
         with pytest.raises(ValueError, match=r"index 2.*joint 'Spine' declares position channels"):
             batch_to_numpy(
-                [clip, clip, _rotating_spine_twin(clip)],
+                [clip, clip, rotating_spine_twin(clip)],
                 representation=representation,
                 include_joint_translations=True,
             )
@@ -143,7 +140,7 @@ class TestBatch:
     @pytest.mark.parametrize("representation", ["euler", "axisangle", "6d", "quat", "rotmat"])
     def test_without_the_block_the_translating_joints_may_differ(self, representation):
         clip = _clip()
-        arrays = batch_to_numpy([clip, _rotating_spine_twin(clip)], representation=representation)
+        arrays = batch_to_numpy([clip, rotating_spine_twin(clip)], representation=representation)
         np.testing.assert_array_equal(arrays[0], arrays[1])
 
     def test_with_the_block_6d_still_ignores_the_rotation_order(self):
@@ -152,7 +149,7 @@ class TestBatch:
         arrays = batch_to_numpy(
             [clip, reordered], representation="6d", include_joint_translations=True
         )
-        assert len(arrays) == 2
+        np.testing.assert_allclose(arrays[0], arrays[1], atol=1e-9)
 
 
 @pytest.mark.filterwarnings("ignore:Rest pose suggests world up")

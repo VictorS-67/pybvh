@@ -14,6 +14,7 @@ import pickle
 
 import numpy as np
 import pytest
+from six_channel_fixtures import reference_hips_table
 
 from pybvh import Bvh, nodes_from_table, transforms
 
@@ -25,18 +26,7 @@ HIPS_X = np.array([0.0, 1, 4, 9, 16, 25])
 
 
 def _table() -> list[dict]:
-    return [
-        {"name": "Reference", "parent": None, "offset": [0, 0, 0], "rot_channels": "ZYX"},
-        {
-            "name": "Hips",
-            "parent": 0,
-            "offset": [0, 90, 0],
-            "pos_channels": "XYZ",
-            "rot_channels": "ZYX",
-        },
-        {"name": "Spine", "parent": 1, "offset": [0, 10, 0], "rot_channels": "ZYX"},
-        {"parent": 2, "offset": [0, 5, 0]},
-    ]
+    return reference_hips_table()
 
 
 def _translations(hips_x) -> np.ndarray:
@@ -285,3 +275,73 @@ def test_scaling_a_static_root_scales_its_frames_once():
     )
     clip.scale(2, inplace=True)
     assert clip.root_pos.tolist() == [[2.0, 4, 6], [2.0, 4, 6]]
+
+
+def _two_translating_table() -> list[dict]:
+    table = _table()
+    table[2]["pos_channels"] = "XYZ"
+    return table
+
+
+def _three_channel_table() -> list[dict]:
+    table = _table()
+    del table[1]["pos_channels"]
+    return table
+
+
+SKELETONS = {"two_translating": _two_translating_table, "three_channel": _three_channel_table}
+
+MOTION_FREE_EDITS = {
+    "retarget": lambda clip: clip.retarget(clip.scale(2)),
+    "scale": lambda clip: clip.scale(2),
+    "rotate_vertical": lambda clip: clip.rotate_vertical(90),
+    "reorient_world_up": lambda clip: clip.reorient_world_up("+z"),
+    "reorient_rest_up": lambda clip: clip.reorient_rest_up("+z"),
+    "reorient_rest_forward": lambda clip: clip.reorient_rest_forward("+x"),
+    "change_euler_order": lambda clip: clip.change_euler_order("XYZ", joint="Spine"),
+    "copy_nodes": lambda clip: clip.copy(nodes=clip.to_node_table()),
+}
+
+
+@pytest.mark.parametrize("table", SKELETONS.values(), ids=SKELETONS)
+@pytest.mark.parametrize("edit", MOTION_FREE_EDITS.values(), ids=MOTION_FREE_EDITS)
+def test_a_skeleton_edit_on_a_clip_without_motion_gives_a_clip_without_motion(table, edit):
+    clip = Bvh(nodes=nodes_from_table(table()), world_up="+y")
+    edited = edit(clip)
+    assert edited.frame_count == 0
+    # Still the arrays of a clip built without motion, which bind no joint.
+    assert edited.joint_angles.shape == (0, 0, 3)
+    assert edited.joint_translations.shape == (0, 0, 3)
+    assert edited.node_positions().shape == (0, len(edited.nodes), 3)
+
+
+@pytest.mark.parametrize("table", SKELETONS.values(), ids=SKELETONS)
+def test_extract_joints_on_a_clip_without_motion_gives_no_frame(table):
+    # As before #186, the result holds no frame of the kept joints.
+    clip = Bvh(nodes=nodes_from_table(table()), world_up="+y")
+    extracted = clip.extract_joints(["Reference", "Spine"])
+    assert extracted.frame_count == 0
+    assert extracted.joint_angles.shape == (0, 2, 3)
+    assert extracted.node_positions().shape == (0, len(extracted.nodes), 3)
+
+
+EULER_COLUMNS = {
+    "two_translating": "Reference_pos Reference_rot Hips_pos Hips_rot Spine_pos Spine_rot",
+    "three_channel": "Reference_pos Reference_rot Hips_rot Spine_rot",
+}
+
+
+@pytest.mark.parametrize("name", SKELETONS)
+def test_a_clip_without_motion_gives_its_euler_columns_with_no_row(name):
+    clip = Bvh(nodes=nodes_from_table(SKELETONS[name]()), world_up="+y")
+    columns = clip.to_df_dict()
+    expected = ["time"]
+    for block in EULER_COLUMNS[name].split():
+        joint, kind = block.split("_")
+        axes = "XYZ" if kind == "pos" else "ZYX"
+        expected += [f"{joint}_{axis}_{kind}" for axis in axes]
+    assert list(columns) == expected
+    assert all(len(values) == 0 for values in columns.values())
+
+    coordinates = clip.to_df_dict(mode="coordinates")
+    assert all(len(values) == 0 for values in coordinates.values())

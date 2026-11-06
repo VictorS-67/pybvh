@@ -40,7 +40,7 @@ def _frozen_error(node: BvhNode, attribute: str) -> AttributeError:
 
 def _is_empty_order(value: object) -> bool:
     """Whether a channel order is given as empty (``[]``, ``()``, ``''``)."""
-    return isinstance(value, (str, Sequence)) and len(value) == 0
+    return isinstance(value, Sequence) and len(value) == 0
 
 
 class BvhNode:
@@ -383,7 +383,9 @@ class BvhJoint(BvhNode):
                 children_list.append(f"{child.__str__()}")
             else:
                 children_list.append(f"BvhJoint({child.__str__()})")
-        # The root and a translating joint show their position channels.
+        # A joint that only rotates keeps the repr it had before #186. The
+        # root shows its position channels even when it has none, so that
+        # a static root reads as one.
         pos = f"pos_channels = {self.pos_channels}, " if self.pos_channels or self.is_root() else ""
         return f"{type(self).__name__}(name = {self.name}, offset = {self.offset}, {pos}rot_channels = {self.rot_channels}, children = {str(children_list)}, parent = {self.parent})"
 

@@ -671,7 +671,7 @@ def rotate_vertical(
 
     root_order = "".join(target.root.rot_channels)
     new_angles, new_root_pos = rotate_angles_vertical(
-        target.joint_angles,
+        target._motion_on_skeleton()["joint_angles"],
         target.root_pos,
         angle * up_sign,
         up_idx,
@@ -995,8 +995,9 @@ def mirror(
 
     # --- Steps 1, 4, 5: Mirror arrays via NumPy-level API ---
     rot_ch = [j.rot_channels for j in joints]
+    motion = target._motion_on_skeleton()
     new_angles, new_root_pos = mirror_angles(
-        target.joint_angles,
+        motion["joint_angles"],
         target.root_pos,
         lr_j_pairs,
         lateral_idx,
@@ -1004,7 +1005,7 @@ def mirror(
     )
     # Translations are positions, as offsets are: the lateral component is
     # negated and the pairs swap their columns.
-    new_translations = target.joint_translations.copy()
+    new_translations = motion["joint_translations"].copy()
     new_translations[..., lateral_idx] *= -1
     for lj, rj in lr_j_pairs:
         if lj in translation_column:
@@ -1072,13 +1073,14 @@ def _reorient_rest(target: Bvh, R_fix: npt.NDArray[np.float64]) -> None:
     R_fix_inv = R_fix.T  # orthogonal → inverse = transpose
 
     # 1. Rotate all offsets, and the translations that stand in for them
+    motion = target._motion_on_skeleton()
     target._replace_offsets(
-        target._offsets() @ R_fix.T, translations=target.joint_translations @ R_fix.T
+        target._offsets() @ R_fix.T, translations=motion["joint_translations"] @ R_fix.T
     )
 
     # 2. Compensate joint rotations so FK positions are unchanged
     joints = [n for n in target.nodes if not n.is_end_site()]
-    angles_copy = target.joint_angles.copy()
+    angles_copy = motion["joint_angles"].copy()
 
     # Root (index 0): right-multiply by R_fix_inv only
     root_order = "".join(joints[0].rot_channels)  # type: ignore[attr-defined]
@@ -1150,11 +1152,15 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     R = rotations._axis_aligned_rotation(_axis_to_vector(old_up), _axis_to_vector(new_up))
     target._rotate_world_up_guess(R)
 
+    motion = target._motion_on_skeleton()
+
     # 1. Rotate root positions
-    target._set_motion(root_pos=(R @ target.root_pos.T).T)
+    target._set_motion(root_pos=(R @ motion["root_pos"].T).T)
 
     # 2. Rotate all node offsets, and the translations that stand in for them
-    target._replace_offsets(target._offsets() @ R.T, translations=target.joint_translations @ R.T)
+    target._replace_offsets(
+        target._offsets() @ R.T, translations=motion["joint_translations"] @ R.T
+    )
 
     # 3. Conjugate ALL joint rotations: R_j' = R @ R_j @ R^T
     #    This is the correct formula for a global scene rotation applied to
@@ -1162,7 +1168,7 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     #    A static root's row stays zero: it does not rotate, and its
     #    offset, rotated in step 2, carries the world's turn.
     joints = [n for n in target.nodes if not n.is_end_site()]
-    angles_copy = target.joint_angles.copy()
+    angles_copy = motion["joint_angles"].copy()
     first = 1 if target.root.is_static() else 0
     _apply_similarity_to_joints(
         angles_copy, joints, R, R.T, joint_indices=range(first, len(joints))

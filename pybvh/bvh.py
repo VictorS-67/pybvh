@@ -142,6 +142,12 @@ class _EulerBlock(NamedTuple):
     array: str
     row: int
 
+    def columns(self, motion: Mapping[str, npt.NDArray[np.float64]]) -> npt.NDArray[np.float64]:
+        """The block's ``(F, 3)`` values in *motion*, the arrays by name: a
+        view, which a reader reads and a writer assigns into."""
+        array = motion[self.array]
+        return array if self.array == "root_pos" else array[:, self.row]
+
 
 def _euler_blocks(nodes: Sequence[BvhNode]) -> list[_EulerBlock]:
     """The column blocks of the euler layout of *nodes*, in column order.
@@ -405,6 +411,12 @@ def _build_rest_pose(bvh: Bvh) -> npt.NDArray[np.float64]:
     )
 
 
+def _static_root_pos(offset: npt.ArrayLike, frame_count: int) -> npt.NDArray[np.float64]:
+    """The ``root_pos`` of a static root (``CHANNELS 0``) at *offset*,
+    ``(frame_count, 3)``: it stays at its offset in every frame."""
+    return np.tile(np.asarray(offset, dtype=np.float64), (frame_count, 1))
+
+
 def _channel_declaration(root: BvhRoot) -> str:
     """The root's channel set as a ``CHANNELS`` line counts it."""
     return "CHANNELS 0" if root.is_static() else "CHANNELS 6"
@@ -622,8 +634,14 @@ class Bvh:
             return
         if np.any(self._root_pos != self.root.offset):
             self._refuse_static_root("root_pos places the root away from its offset")
-        if np.any(self._joint_angles[:, :1] != 0):
-            self._refuse_static_root("joint_angles rotates the root")
+        self._refuse_root_rotation(self._joint_angles, "joint_angles rotates the root")
+
+    def _refuse_root_rotation(self, joint_angles: npt.NDArray[np.float64], what: str) -> None:
+        """Raise ``ValueError`` if the root is static and *joint_angles*,
+        ``(F, J, 3)``, rotates it in some frame (its row 0 is not zero);
+        *what* says what the caller does to it."""
+        if self.root.is_static() and np.any(joint_angles[:, :1] != 0):
+            self._refuse_static_root(what)
 
     def _refuse_static_root(self, what: str) -> None:
         """Raise ``ValueError`` if the root is static, *what* saying what the caller does to it."""
@@ -743,6 +761,15 @@ class Bvh:
         On a static root (``CHANNELS 0``, see
         :meth:`~pybvh.bvhnode.BvhRoot.is_static`) it holds the root's
         offset in every frame, and the setter raises ``ValueError``.
+
+        Its length is the clip's frame count. To change the frame count,
+        assign ``root_pos`` and :attr:`joint_angles`, and on a skeleton
+        with translating joints :attr:`joint_translations` too, each with
+        the same number of frames: the setters check no frame count, and
+        an operation on a clip whose arrays disagree raises
+        ``ValueError``. On a skeleton with no translating joint,
+        :attr:`joint_translations` holds no value and takes the frame
+        count of ``root_pos``.
         """
         view = self._root_pos.view()
         view.flags.writeable = False
@@ -752,6 +779,12 @@ class Bvh:
     def root_pos(self, value: npt.ArrayLike) -> None:
         self._refuse_static_root("Setting root_pos moves the root")
         self._root_pos = _ROOT_POS.checked(value)
+        if _TRANSLATING_JOINTS.count(self.nodes) == 0:
+            # With no translating joint, joint_translations holds no value,
+            # so it has no frame count of its own: it takes root_pos's,
+            # the clip's frame count.
+            none: npt.NDArray[np.float64] = np.empty((len(self._root_pos), 0, 3))
+            self._joint_translations = none
         self._derived.user_replaced_motion()
 
     @property
@@ -780,8 +813,7 @@ class Bvh:
     @joint_angles.setter
     def joint_angles(self, value: npt.ArrayLike) -> None:
         checked = _JOINT_ANGLES.checked(value)
-        if np.any(checked[:, :1] != 0):
-            self._refuse_static_root("These joint_angles rotate the root")
+        self._refuse_root_rotation(checked, "These joint_angles rotate the root")
         self._joint_angles = checked
         self._derived.user_replaced_motion()
 
@@ -822,15 +854,30 @@ class Bvh:
     def _set_motion(self, **motion: npt.ArrayLike) -> None:
         """Write motion as pybvh's own edits do, through no public setter.
 
-        The transforms, ``a += b`` and the rebuild of a derived clip write
-        here and report that the motion changed. The public setters report
-        that the user replaced the motion, which starts the world-up guess
-        again (ADR 0003), as setting the L/R mapping does for a guess of the
-        clip's own (ADR 0004).
+        The transforms and ``a += b`` write here and report that the
+        motion changed. The public setters report that the user replaced
+        the motion, which starts the world-up guess again (ADR 0003), as
+        setting the L/R mapping does for a guess of the clip's own (ADR
+        0004).
 
         Takes any of the motion arrays by name (``_MOTION_ARRAYS``) and
-        leaves the others as they are.
+        leaves the others as they are. On a clip built without motion, an
+        array with no frame is written as the empty array
+        (:meth:`_MotionArray.empty`): an edit that reads the motion with
+        the skeleton's dims (:meth:`_motion_on_skeleton`) leaves the clip
+        without motion, binding no skeleton.
         """
+        if not self._binds_skeleton():
+            empty = {entry.name: entry.empty() for entry in self._MOTION_ARRAYS}
+            motion = {
+                name: empty[name] if name in empty and len(np.asarray(array)) == 0 else array
+                for name, array in motion.items()
+            }
+        self._write_motion(motion)
+
+    def _write_motion(self, motion: Mapping[str, npt.ArrayLike]) -> None:
+        """Write the motion arrays *motion* names, as they are, and report
+        that the motion changed; the rebuild of a derived clip writes here."""
         unknown = motion.keys() - {entry.name for entry in self._MOTION_ARRAYS}
         if unknown:
             raise TypeError(f"_set_motion() got no motion array named {sorted(unknown)}")
@@ -838,6 +885,28 @@ class Bvh:
             if entry.name in motion:
                 setattr(self, entry.attribute, entry.checked(motion[entry.name]))
         self._derived.motion_changed()
+
+    def _motion_on_skeleton(self) -> dict[str, npt.NDArray[np.float64]]:
+        """Each motion array by name, with the skeleton's length on each
+        skeleton dim.
+
+        A clip built without motion holds the empty arrays, with 0 on each
+        skeleton dim (:meth:`_binds_skeleton`); an operation that walks the
+        skeleton's joints reads their rows here, where those arrays have
+        no frame and the skeleton's dims. A clip with motion gives its
+        arrays themselves.
+        """
+        motion = self._motion()
+        if self._binds_skeleton():
+            return motion
+        for entry in self._MOTION_ARRAYS:
+            if entry.skeleton_axes:
+                dims = [
+                    dim.count(self.nodes) if isinstance(dim, _SkeletonDim) else dim
+                    for dim in entry.frame_shape
+                ]
+                motion[entry.name] = np.empty((0, *dims))
+        return motion
 
     @property
     def frame_count(self) -> int:
@@ -1365,8 +1434,7 @@ class Bvh:
         motion = {name: array.copy() for name, array in self._motion().items()}
         new_root = new_nodes[0]
         if isinstance(new_root, BvhRoot) and new_root.is_static():
-            # A static root stands at its offset in every frame.
-            motion["root_pos"] = np.tile(new_root.offset, (self.frame_count, 1))
+            motion["root_pos"] = _static_root_pos(new_root.offset, self.frame_count)
         edited = self._derive_clip(motion, nodes=new_nodes)
         if isinstance(setting, dict):
             edited._set_lr_mapping_setting(setting)
@@ -1447,7 +1515,9 @@ class Bvh:
         if "joint_translations" not in state:
             # Pickled before joints translated (#186): none of them does.
             state = {**state, "joint_translations": np.empty((len(state["root_pos"]), 0, 3))}
-        self._set_motion(**{entry.name: state[entry.name] for entry in self._MOTION_ARRAYS})
+        # As they are: a derived clip holds the arrays it is given, a
+        # clip with no frame those of its skeleton or the empty ones.
+        self._write_motion({entry.name: state[entry.name] for entry in self._MOTION_ARRAYS})
         if self._binds_skeleton():
             self._check_motion_fits_skeleton()
         self._world_up_override = state["world_up_override"]
@@ -1528,8 +1598,9 @@ class Bvh:
         root (``CHANNELS 0``) stands at its offset in every frame, so its
         ``root_pos`` follows its new offset.
         """
+        current = self._motion_on_skeleton()["joint_translations"]
         if translations is None:
-            if self._joint_translations.shape[1] != 0:
+            if current.shape[1] != 0:
                 raise TypeError(
                     "_replace_offsets() needs translations= on a clip with "
                     "translating joints: their frames replace their offsets, "
@@ -1537,10 +1608,10 @@ class Bvh:
                 )
         else:
             translations = _JOINT_TRANSLATIONS.checked(translations)
-            if translations.shape != self._joint_translations.shape:
+            if translations.shape != current.shape:
                 raise ValueError(
                     f"translations has shape {translations.shape}, but "
-                    f"joint_translations has {self._joint_translations.shape}."
+                    f"joint_translations has {current.shape}."
                 )
         offsets = np.asarray(offsets, dtype=np.float64)
         table = nodes_to_table(self.nodes)
@@ -1551,7 +1622,7 @@ class Bvh:
         if translations is not None:
             motion["joint_translations"] = translations
         if self.root.is_static():
-            motion["root_pos"] = np.tile(offsets[0], (self.frame_count, 1))
+            motion["root_pos"] = _static_root_pos(offsets[0], self.frame_count)
         if motion:
             self._set_motion(**motion)
 
@@ -1588,8 +1659,8 @@ class Bvh:
           rotated frames show.
         - **Inferred**: guessed from this clip's own first frame, for a
           clip read from a file or built from arrays. It is guessed again
-          when you assign :attr:`root_pos`, :attr:`joint_angles` or frames
-          (``bvh[i] = other``), the one change that replaces the
+          when you assign :attr:`root_pos`, :attr:`joint_angles`,
+          :attr:`joint_translations` or frames (``bvh[i] = other``), the one change that replaces the
           recording, and never by an edit pybvh makes. Setting
           :attr:`lr_mapping` guesses it again too: on a rig with no head,
           neck, chest or spine joint the guess falls back to
@@ -2413,12 +2484,13 @@ class Bvh:
         """
         positions = self._derived.node_positions
         if positions is None:
+            motion = self._motion_on_skeleton()
             positions = frames_to_node_positions(
                 self,
-                root_pos=self.root_pos,
-                joint_angles=self.joint_angles,
+                root_pos=motion["root_pos"],
+                joint_angles=motion["joint_angles"],
                 centered="world",
-                joint_translations=self.joint_translations,
+                joint_translations=motion["joint_translations"],
             )
             self._derived.node_positions = positions
         return positions
@@ -2656,15 +2728,12 @@ class Bvh:
         ``_rot`` columns are the rad→deg-converted view of the internal
         radians-valued :attr:`joint_angles`.
         """
-        arrays = {
-            "root_pos": self.root_pos[:, None],
-            "joint_translations": self.joint_translations,
-            "joint_angles": np.rad2deg(self.joint_angles),
-        }
+        motion = self._motion_on_skeleton()
+        arrays = {**motion, "joint_angles": np.rad2deg(motion["joint_angles"])}
         blocks = _euler_blocks(self.nodes)
         flat = np.empty((self.frame_count, 3 * len(blocks)))
         for i, block in enumerate(blocks):
-            flat[:, 3 * i : 3 * i + 3] = arrays[block.array][:, block.row]
+            flat[:, 3 * i : 3 * i + 3] = block.columns(arrays)
         return self._timed_columns(_motion_column_names(self.nodes, "euler"), flat)
 
     def _get_df_constructor_spatial_coord(
@@ -3154,7 +3223,10 @@ class Bvh:
         # A translating joint keeps its displacement from its rest pose:
         # its frames move by the change of its offset (#186).
         translating = [i for i, node in enumerate(self.nodes) if _is_translating_joint(node)]
-        translations = self.joint_translations + (offsets - self._offsets())[translating]
+        translations = (
+            self._motion_on_skeleton()["joint_translations"]
+            + (offsets - self._offsets())[translating]
+        )
 
         target = self if inplace else self.copy()
         target._replace_offsets(offsets, translations=translations)
@@ -3200,7 +3272,8 @@ class Bvh:
         # to its new offset, which a later scaling would scale twice.
         target._set_motion(root_pos=target.root_pos * factor)
         target._replace_offsets(
-            target._offsets() * factor, translations=target.joint_translations * factor
+            target._offsets() * factor,
+            translations=target._motion_on_skeleton()["joint_translations"] * factor,
         )
         if inplace:
             return None
@@ -3275,14 +3348,29 @@ class Bvh:
             self._refuse_static_root("change_euler_order gives the root an Euler order")
         return self._change_euler_orders(new_order, joint_indices, inplace)
 
+    def _in_euler_order(self, order: str) -> Bvh | None:
+        """A copy with each joint that declares an Euler order in *order*,
+        or ``None`` when each already declares *order*.
+
+        ``harmonize`` calls it. A static root declares no rotation channel,
+        so it has no order to change, and is left out, where
+        :meth:`change_euler_order` refuses it.
+        """
+        joints = [node for node in self.nodes if _is_joint(node)]
+        rotating = [k for k, joint in enumerate(joints) if joint.rot_channels]
+        orders = self.euler_orders
+        if all(orders[k] == order for k in rotating):
+            return None
+        return self._change_euler_orders(list(order.upper()), rotating, inplace=False)
+
     def _change_euler_orders(
         self, new_order: list[str], joint_indices: list[int], inplace: bool
     ) -> Bvh | None:
         """Re-express the joints at ``joint_indices`` in ``new_order``.
 
-        :meth:`change_euler_order` after its checks; ``harmonize`` calls it
-        with the joints that declare rotation channels, which leaves a
-        static root out.
+        :meth:`change_euler_order` after its checks, and
+        :meth:`_in_euler_order` with the joints that declare rotation
+        channels.
         """
         target = self if inplace else self.copy()
         # The new skeleton is built, and the order checked, before any
@@ -3294,14 +3382,16 @@ class Bvh:
             joint_rows[j_idx]["rot_channels"] = new_order
         new_nodes = nodes_from_table(table)
 
+        # The array the clip holds (the public view is read-only), or on a
+        # clip without motion one with no frame to convert.
+        angles = target._motion_on_skeleton()["joint_angles"]
         for j_idx in joint_indices:
             old_order = old_orders[j_idx]
             if old_order == new_order:
                 continue
-            # Convert: old Euler → rotmat → new Euler, then write back
-            # (private array — the public view is read-only).
-            R = rotations.euler_to_rotmat(target.joint_angles[:, j_idx], old_order)
-            target._joint_angles[:, j_idx] = rotations.rotmat_to_euler(R, new_order)
+            # Convert: old Euler → rotmat → new Euler, then write back.
+            R = rotations.euler_to_rotmat(angles[:, j_idx], old_order)
+            angles[:, j_idx] = rotations.rotmat_to_euler(R, new_order)
         target._replace_skeleton(new_nodes)
 
         if inplace:
@@ -3438,8 +3528,7 @@ class Bvh:
                 f"Expected {self.joint_count} joints in {param_name}, got {joint_rotmats.shape[1]}"
             )
         new_angles = rotations.rotmat_to_euler(joint_rotmats, self.euler_orders)
-        if np.any(new_angles[:, :1] != 0):
-            self._refuse_static_root(f"{method} rotates the root")
+        self._refuse_root_rotation(new_angles, f"{method} rotates the root")
         target = self if inplace else self.copy()
         target.joint_angles = new_angles
         if inplace:
@@ -3479,7 +3568,10 @@ class Bvh:
         ------
         TypeError
             If ``inplace`` is not a bool, as in a call of the old
-            signature ``from_rotmat(root_pos, joint_rotmats)``.
+            signature with two arguments,
+            ``from_rotmat(root_pos, joint_rotmats)``. Python's own
+            ``TypeError`` refuses the other old calls, with ``inplace``
+            as a third argument or a keyword.
         ValueError
             If the frame or joint count does not match the clip, or if
             the rotations turn a static root (``CHANNELS 0``).
@@ -3521,7 +3613,10 @@ class Bvh:
         ------
         TypeError
             If ``inplace`` is not a bool, as in a call of the old
-            signature ``from_6d(root_pos, joint_rot6d)``.
+            signature with two arguments,
+            ``from_6d(root_pos, joint_rot6d)``. Python's own
+            ``TypeError`` refuses the other old calls, with ``inplace``
+            as a third argument or a keyword.
         ValueError
             If the frame or joint count does not match the clip, or if
             the rotations turn a static root (``CHANNELS 0``).
@@ -3564,7 +3659,10 @@ class Bvh:
         ------
         TypeError
             If ``inplace`` is not a bool, as in a call of the old
-            signature ``from_quat(root_pos, joint_quats)``.
+            signature with two arguments,
+            ``from_quat(root_pos, joint_quats)``. Python's own
+            ``TypeError`` refuses the other old calls, with ``inplace``
+            as a third argument or a keyword.
         ValueError
             If the frame or joint count does not match the clip, or if
             the rotations turn a static root (``CHANNELS 0``).
@@ -3607,7 +3705,10 @@ class Bvh:
         ------
         TypeError
             If ``inplace`` is not a bool, as in a call of the old
-            signature ``from_axisangle(root_pos, joint_aa)``.
+            signature with two arguments,
+            ``from_axisangle(root_pos, joint_aa)``. Python's own
+            ``TypeError`` refuses the other old calls, with ``inplace``
+            as a third argument or a keyword.
         ValueError
             If the frame or joint count does not match the clip, or if
             the rotations turn a static root (``CHANNELS 0``).
@@ -3931,6 +4032,8 @@ class Bvh:
         # node's flag before its parent reads it, since parents precede
         # their children in ``nodes``.
         survives = [survives_extraction(node) for node in self.nodes]
+        # The rows of the joints, which a clip without motion holds too.
+        motion = self._motion_on_skeleton()
         position = {id(node): i for i, node in enumerate(self.nodes)}
         survivor_below = [False] * len(self.nodes)
         for i in range(len(self.nodes) - 1, 0, -1):
@@ -3990,7 +4093,7 @@ class Bvh:
                     new_translations.append(
                         np.sum(
                             [
-                                self._joint_translations[:, translation_column_of[id(link)]]
+                                motion["joint_translations"][:, translation_column_of[id(link)]]
                                 if _is_translating_joint(link)
                                 else np.broadcast_to(link.offset, (self.frame_count, 3))
                                 for link in chain
@@ -4017,7 +4120,7 @@ class Bvh:
         new_bvh = self._derive_clip(
             {
                 "root_pos": self._root_pos.copy(),
-                "joint_angles": self._joint_angles[:, kept_old_j_indices, :],
+                "joint_angles": motion["joint_angles"][:, kept_old_j_indices, :],
                 "joint_translations": np.stack(new_translations, axis=1)
                 if new_translations
                 else np.empty((self.frame_count, 0, 3)),
@@ -4396,7 +4499,7 @@ class Bvh:
         return features.feature_array_layout(
             num_joints=self.joint_count,
             num_feet=num_feet,
-            num_translating_joints=self._joint_translations.shape[1],
+            num_translating_joints=_TRANSLATING_JOINTS.count(self.nodes),
             representation=representation,
             include_root_pos=include_root_pos,
             include_joint_translations=include_joint_translations,

@@ -14,44 +14,11 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from six_channel_fixtures import blender_style_text
 
 from pybvh import read_bvh_file, rotations
 
 BVH_DATA_DIR = Path(__file__).parent.parent / "bvh_data"
-
-# A static root 2 above the origin; under it, the hips translate and turn,
-# and a prop only rotates.
-_BLENDER_STYLE = """HIERARCHY
-ROOT __0
-{
-\tOFFSET 0 2 0
-\tCHANNELS 0
-\tJOINT Hips
-\t{
-\t\tOFFSET 0 90 0
-\t\tCHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation
-\t\tEnd Site
-\t\t{
-\t\t\tOFFSET 0 10 0
-\t\t}
-\t}
-\tJOINT Prop
-\t{
-\t\tOFFSET 30 0 0
-\t\tCHANNELS 3 Zrotation Yrotation Xrotation
-\t\tEnd Site
-\t\t{
-\t\t\tOFFSET 0 4 0
-\t\t}
-\t}
-}
-MOTION
-Frames: 3
-Frame Time: 0.1
-0 90 0 0 0 0 0 0 0
-10 90 5 90 0 0 0 0 90
--3 85 2 30 -60 170 45 89 -10
-"""
 
 # (name, the representation's dimensions after (F, J), its to_* and from_*)
 REPRESENTATIONS = {
@@ -65,7 +32,7 @@ REPRESENTATIONS = {
 @pytest.fixture
 def static_root_clip(tmp_path):
     path = tmp_path / "blender_style.bvh"
-    path.write_text(_BLENDER_STYLE)
+    path.write_text(blender_style_text(3))
     return read_bvh_file(path)
 
 

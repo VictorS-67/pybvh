@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from six_channel_fixtures import reference_hips_table, rotating_spine_twin
 
 from pybvh import Bvh, nodes_from_table, read_bvh_file
 
@@ -22,22 +23,7 @@ BVH_DATA = Path(__file__).parent.parent / "bvh_data"
 
 
 def _table(spine_translates: bool = True) -> list[dict]:
-    """Reference root -> Hips (translates) -> Spine (translates or not) -> end site."""
-    spine = {"name": "Spine", "parent": 1, "offset": [0, 10, 0], "rot_channels": "ZYX"}
-    if spine_translates:
-        spine["pos_channels"] = "XYZ"
-    return [
-        {"name": "Reference", "parent": None, "offset": [0, 0, 0], "rot_channels": "ZYX"},
-        {
-            "name": "Hips",
-            "parent": 0,
-            "offset": [0, 90, 0],
-            "pos_channels": "XYZ",
-            "rot_channels": "ZYX",
-        },
-        spine,
-        {"parent": 2, "offset": [0, 5, 0]},
-    ]
+    return reference_hips_table(spine_translates=spine_translates)
 
 
 def _clip(translations=None, frames: int = 2, spine_translates: bool = True) -> Bvh:
@@ -74,6 +60,24 @@ class TestStorage:
             joint_angles=np.zeros((4, 3, 3)),
         )
         assert clip.joint_translations.shape == (4, 0, 3)
+
+    @pytest.mark.parametrize("root_pos_first", [True, False], ids=["root_pos", "joint_angles"])
+    def test_a_three_channel_clip_takes_a_new_frame_count_through_its_two_setters(
+        self, root_pos_first
+    ):
+        """With no translating joint, joint_translations holds no value and
+        takes the frame count of the arrays the user sets."""
+        clip = read_bvh_file(BVH_DATA / "bvh_test1.bvh")
+        root_pos, joint_angles = clip.root_pos[:2], clip.joint_angles[:2]
+        if root_pos_first:
+            clip.root_pos = root_pos
+            clip.joint_angles = joint_angles
+        else:
+            clip.joint_angles = joint_angles
+            clip.root_pos = root_pos
+        assert clip.joint_translations.shape == (2, 0, 3)
+        assert clip.node_positions().shape[0] == 2
+        assert clip.copy().frame_count == 2
 
     def test_a_clip_without_motion_holds_none(self):
         assert Bvh(nodes=nodes_from_table(_table())).joint_translations.shape == (0, 0, 3)
@@ -478,19 +482,6 @@ def test_a_three_channel_clip_reads_and_writes_as_before(relative, tmp_path):
 # =============================================================================
 
 
-def _rotating_spine_twin(clip: Bvh) -> Bvh:
-    """``clip``'s skeleton with the spine declaring rotation channels only."""
-    table = clip.to_node_table()
-    del table[2]["pos_channels"]
-    return Bvh(
-        nodes=nodes_from_table(table),
-        root_pos=clip.root_pos,
-        joint_angles=clip.joint_angles,
-        joint_translations=clip.joint_translations[:, :1],
-        frame_time=clip.frame_time,
-    )
-
-
 class TestComparison:
     def test_a_value_difference_breaks_equality_only(self):
         clip = _clip()
@@ -505,7 +496,7 @@ class TestComparison:
 
     def test_another_set_of_translating_joints_breaks_both(self):
         clip = _clip()
-        twin = _rotating_spine_twin(clip)
+        twin = rotating_spine_twin(clip)
         assert clip != twin
         assert not clip.matches_channels(twin)
         assert not twin.matches_channels(clip)
@@ -513,7 +504,7 @@ class TestComparison:
 
     def test_joining_refuses_another_set_of_translating_joints(self):
         clip = _clip()
-        twin = _rotating_spine_twin(clip)
+        twin = rotating_spine_twin(clip)
         message = "joint 'Spine' declares position channels 'XYZ' vs none"
         with pytest.raises(ValueError, match=message):
             clip + twin
@@ -535,4 +526,4 @@ class TestComparison:
 
         clip = _clip()
         with pytest.raises(ValueError, match="declares position channels"):
-            batch_to_numpy([clip, _rotating_spine_twin(clip)], include_joint_translations=True)
+            batch_to_numpy([clip, rotating_spine_twin(clip)], include_joint_translations=True)

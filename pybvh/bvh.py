@@ -142,6 +142,12 @@ class _EulerBlock(NamedTuple):
     array: str
     row: int
 
+    def columns(self, motion: Mapping[str, npt.NDArray[np.float64]]) -> npt.NDArray[np.float64]:
+        """The block's ``(F, 3)`` values in *motion*, the arrays by name: a
+        view, which a reader reads and a writer assigns into."""
+        array = motion[self.array]
+        return array if self.array == "root_pos" else array[:, self.row]
+
 
 def _euler_blocks(nodes: Sequence[BvhNode]) -> list[_EulerBlock]:
     """The column blocks of the euler layout of *nodes*, in column order.
@@ -2723,15 +2729,11 @@ class Bvh:
         radians-valued :attr:`joint_angles`.
         """
         motion = self._motion_on_skeleton()
-        arrays = {
-            "root_pos": motion["root_pos"][:, None],
-            "joint_translations": motion["joint_translations"],
-            "joint_angles": np.rad2deg(motion["joint_angles"]),
-        }
+        arrays = {**motion, "joint_angles": np.rad2deg(motion["joint_angles"])}
         blocks = _euler_blocks(self.nodes)
         flat = np.empty((self.frame_count, 3 * len(blocks)))
         for i, block in enumerate(blocks):
-            flat[:, 3 * i : 3 * i + 3] = arrays[block.array][:, block.row]
+            flat[:, 3 * i : 3 * i + 3] = block.columns(arrays)
         return self._timed_columns(_motion_column_names(self.nodes, "euler"), flat)
 
     def _get_df_constructor_spatial_coord(

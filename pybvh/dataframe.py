@@ -283,20 +283,20 @@ def df_to_bvh(hier: Sequence[BvhNode] | Sequence[Mapping[str, Any]], df: pd.Data
     # A static root declares no channels, so no column: it stays at its
     # offset with no rotation. Another root's columns replace these.
     arrays = {
-        "root_pos": _static_root_pos(nodes[0].offset, frame_count)[:, None],
+        "root_pos": _static_root_pos(nodes[0].offset, frame_count),
         "joint_translations": np.zeros(
             (frame_count, sum(1 for n in nodes if _is_translating_joint(n)), 3)
         ),
         "joint_angles": np.zeros((frame_count, sum(1 for n in nodes if _is_joint(n)), 3)),
     }
     for i, block in enumerate(_euler_blocks(nodes)):
-        arrays[block.array][:, block.row] = frames[:, 3 * i : 3 * i + 3]
+        block.columns(arrays)[:] = frames[:, 3 * i : 3 * i + 3]
     # DataFrame angles are in degrees (human-readable); pybvh holds radians.
     joint_angles = np.deg2rad(arrays["joint_angles"])
 
     return Bvh(
         nodes=nodes,
-        root_pos=arrays["root_pos"][:, 0],
+        root_pos=arrays["root_pos"],
         joint_angles=joint_angles,
         joint_translations=arrays["joint_translations"],
         frame_time=frame_time,

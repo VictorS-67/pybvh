@@ -222,3 +222,26 @@ class TestOffsetEdits:
             edited.node_positions(), clip.node_positions() + [5, -2, 0], atol=1e-12
         )
         np.testing.assert_array_equal(clip.root_pos, [[0, 2, 0], [0, 2, 0]])
+
+
+class TestReorientation:
+    def test_reorient_rest_up_refuses(self, clip):
+        with pytest.raises(ValueError, match=_STATIC):
+            clip.reorient_rest_up("+z")
+
+    def test_reorient_rest_forward_refuses(self, clip):
+        with pytest.raises(ValueError, match=_STATIC):
+            clip.reorient_rest_forward("+x")
+
+    def test_reorient_world_up_turns_the_root_with_the_world(self, clip):
+        clip.world_up = "+y"
+        turned = clip.reorient_world_up("+z")
+        assert turned.root.is_static()
+        # +Y up to +Z up turns (x, y, z) into (x, -z, y): by hand, the
+        # root's offset 0 2 0 becomes 0 0 2.
+        np.testing.assert_array_equal(turned.root.offset, [0, 0, 2])
+        np.testing.assert_array_equal(turned.root_pos, [[0, 0, 2], [0, 0, 2]])
+        np.testing.assert_array_equal(turned.joint_angles[:, 0], np.zeros((2, 3)))
+        before = clip.node_positions()
+        after = np.stack([before[..., 0], -before[..., 2], before[..., 1]], axis=-1)
+        np.testing.assert_allclose(turned.node_positions(), after, atol=1e-9)

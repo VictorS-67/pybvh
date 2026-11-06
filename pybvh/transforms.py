@@ -25,7 +25,7 @@ from . import rotations
 from ._orientation import (
     _resolve_lr_pairs,
 )
-from .bvhnode import BvhJoint, _is_translating_joint
+from .bvhnode import BvhJoint, _euler_order, _is_translating_joint
 from .tools import (
     _AXIS_CHAR_TO_IDX,
     _axis_index_sign,
@@ -1050,7 +1050,7 @@ def _apply_similarity_to_joints(
         joint_indices = list(joint_indices)
 
     sel = np.asarray(joint_indices)
-    per_joint = ["".join(joints[j].rot_channels) for j in joint_indices]  # type: ignore[attr-defined]
+    per_joint = [_euler_order(joints[j]) for j in joint_indices]
 
     block = angles[:, sel]  # (F, G, 3)
     R_j = rotations.euler_to_rotmat(block, per_joint)  # (F, G, 3, 3)
@@ -1103,7 +1103,9 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     Applies a global rotation to the entire animation (root translation,
     skeleton offsets, joint translations, root joint rotations) so the world vertical axis
     changes from the current ``bvh.world_up`` to ``new_up``.  The character
-    looks visually identical; only the coordinate system changes.
+    looks visually identical; only the coordinate system changes. A
+    static root (``CHANNELS 0``) keeps its zero rotation: its offset and
+    ``root_pos`` turn with the world.
 
     Restricted to axis-aligned rotations (multiples of 90 degrees) for
     lossless transformation. Many rotations carry the old up onto the
@@ -1157,9 +1159,14 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     # 3. Conjugate ALL joint rotations: R_j' = R @ R_j @ R^T
     #    This is the correct formula for a global scene rotation applied to
     #    the BVH hierarchy (both offsets and rotations change together).
+    #    A static root's row stays zero: it does not rotate, and its
+    #    offset, rotated in step 2, carries the world's turn.
     joints = [n for n in target.nodes if not n.is_end_site()]
     angles_copy = target.joint_angles.copy()
-    _apply_similarity_to_joints(angles_copy, joints, R, R.T)
+    first = 1 if target.root.is_static() else 0
+    _apply_similarity_to_joints(
+        angles_copy, joints, R, R.T, joint_indices=range(first, len(joints))
+    )
     target._set_motion(joint_angles=angles_copy)
 
     # 4. Update metadata
@@ -1220,8 +1227,11 @@ def reorient_rest_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | None
     Raises
     ------
     ValueError
-        If the rest pose is degenerate (no up axis can be inferred).
+        If the rest pose is degenerate (no up axis can be inferred), or
+        if the root is static (``CHANNELS 0``): the root would have to
+        take the inverse turn, and a static root does not rotate.
     """
+    bvh._refuse_static_root("reorient_rest_up turns the root to keep the motion in place")
     current_rest_up = _required_rest_up(bvh)
     new_up = _validate_axis_string(new_up)
 
@@ -1273,10 +1283,13 @@ def reorient_rest_forward(bvh: Bvh, new_forward: str, inplace: bool = False) -> 
     Raises
     ------
     ValueError
-        If the rest pose is degenerate (no up axis can be inferred), or
-        ``new_forward`` is parallel to ``rest_up``.
+        If the rest pose is degenerate (no up axis can be inferred),
+        ``new_forward`` is parallel to ``rest_up``, or the root is static
+        (``CHANNELS 0``): the root would have to take the inverse turn,
+        and a static root does not rotate.
     """
     new_forward = _validate_axis_string(new_forward)
+    bvh._refuse_static_root("reorient_rest_forward turns the root to keep the motion in place")
     rest_up = _required_rest_up(bvh)
     if rest_up[1] == new_forward[1]:
         raise ValueError(f"new_forward ({new_forward}) cannot be parallel to rest_up ({rest_up})")

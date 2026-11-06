@@ -4461,7 +4461,7 @@ class Bvh:
         return features.feature_array_layout(
             num_joints=self.joint_count,
             num_feet=num_feet,
-            num_translating_joints=self._joint_translations.shape[1],
+            num_translating_joints=_TRANSLATING_JOINTS.count(self.nodes),
             representation=representation,
             include_root_pos=include_root_pos,
             include_joint_translations=include_joint_translations,

@@ -70,6 +70,16 @@ class TestLayout:
             "rotations": slice(9, 33),
         }
 
+    def test_the_block_needs_the_translating_joint_count(self):
+        with pytest.raises(ValueError, match="num_translating_joints"):
+            features.feature_array_layout(num_joints=4, include_joint_translations=True)
+
+    def test_a_count_of_zero_gives_an_empty_block(self):
+        layout = features.feature_array_layout(
+            num_joints=4, num_translating_joints=0, include_joint_translations=True
+        )
+        assert layout["joint_translations"] == slice(3, 3)
+
 
 class TestBlock:
     def test_the_block_holds_the_translations_where_the_layout_says(self):

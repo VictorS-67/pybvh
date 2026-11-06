@@ -24,7 +24,7 @@ def feature_array_layout(
     *,
     num_joints: int,
     num_feet: int = 0,
-    num_translating_joints: int = 0,
+    num_translating_joints: int | None = None,
     representation: str = "6d",
     include_root_pos: bool = True,
     include_joint_translations: bool = False,
@@ -50,8 +50,8 @@ def feature_array_layout(
     num_translating_joints : int, optional
         Number of translating joints, ``P`` of
         :attr:`Bvh.joint_translations <pybvh.bvh.Bvh.joint_translations>`.
-        Used only when ``include_joint_translations=True``; with ``0``
-        the block is empty.
+        Required when ``include_joint_translations=True``, unused
+        otherwise; with ``0`` the block is empty.
     representation : str, optional
         Rotation representation: ``'euler'``, ``'axisangle'`` (3 values
         per joint), ``'quat'`` (4), ``'6d'`` (6, default),
@@ -80,8 +80,10 @@ def feature_array_layout(
     Raises
     ------
     ValueError
-        If ``representation`` is unknown, or if
-        ``include_foot_contacts=True`` but ``num_feet == 0``.
+        If ``representation`` is unknown, if
+        ``include_foot_contacts=True`` but ``num_feet == 0``, or if
+        ``include_joint_translations=True`` but
+        ``num_translating_joints`` is ``None``.
     """
     if representation not in _REPRESENTATION_WIDTHS:
         raise ValueError(
@@ -90,6 +92,10 @@ def feature_array_layout(
         )
     if include_foot_contacts and num_feet <= 0:
         raise ValueError("num_feet must be > 0 when include_foot_contacts=True")
+    if include_joint_translations and num_translating_joints is None:
+        raise ValueError(
+            "num_translating_joints must be given when include_joint_translations=True"
+        )
     K = _REPRESENTATION_WIDTHS[representation]
 
     layout: dict[str, slice] = {}
@@ -98,6 +104,7 @@ def feature_array_layout(
         layout["root_pos"] = slice(cursor, cursor + 3)
         cursor += 3
     if include_joint_translations:
+        assert num_translating_joints is not None  # refused above
         translation_width = num_translating_joints * 3
         layout["joint_translations"] = slice(cursor, cursor + translation_width)
         cursor += translation_width

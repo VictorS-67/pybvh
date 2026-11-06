@@ -156,8 +156,12 @@ class TestStaticRoot:
         clip = _static_root_clip()
         back = df_to_bvh(clip.to_node_table(), pd.DataFrame(clip.to_df_dict()))
         back.world_up = "+y"
-        back.joint_angles = clip.joint_angles
-        assert back == clip
+        # Hips' angles cross degrees and back; the root's row is zero on
+        # both sides, by construction.
+        np.testing.assert_allclose(back.joint_angles, clip.joint_angles, rtol=0, atol=1e-12)
+        np.testing.assert_array_equal(back.root_pos, clip.root_pos)
+        np.testing.assert_array_equal(back.joint_translations, clip.joint_translations)
+        assert back.matches_hierarchy(clip)
 
 
 @pytest.mark.parametrize(

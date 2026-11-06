@@ -305,6 +305,22 @@ _JOINT_TRANSLATIONS = _MotionArray(
 )
 
 
+def _check_frame_counts(
+    entries: Sequence[_MotionArray], motion: Mapping[str, npt.NDArray[np.float64]]
+) -> None:
+    """Raise ``ValueError`` unless every array of *motion*, by the names of
+    *entries*, has the frame count of the first."""
+    first, *rest = entries
+    frame_count = motion[first.name].shape[0]
+    for entry in rest:
+        if motion[entry.name].shape[0] != frame_count:
+            raise ValueError(
+                f"{first.name} and {entry.name} disagree on frame count: "
+                f"{first.name} has {frame_count} frames, "
+                f"{entry.name} has {motion[entry.name].shape[0]}."
+            )
+
+
 def _check_array_fits_skeleton(
     entry: _MotionArray, array: npt.NDArray[np.float64], nodes: Sequence[BvhNode]
 ) -> None:
@@ -610,15 +626,7 @@ class Bvh:
         if nodes is None:
             nodes = self.nodes
         motion = self._motion()
-        first, *rest = self._MOTION_ARRAYS
-        frame_count = motion[first.name].shape[0]
-        for entry in rest:
-            if motion[entry.name].shape[0] != frame_count:
-                raise ValueError(
-                    f"{first.name} and {entry.name} disagree on frame count: "
-                    f"{first.name} has {frame_count} frames, "
-                    f"{entry.name} has {motion[entry.name].shape[0]}."
-                )
+        _check_frame_counts(self._MOTION_ARRAYS, motion)
         for entry in self._MOTION_ARRAYS:
             _check_array_fits_skeleton(entry, motion[entry.name], nodes)
 
@@ -895,8 +903,14 @@ class Bvh:
         skeleton's joints reads their rows here, where those arrays have
         no frame and the skeleton's dims. A clip with motion gives its
         arrays themselves.
+
+        Raises ``ValueError`` if the arrays disagree on frame count, which
+        the setters leave possible: an operation that packs the arrays into
+        frame columns reads them here, so it never broadcasts one array
+        across the frames of another.
         """
         motion = self._motion()
+        _check_frame_counts(self._MOTION_ARRAYS, motion)
         if self._binds_skeleton():
             return motion
         for entry in self._MOTION_ARRAYS:
@@ -2686,6 +2700,14 @@ class Bvh:
         -------
         dict
             Column-name → 1-D array mapping, ready for ``pd.DataFrame()``.
+
+        Raises
+        ------
+        ValueError
+            If *mode* is not ``'euler'`` or ``'coordinates'``; in
+            ``'coordinates'`` mode, if *centered* is not one of its three
+            values; or if the motion arrays disagree on frame count (the
+            setters do not check it).
 
         Notes
         -----

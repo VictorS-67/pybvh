@@ -205,7 +205,8 @@ def to_feature_array(
     ------
     ValueError
         If ``representation`` or ``centered`` is unknown, or ``stencil`` /
-        ``pad`` is invalid. With ``include_foot_contacts=True``, also where
+        ``pad`` is invalid; if the clip's motion arrays disagree on frame
+        count (the setters do not check it). With ``include_foot_contacts=True``, also where
         :func:`pybvh.analysis.foot_contacts` raises it for ``feet``.
     TypeError
         With ``include_foot_contacts=True``, where
@@ -221,28 +222,32 @@ def to_feature_array(
     _check_centered(centered)
     if include_velocities:
         _validate_stencil_pad(stencil, pad)
+    # Raises on arrays that disagree on frame count, which the blocks
+    # below would otherwise reshape and join into rows of mixed frames.
+    motion = bvh._motion_on_skeleton()
 
     parts: list[npt.NDArray[np.float64]] = []
 
     # Root position — apply same ``centered`` semantics as node_positions.
     if include_root_pos:
         if centered == "skeleton":
-            parts.append(np.zeros_like(bvh.root_pos))
+            parts.append(np.zeros_like(motion["root_pos"]))
         elif centered == "first":
             # Ground-plane centering: first-frame root subtracted in the
             # non-up axes only, matching node_positions(centered="first").
-            parts.append(bvh.root_pos - _ground_plane_offset(bvh.root_pos[0], bvh.world_up))
+            root_pos = motion["root_pos"]
+            parts.append(root_pos - _ground_plane_offset(root_pos[0], bvh.world_up))
         else:  # "world"
-            parts.append(bvh.root_pos)
+            parts.append(motion["root_pos"])
 
     # Joint translations — each relative to its parent, so ``centered``
     # leaves them alone.
     if include_joint_translations:
-        parts.append(bvh.joint_translations.reshape(bvh.frame_count, -1))
+        parts.append(motion["joint_translations"].reshape(bvh.frame_count, -1))
 
     # Joint rotations
     if representation == "euler":
-        rot = bvh.joint_angles.reshape(bvh.frame_count, -1)
+        rot = motion["joint_angles"].reshape(bvh.frame_count, -1)
     elif representation == "6d":
         rot_raw = bvh.to_6d()
         rot = rot_raw.reshape(bvh.frame_count, -1)

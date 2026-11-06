@@ -1387,12 +1387,39 @@ class Bvh:
         self._freeze_skeleton()
         self._derived.skeleton_changed()
 
-    def _replace_offsets(self, offsets: npt.ArrayLike) -> None:
-        """Replace every node's offset, given in ``nodes`` order as ``(N, 3)``."""
+    def _replace_offsets(
+        self, offsets: npt.ArrayLike, *, translations: npt.ArrayLike | None = None
+    ) -> None:
+        """Replace every node's offset, given in ``nodes`` order as ``(N, 3)``,
+        and the translations that go with them.
+
+        A translating joint's frames replace its offset (ADR 0010), so an
+        edit of the offsets says what it does to ``joint_translations``:
+        ``translations`` is the new array, which this writes with the
+        offsets. It may be omitted only on a clip with no translating
+        joint, where there is nothing to leave stale; omitted on another
+        clip, it raises ``TypeError`` before anything changes.
+        """
+        if translations is None:
+            if self._joint_translations.shape[1] != 0:
+                raise TypeError(
+                    "_replace_offsets() needs translations= on a clip with "
+                    "translating joints: their frames replace their offsets, "
+                    "so an offset edit must say what it does to them."
+                )
+        else:
+            translations = _JOINT_TRANSLATIONS.checked(translations)
+            if translations.shape != self._joint_translations.shape:
+                raise ValueError(
+                    f"translations has shape {translations.shape}, but "
+                    f"joint_translations has {self._joint_translations.shape}."
+                )
         table = nodes_to_table(self.nodes)
         for row, offset in zip(table, np.asarray(offsets, dtype=np.float64), strict=True):
             row["offset"] = offset
         self._replace_skeleton(nodes_from_table(table))
+        if translations is not None:
+            self._set_motion(joint_translations=translations)
 
     def _offsets(self) -> npt.NDArray[np.float64]:
         """Every node's offset, in ``nodes`` order, as a new ``(N, 3)`` array."""
@@ -2983,7 +3010,8 @@ class Bvh:
     @overload
     def scale(self, scale: float, inplace: Literal[False] = ...) -> Bvh: ...
     def scale(self, scale: float, inplace: bool = False) -> Bvh | None:
-        """Uniformly scale all node offsets and the root translation.
+        """Uniformly scale all node offsets, the root translation and
+        the joint translations.
 
         Parameters
         ----------
@@ -3011,7 +3039,9 @@ class Bvh:
 
         factor = float(scale)
         target = self if inplace else self.copy()
-        target._replace_offsets(target._offsets() * factor)
+        target._replace_offsets(
+            target._offsets() * factor, translations=target.joint_translations * factor
+        )
         target._set_motion(root_pos=target.root_pos * factor)
         if inplace:
             return None

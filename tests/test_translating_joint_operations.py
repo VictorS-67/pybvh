@@ -132,3 +132,36 @@ class TestJoinsRequireTheSameTranslatingJoints:
         clip = _clip([0.0, 1])
         with pytest.raises(ValueError, match="Hips"):
             clip[0:2] = _clip_on(_rotating_hips_table())
+
+
+class TestScale:
+    @pytest.mark.parametrize("inplace", [False, True])
+    def test_the_translations_are_multiplied(self, inplace):
+        clip = _clip([0.0, 3])
+        scaled = clip.scale(2, inplace=inplace) or clip
+        assert scaled.joint_translations.tolist() == [[[0.0, 180, 0]], [[6.0, 180, 0]]]
+
+    def test_positions_scale_with_the_skeleton(self):
+        # Spine sits 10 above Hips, the end site 5 above Spine: twice that.
+        scaled = _clip([0.0, 3]).scale(2)
+        assert scaled.node_positions()[1].tolist() == [
+            [0.0, 0, 0],
+            [6.0, 180, 0],
+            [6.0, 200, 0],
+            [6.0, 210, 0],
+        ]
+
+
+class TestTheOffsetReplacingPath:
+    def test_it_refuses_to_leave_the_translations_unsaid(self):
+        # The one path every offset edit takes: on a clip with translating
+        # joints it must be told what happens to their frames.
+        clip = _clip([0.0, 3])
+        with pytest.raises(TypeError, match="translations="):
+            clip._replace_offsets(clip._offsets() * 2)
+        assert clip.nodes[1].offset.tolist() == [0.0, 90.0, 0.0]
+
+    def test_it_writes_the_translations_it_is_given(self):
+        clip = _clip([0.0, 3])
+        clip._replace_offsets(clip._offsets(), translations=np.ones((2, 1, 3)))
+        assert clip.joint_translations.tolist() == [[[1.0, 1, 1]], [[1.0, 1, 1]]]

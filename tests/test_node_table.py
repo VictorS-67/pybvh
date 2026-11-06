@@ -10,6 +10,7 @@ message names the entry it rejects.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -609,3 +610,43 @@ class TestEntryTableRoundTrip:
         for before, after in zip(nodes, rebuilt, strict=True):
             for attribute in ("pos_channels", "rot_channels"):
                 assert getattr(after, attribute, None) == getattr(before, attribute, None)
+
+
+# The SHA-256 of each clip's node table as JSON (offsets as lists), computed
+# on the code before #186 let a joint other than the root translate. A table
+# of today's clips must not change: pos_channels stays on the root only.
+_TABLE_DIGESTS_BEFORE_186 = {
+    "bvh_data/bvh_test1.bvh": "5470628d5644396c01a4f4e18ad91f0fb80fb7b01f386762fca3c07435bbb5c8",
+    "bvh_data/bvh_test2.bvh": "7d563e900a6a5443cd5d3fd36c532c7803594a4e4e06377e1a9511bcb37a5d7f",
+    "bvh_data/bvh_test3.bvh": "6568b02d93786ea39b290ae0ae3733cca3366cff1e0c6d4a8848131f1d0abca5",
+    "bvh_data/bvh_test4.bvh": "5470628d5644396c01a4f4e18ad91f0fb80fb7b01f386762fca3c07435bbb5c8",
+    "bvh_data/cmu_12_01_walk.bvh": (
+        "493ae9b1ac426b39e4edc8e0489ec8ce9e5fa1275a40238f61c649fdaf7bd4e8"
+    ),
+    "bvh_data/standard_skeleton.bvh": (
+        "51ab720756687ff66bb4b5cc4f7f9c92e5a8203be27654c1da46622908b3089f"
+    ),
+    "bvh_data/synthetic/bvh_synthetic_lying_down.bvh": (
+        "5470628d5644396c01a4f4e18ad91f0fb80fb7b01f386762fca3c07435bbb5c8"
+    ),
+    "bvh_data/synthetic/reference_props_rotation_only.bvh": (
+        "1dd9cd0c3aa5ead64352e048d91bb304fdb1c129fc3d4871c538cafe278cd019"
+    ),
+    "bvh_data/synthetic/rotation_only_control.bvh": (
+        "b6ef97068290508d192d5c0b5afd267bb18ca3dd2f3172f92f3655542537d69d"
+    ),
+    "tests/fixtures/full_precision_frame_time.bvh": (
+        "d0714b55df3d9d3d9556ea4d8463341b35640ea97ddad816682ecd31085a92c5"
+    ),
+    "tests/fixtures/rotation_first_root.bvh": (
+        "dd413c6f7c1812d238177e16a1bb2815ac5e85f9d904bd2f684f70b4684ce5f4"
+    ),
+}
+
+
+@pytest.mark.filterwarnings("ignore:Rest pose suggests world up")
+@pytest.mark.parametrize("relative", sorted(_TABLE_DIGESTS_BEFORE_186))
+def test_the_node_table_of_a_fixture_clip_is_unchanged(relative):
+    table = read_bvh_file(BVH_DATA.parent / relative).to_node_table()
+    digest = hashlib.sha256(_as_json(table).encode()).hexdigest()
+    assert digest == _TABLE_DIGESTS_BEFORE_186[relative]

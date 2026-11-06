@@ -44,6 +44,10 @@ The raw motion arrays, the joint hierarchy, and the two index spaces (see the [C
     options:
       heading_level: 3
 
+::: pybvh.bvh.Bvh.joint_translations
+    options:
+      heading_level: 3
+
 ::: pybvh.bvh.Bvh.frame_count
     options:
       heading_level: 3

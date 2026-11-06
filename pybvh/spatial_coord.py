@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 import numpy.typing as npt
 
-from .bvhnode import BvhNode
+from .bvhnode import BvhNode, _is_translating_joint
 from .rotations import euler_to_rotmat
 from .tools import _validate_axis_string
 
@@ -30,6 +30,7 @@ class _FkTopologyFields(NamedTuple):
     parent_idx: npt.NDArray[np.intp]
     joint_idx: npt.NDArray[np.intp]
     euler_orders: list[str]
+    translation_idx: npt.NDArray[np.intp]
 
 
 class FkTopology(_FkTopologyFields):
@@ -37,7 +38,7 @@ class FkTopology(_FkTopologyFields):
 
     The array-signature counterpart of a node tree: :func:`frames_to_node_positions` accepts one of these in place of a :class:`~pybvh.Bvh` or a node list such as :attr:`~pybvh.Bvh.nodes`, so a caller holding only arrays (a data loader reading a preprocessed dataset, an augmentation step that has no source file open) can run forward kinematics without reconstructing node objects.
 
-    This is an **FK input bundle, not a skeleton descriptor**: it carries what the FK loop reads and nothing else — no names, no orientation axes, no channel layout. Every field is independently serializable (three arrays and a list of strings), so a preprocessing step can store the four values in whatever container it already uses; the type itself is not a serialization format. For anything else about a skeleton, keep the :class:`~pybvh.Bvh`.
+    This is an **FK input bundle, not a skeleton descriptor**: it carries what the FK loop reads and nothing else — no names, no orientation axes, no channel layout. Every field is independently serializable (four arrays and a list of strings), so a preprocessing step can store the five values in whatever container it already uses; the type itself is not a serialization format. For anything else about a skeleton, keep the :class:`~pybvh.Bvh`.
 
     Instances validate on construction (see *Raises*), because the train-time
     caller builds one from arrays with no node tree to check against. A
@@ -71,6 +72,15 @@ class FkTopology(_FkTopologyFields):
         layout, say — must permute this list the same way. No check can
         catch a mismatch: every permutation is a valid topology, just not
         the one you meant.
+    translation_idx : ndarray, shape (N,)
+        Index of each node's position along ``joint_translations`` axis 1,
+        and ``-1`` for a node placed at its ``offset`` in every frame: the
+        root (placed by ``root_pos``), an end site, and a joint that only
+        rotates. A translating joint (one whose ``CHANNELS`` line declares
+        position channels) is placed at its row of ``joint_translations``
+        in each frame instead of its offset. Optional in the constructor:
+        omitted, every node reads its offset, as in a clip whose joints
+        other than the root only rotate.
 
     Raises
     ------
@@ -92,6 +102,10 @@ class FkTopology(_FkTopologyFields):
         - **Joint columns are a complete range** — the non-negative
           ``joint_idx`` values are exactly ``0..J-1``, each once — and
           ``len(euler_orders) == J``.
+        - **Translation columns are a complete range** — the non-negative
+          ``translation_idx`` values are exactly ``0..P-1``, each once —
+          and neither the root (its position is ``root_pos``) nor an end
+          site reads one.
 
     See Also
     --------
@@ -103,12 +117,14 @@ class FkTopology(_FkTopologyFields):
     --------
     >>> topology = bvh.fk_topology            # at preprocessing time
     >>> np.savez(path, offsets=topology.offsets, parent_idx=topology.parent_idx,
-    ...          joint_idx=topology.joint_idx, euler_orders=topology.euler_orders)
+    ...          joint_idx=topology.joint_idx, euler_orders=topology.euler_orders,
+    ...          translation_idx=topology.translation_idx)
     >>> ...                                   # at train time, no Bvh in sight
     >>> d = np.load(path)
     >>> topology = FkTopology(d['offsets'], d['parent_idx'], d['joint_idx'],
-    ...                       list(d['euler_orders']))
-    >>> coords = frames_to_node_positions(topology, root_pos, joint_angles)
+    ...                       list(d['euler_orders']), d['translation_idx'])
+    >>> coords = frames_to_node_positions(topology, root_pos, joint_angles,
+    ...                                   joint_translations=joint_translations)
     """
 
     __slots__ = ()
@@ -119,11 +135,13 @@ class FkTopology(_FkTopologyFields):
         parent_idx: npt.ArrayLike,
         joint_idx: npt.ArrayLike,
         euler_orders: list[str],
+        translation_idx: npt.ArrayLike | None = None,
     ) -> FkTopology:
-        """Build a topology from its four fields, validated.
+        """Build a topology from its five fields, validated.
 
-        ``offsets`` is converted to float64, ``parent_idx`` and
-        ``joint_idx`` to ``intp``, and each Euler order to ``str``, so a
+        ``offsets`` is converted to float64, ``parent_idx``,
+        ``joint_idx`` and ``translation_idx`` to ``intp``, and each Euler
+        order to ``str``, so a
         topology loaded from ``np.load`` (a string array of orders, say)
         comes back in the same form :meth:`from_nodes` produces. The
         fields and the ``ValueError`` raised for a malformed topology are
@@ -133,8 +151,12 @@ class FkTopology(_FkTopologyFields):
         parent_arr = np.asarray(parent_idx, dtype=np.intp)
         joint_arr = np.asarray(joint_idx, dtype=np.intp)
         orders = [str(order) for order in euler_orders]
-        _validate_fk_topology(offsets_arr, parent_arr, joint_arr, orders)
-        return super().__new__(cls, offsets_arr, parent_arr, joint_arr, orders)
+        if translation_idx is None:
+            translation_arr = np.full(offsets_arr.shape[:1], -1, dtype=np.intp)
+        else:
+            translation_arr = np.asarray(translation_idx, dtype=np.intp)
+        _validate_fk_topology(offsets_arr, parent_arr, joint_arr, orders, translation_arr)
+        return super().__new__(cls, offsets_arr, parent_arr, joint_arr, orders, translation_arr)
 
     def _replace(self, **changes: object) -> FkTopology:
         """Return a copy with fields replaced, revalidated.
@@ -168,6 +190,9 @@ class FkTopology(_FkTopologyFields):
         FkTopology
             ``joint_idx`` counts up in node order, so ``euler_orders``
             matches :attr:`Bvh.euler_orders` element for element.
+            ``translation_idx`` counts up in node order over the
+            translating joints, the order of :attr:`Bvh.joint_translations`'
+            columns.
 
         Notes
         -----
@@ -183,8 +208,10 @@ class FkTopology(_FkTopologyFields):
         parent_idx = np.empty(num_nodes, dtype=np.intp)
         joint_idx = np.empty(num_nodes, dtype=np.intp)
         euler_orders: list[str] = []
+        translation_idx = np.full(num_nodes, -1, dtype=np.intp)
 
         joint_counter = 0
+        translation_counter = 0
         for i, node in enumerate(nodes):
             offsets[i] = node.offset
             if node.parent is None:
@@ -203,8 +230,11 @@ class FkTopology(_FkTopologyFields):
                 joint_idx[i] = joint_counter
                 euler_orders.append("".join(node.rot_channels))  # type: ignore[attr-defined]
                 joint_counter += 1
+            if _is_translating_joint(node):
+                translation_idx[i] = translation_counter
+                translation_counter += 1
 
-        return cls(offsets, parent_idx, joint_idx, euler_orders)
+        return cls(offsets, parent_idx, joint_idx, euler_orders, translation_idx)
 
 
 def _validate_fk_topology(
@@ -212,6 +242,7 @@ def _validate_fk_topology(
     parent_idx: npt.NDArray[np.intp],
     joint_idx: npt.NDArray[np.intp],
     euler_orders: list[str],
+    translation_idx: npt.NDArray[np.intp],
 ) -> None:
     """Check every invariant the FK loop relies on. See :class:`FkTopology`."""
     if offsets.ndim != 2 or offsets.shape[1] != 3:
@@ -226,6 +257,11 @@ def _validate_fk_topology(
     if joint_idx.shape != (num_nodes,):
         raise ValueError(
             f"joint_idx must have shape ({num_nodes},) to match offsets, got {joint_idx.shape}"
+        )
+    if translation_idx.shape != (num_nodes,):
+        raise ValueError(
+            f"translation_idx must have shape ({num_nodes},) to match offsets, "
+            f"got {translation_idx.shape}"
         )
 
     # Parents precede children. This also forces parent_idx[0] < 0, so the
@@ -294,6 +330,34 @@ def _validate_fk_topology(
         if sorted(order) != ["X", "Y", "Z"]:
             raise ValueError(f"euler_orders[{j}] = {order!r} is not a permutation of 'XYZ'.")
 
+    if np.any(translation_idx < -1):
+        bad = int(np.flatnonzero(translation_idx < -1)[0])
+        raise ValueError(
+            f"translation_idx[{bad}] = {int(translation_idx[bad])}; the only legal "
+            f"negative value is -1 (a node placed at its offset)."
+        )
+    if translation_idx[0] >= 0:
+        raise ValueError(
+            f"translation_idx[0] = {int(translation_idx[0])} gives the root a "
+            f"column of joint_translations, but the root's position is root_pos."
+        )
+    end_site_columns = np.flatnonzero((joint_idx < 0) & (translation_idx >= 0))
+    if end_site_columns.size:
+        node = int(end_site_columns[0])
+        raise ValueError(
+            f"translation_idx[{node}] = {int(translation_idx[node])} gives node "
+            f"{node}, which joint_idx marks as an end site, a column of "
+            f"joint_translations. End sites declare no channels."
+        )
+    translation_columns = np.sort(translation_idx[translation_idx >= 0])
+    if not np.array_equal(translation_columns, np.arange(translation_columns.size)):
+        raise ValueError(
+            f"The non-negative translation_idx values must be exactly 0..P-1, "
+            f"each once (they index joint_translations axis 1); got "
+            f"{translation_columns.size} translating nodes whose sorted indices "
+            f"are {translation_columns.tolist()}."
+        )
+
 
 def frames_to_node_positions(
     skeleton: Bvh | list[BvhNode] | tuple[BvhNode, ...] | FkTopology,
@@ -301,6 +365,7 @@ def frames_to_node_positions(
     joint_angles: npt.ArrayLike | None = None,
     centered: str = "world",
     world_up: str | None = None,
+    joint_translations: npt.ArrayLike | None = None,
 ) -> npt.NDArray[np.float64]:
     """
     Return spatial coordinates of all nodes for one or multiple frames.
@@ -337,6 +402,14 @@ def frames_to_node_positions(
         other two input forms: a node list and an ``FkTopology`` carry no
         gravity direction, and guessing one silently mis-centers every
         skeleton that does not happen to match the guess.
+    joint_translations : ndarray, shape (F, P, 3) or (P, 3), optional
+        Per frame, the position of each translating joint relative to its
+        parent, in its parent's frame (matches
+        :attr:`Bvh.joint_translations`). Required when the skeleton has a
+        translating joint and the motion is passed; extracted from
+        *skeleton* with the rest of the motion when *root_pos* and
+        *joint_angles* are. May be omitted on a skeleton with no
+        translating joint (P = 0).
 
     Returns
     -------
@@ -351,7 +424,9 @@ def frames_to_node_positions(
         If *centered* is not one of the three modes; if *root_pos* /
         *joint_angles* are omitted for a skeleton that carries no motion;
         if they disagree on frame count or on the joint count the skeleton
-        declares; or if ``centered="first"`` is requested without a
+        declares; if *joint_translations* is omitted on a skeleton with a
+        translating joint, or does not fit its translating joints or
+        frame count; or if ``centered="first"`` is requested without a
         ``world_up`` and the skeleton cannot supply one.
 
     Notes
@@ -363,7 +438,10 @@ def frames_to_node_positions(
     ``R_acc = R_acc[parent] @ R``, where ``R`` is the matrix of its Euler
     angles, intrinsic and pre-multiplied in the joint's channel order
     (see :mod:`pybvh.rotations`). An end site has no rotation and takes
-    the first step only.
+    the first step only. A translating joint takes its row of
+    *joint_translations* in place of its offset in the first step: its
+    position channels are its whole position relative to its parent, and
+    its offset is the rest pose only (ADR 0010).
 
     The recurrence starts from the root at the origin, with its own
     rotation as ``R_acc``; its offset is not added, its position
@@ -394,6 +472,8 @@ def frames_to_node_positions(
             )
         root_pos = source_bvh.root_pos
         joint_angles = source_bvh.joint_angles
+        if joint_translations is None:
+            joint_translations = source_bvh.joint_translations
 
     root_pos_arr: npt.NDArray[np.float64] = np.asarray(root_pos, dtype=np.float64)
     joint_angles_arr: npt.NDArray[np.float64] = np.asarray(joint_angles, dtype=np.float64)
@@ -403,6 +483,18 @@ def frames_to_node_positions(
         single_frame = True
     if joint_angles_arr.ndim == 2:
         joint_angles_arr = joint_angles_arr.reshape(1, *joint_angles_arr.shape)
+    num_translating = int(np.count_nonzero(topology.translation_idx >= 0))
+    if joint_translations is None:
+        if num_translating:
+            raise ValueError(
+                f"The skeleton has {num_translating} translating joints, whose "
+                f"positions are not their offsets: pass joint_translations, "
+                f"shape (F, {num_translating}, 3)."
+            )
+        joint_translations = np.zeros((root_pos_arr.shape[0], 0, 3))
+    translations_arr: npt.NDArray[np.float64] = np.asarray(joint_translations, dtype=np.float64)
+    if translations_arr.ndim == 2:
+        translations_arr = translations_arr.reshape(1, *translations_arr.shape)
 
     # -- From here, root_pos_arr is (F, 3) and joint_angles_arr is (F, J, 3) --
 
@@ -417,6 +509,21 @@ def frames_to_node_positions(
         raise ValueError(
             f"joint_angles has {joint_angles_arr.shape[1]} joints on axis 1, "
             f"but the skeleton declares {num_joints}."
+        )
+    if translations_arr.ndim != 3 or translations_arr.shape[2] != 3:
+        raise ValueError(
+            f"joint_translations must have shape (F, P, 3), got {translations_arr.shape}."
+        )
+    if translations_arr.shape[0] != root_pos_arr.shape[0]:
+        raise ValueError(
+            f"root_pos and joint_translations disagree on frame count: "
+            f"root_pos has {root_pos_arr.shape[0]} frames, joint_translations "
+            f"has {translations_arr.shape[0]}."
+        )
+    if translations_arr.shape[1] != num_translating:
+        raise ValueError(
+            f"joint_translations has {translations_arr.shape[1]} translating joints "
+            f"on axis 1, but the skeleton declares {num_translating}."
         )
 
     if centered == "first":
@@ -434,7 +541,11 @@ def frames_to_node_positions(
         world_up = _validate_axis_string(world_up)
 
     positions = _run_forward_kinematics(
-        topology, root_pos_arr, joint_angles_arr, skel_centered=(centered == "skeleton")
+        topology,
+        root_pos_arr,
+        joint_angles_arr,
+        translations_arr,
+        skel_centered=(centered == "skeleton"),
     )
 
     # "first" centering: subtract the first frame's root position in the
@@ -453,6 +564,7 @@ def _run_forward_kinematics(
     topology: FkTopology,
     root_pos: npt.NDArray[np.float64],
     joint_angles: npt.NDArray[np.float64],
+    joint_translations: npt.NDArray[np.float64],
     skel_centered: bool,
 ) -> npt.NDArray[np.float64]:
     """Vectorized FK over all frames, from arrays only.
@@ -464,6 +576,7 @@ def _run_forward_kinematics(
     offsets = topology.offsets
     parent_idx = topology.parent_idx
     joint_idx = topology.joint_idx
+    translation_idx = topology.translation_idx
 
     num_frames = root_pos.shape[0]
     num_nodes = offsets.shape[0]
@@ -481,25 +594,23 @@ def _run_forward_kinematics(
     for i in range(num_nodes):
         p_idx = parent_idx[i]
         j_idx = joint_idx[i]
+        t_idx = translation_idx[i]
 
         if p_idx == -1:
             # Root node
             positions[:, i, :] = 0.0
             acc_rotmats[:, i] = local_rotmats[:, j_idx]
-        elif j_idx == -1:
-            # End site: no own rotation
-            offset = offsets[i]  # (3,)
-            # parent_rot @ offset + parent_pos for all frames
-            positions[:, i] = (
-                np.einsum("fij,j->fi", acc_rotmats[:, p_idx], offset) + positions[:, p_idx]
-            )
+            continue
+        # parent_rot @ offset + parent_pos for all frames; a translating
+        # joint's per-frame translation replaces its offset.
+        if t_idx == -1:
+            local = np.einsum("fij,j->fi", acc_rotmats[:, p_idx], offsets[i])
         else:
-            # Joint node
-            offset = offsets[i]  # (3,)
-            positions[:, i] = (
-                np.einsum("fij,j->fi", acc_rotmats[:, p_idx], offset) + positions[:, p_idx]
-            )
-            # Accumulate rotation: parent_rot @ this_node_rot
+            local = np.einsum("fij,fj->fi", acc_rotmats[:, p_idx], joint_translations[:, t_idx])
+        positions[:, i] = local + positions[:, p_idx]
+        if j_idx != -1:
+            # Joint node: accumulate rotation, parent_rot @ this_node_rot.
+            # An end site has no own rotation.
             acc_rotmats[:, i] = acc_rotmats[:, p_idx] @ local_rotmats[:, j_idx]
 
     # Add root position if not skeleton-centered

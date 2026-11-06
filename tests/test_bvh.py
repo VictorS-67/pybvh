@@ -4161,6 +4161,7 @@ class TestInheritedWorldUp:
     ASSIGNMENTS = {
         "root_pos": lambda b: setattr(b, "root_pos", b.root_pos),
         "joint_angles": lambda b: setattr(b, "joint_angles", b.joint_angles),
+        "joint_translations": lambda b: setattr(b, "joint_translations", b.joint_translations),
         "setitem": lambda b: b.__setitem__(0, b[1]),
     }
 

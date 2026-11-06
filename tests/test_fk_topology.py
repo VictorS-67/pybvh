@@ -319,6 +319,102 @@ class TestValidation:
         assert rebuilt.joint_idx.dtype == np.intp
 
     def test_is_a_tuple(self, topology):
-        offsets, parent_idx, joint_idx, euler_orders = topology
+        offsets, parent_idx, joint_idx, euler_orders, translation_idx = topology
         assert offsets is topology.offsets
         assert euler_orders is topology.euler_orders
+        assert translation_idx is topology.translation_idx
+
+
+# =============================================================================
+# Translating joints: the fifth field
+# =============================================================================
+
+# Reference (root) -> Hips (translates) -> Spine (translates) -> end site.
+_TRANSLATING = FkTopology(
+    offsets=[[0, 0, 0], [0, 90, 0], [0, 10, 0], [0, 5, 0]],
+    parent_idx=[-1, 0, 1, 2],
+    joint_idx=[0, 1, 2, -1],
+    euler_orders=["ZYX", "ZYX", "ZYX"],
+    translation_idx=[-1, 0, 1, -1],
+)
+
+
+class TestTranslatingJoints:
+    """`translation_idx` names the column of `joint_translations` a node reads."""
+
+    def test_defaults_to_no_translating_joint(self, topology):
+        rebuilt = FkTopology(
+            topology.offsets, topology.parent_idx, topology.joint_idx, topology.euler_orders
+        )
+        np.testing.assert_array_equal(rebuilt.translation_idx, np.full(len(topology.offsets), -1))
+        assert rebuilt.translation_idx.dtype == np.intp
+
+    def test_a_three_channel_clip_has_no_translating_joint(self, bvh_example, topology):
+        np.testing.assert_array_equal(topology.translation_idx, np.full(len(bvh_example.nodes), -1))
+
+    def test_a_translation_replaces_the_offset(self):
+        # Frame 0: Hips 92 above the reference (not 90 + 92), Spine 12 above
+        # the hips. Frame 1: the hips rotate 90 degrees about Z, so the
+        # spine's translation (0, 12, 0) points along -X.
+        root_pos = np.array([[0.0, 0, 0], [1.0, 0, 0]])
+        joint_angles = np.zeros((2, 3, 3))
+        joint_angles[1, 1, 0] = np.pi / 2
+        translations = np.array([[[0.0, 92, 0], [0, 12, 0]], [[10.0, 92, 5], [0, 12, 0]]])
+        positions = frames_to_node_positions(
+            _TRANSLATING, root_pos, joint_angles, joint_translations=translations
+        )
+        expected = np.array(
+            [
+                [[0, 0, 0], [0, 92, 0], [0, 104, 0], [0, 109, 0]],
+                [[1, 0, 0], [11, 92, 5], [-1, 92, 5], [-6, 92, 5]],
+            ],
+            dtype=float,
+        )
+        np.testing.assert_allclose(positions, expected, atol=1e-12)
+
+    def test_a_single_frame_takes_one_row_of_translations(self):
+        positions = frames_to_node_positions(
+            _TRANSLATING,
+            np.zeros(3),
+            np.zeros((3, 3)),
+            joint_translations=np.array([[0.0, 92, 0], [0, 12, 0]]),
+        )
+        np.testing.assert_allclose(positions[3], [0, 109, 0])
+
+    def test_translations_are_required_when_a_joint_translates(self):
+        with pytest.raises(ValueError, match="2 translating joints.*joint_translations"):
+            frames_to_node_positions(_TRANSLATING, np.zeros((1, 3)), np.zeros((1, 3, 3)))
+
+    def test_translations_must_fit_the_translating_joints(self):
+        with pytest.raises(ValueError, match="joint_translations has 1 translating joints"):
+            frames_to_node_positions(
+                _TRANSLATING,
+                np.zeros((1, 3)),
+                np.zeros((1, 3, 3)),
+                joint_translations=np.zeros((1, 1, 3)),
+            )
+
+    def test_translations_must_have_the_frame_count(self):
+        with pytest.raises(ValueError, match="disagree on frame count"):
+            frames_to_node_positions(
+                _TRANSLATING,
+                np.zeros((2, 3)),
+                np.zeros((2, 3, 3)),
+                joint_translations=np.zeros((1, 2, 3)),
+            )
+
+    def test_translation_columns_must_be_a_complete_range(self):
+        with pytest.raises(ValueError, match="exactly 0..P-1"):
+            _TRANSLATING._replace(translation_idx=[-1, 0, 0, -1])
+
+    def test_the_root_reads_no_translation_column(self):
+        with pytest.raises(ValueError, match="root_pos"):
+            _TRANSLATING._replace(translation_idx=[0, 1, -1, -1])
+
+    def test_an_end_site_reads_no_translation_column(self):
+        with pytest.raises(ValueError, match="end site"):
+            _TRANSLATING._replace(translation_idx=[-1, 0, -1, 1])
+
+    def test_translation_idx_must_match_the_node_count(self):
+        with pytest.raises(ValueError, match="translation_idx must have shape"):
+            _TRANSLATING._replace(translation_idx=[-1, 0, 1])

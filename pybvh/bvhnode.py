@@ -436,6 +436,26 @@ def _is_joint(node: BvhNode) -> TypeGuard[BvhJoint]:
     return not node.is_end_site()
 
 
+def _is_translating_joint(node: BvhNode) -> bool:
+    """Whether ``node`` is a joint other than the root that declares position channels.
+
+    Such a joint's position relative to its parent is a column of
+    ``Bvh.joint_translations`` in each frame, in place of its ``offset``.
+    The root's position channels are ``root_pos``, not a translation.
+    """
+    return _is_joint(node) and not node.is_root() and bool(_pos_channels(node))
+
+
+def _pos_channels(node: BvhNode) -> tuple[str, ...]:
+    """``node``'s position channels, ``()`` on a node without any.
+
+    A node class of the caller's own that answers ``False`` to
+    :meth:`BvhNode.is_end_site` counts as a joint (see :func:`_is_joint`)
+    and may carry no ``pos_channels``: it only rotates.
+    """
+    return tuple(getattr(node, "pos_channels", ()))
+
+
 # ---------------------------------------------------------------------------------------------
 
 

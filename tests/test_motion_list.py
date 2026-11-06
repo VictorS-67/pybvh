@@ -33,19 +33,25 @@ def motion_list(request, monkeypatch):
 
 
 def _skeleton_table():
+    # The spine translates, so that every skeleton dim of the list has a
+    # length above 0 on this skeleton.
     return [
         {"name": "Hips", "parent": None, "offset": [0, 0, 0], "rot_channels": "ZYX"},
-        {"name": "Spine", "parent": 0, "offset": [0, 1, 0], "rot_channels": "XYZ"},
+        {
+            "name": "Spine",
+            "parent": 0,
+            "offset": [0, 1, 0],
+            "pos_channels": "XYZ",
+            "rot_channels": "XYZ",
+        },
         {"name": "Head", "parent": 1, "offset": [0, 1, 0]},
     ]
 
 
-JOINTS = 2
-
-
 def _frame_shape(entry):
-    """The entry's shape after the frame axis on the two-joint skeleton above."""
-    return tuple(dim if isinstance(dim, int) else JOINTS for dim in entry.frame_shape)
+    """The entry's shape after the frame axis on the skeleton above."""
+    nodes = nodes_from_table(_skeleton_table())
+    return tuple(dim if isinstance(dim, int) else dim.count(nodes) for dim in entry.frame_shape)
 
 
 def _tagged_motion(motion_list, first=0.0):
@@ -81,7 +87,12 @@ class TestShapeChecks:
     def test_an_empty_clip_holds_no_frame_of_any_array(self, motion_list):
         clip = Bvh(nodes=nodes_from_table(_skeleton_table()))
         # No frame, and no joint: the shapes Bvh() has always given.
-        expected = {"root_pos": (0, 3), "joint_angles": (0, 0, 3), "extra": (0, 2)}
+        expected = {
+            "root_pos": (0, 3),
+            "joint_angles": (0, 0, 3),
+            "joint_translations": (0, 0, 3),
+            "extra": (0, 2),
+        }
         for entry in motion_list:
             assert clip._motion()[entry.name].shape == expected[entry.name]
 
@@ -347,8 +358,11 @@ class TestPickleFormat:
         # The keys of the state pybvh pickled before the motion list.
         root_pos = np.arange(6.0).reshape(2, 3)
         joint_angles = np.arange(12.0).reshape(2, 2, 3) / 10
+        # No joint translated before #186.
+        table = _skeleton_table()
+        del table[1]["pos_channels"]
         state = {
-            "nodes": tuple(nodes_from_table(_skeleton_table())),
+            "nodes": tuple(nodes_from_table(table)),
             "root_pos": root_pos,
             "joint_angles": joint_angles,
             "frame_time": 0.1,
@@ -362,10 +376,14 @@ class TestPickleFormat:
         clip.__setstate__(state)
         np.testing.assert_array_equal(clip.root_pos, root_pos)
         np.testing.assert_array_equal(clip.joint_angles, joint_angles)
+        # Pickled before any joint translated: no translating joint.
+        assert clip.joint_translations.shape == (2, 0, 3)
 
     def test_a_state_keeps_the_keys_earlier_versions_read(self):
         clip = _clip(_tagged_motion(Bvh._MOTION_ARRAYS))
+        # Earlier versions read their keys and ignore joint_translations.
         assert set(clip.__getstate__()) == {
+            "joint_translations",
             "nodes",
             "root_pos",
             "joint_angles",

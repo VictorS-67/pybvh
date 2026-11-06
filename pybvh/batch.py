@@ -15,7 +15,6 @@ import numpy.typing as npt
 
 from ._warnings import user_stacklevel
 from .bvh import Bvh
-from .bvhnode import _is_joint
 from .features import to_feature_array
 from .io import _bvh_from_parsed, _extract_bvh_file_info, _ParsedBvh
 from .node_tree import _channel_difference, _hierarchy_difference, _NodeTreeDifference
@@ -415,19 +414,11 @@ def harmonize(
             old_rest_forward = b.rest_forward
             b = b.reorient_rest_forward(target_rest_forward)
             stages["rest_forward"] = f"{old_rest_forward}→{target_rest_forward}"
-        # The joints that declare an order: a static root declares none,
-        # and has no order to change.
-        rotating = [
-            k
-            for k, joint in enumerate(node for node in b.nodes if _is_joint(node))
-            if joint.rot_channels
-        ]
-        if target_euler_order is not None and any(
-            b.euler_orders[k] != target_euler_order for k in rotating
-        ):
-            b = b.copy()
-            b._change_euler_orders(list(target_euler_order.upper()), rotating, inplace=True)
-            stages["euler_order"] = f"→{target_euler_order}"
+        if target_euler_order is not None:
+            converted = b._in_euler_order(target_euler_order)
+            if converted is not None:
+                b = converted
+                stages["euler_order"] = f"→{target_euler_order}"
 
         report.kept_indices.append(i)
         report.kept_sources.append(b.source_path)

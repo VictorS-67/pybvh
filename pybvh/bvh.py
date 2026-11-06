@@ -3348,14 +3348,29 @@ class Bvh:
             self._refuse_static_root("change_euler_order gives the root an Euler order")
         return self._change_euler_orders(new_order, joint_indices, inplace)
 
+    def _in_euler_order(self, order: str) -> Bvh | None:
+        """A copy with each joint that declares an Euler order in *order*,
+        or ``None`` when each already declares *order*.
+
+        ``harmonize`` calls it. A static root declares no rotation channel,
+        so it has no order to change, and is left out, where
+        :meth:`change_euler_order` refuses it.
+        """
+        joints = [node for node in self.nodes if _is_joint(node)]
+        rotating = [k for k, joint in enumerate(joints) if joint.rot_channels]
+        orders = self.euler_orders
+        if all(orders[k] == order for k in rotating):
+            return None
+        return self._change_euler_orders(list(order.upper()), rotating, inplace=False)
+
     def _change_euler_orders(
         self, new_order: list[str], joint_indices: list[int], inplace: bool
     ) -> Bvh | None:
         """Re-express the joints at ``joint_indices`` in ``new_order``.
 
-        :meth:`change_euler_order` after its checks; ``harmonize`` calls it
-        with the joints that declare rotation channels, which leaves a
-        static root out.
+        :meth:`change_euler_order` after its checks, and
+        :meth:`_in_euler_order` with the joints that declare rotation
+        channels.
         """
         target = self if inplace else self.copy()
         # The new skeleton is built, and the order checked, before any

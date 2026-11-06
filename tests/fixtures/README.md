@@ -6,6 +6,8 @@ The directory also holds two hand-written **parser-edge `.bvh` fixtures** used b
 
 It also holds `pr_hygiene_event.json`, a recorded `pull_request` event payload (PR #54, trimmed) that `tests/test_check_pr_hygiene.py` feeds to the pr-hygiene check.
 
+It holds `pre_186_clips.pickle`, a pickle of a dict of two clips that pybvh pickled before joints could translate (#186): `bvh_test1`, read from `bvh_data/bvh_test1.bvh`, and `root_and_child`, read from `pre_186_root_and_child.bvh` (a root and one joint that only rotates, two frames). Commit f605ef9 of `main` made it with `pickle.dumps(clips, protocol=4)`. `tests/test_bvh.py::TestAPickleFromBefore186` loads it and compares each clip with a fresh read of its file. Never regenerate it with a later pybvh: its value is that an earlier version wrote it.
+
 And it holds `public_namespace.txt`, the names a user can import from the package and from each of its public modules, which `tests/test_public_namespace.py` compares with the live package; the test's docstring says which names count. After a deliberate change to the public surface, `python tests/test_public_namespace.py` rewrites the list, and the edit to it shows the change in the diff.
 
 ## Running the tests (no reference libraries needed)

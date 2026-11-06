@@ -120,29 +120,73 @@ def _euler_to_quat(
     return rotations.rotmat_to_quat(rotations.euler_to_rotmat(angles, orders))
 
 
+class _EulerBlock(NamedTuple):
+    """Three motion columns of one joint in ``to_df_dict``'s euler mode."""
+
+    # The joint's column label, unique over the joints.
+    label: str
+    # The axes in column order, and the kind, ``"pos"`` or ``"rot"``.
+    axes: tuple[str, ...]
+    kind: str
+    # The motion array the values come from and the joint's row in it:
+    # ``"root_pos"`` (row unused), ``"joint_translations"`` or ``"joint_angles"``.
+    array: str
+    row: int
+
+
+def _euler_blocks(nodes: Sequence[BvhNode]) -> list[_EulerBlock]:
+    """The column blocks of the euler layout of *nodes*, in column order.
+
+    Per joint in node order, its position block if it declares position
+    channels (the root's from ``root_pos``, another joint's from its row
+    of ``joint_translations``), then its rotation block, from its row of
+    ``joint_angles``. The layout is that of a frame line in a file
+    (``io._frame_columns``): a clip whose joints other than the root only
+    rotate gets the root's position block then each joint's rotation
+    block, and a static root, which declares no channels, gets none.
+    """
+    joints = [node for node in nodes if isinstance(node, BvhJoint)]
+    root = joints[0]
+    if not isinstance(root, BvhRoot):
+        raise ValueError(f"nodes[0] must be the BvhRoot, got {type(root).__name__}")
+    labels = _unique_labels([joint.name for joint in joints])
+    blocks: list[_EulerBlock] = []
+    translating = 0
+    for row, (label, joint) in enumerate(zip(labels, joints, strict=True)):
+        if joint.is_root() and joint.pos_channels:
+            blocks.append(_EulerBlock(label, tuple(joint.pos_channels), "pos", "root_pos", 0))
+        elif _is_translating_joint(joint):
+            blocks.append(
+                _EulerBlock(
+                    label, tuple(joint.pos_channels), "pos", "joint_translations", translating
+                )
+            )
+            translating += 1
+        if joint.rot_channels:
+            blocks.append(_EulerBlock(label, tuple(joint.rot_channels), "rot", "joint_angles", row))
+    return blocks
+
+
 def _motion_column_names(nodes: Sequence[BvhNode], mode: str) -> list[str]:
     """Column names of the motion *nodes* carry, in either ``to_df_dict`` mode.
 
-    ``'euler'`` names the flat layout of ``root_pos`` and ``joint_angles``:
-    ``<root>_<axis>_pos`` per position channel, then ``<joint>_<axis>_rot``
-    per rotation channel for each joint in node order, end sites having
-    none. ``'coordinates'`` names ``<node>_<axis>`` for X, Y and Z per
-    node, end sites included. ``time`` is not a motion column and is not
-    listed. Node names are made unique with :func:`_unique_labels` over
-    the nodes the mode lists, before the axis and kind are appended, so
-    the same joint can be ``Arm`` in one mode and ``Arm.1`` in the other
-    when an earlier end site shares its name.
+    ``'euler'`` names the blocks of :func:`_euler_blocks`: per joint in
+    node order, ``<joint>_<axis>_pos`` per position channel if the joint
+    declares any, then ``<joint>_<axis>_rot`` per rotation channel, end
+    sites having none. ``'coordinates'`` names ``<node>_<axis>`` for X,
+    Y and Z per node, end sites included. ``time`` is not a motion
+    column and is not listed. Node names are made unique with
+    :func:`_unique_labels` over the nodes the mode lists, before the
+    axis and kind are appended, so the same joint can be ``Arm`` in one
+    mode and ``Arm.1`` in the other when an earlier end site shares its
+    name.
     """
     if mode == "euler":
-        joints = [node for node in nodes if isinstance(node, BvhJoint)]
-        root = joints[0]
-        if not isinstance(root, BvhRoot):
-            raise ValueError(f"nodes[0] must be the BvhRoot, got {type(root).__name__}")
-        labels = _unique_labels([joint.name for joint in joints])
-        names = [f"{labels[0]}_{ax}_pos" for ax in root.pos_channels]
-        for label, joint in zip(labels, joints, strict=True):
-            names.extend(f"{label}_{ax}_rot" for ax in joint.rot_channels)
-        return names
+        return [
+            f"{block.label}_{ax}_{block.kind}"
+            for block in _euler_blocks(nodes)
+            for ax in block.axes
+        ]
     if mode == "coordinates":
         labels = _unique_labels([node.name for node in nodes])
         return [f"{label}_{ax}" for label in labels for ax in ("X", "Y", "Z")]
@@ -2420,11 +2464,16 @@ class Bvh:
         ----------
         mode : str, optional
             ``'euler'`` (default): the motion as a file carries it, in
-            degrees: ``<root>_<axis>_pos`` per position channel of the
-            root, then ``<joint>_<axis>_rot`` per rotation channel of
-            each joint in :attr:`nodes` order, so the columns after
-            ``time`` are the flat layout of :attr:`root_pos` and
-            :attr:`joint_angles`. :func:`~pybvh.df_to_bvh` and
+            degrees, per joint in :attr:`nodes` order:
+            ``<joint>_<axis>_pos`` per position channel if the joint
+            declares any (the root's from :attr:`root_pos`, another
+            joint's from :attr:`joint_translations`), then
+            ``<joint>_<axis>_rot`` per rotation channel, the columns of
+            a frame line in a file. A joint that does not translate has
+            no ``_pos`` columns, and a static root (``CHANNELS 0``) no
+            columns at all; a clip whose joints other than the root only
+            rotate gets the root's ``_pos`` columns, then each joint's
+            ``_rot`` columns. :func:`~pybvh.df_to_bvh` and
             :meth:`from_df` read this form back.
             ``'coordinates'``: the posed positions of
             :meth:`node_positions`, ``<node>_X``, ``<node>_Y`` and
@@ -2482,12 +2531,15 @@ class Bvh:
         ``_rot`` columns are the rad→deg-converted view of the internal
         radians-valued :attr:`joint_angles`.
         """
-        joint_angles_deg = np.rad2deg(self.joint_angles)
-        # The width is spelled out: NumPy cannot infer -1 from no frames.
-        flat = np.concatenate(
-            [self.root_pos, joint_angles_deg.reshape(self.frame_count, 3 * self.joint_count)],
-            axis=1,
-        )
+        arrays = {
+            "root_pos": self.root_pos[:, None],
+            "joint_translations": self.joint_translations,
+            "joint_angles": np.rad2deg(self.joint_angles),
+        }
+        blocks = _euler_blocks(self.nodes)
+        flat = np.empty((self.frame_count, 3 * len(blocks)))
+        for i, block in enumerate(blocks):
+            flat[:, 3 * i : 3 * i + 3] = arrays[block.array][:, block.row]
         return self._timed_columns(_motion_column_names(self.nodes, "euler"), flat)
 
     def _get_df_constructor_spatial_coord(

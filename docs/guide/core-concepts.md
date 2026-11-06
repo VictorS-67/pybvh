@@ -24,7 +24,7 @@ A BVH file has two sections:
 | `joint_translations` | `(F, P, 3)` | Per frame, the position relative to its parent of each translating joint; `P = 0` on a skeleton whose joints other than the root only rotate |
 | `nodes` | tuple | All skeleton nodes (joints + end sites) in depth-first order; frozen, see [Editing a skeleton](skeleton-ops.md#editing-a-skeleton) |
 | `joint_names` | list of str | Non-end-site joint names |
-| `euler_orders` | list of str | Per-joint Euler orders (e.g. `['ZYX', ...]`) |
+| `euler_orders` | list of str | Per-joint Euler orders (e.g. `['ZYX', ...]`); `''` on a static root, which declares no rotation channel |
 | `edges` | list of tuples | Skeleton edge list as `(child_idx, parent_idx)` |
 | `frame_time` | float | Seconds per frame |
 | `world_up` | str | Gravity axis (e.g. `'+y'`, `'+z'`). Auto-detected, settable. |

@@ -140,9 +140,11 @@ class TestRefusals:
         clip.joint_angles = angles
         np.testing.assert_array_equal(clip.joint_angles, angles)
 
-    def test_change_euler_order(self, clip):
+    @pytest.mark.parametrize("joint", ["__0", 0])
+    def test_change_euler_order_of_the_root(self, clip, joint):
+        selector = clip.nodes[0] if joint == 0 else joint
         with pytest.raises(ValueError, match=_STATIC):
-            clip.change_euler_order("XYZ")
+            clip.change_euler_order("XYZ", joint=selector)
 
     def test_change_euler_order_of_another_joint(self, clip):
         changed = clip.change_euler_order("XYZ", joint="Prop")
@@ -237,10 +239,69 @@ class TestHarmonize:
         assert report.applied_stages[0] == {"euler_order": "→XYZ"}
 
     def test_a_clip_whose_joints_have_the_target_order_is_left_alone(self, clip):
-        # The joints rotate in ZYX; the static root's 'XYZ' in euler_orders
-        # is no declared order, so it asks for no change.
+        # The joints rotate in ZYX; the static root's '' in euler_orders is
+        # no declared order, so it asks for no change.
         (harmonized,), report = harmonize(
             [clip], target_euler_order="ZYX", verbose=False, return_report=True
         )
         assert harmonized == clip
         assert report.applied_stages[0] == {}
+
+
+class TestEulerOrder:
+    """A static root declares no rotation channel: its Euler order is ``''``."""
+
+    def test_the_clip_and_its_topology_read_the_empty_order(self, clip):
+        assert clip.euler_orders == ["", "ZYX", "ZYX"]
+        assert clip.fk_topology.euler_orders == ["", "ZYX", "ZYX"]
+
+    def test_change_euler_order_changes_every_other_joint(self, clip):
+        changed = clip.change_euler_order("XYZ")
+        assert changed.euler_orders == ["", "XYZ", "XYZ"]
+        assert changed.root.is_static()
+        np.testing.assert_array_equal(changed.joint_angles[:, 0], np.zeros((2, 3)))
+        np.testing.assert_allclose(changed.node_positions(), clip.node_positions(), atol=1e-9)
+
+    def test_change_euler_order_in_place(self, clip):
+        positions = clip.node_positions()
+        assert clip.change_euler_order("XZY", inplace=True) is None
+        assert clip.euler_orders == ["", "XZY", "XZY"]
+        np.testing.assert_allclose(clip.node_positions(), positions, atol=1e-9)
+
+    def test_harmonize_gives_the_same_clip(self, clip):
+        (harmonized,) = harmonize([clip], target_euler_order="XYZ", verbose=False)
+        assert harmonized == clip.change_euler_order("XYZ")
+
+    def test_the_rotation_conversions_read_the_identity(self, clip):
+        identity = np.broadcast_to(np.eye(3), (2, 3, 3))
+        np.testing.assert_array_equal(clip.to_rotmat()[:, 0], identity)
+        np.testing.assert_array_equal(clip.to_quat()[:, 0], [[1, 0, 0, 0]] * 2)
+        np.testing.assert_array_equal(clip.to_6d()[:, 0], [[1, 0, 0, 0, 1, 0]] * 2)
+        np.testing.assert_array_equal(clip.to_axisangle()[:, 0], np.zeros((2, 3)))
+
+    @pytest.mark.parametrize("representation", ["rotmat", "quat", "6d", "axisangle"])
+    def test_a_round_trip_through_the_rotation_conversions(self, clip, representation):
+        rotation = getattr(clip, f"to_{representation}")()
+        back = getattr(clip, f"from_{representation}")(rotation)
+        np.testing.assert_array_equal(back.joint_angles[:, 0], np.zeros((2, 3)))
+        np.testing.assert_allclose(back.node_positions(), clip.node_positions(), atol=1e-9)
+
+    def test_from_rotmat_refuses_a_rotation_of_the_root(self, clip):
+        rotmats = clip.to_rotmat()
+        rotmats[1, 0] = rotmats[1, 1]
+        with pytest.raises(ValueError, match=_STATIC):
+            clip.from_rotmat(rotmats)
+
+    def test_resample_interpolates_the_other_joints(self, clip):
+        resampled = clip.resample(clip.fps * 2)
+        assert resampled.frame_count == 3
+        np.testing.assert_array_equal(resampled.joint_angles[:, 0], np.zeros((3, 3)))
+        # By hand: the prop turns 90 degrees about X between the frames, so 45 halfway.
+        np.testing.assert_allclose(np.rad2deg(resampled.joint_angles[1, 2]), [0, 0, 45], atol=1e-9)
+
+    def test_root_trajectory_reads_the_root_as_the_identity(self, clip):
+        from pybvh.analysis import root_trajectory
+
+        trajectory = root_trajectory(clip)
+        # The root never turns: its heading is the same in both frames.
+        np.testing.assert_array_equal(trajectory[0, 2:], trajectory[1, 2:])

@@ -347,9 +347,11 @@ def nodes_to_table(nodes: Sequence[BvhNode]) -> list[dict[str, Any]]:
 
     Relation to :class:`~pybvh.FkTopology`: ``offsets`` is the stacked
     ``offset`` values, ``parent_idx`` is ``parent`` with ``None`` read as
-    ``-1``, ``joint_idx`` counts up over the entries that have
-    ``rot_channels`` and ``euler_orders`` is those ``rot_channels``
-    joined. The table adds the names and splits the root's channels;
+    ``-1``, ``joint_idx`` counts up over the entries that have a
+    ``rot_channels`` key (the root, a static root's ``[]`` included, and
+    the joints) and ``euler_orders`` is those ``rot_channels`` joined,
+    ``''`` on a static root. The table adds the names and splits the
+    root's channels;
     ``FkTopology`` stays an FK input bundle with no names.
 
     Conventions, and the alternatives they were chosen over: the table is
@@ -447,8 +449,8 @@ def nodes_from_table(table: Sequence[Mapping[str, Any]]) -> list[BvhNode]:
     two end sites under one joint, or two joints named alike, come back
     as they were. The relation to :class:`~pybvh.FkTopology` is the one
     :func:`nodes_to_table` describes: ``parent`` with ``None`` as ``-1``
-    is ``parent_idx``, and the entries with ``rot_channels`` are the
-    joint columns, in order.
+    is ``parent_idx``, and the entries with a ``rot_channels`` key (a
+    static root's ``[]`` included) are the joint columns, in order.
 
     **The table must be in depth-first order**: entry 0 is the root and
     every joint is followed by its whole subtree, the order a ``.bvh``

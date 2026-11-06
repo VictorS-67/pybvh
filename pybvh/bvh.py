@@ -2457,7 +2457,8 @@ class Bvh:
         chain's heading stage read it.
         """
         joint_angles = self._motion()["joint_angles"]
-        return rotations.euler_to_rotmat(joint_angles[frames, 0], _euler_order(self.root))
+        # The per-joint form, which reads a static root's order '' as the identity.
+        return rotations.euler_to_rotmat(joint_angles[frames, :1], [_euler_order(self.root)])[:, 0]
 
     def facing_frame(self):
         """Per-frame facing basis as continuous unit vectors.
@@ -2839,8 +2840,9 @@ class Bvh:
 
         The table is the named twin of :attr:`fk_topology`: ``parent``
         with ``None`` read as ``-1`` is its ``parent_idx``, the stacked
-        ``offset`` values are its ``offsets``, and the entries with
-        ``rot_channels`` are its joint columns, in order.
+        ``offset`` values are its ``offsets``, and the entries with a
+        ``rot_channels`` key (a static root's ``[]`` included) are its
+        joint columns, in order.
 
         Returns
         -------
@@ -3118,7 +3120,8 @@ class Bvh:
             e.g. ``['ZYX', 'ZYX', ...]``, one per non-end-site joint.
             Order matches ``joint_names`` and ``joint_angles`` axis 1.
             A static root (``CHANNELS 0``) declares no rotation channel
-            and never rotates: it reads ``'XYZ'``.
+            and never rotates: it reads ``''``, which the rotation
+            conversions read as the identity.
         """
         return [_euler_order(n) for n in self.nodes if _is_joint(n)]
 
@@ -3377,8 +3380,10 @@ class Bvh:
             New rotation order, e.g. 'XYZ' or ['X', 'Y', 'Z'].
         joint : str, BvhNode, or None
             The one joint to change, by its name or as the node itself (see
-            :meth:`index`, ``space='joint'``). If None (default), all joints
-            are changed to the new order.
+            :meth:`index`, ``space='joint'``). If None (default), every joint
+            that declares rotation channels is changed to the new order: a
+            static root (``CHANNELS 0``) declares none, keeps its order
+            ``''`` and its zero rotation.
         inplace : bool
             If True, modify self and return None.
             If False, return a modified copy while leaving self unchanged.
@@ -3395,9 +3400,9 @@ class Bvh:
         TypeError
             If ``joint`` is neither a name, a ``BvhNode`` nor None.
         ValueError
-            If :meth:`index` refuses ``joint`` in joint space, or if the
-            joints to change include a static root (``CHANNELS 0``),
-            which declares no rotation channel.
+            If :meth:`index` refuses ``joint`` in joint space, or if
+            ``joint`` names a static root (``CHANNELS 0``), which declares
+            no rotation channel.
         """
         if isinstance(order, str):
             new_order = list(order.upper())
@@ -3405,23 +3410,32 @@ class Bvh:
             new_order = [c.upper() for c in order]
 
         if joint is None:
-            joint_indices = list(range(self.joint_count))
+            joint_indices = self._rotating_joint_columns()
         else:
             joint_indices = [self.index(joint, space="joint")]
-        if 0 in joint_indices:
-            self._refuse_static_root("change_euler_order gives the root an Euler order")
+            if joint_indices == [0]:
+                self._refuse_static_root("change_euler_order gives the root an Euler order")
         return self._change_euler_orders(new_order, joint_indices, inplace)
+
+    def _rotating_joint_columns(self) -> list[int]:
+        """The joint columns whose joints declare rotation channels: every
+        column but a static root's (``CHANNELS 0``), which has no order to
+        change.
+
+        The one rule of :meth:`change_euler_order` with no joint and of
+        :meth:`_in_euler_order`.
+        """
+        return [k for k, order in enumerate(self.euler_orders) if order]
 
     def _in_euler_order(self, order: str) -> Bvh | None:
         """A copy with each joint that declares an Euler order in *order*,
         or ``None`` when each already declares *order*.
 
-        ``harmonize`` calls it. A static root declares no rotation channel,
-        so it has no order to change, and is left out, where
-        :meth:`change_euler_order` refuses it.
+        ``harmonize`` calls it. The joints are those
+        :meth:`change_euler_order` changes with no joint: a static root
+        keeps its order ``''``.
         """
-        joints = [node for node in self.nodes if _is_joint(node)]
-        rotating = [k for k, joint in enumerate(joints) if joint.rot_channels]
+        rotating = self._rotating_joint_columns()
         orders = self.euler_orders
         if all(orders[k] == order for k in rotating):
             return None
@@ -3594,8 +3608,10 @@ class Bvh:
             raise ValueError(
                 f"Expected {self.joint_count} joints in {param_name}, got {joint_rotmats.shape[1]}"
             )
+        if self.root.is_static() and np.any(rotations._off_identity(joint_rotmats[:, 0])):
+            # Here, not in the conversion, to name the call and the root.
+            self._refuse_static_root(f"{method} rotates the root")
         new_angles = rotations.rotmat_to_euler(joint_rotmats, self.euler_orders)
-        self._refuse_root_rotation(new_angles, f"{method} rotates the root")
         target = self if inplace else self.copy()
         target.joint_angles = new_angles
         if inplace:
@@ -3641,7 +3657,8 @@ class Bvh:
             as a third argument or a keyword.
         ValueError
             If the frame or joint count does not match the clip, or if
-            the rotations turn a static root (``CHANNELS 0``).
+            the rotations turn a static root (``CHANNELS 0``): a rotation
+            other than the identity, each matrix entry within ``1e-7``.
         """
         return self._from_rotations(
             "from_rotmat", "joint_rotmats", joint_rotmats, lambda r: r, inplace
@@ -3686,7 +3703,8 @@ class Bvh:
             as a third argument or a keyword.
         ValueError
             If the frame or joint count does not match the clip, or if
-            the rotations turn a static root (``CHANNELS 0``).
+            the rotations turn a static root (``CHANNELS 0``): a rotation
+            other than the identity, each matrix entry within ``1e-7``.
         """
         return self._from_rotations(
             "from_6d", "joint_rot6d", joint_rot6d, rotations.rot6d_to_rotmat, inplace
@@ -3732,7 +3750,8 @@ class Bvh:
             as a third argument or a keyword.
         ValueError
             If the frame or joint count does not match the clip, or if
-            the rotations turn a static root (``CHANNELS 0``).
+            the rotations turn a static root (``CHANNELS 0``): a rotation
+            other than the identity, each matrix entry within ``1e-7``.
         """
         return self._from_rotations(
             "from_quat", "joint_quats", joint_quats, rotations.quat_to_rotmat, inplace
@@ -3778,7 +3797,8 @@ class Bvh:
             as a third argument or a keyword.
         ValueError
             If the frame or joint count does not match the clip, or if
-            the rotations turn a static root (``CHANNELS 0``).
+            the rotations turn a static root (``CHANNELS 0``): a rotation
+            other than the identity, each matrix entry within ``1e-7``.
         """
         return self._from_rotations(
             "from_axisangle", "joint_aa", joint_aa, rotations.axisangle_to_rotmat, inplace

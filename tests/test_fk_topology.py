@@ -135,6 +135,7 @@ class TestForwardKinematicsFromArrays:
             parent_idx=topology.parent_idx,
             joint_idx=topology.joint_idx,
             euler_orders=topology.euler_orders,
+            translation_idx=topology.translation_idx,
         )
         loaded = np.load(path)
         rebuilt = FkTopology(
@@ -142,6 +143,7 @@ class TestForwardKinematicsFromArrays:
             loaded["parent_idx"],
             loaded["joint_idx"],
             list(loaded["euler_orders"]),
+            loaded["translation_idx"],
         )
         np.testing.assert_array_equal(
             frames_to_node_positions(rebuilt, bvh_example.root_pos, bvh_example.joint_angles),
@@ -294,7 +296,7 @@ class TestValidation:
 
     def test_empty_topology_raises(self):
         with pytest.raises(ValueError, match="at least one node"):
-            FkTopology(np.zeros((0, 3)), np.zeros(0), np.zeros(0), [])
+            FkTopology(np.zeros((0, 3)), np.zeros(0), np.zeros(0), [], np.zeros(0))
 
     def test_negative_parent_other_than_root_raises(self, topology):
         parent_idx = topology.parent_idx.copy()
@@ -313,6 +315,7 @@ class TestValidation:
             topology.parent_idx.astype(np.int16),
             topology.joint_idx.astype(np.int16),
             topology.euler_orders,
+            topology.translation_idx.astype(np.int16),
         )
         assert rebuilt.offsets.dtype == np.float64
         assert rebuilt.parent_idx.dtype == np.intp
@@ -342,12 +345,13 @@ _TRANSLATING = FkTopology(
 class TestTranslatingJoints:
     """`translation_idx` names the column of `joint_translations` a node reads."""
 
-    def test_defaults_to_no_translating_joint(self, topology):
-        rebuilt = FkTopology(
-            topology.offsets, topology.parent_idx, topology.joint_idx, topology.euler_orders
-        )
-        np.testing.assert_array_equal(rebuilt.translation_idx, np.full(len(topology.offsets), -1))
-        assert rebuilt.translation_idx.dtype == np.intp
+    def test_the_four_field_form_is_refused(self, topology):
+        # Without translation_idx, a clip with translating joints would place
+        # them at their offsets: wrong FK, with no error.
+        with pytest.raises(TypeError, match="translation_idx"):
+            FkTopology(
+                topology.offsets, topology.parent_idx, topology.joint_idx, topology.euler_orders
+            )
 
     def test_a_three_channel_clip_has_no_translating_joint(self, bvh_example, topology):
         np.testing.assert_array_equal(topology.translation_idx, np.full(len(bvh_example.nodes), -1))
@@ -418,3 +422,74 @@ class TestTranslatingJoints:
     def test_translation_idx_must_match_the_node_count(self):
         with pytest.raises(ValueError, match="translation_idx must have shape"):
             _TRANSLATING._replace(translation_idx=[-1, 0, 1])
+
+
+# =============================================================================
+# A static root: the Euler order ''
+# =============================================================================
+
+# Static root (CHANNELS 0) -> Hips (translates) -> end site, and -> Prop -> end site.
+_STATIC_ROOT = dict(
+    offsets=[[0, 2, 0], [0, 90, 0], [0, 10, 0], [30, 0, 0], [0, 4, 0]],
+    parent_idx=[-1, 0, 1, 0, 3],
+    joint_idx=[0, 1, -1, 2, -1],
+    euler_orders=["", "ZYX", "ZYX"],
+    translation_idx=[-1, 0, -1, -1, -1],
+)
+
+
+class TestStaticRoot:
+    """A static root declares no rotation channel: its order is ``''``."""
+
+    def test_the_root_takes_the_empty_order(self):
+        topology = FkTopology(**_STATIC_ROOT)
+        assert topology.euler_orders[0] == ""
+
+    def test_forward_kinematics_reads_the_identity(self):
+        topology = FkTopology(**_STATIC_ROOT)
+        root_pos = np.array([[0.0, 2, 0]])
+        joint_angles = np.zeros((1, 3, 3))
+        joint_angles[0, 2, 2] = np.pi / 2  # the prop turns 90 degrees about X
+        positions = frames_to_node_positions(
+            topology, root_pos, joint_angles, joint_translations=np.array([[[0.0, 90, 0]]])
+        )
+        # By hand: the prop's tip 4 along +Z from the prop at 30 2 0.
+        np.testing.assert_allclose(
+            positions[0], [[0, 2, 0], [0, 92, 0], [0, 102, 0], [30, 2, 0], [30, 2, 4]], atol=1e-12
+        )
+
+    def test_forward_kinematics_refuses_a_rotation_of_the_root(self):
+        topology = FkTopology(**_STATIC_ROOT)
+        joint_angles = np.zeros((1, 3, 3))
+        joint_angles[0, 0, 1] = 0.1
+        with pytest.raises(ValueError, match="Euler order ''"):
+            frames_to_node_positions(
+                topology,
+                np.array([[0.0, 2, 0]]),
+                joint_angles,
+                joint_translations=np.zeros((1, 1, 3)),
+            )
+
+    def test_survives_a_serialization_round_trip(self, tmp_path):
+        path = tmp_path / "topology.npz"
+        np.savez(path, **FkTopology(**_STATIC_ROOT)._asdict())
+        loaded = np.load(path)
+        rebuilt = FkTopology(
+            loaded["offsets"],
+            loaded["parent_idx"],
+            loaded["joint_idx"],
+            list(loaded["euler_orders"]),
+            loaded["translation_idx"],
+        )
+        assert rebuilt.euler_orders == ["", "ZYX", "ZYX"]
+
+    def test_another_joint_refuses_the_empty_order(self):
+        fields = dict(_STATIC_ROOT, euler_orders=["ZYX", "", "ZYX"])
+        with pytest.raises(ValueError, match=r"euler_orders\[1\] = ''.*only the root"):
+            FkTopology(**fields)
+
+    def test_the_root_must_read_column_0(self):
+        # The root reads column 2, and column 0, which has order '', is the prop.
+        fields = dict(_STATIC_ROOT, joint_idx=[2, 1, -1, 0, -1], euler_orders=["", "ZYX", "ZYX"])
+        with pytest.raises(ValueError, match=r"euler_orders\[0\] = ''.*only the root"):
+            FkTopology(**fields)

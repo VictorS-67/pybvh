@@ -62,7 +62,12 @@ class FkTopology(_FkTopologyFields):
         ``-1`` for end sites — which is also what marks a node as an end
         site; there is no separate flag.
     euler_orders : list of str
-        Per-joint Euler order, e.g. ``['ZYX', ...]``, length *J*.
+        Per-joint Euler order, e.g. ``['ZYX', ...]``, length *J*. A static
+        root (``CHANNELS 0``) declares no rotation channel and has order
+        ``''``: forward kinematics reads its rotation as the identity, and
+        refuses a non-zero angle for it (see
+        :func:`~pybvh.rotations.euler_to_rotmat`). Only the root, at joint
+        column 0, may have ``''``.
 
         **Indexed by joint column, not by node.** ``euler_orders[j]`` is
         the order of the node whose ``joint_idx == j``. The two coincide
@@ -78,16 +83,18 @@ class FkTopology(_FkTopologyFields):
         root (placed by ``root_pos``), an end site, and a joint that only
         rotates. A translating joint (one whose ``CHANNELS`` line declares
         position channels) is placed at its row of ``joint_translations``
-        in each frame instead of its offset. Optional in the constructor:
-        omitted, every node reads its offset, as in a clip whose joints
-        other than the root only rotate.
+        in each frame instead of its offset. All ``-1`` on a clip whose
+        joints other than the root only rotate. Required: without it, a
+        translating joint would be placed at its offset, wrong with no
+        error.
 
     Raises
     ------
     ValueError
         If the arrays disagree on ``N``, ``offsets`` is not ``(N, 3)``, an
-        Euler order is not a permutation of ``'XYZ'``, or any of the
-        following invariants is broken:
+        Euler order is neither a permutation of ``'XYZ'`` nor ``''`` on
+        the root at joint column 0, or any of the following invariants is
+        broken:
 
         - **Parents precede children** (``parent_idx[i] < i``). The FK
           loop fills node ``i`` while reading its parent's already-written
@@ -135,7 +142,7 @@ class FkTopology(_FkTopologyFields):
         parent_idx: npt.ArrayLike,
         joint_idx: npt.ArrayLike,
         euler_orders: list[str],
-        translation_idx: npt.ArrayLike | None = None,
+        translation_idx: npt.ArrayLike,
     ) -> FkTopology:
         """Build a topology from its five fields, validated.
 
@@ -151,10 +158,7 @@ class FkTopology(_FkTopologyFields):
         parent_arr = np.asarray(parent_idx, dtype=np.intp)
         joint_arr = np.asarray(joint_idx, dtype=np.intp)
         orders = [str(order) for order in euler_orders]
-        if translation_idx is None:
-            translation_arr = np.full(offsets_arr.shape[:1], -1, dtype=np.intp)
-        else:
-            translation_arr = np.asarray(translation_idx, dtype=np.intp)
+        translation_arr = np.asarray(translation_idx, dtype=np.intp)
         _validate_fk_topology(offsets_arr, parent_arr, joint_arr, orders, translation_arr)
         return super().__new__(cls, offsets_arr, parent_arr, joint_arr, orders, translation_arr)
 
@@ -190,8 +194,8 @@ class FkTopology(_FkTopologyFields):
         FkTopology
             ``joint_idx`` counts up in node order, so ``euler_orders``
             matches :attr:`Bvh.euler_orders` element for element: a
-            static root (``CHANNELS 0``), which never rotates, reads
-            ``'XYZ'``.
+            static root (``CHANNELS 0``), which declares no rotation
+            channel, reads ``''``.
             ``translation_idx`` counts up in node order over the
             translating joints, the order of :attr:`Bvh.joint_translations`'
             columns.
@@ -329,7 +333,17 @@ def _validate_fk_topology(
             f"euler_orders has {len(euler_orders)} entries but joint_idx marks {num_joints} joints."
         )
     for j, order in enumerate(euler_orders):
-        if sorted(order) != ["X", "Y", "Z"]:
+        if order == "":
+            # A static root: the root at column 0 declares no rotation
+            # channel, and FK reads its rotation as the identity.
+            if j != 0 or joint_idx[0] != 0:
+                raise ValueError(
+                    f"euler_orders[{j}] = '' gives joint column {j} no rotation "
+                    f"channel, but only the root (node 0), at joint column 0, "
+                    f"may have none: a static root (CHANNELS 0). The root reads "
+                    f"column {int(joint_idx[0])}."
+                )
+        elif sorted(order) != ["X", "Y", "Z"]:
             raise ValueError(f"euler_orders[{j}] = {order!r} is not a permutation of 'XYZ'.")
 
     if np.any(translation_idx < -1):

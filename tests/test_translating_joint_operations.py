@@ -15,7 +15,7 @@ import pickle
 import numpy as np
 import pytest
 
-from pybvh import Bvh, nodes_from_table
+from pybvh import Bvh, nodes_from_table, transforms
 
 FRAMES = 6
 
@@ -226,3 +226,24 @@ class TestCopyOnANewSkeleton:
         table[1]["offset"] = [0, 100, 0]
         edited = _clip([0.0, 3]).copy(nodes=table)
         assert edited.joint_translations.tolist() == [[[0.0, 90, 0]], [[3.0, 90, 0]]]
+
+
+ROOT_AND_ROTATION_EDITS = {
+    "change_euler_order": lambda clip: clip.change_euler_order("XYZ"),
+    "add_rotation_noise": lambda clip: transforms.add_rotation_noise(
+        clip, 0.1, rng=np.random.default_rng(0)
+    ),
+    "translate_root": lambda clip: transforms.translate_root(clip, [1.0, 2, 3]),
+    "add_position_noise": lambda clip: transforms.add_position_noise(
+        clip, 1.0, rng=np.random.default_rng(0)
+    ),
+    "rotate_vertical": lambda clip: transforms.rotate_vertical(clip, 90, degrees=True),
+}
+
+
+@pytest.mark.parametrize("edit", ROOT_AND_ROTATION_EDITS.values(), ids=ROOT_AND_ROTATION_EDITS)
+def test_rotation_and_root_edits_leave_the_translations_unchanged(edit):
+    # The translations are each joint's position in its parent's frame:
+    # a rotation, or a move of the root, does not change them.
+    edited = edit(_clip([0.0, 3]))
+    assert edited.joint_translations.tolist() == [[[0.0, 90, 0]], [[3.0, 90, 0]]]

@@ -188,7 +188,7 @@ twist = rotations.se3_log(relative)  # (F, 6) = [ω, v]
 elbow_angle = np.degrees(np.linalg.norm(twist[:, :3], axis=-1))
 
 # how far each frame's root orientation has rotated from the first frame
-_, rotmats = bvh.to_rotmat()  # (F, J, 3, 3)
+rotmats = bvh.to_rotmat()  # (F, J, 3, 3)
 root_R = rotmats[:, 0]
 geo = np.degrees(
     rotations.rotation_geodesic_distance(np.broadcast_to(root_R[0], root_R.shape), root_R)

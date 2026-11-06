@@ -237,16 +237,16 @@ def to_feature_array(
     if representation == "euler":
         rot = bvh.joint_angles.reshape(bvh.frame_count, -1)
     elif representation == "6d":
-        _, rot_raw = bvh.to_6d()
+        rot_raw = bvh.to_6d()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     elif representation == "quat":
-        _, rot_raw = bvh.to_quat()
+        rot_raw = bvh.to_quat()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     elif representation == "axisangle":
-        _, rot_raw = bvh.to_axisangle()
+        rot_raw = bvh.to_axisangle()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     else:  # rotmat
-        _, rot_raw = bvh.to_rotmat()
+        rot_raw = bvh.to_rotmat()
         rot = rot_raw.reshape(bvh.frame_count, -1)
     parts.append(rot)
 

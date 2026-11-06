@@ -54,8 +54,8 @@ bvh.joint_names       # ['Hips', 'Spine', ...] (excludes end sites)
 coords = bvh.node_positions()  # (F, N, 3)
 
 # Convert to other rotation representations
-root_pos, quats = bvh.to_quat()          # (F, 3), (F, J, 4)
-root_pos, rot6d = bvh.to_6d()            # (F, 3), (F, J, 6)
+quats = bvh.to_quat()          # (F, J, 4)
+rot6d = bvh.to_6d()            # (F, J, 6)
 
 # Write back to file
 bvh.write("output.bvh")

@@ -387,7 +387,7 @@ class TestStencilPadMatrix:
         """central+edge interior uses R_{i-1}^T @ R_{i+1} divided by 2."""
         import pybvh.rotations as rot
 
-        _, R = bvh_example.to_rotmat()
+        R = bvh_example.to_rotmat()
         i = 10
         R_rel = np.einsum("...ji,...jk->...ik", R[i - 1], R[i + 1])
         expected = rot.rotmat_to_axisangle(R_rel) / 2.0

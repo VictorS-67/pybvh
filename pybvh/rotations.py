@@ -689,7 +689,7 @@ def quat_unwrap(
 
     Examples
     --------
-    >>> _, quats = bvh.to_quat()             # (F, J, 4), canonical w >= 0
+    >>> quats = bvh.to_quat()                # (F, J, 4), canonical w >= 0
     >>> quats = rotations.quat_unwrap(quats)  # continuous along frames
 
     See Also

@@ -3380,8 +3380,10 @@ class Bvh:
             New rotation order, e.g. 'XYZ' or ['X', 'Y', 'Z'].
         joint : str, BvhNode, or None
             The one joint to change, by its name or as the node itself (see
-            :meth:`index`, ``space='joint'``). If None (default), all joints
-            are changed to the new order.
+            :meth:`index`, ``space='joint'``). If None (default), every joint
+            that declares rotation channels is changed to the new order: a
+            static root (``CHANNELS 0``) declares none, keeps its order
+            ``''`` and its zero rotation.
         inplace : bool
             If True, modify self and return None.
             If False, return a modified copy while leaving self unchanged.
@@ -3398,9 +3400,9 @@ class Bvh:
         TypeError
             If ``joint`` is neither a name, a ``BvhNode`` nor None.
         ValueError
-            If :meth:`index` refuses ``joint`` in joint space, or if the
-            joints to change include a static root (``CHANNELS 0``),
-            which declares no rotation channel.
+            If :meth:`index` refuses ``joint`` in joint space, or if
+            ``joint`` names a static root (``CHANNELS 0``), which declares
+            no rotation channel.
         """
         if isinstance(order, str):
             new_order = list(order.upper())
@@ -3408,23 +3410,32 @@ class Bvh:
             new_order = [c.upper() for c in order]
 
         if joint is None:
-            joint_indices = list(range(self.joint_count))
+            joint_indices = self._rotating_joint_columns()
         else:
             joint_indices = [self.index(joint, space="joint")]
-        if 0 in joint_indices:
-            self._refuse_static_root("change_euler_order gives the root an Euler order")
+            if joint_indices == [0]:
+                self._refuse_static_root("change_euler_order gives the root an Euler order")
         return self._change_euler_orders(new_order, joint_indices, inplace)
+
+    def _rotating_joint_columns(self) -> list[int]:
+        """The joint columns whose joints declare rotation channels: every
+        column but a static root's (``CHANNELS 0``), which has no order to
+        change.
+
+        The one rule of :meth:`change_euler_order` with no joint and of
+        :meth:`_in_euler_order`.
+        """
+        return [k for k, order in enumerate(self.euler_orders) if order]
 
     def _in_euler_order(self, order: str) -> Bvh | None:
         """A copy with each joint that declares an Euler order in *order*,
         or ``None`` when each already declares *order*.
 
-        ``harmonize`` calls it. A static root declares no rotation channel,
-        so it has no order to change, and is left out, where
-        :meth:`change_euler_order` refuses it.
+        ``harmonize`` calls it. The joints are those
+        :meth:`change_euler_order` changes with no joint: a static root
+        keeps its order ``''``.
         """
-        joints = [node for node in self.nodes if _is_joint(node)]
-        rotating = [k for k, joint in enumerate(joints) if joint.rot_channels]
+        rotating = self._rotating_joint_columns()
         orders = self.euler_orders
         if all(orders[k] == order for k in rotating):
             return None

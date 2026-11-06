@@ -140,9 +140,11 @@ class TestRefusals:
         clip.joint_angles = angles
         np.testing.assert_array_equal(clip.joint_angles, angles)
 
-    def test_change_euler_order(self, clip):
+    @pytest.mark.parametrize("joint", ["__0", 0])
+    def test_change_euler_order_of_the_root(self, clip, joint):
+        selector = clip.nodes[0] if joint == 0 else joint
         with pytest.raises(ValueError, match=_STATIC):
-            clip.change_euler_order("XYZ")
+            clip.change_euler_order("XYZ", joint=selector)
 
     def test_change_euler_order_of_another_joint(self, clip):
         changed = clip.change_euler_order("XYZ", joint="Prop")
@@ -252,6 +254,23 @@ class TestEulerOrder:
     def test_the_clip_and_its_topology_read_the_empty_order(self, clip):
         assert clip.euler_orders == ["", "ZYX", "ZYX"]
         assert clip.fk_topology.euler_orders == ["", "ZYX", "ZYX"]
+
+    def test_change_euler_order_changes_every_other_joint(self, clip):
+        changed = clip.change_euler_order("XYZ")
+        assert changed.euler_orders == ["", "XYZ", "XYZ"]
+        assert changed.root.is_static()
+        np.testing.assert_array_equal(changed.joint_angles[:, 0], np.zeros((2, 3)))
+        np.testing.assert_allclose(changed.node_positions(), clip.node_positions(), atol=1e-9)
+
+    def test_change_euler_order_in_place(self, clip):
+        positions = clip.node_positions()
+        assert clip.change_euler_order("XZY", inplace=True) is None
+        assert clip.euler_orders == ["", "XZY", "XZY"]
+        np.testing.assert_allclose(clip.node_positions(), positions, atol=1e-9)
+
+    def test_harmonize_gives_the_same_clip(self, clip):
+        (harmonized,) = harmonize([clip], target_euler_order="XYZ", verbose=False)
+        assert harmonized == clip.change_euler_order("XYZ")
 
     def test_the_rotation_conversions_read_the_identity(self, clip):
         identity = np.broadcast_to(np.eye(3), (2, 3, 3))

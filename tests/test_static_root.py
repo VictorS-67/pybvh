@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pybvh import read_bvh_file
+from pybvh import Bvh, nodes_from_table, read_bvh_file
 
 # A static root 2 above the origin; under it, the hips translate and turn,
 # and a prop only rotates. Frame 1 moves the hips to 10 90 5 from the root
@@ -130,3 +130,82 @@ class TestWriting:
         )
         with pytest.raises(ValueError, match="channels of the joint Prop"):
             read_bvh_file(path)
+
+
+_STATIC = "root '__0' is static"
+
+
+@pytest.fixture
+def clip(tmp_path):
+    return read_bvh_file(_blender_style_file(tmp_path))
+
+
+class TestRefusals:
+    """The operations and setters that would move or turn the static root."""
+
+    def test_translate_root(self, clip):
+        with pytest.raises(ValueError, match=_STATIC):
+            clip.translate_root([1, 0, 0])
+
+    def test_add_position_noise(self, clip):
+        with pytest.raises(ValueError, match=_STATIC):
+            clip.add_position_noise(1.0, rng=np.random.default_rng(0))
+
+    def test_rotate_vertical(self, clip):
+        with pytest.raises(ValueError, match=_STATIC):
+            clip.rotate_vertical(np.pi / 2)
+
+    def test_the_root_pos_setter(self, clip):
+        with pytest.raises(ValueError, match=_STATIC):
+            clip.root_pos = np.zeros((2, 3))
+
+    def test_the_joint_angles_setter_refuses_a_rotation_of_the_root(self, clip):
+        angles = clip.joint_angles.copy()
+        angles[1, 0, 2] = 0.1
+        with pytest.raises(ValueError, match=_STATIC):
+            clip.joint_angles = angles
+
+    def test_the_joint_angles_setter_takes_the_other_joints(self, clip):
+        angles = clip.joint_angles.copy()
+        angles[1, 2] = [0.1, 0.2, 0.3]
+        clip.joint_angles = angles
+        np.testing.assert_array_equal(clip.joint_angles, angles)
+
+    def test_change_euler_order(self, clip):
+        with pytest.raises(ValueError, match=_STATIC):
+            clip.change_euler_order("XYZ")
+
+    def test_change_euler_order_of_another_joint(self, clip):
+        changed = clip.change_euler_order("XYZ", joint="Prop")
+        assert changed.nodes[3].rot_channels == ("X", "Y", "Z")
+        assert changed.root.is_static()
+
+    def test_the_constructor_refuses_a_root_away_from_its_offset(self, clip):
+        with pytest.raises(ValueError, match=_STATIC):
+            Bvh(
+                nodes=nodes_from_table(clip.to_node_table()),
+                root_pos=np.zeros((2, 3)),
+                joint_angles=clip.joint_angles,
+                joint_translations=clip.joint_translations,
+            )
+
+    def test_the_constructor_refuses_a_rotation_of_the_root(self, clip):
+        angles = clip.joint_angles.copy()
+        angles[0, 0, 1] = 0.1
+        with pytest.raises(ValueError, match=_STATIC):
+            Bvh(
+                nodes=nodes_from_table(clip.to_node_table()),
+                root_pos=clip.root_pos,
+                joint_angles=angles,
+                joint_translations=clip.joint_translations,
+            )
+
+
+class TestRotationNoise:
+    def test_the_root_row_stays_zero(self, clip):
+        noised = clip.add_rotation_noise(0.1, rng=np.random.default_rng(0))
+        np.testing.assert_array_equal(noised.joint_angles[:, 0], np.zeros((2, 3)))
+
+    def test_the_other_joints_get_noise(self, clip):
+        noised = clip.add_rotation_noise(0.1, rng=np.random.default_rng(0))
+        assert np.all(noised.joint_angles[:, 1:] != clip.joint_angles[:, 1:])

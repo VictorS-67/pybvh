@@ -75,7 +75,14 @@ def translate_root(
     Returns
     -------
     Bvh or None
+
+    Raises
+    ------
+    ValueError
+        If ``offset`` is not of shape ``(3,)``, or if the root is static
+        (``CHANNELS 0``): it stays at its offset.
     """
+    bvh._refuse_static_root("translate_root moves the root")
     off = np.asarray(offset, dtype=np.float64)
     if off.shape != (3,):
         raise ValueError(f"offset must have shape (3,), got {off.shape}")
@@ -175,6 +182,8 @@ def add_rotation_noise(
     Returns
     -------
     Bvh or None
+        A static root's row (``CHANNELS 0``) gets no noise: the root
+        does not rotate.
 
     See Also
     --------
@@ -188,7 +197,11 @@ def add_rotation_noise(
 
     target = bvh if inplace else bvh.copy()
     if sigma_rad > 0:
-        noised = target.joint_angles + rng.normal(0.0, sigma_rad, target.joint_angles.shape)
+        noise = rng.normal(0.0, sigma_rad, target.joint_angles.shape)
+        if target.root.is_static():
+            # A static root does not rotate; the writer would drop its noise.
+            noise[:, 0] = 0.0
+        noised = target.joint_angles + noise
         if wrap:
             noised = (noised + np.pi) % (2.0 * np.pi) - np.pi
         target._set_motion(joint_angles=noised)
@@ -239,10 +252,17 @@ def add_position_noise(
     -------
     Bvh or None
 
+    Raises
+    ------
+    ValueError
+        If ``sigma`` is negative, or if the root is static
+        (``CHANNELS 0``): it stays at its offset.
+
     See Also
     --------
     add_rotation_noise : The joint-angle counterpart.
     """
+    bvh._refuse_static_root("add_position_noise moves the root")
     if sigma < 0:
         raise ValueError(f"sigma must be >= 0, got {sigma}")
     if rng is None:
@@ -616,6 +636,12 @@ def rotate_vertical(
     -------
     Bvh or None
 
+    Raises
+    ------
+    ValueError
+        If the root is static (``CHANNELS 0``): it does not move or
+        rotate.
+
     Notes
     -----
     The pivot moves only the root trajectory — the root's world
@@ -632,6 +658,7 @@ def rotate_vertical(
     which distribution to draw from is a pipeline's decision, not a
     motion's.
     """
+    bvh._refuse_static_root("rotate_vertical turns the root")
     target = bvh if inplace else bvh.copy()
 
     # Determine up axis — use the Bvh's world_up property so manual

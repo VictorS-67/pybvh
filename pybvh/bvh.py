@@ -520,6 +520,7 @@ class Bvh:
             setattr(self, entry.attribute, entry.empty() if value is None else entry.checked(value))
         if not missing:
             self._check_motion_fits_skeleton()
+            self._check_static_root_motion()
 
         if world_up != "auto":
             self._world_up_override = _validate_axis_string(world_up)
@@ -559,6 +560,29 @@ class Bvh:
                 )
         for entry in self._MOTION_ARRAYS:
             _check_array_fits_skeleton(entry, motion[entry.name], nodes)
+
+    def _check_static_root_motion(self) -> None:
+        """Raise ``ValueError`` unless a static root stays at its offset with no rotation.
+
+        A static root (``CHANNELS 0``) has no motion of its own: its
+        ``root_pos`` is its offset and its row of ``joint_angles`` is
+        zero, in every frame, exactly. The constructor runs it on the
+        motion it is given.
+        """
+        if not self.root.is_static():
+            return
+        if np.any(self._root_pos != self.root.offset):
+            self._refuse_static_root("root_pos places the root away from its offset")
+        if np.any(self._joint_angles[:, :1] != 0):
+            self._refuse_static_root("joint_angles rotates the root")
+
+    def _refuse_static_root(self, what: str) -> None:
+        """Raise ``ValueError`` if the root is static, *what* saying what the caller does to it."""
+        if self.root.is_static():
+            raise ValueError(
+                f"{what}, but root {self.root.name!r} is static (CHANNELS 0): it "
+                f"stays at its offset with no rotation in every frame."
+            )
 
     def _motion(self) -> dict[str, npt.NDArray[np.float64]]:
         """Each motion array the clip holds, by name, in list order: the
@@ -666,6 +690,10 @@ class Bvh:
         replace the whole array, assign via the setter
         (``bvh.root_pos = new_arr``); for in-place edits, copy → mutate
         → assign back.
+
+        On a static root (``CHANNELS 0``, see
+        :meth:`~pybvh.bvhnode.BvhRoot.is_static`) it holds the root's
+        offset in every frame, and the setter raises ``ValueError``.
         """
         view = self._root_pos.view()
         view.flags.writeable = False
@@ -673,6 +701,7 @@ class Bvh:
 
     @root_pos.setter
     def root_pos(self, value: npt.ArrayLike) -> None:
+        self._refuse_static_root("Setting root_pos moves the root")
         self._root_pos = _ROOT_POS.checked(value)
         self._derived.user_replaced_motion()
 
@@ -689,6 +718,11 @@ class Bvh:
         Read-only view protects against the common footgun of
         ``angles = b.joint_angles; angles -= angles.mean(axis=0)``
         silently corrupting the Bvh.
+
+        On a static root (``CHANNELS 0``, see
+        :meth:`~pybvh.bvhnode.BvhRoot.is_static`) the root's row is zero
+        in every frame, and the setter raises ``ValueError`` on an array
+        whose row 0 is not.
         """
         view = self._joint_angles.view()
         view.flags.writeable = False
@@ -696,7 +730,10 @@ class Bvh:
 
     @joint_angles.setter
     def joint_angles(self, value: npt.ArrayLike) -> None:
-        self._joint_angles = _JOINT_ANGLES.checked(value)
+        checked = _JOINT_ANGLES.checked(value)
+        if np.any(checked[:, :1] != 0):
+            self._refuse_static_root("These joint_angles rotate the root")
+        self._joint_angles = checked
         self._derived.user_replaced_motion()
 
     @property
@@ -3074,7 +3111,9 @@ class Bvh:
         TypeError
             If ``joint`` is neither a name, a ``BvhNode`` nor None.
         ValueError
-            If :meth:`index` refuses ``joint`` in joint space.
+            If :meth:`index` refuses ``joint`` in joint space, or if the
+            joints to change include a static root (``CHANNELS 0``),
+            which declares no rotation channel.
         """
         if isinstance(order, str):
             new_order = list(order.upper())
@@ -3085,6 +3124,8 @@ class Bvh:
             joint_indices = list(range(self.joint_count))
         else:
             joint_indices = [self.index(joint, space="joint")]
+        if 0 in joint_indices:
+            self._refuse_static_root("change_euler_order gives the root an Euler order")
 
         target = self if inplace else self.copy()
         # The new skeleton is built, and the order checked, before any

@@ -14,7 +14,7 @@ The rotation-only control and rigid six-channel control have identical body worl
 
 `bvh_synthetic_lying_down.bvh` is a character lying on its back for the whole take, knees bent and feet in the air, 120 frames at 30 fps. Its skeleton is the hierarchy of `../bvh_test1.bvh`, a recording by pybvh's author under the same MIT licence; its motion is analytic and written in `scripts/generate_lying_down_bvh.py`. The manifest lists it under `other_files`, without a hash; `tests/test_synthetic_corpus.py` checks that both scripts reproduce the corpus byte for byte.
 
-pybvh's reader rejects position channels on joints other than the root, so the ten files that declare them raise on reading; they document and exercise that convention. The other three read: the two rotation-only files and the lying-down clip. The props companion exposes root-based `world_up` choosing `+z` although the body's head-minus-hips direction is clearly `+y`. `tests/test_synthetic_corpus.py` pins which files read and the error each other file raises.
+pybvh reads every file here, the ten that declare position channels on joints other than the root included, and writes each back with the same declarations. `tests/test_synthetic_corpus.py` checks the round trip, and checks that forward kinematics gives the positions the generator intends. The world-up guess reads the root: on both props files it chooses `+z` although the body's head-minus-hips direction is clearly `+y`.
 
 | file | convention illustrated | shape after | six-channel non-root joints | pelvis |
 |---|---|---|---|---|

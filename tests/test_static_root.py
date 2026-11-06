@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pybvh import Bvh, nodes_from_table, read_bvh_file
+from pybvh import Bvh, harmonize, nodes_from_table, read_bvh_file
 
 # A static root 2 above the origin; under it, the hips translate and turn,
 # and a prop only rotates. Frame 1 moves the hips to 10 90 5 from the root
@@ -245,3 +245,33 @@ class TestReorientation:
         before = clip.node_positions()
         after = np.stack([before[..., 0], -before[..., 2], before[..., 1]], axis=-1)
         np.testing.assert_allclose(turned.node_positions(), after, atol=1e-9)
+
+
+class TestHarmonize:
+    """``harmonize(target_euler_order=...)`` re-expresses the rotating joints.
+
+    A static root declares no rotation channel, so it has no order to
+    change: it stays static, and its row of ``joint_angles`` stays zero.
+    """
+
+    def test_the_other_joints_take_the_target_order(self, clip):
+        (harmonized,), report = harmonize(
+            [clip], target_euler_order="XYZ", verbose=False, return_report=True
+        )
+        assert harmonized.root.is_static()
+        assert [node.rot_channels for node in harmonized.nodes if not node.is_end_site()] == [
+            (),
+            ("X", "Y", "Z"),
+            ("X", "Y", "Z"),
+        ]
+        np.testing.assert_allclose(harmonized.node_positions(), clip.node_positions(), atol=1e-9)
+        assert report.applied_stages[0] == {"euler_order": "→XYZ"}
+
+    def test_a_clip_whose_joints_have_the_target_order_is_left_alone(self, clip):
+        # The joints rotate in ZYX; the static root's 'XYZ' in euler_orders
+        # is no declared order, so it asks for no change.
+        (harmonized,), report = harmonize(
+            [clip], target_euler_order="ZYX", verbose=False, return_report=True
+        )
+        assert harmonized == clip
+        assert report.applied_stages[0] == {}

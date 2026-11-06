@@ -10,7 +10,7 @@ Through v0.9.0 pybvh refused a BVH file whose joints other than the root declare
 
 **3. Which joints translate is a skeleton fact.** The `CHANNELS` lines fix it, as they fix the Euler orders: `BvhJoint.pos_channels` is `('X', 'Y', 'Z')` on a translating joint and `()` on a joint that only rotates. `FkTopology` gains a fifth field, `translation_idx`: per node, its column in `joint_translations`, or −1 to use its `OFFSET`. `matches_channels` compares the declaration, never the values.
 
-**4. A joint declares 3 rotation channels, or 3 position + 3 rotation channels.** Anything else is refused, and the error names the joint. Position channels are read in any axis order and stored, and written, as `Xposition Yposition Zposition` before the rotation channels, the rule of the root's position order (#179). Position tokens interleaved with rotation tokens are read as "translate first, then rotate".
+**4. A joint other than the root declares 3 rotation channels, or 3 position + 3 rotation channels.** Anything else is refused, and the error names the joint. The root declares 3 position + 3 rotation channels, or none (`CHANNELS 0`, a static root, which stays at its `OFFSET` with no rotation; #186 also implements this). Position channels are read in any axis order and stored, and written, as `Xposition Yposition Zposition` before the rotation channels, the rule of the root's position order (#179). Position tokens interleaved with rotation tokens are read as "translate first, then rotate".
 
 ## Why
 

@@ -55,14 +55,15 @@ from ._orientation import (
 
 # Re-exported: pybvh.bvh has long served every node class, end sites included.
 from .bvhnode import BvhEndSite as BvhEndSite
+from .bvhnode import BvhJoint as BvhJoint
 from .bvhnode import (
-    BvhJoint,
     BvhNode,
     BvhRoot,
     NodeSelector,
     _euler_order,
     _is_joint,
     _is_translating_joint,
+    _pos_channels,
 )
 from .node_tree import (
     _OFFSET_ATOL,
@@ -148,12 +149,13 @@ def _euler_blocks(nodes: Sequence[BvhNode]) -> list[_EulerBlock]:
     Per joint in node order, its position block if it declares position
     channels (the root's from ``root_pos``, another joint's from its row
     of ``joint_translations``), then its rotation block, from its row of
-    ``joint_angles``. The layout is that of a frame line in a file
-    (``io._frame_columns``): a clip whose joints other than the root only
-    rotate gets the root's position block then each joint's rotation
-    block, and a static root, which declares no channels, gets none.
+    ``joint_angles``. The layout is that of a frame line in a file, which
+    ``io._frame_columns`` reads from these blocks: a clip whose joints
+    other than the root only rotate gets the root's position block then
+    each joint's rotation block, and a static root, which declares no
+    channels, gets none.
     """
-    joints = [node for node in nodes if isinstance(node, BvhJoint)]
+    joints = [node for node in nodes if _is_joint(node)]
     root = joints[0]
     if not isinstance(root, BvhRoot):
         raise ValueError(f"nodes[0] must be the BvhRoot, got {type(root).__name__}")
@@ -161,13 +163,11 @@ def _euler_blocks(nodes: Sequence[BvhNode]) -> list[_EulerBlock]:
     blocks: list[_EulerBlock] = []
     translating = 0
     for row, (label, joint) in enumerate(zip(labels, joints, strict=True)):
-        if joint.is_root() and joint.pos_channels:
-            blocks.append(_EulerBlock(label, tuple(joint.pos_channels), "pos", "root_pos", 0))
+        if joint.is_root() and _pos_channels(joint):
+            blocks.append(_EulerBlock(label, _pos_channels(joint), "pos", "root_pos", 0))
         elif _is_translating_joint(joint):
             blocks.append(
-                _EulerBlock(
-                    label, tuple(joint.pos_channels), "pos", "joint_translations", translating
-                )
+                _EulerBlock(label, _pos_channels(joint), "pos", "joint_translations", translating)
             )
             translating += 1
         if joint.rot_channels:
@@ -2473,6 +2473,15 @@ class Bvh:
             position is subtracted in the two axes perpendicular to
             :attr:`world_up`; the up coordinate is untouched, so the
             motion starts above the origin at its original height.
+
+            The three modes read the root. On a root that stays in place
+            with the body below it (a static root, ``CHANNELS 0``, or a
+            reference node whose channels do not change), they centre
+            on the reference node, not on the body: under
+            ``"skeleton"`` the body still travels. The body's travel is
+            then the world position of its hips node,
+            ``bvh.node_positions()[:, bvh.node_index["Hips"]]`` for a
+            hips node named ``Hips``.
         """
         _check_centered(centered)
         if frame is None:
@@ -3264,7 +3273,17 @@ class Bvh:
             joint_indices = [self.index(joint, space="joint")]
         if 0 in joint_indices:
             self._refuse_static_root("change_euler_order gives the root an Euler order")
+        return self._change_euler_orders(new_order, joint_indices, inplace)
 
+    def _change_euler_orders(
+        self, new_order: list[str], joint_indices: list[int], inplace: bool
+    ) -> Bvh | None:
+        """Re-express the joints at ``joint_indices`` in ``new_order``.
+
+        :meth:`change_euler_order` after its checks; ``harmonize`` calls it
+        with the joints that declare rotation channels, which leaves a
+        static root out.
+        """
         target = self if inplace else self.copy()
         # The new skeleton is built, and the order checked, before any
         # angle is converted.

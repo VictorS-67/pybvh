@@ -396,6 +396,9 @@ def frames_to_node_positions(
         position is subtracted in the two axes other than ``world_up``
         only, so the motion starts above the origin at its original
         height.
+        The modes read the root: on a root that stays in place with the
+        body below it, they centre on the reference node, not on the
+        body (see :meth:`Bvh.node_positions`).
     world_up : str or None, optional
         Signed world-up axis string (e.g. ``'+y'``) — only read by
         ``centered="first"``, to decide which coordinate is left

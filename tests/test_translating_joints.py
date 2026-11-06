@@ -127,6 +127,15 @@ class TestStorage:
         np.testing.assert_allclose(clip.node_positions()[:, 3] - before[:, 3], [[0, 4, 0]] * 2)
 
 
+class TestRepr:
+    def test_a_translating_joint_shows_its_position_channels(self):
+        nodes = nodes_from_table(_table(spine_translates=False))
+        assert "pos_channels = ('X', 'Y', 'Z')" in repr(nodes[0])
+        assert "pos_channels = ('X', 'Y', 'Z')" in repr(nodes[1])
+        assert "pos_channels" not in repr(nodes[2])
+        assert repr(nodes[0]).startswith("BvhRoot(name = Reference, offset")
+
+
 class TestForwardKinematics:
     def test_positions_follow_the_translations(self):
         # Frame 1: the hips travel to (10, 92, 5) and turn 90 degrees about

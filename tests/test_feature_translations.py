@@ -162,7 +162,7 @@ class TestBatch:
         arrays = batch_to_numpy(
             [clip, reordered], representation="6d", include_joint_translations=True
         )
-        assert len(arrays) == 2
+        np.testing.assert_allclose(arrays[0], arrays[1], atol=1e-9)
 
 
 @pytest.mark.filterwarnings("ignore:Rest pose suggests world up")

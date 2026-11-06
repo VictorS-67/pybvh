@@ -2473,6 +2473,15 @@ class Bvh:
             position is subtracted in the two axes perpendicular to
             :attr:`world_up`; the up coordinate is untouched, so the
             motion starts above the origin at its original height.
+
+            The three modes read the root. On a root that stays in place
+            with the body below it (a static root, ``CHANNELS 0``, or a
+            reference node whose channels do not change), they centre
+            on the reference node, not on the body: under
+            ``"skeleton"`` the body still travels. The body's travel is
+            then the world position of its hips node,
+            ``bvh.node_positions()[:, bvh.node_index["Hips"]]`` for a
+            hips node named ``Hips``.
         """
         _check_centered(centered)
         if frame is None:

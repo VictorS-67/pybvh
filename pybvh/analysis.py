@@ -592,6 +592,13 @@ def root_trajectory(
     it); the heading is unwrapped over the readable frames only, so no
     other sample is affected. The ground columns are always finite.
 
+    The trajectory is the root's. On a root that stays in place with the
+    body below it (a static root, ``CHANNELS 0``, or a reference node
+    whose channels do not change), it describes the reference node, not
+    the body: the ground position stays still and the heading does not
+    turn. The body's travel is then the world position of its hips node
+    (see :meth:`Bvh.node_positions <pybvh.bvh.Bvh.node_positions>`).
+
     Parameters
     ----------
     bvh : Bvh
@@ -2614,7 +2621,10 @@ def walking_pace(bvh: Bvh) -> float:
     *approximates* ``stride_length × cadence / 2`` (exact for straight,
     steady, symmetric gait; it diverges on curved or irregular walking
     because the root path and the foot landings measure different
-    things).
+    things). On a root that stays in place with the body below it (a
+    static root, or a reference node whose channels do not change), the
+    root path is the reference node's, so the pace is zero; the body's
+    travel is then the world position of its hips node.
 
     Parameters
     ----------
@@ -2791,6 +2801,13 @@ def gait_parameters(
       between same-foot landings, so it *includes* lateral step width
       while ``step_length`` excludes it — the two are not the 2:1 pair a
       clinical report would use on curved or wide-stance gait.
+    - ``walking_pace`` and the progression chord of ``step_length`` read
+      the **root**. On a root that stays in place with the body below it
+      (a static root, or a reference node whose channels do not change),
+      they describe the reference node, not the body: the pace is zero
+      and ``step_length`` is ``nan``, as on a clip with no net travel.
+      The body's travel is then the world position of its hips node. The
+      foot-measured fields do not read the root.
 
     Parameters
     ----------

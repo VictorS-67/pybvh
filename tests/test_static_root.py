@@ -14,42 +14,11 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from six_channel_fixtures import blender_style_text
 
 from pybvh import Bvh, harmonize, nodes_from_table, read_bvh_file
 
-# A static root 2 above the origin; under it, the hips translate and turn,
-# and a prop only rotates. Frame 1 moves the hips to 10 90 5 from the root
-# and turns them 90 degrees about Z, and turns the prop 90 degrees about X.
-_BLENDER_STYLE = """HIERARCHY
-ROOT __0
-{
-\tOFFSET 0 2 0
-\tCHANNELS 0
-\tJOINT Hips
-\t{
-\t\tOFFSET 0 90 0
-\t\tCHANNELS 6 Xposition Yposition Zposition Zrotation Yrotation Xrotation
-\t\tEnd Site
-\t\t{
-\t\t\tOFFSET 0 10 0
-\t\t}
-\t}
-\tJOINT Prop
-\t{
-\t\tOFFSET 30 0 0
-\t\tCHANNELS 3 Zrotation Yrotation Xrotation
-\t\tEnd Site
-\t\t{
-\t\t\tOFFSET 0 4 0
-\t\t}
-\t}
-}
-MOTION
-Frames: 2
-Frame Time: 0.1
-0 90 0 0 0 0 0 0 0
-10 90 5 90 0 0 0 0 90
-"""
+_BLENDER_STYLE = blender_style_text(2)
 
 
 def _blender_style_file(tmp_path) -> Path:

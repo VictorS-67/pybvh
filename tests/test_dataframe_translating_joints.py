@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from six_channel_fixtures import reference_hips_table
 
 from pybvh import Bvh, df_to_bvh, nodes_from_table, read_bvh_file
 
@@ -20,19 +21,8 @@ BVH_DATA = Path(__file__).parent.parent / "bvh_data"
 
 
 def _translating_table() -> list[dict]:
-    """Reference root -> Hips (translates) -> Spine (rotates) -> end site."""
-    return [
-        {"name": "Reference", "parent": None, "offset": [0, 0, 0], "rot_channels": "ZYX"},
-        {
-            "name": "Hips",
-            "parent": 0,
-            "offset": [0, 90, 0],
-            "pos_channels": "XYZ",
-            "rot_channels": "ZXY",
-        },
-        {"name": "Spine", "parent": 1, "offset": [0, 10, 0], "rot_channels": "XYZ"},
-        {"parent": 2, "offset": [0, 5, 0]},
-    ]
+    """Hips' and Spine's Euler orders differ from the root's."""
+    return reference_hips_table(hips_order="ZXY", spine_order="XYZ")
 
 
 def _translating_clip(frames: int = 3) -> Bvh:

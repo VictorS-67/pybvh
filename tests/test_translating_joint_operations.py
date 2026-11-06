@@ -14,6 +14,7 @@ import pickle
 
 import numpy as np
 import pytest
+from six_channel_fixtures import reference_hips_table
 
 from pybvh import Bvh, nodes_from_table, transforms
 
@@ -25,18 +26,7 @@ HIPS_X = np.array([0.0, 1, 4, 9, 16, 25])
 
 
 def _table() -> list[dict]:
-    return [
-        {"name": "Reference", "parent": None, "offset": [0, 0, 0], "rot_channels": "ZYX"},
-        {
-            "name": "Hips",
-            "parent": 0,
-            "offset": [0, 90, 0],
-            "pos_channels": "XYZ",
-            "rot_channels": "ZYX",
-        },
-        {"name": "Spine", "parent": 1, "offset": [0, 10, 0], "rot_channels": "ZYX"},
-        {"parent": 2, "offset": [0, 5, 0]},
-    ]
+    return reference_hips_table()
 
 
 def _translations(hips_x) -> np.ndarray:

@@ -2431,8 +2431,8 @@ class Bvh:
         entry per node in :attr:`nodes` order, each with ``name``,
         ``parent`` (the index of the parent's entry, ``None`` on the
         root), ``offset``, ``rot_channels`` on the root and joints and
-        ``pos_channels`` on the root; an entry without ``rot_channels``
-        is an end site. Position is identity, so two end sites under one
+        ``pos_channels`` on the root and translating joints; an entry
+        without ``rot_channels`` is an end site. Position is identity, so two end sites under one
         joint and joints sharing a name are carried as they are, which
         no name-keyed export can do. :func:`~pybvh.nodes_to_table`
         defines the format and names its conventions;

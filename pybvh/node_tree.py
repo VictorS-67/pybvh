@@ -20,7 +20,7 @@ from typing import Any, Literal, NamedTuple, cast
 
 import numpy as np
 
-from .bvhnode import BvhEndSite, BvhJoint, BvhNode, BvhRoot, _is_joint
+from .bvhnode import BvhEndSite, BvhJoint, BvhNode, BvhRoot, _is_empty_order, _is_joint
 
 
 def _walk_depth_first(root: BvhNode) -> Iterator[tuple[BvhNode, BvhNode | None]]:
@@ -284,14 +284,30 @@ def nodes_to_table(nodes: Sequence[BvhNode]) -> list[dict[str, Any]]:
         and a copy, as ``node.offset`` is everywhere in pybvh; a caller
         writing JSON calls ``.tolist()``.
     ``pos_channels``
-        The position channel order, on the root only: ``['X', 'Y', 'Z']``
-        for every root a :class:`~pybvh.Bvh` accepts. It precedes
-        ``rot_channels`` as a file's ``CHANNELS`` line lists them.
+        The position channels, ``['X', 'Y', 'Z']``, on the root and on a
+        translating joint (a joint other than the root that declares
+        position channels); ``[]`` on a static root (``CHANNELS 0``).
+        Absent on a joint that only rotates and on an end site, so the
+        table of a skeleton whose joints only rotate has it on the root
+        alone. It precedes ``rot_channels`` as a file's ``CHANNELS`` line
+        lists them.
     ``rot_channels``
         The Euler order, e.g. ``['Z', 'Y', 'X']``, on the root and on
-        joints only. **An entry without it is an end site**; there is no
-        kind flag. Channel orders are never inferred, so the rule is
-        unambiguous.
+        joints only; ``[]`` on a static root. **An entry without it is
+        an end site**; there is no kind flag. Channel orders are never
+        inferred, so the rule is unambiguous.
+
+    The kinds of entry, read from their keys:
+
+    ==================  ===================  ======================
+    Entry               ``pos_channels``     ``rot_channels``
+    ==================  ===================  ======================
+    root                ``['X', 'Y', 'Z']``  an order
+    static root         ``[]``               ``[]``
+    rotating joint      absent               an order
+    translating joint   ``['X', 'Y', 'Z']``  an order
+    end site            absent               absent
+    ==================  ===================  ======================
 
     There is no ``children`` key: children are derived from ``parent``,
     in table order, so the two cannot disagree. Entries are fresh objects,
@@ -369,7 +385,9 @@ def nodes_to_table(nodes: Sequence[BvhNode]) -> list[dict[str, Any]]:
             "parent": parent,
             "offset": node.offset.copy(),
         }
-        if node.is_root():
+        # On the root always; on a joint only when it translates, so the
+        # table of a skeleton whose joints only rotate has no such key.
+        if node.is_root() or getattr(node, "pos_channels", ()):
             entry["pos_channels"] = list(node.pos_channels)  # type: ignore[attr-defined]
         if not node.is_end_site():
             entry["rot_channels"] = list(node.rot_channels)  # type: ignore[attr-defined]
@@ -390,8 +408,9 @@ def nodes_from_table(table: Sequence[Mapping[str, Any]]) -> list[BvhNode]:
     The format is the one :func:`nodes_to_table` writes, one ``dict``
     per node with ``name``, ``parent`` (the index of the parent's entry,
     ``None`` on the root), ``offset`` (three numbers), ``rot_channels``
-    (root and joints) and ``pos_channels`` (root only). An entry without
-    ``rot_channels`` is an end site; there is no kind flag and no
+    (root and joints) and ``pos_channels`` (the root and translating
+    joints; :func:`nodes_to_table` gives the kinds of entry). An entry
+    without ``rot_channels`` is an end site; there is no kind flag and no
     ``children`` key. Position is identity, so names need not be unique:
     two end sites under one joint, or two joints named alike, come back
     as they were. The relation to :class:`~pybvh.FkTopology` is the one
@@ -440,7 +459,15 @@ def nodes_from_table(table: Sequence[Mapping[str, Any]]) -> list[BvhNode]:
         - ``offset`` is missing or not three numbers, or a channel list
           is not a permutation of ``'XYZ'`` (``None`` included: the node
           constructors would default it, this function infers nothing);
-        - ``pos_channels`` sits on an entry other than the root;
+        - ``pos_channels`` is not ``['X', 'Y', 'Z']`` in that order, or
+          ``[]`` on the root;
+        - the root has one of ``pos_channels`` and ``rot_channels`` empty
+          and not the other (``[]`` and ``[]`` is a static root, and
+          ``rot_channels: []`` with ``pos_channels`` absent is refused:
+          the static root is spelt explicitly);
+        - ``pos_channels`` sits on an end site, or is ``[]`` on a joint
+          (a joint that only rotates omits the key: one spelling per
+          state);
         - an entry has a key the format does not define (a misspelt
           ``rot_channels`` would otherwise silently turn a joint into an
           end site).
@@ -588,15 +615,16 @@ def _node_from_entry(entry: Mapping[str, Any], index: int, parent: BvhJoint | No
             f"which carries the skeleton's base rotation. (An entry without "
             f"rot_channels is an end site, and end sites are leaves.)"
         )
-    if "pos_channels" in entry and index != 0:
-        kind = (
-            "an end site (no rot_channels), which has no channels at all"
-            if is_end_site
-            else "a joint"
-        )
+    if "pos_channels" in entry and is_end_site:
         raise ValueError(
-            f"Node table {label} has pos_channels but is {kind}; only the "
-            f"root (entry 0) has position channels."
+            f"Node table {label} has pos_channels but is an end site (no "
+            f"rot_channels), which has no channels at all."
+        )
+    if index != 0 and _is_empty_order(entry.get("pos_channels")):
+        raise ValueError(
+            f"Node table {label} has pos_channels []; a joint that does not "
+            f"translate omits the key (one spelling per state). Only the "
+            f"root (entry 0) takes [], with rot_channels [], for CHANNELS 0."
         )
     if entry.get("offset") is None:
         raise ValueError(
@@ -610,7 +638,8 @@ def _node_from_entry(entry: Mapping[str, Any], index: int, parent: BvhJoint | No
             how_to_omit = (
                 "omit the key instead: an entry without rot_channels is an end site"
                 if key == "rot_channels"
-                else "omit the key instead: the root then gets XYZ"
+                else "omit the key instead: the root then gets XYZ, and a "
+                "joint without it only rotates"
             )
             raise ValueError(
                 f"Node table {label} has {key} None; a channel order is a "
@@ -642,7 +671,14 @@ def _node_from_entry(entry: Mapping[str, Any], index: int, parent: BvhJoint | No
             )
         if is_end_site:
             return BvhEndSite(name, entry["offset"], parent)
-        return BvhJoint(name, entry["offset"], entry["rot_channels"], [], parent)
+        return BvhJoint(
+            name,
+            entry["offset"],
+            entry["rot_channels"],
+            [],
+            parent,
+            entry.get("pos_channels", ()),
+        )
     except ValueError as e:
         raise ValueError(f"Node table {label}: {e}") from e
 

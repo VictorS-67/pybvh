@@ -983,9 +983,7 @@ def mirror(
         if lj in translation_column:
             lc, rc = translation_column[lj], translation_column[rj]
             new_translations[:, [lc, rc]] = new_translations[:, [rc, lc]]
-    target._set_motion(
-        root_pos=new_root_pos, joint_angles=new_angles, joint_translations=new_translations
-    )
+    target._set_motion(root_pos=new_root_pos, joint_angles=new_angles)
 
     # --- Step 2: Negate node offset lateral component for ALL nodes ---
     offsets = target._offsets()
@@ -994,7 +992,7 @@ def mirror(
     # --- Step 3: Swap offsets for L/R paired nodes ---
     for li, ri in lr_node_pairs:
         offsets[[li, ri]] = offsets[[ri, li]]
-    target._replace_offsets(offsets)
+    target._replace_offsets(offsets, translations=new_translations)
 
     if inplace:
         return None
@@ -1047,8 +1045,9 @@ def _reorient_rest(target: Bvh, R_fix: npt.NDArray[np.float64]) -> None:
     R_fix_inv = R_fix.T  # orthogonal → inverse = transpose
 
     # 1. Rotate all offsets, and the translations that stand in for them
-    target._replace_offsets(target._offsets() @ R_fix.T)
-    target._set_motion(joint_translations=target.joint_translations @ R_fix.T)
+    target._replace_offsets(
+        target._offsets() @ R_fix.T, translations=target.joint_translations @ R_fix.T
+    )
 
     # 2. Compensate joint rotations so FK positions are unchanged
     joints = [n for n in target.nodes if not n.is_end_site()]
@@ -1126,8 +1125,7 @@ def reorient_world_up(bvh: Bvh, new_up: str, inplace: bool = False) -> Bvh | Non
     target._set_motion(root_pos=(R @ target.root_pos.T).T)
 
     # 2. Rotate all node offsets, and the translations that stand in for them
-    target._replace_offsets(target._offsets() @ R.T)
-    target._set_motion(joint_translations=target.joint_translations @ R.T)
+    target._replace_offsets(target._offsets() @ R.T, translations=target.joint_translations @ R.T)
 
     # 3. Conjugate ALL joint rotations: R_j' = R @ R_j @ R^T
     #    This is the correct formula for a global scene rotation applied to

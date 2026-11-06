@@ -21,7 +21,7 @@ skeleton cannot change under them.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TypeAlias, TypeGuard
+from typing import ClassVar, TypeAlias, TypeGuard
 
 import numpy as np
 import numpy.typing as npt
@@ -417,6 +417,14 @@ class BvhJoint(BvhNode):
     def _check_rotation_channels(self, value: str | Sequence[str]) -> tuple[str, ...]:
         # A joint other than the root always declares an Euler order.
         return self._check_channels(value)
+
+    # What a node pickled before #186 lacks, with the meaning it had then:
+    # no joint other than the root translated. Every root, then as now,
+    # holds both of its channel orders, so it never lacks one.
+    _PRE_186_STATE: ClassVar[dict[str, object]] = {"_pos_channels": ()}
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        super().__setstate__({**self._PRE_186_STATE, **state})
 
     def is_end_site(self) -> bool:
         """Always ``False``: a joint carries rotation channels.

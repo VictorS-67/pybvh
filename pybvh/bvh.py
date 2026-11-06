@@ -965,10 +965,12 @@ class Bvh:
     def root(self) -> BvhRoot:
         """The root joint, ``nodes[0]``.
 
-        The one node with position channels: its translation per frame is
+        The node placed in the world frame: its translation per frame is
         :attr:`root_pos`, and its rotation is joint 0 of
-        :attr:`joint_angles`. Read-only: the root is whatever ``nodes``
-        starts with.
+        :attr:`joint_angles`. A translating joint also has position
+        channels, in its parent's frame (:attr:`joint_translations`); a
+        static root (``CHANNELS 0``) has none and stays at its offset.
+        Read-only: the root is whatever ``nodes`` starts with.
         """
         return self._nodes[0]  # type: ignore[return-value]
 

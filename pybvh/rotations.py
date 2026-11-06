@@ -82,12 +82,18 @@ def _check_empty_order_angles(
         )
 
 
+def _off_identity(R: npt.NDArray[np.float64]) -> npt.NDArray[np.bool_]:
+    """Whether each rotation of *R*, ``(..., 3, 3)``, is off the identity:
+    an entry farther than :data:`_IDENTITY_ATOL` from the identity's, or
+    not finite. Shape ``(...)``."""
+    return ~np.all(np.abs(R - np.eye(3)) <= _IDENTITY_ATOL, axis=(-2, -1))
+
+
 def _check_empty_order_rotmats(R: npt.NDArray[np.float64], columns: npt.NDArray[np.intp]) -> None:
     """Raise ``ValueError`` unless *R*, ``(..., len(columns), 3, 3)``, the
     rotations of the joint *columns* with order ``''``, are all the
     identity, each entry within :data:`_IDENTITY_ATOL`."""
-    off = np.abs(R - np.eye(3)).max(axis=(-2, -1))  # (..., len(columns))
-    off_identity = np.any(~(off <= _IDENTITY_ATOL), axis=tuple(range(off.ndim - 1)))
+    off_identity = np.any(_off_identity(R), axis=tuple(range(R.ndim - 3)))
     if np.any(off_identity):
         column = int(columns[np.flatnonzero(off_identity)[0]])
         raise ValueError(

@@ -2457,7 +2457,8 @@ class Bvh:
         chain's heading stage read it.
         """
         joint_angles = self._motion()["joint_angles"]
-        return rotations.euler_to_rotmat(joint_angles[frames, 0], _euler_order(self.root))
+        # The per-joint form, which reads a static root's order '' as the identity.
+        return rotations.euler_to_rotmat(joint_angles[frames, :1], [_euler_order(self.root)])[:, 0]
 
     def facing_frame(self):
         """Per-frame facing basis as continuous unit vectors.
@@ -2839,8 +2840,9 @@ class Bvh:
 
         The table is the named twin of :attr:`fk_topology`: ``parent``
         with ``None`` read as ``-1`` is its ``parent_idx``, the stacked
-        ``offset`` values are its ``offsets``, and the entries with
-        ``rot_channels`` are its joint columns, in order.
+        ``offset`` values are its ``offsets``, and the entries with a
+        ``rot_channels`` key (a static root's ``[]`` included) are its
+        joint columns, in order.
 
         Returns
         -------
@@ -3118,7 +3120,8 @@ class Bvh:
             e.g. ``['ZYX', 'ZYX', ...]``, one per non-end-site joint.
             Order matches ``joint_names`` and ``joint_angles`` axis 1.
             A static root (``CHANNELS 0``) declares no rotation channel
-            and never rotates: it reads ``'XYZ'``.
+            and never rotates: it reads ``''``, which the rotation
+            conversions read as the identity.
         """
         return [_euler_order(n) for n in self.nodes if _is_joint(n)]
 
@@ -3594,8 +3597,10 @@ class Bvh:
             raise ValueError(
                 f"Expected {self.joint_count} joints in {param_name}, got {joint_rotmats.shape[1]}"
             )
+        if self.root.is_static() and np.any(rotations._off_identity(joint_rotmats[:, 0])):
+            # Here, not in the conversion, to name the call and the root.
+            self._refuse_static_root(f"{method} rotates the root")
         new_angles = rotations.rotmat_to_euler(joint_rotmats, self.euler_orders)
-        self._refuse_root_rotation(new_angles, f"{method} rotates the root")
         target = self if inplace else self.copy()
         target.joint_angles = new_angles
         if inplace:
@@ -3641,7 +3646,8 @@ class Bvh:
             as a third argument or a keyword.
         ValueError
             If the frame or joint count does not match the clip, or if
-            the rotations turn a static root (``CHANNELS 0``).
+            the rotations turn a static root (``CHANNELS 0``): a rotation
+            other than the identity, each matrix entry within ``1e-7``.
         """
         return self._from_rotations(
             "from_rotmat", "joint_rotmats", joint_rotmats, lambda r: r, inplace
@@ -3686,7 +3692,8 @@ class Bvh:
             as a third argument or a keyword.
         ValueError
             If the frame or joint count does not match the clip, or if
-            the rotations turn a static root (``CHANNELS 0``).
+            the rotations turn a static root (``CHANNELS 0``): a rotation
+            other than the identity, each matrix entry within ``1e-7``.
         """
         return self._from_rotations(
             "from_6d", "joint_rot6d", joint_rot6d, rotations.rot6d_to_rotmat, inplace
@@ -3732,7 +3739,8 @@ class Bvh:
             as a third argument or a keyword.
         ValueError
             If the frame or joint count does not match the clip, or if
-            the rotations turn a static root (``CHANNELS 0``).
+            the rotations turn a static root (``CHANNELS 0``): a rotation
+            other than the identity, each matrix entry within ``1e-7``.
         """
         return self._from_rotations(
             "from_quat", "joint_quats", joint_quats, rotations.quat_to_rotmat, inplace
@@ -3778,7 +3786,8 @@ class Bvh:
             as a third argument or a keyword.
         ValueError
             If the frame or joint count does not match the clip, or if
-            the rotations turn a static root (``CHANNELS 0``).
+            the rotations turn a static root (``CHANNELS 0``): a rotation
+            other than the identity, each matrix entry within ``1e-7``.
         """
         return self._from_rotations(
             "from_axisangle", "joint_aa", joint_aa, rotations.axisangle_to_rotmat, inplace
